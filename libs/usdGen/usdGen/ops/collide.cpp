@@ -415,6 +415,18 @@ uint32_t MortonCode(double x, double y, double z, double const lo[3],
            ExpandBits10(q((z - lo[2]) * scale[2]));
 }
 
+// Per-triangle centroid + bounds, computed once per build: the SAH levels
+// below re-read them instead of recomputing centroids 4x and bounds 3x
+// per level. The cached values are the same expressions' doubles, so
+// every bin, cost, and partition — and the whole tree — is bit-identical
+// to the recompute. Indexed by flatten-order triangle; transient to the
+// build (leaf bounds still come from FitLeaf's exact per-vertex walk).
+struct BvhTriCache
+{
+    double cx, cy, cz;
+    double mnx, mny, mnz, mxx, mxy, mxz;
+};
+
 // Binned-SAH tree over the Morton-sorted tris (the Morton order seeds
 // spatially coherent spans; SAH picks the tightest split per span, which
 // the Karras prefix rule cannot see). A split past the depth cap, over a
@@ -428,8 +440,8 @@ class BvhBuilder
 {
 public:
     BvhBuilder(CollideBvh *bvh, std::vector<CollideTri> const *srcTris,
-               std::vector<int> *perm)
-        : _bvh(bvh), _srcTris(srcTris), _perm(perm) {}
+               std::vector<int> *perm, std::vector<BvhTriCache> const *cache)
+        : _bvh(bvh), _srcTris(srcTris), _perm(perm), _cache(cache) {}
 
     int Build(int l, int r, int depth)  // [l, r) over _perm; returns the node
     {
@@ -464,16 +476,6 @@ public:
     }
 
 private:
-    static void TriBounds(CollideTri const &t, double mn[3], double mx[3])
-    {
-        mn[0] = std::min(t.ax, std::min(t.bx, t.cx));
-        mn[1] = std::min(t.ay, std::min(t.by, t.cy));
-        mn[2] = std::min(t.az, std::min(t.bz, t.cz));
-        mx[0] = std::max(t.ax, std::max(t.bx, t.cx));
-        mx[1] = std::max(t.ay, std::max(t.by, t.cy));
-        mx[2] = std::max(t.az, std::max(t.bz, t.cz));
-    }
-
     static double BoundsArea(double const mn[3], double const mx[3])
     {
         double const dx = mx[0] - mn[0], dy = mx[1] - mn[1], dz = mx[2] - mn[2];
@@ -490,14 +492,14 @@ private:
         double clo[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
         double chi[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
         for (int i = l; i < r; ++i) {
-            CollideTri const &t = (*_srcTris)[size_t((*_perm)[size_t(i)])];
-            double const c[3] = {(t.ax + t.bx + t.cx) / 3.0,
-                                 (t.ay + t.by + t.cy) / 3.0,
-                                 (t.az + t.bz + t.cz) / 3.0};
-            for (int a = 0; a < 3; ++a) {
-                clo[a] = std::min(clo[a], c[a]);
-                chi[a] = std::max(chi[a], c[a]);
-            }
+            BvhTriCache const &e =
+                (*_cache)[size_t((*_perm)[size_t(i)])];
+            clo[0] = std::min(clo[0], e.cx);
+            clo[1] = std::min(clo[1], e.cy);
+            clo[2] = std::min(clo[2], e.cz);
+            chi[0] = std::max(chi[0], e.cx);
+            chi[1] = std::max(chi[1], e.cy);
+            chi[2] = std::max(chi[2], e.cz);
         }
         struct Bin
         {
@@ -513,21 +515,20 @@ private:
             Bin bins[16];
             double const scale = 16.0 / ext;
             for (int i = l; i < r; ++i) {
-                CollideTri const &t =
-                    (*_srcTris)[size_t((*_perm)[size_t(i)])];
-                double const c = axis == 0 ? (t.ax + t.bx + t.cx) / 3.0
-                    : axis == 1 ? (t.ay + t.by + t.cy) / 3.0
-                                : (t.az + t.bz + t.cz) / 3.0;
+                BvhTriCache const &e =
+                    (*_cache)[size_t((*_perm)[size_t(i)])];
+                double const c =
+                    axis == 0 ? e.cx : axis == 1 ? e.cy : e.cz;
                 int b = int((c - clo[axis]) * scale);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
                 Bin &bin = bins[b];
-                double tmn[3], tmx[3];
-                TriBounds(t, tmn, tmx);
-                for (int a = 0; a < 3; ++a) {
-                    bin.mn[a] = std::min(bin.mn[a], tmn[a]);
-                    bin.mx[a] = std::max(bin.mx[a], tmx[a]);
-                }
+                bin.mn[0] = std::min(bin.mn[0], e.mnx);
+                bin.mn[1] = std::min(bin.mn[1], e.mny);
+                bin.mn[2] = std::min(bin.mn[2], e.mnz);
+                bin.mx[0] = std::max(bin.mx[0], e.mxx);
+                bin.mx[1] = std::max(bin.mx[1], e.mxy);
+                bin.mx[2] = std::max(bin.mx[2], e.mxz);
                 ++bin.n;
             }
             double pmn[16][3], pmx[16][3];
@@ -584,10 +585,9 @@ private:
         double const lo = clo[bestAxis];
         auto it = std::partition(
             _perm->begin() + l, _perm->begin() + r, [&](int tri) {
-                CollideTri const &t = (*_srcTris)[size_t(tri)];
-                double const c = bestAxis == 0 ? (t.ax + t.bx + t.cx) / 3.0
-                    : bestAxis == 1 ? (t.ay + t.by + t.cy) / 3.0
-                                    : (t.az + t.bz + t.cz) / 3.0;
+                BvhTriCache const &e = (*_cache)[size_t(tri)];
+                double const c =
+                    bestAxis == 0 ? e.cx : bestAxis == 1 ? e.cy : e.cz;
                 int b = int((c - lo) * scale);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
@@ -626,6 +626,7 @@ private:
     CollideBvh *_bvh;
     std::vector<CollideTri> const *_srcTris;  // flatten order (pre-permute)
     std::vector<int> *_perm;                  // Morton sort permutation
+    std::vector<BvhTriCache> const *_cache;   // centroid+bounds per tri
 };
 
 void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
@@ -635,16 +636,30 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
     bvh->root = -1;
     size_t const n = tris->size();
     if (!n) return;
-    // Centroid bbox for the Morton normalization (shape only).
+    // Centroid + bounds once per triangle; the Morton normalization and
+    // every SAH level re-read these instead of recomputing them.
+    std::vector<BvhTriCache> cache(n);
+    for (size_t i = 0; i < n; ++i) {
+        CollideTri const &t = (*tris)[i];
+        BvhTriCache &e = cache[i];
+        e.cx = (t.ax + t.bx + t.cx) / 3.0;
+        e.cy = (t.ay + t.by + t.cy) / 3.0;
+        e.cz = (t.az + t.bz + t.cz) / 3.0;
+        e.mnx = std::min(t.ax, std::min(t.bx, t.cx));
+        e.mny = std::min(t.ay, std::min(t.by, t.cy));
+        e.mnz = std::min(t.az, std::min(t.bz, t.cz));
+        e.mxx = std::max(t.ax, std::max(t.bx, t.cx));
+        e.mxy = std::max(t.ay, std::max(t.by, t.cy));
+        e.mxz = std::max(t.az, std::max(t.bz, t.cz));
+    }
+    // Centroid bbox for the Morton normalization (shape only). The seed
+    // stays the first triangle's vertex A, exactly as before.
     double lo[3] = {(*tris)[0].ax, (*tris)[0].ay, (*tris)[0].az};
     double hi[3] = {lo[0], lo[1], lo[2]};
-    for (CollideTri const &t : *tris) {
-        double const cx = (t.ax + t.bx + t.cx) / 3.0;
-        double const cy = (t.ay + t.by + t.cy) / 3.0;
-        double const cz = (t.az + t.bz + t.cz) / 3.0;
-        lo[0] = std::min(lo[0], cx); hi[0] = std::max(hi[0], cx);
-        lo[1] = std::min(lo[1], cy); hi[1] = std::max(hi[1], cy);
-        lo[2] = std::min(lo[2], cz); hi[2] = std::max(hi[2], cz);
+    for (BvhTriCache const &e : cache) {
+        lo[0] = std::min(lo[0], e.cx); hi[0] = std::max(hi[0], e.cx);
+        lo[1] = std::min(lo[1], e.cy); hi[1] = std::max(hi[1], e.cy);
+        lo[2] = std::min(lo[2], e.cz); hi[2] = std::max(hi[2], e.cz);
     }
     double scale[3];
     for (int a = 0; a < 3; ++a)
@@ -652,10 +667,8 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
     std::vector<uint32_t> codes(n);
     std::vector<int> perm(n);
     for (size_t i = 0; i < n; ++i) {
-        CollideTri const &t = (*tris)[i];
-        codes[i] = MortonCode((t.ax + t.bx + t.cx) / 3.0,
-                              (t.ay + t.by + t.cy) / 3.0,
-                              (t.az + t.bz + t.cz) / 3.0, lo, scale);
+        BvhTriCache const &e = cache[i];
+        codes[i] = MortonCode(e.cx, e.cy, e.cz, lo, scale);
         perm[i] = int(i);
     }
     std::sort(perm.begin(), perm.end(), [&](int a, int b) {
@@ -664,7 +677,7 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
         return a < b;
     });
     bvh->nodes.reserve(2 * n);
-    BvhBuilder builder(bvh, tris, &perm);
+    BvhBuilder builder(bvh, tris, &perm, &cache);
     bvh->root = builder.Build(0, int(n), 0);
     // Reorder the triangles into Morton order so leaf runs index them
     // directly (ordinals travel with each triangle).
