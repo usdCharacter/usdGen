@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -698,7 +699,18 @@ bool PruneBound(double lb, ClosestHit const &best, double radius2)
     double cap = radius2;
     if (best.found && best.dist2 < cap) cap = best.dist2;
     if (!(lb > cap)) return false;
-    return lb - cap > 1e-9 * std::max(lb, 1e-300);
+    // Ulp-margin prune test: nonnegative doubles order as int64, so the bit
+    // gap is the ulp distance — 4.5M ulps is ~1e-9 relative at every normal
+    // scale (bound and triangle-test error are ~1e-15) and an absolute ~2e-317
+    // floor below normal range, where the old max(lb, 1e-300) floor lived.
+    // Ties (gap ~1e3 ulps) still fall through to the ordinal test. NaN lbs
+    // exit at the float compare above; infinite lbs prune, which matches the
+    // response (infinite distance never pushes). One int subtract in place of
+    // max+multiply+subtract.
+    int64_t lbBits, capBits;
+    std::memcpy(&lbBits, &lb, sizeof(double));
+    std::memcpy(&capBits, &cap, sizeof(double));
+    return lbBits - capBits > 4500000;
 }
 
 // Closest point over one BVH collider into the shared best. The prune test
