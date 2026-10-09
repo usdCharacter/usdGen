@@ -1238,9 +1238,17 @@ void UsdGenCollideOp::Evaluate(
                     GfVec3d const pos = current(o, it);
                     // The offset doubles as the search radius (read once):
                     // triangles past it can never push, so the BVH prunes
-                    // them without changing a single store.
+                    // them without changing a single store. A non-positive
+                    // offset prunes the query itself: pen = off - |p - q|
+                    // <= 0 always, so the tail below would copy the input
+                    // on iteration 0 and keep it after — the skip stores
+                    // exactly that with no search.
                     double const off =
                         Sanitize(offsetField.Value(curve, cv));
+                    if (off <= 0.0) {
+                        if (it == 0) copyInput(o);
+                        continue;
+                    }
                     double const q0 = ph ? NowMs() : 0.0;
                     ClosestHit const hit = QueryColliders(
                         ctx.desc, cap, pos, off * off, ph);
@@ -1292,6 +1300,9 @@ void UsdGenCollideOp::Evaluate(
                     GfVec3d const pos = current(o, it);
                     double const off =
                         Sanitize(offsetField.Value(curve, cv));
+                    // Non-positive offsets can never hinge (pen <= 0
+                    // always), so the query is useless — same hinge.
+                    if (off <= 0.0) continue;
                     double const q0 = ph ? NowMs() : 0.0;
                     ClosestHit const hit = QueryColliders(
                         ctx.desc, cap, pos, off * off, ph);
