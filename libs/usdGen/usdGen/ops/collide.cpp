@@ -196,11 +196,18 @@ bool DegenerateTri(GfVec3d const &a, GfVec3d const &b, GfVec3d const &c)
 
 // Ericson 5.1.5 closest point on triangle abc. False when the triangle is
 // degenerate (zero area); the caller skips those. Non-degenerate edges are
-// all nonzero, so the three interior divisions are exact and safe.
-bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
-                       GfVec3d const &c, GfVec3d *closest, double *dist2)
+// all nonzero, so the three interior divisions are exact and safe. The BVH
+// path instantiates CheckDegenerate=false: the flattener already skipped
+// every degenerate with this same predicate over the same widened doubles,
+// so the check provably never fires there and skipping it only drops a
+// cross product plus a square root per test.
+template <bool CheckDegenerate>
+bool ClosestOnTriangleT(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
+                        GfVec3d const &c, GfVec3d *closest, double *dist2)
 {
-    if (DegenerateTri(a, b, c)) return false;
+    if constexpr (CheckDegenerate) {
+        if (DegenerateTri(a, b, c)) return false;
+    }
     GfVec3d const ab = b - a, ac = c - a, ap = p - a;
     double const d1 = GfDot(ab, ap), d2 = GfDot(ac, ap);
     if (d1 <= 0.0 && d2 <= 0.0) {
@@ -240,6 +247,12 @@ bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
     GfVec3d const d = p - *closest;
     *dist2 = GfDot(d, d);
     return true;
+}
+
+bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
+                       GfVec3d const &c, GfVec3d *closest, double *dist2)
+{
+    return ClosestOnTriangleT<true>(p, a, b, c, closest, dist2);
 }
 
 struct ClosestHit
@@ -642,7 +655,7 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                 GfVec3d q;
                 double d2 = 0.0;
                 if (probe) ++probe->triTests;
-                if (!ClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
+                if (!ClosestOnTriangleT<false>(p, a, b, c, &q, &d2)) continue;
                 if (!(d2 >= 0.0)) continue;
                 if (BetterHit(d2, colliderIdx, t.face, t.k, *best)) {
                     best->found = true;
