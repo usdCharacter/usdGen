@@ -643,9 +643,6 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                     best->k = t.k;
                 }
             }
-        } else {
-            stack[sp++] = node.right;
-            stack[sp++] = node.left;
         }
     }
 }
