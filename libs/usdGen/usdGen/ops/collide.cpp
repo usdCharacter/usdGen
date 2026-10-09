@@ -675,16 +675,17 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
 
 // Squared distance from p to a node's AABB (the prune lower bound).
 // Branchless (fmax lowers to fmaxnm; std::max keeps its NaN branches):
-// at most one max arm is positive per axis, so each sum is bit-identical
-// to the clamping branch it replaces (x + 0.0 == x).
+// at most one max arm is positive per axis (min <= max), so the nested
+// max is bit-identical to the two-arm sum it replaces (max(a, b, 0),
+// with fmax's NaN-missing and +-0 rules matching arm by arm).
 double NodeBound(CollideBvhNode const &node, double px, double py, double pz)
 {
     double const dx =
-        fmax(node.minX - px, 0.0) + fmax(px - node.maxX, 0.0);
+        fmax(fmax(node.minX - px, px - node.maxX), 0.0);
     double const dy =
-        fmax(node.minY - py, 0.0) + fmax(py - node.maxY, 0.0);
+        fmax(fmax(node.minY - py, py - node.maxY), 0.0);
     double const dz =
-        fmax(node.minZ - pz, 0.0) + fmax(pz - node.maxZ, 0.0);
+        fmax(fmax(node.minZ - pz, pz - node.maxZ), 0.0);
     return dx * dx + dy * dy + dz * dz;
 }
 
