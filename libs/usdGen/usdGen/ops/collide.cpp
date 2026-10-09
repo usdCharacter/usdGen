@@ -552,34 +552,75 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
     bvh->tris.swap(ordered);
 }
 
+// Squared distance from p to a node's AABB (the prune lower bound).
+double NodeBound(CollideBvhNode const &node, GfVec3d const &p)
+{
+    double const dx = p[0] < node.minX ? node.minX - p[0]
+        : (p[0] > node.maxX ? p[0] - node.maxX : 0.0);
+    double const dy = p[1] < node.minY ? node.minY - p[1]
+        : (p[1] > node.maxY ? p[1] - node.maxY : 0.0);
+    double const dz = p[2] < node.minZ ? node.minZ - p[2]
+        : (p[2] > node.maxZ ? p[2] - node.maxZ : 0.0);
+    return dx * dx + dy * dy + dz * dz;
+}
+
+// True when a node bound prunes against the running best. Best only ever
+// improves, so a node pruned now stays pruned (lets push skip it outright).
+bool PruneBound(double lb, ClosestHit const &best)
+{
+    if (!best.found || !(lb > best.dist2)) return false;
+    double const tol = 1e-9 * std::max(lb, 1e-300);
+    return lb - best.dist2 > tol;
+}
+
 // Closest point over one BVH collider into the shared best. The prune test
 // provably skips no winner or tie: the AABB bound's FP error is ~1e-15
 // relative while the slop is 1e-9, so a pruned node holds only triangles
 // with true d2 strictly above best (ties, at gap zero, always fall through
-// to the exact ordinal test). Never allocates; traversal order is fixed.
+// to the exact ordinal test). Children visit nearer-first (bounds computed
+// once at push, re-checked at pop against the improved best), so a strong
+// best lands early and the far subtrees prune. Never allocates.
 void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                       GfVec3d const &p, ClosestHit *best,
                       UsdGenCollidePhaseStats *probe)
 {
     if (bvh.root < 0) return;
-    int stack[256];
+    struct Entry
+    {
+        int node;
+        double lb;
+    };
+    Entry stack[256];
     int sp = 0;
-    stack[sp++] = bvh.root;
+    stack[sp++] = {bvh.root, NodeBound(bvh.nodes[size_t(bvh.root)], p)};
     while (sp > 0) {
-        CollideBvhNode const &node = bvh.nodes[size_t(stack[--sp])];
+        Entry const entry = stack[--sp];
+        if (PruneBound(entry.lb, *best)) continue;
+        CollideBvhNode const &node = bvh.nodes[size_t(entry.node)];
         if (probe) ++probe->nodeVisits;
-        double const dx = p[0] < node.minX ? node.minX - p[0]
-            : (p[0] > node.maxX ? p[0] - node.maxX : 0.0);
-        double const dy = p[1] < node.minY ? node.minY - p[1]
-            : (p[1] > node.maxY ? p[1] - node.maxY : 0.0);
-        double const dz = p[2] < node.minZ ? node.minZ - p[2]
-            : (p[2] > node.maxZ ? p[2] - node.maxZ : 0.0);
-        double const lb = dx * dx + dy * dy + dz * dz;
-        if (best->found && lb > best->dist2) {
-            double const tol = 1e-9 * std::max(lb, 1e-300);
-            if (lb - best->dist2 > tol) continue;
+        if (node.left >= 0) {
+            double const lbL =
+                NodeBound(bvh.nodes[size_t(node.left)], p);
+            double const lbR =
+                NodeBound(bvh.nodes[size_t(node.right)], p);
+            bool const pruneL = PruneBound(lbL, *best);
+            bool const pruneR = PruneBound(lbR, *best);
+            if (!pruneL && !pruneR) {
+                if (lbL <= lbR) {
+                    stack[sp++] = {node.right, lbR};
+                    stack[sp++] = {node.left, lbL};
+                } else {
+                    stack[sp++] = {node.left, lbL};
+                    stack[sp++] = {node.right, lbR};
+                }
+            } else if (!pruneL) {
+                stack[sp++] = {node.left, lbL};
+            } else if (!pruneR) {
+                stack[sp++] = {node.right, lbR};
+            }
+            continue;
         }
-        if (node.left < 0) {
+        {
             for (int i = node.begin; i < node.end; ++i) {
                 CollideTri const &t = bvh.tris[size_t(i)];
                 GfVec3d const a(t.ax, t.ay, t.az);
