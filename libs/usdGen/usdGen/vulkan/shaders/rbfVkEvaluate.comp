@@ -15,20 +15,21 @@
 // ABI — descriptors:
 //   0 cvs     float[3*count] RO
 //   1 out     float[3*count] W
-//   2 samples float[3*n]     RO (rest RBF samples)
+//   2 samples double[3*n]    RO (rest RBF samples, host-centered:
+//                                sample - center, interleaved)
 //   3 coef    double[3*m]    RO (column-major m x 3 coefficients)
 //   4 UBO     RbfVkSolveUbo (64 bytes; uses n, m, count, cx, cy, cz,
 //             invScale, scale)
 //   5 flag    int[1]         RW (atomicOr, 0 == clean; zero-filled by host)
 //
-// Dispatch: local_size_x=256, groups=ceil(count/256).
+// Dispatch: local_size_x=128, groups=ceil(count/128).
 
 #version 460
-layout(local_size_x = 256) in;
+layout(local_size_x = 128) in;
 
 layout(std430, binding = 0) readonly buffer Cvs     { float cvs[]; };
 layout(std430, binding = 1) buffer Out              { float outData[]; };
-layout(std430, binding = 2) readonly buffer Samples { float samples[]; };
+layout(std430, binding = 2) readonly buffer Samples { double samples[]; };
 layout(std430, binding = 3) readonly buffer Coef    { double coef[]; };
 layout(std430, binding = 5) buffer EvalFlag         { int evalFlag; };
 
@@ -47,8 +48,10 @@ layout(std140, binding = 4) uniform Params {
 bool Finite(float v) { return !(isinf(v) || isnan(v)); }
 
 void main() {
+    // The 128u stride is local_size_x: the second grid dimension flattens
+    // at the workgroup width, so the two literals move together.
     uint i = gl_GlobalInvocationID.x +
-                 gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 256u;
+                 gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 128u;
     if (i >= uint(params.nmc.z)) return;
     int n = params.nmc.x;
     int m = params.nmc.y;
@@ -66,10 +69,12 @@ void main() {
     double oz = z + coef[2*m+n] + coef[2*m+n+1]*x + coef[2*m+n+2]*y + coef[2*m+n+3]*z;
 
     for (int j = 0; j < n; ++j) {
-        vec3 s = P3(samples, j);
-        double dx = x - (double(s.x) - params.cx) * params.invScale;
-        double dy = y - (double(s.y) - params.cy) * params.invScale;
-        double dz = z - (double(s.z) - params.cz) * params.invScale;
+        // Same expression shape as the float-sample original so the
+        // driver's FMA contraction stays put; only the centered sample
+        // comes from the buffer now.
+        double dx = x - samples[3u*j] * params.invScale;
+        double dy = y - samples[3u*j + 1u] * params.invScale;
+        double dz = z - samples[3u*j + 2u] * params.invScale;
         double r  = sqrt(dx*dx + dy*dy + dz*dz);
         r = r * r * r;
         ox += coef[j] * r;

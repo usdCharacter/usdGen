@@ -50,6 +50,14 @@ private:
     struct State;
     std::unique_ptr<State> _state;
 };
+// Internal cache keys (usdGen/digest.h): determinism + input sensitivity,
+// never golden values, never persisted.
+// UsdGenSubdivisionDigest covers the whole subdivision topology:
+// scheme/orientation/tags, holes, creases, corners AND faceVertexCounts /
+// faceVertexIndices. UsdGenSubdivisionTagsDigest covers everything EXCEPT
+// the two face arrays, for callers that already mix those arrays into the
+// same key (it must never be the sole topology cover).
 USDGEN_CORE_API uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceDesc const&);
+USDGEN_CORE_API uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceDesc const&);
 }
 #endif

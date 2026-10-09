@@ -1,6 +1,7 @@
 #include "usdGen/compiler.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/graph.h"
+#include "usdGen/opRegistry.h"
 #include "usdGen/sessionCooker.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -129,6 +130,7 @@ std::shared_ptr<const UsdGenGeneration> DevicePayload(
 
 int main()
 {
+    usdGenRegisterM1Operators();
     UsdGenGraphDesc desc = Description();
     UsdGenExecutionInputVersions versions =
         UsdGenExecutionInputVersions::FromDescription(desc);
@@ -798,6 +800,84 @@ int main()
         7, 8, -1);
     Check(paintChangedResult && cooker.TakeCacheCandidate(),
           "paint-map repaint misses exact cache identity (no stale groom)");
+
+    // Big-key plan identity: a surface whose hashed arrays exceed the 1MB
+    // threaded-digest gate must still hit on an exact recook and miss when
+    // a single hashed index flips (the parallel segment digests fold back
+    // in walk order; dropping or misordering a term breaks one of these).
+    {
+        int const nx = 300, ny = 300;
+        UsdGenGraphDesc big;
+        big.description = SdfPath("/cache/bigKey");
+        big.terminal = SdfPath("/cache/bigKey/scatter");
+        UsdGenSurfaceDesc surf;
+        surf.path = SdfPath("/cache/bigKey/scalp");
+        surf.restPoints = VtVec3fArray((nx + 1) * (ny + 1));
+        for (int j = 0; j <= ny; ++j)
+            for (int i = 0; i <= nx; ++i)
+                surf.restPoints[j * (nx + 1) + i] =
+                    GfVec3f(0.1f * i, 0.1f * j, 0.0f);
+        surf.faceVertexCounts = VtIntArray(nx * ny, 4);
+        surf.faceVertexIndices = VtIntArray(nx * ny * 4);
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                int const a = j * (nx + 1) + i;
+                int const o = (j * nx + i) * 4;
+                surf.faceVertexIndices[o + 0] = a;
+                surf.faceVertexIndices[o + 1] = a + 1;
+                surf.faceVertexIndices[o + 2] = a + nx + 2;
+                surf.faceVertexIndices[o + 3] = a + nx + 1;
+            }
+        big.surfaces.push_back(std::move(surf));
+        UsdGenNodeDesc scatter;
+        scatter.path = SdfPath("/cache/bigKey/scatter");
+        scatter.type = TfToken("UsdGenScatter");
+        scatter.enabled = true;
+        scatter.seed = 7;
+        scatter.surfaces.push_back(SdfPath("/cache/bigKey/scalp"));
+        big.nodes.push_back(std::move(scatter));
+        auto bigDesc =
+            std::make_shared<const UsdGenGraphDesc>(std::move(big));
+        UsdGenSessionCooker bigCooker(0, 256u * 1024u * 1024u);
+        UsdGenGenerationConstPtr bigFirst = bigCooker.Cook(
+            bigDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
+        auto bigCandidate = bigCooker.TakeCacheCandidate();
+        Check(bigFirst && !bigFirst->tiles.empty() && bigCandidate,
+              "big-key cook publishes a cache candidate");
+        if (bigCandidate)
+            bigCooker.CommitCacheCandidate(*bigCandidate);
+        // The first cook's full compile moves the key before publication
+        // (the lookup key predates the compiled node digests), so
+        // admission lands on the second identical cook; the third hits.
+        UsdGenGenerationConstPtr bigSecond = bigCooker.Cook(
+            bigDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            UsdGenCommitReason::NoticeBatchEnd, bigFirst, bigCooker.Stats(),
+            false, 1, 2, -1);
+        auto bigCandidate2 = bigCooker.TakeCacheCandidate();
+        Check(bigSecond && bigCandidate2 &&
+                  bigCooker.CommitCacheCandidate(*bigCandidate2) &&
+                  bigCooker.ExecutionCacheSize() == 1,
+              "second big-key cook admits its cache entry");
+        UsdGenGenerationConstPtr bigThird = bigCooker.Cook(
+            bigDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            UsdGenCommitReason::NoticeBatchEnd, bigSecond, bigCooker.Stats(),
+            false, 2, 3, -1);
+        Check(bigThird && !bigCooker.TakeCacheCandidate() &&
+                  bigCooker.Stats().executionCacheHits == 1,
+              "exact big-key recook hits (threaded digest is deterministic)");
+        UsdGenGraphDesc bigFlipped = *bigDesc;
+        bigFlipped.surfaces.front().faceVertexIndices[12345] ^= 1;
+        auto bigFlippedDesc =
+            std::make_shared<const UsdGenGraphDesc>(std::move(bigFlipped));
+        UsdGenGenerationConstPtr bigFourth = bigCooker.Cook(
+            bigFlippedDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            UsdGenCommitReason::NoticeBatchEnd, bigThird, bigCooker.Stats(),
+            false, 3, 4, -1);
+        Check(bigFourth && bigCooker.TakeCacheCandidate() &&
+                  bigCooker.Stats().executionCacheHits == 1,
+              "single-index flip misses big-key identity (no stale groom)");
+    }
 
     if (failures) return 1;
     std::puts("ok");

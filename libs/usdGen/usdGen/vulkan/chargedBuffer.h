@@ -22,6 +22,10 @@ public:
     // Logical buffer extent, distinct from the charged native allocation size.
     VkDeviceSize sizeBytes() const noexcept { return sizeBytes_; }
     VkBufferUsageFlags usage() const noexcept { return usage_; }
+    // The bound memory type's actual property flags (a superset of the
+    // requested Create flags), so callers can detect host-mappable memory
+    // without probing vkMapMemory.
+    VkMemoryPropertyFlags memoryPropertyFlags() const noexcept { return memoryPropertyFlags_; }
     std::shared_ptr<DeviceContext> const& context() const noexcept { return context_; }
     VkDeviceSize allocationBytes() const noexcept { return allocationBytes_; }
     bool unproven() const noexcept { return unproven_; }
@@ -41,6 +45,7 @@ private:
     VkDeviceSize allocationBytes_ = 0;
     VkDeviceSize sizeBytes_ = 0;
     VkBufferUsageFlags usage_ = 0;
+    VkMemoryPropertyFlags memoryPropertyFlags_ = 0;
     VkFence fence_ = VK_NULL_HANDLE;
     std::shared_ptr<const void> submissionLifetime_;
     UsdGenExecutionResourcePermit permit_;

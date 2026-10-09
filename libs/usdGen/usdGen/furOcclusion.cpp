@@ -6,6 +6,10 @@
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/trace/trace.h"
 
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -63,6 +67,20 @@ struct Grid {
         for (int k=0;k<3;++k) {
             float q=std::clamp((p[k]-origin[k])*invH-0.5f,0.f,float(n[k]-1));
             base[k]=std::min(int(q),n[k]-2); frac[k]=q-base[k];
+        }
+    }
+    // Corners without the clamp, for points inside the [lo,hi] the grid was
+    // grown from: every strand-gather CV qualifies, because the bounds ARE
+    // the min/max over these same positions (non-finite ones were rejected
+    // upstream) and occluder growth only expands them. Then q lands in
+    // [1.5, n-2.5] up to float rounding (n >= 8 on every axis), so neither
+    // the clamp nor the min can trigger and this is bit-identical to
+    // Corners(). Every other caller keeps the clamped form: splat samples
+    // overshoot the CV box by construction.
+    void CornersInner(GfVec3f const& p, int base[3], float frac[3]) const {
+        for (int k=0;k<3;++k) {
+            float q=(p[k]-origin[k])*invH-0.5f;
+            base[k]=int(q); frac[k]=q-base[k];
         }
     }
     bool Contains(GfVec3f const& p) const {
@@ -397,6 +415,63 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
             bool const identity = tile.xformMatrix == GfMatrix4d(1.0);
             auto& p=positions[t]; p.resize(count);
             GfVec3f lo=tileLo[t], hi=tileHi[t];
+#if defined(__aarch64__)
+            // Identity fast path: copy + bounds + finiteness in 4-wide
+            // deinterleaved quads. min/max over finite values (signed zeros
+            // included) select lane-wise with no rounding, so splitting the
+            // set across lanes is exact; the exponent-255 test flags NaN and
+            // Inf alike, deferred to the end, and the partial positions are
+            // discarded by the same throw the scalar loop reports. Bit-
+            // identical bounds, same invalid[] verdict.
+            static_assert(sizeof(GfVec3f)==3*sizeof(float),
+                          "vec3 is 3 contiguous floats");
+            if(identity) {
+                float const* const src=
+                    reinterpret_cast<float const*>(tile.points.cdata());
+                float* const dst=reinterpret_cast<float*>(p.data());
+                float32x4_t lox=vdupq_n_f32(lo[0]), loy=vdupq_n_f32(lo[1]),
+                              loz=vdupq_n_f32(lo[2]);
+                float32x4_t hix=vdupq_n_f32(hi[0]), hiy=vdupq_n_f32(hi[1]),
+                              hiz=vdupq_n_f32(hi[2]);
+                uint32x4_t bad=vdupq_n_u32(0);
+                uint32x4_t const e255=vdupq_n_u32(255);
+                size_t i=0;
+                size_t const m4=count&~size_t(3);
+                for(;i<m4;i+=4) {
+                    float32x4x3_t const v=vld3q_f32(src+i*3);
+                    lox=vminq_f32(lox,v.val[0]); loy=vminq_f32(loy,v.val[1]);
+                    loz=vminq_f32(loz,v.val[2]);
+                    hix=vmaxq_f32(hix,v.val[0]); hiy=vmaxq_f32(hiy,v.val[1]);
+                    hiz=vmaxq_f32(hiz,v.val[2]);
+                    bad=vorrq_u32(bad,vceqq_u32(vshrq_n_u32(vshlq_n_u32(
+                        vreinterpretq_u32_f32(v.val[0]),1),24),e255));
+                    bad=vorrq_u32(bad,vceqq_u32(vshrq_n_u32(vshlq_n_u32(
+                        vreinterpretq_u32_f32(v.val[1]),1),24),e255));
+                    bad=vorrq_u32(bad,vceqq_u32(vshrq_n_u32(vshlq_n_u32(
+                        vreinterpretq_u32_f32(v.val[2]),1),24),e255));
+                    vst3q_f32(dst+i*3,v);
+                }
+                lo[0]=vminvq_f32(lox); lo[1]=vminvq_f32(loy);
+                lo[2]=vminvq_f32(loz);
+                hi[0]=vmaxvq_f32(hix); hi[1]=vmaxvq_f32(hiy);
+                hi[2]=vmaxvq_f32(hiz);
+                if(vmaxvq_u32(bad)!=0) {
+                    invalid[t]="non-finite fur point"; return;
+                }
+                for(;i<count;++i) {
+                    GfVec3f const w=tile.points[i];
+                    for(int k=0;k<3;++k) {
+                        if(!std::isfinite(w[k])) {
+                            invalid[t]="non-finite fur point"; return;
+                        }
+                        lo[k]=std::min(lo[k],w[k]); hi[k]=std::max(hi[k],w[k]);
+                    }
+                    p[i]=w;
+                }
+                tileLo[t]=lo; tileHi[t]=hi;
+                return;
+            }
+#endif
             for(size_t i=0;i<count;++i) {
                 GfVec3f const w = identity ? tile.points[i] : m.Transform(tile.points[i]);
                 for(int k=0;k<3;++k) {
@@ -750,20 +825,93 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     // expects to find.
     std::array<std::vector<float>,6> tau;
     auto sweep=[&] {
-        ForEach(dispatcher, 6, [&](size_t direction) {
-            int const axis=int(direction)/2;
-            int const na=grid.n[axis];
-            int const nu=grid.n[(axis+1)%3], nv=grid.n[(axis+2)%3];
-            auto& out=tau[direction];
-            out.assign(cells,0.f);
-            for(int v=0;v<nv;++v) for(int u=0;u<nu;++u) {
-                float sum=0;
-                for(int step=0;step<na;++step) {
-                    int c[3]; c[axis]=(direction%2)?step:na-1-step;
-                    c[(axis+1)%3]=u;c[(axis+2)%3]=v;
-                    size_t idx=grid.Index(c[0],c[1],c[2]);
-                    float depth=density[idx][axis];
-                    out[idx]=std::min(UsdGenFurTauClamp,sum+0.5f*depth);sum+=depth;
+        // One task per direction leaves workers idle and recomputes the cell
+        // index per step; worse, the strided axes walk one column at a time,
+        // so every store misses a line its neighbour column just touched.
+        // Flatten (direction, column-block) over the dispatcher instead: each
+        // block walks 8 adjacent columns of the unit-stride dimension in
+        // lockstep with a strided index, sharing cache lines across the
+        // block. The accumulation order within a column is unchanged, so the
+        // sweep is bit-identical; every cell is still written exactly once.
+        size_t const stride[3]={
+            1, size_t(grid.n[0]), size_t(grid.n[0])*size_t(grid.n[1])};
+        struct SweepDir {
+            int axis, na, nInner, nOuter, innerBlocks;
+            size_t strideA, strideU, strideV;
+            bool innerIsU;
+        };
+        SweepDir dirs[6];
+        size_t first[7];
+        first[0]=0;
+        for(int d=0;d<6;++d) {
+            int const axis=d/2;
+            int const au=(axis+1)%3, av=(axis+2)%3;
+            SweepDir& sd=dirs[d];
+            sd.axis=axis;
+            sd.na=grid.n[axis];
+            // Axis 1 steps along y, so its unit-stride column dimension is
+            // v (x); the other axes block over u (axis 0's columns are
+            // sequential rows either way).
+            sd.innerIsU=(axis!=1);
+            sd.nInner=sd.innerIsU?grid.n[au]:grid.n[av];
+            sd.nOuter=sd.innerIsU?grid.n[av]:grid.n[au];
+            sd.strideA=stride[axis];
+            sd.strideU=stride[au];
+            sd.strideV=stride[av];
+            sd.innerBlocks=(sd.nInner+7)/8;
+            first[d+1]=first[d]+size_t(sd.nOuter)*size_t(sd.innerBlocks);
+        }
+        for(int d=0;d<6;++d) tau[d].assign(cells,0.f);
+        ForEach(dispatcher, first[6], [&](size_t block) {
+            int d=0;
+            while(block>=first[d+1]) ++d;
+            SweepDir const& sd=dirs[d];
+            size_t const local=block-first[d];
+            int const outer=int(local/size_t(sd.innerBlocks));
+            int const inner0=int(local%size_t(sd.innerBlocks))*8;
+            int const nb=std::min(8,sd.nInner-inner0);
+            float* const out=tau[d].data();
+            int const last=sd.na-1;
+            // Direction parity is the walk sense: odd starts at index 0 and
+            // ascends, even starts at the far side and descends.
+            bool const ascending=(d%2)!=0;
+            ptrdiff_t const dStride=ascending ?
+                ptrdiff_t(sd.strideA) : -ptrdiff_t(sd.strideA);
+            auto columnBase=[&](int b) {
+                int const inner=inner0+b;
+                int const u=sd.innerIsU?inner:outer;
+                int const v=sd.innerIsU?outer:inner;
+                return size_t(u)*sd.strideU+size_t(v)*sd.strideV;
+            };
+            if(nb==8) {
+                float sums[8]={0,0,0,0,0,0,0,0};
+                size_t idx[8];
+                for(int b=0;b<8;++b)
+                    idx[b]=ascending ? columnBase(b)
+                                     : columnBase(b)+size_t(last)*sd.strideA;
+                for(int step=0;step<sd.na;++step) {
+                    for(int b=0;b<8;++b) {
+                        float const depth=density[idx[b]][sd.axis];
+                        float const value=std::min(
+                            UsdGenFurTauClamp,sums[b]+0.5f*depth);
+                        sums[b]+=depth;
+                        out[idx[b]]=value;
+                        idx[b]=size_t(ptrdiff_t(idx[b])+dStride);
+                    }
+                }
+            } else {
+                for(int b=0;b<nb;++b) {
+                    size_t idx=ascending ? columnBase(b)
+                                         : columnBase(b)+size_t(last)*sd.strideA;
+                    float sum=0;
+                    for(int step=0;step<sd.na;++step) {
+                        float const depth=density[idx][sd.axis];
+                        float const value=std::min(
+                            UsdGenFurTauClamp,sum+0.5f*depth);
+                        sum+=depth;
+                        out[idx]=value;
+                        idx=size_t(ptrdiff_t(idx)+dStride);
+                    }
                 }
             }
         });
@@ -871,8 +1019,9 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     }
     // Interleave the six sweeps: the gather reads all six depths of eight
     // neighbouring cells, which is two cache lines per cell instead of six
-    // separate strided arrays.
-    std::vector<uint16_t> depths(cells*6);
+    // separate strided arrays. The 8-deep pad keeps the aarch64 gather's
+    // 8-lane tuple loads in bounds at the last cell (lanes 6-7 discarded).
+    std::vector<uint16_t> depths(cells*6+8);
     {
         TRACE_SCOPE("usdGen occlusion: interleave");
         ForEach(dispatcher, slabs, [&](size_t slab) {
@@ -918,14 +1067,38 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
             auto const& p=positions[job.tile];
             for(size_t i=job.firstCv;i<job.firstCv+job.cvCount;++i) {
                 int c[3]; float w[3];
-                grid.Corners(p[i],c,w);
+                grid.CornersInner(p[i],c,w);
                 uint16_t const* const cell=&depths[grid.Index(c[0],c[1],c[2])*6];
+#if defined(__aarch64__)
+                // The six depth lanes accumulate in two NEON quads, corners
+                // in the same order, each lane the same fused
+                // acc + weight * float(at[d]) the scalar loop compiles to
+                // (u16->f32 is exact; multiply commutes exactly), so lanes
+                // 0-5 are bit-identical and 6-7 are never stored. The weight
+                // is the same scalar expression; scalar and NEON obey the
+                // same FPCR, so denormal weights round the same lane-wise.
+                float values[6];
+                float32x4_t acc0=vdupq_n_f32(0.f), acc1=vdupq_n_f32(0.f);
+                for(int z=0;z<2;++z) for(int y=0;y<2;++y) for(int x=0;x<2;++x) {
+                    float const weight=(x?w[0]:1-w[0])*(y?w[1]:1-w[1])*(z?w[2]:1-w[2]);
+                    uint16_t const* const at=cell+x*6+y*strideY+z*strideZ;
+                    float32x4_t const vw=vdupq_n_f32(weight);
+                    uint16x8_t const u=vld1q_u16(at);
+                    float32x4_t const v0=vcvtq_f32_u32(vmovl_u16(vget_low_u16(u)));
+                    float32x4_t const v1=vcvtq_f32_u32(vmovl_u16(vget_high_u16(u)));
+                    acc0=vfmaq_f32(acc0,v0,vw);
+                    acc1=vfmaq_f32(acc1,v1,vw);
+                }
+                vst1q_f32(values,acc0);
+                vst1_f32(values+4,vget_low_f32(acc1));
+#else
                 float values[6]={0,0,0,0,0,0};
                 for(int z=0;z<2;++z) for(int y=0;y<2;++y) for(int x=0;x<2;++x) {
                     float const weight=(x?w[0]:1-w[0])*(y?w[1]:1-w[1])*(z?w[2]:1-w[2]);
                     uint16_t const* const at=cell+x*6+y*strideY+z*strideZ;
                     for(int d=0;d<6;++d) values[d]+=weight*float(at[d]);
                 }
+#endif
                 for(int d=0;d<3;++d) {
                     p0[i*3+d]=values[d*2]*(1.f/kDepthScale);
                     p1[i*3+d]=values[d*2+1]*(1.f/kDepthScale);

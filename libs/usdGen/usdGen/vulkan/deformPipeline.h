@@ -42,6 +42,41 @@ enum class DeformSemantic : uint32_t {
 
 char const* DeformSemanticName(DeformSemantic semantic) noexcept;
 
+// Optional cached-R evaluate SPIR-V (deformEvaluateVerify/Fill/Cached).
+// Empty vectors disable the cache: the pipeline runs the direct shader
+// exactly as before.
+struct DeformEvalCacheSpirv {
+    std::vector<uint32_t> verify;
+    std::vector<uint32_t> fill;
+    std::vector<uint32_t> cached;
+};
+
+// Test-only cached-evaluate seams. While disabled, Begin runs the direct
+// shader and leaves the cache state untouched, so a test can compare the
+// cached and direct paths bitwise on the same pipeline. The counters are
+// global across pipelines; tests assert deltas. A hit evaluates through
+// the cache without refilling, a miss refills it first (forced refills
+// count as misses), a bypassed pose runs direct under miss backoff, and
+// an unfunded pose runs direct for lack of budget. The funded prefix is
+// the last R/proof capacity the cache funded (0 after an eviction).
+void TestDisableDeformEvalCache(bool disable) noexcept;
+uint64_t DeformEvalCacheHitsForTesting() noexcept;
+uint64_t DeformEvalCacheMissesForTesting() noexcept;
+uint64_t DeformEvalCacheBypassedForTesting() noexcept;
+uint64_t DeformEvalCacheUnfundedForTesting() noexcept;
+uint32_t DeformEvalCacheFundedPrefixForTesting() noexcept;
+
+// Test-only heterogeneous-suffix seams. The force mode overrides the
+// adaptive policy: 0 is automatic, 1 forces the host suffix, -1 forces the
+// GPU suffix. Forcing hetero on an ineligible pose (no cache, no suffix,
+// unreadable inputs) still runs the GPU suffix; the run counter tells
+// which path ran. The counter is global across pipelines; tests assert
+// deltas. An eligible forced-hetero pose always runs hetero (the tentative
+// call reserves the mapping the final call confirms), so there is no
+// fallback counter.
+void TestForceDeformHeteroSuffix(int force) noexcept;
+uint64_t DeformHeteroSuffixRunsForTesting() noexcept;
+
 class DeformPipeline final : public std::enable_shared_from_this<DeformPipeline> {
 public:
     class Candidate;
@@ -87,11 +122,14 @@ public:
     };
 
     // `evaluateSpirv` / `applySpirv` are precompiled SPIR-V word arrays.
+    // `cacheSpirv` arms the cached-R evaluate path; empty (the default)
+    // keeps the direct-only pipeline.
     static std::shared_ptr<DeformPipeline> Create(
         std::shared_ptr<DeviceContext> context,
         std::vector<uint32_t> const& evaluateSpirv,
         std::vector<uint32_t> const& applySpirv,
-        VkResult* result = nullptr);
+        VkResult* result = nullptr,
+        DeformEvalCacheSpirv const& cacheSpirv = {});
 
     ~DeformPipeline();
 

@@ -432,6 +432,14 @@ target_sources(usdGen PRIVATE
 set_source_files_properties(libs/usdGen/usdGen/expressions/frontend.cpp PROPERTIES
     COMPILE_DEFINITIONS "SeExpr2=UsdGenSeExprFrontend;SeExprInternal2=UsdGenSeExprFrontendInternal;USDGEN_SEEXPR_SANDBOX"
     INCLUDE_DIRECTORIES "${_usdgen_frontend_dir}")
+# The host suffix port (deformEvaluateCpu.h, inlined into
+# deformPipeline.cpp) needs sqrt vectorized: with math-errno the vectorizer
+# keeps the explicit-fma loop's sqrt scalar and the suffix runs ~2x slower.
+# Values are unchanged (errno only); nothing in the library reads errno.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(libs/usdGen/usdGen/vulkan/deformPipeline.cpp PROPERTIES
+        COMPILE_OPTIONS "-fno-math-errno")
+endif()
 target_include_directories(usdGen PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>
     $<INSTALL_INTERFACE:include>)
@@ -489,12 +497,25 @@ target_link_libraries(usdGenImaging
     PUBLIC hd hdsi hf usd usdGeom usdShade sdr usdImaging
            sdf tf gf vt trace pxOsd usdGen
     PRIVATE hio js
-    PRIVATE usdGenSchema)
+    PRIVATE usdGenSchema
+    PRIVATE TBB::tbb)  # Bake ranges run on plain TBB (no scheduler ctx here)
 set_target_properties(usdGenImaging PROPERTIES
     CXX_VISIBILITY_PRESET default
     # Produce the import library that downstream Windows consumers need.
     # This is ignored by non-Windows generators.
     WINDOWS_EXPORT_ALL_SYMBOLS ON)  # plugins need exported symbols
+# -fno-math-errno on the scatter compile (GNU/Clang only): libm errno
+# / fenv is never read anywhere in libs/ (grep clean), so IEEE results
+# are bit-identical while every builtin-expanded sqrt drops its
+# errno-check branch. Needs re-verifying if errno use appears.
+# Deliberately scatter-only: the same flag on usdGenInstancer.cpp also
+# wins cards/twist/notwist (-0.3..-0.7ms) but perturbs the
+# register-fragile tangent path (+0.7..+1.8ms); declined.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(
+        libs/usdGen/usdGen/ops/scatter.cpp
+        PROPERTIES COMPILE_OPTIONS -fno-math-errno)
+endif()
 
 # M1: the usdGenShaders SdrDiscoveryPlugin compiles into usdGenImaging; its
 # resource dir is resolved at runtime by name (PlugRegistry lookup of
@@ -1127,6 +1148,9 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     _usdgen_compile_vulkan_shader(noise_generate noiseGenerate)
     _usdgen_compile_vulkan_shader(deform_evaluate deformEvaluate)
     _usdgen_compile_vulkan_shader(deform_apply deformApply)
+    _usdgen_compile_vulkan_shader(deform_evaluate_verify deformEvaluateVerify)
+    _usdgen_compile_vulkan_shader(deform_evaluate_fill deformEvaluateFill)
+    _usdgen_compile_vulkan_shader(deform_evaluate_cached deformEvaluateCached)
     _usdgen_compile_vulkan_shader(overlap widthOverlapWitness)
     _usdgen_compile_vulkan_shader(resample_vk resampleVk)
     _usdgen_compile_vulkan_shader(mapvk_sample mapVkSample)
@@ -1138,6 +1162,9 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     _usdgen_compile_vulkan_shader(rbfvk_trisolve rbfVkTriSolve)
     _usdgen_compile_vulkan_shader(rbfvk_evaluate rbfVkEvaluate)
     _usdgen_compile_vulkan_shader(rbfvk_apply rbfVkApply)
+    _usdgen_compile_vulkan_shader(rbfvk_verify rbfVkVerify)
+    _usdgen_compile_vulkan_shader(rbfvk_fill rbfVkFill)
+    _usdgen_compile_vulkan_shader(rbfvk_evaluate_cached rbfVkEvaluateCached)
     _usdgen_compile_vulkan_shader(picktile_pick picktileVkPick)
     _usdgen_compile_vulkan_shader(picktile_footprint picktileVkFootprint)
     _usdgen_compile_vulkan_shader(picktile_tiles picktileVkTiles)
@@ -1270,6 +1297,16 @@ add_executable(testUsdGenExecutionSequenceWindow tests/testUsdGenExecutionSequen
 target_link_libraries(testUsdGenExecutionSequenceWindow PRIVATE usdGen)
 add_test(NAME testUsdGenExecutionSequenceWindow COMMAND testUsdGenExecutionSequenceWindow)
 set_tests_properties(testUsdGenExecutionSequenceWindow PROPERTIES LABELS "T0;scheduling;resources" TIMEOUT 30)
+add_executable(testUsdGenSchedulerAffinity tests/testUsdGenSchedulerAffinity.cpp)
+target_link_libraries(testUsdGenSchedulerAffinity PRIVATE usdGen)
+add_test(NAME testUsdGenSchedulerAffinity COMMAND testUsdGenSchedulerAffinity)
+set_tests_properties(testUsdGenSchedulerAffinity PROPERTIES
+    LABELS "T0;scheduling;affinity" TIMEOUT 60
+    SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+add_executable(testUsdGenWorkerPool tests/testUsdGenWorkerPool.cpp)
+target_link_libraries(testUsdGenWorkerPool PRIVATE usdGen)
+add_test(NAME testUsdGenWorkerPool COMMAND testUsdGenWorkerPool)
+set_tests_properties(testUsdGenWorkerPool PROPERTIES LABELS "T0;scheduling;pool" TIMEOUT 60)
 add_executable(testUsdGenExecutionTaskGraph tests/testUsdGenExecutionTaskGraph.cpp)
 target_link_libraries(testUsdGenExecutionTaskGraph PRIVATE usdGen)
 add_test(NAME testUsdGenExecutionTaskGraph COMMAND testUsdGenExecutionTaskGraph)
@@ -1531,6 +1568,11 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanScatterGrowPipeline PROPERTIES
         LABELS "T1;vulkan;operators;scatterGrow" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+    add_executable(testUsdGenVulkanScatterGrowCpuReject tests/testUsdGenVulkanScatterGrowCpuReject.cpp)
+    target_link_libraries(testUsdGenVulkanScatterGrowCpuReject PRIVATE usdGenVulkanNative)
+    add_test(NAME testUsdGenVulkanScatterGrowCpuReject COMMAND testUsdGenVulkanScatterGrowCpuReject)
+    set_tests_properties(testUsdGenVulkanScatterGrowCpuReject PROPERTIES
+        LABELS "T0;vulkan;operators;scatterGrowCpuReject" TIMEOUT 60)
     add_executable(testUsdGenVulkanRootFrames tests/testUsdGenVulkanRootFrames.cpp
         "${_usdgen_vulkan_rfval_spv}" "${_usdgen_vulkan_rfbuild_spv}")
     target_link_libraries(testUsdGenVulkanRootFrames PRIVATE usdGenVulkanNative)
@@ -1597,10 +1639,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         LABELS "T1;parity;cuda;vulkan;operators;style" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
     add_executable(testUsdGenVulkanDeform tests/testUsdGenVulkanDeform.cpp
-        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
+        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
+        "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
+        "${_usdgen_vulkan_deform_evaluate_cached_spv}")
     target_link_libraries(testUsdGenVulkanDeform PRIVATE usdGenVulkanNative usdGenMath)
     add_test(NAME testUsdGenVulkanDeform COMMAND testUsdGenVulkanDeform
-        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
+        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
+        "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
+        "${_usdgen_vulkan_deform_evaluate_cached_spv}")
     set_tests_properties(testUsdGenVulkanDeform PROPERTIES
         LABELS "T1;vulkan;operators;deform" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
@@ -1617,14 +1663,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         LABELS "T1;parity;cuda;vulkan;operators;deform;surface" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
     add_executable(testUsdGenVulkanRbfVkParity tests/testUsdGenVulkanRbfVkParity.cpp
-        "${_usdgen_vulkan_rbfvk_extent_spv}" "${_usdgen_vulkan_rbfvk_gram_spv}" "${_usdgen_vulkan_rbfvk_build_matrix_spv}" "${_usdgen_vulkan_rbfvk_lu_spv}" "${_usdgen_vulkan_rbfvk_rhs_spv}" "${_usdgen_vulkan_rbfvk_trisolve_spv}" "${_usdgen_vulkan_rbfvk_evaluate_spv}" "${_usdgen_vulkan_rbfvk_apply_spv}")
+        "${_usdgen_vulkan_rbfvk_extent_spv}" "${_usdgen_vulkan_rbfvk_gram_spv}" "${_usdgen_vulkan_rbfvk_build_matrix_spv}" "${_usdgen_vulkan_rbfvk_lu_spv}" "${_usdgen_vulkan_rbfvk_rhs_spv}" "${_usdgen_vulkan_rbfvk_trisolve_spv}" "${_usdgen_vulkan_rbfvk_evaluate_spv}" "${_usdgen_vulkan_rbfvk_apply_spv}" "${_usdgen_vulkan_rbfvk_verify_spv}" "${_usdgen_vulkan_rbfvk_fill_spv}" "${_usdgen_vulkan_rbfvk_evaluate_cached_spv}")
     target_link_libraries(testUsdGenVulkanRbfVkParity PRIVATE usdGenVulkanNative usdGenMath)
     if(USDGEN_ENABLE_CUDA)
         target_link_libraries(testUsdGenVulkanRbfVkParity PRIVATE usdGenGpu)
         target_compile_definitions(testUsdGenVulkanRbfVkParity PRIVATE USDGEN_ENABLE_CUDA)
     endif()
     add_test(NAME testUsdGenVulkanRbfVkParity COMMAND testUsdGenVulkanRbfVkParity
-        "${_usdgen_vulkan_rbfvk_extent_spv}" "${_usdgen_vulkan_rbfvk_gram_spv}" "${_usdgen_vulkan_rbfvk_build_matrix_spv}" "${_usdgen_vulkan_rbfvk_lu_spv}" "${_usdgen_vulkan_rbfvk_rhs_spv}" "${_usdgen_vulkan_rbfvk_trisolve_spv}" "${_usdgen_vulkan_rbfvk_evaluate_spv}" "${_usdgen_vulkan_rbfvk_apply_spv}")
+        "${_usdgen_vulkan_rbfvk_extent_spv}" "${_usdgen_vulkan_rbfvk_gram_spv}" "${_usdgen_vulkan_rbfvk_build_matrix_spv}" "${_usdgen_vulkan_rbfvk_lu_spv}" "${_usdgen_vulkan_rbfvk_rhs_spv}" "${_usdgen_vulkan_rbfvk_trisolve_spv}" "${_usdgen_vulkan_rbfvk_evaluate_spv}" "${_usdgen_vulkan_rbfvk_apply_spv}" "${_usdgen_vulkan_rbfvk_verify_spv}" "${_usdgen_vulkan_rbfvk_fill_spv}" "${_usdgen_vulkan_rbfvk_evaluate_cached_spv}")
     set_tests_properties(testUsdGenVulkanRbfVkParity PROPERTIES
         LABELS "T1;parity;cuda;vulkan;operators;rbf;deform" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 780 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
@@ -2310,6 +2356,18 @@ if(USDGEN_ENABLE_CUDA)
     set_tests_properties(testUsdGenCudaScatterGrowPreflight PROPERTIES
         LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    # ValidateRoots is CPU-only: no device, no SKIP, no GPU lock.
+    add_executable(testUsdGenCudaScatterGrowValidate tests/testUsdGenCudaScatterGrowValidate.cpp)
+    target_link_libraries(testUsdGenCudaScatterGrowValidate PRIVATE usdGen usdGenGpu)
+    add_test(NAME testUsdGenCudaScatterGrowValidate COMMAND testUsdGenCudaScatterGrowValidate)
+    set_tests_properties(testUsdGenCudaScatterGrowValidate PROPERTIES
+        LABELS "T0;cuda;scatter-grow;validate" TIMEOUT 120)
+    add_executable(testUsdGenCudaScatterGrowOverlap tests/testUsdGenCudaScatterGrowOverlap.cpp)
+    target_link_libraries(testUsdGenCudaScatterGrowOverlap PRIVATE usdGen usdGenGpu)
+    add_test(NAME testUsdGenCudaScatterGrowOverlap COMMAND testUsdGenCudaScatterGrowOverlap)
+    set_tests_properties(testUsdGenCudaScatterGrowOverlap PROPERTIES
+        LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaScatterInput tests/testUsdGenCudaScatterInput.cpp)
     add_executable(testUsdGenCudaScatterGrowSession tests/testUsdGenCudaScatterGrowSession.cpp)
     add_executable(testUsdGenCudaScatterGrowWidthDag tests/testUsdGenCudaScatterGrowWidthDag.cpp)
@@ -2818,7 +2876,9 @@ foreach(_t testUsdGenGraph testUsdGenKernelDeterminism testUsdGenWidth
            testUsdGenClumpMotion
            testUsdGenCpuCurveSource testUsdGenLengthRaggedLayout testUsdGenSurfaceRootFrames
            testUsdGenSurfaceRootBindings testUsdGenSurfaceRootBindingBoundaries
-           testUsdGenSurfaceBindingCache testUsdGenScatterDensity testUsdGenLimitScatter)
+           testUsdGenSurfaceBindingCache testUsdGenScatterDensity testUsdGenLimitScatter
+           testUsdGenScatterTwoPass testUsdGenScatterSortSkips
+           testUsdGenScatterDegenerateFan testUsdGenScatterTwoPassMult)
     add_executable(${_t} tests/${_t}.cpp)
     target_link_libraries(${_t} PRIVATE usdGenTestUtils)
     add_test(NAME ${_t} COMMAND ${_t})
@@ -2841,6 +2901,14 @@ set_tests_properties(testUsdGenSurfaceRootBindings PROPERTIES LABELS "T0;sources
 set_tests_properties(testUsdGenSurfaceRootBindingBoundaries PROPERTIES LABELS "T0;sources;root-bindings")
 set_tests_properties(testUsdGenSurfaceBindingCache PROPERTIES LABELS "T0;sources;cache;cow")
 set_tests_properties(testUsdGenScatterDensity PROPERTIES LABELS "T0;sources;scatter;density")
+set_tests_properties(testUsdGenScatterTwoPass PROPERTIES LABELS "T0;sources;scatter;twopass")
+target_link_libraries(testUsdGenScatterTwoPass PRIVATE usdGenMath)
+set_tests_properties(testUsdGenScatterSortSkips PROPERTIES LABELS "T0;sources;scatter;sortskips")
+target_link_libraries(testUsdGenScatterSortSkips PRIVATE usdGenMath)
+set_tests_properties(testUsdGenScatterDegenerateFan PROPERTIES LABELS "T0;sources;scatter;degenfan")
+target_link_libraries(testUsdGenScatterDegenerateFan PRIVATE usdGenMath)
+set_tests_properties(testUsdGenScatterTwoPassMult PROPERTIES LABELS "T0;sources;scatter;twopassmult")
+target_link_libraries(testUsdGenScatterTwoPassMult PRIVATE usdGenMath)
 
 # M1 T0 perf benches (E-1/E-7 via --threads; E-2 sparse; carried in from
 # prototypes/data-plane-benchmark, 11 §2.2).
@@ -2852,12 +2920,61 @@ foreach(_t benchUsdGenChain benchUsdGenSparse)
 endforeach()
 set_tests_properties(benchUsdGenChain PROPERTIES LABELS "T0;perf;gate:E-1;gate:E-7")
 set_tests_properties(benchUsdGenSparse PROPERTIES LABELS "T0;perf;gate:E-2")
+add_executable(benchUsdGenRbfDeform tests/perf/benchUsdGenRbfDeform.cpp)
+target_link_libraries(benchUsdGenRbfDeform PRIVATE usdGenTestUtils)
+if(USDGEN_ENABLE_CUDA)
+    target_compile_definitions(benchUsdGenRbfDeform PRIVATE USDGEN_BENCH_CUDA)
+    target_link_libraries(benchUsdGenRbfDeform PRIVATE usdGenGpu)
+endif()
+add_test(NAME benchUsdGenRbfDeform COMMAND benchUsdGenRbfDeform)
+set_tests_properties(benchUsdGenRbfDeform PROPERTIES
+    LABELS "T0;perf;rbf;deform"
+    TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+if(USDGEN_ENABLE_VULKAN_RUNTIME)
+    target_compile_definitions(benchUsdGenRbfDeform PRIVATE USDGEN_BENCH_VULKAN)
+    target_link_libraries(benchUsdGenRbfDeform PRIVATE usdGenVulkanNative)
+    target_sources(benchUsdGenRbfDeform PRIVATE
+        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
+        "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
+        "${_usdgen_vulkan_deform_evaluate_cached_spv}"
+        "${_usdgen_vulkan_rbfvk_extent_spv}" "${_usdgen_vulkan_rbfvk_gram_spv}"
+        "${_usdgen_vulkan_rbfvk_build_matrix_spv}" "${_usdgen_vulkan_rbfvk_lu_spv}"
+        "${_usdgen_vulkan_rbfvk_rhs_spv}" "${_usdgen_vulkan_rbfvk_trisolve_spv}"
+        "${_usdgen_vulkan_rbfvk_evaluate_spv}")
+    add_test(NAME benchUsdGenRbfDeformVulkan COMMAND benchUsdGenRbfDeform
+        --vulkan-spv "${CMAKE_CURRENT_BINARY_DIR}/vulkan")
+    set_tests_properties(benchUsdGenRbfDeformVulkan PROPERTIES
+        LABELS "T1;perf;vulkan;rbf;deform" RESOURCE_LOCK usdgen_gpu
+        TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
+        FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+endif()
 add_executable(benchUsdGenSurfaceBindings tests/perf/benchUsdGenSurfaceBindings.cpp)
 target_link_libraries(benchUsdGenSurfaceBindings PRIVATE usdGenTestUtils)
 add_test(NAME benchUsdGenSurfaceBindings COMMAND benchUsdGenSurfaceBindings)
 set_tests_properties(benchUsdGenSurfaceBindings PROPERTIES
     LABELS "T0;perf;sources;root-bindings;cache"
     TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+
+# Instancing/scattering per-stage timing + checksums (autoresearch
+# instscatter). GPU stages compile in only when their backend does, and skip
+# at runtime without a device (CUDA) or --vk-spv (Vulkan dispatch), so the
+# registered run stays green on CPU-only CI.
+add_executable(benchUsdGenInstanceScatter tests/perf/benchUsdGenInstanceScatter.cpp)
+target_link_libraries(benchUsdGenInstanceScatter PRIVATE usdGenTestUtilsHd)
+target_include_directories(benchUsdGenInstanceScatter PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+if(USDGEN_ENABLE_CUDA)
+    target_link_libraries(benchUsdGenInstanceScatter PRIVATE usdGenGpu)
+    target_compile_definitions(benchUsdGenInstanceScatter PRIVATE USDGEN_ENABLE_CUDA)
+endif()
+if(USDGEN_ENABLE_VULKAN_RUNTIME)
+    target_link_libraries(benchUsdGenInstanceScatter PRIVATE usdGenVulkanNative)
+    target_compile_definitions(benchUsdGenInstanceScatter PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
+endif()
+add_test(NAME benchUsdGenInstanceScatter COMMAND benchUsdGenInstanceScatter)
+set_tests_properties(benchUsdGenInstanceScatter PROPERTIES
+    LABELS "T1;perf;instance;scatter" TIMEOUT 900 RESOURCE_LOCK usdgen_gpu
+    SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 
 # M1 T1 imaging tests (scene index over the real UsdImaging chain).
 foreach(_t testUsdGenTileContract testUsdGenStockStormContract testUsdGenInvalidation testUsdGenScheduling
@@ -3104,6 +3221,16 @@ add_executable(testUsdGenAttributeMap tests/testUsdGenAttributeMap.cpp)
 target_link_libraries(testUsdGenAttributeMap PRIVATE usdGen)
 add_test(NAME testUsdGenAttributeMap COMMAND testUsdGenAttributeMap)
 set_tests_properties(testUsdGenAttributeMap PROPERTIES LABELS "T0;maps" TIMEOUT 120)
+# Internal digest contract (determinism + sensitivity, never golden values).
+add_executable(testUsdGenDigest tests/testUsdGenDigest.cpp)
+target_link_libraries(testUsdGenDigest PRIVATE usdGen)
+add_test(NAME testUsdGenDigest COMMAND testUsdGenDigest)
+set_tests_properties(testUsdGenDigest PROPERTIES LABELS "T0;digest" TIMEOUT 120)
+# Morton key contract: magic-mask interleave proven against the loop form.
+add_executable(testUsdGenMorton tests/testUsdGenMorton.cpp)
+target_link_libraries(testUsdGenMorton PRIVATE usdGenMath)
+add_test(NAME testUsdGenMorton COMMAND testUsdGenMorton)
+set_tests_properties(testUsdGenMorton PROPERTIES LABELS "T0;morton" TIMEOUT 120)
 # Painted attribute maps: the .ptx bake and the async bake-to-stage worker.
 # Engine-only (threads + filesystem, no USD/Hydra), like the map it bakes.
 add_executable(testUsdGenAttributeBake tests/testUsdGenAttributeBake.cpp)

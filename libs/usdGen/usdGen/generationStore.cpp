@@ -164,7 +164,15 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
             mark(TfToken("bakeColor"),    _changed(a.bakeColor,    b.bakeColor));
             mark(TfToken("velocities"),   _changed(a.velocities,   b.velocities));
             // Named uniform planes (both vectors sorted by name): common names
-            // compared by content, next-only names are new primvars.
+            // compared by BUFFER IDENTITY like every other payload above,
+            // next-only names are new primvars. Content comparison here
+            // re-scanned megabytes of tau planes per cook (~2ms at bench
+            // scale); rebuilt tiles always take fresh buffers, so identity
+            // reports them dirty -- conservative-correct (re-upload
+            // identical bytes), and identical recomputes always co-dirty
+            // displayColor or the topology, which Storm re-uploads whole
+            // anyway, so no extra traffic results. Carried tiles share
+            // buffers and stay clean, as before.
             for (UsdGenPlane const &pb : b.extraUniform) {
                 bool paired = false;
                 for (UsdGenPlane const &pa : a.extraUniform) {
@@ -174,7 +182,8 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
                         pa.type != pb.type)
                         td.newPrimvars.push_back(pb.name);
                     else
-                        mark(pb.name, pa.f != pb.f || pa.i != pb.i);
+                        mark(pb.name, !pa.f.IsIdentical(pb.f) ||
+                                     !pa.i.IsIdentical(pb.i));
                     break;
                 }
                 if (!paired) td.newPrimvars.push_back(pb.name);

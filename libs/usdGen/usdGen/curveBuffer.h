@@ -397,6 +397,21 @@ UsdGenCompactExtraPlanes(UsdGenCurveBuffer const &source,
     }
 }
 
+/// One chunk's posed extent, recorded by the sweep that wrote the points
+/// so the tile interleave can union per-chunk extents instead of re-reading
+/// every point. The span pins the chunk layout the extent was recorded
+/// under: a mid-run repartition changes the spans and the interleave falls
+/// back to the point pass, so a stale slot is never read.
+struct UsdGenChunkExtent
+{
+    GfRange3f extent;
+    uint32_t firstCurve = 0;
+    uint32_t curveCount = 0;
+    uint32_t liveCount = 0;
+    uint32_t firstCv = 0;
+    uint32_t cvCount = 0;
+};
+
 /// What a kernel is allowed to touch. All pointers are chunk-local bases
 /// (03 §1.2). cvCount == 0 on the ragged path.
 struct UsdGenChunkView
@@ -429,6 +444,11 @@ struct UsdGenChunkView
     // strand before their iterative solve. Slices are chunk-disjoint.
     GfVec3d *pointScratch = nullptr;
     double *scalarScratch = nullptr;
+    // Extent record for this chunk, or null when the sweep does not record
+    // (every op but the recording points-writer). A recording kernel writes
+    // the extent over exactly the floats it stores, in store order, plus
+    // the span from desc, before Evaluate returns.
+    UsdGenChunkExtent *extentSlot = nullptr;
     uint32_t curveCount, cvCount;            // cvCount == 0 on the ragged path
     uint32_t inCvCount = 0;                  // upstream's CVs per curve (in* base + c*inCvCount + i)
     // Upstream ragged offsets for this chunk, shifted to firstCurve but still

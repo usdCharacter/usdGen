@@ -12,25 +12,31 @@
 // ABI — descriptors:
 //   0 cvs      float[3*pointCount] RO  (input CVs)
 //   1 warped   float[3*pointCount]     OUT
-//   2 samples  float[3*n]      RO     (rest RBF samples)
+//   2 samples  double[3*n]    RO     (rest RBF samples, host-centered:
+//                                    sample - center, interleaved; the shader
+//                                    still multiplies by invScale)
 //   3 coef     double[3*m]    RO     (column-major m x 3 coefficients)
 //   4 UBO      Params (std140, 64 bytes)
 //   5 evalFlag int[1]         OUT     (atomicOr, 0 == clean)
 //
-// Dispatch: local_size_x=256, groups=ceil(pointCount/256).
+// Dispatch: local_size_x=128, groups=ceil((pointCount-base)/128). 128-wide
+// groups run the fp64 loop ~80us faster per 1M-CV pose than 256-wide (64
+// and 32 are no faster); the apply shader stays 256-wide, where it is
+// fastest. The cached-R path dispatches the past-prefix suffix with
+// base=P; base=0 is the full-range direct dispatch, bitwise unchanged.
 
 #version 460
-layout(local_size_x = 256) in;
+layout(local_size_x = 128) in;
 
 layout(std430, binding = 0) readonly buffer Cvs     { float cvs[]; };
 layout(std430, binding = 1) buffer Warped            { float warped[]; };
-layout(std430, binding = 2) readonly buffer Samples  { float samples[]; };
+layout(std430, binding = 2) readonly buffer Samples  { double samples[]; };
 layout(std430, binding = 3) readonly buffer Coef     { double coef[]; };
 layout(std430, binding = 5) buffer EvalFlag          { int evalFlag; };
 
 layout(std140, binding = 4) uniform Params {
     ivec2  n_m;       // x = n (samples), y = m (n+4)
-    ivec2  counts;    // x = pointCount
+    ivec2  counts;    // x = pointCount, y = base (first CV; 0 for full-range)
     double cx;
     double cy;
     double cz;
@@ -45,7 +51,7 @@ bool Finite(float v)   { return !(isinf(v) || isnan(v)); }
 bool FiniteD(double v) { return !(isinf(v) || isnan(v)); }
 
 void main() {
-    uint i = gl_GlobalInvocationID.x;
+    uint i = uint(params.counts.y) + gl_GlobalInvocationID.x;
     if (i >= uint(params.counts.x)) return;
     int n = params.n_m.x;
     int m = params.n_m.y;
@@ -63,11 +69,16 @@ void main() {
     double oz = z + coef[2*m+n] + coef[2*m+n+1]*x + coef[2*m+n+2]*y + coef[2*m+n+3]*z;
 
     for (int j = 0; j < n; ++j) {
-        vec3 s = P3(samples, j);
-        double dx = x - (double(s.x) - params.cx) * params.invScale;
-        double dy = y - (double(s.y) - params.cy) * params.invScale;
-        double dz = z - (double(s.z) - params.cz) * params.invScale;
-        double r  = sqrt(dx*dx + dy*dy + dz*dz);
+        // The fusion is spelled explicitly (and identically to
+        // deformEvaluateFill.comp): the looped eval fuses differently
+        // than the straight-line fill for the same source text, so both
+        // pin the fully-fused evaluation with fma() instead of relying
+        // on the driver's context-dependent contraction. Same values as
+        // the old x - sample*invScale text on a contracting driver.
+        double dx = fma(-samples[3u*j], params.invScale, x);
+        double dy = fma(-samples[3u*j + 1u], params.invScale, y);
+        double dz = fma(-samples[3u*j + 2u], params.invScale, z);
+        double r  = sqrt(fma(dz, dz, fma(dx, dx, dy*dy)));
         r = r * r * r;
         ox += coef[j] * r;
         oy += coef[m + j] * r;

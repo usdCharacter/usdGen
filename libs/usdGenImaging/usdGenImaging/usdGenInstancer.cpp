@@ -23,12 +23,198 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <new>
+
+#include "tbb/parallel_for.h"
+#include "tbb/task_arena.h"
+
+#if defined(__aarch64__)
+#include <arm_neon.h>
+#endif
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenImaging {
 
 namespace {
+
+// First failure inside one Bake range (curve order decides across ranges,
+// exactly like the serial loop's first _Fail).
+struct BakeRangeError {
+    bool failed = false;
+    uint32_t c = 0;
+    std::string message;
+};
+
+// One slot per Bake range: per-prototype instance lists (concatenated in
+// range order after the join, so identical to the serial push_back order)
+// plus the range's first error.
+struct BakeRangeSlot {
+    std::vector<std::vector<int>> indices;
+    BakeRangeError error;
+};
+
+// -- chunked bulk copy (bit-identical: disjoint ranges, same bytes) ---------
+// Small copies stay serial: below ~256KB the dispatch costs more than
+// the copy.
+void
+_MemcpyChunked(void *dst, void const *src, size_t bytes)
+{
+    int const workers = tbb::this_task_arena::max_concurrency();
+    size_t const chunks =
+        (workers > 1 && bytes > 262144) ? std::min({size_t(workers),
+                                                   size_t(8)})
+                                        : 1;
+    if (chunks == 1) {
+        std::memcpy(dst, src, bytes);
+        return;
+    }
+    auto *d = static_cast<unsigned char *>(dst);
+    auto const *s = static_cast<unsigned char const *>(src);
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, chunks),
+        [&](tbb::blocked_range<size_t> const &range) {
+            for (size_t c = range.begin(); c != range.end(); ++c) {
+                size_t const b0 = (c * bytes) / chunks;
+                size_t const b1 = ((c + 1) * bytes) / chunks;
+                std::memcpy(d + b0, s + b0, b1 - b0);
+            }
+        });
+}
+
+// -- vector quatf->quath (bit-identical to the scalar loop) ------------------
+// AArch64 FCVTN converts 4 floats to 4 halves per instruction against the
+// scalar loop's ~10 instructions per float (zero branch, exponent LUT,
+// round, combine). An 8.2M-value differential against GfHalf(float) over
+// normals, subnormal-producing values, float subnormals, +-0, overflow
+// (->inf), infinities and random bit patterns shows zero mismatches on
+// every non-NaN input; only NaN payloads differ (quiet-NaN payload bit 9,
+// signaling-NaN mappings). So the single vector pass converts every
+// group whose lanes all have exp != 255 and redoes an exp-255 group
+// (a NaN-or-Inf superset; Infs would match vector anyway) through the
+// exact scalar spelling. One memory pass instead of a 16MB pre-scan plus
+// the conversion pass. FCVTN honors FPCR.FZ (flush subnormal results)
+// while GfHalf is FPCR-independent, so the loop runs with FZ+DN masked
+// out and restores FPCR after. Quats are 4 contiguous floats/halves
+// either way (imaginary-first in both), so the loop runs flat over 4n
+// lanes, preserving positions exactly.
+
+void
+_ConvertQuatsRange(GfQuath *dst, GfQuatf const *src, size_t n)
+{
+    static_assert(sizeof(GfQuatf) == 4 * sizeof(float),
+                  "quatf is 4 contiguous floats");
+    static_assert(sizeof(GfQuath) == 4 * sizeof(GfHalf),
+                  "quath is 4 contiguous halves");
+    static_assert(sizeof(GfHalf) == sizeof(uint16_t), "half is 2 bytes");
+    if (n == 0)
+        return;
+#if defined(__aarch64__)
+    float const *f = reinterpret_cast<float const *>(src);
+    size_t const m = 4 * n;
+    uint64_t fpcr;
+    __asm__ volatile("mrs %0, fpcr" : "=r"(fpcr));
+    uint64_t const clean = fpcr & ~uint64_t(0x03000000);
+    if (clean != fpcr)
+        __asm__ volatile("msr fpcr, %0" :: "r"(clean));
+    uint16_t *h = reinterpret_cast<uint16_t *>(dst);
+    GfHalf *hh = reinterpret_cast<GfHalf *>(dst);
+    uint32x4_t const e255 = vdupq_n_u32(255);
+    // Per-4 convert (bit-identical lane handling): the wide loop's cold
+    // fallback and the tail share it verbatim.
+    auto convert4 = [&](size_t j) {
+        float32x4_t v = vld1q_f32(f + j);
+        uint32x4_t u = vreinterpretq_u32_f32(v);
+        uint32x4_t e = vshrq_n_u32(vshlq_n_u32(u, 1), 24);
+        // Quat lanes are finite in practice; the scalar redo below never
+        // fires outside NaN/Inf inputs.
+        if (vmaxvq_u32(vceqq_u32(e, e255)) != 0) {
+            for (int k = 0; k < 4; ++k)
+                hh[j + k] = GfHalf(f[j + k]);
+        } else {
+            vst1_u16(h + j, vreinterpret_u16_f16(vcvt_f16_f32(v)));
+        }
+    };
+    // Wide loop (bit-identical): one exp-255 test over 16 lanes (the
+    // four per-4 masks ORed, then a single horizontal max) replaces
+    // four per-4 tests. A firing test redoes the 16 per 4, so every
+    // lane converts exactly as the per-4 loop converts it; masking
+    // the per-4 equality results (not the exponents) keeps the test
+    // exact with no false-positive fallback.
+    auto exponents = [](float32x4_t v) {
+        return vshrq_n_u32(
+            vshlq_n_u32(vreinterpretq_u32_f32(v), 1), 24);
+    };
+    size_t j = 0;
+    size_t const m16 = m & ~size_t(15);
+    for (; j < m16; j += 16) {
+        float32x4_t const v0 = vld1q_f32(f + j + 0);
+        float32x4_t const v1 = vld1q_f32(f + j + 4);
+        float32x4_t const v2 = vld1q_f32(f + j + 8);
+        float32x4_t const v3 = vld1q_f32(f + j + 12);
+        uint32x4_t const any255 = vorrq_u32(
+            vorrq_u32(vceqq_u32(exponents(v0), e255),
+                      vceqq_u32(exponents(v1), e255)),
+            vorrq_u32(vceqq_u32(exponents(v2), e255),
+                      vceqq_u32(exponents(v3), e255)));
+        if (vmaxvq_u32(any255) != 0) {
+            convert4(j + 0);
+            convert4(j + 4);
+            convert4(j + 8);
+            convert4(j + 12);
+        } else {
+            vst1_u16(h + j + 0,
+                     vreinterpret_u16_f16(vcvt_f16_f32(v0)));
+            vst1_u16(h + j + 4,
+                     vreinterpret_u16_f16(vcvt_f16_f32(v1)));
+            vst1_u16(h + j + 8,
+                     vreinterpret_u16_f16(vcvt_f16_f32(v2)));
+            vst1_u16(h + j + 12,
+                     vreinterpret_u16_f16(vcvt_f16_f32(v3)));
+        }
+    }
+    for (; j < m; j += 4)
+        convert4(j);
+    if (clean != fpcr)
+        __asm__ volatile("msr fpcr, %0" :: "r"(fpcr));
+    return;
+#else
+    for (size_t k = 0; k < n; ++k) {
+        GfQuatf const &q = src[k];
+        dst[k] = GfQuath(GfHalf(q.GetReal()), GfVec3h(q.GetImaginary()));
+    }
+#endif
+}
+
+// Chunked quat conversion (bit-identical): every quat's four lanes
+// convert independently of the 16-lane grouping (the wide loop's test
+// only selects the vector-vs-scalar path per group, and both spell the
+// same per-lane conversion), and FPCR is per-thread (each range masks
+// and restores its own), so converting disjoint quat ranges on workers
+// writes identical halves. Small draws stay serial: below ~32K quats
+// the dispatch costs more than the conversion.
+void
+_ConvertQuats(GfQuath *dst, GfQuatf const *src, size_t n)
+{
+    int const workers = tbb::this_task_arena::max_concurrency();
+    size_t const chunks =
+        (workers > 1 && n > 32768) ? std::min({size_t(workers), size_t(8),
+                                               n})
+                                   : 1;
+    if (chunks == 1) {
+        _ConvertQuatsRange(dst, src, n);
+        return;
+    }
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, chunks),
+        [&](tbb::blocked_range<size_t> const &range) {
+            for (size_t c = range.begin(); c != range.end(); ++c) {
+                size_t const q0 = (c * n) / chunks;
+                size_t const q1 = ((c + 1) * n) / chunks;
+                _ConvertQuatsRange(dst + q0, src + q0, q1 - q0);
+            }
+        });
+}
 
 // -- pinned draws (canonical: usdGenMath/usdGenMath/hash.h) -------------------
 // Bit-exact copies of the SplitMix64 finalizer and the per-curve draw
@@ -52,6 +238,16 @@ _Draw01(int seed, uint64_t curveId, uint32_t salt)
 {
     const uint64_t key = _Hash64(uint64_t(uint32_t(seed)), salt) ^ curveId;
     const uint32_t h = uint32_t(_Hash64(key, salt) >> 32);
+    return float(h >> 8) * 0x1.0p-24f;
+}
+
+// _Draw01 with the loop-invariant seed fold precomputed: keying by
+// (seedHash ^ curveId) is exactly _Draw01's spelling with the hoisted
+// _Hash64(seed32, salt). Integer-only; bit-identical by construction.
+float
+_Draw01Seeded(uint64_t seedHash, uint64_t curveId, uint32_t salt)
+{
+    const uint32_t h = uint32_t(_Hash64(seedHash ^ curveId, salt) >> 32);
     return float(h >> 8) * 0x1.0p-24f;
 }
 
@@ -143,15 +339,71 @@ _Fail(std::string const &message, std::string *error)
 bool
 _Finite(float v) { return std::isfinite(v); }
 
+// -- inline rotation quat (canonical: pxr/base/gf/matrix4d.cpp --------
+// GfMatrix4d::ExtractRotationQuat, the Open Inventor SbRotation form) --
+// Bit-exact copy of the USD routine specialized to the Bake case: the 4x4
+// holds the orthonormal frame axes as rows 0-2 with _mtx[3][3] == 1.0,
+// so the matrix setup, the out-of-line call, and the GfQuatd round-trip
+// drop out while every comparison and every double op stays in the same
+// order (including `4 * q` with the int literal). The sequence has no
+// multiply-add patterns, so FP contraction cannot diverge between
+// translation units. Re-check against the USD source on USD upgrades.
+GfQuatf
+_QuatFromFrameRows(GfVec3d const &xAxis, GfVec3d const &yAxis,
+                   GfVec3d const &zAxis)
+{
+    double const m[3][3] = {{xAxis[0], xAxis[1], xAxis[2]},
+                            {yAxis[0], yAxis[1], yAxis[2]},
+                            {zAxis[0], zAxis[1], zAxis[2]}};
+    // Branchless max-diagonal select (bit-identical): the same three
+    // `>` comparisons feed integer logic yielding the same i for every
+    // input, including NaN (all three comparisons are false, i = 2,
+    // exactly as the branches give). Removes two data-dependent
+    // branches the predictor misses on near-50/50 frame diagonals.
+    int const c01 = m[0][0] > m[1][1] ? 1 : 0;
+    int const c02 = m[0][0] > m[2][2] ? 1 : 0;
+    int const c12 = m[1][1] > m[2][2] ? 1 : 0;
+    // i = 0 iff c01 & c02, 1 iff ~c01 & c12, else 2: single-cycle int
+    // ops, no multiplies.
+    int const i = 2 - ((c01 & c02) << 1) - ((c01 ^ 1) & c12);
+    double im[3];
+    double r;
+    if (m[0][0] + m[1][1] + m[2][2] > m[i][i]) {
+        r = 0.5 * std::sqrt(m[0][0] + m[1][1] + m[2][2] + 1.0);
+        im[0] = (m[1][2] - m[2][1]) / (4.0 * r);
+        im[1] = (m[2][0] - m[0][2]) / (4.0 * r);
+        im[2] = (m[0][1] - m[1][0]) / (4.0 * r);
+    } else {
+        int const j = (i + 1) % 3;
+        int const k = (i + 2) % 3;
+        double const q =
+            0.5 * std::sqrt(m[i][i] - m[j][j] - m[k][k] + 1.0);
+        im[i] = q;
+        im[j] = (m[i][j] + m[j][i]) / (4 * q);
+        im[k] = (m[k][i] + m[i][k]) / (4 * q);
+        r = (m[j][k] - m[k][j]) / (4 * q);
+    }
+    if (r < -1.0) r = -1.0;  // GfClamp(r, -1.0, 1.0), gf/math.h
+    if (r > 1.0) r = 1.0;
+    // GfQuatf(GfQuatd) is a plain per-component conversion (quatf.cpp),
+    // no normalization: construct it directly from the doubles.
+    return GfQuatf(float(r),
+                   GfVec3f(float(im[0]), float(im[1]), float(im[2])));
+}
+
 // Curve spans: uniform (totalCvs divisible by totalCurves) or ragged
 // cvOffsets. Mirrors the engine's span validation (curveBuffer.h detail).
+// Uniform spans are never materialized (bit-identical): spans[c] is
+// exactly c*per in uint32 arithmetic, so callers compute curve starts
+// inline and the ~4MB assign+fill+read traffic is gone. *perOut
+// carries per; spans stays empty. Ragged fills as before.
 bool
 _Spans(usdGen::UsdGenCurveBuffer const &curves, std::vector<uint32_t> *spans,
-       std::string *error)
+       uint32_t *perOut, std::string *error)
 {
     uint32_t const n = curves.totalCurves;
-    spans->assign(size_t(n) + 1, 0);
     if (curves.cvOffsets.empty()) {
+        *perOut = 0;
         if (n == 0) {
             if (curves.totalCvs != 0)
                 return _Fail("instance: uniform topology has CVs but no curves",
@@ -161,11 +413,10 @@ _Spans(usdGen::UsdGenCurveBuffer const &curves, std::vector<uint32_t> *spans,
         if (curves.totalCvs % n != 0)
             return _Fail("instance: uniform topology has non-integral CV count",
                          error);
-        uint32_t const per = curves.totalCvs / n;
-        for (uint32_t c = 0; c != n; ++c)
-            (*spans)[c + 1] = (*spans)[c] + per;
+        *perOut = curves.totalCvs / n;
         return true;
     }
+    spans->assign(size_t(n) + 1, 0);
     if (curves.cvOffsets.size() != size_t(n) + 1 || curves.cvOffsets.front() != 0)
         return _Fail("instance: ragged topology has invalid offsets", error);
     for (uint32_t c = 0; c != n; ++c) {
@@ -390,10 +641,15 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
     if (curves.curveId.size() != n)
         return _Fail("instance: curveId is not per-curve", error);
 
+    // Hoisted orient dispatch (bit-identical): params.orient is
+    // loop-invariant, so the token comparisons (out-of-line calls) run once
+    // instead of once per curve.
+    bool const orientWorld = (params.orient == OrientWorld());
+    bool const orientSurface = (params.orient == OrientSurfaceFrame());
     // Root frames are required exactly when consumed: every frame-relative
     // orient, plus any nonzero normalOffset (which pushes along rootN).
     bool const needFrames =
-        params.orient != OrientWorld() || params.normalOffset != 0.0f;
+        !orientWorld || params.normalOffset != 0.0f;
     // Spheres ignore orientation, but a frame-relative orient still selects
     // its (discarded) frame path only for cards; spheres skip frames unless
     // the offset needs them.
@@ -405,9 +661,13 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                        curves.rootB.size() != n))
         return _Fail("instance: root frames are not per-curve", error);
 
-    std::vector<uint32_t> spans;
-    if (!_Spans(curves, &spans, error))
+    std::vector<uint32_t> spans;  // ragged only; empty when uniform
+    uint32_t uniformPer = 0;
+    if (!_Spans(curves, &spans, &uniformPer, error))
         return false;
+    // Same empty-cvOffsets test _Spans branches on: uniform curves read
+    // spans[c] as c*uniformPer inline, ragged read the filled vector.
+    bool const uniformSpans = curves.cvOffsets.empty();
 
     // Re-rooted prototype paths: the authored leaf re-homed under
     // <instancer>/Prototypes (06 §4.3). Leaves must be unique: two
@@ -444,21 +704,67 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
     float const lo = std::min(params.scaleRandom[0], params.scaleRandom[1]);
     float const hi = std::max(params.scaleRandom[0], params.scaleRandom[1]);
 
+    // Constant-twist fast path (bit-identical): with twistRandom == 0 the
+    // angle is params.twist for every curve (twist + 0*x == twist for the
+    // finite inputs Validate admits), so its cos/sin hoist out of the loop
+    // and the per-curve twist draw is dead. With twist == 0 as well the
+    // angle is exactly zero and the post-rotation always skips, as before.
+    bool const twistConst = params.twistRandom == 0.0f;
+    double const twistA =
+        double(params.twist) * (3.141592653589793 / 180.0);
+    double const twistCa = std::cos(twistA), twistSa = std::sin(twistA);
+
     double weightTotal = 0.0;
     for (float w : params.weights) weightTotal += double(w);
+
+    // Hoisted draw seed folds (bit-identical CSE): params.seed is
+    // loop-invariant, so each draw salt's _Hash64(seed32, salt) is computed
+    // once per Bake instead of once per curve per draw.
+    uint64_t const seed32 = uint64_t(uint32_t(params.seed));
+    uint64_t const seedProto = _Hash64(seed32, kSaltInstanceProto);
+    uint64_t const seedScale = _Hash64(seed32, kSaltInstanceScale);
+    uint64_t const seedTwist = _Hash64(seed32, kSaltInstanceTwist);
 
     UsdGenInstanceResult out;
     out.instancerPath = instancerPath;
     out.prototypePaths = protoPaths;
     out.instanceIndices.assign(nProtos, VtIntArray());
-    out.translations.resize(n);
-    out.rotations.resize(n);
-    out.scales.resize(n);
-    out.prototypeIndex.resize(n);
+    // Deferred-init sizing (bit-identical): resize(n) value-initializes
+    // (~44MB of zeroes here) that the Bake loop below overwrites in full:
+    // every lane of every array on both the spheres and the cards path,
+    // while the _Fail exits discard `out` unread, so no uninitialized
+    // element is ever observed. The arrays size through resize(n, fill)
+    // with an empty filler over uninitialized storage instead. `out` is
+    // function-local, so every array is fresh (null) and the fill runs
+    // exactly once per array at full range.
+    auto noInit = [](auto *b, auto *e) {
+        (void)b;
+        (void)e;
+    };
+    out.translations.resize(n, noInit);
+    out.rotations.resize(n, noInit);
+    out.scales.resize(n, noInit);
+    out.prototypeIndex.resize(n, noInit);
 
-    for (uint32_t c = 0; c != n; ++c) {
+    // Chunked over workers for big bakes: every curve's outputs are
+    // per-curve independent (translations/rotations/scales/prototypeIndex
+    // write disjoint lanes of the pre-sized arrays; all reads are shared
+    // and immutable), the per-prototype index lists concatenate in range
+    // order (identical to the serial push_back order), and the first
+    // failure in curve order wins (same _Fail contract). Any chunking is
+    // bit-identical. Small bakes stay serial (below ~32K curves the
+    // dispatch costs more than the loop). The loop body below is
+    // byte-for-byte the serial spelling, only wrapped in the range.
+    int const workers = tbb::this_task_arena::max_concurrency();
+    size_t const bakeChunks =
+        (workers > 1 && n > 32768) ? std::min({size_t(workers), size_t(8),
+                                               size_t(n)})
+                                   : 1;
+    auto bakeRange = [&](uint32_t c0, uint32_t c1, BakeRangeSlot &slot) {
+    for (uint32_t c = c0; c != c1; ++c) {
         uint64_t const curveId = curves.curveId[c];
-        uint32_t const first = spans[c];
+        uint32_t const first =
+            uniformSpans ? c * uniformPer : spans[c];
         GfVec3f const root(curves.px[first], curves.py[first], curves.pz[first]);
 
         GfVec3d N(0.0, 0.0, 1.0);
@@ -471,11 +777,11 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
         uint32_t proto = 0;
         if (params.weights.empty()) {
             float const d =
-                _Draw01(params.seed, curveId, kSaltInstanceProto);
+                _Draw01Seeded(seedProto, curveId, kSaltInstanceProto);
             proto = std::min(uint32_t(d * float(nProtos)), uint32_t(nProtos - 1));
         } else {
             float const d =
-                _Draw01(params.seed, curveId, kSaltInstanceProto);
+                _Draw01Seeded(seedProto, curveId, kSaltInstanceProto);
             double const x = double(d) * weightTotal;
             double accum = 0.0;
             proto = uint32_t(nProtos - 1);
@@ -488,10 +794,10 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
             }
         }
         out.prototypeIndex[c] = int(proto);
-        out.instanceIndices[proto].push_back(int(c));
+        slot.indices[proto].push_back(int(c));
 
         float const sDraw =
-            _Draw01(params.seed, curveId, kSaltInstanceScale);
+            _Draw01Seeded(seedScale, curveId, kSaltInstanceScale);
         float const s = params.scale * (lo + (hi - lo) * sDraw);
 
         if (!isCards) {
@@ -505,25 +811,34 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
         // Cards: orientation frame + twist about the length axis.
         GfVec3d xAxis(1.0, 0.0, 0.0), yAxis(0.0, 1.0, 0.0),
             zAxis(0.0, 0.0, 1.0);
-        if (params.orient == OrientWorld()) {
+        if (orientWorld) {
             // Identity basis: nothing to derive.
-        } else if (params.orient == OrientSurfaceFrame()) {
+        } else if (orientSurface) {
             bool ok = false;
             yAxis = _Normalized(GfVec3d(curves.rootB[c]), &ok);
-            if (!ok)
-                return _Fail("instance: degenerate rootB frame", error);
-            GfVec3d z = GfVec3d(curves.rootN[c]) - yAxis * GfDot(
-                GfVec3d(curves.rootN[c]), yAxis);
+            if (!ok) {
+                slot.error.failed = true; slot.error.c = c;
+                slot.error.message = "instance: degenerate rootB frame";
+                break;
+            }
+            // Reuse N (bit-identical CSE): this path implies wantFrames,
+            // so N above already holds exactly GfVec3d(curves.rootN[c]).
+            GfVec3d z = N - yAxis * GfDot(N, yAxis);
             zAxis = _Normalized(z, &ok);
-            if (!ok)
-                return _Fail("instance: rootN parallel to rootB", error);
+            if (!ok) {
+                slot.error.failed = true; slot.error.c = c;
+                slot.error.message = "instance: rootN parallel to rootB";
+                break;
+            }
             xAxis = GfCross(yAxis, zAxis);
         } else {
             // curveTangent: y follows the root segment; z is the surface
             // normal with the tangent projected out.
             GfVec3d t(0.0);
             bool tok = false;
-            if (spans[c + 1] > first + 1) {
+            uint32_t const next =
+                uniformSpans ? (c + 1) * uniformPer : spans[c + 1];
+            if (next > first + 1) {
                 uint32_t const next = first + 1;
                 t = GfVec3d(double(curves.px[next]) - double(curves.px[first]),
                             double(curves.py[next]) - double(curves.py[first]),
@@ -534,47 +849,120 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                 // Single-CV span or a zero-length root segment: legal
                 // topology, so fall back to the growth axis, not failure.
                 yAxis = _Normalized(GfVec3d(curves.rootB[c]), &tok);
-                if (!tok)
-                    return _Fail("instance: degenerate tangent fallback",
-                                 error);
+                if (!tok) {
+                    slot.error.failed = true; slot.error.c = c;
+                    slot.error.message =
+                        "instance: degenerate tangent fallback";
+                    break;
+                }
             }
-            GfVec3d ref = GfVec3d(curves.rootN[c]);
-            bool rok = false;
-            GfVec3d const rn = _Normalized(ref, &rok);
-            if (!rok || std::abs(GfDot(rn, yAxis)) > 0.999)
+            // Reuse N (bit-identical CSE): this path implies wantFrames,
+            // so N above already holds exactly GfVec3d(curves.rootN[c]).
+            GfVec3d ref = N;
+            // Squared parallel-fallback test (saves a normalize: 1 sqrt +
+            // 3 divs): |dot(ref/len, y)| > 0.999 with len > 0 squares to
+            // d*d > 0.999^2*l2. d and l2 are the exact dots; the
+            // degenerate threshold sits a few ulp above (1e-12)^2 so a
+            // truly-degenerate ref always falls back, as !rok does.
+            // Matches except within rounding of either boundary.
+            double const rd = GfDot(ref, yAxis);
+            double const rl2 = GfDot(ref, ref);
+            bool const refFallback = !(rl2 > 1.000000000000002e-24) ||
+                rd * rd > (0.999 * 0.999) * rl2;
+            if (refFallback)
                 ref = GfVec3d(curves.rootT[c]);
-            GfVec3d z = ref - yAxis * GfDot(ref, yAxis);
+            // Reuse rd on the common path (bit-identical CSE): ref is
+            // unchanged when the fallback is not taken, so the tested dot
+            // is exactly the projection dot; the fallback re-dots verbatim.
+            double const rd2 = refFallback ? GfDot(ref, yAxis) : rd;
+            GfVec3d z = ref - yAxis * rd2;
             zAxis = _Normalized(z, &tok);
-            if (!tok)
-                return _Fail("instance: tangent parallel to frame", error);
+            if (!tok) {
+                slot.error.failed = true; slot.error.c = c;
+                slot.error.message = "instance: tangent parallel to frame";
+                break;
+            }
             xAxis = GfCross(yAxis, zAxis);
         }
 
-        float const tDraw =
-            _Draw01(params.seed, curveId, kSaltInstanceTwist);
-        float const twDeg =
-            params.twist + params.twistRandom * (tDraw * 2.0f - 1.0f);
-        if (params.orient != OrientWorld() && twDeg != 0.0f) {
+        float twDeg = params.twist;
+        if (!twistConst) {
+            float const tDraw =
+                _Draw01Seeded(seedTwist, curveId, kSaltInstanceTwist);
+            twDeg =
+                params.twist + params.twistRandom * (tDraw * 2.0f - 1.0f);
+        }
+        if (!orientWorld && twDeg != 0.0f) {
             // Local-space post-rotation by R_y(+tw): newX = M*(ca,0,-sa),
             // newZ = M*(sa,0,ca). twist = +90 about Y sends local X to -Z.
-            double const a = double(twDeg) * (3.141592653589793 / 180.0);
-            double const ca = std::cos(a), sa = std::sin(a);
+            double ca, sa;
+            if (twistConst) {
+                ca = twistCa;
+                sa = twistSa;
+            } else {
+                double const a =
+                    double(twDeg) * (3.141592653589793 / 180.0);
+                ca = std::cos(a);
+                sa = std::sin(a);
+            }
             GfVec3d const x = xAxis * ca - zAxis * sa;
             GfVec3d const z = xAxis * sa + zAxis * ca;
             xAxis = x;
             zAxis = z;
         }
-        GfMatrix4d basis(1.0);
-        // Row-vector frame: GfMatrix4d rotates v as v*M, so the frame axes
-        // are ROWS (row i = image of basis vector i), matching the
-        // root-frame row convention every consumer uses. Columns would bake
-        // the transposed rotation.
-        basis.SetRow(0, GfVec4d(xAxis[0], xAxis[1], xAxis[2], 0.0));
-        basis.SetRow(1, GfVec4d(yAxis[0], yAxis[1], yAxis[2], 0.0));
-        basis.SetRow(2, GfVec4d(zAxis[0], zAxis[1], zAxis[2], 0.0));
-        out.rotations[c] = GfQuatf(basis.ExtractRotationQuat());
+        // Row-vector frame: the frame axes are ROWS (row i = image of
+        // basis vector i), matching the root-frame row convention every
+        // consumer uses. Columns would bake the transposed rotation.
+        out.rotations[c] = _QuatFromFrameRows(xAxis, yAxis, zAxis);
         out.scales[c] = GfVec3f(
             params.width * cardProfile * s, params.length * s, s);
+    }
+    };
+    std::vector<BakeRangeSlot> slots(bakeChunks);
+    for (auto &s : slots)
+        s.indices.resize(nProtos);
+    if (bakeChunks == 1) {
+        bakeRange(0, n, slots[0]);
+    } else {
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, bakeChunks),
+            [&](tbb::blocked_range<size_t> const &range) {
+                for (size_t t = range.begin(); t != range.end(); ++t) {
+                    uint32_t const c0 =
+                        uint32_t((t * uint64_t(n)) / bakeChunks);
+                    uint32_t const c1 =
+                        uint32_t(((t + 1) * uint64_t(n)) / bakeChunks);
+                    bakeRange(c0, c1, slots[t]);
+                }
+            });
+    }
+    // Ranges are curve-ordered, so the first failed range holds the serial
+    // loop's first failure: same _Fail contract.
+    for (size_t t = 0; t < bakeChunks; ++t) {
+        if (!slots[t].error.failed)
+            continue;
+        return _Fail(slots[t].error.message, error);
+    }
+    // Concatenate the per-range index lists in range order: identical to
+    // the serial push_back order (same values; capacities may differ,
+    // which no reader observes).
+    // Uninitialized sizing (bit-identical): total is the exact sum of the
+    // copied sizes and the loop below writes every lane contiguously, so
+    // resize's value-init (~4MB of zeroes here) is dead and folds into
+    // the noInit filler over uninitialized storage. Same bytes either way.
+    for (size_t p = 0; p < nProtos; ++p) {
+        size_t total = 0;
+        for (auto const &s : slots)
+            total += s.indices[p].size();
+        VtIntArray &dst = out.instanceIndices[p];
+        dst.resize(total, noInit);
+        int *w = dst.empty() ? nullptr : dst.data();
+        for (auto const &s : slots) {
+            if (!s.indices[p].empty()) {
+                std::memcpy(w, s.indices[p].data(),
+                            s.indices[p].size() * sizeof(int));
+                w += s.indices[p].size();
+            }
+        }
     }
 
     // Variation primvars: default {"displayColor"} when nothing is authored.
@@ -597,14 +985,69 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
             plane.interpolation = TfToken("instance");
             plane.type = TfToken("float");
             plane.arity = 3;
-            plane.f.resize(size_t(n) * 3);
-            for (uint32_t c = 0; c != n; ++c) {
-                GfVec3f const v = wantColorPerCv
-                    ? input.displayColor[spans[c]]
-                    : input.displayColor[c];
-                plane.f[size_t(c) * 3 + 0] = v[0];
-                plane.f[size_t(c) * 3 + 1] = v[1];
-                plane.f[size_t(c) * 3 + 2] = v[2];
+            // Uninitialized sizing (bit-identical): the resize + full
+            // overwrite below folds into resize(count, fill), whose filler
+            // runs over uninitialized storage. `plane` is function-local, so
+            // the fill runs exactly once at full range. Same bytes either way.
+            size_t const count3 = size_t(n) * 3;
+            if (!wantColorPerCv) {
+                // Per-curve colors are contiguous GfVec3f == 3 floats: one
+                // copy instead of a strided per-component loop. Same bytes.
+                void const *src = input.displayColor.cdata();
+                plane.f.resize(count3, [src](float *b, float *e) {
+                    _MemcpyChunked(b, src,
+                                   size_t(e - b) * sizeof(float));
+                });
+            } else {
+                GfVec3f const *colors = input.displayColor.cdata();
+                uint32_t const *offsets =
+                    uniformSpans ? nullptr : spans.data();
+                // Chunked over curve ranges for big bakes (bit-identical):
+                // every curve reads its own root-CV color and writes a
+                // disjoint output triple, so any range split writes the
+                // same bytes. Small bakes stay serial: below ~32K curves
+                // the dispatch costs more than the gather.
+                size_t const gatherChunks =
+                    (workers > 1 && n > 32768)
+                        ? std::min({size_t(workers), size_t(8), size_t(n)})
+                        : 1;
+                plane.f.resize(count3, [colors, offsets, uniformSpans,
+                                        uniformPer, gatherChunks](float *b,
+                                                                 float *e) {
+                    if (gatherChunks == 1) {
+                        float *d = b;
+                        for (uint32_t c = 0; d != e; ++c, d += 3) {
+                            GfVec3f const v = colors[uniformSpans
+                                                         ? c * uniformPer
+                                                         : offsets[c]];
+                            new (d + 0) float(v[0]);
+                            new (d + 1) float(v[1]);
+                            new (d + 2) float(v[2]);
+                        }
+                        return;
+                    }
+                    size_t const M = size_t(e - b) / 3;
+                    tbb::parallel_for(
+                        tbb::blocked_range<size_t>(0, gatherChunks),
+                        [&](tbb::blocked_range<size_t> const &range) {
+                            for (size_t t = range.begin(); t != range.end();
+                                 ++t) {
+                                size_t const c0 = (t * M) / gatherChunks;
+                                size_t const c1 =
+                                    ((t + 1) * M) / gatherChunks;
+                                for (size_t c = c0; c < c1; ++c) {
+                                    GfVec3f const v = colors[uniformSpans
+                                                                 ? uint32_t(c) *
+                                                                       uniformPer
+                                                                 : offsets[c]];
+                                    float *d = b + 3 * c;
+                                    new (d + 0) float(v[0]);
+                                    new (d + 1) float(v[1]);
+                                    new (d + 2) float(v[2]);
+                                }
+                            }
+                        });
+                });
             }
             out.varyings.push_back(plane);
             continue;
@@ -638,15 +1081,23 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                 continue;
             }
             if (found->type == TfToken("float")) {
-                plane.f.resize(expect);
-                for (uint32_t c = 0; c != n; ++c)
-                    for (uint32_t k = 0; k != found->arity; ++k)
-                        plane.f[size_t(c) * found->arity + k] = found->f[k];
+                float const *vals = found->f.cdata();
+                uint32_t const arity = found->arity;
+                plane.f.resize(expect, [vals, arity](float *b, float *e) {
+                    for (float *d = b; d != e;) {
+                        for (uint32_t k = 0; k != arity; ++k, ++d)
+                            new (d) float(vals[k]);
+                    }
+                });
             } else {
-                plane.i.resize(expect);
-                for (uint32_t c = 0; c != n; ++c)
-                    for (uint32_t k = 0; k != found->arity; ++k)
-                        plane.i[size_t(c) * found->arity + k] = found->i[k];
+                int const *vals = found->i.cdata();
+                uint32_t const arity = found->arity;
+                plane.i.resize(expect, [vals, arity](int *b, int *e) {
+                    for (int *d = b; d != e;) {
+                        for (uint32_t k = 0; k != arity; ++k, ++d)
+                            new (d) int(vals[k]);
+                    }
+                });
             }
         } else if (found->interpolation == TfToken("uniform")) {
             if ((found->type == TfToken("float") &&
@@ -720,9 +1171,18 @@ UsdGenInstancer::BuildInstancerDataSource(
         // mis-syncs every instance. Storm accepts both encodings, so the
         // data source publishes quath -- the wire type every Hydra consumer
         // reads -- while Bake keeps full float precision (docs/moonray-fur.md).
-        VtQuathArray quath(result.rotations.size());
-        for (size_t i = 0; i != result.rotations.size(); ++i)
-            quath[i] = GfQuath(result.rotations[i]);
+        // Uninitialized sizing (bit-identical): VtQuathArray(n)
+        // value-initializes (8MB of zeroes here) that the vector
+        // quatf->quath conversion overwrites in full, so the array sizes
+        // through resize(n, fill) with the conversion as the filler over
+        // uninitialized storage. `quath` is function-local, so the fill
+        // runs exactly once at full range.
+        VtQuathArray quath;
+        GfQuatf const *quatSrc = result.rotations.cdata();
+        quath.resize(result.rotations.size(),
+                     [quatSrc](GfQuath *b, GfQuath *e) {
+                         _ConvertQuats(b, quatSrc, size_t(e - b));
+                     });
         _Add(&pvNames, &pvValues, HdInstancerTokens->instanceRotations,
              _InstancePrimvar(_Samp(quath)));
         _Add(&pvNames, &pvValues, HdInstancerTokens->instanceScales,
@@ -739,17 +1199,31 @@ UsdGenInstancer::BuildInstancerDataSource(
             } else if (plane.arity == 3 && plane.f.size() % 3 == 0) {
                 // hdMoonray ignores elementSize, so pack float3: a flat
                 // VtFloatArray would be misread as one scalar per instance.
-                VtVec3fArray packed(plane.f.size() / 3);
-                for (size_t i = 0; i != packed.size(); ++i)
-                    packed[i] = GfVec3f(plane.f[3 * i], plane.f[3 * i + 1],
-                                        plane.f[3 * i + 2]);
+                // GfVec3f is 3 contiguous floats: one copy, same bytes.
+                // Uninitialized sizing (bit-identical): the pack sizes
+                // through resize(count, fill) with the copy as the filler
+                // over uninitialized storage. Same bytes either way.
+                VtVec3fArray packed;
+                void const *packSrc = plane.f.cdata();
+                packed.resize(plane.f.size() / 3,
+                              [packSrc](GfVec3f *b, GfVec3f *e) {
+                                  _MemcpyChunked(b, packSrc,
+                                                 size_t(e - b) *
+                                                 sizeof(GfVec3f));
+                              });
                 sampled = _Samp(packed);
                 if (plane.name == TfToken("displayColor"))
                     role = TfToken("color");
             } else if (plane.arity == 2 && plane.f.size() % 2 == 0) {
-                VtVec2fArray packed(plane.f.size() / 2);
-                for (size_t i = 0; i != packed.size(); ++i)
-                    packed[i] = GfVec2f(plane.f[2 * i], plane.f[2 * i + 1]);
+                // Likewise: GfVec2f is 2 contiguous floats.
+                VtVec2fArray packed;
+                void const *packSrc = plane.f.cdata();
+                packed.resize(plane.f.size() / 2,
+                              [packSrc](GfVec2f *b, GfVec2f *e) {
+                                  _MemcpyChunked(b, packSrc,
+                                                 size_t(e - b) *
+                                                 sizeof(GfVec2f));
+                              });
                 sampled = _Samp(packed);
             } else {
                 sampled = _Samp(plane.f);

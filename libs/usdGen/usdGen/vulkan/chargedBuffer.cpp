@@ -42,6 +42,12 @@ std::shared_ptr<ChargedBuffer> ChargedBuffer::Create(std::shared_ptr<DeviceConte
     owner->permit_ = std::move(*permit);
     uint32_t memoryType = FindMemoryType(context->physicalDevice(), requirements.memoryTypeBits, properties);
     if (memoryType == UINT32_MAX) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
+    {
+        VkPhysicalDeviceMemoryProperties memProps{};
+        vkGetPhysicalDeviceMemoryProperties(context->physicalDevice(), &memProps);
+        if (memoryType < memProps.memoryTypeCount)
+            owner->memoryPropertyFlags_ = memProps.memoryTypes[memoryType].propertyFlags;
+    }
     VkMemoryAllocateInfo allocation{};
     allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocation.allocationSize = requirements.size; allocation.memoryTypeIndex = memoryType;

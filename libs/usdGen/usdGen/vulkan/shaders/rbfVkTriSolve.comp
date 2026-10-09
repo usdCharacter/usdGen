@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-// rbfVkTriSolve.comp — device replacement for the cuSOLVER Dgetrs call in
-// CudaRbfBinding::Solve (rbf.cu:485): forward/back substitution of the
-// LU-factored bordered system for all three right-hand sides.
+// rbfVkTriSolve.comp — RETIRED, kept for the binding's seven-module ABI.
+// The solve now runs on the host in RbfVkBinding::PollSolve (same order,
+// bitwise identical): 3 GPU threads of serial O(m^2) work took ~20ms at
+// m=404. This module is still validated at Create but never dispatched.
 //
 // One invocation per column (3 active in a single workgroup, no barriers
 // needed): gather the permuted RHS, solve L y = P b, then U x = y, in

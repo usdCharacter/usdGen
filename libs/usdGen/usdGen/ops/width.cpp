@@ -166,6 +166,48 @@ void UsdGenWidthOp::Evaluate(
         UsdGenBuildRampLut(widthKnots, p ? p->GetToken(sKnotsInterp, sCatmullRom) : sCatmullRom, tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
+    // Uniform fast path: a flat ramp with uniform width/mask fields makes
+    // target and envelope loop-invariant, so they hoist out of the element
+    // loop and the t evaluation (dead: it feeds only the LUT branch) drops
+    // with its hairT read. The per-element math below is the generic body's
+    // with the same operands, so the stores are bitwise identical.
+    if (magFlat && widthField.Uniform() && maskField.Uniform()) {
+        float const width =
+            static_cast<float>(widthField.Value(curveBase, cvBase));
+        float const target = width * 1.0f;
+        float const envelope = std::clamp(
+            static_cast<float>(maskField.Value(curveBase, cvBase)), 0.0f, 1.0f);
+        if (replace) {
+            for (uint32_t c = 0; c < view->curveCount; ++c) {
+                size_t const cv = view->cvCount ? size_t(view->cvCount)
+                    : (view->cvOffsets ? size_t(view->cvOffsets[c + 1] - view->cvOffsets[c]) : 0);
+                size_t const first = view->cvCount ? size_t(c) * view->cvCount
+                    : (view->cvOffsets ? size_t(view->cvOffsets[c]) -
+                         (view->desc ? view->desc->firstCv : 0) : 0);
+                for (size_t i = 0; i < cv; ++i) {
+                    const size_t o = first + i;
+                    const float input = inWidth ? inWidth[o] : defaultInputWidth;
+                    float const w = input + (target - input) * envelope;
+                    view->width[o] = std::max(0.0f, w);
+                }
+            }
+        } else {
+            for (uint32_t c = 0; c < view->curveCount; ++c) {
+                size_t const cv = view->cvCount ? size_t(view->cvCount)
+                    : (view->cvOffsets ? size_t(view->cvOffsets[c + 1] - view->cvOffsets[c]) : 0);
+                size_t const first = view->cvCount ? size_t(c) * view->cvCount
+                    : (view->cvOffsets ? size_t(view->cvOffsets[c]) -
+                         (view->desc ? view->desc->firstCv : 0) : 0);
+                for (size_t i = 0; i < cv; ++i) {
+                    const size_t o = first + i;
+                    const float input = inWidth ? inWidth[o] : defaultInputWidth;
+                    float const w = input * (1.0f + (target - 1.0f) * envelope);
+                    view->width[o] = std::max(0.0f, w);
+                }
+            }
+        }
+        return;
+    }
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const cv = view->cvCount ? size_t(view->cvCount)
             : (view->cvOffsets ? size_t(view->cvOffsets[c + 1] - view->cvOffsets[c]) : 0);

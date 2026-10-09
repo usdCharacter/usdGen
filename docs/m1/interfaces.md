@@ -306,7 +306,8 @@ out: it never sees a `UsdStage`, a scene index or an `SdfLayer` (S8).
 ### 4.6 `scheduler.h` — private task arena + commit driver
 
 - I8: every parallel region runs in a **private** `tbb::task_arena` sized at
-  the measured 8-thread knee (EV-001/EV-008), never the process-default
+  max(8, fast-core count) on heterogeneous Linux (the measured 8-thread
+  knee of EV-001/EV-008 is the floor), never the process-default
   arena; `USDGEN_THREAD_LIMIT` pins it, else one-shot `CalibrateThreads()`
   (sweeps {2,4,8,16,min(20,physical)}, smallest within 5 % of best). All
   loops are `tbb::parallel_for` inside `_arena.execute` — never `pxr

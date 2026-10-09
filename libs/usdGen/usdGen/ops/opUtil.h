@@ -34,7 +34,82 @@ struct Digest
     }
     void Mix(TfToken const &t) { for (char const *p = t.GetText(); *p; ++p) Mix(uint64_t(uint8_t(*p))); }
     void Mix(VtValue const &v) { Mix(uint64_t(v.IsEmpty() ? 0 : v.GetHash())); }
+    /// FNV-1a over a byte range, one round per 8-byte word. The multiply
+    /// chain is the bottleneck, so groups of four words run as four
+    /// independent lanes (distinct seeds, folded back in order). Faster
+    /// than a serial word loop; the epoch values differ from serial
+    /// mixing, but epochs are only compared for equality within a process.
+    void MixBytes(void const *data, size_t bytes)
+    {
+        auto const *p = static_cast<unsigned char const *>(data);
+        size_t words = bytes / 8;
+        if (words >= 4) {
+            uint64_t l0 = 1469598103934665603ULL;
+            uint64_t l1 = l0 ^ 0x9e3779b97f4a7c15ULL;
+            uint64_t l2 = l0 ^ 0xbf58476d1ce4e5b9ULL;
+            uint64_t l3 = l0 ^ 0x94d049bb133111ebULL;
+            size_t const groups = words / 4;
+            for (size_t g = 0; g < groups; ++g) {
+                uint64_t w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+                std::memcpy(&w0, p + g * 32, sizeof(w0));
+                std::memcpy(&w1, p + g * 32 + 8, sizeof(w1));
+                std::memcpy(&w2, p + g * 32 + 16, sizeof(w2));
+                std::memcpy(&w3, p + g * 32 + 24, sizeof(w3));
+                l0 ^= w0; l0 *= 0x100000001b3ULL;
+                l1 ^= w1; l1 *= 0x100000001b3ULL;
+                l2 ^= w2; l2 *= 0x100000001b3ULL;
+                l3 ^= w3; l3 *= 0x100000001b3ULL;
+            }
+            Mix(l0);
+            Mix(l1);
+            Mix(l2);
+            Mix(l3);
+            size_t const done = groups * 32;
+            p += done;
+            bytes -= done;
+            words -= groups * 4;
+        }
+        while (words-- > 0) {
+            uint64_t word = 0;
+            std::memcpy(&word, p, sizeof(word));
+            Mix(word);
+            p += 8;
+            bytes -= 8;
+        }
+        for (size_t i = 0; i < bytes; ++i) Mix(uint64_t(p[i]));
+    }
     UsdGenEpoch Epoch(uint64_t salt) const { return {h, h ^ salt}; }
+};
+
+/// Memoized MixBytes for a rest/topology array that is usually static across
+/// poses. The key is the shared buffer's identity (pointer + size), not its
+/// content: the cache holds a VtArray reference, and VtArray is
+/// copy-on-write, so any in-place edit detaches the writer to a new buffer
+/// and the key misses. A hit therefore proves the bytes are unchanged, and a
+/// miss rehashes exactly as before, so the epochs are unchanged. For use from
+/// const CaptureDigest (mutable member); digests run per node, never
+/// concurrently on one op.
+template <class VtArrayT>
+class ContentDigestCache
+{
+public:
+    uint64_t Digest(VtArrayT const &values)
+    {
+        if (valid_ && values.size() == array_.size() &&
+            (values.empty() || values.cdata() == array_.cdata()))
+            return digest_;
+        opUtil::Digest d;
+        d.MixBytes(values.cdata(), values.size() * sizeof(*values.cdata()));
+        array_ = values;
+        digest_ = d.h;
+        valid_ = true;
+        return digest_;
+    }
+
+private:
+    VtArrayT array_;
+    uint64_t digest_ = 0;
+    bool valid_ = false;
 };
 
 /// Curve spans [spans[c], spans[c+1]) of a uniform or ragged buffer.

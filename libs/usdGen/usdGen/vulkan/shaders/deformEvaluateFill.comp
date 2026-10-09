@@ -1,0 +1,69 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+
+// deformEvaluateFill.comp — fills the deform R cache: R[j*P+i] is the
+// radius-cubed kernel value for CV i and sample j. The r expression is
+// deformEvaluate.comp's text verbatim (same operations in the same
+// order), so every cached word is bitwise what the eval loop computed;
+// only the grid is transposed (one thread per (i,j) with consecutive
+// threads on consecutive CVs) so the 8-byte writes coalesce. Deliberately
+// no finiteness check: a non-finite CV writes a NaN word the cached
+// evaluator never reads (it returns before the loop, exactly like the
+// direct shader), and the evaluator still raises the flag.
+//
+// Dispatched indirectly: the verify shader writes (fillGroups,n,1) on a
+// proof mismatch (or the host pre-writes it to force a refill), and a
+// (0,*,*) count makes the dispatch a no-op on cache hits.
+//
+// ABI — descriptors:
+//   0 cvs     float[3*points] RO  (input CVs)
+//   1 r       double[n*P]      W  (R rows, P-wide stride)
+//   2 samples double[3*n]     RO  (rest RBF samples, host-centered:
+//                                    sample - center, interleaved; the shader
+//                                    still multiplies by invScale)
+//   3 UBO     FillUbo (48 bytes)
+//
+// Dispatch: local_size_x=256, indirect (fillGroups, n, 1).
+
+#version 460
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Cvs     { float cvs[]; };
+layout(std430, binding = 1) buffer RCache           { double rcache[]; };
+layout(std430, binding = 2) readonly buffer Samples { double samples[]; };
+
+layout(std140, binding = 3) uniform Params {
+    ivec4 shape; // x = n, y = active, z = P (R row stride), w reserved
+    double cx;
+    double cy;
+    double cz;
+    double invScale;
+} params;
+
+#define P3(a, i) vec3((a)[3u*(i)], (a)[3u*(i)+1u], (a)[3u*(i)+2u])
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint j = gl_GlobalInvocationID.y;
+    if (i >= uint(params.shape.y) || j >= uint(params.shape.x)) return;
+
+    // Verbatim deformEvaluate normalizer so the fill consumes the same
+    // doubles the eval loop consumed.
+    vec3 p = P3(cvs, i);
+    double x = (double(p.x) - params.cx) * params.invScale;
+    double y = (double(p.y) - params.cy) * params.invScale;
+    double z = (double(p.z) - params.cz) * params.invScale;
+
+    // The r expression spells its fusion explicitly (and identically
+    // to deformEvaluate.comp): the straight-line fill fuses differently
+    // than the looped eval for the same source text (1-ULP output flips
+    // on rounding-boundary CVs), so both shaders pin the fully-fused
+    // evaluation with fma() instead of relying on the driver's
+    // context-dependent contraction.
+    double dx = fma(-samples[3u*j], params.invScale, x);
+    double dy = fma(-samples[3u*j + 1u], params.invScale, y);
+    double dz = fma(-samples[3u*j + 2u], params.invScale, z);
+    double r  = sqrt(fma(dz, dz, fma(dx, dx, dy*dy)));
+    r = r * r * r;
+    rcache[uint(params.shape.z) * j + i] = r;
+}

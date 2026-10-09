@@ -1,0 +1,59 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+
+// deformEvaluateVerify.comp — prefix-CV proof check and snapshot for the
+// deform R cache, plus the self-scheduling fill decision.
+//
+// Compares the active prefix CVs against the cached proof snapshot,
+// word by word over the float bits. Every thread then snapshots its word
+// (proof[w] = cur[w]), so after every cached-path pose the proof holds
+// the current prefix bytes. Any mismatch also writes the indirect fill
+// counts (fillGroups, n, 1) over the host's pre-write: the host
+// pre-writes (0,1,1) for a speculative pose (a match leaves a no-op
+// fill) or (fillGroups,n,1) to force a refill (rest/n/growth change or
+// first use). All mismatch threads write the same triple, so the race is
+// benign; the cmd0 barrier orders the write before the indirect fill
+// dispatch reads it.
+//
+// Only the CV bytes are verified here: the rest samples and n are
+// host-side BeginInfo, compared with memcmp on the host (a mismatch
+// forces the fill instead of speculating).
+//
+// ABI — descriptors:
+//   0 cur   uint[3*active] RO  (current prefix CV bits)
+//   1 proof uint[3*P]      RW  (snapshot; read, then overwritten with cur)
+//   2 args  uint[3]         W  (indirect fill counts; host pre-writes)
+//   3 UBO   VerifyUbo (16 bytes)
+//
+// Dispatch: local_size_x=256, groups=ceil(3*active/256).
+
+#version 460
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Cur   { uint cur[]; };
+layout(std430, binding = 1) buffer Proof          { uint proof[]; };
+layout(std430, binding = 2) buffer Args           { uint args[]; };
+
+layout(std140, binding = 3) uniform Params {
+    ivec4 wn; // x = words (3*active), y = n, zw reserved
+} params;
+
+void main() {
+    uint words = uint(params.wn.x);
+    // The 256u stride is local_size_x: grid-stride loops flatten at the
+    // workgroup width, so the two literals move together.
+    for (uint w = gl_GlobalInvocationID.x; w < words; w += gl_NumWorkGroups.x * 256u) {
+        uint c = cur[w];
+        if (c != proof[w]) {
+            // The 256u divisor is the FILL shader's local_size_x (this
+            // writes the fill's indirect x count); it matches the host's
+            // forced pre-write formula exactly, so force and mismatch
+            // write the same triple.
+            uint prefix = words / 3u;
+            args[0] = (prefix + 255u) / 256u;
+            args[1] = uint(params.wn.y);
+            args[2] = 1u;
+        }
+        proof[w] = c;
+    }
+}

@@ -17,6 +17,12 @@ template <class T> struct DeviceView {
     constexpr explicit operator bool() const { return data != nullptr || size == 0; }
 };
 
+// Diagnostic gauge for tests: idle device bytes currently retained by the
+// DeviceBuffer reuse cache process-wide. Cached storage is uncharged (its
+// permit released at insert), so pool accounting reads as if freed; this
+// gauge is the only window into the retained physical bytes.
+size_t UsdGenGpuDeviceBufferCacheBytes() noexcept;
+
 // A move-only allocation.  The event is deliberately owned by the allocation:
 // a published generation records its last producer use, and a consumer can put
 // a wait on its own stream before dereferencing view().

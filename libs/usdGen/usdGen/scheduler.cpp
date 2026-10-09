@@ -9,19 +9,19 @@
 //     produced geometry into another reference node;
 //   - re-capture when the capture epoch moved (03 §3.4); generators install
 //     their captured buffer and the graph re-partitions on topology change;
-//   - per-frontier chunk-evaluate sweep, tbb::parallel_for inside the private
-//     task_arena (I8 — never pxr work::, which would serialise under
+//   - per-frontier chunk-evaluate sweep over the scheduler's worker pool
+//     (I8 — never pxr work::, which would serialise under
 //     PXR_WORK_THREAD_LIMIT); chunk skip is governed by the dirty bytes plus
 //     the evaluation signature (param value digest + upstream valueVersion);
 //   - tile interleave: extents + dirty flags over dirty tiles only.
 //
-// I8: every parallel region is a plain tbb::parallel_for inside
-// _arena.execute, never pxr work::.
+// I8: every parallel region runs over the worker pool, never pxr work::.
 #include "usdGen/scheduler.h"
 
 #include "usdGen/debugCodes.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
+#include "usdGen/tbbFastCores.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"
@@ -31,7 +31,6 @@
 #include "pxr/base/trace/trace.h"
 #include "pxr/base/vt/array.h"
 
-#include "tbb/parallel_for.h"
 #include "tbb/task_arena.h"
 
 #include <algorithm>
@@ -39,7 +38,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <memory>
+#include <optional>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -47,6 +49,10 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 namespace {
+
+// The one op whose Evaluate records per-chunk extents (see the gate in
+// Run): a file static, interned at load, compared by pointer below.
+TfToken const sDeformType{"UsdGenDeform"};
 
 int ResolveThreadLimit(int requested)
 {
@@ -56,10 +62,15 @@ int ResolveThreadLimit(int requested)
         const int parsed = std::atoi(env.c_str());
         if (parsed > 0) return parsed;
     }
-    // 03 §5.3: the measured 8-thread knee (EV-001/EV-008, this host is
-    // heterogeneous) is the documented default until gate E-7 ships the
-    // one-shot sweep; `USDGEN_THREAD_LIMIT` above wins and skips it.
-    return 8;
+    // 03 §5.3: the topology-aware default. The measured 8-thread knee
+    // (EV-001/EV-008) is the floor; on heterogeneous Linux with more fast
+    // cores than that, the arena spans every fast core — pinning engages
+    // by construction (workers == fast cores), and compute-bound passes
+    // (the fp64 RBF kernel scales linearly to the fast count) gain while
+    // bandwidth-bound passes keep at least their old width. Undetectable,
+    // homogeneous, or disabled topologies keep 8, and
+    // `USDGEN_THREAD_LIMIT` above wins and skips all of this.
+    return std::max(8, FastCoreCount());
 }
 
 
@@ -455,6 +466,12 @@ struct NodeSweepPayload
     // Invoked after this chunk's writes have completed. Installed only on the
     // terminal node of an opt-in progressive CPU cook.
     std::function<void(size_t)> onChunkCompleted;
+    // Per-chunk extent slots for the recording points-writer (one entry per
+    // chunk of the gate-time partition), or null for every other node.
+    // SweepChunk hands slot [index] to the kernel; slots are disjoint per
+    // (node, chunk), so concurrent sweeps never share one.
+    UsdGenChunkExtent *extentBase = nullptr;
+    size_t extentCap = 0;
 };
 
 // A prepared node job owns the small vectors whose addresses are published in
@@ -476,6 +493,7 @@ struct NodeExecution
     bool reCaptured = false;
     bool expressionsChanged = false;
     bool shouldSweep = false;
+    bool sweptDirect = false;   // capture wrote the outputs; sweep skipped
     bool evalAll = false;
     bool anyChunkDirty = false;
     std::chrono::steady_clock::time_point captureStart;
@@ -531,6 +549,11 @@ void SweepChunk(size_t index, void *payload)
     view.desc = &cd;
     view.curveCount = cd.curveCount;
     view.cvCount = cd.cvCount;
+    // The recording writer's slot, when the gate armed one and the chunk
+    // still fits the gate-time partition (a mid-run repartition grows the
+    // partition past the scratch; the interleave size check falls back).
+    view.extentSlot = (pl.extentBase && index < pl.extentCap)
+        ? pl.extentBase + index : nullptr;
     view.inCvCount = upC ? upC->cvCount : 0;
     view.inFirstCv = static_cast<uint32_t>(upBase);
     view.inCvOffsets = (upC && upC->cvCount == 0 && !upBuf.cvOffsets.empty() &&
@@ -698,6 +721,9 @@ struct InterleavePayload
     UsdGenCurveBuffer const *term;
     std::vector<char> *touched;
     bool widthsFlag;
+    // Fused extents: per-chunk records from the recording sweep, consumed
+    // in chunk order. Null unless every validation check passed.
+    UsdGenChunkExtent const *extents = nullptr;
 };
 
 void InterleaveTile(size_t index, void *payload)
@@ -725,6 +751,30 @@ void InterleaveTile(size_t index, void *payload)
     bool const ragged = !term.cvOffsets.empty();
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
         UsdGenChunkDesc const &cd = pl.tn->chunks[tv.firstChunk + i];
+        if (pl.extents) {
+            // Fused path: the counts below are the point path's statements
+            // verbatim (same inputs, same sums); the extent unions the
+            // recorded per-chunk extents in chunk order, which reproduces
+            // the sequential pass bitwise for NaN-free points (the gate
+            // admits only deform-recorded runs, and deform outputs cannot
+            // carry NaN — see the contract on UsdGenChunkView::extentSlot).
+            if (ragged && cd.cvCount == 0) {
+                for (uint32_t c = 0; c < cd.liveCount; ++c) {
+                    size_t const g = size_t(cd.firstCurve) + c;
+                    if (g + 1 >= term.cvOffsets.size()) break;
+                    uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
+                    uint32_t const len =
+                        static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
+                    ++liveCurves;
+                    liveCvs += len;
+                }
+            } else {
+                liveCurves += cd.liveCount;
+                liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+            }
+            extent.UnionWith(pl.extents[tv.firstChunk + i].extent);
+            continue;
+        }
         // Ragged path (03 §1.3): per-curve CV spans come from cvOffsets, not
         // liveCount*cvCount (cvCount == 0 on the ragged path). g indexes the
         // absolute curve so cvOffsets[g] is valid.
@@ -769,8 +819,10 @@ void InterleaveTile(size_t index, void *payload)
 
 UsdGenScheduler::UsdGenScheduler(int threadLimit)
     : _arena(ResolveThreadLimit(threadLimit)),
-      _threadLimit(ResolveThreadLimit(threadLimit))
+      _threadLimit(ResolveThreadLimit(threadLimit)),
+      _pool(_threadLimit)
 {
+    _affinityObserver = ObserveFastCores(_arena, _threadLimit);
 }
 
 UsdGenScheduler::~UsdGenScheduler() = default;
@@ -778,27 +830,23 @@ UsdGenScheduler::~UsdGenScheduler() = default;
 int UsdGenScheduler::ThreadLimit() const noexcept { return _threadLimit; }
 
 void UsdGenWorkDispatcher::ParallelFor(
-    size_t count, void (*body)(size_t, void *), void *payload)
+    size_t count, void (*body)(size_t, void *), void *payload, size_t claimChunk)
 {
-    // 03 §5.3: every parallel region is a plain tbb::parallel_for run inside
-    // the private arena (never pxr work::, which honours the process-global
-    // PXR_WORK_THREAD_LIMIT and would serialise under PXR_WORK_THREAD_LIMIT=1).
-    // (E-7 pass 3: an explicit ceil(chunks/workers) grainsize REGRESSED E-1
-    // 35.5 vs 28.5 — reverted to the default auto-partitioner.)
-    _arena->execute([&]() {
-        tbb::parallel_for(
-            tbb::blocked_range<size_t>(0, count),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t i = range.begin(); i < range.end(); ++i) {
-                    body(i, payload);
-                }
-            });
-    });
+    // Every parallel region runs over the scheduler's worker pool (never
+    // pxr work::, which honours the process-global PXR_WORK_THREAD_LIMIT
+    // and would serialise under PXR_WORK_THREAD_LIMIT=1, 03 §5.3 caveat).
+    // The pool replaced the private arena's tbb::parallel_for here: same
+    // body/count contract, without the arena's ~0.2ms per-region wakeup.
+    if (!_pool) {
+        for (size_t i = 0; i < count; ++i) body(i, payload);
+        return;
+    }
+    _pool->ParallelFor(count, body, payload, claimChunk);
 }
 
 UsdGenWorkDispatcher UsdGenScheduler::MakeWorkDispatcher() const
 {
-    return UsdGenWorkDispatcher(const_cast<tbb::task_arena *>(&_arena));
+    return UsdGenWorkDispatcher(const_cast<UsdGenWorkerPool *>(&_pool));
 }
 
 int CalibrateThreads()
@@ -819,6 +867,46 @@ UsdGenRunResult UsdGenScheduler::Run(
 
     UsdGenRunResult result;
     if (graph.NodeCount() == 0) return result;
+
+    // Fused tile extents: when the deepest points-writer on the terminal
+    // chain is a deform, the deform sweep records each chunk's extent over
+    // the floats it stores and the interleave unions the slots instead of
+    // re-reading every point (deform capture success pins the outputs
+    // NaN-free, and NaN-free chunked union reproduces the sequential pass
+    // bitwise). Upstream writers do not matter: the deform consumes their
+    // outputs, so its stores are the terminal points. Anything else — a
+    // deeper non-deform writer, a partial sweep, unaliased planes, a
+    // mid-run repartition — falls back to the point pass, so the union
+    // only runs when every check against the current buffers passes. A
+    // deform that does not record pays one predictable branch per CV, so
+    // unselected graphs keep their old timing.
+    int extentWriter = -1;
+    size_t extentChunks = 0;
+    {
+        bool writerSeen = false;
+        UsdGenNodeId id = graph.TerminalNodeId();
+        for (int guard = 0;
+             id != kUsdGenInvalidNode && id < UsdGenNodeId(graph.NodeCount()) &&
+             guard <= graph.NodeCount();
+             ++guard) {
+            UsdGenCompiledNode const &n = graph.Node(id);
+            if (!writerSeen && n.op &&
+                (n.op->PlanesTouched() & UsdGenOp::kPlanePoints) != 0) {
+                writerSeen = true;
+                if (n.op->Type() == sDeformType) extentWriter = int(id);
+            }
+            id = n.input;
+        }
+        if (extentWriter < 0) {
+            extentWriter = -1;
+        } else {
+            extentChunks = graph.Node(graph.TerminalNodeId()).chunks.size();
+            if (extentChunks == 0) extentWriter = -1;
+        }
+    }
+    std::vector<UsdGenChunkExtent> extentScratch;
+    if (extentWriter >= 0) extentScratch.resize(extentChunks);
+    bool extentSwept = false;
 
     UsdGenDiagnostics aggregated;
     auto dispatcher = MakeWorkDispatcher();
@@ -903,6 +991,31 @@ UsdGenRunResult UsdGenScheduler::Run(
         cctx.upstreamCount = static_cast<uint32_t>(job->upstreamInputs.size());
         cctx.dispatcher = &dispatcher;
         cctx.diag = &nodeDiag;
+        // Capture-direct output: the node's previous-run point planes for
+        // an op that writes its sweep's result during capture, plus the
+        // chunk partition and this run's fused slots for extent recording
+        // (slots for the armed writer only). Captures verify counts,
+        // aliasing, and nesting before writing anything, and the
+        // interleave revalidates recorded spans, so anything unexpected
+        // fails closed into the sweep path. Progressive cooks keep the
+        // sweep (per-chunk completion), so they offer no direct planes.
+        if (!tileCompleted) {
+            UsdGenCurveBuffer const &nbuf = node.buffer;
+            bool const outSized = nbuf.totalCvs > 0 &&
+                nbuf.px.size() == nbuf.totalCvs &&
+                nbuf.py.size() == nbuf.totalCvs &&
+                nbuf.pz.size() == nbuf.totalCvs;
+            cctx.outPx = outSized ? const_cast<float *>(nbuf.px.cdata()) : nullptr;
+            cctx.outPy = outSized ? const_cast<float *>(nbuf.py.cdata()) : nullptr;
+            cctx.outPz = outSized ? const_cast<float *>(nbuf.pz.cdata()) : nullptr;
+            cctx.outPlaneCvs = outSized ? size_t(nbuf.totalCvs) : 0;
+            cctx.chunks = node.chunks.empty() ? nullptr : node.chunks.data();
+            cctx.chunkCount = node.chunks.size();
+            if (pos == extentWriter && extentWriter >= 0) {
+                cctx.chunkExtentSlots = extentScratch.data();
+                cctx.chunkExtentCount = extentChunks;
+            }
+        }
 
         // Connected parameters are evaluated ONCE per cook, here, over this
         // node's INPUT geometry and before its capture identity is taken --
@@ -1110,6 +1223,20 @@ UsdGenRunResult UsdGenScheduler::Run(
             pl.scalarScratch.resize(node.buffer.totalCvs);
         }
         pl.didEval.assign(node.chunks.size(), 0);
+        if (pos == extentWriter && extentWriter >= 0) {
+            pl.extentBase = extentScratch.data();
+            pl.extentCap = extentChunks;
+        }
+        // Capture-direct: this run's capture wrote the output planes, so
+        // no sweep to run. Freshness comes from the re-capture flag, never
+        // from the (possibly reused) capture alone. Preparation above
+        // still runs (topology inherit, pass-through planes); the
+        // post-frontier loop publishes what a full sweep would have.
+        if (job->reCaptured && node.capture && node.capture->WroteDirectOutput()) {
+            job->sweptDirect = true;
+            job->shouldSweep = false;
+            return true;
+        }
         job->shouldSweep = true;
         return true;
     };
@@ -1256,6 +1383,34 @@ UsdGenRunResult UsdGenScheduler::Run(
             for (size_t j = 0; j < jobs.size(); ++j) {
                 NodeExecution &job = *jobs[j];
                 UsdGenCompiledNode &node = graph.Node(frontier[j]);
+                if (int(frontier[j]) == extentWriter && job.shouldSweep) {
+                    extentSwept = true;
+                    for (uint8_t b : job.sweep.didEval)
+                        if (!b) extentSwept = false;
+                }
+                if (int(frontier[j]) == extentWriter && job.sweptDirect &&
+                    node.capture && node.capture->RecordedChunkExtents())
+                    extentSwept = true;
+                if (job.sweptDirect) {
+                    // A capture-direct node wrote every output and recorded
+                    // (or, gateless, skipped) its extents: publish exactly
+                    // what a full sweep would have (fresh values, touched
+                    // tiles, cleared dirt, stats with no eval leg).
+                    node.buffer.valueVersion += 1;
+                    for (size_t c = 0; c < node.chunks.size(); ++c)
+                        if (node.chunks[c].tile < tileTouched.size())
+                            tileTouched[node.chunks[c].tile] = 1;
+                    std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
+                              UsdGenDirtyNone);
+                    auto const end = std::chrono::steady_clock::now();
+                    UsdGenNodeRunStats st;
+                    st.id = static_cast<UsdGenNodeId>(frontier[j]);
+                    st.captureMs = std::chrono::duration<double, std::milli>(
+                        job.captureEnd - job.captureStart).count();
+                    st.evalMs = 0.0;
+                    st.chunksEvaluated = node.chunks.size();
+                    result.nodeStats.push_back(st);
+                }
                 if (job.shouldSweep) {
                     bool wrote = job.reCaptured;
                     for (uint8_t b : job.sweep.didEval)
@@ -1312,6 +1467,36 @@ UsdGenRunResult UsdGenScheduler::Run(
 
     if (result.topologyChanged)
         std::fill(tileTouched.begin(), tileTouched.end(), 1);
+    // Validate the fused extent slots against the current buffers. Every
+    // condition re-checks the present moment: the sweep recorded spans as
+    // they were, so anything that moved since (a repartition, a plane
+    // detach, a differently-sized terminal partition) fails closed into
+    // the point pass.
+    UsdGenChunkExtent const *fusedExtents = nullptr;
+    if (extentWriter >= 0 && extentSwept) {
+        UsdGenCompiledNode const &wn = graph.Node(UsdGenNodeId(extentWriter));
+        auto sameBacking = [](auto const &a, auto const &b) {
+            return a.size() == b.size() && (a.empty() || a.cdata() == b.cdata());
+        };
+        bool ok = tn.chunks.size() == extentChunks &&
+                  wn.chunks.size() == extentChunks &&
+                  sameBacking(term.px, wn.buffer.px) &&
+                  sameBacking(term.py, wn.buffer.py) &&
+                  sameBacking(term.pz, wn.buffer.pz) &&
+                  sameBacking(term.cvOffsets, wn.buffer.cvOffsets);
+        for (size_t i = 0; ok && i < extentChunks; ++i) {
+            UsdGenChunkDesc const &tc = tn.chunks[i];
+            UsdGenChunkDesc const &wc = wn.chunks[i];
+            UsdGenChunkExtent const &s = extentScratch[i];
+            ok = tc.liveCount == tc.curveCount && wc.liveCount == wc.curveCount &&
+                 s.firstCurve == wc.firstCurve && s.curveCount == wc.curveCount &&
+                 s.liveCount == wc.liveCount && s.firstCv == wc.firstCv &&
+                 s.cvCount == wc.cvCount && wc.firstCurve == tc.firstCurve &&
+                 wc.curveCount == tc.curveCount && wc.liveCount == tc.liveCount &&
+                 wc.firstCv == tc.firstCv && wc.cvCount == tc.cvCount;
+        }
+        if (ok) fusedExtents = extentScratch.data();
+    }
     if (nTiles > 0) {
         TRACE_SCOPE("usdGen interleave tiles");
         InterleavePayload ip;
@@ -1321,6 +1506,7 @@ UsdGenRunResult UsdGenScheduler::Run(
         ip.touched = &tileTouched;
         ip.widthsFlag = termOp &&
             (termOp->PlanesTouched() & UsdGenOp::kPlaneWidths) != 0;
+        ip.extents = fusedExtents;
         dispatcher.ParallelFor(size_t(nTiles), InterleaveTile, &ip);
     }
 

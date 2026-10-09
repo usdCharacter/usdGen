@@ -97,9 +97,13 @@ public:
 
     void Fill(float value);
 
-    // FNV-1a over the spec and every texel bit: the map digest a capture
-    // epoch folds in (07 §5.4 UsdGenMapLibrary::Digest). Bitwise-identical
-    // maps digest identically.
+    // 4-lane FNV-1a over the spec and every texel bit (usdGen/digest.h):
+    // the map digest a capture epoch folds in (07 §5.4
+    // UsdGenMapLibrary::Digest). Bitwise-identical maps digest identically;
+    // values are internal keys, never persisted or golden-tested. The
+    // digest is memoized until the next write (SetTexel, Fill, or any
+    // MutableData fetch), so repeated reads over an unchanged map are
+    // constant-time.
     uint64_t Digest() const;
 
     // Direct row-major plane access for capture loops and tests:
@@ -109,7 +113,10 @@ public:
     size_t FloatCount() const;
     // Mutable plane for bulk writers (base upsample, corner smoothing).
     // Writes bypass the clamp01/finite checks SetTexel applies: callers
-    // write validated values only.
+    // write validated values only. Fetching the pointer dirties the
+    // cached Digest(); complete all writes before the next Digest() —
+    // holding the pointer across a Digest call with further writes would
+    // read back a stale epoch key.
     float *MutableData();
 
 private:

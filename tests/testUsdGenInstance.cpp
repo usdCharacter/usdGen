@@ -23,13 +23,19 @@
 //       primOrigin, purpose/visibility, exactly-one instancedBy path,
 //       MoonRay wire types: quath rotations, packed varyings, color role);
 //  (11) notice locators (Translations, never topology, for value edits).
+//  (12) inline rotation quat matches ExtractRotationQuat bit for bit.
+//  (13) threaded ranges: two big bakes agree bitwise on every output,
+//       incl. the per-CV gather and the arity-2 pack at 40K curves.
 #include "usdGenImaging/usdGenInstancer.h"
 
 #include "usdGen/curveBuffer.h"
 
+#include "pxr/base/gf/matrix4d.h"
+#include "pxr/base/gf/quatd.h"
 #include "pxr/base/gf/quath.h"
 #include "pxr/base/gf/quatf.h"
 #include "pxr/base/gf/vec2f.h"
+#include "pxr/base/gf/vec3d.h"
 #include "pxr/base/vt/value.h"
 #include "pxr/imaging/hd/instancedBySchema.h"
 #include "pxr/imaging/hd/instancerTopologySchema.h"
@@ -38,7 +44,10 @@
 #include "pxr/imaging/hd/xformSchema.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -134,6 +143,19 @@ static bool BakeOk(UsdGenInstanceParams const &params,
         SdfPath("/groom/__usdGenRender/inst_op"), result, &error);
     if (!ok) std::printf("  bake error: %s\n", error.c_str());
     return ok;
+}
+
+static bool SameBake(UsdGenInstanceResult const &a,
+                     UsdGenInstanceResult const &b)
+{
+    if (!(a.translations == b.translations && a.rotations == b.rotations &&
+          a.scales == b.scales && a.prototypeIndex == b.prototypeIndex &&
+          a.instanceIndices.size() == b.instanceIndices.size()))
+        return false;
+    for (size_t i = 0; i != a.instanceIndices.size(); ++i)
+        if (a.instanceIndices[i] != b.instanceIndices[i])
+            return false;
+    return true;
 }
 
 // --- (1) paths ----------------------------------------------------------
@@ -770,6 +792,123 @@ static void CheckDataSources()
             Near(float(qi[2]), bi[2], 2e-3f);
     }
     Check(quathOk, "instanceRotations publish as VtQuathArray");
+    // The inline quath conversion matches the GfQuath(GfQuatf) oracle bit
+    // for bit.
+    bool quathExact = rValue.IsHolding<VtQuathArray>() &&
+        rValue.UncheckedGet<VtQuathArray>().size() == result.rotations.size();
+    for (size_t i = 0; quathExact && i != result.rotations.size(); ++i) {
+        quathExact = rValue.UncheckedGet<VtQuathArray>()[i] ==
+            GfQuath(result.rotations[i]);
+    }
+    Check(quathExact, "instanceRotations match GfQuath(GfQuatf) exactly");
+    // The vector conversion matches the scalar oracle bit for bit on
+    // adversarial lanes: +-0, subnormal-producing magnitudes, float
+    // subnormals, max-half, overflow (->inf), infinities and NaN payloads
+    // (an exp-255 group redoes its lanes through the scalar spelling).
+    // Runs twice: once clean (vector groups) and once with NaN/Inf lanes
+    // (mixed vector/scalar-redo groups), plus once under FPCR.FZ to pin
+    // FPCR-independence.
+    {
+        float const lanes[] = {
+            0.0f, -0.0f, 1.0f, -1.0f, 0.5f, -0.3333333f, 0.1f,
+            1e-6f, -1e-6f, 6e-5f, 5.96e-8f, 3e-8f, 1e-9f, 1e-40f,
+            65504.0f, -65504.0f, 65505.0f, 1e6f,
+            std::numeric_limits<float>::infinity(),
+            -std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::quiet_NaN(),
+            -std::numeric_limits<float>::quiet_NaN(),
+        };
+        auto bitsOf = [](float v) {
+            uint32_t b;
+            std::memcpy(&b, &v, sizeof(b));
+            return b;
+        };
+        auto floatOf = [](uint32_t b) {
+            float v;
+            std::memcpy(&v, &b, sizeof(v));
+            return v;
+        };
+        uint32_t const nanPayloads[] = {
+            0x7fc00001u, 0x7f800001u, 0x7fffffffu, 0xffc12345u, 0x7fbfffffu,
+        };
+        for (int pass = 0; pass < 3; ++pass) {
+            UsdGenInstanceResult adv = result;
+            size_t const nq = 64;
+            adv.rotations.resize(nq);
+            adv.translations.resize(nq);
+            adv.scales.resize(nq);
+            for (size_t q = 0; q < nq; ++q) {
+                float c[4];
+                for (int k = 0; k < 4; ++k) {
+                    size_t const pick = (q * 4 + size_t(k)) %
+                        (sizeof(lanes) / sizeof(lanes[0]));
+                    c[k] = lanes[pick];
+                }
+                // Every eighth quat carries raw NaN payloads instead.
+                if (pass == 1 && (q % 8) == 7) {
+                    for (int k = 0; k < 4; ++k)
+                        c[k] = floatOf(nanPayloads[(q + size_t(k)) % 5]);
+                }
+                adv.rotations[q] = GfQuatf(c[0], c[1], c[2], c[3]);
+            }
+            // The clean pass must stay vector-routed: drop the NaN/Inf
+            // lanes the table above mixes in.
+            if (pass != 1) {
+                for (size_t q = 0; q < nq; ++q) {
+                    GfQuatf qq = adv.rotations[q];
+                    float cc[4] = {qq.GetReal(), qq.GetImaginary()[0],
+                                   qq.GetImaginary()[1], qq.GetImaginary()[2]};
+                    for (int k = 0; k < 4; ++k) {
+                        uint32_t const b = bitsOf(cc[k]);
+                        if (((b >> 23) & 0xff) >= 143)
+                            cc[k] = 0.25f;
+                    }
+                    adv.rotations[q] = GfQuatf(cc[0], cc[1], cc[2], cc[3]);
+                }
+            }
+#if defined(__aarch64__)
+            uint64_t savedFpcr = 0, fzFpcr = 0;
+            if (pass == 2) {
+                __asm__ volatile("mrs %0, fpcr" : "=r"(savedFpcr));
+                fzFpcr = savedFpcr | uint64_t(0x03000000);
+                __asm__ volatile("msr fpcr, %0" :: "r"(fzFpcr));
+            }
+#endif
+            HdContainerDataSourceHandle ac =
+                UsdGenInstancer::BuildInstancerDataSource(adv,
+                                                          SdfPath("/groom"));
+#if defined(__aarch64__)
+            if (pass == 2)
+                __asm__ volatile("msr fpcr, %0" :: "r"(savedFpcr));
+#endif
+            bool advOk = ac != nullptr;
+            VtValue av;
+            if (advOk) {
+                HdContainerDataSourceHandle apv = Child(ac, "primvars");
+                HdContainerDataSourceHandle arot = apv
+                    ? HdContainerDataSource::Cast(
+                          apv->Get(HdInstancerTokens->instanceRotations))
+                    : nullptr;
+                av = arot ? LeafValue(arot->Get(TfToken("primvarValue")))
+                          : VtValue();
+                advOk = av.IsHolding<VtQuathArray>() &&
+                    av.UncheckedGet<VtQuathArray>().size() == nq;
+            }
+            for (size_t q = 0; advOk && q < nq; ++q) {
+                GfQuath const got = av.UncheckedGet<VtQuathArray>()[q];
+                GfQuatf const src = adv.rotations[q];
+                GfQuath const want = GfQuath(
+                    GfHalf(src.GetReal()), GfVec3h(src.GetImaginary()));
+                // Bitwise compare (NaN lanes never compare ==).
+                advOk = std::memcmp(&got, &want, sizeof(got)) == 0;
+            }
+            Check(advOk, pass == 0
+                              ? "quath vector path matches scalar bit for bit"
+                              : pass == 1
+                              ? "quath scalar fallback matches bit for bit"
+                              : "quath matches under FPCR.FZ");
+        }
+    }
 
     // hdMoonray ignores primvar elementSize, so float varyings publish
     // packed (arity 3 -> VtVec3fArray) instead of flat float arrays; the
@@ -921,6 +1060,236 @@ static void CheckNotices()
           "quiet bake emits no locators");
 }
 
+// --- (12) inline rotation quat -----------------------------------------
+// Bake's inline frame-to-quat conversion must match
+// GfMatrix4d::ExtractRotationQuat bit for bit: differential check over the
+// 24 axis-aligned frames (derivation is exact there) plus seeded random
+// orthonormal frames, comparing every baked rotation exactly. The set
+// covers both quat branches (identity takes the trace path, the 180-degree
+// frames take the diagonal path).
+
+static uint64_t QuatTestState = 0x123456789abcdefull;
+static uint64_t QuatTestNext()
+{
+    uint64_t z = (QuatTestState += 0x9E3779B97F4A7C15ull);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return z ^ (z >> 31);
+}
+static double QuatTestUnit()
+{
+    return double(QuatTestNext() >> 11) * 0x1.0p-53;
+}
+
+static void CheckInlineQuat()
+{
+    std::vector<GfVec3f> tFrames, bFrames, nFrames;
+    // All 24 axis-aligned orthonormal frames: y over the six signed axes,
+    // z over the four orthogonal to y, x = y cross z.
+    GfVec3d const axes[6] = {GfVec3d(1, 0, 0), GfVec3d(-1, 0, 0),
+                             GfVec3d(0, 1, 0), GfVec3d(0, -1, 0),
+                             GfVec3d(0, 0, 1), GfVec3d(0, 0, -1)};
+    for (int yi = 0; yi < 6; ++yi)
+        for (int zi = 0; zi < 6; ++zi) {
+            if (zi / 2 == yi / 2) continue;  // parallel to y
+            GfVec3d const y = axes[yi], z = axes[zi];
+            GfVec3d const x = GfCross(y, z);
+            tFrames.push_back(GfVec3f(x));
+            bFrames.push_back(GfVec3f(y));
+            nFrames.push_back(GfVec3f(z));
+        }
+    // Seeded random orthonormal frames via double Gram-Schmidt.
+    for (int k = 0; k < 2000; ++k) {
+        GfVec3d a(QuatTestUnit() * 2.0 - 1.0, QuatTestUnit() * 2.0 - 1.0,
+                  QuatTestUnit() * 2.0 - 1.0);
+        GfVec3d b(QuatTestUnit() * 2.0 - 1.0, QuatTestUnit() * 2.0 - 1.0,
+                  QuatTestUnit() * 2.0 - 1.0);
+        if (a.GetLength() < 0.2 || b.GetLength() < 0.2) {
+            --k;
+            continue;
+        }
+        GfVec3d const y = a / a.GetLength();
+        GfVec3d zb = b - y * GfDot(b, y);
+        if (zb.GetLength() < 0.2) {
+            --k;
+            continue;
+        }
+        GfVec3d const z = zb / zb.GetLength();
+        GfVec3d const x = GfCross(y, z);
+        tFrames.push_back(GfVec3f(x));
+        bFrames.push_back(GfVec3f(y));
+        nFrames.push_back(GfVec3f(z));
+    }
+    uint32_t const n = uint32_t(tFrames.size());
+    UsdGenCurveBuffer curves;
+    curves.totalCurves = n;
+    curves.totalCvs = n;
+    curves.px.assign(n, 0.0f);
+    curves.py.assign(n, 0.0f);
+    curves.pz.assign(n, 0.0f);
+    curves.curveId.resize(n);
+    for (uint32_t c = 0; c != n; ++c) curves.curveId[c] = uint64_t(c);
+    curves.rootT.assign(n, GfVec3f(0, 0, 0));
+    curves.rootB.assign(n, GfVec3f(0, 0, 0));
+    curves.rootN.assign(n, GfVec3f(0, 0, 0));
+    for (uint32_t c = 0; c != n; ++c) {
+        curves.rootT[c] = tFrames[c];
+        curves.rootB[c] = bFrames[c];
+        curves.rootN[c] = nFrames[c];
+    }
+    UsdGenInstanceCurves input;
+    input.curves = &curves;
+    UsdGenInstanceResult result;
+    Check(BakeOk(CardsParams(), input, &result),
+          "quat differential bake succeeds");
+    if (result.rotations.size() != n) {
+        Check(false, "quat differential has one rotation per curve");
+        return;
+    }
+    size_t exact = 0, elseBranch = 0, traceBranch = 0;
+    for (uint32_t c = 0; c != n; ++c) {
+        // Mirror of Bake's surfaceFrame derivation, then the USD routine.
+        GfVec3d yAxis = GfVec3d(curves.rootB[c]) /
+            GfVec3d(curves.rootB[c]).GetLength();
+        GfVec3d z = GfVec3d(curves.rootN[c]) -
+            yAxis * GfDot(GfVec3d(curves.rootN[c]), yAxis);
+        GfVec3d zAxis = z / z.GetLength();
+        GfVec3d xAxis = GfCross(yAxis, zAxis);
+        GfMatrix4d basis(1.0);
+        basis.SetRow(0, GfVec4d(xAxis[0], xAxis[1], xAxis[2], 0.0));
+        basis.SetRow(1, GfVec4d(yAxis[0], yAxis[1], yAxis[2], 0.0));
+        basis.SetRow(2, GfVec4d(zAxis[0], zAxis[1], zAxis[2], 0.0));
+        GfQuatf const expect = GfQuatf(basis.ExtractRotationQuat());
+        if (result.rotations[c] == expect) ++exact;
+        // Same branch condition as the quat routine: trace vs the
+        // largest diagonal.
+        double const d[3] = {xAxis[0], yAxis[1], zAxis[2]};
+        int bi = 0;
+        if (d[0] > d[1]) bi = (d[0] > d[2] ? 0 : 2);
+        else bi = (d[1] > d[2] ? 1 : 2);
+        if (d[0] + d[1] + d[2] > d[bi]) ++traceBranch;
+        else ++elseBranch;
+    }
+    Check(exact == n, "inline quat matches ExtractRotationQuat exactly");
+    Check(traceBranch > 0 && elseBranch > 0,
+          "quat differential covers both branches");
+}
+
+static void CheckThreadedRanges()
+{
+    // 40K strands sit far above the 32768-curve threading threshold, so
+    // two bakes (thread scheduling varies run to run) must agree bitwise
+    // on every threaded output: the four lanes plus the per-prototype
+    // index partition. Cards+twist exercises the frame/trig path;
+    // spheres exercises the early-continue path.
+    std::vector<GfVec3f> roots;
+    roots.reserve(40000);
+    for (int i = 0; i != 40000; ++i)
+        roots.push_back(GfVec3f(float(i % 200), float(i / 200),
+                                float((i * 7) % 13)));
+    UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
+    UsdGenInstanceCurves input;
+    input.curves = &curves;
+
+    UsdGenInstanceParams cards = CardsParams();
+    cards.twist = 15.0f;
+    cards.twistRandom = 30.0f;
+    UsdGenInstanceResult c1, c2;
+    Check(BakeOk(cards, input, &c1) && BakeOk(cards, input, &c2),
+          "threaded cards bakes repeatably");
+    Check(c1.translations.size() == 40000 && SameBake(c1, c2),
+          "threaded cards ranges are bitwise identical");
+
+    UsdGenInstanceParams spheres = CardsParams();
+    spheres.primitive = TfToken("spheres");
+    UsdGenInstanceResult s1, s2;
+    Check(BakeOk(spheres, input, &s1) && BakeOk(spheres, input, &s2),
+          "threaded spheres bakes repeatably");
+    Check(s1.translations.size() == 40000 && SameBake(s1, s2),
+          "threaded spheres ranges are bitwise identical");
+
+    // The same 40K curves drive the threaded per-CV gather (n > 32768)
+    // and the chunked arity-2 pack (320KB > 256KB): the gathered varyings
+    // must equal an independently sampled expectation bitwise, and the
+    // published VtVec2fArray must equal the source floats bitwise, across
+    // two bakes (thread scheduling varies run to run).
+    UsdGenCurveBuffer pairCurves = curves;
+    UsdGenPlane pair;
+    pair.name = TfToken("usdGen:pair");
+    pair.interpolation = TfToken("uniform");
+    pair.type = TfToken("float");
+    pair.arity = 2;
+    pair.f.resize(80000);
+    for (size_t i = 0; i != pair.f.size(); ++i)
+        pair.f[i] = float(int(i % 1024) - 512) / 512.0f;
+    pairCurves.extraCurve.push_back(pair);
+    UsdGenInstanceCurves vertexInput;
+    vertexInput.curves = &pairCurves;
+    vertexInput.displayColor.resize(pairCurves.totalCvs);
+    for (uint32_t i = 0; i != pairCurves.totalCvs; ++i)
+        vertexInput.displayColor[i] =
+            GfVec3f(float(i % 251) / 251.0f, float((i * 3) % 127) / 127.0f,
+                    float((i * 7) % 89) / 89.0f);
+    UsdGenInstanceParams vary = CardsParams();
+    vary.twist = 15.0f;
+    vary.twistRandom = 30.0f;
+    vary.variationPrimvars = VtArray<TfToken>{TfToken("displayColor"),
+                                              TfToken("usdGen:pair")};
+    UsdGenInstanceResult v1, v2;
+    Check(BakeOk(vary, vertexInput, &v1) &&
+              BakeOk(vary, vertexInput, &v2),
+          "threaded varyings bakes repeatably");
+    // Independent expectation: uniform topology, so curve c's root CV is
+    // CV 4c; the pair plane copies through verbatim.
+    VtFloatArray wantColor;
+    wantColor.resize(120000);
+    for (uint32_t c = 0; c != 40000; ++c) {
+        GfVec3f const rgb = vertexInput.displayColor[c * 4];
+        wantColor[3 * c + 0] = rgb[0];
+        wantColor[3 * c + 1] = rgb[1];
+        wantColor[3 * c + 2] = rgb[2];
+    }
+    auto findPlane = [](UsdGenInstanceResult const &r,
+                        TfToken const &name) -> UsdGenPlane const * {
+        for (UsdGenPlane const &p : r.varyings)
+            if (p.name == name)
+                return &p;
+        return nullptr;
+    };
+    bool gatherOk = false, pairBakeOk = false;
+    if (UsdGenPlane const *dc = findPlane(v1, TfToken("displayColor")))
+        gatherOk = dc->f == wantColor;
+    if (UsdGenPlane const *pp = findPlane(v1, TfToken("usdGen:pair")))
+        pairBakeOk = pp->f == pair.f;
+    Check(gatherOk, "threaded per-CV gather matches root-CV sampling");
+    Check(pairBakeOk, "threaded bake carries the arity-2 plane verbatim");
+    bool varyRepeat = false;
+    if (UsdGenPlane const *dc = findPlane(v2, TfToken("displayColor")))
+        varyRepeat = dc->f == wantColor;
+    if (UsdGenPlane const *pp = findPlane(v2, TfToken("usdGen:pair")))
+        varyRepeat = varyRepeat && pp->f == pair.f;
+    Check(varyRepeat && SameBake(v1, v2),
+          "threaded varyings repeat bitwise across bakes");
+    HdContainerDataSourceHandle vc = UsdGenInstancer::BuildInstancerDataSource(
+        v1, SdfPath("/groom"));
+    HdContainerDataSourceHandle vpv = Child(vc, "primvars");
+    HdContainerDataSourceHandle vpair =
+        vpv ? HdContainerDataSource::Cast(vpv->Get(TfToken("usdGen:pair")))
+            : nullptr;
+    bool packOk = false;
+    if (vpair) {
+        VtValue pairValue = LeafValue(vpair->Get(TfToken("primvarValue")));
+        if (pairValue.IsHolding<VtVec2fArray>()) {
+            VtVec2fArray const &a =
+                pairValue.UncheckedGet<VtVec2fArray>();
+            packOk = a.size() == 40000 &&
+                std::memcmp(a.cdata(), pair.f.cdata(),
+                            a.size() * sizeof(GfVec2f)) == 0;
+        }
+    }
+    Check(packOk, "chunked arity-2 pack matches the source floats bitwise");
+}
+
 int main()
 {
     CheckPaths();
@@ -935,6 +1304,8 @@ int main()
     CheckVariationPrimvars();
     CheckDataSources();
     CheckNotices();
+    CheckInlineQuat();
+    CheckThreadedRanges();
     std::printf("testUsdGenInstance: %s\n", failures ? "FAILED" : "PASS");
     return failures ? 1 : 0;
 }

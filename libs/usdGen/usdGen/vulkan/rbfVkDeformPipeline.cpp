@@ -28,7 +28,7 @@ struct ApplyUbo {
     float enabledF[4];       // vec4: offset 32
     float lockF[4];          // vec4: offset 48
     uint32_t fieldCounts[3]; // uvec3: 12B in std140, offset 64
-    uint32_t _pad;           // offset 76; total 80, 16B-aligned block
+    uint32_t strideCandidate; // offset 76; total 80, 16B-aligned block
 };
 static_assert(sizeof(ApplyUbo) == 80);
 static_assert(offsetof(ApplyUbo, groomEnvelope) == 12);
@@ -54,6 +54,12 @@ DeformSemantic MapBindStatus(RbfVkStatus status) {
 struct RbfVkDeformPipeline::Native {
     std::shared_ptr<DeviceContext> context;
     RbfVkBindingSpirv bindingSpirv; // immutable programs; each candidate owns its solve
+    // Rest is static across poses: fresh per-candidate bindings share one
+    // factor cache so only the first pose pays the LU submit.
+    std::shared_ptr<RbfVkFactorCache> factorCache = std::make_shared<RbfVkFactorCache>();
+    // Same for the pose-invariant RBF radii: the CVs and rest are
+    // static across poses, so only the first pose pays the sqrt fill.
+    std::shared_ptr<RbfVkEvalCache> evalCache = std::make_shared<RbfVkEvalCache>();
     VkShaderModule applyShader = VK_NULL_HANDLE;
     VkDescriptorSetLayout applyLayout = VK_NULL_HANDLE;
     VkPipelineLayout applyPipelineLayout = VK_NULL_HANDLE;
@@ -321,7 +327,10 @@ std::unique_ptr<RbfVkDeformPipeline::Candidate> RbfVkDeformPipeline::Begin(
 
     VkPhysicalDeviceProperties physical{};
     vkGetPhysicalDeviceProperties(context->physicalDevice(), &physical);
-    uint32_t const applyGroups = Groups(curves);
+    // Per-point apply: one thread per point (plus curve-span
+    // validation for thread i < curves), so the dispatch covers
+    // whichever domain is larger.
+    uint32_t const applyGroups = Groups(std::max(curves, points));
     uint32_t const applyX = std::min(applyGroups, physical.limits.maxComputeWorkGroupCount[0]);
     uint32_t const applyY = applyX ? (applyGroups + applyX - 1) / applyX : 0;
     if (applyY > physical.limits.maxComputeWorkGroupCount[1]) return reject(DeformSemantic::BadValue);
@@ -390,6 +399,8 @@ std::unique_ptr<RbfVkDeformPipeline::Candidate> RbfVkDeformPipeline::Begin(
     VkResult bindingResult = VK_SUCCESS;
     auto binding = RbfVkBinding::Create(context, native_->bindingSpirv, &bindingResult);
     if (!binding) { finish(bindingResult); return {}; }
+    binding->SetFactorCache(native_->factorCache);
+    binding->SetEvalCache(native_->evalCache);
 
     try {
         auto s = std::make_shared<Candidate::State>();
@@ -471,6 +482,12 @@ std::unique_ptr<RbfVkDeformPipeline::Candidate> RbfVkDeformPipeline::Begin(
                 a.fieldCounts[0] = info.mask.count;
                 a.fieldCounts[1] = info.enabled.count;
                 a.fieldCounts[2] = info.lockRoots.count;
+                // Uniform-stride candidate for the apply shader's
+                // point->curve map (verified against the offsets at
+                // every use; 0 disables it). This fill runs only for
+                // curves > 0, so the divisor is safe.
+                a.strideCandidate =
+                    points % curves == 0 ? points / curves : 0;
                 void* data = nullptr;
                 r = vkMapMemory(d, s->applyUbo->memory(), 0, kApplyUboBytes, 0, &data);
                 if (r != VK_SUCCESS) { finish(r); return {}; }

@@ -5,6 +5,7 @@
 #define USDGEN_OP_SCATTER_H
 
 #include "usdGen/op.h"
+#include "usdGen/ops/opUtil.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -37,6 +38,31 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
+
+private:
+    // Static rest/topology array digests, memoized across poses (the steady
+    // state rehashes megabytes of unchanged rest data every frame).
+    mutable opUtil::ContentDigestCache<VtVec3fArray> restPointsDigest_;
+    mutable opUtil::ContentDigestCache<VtIntArray> faceCountsDigest_;
+    mutable opUtil::ContentDigestCache<VtIntArray> faceIndicesDigest_;
+    mutable opUtil::ContentDigestCache<VtIntArray> subsetFacesDigest_;
+    mutable opUtil::ContentDigestCache<VtVec2fArray> uvDigest_;
+    mutable opUtil::ContentDigestCache<VtFloatArray> densityMultDigest_;
+    // UsdGenSubdivisionDigest re-hashes the topology arrays on top of the
+    // array digests above; memoize it keyed on the same buffer identities
+    // plus the scheme tokens (a miss recomputes exactly as before).
+    struct SubdivisionDigestCache {
+        uint64_t Digest(UsdGenSurfaceDesc const &surface);
+        VtIntArray counts_, indices_, holes_, creaseIndices_, creaseLengths_,
+            cornerIndices_;
+        VtFloatArray creaseSharpnesses_, cornerSharpnesses_;
+        TfToken scheme_, orientation_, interpolateBoundary_,
+            faceVaryingLinearInterpolation_, creaseMethod_,
+            triangleSubdivisionRule_;
+        uint64_t digest_ = 0;
+        bool valid_ = false;
+    };
+    mutable SubdivisionDigestCache subdivisionDigest_;
 };
 
 }  // namespace usdGen

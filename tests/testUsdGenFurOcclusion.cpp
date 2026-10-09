@@ -207,6 +207,39 @@ int main() try {
     tiles[0].points[0][0]=std::numeric_limits<float>::quiet_NaN();
     bool rejected=false;try { UsdGenBuildFurOcclusion(&tiles); } catch(std::invalid_argument const&) {rejected=true;}
     Require(rejected,"reject nonfinite geometry");
+    {   // Diff extras verdict is buffer-identity, never content (r49): two
+        // independent bakes of identical geometry hold bitwise-identical tau
+        // values in FRESH buffers, and Diff must report them dirty
+        // (conservative: re-upload identical bytes -- Storm re-uploads every
+        // non-points primvar on any primvar dirty anyway, so identical
+        // recomputes, which always co-dirty displayColor or the topology,
+        // cost zero extra traffic). Shared-buffer carries stay clean.
+        std::vector<UsdGenTilePublication> left{Make(0,0,1),Make(1,0.2f,400)};
+        std::vector<UsdGenTilePublication> right{Make(0,0,1),Make(1,0.2f,400)};
+        Require(UsdGenBuildFurOcclusion(&left),"left bake");
+        Require(UsdGenBuildFurOcclusion(&right),"right bake");
+        for(size_t t=0;t<left.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            VtFloatArray const& a=Plane(left[t],name).f;
+            VtFloatArray const& b=Plane(right[t],name).f;
+            Require(a.size()==b.size(),"recompute preserves tau cardinality");
+            for(size_t i=0;i<a.size();++i)
+                Require(a[i]==b[i],"recompute preserves tau values");
+            Require(!a.IsIdentical(b),"recompute takes fresh buffers");
+        }
+        UsdGenGeneration gL,gR,gS; gL.tiles=left; gR.tiles=right; gS.tiles=left;
+        auto rep=UsdGenGenerationStore().Diff(gL,gR);
+        for(size_t t=0;t<rep.tiles.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            auto const& dirty=rep.tiles[t].dirtyPrimvars;
+            Require(std::find(dirty.begin(),dirty.end(),TfToken(name))!=dirty.end(),
+                    "fresh-buffer recompute dirties receiver optical depth");
+        }
+        auto rep2=UsdGenGenerationStore().Diff(gL,gS);
+        for(size_t t=0;t<rep2.tiles.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            auto const& dirty=rep2.tiles[t].dirtyPrimvars;
+            Require(std::find(dirty.begin(),dirty.end(),TfToken(name))==dirty.end(),
+                    "shared-buffer extras stay clean");
+        }
+    }
 
     // ---- hair count calibration --------------------------------------------
     // N layers of parallel fibres of width w spaced s apart must read exactly

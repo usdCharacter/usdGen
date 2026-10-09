@@ -1,0 +1,114 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+
+// rbfVkFill.comp — miss-path full evaluation plus the R cache fill for
+// the RbfVkBinding R cache.
+//
+// This is rbfVkEvaluate.comp verbatim (same normalizer, same loop, same
+// operations in the same order, same polynomial, same output, same
+// CUDA-exact input-only flag) plus one R store per loop trip. The loop
+// context is identical to the direct shader's — r feeds the same three
+// coefficient accumulates — so the driver's FMA contraction matches by
+// construction and every cached word is bitwise what the eval loop
+// computed. (A fill that only stored r, without the accumulate
+// context, fuses differently: 1-ULP flips on rounding-boundary CVs.)
+//
+// Because the fill already wrote the direct outputs (and the flag), a
+// miss skips the cached dispatch: the verify shader clears the cached
+// indirect counts whenever it schedules the fill.
+//
+// Like the direct shader, a non-finite input CV sets the flag and
+// returns before the loop: its R row keeps whatever it held, which no
+// later evaluation reads (the cached evaluator also returns before
+// its loop on a non-finite input, exactly like the direct shader).
+//
+// Dispatched indirectly: the verify shader writes (fgX,fgY,1) on a
+// proof mismatch (or the host pre-writes it to force a refill), and a
+// (0,*,*) count makes the dispatch a no-op on cache hits.
+//
+// ABI — descriptors:
+//   0 cvs     float[3*count] RO
+//   1 out     float[3*count] W
+//   2 samples double[3*n]    RO (rest RBF samples, host-centered:
+//                                sample - center, interleaved; the shader
+//                                still multiplies by invScale, exactly
+//                                like rbfVkEvaluate)
+//   3 coef    double[3*m]    RO (column-major m x 3 coefficients)
+//   4 UBO     FillUbo (64 bytes; same offsets as CachedUbo and the
+//             direct SolveUbo: n, m, count, P, cx, cy, cz, invScale,
+//             scale)
+//   5 flag    int[1]         RW (atomicOr, 0 == clean; zero-filled by host)
+//   6 r       double[n*P]     W (R rows, P-wide stride)
+//
+// Dispatch: local_size_x=128, indirect (fgX, fgY, 1), 2D-flattened like
+// rbfVkEvaluate.
+
+#version 460
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) readonly buffer Cvs     { float cvs[]; };
+layout(std430, binding = 1) buffer Out              { float outData[]; };
+layout(std430, binding = 2) readonly buffer Samples { double samples[]; };
+layout(std430, binding = 3) readonly buffer Coef    { double coef[]; };
+layout(std430, binding = 5) buffer EvalFlag         { int evalFlag; };
+layout(std430, binding = 6) buffer RCache           { double rcache[]; };
+
+layout(std140, binding = 4) uniform Params {
+    ivec4  nmcs;     // x = n (samples), y = m (n+4), z = count, w = P (R row stride)
+    double cx;
+    double cy;
+    double cz;
+    double invScale;
+    double scale;
+    double _pad;
+} params;
+
+#define P3(a, i) vec3((a)[3u*(i)], (a)[3u*(i)+1u], (a)[3u*(i)+2u])
+
+bool Finite(float v) { return !(isinf(v) || isnan(v)); }
+
+void main() {
+    // The 128u stride is local_size_x: the second grid dimension flattens
+    // at the workgroup width, so the two literals move together.
+    uint i = gl_GlobalInvocationID.x +
+                 gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 128u;
+    if (i >= uint(params.nmcs.z)) return;
+    int n = params.nmcs.x;
+    int m = params.nmcs.y;
+    uint stride = uint(params.nmcs.w);
+
+    vec3 p = P3(cvs, i);
+    if (!Finite(p.x) || !Finite(p.y) || !Finite(p.z)) { atomicOr(evalFlag, 1); return; }
+
+    double x = (double(p.x) - params.cx) * params.invScale;
+    double y = (double(p.y) - params.cy) * params.invScale;
+    double z = (double(p.z) - params.cz) * params.invScale;
+
+    // Polynomial part (last 4 coefficients of each column; coef[n..n+3] for x).
+    double ox = x + coef[n]     + coef[n+1]*x + coef[n+2]*y + coef[n+3]*z;
+    double oy = y + coef[m+n]   + coef[m+n+1]*x + coef[m+n+2]*y + coef[m+n+3]*z;
+    double oz = z + coef[2*m+n] + coef[2*m+n+1]*x + coef[2*m+n+2]*y + coef[2*m+n+3]*z;
+
+    for (int j = 0; j < n; ++j) {
+        // Same expression shape as the float-sample original so the
+        // driver's FMA contraction stays put; only the centered sample
+        // comes from the buffer now.
+        double dx = x - samples[3u*j] * params.invScale;
+        double dy = y - samples[3u*j + 1u] * params.invScale;
+        double dz = z - samples[3u*j + 2u] * params.invScale;
+        double r  = sqrt(dx*dx + dy*dy + dz*dz);
+        r = r * r * r;
+        ox += coef[j] * r;
+        oy += coef[m + j] * r;
+        oz += coef[2*m + j] * r;
+        rcache[stride * uint(j) + i] = r;
+    }
+
+    double oxw = ox * params.scale + params.cx;
+    double oyw = oy * params.scale + params.cy;
+    double ozw = oz * params.scale + params.cz;
+
+    outData[3u*i]     = float(oxw);
+    outData[3u*i + 1u] = float(oyw);
+    outData[3u*i + 2u] = float(ozw);
+}

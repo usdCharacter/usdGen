@@ -46,6 +46,7 @@ int main() {
     CHECK(cudaStreamSynchronize(stream)==cudaSuccess && relay.status.load()==int(cudaSuccess));
     CHECK(grow.CommitFreshFinish()==ScatterGrowStatus::Ok && weak.expired());
     auto g=grow.view(); CHECK(g.curveCount==2 && g.pointCount==6 && grow.generation()==1);
+    CHECK(g.restPoints.data == g.points.data && g.restPoints.size == g.points.size); // rest aliases points: no D2D copy (r33)
     CHECK(grow.ExclusiveRetainedBytes() == requirements.outputBytes + requirements.statusBytes &&
           resources->Snapshot().usedBytes - baseline.usedBytes ==
               requirements.outputBytes + requirements.statusBytes);

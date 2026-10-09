@@ -1,0 +1,67 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+
+// rbfVkVerify.comp — CV proof check and snapshot for the RbfVkBinding R
+// cache, plus the self-scheduling fill/cached decision. Deform-verify
+// pattern (deformEvaluateVerify.comp) for the direct (non-deform)
+// binding: the rest samples and n are host-side bind state, compared
+// with memcmp on the host (a mismatch forces the fill instead of
+// speculating), while the CV bytes live on the device and are verified
+// here.
+//
+// Compares the active CVs against the cached proof snapshot, word by
+// word over the float bits. Every thread then snapshots its word
+// (proof[w] = cur[w]), so after every cached-path evaluation the proof
+// holds the current CV bytes. Any mismatch also writes the indirect
+// fill counts (fgX, fgY, 1) over the host's pre-write and clears the
+// indirect cached counts to (0,1,1): the fill is a full evaluation
+// (rbfVkFill.comp writes the direct outputs and the flag), so a miss
+// skips the cached dispatch. The host pre-writes (0,1,1)/(fgX,fgY,1)
+// for a speculative evaluation (a match leaves a no-op fill and runs
+// the cached dispatch) or (fgX,fgY,1)/(0,1,1) to force a refill
+// (rest/n/count change or first use). All mismatch threads write the
+// same two triples, so the races are benign; the verify->fill barrier
+// orders the writes before the indirect dispatches read them.
+//
+// ABI — descriptors:
+//   0 cur    uint[3*count] RO  (current CV bits)
+//   1 proof  uint[3*P]      RW  (snapshot; read, then overwritten with cur)
+//   2 args   uint[3]         W  (indirect fill counts; host pre-writes)
+//   3 UBO    VerifyUbo (16 bytes)
+//   4 cargs  uint[3]         W  (indirect cached counts; host pre-writes)
+//
+// Dispatch: local_size_x=256, groups=min(ceil(3*count/256), maxX), 1, 1;
+// the grid-stride loop covers any count under a capped dispatch.
+
+#version 460
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Cur   { uint cur[]; };
+layout(std430, binding = 1) buffer Proof          { uint proof[]; };
+layout(std430, binding = 2) buffer Args           { uint args[]; };
+layout(std430, binding = 4) buffer CachedArgs     { uint cargs[]; };
+
+layout(std140, binding = 3) uniform Params {
+    ivec4 wfg; // x = words (3*count), y = fill/cached groups X, z = groups Y, w reserved
+} params;
+
+void main() {
+    uint words = uint(params.wfg.x);
+    // The 256u stride is local_size_x: grid-stride loops flatten at the
+    // workgroup width, so the two literals move together.
+    for (uint w = gl_GlobalInvocationID.x; w < words; w += gl_NumWorkGroups.x * 256u) {
+        uint c = cur[w];
+        if (c != proof[w]) {
+            // Matches the host's forced pre-write formula exactly (same
+            // values from the same group counts), so force and mismatch
+            // write the same triples.
+            args[0] = uint(params.wfg.y);
+            args[1] = uint(params.wfg.z);
+            args[2] = 1u;
+            cargs[0] = 0u;
+            cargs[1] = 1u;
+            cargs[2] = 1u;
+        }
+        proof[w] = c;
+    }
+}

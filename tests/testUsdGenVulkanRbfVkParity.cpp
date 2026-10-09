@@ -18,6 +18,10 @@
 //   B4-B5  error parity: equal status codes AND equal diagnostic
 //       strings on the shared n<4 / rank-deficient / non-finite /
 //       mismatch paths (CUDA's messages are mirrored verbatim).
+//   B9     eval-cache transparency: cached == direct bitwise over
+//       shapes/strides/reshape/rest-change/NaN plus a randomized
+//       differential, with hit/miss engagement and clean fallbacks
+//       (tiny pool, missing SPVs, disabled seam).
 //   G0-G4  pipeline end-to-end vs CudaRbfCurveDeformer (legacy + typed),
 //       including n=101 and baked non-identity samples, plus the
 //       pass-through / rejection contracts.
@@ -342,10 +346,11 @@ std::vector<float> FromF3(std::vector<::float3> const& v) {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 9) {
+    if (argc != 12) {
         std::fprintf(stderr,
                      "usage: %s rbfVkExtent.spv rbfVkGram.spv rbfVkBuildMatrix.spv rbfVkLu.spv "
-                     "rbfVkRhs.spv rbfVkTriSolve.spv rbfVkEvaluate.spv rbfVkApply.spv\n",
+                     "rbfVkRhs.spv rbfVkTriSolve.spv rbfVkEvaluate.spv rbfVkApply.spv "
+                     "rbfVkVerify.spv rbfVkFill.spv rbfVkEvaluateCached.spv\n",
                      argv[0]);
         return 1;
     }
@@ -358,9 +363,13 @@ int main(int argc, char** argv) {
     spirv.triSolve = Code(argv[6]);
     spirv.evaluate = Code(argv[7]);
     auto applySpv = Code(argv[8]);
+    spirv.verify = Code(argv[9]);
+    spirv.fill = Code(argv[10]);
+    spirv.evaluateCached = Code(argv[11]);
     CHECK(!spirv.extent.empty() && !spirv.gram.empty() && !spirv.buildMatrix.empty() &&
           !spirv.lu.empty() && !spirv.rhs.empty() && !spirv.triSolve.empty() &&
-          !spirv.evaluate.empty() && !applySpv.empty());
+          !spirv.evaluate.empty() && !applySpv.empty() && !spirv.verify.empty() &&
+          !spirv.fill.empty() && !spirv.evaluateCached.empty());
 
     // ================= P0: gap baker (host-only) =================
     {
@@ -575,6 +584,11 @@ int main(int argc, char** argv) {
     auto binding = RbfVkBinding::Create(context, spirv, &status);
     CHECK(binding && status == VK_SUCCESS);
     CHECK(context->resources()->Snapshot().usedBytes == 0); // Create stages no worst-case matrix.
+    // The main binding evaluates through a shared R cache, so every
+    // value case below exercises the cached path (B9 pins cached ==
+    // direct bitwise, plus the engagement counters).
+    auto evalCache = std::make_shared<RbfVkEvalCache>();
+    binding->SetEvalCache(evalCache);
     auto pipe = RbfVkDeformPipeline::Create(context, spirv, applySpv, &status);
     CHECK(pipe && status == VK_SUCCESS);
 
@@ -624,6 +638,333 @@ int main(int argc, char** argv) {
         CHECK(binding->Finish() == RbfVkStatus::Ok);
         CHECK(weakInput.expired() && weakOutput.expired());
         std::puts("RBF pending evaluation ownership: PASS");
+    }
+
+    // B8: the shared factor cache adopts bitwise-identical factors on a
+    // hit and recomputes on rest/smoothing changes; failures stay failures.
+    {
+        const std::vector<float> restA{0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1};
+        std::vector<float> restB = restA;
+        restB[0] = 0.5f;
+        std::vector<float> posedA(15), posedB(15);
+        AffinePose(restA.data(), posedA.data(), 5);
+        AffinePose(restB.data(), posedB.data(), 5);
+        auto evalAll = [&](std::shared_ptr<RbfVkBinding> const& b, float const* rs,
+                           float const* ps, double smoothing,
+                           std::vector<float>& out) -> bool {
+            CHECK(b->Bind(rs, 5, smoothing) == RbfVkStatus::Ok);
+            CHECK(b->Solve(ps, 5) == RbfVkStatus::Ok);
+            RbfVkStatus es = b->EvaluateHost(rs, out.data(), 5);
+            CHECK(es == RbfVkStatus::Ok);
+            return true;
+        };
+        auto sameBits = [&](std::vector<float> const& a, std::vector<float> const& b) {
+            return a.size() == b.size() &&
+                   std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0;
+        };
+        // Uncached oracles for both rests.
+        auto plain = RbfVkBinding::Create(context, spirv, &status);
+        CHECK(plain && status == VK_SUCCESS);
+        std::vector<float> oracleA(15), oracleB(15);
+        evalAll(plain, restA.data(), posedA.data(), 0.0, oracleA);
+        evalAll(plain, restB.data(), posedB.data(), 0.0, oracleB);
+        CHECK(!sameBits(oracleA, oracleB));
+        // Cached binding: miss, hit, evict, re-miss; all bitwise vs oracle.
+        auto cached = RbfVkBinding::Create(context, spirv, &status);
+        CHECK(cached && status == VK_SUCCESS);
+        auto cache = std::make_shared<RbfVkFactorCache>();
+        cached->SetFactorCache(cache);
+        std::vector<float> got(15);
+        evalAll(cached, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        evalAll(cached, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        evalAll(cached, restB.data(), posedB.data(), 0.0, got);
+        CHECK(sameBits(got, oracleB));
+        evalAll(cached, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        // A second binding sharing the cache hits too.
+        auto cached2 = RbfVkBinding::Create(context, spirv, &status);
+        CHECK(cached2 && status == VK_SUCCESS);
+        cached2->SetFactorCache(cache);
+        evalAll(cached2, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        // Failures are never adopted: rank-deficient rest still fails, and
+        // a later good bind still succeeds.
+        const std::vector<float> plane{0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0, 0.2f, 0.3f, 0};
+        CHECK(cached->Bind(plane.data(), 5, 0.0) == RbfVkStatus::RankDeficient);
+        evalAll(cached, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        // Repeat failures stay failures (and stay exact): the per-binding
+        // upload memo never skips validation, so a repeated bad rest fails
+        // identically and the next good bind still matches bitwise.
+        CHECK(cached->Bind(plane.data(), 5, 0.0) == RbfVkStatus::RankDeficient);
+        CHECK(cached->Bind(plane.data(), 5, 0.0) == RbfVkStatus::RankDeficient);
+        evalAll(cached, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        std::vector<float> nanRest = restA;
+        nanRest[3] = std::numeric_limits<float>::quiet_NaN();
+        CHECK(cached->Bind(nanRest.data(), 5, 0.0) == RbfVkStatus::NonFiniteInput);
+        CHECK(cached->Bind(nanRest.data(), 5, 0.0) == RbfVkStatus::NonFiniteInput);
+        evalAll(cached, restA.data(), posedA.data(), 0.0, got);
+        CHECK(sameBits(got, oracleA));
+        // A smoothing change keys a different entry and still matches uncached.
+        // (No assertion that smoothing moves the float bits: on this tiny
+        // near-affine fixture the weights are ~0, so 1e-3 vs 0.0 smoothing
+        // can be bit-identical. The cache property is cached == uncached.)
+        std::vector<float> oracleS(15);
+        evalAll(plain, restA.data(), posedA.data(), 1e-3, oracleS);
+        evalAll(cached, restA.data(), posedA.data(), 1e-3, got);
+        CHECK(sameBits(got, oracleS));
+        std::puts("B8 (factor cache): PASS");
+    }
+
+    // B9: the RbfVkEvalCache evaluates bitwise what the direct shader
+    // did, across shapes/strides/reshape/rest-change/NaN; it engages
+    // (hits) on repeats and falls back cleanly (tiny pool, missing
+    // SPVs, disabled seam). Cached == direct is the property.
+    {
+        auto sameBits = [&](std::vector<float> const& a, std::vector<float> const& b) {
+            return a.size() == b.size() &&
+                   std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0;
+        };
+        auto diagnose = [&](float const* got, float const* want, size_t n,
+                            char const* tag) {
+            size_t ndiff = 0, first = 0;
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t a, b;
+                std::memcpy(&a, &got[i], 4);
+                std::memcpy(&b, &want[i], 4);
+                if (a == b) continue;
+                if (ndiff == 0) first = i;
+                if (++ndiff > 4) break;
+            }
+            if (ndiff == 0) return true;
+            // Recount fully (the loop above stops early).
+            ndiff = 0;
+            for (size_t i = 0; i < n; ++i) {
+                uint32_t a, b;
+                std::memcpy(&a, &got[i], 4);
+                std::memcpy(&b, &want[i], 4);
+                ndiff += (a != b);
+            }
+            std::fprintf(stderr, "B9/%s: %zu/%zu differ, first @%zu got=%a want=%a\n",
+                         tag, ndiff, n, first, got[first], want[first]);
+            return false;
+        };
+        uint64_t rng = 0x243f6a8885a308d3ull;
+        auto rand01 = [&]() {
+            rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+            return double(rng >> 11) * (1.0 / 9007199254740992.0);
+        };
+        struct Field {
+            std::vector<float> rest, posed, cvs;
+        };
+        auto mkField = [&](int n, uint32_t count, double span) {
+            Field f;
+            f.rest.resize(size_t(n) * 3);
+            f.posed.resize(size_t(n) * 3);
+            f.cvs.resize(size_t(count) * 3);
+            for (int i = 0; i < n; ++i) {
+                double rx = span * (2 * rand01() - 1);
+                double ry = span * (2 * rand01() - 1);
+                double rz = span * (2 * rand01() - 1);
+                f.rest[size_t(i) * 3] = float(rx);
+                f.rest[size_t(i) * 3 + 1] = float(ry);
+                f.rest[size_t(i) * 3 + 2] = float(rz);
+                f.posed[size_t(i) * 3] = float(rx + 0.1 * std::sin(double(i)));
+                f.posed[size_t(i) * 3 + 1] = float(ry - 0.05 * double(i % 7));
+                f.posed[size_t(i) * 3 + 2] = float(rz + 0.07 * std::cos(2.0 * double(i)));
+            }
+            for (uint32_t i = 0; i < count; ++i)
+                for (int a = 0; a < 3; ++a)
+                    f.cvs[size_t(i) * 3 + size_t(a)] =
+                        float(span * (2 * rand01() - 1));
+            return f;
+        };
+        auto evalCacheB = std::make_shared<RbfVkEvalCache>();
+        auto cacheB = RbfVkBinding::Create(context, spirv, &status);
+        CHECK(cacheB && status == VK_SUCCESS);
+        cacheB->SetEvalCache(evalCacheB);
+        // NOTE: no CHECK inside these lambdas (it returns 1, which
+        // reads as success from a bool): every step returns false
+        // explicitly, and the call-site CHECK reports the line.
+        auto directInto = [&](Field const& f, int, uint32_t count,
+                              std::vector<float>& out) -> bool {
+            TestDisableRbfVkEvalCache(true);
+            RbfVkStatus ds = cacheB->EvaluateHost(f.cvs.data(), out.data(), count);
+            TestDisableRbfVkEvalCache(false);
+            if (ds != RbfVkStatus::Ok) return false;
+            return true;
+        };
+        auto checkShape = [&](int n, uint32_t count, double span, char const* tag) -> bool {
+            Field f = mkField(n, count, span);
+            if (cacheB->Bind(f.rest.data(), n, 0.0) != RbfVkStatus::Ok) return false;
+            if (cacheB->Solve(f.posed.data(), n) != RbfVkStatus::Ok) return false;
+            std::vector<float> got(size_t(count) * 3), rep(size_t(count) * 3),
+                want(size_t(count) * 3);
+            if (cacheB->EvaluateHost(f.cvs.data(), got.data(), count) !=
+                RbfVkStatus::Ok)
+                return false;
+            if (cacheB->EvaluateHost(f.cvs.data(), rep.data(), count) !=
+                RbfVkStatus::Ok)
+                return false;
+            if (!diagnose(got.data(), rep.data(), got.size(), tag)) return false;
+            if (!directInto(f, n, count, want)) return false;
+            if (!diagnose(got.data(), want.data(), got.size(), tag)) return false;
+            return true;
+        };
+        CHECK(checkShape(5, 7, 1.0, "tiny"));
+        CHECK(checkShape(5, 5, 1.0, "square"));
+        CHECK(checkShape(4, 4, 1.0, "min"));
+        CHECK(checkShape(8, 129, 1.0, "unstrided"));
+        CHECK(checkShape(16, 1000, 1.0, "kilo"));
+        CHECK(checkShape(64, 3000, 2.0, "wide"));
+        CHECK(checkShape(400, 500, 1.0, "deep-n"));
+        CHECK(checkShape(200, 8000, 1.0, "medium"));
+        CHECK(evalCacheB->hitsForTesting() >= 8);
+        CHECK(evalCacheB->missesForTesting() >= 8);
+        std::puts("B9a (cached == direct): PASS");
+        // Rest change misses and still matches bitwise.
+        {
+            uint64_t misses0 = evalCacheB->missesForTesting();
+            Field f = mkField(16, 1000, 1.0);
+            CHECK(cacheB->Bind(f.rest.data(), 16, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB->Solve(f.posed.data(), 16) == RbfVkStatus::Ok);
+            std::vector<float> got(3000), want(3000);
+            CHECK(cacheB->EvaluateHost(f.cvs.data(), got.data(), 1000) ==
+                  RbfVkStatus::Ok);
+            CHECK(directInto(f, 16, 1000, want));
+            CHECK(diagnose(got.data(), want.data(), got.size(), "rest-change"));
+            CHECK(evalCacheB->missesForTesting() > misses0);
+            std::puts("B9b (rest change): PASS");
+        }
+        // NaN CVs: both paths report NonFiniteInput and leave the host
+        // output untouched (no readback on failure).
+        {
+            Field f = mkField(8, 129, 1.0);
+            f.cvs[3 * 17 + 1] = std::numeric_limits<float>::quiet_NaN();
+            CHECK(cacheB->Bind(f.rest.data(), 8, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB->Solve(f.posed.data(), 8) == RbfVkStatus::Ok);
+            std::vector<float> got(129 * 3, 12345.0f), want(129 * 3, 12345.0f);
+            CHECK(cacheB->EvaluateHost(f.cvs.data(), got.data(), 129) ==
+                  RbfVkStatus::NonFiniteInput);
+            // A poisoned evaluation leaves the binding unsolved, so the
+            // direct oracle needs a fresh solved state (same as B4/B5).
+            CHECK(cacheB->Bind(f.rest.data(), 8, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB->Solve(f.posed.data(), 8) == RbfVkStatus::Ok);
+            TestDisableRbfVkEvalCache(true);
+            RbfVkStatus ds = cacheB->EvaluateHost(f.cvs.data(), want.data(), 129);
+            TestDisableRbfVkEvalCache(false);
+            CHECK(ds == RbfVkStatus::NonFiniteInput);
+            CHECK(sameBits(got, want));
+            std::puts("B9c (NaN CVs): PASS");
+        }
+        // A shared cache hits across bindings (the production gap-path
+        // pattern: fresh bindings, static CVs/rest).
+        {
+            Field f = mkField(16, 1000, 1.0);
+            CHECK(cacheB->Bind(f.rest.data(), 16, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB->Solve(f.posed.data(), 16) == RbfVkStatus::Ok);
+            std::vector<float> got(3000), want(3000), other(3000);
+            CHECK(cacheB->EvaluateHost(f.cvs.data(), got.data(), 1000) ==
+                  RbfVkStatus::Ok);
+            auto cacheB2 = RbfVkBinding::Create(context, spirv, &status);
+            CHECK(cacheB2 && status == VK_SUCCESS);
+            cacheB2->SetEvalCache(evalCacheB);
+            CHECK(cacheB2->Bind(f.rest.data(), 16, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB2->Solve(f.posed.data(), 16) == RbfVkStatus::Ok);
+            uint64_t hits0 = evalCacheB->hitsForTesting();
+            CHECK(cacheB2->EvaluateHost(f.cvs.data(), other.data(), 1000) ==
+                  RbfVkStatus::Ok);
+            CHECK(evalCacheB->hitsForTesting() > hits0);
+            CHECK(diagnose(got.data(), other.data(), got.size(), "shared"));
+            CHECK(directInto(f, 16, 1000, want));
+            CHECK(diagnose(got.data(), want.data(), got.size(), "shared-direct"));
+            std::puts("B9d (shared cache): PASS");
+        }
+        // Randomized differential: fresh shapes churn one binding+cache
+        // through miss/hit/reshape/speculative paths; every cached
+        // evaluation matches the direct shader bitwise.
+        {
+            int const cases = 60;
+            for (int t = 0; t < cases; ++t) {
+                int const n = 4 + int(rng % 21);
+                rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+                uint32_t const count = 1 + uint32_t(rng % 600);
+                rng = rng * 6364136223846793005ull + 1442695040888963407ull;
+                double const span = (t % 3 == 2) ? (t % 2 ? 1e3 : 10.0) : 1.0;
+                char tag[32];
+                std::snprintf(tag, sizeof(tag), "fuzz-%d", t);
+                Field f = mkField(n, count, span);
+                CHECK(cacheB->Bind(f.rest.data(), n, 0.0) == RbfVkStatus::Ok);
+                CHECK(cacheB->Solve(f.posed.data(), n) == RbfVkStatus::Ok);
+                std::vector<float> got(size_t(count) * 3), want(size_t(count) * 3);
+                CHECK(cacheB->EvaluateHost(f.cvs.data(), got.data(), count) ==
+                      RbfVkStatus::Ok);
+                CHECK(directInto(f, n, count, want));
+                CHECK(diagnose(got.data(), want.data(), got.size(), tag));
+            }
+            std::puts("B9e (randomized differential): PASS");
+        }
+        // A pool that fits the bind but not R falls back to direct with
+        // identical bytes and no cache traffic.
+        {
+            DeviceContext::CreateInfo ci2 = ci;
+            ci2.resourceDeviceId = 18021;
+            ci2.resources = {size_t{1} << 20, 0};
+            auto tiny = DeviceContext::Create(ci2);
+            CHECK(tiny);
+            auto tinyBinding = RbfVkBinding::Create(tiny, spirv, &status);
+            CHECK(tinyBinding && status == VK_SUCCESS);
+            auto tinyCache = std::make_shared<RbfVkEvalCache>();
+            tinyBinding->SetEvalCache(tinyCache);
+            Field f = mkField(100, 2000, 1.0); // R = 1.6MB > 1MB pool
+            CHECK(tinyBinding->Bind(f.rest.data(), 100, 0.0) == RbfVkStatus::Ok);
+            CHECK(tinyBinding->Solve(f.posed.data(), 100) == RbfVkStatus::Ok);
+            std::vector<float> got(size_t(2000) * 3), want(size_t(2000) * 3);
+            CHECK(tinyBinding->EvaluateHost(f.cvs.data(), got.data(), 2000) ==
+                  RbfVkStatus::Ok);
+            CHECK(tinyCache->hitsForTesting() == 0);
+            CHECK(tinyCache->missesForTesting() == 0);
+            CHECK(cacheB->Bind(f.rest.data(), 100, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB->Solve(f.posed.data(), 100) == RbfVkStatus::Ok);
+            CHECK(directInto(f, 100, 2000, want));
+            CHECK(diagnose(got.data(), want.data(), got.size(), "tiny-pool"));
+            std::puts("B9f (tiny-pool fallback): PASS");
+        }
+        // Missing cache programs keep the binding direct (old SPV dirs
+        // keep working); a partial set is a wiring bug rejected at
+        // Create.
+        {
+            RbfVkBindingSpirv noCache = spirv;
+            noCache.verify.clear();
+            noCache.fill.clear();
+            noCache.evaluateCached.clear();
+            auto directBinding = RbfVkBinding::Create(context, noCache, &status);
+            CHECK(directBinding && status == VK_SUCCESS);
+            auto noCacheCounter = std::make_shared<RbfVkEvalCache>();
+            directBinding->SetEvalCache(noCacheCounter);
+            Field f = mkField(16, 1000, 1.0);
+            CHECK(directBinding->Bind(f.rest.data(), 16, 0.0) == RbfVkStatus::Ok);
+            CHECK(directBinding->Solve(f.posed.data(), 16) == RbfVkStatus::Ok);
+            std::vector<float> got(3000), want(3000);
+            CHECK(directBinding->EvaluateHost(f.cvs.data(), got.data(), 1000) ==
+                  RbfVkStatus::Ok);
+            CHECK(noCacheCounter->hitsForTesting() == 0);
+            CHECK(noCacheCounter->missesForTesting() == 0);
+            CHECK(cacheB->Bind(f.rest.data(), 16, 0.0) == RbfVkStatus::Ok);
+            CHECK(cacheB->Solve(f.posed.data(), 16) == RbfVkStatus::Ok);
+            CHECK(directInto(f, 16, 1000, want));
+            CHECK(diagnose(got.data(), want.data(), got.size(), "no-spv"));
+            RbfVkBindingSpirv partial = spirv;
+            partial.fill.clear();
+            partial.evaluateCached.clear();
+            auto partialBinding = RbfVkBinding::Create(context, partial, &status);
+            CHECK(!partialBinding);
+            std::puts("B9g (missing SPVs): PASS");
+        }
+        std::puts("B9 (eval cache): PASS");
     }
 
     // ================= B1: n=5 (the CUDA test's own fixture) =================

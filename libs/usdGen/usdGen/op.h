@@ -203,6 +203,15 @@ struct UsdGenCapture
     /// True for generator captures: the framework installs Buffer() into the
     /// owning node after a successful Capture.
     virtual bool OwnsBuffer() const { return false; }
+    /// True when Capture recorded per-chunk extents into the scheduler's
+    /// slots. Consumed only through the interleave's span revalidation, so
+    /// a stale true on a reused capture fails closed into the point pass.
+    virtual bool RecordedChunkExtents() const { return false; }
+    /// True when Capture wrote the node's output point planes direct
+    /// (UsdGenCaptureContext::outPx/outPy/outPz) instead of a capture
+    /// buffer, so the sweep has nothing to run. The scheduler consults
+    /// this only for a capture taken this run.
+    virtual bool WroteDirectOutput() const { return false; }
     UsdGenCurveBuffer &MutableBuffer() { return _buffer; }
     /// Type-erased copy for the incremental recompile path (E-6);
     /// concrete payloads override.
@@ -254,6 +263,24 @@ struct UsdGenCaptureContext
     uint32_t               upstreamCount = 0;
     UsdGenWorkDispatcher  *dispatcher = nullptr;  // capture may parallelise in the arena
     UsdGenDiagnostics     *diag = nullptr;
+    // The node's chunk partition plus the scheduler's per-chunk fused-extent
+    // slots. Set only by UsdGenScheduler::Run (slots only for the armed
+    // extent writer); every other Capture caller leaves them null, and a
+    // capture that records extents must fail closed to not recording unless
+    // all four are present and chunkCount == chunkExtentCount.
+    UsdGenChunkDesc const *chunks = nullptr;
+    size_t                 chunkCount = 0;
+    UsdGenChunkExtent     *chunkExtentSlots = nullptr;
+    size_t                 chunkExtentCount = 0;
+    // The node's previous-run point planes (writable) for capture-direct
+    // output, plus their CV count. Set only by UsdGenScheduler::Run when
+    // the planes exactly match the node's current totals; a capture that
+    // writes direct must additionally verify the count against its own
+    // upstream, the planes' mutual distinctness, and that they do not
+    // alias the upstream planes. Null everywhere else (including
+    // progressive cooks, which keep the sweep path).
+    float                 *outPx = nullptr, *outPy = nullptr, *outPz = nullptr;
+    size_t                 outPlaneCvs = 0;
 };
 
 struct UsdGenEvalContext

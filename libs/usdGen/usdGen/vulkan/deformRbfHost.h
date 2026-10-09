@@ -64,12 +64,22 @@ inline bool fullAffineRank(double g[16]) {
     return true;
 }
 
-// SolveRbf — port of rbf.cu (polynomialGram + fullAffineRank + buildMatrix +
-// rhsKernel + zeroTail) with an in-place Doolittle LU solve. m = n + 4.
-// On success fills out.{n,m,center,scale,coef,status}; on failure sets
-// out.status and returns leaving coef undefined.
-inline void SolveRbf(float3 const* rest, float3 const* posed, int n, double smoothing,
-                     RbfState& out) {
+// The rest-only half of SolveRbf: extent/center/scale plus the factored
+// (n+4)x(n+4) system and its permutation. Poses over the same rest share
+// one factorization; the per-pose solve needs only the right-hand side.
+struct RbfFactorization {
+    int n = 0, m = 0;
+    double center[3] = {0, 0, 0};
+    double scale = 1.0, invScale = 1.0;
+    std::vector<double> lu;  // m*m, in-place Doolittle factors
+    int perm[104] = {};      // m <= 104 (n <= 100)
+    RbfStatus::Code status = RbfStatus::Code::Ok;
+};
+
+// BindRbf — SolveRbf steps 1-3 (extent, rank, bordered build, LU). On
+// failure sets out.status and returns leaving the factors undefined.
+inline void BindRbf(float3 const* rest, int n, double smoothing,
+                    RbfFactorization& out) {
     out.status = RbfStatus::Code::Ok;
     const int m = n + 4;
 
@@ -102,7 +112,7 @@ inline void SolveRbf(float3 const* rest, float3 const* posed, int n, double smoo
     if (!fullAffineRank(G)) { out.status = RbfStatus::Code::RankDeficient; return; }
 
     // 2. Build bordered A[m][m] (row-major logical).
-    std::vector<double> A(m * m, 0.0);
+    out.lu.assign(m * m, 0.0);
     auto poly = [&](int row, int q) -> double {
         return q == 0 ? 1.0 : q == 1 ? (float3Component(rest[row], 0) - cx) * invScale
                                      : q == 2 ? (float3Component(rest[row], 1) - cy) * invScale
@@ -126,31 +136,42 @@ inline void SolveRbf(float3 const* rest, float3 const* posed, int n, double smoo
                 value = poly(c, r - n);
             }
             if (!std::isfinite(value)) { out.status = RbfStatus::Code::NonFinite; return; }
-            A[r * m + c] = value;
+            out.lu[r * m + c] = value;
         }
     }
 
     // 3. In-place Doolittle LU with partial pivoting.
-    int perm[104];
-    for (int i = 0; i < m; ++i) perm[i] = i;
+    for (int i = 0; i < m; ++i) out.perm[i] = i;
     for (int c = 0; c < m; ++c) {
         int p = c;
         for (int r = c + 1; r < m; ++r)
-            if (std::abs(A[r * m + c]) > std::abs(A[p * m + c])) p = r;
-        if (!(std::abs(A[p * m + c]) > 1e-300)) { out.status = RbfStatus::Code::RankDeficient; return; }
+            if (std::abs(out.lu[r * m + c]) > std::abs(out.lu[p * m + c])) p = r;
+        if (!(std::abs(out.lu[p * m + c]) > 1e-300)) { out.status = RbfStatus::Code::RankDeficient; return; }
         if (p != c) {
-            for (int k = 0; k < m; ++k) std::swap(A[c * m + k], A[p * m + k]);
-            std::swap(perm[c], perm[p]);
+            for (int k = 0; k < m; ++k) std::swap(out.lu[c * m + k], out.lu[p * m + k]);
+            std::swap(out.perm[c], out.perm[p]);
         }
         for (int r = c + 1; r < m; ++r) {
-            double f = A[r * m + c] / A[c * m + c];
-            A[r * m + c] = f;
+            double f = out.lu[r * m + c] / out.lu[c * m + c];
+            out.lu[r * m + c] = f;
             for (int k = c + 1; k < m; ++k) {
-                A[r * m + k] -= f * A[c * m + k];
-                if (!std::isfinite(A[r * m + k])) { out.status = RbfStatus::Code::NonFinite; return; }
+                out.lu[r * m + k] -= f * out.lu[c * m + k];
+                if (!std::isfinite(out.lu[r * m + k])) { out.status = RbfStatus::Code::NonFinite; return; }
             }
         }
     }
+
+    out.n = n; out.m = m;
+    out.center[0] = cx; out.center[1] = cy; out.center[2] = cz;
+    out.scale = scale; out.invScale = invScale;
+}
+
+// SolveRbfPosed — SolveRbf steps 4-6 (right-hand side, triangular solves,
+// column-major coefficients) against a bound factorization.
+inline void SolveRbfPosed(RbfFactorization const& bind, float3 const* rest,
+                          float3 const* posed, RbfState& out) {
+    int const n = bind.n, m = bind.m;
+    double const invScale = bind.invScale;
 
     // 4. RHS B[m][3] logical: scaled (posed - rest) for rows < n, zero tail.
     std::vector<double> B(m * 3, 0.0);
@@ -162,22 +183,49 @@ inline void SolveRbf(float3 const* rest, float3 const* posed, int n, double smoo
         }
     }
 
-    // 5. Solve L X = P b, then U X = that, for all three columns.
+    // 5. Solve L X = P b, then U X = that, for all three columns. The
+    // columns are independent (disjoint lanes over shared read-only
+    // factors), so they run interleaved: each column keeps its exact op
+    // sequence (same operations in the same order), giving the dependent
+    // accumulation chain three times the ILP with bitwise-identical
+    // coefficients.
     std::vector<double> X(m * 3, 0.0);
-    std::vector<double> bvec(m);
-    for (int k = 0; k < 3; ++k) {
-        for (int i = 0; i < m; ++i) bvec[i] = B[perm[i] * 3 + k];
-        for (int i = 0; i < m; ++i) {  // forward substitution with L
-            double s = 0.0;
-            for (int j = 0; j < i; ++j) s += A[i * m + j] * bvec[j];
-            bvec[i] -= s;
+    std::vector<double> bv(size_t(m) * 3);
+    for (int i = 0; i < m; ++i) {
+        size_t const row = size_t(bind.perm[i]) * 3;
+        bv[size_t(i) * 3] = B[row];
+        bv[size_t(i) * 3 + 1] = B[row + 1];
+        bv[size_t(i) * 3 + 2] = B[row + 2];
+    }
+    for (int i = 0; i < m; ++i) {  // forward substitution with L
+        double s0 = 0.0, s1 = 0.0, s2 = 0.0;
+        for (int j = 0; j < i; ++j) {
+            double const l = bind.lu[size_t(i) * size_t(m) + size_t(j)];
+            s0 += l * bv[size_t(j) * 3];
+            s1 += l * bv[size_t(j) * 3 + 1];
+            s2 += l * bv[size_t(j) * 3 + 2];
         }
-        for (int i = m - 1; i >= 0; --i) {  // back substitution with U
-            double s = 0.0;
-            for (int j = i + 1; j < m; ++j) s += A[i * m + j] * bvec[j];
-            bvec[i] = (bvec[i] - s) / A[i * m + i];
+        bv[size_t(i) * 3] -= s0;
+        bv[size_t(i) * 3 + 1] -= s1;
+        bv[size_t(i) * 3 + 2] -= s2;
+    }
+    for (int i = m - 1; i >= 0; --i) {  // back substitution with U
+        double s0 = 0.0, s1 = 0.0, s2 = 0.0;
+        for (int j = i + 1; j < m; ++j) {
+            double const l = bind.lu[size_t(i) * size_t(m) + size_t(j)];
+            s0 += l * bv[size_t(j) * 3];
+            s1 += l * bv[size_t(j) * 3 + 1];
+            s2 += l * bv[size_t(j) * 3 + 2];
         }
-        for (int i = 0; i < m; ++i) X[i * 3 + k] = bvec[i];
+        double const d = bind.lu[size_t(i) * size_t(m) + size_t(i)];
+        bv[size_t(i) * 3] = (bv[size_t(i) * 3] - s0) / d;
+        bv[size_t(i) * 3 + 1] = (bv[size_t(i) * 3 + 1] - s1) / d;
+        bv[size_t(i) * 3 + 2] = (bv[size_t(i) * 3 + 2] - s2) / d;
+    }
+    for (int i = 0; i < m; ++i) {
+        X[size_t(i) * 3] = bv[size_t(i) * 3];
+        X[size_t(i) * 3 + 1] = bv[size_t(i) * 3 + 1];
+        X[size_t(i) * 3 + 2] = bv[size_t(i) * 3 + 2];
     }
 
     // Column-major output: coef[k*m + i] = X[i][k].
@@ -189,9 +237,24 @@ inline void SolveRbf(float3 const* rest, float3 const* posed, int n, double smoo
         }
 
     out.n = n; out.m = m;
-    out.center[0] = cx; out.center[1] = cy; out.center[2] = cz;
-    out.scale = scale;
+    out.center[0] = bind.center[0]; out.center[1] = bind.center[1]; out.center[2] = bind.center[2];
+    out.scale = bind.scale;
     out.status = RbfStatus::Code::Ok;
+}
+
+// SolveRbf — port of rbf.cu (polynomialGram + fullAffineRank + buildMatrix +
+// rhsKernel + zeroTail) with an in-place Doolittle LU solve. m = n + 4.
+// On success fills out.{n,m,center,scale,coef,status}; on failure sets
+// out.status and returns leaving coef undefined.
+inline void SolveRbf(float3 const* rest, float3 const* posed, int n, double smoothing,
+                     RbfState& out) {
+    RbfFactorization bind;
+    BindRbf(rest, n, smoothing, bind);
+    if (bind.status != RbfStatus::Code::Ok) {
+        out.status = bind.status;
+        return;
+    }
+    SolveRbfPosed(bind, rest, posed, out);
 }
 
 // RbfEvaluate — port of rbf.cu:93-102 evalKernel, double inner, float out.

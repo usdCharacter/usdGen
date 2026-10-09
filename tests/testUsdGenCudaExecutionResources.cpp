@@ -31,5 +31,35 @@ int main() {
     CHECK(resources->Snapshot().usedBytes == 0);
     CHECK(moved.reset(200) == cudaSuccess);
     CHECK(resources->Snapshot().usedBytes == 200 * sizeof(float));
+    // DeviceBuffer reuse cache: retention, exact-size reuse, and
+    // drain-on-pressure. Entering: `moved` holds 200 floats live (800B
+    // charged); the 33-float block sits cached with its permit released.
+    float const* movedData = moved.data();
+    CHECK(gpu::UsdGenGpuDeviceBufferCacheBytes() == 33 * sizeof(float));
+    moved.release();
+    CHECK(resources->Snapshot().usedBytes == 0 &&
+          gpu::UsdGenGpuDeviceBufferCacheBytes() == 233 * sizeof(float));
+    gpu::DeviceBuffer<float> small, big, extra;
+    CHECK(small.reset(33) == cudaSuccess);
+    CHECK(small.data() == pointer &&
+          resources->Snapshot().usedBytes == 33 * sizeof(float) &&
+          gpu::UsdGenGpuDeviceBufferCacheBytes() == 200 * sizeof(float));
+    small.release();
+    CHECK(big.reset(200) == cudaSuccess);
+    CHECK(big.data() == movedData &&
+          resources->Snapshot().usedBytes == 200 * sizeof(float) &&
+          gpu::UsdGenGpuDeviceBufferCacheBytes() == 33 * sizeof(float));
+    // Pressure: 800B live + a 132B cached block, then a 132B admission
+    // that overfills the 896B usable budget. It must fail exactly as
+    // without the cache, after shedding the candidate and the cache.
+    CHECK(extra.reset(33) == cudaErrorMemoryAllocation);
+    CHECK(resources->Snapshot().usedBytes == 200 * sizeof(float) &&
+          gpu::UsdGenGpuDeviceBufferCacheBytes() == 0);
+    big.release();
+    CHECK(resources->Snapshot().usedBytes == 0);
+    CHECK(extra.reset(200) == cudaSuccess);
+    CHECK(extra.data() == movedData &&
+          resources->Snapshot().usedBytes == 200 * sizeof(float) &&
+          gpu::UsdGenGpuDeviceBufferCacheBytes() == 0);
     return 0;
 }

@@ -476,6 +476,19 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
         LoadShader(dir, "rbfVkTriSolve.spv", &rbfVkTriSolveSpv) &&
         LoadShader(dir, "rbfVkEvaluate.spv", &rbfVkEvaluateSpv) &&
         LoadShader(dir, "rbfVkApply.spv", &rbfVkApplySpv);
+    // R-cache programs: optional, never gating. Missing shaders only
+    // disable the RbfVkBinding evaluate cache (direct evaluation, as
+    // before); the binding rejects a partial set at Create.
+    std::vector<uint32_t> rbfVkVerifySpv, rbfVkFillSpv, rbfVkEvaluateCachedSpv;
+    bool const hasRbfVkEvalCache =
+        LoadShader(dir, "rbfVkVerify.spv", &rbfVkVerifySpv) &&
+        LoadShader(dir, "rbfVkFill.spv", &rbfVkFillSpv) &&
+        LoadShader(dir, "rbfVkEvaluateCached.spv", &rbfVkEvaluateCachedSpv);
+    if (!hasRbfVkEvalCache) {
+        rbfVkVerifySpv.clear();
+        rbfVkFillSpv.clear();
+        rbfVkEvaluateCachedSpv.clear();
+    }
     auto self = std::shared_ptr<DefaultVulkanSessionProvider>(
         new DefaultVulkanSessionProvider);
     self->native_ = CreateNative(&pick, reason);
@@ -625,6 +638,9 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
         rbfVkSpirv.rhs = std::move(rbfVkRhsSpv);
         rbfVkSpirv.triSolve = std::move(rbfVkTriSolveSpv);
         rbfVkSpirv.evaluate = std::move(rbfVkEvaluateSpv);
+        rbfVkSpirv.verify = std::move(rbfVkVerifySpv);
+        rbfVkSpirv.fill = std::move(rbfVkFillSpv);
+        rbfVkSpirv.evaluateCached = std::move(rbfVkEvaluateCachedSpv);
         rbfVkDeform = RbfVkDeformPipeline::Create(self->context_, rbfVkSpirv, rbfVkApplySpv);
     }
     self->completion_ = VulkanCompletionService::Create(

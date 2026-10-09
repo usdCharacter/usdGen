@@ -2,9 +2,19 @@
 // SPDX-License-Identifier: MIT
 
 // rbfVkApply.comp — device-solver application. Vulkan port of the CUDA ApplyDeformation kernel
-// (deformCurves.cu:74-134). One thread per curve; each curve's points are
-// processed sequentially. Blends the input CVs (`src`) toward the RBF-warped
-// CVs (`warped`) by a clamped envelope, with optional root-lock correction.
+// (deformCurves.cu:74-134). One thread per POINT: adjacent threads read
+// and write adjacent points, so the src/warped/output traffic is fully
+// coalesced; one thread per curve strided by the span and ran the memory
+// system at a fraction of its efficiency. Each thread binary-searches
+// `offsets` for its curve (L1-resident, data-independent trip count) and
+// then runs the identical per-point math, so outputs are bitwise what the
+// per-curve version wrote. Span validation stays per-curve: thread i also
+// checks span i (when i < curves), so an empty or overrunning span that no
+// point maps to still reports BadOffsets exactly as before; the dispatch
+// covers max(points, curves) threads so every span is checked.
+//
+// The global index spans a 2D grid (y carries the overflow past
+// maxComputeWorkGroupCount[0] groups), as before.
 //
 // Always writes output[point] (result is initialized to src) so disabled /
 // zero-envelope cases are a bitwise input pass-through. Error codes match CUDA:
@@ -21,10 +31,10 @@
 //   6 enabledData uint[...]  RO (fallback 4B buffer when literal)
 //   7 lockData   uint[...]   RO (fallback 4B buffer when literal)
 //   8 status     int[1]      OUT (atomicCompSwap first-writer, 0 == clean)
-//   9 UBO        Params (std140, 80 bytes)
+//   9 UBO        Params (std140, 96 bytes)
 //
-// Dispatch: local_size_x=256, groups=ceil(curveCount/256). Domain codes:
-// Groom=1, Primitive=2, Point=4.
+// Dispatch: local_size_x=256, 2D grid over ceil(max(pointCount,curveCount)/256)
+// groups. Domain codes: Groom=1, Primitive=2, Point=4.
 
 #version 460
 layout(local_size_x = 256) in;
@@ -56,16 +66,39 @@ bool Finite(float v) { return !(isinf(v) || isnan(v)); }
 void StatusErr(int code) { atomicCompSwap(status, 0, code); }
 
 void main() {
-    uint curve = gl_GlobalInvocationID.x +
-                 gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 256u;
-    if (curve >= params.counts.x) return;
+    uint i = gl_GlobalInvocationID.x +
+             gl_GlobalInvocationID.y * gl_NumWorkGroups.x * 256u;
+    uint curves = params.counts.x;
+    uint points = params.counts.y;
+    if (i >= max(points, curves)) return;
     // Canonical endpoints must hold even when every individual span is valid.
-    if (offsets[0] != 0u || offsets[params.counts.x] != params.counts.y) {
+    if (offsets[0] != 0u || offsets[curves] != points) {
         StatusErr(1); return;
     }
+    // Span check for curve i: the per-curve discovery of empty (begin >=
+    // end) and overrunning (end > points) spans, which no point maps to.
+    // Records only; the thread still processes point i below, exactly as
+    // the per-curve version processed every good curve alongside a bad one.
+    if (i < curves) {
+        uint sb = offsets[i], se = offsets[i + 1u];
+        if (sb >= se || se > points) StatusErr(1);
+    }
+    if (i >= points) return;
+    uint point = i;
+    // Curve of this point: the greatest c with offsets[c] <= point. The
+    // interval halves every step, so this terminates on any offset
+    // content; curve lands in [0, curves), so the reads below are in
+    // bounds even for non-monotone offsets, and the span check then
+    // rejects them exactly as the per-curve version did.
+    uint lo = 0u, hi = curves;
+    while (lo + 1u < hi) {
+        uint mid = (lo + hi) >> 1;
+        if (offsets[mid] <= point) lo = mid; else hi = mid;
+    }
+    uint curve = lo;
     uint begin = offsets[curve];
     uint end = offsets[curve + 1u];
-    if (begin >= end || end > params.counts.y) { StatusErr(1); return; }
+    if (begin >= end || end > points) { StatusErr(1); return; }
 
     // enabled is one Groom value shared by every curve.
     uint enabledRaw = (int(params.enabledF.y) != 0) ? enabledData[0] : uint(params.enabledF.x);
@@ -86,34 +119,32 @@ void main() {
         }
     }
 
-    for (uint point = begin; point < end; ++point) {
-        vec3 s = P3(src, point);
-        vec3 w = P3(warped, point);
-        if (!Finite(s.x) || !Finite(s.y) || !Finite(s.z) ||
-            !Finite(w.x) || !Finite(w.y) || !Finite(w.z)) {
-            StatusErr(2); continue;
-        }
-
-        uint maskIdx = uint(params.maskF.z) == D_GROOM ? 0u :
-                       (uint(params.maskF.z) == D_POINT ? point : curve);
-        float maskValue = (int(params.maskF.y) != 0) ? maskData[maskIdx] : params.maskF.x;
-        if (!Finite(maskValue)) { StatusErr(2); continue; }
-        if (maskValue < 0.0 || maskValue > 1.0) { StatusErr(3); continue; }
-
-        float envelope = params.groomEnvelope * maskValue;
-        if (!Finite(envelope)) { StatusErr(2); continue; }
-        envelope = clamp(envelope, 0.0, 1.0);
-
-        vec3 result = s;
-        if (groomEnabled && envelope > 0.0) {
-            vec3 destination = lock ? (w + correction) : w;
-            result = s + (destination - s) * envelope;
-        }
-        if (!Finite(result.x) || !Finite(result.y) || !Finite(result.z)) {
-            StatusErr(2); continue;
-        }
-        outData[3u*point]     = result.x;
-        outData[3u*point + 1u] = result.y;
-        outData[3u*point + 2u] = result.z;
+    vec3 s = P3(src, point);
+    vec3 w = P3(warped, point);
+    if (!Finite(s.x) || !Finite(s.y) || !Finite(s.z) ||
+        !Finite(w.x) || !Finite(w.y) || !Finite(w.z)) {
+        StatusErr(2); return;
     }
+
+    uint maskIdx = uint(params.maskF.z) == D_GROOM ? 0u :
+                   (uint(params.maskF.z) == D_POINT ? point : curve);
+    float maskValue = (int(params.maskF.y) != 0) ? maskData[maskIdx] : params.maskF.x;
+    if (!Finite(maskValue)) { StatusErr(2); return; }
+    if (maskValue < 0.0 || maskValue > 1.0) { StatusErr(3); return; }
+
+    float envelope = params.groomEnvelope * maskValue;
+    if (!Finite(envelope)) { StatusErr(2); return; }
+    envelope = clamp(envelope, 0.0, 1.0);
+
+    vec3 result = s;
+    if (groomEnabled && envelope > 0.0) {
+        vec3 destination = lock ? (w + correction) : w;
+        result = s + (destination - s) * envelope;
+    }
+    if (!Finite(result.x) || !Finite(result.y) || !Finite(result.z)) {
+        StatusErr(2); return;
+    }
+    outData[3u*point]     = result.x;
+    outData[3u*point + 1u] = result.y;
+    outData[3u*point + 2u] = result.z;
 }

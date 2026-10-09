@@ -663,6 +663,11 @@ bool UsdGenCpuParameters::Clear() noexcept
 
 UsdGenExpressionValue const *UsdGenCpuParameters::Find(TfToken const &destination) const
 {
+    // Fast path: a node with no connected expressions matches nothing, so
+    // skip the canonicalization (a string copy plus a token-registry
+    // interning) that the empty scan below would do anyway. Every
+    // per-chunk param read in an expression-less graph pays this.
+    if (values_.empty()) return nullptr;
     const TfToken canonical = UsdGenCanonicalParamName(destination);
     for (auto const &value : values_)
         if (value.destination == canonical) return &value;

@@ -22,14 +22,17 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/opRegistry.h"
+#include "usdGen/ops/deform.h"
 #include "usdGen/ops/rbfField.h"
 #include "usdGen/ops/curveWrap.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/workerPool.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/base/gf/matrix4d.h"
+#include "pxr/base/gf/range3f.h"
 #include "pxr/base/gf/rotation.h"
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
@@ -44,9 +47,12 @@
 #include "pxr/usdImaging/usdImaging/stageSceneIndex.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -155,6 +161,274 @@ void CheckField()
         for (size_t b = a + 1; b < some.size(); ++b)
             spread = std::min(spread, (points[some[a]] - points[some[b]]).GetLength());
     Check(spread > 0.4, "farthest-point samples are spread out (" + std::to_string(spread) + ")");
+}
+
+// DisplaceBatch is bitwise Displacement, through every cascade width (8,
+// 4, tail singles), past the single-query path's 256-sample stack row,
+// through the grouped-strand counts the deform strands loop issues (up to
+// 300, covering the 256-query full group and its tail shapes), and for
+// the unbound field.
+void CheckBatchBitwise()
+{
+    for (size_t samples : {size_t(12), size_t(100), size_t(300)}) {
+        std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
+        std::vector<GfVec3d> moved(rest.size());
+        for (size_t i = 0; i < rest.size(); ++i)
+            moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+                                         0.1 * rest[i][0] * rest[i][2],
+                                         -0.15 * std::cos(2.0 * rest[i][0]));
+        rbf::CubicField field;
+        std::string error;
+        if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
+            Check(false, "batch fixture binds (" + std::to_string(samples) + " samples)");
+            continue;
+        }
+        std::vector<GfVec3d> const queries = Cloud(300, 1001);
+        size_t worst = 0;
+        for (size_t count = 0; count <= queries.size(); ++count) {
+            std::vector<GfVec3d> batched(count), single(count);
+            field.DisplaceBatch(queries.data(), batched.data(), count);
+            for (size_t t = 0; t < count; ++t) single[t] = field.Displacement(queries[t]);
+            if (count && !worst && std::memcmp(batched.data(), single.data(),
+                                                count * sizeof(GfVec3d)) != 0)
+                worst = count;
+        }
+        Check(worst == 0, "DisplaceBatch is bitwise Displacement (" +
+                               std::to_string(samples) + " samples" +
+                               (worst ? ", first diff at count " + std::to_string(worst) : "") + ")");
+    }
+    rbf::CubicField unbound;
+    std::vector<GfVec3d> zeros(10, GfVec3d(1.0)), expect(10, GfVec3d(0.0));
+    unbound.DisplaceBatch(zeros.data(), zeros.data(), zeros.size());
+    Check(std::memcmp(zeros.data(), expect.data(), zeros.size() * sizeof(GfVec3d)) == 0,
+          "an unbound field batches zeros");
+}
+
+// The NEON block agrees with the scalar blocks bitwise, through block
+// boundaries (4k, 4k+1..3 tails, unaligned starts) and sample counts on
+// both sides of the single-query path's 256-sample stack row. Off AArch64
+// both paths are the scalar blocks and the test passes trivially.
+void CheckBatchPathsAgree()
+{
+    for (size_t samples : {size_t(12), size_t(100), size_t(300)}) {
+        std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
+        std::vector<GfVec3d> moved(rest.size());
+        for (size_t i = 0; i < rest.size(); ++i)
+            moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+                                         0.1 * rest[i][0] * rest[i][2],
+                                         -0.15 * std::cos(2.0 * rest[i][0]));
+        rbf::CubicField field;
+        std::string error;
+        if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
+            Check(false, "path-agreement fixture binds (" + std::to_string(samples) +
+                             " samples)");
+            continue;
+        }
+        // One extra query lets every count also run one triple over,
+        // flipping the 16-byte alignment the vld3/vst3 pair sees.
+        std::vector<GfVec3d> const queries = Cloud(302, 1001);
+        size_t worst = 0;
+        for (size_t count = 0; count <= 300; ++count) {
+            for (size_t off = 0; off <= 1; ++off) {
+                std::vector<GfVec3d> neon(count), scalar(count);
+                rbf::TestForceScalarDisplace(false);
+                field.DisplaceBatch(queries.data() + off, neon.data(), count);
+                rbf::TestForceScalarDisplace(true);
+                field.DisplaceBatch(queries.data() + off, scalar.data(), count);
+                rbf::TestForceScalarDisplace(false);
+                if (count && !worst &&
+                    std::memcmp(neon.data(), scalar.data(), count * sizeof(GfVec3d)) != 0)
+                    worst = count * 2 + off;
+            }
+        }
+        Check(worst == 0, "NEON and scalar DisplaceBatch agree bitwise (" +
+                               std::to_string(samples) + " samples" +
+                               (worst ? ", first diff at " + std::to_string(worst) : "") + ")");
+    }
+}
+
+// DisplaceBatchPlanar is bitwise Displacement, through every cascade width
+// (8, 4, tail singles), on both the NEON and the forced-scalar path, and
+// for the unbound field. The planar queries round-trip through float, so
+// the singles compare against the same float triples the batch converts.
+void CheckBatchPlanarBitwise()
+{
+    for (size_t samples : {size_t(12), size_t(100), size_t(300)}) {
+        std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
+        std::vector<GfVec3d> moved(rest.size());
+        for (size_t i = 0; i < rest.size(); ++i)
+            moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+                                         0.1 * rest[i][0] * rest[i][2],
+                                         -0.15 * std::cos(2.0 * rest[i][0]));
+        rbf::CubicField field;
+        std::string error;
+        if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
+            Check(false, "planar batch fixture binds (" + std::to_string(samples) +
+                             " samples)");
+            continue;
+        }
+        std::vector<GfVec3d> const cloud = Cloud(300, 1001);
+        std::vector<float> qx(300), qy(300), qz(300);
+        for (size_t i = 0; i < 300; ++i) {
+            qx[i] = float(cloud[i][0]);
+            qy[i] = float(cloud[i][1]);
+            qz[i] = float(cloud[i][2]);
+        }
+        size_t worst = 0;
+        for (int force = 0; force <= 1 && !worst; ++force) {
+            rbf::TestForceScalarDisplace(force != 0);
+            for (size_t count = 0; count <= 300; ++count) {
+                std::vector<double> dx(count), dy(count), dz(count);
+                field.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(), dx.data(),
+                                          dy.data(), dz.data(), count);
+                for (size_t t = 0; t < count; ++t) {
+                    GfVec3d const s =
+                        field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
+                    if (std::memcmp(&dx[t], &s[0], sizeof(double)) != 0 ||
+                        std::memcmp(&dy[t], &s[1], sizeof(double)) != 0 ||
+                        std::memcmp(&dz[t], &s[2], sizeof(double)) != 0) {
+                        worst = count * 2 + size_t(force) + 1;
+                        break;
+                    }
+                }
+                if (worst) break;
+            }
+        }
+        rbf::TestForceScalarDisplace(false);
+        Check(worst == 0, "DisplaceBatchPlanar is bitwise Displacement (" +
+                               std::to_string(samples) + " samples" +
+                               (worst ? ", first diff at " + std::to_string(worst) : "") +
+                               ")");
+    }
+    rbf::CubicField unbound;
+    std::vector<float> qx(10, 1.0f), qy(10, 2.0f), qz(10, 3.0f);
+    std::vector<double> dx(10, 1.0), dy(10, 1.0), dz(10, 1.0);
+    unbound.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(), dx.data(), dy.data(),
+                               dz.data(), dx.size());
+    std::vector<double> expect(10, 0.0);
+    Check(std::memcmp(dx.data(), expect.data(), dx.size() * sizeof(double)) == 0 &&
+              std::memcmp(dy.data(), expect.data(), dy.size() * sizeof(double)) == 0 &&
+              std::memcmp(dz.data(), expect.data(), dz.size() * sizeof(double)) == 0,
+          "an unbound field batches planar zeros");
+}
+
+// Large batches split over the internal pool (16k queries and up, in
+// 1k-query slices): counts around the threshold and the slice edges
+// stay bitwise Displacement, on both entries and both scalar-seam
+// positions.
+void CheckBatchThreaded()
+{
+    size_t const samples = 100;
+    std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
+    std::vector<GfVec3d> moved(rest.size());
+    for (size_t i = 0; i < rest.size(); ++i)
+        moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+                                     0.1 * rest[i][0] * rest[i][2],
+                                     -0.15 * std::cos(2.0 * rest[i][0]));
+    rbf::CubicField field;
+    std::string error;
+    if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
+        Check(false, "threaded batch fixture binds");
+        return;
+    }
+    size_t const n = 20000;
+    std::vector<GfVec3d> const cloud = Cloud(n, 1001);
+    std::vector<float> qx(n), qy(n), qz(n);
+    for (size_t i = 0; i < n; ++i) {
+        qx[i] = float(cloud[i][0]);
+        qy[i] = float(cloud[i][1]);
+        qz[i] = float(cloud[i][2]);
+    }
+    size_t worst = 0;
+    for (size_t count : {size_t(16383), size_t(16384), size_t(16385),
+                         size_t(17407), size_t(17408), size_t(17409),
+                         size_t(19999), size_t(20000)}) {
+        for (int force = 0; force <= 1 && !worst; ++force) {
+            rbf::TestForceScalarDisplace(force != 0);
+            std::vector<GfVec3d> batched(count), single(count);
+            field.DisplaceBatch(cloud.data(), batched.data(), count);
+            for (size_t t = 0; t < count; ++t)
+                single[t] = field.Displacement(cloud[t]);
+            if (std::memcmp(batched.data(), single.data(),
+                            count * sizeof(GfVec3d)) != 0) {
+                worst = count * 4 + size_t(force) + 1;
+                break;
+            }
+            std::vector<double> dx(count), dy(count), dz(count);
+            field.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(),
+                                      dx.data(), dy.data(), dz.data(), count);
+            for (size_t t = 0; t < count; ++t) {
+                GfVec3d const s =
+                    field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
+                if (std::memcmp(&dx[t], &s[0], sizeof(double)) != 0 ||
+                    std::memcmp(&dy[t], &s[1], sizeof(double)) != 0 ||
+                    std::memcmp(&dz[t], &s[2], sizeof(double)) != 0) {
+                    worst = count * 4 + size_t(force) + 3;
+                    break;
+                }
+            }
+        }
+        if (worst) break;
+    }
+    rbf::TestForceScalarDisplace(false);
+    Check(worst == 0, "threaded batches are bitwise Displacement" +
+                           (worst ? " (first diff at " + std::to_string(worst) + ")" : ""));
+}
+
+// The pool discipline holds: concurrent large batches from many threads
+// serialize and stay bitwise, and large batches issued from another
+// pool's workers block-join the displace pool without deadlocking.
+void CheckBatchConcurrent()
+{
+    size_t const samples = 100;
+    std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
+    std::vector<GfVec3d> moved(rest.size());
+    for (size_t i = 0; i < rest.size(); ++i)
+        moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+                                     0.1 * rest[i][0] * rest[i][2],
+                                     -0.15 * std::cos(2.0 * rest[i][0]));
+    rbf::CubicField field;
+    std::string error;
+    if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
+        Check(false, "concurrent batch fixture binds");
+        return;
+    }
+    size_t const n = 20000;
+    std::vector<GfVec3d> const cloud = Cloud(n, 1001);
+    std::vector<GfVec3d> expect(n);
+    for (size_t t = 0; t < n; ++t) expect[t] = field.Displacement(cloud[t]);
+    std::atomic<size_t> bad{0};
+    auto run = [&]() {
+        for (int k = 0; k < 4; ++k) {
+            std::vector<GfVec3d> got(n);
+            field.DisplaceBatch(cloud.data(), got.data(), n);
+            if (std::memcmp(got.data(), expect.data(), n * sizeof(GfVec3d)) != 0)
+                bad.fetch_add(1, std::memory_order_relaxed);
+        }
+    };
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; ++i) threads.emplace_back(run);
+    for (std::thread &t : threads) t.join();
+    Check(bad.load() == 0, "concurrent large batches stay bitwise");
+    struct Nested {
+        rbf::CubicField const *field;
+        GfVec3d const *qs;
+        GfVec3d *ds0, *ds1;
+        size_t count;
+    };
+    std::vector<GfVec3d> nestedOut0(n), nestedOut1(n);
+    Nested nested{&field, cloud.data(), nestedOut0.data(), nestedOut1.data(), n};
+    UsdGenWorkerPool outer(2);
+    outer.ParallelFor(2,
+                      [](size_t i, void *p) {
+                          Nested const &job = *static_cast<Nested const *>(p);
+                          job.field->DisplaceBatch(job.qs, i == 0 ? job.ds0 : job.ds1,
+                                                  job.count);
+                      },
+                      &nested);
+    Check(std::memcmp(nestedOut0.data(), expect.data(), n * sizeof(GfVec3d)) == 0 &&
+              std::memcmp(nestedOut1.data(), expect.data(), n * sizeof(GfVec3d)) == 0,
+          "batches nested in pool workers stay bitwise");
 }
 
 // --- the example, through the engine ---------------------------------------------
@@ -358,6 +632,322 @@ void CheckSurfaceExample(bool outside = false)
     prim.RemoveProperty(TfToken("primvars:rest"));
     Cooked const missing = cook(38);
     Check(!missing.ok,"surface RBF refuses missing Default-time rest data");
+}
+
+// Finite drivers, but the field overflows float at a far CV: the capture
+// must fail with the non-finite diagnostic, not publish infinities.
+void CheckNonFiniteCapture()
+{
+    UsdGenGraphDesc desc;
+    UsdGenSurfaceDesc surface;
+    surface.path = SdfPath("/surface");
+    int const N = 5;
+    surface.restPoints = VtVec3fArray(N * N);
+    for (int j = 0; j < N; ++j)
+        for (int i = 0; i < N; ++i) {
+            float const x = float(i) * 0.1f, y = float(j) * 0.1f;
+            surface.restPoints[j * N + i] =
+                GfVec3f(x, y, 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f));
+        }
+    surface.points = surface.restPoints;
+    surface.points[0] = surface.restPoints[0] + GfVec3f(1e10f, 0.0f, 0.0f);
+    desc.surfaces.push_back(surface);
+
+    UsdGenCurveBuffer upstream;
+    upstream.totalCurves = 1;
+    upstream.totalCvs = 2;
+    upstream.px = VtFloatArray(2);
+    upstream.py = VtFloatArray(2);
+    upstream.pz = VtFloatArray(2);
+    upstream.px[1] = 1e20f;  // the cubic kernel overflows float here
+
+    UsdGenCaptureContext ctx;
+    ctx.desc = &desc;
+    ctx.surface = 0;
+    UsdGenDeformOp op;
+    auto capture = op.CreateCapture();
+    UsdGenDiagnostics diagnostics;
+    bool const ok = op.Capture(ctx, upstream, capture.get(), &diagnostics);
+    bool const refused = !ok && !diagnostics.errors.empty() &&
+        diagnostics.errors[0].find("non-finite") != std::string::npos;
+    Check(refused, "a deformation that overflows float is refused, not published");
+}
+
+// The surface-driven capture digest hashes only the posed drivers the
+// capture reads: rest decides the farthest-point selection, so a move
+// outside the chosen set must neither re-capture nor change the output,
+// while a move at a chosen driver must re-capture to new output.
+UsdGenGraphDesc MakeSmallSurfaceDeformDesc()
+{
+    UsdGenGraphDesc desc;
+    desc.description = SdfPath("/groom");
+    desc.terminal = SdfPath("/groom/deform");
+    desc.time = 0.0;
+    UsdGenSurfaceDesc s;
+    s.path = SdfPath("/groom/surface");
+    s.id = 0;
+    int const NX = 15, NY = 15;
+    s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
+    s.uv = VtVec2fArray((NX + 1) * (NY + 1));
+    for (int j = 0; j <= NY; ++j)
+        for (int i = 0; i <= NX; ++i) {
+            int const k = j * (NX + 1) + i;
+            float const x = float(i) * 0.1f, y = float(j) * 0.1f;
+            s.restPoints[k] = GfVec3f(x, y, 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f));
+            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+        }
+    s.points = s.restPoints;
+    s.faceVertexCounts = VtIntArray(NX * NY, 4);
+    s.faceVertexIndices = VtIntArray(NX * NY * 4);
+    for (int j = 0; j < NY; ++j)
+        for (int i = 0; i < NX; ++i) {
+            int const a = j * (NX + 1) + i, o = (j * NX + i) * 4;
+            s.faceVertexIndices[o] = a;
+            s.faceVertexIndices[o + 1] = a + 1;
+            s.faceVertexIndices[o + 2] = a + NX + 2;
+            s.faceVertexIndices[o + 3] = a + NX + 1;
+        }
+    desc.surfaces.push_back(s);
+    auto addNode = [&](std::string const &name, TfToken type, std::string const &input, int seed) {
+        UsdGenNodeDesc n;
+        n.path = SdfPath("/groom/" + name);
+        n.type = type;
+        n.enabled = true;
+        n.seed = seed;
+        if (!input.empty()) n.inputs.push_back(SdfPath("/groom/" + input));
+        if (type == TfToken("UsdGenScatter") || type == TfToken("UsdGenDeform"))
+            n.surfaces.push_back(SdfPath("/groom/surface"));
+        desc.nodes.push_back(std::move(n));
+    };
+    addNode("scatter", TfToken("UsdGenScatter"), "", 42);
+    addNode("grow", TfToken("UsdGenGrow"), "scatter", 43);
+    addNode("deform", TfToken("UsdGenDeform"), "grow", 44);
+    auto setp = [&](std::string const &name, TfToken p, VtValue v) {
+        for (auto &n : desc.nodes)
+            if (n.path == SdfPath("/groom/" + name))
+                n.params.push_back(UsdGenParamValue{p, v, false});
+    };
+    setp("scatter", TfToken("density"), VtValue(25.0));
+    setp("grow", TfToken("segments"), VtValue(2));
+    setp("grow", TfToken("length"), VtValue(1.0));
+    setp("deform", TfToken("rbfSamples"), VtValue(100));
+    setp("deform", TfToken("lockRoots"), VtValue(true));
+    return desc;
+}
+
+void CheckDeformChosenDigest()
+{
+    UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
+
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    Check(compiled.ok, "the digest fixture compiles");
+    if (!compiled.ok) return;
+    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    auto *deformOp = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    uint64_t gen = 0;
+    auto runPose = [&]() -> bool {
+        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
+        ctx.desc = &graph.Desc();
+        UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
+        return rr.ok && !run.diagnostics.HasErrors();
+    };
+    auto outputBits = [&]() {
+        UsdGenCurveBuffer const &b = graph.Node(deformId).buffer;
+        std::vector<float> bits;
+        bits.reserve(b.px.size() + b.py.size() + b.pz.size() + 2);
+        bits.push_back(float(b.totalCurves));
+        bits.push_back(float(b.totalCvs));
+        bits.insert(bits.end(), b.px.begin(), b.px.end());
+        bits.insert(bits.end(), b.py.begin(), b.py.end());
+        bits.insert(bits.end(), b.pz.begin(), b.pz.end());
+        return bits;
+    };
+
+    Check(runPose(), "the digest fixture cooks its rest pose");
+    if (graph.Node(deformId).buffer.totalCurves == 0) {
+        Check(false, "the digest fixture grows curves");
+        return;
+    }
+    std::vector<float> const restBits = outputBits();
+    std::vector<size_t> const selection = deformOp->SurfaceSelectionForTesting();
+    bool selectionSane = selection.size() == 100;
+    for (size_t k : selection) selectionSane &= k < desc.surfaces[0].restPoints.size();
+    Check(selectionSane, "the rest pose settles a 100-driver selection");
+    Check(deformOp->ChosenDigestHitsForTesting() == 0,
+          "the first digest hashes the whole posed surface (no cache yet)");
+    if (!selectionSane) return;
+    std::vector<char> chosenMark(desc.surfaces[0].restPoints.size(), 0);
+    for (size_t k : selection) chosenMark[k] = 1;
+
+    // Half the unchosen drivers jump: the digest must not move, so the
+    // output is the rest output bit for bit. Rest is read through a const
+    // reference: desc is non-const, so a direct restPoints[v] would take
+    // the mutating subscript and detach the shared rest buffer, and the
+    // selection cache (keyed on that buffer's identity) would miss.
+    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    int moved = 0;
+    for (size_t v = 0; v < chosenMark.size() && moved < 50; ++v) {
+        if (chosenMark[v]) continue;
+        desc.surfaces[0].points[v] = rest[v] + GfVec3f(50.0f, 0.0f, 0.0f);
+        ++moved;
+    }
+    Check(moved == 50, "the fixture has unchosen drivers to move");
+    Check(runPose(), "the unchosen-move pose cooks");
+    Check(outputBits() == restBits, "moving only unchosen drivers leaves the output bitwise alone");
+    Check(deformOp->ChosenDigestHitsForTesting() == 1,
+          "the unchosen-move digest hashed only the chosen drivers");
+    Check(deformOp->SurfaceSelectionForTesting() == selection,
+          "posed-only motion keeps the rest-decided selection");
+
+    // One chosen driver jumps: the digest must move and re-capture to
+    // output that differs.
+    desc.surfaces[0].points = desc.surfaces[0].restPoints;
+    desc.surfaces[0].points[selection[0]] = rest[selection[0]] + GfVec3f(50.0f, 0.0f, 0.0f);
+    Check(runPose(), "the chosen-move pose cooks");
+    Check(outputBits() != restBits, "moving a chosen driver re-captures to new output");
+    Check(deformOp->ChosenDigestHitsForTesting() == 2,
+          "the chosen-move digest hashed only the chosen drivers");
+    Check(deformOp->SurfaceSelectionForTesting() == selection,
+          "the re-capture reuses the rest-decided selection");
+}
+
+void CheckDeformEvaluateViewShapes()
+{
+    // Deform Evaluate must be view-shape transparent: one real capture,
+    // re-evaluated through a whole-groom uniform view, a ragged view over
+    // identical spans, and an offset chunk, agrees with the cooked
+    // terminal bitwise on every path (full-mask copy and partial-mask
+    // blend). No goldens: every comparison is within this run, so the
+    // test holds on any platform. This pins the contract a future
+    // uniform fast path must satisfy.
+    UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
+    // Smooth bend so the capture displaces nearly every CV.
+    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    desc.surfaces[0].points.resize(rest.size());
+    for (size_t i = 0; i < rest.size(); ++i) {
+        GfVec3f const r = rest[i];
+        float const bend =
+            float(0.6 * std::sin(0.05 * r[0] + 0.35) * std::cos(0.04 * r[1] - 0.175));
+        desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + bend);
+    }
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    Check(compiler.Compile(desc, &graph).ok, "the view-shape fixture compiles");
+    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    auto *op = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    uint64_t gen = 0;
+    UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
+    ctx.desc = &graph.Desc();
+    UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
+    Check(rr.ok && !run.diagnostics.HasErrors(), "the view-shape pose cooks");
+    UsdGenCurveBuffer const &term = graph.Node(deformId).buffer;
+    UsdGenCurveBuffer const &up = graph.Node(graph.Node(deformId).input).buffer;
+    if (term.totalCurves < 2 || term.totalCvs == 0 || up.px.size() != term.totalCvs ||
+        term.totalCvs % term.totalCurves != 0 || !term.cvOffsets.empty()) {
+        Check(false, "the view-shape fixture grows a uniform groom");
+        return;
+    }
+    // Vacuity guard: the pose must actually move points.
+    bool moved = false;
+    for (size_t i = 0; i < term.totalCvs && !moved; ++i)
+        moved = term.px[i] != up.px[i] || term.py[i] != up.py[i] || term.pz[i] != up.pz[i];
+    Check(moved, "the view-shape pose displaces points");
+    if (!moved) return;
+    size_t const curves = term.totalCurves, perCurve = term.totalCvs / curves;
+    auto same = [](std::vector<float> const &a, std::vector<float> const &b) {
+        return a.size() == b.size() &&
+            std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0;
+    };
+    UsdGenChunkDesc fullDesc;
+    fullDesc.firstCurve = 0;
+    fullDesc.curveCount = uint32_t(curves);
+    fullDesc.firstCv = 0;
+    fullDesc.cvCount = uint32_t(perCurve);
+    auto makeView = [&](UsdGenChunkDesc *d, float *px, float *py, float *pz,
+                        size_t inBase, uint32_t nCurves, uint32_t cvCount,
+                        int const *cvOffsets) {
+        UsdGenChunkView v{};
+        v.desc = d;
+        v.px = px;
+        v.py = py;
+        v.pz = pz;
+        v.inPx = up.px.cdata() + inBase;
+        v.inPy = up.py.cdata() + inBase;
+        v.inPz = up.pz.cdata() + inBase;
+        v.curveCount = nCurves;
+        v.cvCount = cvCount;
+        v.cvOffsets = cvOffsets;
+        return v;
+    };
+    UsdGenEvalContext evalCtx; // params null: default mask 1.0
+    std::vector<float> uniPx(term.totalCvs), uniPy(term.totalCvs), uniPz(term.totalCvs);
+    UsdGenChunkView uniView = makeView(&fullDesc, uniPx.data(), uniPy.data(), uniPz.data(),
+                                       0, uint32_t(curves), uint32_t(perCurve), nullptr);
+    op->Evaluate(evalCtx, *graph.Node(deformId).capture, &uniView);
+    auto plane = [&](VtFloatArray const &p) {
+        return std::vector<float>(p.begin(), p.end());
+    };
+    Check(same(uniPx, plane(term.px)) && same(uniPy, plane(term.py)) &&
+              same(uniPz, plane(term.pz)),
+          "a whole-groom uniform re-evaluate matches the terminal bitwise");
+    // Ragged view, identical spans: the ragged path must agree bitwise.
+    std::vector<int> offsets(curves + 1);
+    for (size_t c = 0; c <= curves; ++c) offsets[c] = int(c * perCurve);
+    UsdGenChunkDesc raggedDesc = fullDesc;
+    raggedDesc.cvCount = 0;
+    std::vector<float> ragPx(term.totalCvs), ragPy(term.totalCvs), ragPz(term.totalCvs);
+    UsdGenChunkView ragView = makeView(&raggedDesc, ragPx.data(), ragPy.data(), ragPz.data(),
+                                       0, uint32_t(curves), 0, offsets.data());
+    op->Evaluate(evalCtx, *graph.Node(deformId).capture, &ragView);
+    Check(same(uniPx, ragPx) && same(uniPy, ragPy) && same(uniPz, ragPz),
+          "ragged and uniform views agree bitwise at full mask");
+    // Offset chunk (second half of the curves): the firstCv math.
+    size_t const half = curves / 2;
+    UsdGenChunkDesc tailDesc;
+    tailDesc.firstCurve = uint32_t(half);
+    tailDesc.curveCount = uint32_t(curves - half);
+    tailDesc.firstCv = uint32_t(half * perCurve);
+    tailDesc.cvCount = uint32_t(perCurve);
+    size_t const tailCvs = (curves - half) * perCurve;
+    std::vector<float> tailPx(tailCvs), tailPy(tailCvs), tailPz(tailCvs);
+    UsdGenChunkView tailView = makeView(&tailDesc, tailPx.data(), tailPy.data(), tailPz.data(),
+                                        half * perCurve, uint32_t(curves - half),
+                                        uint32_t(perCurve), nullptr);
+    op->Evaluate(evalCtx, *graph.Node(deformId).capture, &tailView);
+    bool tailOk = true;
+    for (size_t i = 0; i < tailCvs && tailOk; ++i) {
+        size_t const o = half * perCurve + i;
+        tailOk = tailPx[i] == uniPx[o] && tailPy[i] == uniPy[o] && tailPz[i] == uniPz[o];
+    }
+    Check(tailOk, "an offset chunk matches its slice of the full evaluate");
+    // Partial uniform mask: ragged and uniform agree on the blend path too.
+    UsdGenNodeDesc maskNode;
+    maskNode.params.push_back(UsdGenParamValue{TfToken("mask"), VtValue(0.5), false});
+    UsdGenParamView maskView;
+    maskView.node = &maskNode;
+    UsdGenEvalContext maskCtx;
+    maskCtx.params = &maskView;
+    std::vector<float> blendUniPx(term.totalCvs), blendUniPy(term.totalCvs),
+        blendUniPz(term.totalCvs);
+    UsdGenChunkView blendUniView =
+        makeView(&fullDesc, blendUniPx.data(), blendUniPy.data(), blendUniPz.data(), 0,
+                 uint32_t(curves), uint32_t(perCurve), nullptr);
+    op->Evaluate(maskCtx, *graph.Node(deformId).capture, &blendUniView);
+    std::vector<float> blendRagPx(term.totalCvs), blendRagPy(term.totalCvs),
+        blendRagPz(term.totalCvs);
+    UsdGenChunkView blendRagView =
+        makeView(&raggedDesc, blendRagPx.data(), blendRagPy.data(), blendRagPz.data(), 0,
+                 uint32_t(curves), 0, offsets.data());
+    op->Evaluate(maskCtx, *graph.Node(deformId).capture, &blendRagView);
+    Check(same(blendUniPx, blendRagPx) && same(blendUniPy, blendRagPy) &&
+              same(blendUniPz, blendRagPz),
+          "ragged and uniform views agree bitwise at partial mask");
 }
 
 void CheckCurveWrapField()
@@ -767,14 +1357,374 @@ void CheckPlaybackNotices()
 
 } // namespace
 
+void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what)
+{
+    // Every dirtied tile must publish bitwise the sequential extent and
+    // counts over the terminal points. Untouched tiles keep their previous
+    // extent and are skipped.
+    UsdGenCompiledNode const &tn = graph.Node(graph.TerminalNodeId());
+    UsdGenCurveBuffer const &term = graph.Output();
+    bool const ragged = !term.cvOffsets.empty();
+    float const *tpx = term.px.empty() ? nullptr : term.px.cdata();
+    float const *tpy = term.py.empty() ? nullptr : term.py.cdata();
+    float const *tpz = term.pz.empty() ? nullptr : term.pz.cdata();
+    size_t const nPx = term.px.size();
+    size_t compared = 0, extentsOk = 0, countsOk = 0;
+    for (UsdGenTileView const &tv : graph.Tiles()) {
+        // Untouched tiles keep their previous extent; only a tile the
+        // interleave rewrote (pointsDirty) must match the reference.
+        if (!tv.pointsDirty) continue;
+        if (tn.chunks.size() < size_t(tv.firstChunk) + tv.chunkCount) continue;
+        GfRange3f ref;
+        uint64_t liveCurves = 0, liveCvs = 0;
+        for (uint32_t i = 0; i < tv.chunkCount; ++i) {
+            UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
+            if (ragged && cd.cvCount == 0) {
+                for (uint32_t c = 0; c < cd.liveCount; ++c) {
+                    size_t const g = size_t(cd.firstCurve) + c;
+                    if (g + 1 >= term.cvOffsets.size()) break;
+                    uint32_t const p0 = uint32_t(term.cvOffsets[g]);
+                    uint32_t const len = uint32_t(term.cvOffsets[g + 1]) - p0;
+                    ++liveCurves;
+                    liveCvs += len;
+                    if (!tpx || !tpy || !tpz) continue;
+                    for (uint32_t v = 0; v < len; ++v) {
+                        size_t const p = size_t(p0) + v;
+                        if (p >= nPx) break;
+                        ref.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
+                    }
+                }
+                continue;
+            }
+            liveCurves += cd.liveCount;
+            liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+            if (!tpx || !tpy || !tpz) continue;
+            for (uint32_t c = 0; c < cd.liveCount; ++c) {
+                size_t const o = size_t(cd.firstCv) + size_t(c) * cd.cvCount;
+                for (uint32_t v = 0; v < cd.cvCount; ++v) {
+                    size_t const p = o + v;
+                    if (p >= nPx) break;
+                    ref.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
+                }
+            }
+        }
+        ++compared;
+        extentsOk += std::memcmp(&tv.extent.GetMin(), &ref.GetMin(), sizeof(GfVec3f)) == 0 &&
+                std::memcmp(&tv.extent.GetMax(), &ref.GetMax(), sizeof(GfVec3f)) == 0;
+        countsOk += tv.totalLiveCurves == liveCurves && tv.totalLiveCvs == liveCvs;
+    }
+    Check(compared > 0, what + ": the pose dirties tiles");
+    Check(compared > 0 && extentsOk == compared && countsOk == compared,
+          what + ": tile extents and counts are bitwise the sequential pass (" +
+              std::to_string(compared) + " tiles)");
+}
+
+void CheckFusedTileExtents()
+{
+    // The tile interleave fuses per-chunk extents recorded by the deform
+    // (the deepest points-writer here is the terminal deform) instead of
+    // re-reading every point. Two commits on one graph: the recompiled
+    // pose re-captures the deform, and every dirtied tile must publish
+    // bitwise the sequential extent and counts over the terminal points.
+    UsdStageRefPtr const stage = UsdStage::Open(kScene);
+    if (!stage) { Check(false, "fused extents: cannot open the scene"); return; }
+    auto build = [&](double time) {
+        usdGenImaging::UsdGenGraphDescBuildOptions options;
+        options.time = time;
+        return usdGenImaging::BuildGraphDescFromStage(stage, kDescription, options);
+    };
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    UsdGenGraphDesc desc = build(1.0);
+    if (!compiler.Compile(desc, &graph).ok) {
+        Check(false, "fused extents: the rest pose compiles"); return;
+    }
+    UsdGenScheduler scheduler(4);
+    UsdGenEvalContext context;
+    context.time = 1.0;
+    uint64_t gen = 0;
+    if (scheduler.Run(graph, context, ++gen).diagnostics.HasErrors()) {
+        Check(false, "fused extents: the rest pose cooks"); return;
+    }
+    desc = build(20.0);
+    context.time = 20.0;
+    if (!compiler.Recompile(desc, &graph).ok) {
+        Check(false, "fused extents: the pose recompiles"); return;
+    }
+    UsdGenRunResult const run = scheduler.Run(graph, context, ++gen);
+    if (run.diagnostics.HasErrors()) {
+        Check(false, "fused extents: the pose cooks"); return;
+    }
+    bool swept = false;
+    for (auto const &st : run.nodeStats)
+        if (graph.Node(st.id).type == TfToken("UsdGenDeform") && st.chunksEvaluated > 0)
+            swept = true;
+    Check(swept, "fused extents: the pose produces the deform outputs");
+    if (!swept) return;
+    // Engagement: this scene's deform has a uniform-1 mask, so the pose
+    // capture must have written direct with recorded extents; otherwise
+    // the comparison below exercises the point pass, not the fused path.
+    int deforms = 0;
+    bool direct = true, recorded = true;
+    for (size_t i = 0; i < size_t(graph.NodeCount()); ++i) {
+        UsdGenCompiledNode const &n = graph.Node(UsdGenNodeId(i));
+        if (n.type != TfToken("UsdGenDeform") || !n.capture) continue;
+        ++deforms;
+        direct = direct && n.capture->WroteDirectOutput();
+        recorded = recorded && n.capture->RecordedChunkExtents();
+    }
+    Check(deforms > 0, "fused extents: the scene has a deform");
+    Check(direct, "fused extents: the pose capture wrote direct");
+    Check(recorded, "fused extents: the pose capture recorded chunk extents");
+    CheckTilesMatchSequential(graph, "fused extents");
+}
+
+// Capture-direct through a chained pair: the upstream deform goes direct
+// without recording (slots belong to the deepest writer alone) while the
+// terminal deform records, and both publish bitwise-sequential tiles.
+void CheckCaptureDirectChained()
+{
+    UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
+    UsdGenNodeDesc second;
+    second.path = SdfPath("/groom/deform2");
+    second.type = TfToken("UsdGenDeform");
+    second.enabled = true;
+    second.seed = 45;
+    second.inputs.push_back(SdfPath("/groom/deform"));
+    second.surfaces.push_back(SdfPath("/groom/surface"));
+    desc.nodes.push_back(second);
+    for (auto &n : desc.nodes)
+        if (n.path == SdfPath("/groom/deform2")) {
+            n.params.push_back(UsdGenParamValue{TfToken("rbfSamples"), VtValue(100), false});
+            n.params.push_back(UsdGenParamValue{TfToken("lockRoots"), VtValue(true), false});
+        }
+    desc.terminal = SdfPath("/groom/deform2");
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    Check(compiler.Compile(desc, &graph).ok, "chained direct: the fixture compiles");
+    UsdGenNodeId const d1 = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    UsdGenNodeId const d2 = graph.NodeIdForPath(SdfPath("/groom/deform2"));
+    if (d1 == kUsdGenInvalidNode || d2 == kUsdGenInvalidNode) {
+        Check(false, "chained direct: both deforms compile");
+        return;
+    }
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    uint64_t gen = 0;
+    auto runPose = [&]() -> bool {
+        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
+        ctx.desc = &graph.Desc();
+        UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
+        return rr.ok && !run.diagnostics.HasErrors();
+    };
+    auto bend = [&](double t) {
+        VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+        desc.surfaces[0].points.resize(rest.size());
+        for (size_t i = 0; i < rest.size(); ++i) {
+            GfVec3f const r = rest[i];
+            float const b = float(0.6 * std::sin(0.05 * r[0] + t) *
+                                   std::cos(0.04 * r[1] - 0.5 * t));
+            desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + b);
+        }
+    };
+    bend(0.0);
+    Check(runPose(), "chained direct: the rest pose cooks");
+    bend(1.0);
+    Check(runPose(), "chained direct: a bent pose cooks");
+    UsdGenCompiledNode const &n1 = graph.Node(d1);
+    UsdGenCompiledNode const &n2 = graph.Node(d2);
+    bool const d1direct = n1.capture && n1.capture->WroteDirectOutput();
+    bool const d1recorded = n1.capture && n1.capture->RecordedChunkExtents();
+    bool const d2direct = n2.capture && n2.capture->WroteDirectOutput();
+    bool const d2recorded = n2.capture && n2.capture->RecordedChunkExtents();
+    Check(d1direct && !d1recorded,
+          "chained direct: the upstream deform writes direct without recording");
+    Check(d2direct && d2recorded,
+          "chained direct: the terminal deform writes direct and records");
+    CheckTilesMatchSequential(graph, "chained direct");
+}
+
+// A mask edit reuses the direct capture without re-capturing: the sweep
+// must blend from the capture's deformed values (not the input), bitwise
+// the float lerp of the direct outputs.
+void CheckCaptureDirectMaskReuse()
+{
+    UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    Check(compiler.Compile(desc, &graph).ok, "mask reuse: the fixture compiles");
+    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    UsdGenNodeId const growId = graph.Node(deformId).input;
+    auto *op = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    uint64_t gen = 0;
+    auto runPose = [&]() -> bool {
+        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
+        ctx.desc = &graph.Desc();
+        UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
+        return rr.ok && !run.diagnostics.HasErrors();
+    };
+    Check(runPose(), "mask reuse: the rest pose cooks");
+    // Bend the drivers so the direct cook differs from the rest cook.
+    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    desc.surfaces[0].points.resize(rest.size());
+    for (size_t i = 0; i < rest.size(); ++i) {
+        GfVec3f const r = rest[i];
+        float const b = float(0.6 * std::sin(0.05 * r[0] + 0.35) *
+                               std::cos(0.04 * r[1] - 0.175));
+        desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + b);
+    }
+    Check(runPose(), "mask reuse: a bent pose cooks");
+    UsdGenCapture const *directCap = graph.Node(deformId).capture.get();
+    UsdGenEpoch const directEpoch = graph.Node(deformId).captureEpoch;
+    Check(directCap && directCap->WroteDirectOutput(),
+          "mask reuse: the bent cook goes direct");
+    if (!directCap || !directCap->WroteDirectOutput()) return;
+    UsdGenCurveBuffer const &up = graph.Node(growId).buffer;
+    std::vector<float> const beforeX(up.px.begin(), up.px.end());
+    std::vector<float> const beforeY(up.py.begin(), up.py.end());
+    std::vector<float> const beforeZ(up.pz.begin(), up.pz.end());
+    UsdGenCurveBuffer const &term = graph.Node(deformId).buffer;
+    std::vector<float> const directX(term.px.begin(), term.px.end());
+    std::vector<float> const directY(term.py.begin(), term.py.end());
+    std::vector<float> const directZ(term.pz.begin(), term.pz.end());
+    // Vacuity guard: the pose must actually move points, or the checks
+    // below compare against their own input and prove nothing.
+    Check(directX != beforeX || directY != beforeY || directZ != beforeZ,
+          "mask reuse: the pose displaces points");
+    // The direct capture carries its deformed values for any later sweep
+    // without re-capture (a value-only edit reuses the capture): a whole
+    // range hand re-evaluate must reproduce its outputs bitwise.
+    {
+        size_t const curves = term.totalCurves, total = term.totalCvs;
+        bool uniform = curves > 0 && total % curves == 0;
+        Check(uniform, "mask reuse: the fixture is uniform");
+        if (uniform) {
+            uint32_t const perCurve = uint32_t(total / curves);
+            UsdGenChunkDesc fullDesc;
+            fullDesc.firstCurve = 0;
+            fullDesc.curveCount = uint32_t(curves);
+            fullDesc.firstCv = 0;
+            fullDesc.cvCount = perCurve;
+            std::vector<float> hx(total), hy(total), hz(total);
+            UsdGenChunkView v{};
+            v.desc = &fullDesc;
+            v.px = hx.data();
+            v.py = hy.data();
+            v.pz = hz.data();
+            v.inPx = up.px.cdata();
+            v.inPy = up.py.cdata();
+            v.inPz = up.pz.cdata();
+            v.curveCount = uint32_t(curves);
+            v.cvCount = perCurve;
+            UsdGenEvalContext evalCtx; // params null: default mask 1.0
+            op->Evaluate(evalCtx, *directCap, &v);
+            Check(hx == directX && hy == directY && hz == directZ,
+                  "mask reuse: the direct capture carries its deformed values");
+        }
+    }
+    // A mask edit changes the desc, so the compiler re-captures through
+    // the result path (direct declined); the sweep blends bitwise the
+    // float lerp of the deformed values.
+    for (auto &n : desc.nodes)
+        if (n.path == SdfPath("/groom/deform"))
+            n.params.push_back(UsdGenParamValue{TfToken("mask"), VtValue(0.5), false});
+    Check(runPose(), "mask reuse: the mask edit cooks");
+    Check(graph.Node(deformId).captureEpoch != directEpoch,
+          "mask reuse: the mask edit re-captures");
+    Check(!graph.Node(deformId).capture->WroteDirectOutput(),
+          "mask reuse: the mask edit declines direct output");
+    UsdGenCurveBuffer const &out = graph.Node(deformId).buffer;
+    bool blendOk = out.px.size() == directX.size();
+    for (size_t i = 0; blendOk && i < directX.size(); ++i) {
+        float const e0 = beforeX[i] + (directX[i] - beforeX[i]) * 0.5f;
+        float const e1 = beforeY[i] + (directY[i] - beforeY[i]) * 0.5f;
+        float const e2 = beforeZ[i] + (directZ[i] - beforeZ[i]) * 0.5f;
+        blendOk = blendOk && out.px[i] == e0 && out.py[i] == e1 && out.pz[i] == e2;
+    }
+    Check(blendOk, "mask reuse: the mask edit blends bitwise the float lerp");
+}
+
+// A failing direct capture restores the input planes: the failed run must
+// not publish a mix of old and new values.
+void CheckCaptureDirectFailureRestore()
+{
+    UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    Check(compiler.Compile(desc, &graph).ok, "failure restore: the fixture compiles");
+    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    UsdGenNodeId const growId = graph.Node(deformId).input;
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    uint64_t gen = 0;
+    auto runPose = [&]() -> UsdGenRunResult {
+        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
+        ctx.desc = &graph.Desc();
+        UsdGenRunResult run = scheduler.Run(graph, ctx, ++gen);
+        if (!rr.ok) run.diagnostics.Error("recompile failed");
+        return run;
+    };
+    Check(!runPose().diagnostics.HasErrors(), "failure restore: the rest pose cooks");
+    // Bend the drivers so the second cook goes direct.
+    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    desc.surfaces[0].points.resize(rest.size());
+    for (size_t i = 0; i < rest.size(); ++i) {
+        GfVec3f const r = rest[i];
+        float const b = float(0.6 * std::sin(0.05 * r[0] + 1.0) *
+                               std::cos(0.04 * r[1] - 0.5));
+        desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + b);
+    }
+    Check(!runPose().diagnostics.HasErrors(), "failure restore: a bent pose cooks");
+    UsdGenCapture const *cap = graph.Node(deformId).capture.get();
+    Check(cap && cap->WroteDirectOutput(),
+          "failure restore: the bent pose goes direct");
+    // Astronomical grow length: the cubic kernel overflows float at the
+    // far CVs, so the direct capture must refuse.
+    for (auto &n : desc.nodes)
+        if (n.path == SdfPath("/groom/grow"))
+            for (auto &pv : n.params)
+                if (pv.name == TfToken("length")) pv.value = VtValue(1e20);
+    UsdGenRunResult const failed = runPose();
+    bool refused = failed.diagnostics.HasErrors();
+    bool nonFinite = false;
+    for (auto const &e : failed.diagnostics.errors)
+        nonFinite = nonFinite || e.find("non-finite") != std::string::npos;
+    Check(refused && nonFinite,
+          "failure restore: the overflowing pose is refused, not published");
+    UsdGenCurveBuffer const &out = graph.Node(deformId).buffer;
+    UsdGenCurveBuffer const &up = graph.Node(growId).buffer;
+    bool restored = out.px.size() == up.px.size();
+    restored = restored && std::memcmp(out.px.cdata(), up.px.cdata(),
+                                       out.px.size() * sizeof(float)) == 0;
+    restored = restored && std::memcmp(out.py.cdata(), up.py.cdata(),
+                                       up.py.size() * sizeof(float)) == 0;
+    restored = restored && std::memcmp(out.pz.cdata(), up.pz.cdata(),
+                                       out.pz.size() * sizeof(float)) == 0;
+    Check(restored, "failure restore: the failed run restores the input planes");
+}
+
 int main()
 {
     usdGenRegisterM1Operators();
     CheckField();
+    CheckBatchBitwise();
+    CheckBatchPathsAgree();
+    CheckBatchPlanarBitwise();
+    CheckBatchThreaded();
+    CheckBatchConcurrent();
+    CheckDeformChosenDigest();
+    CheckDeformEvaluateViewShapes();
+    CheckFusedTileExtents();
+    CheckCaptureDirectChained();
+    CheckCaptureDirectMaskReuse();
+    CheckCaptureDirectFailureRestore();
     CheckCurveWrapField();
     CheckExample();
     CheckSurfaceExample();
     CheckSurfaceExample(true);
+    CheckNonFiniteCapture();
     CheckBraidExamples();
     CheckSingleCenterExample();
     CheckRegionExamples();

@@ -782,5 +782,44 @@ int main()
               "scalp-shadow material falls back to UsdPreviewSurface");
     }
 
+    // Bulk-vs-serial tile differential: the same scatter->grow geometry
+    // published with the guideIndex terminal (uniform extra plane: serial
+    // loop) and with the bare grow terminal (uniform chunks, covered
+    // planes, constant color: bulk path) must carry element-identical
+    // core arrays on every tile.
+    {
+        UsdGenGraphDesc bulkDesc = MakeGroomDesc(descPath);
+        bulkDesc.nodes.pop_back();  // drop the guideIndex writer
+        bulkDesc.terminal = descPath.AppendChild(TfToken("grow"));
+        UsdGenSession bulkSession;
+        bulkSession.SetGraphDesc(std::move(bulkDesc));
+        UsdGenGenerationConstPtr bulkGen =
+            bulkSession.Commit(0.0, UsdGenCommitReason::LiveOverride);
+        Check(bool(bulkGen), "bulk-terminal commit publishes a generation");
+        Check(bulkGen && bulkGen->tiles.size() == gen->tiles.size(),
+              "bulk and serial commits publish the same tile count (bulk " +
+                  std::to_string(bulkGen ? bulkGen->tiles.size() : 0) +
+                  ", serial " + std::to_string(gen->tiles.size()) + ")");
+        bool coresEqual = bulkGen &&
+            bulkGen->tiles.size() == gen->tiles.size();
+        if (coresEqual) {
+            for (size_t i = 0; i < gen->tiles.size(); ++i) {
+                UsdGenTilePublication const &a = gen->tiles[i];
+                UsdGenTilePublication const &b = bulkGen->tiles[i];
+                coresEqual = coresEqual && a.tile == b.tile &&
+                    a.primPath == b.primPath &&
+                    a.curveVertexCounts == b.curveVertexCounts &&
+                    a.points == b.points && a.widths == b.widths &&
+                    a.hairT == b.hairT && a.hairId == b.hairId &&
+                    a.st == b.st && a.displayColor == b.displayColor &&
+                    a.extentMin == b.extentMin && a.extentMax == b.extentMax;
+                if (!coresEqual)
+                    break;
+            }
+        }
+        Check(coresEqual,
+              "bulk and serial tile core arrays are element-identical");
+    }
+
     return g_failures ? 1 : 0;
 }

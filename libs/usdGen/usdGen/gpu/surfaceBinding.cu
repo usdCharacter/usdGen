@@ -167,33 +167,6 @@ __global__ void GatherSamples(DeviceView<const float3> vertices,
     }
 }
 
-__global__ void ValidateRoots(DeviceView<const int32_t> skinPrim,
-                              DeviceView<const float2> uv,
-                              DeviceView<const uint32_t> offsets,
-                              size_t faceCount,
-                              DeviceView<const uint32_t> indices,
-                              int* error) {
-    size_t stride = size_t(blockDim.x) * gridDim.x;
-    for (size_t root = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
-         root < skinPrim.size; root += stride) {
-        int32_t face = skinPrim.data[root];
-        float2 value = uv.data[root];
-        if (face < 0 || size_t(face) >= faceCount ||
-            !isfinite(value.x) || !isfinite(value.y)) {
-            mark(error, kBadRoot);
-            continue;
-        }
-        uint32_t begin = offsets.data[face];
-        uint32_t end = offsets.data[size_t(face) + 1];
-        size_t count = end >= begin ? size_t(end - begin) : 0;
-        if ((count != 3 && count != 4) || end < begin ||
-            size_t(end) > indices.size || value.x < 0.0f || value.x > 1.0f ||
-            value.y < 0.0f || value.y > 1.0f ||
-            (count == 3 && value.x + value.y > 1.0f))
-            mark(error, kBadRoot);
-    }
-}
-
 __device__ float3 RootPosition(DeviceView<const float3> vertices,
                                DeviceView<const uint32_t> offsets,
                                DeviceView<const uint32_t> indices,
@@ -220,20 +193,76 @@ __device__ float3 RootPosition(DeviceView<const float3> vertices,
                            c.z * uv.x * uv.y + d.z * u0 * uv.y);
 }
 
-__global__ void GatherRoots(DeviceView<const float3> vertices,
-                            DeviceView<const int32_t> skinPrim,
-                            DeviceView<const float2> uv,
-                            DeviceView<const uint32_t> offsets,
-                            DeviceView<const uint32_t> indices,
-                            DeviceView<float3> output, int* error) {
-    if (atomicAdd(error, 0) != 0) return;
+// Single-launch update validation+gather. One launch replaces the
+// ValidateSurface + GatherSamples + ValidateRoots + GatherRoots sequence
+// in Update: four grid-teardown round-trips become one, and the roots
+// pass reads skinPrim/uv/offsets once instead of twice. Bit-identity:
+// every mark is an atomicOr of a deterministic per-element predicate, so
+// the final flag is the same union whatever order blocks run in; when
+// the flag is zero no whole-kernel early-out could have triggered, so
+// every output element is written with the same formula. Roots are
+// validated per element before their own dereference (no cross-block
+// early-out exists inside one launch), so invalid roots still never
+// dereference, exactly as before.
+__global__ void ValidateAndGatherUpdate(DeviceView<const float3> vertices,
+                                        DeviceView<const uint32_t> sampleIndices,
+                                        DeviceView<float3> samplesOut,
+                                        DeviceView<const int32_t> skinPrim,
+                                        DeviceView<const float2> uv,
+                                        DeviceView<const uint32_t> offsets,
+                                        size_t faceCount,
+                                        DeviceView<const uint32_t> indices,
+                                        DeviceView<float3> rootsOut, int* error) {
     size_t stride = size_t(blockDim.x) * gridDim.x;
-    for (size_t root = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
-         root < output.size; root += stride) {
-        float3 value = RootPosition(vertices, offsets, indices,
-                                    skinPrim.data[root], uv.data[root]);
+    size_t lane = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    for (size_t i = lane; i < vertices.size; i += stride) {
+        if (!finite3(vertices.data[i])) mark(error, kNonFinite);
+    }
+    for (size_t i = lane; i < indices.size; i += stride) {
+        if (indices.data[i] >= vertices.size) mark(error, kBadTopology);
+    }
+    for (size_t face = lane; face < faceCount; face += stride) {
+        uint32_t begin = offsets.data[face];
+        uint32_t end = offsets.data[face + 1];
+        size_t count = end >= begin ? size_t(end - begin) : 0;
+        if (end < begin || size_t(end) > indices.size ||
+            (count != 3 && count != 4))
+            mark(error, kBadTopology);
+    }
+    if (lane == 0 &&
+        (offsets.data[0] != 0 || size_t(offsets.data[faceCount]) != indices.size))
+        mark(error, kBadTopology);
+    for (size_t i = lane; i < samplesOut.size; i += stride) {
+        uint32_t index = sampleIndices.data[i];
+        if (size_t(index) >= vertices.size) {
+            mark(error, kBadTopology);
+            continue;
+        }
+        float3 value = vertices.data[index];
         if (!finite3(value)) mark(error, kNonFinite);
-        else output.data[root] = value;
+        else samplesOut.data[i] = value;
+    }
+    for (size_t root = lane; root < skinPrim.size; root += stride) {
+        int32_t face = skinPrim.data[root];
+        float2 value = uv.data[root];
+        if (face < 0 || size_t(face) >= faceCount ||
+            !isfinite(value.x) || !isfinite(value.y)) {
+            mark(error, kBadRoot);
+            continue;
+        }
+        uint32_t begin = offsets.data[face];
+        uint32_t end = offsets.data[size_t(face) + 1];
+        size_t count = end >= begin ? size_t(end - begin) : 0;
+        if ((count != 3 && count != 4) || end < begin ||
+            size_t(end) > indices.size || value.x < 0.0f || value.x > 1.0f ||
+            value.y < 0.0f || value.y > 1.0f ||
+            (count == 3 && value.x + value.y > 1.0f)) {
+            mark(error, kBadRoot);
+            continue;
+        }
+        float3 gathered = RootPosition(vertices, offsets, indices, face, value);
+        if (!finite3(gathered)) mark(error, kNonFinite);
+        else rootsOut.data[root] = gathered;
     }
 }
 
@@ -447,21 +476,33 @@ SurfaceBindingStatus CudaSurfaceBinding::BeginFreshBind(
     if (validateCommon(vertices, offsets, faces, indices) != SurfaceBindingStatus::Ok ||
         validateStream(stream) != SurfaceBindingStatus::Ok)
         return fail(SurfaceBindingStatus::InvalidArgument, "fresh Bind preflight failed");
-    discardPending(); discardFreshProof(false);
+    discardPending();
     retiredSampleIndices_.release(); retiredRestSamples_.release(); retiredCurrentSamples_.release();
     retiredRootTargets_.release(); retiredRootCount_ = 0; retiredFaceOffsets_.release(); retiredFaceIndices_.release();
-    auto codePermit = TryReserveCudaExecutionBytes(sizeof(int), UsdGenExecutionResourceKind::Cache, reservation);
-    auto actualPermit = TryReserveCudaExecutionBytes(sizeof(uint32_t), UsdGenExecutionResourceKind::Cache, reservation);
-    if (s_failFreshProofAllocation.exchange(false, std::memory_order_acq_rel) || !codePermit || !actualPermit ||
-        cudaHostAlloc(reinterpret_cast<void**>(&freshCode_), sizeof(int), cudaHostAllocDefault) != cudaSuccess) {
+    // The previous pose's proof packets are pooled, not freed: their words
+    // are fully overwritten below (proof D2Hs), so the new candidate adopts
+    // them instead of freeing and re-allocating every pose. Only the flags
+    // reset here; later failures still discard (free) as before, and the
+    // forced-allocation seam still fires first, as before. Permits attach
+    // to the storage, not the operation, so a reused packet keeps its
+    // original permit and consumes nothing further.
+    freshMode_ = freshPending_ = freshUnproven_ = false;
+    if (s_failFreshProofAllocation.exchange(false, std::memory_order_acq_rel))
         return fail(SurfaceBindingStatus::CudaError, "surface fresh proof allocation failed");
+    if (!freshCode_) {
+        auto codePermit = TryReserveCudaExecutionBytes(sizeof(int), UsdGenExecutionResourceKind::Cache, reservation);
+        if (!codePermit || cudaHostAlloc(reinterpret_cast<void**>(&freshCode_), sizeof(int), cudaHostAllocDefault) != cudaSuccess)
+            return fail(SurfaceBindingStatus::CudaError, "surface fresh proof allocation failed");
+        freshCodePermit_ = std::move(*codePermit);
     }
-    freshCodePermit_ = std::move(*codePermit);
-    if (cudaHostAlloc(reinterpret_cast<void**>(&freshActual_), sizeof(uint32_t), cudaHostAllocDefault) != cudaSuccess) {
-        discardFreshProof(false);
-        return fail(SurfaceBindingStatus::CudaError, "surface fresh proof allocation failed");
+    if (!freshActual_) {
+        auto actualPermit = TryReserveCudaExecutionBytes(sizeof(uint32_t), UsdGenExecutionResourceKind::Cache, reservation);
+        if (!actualPermit || cudaHostAlloc(reinterpret_cast<void**>(&freshActual_), sizeof(uint32_t), cudaHostAllocDefault) != cudaSuccess) {
+            discardFreshProof(false);
+            return fail(SurfaceBindingStatus::CudaError, "surface fresh proof allocation failed");
+        }
+        freshActualPermit_ = std::move(*actualPermit);
     }
-    freshActualPermit_ = std::move(*actualPermit);
     freshReservation_ = reservation;
     freshMode_ = true; freshLaunching_ = true; freshPending_ = true; freshUnproven_ = true;
     auto status = Bind(vertices, offsets, faces, indices, budget, stream);
@@ -486,11 +527,34 @@ SurfaceBindingStatus CudaSurfaceBinding::BeginFreshUpdate(
     if (pending_ || freshPending_ || freshMode_ || freshUpdatePendingAcceptance_ || !bound_) return fail(SurfaceBindingStatus::InvalidArgument, "fresh Update requires no pending operation");
     if (validateStream(stream) != SurfaceBindingStatus::Ok || vertices.size != vertexCount_ || roots.size != uv.size)
         return fail(SurfaceBindingStatus::InvalidArgument, "fresh Update preflight failed");
-    discardPending(); discardFreshProof(false); retiredCurrentSamples_.release(); retiredRootTargets_.release(); retiredRootCount_ = 0;
-    auto codePermit = TryReserveCudaExecutionBytes(sizeof(int), UsdGenExecutionResourceKind::Cache, reservation);
-    if (s_failFreshProofAllocation.exchange(false, std::memory_order_acq_rel) || !codePermit || cudaHostAlloc(reinterpret_cast<void**>(&freshCode_), sizeof(int), cudaHostAllocDefault) != cudaSuccess)
+    discardPending();
+    // The retired publication is stale garbage here (the prologue rejects
+    // any acceptance-pending update), and Update fully overwrites both
+    // buffers below (GatherSamples/GatherRoots cover every element), so a
+    // size-matching retired buffer is adopted as the new pending storage
+    // instead of freed and re-malloc'd. reset() still re-sizes on groom
+    // or budget changes, so rebinds and quarantines behave as before.
+    if (retiredCurrentSamples_.size() == sampleCount_)
+        pendingCurrentSamples_ = std::move(retiredCurrentSamples_);
+    else
+        retiredCurrentSamples_.release();
+    if (retiredRootTargets_.size() == roots.size)
+        pendingRootTargets_ = std::move(retiredRootTargets_);
+    else
+        retiredRootTargets_.release();
+    retiredRootCount_ = 0;
+    // Same proof-packet pooling as BeginFreshBind (see above): only the
+    // flags reset here, the seam fires first, and storage is adopted.
+    freshMode_ = freshPending_ = freshUnproven_ = false;
+    if (s_failFreshProofAllocation.exchange(false, std::memory_order_acq_rel))
         return fail(SurfaceBindingStatus::CudaError, "surface fresh proof allocation failed");
-    freshCodePermit_ = std::move(*codePermit); freshReservation_ = reservation;
+    if (!freshCode_) {
+        auto codePermit = TryReserveCudaExecutionBytes(sizeof(int), UsdGenExecutionResourceKind::Cache, reservation);
+        if (!codePermit || cudaHostAlloc(reinterpret_cast<void**>(&freshCode_), sizeof(int), cudaHostAllocDefault) != cudaSuccess)
+            return fail(SurfaceBindingStatus::CudaError, "surface fresh proof allocation failed");
+        freshCodePermit_ = std::move(*codePermit);
+    }
+    freshReservation_ = reservation;
     freshMode_ = true; freshLaunching_ = true; freshPending_ = true; freshUnproven_ = true;
     auto status = Update(vertices, roots, uv, stream);
     freshLaunching_ = false; freshReservation_ = nullptr;
@@ -657,33 +721,17 @@ SurfaceBindingStatus CudaSurfaceBinding::Update(
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemsetAsync(error_.data(), 0, sizeof(int), stream) != cudaSuccess)
         return abort(SurfaceBindingStatus::CudaError, "surface update ordering failed");
-    size_t work = std::max(currentVertices.size, skinPrim.size);
-    ValidateSurface<<<Blocks(currentVertices.size), 256, 0, stream>>>(
-        currentVertices, {faceOffsets_.data(), faceOffsets_.size()}, faceCount_,
-        {faceIndices_.data(), faceIndices_.size()}, error_.data());
+    size_t work = currentVertices.size;
+    if (sampleCount_ > work) work = sampleCount_;
+    if (skinPrim.size > work) work = skinPrim.size;
+    ValidateAndGatherUpdate<<<Blocks(work), 256, 0, stream>>>(
+        currentVertices, {sampleIndices_.data(), sampleIndices_.size()},
+        pendingCurrentSamples_.view(), skinPrim, skinPrimUv,
+        {faceOffsets_.data(), faceOffsets_.size()}, faceCount_,
+        {faceIndices_.data(), faceIndices_.size()},
+        pendingRootTargets_.view(), error_.data());
     if (cudaGetLastError() != cudaSuccess)
-        return abort(SurfaceBindingStatus::CudaError, "current surface validation launch failed");
-    if (sampleCount_) {
-        GatherSamples<<<Blocks(sampleCount_), 256, 0, stream>>>(
-            currentVertices, {sampleIndices_.data(), sampleIndices_.size()},
-            pendingCurrentSamples_.view(), error_.data());
-        if (cudaGetLastError() != cudaSuccess)
-            return abort(SurfaceBindingStatus::CudaError, "current sample gather launch failed");
-    }
-    if (skinPrim.size) {
-        ValidateRoots<<<Blocks(work), 256, 0, stream>>>(
-            skinPrim, skinPrimUv, {faceOffsets_.data(), faceOffsets_.size()}, faceCount_,
-            {faceIndices_.data(), faceIndices_.size()}, error_.data());
-        if (cudaGetLastError() != cudaSuccess)
-            return abort(SurfaceBindingStatus::CudaError, "root validation launch failed");
-        GatherRoots<<<Blocks(skinPrim.size), 256, 0, stream>>>(
-            currentVertices, skinPrim, skinPrimUv,
-            {faceOffsets_.data(), faceOffsets_.size()},
-            {faceIndices_.data(), faceIndices_.size()},
-            pendingRootTargets_.view(), error_.data());
-        if (cudaGetLastError() != cudaSuccess)
-            return abort(SurfaceBindingStatus::CudaError, "root target gather launch failed");
-    }
+        return abort(SurfaceBindingStatus::CudaError, "surface update validation launch failed");
     if (cudaEventRecord(ready_, stream) != cudaSuccess)
         return abort(SurfaceBindingStatus::CudaError, "surface update event record failed");
     return SurfaceBindingStatus::Ok;
