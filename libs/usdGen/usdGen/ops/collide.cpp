@@ -340,56 +340,6 @@ void BruteCollider(UsdGenSurfaceDesc const &surf,
     }
 }
 
-// Fan triangles of one collider in brute-force visit order (ascending faces,
-// ascending fan index), skipping degenerates with the shared predicate, so
-// the flattened set is exactly the set the brute path tests. Mirrors the
-// brute loop's walk (same offsets, same guards).
-void FlattenColliderTris(UsdGenSurfaceDesc const &surf,
-                         std::vector<int> const &faces,
-                         std::vector<CollideTri> *tris)
-{
-    tris->clear();
-    size_t const F = surf.faceVertexCounts.size();
-    if (surf.points.empty() || surf.faceVertexIndices.empty()) return;
-    size_t fi = 0;
-    size_t off = 0;
-    size_t const Nfvi = surf.faceVertexIndices.size();
-    for (size_t f = 0; f < F; ++f) {
-        int const corners = surf.faceVertexCounts[f];
-        if (corners < 0 || off + size_t(corners) > Nfvi) break;
-        bool const use = faces.empty()
-            ? true
-            : (fi < faces.size() && size_t(faces[fi]) == f);
-        if (use) {
-            ++fi;
-            if (corners >= 3) {
-                int const v0 = surf.faceVertexIndices[off];
-                for (int k = 1; k + 1 < corners; ++k) {
-                    int const v1 = surf.faceVertexIndices[off + size_t(k)];
-                    int const v2 = surf.faceVertexIndices[off + size_t(k) + 1];
-                    if (v0 < 0 || v1 < 0 || v2 < 0 ||
-                        size_t(v0) >= surf.points.size() ||
-                        size_t(v1) >= surf.points.size() ||
-                        size_t(v2) >= surf.points.size())
-                        continue;
-                    GfVec3d const a(surf.points[size_t(v0)]);
-                    GfVec3d const b(surf.points[size_t(v1)]);
-                    GfVec3d const c(surf.points[size_t(v2)]);
-                    if (DegenerateTri(a, b, c)) continue;
-                    CollideTri tri;
-                    tri.ax = a[0]; tri.ay = a[1]; tri.az = a[2];
-                    tri.bx = b[0]; tri.by = b[1]; tri.bz = b[2];
-                    tri.cx = c[0]; tri.cy = c[1]; tri.cz = c[2];
-                    tri.face = int(f);
-                    tri.k = k;
-                    tris->push_back(tri);
-                }
-            }
-        }
-        off += size_t(corners);
-    }
-}
-
 // Morton helpers: 10 bits per axis over the centroid bbox (the Pomade K1
 // spelling). Codes only steer the tree shape, never the result.
 uint32_t ExpandBits10(uint32_t v)
@@ -863,11 +813,17 @@ ClosestHit QueryColliders(UsdGenGraphDesc const *desc,
 // Validates one resolved collider mesh and produces its restricted face
 // list (empty == whole mesh). Every malformed shape fails closed; exactly
 // degenerate triangles are skipped with a warning, and a collider with no
-// valid triangle at all fails closed.
+// valid triangle at all fails closed. The counting walk doubles as the
+// fan-triangle flattener: it visits the same (face, fan) pairs in the
+// same order the old separate pass did (its defensive guards provably
+// never fire past the pre-checks above), so a non-null `tris` collects
+// exactly the brute path's test set — ascending faces, ascending fan
+// index, degenerates skipped — with one walk and one cross product per
+// triangle instead of two. Null collects nothing (the brute-force path).
 bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
                           UsdGenSurfaceDesc const &geometry,
-                          std::vector<int> *faces, std::string *error,
-                          std::string *warning)
+                          std::vector<int> *faces, std::vector<CollideTri> *tris,
+                          std::string *error, std::string *warning)
 {
     if (geometry.points.empty()) {
         *error = "collider surface '" + path.GetString() + "' has no points";
@@ -928,7 +884,9 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
     // At least one non-degenerate triangle must exist; count the skipped.
     // Single linear pass with a running index offset (the subset list is
     // sorted unique, so one merge cursor serves both cases) — the old
-    // per-face offset re-walk was quadratic in the face count.
+    // per-face offset re-walk was quadratic in the face count. Valid
+    // triangles flatten into `tris` here when it is non-null.
+    if (tris) tris->clear();
     size_t valid = 0, skipped = 0;
     bool const whole = faces->empty();
     size_t fi = 0;
@@ -951,8 +909,20 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
                         geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k) + 1])]);
                     GfVec3d const cr = GfCross(b - a, c - a);
                     double const l = cr.GetLength();
-                    if (l > 0.0 && Finite(l)) ++valid;
-                    else ++skipped;
+                    if (l > 0.0 && Finite(l)) {
+                        ++valid;
+                        if (tris) {
+                            CollideTri tri;
+                            tri.ax = a[0]; tri.ay = a[1]; tri.az = a[2];
+                            tri.bx = b[0]; tri.by = b[1]; tri.bz = b[2];
+                            tri.cx = c[0]; tri.cy = c[1]; tri.cz = c[2];
+                            tri.face = int(f);
+                            tri.k = k;
+                            tris->push_back(tri);
+                        }
+                    } else {
+                        ++skipped;
+                    }
                 }
             }
         }
@@ -1119,8 +1089,13 @@ bool UsdGenCollideOp::Capture(
         UsdGenCollideCollider collider;
         collider.geometry = geometry;
         std::string error, warning;
+        // The validation walk flattens the fan triangles as its byproduct,
+        // so the threshold cut below reuses them instead of re-walking.
+        std::vector<CollideTri> tris;
+        bool const collectTris = !sForceBrute.load(std::memory_order_relaxed);
         if (!ValidateColliderMesh(path, e, ctx.desc->surfaces[geometry],
-                                  &collider.faces, &error, &warning)) {
+                                  &collider.faces, collectTris ? &tris : nullptr,
+                                  &error, &warning)) {
             if (diag) diag->Error("UsdGenCollide: " + error);
             return false;
         }
@@ -1128,15 +1103,10 @@ bool UsdGenCollideOp::Capture(
         // Index colliders past the brute-force threshold (plan/04 §4: a BVH
         // rebuilt per surface epoch). The flattened set is exactly the set
         // the brute path tests, so the cut is behavior-free either way.
-        if (!sForceBrute.load(std::memory_order_relaxed)) {
-            std::vector<CollideTri> tris;
-            FlattenColliderTris(ctx.desc->surfaces[geometry], collider.faces,
-                                &tris);
-            if (tris.size() >
-                sBruteThreshold.load(std::memory_order_relaxed)) {
-                BuildColliderBvh(&tris, &collider.bvh);
-                collider.useBvh = true;
-            }
+        if (collectTris &&
+            tris.size() > sBruteThreshold.load(std::memory_order_relaxed)) {
+            BuildColliderBvh(&tris, &collider.bvh);
+            collider.useBvh = true;
         }
         cap.colliders.push_back(std::move(collider));
     }
