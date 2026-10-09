@@ -393,7 +393,12 @@ public:
                std::vector<int> *perm, std::vector<BvhTriCache> const *cache)
         : _bvh(bvh), _srcTris(srcTris), _perm(perm), _cache(cache) {}
 
-    int Build(int l, int r, int depth)  // [l, r) over _perm; returns the node
+    // [l, r) over _perm; returns the node. The span's centroid extent
+    // arrives from the parent's partition (haveExtents) instead of a fresh
+    // measuring pass; the root and midpoint-fallback spans measure their
+    // own (haveExtents false, clo/chi ignored).
+    int Build(int l, int r, int depth, double const clo[3], double const chi[3],
+              bool haveExtents)
     {
         int const node = int(_bvh->nodes.size());
         _bvh->nodes.push_back(CollideBvhNode());
@@ -407,10 +412,17 @@ public:
             FitLeaf(&leaf, l, r);
             return node;
         }
-        int m = depth >= 48 ? -1 : SahSplit(l, r);  // [l, m) + [m, r)
-        if (m < 0) m = (l + r) / 2;
-        int const left = Build(l, m, depth + 1);
-        int const right = Build(m, r, depth + 1);
+        double cloL[3], chiL[3], cloR[3], chiR[3];
+        int m = -1;
+        bool haveChild = false;
+        if (depth < 48) {
+            m = SahSplit(l, r, clo, chi, haveExtents,
+                         cloL, chiL, cloR, chiR);
+            haveChild = m >= 0;
+        }
+        if (m < 0) m = (l + r) / 2;  // [l, m) + [m, r)
+        int const left = Build(l, m, depth + 1, cloL, chiL, haveChild);
+        int const right = Build(m, r, depth + 1, cloR, chiR, haveChild);
         CollideBvhNode &interior = _bvh->nodes[size_t(node)];
         interior.left = left;
         interior.right = right;
@@ -437,19 +449,37 @@ private:
     // across candidates, so it drops out). Partitions _perm in place and
     // returns the split point, or -1 when the span is degenerate (no
     // centroid extent on any axis, or every candidate has an empty side).
-    int SahSplit(int l, int r)
+    // The span extent arrives inherited (haveExtents) except at the root
+    // and under midpoint fallbacks, which measure their own with the same
+    // pass as before; the partition accumulates both children's extents
+    // over the cache entries it already loads. Same member sets feed the
+    // same min/max selections, so every split — and the whole tree — is
+    // bit-identical to the measuring pass (the accumulation order can only
+    // swap -0.0 for +0.0, and min/max share that order, so ext is never
+    // -0.0 and every int() bin matches).
+    int SahSplit(int l, int r, double const cloIn[3], double const chiIn[3],
+                 bool haveExtents, double cloL[3], double chiL[3],
+                 double cloR[3], double chiR[3])
     {
-        double clo[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
-        double chi[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
-        for (int i = l; i < r; ++i) {
-            BvhTriCache const &e =
-                (*_cache)[size_t((*_perm)[size_t(i)])];
-            clo[0] = std::min(clo[0], e.cx);
-            clo[1] = std::min(clo[1], e.cy);
-            clo[2] = std::min(clo[2], e.cz);
-            chi[0] = std::max(chi[0], e.cx);
-            chi[1] = std::max(chi[1], e.cy);
-            chi[2] = std::max(chi[2], e.cz);
+        double clo[3], chi[3];
+        if (haveExtents) {
+            for (int a = 0; a < 3; ++a) {
+                clo[a] = cloIn[a];
+                chi[a] = chiIn[a];
+            }
+        } else {
+            clo[0] = clo[1] = clo[2] = HUGE_VAL;
+            chi[0] = chi[1] = chi[2] = -HUGE_VAL;
+            for (int i = l; i < r; ++i) {
+                BvhTriCache const &e =
+                    (*_cache)[size_t((*_perm)[size_t(i)])];
+                clo[0] = std::min(clo[0], e.cx);
+                clo[1] = std::min(clo[1], e.cy);
+                clo[2] = std::min(clo[2], e.cz);
+                chi[0] = std::max(chi[0], e.cx);
+                chi[1] = std::max(chi[1], e.cy);
+                chi[2] = std::max(chi[2], e.cz);
+            }
         }
         struct Bin
         {
@@ -533,6 +563,10 @@ private:
         if (bestAxis < 0) return -1;
         double const scale = 16.0 / (chi[bestAxis] - clo[bestAxis]);
         double const lo = clo[bestAxis];
+        cloL[0] = cloL[1] = cloL[2] = HUGE_VAL;
+        chiL[0] = chiL[1] = chiL[2] = -HUGE_VAL;
+        cloR[0] = cloR[1] = cloR[2] = HUGE_VAL;
+        chiR[0] = chiR[1] = chiR[2] = -HUGE_VAL;
         auto it = std::partition(
             _perm->begin() + l, _perm->begin() + r, [&](int tri) {
                 BvhTriCache const &e = (*_cache)[size_t(tri)];
@@ -541,7 +575,22 @@ private:
                 int b = int((c - lo) * scale);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
-                return b <= bestBin;
+                if (b <= bestBin) {
+                    cloL[0] = std::min(cloL[0], e.cx);
+                    cloL[1] = std::min(cloL[1], e.cy);
+                    cloL[2] = std::min(cloL[2], e.cz);
+                    chiL[0] = std::max(chiL[0], e.cx);
+                    chiL[1] = std::max(chiL[1], e.cy);
+                    chiL[2] = std::max(chiL[2], e.cz);
+                    return true;
+                }
+                cloR[0] = std::min(cloR[0], e.cx);
+                cloR[1] = std::min(cloR[1], e.cy);
+                cloR[2] = std::min(cloR[2], e.cz);
+                chiR[0] = std::max(chiR[0], e.cx);
+                chiR[1] = std::max(chiR[1], e.cy);
+                chiR[2] = std::max(chiR[2], e.cz);
+                return false;
             });
         int const m = int(it - _perm->begin());
         return (m == l || m == r) ? -1 : m;
@@ -628,7 +677,8 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
     });
     bvh->nodes.reserve(2 * n);
     BvhBuilder builder(bvh, tris, &perm, &cache);
-    bvh->root = builder.Build(0, int(n), 0);
+    double clo[3] = {0.0, 0.0, 0.0}, chi[3] = {0.0, 0.0, 0.0};
+    bvh->root = builder.Build(0, int(n), 0, clo, chi, false);
     // Reorder the triangles into Morton order so leaf runs index them
     // directly (ordinals travel with each triangle).
     std::vector<CollideTri> ordered(n);
