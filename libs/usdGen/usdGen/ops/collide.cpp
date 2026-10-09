@@ -1105,6 +1105,9 @@ bool UsdGenCollideOp::Capture(
     }
     // Every connected value is scanned, so a non-finite expression fails
     // closed at capture instead of writing NaN points (displace precedent).
+    // Uniform fields (literals, groom domain) carry one value for every CV,
+    // so a single check is exactly equivalent to the per-CV loop — and an
+    // empty groom skips it, matching the vacuous loop.
     UsdGenParamField const offset = p->GetScalarField(sOffset, 0.0);
     UsdGenParamField const pushAmount = p->GetScalarField(sPushAmount, 0.0);
     UsdGenParamField const mask = p->GetScalarField(sMask, 1.0);
@@ -1115,14 +1118,27 @@ bool UsdGenCollideOp::Capture(
             return false;
         }
     }
-    for (uint32_t c = 0; c != upstream.totalCurves; ++c) {
-        for (uint32_t cv = spans[c]; cv != spans[c + 1]; ++cv) {
-            if (!Finite(offset.Value(c, cv)) ||
-                !Finite(pushAmount.Value(c, cv)) ||
-                !Finite(mask.Value(c, cv))) {
-                if (diag) diag->Error("UsdGenCollide: per-CV offset/pushAmount/mask "
-                                      "must be finite");
-                return false;
+    auto failNonFinite = [&] {
+        if (diag) diag->Error("UsdGenCollide: per-CV offset/pushAmount/mask "
+                              "must be finite");
+        return false;
+    };
+    bool const scanOffset = !offset.Uniform();
+    bool const scanPush = !pushAmount.Uniform();
+    bool const scanMask = !mask.Uniform();
+    if (upstream.totalCvs > 0) {
+        if (!scanOffset && !Finite(offset.Value(0, 0))) return failNonFinite();
+        if (!scanPush && !Finite(pushAmount.Value(0, 0))) return failNonFinite();
+        if (!scanMask && !Finite(mask.Value(0, 0))) return failNonFinite();
+    }
+    if (scanOffset || scanPush || scanMask) {
+        for (uint32_t c = 0; c != upstream.totalCurves; ++c) {
+            for (uint32_t cv = spans[c]; cv != spans[c + 1]; ++cv) {
+                if ((scanOffset && !Finite(offset.Value(c, cv))) ||
+                    (scanPush && !Finite(pushAmount.Value(c, cv))) ||
+                    (scanMask && !Finite(mask.Value(c, cv)))) {
+                    return failNonFinite();
+                }
             }
         }
     }
