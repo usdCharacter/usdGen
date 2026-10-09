@@ -414,34 +414,21 @@ uint32_t MortonCode(double x, double y, double z, double const lo[3],
            ExpandBits10(q((z - lo[2]) * scale[2]));
 }
 
-int Clz32(uint32_t x)  // x != 0 (portable spelling, no builtin)
-{
-    int n = 0;
-    for (uint32_t m = 0x80000000u; (x & m) == 0; m >>= 1) ++n;
-    return n;
-}
-
-// Common-prefix length of two (code, tri) keys (Karras §3: the tri index
-// suffix keeps the ordering total over identical codes). i != j.
-int KeyDelta(uint32_t const *codes, int const *tris, int i, int j)
-{
-    uint32_t const x = codes[i] ^ codes[j];
-    if (x != 0) return Clz32(x);
-    return 32 + Clz32(uint32_t(tris[i] ^ tris[j]));
-}
-
-// Karras binary radix tree over the Morton-sorted tris. A split past the
-// depth cap, or over an identical-code run, falls back to the midpoint
+// Binned-SAH tree over the Morton-sorted tris (the Morton order seeds
+// spatially coherent spans; SAH picks the tightest split per span, which
+// the Karras prefix rule cannot see). A split past the depth cap, over a
+// degenerate span, or with an empty side falls back to the midpoint
 // (halving every level), so the tree depth is bounded by construction
-// (48 Karras + 32 halving levels) and the 256-entry traversal stack below
+// (48 SAH + 32 halving levels) and the 256-entry traversal stack below
 // provably suffices. Shape only guides pruning; the ordinal tiebreak keeps
-// every shape bit-identical.
+// every shape bit-identical. Build is deterministic (fixed Morton order,
+// deterministic partition), so rebuilt captures reproduce exactly.
 class BvhBuilder
 {
 public:
     BvhBuilder(CollideBvh *bvh, std::vector<CollideTri> const *srcTris,
-               std::vector<uint32_t> *codes, std::vector<int> *perm)
-        : _bvh(bvh), _srcTris(srcTris), _codes(codes), _perm(perm) {}
+               std::vector<int> *perm)
+        : _bvh(bvh), _srcTris(srcTris), _perm(perm) {}
 
     int Build(int l, int r, int depth)  // [l, r) over _perm; returns the node
     {
@@ -454,25 +441,10 @@ public:
             FitLeaf(&leaf, l, r);
             return node;
         }
-        int s;  // split: [l, s + 1) + [s + 1, r)
-        uint32_t const first = (*_codes)[size_t((*_perm)[size_t(l)])];
-        uint32_t const last = (*_codes)[size_t((*_perm)[size_t(r - 1)])];
-        if (depth >= 48 || first == last) {
-            s = (l + r) / 2 - 1;
-        } else {
-            // Weakest adjacency (minimum delta) in [l, r - 1].
-            int spanBest = KeyDelta(_codes->data(), _perm->data(), l, l + 1);
-            s = l;
-            for (int i = l + 1; i + 1 < r; ++i) {
-                int const d = KeyDelta(_codes->data(), _perm->data(), i, i + 1);
-                if (d < spanBest) {
-                    spanBest = d;
-                    s = i;
-                }
-            }
-        }
-        int const left = Build(l, s + 1, depth + 1);
-        int const right = Build(s + 1, r, depth + 1);
+        int m = depth >= 48 ? -1 : SahSplit(l, r);  // [l, m) + [m, r)
+        if (m < 0) m = (l + r) / 2;
+        int const left = Build(l, m, depth + 1);
+        int const right = Build(m, r, depth + 1);
         CollideBvhNode &interior = _bvh->nodes[size_t(node)];
         interior.left = left;
         interior.right = right;
@@ -488,6 +460,139 @@ public:
     }
 
 private:
+    static void TriBounds(CollideTri const &t, double mn[3], double mx[3])
+    {
+        mn[0] = std::min(t.ax, std::min(t.bx, t.cx));
+        mn[1] = std::min(t.ay, std::min(t.by, t.cy));
+        mn[2] = std::min(t.az, std::min(t.bz, t.cz));
+        mx[0] = std::max(t.ax, std::max(t.bx, t.cx));
+        mx[1] = std::max(t.ay, std::max(t.by, t.cy));
+        mx[2] = std::max(t.az, std::max(t.bz, t.cz));
+    }
+
+    static double BoundsArea(double const mn[3], double const mx[3])
+    {
+        double const dx = mx[0] - mn[0], dy = mx[1] - mn[1], dz = mx[2] - mn[2];
+        return 2.0 * (dx * dy + dy * dz + dz * dx);
+    }
+
+    // Best binned-SAH split of [l, r): 16 bins per axis over the span's
+    // centroid bounds, sweeping area x count (the parent area is constant
+    // across candidates, so it drops out). Partitions _perm in place and
+    // returns the split point, or -1 when the span is degenerate (no
+    // centroid extent on any axis, or every candidate has an empty side).
+    int SahSplit(int l, int r)
+    {
+        double clo[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
+        double chi[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
+        for (int i = l; i < r; ++i) {
+            CollideTri const &t = (*_srcTris)[size_t((*_perm)[size_t(i)])];
+            double const c[3] = {(t.ax + t.bx + t.cx) / 3.0,
+                                 (t.ay + t.by + t.cy) / 3.0,
+                                 (t.az + t.bz + t.cz) / 3.0};
+            for (int a = 0; a < 3; ++a) {
+                clo[a] = std::min(clo[a], c[a]);
+                chi[a] = std::max(chi[a], c[a]);
+            }
+        }
+        struct Bin
+        {
+            double mn[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
+            double mx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
+            int n = 0;
+        };
+        int bestAxis = -1, bestBin = -1;
+        double bestCost = HUGE_VAL;
+        for (int axis = 0; axis < 3; ++axis) {
+            double const ext = chi[axis] - clo[axis];
+            if (!(ext > 0.0)) continue;
+            Bin bins[16];
+            double const scale = 16.0 / ext;
+            for (int i = l; i < r; ++i) {
+                CollideTri const &t =
+                    (*_srcTris)[size_t((*_perm)[size_t(i)])];
+                double const c = axis == 0 ? (t.ax + t.bx + t.cx) / 3.0
+                    : axis == 1 ? (t.ay + t.by + t.cy) / 3.0
+                                : (t.az + t.bz + t.cz) / 3.0;
+                int b = int((c - clo[axis]) * scale);
+                if (b < 0) b = 0;
+                else if (b > 15) b = 15;
+                Bin &bin = bins[b];
+                double tmn[3], tmx[3];
+                TriBounds(t, tmn, tmx);
+                for (int a = 0; a < 3; ++a) {
+                    bin.mn[a] = std::min(bin.mn[a], tmn[a]);
+                    bin.mx[a] = std::max(bin.mx[a], tmx[a]);
+                }
+                ++bin.n;
+            }
+            double pmn[16][3], pmx[16][3];
+            double smn[16][3], smx[16][3];
+            int pcount[16], scount[16];
+            double amn[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
+            double amx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
+            int acc = 0;
+            for (int b = 0; b < 16; ++b) {
+                if (bins[b].n) {
+                    acc += bins[b].n;
+                    for (int a = 0; a < 3; ++a) {
+                        amn[a] = std::min(amn[a], bins[b].mn[a]);
+                        amx[a] = std::max(amx[a], bins[b].mx[a]);
+                    }
+                }
+                pcount[b] = acc;
+                for (int a = 0; a < 3; ++a) {
+                    pmn[b][a] = amn[a];
+                    pmx[b][a] = amx[a];
+                }
+            }
+            amn[0] = amn[1] = amn[2] = HUGE_VAL;
+            amx[0] = amx[1] = amx[2] = -HUGE_VAL;
+            acc = 0;
+            for (int b = 15; b >= 0; --b) {
+                if (bins[b].n) {
+                    acc += bins[b].n;
+                    for (int a = 0; a < 3; ++a) {
+                        amn[a] = std::min(amn[a], bins[b].mn[a]);
+                        amx[a] = std::max(amx[a], bins[b].mx[a]);
+                    }
+                }
+                scount[b] = acc;
+                for (int a = 0; a < 3; ++a) {
+                    smn[b][a] = amn[a];
+                    smx[b][a] = amx[a];
+                }
+            }
+            for (int s = 0; s < 15; ++s) {
+                if (!pcount[s] || !scount[s + 1]) continue;
+                double const cost =
+                    BoundsArea(pmn[s], pmx[s]) * pcount[s] +
+                    BoundsArea(smn[s + 1], smx[s + 1]) * scount[s + 1];
+                if (cost < bestCost) {
+                    bestCost = cost;
+                    bestAxis = axis;
+                    bestBin = s;
+                }
+            }
+        }
+        if (bestAxis < 0) return -1;
+        double const scale = 16.0 / (chi[bestAxis] - clo[bestAxis]);
+        double const lo = clo[bestAxis];
+        auto it = std::partition(
+            _perm->begin() + l, _perm->begin() + r, [&](int tri) {
+                CollideTri const &t = (*_srcTris)[size_t(tri)];
+                double const c = bestAxis == 0 ? (t.ax + t.bx + t.cx) / 3.0
+                    : bestAxis == 1 ? (t.ay + t.by + t.cy) / 3.0
+                                    : (t.az + t.bz + t.cz) / 3.0;
+                int b = int((c - lo) * scale);
+                if (b < 0) b = 0;
+                else if (b > 15) b = 15;
+                return b <= bestBin;
+            });
+        int const m = int(it - _perm->begin());
+        return (m == l || m == r) ? -1 : m;
+    }
+
     void FitLeaf(CollideBvhNode *leaf, int l, int r)
     {
         bool firstTri = true;
@@ -516,7 +621,6 @@ private:
 
     CollideBvh *_bvh;
     std::vector<CollideTri> const *_srcTris;  // flatten order (pre-permute)
-    std::vector<uint32_t> *_codes;            // per tri (flatten order)
     std::vector<int> *_perm;                  // Morton sort permutation
 };
 
@@ -556,7 +660,7 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
         return a < b;
     });
     bvh->nodes.reserve(2 * n);
-    BvhBuilder builder(bvh, tris, &codes, &perm);
+    BvhBuilder builder(bvh, tris, &perm);
     bvh->root = builder.Build(0, int(n), 0);
     // Reorder the triangles into Morton order so leaf runs index them
     // directly (ordinals travel with each triangle).
