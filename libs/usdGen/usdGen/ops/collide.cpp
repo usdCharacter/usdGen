@@ -889,27 +889,37 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
         }
     }
     // At least one non-degenerate triangle must exist; count the skipped.
+    // Single linear pass with a running index offset (the subset list is
+    // sorted unique, so one merge cursor serves both cases) — the old
+    // per-face offset re-walk was quadratic in the face count.
     size_t valid = 0, skipped = 0;
-    auto scanFace = [&](size_t f) {
-        size_t off = 0;
-        for (size_t k = 0; k < f; ++k)
-            off += size_t(geometry.faceVertexCounts[k]);
-        int const n = geometry.faceVertexCounts[f];
-        if (n < 3) return;
-        for (int k = 1; k + 1 < n; ++k) {
-            GfVec3d const a(geometry.points[size_t(geometry.faceVertexIndices[off])]);
-            GfVec3d const b(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k)])]);
-            GfVec3d const c(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k) + 1])]);
-            GfVec3d const cr = GfCross(b - a, c - a);
-            double const l = cr.GetLength();
-            if (l > 0.0 && Finite(l)) ++valid;
-            else ++skipped;
+    bool const whole = faces->empty();
+    size_t fi = 0;
+    size_t const nFaces = faces->size();
+    size_t off = 0;
+    size_t const F = geometry.faceVertexCounts.size();
+    for (size_t f = 0; f < F; ++f) {
+        int const n = geometry.faceVertexCounts[f];  // >= 0 (checked above)
+        bool const use =
+            whole ? true : (fi < nFaces && size_t((*faces)[fi]) == f);
+        if (use) {
+            ++fi;
+            if (n >= 3) {
+                for (int k = 1; k + 1 < n; ++k) {
+                    GfVec3d const a(
+                        geometry.points[size_t(geometry.faceVertexIndices[off])]);
+                    GfVec3d const b(
+                        geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k)])]);
+                    GfVec3d const c(
+                        geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k) + 1])]);
+                    GfVec3d const cr = GfCross(b - a, c - a);
+                    double const l = cr.GetLength();
+                    if (l > 0.0 && Finite(l)) ++valid;
+                    else ++skipped;
+                }
+            }
         }
-    };
-    if (faces->empty()) {
-        for (size_t f = 0; f < geometry.faceVertexCounts.size(); ++f) scanFace(f);
-    } else {
-        for (int f : *faces) scanFace(size_t(f));
+        off += size_t(n);
     }
     if (!valid) {
         *error = "collider surface '" + path.GetString() +
