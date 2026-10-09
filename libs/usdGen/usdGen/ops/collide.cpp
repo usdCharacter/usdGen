@@ -487,22 +487,30 @@ private:
             double mx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
             int n = 0;
         };
-        int bestAxis = -1, bestBin = -1;
-        double bestCost = HUGE_VAL;
+        // One bin-fill pass feeds all three axes (the old spelling streamed
+        // the span once per axis). Each axis's bins accumulate the same
+        // entries in the same order with the same index expressions, so
+        // every bin — and the whole tree — is bit-identical with ~2/3
+        // fewer span loads. Degenerate axes stay skipped exactly as before
+        // (haveAxis is the same `ext > 0.0` verdict, NaN included).
+        Bin allBins[3][16];
+        bool haveAxis[3] = {false, false, false};
+        double axisScale[3] = {0.0, 0.0, 0.0};
         for (int axis = 0; axis < 3; ++axis) {
             double const ext = chi[axis] - clo[axis];
-            if (!(ext > 0.0)) continue;
-            Bin bins[16];
-            double const scale = 16.0 / ext;
-            for (int i = l; i < r; ++i) {
-                BvhTriCache const &e =
-                    (*_cache)[size_t((*_perm)[size_t(i)])];
-                double const c =
-                    axis == 0 ? e.cx : axis == 1 ? e.cy : e.cz;
-                int b = int((c - clo[axis]) * scale);
+            if (ext > 0.0) {
+                haveAxis[axis] = true;
+                axisScale[axis] = 16.0 / ext;
+            }
+        }
+        for (int i = l; i < r; ++i) {
+            BvhTriCache const &e =
+                (*_cache)[size_t((*_perm)[size_t(i)])];
+            if (haveAxis[0]) {
+                int b = int((e.cx - clo[0]) * axisScale[0]);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
-                Bin &bin = bins[b];
+                Bin &bin = allBins[0][b];
                 bin.mn[0] = std::min(bin.mn[0], e.mnx);
                 bin.mn[1] = std::min(bin.mn[1], e.mny);
                 bin.mn[2] = std::min(bin.mn[2], e.mnz);
@@ -511,6 +519,38 @@ private:
                 bin.mx[2] = std::max(bin.mx[2], e.mxz);
                 ++bin.n;
             }
+            if (haveAxis[1]) {
+                int b = int((e.cy - clo[1]) * axisScale[1]);
+                if (b < 0) b = 0;
+                else if (b > 15) b = 15;
+                Bin &bin = allBins[1][b];
+                bin.mn[0] = std::min(bin.mn[0], e.mnx);
+                bin.mn[1] = std::min(bin.mn[1], e.mny);
+                bin.mn[2] = std::min(bin.mn[2], e.mnz);
+                bin.mx[0] = std::max(bin.mx[0], e.mxx);
+                bin.mx[1] = std::max(bin.mx[1], e.mxy);
+                bin.mx[2] = std::max(bin.mx[2], e.mxz);
+                ++bin.n;
+            }
+            if (haveAxis[2]) {
+                int b = int((e.cz - clo[2]) * axisScale[2]);
+                if (b < 0) b = 0;
+                else if (b > 15) b = 15;
+                Bin &bin = allBins[2][b];
+                bin.mn[0] = std::min(bin.mn[0], e.mnx);
+                bin.mn[1] = std::min(bin.mn[1], e.mny);
+                bin.mn[2] = std::min(bin.mn[2], e.mnz);
+                bin.mx[0] = std::max(bin.mx[0], e.mxx);
+                bin.mx[1] = std::max(bin.mx[1], e.mxy);
+                bin.mx[2] = std::max(bin.mx[2], e.mxz);
+                ++bin.n;
+            }
+        }
+        int bestAxis = -1, bestBin = -1;
+        double bestCost = HUGE_VAL;
+        for (int axis = 0; axis < 3; ++axis) {
+            if (!haveAxis[axis]) continue;
+            Bin (&bins)[16] = allBins[axis];
             double pmn[16][3], pmx[16][3];
             double smn[16][3], smx[16][3];
             int pcount[16], scount[16];
