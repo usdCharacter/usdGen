@@ -13,11 +13,20 @@
 //   collider per-frame deforming collider (points move, surfaceGeneration
 //            bumps): Recompile + Run per frame, collide re-captures.
 //   stiff    static leg with resolveType=stiff.
-//   probe    static Runs with the collide phase probe on, single-threaded,
-//            so the broadphase / narrowphase / response split is wall time
-//            and adds up to the probe wall. Informational only — the
-//            headline totals come from the unprobed legs (the probe's clock
-//            reads perturb the pass slightly).
+//   probe    static Runs with the collide phase probe on, single-threaded:
+//            whole-query wall + response wall + exact counts (queries, tri
+//            tests, BVH node visits). Informational only — the headline
+//            totals come from the unprobed legs (the probe's clock reads
+//            perturb the pass slightly).
+//   verify   small-scale (2k hairs, same collider) differential: the same
+//            cook through the BVH and the forced brute-force path must be
+//            bit-identical, and the brute run calibrates the per-triangle-
+//            test cost for the split leg.
+//   split    probe + verify combined: broadphase / narrowphase / response,
+//            single-threaded wall. narrow = exact BVH tri-test count times
+//            the brute-calibrated per-test cost (an upper bound — brute
+//            streams colder than the BVH subset, so broad, the residual,
+//            is a lower bound); response is timed directly.
 //
 // Hair-hair (self) collision is not benchmarked: no self-collision operator
 // exists in-tree (UsdGenCollide is hair-surface only), so there is nothing
@@ -66,6 +75,8 @@ struct Options {
     int threads = 0;  // 0 = product default (calibration / USDGEN_THREAD_LIMIT)
     std::string stage;  // empty = all
     bool quick = false;
+    bool forceBrute = false;  // run every leg through the brute-force path
+    int bruteThreshold = 16;  // colliders past this many tris get a BVH
 };
 
 double Median(std::vector<double> v)
@@ -140,6 +151,23 @@ bool WantStage(Options const &opts, char const *stage)
 {
     return opts.stage.empty() || opts.stage == stage;
 }
+
+struct ProbeResult {
+    double queryMs = 0.0;
+    double respMs = 0.0;
+    double wallMs = 0.0;
+    uint64_t queries = 0;
+    uint64_t triTests = 0;
+    uint64_t nodeVisits = 0;
+    uint64_t checksum = 0;
+};
+
+struct VerifyResult {
+    uint64_t checksumBvh = 0;
+    uint64_t checksumBrute = 0;
+    double costPerTestNs = 0.0;  // brute query wall / brute tri tests
+    uint64_t bruteTriTests = 0;
+};
 
 // Force every chunk of the collide node fully value-dirty (steady-state
 // worst case: the capture is reused, every chunk re-evaluates).
@@ -303,10 +331,13 @@ int main(int argc, char **argv)
         else if (arg == "--threads") opts.threads = std::atoi(need("--threads"));
         else if (arg == "--stage") opts.stage = need("--stage");
         else if (arg == "--quick") opts.quick = true;
+        else if (arg == "--force-brute") opts.forceBrute = true;
+        else if (arg == "--brute-threshold")
+            opts.bruteThreshold = std::atoi(need("--brute-threshold"));
         else if (arg == "--help" || arg == "-h") {
             std::printf("usage: benchUsdGenHairCollide [--hairs N] [--cvs M] "
                         "[--grid G] [--reps R] [--threads T] [--stage NAME] "
-                        "[--quick]\n");
+                        "[--quick] [--force-brute] [--brute-threshold N]\n");
             return 0;
         } else {
             std::printf("benchUsdGenHairCollide: unknown arg %s\n", arg.c_str());
@@ -323,9 +354,13 @@ int main(int argc, char **argv)
         return 2;
     }
     usdGenRegisterM1Operators();
-    std::printf("config hairs=%d cvs=%d grid=%d tris=%d reps=%d threads=%d\n",
+    UsdGenCollideOp::SetForceBruteForce(opts.forceBrute);
+    UsdGenCollideOp::SetBruteForceThreshold(size_t(opts.bruteThreshold));
+    std::printf("config hairs=%d cvs=%d grid=%d tris=%d reps=%d threads=%d "
+                "forcebrute=%d threshold=%d\n",
                 opts.hairs, opts.cvs, opts.grid, 2 * opts.grid * opts.grid,
-                opts.reps, opts.threads);
+                opts.reps, opts.threads, int(opts.forceBrute),
+                opts.bruteThreshold);
     std::fflush(stdout);
 
     UsdGenCompiler compiler;
@@ -472,7 +507,7 @@ int main(int argc, char **argv)
     // single-threaded scheduler, so the phase sums are wall time. Totals
     // are informational (the probe perturbs); the split shows where time
     // goes. The probe must not change a single output bit.
-    auto runProbeLeg = [&]() -> bool {
+    auto runProbeLeg = [&](ProbeResult *out) -> bool {
         char const *name = "probe";
         UsdGenGraphDesc desc = MakeDesc(opts, false);
         UsdGenGraph graph;
@@ -492,7 +527,8 @@ int main(int argc, char **argv)
             return false;
         }
         uint64_t const expected = ChecksumTerminal(graph);
-        std::vector<double> tWall, tBroad, tNarrow, tResp;
+        std::vector<double> tWall, tQuery, tResp;
+        UsdGenCollidePhaseStats first;
         for (int i = 0; i < 3; ++i) {
             ForceCollideDirty(graph, collide);
             UsdGenCollideOp::ResetPhaseProbe();
@@ -513,30 +549,158 @@ int main(int argc, char **argv)
                 return false;
             }
             tWall.push_back(wall);
-            tBroad.push_back(ph.broadMs);
-            tNarrow.push_back(ph.narrowMs);
+            tQuery.push_back(ph.queryMs);
             tResp.push_back(ph.respMs);
-            if (i == 0)
-                std::printf("probe_counts queries=%llu tritests=%llu "
-                            "nodevisits=%llu\n",
-                            (unsigned long long)ph.queries,
-                            (unsigned long long)ph.triTests,
-                            (unsigned long long)ph.nodeVisits);
+            if (i == 0) first = ph;
         }
+        std::printf("probe_counts queries=%llu tritests=%llu "
+                    "nodevisits=%llu\n",
+                    (unsigned long long)first.queries,
+                    (unsigned long long)first.triTests,
+                    (unsigned long long)first.nodeVisits);
         char extra[256];
-        std::snprintf(extra, sizeof(extra),
-                      "broad=%.3f narrow=%.3f resp=%.3f (1-thread wall)",
-                      Median(tBroad), Median(tNarrow), Median(tResp));
+        std::snprintf(extra, sizeof(extra), "query=%.3f resp=%.3f (1-thread)",
+                      Median(tQuery), Median(tResp));
         Report(name, tWall, expected, extra);
+        // Unprobed single-threaded reference for the same fixture, so the
+        // probe wall above can be checked against perturbation-free time.
+        UsdGenCollideOp::SetPhaseProbe(false);
+        std::vector<double> tRef;
+        for (int i = 0; i < 3; ++i) {
+            ForceCollideDirty(graph, collide);
+            double const t0 = NowMs();
+            UsdGenRunResult const run =
+                probeScheduler.Run(graph, probeCtx, ++probeGen);
+            tRef.push_back(NowMs() - t0);
+            if (run.diagnostics.HasErrors()) {
+                std::printf("%s: ref rep %d failed\n", name, i);
+                return false;
+            }
+            if (i == 0) {
+                double capMs = 0.0, evalMs = 0.0;
+                CollideCaptureEvalMs(run, collide, &capMs, &evalMs);
+                std::printf("probe_ref eval=%.3f cap=%.3f\n", evalMs, capMs);
+            }
+        }
+        std::printf("result probe_ref_ms %.3f\n", Median(tRef));
+        if (out) {
+            out->queryMs = Median(tQuery);
+            out->respMs = Median(tResp);
+            out->wallMs = Median(tWall);
+            out->queries = first.queries;
+            out->triTests = first.triTests;
+            out->nodeVisits = first.nodeVisits;
+            out->checksum = expected;
+        }
+        return true;
+    };
+
+    // Differential + calibration leg at fixed small scale (2k hairs, the
+    // configured collider): BVH vs forced brute force must be bit-identical,
+    // and the brute run's query wall over its exact tri-test count is the
+    // per-test cost the split leg scales up.
+    auto runVerifyLeg = [&](VerifyResult *out) -> bool {
+        char const *name = "verify";
+        Options small = opts;
+        small.hairs = 2000;
+        UsdGenGraphDesc desc = MakeDesc(small, false);
+        UsdGenScheduler verifyScheduler(1);
+        UsdGenEvalContext verifyCtx;
+        auto cook = [&](bool forceBrute, uint64_t *checksum,
+                        UsdGenCollidePhaseStats *ph) -> bool {
+            UsdGenGraph graph;
+            UsdGenCollideOp::SetForceBruteForce(forceBrute);
+            if (!compiler.Compile(desc, &graph).ok) {
+                std::printf("%s: compile failed\n", name);
+                return false;
+            }
+            UsdGenGraph::NodeId const collide =
+                graph.NodeIdForPath(SdfPath("/bench/collide"));
+            verifyCtx.desc = &graph.Desc();
+            uint64_t verifyGen = 0;
+            if (verifyScheduler.Run(graph, verifyCtx, ++verifyGen)
+                    .diagnostics.HasErrors()) {
+                std::printf("%s: warmup run failed\n", name);
+                return false;
+            }
+            ForceCollideDirty(graph, collide);
+            UsdGenCollideOp::ResetPhaseProbe();
+            UsdGenCollideOp::SetPhaseProbe(true);
+            UsdGenRunResult const run =
+                verifyScheduler.Run(graph, verifyCtx, ++verifyGen);
+            UsdGenCollideOp::SetPhaseProbe(false);
+            *ph = UsdGenCollideOp::ReadPhaseProbe();
+            if (run.diagnostics.HasErrors()) {
+                std::printf("%s: run failed\n", name);
+                return false;
+            }
+            *checksum = ChecksumTerminal(graph);
+            return true;
+        };
+        uint64_t checksumBvh = 0, checksumBrute = 0;
+        UsdGenCollidePhaseStats phBvh, phBrute;
+        if (!cook(false, &checksumBvh, &phBvh)) return false;
+        if (!cook(true, &checksumBrute, &phBrute)) return false;
+        UsdGenCollideOp::SetForceBruteForce(opts.forceBrute);
+        if (checksumBvh != checksumBrute) {
+            std::printf("%s: BVH vs brute-force MISMATCH %016llx %016llx\n",
+                        name, (unsigned long long)checksumBvh,
+                        (unsigned long long)checksumBrute);
+            return false;
+        }
+        if (phBrute.triTests == 0) {
+            std::printf("%s: brute run tested zero triangles\n", name);
+            return false;
+        }
+        double const costNs = phBrute.queryMs * 1e6 / double(phBrute.triTests);
+        std::printf("result %s_cost_per_test_ns %.4f "
+                    "(brute query=%.3fms over %llu tests)\n",
+                    name, costNs, phBrute.queryMs,
+                    (unsigned long long)phBrute.triTests);
+        std::printf("checksum %s %016llx IDENTICAL\n", name,
+                    (unsigned long long)checksumBvh);
+        if (out) {
+            out->checksumBvh = checksumBvh;
+            out->checksumBrute = checksumBrute;
+            out->costPerTestNs = costNs;
+            out->bruteTriTests = phBrute.triTests;
+        }
         return true;
     };
 
     bool ok = true;
+    // The split stage runs the probe and verify legs itself; "all" runs it
+    // instead of the two separately.
+    bool const all = opts.stage.empty();
     if (WantStage(opts, "static") && !runStaticLeg(false, "static")) ok = false;
     if (ok && WantStage(opts, "hair") && !runDeformLeg(false, "hair")) ok = false;
     if (ok && WantStage(opts, "collider") && !runDeformLeg(true, "collider"))
         ok = false;
     if (ok && WantStage(opts, "stiff") && !runStaticLeg(true, "stiff")) ok = false;
-    if (ok && WantStage(opts, "probe") && !runProbeLeg()) ok = false;
+    if (ok && !all && WantStage(opts, "probe")) {
+        ProbeResult ignored;
+        if (!runProbeLeg(&ignored)) ok = false;
+    }
+    if (ok && !all && WantStage(opts, "verify")) {
+        VerifyResult ignored;
+        if (!runVerifyLeg(&ignored)) ok = false;
+    }
+    if (ok && WantStage(opts, "split")) {
+        ProbeResult pr;
+        VerifyResult vr;
+        if (!runProbeLeg(&pr) || !runVerifyLeg(&vr)) {
+            ok = false;
+        } else {
+            double const narrowMs =
+                double(pr.triTests) * vr.costPerTestNs / 1e6;
+            double broadMs = pr.queryMs - narrowMs;
+            if (!(broadMs >= 0.0)) broadMs = 0.0;
+            std::printf("result split_broad_ms %.3f\n", broadMs);
+            std::printf("result split_narrow_ms %.3f\n", narrowMs);
+            std::printf("result split_resp_ms %.3f\n", pr.respMs);
+            std::printf("checksum split %016llx\n",
+                        (unsigned long long)pr.checksum);
+        }
+    }
     return ok ? 0 : 1;
 }

@@ -9,13 +9,16 @@
 // Only deformed points are read; worldMatrix is ignored exactly like
 // UsdGenScatter (post-flattening groom space, S4).
 //
-// Closest-point search is brute force over fan-triangulated faces (04 §4
-// notes the production BVH this waits on): deterministic first-win ties in
-// node order / ascending faces, double precision, no allocation in
-// Evaluate. Capture resolves and validates every collider mesh; Evaluate
-// reads live points through the captured indices, so an animated collider
-// re-captures (surfaceGeneration digest terms) and re-evaluates every cook
-// with no stale geometry. Value-class edits (offset/pushAmount/iterations)
+// Closest-point search runs over fan-triangulated faces through a
+// Morton-LBVH per collider (plan/04 §4 cost C), rebuilt by Capture every
+// surface epoch; colliders at or under the brute-force threshold keep the
+// brute-force loop. Both paths share the triangle test and the
+// (collider, face, fan) ordinal tiebreak, so every visit order reproduces
+// the deterministic first-win in node order / ascending faces, in double
+// precision, with no allocation in Evaluate. Capture resolves and validates
+// every collider mesh; an animated collider re-captures (surfaceGeneration
+// digest terms) and re-evaluates every cook with no stale geometry.
+// Value-class edits (offset/pushAmount/iterations)
 // sweep without recapturing (displace precedent), so Evaluate additionally
 // sanitizes: a non-finite connected value reads as 0, iterations < 1 copies
 // the input, and an unknown resolveType falls back to flexible. Capture
@@ -35,6 +38,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -50,11 +54,46 @@ const TfToken sOffset{"offset"}, sPushAmount{"pushAmount"};
 const TfToken sIterations{"iterations"}, sResolveType{"resolveType"};
 const TfToken sFlexible{"flexible"}, sStiff{"stiff"}, sMask{"mask"};
 
+struct CollideTri
+{
+    double ax, ay, az, bx, by, bz, cx, cy, cz;  // float verts widened once
+    int face = 0;  // ascending-face ordinal (first-win major)
+    int k = 0;     // fan-triangle index within the face (first-win minor)
+};
+
+struct CollideBvhNode
+{
+    double minX, minY, minZ, maxX, maxY, maxZ;  // exact float-vertex bounds
+    int left = -1, right = -1;  // interior children, else a leaf run
+    int begin = 0, end = 0;     // leaf run over the Morton-ordered tris
+};
+
+struct CollideBvh
+{
+    std::vector<CollideTri> tris;      // Morton order; leaf runs index this
+    std::vector<CollideBvhNode> nodes;
+    int root = -1;
+};
+
 struct UsdGenCollideCollider
 {
     uint32_t geometry = 0;      // desc.surfaces index with points/topology
     std::vector<int> faces;     // empty == whole mesh, else sorted unique ids
+    CollideBvh bvh;             // valid only when useBvh
+    bool useBvh = false;
 };
+
+std::atomic<bool> sForceBrute{false};
+std::atomic<size_t> sBruteThreshold{16};
+struct BruteEnvInit
+{
+    BruteEnvInit()
+    {
+        if (std::getenv("USDGEN_COLLIDE_BRUTE"))
+            sForceBrute.store(true, std::memory_order_relaxed);
+    }
+};
+BruteEnvInit sBruteEnvInit;
 
 struct UsdGenCollideCapture final : public UsdGenCapture
 {
@@ -146,15 +185,22 @@ bool FindSurface(UsdGenGraphDesc const *desc, SdfPath const &path,
     return false;
 }
 
+// The ClosestOnTriangle degeneracy verdict, shared with the BVH flattener
+// so both paths skip exactly the same triangles.
+bool DegenerateTri(GfVec3d const &a, GfVec3d const &b, GfVec3d const &c)
+{
+    GfVec3d const n = GfCross(b - a, c - a);
+    double const len = n.GetLength();
+    return !(len > 0.0) || !Finite(len);
+}
+
 // Ericson 5.1.5 closest point on triangle abc. False when the triangle is
 // degenerate (zero area); the caller skips those. Non-degenerate edges are
 // all nonzero, so the three interior divisions are exact and safe.
 bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
                        GfVec3d const &c, GfVec3d *closest, double *dist2)
 {
-    GfVec3d const n = GfCross(b - a, c - a);
-    double const len = n.GetLength();
-    if (!(len > 0.0) || !Finite(len)) return false;
+    if (DegenerateTri(a, b, c)) return false;
     GfVec3d const ab = b - a, ac = c - a, ap = p - a;
     double const d1 = GfDot(ab, ap), d2 = GfDot(ac, ap);
     if (d1 <= 0.0 && d2 <= 0.0) {
@@ -201,24 +247,37 @@ struct ClosestHit
     bool found = false;
     GfVec3d q, a, b, c;   // closest point + its winning corners (for dist 0)
     double dist2 = 0.0;
+    int collider = -1, face = -1, k = -1;  // winner's first-win ordinal
 };
 
-// Closest point over every captured collider: node order, ascending faces,
-// first win on ties. Reads live points through captured indices; never
-// allocates. A hit with non-finite distance is impossible after Capture
-// validated the meshes (the desc is immutable within a run); the guard
-// below keeps it from ever producing NaN output regardless.
-ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
-                              UsdGenCollideCapture const &cap, GfVec3d const &p,
-                              UsdGenCollidePhaseStats *probe)
+// Strictly-less wins; exact ties (same double bits, e.g. a shared vertex
+// evaluated from either triangle) break by (collider, face, fan) ordinal,
+// so any visit order — brute-force ascending, BVH Morton, or mixed —
+// reproduces the brute-force first-win exactly.
+bool BetterHit(double d2, int collider, int face, int k,
+               ClosestHit const &best)
 {
-    ClosestHit best;
-    if (!desc) return best;
-    for (UsdGenCollideCollider const &collider : cap.colliders) {
-        if (collider.geometry >= desc->surfaces.size()) continue;
-        UsdGenSurfaceDesc const &surf = desc->surfaces[collider.geometry];
-        size_t const F = surf.faceVertexCounts.size();
-        if (surf.points.empty() || surf.faceVertexIndices.empty()) continue;
+    if (!best.found || d2 < best.dist2) return true;
+    if (d2 != best.dist2) return false;
+    if (collider != best.collider) return collider < best.collider;
+    if (face != best.face) return face < best.face;
+    return k < best.k;
+}
+
+// Brute-force closest point over one collider: node order, ascending faces,
+// first win on ties. The ordinal tiebreak never fires here (ascending visit
+// order), but tracking it lets BVH colliders compose with brute-force ones
+// bit-exactly. Reads live points through captured indices; never allocates.
+// A hit with non-finite distance is impossible after Capture validated the
+// meshes (the desc is immutable within a run); the guard below keeps it from
+// ever producing NaN output regardless.
+void BruteCollider(UsdGenSurfaceDesc const &surf,
+                   UsdGenCollideCollider const &collider, int colliderIdx,
+                   GfVec3d const &p, ClosestHit *best,
+                   UsdGenCollidePhaseStats *probe)
+{
+    size_t const F = surf.faceVertexCounts.size();
+    if (!surf.points.empty() && !surf.faceVertexIndices.empty()) {
         size_t fi = 0;  // merge cursor over the sorted restricted faces
         size_t off = 0;
         size_t const Nfvi = surf.faceVertexIndices.size();
@@ -248,19 +307,328 @@ ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
                         if (probe) ++probe->triTests;
                         if (!ClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
                         if (!(d2 >= 0.0)) continue;
-                        if (!best.found || d2 < best.dist2) {
-                            best.found = true;
-                            best.q = q;
-                            best.a = a;
-                            best.b = b;
-                            best.c = c;
-                            best.dist2 = d2;
+                        if (BetterHit(d2, colliderIdx, int(f), k, *best)) {
+                            best->found = true;
+                            best->q = q;
+                            best->a = a;
+                            best->b = b;
+                            best->c = c;
+                            best->dist2 = d2;
+                            best->collider = colliderIdx;
+                            best->face = int(f);
+                            best->k = k;
                         }
                     }
                 }
             }
             off += size_t(corners);
         }
+    }
+}
+
+// Fan triangles of one collider in brute-force visit order (ascending faces,
+// ascending fan index), skipping degenerates with the shared predicate, so
+// the flattened set is exactly the set the brute path tests. Mirrors the
+// brute loop's walk (same offsets, same guards).
+void FlattenColliderTris(UsdGenSurfaceDesc const &surf,
+                         std::vector<int> const &faces,
+                         std::vector<CollideTri> *tris)
+{
+    tris->clear();
+    size_t const F = surf.faceVertexCounts.size();
+    if (surf.points.empty() || surf.faceVertexIndices.empty()) return;
+    size_t fi = 0;
+    size_t off = 0;
+    size_t const Nfvi = surf.faceVertexIndices.size();
+    for (size_t f = 0; f < F; ++f) {
+        int const corners = surf.faceVertexCounts[f];
+        if (corners < 0 || off + size_t(corners) > Nfvi) break;
+        bool const use = faces.empty()
+            ? true
+            : (fi < faces.size() && size_t(faces[fi]) == f);
+        if (use) {
+            ++fi;
+            if (corners >= 3) {
+                int const v0 = surf.faceVertexIndices[off];
+                for (int k = 1; k + 1 < corners; ++k) {
+                    int const v1 = surf.faceVertexIndices[off + size_t(k)];
+                    int const v2 = surf.faceVertexIndices[off + size_t(k) + 1];
+                    if (v0 < 0 || v1 < 0 || v2 < 0 ||
+                        size_t(v0) >= surf.points.size() ||
+                        size_t(v1) >= surf.points.size() ||
+                        size_t(v2) >= surf.points.size())
+                        continue;
+                    GfVec3d const a(surf.points[size_t(v0)]);
+                    GfVec3d const b(surf.points[size_t(v1)]);
+                    GfVec3d const c(surf.points[size_t(v2)]);
+                    if (DegenerateTri(a, b, c)) continue;
+                    CollideTri tri;
+                    tri.ax = a[0]; tri.ay = a[1]; tri.az = a[2];
+                    tri.bx = b[0]; tri.by = b[1]; tri.bz = b[2];
+                    tri.cx = c[0]; tri.cy = c[1]; tri.cz = c[2];
+                    tri.face = int(f);
+                    tri.k = k;
+                    tris->push_back(tri);
+                }
+            }
+        }
+        off += size_t(corners);
+    }
+}
+
+// Morton helpers: 10 bits per axis over the centroid bbox (the Pomade K1
+// spelling). Codes only steer the tree shape, never the result.
+uint32_t ExpandBits10(uint32_t v)
+{
+    v = (v * 0x00010001u) & 0xFF0000FFu;
+    v = (v * 0x00000101u) & 0x0F00F00Fu;
+    v = (v * 0x00000011u) & 0xC30C30C3u;
+    v = (v * 0x00000005u) & 0x49249249u;
+    return v;
+}
+
+uint32_t MortonCode(double x, double y, double z, double const lo[3],
+                    double const scale[3])
+{
+    auto q = [](double t) -> uint32_t {
+        if (!(t > 0.0)) return 0;
+        if (!(t < 1.0)) return 1023;
+        uint32_t const v = uint32_t(t * 1024.0);
+        return v < 1023 ? v : 1023;
+    };
+    return (ExpandBits10(q((x - lo[0]) * scale[0])) << 2) |
+           (ExpandBits10(q((y - lo[1]) * scale[1])) << 1) |
+           ExpandBits10(q((z - lo[2]) * scale[2]));
+}
+
+int Clz32(uint32_t x)  // x != 0 (portable spelling, no builtin)
+{
+    int n = 0;
+    for (uint32_t m = 0x80000000u; (x & m) == 0; m >>= 1) ++n;
+    return n;
+}
+
+// Common-prefix length of two (code, tri) keys (Karras §3: the tri index
+// suffix keeps the ordering total over identical codes). i != j.
+int KeyDelta(uint32_t const *codes, int const *tris, int i, int j)
+{
+    uint32_t const x = codes[i] ^ codes[j];
+    if (x != 0) return Clz32(x);
+    return 32 + Clz32(uint32_t(tris[i] ^ tris[j]));
+}
+
+// Karras binary radix tree over the Morton-sorted tris. A split past the
+// depth cap, or over an identical-code run, falls back to the midpoint
+// (halving every level), so the tree depth is bounded by construction
+// (48 Karras + 32 halving levels) and the 256-entry traversal stack below
+// provably suffices. Shape only guides pruning; the ordinal tiebreak keeps
+// every shape bit-identical.
+class BvhBuilder
+{
+public:
+    BvhBuilder(CollideBvh *bvh, std::vector<CollideTri> const *srcTris,
+               std::vector<uint32_t> *codes, std::vector<int> *perm)
+        : _bvh(bvh), _srcTris(srcTris), _codes(codes), _perm(perm) {}
+
+    int Build(int l, int r, int depth)  // [l, r) over _perm; returns the node
+    {
+        int const node = int(_bvh->nodes.size());
+        _bvh->nodes.push_back(CollideBvhNode());
+        if (r - l <= 4) {
+            CollideBvhNode &leaf = _bvh->nodes[size_t(node)];
+            leaf.begin = l;
+            leaf.end = r;
+            FitLeaf(&leaf, l, r);
+            return node;
+        }
+        int s;  // split: [l, s + 1) + [s + 1, r)
+        uint32_t const first = (*_codes)[size_t((*_perm)[size_t(l)])];
+        uint32_t const last = (*_codes)[size_t((*_perm)[size_t(r - 1)])];
+        if (depth >= 48 || first == last) {
+            s = (l + r) / 2 - 1;
+        } else {
+            // Weakest adjacency (minimum delta) in [l, r - 1].
+            int spanBest = KeyDelta(_codes->data(), _perm->data(), l, l + 1);
+            s = l;
+            for (int i = l + 1; i + 1 < r; ++i) {
+                int const d = KeyDelta(_codes->data(), _perm->data(), i, i + 1);
+                if (d < spanBest) {
+                    spanBest = d;
+                    s = i;
+                }
+            }
+        }
+        int const left = Build(l, s + 1, depth + 1);
+        int const right = Build(s + 1, r, depth + 1);
+        CollideBvhNode &interior = _bvh->nodes[size_t(node)];
+        interior.left = left;
+        interior.right = right;
+        CollideBvhNode const &a = _bvh->nodes[size_t(left)];
+        CollideBvhNode const &b = _bvh->nodes[size_t(right)];
+        interior.minX = std::min(a.minX, b.minX);
+        interior.minY = std::min(a.minY, b.minY);
+        interior.minZ = std::min(a.minZ, b.minZ);
+        interior.maxX = std::max(a.maxX, b.maxX);
+        interior.maxY = std::max(a.maxY, b.maxY);
+        interior.maxZ = std::max(a.maxZ, b.maxZ);
+        return node;
+    }
+
+private:
+    void FitLeaf(CollideBvhNode *leaf, int l, int r)
+    {
+        bool firstTri = true;
+        for (int i = l; i < r; ++i) {
+            CollideTri const &t = (*_srcTris)[size_t((*_perm)[size_t(i)])];
+            double const xs[3] = {t.ax, t.bx, t.cx};
+            double const ys[3] = {t.ay, t.by, t.cy};
+            double const zs[3] = {t.az, t.bz, t.cz};
+            for (int v = 0; v < 3; ++v) {
+                if (firstTri && v == 0) {
+                    leaf->minX = leaf->maxX = xs[0];
+                    leaf->minY = leaf->maxY = ys[0];
+                    leaf->minZ = leaf->maxZ = zs[0];
+                    firstTri = false;
+                } else {
+                    leaf->minX = std::min(leaf->minX, xs[v]);
+                    leaf->minY = std::min(leaf->minY, ys[v]);
+                    leaf->minZ = std::min(leaf->minZ, zs[v]);
+                    leaf->maxX = std::max(leaf->maxX, xs[v]);
+                    leaf->maxY = std::max(leaf->maxY, ys[v]);
+                    leaf->maxZ = std::max(leaf->maxZ, zs[v]);
+                }
+            }
+        }
+    }
+
+    CollideBvh *_bvh;
+    std::vector<CollideTri> const *_srcTris;  // flatten order (pre-permute)
+    std::vector<uint32_t> *_codes;            // per tri (flatten order)
+    std::vector<int> *_perm;                  // Morton sort permutation
+};
+
+void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
+{
+    bvh->tris.clear();
+    bvh->nodes.clear();
+    bvh->root = -1;
+    size_t const n = tris->size();
+    if (!n) return;
+    // Centroid bbox for the Morton normalization (shape only).
+    double lo[3] = {(*tris)[0].ax, (*tris)[0].ay, (*tris)[0].az};
+    double hi[3] = {lo[0], lo[1], lo[2]};
+    for (CollideTri const &t : *tris) {
+        double const cx = (t.ax + t.bx + t.cx) / 3.0;
+        double const cy = (t.ay + t.by + t.cy) / 3.0;
+        double const cz = (t.az + t.bz + t.cz) / 3.0;
+        lo[0] = std::min(lo[0], cx); hi[0] = std::max(hi[0], cx);
+        lo[1] = std::min(lo[1], cy); hi[1] = std::max(hi[1], cy);
+        lo[2] = std::min(lo[2], cz); hi[2] = std::max(hi[2], cz);
+    }
+    double scale[3];
+    for (int a = 0; a < 3; ++a)
+        scale[a] = hi[a] > lo[a] ? 1.0 / (hi[a] - lo[a]) : 0.0;
+    std::vector<uint32_t> codes(n);
+    std::vector<int> perm(n);
+    for (size_t i = 0; i < n; ++i) {
+        CollideTri const &t = (*tris)[i];
+        codes[i] = MortonCode((t.ax + t.bx + t.cx) / 3.0,
+                              (t.ay + t.by + t.cy) / 3.0,
+                              (t.az + t.bz + t.cz) / 3.0, lo, scale);
+        perm[i] = int(i);
+    }
+    std::sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (codes[size_t(a)] != codes[size_t(b)])
+            return codes[size_t(a)] < codes[size_t(b)];
+        return a < b;
+    });
+    bvh->nodes.reserve(2 * n);
+    BvhBuilder builder(bvh, tris, &codes, &perm);
+    bvh->root = builder.Build(0, int(n), 0);
+    // Reorder the triangles into Morton order so leaf runs index them
+    // directly (ordinals travel with each triangle).
+    std::vector<CollideTri> ordered(n);
+    for (size_t i = 0; i < n; ++i) ordered[i] = (*tris)[size_t(perm[i])];
+    bvh->tris.swap(ordered);
+}
+
+// Closest point over one BVH collider into the shared best. The prune test
+// provably skips no winner or tie: the AABB bound's FP error is ~1e-15
+// relative while the slop is 1e-9, so a pruned node holds only triangles
+// with true d2 strictly above best (ties, at gap zero, always fall through
+// to the exact ordinal test). Never allocates; traversal order is fixed.
+void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
+                      GfVec3d const &p, ClosestHit *best,
+                      UsdGenCollidePhaseStats *probe)
+{
+    if (bvh.root < 0) return;
+    int stack[256];
+    int sp = 0;
+    stack[sp++] = bvh.root;
+    while (sp > 0) {
+        CollideBvhNode const &node = bvh.nodes[size_t(stack[--sp])];
+        if (probe) ++probe->nodeVisits;
+        double const dx = p[0] < node.minX ? node.minX - p[0]
+            : (p[0] > node.maxX ? p[0] - node.maxX : 0.0);
+        double const dy = p[1] < node.minY ? node.minY - p[1]
+            : (p[1] > node.maxY ? p[1] - node.maxY : 0.0);
+        double const dz = p[2] < node.minZ ? node.minZ - p[2]
+            : (p[2] > node.maxZ ? p[2] - node.maxZ : 0.0);
+        double const lb = dx * dx + dy * dy + dz * dz;
+        if (best->found && lb > best->dist2) {
+            double const tol = 1e-9 * std::max(lb, 1e-300);
+            if (lb - best->dist2 > tol) continue;
+        }
+        if (node.left < 0) {
+            for (int i = node.begin; i < node.end; ++i) {
+                CollideTri const &t = bvh.tris[size_t(i)];
+                GfVec3d const a(t.ax, t.ay, t.az);
+                GfVec3d const b(t.bx, t.by, t.bz);
+                GfVec3d const c(t.cx, t.cy, t.cz);
+                GfVec3d q;
+                double d2 = 0.0;
+                if (probe) ++probe->triTests;
+                if (!ClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
+                if (!(d2 >= 0.0)) continue;
+                if (BetterHit(d2, colliderIdx, t.face, t.k, *best)) {
+                    best->found = true;
+                    best->q = q;
+                    best->a = a;
+                    best->b = b;
+                    best->c = c;
+                    best->dist2 = d2;
+                    best->collider = colliderIdx;
+                    best->face = t.face;
+                    best->k = t.k;
+                }
+            }
+        } else {
+            stack[sp++] = node.right;
+            stack[sp++] = node.left;
+        }
+    }
+}
+
+// Closest point over every captured collider, BVH or brute force per
+// collider, sharing one running best with the ordinal tiebreak. Reads live
+// points on the brute path and capture-frozen triangles on the BVH path
+// (both the same epoch's geometry); never allocates.
+ClosestHit QueryColliders(UsdGenGraphDesc const *desc,
+                           UsdGenCollideCapture const &cap, GfVec3d const &p,
+                           UsdGenCollidePhaseStats *probe)
+{
+    ClosestHit best;
+    if (!desc) return best;
+    int colliderIdx = 0;
+    for (UsdGenCollideCollider const &collider : cap.colliders) {
+        if (collider.useBvh) {
+            QueryColliderBvh(collider.bvh, colliderIdx, p, &best, probe);
+        } else {
+            if (collider.geometry >= desc->surfaces.size()) continue;
+            BruteCollider(desc->surfaces[collider.geometry], collider,
+                          colliderIdx, p, &best, probe);
+        }
+        ++colliderIdx;
     }
     return best;
 }
@@ -520,6 +888,19 @@ bool UsdGenCollideOp::Capture(
             return false;
         }
         if (!warning.empty() && diag) diag->Warn("UsdGenCollide: " + warning);
+        // Index colliders past the brute-force threshold (plan/04 §4: a BVH
+        // rebuilt per surface epoch). The flattened set is exactly the set
+        // the brute path tests, so the cut is behavior-free either way.
+        if (!sForceBrute.load(std::memory_order_relaxed)) {
+            std::vector<CollideTri> tris;
+            FlattenColliderTris(ctx.desc->surfaces[geometry], collider.faces,
+                                &tris);
+            if (tris.size() >
+                sBruteThreshold.load(std::memory_order_relaxed)) {
+                BuildColliderBvh(&tris, &collider.bvh);
+                collider.useBvh = true;
+            }
+        }
         cap.colliders.push_back(std::move(collider));
     }
     // Every connected value is scanned, so a non-finite expression fails
@@ -617,10 +998,10 @@ void UsdGenCollideOp::Evaluate(
                     GfVec3d const pos = current(o, it);
                     double const q0 = ph ? NowMs() : 0.0;
                     ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos, ph);
-                    double const q1 = ph ? NowMs() : 0.0;
+                        QueryColliders(ctx.desc, cap, pos, ph);
+                    double const r0 = ph ? NowMs() : 0.0;
                     if (ph) {
-                        ph->narrowMs += q1 - q0;
+                        ph->queryMs += r0 - q0;
                         ++ph->queries;
                     }
                     // Single-exit response tail (the pre-probe continues
@@ -645,7 +1026,7 @@ void UsdGenCollideOp::Evaluate(
                     } else if (it == 0) {
                         copyInput(o);
                     }
-                    if (ph) ph->respMs += NowMs() - q1;
+                    if (ph) ph->respMs += NowMs() - r0;
                 }
             } else {
                 // First penetrating CV hinges the strand: the root case
@@ -668,7 +1049,7 @@ void UsdGenCollideOp::Evaluate(
                     GfVec3d const pos = current(o, it);
                     double const q0 = ph ? NowMs() : 0.0;
                     ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos, ph);
+                        QueryColliders(ctx.desc, cap, pos, ph);
                     if (ph) {
                         qSum += NowMs() - q0;
                         ++ph->queries;
@@ -731,7 +1112,7 @@ void UsdGenCollideOp::Evaluate(
                     }
                 }
                 if (ph) {
-                    ph->narrowMs += qSum;
+                    ph->queryMs += qSum;
                     ph->respMs += NowMs() - it0 - qSum;
                 }
             }
@@ -751,14 +1132,23 @@ void UsdGenCollideOp::ResetPhaseProbe()
     for (UsdGenCollidePhaseStats *st : r.stats) *st = UsdGenCollidePhaseStats();
 }
 
+void UsdGenCollideOp::SetForceBruteForce(bool enabled)
+{
+    sForceBrute.store(enabled, std::memory_order_relaxed);
+}
+
+void UsdGenCollideOp::SetBruteForceThreshold(size_t tris)
+{
+    sBruteThreshold.store(tris, std::memory_order_relaxed);
+}
+
 UsdGenCollidePhaseStats UsdGenCollideOp::ReadPhaseProbe()
 {
     UsdGenCollidePhaseStats total;
     ProbeRegistry &r = Registry();
     std::lock_guard<std::mutex> lock(r.mutex);
     for (UsdGenCollidePhaseStats const *st : r.stats) {
-        total.broadMs += st->broadMs;
-        total.narrowMs += st->narrowMs;
+        total.queryMs += st->queryMs;
         total.respMs += st->respMs;
         total.queries += st->queries;
         total.triTests += st->triTests;

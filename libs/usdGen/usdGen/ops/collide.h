@@ -9,7 +9,10 @@
 //
 // Per iteration, per CV p: closest point q over all collider triangles
 // (node order, ascending faces, fan triangulation, first-win ties),
-// penetration pen = offset - |p - q|; no push when pen <= 0. The push is
+// penetration pen = offset - |p - q|; no push when pen <= 0. Colliders past
+// the brute-force threshold are indexed by a Morton-LBVH rebuilt per surface
+// epoch (plan/04 §4 cost C); exact ties break by (collider, face, fan)
+// ordinal, so any visit order reproduces the first-win exactly. The push is
 // dir * pen * pushAmount * mask with dir = (p - q)/|p - q| (the winning
 // triangle's unit normal when p == q), computed in double precision.
 // resolveType = flexible pushes each CV independently (A7 S10: "push CVs to
@@ -32,13 +35,14 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 // Per-phase wall time accumulated by Evaluate while the phase probe is on
-// (bench-only diagnostic, default off; see benchUsdGenHairCollide). Timing
-// accumulates thread-locally and sums over every thread that ran Evaluate;
-// production cost when off is one relaxed atomic load per chunk.
+// (bench-only diagnostic, default off; see benchUsdGenHairCollide). Query
+// time covers the whole closest-point search (broad + narrow; the bench
+// splits them with a brute-force calibration leg), response covers the
+// push math. Counts stay exact; production cost when off is one relaxed
+// atomic load per chunk plus predicted branches on the search loops.
 struct UsdGenCollidePhaseStats
 {
-    double broadMs = 0.0;    // BVH traversal excluding triangle tests
-    double narrowMs = 0.0;   // closest-point triangle tests
+    double queryMs = 0.0;    // whole closest-point search (broad + narrow)
     double respMs = 0.0;     // penetration/response math
     uint64_t queries = 0;    // closest-point queries issued
     uint64_t triTests = 0;   // triangle tests evaluated
@@ -54,6 +58,15 @@ public:
     static void SetPhaseProbe(bool enabled);
     static void ResetPhaseProbe();
     static UsdGenCollidePhaseStats ReadPhaseProbe();
+    // Test/diagnostic hooks (defaults: brute force off, threshold 16).
+    // ForceBruteForce skips every BVH and runs the brute-force loop, so
+    // differential tests can prove the BVH bit-identical; USDGEN_COLLIDE_BRUTE
+    // in the environment turns it on at startup. A collider with more than
+    // BruteForceThreshold non-degenerate triangles gets a BVH, smaller ones
+    // stay brute force (measured crossover; mixed colliders compose by
+    // ordinal, so either side of the cut is exact).
+    static void SetForceBruteForce(bool enabled);
+    static void SetBruteForceThreshold(size_t tris);
 
     TfToken Type() const override { return TfToken("UsdGenCollide"); }
     UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
