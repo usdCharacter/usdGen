@@ -704,17 +704,36 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
     for (int a = 0; a < 3; ++a)
         scale[a] = hi[a] > lo[a] ? 1.0 / (hi[a] - lo[a]) : 0.0;
     std::vector<uint32_t> codes(n);
-    std::vector<int> perm(n);
+    std::vector<int> perm(n), tmp(n);
     for (size_t i = 0; i < n; ++i) {
         BvhTriCache const &e = cache[i];
         codes[i] = MortonCode(e.cx, e.cy, e.cz, lo, scale);
         perm[i] = int(i);
     }
-    std::sort(perm.begin(), perm.end(), [&](int a, int b) {
-        if (codes[size_t(a)] != codes[size_t(b)])
-            return codes[size_t(a)] < codes[size_t(b)];
-        return a < b;
-    });
+    // 4-pass 8-bit LSB radix sort of the Morton codes in place of the old
+    // std::sort's O(n log n)-branchy compares. Every pass is a stable
+    // counting sort, and pass 0 reads identity order, so equal codes keep
+    // ascending index order — exactly the old (code, index) order, and the
+    // whole tree bit-identical. Counts stay int: n already fits (perm).
+    auto digitPass = [&](int const *src, int *dst, int shift) {
+        int cnt[256] = {0};
+        for (size_t i = 0; i < n; ++i)
+            ++cnt[(codes[size_t(src[i])] >> shift) & 0xff];
+        int pos[256];
+        int sum = 0;
+        for (int d = 0; d < 256; ++d) {
+            pos[d] = sum;
+            sum += cnt[d];
+        }
+        for (size_t i = 0; i < n; ++i) {
+            int const t = src[i];
+            dst[size_t(pos[(codes[size_t(t)] >> shift) & 0xff]++)] = t;
+        }
+    };
+    digitPass(perm.data(), tmp.data(), 0);
+    digitPass(tmp.data(), perm.data(), 8);
+    digitPass(perm.data(), tmp.data(), 16);
+    digitPass(tmp.data(), perm.data(), 24);
     bvh->nodes.reserve(2 * n);
     BvhBuilder builder(bvh, tris, &perm, &cache);
     double clo[3] = {0.0, 0.0, 0.0}, chi[3] = {0.0, 0.0, 0.0};
