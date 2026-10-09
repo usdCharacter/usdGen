@@ -31,8 +31,11 @@
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -72,6 +75,53 @@ struct UsdGenCollideCapture final : public UsdGenCapture
 
 bool Finite(double v) { return std::isfinite(v); }
 double Sanitize(double v) { return Finite(v) ? v : 0.0; }
+
+double NowMs()
+{
+    return std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Phase-probe registry: one thread-local accumulator per worker thread,
+// registered on first probe use (the lock runs once per thread, never on
+// the hot path) and unregistered at thread exit, so Read/Reset from any
+// thread sums exactly the live workers.
+struct ProbeRegistry
+{
+    std::mutex mutex;
+    std::vector<UsdGenCollidePhaseStats *> stats;
+};
+ProbeRegistry &Registry()
+{
+    static ProbeRegistry registry;
+    return registry;
+}
+thread_local UsdGenCollidePhaseStats tProbeStats;
+struct ProbeRegistrar
+{
+    ProbeRegistrar()
+    {
+        ProbeRegistry &r = Registry();
+        std::lock_guard<std::mutex> lock(r.mutex);
+        r.stats.push_back(&tProbeStats);
+    }
+    ~ProbeRegistrar()
+    {
+        ProbeRegistry &r = Registry();
+        std::lock_guard<std::mutex> lock(r.mutex);
+        auto &v = r.stats;
+        v.erase(std::remove(v.begin(), v.end(), &tProbeStats), v.end());
+    }
+};
+thread_local ProbeRegistrar tProbeRegistrar;
+std::atomic<bool> sProbeOn{false};
+
+UsdGenCollidePhaseStats *ProbeForThisThread()
+{
+    if (!sProbeOn.load(std::memory_order_relaxed)) return nullptr;
+    (void)tProbeRegistrar;  // register this worker on first probe use
+    return &tProbeStats;
+}
 
 // Unit face normal of a non-degenerate triangle; +Z when degenerate (the
 // winning triangle is non-degenerate by construction, so the fallback is
@@ -159,7 +209,8 @@ struct ClosestHit
 // validated the meshes (the desc is immutable within a run); the guard
 // below keeps it from ever producing NaN output regardless.
 ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
-                              UsdGenCollideCapture const &cap, GfVec3d const &p)
+                              UsdGenCollideCapture const &cap, GfVec3d const &p,
+                              UsdGenCollidePhaseStats *probe)
 {
     ClosestHit best;
     if (!desc) return best;
@@ -194,6 +245,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
                         GfVec3d const c(surf.points[size_t(v2)]);
                         GfVec3d q;
                         double d2 = 0.0;
+                        if (probe) ++probe->triTests;
                         if (!ClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
                         if (!(d2 >= 0.0)) continue;
                         if (!best.found || d2 < best.dist2) {
@@ -540,6 +592,7 @@ void UsdGenCollideOp::Evaluate(
         }
         return;
     }
+    UsdGenCollidePhaseStats *const ph = ProbeForThisThread();
 
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n =
@@ -562,32 +615,46 @@ void UsdGenCollideOp::Evaluate(
                         continue;
                     }
                     GfVec3d const pos = current(o, it);
+                    double const q0 = ph ? NowMs() : 0.0;
                     ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos);
-                    if (!hit.found) {
-                        if (it == 0) copyInput(o);
-                        continue;
+                        ClosestOnColliders(ctx.desc, cap, pos, ph);
+                    double const q1 = ph ? NowMs() : 0.0;
+                    if (ph) {
+                        ph->narrowMs += q1 - q0;
+                        ++ph->queries;
                     }
-                    double const off = Sanitize(offsetField.Value(curve, cv));
-                    double const pen = off - std::sqrt(hit.dist2);
-                    if (!(pen > 0.0)) {
-                        if (it == 0) copyInput(o);
-                        continue;
+                    // Single-exit response tail (the pre-probe continues
+                    // folded into if/else): identical stores, one phase stamp.
+                    if (hit.found) {
+                        double const off =
+                            Sanitize(offsetField.Value(curve, cv));
+                        double const pen = off - std::sqrt(hit.dist2);
+                        if (pen > 0.0) {
+                            double const s = pen * push * m;
+                            if (s != 0.0) {
+                                GfVec3d const dir = hit.dist2 == 0.0
+                                    ? UnitNormal(hit.a, hit.b, hit.c)
+                                    : (pos - hit.q) / std::sqrt(hit.dist2);
+                                store(o, pos + dir * s);
+                            } else if (it == 0) {
+                                copyInput(o);
+                            }
+                        } else if (it == 0) {
+                            copyInput(o);
+                        }
+                    } else if (it == 0) {
+                        copyInput(o);
                     }
-                    double const s = pen * push * m;
-                    if (s == 0.0) {
-                        if (it == 0) copyInput(o);
-                        continue;
-                    }
-                    GfVec3d const dir = hit.dist2 == 0.0
-                        ? UnitNormal(hit.a, hit.b, hit.c)
-                        : (pos - hit.q) / std::sqrt(hit.dist2);
-                    store(o, pos + dir * s);
+                    if (ph) ph->respMs += NowMs() - q1;
                 }
             } else {
                 // First penetrating CV hinges the strand: the root case
                 // translates rigidly, otherwise the downstream CVs rotate
                 // about the last clean CV. Both preserve segment lengths.
+                // Single-exit per iteration (continues folded into if/else
+                // below): identical stores, one response-phase stamp.
+                double const it0 = ph ? NowMs() : 0.0;
+                double qSum = 0.0;
                 size_t hinge = n;  // first index with pen > 0, else n
                 GfVec3d target(0.0);
                 double hingeMask = 1.0;
@@ -599,8 +666,13 @@ void UsdGenCollideOp::Evaluate(
                     double const m = std::clamp(
                         Sanitize(maskField.Value(curve, cv)), 0.0, 1.0);
                     GfVec3d const pos = current(o, it);
+                    double const q0 = ph ? NowMs() : 0.0;
                     ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos);
+                        ClosestOnColliders(ctx.desc, cap, pos, ph);
+                    if (ph) {
+                        qSum += NowMs() - q0;
+                        ++ph->queries;
+                    }
                     double pen = 0.0;
                     GfVec3d dir(0.0, 0.0, 1.0);
                     if (hit.found) {
@@ -622,42 +694,77 @@ void UsdGenCollideOp::Evaluate(
                     // pushAmount): identity.
                     if (it == 0)
                         for (size_t i = 0; i < n; ++i) copyInput(g + i);
-                    continue;
+                } else {
+                    size_t const ho = g + hinge;
+                    GfVec3d const hp = current(ho, it);
+                    if (hinge == 0) {
+                        GfVec3d const shift = target - hp;
+                        for (size_t i = 0; i < n; ++i)
+                            store(g + i, current(g + i, it) + shift);
+                    } else {
+                        if (it == 0)
+                            for (size_t i = 0; i < hinge; ++i) copyInput(g + i);
+                        GfVec3d const h = current(g + hinge - 1, it);
+                        GfVec3d const from = hp - h, to = target - h;
+                        if (from == GfVec3d(0.0) || to == GfVec3d(0.0)) {
+                            // Collapsed hinge segment: rigid translation.
+                            GfVec3d const shift = target - hp;
+                            for (size_t i = hinge; i < n; ++i)
+                                store(g + i, current(g + i, it) + shift);
+                        } else {
+                            GfVec3f const fromF{float(from[0]), float(from[1]),
+                                               float(from[2])};
+                            GfVec3f const toF{float(to[0]), float(to[1]),
+                                             float(to[2])};
+                            for (size_t i = hinge; i < n; ++i) {
+                                size_t const o = g + i;
+                                GfVec3d const rel = current(o, it) - h;
+                                GfVec3f const relF{float(rel[0]), float(rel[1]),
+                                                   float(rel[2])};
+                                GfVec3f const rotated = opUtil::RotateOnto(
+                                    relF, fromF, toF, float(hingeMask));
+                                store(o, h + GfVec3d(double(rotated[0]),
+                                                     double(rotated[1]),
+                                                     double(rotated[2])));
+                            }
+                        }
+                    }
                 }
-                size_t const ho = g + hinge;
-                GfVec3d const hp = current(ho, it);
-                if (hinge == 0) {
-                    GfVec3d const shift = target - hp;
-                    for (size_t i = 0; i < n; ++i)
-                        store(g + i, current(g + i, it) + shift);
-                    continue;
-                }
-                if (it == 0)
-                    for (size_t i = 0; i < hinge; ++i) copyInput(g + i);
-                GfVec3d const h = current(g + hinge - 1, it);
-                GfVec3d const from = hp - h, to = target - h;
-                if (from == GfVec3d(0.0) || to == GfVec3d(0.0)) {
-                    // Collapsed hinge segment: rigid translation instead.
-                    GfVec3d const shift = target - hp;
-                    for (size_t i = hinge; i < n; ++i)
-                        store(g + i, current(g + i, it) + shift);
-                    continue;
-                }
-                GfVec3f const fromF{float(from[0]), float(from[1]), float(from[2])};
-                GfVec3f const toF{float(to[0]), float(to[1]), float(to[2])};
-                for (size_t i = hinge; i < n; ++i) {
-                    size_t const o = g + i;
-                    GfVec3d const rel = current(o, it) - h;
-                    GfVec3f const relF{float(rel[0]), float(rel[1]), float(rel[2])};
-                    GfVec3f const rotated =
-                        opUtil::RotateOnto(relF, fromF, toF, float(hingeMask));
-                    store(o, h + GfVec3d(double(rotated[0]),
-                                         double(rotated[1]),
-                                         double(rotated[2])));
+                if (ph) {
+                    ph->narrowMs += qSum;
+                    ph->respMs += NowMs() - it0 - qSum;
                 }
             }
         }
     }
+}
+
+void UsdGenCollideOp::SetPhaseProbe(bool enabled)
+{
+    sProbeOn.store(enabled, std::memory_order_relaxed);
+}
+
+void UsdGenCollideOp::ResetPhaseProbe()
+{
+    ProbeRegistry &r = Registry();
+    std::lock_guard<std::mutex> lock(r.mutex);
+    for (UsdGenCollidePhaseStats *st : r.stats) *st = UsdGenCollidePhaseStats();
+}
+
+UsdGenCollidePhaseStats UsdGenCollideOp::ReadPhaseProbe()
+{
+    UsdGenCollidePhaseStats total;
+    ProbeRegistry &r = Registry();
+    std::lock_guard<std::mutex> lock(r.mutex);
+    for (UsdGenCollidePhaseStats const *st : r.stats) {
+        total.broadMs += st->broadMs;
+        total.narrowMs += st->narrowMs;
+        total.respMs += st->respMs;
+        total.queries += st->queries;
+        total.triTests += st->triTests;
+        total.nodeVisits += st->nodeVisits;
+    }
+    return total;
 }
 
 }  // namespace usdGen

@@ -2916,6 +2916,12 @@ add_test(NAME benchUsdGenSurfaceBindings COMMAND benchUsdGenSurfaceBindings)
 set_tests_properties(benchUsdGenSurfaceBindings PROPERTIES
     LABELS "T0;perf;sources;root-bindings;cache"
     TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+add_executable(benchUsdGenHairCollide tests/perf/benchUsdGenHairCollide.cpp)
+target_link_libraries(benchUsdGenHairCollide PRIVATE usdGenTestUtils)
+add_test(NAME benchUsdGenHairCollide COMMAND benchUsdGenHairCollide --quick)
+set_tests_properties(benchUsdGenHairCollide PROPERTIES
+    LABELS "T0;perf;collide"
+    TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 
 # Instancing/scattering per-stage timing + checksums (autoresearch
 # instscatter). GPU stages compile in only when their backend does, and skip

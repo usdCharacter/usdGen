@@ -31,11 +31,29 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+// Per-phase wall time accumulated by Evaluate while the phase probe is on
+// (bench-only diagnostic, default off; see benchUsdGenHairCollide). Timing
+// accumulates thread-locally and sums over every thread that ran Evaluate;
+// production cost when off is one relaxed atomic load per chunk.
+struct UsdGenCollidePhaseStats
+{
+    double broadMs = 0.0;    // BVH traversal excluding triangle tests
+    double narrowMs = 0.0;   // closest-point triangle tests
+    double respMs = 0.0;     // penetration/response math
+    uint64_t queries = 0;    // closest-point queries issued
+    uint64_t triTests = 0;   // triangle tests evaluated
+    uint64_t nodeVisits = 0; // BVH nodes visited (0 on the brute-force path)
+};
+
 class UsdGenCollideOp final : public UsdGenOp
 {
 public:
     UsdGenCollideOp() = default;
     ~UsdGenCollideOp() override = default;
+
+    static void SetPhaseProbe(bool enabled);
+    static void ResetPhaseProbe();
+    static UsdGenCollidePhaseStats ReadPhaseProbe();
 
     TfToken Type() const override { return TfToken("UsdGenCollide"); }
     UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
