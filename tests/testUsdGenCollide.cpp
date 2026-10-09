@@ -710,7 +710,10 @@ static bool CookWithPaths(UsdGenGraphDesc const &desc, bool forceBrute,
 static void CheckBvhBitIdentical()
 {
     // (face, iterations, stiff) matrix over the mixed collider: BVH vs
-    // forced brute force, bit for bit.
+    // forced brute force, bit for bit. The radius-regime rows pin the
+    // push-radius prune: a tiny offset (nearly every query prunes hard), a
+    // huge offset (the radius never prunes, best-only), and offset 0
+    // (radius2 = 0 passthrough), flexible and stiff.
     std::vector<std::vector<UsdGenParamValue>> cases = {
         {{TfToken("offset"), VtValue(0.5f), false},
          {TfToken("pushAmount"), VtValue(1.0f), false}},
@@ -718,6 +721,16 @@ static void CheckBvhBitIdentical()
          {TfToken("pushAmount"), VtValue(0.7f), false},
          {TfToken("iterations"), VtValue(3), false}},
         {{TfToken("offset"), VtValue(0.5f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false},
+         {TfToken("iterations"), VtValue(2), false},
+         {TfToken("resolveType"), VtValue(TfToken("stiff")), false}},
+        {{TfToken("offset"), VtValue(0.02f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(50.0f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(0.0f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(0.02f), false},
          {TfToken("pushAmount"), VtValue(1.0f), false},
          {TfToken("iterations"), VtValue(2), false},
          {TfToken("resolveType"), VtValue(TfToken("stiff")), false}},

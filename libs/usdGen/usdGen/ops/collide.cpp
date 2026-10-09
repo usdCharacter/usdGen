@@ -564,24 +564,33 @@ double NodeBound(CollideBvhNode const &node, GfVec3d const &p)
     return dx * dx + dy * dy + dz * dz;
 }
 
-// True when a node bound prunes against the running best. Best only ever
-// improves, so a node pruned now stays pruned (lets push skip it outright).
-bool PruneBound(double lb, ClosestHit const &best)
+// True when a node bound prunes against the running best or the push
+// radius (squared): a pruned node holds only triangles with true d2
+// strictly above both, so skipping them is behavior-free — past-best
+// triangles can never win the ordinal race, and past-radius triangles have
+// pen = offset - sqrt(d2) < 0 strictly (a correctly-rounded sqrt cannot
+// round a true value above the offset down below it), so they can never
+// push. Best only ever improves, so a node pruned now stays pruned (lets
+// push skip it outright). Queries whose true closest sits past the offset
+// prune the whole far tree instead of running an exact search they discard.
+bool PruneBound(double lb, ClosestHit const &best, double radius2)
 {
-    if (!best.found || !(lb > best.dist2)) return false;
-    double const tol = 1e-9 * std::max(lb, 1e-300);
-    return lb - best.dist2 > tol;
+    double cap = radius2;
+    if (best.found && best.dist2 < cap) cap = best.dist2;
+    if (!(lb > cap)) return false;
+    return lb - cap > 1e-9 * std::max(lb, 1e-300);
 }
 
 // Closest point over one BVH collider into the shared best. The prune test
-// provably skips no winner or tie: the AABB bound's FP error is ~1e-15
-// relative while the slop is 1e-9, so a pruned node holds only triangles
-// with true d2 strictly above best (ties, at gap zero, always fall through
-// to the exact ordinal test). Children visit nearer-first (bounds computed
-// once at push, re-checked at pop against the improved best), so a strong
-// best lands early and the far subtrees prune. Never allocates.
+// provably skips no winner, tie, or push candidate: the AABB bound's FP
+// error is ~1e-15 relative while the slop is 1e-9, so a pruned node holds
+// only triangles with true d2 strictly above best and radius2 (ties, at
+// gap zero, always fall through to the exact ordinal test). Children visit
+// nearer-first (bounds computed once at push, re-checked at pop against
+// the improved best), so a strong best lands early and the far subtrees
+// prune. Never allocates.
 void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
-                      GfVec3d const &p, ClosestHit *best,
+                      GfVec3d const &p, ClosestHit *best, double radius2,
                       UsdGenCollidePhaseStats *probe)
 {
     if (bvh.root < 0) return;
@@ -595,7 +604,7 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
     stack[sp++] = {bvh.root, NodeBound(bvh.nodes[size_t(bvh.root)], p)};
     while (sp > 0) {
         Entry const entry = stack[--sp];
-        if (PruneBound(entry.lb, *best)) continue;
+        if (PruneBound(entry.lb, *best, radius2)) continue;
         CollideBvhNode const &node = bvh.nodes[size_t(entry.node)];
         if (probe) ++probe->nodeVisits;
         if (node.left >= 0) {
@@ -603,8 +612,8 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                 NodeBound(bvh.nodes[size_t(node.left)], p);
             double const lbR =
                 NodeBound(bvh.nodes[size_t(node.right)], p);
-            bool const pruneL = PruneBound(lbL, *best);
-            bool const pruneR = PruneBound(lbR, *best);
+            bool const pruneL = PruneBound(lbL, *best, radius2);
+            bool const pruneR = PruneBound(lbR, *best, radius2);
             if (!pruneL && !pruneR) {
                 if (lbL <= lbR) {
                     stack[sp++] = {node.right, lbR};
@@ -648,19 +657,23 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
 }
 
 // Closest point over every captured collider, BVH or brute force per
-// collider, sharing one running best with the ordinal tiebreak. Reads live
-// points on the brute path and capture-frozen triangles on the BVH path
-// (both the same epoch's geometry); never allocates.
+// collider, sharing one running best with the ordinal tiebreak. The BVH
+// path also prunes past the squared push radius (triangles there can never
+// push, so skipping them is behavior-free); the brute path has no bounds
+// and tests everything. Reads live points on the brute path and
+// capture-frozen triangles on the BVH path (both the same epoch's
+// geometry); never allocates.
 ClosestHit QueryColliders(UsdGenGraphDesc const *desc,
                            UsdGenCollideCapture const &cap, GfVec3d const &p,
-                           UsdGenCollidePhaseStats *probe)
+                           double radius2, UsdGenCollidePhaseStats *probe)
 {
     ClosestHit best;
     if (!desc) return best;
     int colliderIdx = 0;
     for (UsdGenCollideCollider const &collider : cap.colliders) {
         if (collider.useBvh) {
-            QueryColliderBvh(collider.bvh, colliderIdx, p, &best, probe);
+            QueryColliderBvh(collider.bvh, colliderIdx, p, &best, radius2,
+                             probe);
         } else {
             if (collider.geometry >= desc->surfaces.size()) continue;
             BruteCollider(desc->surfaces[collider.geometry], collider,
@@ -1034,9 +1047,14 @@ void UsdGenCollideOp::Evaluate(
                         continue;
                     }
                     GfVec3d const pos = current(o, it);
+                    // The offset doubles as the search radius (read once):
+                    // triangles past it can never push, so the BVH prunes
+                    // them without changing a single store.
+                    double const off =
+                        Sanitize(offsetField.Value(curve, cv));
                     double const q0 = ph ? NowMs() : 0.0;
-                    ClosestHit const hit =
-                        QueryColliders(ctx.desc, cap, pos, ph);
+                    ClosestHit const hit = QueryColliders(
+                        ctx.desc, cap, pos, off * off, ph);
                     double const r0 = ph ? NowMs() : 0.0;
                     if (ph) {
                         ph->queryMs += r0 - q0;
@@ -1045,8 +1063,6 @@ void UsdGenCollideOp::Evaluate(
                     // Single-exit response tail (the pre-probe continues
                     // folded into if/else): identical stores, one phase stamp.
                     if (hit.found) {
-                        double const off =
-                            Sanitize(offsetField.Value(curve, cv));
                         double const pen = off - std::sqrt(hit.dist2);
                         if (pen > 0.0) {
                             double const s = pen * push * m;
@@ -1085,9 +1101,11 @@ void UsdGenCollideOp::Evaluate(
                     double const m = std::clamp(
                         Sanitize(maskField.Value(curve, cv)), 0.0, 1.0);
                     GfVec3d const pos = current(o, it);
+                    double const off =
+                        Sanitize(offsetField.Value(curve, cv));
                     double const q0 = ph ? NowMs() : 0.0;
-                    ClosestHit const hit =
-                        QueryColliders(ctx.desc, cap, pos, ph);
+                    ClosestHit const hit = QueryColliders(
+                        ctx.desc, cap, pos, off * off, ph);
                     if (ph) {
                         qSum += NowMs() - q0;
                         ++ph->queries;
@@ -1095,7 +1113,6 @@ void UsdGenCollideOp::Evaluate(
                     double pen = 0.0;
                     GfVec3d dir(0.0, 0.0, 1.0);
                     if (hit.found) {
-                        double const off = Sanitize(offsetField.Value(curve, cv));
                         pen = off - std::sqrt(hit.dist2);
                         dir = hit.dist2 == 0.0
                             ? UnitNormal(hit.a, hit.b, hit.c)
