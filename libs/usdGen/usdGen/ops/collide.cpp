@@ -602,9 +602,11 @@ bool PruneBound(double lb, ClosestHit const &best, double radius2)
 // error is ~1e-15 relative while the slop is 1e-9, so a pruned node holds
 // only triangles with true d2 strictly above best and radius2 (ties, at
 // gap zero, always fall through to the exact ordinal test). Children visit
-// nearer-first (bounds computed once at push, re-checked at pop against
-// the improved best), so a strong best lands early and the far subtrees
-// prune. Never allocates.
+// nearer-first: the near child descends directly (no push/pop roundtrip,
+// no redundant pop-side recheck — best cannot improve between a push and
+// its immediate pop), the far child pushes and re-checks at pop against
+// the improved best, so a strong best lands early and far subtrees prune.
+// The visit order matches push-both-then-pop-near exactly. Never allocates.
 void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                       GfVec3d const &p, ClosestHit *best, double radius2,
                       UsdGenCollidePhaseStats *probe)
@@ -618,58 +620,71 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
     Entry stack[256];
     int sp = 0;
     double const px = p[0], py = p[1], pz = p[2];
-    stack[sp++] = {bvh.root, NodeBound(bvh.nodes[size_t(bvh.root)], px, py, pz)};
-    while (sp > 0) {
+    int nodeIdx = bvh.root;
+    double nodeLb =
+        NodeBound(bvh.nodes[size_t(nodeIdx)], px, py, pz);
+    for (;;) {
+        if (!PruneBound(nodeLb, *best, radius2)) {
+            CollideBvhNode const &node = bvh.nodes[size_t(nodeIdx)];
+            if (probe) ++probe->nodeVisits;
+            if (node.left >= 0) {
+                double const lbL =
+                    NodeBound(bvh.nodes[size_t(node.left)], px, py, pz);
+                double const lbR =
+                    NodeBound(bvh.nodes[size_t(node.right)], px, py, pz);
+                bool const pruneL = PruneBound(lbL, *best, radius2);
+                bool const pruneR = PruneBound(lbR, *best, radius2);
+                if (!pruneL && !pruneR) {
+                    if (lbL <= lbR) {
+                        stack[sp++] = {node.right, lbR};
+                        nodeIdx = node.left;
+                        nodeLb = lbL;
+                    } else {
+                        stack[sp++] = {node.left, lbL};
+                        nodeIdx = node.right;
+                        nodeLb = lbR;
+                    }
+                    continue;
+                }
+                if (!pruneL) {
+                    nodeIdx = node.left;
+                    nodeLb = lbL;
+                    continue;
+                }
+                if (!pruneR) {
+                    nodeIdx = node.right;
+                    nodeLb = lbR;
+                    continue;
+                }
+            } else {
+                for (int i = node.begin; i < node.end; ++i) {
+                    CollideTri const &t = bvh.tris[size_t(i)];
+                    GfVec3d const a(t.ax, t.ay, t.az);
+                    GfVec3d const b(t.bx, t.by, t.bz);
+                    GfVec3d const c(t.cx, t.cy, t.cz);
+                    GfVec3d q;
+                    double d2 = 0.0;
+                    if (probe) ++probe->triTests;
+                    if (!ClosestOnTriangleT<false>(p, a, b, c, &q, &d2)) continue;
+                    if (!(d2 >= 0.0)) continue;
+                    if (BetterHit(d2, colliderIdx, t.face, t.k, *best)) {
+                        best->found = true;
+                        best->q = q;
+                        best->a = a;
+                        best->b = b;
+                        best->c = c;
+                        best->dist2 = d2;
+                        best->collider = colliderIdx;
+                        best->face = t.face;
+                        best->k = t.k;
+                    }
+                }
+            }
+        }
+        if (sp == 0) break;
         Entry const entry = stack[--sp];
-        if (PruneBound(entry.lb, *best, radius2)) continue;
-        CollideBvhNode const &node = bvh.nodes[size_t(entry.node)];
-        if (probe) ++probe->nodeVisits;
-        if (node.left >= 0) {
-            double const lbL =
-                NodeBound(bvh.nodes[size_t(node.left)], px, py, pz);
-            double const lbR =
-                NodeBound(bvh.nodes[size_t(node.right)], px, py, pz);
-            bool const pruneL = PruneBound(lbL, *best, radius2);
-            bool const pruneR = PruneBound(lbR, *best, radius2);
-            if (!pruneL && !pruneR) {
-                if (lbL <= lbR) {
-                    stack[sp++] = {node.right, lbR};
-                    stack[sp++] = {node.left, lbL};
-                } else {
-                    stack[sp++] = {node.left, lbL};
-                    stack[sp++] = {node.right, lbR};
-                }
-            } else if (!pruneL) {
-                stack[sp++] = {node.left, lbL};
-            } else if (!pruneR) {
-                stack[sp++] = {node.right, lbR};
-            }
-            continue;
-        }
-        {
-            for (int i = node.begin; i < node.end; ++i) {
-                CollideTri const &t = bvh.tris[size_t(i)];
-                GfVec3d const a(t.ax, t.ay, t.az);
-                GfVec3d const b(t.bx, t.by, t.bz);
-                GfVec3d const c(t.cx, t.cy, t.cz);
-                GfVec3d q;
-                double d2 = 0.0;
-                if (probe) ++probe->triTests;
-                if (!ClosestOnTriangleT<false>(p, a, b, c, &q, &d2)) continue;
-                if (!(d2 >= 0.0)) continue;
-                if (BetterHit(d2, colliderIdx, t.face, t.k, *best)) {
-                    best->found = true;
-                    best->q = q;
-                    best->a = a;
-                    best->b = b;
-                    best->c = c;
-                    best->dist2 = d2;
-                    best->collider = colliderIdx;
-                    best->face = t.face;
-                    best->k = t.k;
-                }
-            }
-        }
+        nodeIdx = entry.node;
+        nodeLb = entry.lb;
     }
 }
 
