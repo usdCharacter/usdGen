@@ -77,6 +77,7 @@ struct Options {
     bool quick = false;
     bool forceBrute = false;  // run every leg through the brute-force path
     int bruteThreshold = 16;  // colliders past this many tris get a BVH
+    float offset = 0.5f;      // collide offset (0 skips every query)
 };
 
 double Median(std::vector<double> v)
@@ -298,7 +299,7 @@ UsdGenGraphDesc MakeDesc(Options const &opts, bool stiff)
     collide.type = TfToken("UsdGenCollide");
     collide.seed = 7;
     collide.inputs = {SdfPath("/bench/source")};
-    collide.params = {{TfToken("offset"), VtValue(0.5f), false},
+    collide.params = {{TfToken("offset"), VtValue(opts.offset), false},
                       {TfToken("pushAmount"), VtValue(1.0f), false},
                       {TfToken("iterations"), VtValue(1), false}};
     if (stiff)
@@ -334,10 +335,13 @@ int main(int argc, char **argv)
         else if (arg == "--force-brute") opts.forceBrute = true;
         else if (arg == "--brute-threshold")
             opts.bruteThreshold = std::atoi(need("--brute-threshold"));
+        else if (arg == "--offset")
+            opts.offset = float(std::atof(need("--offset")));
         else if (arg == "--help" || arg == "-h") {
             std::printf("usage: benchUsdGenHairCollide [--hairs N] [--cvs M] "
                         "[--grid G] [--reps R] [--threads T] [--stage NAME] "
-                        "[--quick] [--force-brute] [--brute-threshold N]\n");
+                        "[--quick] [--force-brute] [--brute-threshold N] "
+                        "[--offset F]\n");
             return 0;
         } else {
             std::printf("benchUsdGenHairCollide: unknown arg %s\n", arg.c_str());
@@ -357,10 +361,10 @@ int main(int argc, char **argv)
     UsdGenCollideOp::SetForceBruteForce(opts.forceBrute);
     UsdGenCollideOp::SetBruteForceThreshold(size_t(opts.bruteThreshold));
     std::printf("config hairs=%d cvs=%d grid=%d tris=%d reps=%d threads=%d "
-                "forcebrute=%d threshold=%d\n",
+                "forcebrute=%d threshold=%d offset=%.3f\n",
                 opts.hairs, opts.cvs, opts.grid, 2 * opts.grid * opts.grid,
                 opts.reps, opts.threads, int(opts.forceBrute),
-                opts.bruteThreshold);
+                opts.bruteThreshold, double(opts.offset));
     std::fflush(stdout);
 
     UsdGenCompiler compiler;
