@@ -689,19 +689,26 @@ double NodeBound(CollideBvhNode const &node, double px, double py, double pz)
     return dx * dx + dy * dy + dz * dz;
 }
 
-// True when a node bound prunes against the running best or the push
-// radius (squared): a pruned node holds only triangles with true d2
-// strictly above both, so skipping them is behavior-free — past-best
-// triangles can never win the ordinal race, and past-radius triangles have
-// pen = offset - sqrt(d2) < 0 strictly (a correctly-rounded sqrt cannot
-// round a true value above the offset down below it), so they can never
-// push. Best only ever improves, so a node pruned now stays pruned (lets
-// push skip it outright). Queries whose true closest sits past the offset
-// prune the whole far tree instead of running an exact search they discard.
-bool PruneBound(double lb, ClosestHit const &best, double radius2)
+// The prune ceiling (the tighter of the running best and the squared push
+// radius), computed once per interior node for both children — best cannot
+// change between the two verdicts, so the shared cap keeps both bit-exact.
+double PruneCap(ClosestHit const &best, double radius2)
 {
     double cap = radius2;
     if (best.found && best.dist2 < cap) cap = best.dist2;
+    return cap;
+}
+
+// True when a node bound prunes against the cap: a pruned node holds only
+// triangles with true d2 strictly above best and radius2, so skipping them
+// is behavior-free — past-best triangles can never win the ordinal race,
+// and past-radius triangles have pen = offset - sqrt(d2) < 0 strictly (a
+// correctly-rounded sqrt cannot round a true value above the offset down
+// below it), so they can never push. Best only ever improves, so a node
+// pruned now stays pruned. Queries whose true closest sits past the offset
+// prune the whole far tree instead of running an exact search they discard.
+bool PruneBelow(double lb, double cap)
+{
     if (!(lb > cap)) return false;
     // Ulp-margin prune test: nonnegative doubles order as int64, so the bit
     // gap is the ulp distance — 4.5M ulps is ~1e-9 relative at every normal
@@ -746,7 +753,7 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
     // re-check against the improved best. Same prunes, same visit order.
     double const rootLb =
         NodeBound(bvh.nodes[size_t(bvh.root)], px, py, pz);
-    if (PruneBound(rootLb, *best, radius2)) return;
+    if (PruneBelow(rootLb, PruneCap(*best, radius2))) return;
     int nodeIdx = bvh.root;
     for (;;) {
         CollideBvhNode const &node = bvh.nodes[size_t(nodeIdx)];
@@ -756,8 +763,9 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                 NodeBound(bvh.nodes[size_t(node.left)], px, py, pz);
             double const lbR =
                 NodeBound(bvh.nodes[size_t(node.right)], px, py, pz);
-            bool const pruneL = PruneBound(lbL, *best, radius2);
-            bool const pruneR = PruneBound(lbR, *best, radius2);
+            double const cap = PruneCap(*best, radius2);
+            bool const pruneL = PruneBelow(lbL, cap);
+            bool const pruneR = PruneBelow(lbR, cap);
             if (!pruneL && !pruneR) {
                 if (lbL <= lbR) {
                     stack[sp++] = {node.right, lbR};
@@ -803,7 +811,7 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
         for (;;) {
             if (sp == 0) return;
             Entry const entry = stack[--sp];
-            if (!PruneBound(entry.lb, *best, radius2)) {
+            if (!PruneBelow(entry.lb, PruneCap(*best, radius2))) {
                 nodeIdx = entry.node;
                 break;
             }
