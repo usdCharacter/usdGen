@@ -435,7 +435,10 @@ public:
     {
         int const node = int(_bvh->nodes.size());
         _bvh->nodes.push_back(CollideBvhNode());
-        if (r - l <= 4) {
+        // Leaf capacity 2 (measured optimum: tri tests dominate visits, so
+        // the smaller leaf's -40% tests beat its +7% visits; 1 loses on
+        // depth, 4+ lose on tests — see the round-4 leaf sweep).
+        if (r - l <= 2) {
             CollideBvhNode &leaf = _bvh->nodes[size_t(node)];
             leaf.begin = l;
             leaf.end = r;
