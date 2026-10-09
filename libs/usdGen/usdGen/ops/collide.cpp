@@ -553,14 +553,17 @@ void BuildColliderBvh(std::vector<CollideTri> *tris, CollideBvh *bvh)
 }
 
 // Squared distance from p to a node's AABB (the prune lower bound).
-double NodeBound(CollideBvhNode const &node, GfVec3d const &p)
+// Branchless (fmax lowers to fmaxnm; std::max keeps its NaN branches):
+// at most one max arm is positive per axis, so each sum is bit-identical
+// to the clamping branch it replaces (x + 0.0 == x).
+double NodeBound(CollideBvhNode const &node, double px, double py, double pz)
 {
-    double const dx = p[0] < node.minX ? node.minX - p[0]
-        : (p[0] > node.maxX ? p[0] - node.maxX : 0.0);
-    double const dy = p[1] < node.minY ? node.minY - p[1]
-        : (p[1] > node.maxY ? p[1] - node.maxY : 0.0);
-    double const dz = p[2] < node.minZ ? node.minZ - p[2]
-        : (p[2] > node.maxZ ? p[2] - node.maxZ : 0.0);
+    double const dx =
+        fmax(node.minX - px, 0.0) + fmax(px - node.maxX, 0.0);
+    double const dy =
+        fmax(node.minY - py, 0.0) + fmax(py - node.maxY, 0.0);
+    double const dz =
+        fmax(node.minZ - pz, 0.0) + fmax(pz - node.maxZ, 0.0);
     return dx * dx + dy * dy + dz * dz;
 }
 
@@ -601,7 +604,8 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
     };
     Entry stack[256];
     int sp = 0;
-    stack[sp++] = {bvh.root, NodeBound(bvh.nodes[size_t(bvh.root)], p)};
+    double const px = p[0], py = p[1], pz = p[2];
+    stack[sp++] = {bvh.root, NodeBound(bvh.nodes[size_t(bvh.root)], px, py, pz)};
     while (sp > 0) {
         Entry const entry = stack[--sp];
         if (PruneBound(entry.lb, *best, radius2)) continue;
@@ -609,9 +613,9 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
         if (probe) ++probe->nodeVisits;
         if (node.left >= 0) {
             double const lbL =
-                NodeBound(bvh.nodes[size_t(node.left)], p);
+                NodeBound(bvh.nodes[size_t(node.left)], px, py, pz);
             double const lbR =
-                NodeBound(bvh.nodes[size_t(node.right)], p);
+                NodeBound(bvh.nodes[size_t(node.right)], px, py, pz);
             bool const pruneL = PruneBound(lbL, *best, radius2);
             bool const pruneR = PruneBound(lbR, *best, radius2);
             if (!pruneL && !pruneR) {
