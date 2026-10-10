@@ -926,6 +926,10 @@ bool PruneBelow(double lb, double cap)
 // its immediate pop), the far child pushes and re-checks at pop against
 // the improved best, so a strong best lands early and far subtrees prune.
 // The visit order matches push-both-then-pop-near exactly. Never allocates.
+// The traversal threads node pointers instead of indices: the children's
+// addresses are already in hand for the bound loads, so the descend reuses
+// them (and pops reload the pushed pointer) with no index-to-address
+// recompute per visit. Same nodes, same order, same math — addressing only.
 void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
                       GfVec3d const &p, ClosestHit *best, double radius2,
                       UsdGenCollidePhaseStats *probe)
@@ -933,27 +937,27 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
     if (bvh.root < 0) return;
     struct Entry
     {
-        int node;
+        CollideBvhNode const *node;
         double lb;
     };
     Entry stack[256];
     int sp = 0;
     double const px = p[0], py = p[1], pz = p[2];
+    CollideBvhNode const *const nodes = bvh.nodes.data();
+    CollideBvhNode const *nodePtr = &nodes[size_t(bvh.root)];
     // The root checks once (whole-tree prune for far queries); descended
     // nodes skip the loop-top recheck — best cannot improve between the
     // parent's push-side verdict and the descent — while popped nodes
     // re-check against the improved best. Same prunes, same visit order.
-    double const rootLb =
-        NodeBound(bvh.nodes[size_t(bvh.root)], px, py, pz);
+    double const rootLb = NodeBound(*nodePtr, px, py, pz);
     if (PruneBelow(rootLb, PruneCap(*best, radius2))) return;
-    int nodeIdx = bvh.root;
     for (;;) {
-        CollideBvhNode const &node = bvh.nodes[size_t(nodeIdx)];
+        CollideBvhNode const &node = *nodePtr;
         if (probe) ++probe->nodeVisits;
         if (node.left >= 0) {
-            BoundsPair const lbs = NodeBoundPair(
-                bvh.nodes[size_t(node.left)], bvh.nodes[size_t(node.right)],
-                px, py, pz);
+            CollideBvhNode const *left = &nodes[size_t(node.left)];
+            CollideBvhNode const *right = &nodes[size_t(node.right)];
+            BoundsPair const lbs = NodeBoundPair(*left, *right, px, py, pz);
             double const lbL = lbs.l;
             double const lbR = lbs.r;
             double const cap = PruneCap(*best, radius2);
@@ -961,20 +965,20 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
             bool const pruneR = PruneBelow(lbR, cap);
             if (!pruneL && !pruneR) {
                 if (lbL <= lbR) {
-                    stack[sp++] = {node.right, lbR};
-                    nodeIdx = node.left;
+                    stack[sp++] = {right, lbR};
+                    nodePtr = left;
                 } else {
-                    stack[sp++] = {node.left, lbL};
-                    nodeIdx = node.right;
+                    stack[sp++] = {left, lbL};
+                    nodePtr = right;
                 }
                 continue;
             }
             if (!pruneL) {
-                nodeIdx = node.left;
+                nodePtr = left;
                 continue;
             }
             if (!pruneR) {
-                nodeIdx = node.right;
+                nodePtr = right;
                 continue;
             }
         } else {
@@ -1005,7 +1009,7 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
             if (sp == 0) return;
             Entry const entry = stack[--sp];
             if (!PruneBelow(entry.lb, PruneCap(*best, radius2))) {
-                nodeIdx = entry.node;
+                nodePtr = entry.node;
                 break;
             }
         }
