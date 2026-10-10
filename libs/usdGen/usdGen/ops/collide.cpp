@@ -45,6 +45,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#endif
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
@@ -815,6 +819,61 @@ double NodeBound(CollideBvhNode const &node, double px, double py, double pz)
     return dx * dx + dy * dy + dz * dz;
 }
 
+// Both children's bounds for the interior-visit block in one call. On
+// aarch64 the pair evaluates in a 2-wide NEON lane per child (lane 0 the
+// left child, lane 1 the right): lane-wise the exact scalar instruction
+// sequence — fsub, then fmaxnm in the same argument order, then
+// fmul + 2 fma in the scalar's left-assoc contraction — so each lane
+// reproduces its scalar NodeBound double bit-for-bit (fmaxnm lane rules
+// match the scalar's NaN-missing and +-0 rules; mul/add/fma are lane-wise
+// IEEE). Everywhere else, and for the root's lone bound, the scalar path
+// runs literally. Same doubles into the same verdicts, same visit order.
+struct BoundsPair
+{
+    double l, r;
+};
+BoundsPair NodeBoundPair(CollideBvhNode const &nodeL,
+                         CollideBvhNode const &nodeR, double px, double py,
+                         double pz)
+{
+#if defined(__aarch64__) || defined(_M_ARM64)
+    float64x2_t const mnx = vcombine_f64(vld1_f64(&nodeL.minX),
+                                         vld1_f64(&nodeR.minX));
+    float64x2_t const mny = vcombine_f64(vld1_f64(&nodeL.minY),
+                                         vld1_f64(&nodeR.minY));
+    float64x2_t const mnz = vcombine_f64(vld1_f64(&nodeL.minZ),
+                                         vld1_f64(&nodeR.minZ));
+    float64x2_t const mxx = vcombine_f64(vld1_f64(&nodeL.maxX),
+                                         vld1_f64(&nodeR.maxX));
+    float64x2_t const mxy = vcombine_f64(vld1_f64(&nodeL.maxY),
+                                         vld1_f64(&nodeR.maxY));
+    float64x2_t const mxz = vcombine_f64(vld1_f64(&nodeL.maxZ),
+                                         vld1_f64(&nodeR.maxZ));
+    float64x2_t const vpx = vdupq_n_f64(px);
+    float64x2_t const vpy = vdupq_n_f64(py);
+    float64x2_t const vpz = vdupq_n_f64(pz);
+    float64x2_t const zero = vdupq_n_f64(0.0);
+    float64x2_t const dx = vmaxnmq_f64(
+        vmaxnmq_f64(vsubq_f64(mnx, vpx), vsubq_f64(vpx, mxx)), zero);
+    float64x2_t const dy = vmaxnmq_f64(
+        vmaxnmq_f64(vsubq_f64(mny, vpy), vsubq_f64(vpy, mxy)), zero);
+    float64x2_t const dz = vmaxnmq_f64(
+        vmaxnmq_f64(vsubq_f64(mnz, vpz), vsubq_f64(vpz, mxz)), zero);
+    float64x2_t t = vmulq_f64(dx, dx);
+    t = vfmaq_f64(t, dy, dy);
+    t = vfmaq_f64(t, dz, dz);
+    BoundsPair out;
+    out.l = vgetq_lane_f64(t, 0);
+    out.r = vgetq_lane_f64(t, 1);
+    return out;
+#else
+    BoundsPair out;
+    out.l = NodeBound(nodeL, px, py, pz);
+    out.r = NodeBound(nodeR, px, py, pz);
+    return out;
+#endif
+}
+
 // The prune ceiling (the tighter of the running best and the squared push
 // radius), computed once per interior node for both children — best cannot
 // change between the two verdicts, so the shared cap keeps both bit-exact.
@@ -885,10 +944,11 @@ void QueryColliderBvh(CollideBvh const &bvh, int colliderIdx,
         CollideBvhNode const &node = bvh.nodes[size_t(nodeIdx)];
         if (probe) ++probe->nodeVisits;
         if (node.left >= 0) {
-            double const lbL =
-                NodeBound(bvh.nodes[size_t(node.left)], px, py, pz);
-            double const lbR =
-                NodeBound(bvh.nodes[size_t(node.right)], px, py, pz);
+            BoundsPair const lbs = NodeBoundPair(
+                bvh.nodes[size_t(node.left)], bvh.nodes[size_t(node.right)],
+                px, py, pz);
+            double const lbL = lbs.l;
+            double const lbR = lbs.r;
             double const cap = PruneCap(*best, radius2);
             bool const pruneL = PruneBelow(lbL, cap);
             bool const pruneR = PruneBelow(lbR, cap);
