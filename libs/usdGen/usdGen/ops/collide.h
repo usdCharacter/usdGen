@@ -49,11 +49,19 @@ struct UsdGenCollidePhaseStats
     uint64_t nodeVisits = 0; // BVH nodes visited (0 on the brute-force path)
 };
 
+// Arming BVH memo, defined in collide.cpp: the last build's exact inputs
+// per collider plus the built BVH. Lets groom-only recaptures reuse the
+// identical BVH instead of rebuilding it. Owned by the op object (which
+// survives stable Recompiles); never shared, never copied.
+struct UsdGenCollideBvhMemo;
+
 class UsdGenCollideOp final : public UsdGenOp
 {
 public:
-    UsdGenCollideOp() = default;
-    ~UsdGenCollideOp() override = default;
+    UsdGenCollideOp();
+    ~UsdGenCollideOp() override;
+    UsdGenCollideOp(UsdGenCollideOp const &) = delete;
+    UsdGenCollideOp &operator=(UsdGenCollideOp const &) = delete;
 
     static void SetPhaseProbe(bool enabled);
     static void ResetPhaseProbe();
@@ -85,6 +93,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
+
+private:
+    std::unique_ptr<UsdGenCollideBvhMemo> _bvhMemo;
 };
 
 }  // namespace usdGen

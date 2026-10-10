@@ -1051,7 +1051,62 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
     return true;
 }
 
+// Byte equality over the flattened triangles (the BVH build's exact input).
+// CollideTri is padding-free, so memcmp sees only value bytes; a hit means
+// the deterministic build would emit the same BVH bit-for-bit.
+static_assert(sizeof(CollideTri) == 9 * sizeof(double) + 2 * sizeof(int),
+              "CollideTri must stay padding-free for SameTris");
+bool SameTris(std::vector<CollideTri> const &a, std::vector<CollideTri> const &b)
+{
+    return a.size() == b.size() &&
+           (a.empty() ||
+            std::memcmp(a.data(), b.data(), a.size() * sizeof(CollideTri)) == 0);
+}
+
 }  // namespace
+
+// Arming per-collider BVH memo. Groom-only deform re-captures (the digest
+// mixes the upstream generation) and today rebuilds the identical BVH —
+// ~19ms at 20k tris, every frame. The build is a pure deterministic
+// function of the validated flattened tris plus the brute cut, so the op
+// keeps the last build per collider and reuses it when the flattened
+// bytes compare equal. Validation still runs every capture (errors,
+// warnings, and faces are freshly computed), and the brute cut is
+// recomputed, not trusted — only the redundant build is skipped, so a hit
+// serves bytes identical to a rebuild. Arming takes two consecutive
+// sightings: the first stores the fingerprint unarmed (a lone miss on a
+// moving collider costs only the fingerprint copy), the second copies the
+// just-built BVH as the master; later hits copy the master into the fresh
+// capture. Entries are positional over node.surfaces (a reorder misses
+// and re-arms, keeping ordinals exact), oversized colliders bypass the
+// memo to bound memory (~15MB per entry worst case), and a failed capture
+// leaves only fingerprint/master pairs copied from real builds, so the
+// master == build(fingerprint) invariant — and every future hit — holds
+// regardless. Same-node Capture never runs concurrently (one node, one
+// Run pass, CPU-only op), so no lock is needed.
+struct UsdGenCollideBvhMemo
+{
+    struct Entry
+    {
+        uint32_t geometry = 0;
+        std::vector<int> faces;
+        std::vector<CollideTri> tris;  // fingerprint: exact build inputs
+        CollideBvh bvh;                // master: build(tris), iff armed
+        size_t threshold = 0;
+        bool forceBrute = false;
+        bool armed = false;
+    };
+    std::vector<Entry> entries;  // node.surfaces order
+    // Fingerprint bypass above this many tris: bounds memo memory (~15MB
+    // per entry worst case). Oversized colliders always take today's path.
+    static constexpr size_t kTriCap = 65536;
+};
+
+UsdGenCollideOp::UsdGenCollideOp()
+    : _bvhMemo(std::make_unique<UsdGenCollideBvhMemo>())
+{
+}
+UsdGenCollideOp::~UsdGenCollideOp() = default;
 
 static TfTokenVector _topoParams = [] {
     TfTokenVector v = UsdGenBaseTopologyParams();
@@ -1198,6 +1253,9 @@ bool UsdGenCollideOp::Capture(
     cap.colliders.clear();
     cap.upstreamCurves = upstream.totalCurves;
     cap.upstreamCvs = upstream.totalCvs;
+    UsdGenCollideBvhMemo *memo = _bvhMemo.get();
+    memo->entries.resize(p->node->surfaces.size());
+    size_t colliderIdx = 0;
     for (SdfPath const &path : p->node->surfaces) {
         uint32_t entry = 0;
         if (!FindSurface(ctx.desc, path, &entry)) {
@@ -1234,10 +1292,39 @@ bool UsdGenCollideOp::Capture(
         // Index colliders past the brute-force threshold (plan/04 §4: a BVH
         // rebuilt per surface epoch). The flattened set is exactly the set
         // the brute path tests, so the cut is behavior-free either way.
-        if (collectTris &&
-            tris.size() > sBruteThreshold.load(std::memory_order_relaxed)) {
-            BuildColliderBvh(&tris, &collider.bvh);
-            collider.useBvh = true;
+        // The memo (see the struct comment) reuses the identical BVH when
+        // the validated inputs compare equal; the cut below is recomputed.
+        size_t const thresholdNow = sBruteThreshold.load(std::memory_order_relaxed);
+        UsdGenCollideBvhMemo::Entry &memoEntry = memo->entries[colliderIdx++];
+        bool const overCap = tris.size() > UsdGenCollideBvhMemo::kTriCap;
+        bool const sameInputs =
+            !overCap && memoEntry.threshold == thresholdNow &&
+            memoEntry.forceBrute == !collectTris && memoEntry.geometry == geometry &&
+            memoEntry.faces == collider.faces && SameTris(memoEntry.tris, tris);
+        if (memoEntry.armed && sameInputs) {
+            if (collectTris && tris.size() > thresholdNow) {
+                collider.bvh = memoEntry.bvh;
+                collider.useBvh = true;
+            }
+        } else {
+            if (collectTris && tris.size() > thresholdNow) {
+                BuildColliderBvh(&tris, &collider.bvh);
+                collider.useBvh = true;
+            }
+            if (overCap) {
+                memoEntry = UsdGenCollideBvhMemo::Entry();
+            } else if (sameInputs) {
+                memoEntry.bvh = collider.bvh;
+                memoEntry.armed = true;
+            } else {
+                memoEntry.threshold = thresholdNow;
+                memoEntry.forceBrute = !collectTris;
+                memoEntry.geometry = geometry;
+                memoEntry.faces = collider.faces;
+                memoEntry.tris = tris;
+                memoEntry.bvh = CollideBvh();
+                memoEntry.armed = false;
+            }
         }
         cap.colliders.push_back(std::move(collider));
     }
