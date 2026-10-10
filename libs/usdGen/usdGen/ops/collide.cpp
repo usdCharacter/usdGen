@@ -551,29 +551,21 @@ private:
         for (int axis = 0; axis < 3; ++axis) {
             if (!haveAxis[axis]) continue;
             Bin (&bins)[16] = allBins[axis];
-            double pmn[16][3], pmx[16][3];
+            // The suffix side stays materialized (the cost sweep reads it
+            // forward); the prefix sweep fuses into the cost loop, holding
+            // the running prefix in registers instead of pmn/pmx/pcount.
+            // The fused loop incorporates bin s with the same guard and
+            // the same min/max selections the old prefix pass did, so the
+            // running (amn, amx, acc) equals the old (pmn[s], pmx[s],
+            // pcount[s]) at every candidate — every cost, and the whole
+            // tree, is bit-identical with the prefix store/load traffic
+            // gone (the old prefix[15] was never read: no split sits past
+            // the last bin).
             double smn[16][3], smx[16][3];
-            int pcount[16], scount[16];
+            int scount[16];
             double amn[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
             double amx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
             int acc = 0;
-            for (int b = 0; b < 16; ++b) {
-                if (bins[b].n) {
-                    acc += bins[b].n;
-                    for (int a = 0; a < 3; ++a) {
-                        amn[a] = std::min(amn[a], bins[b].mn[a]);
-                        amx[a] = std::max(amx[a], bins[b].mx[a]);
-                    }
-                }
-                pcount[b] = acc;
-                for (int a = 0; a < 3; ++a) {
-                    pmn[b][a] = amn[a];
-                    pmx[b][a] = amx[a];
-                }
-            }
-            amn[0] = amn[1] = amn[2] = HUGE_VAL;
-            amx[0] = amx[1] = amx[2] = -HUGE_VAL;
-            acc = 0;
             for (int b = 15; b >= 0; --b) {
                 if (bins[b].n) {
                     acc += bins[b].n;
@@ -588,10 +580,20 @@ private:
                     smx[b][a] = amx[a];
                 }
             }
+            amn[0] = amn[1] = amn[2] = HUGE_VAL;
+            amx[0] = amx[1] = amx[2] = -HUGE_VAL;
+            acc = 0;
             for (int s = 0; s < 15; ++s) {
-                if (!pcount[s] || !scount[s + 1]) continue;
+                if (bins[s].n) {
+                    acc += bins[s].n;
+                    for (int a = 0; a < 3; ++a) {
+                        amn[a] = std::min(amn[a], bins[s].mn[a]);
+                        amx[a] = std::max(amx[a], bins[s].mx[a]);
+                    }
+                }
+                if (!acc || !scount[s + 1]) continue;
                 double const cost =
-                    BoundsArea(pmn[s], pmx[s]) * pcount[s] +
+                    BoundsArea(amn, amx) * acc +
                     BoundsArea(smn[s + 1], smx[s + 1]) * scount[s + 1];
                 if (cost < bestCost) {
                     bestCost = cost;
