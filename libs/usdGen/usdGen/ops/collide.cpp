@@ -1163,9 +1163,29 @@ bool UsdGenCollideOp::Capture(
         if (diag) diag->Error("UsdGenCollide: no graph description");
         return false;
     }
+    // The field reads are pure (no diagnostics), so uniformity is known
+    // before the topology gate. Uniform fields skip the per-CV finiteness
+    // scan below — the spans vector's only consumer — so a uniform capture
+    // over a valid uniform groom skips the vector entirely (a
+    // totalCurves+1-entry alloc and fill; deform.cpp carries the same
+    // uniform precedent). Every other shape — scanning fields, ragged or
+    // empty grooms, malformed topology — runs CurveSpans exactly as before,
+    // so the gate and its errors are bit-for-bit unchanged.
+    UsdGenParamField const offset = p->GetScalarField(sOffset, 0.0);
+    UsdGenParamField const pushAmount = p->GetScalarField(sPushAmount, 0.0);
+    UsdGenParamField const mask = p->GetScalarField(sMask, 1.0);
+    bool const scanOffset = !offset.Uniform();
+    bool const scanPush = !pushAmount.Uniform();
+    bool const scanMask = !mask.Uniform();
     std::vector<uint32_t> spans;
     std::string spansError;
-    if (!opUtil::CurveSpans(upstream, &spans, &spansError)) {
+    bool const needSpans = scanOffset || scanPush || scanMask ||
+        !upstream.cvOffsets.empty() || upstream.totalCurves == 0 ||
+        upstream.totalCvs % upstream.totalCurves != 0;
+    bool spansOk = true;
+    if (needSpans)
+        spansOk = opUtil::CurveSpans(upstream, &spans, &spansError);
+    if (!spansOk) {
         if (diag) diag->Error("UsdGenCollide: upstream CV topology " + spansError);
         return false;
     }
@@ -1225,10 +1245,10 @@ bool UsdGenCollideOp::Capture(
     // closed at capture instead of writing NaN points (displace precedent).
     // Uniform fields (literals, groom domain) carry one value for every CV,
     // so a single check is exactly equivalent to the per-CV loop — and an
-    // empty groom skips it, matching the vacuous loop.
-    UsdGenParamField const offset = p->GetScalarField(sOffset, 0.0);
-    UsdGenParamField const pushAmount = p->GetScalarField(sPushAmount, 0.0);
-    UsdGenParamField const mask = p->GetScalarField(sMask, 1.0);
+    // empty groom skips it, matching the vacuous loop. (The fields and the
+    // scan flags were read above the topology gate; the scan loop is the
+    // spans vector's only consumer, so the skipped uniform path never reads
+    // the vector it did not build.)
     for (UsdGenParamField const *field : {&offset, &pushAmount, &mask}) {
         if (field->connected && field->components != 1) {
             if (diag) diag->Error("UsdGenCollide: connected offset/pushAmount/mask "
@@ -1241,9 +1261,6 @@ bool UsdGenCollideOp::Capture(
                               "must be finite");
         return false;
     };
-    bool const scanOffset = !offset.Uniform();
-    bool const scanPush = !pushAmount.Uniform();
-    bool const scanMask = !mask.Uniform();
     if (upstream.totalCvs > 0) {
         if (!scanOffset && !Finite(offset.Value(0, 0))) return failNonFinite();
         if (!scanPush && !Finite(pushAmount.Value(0, 0))) return failNonFinite();
