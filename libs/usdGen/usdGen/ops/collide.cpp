@@ -597,18 +597,24 @@ private:
             if (!haveAxis[axis]) continue;
             Bin (&bins)[16] = allBins[axis];
             uint16_t const t = touched[axis];
-            // The suffix side stays materialized (the cost sweep reads it
-            // forward); the prefix sweep fuses into the cost loop, holding
-            // the running prefix in registers instead of pmn/pmx/pcount.
-            // The fused loop incorporates bin s with the same guard and
-            // the same min/max selections the old prefix pass did, so the
-            // running (amn, amx, acc) equals the old (pmn[s], pmx[s],
-            // pcount[s]) at every candidate — every cost, and the whole
-            // tree, is bit-identical with the prefix store/load traffic
-            // gone (the old prefix[15] was never read: no split sits past
-            // the last bin).
-            double smn[16][3], smx[16][3];
-            int scount[16];
+            // Sparse candidate sweep: candidates whose (left, right) bin
+            // sets match have bit-identical costs (same doubles into the
+            // same BoundsArea/mul/add), and the sets change only when
+            // crossing an occupied bin — so the only distinct candidates
+            // are the occupied bins but the last, each the smallest s of
+            // its pair. Evaluating just those with the same `<` first-win
+            // picks the same (bin, cost) the full 0..14 scan would: the
+            // global minimum sits on a pair minimum, and every pair
+            // minimum is evaluated. The backward pass records the suffix
+            // union at occupied bins only (descending), the forward pass
+            // walks them ascending with a running prefix; both apply the
+            // same min/max to the same occupied bins in the same orders
+            // the full sweeps did, so every evaluated cost is bit-identical
+            // too — the whole tree is unchanged with the 16-wide suffix
+            // store/load traffic and the duplicate BoundsAreas gone.
+            double sufMn[16][3], sufMx[16][3];
+            int sufCount[16], sufBin[16];
+            int nSuf = 0;
             double amn[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
             double amx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
             int acc = 0;
@@ -619,28 +625,28 @@ private:
                         amn[a] = std::min(amn[a], bins[b].mn[a]);
                         amx[a] = std::max(amx[a], bins[b].mx[a]);
                     }
-                }
-                scount[b] = acc;
-                for (int a = 0; a < 3; ++a) {
-                    smn[b][a] = amn[a];
-                    smx[b][a] = amx[a];
+                    sufBin[nSuf] = b;
+                    sufCount[nSuf] = acc;
+                    for (int a = 0; a < 3; ++a) {
+                        sufMn[nSuf][a] = amn[a];
+                        sufMx[nSuf][a] = amx[a];
+                    }
+                    ++nSuf;
                 }
             }
             amn[0] = amn[1] = amn[2] = HUGE_VAL;
             amx[0] = amx[1] = amx[2] = -HUGE_VAL;
             acc = 0;
-            for (int s = 0; s < 15; ++s) {
-                if (t & (uint16_t(1u) << s)) {
-                    acc += bins[s].n;
-                    for (int a = 0; a < 3; ++a) {
-                        amn[a] = std::min(amn[a], bins[s].mn[a]);
-                        amx[a] = std::max(amx[a], bins[s].mx[a]);
-                    }
+            for (int j = nSuf - 1; j >= 1; --j) {
+                int const s = sufBin[j];
+                acc += bins[s].n;
+                for (int a = 0; a < 3; ++a) {
+                    amn[a] = std::min(amn[a], bins[s].mn[a]);
+                    amx[a] = std::max(amx[a], bins[s].mx[a]);
                 }
-                if (!acc || !scount[s + 1]) continue;
                 double const cost =
                     BoundsArea(amn, amx) * acc +
-                    BoundsArea(smn[s + 1], smx[s + 1]) * scount[s + 1];
+                    BoundsArea(sufMn[j - 1], sufMx[j - 1]) * sufCount[j - 1];
                 if (cost < bestCost) {
                     bestCost = cost;
                     bestAxis = axis;
