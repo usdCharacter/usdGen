@@ -837,18 +837,25 @@ BoundsPair NodeBoundPair(CollideBvhNode const &nodeL,
                          double pz)
 {
 #if defined(__aarch64__) || defined(_M_ARM64)
-    float64x2_t const mnx = vcombine_f64(vld1_f64(&nodeL.minX),
-                                         vld1_f64(&nodeR.minX));
-    float64x2_t const mny = vcombine_f64(vld1_f64(&nodeL.minY),
-                                         vld1_f64(&nodeR.minY));
-    float64x2_t const mnz = vcombine_f64(vld1_f64(&nodeL.minZ),
-                                         vld1_f64(&nodeR.minZ));
-    float64x2_t const mxx = vcombine_f64(vld1_f64(&nodeL.maxX),
-                                         vld1_f64(&nodeR.maxX));
-    float64x2_t const mxy = vcombine_f64(vld1_f64(&nodeL.maxY),
-                                         vld1_f64(&nodeR.maxY));
-    float64x2_t const mxz = vcombine_f64(vld1_f64(&nodeL.maxZ),
-                                         vld1_f64(&nodeR.maxZ));
+    // Each child's six bound doubles load as three 128-bit pairs; one
+    // vtrn1q/vtrn2q per pair transpose the left/right halves into per-axis
+    // [L, R] lanes. The six vectors hold exactly the same doubles the
+    // old per-axis vcombine spelling built (loads and lane moves only
+    // relocate bits), so every downstream op — and both bounds —
+    // reproduces bit-for-bit, with six scalar lane-inserts folded into
+    // three transposes on the per-visit path.
+    float64x2_t const l01 = vld1q_f64(&nodeL.minX);  // [mnxL, mnyL]
+    float64x2_t const l23 = vld1q_f64(&nodeL.minZ);  // [mnzL, mxxL]
+    float64x2_t const l45 = vld1q_f64(&nodeL.maxY);  // [mxyL, mxzL]
+    float64x2_t const r01 = vld1q_f64(&nodeR.minX);
+    float64x2_t const r23 = vld1q_f64(&nodeR.minZ);
+    float64x2_t const r45 = vld1q_f64(&nodeR.maxY);
+    float64x2_t const mnx = vtrn1q_f64(l01, r01);  // [mnxL, mnxR]
+    float64x2_t const mny = vtrn2q_f64(l01, r01);  // [mnyL, mnyR]
+    float64x2_t const mnz = vtrn1q_f64(l23, r23);  // [mnzL, mnzR]
+    float64x2_t const mxx = vtrn2q_f64(l23, r23);  // [mxxL, mxxR]
+    float64x2_t const mxy = vtrn1q_f64(l45, r45);  // [mxyL, mxyR]
+    float64x2_t const mxz = vtrn2q_f64(l45, r45);  // [mxzL, mxzR]
     float64x2_t const vpx = vdupq_n_f64(px);
     float64x2_t const vpy = vdupq_n_f64(py);
     float64x2_t const vpz = vdupq_n_f64(pz);
