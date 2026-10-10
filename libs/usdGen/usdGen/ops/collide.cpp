@@ -483,9 +483,8 @@ private:
         }
         struct Bin
         {
-            double mn[3] = {HUGE_VAL, HUGE_VAL, HUGE_VAL};
-            double mx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
-            int n = 0;
+            double mn[3], mx[3];  // set on first touch (see below)
+            int n;               // set on first touch, ++ after
         };
         // One bin-fill pass feeds all three axes (the old spelling streamed
         // the span once per axis). Each axis's bins accumulate the same
@@ -493,7 +492,17 @@ private:
         // every bin — and the whole tree — is bit-identical with ~2/3
         // fewer span loads. Degenerate axes stay skipped exactly as before
         // (haveAxis is the same `ext > 0.0` verdict, NaN included).
+        // Bins initialize on first touch instead of up front: the touched
+        // bitmask (one bit per bin) replaces the 2.6KB of infinities/zeros
+        // per node, and the first touch assigns the entry's bounds
+        // directly with n = 1. That equals the old min(HUGE_VAL, x) /
+        // max(-HUGE_VAL, x) accumulation bit-for-bit (inputs are finite by
+        // validation: cache bounds of finite points), later touches run
+        // the same min/max in the same order, and the sweeps below only
+        // read bins whose bit is set — so every bin, and the whole tree,
+        // is bit-identical with the zeroing gone.
         Bin allBins[3][16];
+        uint16_t touched[3] = {0, 0, 0};
         bool haveAxis[3] = {false, false, false};
         double axisScale[3] = {0.0, 0.0, 0.0};
         for (int axis = 0; axis < 3; ++axis) {
@@ -510,40 +519,76 @@ private:
                 int b = int((e.cx - clo[0]) * axisScale[0]);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
+                uint16_t const m = uint16_t(1u << b);
                 Bin &bin = allBins[0][b];
-                bin.mn[0] = std::min(bin.mn[0], e.mnx);
-                bin.mn[1] = std::min(bin.mn[1], e.mny);
-                bin.mn[2] = std::min(bin.mn[2], e.mnz);
-                bin.mx[0] = std::max(bin.mx[0], e.mxx);
-                bin.mx[1] = std::max(bin.mx[1], e.mxy);
-                bin.mx[2] = std::max(bin.mx[2], e.mxz);
-                ++bin.n;
+                if (touched[0] & m) {
+                    bin.mn[0] = std::min(bin.mn[0], e.mnx);
+                    bin.mn[1] = std::min(bin.mn[1], e.mny);
+                    bin.mn[2] = std::min(bin.mn[2], e.mnz);
+                    bin.mx[0] = std::max(bin.mx[0], e.mxx);
+                    bin.mx[1] = std::max(bin.mx[1], e.mxy);
+                    bin.mx[2] = std::max(bin.mx[2], e.mxz);
+                    ++bin.n;
+                } else {
+                    touched[0] |= m;
+                    bin.mn[0] = e.mnx;
+                    bin.mn[1] = e.mny;
+                    bin.mn[2] = e.mnz;
+                    bin.mx[0] = e.mxx;
+                    bin.mx[1] = e.mxy;
+                    bin.mx[2] = e.mxz;
+                    bin.n = 1;
+                }
             }
             if (haveAxis[1]) {
                 int b = int((e.cy - clo[1]) * axisScale[1]);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
+                uint16_t const m = uint16_t(1u << b);
                 Bin &bin = allBins[1][b];
-                bin.mn[0] = std::min(bin.mn[0], e.mnx);
-                bin.mn[1] = std::min(bin.mn[1], e.mny);
-                bin.mn[2] = std::min(bin.mn[2], e.mnz);
-                bin.mx[0] = std::max(bin.mx[0], e.mxx);
-                bin.mx[1] = std::max(bin.mx[1], e.mxy);
-                bin.mx[2] = std::max(bin.mx[2], e.mxz);
-                ++bin.n;
+                if (touched[1] & m) {
+                    bin.mn[0] = std::min(bin.mn[0], e.mnx);
+                    bin.mn[1] = std::min(bin.mn[1], e.mny);
+                    bin.mn[2] = std::min(bin.mn[2], e.mnz);
+                    bin.mx[0] = std::max(bin.mx[0], e.mxx);
+                    bin.mx[1] = std::max(bin.mx[1], e.mxy);
+                    bin.mx[2] = std::max(bin.mx[2], e.mxz);
+                    ++bin.n;
+                } else {
+                    touched[1] |= m;
+                    bin.mn[0] = e.mnx;
+                    bin.mn[1] = e.mny;
+                    bin.mn[2] = e.mnz;
+                    bin.mx[0] = e.mxx;
+                    bin.mx[1] = e.mxy;
+                    bin.mx[2] = e.mxz;
+                    bin.n = 1;
+                }
             }
             if (haveAxis[2]) {
                 int b = int((e.cz - clo[2]) * axisScale[2]);
                 if (b < 0) b = 0;
                 else if (b > 15) b = 15;
+                uint16_t const m = uint16_t(1u << b);
                 Bin &bin = allBins[2][b];
-                bin.mn[0] = std::min(bin.mn[0], e.mnx);
-                bin.mn[1] = std::min(bin.mn[1], e.mny);
-                bin.mn[2] = std::min(bin.mn[2], e.mnz);
-                bin.mx[0] = std::max(bin.mx[0], e.mxx);
-                bin.mx[1] = std::max(bin.mx[1], e.mxy);
-                bin.mx[2] = std::max(bin.mx[2], e.mxz);
-                ++bin.n;
+                if (touched[2] & m) {
+                    bin.mn[0] = std::min(bin.mn[0], e.mnx);
+                    bin.mn[1] = std::min(bin.mn[1], e.mny);
+                    bin.mn[2] = std::min(bin.mn[2], e.mnz);
+                    bin.mx[0] = std::max(bin.mx[0], e.mxx);
+                    bin.mx[1] = std::max(bin.mx[1], e.mxy);
+                    bin.mx[2] = std::max(bin.mx[2], e.mxz);
+                    ++bin.n;
+                } else {
+                    touched[2] |= m;
+                    bin.mn[0] = e.mnx;
+                    bin.mn[1] = e.mny;
+                    bin.mn[2] = e.mnz;
+                    bin.mx[0] = e.mxx;
+                    bin.mx[1] = e.mxy;
+                    bin.mx[2] = e.mxz;
+                    bin.n = 1;
+                }
             }
         }
         int bestAxis = -1, bestBin = -1;
@@ -551,6 +596,7 @@ private:
         for (int axis = 0; axis < 3; ++axis) {
             if (!haveAxis[axis]) continue;
             Bin (&bins)[16] = allBins[axis];
+            uint16_t const t = touched[axis];
             // The suffix side stays materialized (the cost sweep reads it
             // forward); the prefix sweep fuses into the cost loop, holding
             // the running prefix in registers instead of pmn/pmx/pcount.
@@ -567,7 +613,7 @@ private:
             double amx[3] = {-HUGE_VAL, -HUGE_VAL, -HUGE_VAL};
             int acc = 0;
             for (int b = 15; b >= 0; --b) {
-                if (bins[b].n) {
+                if (t & (uint16_t(1u) << b)) {
                     acc += bins[b].n;
                     for (int a = 0; a < 3; ++a) {
                         amn[a] = std::min(amn[a], bins[b].mn[a]);
@@ -584,7 +630,7 @@ private:
             amx[0] = amx[1] = amx[2] = -HUGE_VAL;
             acc = 0;
             for (int s = 0; s < 15; ++s) {
-                if (bins[s].n) {
+                if (t & (uint16_t(1u) << s)) {
                     acc += bins[s].n;
                     for (int a = 0; a < 3; ++a) {
                         amn[a] = std::min(amn[a], bins[s].mn[a]);
