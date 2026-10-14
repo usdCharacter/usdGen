@@ -393,13 +393,17 @@ _QuatFromFrameRows(GfVec3d const &xAxis, GfVec3d const &yAxis,
 
 // Curve spans: uniform (totalCvs divisible by totalCurves) or ragged
 // cvOffsets. Mirrors the engine's span validation (curveBuffer.h detail).
+// Uniform spans are never materialized (bit-identical): spans[c] is
+// exactly c*per in uint32 arithmetic, so callers compute curve starts
+// inline and the ~4MB assign+fill+read traffic is gone. *perOut
+// carries per; spans stays empty. Ragged fills as before.
 bool
 _Spans(usdGen::UsdGenCurveBuffer const &curves, std::vector<uint32_t> *spans,
-       std::string *error)
+       uint32_t *perOut, std::string *error)
 {
     uint32_t const n = curves.totalCurves;
-    spans->assign(size_t(n) + 1, 0);
     if (curves.cvOffsets.empty()) {
+        *perOut = 0;
         if (n == 0) {
             if (curves.totalCvs != 0)
                 return _Fail("instance: uniform topology has CVs but no curves",
@@ -409,15 +413,10 @@ _Spans(usdGen::UsdGenCurveBuffer const &curves, std::vector<uint32_t> *spans,
         if (curves.totalCvs % n != 0)
             return _Fail("instance: uniform topology has non-integral CV count",
                          error);
-        uint32_t const per = curves.totalCvs / n;
-        // Closed-form fill (bit-identical: (c+1)*per equals per added
-        // c+1 times in uint32 arithmetic): breaks the running-add chain
-        // so the fill vectorizes instead of serializing on 1M dependent
-        // adds.
-        for (uint32_t c = 0; c != n; ++c)
-            (*spans)[c + 1] = (c + 1) * per;
+        *perOut = curves.totalCvs / n;
         return true;
     }
+    spans->assign(size_t(n) + 1, 0);
     if (curves.cvOffsets.size() != size_t(n) + 1 || curves.cvOffsets.front() != 0)
         return _Fail("instance: ragged topology has invalid offsets", error);
     for (uint32_t c = 0; c != n; ++c) {
@@ -662,9 +661,13 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                        curves.rootB.size() != n))
         return _Fail("instance: root frames are not per-curve", error);
 
-    std::vector<uint32_t> spans;
-    if (!_Spans(curves, &spans, error))
+    std::vector<uint32_t> spans;  // ragged only; empty when uniform
+    uint32_t uniformPer = 0;
+    if (!_Spans(curves, &spans, &uniformPer, error))
         return false;
+    // Same empty-cvOffsets test _Spans branches on: uniform curves read
+    // spans[c] as c*uniformPer inline, ragged read the filled vector.
+    bool const uniformSpans = curves.cvOffsets.empty();
 
     // Re-rooted prototype paths: the authored leaf re-homed under
     // <instancer>/Prototypes (06 §4.3). Leaves must be unique: two
@@ -760,7 +763,8 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
     auto bakeRange = [&](uint32_t c0, uint32_t c1, BakeRangeSlot &slot) {
     for (uint32_t c = c0; c != c1; ++c) {
         uint64_t const curveId = curves.curveId[c];
-        uint32_t const first = spans[c];
+        uint32_t const first =
+            uniformSpans ? c * uniformPer : spans[c];
         GfVec3f const root(curves.px[first], curves.py[first], curves.pz[first]);
 
         GfVec3d N(0.0, 0.0, 1.0);
@@ -832,7 +836,9 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
             // normal with the tangent projected out.
             GfVec3d t(0.0);
             bool tok = false;
-            if (spans[c + 1] > first + 1) {
+            uint32_t const next =
+                uniformSpans ? (c + 1) * uniformPer : spans[c + 1];
+            if (next > first + 1) {
                 uint32_t const next = first + 1;
                 t = GfVec3d(double(curves.px[next]) - double(curves.px[first]),
                             double(curves.py[next]) - double(curves.py[first]),
@@ -939,12 +945,16 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
     // Concatenate the per-range index lists in range order: identical to
     // the serial push_back order (same values; capacities may differ,
     // which no reader observes).
+    // Uninitialized sizing (bit-identical): total is the exact sum of the
+    // copied sizes and the loop below writes every lane contiguously, so
+    // resize's value-init (~4MB of zeroes here) is dead and folds into
+    // the noInit filler over uninitialized storage. Same bytes either way.
     for (size_t p = 0; p < nProtos; ++p) {
         size_t total = 0;
         for (auto const &s : slots)
             total += s.indices[p].size();
         VtIntArray &dst = out.instanceIndices[p];
-        dst.resize(total);
+        dst.resize(total, noInit);
         int *w = dst.empty() ? nullptr : dst.data();
         for (auto const &s : slots) {
             if (!s.indices[p].empty()) {
@@ -990,7 +1000,8 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                 });
             } else {
                 GfVec3f const *colors = input.displayColor.cdata();
-                uint32_t const *offsets = spans.data();
+                uint32_t const *offsets =
+                    uniformSpans ? nullptr : spans.data();
                 // Chunked over curve ranges for big bakes (bit-identical):
                 // every curve reads its own root-CV color and writes a
                 // disjoint output triple, so any range split writes the
@@ -1000,12 +1011,15 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                     (workers > 1 && n > 32768)
                         ? std::min({size_t(workers), size_t(8), size_t(n)})
                         : 1;
-                plane.f.resize(count3, [colors, offsets,
-                                        gatherChunks](float *b, float *e) {
+                plane.f.resize(count3, [colors, offsets, uniformSpans,
+                                        uniformPer, gatherChunks](float *b,
+                                                                 float *e) {
                     if (gatherChunks == 1) {
                         float *d = b;
                         for (uint32_t c = 0; d != e; ++c, d += 3) {
-                            GfVec3f const v = colors[offsets[c]];
+                            GfVec3f const v = colors[uniformSpans
+                                                         ? c * uniformPer
+                                                         : offsets[c]];
                             new (d + 0) float(v[0]);
                             new (d + 1) float(v[1]);
                             new (d + 2) float(v[2]);
@@ -1022,8 +1036,10 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                                 size_t const c1 =
                                     ((t + 1) * M) / gatherChunks;
                                 for (size_t c = c0; c < c1; ++c) {
-                                    GfVec3f const v =
-                                        colors[offsets[c]];
+                                    GfVec3f const v = colors[uniformSpans
+                                                                 ? uint32_t(c) *
+                                                                       uniformPer
+                                                                 : offsets[c]];
                                     float *d = b + 3 * c;
                                     new (d + 0) float(v[0]);
                                     new (d + 1) float(v[1]);

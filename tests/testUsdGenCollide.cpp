@@ -11,12 +11,16 @@
 //   (3) every edge fails closed (resolveType, iterations, finiteness,
 //       missing/degenerate collider meshes);
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
-//       rejection (no capability-matrix row, like Clump).
+//       rejection (no capability-matrix row, like Clump);
+//   (5) BVH-vs-brute-force bit-identity over a mixed randomized collider
+//       (tris/quads/ngons, degenerates, exact vertex/edge ties, subset
+//       restriction, mixed BVH+brute colliders, tiny-BVH threshold edge).
 #include "usdGen/compiler.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/opRegistry.h"
+#include "usdGen/ops/collide.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>
@@ -587,6 +591,230 @@ static void CheckCudaRejectsCollide()
     }
 }
 
+// --- (5) BVH-vs-brute-force bit-identity -----------------------------------
+
+static uint64_t BvhHash(uint64_t k)
+{
+    k += 0x9e3779b97f4a7c15ULL;
+    k = (k ^ (k >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    k = (k ^ (k >> 27)) * 0x94d049bb133111ebULL;
+    return (k ^ (k >> 31)) >> 11;
+}
+
+static double BvhHash01(uint64_t k)
+{
+    return double(BvhHash(k)) / double(1ull << 53);
+}
+
+// 10x10 bumped grid (200 tris) plus a pentagon and a collinear degenerate:
+// mixed face arities, fan ordinals past k=1, and a skipped degenerate.
+static UsdGenSurfaceDesc BvhCollider(SdfPath const &path)
+{
+    int const n = 10;
+    UsdGenSurfaceDesc s;
+    s.path = path;
+    s.points = VtVec3fArray(size_t(n + 1) * size_t(n + 1) + 8);
+    for (int j = 0; j <= n; ++j) {
+        for (int i = 0; i <= n; ++i) {
+            float const x = float(i), y = float(j);
+            float const z =
+                float(std::sin(0.5 * x) * std::cos(0.4 * y));
+            s.points[size_t(j) * size_t(n + 1) + size_t(i)] =
+                GfVec3f(x, y, z);
+        }
+    }
+    size_t const base = size_t(n + 1) * size_t(n + 1);
+    // Pentagon fan at z = 0.5 over (2..4, 2..4); collinear degenerate aside.
+    s.points[base + 0] = GfVec3f(2, 2, 0.5f);
+    s.points[base + 1] = GfVec3f(4, 2, 0.5f);
+    s.points[base + 2] = GfVec3f(4.5f, 3, 0.5f);
+    s.points[base + 3] = GfVec3f(3, 4, 0.5f);
+    s.points[base + 4] = GfVec3f(2, 3, 0.5f);
+    s.points[base + 5] = GfVec3f(0, 0, 5);
+    s.points[base + 6] = GfVec3f(1, 0, 5);
+    s.points[base + 7] = GfVec3f(2, 0, 5);
+    s.restPoints = s.points;
+    s.faceVertexCounts.assign(size_t(n) * size_t(n) + 2, 4);
+    s.faceVertexCounts[size_t(n) * size_t(n)] = 5;
+    s.faceVertexCounts[size_t(n) * size_t(n) + 1] = 3;
+    s.faceVertexIndices = VtIntArray(size_t(n) * size_t(n) * 4 + 8);
+    for (int j = 0; j < n; ++j) {
+        for (int i = 0; i < n; ++i) {
+            size_t const q = (size_t(j) * size_t(n) + size_t(i)) * 4;
+            int const v00 = j * (n + 1) + i;
+            s.faceVertexIndices[q + 0] = v00;
+            s.faceVertexIndices[q + 1] = v00 + 1;
+            s.faceVertexIndices[q + 2] = v00 + n + 2;
+            s.faceVertexIndices[q + 3] = v00 + n + 1;
+        }
+    }
+    size_t const extra = size_t(n) * size_t(n) * 4;
+    for (int k = 0; k < 5; ++k)
+        s.faceVertexIndices[extra + size_t(k)] = int(base) + k;
+    for (int k = 0; k < 3; ++k)
+        s.faceVertexIndices[extra + 5 + size_t(k)] = int(base) + 5 + k;
+    return s;
+}
+
+static float BvhSurfaceZ(float x, float y)
+{
+    return float(std::sin(0.5 * x) * std::cos(0.4 * y));
+}
+
+static UsdGenGraphDesc BvhDesc(std::vector<UsdGenParamValue> const &params)
+{
+    UsdGenGraphDesc desc;
+    desc.description = SdfPath("/bvh");
+    desc.defaultWidth = 0.01f;
+    std::vector<GfVec3f> roots;
+    // 30 scattered roots spanning penetrating/clean heights.
+    for (int c = 0; c < 30; ++c) {
+        float const rx = float(10.0 * BvhHash01(uint64_t(c) * 3));
+        float const ry = float(10.0 * BvhHash01(uint64_t(c) * 3 + 1));
+        float const rz = BvhSurfaceZ(rx, ry) +
+            float(-0.4 + 1.2 * BvhHash01(uint64_t(c) * 3 + 2));
+        roots.push_back(GfVec3f(rx, ry, rz));
+    }
+    // Exact ties: grid vertices (up to 8-way, zero distance), quad centers
+    // (4-way edge ties at height), and pentagon-interior points.
+    roots.push_back(GfVec3f(3, 4, BvhSurfaceZ(3, 4)));
+    roots.push_back(GfVec3f(7, 2, BvhSurfaceZ(7, 2)));
+    roots.push_back(GfVec3f(5, 5, BvhSurfaceZ(5, 5)));
+    roots.push_back(GfVec3f(3.5f, 4.5f, BvhSurfaceZ(3.5f, 4.5f) + 0.1f));
+    roots.push_back(GfVec3f(6.5f, 1.5f, BvhSurfaceZ(6.5f, 1.5f) + 0.1f));
+    roots.push_back(GfVec3f(3, 3, 0.6f));
+    roots.push_back(GfVec3f(3, 3, 0.4f));
+    roots.push_back(GfVec3f(10.5f, 10.5f, 3.0f));  // far corner, clean
+    desc.curveSets.push_back(
+        StraightStrands(SdfPath("/bvh/hair"), roots, 6, 0.2f));
+    desc.surfaces.push_back(BvhCollider(SdfPath("/bvh/collider")));
+    desc.nodes.push_back(
+        SourceNode(SdfPath("/bvh/source"), SdfPath("/bvh/hair")));
+    UsdGenNodeDesc collide =
+        OpNode("/bvh/op", "UsdGenCollide", SdfPath("/bvh/source"), 7);
+    collide.params = params;
+    collide.surfaces = {SdfPath("/bvh/collider")};
+    desc.nodes.push_back(collide);
+    desc.terminal = SdfPath("/bvh/op");
+    return desc;
+}
+
+static bool CookWithPaths(UsdGenGraphDesc const &desc, bool forceBrute,
+                          size_t threshold, UsdGenCurveBuffer *out)
+{
+    UsdGenCollideOp::SetForceBruteForce(forceBrute);
+    UsdGenCollideOp::SetBruteForceThreshold(threshold);
+    return Cook(desc, out);
+}
+
+static void CheckBvhBitIdentical()
+{
+    // (face, iterations, stiff) matrix over the mixed collider: BVH vs
+    // forced brute force, bit for bit. The radius-regime rows pin the
+    // push-radius prune: a tiny offset (nearly every query prunes hard), a
+    // huge offset (the radius never prunes, best-only), and offset 0
+    // (radius2 = 0 passthrough), flexible and stiff.
+    std::vector<std::vector<UsdGenParamValue>> cases = {
+        {{TfToken("offset"), VtValue(0.5f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(0.5f), false},
+         {TfToken("pushAmount"), VtValue(0.7f), false},
+         {TfToken("iterations"), VtValue(3), false}},
+        {{TfToken("offset"), VtValue(0.5f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false},
+         {TfToken("iterations"), VtValue(2), false},
+         {TfToken("resolveType"), VtValue(TfToken("stiff")), false}},
+        {{TfToken("offset"), VtValue(0.02f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(50.0f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(0.0f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false}},
+        {{TfToken("offset"), VtValue(0.02f), false},
+         {TfToken("pushAmount"), VtValue(1.0f), false},
+         {TfToken("iterations"), VtValue(2), false},
+         {TfToken("resolveType"), VtValue(TfToken("stiff")), false}},
+    };
+    for (size_t ci = 0; ci < cases.size(); ++ci) {
+        UsdGenGraphDesc desc = BvhDesc(cases[ci]);
+        UsdGenCurveBuffer bvh, brute;
+        bool const okBvh = CookWithPaths(desc, false, 16, &bvh);
+        bool const okBrute = CookWithPaths(desc, true, 16, &brute);
+        Check(okBvh && okBrute, "BVH differential case cooks both paths");
+        if (!okBvh || !okBrute) continue;
+        char label[128];
+        std::snprintf(label, sizeof(label),
+                      "BVH matches brute force bit-for-bit (case %u)",
+                      unsigned(ci));
+        Check(bvh.px == brute.px && bvh.py == brute.py &&
+                  bvh.pz == brute.pz,
+              label);
+    }
+    // Subset restriction through the BVH: the first 75 grid faces only
+    // (150 tris, past the threshold so the BVH path runs).
+    {
+        UsdGenGraphDesc desc = BvhDesc({{TfToken("offset"), VtValue(0.5f), false},
+                                        {TfToken("pushAmount"), VtValue(1.0f), false}});
+        UsdGenSurfaceDesc subset;
+        subset.path = SdfPath("/bvh/collider/sub");
+        subset.subsetFaces.resize(75);
+        for (int f = 0; f < 75; ++f) subset.subsetFaces[f] = f;
+        desc.surfaces.push_back(subset);
+        desc.nodes.back().surfaces = {SdfPath("/bvh/collider/sub")};
+        UsdGenCurveBuffer bvh, brute;
+        bool const okBvh = CookWithPaths(desc, false, 16, &bvh);
+        bool const okBrute = CookWithPaths(desc, true, 16, &brute);
+        Check(okBvh && okBrute, "BVH subset differential cooks both paths");
+        if (okBvh && okBrute)
+            Check(bvh.px == brute.px && bvh.py == brute.py &&
+                      bvh.pz == brute.pz,
+                  "BVH subset collider matches brute force bit-for-bit");
+    }
+    // Mixed node: a 1-tri brute collider plus the 200-tri BVH collider in
+    // one node; the ordinal tiebreak composes them exactly.
+    {
+        UsdGenGraphDesc desc = BvhDesc({{TfToken("offset"), VtValue(0.5f), false},
+                                        {TfToken("pushAmount"), VtValue(1.0f), false}});
+        desc.surfaces.push_back(TriangleSurface(
+            SdfPath("/bvh/skin"),
+            GfVec3f(-10, -10, -100), GfVec3f(10, -10, -100),
+            GfVec3f(0, 10, -100)));
+        desc.nodes.back().surfaces = {SdfPath("/bvh/skin"),
+                                      SdfPath("/bvh/collider")};
+        UsdGenCurveBuffer bvh, brute;
+        bool const okBvh = CookWithPaths(desc, false, 16, &bvh);
+        bool const okBrute = CookWithPaths(desc, true, 16, &brute);
+        Check(okBvh && okBrute, "BVH mixed-collider differential cooks both paths");
+        if (okBvh && okBrute)
+            Check(bvh.px == brute.px && bvh.py == brute.py &&
+                      bvh.pz == brute.pz,
+                  "BVH mixed colliders match brute force bit-for-bit");
+    }
+    // Threshold edges on the 1-tri standard fixture: threshold 0 forces
+    // even one triangle through the BVH (single-leaf tree); a huge
+    // threshold keeps the standard brute path. Both match forced brute.
+    {
+        UsdGenGraphDesc desc = CollideDesc({{TfToken("offset"), VtValue(0.5f), false},
+                                            {TfToken("pushAmount"), VtValue(1.0f), false}});
+        UsdGenCurveBuffer tiny, brute, big;
+        bool const okTiny = CookWithPaths(desc, false, 0, &tiny);
+        bool const okBrute = CookWithPaths(desc, true, 16, &brute);
+        bool const okBig = CookWithPaths(desc, false, 1000000, &big);
+        Check(okTiny && okBrute && okBig,
+              "BVH threshold-edge cooks run on all three settings");
+        if (okTiny && okBrute)
+            Check(tiny.px == brute.px && tiny.py == brute.py &&
+                      tiny.pz == brute.pz,
+                  "BVH single-triangle tree matches brute force bit-for-bit");
+        if (okBig && okBrute)
+            Check(big.px == brute.px && big.py == brute.py &&
+                      big.pz == brute.pz,
+                  "BVH huge threshold matches brute force bit-for-bit");
+    }
+    UsdGenCollideOp::SetForceBruteForce(false);
+    UsdGenCollideOp::SetBruteForceThreshold(16);
+}
+
 int main()
 {
     usdGenRegisterM1Operators();
@@ -601,6 +829,7 @@ int main()
     CheckEdgesFailClosed();
     CheckDeterminism();
     CheckCudaRejectsCollide();
+    CheckBvhBitIdentical();
     std::printf("testUsdGenCollide: %s\n", failures ? "FAILED" : "PASS");
     return failures ? 1 : 0;
 }

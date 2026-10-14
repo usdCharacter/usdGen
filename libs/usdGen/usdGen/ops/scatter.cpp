@@ -728,10 +728,18 @@ bool UsdGenScatterOp::Capture(
             float const u0 = UsdGenHash01(hSeedBary0 ^ curveId, kSaltScatterBary);
             float const u1 = UsdGenHash01(hSeedBary1 ^ curveId, kSaltScatterBary + 1u);
             float const u2 = UsdGenHash01(hSeedBary2 ^ curveId, kSaltScatterBary + 2u);
-            size_t ti = ntri - 1;
-            {
+            // Peeled quad pick (bit-identical): at ntri == 2 the loop
+            // computes ti = (target < triW[0]) ? 0 : 1 (ti starts at 1;
+            // t = 0 sets 0 or falls to t = 1, which sets 1 or leaves 1).
+            // Same comparisons in the same order, same ti, without the
+            // data-dependent trip count. Other fan sizes keep the loop.
+            double const target = double(u0) * areaRest;
+            size_t ti;
+            if (ntri == 2) {
+                ti = (target < double(triW[0])) ? 0 : 1;
+            } else {
+                ti = ntri - 1;
                 double cum = 0.0;
-                double const target = double(u0) * areaRest;
                 for (size_t t = 0; t < ntri; ++t) {
                     cum += double(triW[t]);
                     if (target < cum) { ti = t; break; }
@@ -971,10 +979,18 @@ bool UsdGenScatterOp::Capture(
             float const u0 = UsdGenHash01(hSeedBary0 ^ curveId, kSaltScatterBary);
             float const u1 = UsdGenHash01(hSeedBary1 ^ curveId, kSaltScatterBary + 1u);
             float const u2 = UsdGenHash01(hSeedBary2 ^ curveId, kSaltScatterBary + 2u);
-            size_t ti = ntri - 1;
-            {
+            // Peeled quad pick (bit-identical): at ntri == 2 the loop
+            // computes ti = (target < triW[0]) ? 0 : 1 (ti starts at 1;
+            // t = 0 sets 0 or falls to t = 1, which sets 1 or leaves 1).
+            // Same comparisons in the same order, same ti, without the
+            // data-dependent trip count. Other fan sizes keep the loop.
+            double const target = double(u0) * areaRest;
+            size_t ti;
+            if (ntri == 2) {
+                ti = (target < double(triW[0])) ? 0 : 1;
+            } else {
+                ti = ntri - 1;
                 double cum = 0.0;
-                double const target = double(u0) * areaRest;
                 for (size_t t = 0; t < ntri; ++t) {
                     cum += double(triW[t]);
                     if (target < cum) { ti = t; break; }
@@ -1444,50 +1460,90 @@ bool UsdGenScatterOp::Capture(
         (workers > 1 && N > 32768) ? std::min({size_t(workers), size_t(8), N})
                                    : 1;
     UsdGenWorkDispatcher *gatherDispatcher = ctx.dispatcher;
-    auto gather = [perm, N, gatherChunks, gatherDispatcher](auto &arr, auto const *src) {
+    auto gather = [perm, N](auto &arr, auto const *src) {
         using T = typename std::decay_t<decltype(arr)>::value_type;
         arr.clear();
-        arr.resize(N, [perm, src, gatherChunks, gatherDispatcher](T *b, T *e) {
-            if (gatherChunks == 1) {
-                size_t i = 0;
-                for (T *d = b; d != e; ++d, ++i)
-                    new (d) T(src[perm[i]]);
-                return;
-            }
-            size_t const M = size_t(e - b);
-            ScatterParallelFor(gatherDispatcher, gatherChunks, [&](size_t c) {
-                size_t const i0 = (c * M) / gatherChunks;
-                size_t const i1 = ((c + 1) * M) / gatherChunks;
-                for (size_t i = i0; i < i1; ++i)
-                    new (b + i) T(src[perm[i]]);
-            });
+        arr.resize(N, [perm, src](T *b, T *e) {
+            size_t i = 0;
+            for (T *d = b; d != e; ++d, ++i)
+                new (d) T(src[perm[i]]);
         });
     };
-    gather(buf.px, ax);
-    gather(buf.py, ay);
-    gather(buf.pz, az);
-    gather(buf.curveId, aids);
-    gather(buf.rootPrim, aPrim);
-    gather(buf.rootUV, aUv);
-    gather(buf.rootT, aT);
-    gather(buf.rootN, aN);
-    gather(buf.rootB, aB);
-    // Same chunking for the zero plane: clear + uninitialized resize with
-    // a zero filler (identical bytes to VtFloatArray(N, 0.0f)).
-    buf.hairT.clear();
-    buf.hairT.resize(N, [gatherChunks, gatherDispatcher](float *b, float *e) {
-        if (gatherChunks == 1) {
+    if (gatherChunks == 1) {
+        gather(buf.px, ax);
+        gather(buf.py, ay);
+        gather(buf.pz, az);
+        gather(buf.curveId, aids);
+        gather(buf.rootPrim, aPrim);
+        gather(buf.rootUV, aUv);
+        gather(buf.rootT, aT);
+        gather(buf.rootN, aN);
+        gather(buf.rootB, aB);
+        // Same chunking for the zero plane: clear + uninitialized resize
+        // with a zero filler (identical bytes to VtFloatArray(N, 0.0f)).
+        buf.hairT.clear();
+        buf.hairT.resize(N, [](float *b, float *e) {
             for (float *d = b; d != e; ++d)
                 new (d) float(0.0f);
-            return;
-        }
-        size_t const M = size_t(e - b);
-        ScatterParallelFor(gatherDispatcher, gatherChunks, [&](size_t c) {
-            size_t const i0 = (c * M) / gatherChunks;
-            size_t const i1 = ((c + 1) * M) / gatherChunks;
-            for (size_t i = i0; i < i1; ++i)
-                new (b + i) float(0.0f);
         });
+        return true;
+    }
+    // Fused parallel gather (bit-identical): the nine planes plus the zero
+    // plane share one dispatch instead of ten. Each worker gathers its own
+    // row range plane by plane (planes outer, rows inner), so the random
+    // window of each inner pass is still one plane, exactly as above; only
+    // the nine dispatches and barriers are gone, and each worker's perm
+    // chunk stays L2-hot across its ten inner passes. Every output slot is
+    // an independent function of shared-readonly inputs into a disjoint
+    // lane, so any chunking writes the same bytes.
+    auto sizeNoInit = [N](auto &arr) {
+        using T = typename std::decay_t<decltype(arr)>::value_type;
+        arr.clear();
+        arr.resize(N, [](T *b, T *e) {
+            (void)b;
+            (void)e;
+        });
+    };
+    sizeNoInit(buf.px);
+    sizeNoInit(buf.py);
+    sizeNoInit(buf.pz);
+    sizeNoInit(buf.curveId);
+    sizeNoInit(buf.rootPrim);
+    sizeNoInit(buf.rootUV);
+    sizeNoInit(buf.rootT);
+    sizeNoInit(buf.rootN);
+    sizeNoInit(buf.rootB);
+    sizeNoInit(buf.hairT);
+    float *dpx = buf.px.data(), *dpy = buf.py.data(), *dpz = buf.pz.data();
+    uint64_t *dids = buf.curveId.data();
+    int *dprim = buf.rootPrim.data();
+    GfVec2f *duv = buf.rootUV.data();
+    GfVec3f *dt = buf.rootT.data(), *dn = buf.rootN.data(),
+            *db = buf.rootB.data();
+    float *dh = buf.hairT.data();
+    ScatterParallelFor(gatherDispatcher, gatherChunks, [&](size_t c) {
+        size_t const i0 = (c * N) / gatherChunks;
+        size_t const i1 = ((c + 1) * N) / gatherChunks;
+        for (size_t i = i0; i < i1; ++i)
+            new (dpx + i) float(ax[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dpy + i) float(ay[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dpz + i) float(az[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dids + i) uint64_t(aids[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dprim + i) int(aPrim[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (duv + i) GfVec2f(aUv[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dt + i) GfVec3f(aT[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dn + i) GfVec3f(aN[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (db + i) GfVec3f(aB[perm[i]]);
+        for (size_t i = i0; i < i1; ++i)
+            new (dh + i) float(0.0f);
     });
     return true;
 }

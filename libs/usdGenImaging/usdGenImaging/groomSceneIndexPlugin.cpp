@@ -25,6 +25,8 @@
 #include "pxr/base/tf/refPtr.h"
 #include "pxr/imaging/hd/systemMessages.h"
 #include <tbb/flow_graph.h>
+#include <tbb/parallel_for.h>
+#include <tbb/task_group.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -657,6 +659,36 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
     usdGen::UsdGenExecutionSequenceWindow sequences;
     std::atomic<bool> closing{false};
     std::atomic<bool> quiesced{false};
+    // Retired visible snapshots awaiting destruction. The drain's `before`
+    // snapshot pins the previous frame's tiles, captures and scalp cap, so
+    // destroying it on the Hydra thread costs tens of ms of frees per drain
+    // (ss1m: ~17ms); ReleaseRetired runs that destruction on the TBB arena
+    // instead, where the cook workers sit idle this late in the frame. The
+    // bundle is self-contained (no _State back-references), so concurrent
+    // GetPrim readers holding the old snapshot stay correct by shared
+    // ownership whichever thread drops the last reference.
+    tbb::task_group releaser;
+    std::atomic<int> releaserPending{0};
+    void ReleaseRetired(std::shared_ptr<const Snapshot>&& retired) {
+        if (!retired || retired->members.empty()) return;
+        int const pending =
+            releaserPending.fetch_add(1, std::memory_order_acq_rel);
+        if (pending >= 2) {
+            // Releases are already two frames behind: destroy inline (the
+            // old cost) rather than letting retired frames pile up.
+            releaserPending.fetch_sub(1, std::memory_order_acq_rel);
+            return;
+        }
+        // task_group::run takes a const-callable, so the bundle rides in a
+        // copyable handle; resetting it drops the last drain reference.
+        auto bundle = std::make_shared<std::shared_ptr<const Snapshot>>(
+            std::move(retired));
+        releaser.run([this, bundle]() {
+            TRACE_SCOPE("usdGen drain: release retired");
+            bundle->reset();
+            releaserPending.fetch_sub(1, std::memory_order_acq_rel);
+        });
+    }
     std::atomic<bool> asyncAllowed{false};
     bool const progressiveRenderer;
     // An input notice that cannot enter the bounded owner immediately
@@ -716,7 +748,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         if (!closeTicket)
             throw std::runtime_error("usdGen groom owner requires command capacity for shutdown");
     }
-    ~_State() { if (owner) owner->Shutdown(); }
+    ~_State() { releaser.wait(); if (owner) owner->Shutdown(); }
     auto SnapshotValue() const { return std::atomic_load(&catalog); }
     auto VisibleSnapshot() const { return std::atomic_load(&visible); }
     std::shared_ptr<const Snapshot> PublishSnapshot() {
@@ -979,12 +1011,33 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
             TF_WARN("usdGen stock-Storm GPU-resident BasisCurves handoff is not implemented");
             return;
         }
+        // USDGEN_COMMIT: time the scene-index publish (tile + scalp data
+        // source assembly, outside the cook phases) the way the cooker times
+        // the cook itself. Zero cost when the code is off (one atomic load).
+        bool const timePublish = TfDebug::IsEnabled(USDGEN_COMMIT);
+        auto const publishStart = std::chrono::steady_clock::now();
         auto fresh = std::make_shared<TileMap>();
         const auto render = RenderPath(g->description);
+        // All-or-nothing namespace check, up front (was folded into the
+        // assembly loop): a stale tile discards the whole publication.
         for (auto const& tile : generation.tiles) {
             if (!tile.primPath.HasPrefix(render)) return; // old description namespace
-            fresh->emplace(tile.primPath,
-                ::usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tile, generation.id));
+        }
+        // Tile data sources are independent: assemble them on the TBB arena
+        // (the cook workers are idle this late in the frame), then emplace
+        // in tile order. TileMap is std::map, so iteration order — and the
+        // notices derived from it — are identical at any worker count.
+        std::vector<HdContainerDataSourceHandle> built(generation.tiles.size());
+        tbb::parallel_for(
+            tbb::blocked_range<size_t>(0, generation.tiles.size()),
+            [&](tbb::blocked_range<size_t> const& range) {
+                for (size_t i = range.begin(); i != range.end(); ++i) {
+                    built[i] = ::usdGenImaging::UsdGenTilePublisher::
+                        BuildTileDataSource(generation.tiles[i], generation.id);
+                }
+            });
+        for (size_t i = 0; i < generation.tiles.size(); ++i) {
+            fresh->emplace(generation.tiles[i].primPath, built[i]);
         }
         // The scalp-shadow cap lives beside the tiles, not in the TileMap:
         // it is a mesh, and the notice diff treats the two prim types
@@ -1030,6 +1083,14 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         g->scalpShadow = std::move(freshScalp);
         g->scalpDigest = freshScalpDigest;
         ProcessPublishes().fetch_add(1, std::memory_order_acq_rel);
+        if (timePublish) {
+            double const ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - publishStart).count();
+            TF_DEBUG(USDGEN_COMMIT).Msg(
+                "usdGen publish   %s gen %llu: %zu tiles + scalp in %.2f ms\n",
+                g->description.GetText(), (unsigned long long)generation.id,
+                generation.tiles.size(), ms);
+        }
         Notify(added, removed, dirtied);
     }
     void PublishProgress(std::shared_ptr<Groom> const& g,
@@ -1667,6 +1728,16 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                 std::shared_ptr<const _State::Snapshot>());
             if (target) {
                 TRACE_SCOPE("usdGen diff snapshot and notify Hydra");
+                // The notice lists outlive the diff scope: the notify scope
+                // below sends them.
+                Added added;
+                Removed removed;
+                Dirtied dirtied;
+                // Staged-out retired snapshot (see the move below): its
+                // destruction runs on the background releaser.
+                std::shared_ptr<const _State::Snapshot> retired;
+                {
+                TRACE_SCOPE("usdGen drain: diff snapshots");
                 auto before = _state->VisibleSnapshot();
                 struct Synthetic {
                     TfToken type;
@@ -1772,11 +1843,10 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                         }
                     }
                 };
+                { TRACE_SCOPE("usdGen drain: collect");
                 collect(before, beforeNames, beforeSynthetic);
                 collect(target, targetNames, targetSynthetic);
-                Added added;
-                Removed removed;
-                Dirtied dirtied;
+                }
                 std::set<SdfPath> removedPaths;
                 for (auto const& old : beforeNames) {
                     auto now = targetNames.find(old.first);
@@ -1795,6 +1865,85 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                         if (removedPaths.count(parent)) return true;
                     return false;
                 };
+                // Tile/scalp content diffs are pure (they read only immutable
+                // data-source handles) and dominate the drain on deform frames
+                // (tens of ms of VtArray compares while the cook workers sit
+                // idle), so run them on the TBB arena ahead of the serial
+                // notice merge. The gates below mirror the main loop's diff
+                // call conditions exactly; the loop looks each result up by
+                // prim path and falls back to the serial diff if a gate ever
+                // skews (same notices, just slower).
+                struct _PendingDiff {
+                    SdfPath path;
+                    HdDataSourceBaseHandle before, after;
+                };
+                std::vector<_PendingDiff> pendingDiffs;
+                std::vector<HdDataSourceLocatorSet> pendingResults;
+                { TRACE_SCOPE("usdGen drain: content diffs");
+                for (auto const& now : targetNames) {
+                    if (now.first == SdfPath::AbsoluteRootPath()) continue;
+                    auto old = beforeNames.find(now.first);
+                    if (old == beforeNames.end() || old->second != now.second ||
+                        removedPaths.count(now.first) || removedAncestor(now.first))
+                        continue;
+                    auto targetSource = target->source->find(now.first);
+                    auto beforeSource = before->source->find(now.first);
+                    if (targetSource != target->source->end() &&
+                        beforeSource != before->source->end())
+                        continue;
+                    auto const& a = beforeSynthetic[now.first];
+                    auto const& b = targetSynthetic[now.first];
+                    bool const sameRoot = a.rootId == b.rootId;
+                    HdContainerDataSourceHandle beforeTile, targetTile;
+                    if (sameRoot && b.type == TfToken("basisCurves") &&
+                        a.tiles && b.tiles) {
+                        auto ia = a.tiles->find(now.first);
+                        auto ib = b.tiles->find(now.first);
+                        if (ia != a.tiles->end() && ib != b.tiles->end()) {
+                            beforeTile = ia->second;
+                            targetTile = ib->second;
+                        }
+                    }
+                    if (beforeTile && targetTile) {
+                        if (beforeTile != targetTile)
+                            pendingDiffs.push_back(
+                                _PendingDiff{now.first, beforeTile, targetTile});
+                    } else if (b.type != TfToken("basisCurves")) {
+                        if (!sameRoot || a.lookDigest != b.lookDigest) {
+                            // Universal dirty below; no content diff.
+                        } else if (b.type == TfToken("mesh") &&
+                                   a.scalpDigest != b.scalpDigest) {
+                            pendingDiffs.push_back(
+                                _PendingDiff{now.first, a.scalp, b.scalp});
+                        }
+                    }
+                }
+                pendingResults.resize(pendingDiffs.size());
+                { TRACE_SCOPE("usdGen drain: content compare");
+                if (pendingDiffs.size() > 1) {
+                    tbb::parallel_for(
+                        tbb::blocked_range<size_t>(0, pendingDiffs.size()),
+                        [&](tbb::blocked_range<size_t> const& range) {
+                            for (size_t i = range.begin(); i != range.end(); ++i) {
+                                DiffTileDataSources(pendingDiffs[i].before,
+                                                    pendingDiffs[i].after,
+                                                    HdDataSourceLocator(),
+                                                    &pendingResults[i]);
+                            }
+                        });
+                } else if (pendingDiffs.size() == 1) {
+                    DiffTileDataSources(pendingDiffs[0].before,
+                                        pendingDiffs[0].after,
+                                        HdDataSourceLocator(),
+                                        &pendingResults[0]);
+                }
+                } /* drain: content compare */
+                } /* drain: content diffs */
+                { TRACE_SCOPE("usdGen drain: merge");
+                std::map<SdfPath, HdDataSourceLocatorSet> precomputedDiffs;
+                for (size_t i = 0; i < pendingDiffs.size(); ++i)
+                    precomputedDiffs.emplace(pendingDiffs[i].path,
+                                             std::move(pendingResults[i]));
                 for (auto const& now : targetNames) {
                     if (now.first == SdfPath::AbsoluteRootPath()) continue;
                     auto old = beforeNames.find(now.first);
@@ -1830,11 +1979,23 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                             // curves, re-interpolates) just the primvars that
                             // moved, not widths/hairT/colours that did not.
                             if (beforeTile != targetTile) {
-                                HdDataSourceLocatorSet changed;
-                                DiffTileDataSources(beforeTile, targetTile,
-                                                    HdDataSourceLocator(), &changed);
-                                if (!changed.IsEmpty())
-                                    dirtied.emplace_back(now.first, changed);
+                                auto const found =
+                                    precomputedDiffs.find(now.first);
+                                if (found != precomputedDiffs.end()) {
+                                    if (!found->second.IsEmpty())
+                                        dirtied.emplace_back(now.first,
+                                                             found->second);
+                                } else {
+                                    // Defensive: the pre-pass gates mirror
+                                    // these call conditions, so this only runs
+                                    // if they ever skew — same notices.
+                                    HdDataSourceLocatorSet changed;
+                                    DiffTileDataSources(beforeTile, targetTile,
+                                                        HdDataSourceLocator(),
+                                                        &changed);
+                                    if (!changed.IsEmpty())
+                                        dirtied.emplace_back(now.first, changed);
+                                }
                             }
                             if (a.descriptionStamp != b.descriptionStamp)
                                 dirtied.emplace_back(now.first,
@@ -1854,12 +2015,23 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                                 // groom deforms, so it is diffed like a tile
                                 // rather than dirtied universally: a universal
                                 // dirty here would cost a full mesh re-sync
-                                // every frame of playback.
-                                HdDataSourceLocatorSet changed;
-                                DiffTileDataSources(a.scalp, b.scalp,
-                                                    HdDataSourceLocator(), &changed);
-                                if (!changed.IsEmpty())
-                                    dirtied.emplace_back(now.first, changed);
+                                // every frame of playback. The diff ran on the
+                                // pre-pass workers; the serial call below is
+                                // the same skew-only fallback as the tiles'.
+                                auto const found =
+                                    precomputedDiffs.find(now.first);
+                                if (found != precomputedDiffs.end()) {
+                                    if (!found->second.IsEmpty())
+                                        dirtied.emplace_back(now.first,
+                                                             found->second);
+                                } else {
+                                    HdDataSourceLocatorSet changed;
+                                    DiffTileDataSources(a.scalp, b.scalp,
+                                                        HdDataSourceLocator(),
+                                                        &changed);
+                                    if (!changed.IsEmpty())
+                                        dirtied.emplace_back(now.first, changed);
+                                }
                             }
                         } else if (!sameRoot || a.generation != b.generation || a.tiles != b.tiles) {
                             dirtied.emplace_back(now.first, HdDataSourceLocatorSet::UniversalSet());
@@ -1922,12 +2094,26 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                     return a.primPath.GetPathElementCount() < b.primPath.GetPathElementCount();
                 });
                 std::atomic_store(&_state->visible, target);
+                } /* drain: merge */
+                // The retired visible snapshot pins the previous frame's
+                // tiles, captures and scalp cap; destroying it here costs
+                // tens of ms of main-thread frees, so stage it out for the
+                // background releaser. Everything else in this block either
+                // references the new snapshot (pinned by `visible` above, so
+                // only reference counts drop here) or is plain keys, and
+                // still dies here cheaply.
+                retired = std::move(before);
+                }
+                _state->ReleaseRetired(std::move(retired));
+                {
+                TRACE_SCOPE("usdGen drain: notify Hydra");
                 try { if (!removed.empty()) index->_SendPrimsRemoved(removed); }
                 catch (...) { TF_WARN("usdGen removal observer threw"); }
                 try { if (!added.empty()) index->_SendPrimsAdded(added); }
                 catch (...) { TF_WARN("usdGen addition observer threw"); }
                 try { if (!dirtied.empty()) index->_SendPrimsDirtied(dirtied); }
                 catch (...) { TF_WARN("usdGen dirty observer threw"); }
+                }
             }
             // An observer can synchronously cause another input ingress.  It
             // cannot wait recursively; its causal flush belongs to this outer
@@ -2133,23 +2319,27 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
                     RecordingInput recorder(_pruned);
                     ::usdGenImaging::UsdGenGraphDescBuildOptions options;
                     // Hydra samples are relative to the current stage frame:
-                    // keep offset zero, and gate reuse with the absolute
-                    // packet frame separately. Passing packet.frame as the
-                    // offset here would sample at twice the current frame.
-                    // A groom waking from dormancy slept through dirties
-                    // this packet does not carry, so it captures in full.
+                    // keep offset zero, and gate operator reuse with the
+                    // absolute packet frame separately. Passing packet.frame
+                    // as the offset here would sample at twice the current
+                    // frame. Geometry has no procedural time dependence, so
+                    // it reuses across frames while its prims stay clean. A
+                    // groom waking from dormancy slept through dirties this
+                    // packet does not carry, so it captures in full.
                     if (!packet.fullPopulation && known != catalog->members.end() &&
-                        !known->dormant && known->frame == packet.frame) {
-                        options.reuseNodes = true;
+                        !known->dormant && known->cache) {
                         options.previousCache = known->cache;
                         for (auto const& dirty : packet.dirtied)
                             options.dirtyPrimPaths.push_back(dirty.primPath);
+                        options.reuseGeometry = true;
+                        if (known->frame == packet.frame)
+                            options.reuseNodes = true;
                     }
                     auto const captureStart = std::chrono::steady_clock::now();
                     auto result = ::usdGenImaging::CaptureGraphDescFromHydra(
                         recorder, captured.description, options);
                     TF_DEBUG(USDGEN_INGRESS).Msg(
-                        "usdGen ingress   capture %s at frame %g: %.2f ms (%s, operator reuse %s)\n",
+                        "usdGen ingress   capture %s at frame %g: %.2f ms (%s, operator reuse %s, geometry reuse %s)\n",
                         captured.description.GetText(), packet.frame,
                         std::chrono::duration<double, std::milli>(
                             std::chrono::steady_clock::now() - captureStart).count(),
@@ -2158,7 +2348,12 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
                         known == catalog->members.end() ? "off: new groom" :
                         packet.fullPopulation ? "off: full population" :
                         known->dormant ? "off: waking from dormancy" :
-                        "off: the frame changed");
+                        "off: the frame changed",
+                        options.reuseGeometry ? "on" :
+                        known == catalog->members.end() ? "off: new groom" :
+                        packet.fullPopulation ? "off: full population" :
+                        known->dormant ? "off: waking from dormancy" :
+                        "off: no previous cache");
                     captured.desc = std::make_shared<const Desc>(std::move(result.desc));
                     // A CUDA graph always has renderer-local session identity,
                     // even though this plugin does not yet hand its device
@@ -2168,6 +2363,17 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
                         usdGen::UsdGenExecutionBackend::Cuda;
                     captured.cache = std::move(result.cache);
                     captured.dependencies = recorder.Dependencies(*captured.desc);
+                    if (!result.reusedInputs.empty()) {
+                        // Reused inputs bypass Hydra reads, so the recorder
+                        // never saw them; without this their next dirty
+                        // would not recapture the groom.
+                        auto merged = std::make_shared<SdfPathVector>(
+                            *captured.dependencies);
+                        merged->insert(merged->end(),
+                                       result.reusedInputs.begin(),
+                                       result.reusedInputs.end());
+                        captured.dependencies = std::move(merged);
+                    }
                     packet.inputs.push_back(std::move(captured));
                     continue; // never adopt nested roots under a groom
                 }

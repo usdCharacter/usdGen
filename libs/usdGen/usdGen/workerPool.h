@@ -8,9 +8,10 @@
 // the calling thread's lottery: the master joins the arena, so a master
 // parked on a slow core drags the span). The pool instead keeps one worker
 // per fast CPU parked on a generation counter: dispatch is one
-// release-store plus a wake, the master coordinates without computing, and
-// small claimed chunks keep a stacked or slow worker from setting the
-// wall the way a static split would. Workers spin generously (bench and
+// release-store plus a wake, the master claims chunks alongside the
+// workers instead of spinning for the join, and small claimed chunks keep
+// a stacked or slow worker from setting the wall the way a static split
+// would. Workers spin generously (bench and
 // frame gaps never sleep) and then block on a condition variable, so a
 // truly idle pool costs no power while hot loops never touch the wake
 // path.

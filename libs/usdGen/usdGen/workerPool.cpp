@@ -247,6 +247,25 @@ void UsdGenWorkerPool::ParallelFor(size_t count, void (*body)(size_t, void *),
         _state->epoch.fetch_add(1, std::memory_order_release);  // idle even -> work odd
     }
     _state->wake.notify_all();  // no-op for spinning workers, wakes sleepers
+    // The master claims chunks itself instead of spinning for the join: it
+    // is scheduled during the region anyway (one floating thread over the
+    // pinned workers), so its quanta do useful work rather than pure
+    // yield-spin. Same queue, same chunk, same exception recording as a
+    // worker; the finished/observed protocol below is untouched, so joins,
+    // sleeps, and wakeups behave exactly as before.
+    try {
+        size_t const step = _state->chunk;
+        for (;;) {
+            size_t const lo =
+                _state->next.fetch_add(step, std::memory_order_relaxed);
+            if (lo >= count) break;
+            size_t const hi = std::min(lo + step, count);
+            for (size_t i = lo; i < hi; ++i) body(i, payload);
+        }
+    } catch (...) {
+        std::lock_guard<std::mutex> errors(_state->errorMutex);
+        if (!_state->firstError) _state->firstError = std::current_exception();
+    }
     for (unsigned spin = 0;
          _state->finished.load(std::memory_order_acquire) !=
          unsigned(_state->workers);

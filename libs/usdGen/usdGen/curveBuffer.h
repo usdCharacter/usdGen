@@ -559,6 +559,17 @@ struct UsdGenScalpShadowPublication
     // Content identity: the scene index dirties the prim when this changes and
     // shares the previous immutable arrays when it does not.
     uint64_t      digest = 0;
+    // Carry identity for the rebuild path (furOcclusion.cpp): when the bake
+    // rebuilds, the merged topology is a pure function of (topologyKey,
+    // tessLevel), the normals add (occluderKey, inward), and the points add
+    // lift. Matching keys let the build share the seeded previous cap's
+    // arrays instead of merging fresh ones; every carry is size-checked and
+    // fails closed. Internal equality-only, like digest: never golden.
+    uint64_t      topologyKey = 0;
+    uint64_t      occluderKey = 0;
+    float         lift = 0.0f;
+    float         inward = 0.0f;
+    int           tessLevel = 0;
 
     bool IsEmpty() const { return points.empty() || faceVertexIndices.empty(); }
 };

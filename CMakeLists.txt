@@ -1539,6 +1539,11 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanScatterGrowPipeline PROPERTIES
         LABELS "T1;vulkan;operators;scatterGrow" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+    add_executable(testUsdGenVulkanScatterGrowCpuReject tests/testUsdGenVulkanScatterGrowCpuReject.cpp)
+    target_link_libraries(testUsdGenVulkanScatterGrowCpuReject PRIVATE usdGenVulkanNative)
+    add_test(NAME testUsdGenVulkanScatterGrowCpuReject COMMAND testUsdGenVulkanScatterGrowCpuReject)
+    set_tests_properties(testUsdGenVulkanScatterGrowCpuReject PROPERTIES
+        LABELS "T0;vulkan;operators;scatterGrowCpuReject" TIMEOUT 60)
     add_executable(testUsdGenVulkanRootFrames tests/testUsdGenVulkanRootFrames.cpp
         "${_usdgen_vulkan_rfval_spv}" "${_usdgen_vulkan_rfbuild_spv}")
     target_link_libraries(testUsdGenVulkanRootFrames PRIVATE usdGenVulkanNative)
@@ -2324,6 +2329,12 @@ if(USDGEN_ENABLE_CUDA)
     add_test(NAME testUsdGenCudaScatterGrowValidate COMMAND testUsdGenCudaScatterGrowValidate)
     set_tests_properties(testUsdGenCudaScatterGrowValidate PROPERTIES
         LABELS "T0;cuda;scatter-grow;validate" TIMEOUT 120)
+    add_executable(testUsdGenCudaScatterGrowOverlap tests/testUsdGenCudaScatterGrowOverlap.cpp)
+    target_link_libraries(testUsdGenCudaScatterGrowOverlap PRIVATE usdGen usdGenGpu)
+    add_test(NAME testUsdGenCudaScatterGrowOverlap COMMAND testUsdGenCudaScatterGrowOverlap)
+    set_tests_properties(testUsdGenCudaScatterGrowOverlap PROPERTIES
+        LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaScatterInput tests/testUsdGenCudaScatterInput.cpp)
     add_executable(testUsdGenCudaScatterGrowSession tests/testUsdGenCudaScatterGrowSession.cpp)
     add_executable(testUsdGenCudaScatterGrowWidthDag tests/testUsdGenCudaScatterGrowWidthDag.cpp)
@@ -2832,7 +2843,8 @@ foreach(_t testUsdGenGraph testUsdGenKernelDeterminism testUsdGenWidth
            testUsdGenCpuCurveSource testUsdGenLengthRaggedLayout testUsdGenSurfaceRootFrames
            testUsdGenSurfaceRootBindings testUsdGenSurfaceRootBindingBoundaries
            testUsdGenSurfaceBindingCache testUsdGenScatterDensity testUsdGenLimitScatter
-           testUsdGenScatterTwoPass)
+           testUsdGenScatterTwoPass testUsdGenScatterSortSkips
+           testUsdGenScatterDegenerateFan testUsdGenScatterTwoPassMult)
     add_executable(${_t} tests/${_t}.cpp)
     target_link_libraries(${_t} PRIVATE usdGenTestUtils)
     add_test(NAME ${_t} COMMAND ${_t})
@@ -2853,6 +2865,12 @@ set_tests_properties(testUsdGenSurfaceBindingCache PROPERTIES LABELS "T0;sources
 set_tests_properties(testUsdGenScatterDensity PROPERTIES LABELS "T0;sources;scatter;density")
 set_tests_properties(testUsdGenScatterTwoPass PROPERTIES LABELS "T0;sources;scatter;twopass")
 target_link_libraries(testUsdGenScatterTwoPass PRIVATE usdGenMath)
+set_tests_properties(testUsdGenScatterSortSkips PROPERTIES LABELS "T0;sources;scatter;sortskips")
+target_link_libraries(testUsdGenScatterSortSkips PRIVATE usdGenMath)
+set_tests_properties(testUsdGenScatterDegenerateFan PROPERTIES LABELS "T0;sources;scatter;degenfan")
+target_link_libraries(testUsdGenScatterDegenerateFan PRIVATE usdGenMath)
+set_tests_properties(testUsdGenScatterTwoPassMult PROPERTIES LABELS "T0;sources;scatter;twopassmult")
+target_link_libraries(testUsdGenScatterTwoPassMult PRIVATE usdGenMath)
 
 # M1 T0 perf benches (E-1/E-7 via --threads; E-2 sparse; carried in from
 # prototypes/data-plane-benchmark, 11 §2.2).
@@ -2898,6 +2916,12 @@ add_test(NAME benchUsdGenSurfaceBindings COMMAND benchUsdGenSurfaceBindings)
 set_tests_properties(benchUsdGenSurfaceBindings PROPERTIES
     LABELS "T0;perf;sources;root-bindings;cache"
     TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+add_executable(benchUsdGenHairCollide tests/perf/benchUsdGenHairCollide.cpp)
+target_link_libraries(benchUsdGenHairCollide PRIVATE usdGenTestUtils)
+add_test(NAME benchUsdGenHairCollide COMMAND benchUsdGenHairCollide --quick)
+set_tests_properties(benchUsdGenHairCollide PROPERTIES
+    LABELS "T0;perf;collide"
+    TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 
 # Instancing/scattering per-stage timing + checksums (autoresearch
 # instscatter). GPU stages compile in only when their backend does, and skip
@@ -2925,9 +2949,9 @@ foreach(_t testUsdGenTileContract testUsdGenStockStormContract testUsdGenInvalid
            testUsdGenSnapshotRace testUsdGenPopulation testUsdGenAdapter testUsdGenScenePublication
            testUsdGenRestAdapter testUsdGenCurveRestAdapter testUsdGenContracts
            testUsdGenExpressionPrimConnection testUsdGenViewportOverlay testUsdGenFurOcclusion
-           testUsdGenSourceColor testUsdGenLookPrimvars
+           testUsdGenSourceColor testUsdGenLookPrimvars testUsdGenTileReuse
            testUsdGenInstance testUsdGenReferenceSource testUsdGenPaintLengthRecook
-           testUsdGenDormantGroom)
+           testUsdGenDormantGroom testUsdGenTauPrimvars)
     add_executable(${_t} tests/${_t}.cpp)
     target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
     add_test(NAME ${_t} COMMAND ${_t})
@@ -2941,6 +2965,7 @@ set_tests_properties(testUsdGenFurOcclusion PROPERTIES LABELS "T1;fur;shadows")
 set_tests_properties(testUsdGenSourceColor PROPERTIES LABELS "T1;look;sources")
 set_tests_properties(testUsdGenReferenceSource PROPERTIES LABELS "T1;sources;reference")
 set_tests_properties(testUsdGenLookPrimvars PROPERTIES LABELS "T1;look;primvars")
+set_tests_properties(testUsdGenTileReuse PROPERTIES LABELS "T1;scheduling;tiles")
 set_tests_properties(testUsdGenPaintLengthRecook PROPERTIES
     LABELS "T1;imaging;paint;brush" TIMEOUT 120)
 set_tests_properties(testUsdGenScenePublication PROPERTIES
@@ -2948,6 +2973,7 @@ set_tests_properties(testUsdGenScenePublication PROPERTIES
 set_tests_properties(testUsdGenDormantGroom PROPERTIES
     LABELS "T1;scheduling;imaging;scene-owner" TIMEOUT 60)
 set_tests_properties(testUsdGenInvalidation PROPERTIES LABELS "T1;gate:SI-2")
+set_tests_properties(testUsdGenTauPrimvars PROPERTIES LABELS "T1;imaging;primvars")
 
 add_test(NAME testUsdGenUnpatchedOpenUsd
     COMMAND ${CMAKE_COMMAND}
@@ -4268,6 +4294,40 @@ set_tests_properties(benchUsdGenStorm PROPERTIES
     LABELS "T2;perf;gate:S-1;gate:S-5;gate:S-6;gate:S-12"
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" ENVIRONMENT "HD_ENABLE_PERFLOG=1" SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 
+# Shader/viewport/render benchmark (benchUsdGenShaderRender): per-config
+# cold first frame, CPU submission, total frame, and color-AOV checksum on
+# the usd/fixtures/{sr,ss,gr,gs}{1m,10m}.usda matrix (stdlib-only
+# make_shader_scenes.py; gitignored outputs like G1-G5). The ctest entry
+# exercises the small sr010k scene briefly as a smoke gate; full-matrix
+# numbers come from direct bench runs, never ctest.
+if(NOT WIN32)
+    add_executable(benchUsdGenShaderRender tests/perf/benchUsdGenShaderRender.cpp)
+    target_link_libraries(benchUsdGenShaderRender PRIVATE usdGenTestUtilsHd)
+    target_include_directories(benchUsdGenShaderRender PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test)
+endif()
+usdgen_add_unix_only_test(benchUsdGenShaderRender benchUsdGenShaderRender
+    --scene ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/sr010k.usda
+    --deform --refine 2 --frames 2 --warmup 1 --repeats 1 --res 640x360)
+set_tests_properties(benchUsdGenShaderRender PROPERTIES
+    LABELS "T2;perf"
+    ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+
+# The bench must draw a non-empty frame: it once skipped SetFraming (empty
+# data window) and rooted the render at the Groom prim (excluding the
+# Key/Fill lights), so every checksum verified a single artifact pixel.
+# Renders sr010k once via --dump-ppm and fails on a (near-)clear frame.
+# Skips (77) without the bench binary or a headless EGL context.
+usdgen_add_unix_only_test(testUsdGenShaderBenchFrame "${_usdgen_test_python}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/checks/check_shader_bench_frame.py"
+    "$<TARGET_FILE:benchUsdGenShaderRender>"
+    "${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/sr010k.usda")
+set_tests_properties(testUsdGenShaderBenchFrame PROPERTIES
+    LABELS "T2;perf" TIMEOUT 300
+    ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}"
+    FAIL_REGULAR_EXPRESSION "FAIL:|Traceback"
+    SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+
 # Groom fixtures G1-G5 (S-1/S-5/S-6/S-12/E-5 scenes): pure-text output of
 # usd/fixtures/make_fixtures.py (stdlib only, no pxr), so T2 stays
 # self-contained wherever python3 exists. Regeneration is byte-identical
@@ -4282,6 +4342,17 @@ if(NOT WIN32)
     add_custom_target(usdGenFixtures ALL
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/g3_head100k.usda)
     add_dependencies(benchUsdGenStorm usdGenFixtures)
+    # Small shader/render matrix (010k/100k; the full 1m/10m scenes are a
+    # manual `make_shader_scenes.py` run, never a default-build artifact).
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/sr010k.usda
+        COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/make_shader_scenes.py --small
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/make_shader_scenes.py
+        COMMENT "Generating usdGen shader/render small scenes (gitignored)"
+        VERBATIM)
+    add_custom_target(usdGenShaderScenes ALL
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/sr010k.usda)
+    add_dependencies(benchUsdGenShaderRender usdGenShaderScenes)
 endif()
 
 # N-4 (09 §5.3/§5.4, 10 §5.6 + §6.5): the remaining M1 Storm decision gates.

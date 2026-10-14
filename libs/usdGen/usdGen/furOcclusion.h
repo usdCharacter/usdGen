@@ -3,6 +3,10 @@
 
 #include "usdGen/curveBuffer.h"
 
+#include <array>
+#include <cstdint>
+#include <vector>
+
 namespace usdGen {
 class UsdGenWorkDispatcher;
 
@@ -21,6 +25,115 @@ struct UsdGenFurOccluder
     GfMatrix4d   worldMatrix{1.0};
 };
 
+/// One world-space occluder triangle. The direction that points into the
+/// solid is resolved once for the whole mesh set. The corner ids index a
+/// per-bake vertex array, which is what lets the scalp cap carry smooth
+/// normals: a face normal would band the shadow along every edge of the
+/// scalp mesh.
+struct UsdGenFurOccluderTriangle
+{
+    GfVec3f a, b, c, normal;
+    uint32_t ia, ib, ic;
+};
+
+/// Caller-owned reuse for the world-space occluder mesh (the fan
+/// triangulation plus area-weighted vertex normals and their vertices).
+/// A deform timeline
+/// re-cooks every frame while its emitting surfaces sit still, so the mesh
+/// is identical cook to cook; the bake keys it on the occluder bytes alone
+/// and skips the rebuild on a match. Like `volumeKey`, this is live in
+/// exactly one cook at a time and is never shared between sessions.
+struct UsdGenFurOccluderBuild
+{
+    uint64_t key = 0;
+    bool valid = false;
+    std::vector<UsdGenFurOccluderTriangle> triangles;
+    // World-space vertices, carried across rebuilds for their capacity: a
+    // deforming surface moves its points every cook but never their count,
+    // so the steady-state rebuild overwrites these in place with no resize
+    // and no re-fault. Build-only temporaries (every later stage reads the
+    // triangles); sized exactly after each rebuild.
+    std::vector<GfVec3f> vertices;
+    std::vector<GfVec3f> vertexNormals;
+    // Max edge length per triangle, filled by the same build: the k/n slits
+    // in the edges, vote, and shell loops read this instead of recomputing
+    // three lengths per triangle per cook. Same floats the recomputation
+    // yields (max selects, never rounds); valid whenever the mesh is.
+    std::vector<float> extents;
+    // Memoized occluder-byte digest (the occluderKey the volume key folds
+    // and the mesh carry compares): the occluder arrays are VtArray CoW
+    // shares of the emitting surfaces, so equal (size, cdata) is equal
+    // content and the multi-megabyte rehash is skipped. Same rule as
+    // opUtil::ContentDigestCache, and holding the shares is what keeps it
+    // sound: a caller's mutating subscript detaches (new cdata, a miss),
+    // so in-place content changes under a live share cannot happen. The
+    // digest feeds equality-only keys, never goldens.
+    std::vector<UsdGenFurOccluder> digestArrays;
+    uint64_t digest = 0;
+    bool digestValid = false;
+    // Cached fan-triangulation index triples, one entry per occluder
+    // ordinal: a deforming surface moves its points every cook but never
+    // its topology, so the fan expansion and its validation run once and
+    // later rebuilds emit triangles straight from the triples (the
+    // degenerate skip still re-evaluates per cook: it reads positions).
+    // Keyed on (size, cdata) of the counts/indices shares plus the point
+    // count, and the entry holds those shares (same CoW rule as digest:
+    // a mutating subscript detaches, so content under a live share is
+    // immutable and an address can never alias different content).
+    struct TopoEntry {
+        VtIntArray counts, indices;
+        size_t pointsSize = 0;
+        struct Tri { uint32_t a, b, c; };
+        std::vector<Tri> fan;
+        bool valid = false;
+    };
+    std::vector<TopoEntry> topo;
+};
+
+/// Caller-owned scratch for the scalp-shadow cap build: the per-chunk
+/// outputs, carried across cooks so a deform timeline reuses their capacity
+/// instead of re-faulting hundreds of megabytes of fresh pages every frame.
+/// Never published (the merged cap arrays are still built fresh every bake),
+/// and live in exactly one cook at a time like `volumeKey`.
+struct UsdGenScalpShadowScratch
+{
+    struct Chunk {
+        VtVec3fArray points, normals;
+        VtFloatArray tauP, tauN;
+        VtIntArray counts, indices;
+    };
+    std::vector<Chunk> chunks;
+};
+
+/// One splat job's contribution to the density grid, over the sub-box of
+/// cells its samples touch. Lives here (rather than next to the splat) so a
+/// caller-owned bake scratch can carry the sub-box storage across cooks.
+struct UsdGenSplatJobDensity
+{
+    int lo[3] = {0, 0, 0}, dims[3] = {0, 0, 0};
+    std::vector<GfVec3f> density;
+};
+
+/// Caller-owned scratch for the volume bake's temporaries: the six sweep
+/// planes, the interleaved fixed-point depths, the splat density grid, the
+/// per-job splat sub-boxes, and the opaque-shell masks. A deform timeline
+/// re-cooks every frame at (nearly) the same grid size, so carrying these
+/// reuses tens of megabytes of already-faulted storage instead of
+/// re-zeroing fresh pages per cook; the sweep, interleave, and merged-mask
+/// fills overwrite every element, so carried planes skip the fill entirely.
+/// Never published, and live in exactly one cook at a time like `volumeKey`.
+struct UsdGenFurBakeScratch
+{
+    std::array<std::vector<float>,6> tau;
+    std::vector<uint16_t> depths;
+    std::vector<GfVec3f> density;
+    std::vector<float> mask;
+    std::vector<std::vector<float>> chunkMasks;
+    // Appended last: tools link the bake across the libusdGen boundary, so
+    // new carried temporaries go at the end, keeping earlier offsets stable.
+    std::vector<UsdGenSplatJobDensity> jobDensity;
+};
+
 struct UsdGenFurOcclusionParams
 {
     /// Opaque blockers, normally the groom's emitting surfaces. Only the part
@@ -28,6 +141,9 @@ struct UsdGenFurOcclusionParams
     /// never grown to fit an occluder, so a ground plane cannot destroy the
     /// resolution of a head.
     std::vector<UsdGenFurOccluder> occluders;
+
+    /// Optional reuse for the world-space occluder mesh (see above). Null
+    /// keeps the historical behaviour of rebuilding it every bake.
 
     /// Target voxel edge in world units when `resolution` is 0. A host renderer uses
     /// 0.3 cm (`Voxelization.Virtual.VoxelWorldSize`) and this scene
@@ -60,6 +176,20 @@ struct UsdGenFurOcclusionParams
     /// With a dispatcher, tiles are splatted and gathered in parallel on its
     /// arena and the occluder shell is marked in parallel slabs.
     UsdGenWorkDispatcher* dispatcher = nullptr;
+
+    /// Caller-owned occluder-mesh reuse (see UsdGenFurOccluderBuild). The
+    /// bake reads and writes it; the caller must not touch it mid-cook.
+    UsdGenFurOccluderBuild* occluderCache = nullptr;
+
+    /// Caller-owned cap-build scratch (see UsdGenScalpShadowScratch). Null
+    /// keeps the historical behaviour of allocating the chunk outputs fresh
+    /// every bake.
+    UsdGenScalpShadowScratch* scalpScratch = nullptr;
+
+    /// Caller-owned volume-bake scratch (see UsdGenFurBakeScratch). Null
+    /// keeps the historical behaviour of allocating the sweep, density,
+    /// and shell temporaries fresh every bake.
+    UsdGenFurBakeScratch* bakeScratch = nullptr;
 };
 
 /// Bakes geometry-derived directional optical depth for a whole groom.

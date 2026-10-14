@@ -1,5 +1,6 @@
 #include "usdGen/furOcclusion.h"
 #include "usdGen/generationStore.h"
+#include "usdGen/scheduler.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
 #include "pxr/base/gf/rotation.h"
 #include "pxr/imaging/hd/primvarsSchema.h"
@@ -207,6 +208,39 @@ int main() try {
     tiles[0].points[0][0]=std::numeric_limits<float>::quiet_NaN();
     bool rejected=false;try { UsdGenBuildFurOcclusion(&tiles); } catch(std::invalid_argument const&) {rejected=true;}
     Require(rejected,"reject nonfinite geometry");
+    {   // Diff extras verdict is buffer-identity, never content (r49): two
+        // independent bakes of identical geometry hold bitwise-identical tau
+        // values in FRESH buffers, and Diff must report them dirty
+        // (conservative: re-upload identical bytes -- Storm re-uploads every
+        // non-points primvar on any primvar dirty anyway, so identical
+        // recomputes, which always co-dirty displayColor or the topology,
+        // cost zero extra traffic). Shared-buffer carries stay clean.
+        std::vector<UsdGenTilePublication> left{Make(0,0,1),Make(1,0.2f,400)};
+        std::vector<UsdGenTilePublication> right{Make(0,0,1),Make(1,0.2f,400)};
+        Require(UsdGenBuildFurOcclusion(&left),"left bake");
+        Require(UsdGenBuildFurOcclusion(&right),"right bake");
+        for(size_t t=0;t<left.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            VtFloatArray const& a=Plane(left[t],name).f;
+            VtFloatArray const& b=Plane(right[t],name).f;
+            Require(a.size()==b.size(),"recompute preserves tau cardinality");
+            for(size_t i=0;i<a.size();++i)
+                Require(a[i]==b[i],"recompute preserves tau values");
+            Require(!a.IsIdentical(b),"recompute takes fresh buffers");
+        }
+        UsdGenGeneration gL,gR,gS; gL.tiles=left; gR.tiles=right; gS.tiles=left;
+        auto rep=UsdGenGenerationStore().Diff(gL,gR);
+        for(size_t t=0;t<rep.tiles.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            auto const& dirty=rep.tiles[t].dirtyPrimvars;
+            Require(std::find(dirty.begin(),dirty.end(),TfToken(name))!=dirty.end(),
+                    "fresh-buffer recompute dirties receiver optical depth");
+        }
+        auto rep2=UsdGenGenerationStore().Diff(gL,gS);
+        for(size_t t=0;t<rep2.tiles.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            auto const& dirty=rep2.tiles[t].dirtyPrimvars;
+            Require(std::find(dirty.begin(),dirty.end(),TfToken(name))==dirty.end(),
+                    "shared-buffer extras stay clean");
+        }
+    }
 
     // ---- hair count calibration --------------------------------------------
     // N layers of parallel fibres of width w spaced s apart must read exactly
@@ -303,6 +337,347 @@ int main() try {
         Require(UsdGenBuildFurOcclusion(&live,&before,some,&volumeKey),
                 "adding an occluder rebuilds the volume");
         Require(Tau(live[1],"furTauP",0)[1]>0.75f*UsdGenFurTauClamp,"rebuild used the occluder");
+    }
+
+    // ---- occluder-mesh reuse across cooks -----------------------------------
+    // The world-space mesh is keyed on the occluder bytes alone: moving the
+    // hair reuses it bit-for-bit (including the scalp cap, which reads the
+    // cached normals), while editing the occluder rebuilds it.
+    {
+        auto checkSame = [&](std::vector<UsdGenTilePublication> const& got,
+                             std::vector<UsdGenTilePublication> const& want,
+                             UsdGenScalpShadowPublication const& gotShadow,
+                             UsdGenScalpShadowPublication const& wantShadow,
+                             char const* msg) {
+            Require(got.size()==want.size(),msg);
+            for(size_t t=0;t<got.size();++t) for(auto name:{"furTauP","furTauN"}) {
+                auto const& g=Plane(got[t],name).f, &w=Plane(want[t],name).f;
+                Require(g.size()==w.size(),msg);
+                for(size_t i=0;i<g.size();++i) Require(g[i]==w[i],msg);
+            }
+            Require(gotShadow.digest==wantShadow.digest,msg);
+            Require(gotShadow.points.size()==wantShadow.points.size(),msg);
+            for(size_t i=0;i<gotShadow.points.size();++i) {
+                Require(gotShadow.points[i]==wantShadow.points[i],msg);
+                Require(gotShadow.normals[i]==wantShadow.normals[i],msg);
+            }
+            Require(gotShadow.faceVertexCounts==wantShadow.faceVertexCounts,msg);
+            Require(gotShadow.faceVertexIndices==wantShadow.faceVertexIndices,msg);
+            for(auto name:{"furTauP","furTauN"}) {
+                auto const& g=Plane(gotShadow.extraUniform,name).f;
+                auto const& w=Plane(wantShadow.extraUniform,name).f;
+                Require(g.size()==w.size(),msg);
+                for(size_t i=0;i<g.size();++i) Require(g[i]==w[i],msg);
+            }
+        };
+        UsdGenFurOcclusionParams params;
+        params.occluders.push_back(Quad(0.f,0.2f,false));
+        params.scalpShadow=true;
+        UsdGenFurOccluderBuild cache;
+        params.occluderCache=&cache;
+        // The same bakes also reuse the cap-build scratch below: every
+        // comparison after the first runs on retained chunk capacity.
+        UsdGenScalpShadowScratch scratch;
+        params.scalpScratch=&scratch;
+        // And the volume-bake temporaries: the moved/edited bakes below run
+        // on retained sweep/density/shell capacity at changed grid sizes.
+        UsdGenFurBakeScratch bake;
+        params.bakeScratch=&bake;
+        std::vector<UsdGenTilePublication> live{
+            Make(0,-0.1f,400), Probe(1,GfVec3f(0,-0.3f,0),GfVec3f(0,-0.25f,0))};
+        UsdGenScalpShadowPublication first;
+        Require(UsdGenBuildFurOcclusion(&live,nullptr,params,nullptr,&first),
+                "first cached bake");
+        Require(cache.valid,"a miss publishes the mesh");
+        Require(!cache.triangles.empty(),"the cache holds the triangulation");
+        // Move the hair: the volume rebakes, the mesh reuses.
+        auto moved=live;
+        moved[0].xformMatrix.SetTranslate(GfVec3d(0.05,0,0));
+        UsdGenFurOcclusionParams bare=params;
+        bare.occluderCache=nullptr;
+        bare.scalpScratch=nullptr;
+        bare.bakeScratch=nullptr;
+        auto expect=moved;
+        UsdGenScalpShadowPublication expectShadow;
+        Require(UsdGenBuildFurOcclusion(&expect,nullptr,bare,nullptr,&expectShadow),
+                "uncached reference bake");
+        UsdGenScalpShadowPublication hit;
+        Require(UsdGenBuildFurOcclusion(&moved,nullptr,params,nullptr,&hit),
+                "moved hair rebakes through the cache");
+        checkSame(moved,expect,hit,expectShadow,"cache hit is bit-identical");
+        // Edit the occluder: the mesh rebuilds and still matches no-cache.
+        uint64_t const before=cache.key;
+        params.occluders[0].points[0][1]+=0.01f;
+        bare.occluders=params.occluders;
+        auto edited=moved;
+        UsdGenScalpShadowPublication editedShadow;
+        Require(UsdGenBuildFurOcclusion(&edited,nullptr,params,nullptr,&editedShadow),
+                "occluder edit rebakes through the cache");
+        Require(cache.key!=before,"an occluder edit re-keys the mesh");
+        auto expectEdited=moved;
+        UsdGenScalpShadowPublication expectEditedShadow;
+        Require(UsdGenBuildFurOcclusion(&expectEdited,nullptr,bare,nullptr,
+                                       &expectEditedShadow),
+                "edited uncached reference bake");
+        checkSame(edited,expectEdited,editedShadow,expectEditedShadow,
+                  "occluder edit rebuilds bit-identically");
+        // Bake once more unchanged: the memoized occluder digest holds the
+        // mesh key stable (a hit returns exactly the recomputed value).
+        uint64_t const afterEdit=cache.key;
+        auto still=edited;
+        UsdGenScalpShadowPublication stillShadow;
+        Require(UsdGenBuildFurOcclusion(&still,nullptr,params,nullptr,
+                                       &stillShadow),
+                "repeat bake through the cache");
+        Require(cache.key==afterEdit,"an unchanged rebake holds the mesh key");
+        checkSame(still,expectEdited,stillShadow,expectEditedShadow,
+                  "the repeat bake matches bit-identically");
+        // Retopologize one tile to degenerate (zero-CV) curves through the
+        // same scratch: its jobs now carry no CVs, so the splat clears
+        // their retained sub-boxes instead of merging them. Without the
+        // clear the stale boxes corrupt the rebake.
+        std::vector<UsdGenTilePublication> retopo{
+            Make(0,-0.1f,400), Make(1,0.2f,400)};
+        UsdGenScalpShadowPublication retopoSeedShadow;
+        Require(UsdGenBuildFurOcclusion(&retopo,nullptr,params,nullptr,
+                                       &retopoSeedShadow),
+                "seed bake populates the carried sub-boxes");
+        retopo[1].points.clear();
+        retopo[1].curveVertexCounts.clear();
+        for(int i=0;i<400;++i) retopo[1].curveVertexCounts.push_back(0);
+        auto expectRetopo = retopo;
+        UsdGenScalpShadowPublication retopoShadow, expectRetopoShadow;
+        Require(UsdGenBuildFurOcclusion(&expectRetopo,nullptr,bare,nullptr,
+                                       &expectRetopoShadow),
+                "retopologized uncached reference bake");
+        Require(UsdGenBuildFurOcclusion(&retopo,nullptr,params,nullptr,
+                                       &retopoShadow),
+                "retopologized bake through retained sub-boxes");
+        checkSame(retopo,expectRetopo,retopoShadow,expectRetopoShadow,
+                  "cleared sub-boxes match the uncached bake");
+    }
+
+    // ---- scalp-cap array carry across deform frames -------------------------
+    // A rebuild with the same lit set and occluder shares the seeded cap's
+    // topology (and the normals/points when their own inputs match) instead
+    // of merging them fresh; the depths always rebake. Every carry below is
+    // also checked bit-for-bit against an unseeded reference bake.
+    {
+        auto capSame = [&](UsdGenScalpShadowPublication const& got,
+                           UsdGenScalpShadowPublication const& want,
+                           char const* msg) {
+            Require(got.IsEmpty()==want.IsEmpty(),msg);
+            Require(got.digest==want.digest,msg);
+            Require(got.points==want.points,msg);
+            Require(got.normals==want.normals,msg);
+            Require(got.faceVertexCounts==want.faceVertexCounts,msg);
+            Require(got.faceVertexIndices==want.faceVertexIndices,msg);
+            Require(got.topologyKey==want.topologyKey,msg);
+            Require(got.occluderKey==want.occluderKey,msg);
+            Require(got.lift==want.lift && got.inward==want.inward,msg);
+            Require(got.tessLevel==want.tessLevel,msg);
+            // An emptied cap publishes no prim, so the bake leaves the
+            // seeded extent and depth planes as they were; only compare
+            // them when the cap is non-empty.
+            if (!got.points.empty()) {
+                Require(got.extentMin==want.extentMin &&
+                        got.extentMax==want.extentMax,msg);
+                for(auto name:{"furTauP","furTauN"})
+                    Require(Plane(got.extraUniform,name).f==
+                            Plane(want.extraUniform,name).f,msg);
+            }
+        };
+        // A micro-quad buried in dense hair, like a benchmark scalp patch:
+        // every triangle is deeply lit, so small moves hold the full set.
+        // The far zero-width probe stretches the span without adding
+        // density; moving it drifts the grid (and the lift) while the
+        // coverage over the quad stays far above the floor.
+        GfVec3f const probeAt(1.5f,0.f,0.f);
+        std::vector<UsdGenTilePublication> live{
+            Comb(0,-0.3f,1200,0.3f), Probe(1,probeAt,probeAt+GfVec3f(0,0.01f,0))};
+        UsdGenFurOcclusionParams params;
+        params.occluders.push_back(Quad(0.f,0.01f,false));
+        params.scalpShadow=true;
+        UsdGenFurOccluderBuild cache;
+        params.occluderCache=&cache;
+        UsdGenScalpShadowScratch scratch;
+        params.scalpScratch=&scratch;
+        uint64_t volumeKey=0;
+        UsdGenScalpShadowPublication first;
+        Require(UsdGenBuildFurOcclusion(&live,nullptr,params,&volumeKey,&first),
+                "first cap bake");
+        Require(!first.IsEmpty(),"the cap is non-empty");
+        Require(first.tessLevel==1,"the micro-quad refines exactly 1x1");
+        Require(first.topologyKey!=0 && first.occluderKey!=0,
+                "the bake publishes its carry keys");
+        // The ceiling-skip path: the same micro-quad against a ceiling of 1
+        // takes the percentile skip (2 triangles > 1) and must bake the
+        // identical k==1 cap the percentile path above computed.
+        {
+            std::vector<UsdGenTilePublication> fresh{
+                Comb(0,-0.3f,1200,0.3f),
+                Probe(1,probeAt,probeAt+GfVec3f(0,0.01f,0))};
+            UsdGenFurOcclusionParams skipped;
+            skipped.occluders.push_back(Quad(0.f,0.01f,false));
+            skipped.scalpShadow=true;
+            skipped.scalpMaxTriangles=1;
+            uint64_t skipKey=0;
+            UsdGenScalpShadowPublication skippedCap;
+            Require(UsdGenBuildFurOcclusion(&fresh,nullptr,skipped,&skipKey,
+                                           &skippedCap),
+                    "ceiling-skipped cap bake");
+            Require(skippedCap.tessLevel==1,
+                    "the skipped bake refines exactly 1x1");
+            capSame(skippedCap,first,
+                    "the ceiling skip matches the percentile cap");
+        }
+        // Move the hair within its margin and the probe far: the span
+        // (hence the grid and the lift) drifts, but the occluder and the
+        // lit set hold.
+        auto moved=live;
+        moved[0].xformMatrix.SetTranslate(GfVec3d(0.02,0,0));
+        moved[1].xformMatrix.SetTranslate(GfVec3d(0.3,0,0));
+        UsdGenScalpShadowPublication carry=first;
+        Require(UsdGenBuildFurOcclusion(&moved,&live,params,&volumeKey,&carry),
+                "moved hair rebuilds");
+        Require(carry.topologyKey==first.topologyKey,"the lit set holds");
+        Require(carry.occluderKey==first.occluderKey,"the occluder holds");
+        Require(carry.tessLevel==first.tessLevel,"the level holds");
+        Require(carry.inward==first.inward,"the solid side holds");
+        Require(carry.lift!=first.lift,"the span drift moves the lift");
+        Require(carry.faceVertexCounts.IsIdentical(first.faceVertexCounts),
+                "counts carry across the move");
+        Require(carry.faceVertexIndices.IsIdentical(first.faceVertexIndices),
+                "indices carry across the move");
+        Require(carry.normals.IsIdentical(first.normals),
+                "normals carry across the move");
+        Require(!carry.points.IsIdentical(first.points),
+                "points go fresh when the lift drifts");
+        Require(carry.digest!=first.digest,"fresh depths re-key the digest");
+        auto expect=moved;
+        UsdGenScalpShadowPublication want;
+        {
+            UsdGenFurOcclusionParams bare=params;
+            bare.occluderCache=nullptr; bare.scalpScratch=nullptr;
+            uint64_t freshKey=0;
+            Require(UsdGenBuildFurOcclusion(&expect,nullptr,bare,&freshKey,
+                                           &want),
+                    "unseeded reference bake");
+        }
+        capSame(carry,want,"the carried cap matches the fresh build");
+        // Edit the occluder a hair's breadth: the lit set (the hair's, not
+        // the mesh's) still carries while points and normals go fresh.
+        float const savedY=params.occluders[0].points[0][1];
+        params.occluders[0].points[0][1]+=1e-5f;
+        auto edited=moved;
+        UsdGenScalpShadowPublication editedCap=carry;
+        Require(UsdGenBuildFurOcclusion(&edited,&moved,params,&volumeKey,
+                                       &editedCap),
+                "occluder edit rebuilds");
+        Require(editedCap.occluderKey!=carry.occluderKey,
+                "the edit re-keys the occluder");
+        Require(editedCap.topologyKey==carry.topologyKey,
+                "the lit set holds across the edit");
+        Require(editedCap.faceVertexCounts.IsIdentical(carry.faceVertexCounts),
+                "counts carry across the edit");
+        Require(editedCap.faceVertexIndices.IsIdentical(carry.faceVertexIndices),
+                "indices carry across the edit");
+        Require(!editedCap.normals.IsIdentical(carry.normals),
+                "normals go fresh on an occluder edit");
+        Require(!editedCap.points.IsIdentical(carry.points),
+                "points go fresh on an occluder edit");
+        auto expectEdited=edited;
+        UsdGenScalpShadowPublication wantEdited;
+        {
+            UsdGenFurOcclusionParams bare=params;
+            bare.occluderCache=nullptr; bare.scalpScratch=nullptr;
+            uint64_t freshKey=0;
+            Require(UsdGenBuildFurOcclusion(&expectEdited,nullptr,bare,&freshKey,
+                                           &wantEdited),
+                    "edited unseeded reference bake");
+        }
+        capSame(editedCap,wantEdited,"the edited carry matches the fresh build");
+        // A move that parks the hair far to the side empties the lit set:
+        // the vote only flips the cap's facing, so dropping the hair below
+        // would re-orient onto it and stay lit, and sliding along one axis
+        // would keep it on that axis' ray. Nothing carries, and the cap
+        // still matches the fresh build. The occluder is restored
+        // bit-for-bit so only the lit set differs.
+        params.occluders[0].points[0][1]=savedY;
+        auto uncovered=live;
+        uncovered[0].xformMatrix.SetTranslate(GfVec3d(5,0,5));
+        UsdGenScalpShadowPublication uncoveredCap=first;
+        Require(UsdGenBuildFurOcclusion(&uncovered,&live,params,&volumeKey,
+                                       &uncoveredCap),
+                "uncovering move rebuilds");
+        Require(uncoveredCap.IsEmpty(),"the uncovered cap is empty");
+        Require(uncoveredCap.topologyKey!=first.topologyKey,
+                "the lit set moves with the hair");
+        Require(!uncoveredCap.faceVertexCounts.IsIdentical(first.faceVertexCounts),
+                "counts go fresh when the lit set changes");
+        Require(!uncoveredCap.faceVertexIndices.IsIdentical(first.faceVertexIndices),
+                "indices go fresh when the lit set changes");
+        Require(!uncoveredCap.normals.IsIdentical(first.normals),
+                "normals go fresh when the lit set changes");
+        Require(!uncoveredCap.points.IsIdentical(first.points),
+                "points go fresh when the lit set changes");
+        auto expectUncovered=uncovered;
+        UsdGenScalpShadowPublication wantUncovered;
+        {
+            UsdGenFurOcclusionParams bare=params;
+            bare.occluderCache=nullptr; bare.scalpScratch=nullptr;
+            uint64_t freshKey=0;
+            Require(UsdGenBuildFurOcclusion(&expectUncovered,nullptr,bare,
+                                           &freshKey,&wantUncovered),
+                    "uncovered unseeded reference bake");
+        }
+        capSame(uncoveredCap,wantUncovered,
+                "the uncovered cap matches the fresh build");
+        // A refined level exercises the general sub-face path's share of the
+        // lit-set key: two triangles at ceiling 8 refine exactly 2x2.
+        {
+            std::vector<UsdGenTilePublication> scene{
+                Comb(0,-0.55f,400,0.3f),
+                Probe(1,probeAt,probeAt+GfVec3f(0,0.01f,0))};
+            UsdGenFurOcclusionParams fine;
+            fine.occluders.push_back(Quad(0.f,4.f,false));
+            fine.scalpShadow=true;
+            fine.scalpMaxTriangles=8;
+            uint64_t fineKey=0;
+            UsdGenScalpShadowPublication coarse;
+            Require(UsdGenBuildFurOcclusion(&scene,nullptr,fine,&fineKey,
+                                           &coarse),
+                    "refined first bake");
+            Require(coarse.tessLevel==2,"the ceiling refines exactly 2x2");
+            Require(!coarse.IsEmpty(),"the refined cap is non-empty");
+            auto shifted=scene;
+            shifted[0].xformMatrix.SetTranslate(GfVec3d(0.05,0,0));
+            UsdGenScalpShadowPublication refined=coarse;
+            Require(UsdGenBuildFurOcclusion(&shifted,&scene,fine,&fineKey,
+                                           &refined),
+                    "shifted hair rebuilds refined");
+            Require(refined.topologyKey==coarse.topologyKey,
+                    "the refined lit set holds");
+            Require(refined.faceVertexCounts.IsIdentical(coarse.faceVertexCounts),
+                    "refined counts carry");
+            Require(refined.faceVertexIndices.IsIdentical(coarse.faceVertexIndices),
+                    "refined indices carry");
+            Require(refined.normals.IsIdentical(coarse.normals),
+                    "refined normals carry");
+            Require(refined.points.IsIdentical(coarse.points)==
+                    (refined.lift==coarse.lift),
+                    "refined points carry exactly when the lift holds");
+            Require(refined.digest!=coarse.digest,
+                    "refined fresh depths re-key the digest");
+            auto expectShifted=shifted;
+            UsdGenScalpShadowPublication wantShifted;
+            uint64_t shiftedKey=0;
+            Require(UsdGenBuildFurOcclusion(&expectShifted,nullptr,fine,
+                                           &shiftedKey,&wantShifted),
+                    "refined unseeded reference bake");
+            capSame(refined,wantShifted,
+                    "the refined carry matches the fresh build");
+        }
     }
 
     // ---- angular reconstruction ---------------------------------------------
@@ -549,6 +924,132 @@ int main() try {
         Require(!UsdGenBuildFurOcclusion(&live,&before,params,&volumeKey,&carried),
                 "unchanged groom reuses");
         Require(carried.points.IsIdentical(kept.points),"the cap shares its arrays");
+    }
+
+    // ---- parallel mesh build: dispatcher identity + error equivalence ----
+    // The occluder mesh build fans vertices/faces over the dispatcher pool
+    // and merges in chunk order; the parallel bake must match the serial
+    // bake bit-for-bit, and every malformed occluder must throw the same
+    // message in both modes (the serial scan order's first error).
+    {
+        UsdGenScheduler sched(4);
+        UsdGenWorkDispatcher disp=sched.MakeWorkDispatcher();
+        UsdGenFurOcclusionParams params;
+        params.occluders.push_back(SphereMesh(0.5f,12,16));
+        params.occluders.push_back(Quad(0.4f,0.6f,true));
+        params.scalpShadow=true;
+        auto bake=[&](UsdGenWorkDispatcher* d,
+                      std::vector<UsdGenTilePublication>* tiles,
+                      UsdGenScalpShadowPublication* shadow) {
+            UsdGenFurOcclusionParams q=params; q.dispatcher=d;
+            return UsdGenBuildFurOcclusion(tiles,nullptr,q,nullptr,shadow);
+        };
+        std::vector<UsdGenTilePublication> a{HairShell(0,200,777u)}, b=a;
+        UsdGenScalpShadowPublication sa, sb;
+        Require(bake(nullptr,&a,&sa),"serial reference bake");
+        Require(bake(&disp,&b,&sb),"parallel bake");
+        Require(a.size()==b.size(),"tile count");
+        for(size_t t=0;t<a.size();++t) for(auto name:{"furTauP","furTauN"}) {
+            auto const& g=Plane(a[t],name).f, &w=Plane(b[t],name).f;
+            Require(g.size()==w.size(),"plane size");
+            for(size_t i=0;i<g.size();++i) Require(g[i]==w[i],"plane bits");
+        }
+        Require(sa.digest==sb.digest,"cap digest");
+        // The fused merge hashes each digest slab from its chunk pieces, so
+        // slab bytes routinely span piece (and word) boundaries; a third
+        // dispatcher width re-chunks every slab boundary and must hash the
+        // same digest over the same merged bytes.
+        UsdGenScheduler schedW(7);
+        UsdGenWorkDispatcher dispW=schedW.MakeWorkDispatcher();
+        std::vector<UsdGenTilePublication> e{HairShell(0,200,777u)};
+        UsdGenScalpShadowPublication se;
+        Require(bake(&dispW,&e,&se),"wide parallel bake");
+        Require(se.digest==sa.digest,"cap digest across dispatcher widths");
+        Require(se.faceVertexCounts==sa.faceVertexCounts,"wide cap counts");
+        Require(se.points.size()==sa.points.size(),"wide cap points");
+        Require(sa.points.size()==sb.points.size(),"cap points");
+        // The published extent reduces per-chunk emission extrema, so it
+        // must match across chunkings exactly like the cap arrays do.
+        Require(sb.extentMin==sa.extentMin && sb.extentMax==sa.extentMax,
+                "parallel cap extent");
+        Require(se.extentMin==sa.extentMin && se.extentMax==sa.extentMax,
+                "wide cap extent");
+        for(size_t i=0;i<sa.points.size();++i) {
+            Require(sa.points[i]==sb.points[i],"cap point bits");
+            Require(sa.normals[i]==sb.normals[i],"cap normal bits");
+        }
+        Require(sa.faceVertexCounts==sb.faceVertexCounts,"cap counts");
+        Require(sa.faceVertexIndices==sb.faceVertexIndices,"cap indices");
+        // The k==1 chunk emission writes through raw pointers into
+        // scratch capacity and publishes sizes once per chunk: parallel
+        // bakes reusing one scratch (cleared, re-reserved, rewritten)
+        // must match the serial k==1 cap bit-for-bit. The ceiling of 8
+        // forces the skip path (386 triangles > 8) and k==1.
+        {
+            std::vector<UsdGenTilePublication> ref{HairShell(0,200,777u)};
+            UsdGenFurOcclusionParams serialP=params;
+            serialP.scalpMaxTriangles=8;
+            UsdGenScalpShadowPublication want;
+            Require(UsdGenBuildFurOcclusion(&ref,nullptr,serialP,nullptr,
+                                           &want),
+                    "serial k==1 reference bake");
+            Require(want.tessLevel==1,"the reference refines exactly 1x1");
+            UsdGenScalpShadowScratch scratch;
+            for(int round=0;round<2;++round) {
+                std::vector<UsdGenTilePublication> t{HairShell(0,200,777u)};
+                UsdGenFurOcclusionParams q=params;
+                q.dispatcher=&disp; q.scalpScratch=&scratch;
+                q.scalpMaxTriangles=8;
+                UsdGenScalpShadowPublication s;
+                Require(UsdGenBuildFurOcclusion(&t,nullptr,q,nullptr,&s),
+                        "parallel scratch k==1 bake");
+                Require(s.tessLevel==1,"the scratch bake refines exactly 1x1");
+                Require(s.digest==want.digest,"scratch cap digest");
+                Require(s.points==want.points,"scratch cap points");
+                Require(s.normals==want.normals,"scratch cap normals");
+                Require(s.faceVertexCounts==want.faceVertexCounts,
+                        "scratch cap counts");
+                Require(s.faceVertexIndices==want.faceVertexIndices,
+                        "scratch cap indices");
+            }
+        }
+        auto message=[&](UsdGenFurOccluder const& bad,UsdGenWorkDispatcher* d) {
+            std::vector<UsdGenTilePublication> t{HairShell(0,8,1u)};
+            UsdGenFurOcclusionParams q; q.occluders.push_back(bad);
+            q.dispatcher=d;
+            try { UsdGenBuildFurOcclusion(&t,nullptr,q); }
+            catch(std::invalid_argument const& e) { return std::string(e.what()); }
+            return std::string("<no throw>");
+        };
+        UsdGenFurOccluder const good=SphereMesh(0.5f,4,6);
+        auto bad=good; bad.points[3][1]=std::numeric_limits<float>::quiet_NaN();
+        Require(message(bad,nullptr)==message(bad,&disp),"NaN point message");
+        Require(message(bad,nullptr)=="non-finite occluder point","NaN point throws");
+        bad=good; bad.faceVertexCounts[1]=-2;
+        Require(message(bad,nullptr)==message(bad,&disp),"negative count message");
+        Require(message(bad,nullptr)=="negative occluder face vertex count",
+                "negative count throws");
+        bad=good; bad.faceVertexCounts[1]=1000000;
+        Require(message(bad,nullptr)==message(bad,&disp),"cardinality message");
+        Require(message(bad,nullptr)=="invalid occluder face cardinality",
+                "cardinality throws");
+        bad=good; bad.faceVertexIndices[2]=999999;
+        Require(message(bad,nullptr)==message(bad,&disp),"index range message");
+        Require(message(bad,nullptr)=="occluder face index out of range",
+                "index range throws");
+        bad=good; bad.faceVertexIndices[0]=-1;
+        Require(message(bad,nullptr)==message(bad,&disp),"negative index message");
+        Require(message(bad,nullptr)=="occluder face index out of range",
+                "negative index throws");
+        // First error in scan order wins, whichever check it is.
+        bad=good; bad.faceVertexCounts[1]=1000000; bad.faceVertexCounts[3]=-2;
+        Require(message(bad,nullptr)=="invalid occluder face cardinality",
+                "earlier cardinality shadows later negative");
+        Require(message(bad,&disp)==message(bad,nullptr),"parallel keeps scan order");
+        bad=good; bad.faceVertexCounts[1]=-2; bad.faceVertexCounts[3]=1000000;
+        Require(message(bad,nullptr)=="negative occluder face vertex count",
+                "earlier negative shadows later cardinality");
+        Require(message(bad,&disp)==message(bad,nullptr),"parallel keeps scan order");
     }
 
     std::vector<UsdGenTilePublication> bench{Make(0,0,50000)};

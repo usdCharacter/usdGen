@@ -70,15 +70,16 @@ bool UsdGenAttributeCookInstances(UsdGenAttributeInstanceInput const &input,
                         size_t(channels) +
                     size_t(channel)];
     };
-    // Unchecked fetch for proven-in-range indices (same address math as
-    // texel): the bilinear path below establishes s/t in [0, res - 1]
-    // before calling, so the results match texel exactly.
-    auto texelRaw = [&](int face, int s, int t) -> float {
-        return texels[((size_t(face) * size_t(res) + size_t(t)) * size_t(res) +
-                        size_t(s)) *
-                        size_t(channels) +
-                    size_t(channel)];
-    };
+    // Bilinear address strides (bit-identical): texel(face, s, t) is
+    // ((face * res + t) * res + s) * channels + channel; regrouped over
+    // unsigned arithmetic (associative, no UB) as face * faceStride +
+    // t * rowStride + s * channels + channel with faceStride ==
+    // res * res * channels and rowStride == res * channels. Same index
+    // for every in-range (face, s, t), two multiplies per corner
+    // instead of three.
+    size_t const faceStride =
+        size_t(res) * size_t(res) * size_t(channels);
+    size_t const rowStride = size_t(res) * size_t(channels);
     // Per-root sampler (bit-identical): fills values/keep/prototype for
     // root i and returns its slot (-1 when dropped). Every root reads
     // only its own input plus shared-immutable map/params and writes
@@ -124,10 +125,22 @@ bool UsdGenAttributeCookInstances(UsdGenAttributeInstanceInput const &input,
                 if (s1 >= res) s1 = res - 1;
                 int t1 = t0 + 1;
                 if (t1 >= res) t1 = res - 1;
-                double const v00 = texelRaw(root.face, s0, t0);
-                double const v10 = texelRaw(root.face, s1, t0);
-                double const v01 = texelRaw(root.face, s0, t1);
-                double const v11 = texelRaw(root.face, s1, t1);
+                // Corner-offset fetch (bit-identical): the +1 corners sit
+                // one texel past their base corner (ds == 0 when clamped),
+                // so two strided bases plus a shared step replace four
+                // full address evaluations. Same four indices as texel.
+                size_t const faceBase = size_t(root.face) * faceStride +
+                                        size_t(channel);
+                size_t const i00 = faceBase + size_t(t0) * rowStride +
+                                   size_t(s0) * size_t(channels);
+                size_t const i01 = faceBase + size_t(t1) * rowStride +
+                                   size_t(s0) * size_t(channels);
+                size_t const ds =
+                    size_t(s1 - s0) * size_t(channels);
+                double const v00 = texels[i00];
+                double const v10 = texels[i00 + ds];
+                double const v01 = texels[i01];
+                double const v11 = texels[i01 + ds];
                 value = static_cast<float>((v00 * (1.0 - fx) + v10 * fx) *
                                                (1.0 - fy) +
                                            (v01 * (1.0 - fx) + v11 * fx) * fy);

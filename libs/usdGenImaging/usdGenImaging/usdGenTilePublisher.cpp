@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,39 @@ _Container(std::vector<TfToken> &&names,
 {
     return HdRetainedContainerDataSource::New(
         names.size(), names.data(), values.data());
+}
+
+// A zero-copy vec3 view over a float-triple plane (furTauP/furTauN). GfVec3f
+// is three contiguous floats, so the view reads exactly the bytes the pack
+// memcpy used to copy, with no allocation and no copy. The holder keeps the
+// source VtFloatArray (and through it the engine generation) alive until the
+// last view dies; foreign arrays detach on write, so the engine buffer is
+// never mutated through the view.
+class _PlaneVec3Wrap : public Vt_ArrayForeignDataSource {
+public:
+    explicit _PlaneVec3Wrap(VtFloatArray const &src)
+        : Vt_ArrayForeignDataSource(&_Detach), _src(src) {}
+private:
+    static void _Detach(Vt_ArrayForeignDataSource *self) {
+        delete static_cast<_PlaneVec3Wrap *>(self);
+    }
+    VtFloatArray _src;
+};
+
+VtVec3fArray
+_WrapVec3(VtFloatArray const &f, size_t n)
+{
+    static_assert(sizeof(GfVec3f) == 3 * sizeof(float),
+                  "GfVec3f must be three contiguous floats for the vec3 view");
+    static_assert(alignof(GfVec3f) == alignof(float),
+                  "GfVec3f must share float alignment for the vec3 view");
+    if (n == 0 || f.empty()) return VtVec3fArray();
+    // Non-const pointer: the VtArray foreign-source constructor takes
+    // ElementType*. Nothing writes through it (all readers are const, and a
+    // foreign array detaches on write instead of writing through).
+    auto *held = new _PlaneVec3Wrap(f);
+    return VtVec3fArray(held,
+        reinterpret_cast<GfVec3f *>(const_cast<float *>(f.data())), n);
 }
 
 HdContainerDataSourceHandle
@@ -254,13 +288,11 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
         }
         if ((plane.name == "furTauP" || plane.name == "furTauN") &&
             plane.arity == 3 && plane.f.size() == totalCvs * 3) {
-            // Pack optical depth into two vec3 buffers. Separate scalars
+            // View optical depth as vec3 (zero-copy). Separate scalars
             // exhaust GL's per-stage SSBO slots on instanced curve draws.
-            VtVec3fArray packed(totalCvs);
-            for (size_t i = 0; i < totalCvs; ++i)
-                packed[i] = GfVec3f(plane.f[3*i], plane.f[3*i+1], plane.f[3*i+2]);
+            VtVec3fArray wrapped = _WrapVec3(plane.f, totalCvs);
             _Add(&pvNames, &pvValues, plane.name,
-                 _Primvar(_Samp(packed), plane.interpolation));
+                 _Primvar(_Samp(wrapped), plane.interpolation));
             continue;
         }
         if (plane.type == "int") {
@@ -853,14 +885,11 @@ UsdGenTilePublisher::BuildScalpShadowDataSource(
     }
     for (usdGen::UsdGenPlane const &plane : cap.extraUniform) {
         if (plane.arity != 3 || plane.f.size() != points * 3) continue;
-        // The same vec3 packing a tile's depths get: separate scalar buffers
+        // The same vec3 view a tile's depths get: separate scalar buffers
         // exhaust GL's per-stage SSBO slots.
-        VtVec3fArray packed(points);
-        for (size_t i = 0; i < points; ++i) {
-            packed[i] = GfVec3f(plane.f[3*i], plane.f[3*i+1], plane.f[3*i+2]);
-        }
+        VtVec3fArray wrapped = _WrapVec3(plane.f, points);
         _Add(&pvNames, &pvValues, plane.name,
-             _Primvar(_Samp(packed), plane.interpolation));
+             _Primvar(_Samp(wrapped), plane.interpolation));
     }
     _Add(&names, &values, TfToken("primvars"),
          _Container(std::move(pvNames), std::move(pvValues)));

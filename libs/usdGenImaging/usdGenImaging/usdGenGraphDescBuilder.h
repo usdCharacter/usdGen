@@ -20,9 +20,10 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenImaging {
 
-/// Opaque, immutable capture-side cache.  It deliberately contains only
-/// operator reads: geometry, maps and description fields are always pulled
-/// from Hydra by this first incremental slice.
+/// Opaque, immutable capture-side cache.  It contains operator reads and,
+/// for reuseGeometry, the pooled surface, curve-set, map and
+/// expression-geometry descs; description-level fields are always pulled
+/// from Hydra.
 class UsdGenGraphDescCaptureCache;
 
 struct UsdGenGraphDescBuildOptions
@@ -36,9 +37,15 @@ struct UsdGenGraphDescBuildOptions
     /// no cross-scene identity. Disable reuse after structural/time changes
     /// or whenever continuity of the dirty stream cannot be established.
     bool reuseNodes = false;
+    /// Explicit opt-in only.  Same contract as reuseNodes, but for the
+    /// geometry pools.  Unlike operator params (which can read the frame
+    /// procedurally), geometry flows only from Hydra data, so a pooled
+    /// desc survives a frame change while its prim stays clean.
+    bool reuseGeometry = false;
     std::shared_ptr<const UsdGenGraphDescCaptureCache> previousCache;
     /// Prim paths from the caller-boundary dirty packet.  A dirty path that
-    /// is an ancestor of, or equal to, an operator forces that node to read.
+    /// is an ancestor of, or equal to, an operator forces that node to read;
+    /// the same rule re-reads a pooled surface, curve set, map or geometry.
     SdfPathVector dirtyPrimPaths;
 };
 
@@ -46,11 +53,15 @@ struct UsdGenGraphDescCapture
 {
     usdGen::UsdGenGraphDesc desc;
     std::shared_ptr<const UsdGenGraphDescCaptureCache> cache;
+    /// Prim paths whose pooled descs were reused without an upstream read:
+    /// the recording caller unions these into the groom's dependencies, or
+    /// their next dirty would not recapture it.
+    SdfPathVector reusedInputs;
 };
 
-/// Capture a pure descriptor and its immutable node-read cache.  The cache
-/// is usable only when options explicitly request node reuse; all other
-/// descriptor sections are rebuilt on every call.
+/// Capture a pure descriptor and its immutable read cache.  The cache
+/// is usable only when options explicitly request reuse; description-level
+/// fields are rebuilt on every call.
 UsdGenGraphDescCapture CaptureGraphDescFromHydra(
     HdSceneIndexBase &input,
     SdfPath const &descriptionPath,

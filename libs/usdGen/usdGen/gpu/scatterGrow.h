@@ -4,20 +4,152 @@
 #include "curveGeometry.h"
 #include "imageSampler.h"
 
+#include "pxr/base/gf/vec2f.h"
+#include "pxr/base/gf/vec3f.h"
+#include "pxr/base/vt/array.h"
+#include "pxr/pxr.h"
+
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace usdGen::gpu {
 
+// Pod conversions between the capture's VtArray element types and the
+// float2/float3/int/uint64_t currency every roots consumer already speaks.
+// Same bytes both ways (the static_asserts pin the layouts, and VtArray
+// storage is malloc-aligned); overload resolution picks by argument type.
+static_assert(sizeof(float2) == sizeof(PXR_NS::GfVec2f),
+              "float2/GfVec2f layout");
+static_assert(sizeof(float3) == sizeof(PXR_NS::GfVec3f),
+              "float3/GfVec3f layout");
+static_assert(sizeof(int) == sizeof(int32_t), "int/int32_t layout");
+inline float2 RootsToPod(PXR_NS::GfVec2f const& e)
+{
+    return float2{e[0], e[1]};
+}
+inline float3 RootsToPod(PXR_NS::GfVec3f const& e)
+{
+    return float3{e[0], e[1], e[2]};
+}
+inline uint64_t RootsToPod(uint64_t e) { return e; }
+inline int32_t RootsToPod(int e) { return int32_t(e); }
+inline PXR_NS::GfVec2f RootsFromPod(float2 const& p)
+{
+    return PXR_NS::GfVec2f(p.x, p.y);
+}
+inline PXR_NS::GfVec3f RootsFromPod(float3 const& p)
+{
+    return PXR_NS::GfVec3f(p.x, p.y, p.z);
+}
+inline uint64_t RootsFromPod(uint64_t p) { return p; }
+inline int RootsFromPod(int32_t p) { return int(p); }
+
+// A VtArray-backed roots plane with the std::vector read API every consumer
+// already uses (size/empty/data/const-subscript) plus the small mutation
+// subset tests use (reserve/push_back/pop_back/init-list assign/clear and
+// a mutable data() for word-level fault planting).
+// The producer adopts capture planes with O(1) moves instead of copying
+// them element-wise; the stored bytes are identical either way, so every
+// consumer observes the same values. Copies share storage copy-on-write
+// (VtArray's own guarantee): mutating a copy detaches first, exactly as
+// a deep copy would read. Const subscript returns by value (converted
+// out of the stored element, so no aliasing); mutable subscript returns
+// a proxy converting to/from Pod on read/write.
+template <class Store, class Pod, class StoreElem>
+class ScatterGrowPlane {
+public:
+    typedef Pod PodType;
+    typedef Store StoreType;
+    typedef StoreElem StoreElemType;
+
+    class Ref {
+    public:
+        Ref() = delete;
+        explicit Ref(StoreElem* e) : elem(e) {}
+        operator Pod() const { return RootsToPod(*elem); }
+        Ref& operator=(Pod const& v)
+        {
+            *elem = RootsFromPod(v);
+            return *this;
+        }
+        Ref& operator=(Ref const& r)
+        {
+            *elem = *r.elem;
+            return *this;
+        }
+    private:
+        StoreElem* elem;
+    };
+
+    ScatterGrowPlane() = default;
+    ScatterGrowPlane(ScatterGrowPlane const&) = default;
+    ScatterGrowPlane(ScatterGrowPlane&&) = default;
+    ScatterGrowPlane& operator=(ScatterGrowPlane const&) = default;
+    ScatterGrowPlane& operator=(ScatterGrowPlane&&) = default;
+    ScatterGrowPlane& operator=(std::initializer_list<Pod> xs)
+    {
+        store.clear();
+        store.reserve(xs.size());
+        for (Pod const& v : xs)
+            store.push_back(RootsFromPod(v));
+        return *this;
+    }
+
+    size_t size() const noexcept { return store.size(); }
+    bool empty() const noexcept { return store.empty(); }
+    Pod const* data() const noexcept
+    {
+        return reinterpret_cast<Pod const*>(store.cdata());
+    }
+    // Mutable base (detaches a COW-shared plane first, like every other
+    // VtArray mutation, so a live copy keeps its bytes).
+    Pod* data() noexcept
+    {
+        return reinterpret_cast<Pod*>(store.data());
+    }
+    Pod operator[](size_t i) const { return RootsToPod(store[i]); }
+    Ref operator[](size_t i) { return Ref(&store[i]); }
+    void clear() { store.clear(); }
+    void reserve(size_t n) { store.reserve(n); }
+    void push_back(Pod const& v) { store.push_back(RootsFromPod(v)); }
+    void pop_back() { store.pop_back(); }
+    // Uninitialized fill: clear + resize(n, fill), whose filler runs over
+    // reused-or-fresh storage, skipping the value-init a plain resize
+    // would zero first. The filler must construct every element exactly
+    // once (placement new); disjoint ranges fill disjoint lanes, so the
+    // threaded transpose below writes identical bytes under any chunking.
+    template <class Fill>
+    void resize_fill(size_t n, Fill&& fill)
+    {
+        store.clear();
+        store.resize(n, std::forward<Fill>(fill));
+    }
+    // O(1) ownership take; the source is left moved-from (valid, empty).
+    void adopt(Store&& s) { store = std::move(s); }
+    // O(1) ownership give (adopt's inverse); this plane is left empty.
+    void donate(Store& dst) { dst = std::move(store); }
+
+private:
+    Store store;
+};
+
 // Immutable, captured Scatter roots.  The producer retains the shared owner
 // until the producer stream's terminal callback has been proved and committed.
+// The six layout-identical planes are adopted (moved) from the capture's
+// VtArrays; positions is transposed from the SoA point planes through an
+// uninitialized fill (a vector cannot fill thread-parallel without a
+// zero-init pass).  Same bytes as the old all-vector spelling, without
+// the copies.
 struct ScatterGrowRoots {
-    std::vector<float3> positions;
-    std::vector<uint64_t> stableIds;
-    std::vector<int32_t> rootPrim;
-    std::vector<float2> rootUV;
-    std::vector<float3> rootT, rootB, rootN;
+    ScatterGrowPlane<PXR_NS::VtVec3fArray, float3, PXR_NS::GfVec3f> positions;
+    ScatterGrowPlane<PXR_NS::VtArray<uint64_t>, uint64_t, uint64_t> stableIds;
+    ScatterGrowPlane<PXR_NS::VtIntArray, int32_t, int> rootPrim;
+    ScatterGrowPlane<PXR_NS::VtVec2fArray, float2, PXR_NS::GfVec2f> rootUV;
+    ScatterGrowPlane<PXR_NS::VtVec3fArray, float3, PXR_NS::GfVec3f> rootT, rootB,
+        rootN;
 };
 
 enum class ScatterGrowDirection : uint8_t { RootNormal, RootTangent, Literal };

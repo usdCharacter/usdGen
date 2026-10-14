@@ -10,6 +10,9 @@
 #include <limits>
 #include <new>
 
+#include "tbb/parallel_for.h"
+#include "tbb/task_arena.h"
+
 namespace usdGen::vulkan {
 namespace {
 constexpr VkDeviceSize kWordBytes = sizeof(uint32_t);
@@ -75,12 +78,6 @@ struct ScatterPush {
 };
 static_assert(sizeof(ScatterPush) == 48, "scatterGrow.comp push ABI (12 words)");
 
-bool FiniteF(std::vector<float> const& v) noexcept {
-    for (float x : v)
-        if (!std::isfinite(x)) return false;
-    return true;
-}
-
 } // namespace
 
 // CPU oracle — exact CUDA double target math (scatterGrow.cu GrowKernel).
@@ -119,11 +116,11 @@ bool ScatterGrowPipeline::BuildCpu(std::vector<float> const& positions,
         rootPrim.size() != n || rootUV.size() != n * 2 ||
         rootT.size() != n * 3 || rootB.size() != n * 3 || rootN.size() != n * 3)
         return bad();
-    if (!FiniteF(positions) || !FiniteF(rootT) || !FiniteF(rootB) ||
-        !FiniteF(rootN) || !FiniteF(targets) || !FiniteF(rootUV)) return bad();
-    for (float t : targets)
-        if (!std::isfinite(t)) return bad();
-
+    // No whole-plane finite pre-scans: the per-curve body below checks
+    // its own t/b/n/uv lanes explicitly, while positions and targets
+    // stay covered by the in-loop d/opx checks (k=0 has h=0, so a
+    // non-finite target yields d=NaN and a non-finite position yields a
+    // non-finite opx). Same verdict, fused with cache-hot curve data.
     Outputs o;
     o.points.resize(3 * n * cv);
     o.rest.resize(3 * n * cv);
@@ -137,55 +134,99 @@ bool ScatterGrowPipeline::BuildCpu(std::vector<float> const& positions,
     o.rootB.resize(3 * n);
     o.rootN.resize(3 * n);
 
-    for (std::size_t c = 0; c < n; ++c) {
-        o.offsets[c] = uint32_t(c * cv);
-        if (c + 1 == n) o.offsets[n] = uint32_t(n * cv);
+    // The final offset lands up front (bit-identical): it is n * cv
+    // regardless of which curve writes it, and failures discard o.
+    o.offsets[n] = uint32_t(n * cv);
+    // Per-curve body as a range driver (verdict-identical): every curve
+    // reads only its own inputs plus shared-immutable controls and writes
+    // only its own output lanes, so any curve order -- serial or chunked
+    // over workers -- fills identical planes, and any failing curve
+    // reports false with *output untouched either way.
+    auto runRange = [&](size_t c0, size_t c1) -> bool {
+        for (size_t c = c0; c < c1; ++c) {
+            o.offsets[c] = uint32_t(c * cv);
 
-        // Direction select + normalize + lift about root B.
-        std::array<float, 3> t{rootT[3 * c], rootT[3 * c + 1], rootT[3 * c + 2]};
-        std::array<float, 3> b{rootB[3 * c], rootB[3 * c + 1], rootB[3 * c + 2]};
-        std::array<float, 3> nn{rootN[3 * c], rootN[3 * c + 1], rootN[3 * c + 2]};
-        std::array<float, 3> dir;
-        switch (controls.direction) {
-            case Direction::RootTangent: dir = t; break;
-            case Direction::Literal:
-                dir = {controls.literalDirection[0], controls.literalDirection[1],
-                       controls.literalDirection[2]};
-                break;
-            default: dir = nn; break; // RootNormal
+            // Direction select + normalize + lift about root B.
+            std::array<float, 3> t{rootT[3 * c], rootT[3 * c + 1], rootT[3 * c + 2]};
+            std::array<float, 3> b{rootB[3 * c], rootB[3 * c + 1], rootB[3 * c + 2]};
+            std::array<float, 3> nn{rootN[3 * c], rootN[3 * c + 1], rootN[3 * c + 2]};
+            // Fused finite verdict for the frame + uv lanes (Normalize3
+            // would substitute instead of rejecting; uv is only copied).
+            if (!std::isfinite(t[0]) || !std::isfinite(t[1]) || !std::isfinite(t[2]) ||
+                !std::isfinite(b[0]) || !std::isfinite(b[1]) || !std::isfinite(b[2]) ||
+                !std::isfinite(nn[0]) || !std::isfinite(nn[1]) || !std::isfinite(nn[2]) ||
+                !std::isfinite(rootUV[2 * c]) || !std::isfinite(rootUV[2 * c + 1]))
+                return false;
+            std::array<float, 3> dir;
+            switch (controls.direction) {
+                case Direction::RootTangent: dir = t; break;
+                case Direction::Literal:
+                    dir = {controls.literalDirection[0], controls.literalDirection[1],
+                           controls.literalDirection[2]};
+                    break;
+                default: dir = nn; break; // RootNormal
+            }
+            dir = Normalize3(dir);
+            if (controls.lift != 0.0f) dir = RotateAroundB(dir, b, controls.lift);
+            // CUDA parity (scatterGrow.cu:106-108): azimuth about root N after lift.
+            float const angle = controls.azimuth + controls.azimuthRandom * 360.0f *
+                (DrawGrow(controls.seed, stableIds[c], kGrowAzimuthSalt) - 0.5f);
+            if (angle != 0.0f) dir = RotateAroundB(dir, nn, angle);
+            if (!std::isfinite(dir[0]) || !std::isfinite(dir[1]) || !std::isfinite(dir[2]))
+                return false;
+
+            float target = targets[c];
+            float px = positions[3 * c], py = positions[3 * c + 1], pz = positions[3 * c + 2];
+            uint32_t first = uint32_t(c * cv);
+            for (uint32_t k = 0; k < cv; ++k) {
+                float h = float(k) / float(cv - 1);
+                float d = target * h;
+                float opx = px + dir[0] * d, opy = py + dir[1] * d, opz = pz + dir[2] * d;
+                if (!std::isfinite(d) || !std::isfinite(opx) || !std::isfinite(opy) ||
+                    !std::isfinite(opz))
+                    return false;
+                uint32_t idx = first + k;
+                o.points[3 * idx] = opx; o.points[3 * idx + 1] = opy; o.points[3 * idx + 2] = opz;
+                o.rest[3 * idx] = opx; o.rest[3 * idx + 1] = opy; o.rest[3 * idx + 2] = opz;
+                o.widths[idx] = controls.fallbackWidth;
+                o.hairT[idx] = h;
+            }
+            o.ids[c] = stableIds[c];
+            o.rootPrim[c] = rootPrim[c];
+            o.rootUV[2 * c] = rootUV[2 * c];
+            o.rootUV[2 * c + 1] = rootUV[2 * c + 1];
+            o.rootT[3 * c] = t[0]; o.rootT[3 * c + 1] = t[1]; o.rootT[3 * c + 2] = t[2];
+            o.rootB[3 * c] = b[0]; o.rootB[3 * c + 1] = b[1]; o.rootB[3 * c + 2] = b[2];
+            o.rootN[3 * c] = nn[0]; o.rootN[3 * c + 1] = nn[1]; o.rootN[3 * c + 2] = nn[2];
         }
-        dir = Normalize3(dir);
-        if (controls.lift != 0.0f) dir = RotateAroundB(dir, b, controls.lift);
-        // CUDA parity (scatterGrow.cu:106-108): azimuth about root N after lift.
-        float const angle = controls.azimuth + controls.azimuthRandom * 360.0f *
-            (DrawGrow(controls.seed, stableIds[c], kGrowAzimuthSalt) - 0.5f);
-        if (angle != 0.0f) dir = RotateAroundB(dir, nn, angle);
-        if (!std::isfinite(dir[0]) || !std::isfinite(dir[1]) || !std::isfinite(dir[2]))
+        return true;
+    };
+    // Threaded over curve ranges for big builds (plain TBB: BuildCpu is
+    // pure host math with no scheduler context): per-curve work is ~20x
+    // a finite scan's few cycles (sqrt + hash + the cv loop), so the
+    // dispatch breakeven sits ~20x below the 32K scan rule. Small builds
+    // keep the serial driver below.
+    int const cpuWorkers = tbb::this_task_arena::max_concurrency();
+    size_t const cpuChunks =
+        (cpuWorkers > 1 && n > 4096) ? std::min({size_t(cpuWorkers), size_t(8), n})
+                                     : 1;
+    if (cpuChunks == 1) {
+        if (!runRange(0, n))
             return bad();
-
-        float target = targets[c];
-        float px = positions[3 * c], py = positions[3 * c + 1], pz = positions[3 * c + 2];
-        uint32_t first = uint32_t(c * cv);
-        for (uint32_t k = 0; k < cv; ++k) {
-            float h = float(k) / float(cv - 1);
-            float d = target * h;
-            float opx = px + dir[0] * d, opy = py + dir[1] * d, opz = pz + dir[2] * d;
-            if (!std::isfinite(d) || !std::isfinite(opx) || !std::isfinite(opy) ||
-                !std::isfinite(opz))
+    } else {
+        unsigned char failed[8] = {};
+        tbb::parallel_for(tbb::blocked_range<size_t>(0, cpuChunks),
+            [&](tbb::blocked_range<size_t> const &range) {
+                for (size_t p = range.begin(); p != range.end(); ++p) {
+                    size_t const c0 = (p * n) / cpuChunks;
+                    size_t const c1 = ((p + 1) * n) / cpuChunks;
+                    if (!runRange(c0, c1))
+                        failed[p] = 1;
+                }
+            });
+        for (size_t p = 0; p < cpuChunks; ++p)
+            if (failed[p])
                 return bad();
-            uint32_t idx = first + k;
-            o.points[3 * idx] = opx; o.points[3 * idx + 1] = opy; o.points[3 * idx + 2] = opz;
-            o.rest[3 * idx] = opx; o.rest[3 * idx + 1] = opy; o.rest[3 * idx + 2] = opz;
-            o.widths[idx] = controls.fallbackWidth;
-            o.hairT[idx] = h;
-        }
-        o.ids[c] = stableIds[c];
-        o.rootPrim[c] = rootPrim[c];
-        o.rootUV[2 * c] = rootUV[2 * c];
-        o.rootUV[2 * c + 1] = rootUV[2 * c + 1];
-        o.rootT[3 * c] = t[0]; o.rootT[3 * c + 1] = t[1]; o.rootT[3 * c + 2] = t[2];
-        o.rootB[3 * c] = b[0]; o.rootB[3 * c + 1] = b[1]; o.rootB[3 * c + 2] = b[2];
-        o.rootN[3 * c] = nn[0]; o.rootN[3 * c + 1] = nn[1]; o.rootN[3 * c + 2] = nn[2];
     }
     *output = std::move(o);
     return true;

@@ -290,6 +290,11 @@ struct UsdGenSurfaceDesc
                                      // empty == all 1.0
     GfMatrix4d     worldMatrix{1.0};  // post-flattening, resetXformStack (S4)
     uint64_t       surfaceGeneration = 0; // bumped by any points/topology change
+    // Sub-hash of the slowly-varying inputs (rest points/normals, topology):
+    // the Hydra builder memoizes it across cooks while its shares hold, so a
+    // deform re-hashes only the moving points. Set by Finalize alongside the
+    // generation; in-memory equality-only like the generation itself.
+    uint64_t       surfaceInvariantGeneration = 0;
 };
 
 /// Whether consumers restrict a surface to subsetFaces: a GeomSubset target
