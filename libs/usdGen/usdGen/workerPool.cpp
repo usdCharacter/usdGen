@@ -14,6 +14,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(_MSC_VER) && defined(_M_X64)
+#include <intrin.h>
+#endif
+
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <pthread.h>
 #include <sched.h>
@@ -48,9 +52,11 @@ void CpuRelax(unsigned spin)
         std::this_thread::yield();
         return;
     }
-#if defined(__aarch64__)
+#if defined(_MSC_VER) && defined(_M_X64)
+    _mm_pause();
+#elif defined(__aarch64__)
     __asm__ volatile("yield" ::: "memory");
-#elif defined(__x86_64__) || defined(_M_X64)
+#elif defined(__x86_64__)
     __asm__ volatile("pause" ::: "memory");
 #else
     std::this_thread::yield();

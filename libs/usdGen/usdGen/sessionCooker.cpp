@@ -1864,6 +1864,11 @@ UsdGenStats publishedStats, bool invalidateValues,
     TRACE_FUNCTION();
     _CommitPhases phases;
     TF_UNUSED(reason);
+    // Once populated, replace the complete pose together. Streaming updates
+    // would display mixed poses and disable capture-direct point updates.
+    // Geometry notices can precede the host's current-frame notice, so the
+    // frame number alone cannot distinguish playback from an authoring edit.
+    if (previous && !previous->tiles.empty()) progress = {};
     if (!_Prepare(std::move(desc), context, devicePublicationEnabled, pending,
                   std::move(previous), std::move(publishedStats), invalidateValues,
                   previousPublishedWorkerEpoch)) return _store.Get();

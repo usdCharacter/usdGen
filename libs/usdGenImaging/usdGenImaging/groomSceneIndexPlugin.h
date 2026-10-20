@@ -37,7 +37,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -122,6 +124,9 @@ private:
     // Hydra capture stays on the caller/notice boundary. Only owning value
     // packets enter the scene owner; no worker assumes upstream affinity.
     void _CaptureAndSubmit(_Ingress ingress);
+    void _ForwardRenderBufferNotices(
+        HdSceneIndexObserver::AddedPrimEntries const& added,
+        HdSceneIndexObserver::RemovedPrimEntries const& removed);
     // Hydra serializes scene-index frontend calls.  This boundary alone
     // installs visible snapshots and sends notices; owner work only queues
     // immutable packets.  Explicit waits during observer delivery are invalid.
@@ -175,6 +180,8 @@ private:
     std::shared_ptr<_State> _state;
     bool _dispatching = false;
     bool _deferredSynchronousFlush = false;
+    // Frontend-only live namespace: AOV allocation cannot wait for asyncPoll.
+    std::map<SdfPath, TfToken> _renderBuffers;
 
 };
 

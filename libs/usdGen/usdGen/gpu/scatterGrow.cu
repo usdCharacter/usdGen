@@ -150,7 +150,9 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
                 ? std::min({size_t(shardWorkers), size_t(8), n})
                 : 1;
         if (shardChunks > 1) {
-            constexpr size_t kShards = 8;
+            // Static storage keeps nvcc from capturing this array bound in
+            // the host lambdas, where MSVC requires a constant expression.
+            static constexpr size_t kShards = 8;
             static_assert((kShards & (kShards - 1)) == 0,
                           "shard mask needs a power of two");
             constexpr size_t kMaxChunks = 8;
