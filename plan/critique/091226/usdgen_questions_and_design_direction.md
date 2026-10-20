@@ -29,7 +29,6 @@ Other systems use similar ideas:
 - Yeti uses a graph containing meshes, guides, grooms, generated fibers, effects, samplers, merges, and outputs.^2
 - One published groom graph treats guides and final hairs as curves that pass through creation, styling, utility, import, and export nodes.^3
 - a character asset Groom Tools combines strand generation, guide interpolation, masks, clumps, parting lines, width, collision handling, and attribute transfer.^4
-- Sisir separates guide creation, procedural hair construction, painted masks, preview, and export.^5
 
 These systems share a simple model: geometry and attributes move through a construction graph. usdGen should standardize that model instead of copying one product interface.
 
@@ -130,7 +129,7 @@ Interpolation should be divided by purpose. Generating hair from guides is diffe
 | Distance based guide blend | Fast generation from ordinary sparse guides | Can choose guides across folds, parts, or nearby surfaces |
 | Closest guide | Preview or very dense guide sets | Can create visible boundaries between guide regions |
 
-A DCC Hair Generate uses guide distance or skin coordinates, influence radius, influence decay, guide count, guide angle, clump crossover, and skin-space orientation.^6 Its Guide Interpolation Mesh stores guide indices and smooth biharmonic weights on a low-resolution skin mesh.^7
+A DCC Hair Generate uses guide distance or skin coordinates, influence radius, influence decay, guide count, guide angle, clump crossover, and skin-space orientation.^5 Its Guide Interpolation Mesh stores guide indices and smooth biharmonic weights on a low-resolution skin mesh.^6
 
 usdGen proposes up to three guide indices and weights per generated hair. Three guides may be a useful fast profile, but the bundle should allow other counts and methods.
 
@@ -143,7 +142,7 @@ usdGen proposes up to three guide indices and weights per generated hair. Three 
 | Surface interpolation mesh | Fur and styles organized along the skin | Less useful for tangled hair volumes |
 | One closest guide | Fast preview | Motion can change sharply between guides |
 
-the host application’s Guide Shape Interpolation compares the full shape of each groom curve with nearby guides using samples along the curve. Guides can animate dense curves with different lengths and point counts.^8 This is a useful reference for imported grooms.
+the host application’s Guide Shape Interpolation compares the full shape of each groom curve with nearby guides using samples along the curve. Guides can animate dense curves with different lengths and point counts.^7 This is a useful reference for imported grooms.
 
 ### Moving hair with animated skin
 
@@ -205,7 +204,7 @@ The language should remain small. Complex grooming behavior should remain visibl
 
 ## Rendering value
 
-A DCC demonstrates why render-time hair generation is useful. Its Solaris Hair Procedural generates hair from guides or deforms existing curves. The host application also uses `HoudiniHairDeformAPI` and an `HD_HairDeform` Hydra scene-index plug-in to replace curve points during rendering.^8,9
+A DCC demonstrates why render-time hair generation is useful. Its Solaris Hair Procedural generates hair from guides or deforms existing curves. The host application also uses `HoudiniHairDeformAPI` and an `HD_HairDeform` Hydra scene-index plug-in to replace curve points during rendering.^7,8
 
 This reduces stored geometry and evaluates deformation and motion-blur samples close to the renderer. The limitation is that the contract is defined by SideFX and depends on SideFX components.
 
@@ -249,11 +248,10 @@ The case for usdGen is not that it replaces DCC grooming. The case is that host 
 2. Peregrine Labs, [Yeti Documentation](https://docs.peregrinelabs.com/).
 3. Daniela Hasenbring and Henrik Karlsson, [Hair Grooming with Imageworks Fyber](https://history.siggraph.org/wp-content/uploads/2022/06/2021-Talks-Hasenbring_Hair-Grooming-with-Imageworks-Fyber.pdf), SIGGRAPH 2021 Talks.
 4. the host vendor, [a character asset Groom Tools](https://dev.epicgames.com/documentation/character-asset/mh-groom-tools).
-5. Sisir, [Hair Grooming for Character Artists](https://sisir.sisir-hairtool.workers.dev/).
-6. SideFX, [Hair Generate](https://www.sidefx.com/docs/houdini/nodes/obj/hairgen.html).
-7. SideFX, [Guide Interpolation Mesh](https://www.sidefx.com/docs/houdini/nodes/sop/guideinterpolationmesh.html).
-8. SideFX, [Configure Guide Deform](https://www.sidefx.com/docs/houdini/nodes/lop/configureguidedeform.html), the host application documentation.
-9. SideFX, [a DCC Procedural Hair](https://www.sidefx.com/docs/houdini/nodes/lop/houdinihairprocedural.html).
-10. Local reference note, `_interp.md`.
-11. Local report, `houdini-22-hair-fur-research.md`.
-12. n-burk, [usdGen repository](https://github.com/n-burk/usdGen).
+5. SideFX, [Hair Generate](https://www.sidefx.com/docs/houdini/nodes/obj/hairgen.html).
+6. SideFX, [Guide Interpolation Mesh](https://www.sidefx.com/docs/houdini/nodes/sop/guideinterpolationmesh.html).
+7. SideFX, [Configure Guide Deform](https://www.sidefx.com/docs/houdini/nodes/lop/configureguidedeform.html), the host application documentation.
+8. SideFX, [a DCC Procedural Hair](https://www.sidefx.com/docs/houdini/nodes/lop/houdinihairprocedural.html).
+9. Local reference note, `_interp.md`.
+10. Local report, `houdini-22-hair-fur-research.md`.
+11. n-burk, [usdGen repository](https://github.com/n-burk/usdGen).
