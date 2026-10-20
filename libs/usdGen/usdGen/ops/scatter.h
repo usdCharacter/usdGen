@@ -1,6 +1,8 @@
 // usdGen — UsdGenScatterOp. 02-schema.md §2.6, 04-operators.md §2.1.
 // Emits random roots on the rest surface with stable ids:
 //   curveId = UsdGenHash64(seed, faceIndex, k, kSaltScatter) (R12).
+// usdGen:distribution / countMode / proximity:* / densityMap select the
+// generation-order modes in ops/scatterModes.h; the defaults keep this path.
 #ifndef USDGEN_OP_SCATTER_H
 #define USDGEN_OP_SCATTER_H
 
@@ -25,7 +27,8 @@ public:
 
     TfSpan<const TfToken> TopologyParameters() const override;
     TfSpan<const TfToken> ValueParameters() const override;
-    /// atGuides mode (M3): the guide set is a reference input.
+    /// usdGen:guides (guide proximity, distribution "perGuide").
+    TfSpan<const TfToken> ReferenceInputs() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -48,6 +51,8 @@ private:
     mutable opUtil::ContentDigestCache<VtIntArray> subsetFacesDigest_;
     mutable opUtil::ContentDigestCache<VtVec2fArray> uvDigest_;
     mutable opUtil::ContentDigestCache<VtFloatArray> densityMultDigest_;
+    // Rest normals feed the root frames of the generation-order modes.
+    mutable opUtil::ContentDigestCache<VtVec3fArray> restNormalsDigest_;
     // UsdGenSubdivisionDigest re-hashes the topology arrays on top of the
     // array digests above; memoize it keyed on the same buffer identities
     // plus the scheme tokens (a miss recomputes exactly as before).

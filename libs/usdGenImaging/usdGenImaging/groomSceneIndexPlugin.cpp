@@ -9,6 +9,7 @@
 #include "usdGen/debugCodes.h"
 #include "usdGen/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
+#include "usdGen/furOcclusion.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/imaging/hd/sceneIndexPluginRegistry.h"
 #include "pxr/imaging/hd/filteringSceneIndex.h"
@@ -33,6 +34,8 @@
 #include <tbb/flow_graph.h>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <functional>
 #include <cmath>
 #include <exception>
 #include <map>
@@ -112,6 +115,14 @@ SdfPath ScalpShadowPath(SdfPath const& description) {
 
 SdfPath ScalpShadowMaterialPath(SdfPath const& description) {
     return ::usdGenImaging::UsdGenTilePublisher::ScalpShadowMaterialPath(description);
+}
+
+SdfPath ScalpShadowMaskPath(SdfPath const& description) {
+    return ::usdGenImaging::UsdGenTilePublisher::ScalpShadowMaskPath(description);
+}
+
+SdfPath ScalpShadowMaskMaterialPath(SdfPath const& description) {
+    return ::usdGenImaging::UsdGenTilePublisher::ScalpShadowMaskMaterialPath(description);
 }
 
 // The prim-level containers a synthetic tile must inherit from (or have
@@ -728,14 +739,15 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         // Tiles shown before the current provisional cook. A failed or
         // superseded attempt restores this exact immutable baseline.
         std::shared_ptr<const TileMap> progressBaseline;
-        HdContainerDataSourceHandle progressScalpBaseline;
+        std::shared_ptr<const usdGen::UsdGenScalpShadowPublication> progressScalpBaseline;
         uint64_t progressScalpDigest = 0;
         uint64_t progressEpoch = 0, progressSequence = 0;
         bool progressActive = false;
         bool progressWasHidden = false;
-        // The scalp-shadow cap, built once per publication beside the tiles.
-        // Null when the generation carries none.
-        HdContainerDataSourceHandle scalpShadow;
+        // This description's own scalp-shadow cap, as the bake published it.
+        // Null when the generation carries none. PublishSnapshot sums the caps
+        // of every description over the same surface into the one it shows.
+        std::shared_ptr<const usdGen::UsdGenScalpShadowPublication> scalpShadow;
         uint64_t scalpDigest = 0;
         // sessionGeneration is reset when an isolated CUDA session replaces a
         // shared CPU session.  Keeping it separate retains last-good ordinary
@@ -772,14 +784,20 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         // exponent and jitter reach Storm through the material's parameters,
         // so the View has to carry them to GetPrim().
         usdGen::UsdGenLookDesc look;
-        // The scalp-shadow cap and the identity of its contents: the prim is
-        // served from here, and nothing else would tell Hydra it changed.
-        HdContainerDataSourceHandle scalpShadow;
-        uint64_t scalpDigest = 0;
+        // This description's own cap, as baked.
+        std::shared_ptr<const usdGen::UsdGenScalpShadowPublication> scalpRaw;
         bool dormant = false, hidden = false;
+        // The cap this description SHOWS and the identity of its contents:
+        // the sum of every visible description's cap over the same surface,
+        // carried by the first of them only (PublishSnapshot), with its sample
+        // mask beside it. The prims are served from here, and nothing else
+        // would tell Hydra they changed.
+        uint64_t scalpDigest = 0;
         uint32_t activeCooks = 0;
         uint64_t deferredCook = 0;
         bool structuralPending = false, progressActive = false, playbackFailed = false;
+        // Shown-cap handles; null until ShowScalpShadows sums the caps.
+        HdContainerDataSourceHandle scalpShadow, scalpMask;
     };
     struct Snapshot {
         std::vector<View> members;
@@ -899,6 +917,101 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
     ~_State() { if (owner) owner->Shutdown(); }
     auto SnapshotValue() const { return std::atomic_load(&catalog); }
     auto VisibleSnapshot() const { return std::atomic_load(&visible); }
+    // The scalp-shadow caps shown, by lattice: what they were built from and
+    // the data sources built, so a snapshot whose caps did not change reuses
+    // them instead of summing and packing ~10^5 points again. Owner-thread only,
+    // like `members`.
+    struct ShownCap {
+        uint64_t inputs = 0;
+        HdContainerDataSourceHandle shadow, mask;
+    };
+    std::map<std::pair<uint64_t, uint64_t>, ShownCap> shownCaps;
+
+    // One cap per emitting surface. Every description bakes a cap over the
+    // surface it grows from, and stacking one translucent cap per description
+    // fails twice over: Storm's OIT resolve keeps eight layers per pixel, so a
+    // head under nine descriptions loses shadow, and the opaque sample mask
+    // that fixes the fringe a strand leaves across shadowed skin needs the
+    // TOTAL darkening in one place -- masks from separate caps would union
+    // their samples instead of multiplying. Caps that share a lattice are
+    // therefore summed (UsdGenMergeScalpShadows) and shown by the first of
+    // their descriptions by path, so the prim does not move when another
+    // joins; the others show none. A hidden or dormant description's hair is
+    // not drawn, so its shadow is left out.
+    void ShowScalpShadows(std::vector<View>& members) {
+        using Publisher = ::usdGenImaging::UsdGenTilePublisher;
+        int const levels = Publisher::ScalpShadowMaskLevels();
+        std::map<std::pair<uint64_t, uint64_t>, std::vector<size_t>> groups;
+        for (size_t i = 0; i < members.size(); ++i) {
+            View const& v = members[i];
+            if (!v.scalpRaw || v.scalpRaw->IsEmpty() || v.hidden || v.dormant) continue;
+            uint64_t const lattice = v.scalpRaw->latticeKey;
+            // A cap with no lattice key cannot be summed; it shows alone.
+            groups[lattice ? std::make_pair(lattice, uint64_t(0))
+                           : std::make_pair(uint64_t(0), v.id)].push_back(i);
+        }
+        auto mix = [](uint64_t* h, uint64_t v) {
+            *h ^= v + 0x9e3779b97f4a7c15ull + (*h << 6) + (*h >> 2);
+            *h ^= *h >> 30; *h *= 0xbf58476d1ce4e5b9ull;
+            *h ^= *h >> 27; *h *= 0x94d049bb133111ebull;
+            *h ^= *h >> 31;
+        };
+        auto mixFloat = [&](uint64_t* h, float f) {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &f, sizeof(bits));
+            mix(h, bits);
+        };
+        std::map<std::pair<uint64_t, uint64_t>, ShownCap> next;
+        for (auto& group : groups) {
+            std::vector<size_t>& indices = group.second;
+            std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+                return members[a].description < members[b].description;
+            });
+            View& owner = members[indices.front()];
+            // Everything the shown prims are built from. The digest also
+            // stands for the prims' identity in the publication diff.
+            uint64_t inputs = 0x6a09e667f3bcc909ull;
+            mix(&inputs, uint64_t(levels));
+            mix(&inputs, std::hash<std::string>()(owner.description.GetString()));
+            mix(&inputs, std::hash<std::string>()(owner.scalpRaw->purpose.GetString()));
+            mix(&inputs, std::hash<std::string>()(owner.scalpRaw->visibility.GetString()));
+            for (size_t i : indices) {
+                mix(&inputs, members[i].scalpRaw->digest);
+                GfVec3f const albedo = Publisher::ScalpShadowAlbedo(members[i].look);
+                for (int c = 0; c < 3; ++c) mixFloat(&inputs, albedo[c]);
+            }
+            ShownCap shown;
+            auto cached = shownCaps.find(group.first);
+            if (cached != shownCaps.end() && cached->second.inputs == inputs) {
+                shown = cached->second;
+            } else {
+                usdGen::UsdGenScalpShadowPublication merged;
+                if (indices.size() > 1) {
+                    std::vector<usdGen::UsdGenScalpShadowContribution> parts;
+                    for (size_t i : indices)
+                        parts.push_back({members[i].scalpRaw.get(),
+                                         Publisher::ScalpShadowAlbedo(members[i].look)});
+                    merged = usdGen::UsdGenMergeScalpShadows(parts);
+                } else {
+                    merged = *owner.scalpRaw;
+                }
+                shown.inputs = inputs;
+                if (!merged.IsEmpty()) {
+                    shown.shadow = Publisher::BuildScalpShadowDataSource(
+                        merged, owner.generation);
+                    if (levels > 1)
+                        shown.mask = Publisher::BuildScalpShadowDataSource(
+                            merged, owner.generation, true,
+                            Publisher::ScalpShadowMaskMaterialPath(owner.description));
+                }
+            }
+            owner.scalpShadow = shown.shadow;
+            owner.scalpMask = shown.mask;
+            owner.scalpDigest = shown.shadow ? inputs : 0;
+            next.emplace(group.first, std::move(shown));
+        }
+        shownCaps.swap(next);
+    }
     std::shared_ptr<const Snapshot> PublishSnapshot() {
         auto next = std::make_shared<Snapshot>();
         next->capturedThrough = completedPrefix;
@@ -916,10 +1029,11 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                                      g.dependencies, g.cache, g.frame, g.stageFrame,
                                      !g.desc || DescReadsTime(*g.desc),
                                      g.desc ? g.desc->look : usdGen::UsdGenLookDesc(),
-                                     g.scalpShadow, g.scalpDigest, g.dormant, g.hidden,
+                                     g.scalpShadow, g.dormant, g.hidden, g.scalpDigest,
                                      g.activeCooks, g.deferredCook, g.structuralPending,
                                      g.progressActive, g.playbackFailed});
         }
+        ShowScalpShadows(next->members);
         auto result = std::shared_ptr<const Snapshot>(std::move(next));
         std::atomic_store(&catalog, result);
         return result;
@@ -1189,12 +1303,13 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         // The scalp-shadow cap lives beside the tiles, not in the TileMap:
         // it is a mesh, and the notice diff treats the two prim types
         // differently.
-        HdContainerDataSourceHandle freshScalp;
+        std::shared_ptr<const usdGen::UsdGenScalpShadowPublication> freshScalp;
         uint64_t freshScalpDigest = 0;
         if (!generation.scalpShadow.IsEmpty() &&
             generation.scalpShadow.primPath.HasPrefix(render)) {
-            freshScalp = ::usdGenImaging::UsdGenTilePublisher::
-                BuildScalpShadowDataSource(generation.scalpShadow, generation.id);
+            // A copy shares the generation's immutable arrays.
+            freshScalp = std::make_shared<const usdGen::UsdGenScalpShadowPublication>(
+                generation.scalpShadow);
             freshScalpDigest = generation.scalpShadow.digest;
         }
         Added added;
@@ -2030,25 +2145,32 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                             synthetic.emplace(preview, Synthetic{TfToken("material"),
                                 g.id, g.generation, g.tiles, descStamp});
                         }
-                        // The scalp-shadow cap and the material it binds, both
-                        // present only while the groom has one.
+                        // The scalp-shadow cap, its sample mask and the
+                        // materials they bind, present only on the
+                        // description that shows its surface's cap.
                         if (_publishScalpShadow && g.scalpShadow) {
-                            SdfPath const cap = ScalpShadowPath(g.description);
-                            if (!names.count(cap)) {
-                                names.emplace(cap, TfToken("mesh"));
-                                synthetic.emplace(cap, Synthetic{TfToken("mesh"),
+                            auto mesh = [&](SdfPath const& path,
+                                            HdContainerDataSourceHandle const& ds) {
+                                if (names.count(path)) return;
+                                names.emplace(path, TfToken("mesh"));
+                                synthetic.emplace(path, Synthetic{TfToken("mesh"),
                                     g.id, g.generation, g.tiles, descStamp, 0,
-                                    g.scalpDigest, g.scalpShadow, g.hidden});
-                            }
-                            SdfPath const capMaterial =
-                                ScalpShadowMaterialPath(g.description);
-                            if (!names.count(capMaterial)) {
-                                names.emplace(capMaterial, TfToken("material"));
-                                synthetic.emplace(capMaterial, Synthetic{
+                                    g.scalpDigest, ds, g.hidden});
+                            };
+                            auto material = [&](SdfPath const& path) {
+                                if (names.count(path)) return;
+                                names.emplace(path, TfToken("material"));
+                                synthetic.emplace(path, Synthetic{
                                     TfToken("material"), g.id, g.generation,
                                     g.tiles, descStamp,
                                     ::usdGenImaging::UsdGenTilePublisher::
                                         DefaultMaterialLookDigest(g.look)});
+                            };
+                            mesh(ScalpShadowPath(g.description), g.scalpShadow);
+                            material(ScalpShadowMaterialPath(g.description));
+                            if (g.scalpMask) {
+                                mesh(ScalpShadowMaskPath(g.description), g.scalpMask);
+                                material(ScalpShadowMaskMaterialPath(g.description));
                             }
                         }
                         for (auto const& tile : *g.tiles) if (!names.count(tile.first)) {
@@ -2662,14 +2784,23 @@ HdSceneIndexPrim UsdGenGroomSceneIndex::GetPrim(SdfPath const& path) const {
         // The scalp-shadow cap. It carries no primOrigin and takes no
         // DescriptionOverlay: picking passes straight through it to whatever
         // the user authored underneath, and it never highlights.
-        if (_publishScalpShadow && g.scalpShadow && path == ScalpShadowPath(g.description))
-            return {TfToken("mesh"), g.hidden
-                ? HdOverlayContainerDataSource::New(HiddenOverlay(), g.scalpShadow)
-                : g.scalpShadow};
-        if (_publishScalpShadow && g.scalpShadow && path == ScalpShadowMaterialPath(g.description))
-            return {TfToken("material"),
-                    ::usdGenImaging::UsdGenTilePublisher::
-                        BuildScalpShadowMaterialDataSource(g.look)};
+        if (_publishScalpShadow && g.scalpShadow) {
+            using Publisher = ::usdGenImaging::UsdGenTilePublisher;
+            int const levels = g.scalpMask ? Publisher::ScalpShadowMaskLevels() : 0;
+            auto shown = [&](HdContainerDataSourceHandle const& ds) {
+                return HdSceneIndexPrim{TfToken("mesh"), g.hidden
+                    ? HdOverlayContainerDataSource::New(HiddenOverlay(), ds) : ds};
+            };
+            if (path == ScalpShadowPath(g.description)) return shown(g.scalpShadow);
+            if (path == ScalpShadowMaterialPath(g.description))
+                return {TfToken("material"),
+                        Publisher::BuildScalpShadowMaterialDataSource(g.look, levels, false)};
+            if (g.scalpMask && path == ScalpShadowMaskPath(g.description))
+                return shown(g.scalpMask);
+            if (g.scalpMask && path == ScalpShadowMaskMaterialPath(g.description))
+                return {TfToken("material"),
+                        Publisher::BuildScalpShadowMaterialDataSource(g.look, levels, true)};
+        }
         auto tile = g.tiles->find(path);
         if (tile == g.tiles->end()) continue;
         // The synthetic tiles are not in the input scene, so the filters that
@@ -2718,6 +2849,10 @@ SdfPathVector UsdGenGroomSceneIndex::GetChildPrimPaths(SdfPath const& path) cons
             if (_publishScalpShadow && g.scalpShadow) {
                 append(ScalpShadowPath(g.description));
                 append(ScalpShadowMaterialPath(g.description));
+                if (g.scalpMask) {
+                    append(ScalpShadowMaskPath(g.description));
+                    append(ScalpShadowMaskMaterialPath(g.description));
+                }
             }
         }
     }

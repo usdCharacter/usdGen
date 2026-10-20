@@ -150,6 +150,18 @@ but only as far as the occluder actually reaches, so a room-sized floor cannot
 cost the groom its resolution, and only the part of an occluder inside the
 volume is voxelized.
 
+The shell stops at the far side of the solid. Two to six voxels is deeper than
+an ear is thick (5-10 mm against 11-33 mm on the imported Autumn head), so the
+shell under the back of the ear used to come straight out of its front, into
+the hair lying over it: those CVs read a saturated count toward every light and
+the hair rendered pitch black in the outline of the ear. Each sample the shell
+is marked from now casts a short ray along the same inward normal to the next
+surface crossing, and only layers that end inside that thickness are marked;
+an ear, an eyelid or a lip, thinner than the two-voxel bias, gets no shell and
+lets light through, which costs nothing visible. `testUsdGenFurOcclusion`
+holds a zero-width probe above a 4 mm fin to it: 0.00 crossings up and
+sideways, while light through the fin itself is still blocked.
+
 All tiles of a procedural description share the volume. Width, point, topology,
 basis and transform edits rebuild it; affected receiving tiles get primvar
 dirties even when their own geometry did not change. Unchanged geometry shares
@@ -352,21 +364,241 @@ Inputs are the host renderer's names and defaults: `baseColor`, `tipColor`, `col
 `useMelanin`, `melanin`, `redness`, `dyeColor`, `roughness`, `specular`,
 `scatter`, `backlit`, `opacity`, `randomHue`, `randomValue`,
 `randomRoughness`, `selfShadow`, `hairCoverageScale`, `minPixelWidth` and the
-`baseColorMap` texture. Output is linear radiance: the host renderer's BSDF carries no extra
+`baseColorMap` texture, plus the matching controls of § *Matching an imported
+look* below, all of which default to the unchanged look. Output is linear radiance: the host renderer's BSDF carries no extra
 `NoL`, and `light.diffuse.rgb` is radiance in the same convention Storm's own
 `previewSurface.glslfx` uses, so a light that correctly exposes a
 `UsdPreviewSurface` correctly exposes hair. There is no artist budget and no
 tonemap, so a grazing highlight can exceed 1 and clip where the host renderer would roll it
 off in its filmic curve.
 
-`UsdGenTilePublisher::BuildDefaultMaterialDataSource()` binds the
-**translucent** variant and carries the description's `usdGen:look:*` into its
+`UsdGenTilePublisher::BuildDefaultMaterialDataSource()` binds the opaque
+`UsdGenHairStrands` (`UsdGenTilePublisher::DefaultMaterialIdentifier()`; see
+the next section for why) and carries the description's `usdGen:look:*` into its
 parameters. Before this the default material received no look at all: the tile
 bakes `usdGen:look:rootColor` into `displayColor`, which the shader reads as
 the root albedo, but the tip colour, ramp exponent and hue/value jitter had no
 route to Storm, so an authored dark-brown look rendered with the shader's own
 light-brown tip. A multi-stop `usdGen:look:colorRamp` cannot be expressed in
 the shader's single lerp; its first and last stops are used.
+
+### Strand models
+
+`UsdGenHairStrands` and `UsdGenHairStrandsTranslucent` can be built with either
+of two strand models. The CMake cache variable `USDGEN_HAIR_SHADING_MODEL`
+picks one:
+
+```sh
+cmake -S . -B build -DUSDGEN_HAIR_SHADING_MODEL=marschner   # or karis, the default
+```
+
+| | `karis` (default) | `marschner` |
+|---|---|---|
+| Lobes | Karis 2016, as above, plus the matching controls | Absorption-based Marschner: widths from a Chiang longitudinal variance, a TT azimuthal term read from the model's table, TRT narrowed by azimuthal roughness |
+| Colour in the lobes | `pow(baseColor, k / cosθd)` | absorption `σ` from the albedo (Chiang's inverse), attenuated along the refracted path `exp(−2σ(1 + cos 2γt))` with Bravais' index; F0 and the index follow `ior` |
+| Multiple scattering | Zinke as the Karis engine composes it, `a_f`/`a_b` from closed-form fits | Zinke as the Marschner model composes it: `exp(−n)` extinction of the direct BSDF, forward- and back-scatter lobes, × cos θL, `a_f`/`a_b` from its own table |
+| Sky | through the BSDF (eight fibre-frame taps), optional flat fill | flat albedo-tinted ambient times hair ambient occlusion |
+| Extra data | none | the `furDensity` primvar (local hair density) for the occlusion |
+| Source | `usdGenHairStrandsBsdf.glslfx` | `usdGenHairStrandsMarschner.glslfx` |
+
+Storm compiles glslfx when it draws, so the selection is a file:
+`shaders/usdGenHairModel.glslfx` holds one `#define USDGEN_STRANDS_MODEL_KARIS`
+or `..._MARSCHNER` line. CMake writes the build tree's and the install's copy
+from the cache variable; the source copy selects `karis` so a source checkout's
+shader directory still parses. Choosing `marschner` also defines
+`USDGEN_FUR_LOCAL_DENSITY` on `sessionCooker.cpp`, which turns on the fur
+bake's `furDensity` output. The `USDGEN_FUR_DENSITY` environment setting
+overrides that at run time either way. Switching models takes a re-configure,
+which recompiles that one source file and relinks.
+
+Both builds declare the same inputs with the same defaults, so a material
+authored for one loads in the other. Colour (root/tip, melanin, presets,
+jitter), coverage, root fade and the stochastic sample mask are shared code;
+only the lighting loop in `surfaceShader()` differs. The two inputs the Karis
+lobes have no use for, `ior` and `aoIntensity`, are declared in both builds
+and ignored by `karis`. `testUsdGenHairStrandsDefs` fails when the build's
+shader copy selects a different model than the cache, or when `shaders/`
+changed without a re-configure (CMake copies the directory at configure time).
+
+#### The Marschner model
+
+This is an absorption-based Marschner strand model for imported grooms, ported
+so an imported groom shades as it did at the source (see
+[the groom importer](../tools/sisir/README.md)). The shared inputs mean, in this build:
+
+| input | Marschner meaning |
+|---|---|
+| `roughness` | Both lobe families when the split controls are unauthored: `B_R = r²` and longitudinal variance `v = r²`, i.e. the Karis widths. |
+| `primaryRoughness` | `B_R = clamp(p², 1/255, 1)`, with no `√2·cos(φ/2)` scaling. A source `Roughness R` at variance `v` is `p = √(2vR)`. |
+| `longitudinalRoughness` | The variance `v = l²`: `B_TT = v/2`, `B_TRT = 2v`. A source longitudinal roughness `β` gives `v = (0.726β + 0.812β² + 3.7β²⁰)²`. |
+| `azimuthalRoughness` | TRT narrowing `sr·exp(sr(17cosφ − 16.78))`, `sr = saturate(1.5(1 − a))`, and the width of the TT azimuthal lobe. Floored at 0.02; unauthored (−1) is 0.35. |
+| `cuticleTilt` | Shift `s = 4·radians(cuticleTilt)`, lobes at {−s, s/2, 3s/2} in `sinθL + sinθV`: the same R shift as the Karis lobes for the same value. Unauthored is `s = 0.03` rad. |
+| `specular`, `backlit` | R × `2·specular`; TT × `backlit`. |
+| `ior` | F0 = `((1 − n)/(1 + n))²` and Bravais' index. |
+| `selfShadow` | Scales the baked hair count, as in `karis`. 0 switches dual scattering off; about 0.45 maps the bake onto the source's density units. |
+| `scatter`, `backScatter` | Without dual scattering, the model's colourised wrap term and a weak `0.05·albedo` back-scatter fill. With it, `backScatter` scales the back-scatter lobes. |
+| `indirectMultiplier` + `ambientFill` | Their sum is the gain of the flat ambient `albedo × mean sky radiance`. The sky never goes through the BSDF. |
+| `aoIntensity` | Hair occlusion on that ambient: `exp(−aoIntensity · selfShadow · furDensity)`. |
+
+The TT azimuthal term is, in the source, a 64 × 64 table built on the CPU. Its
+rows and columns are closed-form (`R = 1/(max(0.05, 2(y/63)²)·√(2π))`,
+`G = 0.5 − x/63`, lobe `R·exp(−(cosφ + G)²)`, sampled at
+`(0.5 − 0.5 sinθL, √azimuthal)`), so the shader evaluates it exactly, filtering
+included. The lobe is broad and is not normalised. White hair's directional
+albedo is about 2.1 at azimuthal roughness 0.35, 1.5 at 0.48 and 28 at the
+0.02 floor. Dark hair absorbs most of TT, so imported looks are unaffected,
+but light hair on this model is brighter than the Karis model's. That is how
+the model ships, and the port keeps it. `check_hair_energy.py` covers the
+Karis lobes only.
+
+The multiple-scattering averages are, in the source, a 32 × 16 × 16
+half-float texture (`|sinθL|`, roughness, absorption) filled on the GPU by
+Monte Carlo. Storm cannot bind a texture to this material, so
+`usdGenShaders/test/tabulate_hair_marschner.py` recomputes it by quadrature
+from a NumPy reference of the model. It resamples the result onto 12
+incidence nodes (uniform in angle) × 5 roughness nodes × the 16 absorption
+texels and prints the GLSL table. Against the full lattice, between nodes,
+`a_f` is within 0.012 absolute, `a_b` within 0.003 and the forward columns
+within 0.002. `testUsdGenHairMarschnerTable` re-derives the table and fails if
+the glslfx no longer holds it. Two properties of the source are kept:
+
+- The table is built at IOR 1.55, shift 0.03 rad and azimuthal roughness 0.35.
+  The source builds it from its first material, so a material's own IOR,
+  tilt and azimuthal roughness reach the direct lobes but not multiple
+  scattering. Moving them changes `a_b` by up to 40–57%.
+- The absorption axis is built at `σ = coord²` and read at `coord = σ`, which
+  brightens multiple scattering in dark hair.
+
+Where the port departs from the source:
+
+- The hair count is usdGen's baked directional depth (`furTauP`/`furTauN`)
+  times `selfShadow`, shifted by one crossing as on the Karis path, not a
+  per-frame density ray march.
+- Hair occlusion reads `furDensity`. It is the fur bake's hair-only density,
+  in crossings per voxel along an axis, averaged over the three axes and
+  gathered trilinearly at each CV. It is published only when the bake's
+  `localDensity` is on (Marschner builds, or `USDGEN_FUR_DENSITY=1`), and not
+  for instanced fur. Without it the occlusion is 1.
+- Shading is per fragment, not per vertex, and the direct lobes get the Karis
+  path's pixel-footprint widening.
+- Every Storm light is evaluated, not one key light plus ambient.
+- No display transform. The source applies AgX and gamma 2.2; Storm writes
+  linear radiance through its sRGB correction.
+
+### Matching an imported look
+
+Grooms imported from real-time grooming tools carry a strand material that the
+Karis model above cannot express with one roughness and one root/tip lerp: a
+sharp white primary highlight over almost flat coloured lobes, an azimuthal
+roughness, and per-strand colour presets with saturation jitter. Both shipped
+strand files take these extra inputs. Every default selects the expression the
+material evaluated before the input existed, so **an unauthored material
+renders bit-identically** (see *Keeping the default bit-identical* below).
+They are material inputs only: `usdGen:look` does not carry them, so author a
+`UsdGenHairStrands` material and bind it to use them.
+
+Lobes (`UsdGenStrandsLobes` in `usdGenHairStrandsBsdf.glslfx`):
+
+| input | type | default | meaning |
+|---|---|---|---|
+| `primaryRoughness` | float | -1 | R lobe roughness alone, in `roughness` units: `B_R = p²`, clamped to [1/255, 1]. < 0 follows `roughness`. |
+| `longitudinalRoughness` | float | -1 | TT and TRT roughness: `B_TT = l²/2`, `B_TRT = 2l²`, clamped to [1/255, **4**] so a Chiang longitudinal variance `v` is reachable as `l = √v`. Also indexes the dual-scattering fits and the dome albedo (clamped to their fitted 0..1). < 0 follows `roughness`. |
+| `azimuthalRoughness` | float | -1 | TRT azimuthal broadening `Np = s·exp(s·(17cosφ − 16.78))`, `s = saturate(1.5(1 − a))`. Every `a ≤ 1/3`, and the unauthored −1, is Karis' TRT exactly. TT keeps its fixed azimuthal fit. |
+| `cuticleTilt` | float (degrees) | -1 | Karis' cuticle shift: lobes centred at {−2, +1, +4} × tilt in `sinθL + sinθV` (R through Karis' `ShiftR`); dual scattering follows. < 0 keeps the built-in 0.035 rad (≈ 2.005°). |
+| `backScatter` | float | 1 | Gain on the dual-scattering back-scatter (`LocalScattering`) lobe. |
+
+`randomRoughness` jitters all three roughnesses by the same per-strand factor.
+
+Colour, applied in this order after the root/tip lerp and the melanin blend,
+then `baseColorMap`, then the jitter:
+
+| input | type | default | meaning |
+|---|---|---|---|
+| `rootBlendRate` | float | 0 | > 0: the root/tip blend is `smoothstep(0, rate, hairT)` (tip colour reached at that fraction of the strand) before `colorRamp`. 0: linear in `hairT`, as before. |
+| `usePresetColors` | float | 0 | Blend (0..1) from the root/tip/melanin albedo to the strand's preset gradient. |
+| `presetColorA1/A2/A3`, `…B1–B3`, `…C1–C3` | color3f | browns / light / near-black | Three stops of gradients A, B, C. |
+| `presetPointsA/B/C` | float4 | (0, .33, .66, 1) | `mix(mix(c1, c2, smoothstep(x, y, t)), c3, smoothstep(z, w, t))`; clamped to [0,1] and forced ascending (each ≥ previous + 1e-4). |
+| `presetWeights` | float4 | (1, 0, 0, 0) | xyz: weights of A, B, C (normalised); w: selector offset. A strand takes A when `fract(hairId + w) < x/Σ`, B below `(x+y)/Σ`, else C. Only the picked gradient is evaluated. |
+| `presetSrgb` | float | 0 | 1: the stops are sRGB-encoded, blended as authored and linearised afterwards (clamped to [0,1] first) — how display-referred presets are defined. 0: linear stops. |
+| `jitterMode` | float | 0 | 0: today's symmetric jitter (`randomHue` rotates ±H/2 turn about the grey axis, `randomValue` scales by 1 ± V, `randomSaturation` adds ±S, each on its own hash of `hairId`), then the offsets in HSV. 1: one-sided HSV keyed on `hairId` itself: `h = fract(h + hueOffset + id·randomHue)`, `s = sat(s + saturationOffset + id·randomSaturation)`, `v = sat(v + valueOffset + id·randomValue)` — correlated with the preset pick, as preset models define it. |
+| `randomSaturation` | float | 0 | Per-strand saturation jitter (HSV, additive). |
+| `hueOffset`, `saturationOffset`, `valueOffset` | float | 0 | Constant HSV offsets (hue in turns). `saturationOffset = -1` makes the hair grey. |
+
+The one-sided HSV path and the preset pick both need `hairId`; without it every
+strand uses id 0.
+
+Lighting and coverage:
+
+| input | type | default | meaning |
+|---|---|---|---|
+| `indirectMultiplier` | float | 1 | Multiplies the dome as the BSDF sees it (lobes, dual scattering, scatter fake). |
+| `ambientFill` | float | 0 | Flat albedo-tinted ambient: `albedo × mean dome radiance × fill × visibility`, the visibility being the mean over the eight dome taps of `exp(−max(0, hairCount − 1))` (the `hairT` canopy without a density bake). Needs a DomeLight. |
+| `rootFade` | float | 0 | `alpha *= 1 − fade·(1 − smoothstep(0, 0.18, hairT))`: the hairline blends into the scalp. Spent through the stochastic sample mask like any other alpha. |
+
+#### Converting an imported material
+
+Formulas for a material described the way real-time grooming tools commonly do
+(the importer applies them; the engine never sees the source units):
+
+- **Roughness.** With a Chiang longitudinal roughness `β` and a primary scale
+  `R`, such tools use `v = (0.726β + 0.812β² + 3.7β²⁰)²` and lobe widths
+  `{clamp(2vR, 1/255, 1), v/2, 2v}`. Author `longitudinalRoughness = √v` and
+  `primaryRoughness = √clamp(2vR, 1/255, 1)`. Example: β = 0.916, R = 0.015
+  gives v = 3.945, `longitudinalRoughness` 1.986, `primaryRoughness` 0.344.
+- **Azimuthal roughness** maps directly. Its TRT effect is the same formula;
+  its TT effect (a roughness-indexed table in such tools) is not reproduced.
+- **Cuticle tilt.** A tool that centres its lobes at {−s, s/2, 3s/2} in
+  `sinθL + sinθV` (s in radians) matches the R lobe — the only lobe narrow
+  enough for the shift to show — with `cuticleTilt = degrees(s)/4`; TT and TRT
+  then sit at s/4 and s instead of s/2 and 3s/2, which is invisible at their
+  widths.
+- **Colour presets** map one to one: gradients A/B/C → `presetColor*`, their
+  points → `presetPoints*`, the three weights and the random offset →
+  `presetWeights`, `presetSrgb = 1` for display-encoded colours,
+  `usePresetColors = 1`, `useMelanin = 0`, `jitterMode = 1`, hue/saturation
+  randomness → `randomHue`/`randomSaturation`.
+- **Ambient.** A flat `albedo × ambient × multiplier` model is
+  `indirectMultiplier = 0`, `ambientFill = multiplier`, with a DomeLight of the
+  ambient colour and intensity.
+- **Back-scatter gain** → `backScatter`; **root/scalp blend** → `rootFade`;
+  **root blend rate** → `rootBlendRate` (such tools apply it to the root/tip
+  tint of the non-preset path).
+
+#### What is approximated
+
+- `a_f`/`a_b` are fits of the Karis BSDF at ONE roughness. A split material
+  indexes them by `min(longitudinalRoughness, 1)`, since TT and TRT carry the
+  colour multiple scattering accumulates; the R width and the TRT azimuthal
+  broadening reach them only through that roughness. Exact again at the
+  defaults.
+- The Karis lobes ignore `ior`. The literal F0 is folded by the driver into
+  the lobes' Fresnel factors, and every authorable form tried (a uniform F0, an
+  exact-zero correction on top) moved default pixels; Karis' fitted refraction
+  `n'` is for 1.55 anyway, which is also what imported materials usually carry.
+  The input exists for the Marschner build (§ *Strand models*).
+- `ambientFill`'s visibility uses the directional hair count, not a local
+  density. A tool's scalar hair AO (`exp(−k·ρ_local)`) is the Marschner
+  build's `aoIntensity`, which reads the `furDensity` primvar that build bakes.
+- The TT azimuthal term ignores `azimuthalRoughness` (see the table above).
+- For a faithful match of an imported groom, build the Marschner model instead
+  (§ *Strand models*); everything in this section is the Karis approximation.
+
+#### Keeping the default bit-identical
+
+"Same value" is not enough on a GPU: the driver constant-folds and contracts
+literals, so replacing a literal by a uniform of the same value, or adding an
+exact-zero correction to an expression it had folded, can move a pixel. Each
+control is therefore wired so that its default runs the original instructions:
+a uniform branch that keeps Karis' literal expression whole (the R lobe's
+`ShiftR` and the Gaussian argument it feeds), a correction that is an exact
+`× 1` on top of the untouched original (TRT azimuthal: `s·exp((s−1)·…)`), or a
+branch around a block that did not exist before (presets, HSV, root blend,
+fill, fade). Measured, not assumed: the render check's frames and six extra
+frames with the existing jitter, melanin, scatter, ramp, coverage and opacity
+inputs away from their defaults are pixel-identical (opaque variant, which
+renders deterministically) to the shaders before these inputs existed. The
+bisection that found the three offenders is the reason the Karis lobes do
+not read `ior`.
 
 ### How the coverage is spent, and why the default is the opaque variant
 
@@ -605,7 +837,13 @@ so they are that viewer's real output, not a reconstruction.
   pixels to move when `baseColor` changes (a failed glslfx compile falls back
   silently, so every check is differential), when the key light rotates, when
   `selfShadow` changes the hair count, and when `hairCoverageScale` clears
-  coverage.
+  coverage. On the opaque variant it also checks every matching control
+  (§ *Matching an imported look*): each moves the pixels the way its
+  definition says (preset weights split the strands, preset points move the
+  stops, `saturationOffset -1` greys red hair, `rootFade` lowers coverage, …),
+  and the neutral settings — split roughnesses equal to `roughness`,
+  `azimuthalRoughness` 0.3, `cuticleTilt` authored as 0.035 rad — reproduce
+  the default frame to within one LSB.
 
 ### The `scatter` pin, and scenes with no lights
 
@@ -801,16 +1039,20 @@ calls `SetEnableShadows(true)` -- not by usdview or usdrecord.
 
 ### So the shadow is published as geometry
 
-`UsdGenGroomSceneIndex` adds one synthetic Mesh per description,
-`<description>/__usdGenRender/scalpShadow`: the haired part of the groom's
-emitting surface, lifted a hair's breadth along its own smooth normal and
-carrying the same `furTauP`/`furTauN` vertex primvars a strand carries. It
-binds `<description>/__usdGenRender/material_scalpShadow`, the seventh shipped
+`UsdGenGroomSceneIndex` adds one synthetic Mesh per emitting surface,
+`<description>/__usdGenRender/scalpShadow` on the first (by path) of the
+descriptions that grow from it: the haired part of the surface, lifted a
+hair's breadth along its own smooth normal and carrying the same
+`furTauP`/`furTauN` vertex primvars a strand carries, summed over every
+description (see [One cap per surface](#one-cap-per-surface)). It binds
+`<description>/__usdGenRender/material_scalpShadow`, the seventh shipped
 glslfx (`UsdGenScalpShadow`, outside C5), which writes **black with alpha
 `1 - T`** under the `translucent` tag -- so the pass multiplies whatever skin
 material the user authored underneath instead of replacing it. Because the
 shadow comes from the density volume and not from a light, it works under
 usdview's default lighting, where a shadow map would have nothing to offer.
+Beside it sits an opaque sample mask that carries the whole steps of the same
+darkening ([Hair edges over shadowed skin](#hair-edges-over-shadowed-skin)).
 
 `T` is the fraction of the incident light that survived the coat:
 
@@ -841,10 +1083,13 @@ Two deliberate differences from the strand shader:
   enough that the opaque shell, which sits two voxels *in*, cannot reach the
   gather, close enough that it is the light the roots actually see.
 * **Tessellation.** One refinement level for the whole mesh, chosen from the
-  90th-percentile edge against the voxel size and then bounded by a triangle
-  ceiling. Per-face refinement would crack: neighbouring faces would split a
-  shared edge differently and leave T-junctions. The head's 8800 scalp
-  triangles refine 3x into 79 200, of which the cull keeps about 58 000.
+  90th-percentile edge against 1/128 of the surface's bounding diagonal (about
+  a voxel on a head) and then bounded by a triangle ceiling. It depends on the
+  surface alone, so every description over it samples the same lattice (see
+  [One cap per surface](#one-cap-per-surface)). Per-face refinement would
+  crack: neighbouring faces would split a shared edge differently and leave
+  T-junctions. The head's 8800 scalp triangles refine 3x into 79 200, of which
+  the cull keeps about 58 000.
 * **Culling, and why the threshold is small.** A triangle with no hair over it
   is dropped, which is what keeps bare skin untouched, but transmittance falls
   steeply from zero crossings -- `a_f` is around 0.2 for a dark coat, so 0.05
@@ -856,7 +1101,8 @@ Two deliberate differences from the strand shader:
   on the far side, so the cull evaluates the same cosine-weighted hemisphere
   the shader will.
 * **Z-fighting and the silhouette.** glslfx has no polygon offset, so the cap
-  is lifted 0.06 voxels along the normal in the bake -- still an order of
+  is lifted 0.08 of that lattice edge along the normal in the bake (about
+  0.3 mm on a head; the sample mask's depth sits half that behind it) -- still an order of
   magnitude above the depth buffer's resolution at this scale. That lift also
   pushes the cap's silhouette a little outside the skin's, which painted a dark
   rim on the background; the shader fades the cap as the surface turns away
@@ -865,7 +1111,8 @@ Two deliberate differences from the strand shader:
 * **Draw order.** The strand default is the opaque tag, so hair writes depth in
   the opaque pass and the cap -- drawn later, translucent, depth-tested -- is
   hidden wherever a strand already covered the pixel and darkens only the gaps.
-  That is exactly the wanted behaviour and it needs no sorting.
+  That needs no sorting, but the translucent pass makes that decision once per
+  pixel, not per sample, which is what the sample mask below is for.
 * **Dirtying.** The cap is diffed data source by data source like a tile, never
   dirtied universally: a deforming groom rebakes it every frame, and a
   universal dirty there would cost a full mesh re-sync per frame.
@@ -887,8 +1134,109 @@ Two deliberate differences from the strand shader:
 * **Detail is bounded by the emitter's tessellation and the voxel size**, so
   the cap shows a soft density shadow rather than individual strand shadows.
 * The cap carries no `primOrigin` and takes no selection overlay, so picking
-  passes straight through it to whatever the user authored underneath.
+  passes straight through it to whatever the user authored underneath. The
+  mask draws nothing in a one-sample pass, so it is never picked either.
 * `USDGEN_SCALP_SHADOW=0` publishes no cap at all; nothing else changes.
+  `USDGEN_SCALP_SHADOW_MASK=0` keeps the cap but publishes no mask, which is
+  the behaviour before the mask existed.
+
+### One cap per surface
+
+Each description bakes its own cap, but the scene index shows one per
+emitting surface, summed over every visible description that grows from it.
+A cap per description failed twice over on a real groom. The imported Autumn
+head has ten descriptions over one head mesh, and on its face five to eight
+caps overlapped -- past Storm's OIT resolve, which keeps eight fragments per
+pixel and silently drops the rest (about 9 800 pixels of that frame hit the
+limit). And the sample mask below needs the *total* darkening in one place:
+masks from separate caps would union their samples instead of multiplying.
+
+Summing is exact for the skin. The light that reaches it has crossed every
+description's hair in turn, so per light the transmittance is
+`a_f ^ (n_1 + n_2 + ...)`, and the per-light weighting then averages that. Stacking
+separate caps instead multiplied the light-weighted *averages*, which
+over-darkens wherever the lights disagree -- the summed cap leaves Autumn's
+face a little lighter than the stack did, and that is the correction.
+
+The bake makes the sum possible by sampling every cap on the same lattice:
+the refinement, the lift and the solid side now come from the emitting
+surface alone (an edge target of 1/128 of its bounding diagonal, under the
+same triangle ceiling) rather than from the description's voxel grid. Each
+cap records a `latticeKey` and, per point, its lattice slot, so caps that
+dropped different triangles still line up. `UsdGenMergeScalpShadows`
+(`furOcclusion.h`) keeps every triangle any part kept, adds the depths point
+for point, and -- only when the descriptions' hair colours differ -- adds a
+`furCapAlbedo` vertex primvar weighting each colour by how much of that hair
+the point sees. The shown cap belongs to the first description by path, so it
+does not move when another joins; a hidden or dormant description's hair is
+not drawn, so its shadow is left out. The scene index caches the sum by its
+inputs, so a snapshot in which no cap changed reuses it.
+
+### Hair edges over shadowed skin
+
+With the cap on, every strand that crossed shadowed skin -- the hairline, the
+lashes, a lock hanging across the cheek -- grew a bright, skin-coloured
+outline. Storm resolves the multisampled depth buffer to one sample per pixel
+before its translucent (OIT) pass (`HdxTaskController` sets
+`useAovMultiSample = false` for it, and the resolve is a `GL_NEAREST`
+`glBlitFramebuffer`), so the cap's depth test reads one sample. Where a strand
+covers part of a pixel and owns that sample, the cap is hidden from the whole
+pixel, and the skin between the strand's samples keeps its full light while
+the skin around it is shadowed. Measured on Autumn: the chance a partly covered
+pixel lost the cap rose with the strand's coverage -- 18% under a fifth of the
+pixel, 48% at a third, 74% at a half, every pixel above 60%.
+
+Nothing in stock Storm can multiply per sample: the opaque pass can only
+replace samples and the additive pass can only add. So the darkening is split:
+
+* **`scalpShadowMask`** (`UsdGenScalpShadowMask`, opaque) is the same cap,
+  its depth pushed back by half the lift, depth-tested per sample, writing
+  black to `steps` of every `maskLevels` samples of the pixel, where
+  `steps = floor(darkening * maskLevels)`.
+* **`scalpShadow`** (translucent, as before) takes only what is left:
+  `alpha = 1 - (1 - darkening) / (1 - steps / maskLevels)`, so on bare skin the
+  two compose to the cap's darkening exactly.
+
+The two halves must agree on `steps` at every pixel. A first version drew
+the mask at half the lift, and the offset was enough to shift where each pixel
+read the cap: about 900 skin pixels of the Autumn frame, along every step
+contour, came out a step too dark or too light. So the mask shares the cap's
+points exactly and only pushes its depth back in its shader (`gl_FragDepth`,
+half the lift along the view ray -- the skin is at least a whole lift away
+along it), and both compute the darkening at the skin point they read back
+from the `usdGenCapLift` primvar. The mask
+takes its black samples from samples 1..n-1 and leaves sample 0 free: that is
+the sample the resolve keeps, so where the translucent half is hidden, sample
+0 is hair and every skin sample in the pixel is one the mask can blacken.
+
+`maskLevels` follows Storm's MSAA sample count (`HDX_MSAA_SAMPLE_COUNT`,
+default 4) unless `USDGEN_SCALP_SHADOW_MASK` says otherwise. The mask draws
+nothing in a pass with one sample per pixel (an id pass, a host without
+MSAA); a host that renders without MSAA but leaves that setting alone should
+set `USDGEN_SCALP_SHADOW_MASK=0`, or the translucent half will leave out the
+mask's steps.
+
+| sub-pixel black strips over the haired half (`check_scalp_shadow.py`, linear) | mean | above the shadow they sit in |
+|---|---|---|
+| ideal: strips over skin darkened like bare skin | 0.0028 | -- |
+| translucent cap alone | 0.0462 | +0.0435 |
+| with the mask, black samples rotated over all four | 0.0152 | +0.0124 (29%) |
+| with the mask, sample 0 left free | **0.0049** | **+0.0021 (5%)** |
+
+Leaving sample 1, 2 or 3 free instead left 41%, 29% and 37%: sample 0 is the
+one the resolve keeps on this driver, and a driver that resolves another sample
+loses only that refinement, not the mask. On bare skin the halves compose to
+0.0030 against the cap's own 0.0030. On Autumn, pixels brighter than their
+neighbourhood inside the shadowed face fell from 1 848 to 655 (most of what
+remains is skin showing between strands, which is meant to be there), the
+lashes render dark instead of copper, and not one pixel of hair over the
+background changed.
+
+**Limits.** Where the resolve keeps another sample, a hidden pixel misses at
+most one step of the darkening, `1/maskLevels` of the skin's light;
+`HDX_MSAA_SAMPLE_COUNT=8` halves that. The mask is opaque black in the pixels
+it covers, so at a cap's grazing silhouette it fades with the translucent
+half's `N.V` fade, which it inherits through the shared darkening.
 
 ### Verification
 
@@ -914,7 +1262,14 @@ half and none on the other:
 
 The last row is the compile check: only a shader that really evaluates
 `a_f(baseColor)` darkens less for a pale coat, and Storm falls back silently
-when a glslfx fails to compile.
+when a glslfx fails to compile. The same script then checks the mask: that the
+two halves compose exactly on bare skin, and that under sub-pixel black strips
+they keep at least half the shadow the translucent cap alone loses (the table
+above). `testUsdGenFurOcclusion` checks that caps over one surface share a
+lattice and that the merge sums them point for point, keeps every triangle
+once and mixes hair colours only when they differ; `testUsdGenScenePublication`
+checks that two descriptions over one surface publish one cap and one mask, on
+the first, carrying both descriptions' hair.
 
 On `examples/head-hair-closeup.usda`, against the same frame without the cap,
 the skin brightens nowhere and darkens where the hair is: on HeadCam the

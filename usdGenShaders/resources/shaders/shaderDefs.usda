@@ -148,8 +148,8 @@ def Shader "UsdGenValuePreview" (
 # The two defs share every input; only the glslfx materialTag differs.
 
 def Shader "UsdGenHairStrands" (
-    doc = "usdGen UE-parity strand hair: Karis R/TT/TRT, dual scattering from the baked hair count, coverage compensation; opaque + alpha-to-coverage. The usdGen tile default."
-    sdrMetadata = { string primvars = "hairId|hairT|st|furTauP|furTauN|furTipTauP|furTipTauN|hairTipColor|hairColorRamp|hairRandomHue|hairRandomValue" }
+    doc = "usdGen UE-parity strand hair: Karis R/TT/TRT (the absorption-based Marschner model in a USDGEN_HAIR_SHADING_MODEL=marschner build), dual scattering from the baked hair count, coverage compensation; opaque + alpha-to-coverage. The usdGen tile default."
+    sdrMetadata = { string primvars = "hairId|hairT|st|furTauP|furTauN|furTipTauP|furTipTauN|furDensity|hairTipColor|hairColorRamp|hairRandomHue|hairRandomValue" }
 )
 {
     uniform token info:implementationSource = "sourceAsset"
@@ -172,6 +172,102 @@ def Shader "UsdGenHairStrands" (
     float inputs:selfShadow = 1
     float inputs:hairCoverageScale = 1
     float inputs:minPixelWidth = 1
+    # Matching controls (docs/storm-fur.md "Matching an imported look").
+    # Every default selects the expression the material evaluated before
+    # these existed, so an unauthored material renders bit-identically.
+    float inputs:primaryRoughness = -1 (
+        doc = "R lobe roughness alone (B_R = value^2, clamped [1/255, 1]); < 0 follows roughness."
+    )
+    float inputs:longitudinalRoughness = -1 (
+        doc = "TT/TRT roughness (B_TT = l^2/2, B_TRT = 2 l^2, clamped [1/255, 4]); also indexes dual scattering (clamped to 1). < 0 follows roughness."
+    )
+    float inputs:azimuthalRoughness = -1 (
+        doc = "TRT azimuthal broadening: Np = s*exp(s*(17 cosPhi - 16.78)), s = saturate(1.5*(1 - value)); <= 1/3 (and the unauthored -1) is the Karis TRT. Marschner build: also the TT azimuthal width; >= 0.02, < 0 keeps 0.35."
+    )
+    float inputs:cuticleTilt = -1 (
+        doc = "Cuticle shift in degrees; lobes at {-2, 1, 4} x tilt (Karis layout). < 0 keeps the built-in 0.035 rad. Marschner build: s = 4 x tilt (rad), lobes at {-1, 0.5, 1.5} x s; < 0 keeps s = 0.03 rad."
+    )
+    float inputs:backScatter = 1 (
+        doc = "Gain on the dual-scattering back-scatter lobe."
+    )
+    float inputs:usePresetColors = 0 (
+        doc = "Blend (0..1) from the root/tip/melanin albedo to the per-strand preset gradient A/B/C picked by hairId."
+    )
+    float inputs:presetSrgb = 0 (
+        doc = "1: preset stops are sRGB-encoded, blended as authored and linearised after; 0: linear."
+    )
+    color3f inputs:presetColorA1 = (0.035, 0.018, 0.008) (
+        doc = "Preset gradient A, root-side stop."
+    )
+    color3f inputs:presetColorA2 = (0.12, 0.065, 0.026) (
+        doc = "Preset gradient A, middle stop."
+    )
+    color3f inputs:presetColorA3 = (0.21, 0.115, 0.045) (
+        doc = "Preset gradient A, tip-side stop."
+    )
+    float4 inputs:presetPointsA = (0, 0.33, 0.66, 1) (
+        doc = "Gradient A points along hairT: mix(mix(c1, c2, smoothstep(x, y, t)), c3, smoothstep(z, w, t)); forced ascending."
+    )
+    color3f inputs:presetColorB1 = (0.25, 0.16, 0.08) (
+        doc = "Preset gradient B, root-side stop."
+    )
+    color3f inputs:presetColorB2 = (0.45, 0.32, 0.17) (
+        doc = "Preset gradient B, middle stop."
+    )
+    color3f inputs:presetColorB3 = (0.6, 0.45, 0.26) (
+        doc = "Preset gradient B, tip-side stop."
+    )
+    float4 inputs:presetPointsB = (0, 0.33, 0.66, 1) (
+        doc = "Gradient B points, as presetPointsA."
+    )
+    color3f inputs:presetColorC1 = (0.01, 0.006, 0.004) (
+        doc = "Preset gradient C, root-side stop."
+    )
+    color3f inputs:presetColorC2 = (0.01, 0.006, 0.004) (
+        doc = "Preset gradient C, middle stop."
+    )
+    color3f inputs:presetColorC3 = (0.01, 0.006, 0.004) (
+        doc = "Preset gradient C, tip-side stop."
+    )
+    float4 inputs:presetPointsC = (0, 0.33, 0.66, 1) (
+        doc = "Gradient C points, as presetPointsA."
+    )
+    float4 inputs:presetWeights = (1, 0, 0, 0) (
+        doc = "xyz: weights of A/B/C (normalised); w: selector offset. A strand takes A when fract(hairId + w) < x/sum, else B below (x+y)/sum, else C."
+    )
+    float inputs:jitterMode = 0 (
+        doc = "0: symmetric hue/value/saturation jitter on decorrelated hashes. 1: one-sided HSV jitter h += hairId*randomHue, s += hairId*randomSaturation, v += hairId*randomValue (after the offsets)."
+    )
+    float inputs:randomSaturation = 0 (
+        doc = "Per-curve HSV saturation jitter amount (additive); see jitterMode."
+    )
+    float inputs:hueOffset = 0 (
+        doc = "Constant HSV hue offset, in turns."
+    )
+    float inputs:saturationOffset = 0 (
+        doc = "Constant HSV saturation offset (additive)."
+    )
+    float inputs:valueOffset = 0 (
+        doc = "Constant HSV value offset (additive)."
+    )
+    float inputs:rootBlendRate = 0 (
+        doc = "> 0: root/tip blend = smoothstep(0, rate, hairT) before colorRamp; 0 keeps the linear blend."
+    )
+    float inputs:indirectMultiplier = 1 (
+        doc = "Multiplies the dome light evaluated through the BSDF."
+    )
+    float inputs:ambientFill = 0 (
+        doc = "Flat ambient: albedo * mean dome radiance * value * sky visibility through the coat."
+    )
+    float inputs:rootFade = 0 (
+        doc = "Coverage fade at the root: alpha *= 1 - value*(1 - smoothstep(0, 0.18, hairT))."
+    )
+    float inputs:ior = 1.55 (
+        doc = "Fibre index of refraction. Marschner build only: Fresnel F0 and the Bravais index; the Karis lobes keep n = 1.55."
+    )
+    float inputs:aoIntensity = 0 (
+        doc = "Marschner build only: ambient hair occlusion exp(-value * selfShadow * furDensity). 0 disables it."
+    )
     color3f inputs:baseColorMap = (1, 1, 1)
     token outputs:surface (
         sdrMetadata = { string renderType = "terminal surface" }
@@ -180,13 +276,14 @@ def Shader "UsdGenHairStrands" (
 
 # Hair shadowing the skin it grows out of (plan/16-ue-hair-parity.md WS3). Not
 # a hair look and not part of the C5 freeze. The groom scene index binds it on
-# one synthetic Mesh per description, <description>/__usdGenRender/scalpShadow,
-# whose furTauP/furTauN are HAIR-ONLY optical depth over the emitting surface.
-# It writes black with the alpha the hair above absorbs, so the translucent
-# pass multiplies whatever skin material the user authored underneath.
+# one synthetic Mesh per emitting surface, <description>/__usdGenRender/
+# scalpShadow, whose furTauP/furTauN are HAIR-ONLY optical depth over the
+# surface, summed over every description that grows from it. It writes black
+# with the alpha the hair above absorbs, so the translucent pass multiplies
+# whatever skin material the user authored underneath.
 def Shader "UsdGenScalpShadow" (
     doc = "usdGen scalp shadow: darkens the groom's emitting surface by the light the hair above it absorbs. Stock Storm casts no shadow from any UsdLux light, so this synthetic cap is the only route to hair-on-skin shadowing."
-    sdrMetadata = { string primvars = "furTauP|furTauN" }
+    sdrMetadata = { string primvars = "furTauP|furTauN|furCapAlbedo|usdGenCapLift" }
 )
 {
     uniform token info:implementationSource = "sourceAsset"
@@ -195,6 +292,34 @@ def Shader "UsdGenScalpShadow" (
     float inputs:roughness = 0.35
     float inputs:strength = 1
     float inputs:ambient = 0.35
+    float inputs:maskLevels = 0 (
+        doc = "Steps an opaque UsdGenScalpShadowMask beside this cap already blackens; this cap then darkens only the remainder. 0: no mask, darken fully."
+    )
+    token outputs:surface (
+        sdrMetadata = { string renderType = "terminal surface" }
+    )
+}
+
+# The opaque half of the same cap, on <description>/__usdGenRender/
+# scalpShadowMask just under it. Storm's translucent pass sees one depth
+# sample per pixel, so a strand covering part of a pixel hides the
+# translucent cap from all of it; this half is depth-tested per sample and
+# blackens the whole steps of the darkening (maskLevels, normally the MSAA
+# sample count), leaving the translucent half only the remainder.
+def Shader "UsdGenScalpShadowMask" (
+    doc = "usdGen scalp shadow, opaque sample mask: blackens a whole number of each pixel's samples so hair-on-skin shadow reaches the skin between a strand's samples, where Storm's single-sample translucent pass cannot."
+    sdrMetadata = { string primvars = "furTauP|furTauN|furCapAlbedo|usdGenCapLift" }
+)
+{
+    uniform token info:implementationSource = "sourceAsset"
+    uniform asset info:glslfx:sourceAsset = @./usdGenScalpShadowMask.glslfx@
+    color3f inputs:baseColor = (0.035, 0.018, 0.008)
+    float inputs:roughness = 0.35
+    float inputs:strength = 1
+    float inputs:ambient = 0.35
+    float inputs:maskLevels = 0 (
+        doc = "Steps the darkening is spent in, normally Storm's MSAA sample count; below 2 the mask draws nothing. Must match the translucent cap's."
+    )
     token outputs:surface (
         sdrMetadata = { string renderType = "terminal surface" }
     )
@@ -202,7 +327,7 @@ def Shader "UsdGenScalpShadow" (
 
 def Shader "UsdGenHairStrandsTranslucent" (
     doc = "usdGen UE-parity strand hair + translucent materialTag (OIT); for hero shots and very fine hair where alpha-to-coverage banding shows."
-    sdrMetadata = { string primvars = "hairId|hairT|st|furTauP|furTauN|furTipTauP|furTipTauN|hairTipColor|hairColorRamp|hairRandomHue|hairRandomValue" }
+    sdrMetadata = { string primvars = "hairId|hairT|st|furTauP|furTauN|furTipTauP|furTipTauN|furDensity|hairTipColor|hairColorRamp|hairRandomHue|hairRandomValue" }
 )
 {
     uniform token info:implementationSource = "sourceAsset"
@@ -225,6 +350,102 @@ def Shader "UsdGenHairStrandsTranslucent" (
     float inputs:selfShadow = 1
     float inputs:hairCoverageScale = 1
     float inputs:minPixelWidth = 1
+    # Matching controls (docs/storm-fur.md "Matching an imported look").
+    # Every default selects the expression the material evaluated before
+    # these existed, so an unauthored material renders bit-identically.
+    float inputs:primaryRoughness = -1 (
+        doc = "R lobe roughness alone (B_R = value^2, clamped [1/255, 1]); < 0 follows roughness."
+    )
+    float inputs:longitudinalRoughness = -1 (
+        doc = "TT/TRT roughness (B_TT = l^2/2, B_TRT = 2 l^2, clamped [1/255, 4]); also indexes dual scattering (clamped to 1). < 0 follows roughness."
+    )
+    float inputs:azimuthalRoughness = -1 (
+        doc = "TRT azimuthal broadening: Np = s*exp(s*(17 cosPhi - 16.78)), s = saturate(1.5*(1 - value)); <= 1/3 (and the unauthored -1) is the Karis TRT. Marschner build: also the TT azimuthal width; >= 0.02, < 0 keeps 0.35."
+    )
+    float inputs:cuticleTilt = -1 (
+        doc = "Cuticle shift in degrees; lobes at {-2, 1, 4} x tilt (Karis layout). < 0 keeps the built-in 0.035 rad. Marschner build: s = 4 x tilt (rad), lobes at {-1, 0.5, 1.5} x s; < 0 keeps s = 0.03 rad."
+    )
+    float inputs:backScatter = 1 (
+        doc = "Gain on the dual-scattering back-scatter lobe."
+    )
+    float inputs:usePresetColors = 0 (
+        doc = "Blend (0..1) from the root/tip/melanin albedo to the per-strand preset gradient A/B/C picked by hairId."
+    )
+    float inputs:presetSrgb = 0 (
+        doc = "1: preset stops are sRGB-encoded, blended as authored and linearised after; 0: linear."
+    )
+    color3f inputs:presetColorA1 = (0.035, 0.018, 0.008) (
+        doc = "Preset gradient A, root-side stop."
+    )
+    color3f inputs:presetColorA2 = (0.12, 0.065, 0.026) (
+        doc = "Preset gradient A, middle stop."
+    )
+    color3f inputs:presetColorA3 = (0.21, 0.115, 0.045) (
+        doc = "Preset gradient A, tip-side stop."
+    )
+    float4 inputs:presetPointsA = (0, 0.33, 0.66, 1) (
+        doc = "Gradient A points along hairT: mix(mix(c1, c2, smoothstep(x, y, t)), c3, smoothstep(z, w, t)); forced ascending."
+    )
+    color3f inputs:presetColorB1 = (0.25, 0.16, 0.08) (
+        doc = "Preset gradient B, root-side stop."
+    )
+    color3f inputs:presetColorB2 = (0.45, 0.32, 0.17) (
+        doc = "Preset gradient B, middle stop."
+    )
+    color3f inputs:presetColorB3 = (0.6, 0.45, 0.26) (
+        doc = "Preset gradient B, tip-side stop."
+    )
+    float4 inputs:presetPointsB = (0, 0.33, 0.66, 1) (
+        doc = "Gradient B points, as presetPointsA."
+    )
+    color3f inputs:presetColorC1 = (0.01, 0.006, 0.004) (
+        doc = "Preset gradient C, root-side stop."
+    )
+    color3f inputs:presetColorC2 = (0.01, 0.006, 0.004) (
+        doc = "Preset gradient C, middle stop."
+    )
+    color3f inputs:presetColorC3 = (0.01, 0.006, 0.004) (
+        doc = "Preset gradient C, tip-side stop."
+    )
+    float4 inputs:presetPointsC = (0, 0.33, 0.66, 1) (
+        doc = "Gradient C points, as presetPointsA."
+    )
+    float4 inputs:presetWeights = (1, 0, 0, 0) (
+        doc = "xyz: weights of A/B/C (normalised); w: selector offset. A strand takes A when fract(hairId + w) < x/sum, else B below (x+y)/sum, else C."
+    )
+    float inputs:jitterMode = 0 (
+        doc = "0: symmetric hue/value/saturation jitter on decorrelated hashes. 1: one-sided HSV jitter h += hairId*randomHue, s += hairId*randomSaturation, v += hairId*randomValue (after the offsets)."
+    )
+    float inputs:randomSaturation = 0 (
+        doc = "Per-curve HSV saturation jitter amount (additive); see jitterMode."
+    )
+    float inputs:hueOffset = 0 (
+        doc = "Constant HSV hue offset, in turns."
+    )
+    float inputs:saturationOffset = 0 (
+        doc = "Constant HSV saturation offset (additive)."
+    )
+    float inputs:valueOffset = 0 (
+        doc = "Constant HSV value offset (additive)."
+    )
+    float inputs:rootBlendRate = 0 (
+        doc = "> 0: root/tip blend = smoothstep(0, rate, hairT) before colorRamp; 0 keeps the linear blend."
+    )
+    float inputs:indirectMultiplier = 1 (
+        doc = "Multiplies the dome light evaluated through the BSDF."
+    )
+    float inputs:ambientFill = 0 (
+        doc = "Flat ambient: albedo * mean dome radiance * value * sky visibility through the coat."
+    )
+    float inputs:rootFade = 0 (
+        doc = "Coverage fade at the root: alpha *= 1 - value*(1 - smoothstep(0, 0.18, hairT))."
+    )
+    float inputs:ior = 1.55 (
+        doc = "Fibre index of refraction. Marschner build only: Fresnel F0 and the Bravais index; the Karis lobes keep n = 1.55."
+    )
+    float inputs:aoIntensity = 0 (
+        doc = "Marschner build only: ambient hair occlusion exp(-value * selfShadow * furDensity). 0 disables it."
+    )
     color3f inputs:baseColorMap = (1, 1, 1)
     token outputs:surface (
         sdrMetadata = { string renderType = "terminal surface" }

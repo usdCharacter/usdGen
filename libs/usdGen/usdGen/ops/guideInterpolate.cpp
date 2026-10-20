@@ -1,7 +1,9 @@
 // usdGen — UsdGenGuideInterpolateOp implementation. 04-operators.md §2.3.
 //
-// Capture (the whole result, like Clump; the guide set is a reference input
-// whose identity already re-runs it):
+// usdGen:weighting selects how a strand follows the guides.
+//
+// "falloff" (the default) — capture (the whole result, like Clump; the guide
+// set is a reference input whose identity already re-runs it):
 //   * every guide is resampled to usdGen:cvCount CVs by arc length and kept
 //     as root-local offsets (linearBlend) or segment vectors
 //     (extrudeAndBlend);
@@ -20,15 +22,40 @@
 //   * shapes blend in skin space: each guide's offsets are turned by the
 //     rotation taking its root normal onto the strand's (scaled by
 //     usdGen:blendInSkinSpace) before weighting.
+//
+// "nearest" / "inverseDistance" / "gaussian" — the imported-groom blend
+// (ops/guideBlend.h): a rigid copy of the nearest guide, inverse-distance
+// weights over the 3 nearest guides, or a Gaussian kernel over all guides
+// (usdGen:tightness), with optional rotation-minimising frames
+// (usdGen:bendFollow) and parting (usdGen:part:*: authored curves, amount,
+// angle, radius as a fraction of the curve length, distance). The
+// falloff-only controls (maxGuides, influenceRadius, influenceDecay,
+// maxGuideAngle, blendMethod, blendInSkinSpace, useUniqueGuide,
+// randomizeGuide, region, regionCrossover, regionMap) do not apply there.
+// Without guides every strand grows straight along its root normal
+// (usdGen:defaultLength).
+//
+// Every weighting emits guideIndex / guideWeight (arity 3) and the uniform
+// int planes primaryGuide (dominant guide), nearestGuide (parting-aware
+// nearest guide root), partId (parting key, -1 off the parting) and
+// mirrorSign (the guide set's mirrorSign plane at primaryGuide, default +1);
+// guide indices are curve indices of the guide set. Upstream uniform planes
+// (strandIndex, strandSeed, ...) are carried into the generated buffer.
 // Evaluate writes the captured strands, following their roots.
 #include "usdGen/ops/guideInterpolate.h"
 
 #include "usdGen/clumpMotion.h"
 #include "usdGen/opParams.h"
+#include "usdGen/ops/guideBlend.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/regionMap.h"
+#include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/types.h"
 #include "usdGenMath/usdGenMath/hash.h"
+
+#include "pxr/base/gf/vec3d.h"
+#include "pxr/base/vt/types.h"
 
 #include <nanoflann.hpp>
 
@@ -51,6 +78,13 @@ const TfToken sCvCount{"cvCount"}, sMaxGuides{"maxGuides"}, sRadius{"influenceRa
     sSkinSpace{"blendInSkinSpace"}, sUnique{"useUniqueGuide"}, sRandomize{"randomizeGuide"},
     sCrossover{"regionCrossover"}, sRegion{"region"}, sLinear{"linearBlend"},
     sExtrude{"extrudeAndBlend"}, sGuideIndex{"guideIndex"}, sGuideWeight{"guideWeight"};
+const TfToken sWeighting{"weighting"}, sFalloff{"falloff"}, sNearest{"nearest"},
+    sInverseDistance{"inverseDistance"}, sGaussian{"gaussian"}, sTightness{"tightness"},
+    sBendFollow{"bendFollow"}, sDefaultLength{"defaultLength"}, sPartPoints{"part:points"},
+    sPartCounts{"part:counts"}, sPartNormals{"part:normals"}, sPartAmount{"part:amount"},
+    sPartAngle{"part:angle"}, sPartRadius{"part:radius"}, sPartDistance{"part:distance"},
+    sPrimaryGuide{"primaryGuide"}, sNearestGuide{"nearestGuide"}, sPartId{"partId"},
+    sMirrorSign{"mirrorSign"};
 
 constexpr uint32_t kSaltGuide = 0x47554944u;   // "GUID"
 constexpr size_t kMaxCandidates = 32;
@@ -99,16 +133,99 @@ void ParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const &body)
     }, &payload);
 }
 
+enum class Mode { Falloff, Nearest, InverseDistance, Gaussian };
+
 struct Settings {
     int cvCount = 8, maxGuides = 3;
     double radius = 4.0, decay = 2.0, maxAngle = 90.0, skin = 1.0, randomize = 0.0,
            crossover = 0.0;
     bool unique = false, extrude = false;
+    Mode mode = Mode::Falloff;
+    double tightness = 3.0, defaultLength = 0.01;
+    bool bendFollow = false;
+    double partAmount = 0.0, partAngle = 80.0, partRadius = 0.5, partDistance = 1.0;
 };
+
+/// A point/normal array parameter as float vectors (point3f[] / normal3f[],
+/// double spellings tolerated). False when the value has another type.
+bool ReadVec3s(VtValue const &value, std::vector<guideBlend::V3> *out)
+{
+    out->clear();
+    if (value.IsEmpty()) return true;
+    if (value.IsHolding<VtVec3fArray>()) {
+        for (GfVec3f const &p : value.UncheckedGet<VtVec3fArray>())
+            out->push_back({p[0], p[1], p[2]});
+        return true;
+    }
+    if (value.IsHolding<VtVec3dArray>()) {
+        for (GfVec3d const &p : value.UncheckedGet<VtVec3dArray>())
+            out->push_back({float(p[0]), float(p[1]), float(p[2])});
+        return true;
+    }
+    return false;
+}
+
+bool ReadInts(VtValue const &value, std::vector<int> *out)
+{
+    out->clear();
+    if (value.IsEmpty()) return true;
+    if (!value.IsHolding<VtIntArray>()) return false;
+    VtIntArray const &a = value.UncheckedGet<VtIntArray>();
+    out->assign(a.begin(), a.end());
+    return true;
+}
+
+/// The authored parting curves, validated.
+bool ReadParting(UsdGenParamView const *p, Settings const &s, guideBlend::Parting *parting,
+                 std::string *error)
+{
+    std::vector<guideBlend::V3> points, normals;
+    std::vector<int> counts;
+    if (p) {
+        if (!ReadVec3s(p->GetVtValue(sPartPoints, VtValue()), &points)) {
+            *error = "usdGen:part:points must be a point3f[]";
+            return false;
+        }
+        if (!ReadInts(p->GetVtValue(sPartCounts, VtValue()), &counts)) {
+            *error = "usdGen:part:counts must be an int[]";
+            return false;
+        }
+        if (!ReadVec3s(p->GetVtValue(sPartNormals, VtValue()), &normals)) {
+            *error = "usdGen:part:normals must be a normal3f[]";
+            return false;
+        }
+    }
+    size_t total = 0;
+    for (int c : counts) {
+        if (c < 0) {
+            *error = "usdGen:part:counts must be >= 0";
+            return false;
+        }
+        total += size_t(c);
+    }
+    if (!counts.empty() && total != points.size()) {
+        *error = "usdGen:part:counts must sum to the size of usdGen:part:points";
+        return false;
+    }
+    if (!normals.empty() && normals.size() != points.size()) {
+        *error = "usdGen:part:normals must be empty or one per usdGen:part:points entry";
+        return false;
+    }
+    for (guideBlend::V3 const &v : points) {
+        if (!std::isfinite(v.x) || !std::isfinite(v.y) || !std::isfinite(v.z)) {
+            *error = "usdGen:part:points must be finite";
+            return false;
+        }
+    }
+    if (parting)
+        parting->Set(std::move(points), counts, float(s.partAmount), float(s.partAngle),
+                     float(s.partRadius), float(s.partDistance));
+    return true;
+}
 
 bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag)
 {
-    auto fail = [&](char const *message) {
+    auto fail = [&](std::string const &message) {
         if (diag) diag->Error(std::string("UsdGenGuideInterpolate: ") + message);
         return false;
     };
@@ -126,7 +243,21 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
     if (method != sLinear && method != sExtrude)
         return fail("usdGen:blendMethod must be linearBlend or extrudeAndBlend");
     s->extrude = method == sExtrude;
-    if (s->cvCount < 2 || s->cvCount > 64) return fail("usdGen:cvCount must be in [2, 64]");
+    TfToken const weighting = p->GetToken(sWeighting, sFalloff);
+    if (weighting == sFalloff) s->mode = Mode::Falloff;
+    else if (weighting == sNearest) s->mode = Mode::Nearest;
+    else if (weighting == sInverseDistance) s->mode = Mode::InverseDistance;
+    else if (weighting == sGaussian) s->mode = Mode::Gaussian;
+    else return fail("usdGen:weighting must be falloff, nearest, inverseDistance or gaussian");
+    s->tightness = p->GetDouble(sTightness, 3.0);
+    s->bendFollow = p->GetBool(sBendFollow, false);
+    s->defaultLength = p->GetDouble(sDefaultLength, 0.01);
+    s->partAmount = p->GetDouble(sPartAmount, 0.0);
+    s->partAngle = p->GetDouble(sPartAngle, 80.0);
+    s->partRadius = p->GetDouble(sPartRadius, 0.5);
+    s->partDistance = p->GetDouble(sPartDistance, 1.0);
+    if (s->cvCount < 2 || s->cvCount > int(kUsdGenMaxCvsPerCurve))
+        return fail("usdGen:cvCount must be in [2, " + std::to_string(kUsdGenMaxCvsPerCurve) + "]");
     if (s->maxGuides < 1 || s->maxGuides > 8) return fail("usdGen:maxGuides must be in [1, 8]");
     if (!std::isfinite(s->radius) || s->radius <= 0.0)
         return fail("usdGen:influenceRadius must be finite and > 0");
@@ -137,6 +268,14 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
     if (!(s->skin >= 0.0 && s->skin <= 1.0) || !(s->randomize >= 0.0 && s->randomize <= 1.0) ||
         !(s->crossover >= 0.0 && s->crossover <= 1.0))
         return fail("usdGen:blendInSkinSpace, randomizeGuide and regionCrossover must be in [0, 1]");
+    if (!std::isfinite(s->tightness)) return fail("usdGen:tightness must be finite");
+    if (!std::isfinite(s->defaultLength) || s->defaultLength < 0.0)
+        return fail("usdGen:defaultLength must be finite and >= 0");
+    if (!std::isfinite(s->partAmount) || !std::isfinite(s->partAngle) ||
+        !std::isfinite(s->partRadius) || !std::isfinite(s->partDistance))
+        return fail("usdGen:part:amount, angle, radius and distance must be finite");
+    std::string error;
+    if (!ReadParting(p, *s, nullptr, &error)) return fail(error);
     return true;
 }
 
@@ -167,6 +306,26 @@ void Resample(float const *points, size_t count, size_t n, float *out)
     }
 }
 
+/// The guide set's per-curve plane `name` as ints (int or float uniform,
+/// arity 1), or empty.
+std::vector<int> CurveInts(UsdGenCurveBuffer const &buffer, TfToken const &name)
+{
+    for (UsdGenPlane const &plane : buffer.extraCurve) {
+        if (plane.name != name || plane.arity != 1 ||
+            plane.interpolation != TfToken("uniform"))
+            continue;
+        if (plane.type == TfToken("int") && plane.i.size() == buffer.totalCurves)
+            return std::vector<int>(plane.i.begin(), plane.i.end());
+        if (plane.type == TfToken("float") && plane.f.size() == buffer.totalCurves) {
+            std::vector<int> out(plane.f.size());
+            for (size_t i = 0; i < out.size(); ++i)
+                out[i] = std::isfinite(plane.f[i]) ? int(std::lround(plane.f[i])) : 0;
+            return out;
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 static TfTokenVector _topoParams = [] {
@@ -176,7 +335,10 @@ static TfTokenVector _topoParams = [] {
     v.push_back(TfToken("regionMap"));
     for (char const *name : {"cvCount", "maxGuides", "influenceRadius", "influenceDecay",
                              "maxGuideAngle", "blendMethod", "blendInSkinSpace",
-                             "useUniqueGuide", "randomizeGuide", "regionCrossover", "region"})
+                             "useUniqueGuide", "randomizeGuide", "regionCrossover", "region",
+                             "weighting", "tightness", "bendFollow", "defaultLength",
+                             "part:points", "part:counts", "part:normals", "part:amount",
+                             "part:angle", "part:radius", "part:distance"})
         v.push_back(TfToken(name));
     return v;
 }();
@@ -242,16 +404,24 @@ bool UsdGenGuideInterpolateOp::Capture(
         if (diag) diag->Error("UsdGenGuideInterpolate: " + message);
         return false;
     };
-    if (ctx.referenceCount != 1 || !ctx.resolvedReferences || !ctx.resolvedReferences[0] ||
-        !ctx.resolvedReferences[0]->value)
+    bool const falloff = s.mode == Mode::Falloff;
+
+    // --- the guide set (optional for the reference weightings) -----------------
+    static UsdGenCurveBuffer const kNoGuides;
+    bool const haveRef = ctx.referenceCount == 1 && ctx.resolvedReferences &&
+        ctx.resolvedReferences[0] && ctx.resolvedReferences[0]->value;
+    if (falloff ? !haveRef : ctx.referenceCount > 1 || (ctx.referenceCount == 1 && !haveRef))
         return fail("usdGen:guides must target one guide curve set");
-    UsdGenCurveBuffer const &guides = ctx.resolvedReferences[0]->value->buffer;
+    UsdGenCurveBuffer const &guides =
+        haveRef ? ctx.resolvedReferences[0]->value->buffer : kNoGuides;
     UsdGenClumpMotion guideClumps;
-    std::string clumpError;
-    if (!UsdGenBuildClumpMotion(guides, &guideClumps, &clumpError))
-        return fail("guide clump motion metadata " + clumpError);
+    if (haveRef) {
+        std::string clumpError;
+        if (!UsdGenBuildClumpMotion(guides, &guideClumps, &clumpError))
+            return fail("guide clump motion metadata " + clumpError);
+    }
     size_t const G = guides.totalCurves;
-    if (G == 0) return fail("the guide curve set has no curves");
+    if (falloff && G == 0) return fail("the guide curve set has no curves");
 
     std::vector<uint32_t> guideSpans, rootSpans;
     std::string error;
@@ -261,6 +431,9 @@ bool UsdGenGuideInterpolateOp::Capture(
         return fail("root topology: " + error);
     if (guides.px.size() != guides.totalCvs || upstream.px.size() != upstream.totalCvs)
         return fail("point planes do not match their CV counts");
+
+    guideBlend::Parting parting;
+    if (!ReadParting(p, s, &parting, &error)) return fail(error);
 
     size_t const R = upstream.totalCurves;
     size_t const n = size_t(s.cvCount);
@@ -282,16 +455,29 @@ bool UsdGenGuideInterpolateOp::Capture(
         return upstream.rootN.size() == R ? opUtil::Normalized(upstream.rootN[c])
                                           : GfVec3f(0, 1, 0);
     };
-    UsdGenParamField const regionField = p ? p->GetScalarField(sRegion, 0.0) : UsdGenParamField{};
+    // The root normal as authored (unit from the scatter), for the reference math.
+    auto rawNormal = [&](size_t c) -> guideBlend::V3 {
+        if (upstream.rootN.size() == R) {
+            GfVec3f const nrm = upstream.rootN[c];
+            if (nrm.GetLengthSq() > 1e-24f) return {nrm[0], nrm[1], nrm[2]};
+        }
+        return {0.0f, 1.0f, 0.0f};
+    };
     std::vector<int64_t> hairRegion(R, 0);
-    if (regionField.connected)
-        for (size_t c = 0; c < R; ++c)
-            hairRegion[c] = opUtil::RegionKey(regionField.Value(c, rootSpans[c]));
-    bool mapped=false;std::vector<int> mapRegions;
-    if (!UsdGenReadRootRegions(ctx,upstream,&mapRegions,&mapped,&error)) return fail(error);
-    if (mapped) {
-        if (s.crossover!=0) return fail("regionMap requires regionCrossover=0 for hard partitions");
-        for (size_t c=0;c<R;++c) hairRegion[c]=opUtil::RegionKey(double(mapRegions[c]));
+    bool mapped = false;
+    if (falloff) {
+        UsdGenParamField const regionField =
+            p ? p->GetScalarField(sRegion, 0.0) : UsdGenParamField{};
+        if (regionField.connected)
+            for (size_t c = 0; c < R; ++c)
+                hairRegion[c] = opUtil::RegionKey(regionField.Value(c, rootSpans[c]));
+        std::vector<int> mapRegions;
+        if (!UsdGenReadRootRegions(ctx, upstream, &mapRegions, &mapped, &error)) return fail(error);
+        if (mapped) {
+            if (s.crossover != 0)
+                return fail("regionMap requires regionCrossover=0 for hard partitions");
+            for (size_t c = 0; c < R; ++c) hairRegion[c] = opUtil::RegionKey(double(mapRegions[c]));
+        }
     }
     uint64_t const *ids = upstream.curveId.size() == R ? upstream.curveId.cdata() : nullptr;
 
@@ -306,34 +492,14 @@ bool UsdGenGuideInterpolateOp::Capture(
         return hairIndex->knnSearch(q, 1, &found, &distance) ? int64_t(found) : -1;
     };
 
-    // --- guides ----------------------------------------------------------------
-    std::vector<float> guideRoot(G * 3), guideShape(G * n * 3), guideLength(G * n, 0.0f);
-    std::vector<GfVec3f> guideNormal(G, GfVec3f(0, 1, 0));
-    std::vector<int64_t> guideRegion(G, 0);
+    // --- guide widths (resampled by CV index) and root normals ----------------
+    bool const guidesHaveWidth = G > 0 && guides.width.size() == guides.totalCvs;
     std::vector<float> guideWidth;
-    bool const guidesHaveWidth = guides.width.size() == guides.totalCvs;
-    if (guidesHaveWidth) guideWidth.assign(G * n, 0.0f);
-    std::vector<float> points;
-    for (size_t g = 0; g < G; ++g) {
-        size_t const first = guideSpans[g], count = guideSpans[g + 1] - first;
-        points.resize(count * 3);
-        for (size_t i = 0; i < count; ++i) {
-            points[i * 3] = guides.px[first + i];
-            points[i * 3 + 1] = guides.py[first + i];
-            points[i * 3 + 2] = guides.pz[first + i];
-        }
-        float *shape = &guideShape[g * n * 3];
-        Resample(points.data(), count, n, shape);
-        for (int d = 0; d < 3; ++d) guideRoot[g * 3 + d] = shape[d];
-        for (size_t k = n; k-- > 0;)
-            for (int d = 0; d < 3; ++d) shape[k * 3 + d] -= shape[d];   // root-local
-        for (size_t k = 1; k < n; ++k) {
-            GfVec3f const seg(shape[k * 3] - shape[(k - 1) * 3],
-                              shape[k * 3 + 1] - shape[(k - 1) * 3 + 1],
-                              shape[k * 3 + 2] - shape[(k - 1) * 3 + 2]);
-            guideLength[g * n + k] = seg.GetLength();
-        }
-        if (guidesHaveWidth) {
+    if (guidesHaveWidth) {
+        guideWidth.assign(G * n, 0.0f);
+        for (size_t g = 0; g < G; ++g) {
+            size_t const first = guideSpans[g], count = guideSpans[g + 1] - first;
+            if (count == 0) continue;
             for (size_t k = 0; k < n; ++k) {
                 float const at = n > 1 ? float(k) / float(n - 1) * float(count - 1) : 0.0f;
                 size_t const lo = std::min(size_t(at), count - 1), hi = std::min(lo + 1, count - 1);
@@ -341,14 +507,55 @@ bool UsdGenGuideInterpolateOp::Capture(
                     (guides.width[first + hi] - guides.width[first + lo]) * (at - float(lo));
             }
         }
-        int64_t const near = nearestHair(&guideRoot[g * 3]);
-        if (guides.rootN.size() == G) guideNormal[g] = opUtil::Normalized(guides.rootN[g]);
-        else if (near >= 0) guideNormal[g] = hairNormal(size_t(near));
-        if (near >= 0) guideRegion[g] = hairRegion[size_t(near)];
     }
-    Cloud guideCloud;
-    guideCloud.points = guideRoot;
-    CloudIndex guideIndex(3, guideCloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
+    // Reference root normal of every guide: the authored root frame, else the
+    // bound surface's normal at the guide root (parting only), else the rest
+    // normal of the strand rooted nearest it.
+    std::vector<guideBlend::V3> guideNormals(G, guideBlend::V3{0.0f, 1.0f, 0.0f});
+    {
+        strand::TriangleBvh bvh;
+        bool const useSurface = parting.active && guides.rootN.size() != G && ctx.desc &&
+            p && p->node && !p->node->surfaces.empty() && ctx.surface < ctx.desc->surfaces.size();
+        if (useSurface) strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], true, &bvh);
+        for (size_t g = 0; g < G; ++g) {
+            if (guideSpans[g + 1] == guideSpans[g]) continue;
+            size_t const first = guideSpans[g];
+            if (guides.rootN.size() == G) {
+                GfVec3f const nrm = guides.rootN[g];
+                guideNormals[g] = {nrm[0], nrm[1], nrm[2]};
+                continue;
+            }
+            GfVec3f const root(guides.px[first], guides.py[first], guides.pz[first]);
+            if (!bvh.Empty()) {
+                strand::ClosestHit const hit = bvh.Closest(root);
+                if (hit.hit) {
+                    GfVec3f const nrm = bvh.Normal(hit.triangle, hit.bary);
+                    guideNormals[g] = {nrm[0], nrm[1], nrm[2]};
+                    continue;
+                }
+            }
+            float const q[3] = {root[0], root[1], root[2]};
+            int64_t const near = nearestHair(q);
+            if (near >= 0) {
+                guideBlend::V3 const nrm = rawNormal(size_t(near));
+                guideNormals[g] = nrm;
+            }
+        }
+    }
+
+    // --- reference guide tables ------------------------------------------------
+    guideBlend::Weighting const weighting =
+        s.mode == Mode::Gaussian ? guideBlend::Weighting::Gaussian
+        : s.mode == Mode::InverseDistance ? guideBlend::Weighting::InverseDistance
+                                          : guideBlend::Weighting::Nearest;
+    guideBlend::Guides tables;
+    guideBlend::BuildGuides(guides.px.cdata(), guides.py.cdata(), guides.pz.cdata(), guideSpans,
+                            guideNormals, s.cvCount, weighting, !falloff && s.bendFollow,
+                            parting, &tables);
+    auto curveOf = [&](int tableIndex) {
+        return tableIndex >= 0 && size_t(tableIndex) < tables.curve.size()
+            ? int(tables.curve[size_t(tableIndex)]) : -1;
+    };
 
     // --- per strand ---------------------------------------------------------------
     float const fallbackWidth = ctx.desc ? ctx.desc->defaultWidth : 0.01f;
@@ -358,131 +565,230 @@ bool UsdGenGuideInterpolateOp::Capture(
     std::vector<float> widths(R * n, fallbackWidth);
     std::vector<int> planeIndex(R * 3, -1);
     std::vector<float> planeWeight(R * 3, 0.0f);
-    // Keep the full geometry blend for native clump inheritance. The
-    // published guideIndex/guideWeight primvars intentionally expose only
-    // their historical top-three subset, while maxGuides can be eight.
     std::vector<int> selectedGuide(R * 8, -1);
     std::vector<float> selectedWeight(R * 8, 0.0f);
+    std::vector<int> primaryGuide(R, -1), nearestGuide(R, -1), partId(R, -1);
     std::atomic<size_t> orphans{0};
-    double const cosMax = std::cos(s.maxAngle * 3.14159265358979323846 / 180.0);
-    size_t const maxKeep = s.unique ? 1 : size_t(s.maxGuides);
     bool const rootWidth = upstream.width.size() == upstream.totalCvs;
+    auto widthAt = [&](size_t c, size_t i) {
+        if (guidesHaveWidth) {
+            // The published (heaviest three) weights, renormalised.
+            float w = 0.0f, total = 0.0f;
+            for (size_t j = 0; j < 3; ++j) {
+                int const g = planeIndex[c * 3 + j];
+                if (g < 0) continue;
+                w += guideWidth[size_t(g) * n + i] * planeWeight[c * 3 + j];
+                total += planeWeight[c * 3 + j];
+            }
+            if (total > 0.0f) return w / total;
+        }
+        return rootWidth ? upstream.width[rootSpans[c]] : fallbackWidth;
+    };
 
-    ParallelFor(ctx.dispatcher, R, [&](size_t c) {
-        GfVec3f const normal = hairNormal(c);
-        float const *q = &rest[c * 3];
-        struct Candidate { uint32_t guide; double weight; };
-        Candidate keep[kMaxCandidates];
-        size_t kept = 0;
-        uint32_t found[kMaxCandidates];
-        float distances[kMaxCandidates];
-        size_t const k = std::min(G, kMaxCandidates);
-        size_t const hits = guideIndex.knnSearch(q, k, found, distances);
-        auto angleOk = [&](uint32_t g) {
-            return s.maxAngle >= 180.0 || double(GfDot(normal, guideNormal[g])) >= cosMax - 1e-9;
-        };
-        for (size_t j = 0; j < hits; ++j) {
-            uint32_t const g = found[j];
-            double const d = std::sqrt(double(distances[j]));
-            if (d >= s.radius || !angleOk(g)) continue;
-            double w = std::pow(1.0 - d / s.radius, s.decay);
-            if (guideRegion[g] != hairRegion[c]) w *= s.crossover;
-            if (s.randomize > 0.0)
-                w *= 1.0 - s.randomize *
-                    double(UsdGenHash01(UsdGenHash64(ids ? ids[c] : c, uint64_t(g), kSaltGuide),
-                                        kSaltGuide + uint32_t(ctx.seed)));
-            if (w <= 0.0) continue;
-            keep[kept++] = {g, w};
-        }
-        if (kept == 0) {
-            // Nearest guide of the strand's own region, however far.
-            auto nearestIn = [&](bool sameRegion, bool checkAngle) -> int64_t {
-                for (size_t j = 0; j < hits; ++j)
-                    if ((!sameRegion || guideRegion[found[j]] == hairRegion[c]) &&
-                        (!checkAngle || angleOk(found[j])))
-                        return found[j];
-                int64_t best = -1;
-                double bestDistance = std::numeric_limits<double>::infinity();
-                for (uint32_t g = 0; g < G; ++g) {
-                    if ((sameRegion && guideRegion[g] != hairRegion[c]) ||
-                        (checkAngle && !angleOk(g))) continue;
-                    double const dx = double(q[0]) - guideRoot[g * 3];
-                    double const dy = double(q[1]) - guideRoot[g * 3 + 1];
-                    double const dz = double(q[2]) - guideRoot[g * 3 + 2];
-                    double const distance = dx * dx + dy * dy + dz * dz;
-                    if (distance < bestDistance) { bestDistance = distance; best = g; }
-                }
-                return best;
-            };
-            int64_t g = nearestIn(true, true);
-            if (g < 0) g = nearestIn(true, false);
-            if (g < 0) { g = nearestIn(false, false); ++orphans; }
-            keep[kept++] = {uint32_t(g), 1.0};
-        }
-        std::sort(keep, keep + kept, [](Candidate const &a, Candidate const &b) {
-            return a.weight != b.weight ? a.weight > b.weight : a.guide < b.guide;
+    if (!falloff) {
+        guideBlend::StrandSettings strandSettings;
+        strandSettings.weighting = weighting;
+        strandSettings.tightness = float(s.tightness);
+        strandSettings.defaultLength = float(s.defaultLength);
+        strandSettings.cvCount = s.cvCount;
+        strandSettings.bendFollow = s.bendFollow;
+        ParallelFor(ctx.dispatcher, R, [&](size_t c) {
+            thread_local guideBlend::Scratch scratch;
+            guideBlend::V3 const root{rest[c * 3], rest[c * 3 + 1], rest[c * 3 + 2]};
+            guideBlend::StrandResult result;
+            float *outRest = &restResult[c * n * 3];
+            guideBlend::BuildStrand(tables, parting, strandSettings, root, rawNormal(c), outRest,
+                                    &result, &scratch);
+            primaryGuide[c] = curveOf(result.primary);
+            nearestGuide[c] = curveOf(result.nearest);
+            partId[c] = result.partId;
+            for (size_t j = 0; j < 3; ++j) {
+                int const g = result.dropped ? -1 : curveOf(result.index[j]);
+                planeIndex[c * 3 + j] = g;
+                planeWeight[c * 3 + j] = g >= 0 ? result.weight[j] : 0.0f;
+            }
+            for (size_t i = 0; i < n; ++i) widths[c * n + i] = widthAt(c, i);
+            float const delta[3] = {roots[c * 3] - root.x, roots[c * 3 + 1] - root.y,
+                                    roots[c * 3 + 2] - root.z};
+            for (size_t i = 0; i < n; ++i)
+                for (int d = 0; d < 3; ++d)
+                    cap.result[(c * n + i) * 3 + d] = outRest[i * 3 + d] + delta[d];
         });
-        kept = std::min(kept, maxKeep);
-        double total = 0.0;
-        for (size_t j = 0; j < kept; ++j) total += keep[j].weight;
-        for (size_t j = 0; j < kept; ++j) keep[j].weight = total > 0.0 ? keep[j].weight / total : 1.0 / double(kept);
-        for (size_t j = 0; j < 3; ++j) {
-            planeIndex[c * 3 + j] = j < kept ? int(keep[j].guide) : -1;
-            planeWeight[c * 3 + j] = j < kept ? float(keep[j].weight) : 0.0f;
+    } else {
+        // --- falloff: guides -------------------------------------------------
+        std::vector<float> guideRoot(G * 3), guideShape(G * n * 3), guideLength(G * n, 0.0f);
+        std::vector<GfVec3f> guideNormal(G, GfVec3f(0, 1, 0));
+        std::vector<int64_t> guideRegion(G, 0);
+        std::vector<float> points;
+        for (size_t g = 0; g < G; ++g) {
+            size_t const first = guideSpans[g], count = guideSpans[g + 1] - first;
+            points.resize(count * 3);
+            for (size_t i = 0; i < count; ++i) {
+                points[i * 3] = guides.px[first + i];
+                points[i * 3 + 1] = guides.py[first + i];
+                points[i * 3 + 2] = guides.pz[first + i];
+            }
+            float *shape = &guideShape[g * n * 3];
+            Resample(points.data(), count, n, shape);
+            for (int d = 0; d < 3; ++d) guideRoot[g * 3 + d] = shape[d];
+            for (size_t k = n; k-- > 0;)
+                for (int d = 0; d < 3; ++d) shape[k * 3 + d] -= shape[d];   // root-local
+            for (size_t k = 1; k < n; ++k) {
+                GfVec3f const seg(shape[k * 3] - shape[(k - 1) * 3],
+                                  shape[k * 3 + 1] - shape[(k - 1) * 3 + 1],
+                                  shape[k * 3 + 2] - shape[(k - 1) * 3 + 2]);
+                guideLength[g * n + k] = seg.GetLength();
+            }
+            int64_t const near = nearestHair(&guideRoot[g * 3]);
+            if (guides.rootN.size() == G) guideNormal[g] = opUtil::Normalized(guides.rootN[g]);
+            else if (near >= 0) guideNormal[g] = hairNormal(size_t(near));
+            if (near >= 0) guideRegion[g] = hairRegion[size_t(near)];
         }
-        for (size_t j = 0; j < kept; ++j) {
-            selectedGuide[c * 8 + j] = int(keep[j].guide);
-            selectedWeight[c * 8 + j] = float(keep[j].weight);
-        }
+        Cloud guideCloud;
+        guideCloud.points = guideRoot;
+        CloudIndex guideIndex(3, guideCloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
 
-        // Compose, at the rest root.
-        float *outRest = &restResult[c * n * 3];
-        GfVec3f previous(q[0], q[1], q[2]);
-        for (size_t i = 0; i < n; ++i) {
-            GfVec3f value(0.0f);
-            float length = 0.0f;
+        double const cosMax = std::cos(s.maxAngle * 3.14159265358979323846 / 180.0);
+        size_t const maxKeep = s.unique ? 1 : size_t(s.maxGuides);
+        std::vector<uint8_t> eligible(G, 0);
+        for (uint32_t g : tables.curve) eligible[g] = 1;
+
+        ParallelFor(ctx.dispatcher, R, [&](size_t c) {
+            GfVec3f const normal = hairNormal(c);
+            float const *q = &rest[c * 3];
+            struct Candidate { uint32_t guide; double weight; };
+            Candidate keep[kMaxCandidates];
+            size_t kept = 0;
+            uint32_t found[kMaxCandidates];
+            float distances[kMaxCandidates];
+            size_t const k = std::min(G, kMaxCandidates);
+            size_t const hits = guideIndex.knnSearch(q, k, found, distances);
+            auto angleOk = [&](uint32_t g) {
+                return s.maxAngle >= 180.0 || double(GfDot(normal, guideNormal[g])) >= cosMax - 1e-9;
+            };
+            for (size_t j = 0; j < hits; ++j) {
+                uint32_t const g = found[j];
+                double const d = std::sqrt(double(distances[j]));
+                if (d >= s.radius || !angleOk(g)) continue;
+                double w = std::pow(1.0 - d / s.radius, s.decay);
+                if (guideRegion[g] != hairRegion[c]) w *= s.crossover;
+                if (s.randomize > 0.0)
+                    w *= 1.0 - s.randomize *
+                        double(UsdGenHash01(UsdGenHash64(ids ? ids[c] : c, uint64_t(g), kSaltGuide),
+                                            kSaltGuide + uint32_t(ctx.seed)));
+                if (w <= 0.0) continue;
+                keep[kept++] = {g, w};
+            }
+            if (kept == 0) {
+                // Nearest guide of the strand's own region, however far.
+                auto nearestIn = [&](bool sameRegion, bool checkAngle) -> int64_t {
+                    for (size_t j = 0; j < hits; ++j)
+                        if ((!sameRegion || guideRegion[found[j]] == hairRegion[c]) &&
+                            (!checkAngle || angleOk(found[j])))
+                            return found[j];
+                    int64_t best = -1;
+                    double bestDistance = std::numeric_limits<double>::infinity();
+                    for (uint32_t g = 0; g < G; ++g) {
+                        if ((sameRegion && guideRegion[g] != hairRegion[c]) ||
+                            (checkAngle && !angleOk(g))) continue;
+                        double const dx = double(q[0]) - guideRoot[g * 3];
+                        double const dy = double(q[1]) - guideRoot[g * 3 + 1];
+                        double const dz = double(q[2]) - guideRoot[g * 3 + 2];
+                        double const distance = dx * dx + dy * dy + dz * dz;
+                        if (distance < bestDistance) { bestDistance = distance; best = g; }
+                    }
+                    return best;
+                };
+                int64_t g = nearestIn(true, true);
+                if (g < 0) g = nearestIn(true, false);
+                if (g < 0) { g = nearestIn(false, false); ++orphans; }
+                keep[kept++] = {uint32_t(g), 1.0};
+            }
+            std::sort(keep, keep + kept, [](Candidate const &a, Candidate const &b) {
+                return a.weight != b.weight ? a.weight > b.weight : a.guide < b.guide;
+            });
+            kept = std::min(kept, maxKeep);
+            double total = 0.0;
+            for (size_t j = 0; j < kept; ++j) total += keep[j].weight;
+            for (size_t j = 0; j < kept; ++j) keep[j].weight = total > 0.0 ? keep[j].weight / total : 1.0 / double(kept);
+            for (size_t j = 0; j < 3; ++j) {
+                planeIndex[c * 3 + j] = j < kept ? int(keep[j].guide) : -1;
+                planeWeight[c * 3 + j] = j < kept ? float(keep[j].weight) : 0.0f;
+            }
             for (size_t j = 0; j < kept; ++j) {
-                uint32_t const g = keep[j].guide;
-                float const w = float(keep[j].weight);
-                float const *shape = &guideShape[g * n * 3];
-                GfVec3f local = s.extrude && i > 0
-                    ? GfVec3f(shape[i * 3] - shape[(i - 1) * 3],
-                              shape[i * 3 + 1] - shape[(i - 1) * 3 + 1],
-                              shape[i * 3 + 2] - shape[(i - 1) * 3 + 2])
-                    : GfVec3f(shape[i * 3], shape[i * 3 + 1], shape[i * 3 + 2]);
-                local = opUtil::RotateOnto(local, guideNormal[g], normal, float(s.skin));
-                value += local * w;
-                length += guideLength[g * n + i] * w;
+                selectedGuide[c * 8 + j] = int(keep[j].guide);
+                selectedWeight[c * 8 + j] = float(keep[j].weight);
             }
-            GfVec3f point;
-            if (s.extrude && i > 0) {
-                float const l = value.GetLength();
-                point = previous + (l > 1e-12f ? value * (length / l) : GfVec3f(0.0f));
-            } else {
-                point = GfVec3f(q[0], q[1], q[2]) + value;
+            primaryGuide[c] = kept ? int(keep[0].guide) : -1;
+            guideBlend::V3 const root{q[0], q[1], q[2]};
+            guideBlend::PartInfo const part = guideBlend::QueryParting(parting, root, rawNormal(c));
+            partId[c] = part.weight <= 0.2f ? -1 : guideBlend::PartKey(part);
+            // Without parting the nearest guide root is the kd-tree's nearest
+            // eligible hit (same squared distance; ties keep the lower index).
+            int nearest = -1;
+            if (!parting.active) {
+                float bestDistance = 0.0f;
+                for (size_t j = 0; j < hits; ++j) {
+                    if (nearest >= 0 && distances[j] > bestDistance) break;
+                    if (!eligible[found[j]]) continue;
+                    if (nearest < 0 || int(found[j]) < nearest) {
+                        nearest = int(found[j]);
+                        bestDistance = distances[j];
+                    }
+                }
             }
-            previous = point;
-            for (int d = 0; d < 3; ++d) outRest[i * 3 + d] = point[d];
-            if (guidesHaveWidth) {
-                float w = 0.0f;
-                for (size_t j = 0; j < kept; ++j)
-                    w += guideWidth[keep[j].guide * n + i] * float(keep[j].weight);
-                widths[c * n + i] = w;
-            } else if (rootWidth) {
-                widths[c * n + i] = upstream.width[rootSpans[c]];
+            nearestGuide[c] = nearest >= 0
+                ? nearest : curveOf(guideBlend::NearestGuide(tables, parting, part, root));
+
+            // Compose, at the rest root.
+            float *outRest = &restResult[c * n * 3];
+            GfVec3f previous(q[0], q[1], q[2]);
+            for (size_t i = 0; i < n; ++i) {
+                GfVec3f value(0.0f);
+                float length = 0.0f;
+                for (size_t j = 0; j < kept; ++j) {
+                    uint32_t const g = keep[j].guide;
+                    float const w = float(keep[j].weight);
+                    float const *shape = &guideShape[g * n * 3];
+                    GfVec3f local = s.extrude && i > 0
+                        ? GfVec3f(shape[i * 3] - shape[(i - 1) * 3],
+                                  shape[i * 3 + 1] - shape[(i - 1) * 3 + 1],
+                                  shape[i * 3 + 2] - shape[(i - 1) * 3 + 2])
+                        : GfVec3f(shape[i * 3], shape[i * 3 + 1], shape[i * 3 + 2]);
+                    local = opUtil::RotateOnto(local, guideNormal[g], normal, float(s.skin));
+                    value += local * w;
+                    length += guideLength[g * n + i] * w;
+                }
+                GfVec3f point;
+                if (s.extrude && i > 0) {
+                    float const l = value.GetLength();
+                    point = previous + (l > 1e-12f ? value * (length / l) : GfVec3f(0.0f));
+                } else {
+                    point = GfVec3f(q[0], q[1], q[2]) + value;
+                }
+                previous = point;
+                for (int d = 0; d < 3; ++d) outRest[i * 3 + d] = point[d];
+                if (guidesHaveWidth) {
+                    float w = 0.0f;
+                    for (size_t j = 0; j < kept; ++j)
+                        w += guideWidth[keep[j].guide * n + i] * float(keep[j].weight);
+                    widths[c * n + i] = w;
+                } else if (rootWidth) {
+                    widths[c * n + i] = upstream.width[rootSpans[c]];
+                }
             }
-        }
-        // The current strand: the rest strand moved with its root.
-        float const delta[3] = {roots[c * 3] - q[0], roots[c * 3 + 1] - q[1], roots[c * 3 + 2] - q[2]};
-        for (size_t i = 0; i < n; ++i)
-            for (int d = 0; d < 3; ++d)
-                cap.result[(c * n + i) * 3 + d] = outRest[i * 3 + d] + delta[d];
-    });
-    if (mapped && orphans.load()) return fail("regionMap contains a region with no growth guide");
-    if (orphans.load() && diag)
-        diag->Warn("UsdGenGuideInterpolate: " + std::to_string(orphans.load()) +
-                   " strands lie in regions without a guide and follow the nearest guide of"
-                   " another region");
+            // The current strand: the rest strand moved with its root.
+            float const delta[3] = {roots[c * 3] - q[0], roots[c * 3 + 1] - q[1], roots[c * 3 + 2] - q[2]};
+            for (size_t i = 0; i < n; ++i)
+                for (int d = 0; d < 3; ++d)
+                    cap.result[(c * n + i) * 3 + d] = outRest[i * 3 + d] + delta[d];
+        });
+        if (mapped && orphans.load()) return fail("regionMap contains a region with no growth guide");
+        if (orphans.load() && diag)
+            diag->Warn("UsdGenGuideInterpolate: " + std::to_string(orphans.load()) +
+                       " strands lie in regions without a guide and follow the nearest guide of"
+                       " another region");
+    }
 
     // --- the output buffer ----------------------------------------------------------
     UsdGenCurveBuffer &buf = cap.MutableBuffer();
@@ -503,6 +809,7 @@ bool UsdGenGuideInterpolateOp::Capture(
         buf.hairT[o] = float(o % n) / float(n - 1);
         buf.rest[o] = GfVec3f(restResult[o * 3], restResult[o * 3 + 1], restResult[o * 3 + 2]);
     }
+    // Upstream planes (strandIndex, strandSeed, ...) follow their strands.
     std::string planeError;
     if (!UsdGenResampleExtraPlanes(upstream, &buf, &planeError))
         return fail("cannot carry named planes across the CV topology change: " + planeError);
@@ -626,13 +933,16 @@ bool UsdGenGuideInterpolateOp::Capture(
         if (it != planes.end() && it->name == plane.name) *it = std::move(plane);
         else planes.insert(it, std::move(plane));
     };
-    UsdGenPlane index;
-    index.name = sGuideIndex;
-    index.interpolation = TfToken("uniform");
-    index.type = TfToken("int");
-    index.arity = 3;
-    index.i = VtIntArray(planeIndex.begin(), planeIndex.end());
-    insertPlane(std::move(index));
+    auto intPlane = [&](TfToken const &name, std::vector<int> const &values, uint8_t arity) {
+        UsdGenPlane plane;
+        plane.name = name;
+        plane.interpolation = TfToken("uniform");
+        plane.type = TfToken("int");
+        plane.arity = arity;
+        plane.i = VtIntArray(values.begin(), values.end());
+        insertPlane(std::move(plane));
+    };
+    intPlane(sGuideIndex, planeIndex, 3);
     UsdGenPlane weight;
     weight.name = sGuideWeight;
     weight.interpolation = TfToken("uniform");
@@ -640,6 +950,16 @@ bool UsdGenGuideInterpolateOp::Capture(
     weight.arity = 3;
     weight.f = VtFloatArray(planeWeight.begin(), planeWeight.end());
     insertPlane(std::move(weight));
+    intPlane(sPrimaryGuide, primaryGuide, 1);
+    intPlane(sNearestGuide, nearestGuide, 1);
+    intPlane(sPartId, partId, 1);
+    std::vector<int> const guideMirror = CurveInts(guides, sMirrorSign);
+    std::vector<int> mirror(R, 1);
+    for (size_t c = 0; c < R; ++c) {
+        int const g = primaryGuide[c];
+        if (g >= 0 && size_t(g) < guideMirror.size()) mirror[c] = guideMirror[size_t(g)] < 0 ? -1 : 1;
+    }
+    intPlane(sMirrorSign, mirror, 1);
     return true;
 }
 

@@ -409,8 +409,12 @@ bool ValidateMapBinding(UsdGenMapBindingDesc const &binding,
     // categorical Ptex owner-map slot of CurveSource surfaceCage; the
     // operator admission layer enforces that it is used only there.
     if (binding.relationship.IsEmpty()) return true;
+    // usdGen:densityMap (Scatter) and usdGen:lengthMap (Length) are root-sampled
+    // mask maps; the operators enforce their own map types.
     if (binding.relationship != TfToken("usdGen:map") &&
-        binding.relationship != TfToken("usdGen:regionMap")) {
+        binding.relationship != TfToken("usdGen:regionMap") &&
+        binding.relationship != TfToken("usdGen:densityMap") &&
+        binding.relationship != TfToken("usdGen:lengthMap")) {
         *error = "relationship '" + binding.relationship.GetString() +
             "' is not a map relationship";
         return false;
@@ -697,7 +701,8 @@ bool IsDigestParam(TfToken const &type, TfToken const &param)
     if (type == tok::Grow())
         return param == tok::Segments() || param == tok::Direction();
     if (type == tok::Length())
-        return param == tok::LengthMethod() || param == tok::Rebuild();
+        return param == tok::LengthMethod() || param == tok::Rebuild() ||
+               param == tok::LengthMode();
     if (type == tok::Width())
         return param == tok::Replace();
     // Clump's emitted plane names (clumpId_<level>...) follow these two.
@@ -733,6 +738,10 @@ bool IsDigestParam(TfToken const &type, TfToken const &param)
             param == tok::ExprReturnType();
     if (type == tok::Freeze())
         return param == tok::FrozenMode() || param == tok::FrozenCurves();
+    // Collide's relax branch publishes collideUnresolved (Configure), so its
+    // resolveType rebuilds the node like Clump's level rows.
+    if (type == TfToken("UsdGenCollide"))
+        return param == TfToken("resolveType");
     return false;
 }
 

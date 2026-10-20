@@ -44,6 +44,19 @@ TF_DEFINE_ENV_SETTING(USDGEN_SCALP_SHADOW, true,
                       "Publish the usdGen scalp-shadow cap (hair shadowing the "
                       "groom's emitting surface).");
 
+// Per-CV local hair density (`furDensity`), read by a hair shading model that
+// darkens ambient light by local hair density. On by default only in a build
+// that selects that model (USDGEN_FUR_LOCAL_DENSITY); USDGEN_FUR_DENSITY=0/1
+// overrides either way. Off, tiles carry no extra primvar.
+#if defined(USDGEN_FUR_LOCAL_DENSITY)
+static constexpr bool _furDensityDefault = true;
+#else
+static constexpr bool _furDensityDefault = false;
+#endif
+TF_DEFINE_ENV_SETTING(USDGEN_FUR_DENSITY, _furDensityDefault,
+                      "Publish the per-CV hair-only local density primvar "
+                      "furDensity on usdGen fur tiles.");
+
 namespace usdGen {
 
 namespace {
@@ -2297,6 +2310,9 @@ UsdGenStats publishedStats, bool invalidateValues,
         // beyond the hair-only one it needs.
         occlusion.scalpShadow = !occlusion.occluders.empty() &&
                                 TfGetEnvSetting(USDGEN_SCALP_SHADOW);
+        // Local density for ambient darkening: a gather of a grid the bake
+        // already has, so it needs no occluders and no extra sweep.
+        occlusion.localDensity = TfGetEnvSetting(USDGEN_FUR_DENSITY);
         // The reuse path leaves the cap untouched, so seed it: unchanged
         // geometry shares the previous immutable arrays.
         if (prev) gen.scalpShadow = prev->scalpShadow;

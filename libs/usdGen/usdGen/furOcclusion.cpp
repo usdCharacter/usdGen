@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <set>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -23,6 +24,9 @@
 namespace usdGen {
 namespace {
 constexpr char const* names[] = {"furTauP", "furTauN"};
+// The optional local-density plane: vertex float, arity 1, managed here like
+// the two depth planes but kept out of names[], whose loops assume arity 3.
+constexpr char const* kDensityName = "furDensity";
 // Samples per voxel along a curve; the trilinear splat carries the rest, and
 // the deposited area is the sub-sample length, so this changes where density
 // lands, never how much of it there is.
@@ -42,7 +46,7 @@ constexpr size_t   kJobCvs    = 16384;
 
 bool Reserved(TfToken const& name) {
     for (auto n : names) if (name == n) return true;
-    return false;
+    return name == kDensityName;
 }
 
 // FNV-1a over raw bytes: the volume key only has to change when the inputs do.
@@ -194,29 +198,176 @@ inline float HemisphereDepth(float const values[6], GfVec3f const& n)
     return weighted/sum;
 }
 
+/// How much solid lies behind the occluder surface: for every sample of the
+/// opaque shell's barycentric lattice, the distance along the triangle's
+/// inward normal to the next surface crossing, capped at `reach`.
+///
+/// The opaque shell is marked from two to six voxels UNDER each surface. Where
+/// the solid is thinner than that -- an ear, an eyelid, a lip, a thin sheet
+/// with two sides -- the shell under one side comes out through the other
+/// side into open air, which is where hair lies over an ear. A CV inside that
+/// stray shell reads a saturated count toward every light and renders black
+/// in the outline of the ear (measured on an imported head: the ear is 5-10 mm
+/// thick and the shell starts 11 mm down). The marking stops each sample's
+/// layers at this thickness, so the shell never leaves the solid it stands for.
+///
+/// The rays leave the same lattice points, along the same face normal, that
+/// the layers are marked at: a ray from a mesh vertex along a smoothed normal
+/// can slip past the edge of the opposite face, which is exactly where a
+/// coarse thin solid has all its vertices. Triangles are binned in a uniform
+/// grid of cells about a quarter of the reach, each over its bounds grown by
+/// half a cell, and every ray samples the cells along it every half cell: a
+/// crossing inside an unsampled cell is still within half a cell of a sample,
+/// so its triangle is in that sample's bin. The hit test takes a sliver of
+/// barycentric slack, so a ray through a shared edge cannot fall between the
+/// two faces. A ray that crosses nothing within reach keeps `reach`.
+struct SolidThickness
+{
+    std::vector<size_t> offset;     // per triangle: first lattice sample
+    std::vector<int> lattice;       // per triangle: the lattice's n
+    std::vector<float> thickness;   // per lattice sample
+
+    float At(size_t triangle, int i, int j) const {
+        int const n=lattice[triangle];
+        int base=0;
+        for(int r=0;r<i;++r) base+=n+1-r;
+        return thickness[offset[triangle]+size_t(base+j)];
+    }
+};
+
+template <class LatticeOf>
+SolidThickness MeasureSolidThickness(std::vector<Triangle> const& triangles,
+                                     float inward, float reach,
+                                     LatticeOf const& latticeOf,
+                                     UsdGenWorkDispatcher* dispatcher)
+{
+    SolidThickness out;
+    out.offset.resize(triangles.size());
+    out.lattice.resize(triangles.size());
+    size_t total=0;
+    for(size_t i=0;i<triangles.size();++i) {
+        int const n=latticeOf(triangles[i]);
+        out.lattice[i]=n;
+        out.offset[i]=total;
+        total+=size_t(n+1)*size_t(n+2)/2;
+    }
+    out.thickness.assign(total,reach);
+    if(triangles.empty() || !(reach>0.f)) return out;
+
+    GfVec3f lo(std::numeric_limits<float>::max()), hi(-lo[0]);
+    for(Triangle const& t:triangles)
+        for(GfVec3f const& p:{t.a,t.b,t.c}) for(int k=0;k<3;++k) {
+            lo[k]=std::min(lo[k],p[k]); hi[k]=std::max(hi[k],p[k]);
+        }
+    float cell=0.25f*reach;
+    // A surface far larger than the reach (a ground plane) coarsens the bins
+    // rather than allocating millions of them.
+    for(int k=0;k<3;++k) cell=std::max(cell,(hi[k]-lo[k])/128.f);
+    cell=std::max(cell,1e-6f);
+    float const grow=0.5f*cell;
+    lo-=GfVec3f(grow); hi+=GfVec3f(grow);
+    int dims[3];
+    for(int k=0;k<3;++k) dims[k]=std::max(1,int(std::ceil((hi[k]-lo[k])/cell)));
+    auto bin=[&](int x,int y,int z) {
+        return (size_t(z)*size_t(dims[1])+size_t(y))*size_t(dims[0])+size_t(x);
+    };
+    std::vector<std::vector<uint32_t>> bins(size_t(dims[0])*size_t(dims[1])*size_t(dims[2]));
+    for(size_t i=0;i<triangles.size();++i) {
+        Triangle const& t=triangles[i];
+        int a[3], b[3];
+        for(int k=0;k<3;++k) {
+            float const mn=std::min({t.a[k],t.b[k],t.c[k]})-grow;
+            float const mx=std::max({t.a[k],t.b[k],t.c[k]})+grow;
+            a[k]=std::clamp(int((mn-lo[k])/cell),0,dims[k]-1);
+            b[k]=std::clamp(int((mx-lo[k])/cell),0,dims[k]-1);
+        }
+        for(int z=a[2];z<=b[2];++z) for(int y=a[1];y<=b[1];++y) for(int x=a[0];x<=b[0];++x)
+            bins[bin(x,y,z)].push_back(uint32_t(i));
+    }
+
+    float const epsilon=1e-3f*reach;
+    float const slack=1e-4f;
+    auto cast=[&](GfVec3f const& o,GfVec3f const& d,size_t self) {
+        float best=reach;
+        size_t last=std::numeric_limits<size_t>::max();
+        for(float s=0.f;s<=reach+0.5f*cell;s+=0.5f*cell) {
+            GfVec3f const p=o+d*std::min(s,reach);
+            int q[3];
+            for(int k=0;k<3;++k) q[k]=std::clamp(int((p[k]-lo[k])/cell),0,dims[k]-1);
+            size_t const index=bin(q[0],q[1],q[2]);
+            if(index==last) continue;
+            last=index;
+            for(uint32_t ti:bins[index]) {
+                if(ti==self) continue;
+                Triangle const& t=triangles[ti];
+                GfVec3f const e1=t.b-t.a, e2=t.c-t.a;
+                GfVec3f const pv=GfCross(d,e2);
+                float const det=GfDot(e1,pv);
+                if(std::fabs(det)<1e-20f) continue;
+                float const inv=1.f/det;
+                GfVec3f const tv=o-t.a;
+                float const u=GfDot(tv,pv)*inv;
+                if(u<-slack || u>1.f+slack) continue;
+                GfVec3f const qv=GfCross(tv,e1);
+                float const w=GfDot(d,qv)*inv;
+                if(w<-slack || u+w>1.f+slack) continue;
+                // Faces sharing the sample's edge or vertex meet the ray at
+                // its origin; anything nearer than epsilon is that, not solid.
+                float const hit=GfDot(e2,qv)*inv;
+                if(hit>epsilon && hit<best) best=hit;
+            }
+        }
+        return best;
+    };
+    ForEach(dispatcher,triangles.size(),[&](size_t i) {
+        Triangle const& t=triangles[i];
+        GfVec3f const e1=t.b-t.a, e2=t.c-t.a;
+        GfVec3f const d=t.normal*inward;
+        int const n=out.lattice[i];
+        size_t k=out.offset[i];
+        for(int a=0;a<=n;++a) for(int b=0;a+b<=n;++b,++k)
+            out.thickness[k]=cast(t.a+e1*(float(a)/float(n))+e2*(float(b)/float(n)),d,i);
+    });
+    return out;
+}
+
 /// The scalp-shadow cap. Each occluder triangle is refined k x k, every
-/// sub-vertex takes the hair-only depth one voxel out along the surface normal
-/// (far enough that the opaque shell two voxels IN cannot reach it), and
+/// sub-vertex takes the hair-only depth where the cap is drawn, and
 /// sub-triangles with no hair over them are dropped.
 ///
 /// One k for the whole mesh, so shared edges are split identically and the cap
 /// has no T-junctions: adaptive per face would crack.
+///
+/// The lattice (k, the lift, which side is out) is fixed by the occluders
+/// alone, never by this description's voxel grid: every description over the
+/// same surface then samples the same points, and the scene index can sum
+/// their caps into one (UsdGenMergeScalpShadows). One cap per surface is what
+/// lets the cap be drawn partly as an opaque sample mask, which is the only
+/// thing in stock Storm that darkens the skin between a strand's samples.
 template <class Gather>
 void BuildScalpShadow(std::vector<Triangle> const& triangles,
                       std::vector<GfVec3f> const& vertexNormals, float inward,
-                      Grid const& grid, int maxTriangles, Gather const& gather,
+                      int maxTriangles, Gather const& gather,
                       UsdGenScalpShadowPublication* out)
 {
     // The 90th-percentile edge decides the level, so one oversized face cannot
     // refine the whole mesh; the triangle ceiling then bounds it outright.
     std::vector<float> edges;
     edges.reserve(triangles.size());
-    for(Triangle const& t:triangles)
+    GfVec3f boxLo(std::numeric_limits<float>::max()), boxHi(-boxLo[0]);
+    for(Triangle const& t:triangles) {
         edges.push_back(std::max({(t.b-t.a).GetLength(),(t.c-t.b).GetLength(),
                                   (t.a-t.c).GetLength()}));
+        for(GfVec3f const& p:{t.a,t.b,t.c}) for(int d=0;d<3;++d) {
+            boxLo[d]=std::min(boxLo[d],p[d]); boxHi[d]=std::max(boxHi[d],p[d]);
+        }
+    }
     auto at=edges.begin()+std::min(edges.size()-1,size_t(0.9*double(edges.size())));
     std::nth_element(edges.begin(),at,edges.end());
-    int k=std::max(1,int(std::ceil(*at*grid.invH)));
+    // A target edge of 1/128 of the surface's bounding diagonal: about a
+    // voxel for a head, and unit-free.
+    float const target=std::max((boxHi-boxLo).GetLength()/128.f,1e-12f);
+    int k=std::max(1,int(std::ceil(*at/target)));
     int const ceiling=std::max(1,maxTriangles);
     while(k>1 && triangles.size()*size_t(k)*size_t(k) > size_t(ceiling)) --k;
 
@@ -236,17 +387,35 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
     // margin is still an order of magnitude above the depth buffer's
     // resolution. Kept small because the lift also pushes the cap's silhouette
     // outside the skin's; the shader fades it at grazing angles for the rest.
-    float const lift=0.06f*grid.h;
+    // The cap's sample mask pushes its depth back by half this, so the
+    // translucent remainder always wins the depth test against it.
+    float const lift=0.08f*target;
     size_t const perTriangle=size_t(k+1)*size_t(k+2)/2;
+
+    // The lattice's identity: everything that decides where its points are.
+    // A strided sample of the triangles is enough to tell two surfaces (or
+    // two frames of one) apart; the counts catch a surface set that grew.
+    Hash key;
+    key.Value(k); key.Value(lift); key.Value(inward);
+    key.Value(triangles.size()); key.Value(vertexNormals.size());
+    {
+        size_t const stride=std::max<size_t>(1,triangles.size()/4096);
+        for(size_t i=0;i<triangles.size();i+=stride) {
+            Triangle const& t=triangles[i];
+            key.Value(t.a); key.Value(t.b); key.Value(t.c);
+            key.Value(t.ia); key.Value(t.ib); key.Value(t.ic);
+        }
+    }
 
     VtVec3fArray points, normals;
     VtFloatArray tauP, tauN;
-    VtIntArray counts, indices;
+    VtIntArray counts, indices, ids;
     points.reserve(triangles.size()*perTriangle);
     std::vector<GfVec3f> local(perTriangle), localN(perTriangle);
     std::vector<float> depth(perTriangle*6), shaded(perTriangle);
     std::vector<int> remap(perTriangle);
-    for(Triangle const& tri:triangles) {
+    for(size_t triIndex=0;triIndex<triangles.size();++triIndex) {
+        Triangle const& tri=triangles[triIndex];
         GfVec3f const na=vertexNormals[tri.ia]*outward;
         GfVec3f const nb=vertexNormals[tri.ib]*outward;
         GfVec3f const nc=vertexNormals[tri.ic]*outward;
@@ -279,6 +448,7 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
                 remap[size_t(s)]=int(points.size());
                 points.push_back(local[size_t(s)]+localN[size_t(s)]*lift);
                 normals.push_back(localN[size_t(s)]);
+                ids.push_back(int(triIndex*perTriangle+size_t(s)));
                 for(int d=0;d<3;++d) {
                     tauP.push_back(depth[size_t(s)*6+d*2]);
                     tauN.push_back(depth[size_t(s)*6+d*2+1]);
@@ -304,6 +474,12 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
     }
     out->points=points; out->normals=normals;
     out->faceVertexCounts=counts; out->faceVertexIndices=indices;
+    out->latticeIds=ids;
+    out->lift=lift;
+    // A lattice id has to fit an int; a surface too large for that publishes
+    // a cap that is simply never merged.
+    out->latticeKey = triangles.size()*perTriangle <= size_t(std::numeric_limits<int>::max())
+        ? (key.h ? key.h : 1) : 0;
     out->extraUniform.clear();
     if(!points.empty()) {
         for(int which=0;which<2;++which) {
@@ -327,10 +503,12 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
     hash.Bytes(indices.cdata(),indices.size()*sizeof(int));
     hash.Bytes(tauP.cdata(),tauP.size()*sizeof(float));
     hash.Bytes(tauN.cdata(),tauN.size()*sizeof(float));
+    hash.Bytes(ids.cdata(),ids.size()*sizeof(int));
+    hash.Value(out->latticeKey);
     out->digest=hash.h;
     TF_DEBUG(USDGEN_FUR).Msg(
-        "usdGen fur: scalp shadow %d x refinement, %zu points, %zu triangles\n",
-        k, points.size(), counts.size());
+        "usdGen fur: scalp shadow %d x refinement, %zu points, %zu triangles, "
+        "lift %.3g\n", k, points.size(), counts.size(), double(lift));
 }
 }
 
@@ -353,6 +531,7 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
         hash.Value(params.opaqueMarkVoxels);
         hash.Value(params.scalpShadow);
         hash.Value(params.scalpMaxTriangles);
+        hash.Value(params.localDensity);
         for (UsdGenFurOccluder const& occluder : params.occluders) {
             hash.Value(occluder.worldMatrix);
             hash.Bytes(occluder.points.cdata(), occluder.points.size()*sizeof(GfVec3f));
@@ -377,6 +556,15 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
             if(it==b.extraUniform.end() || it->arity!=3 || it->f.size()!=b.points.size()*3)
                 same=false;
         }
+        // The density plane must be present exactly when it is asked for, so
+        // a caller without a volume key still sees the switch flip.
+        auto density=std::find_if(b.extraUniform.begin(),b.extraUniform.end(),
+            [](auto const& plane){return plane.name==kDensityName;});
+        bool const present=density!=b.extraUniform.end();
+        if(params.localDensity ?
+               !present || density->arity!=1 || density->f.size()!=b.points.size() :
+               present)
+            same=false;
     }
     if (same) {
         for(size_t i=0;i<tiles->size();++i) {
@@ -719,6 +907,23 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
         });
     }
 
+    // --- local hair density, taken before the opaque shell is injected -------
+    // density[cell][k] is the expected crossings of a ray traversing that one
+    // cell along axis k (the sweeps below integrate exactly this into tau), so
+    // the axis mean is a non-directional "how much hair is here" per voxel.
+    std::vector<float> hairDensity;
+    if(params.localDensity) {
+        TRACE_SCOPE("usdGen occlusion: local density");
+        hairDensity.resize(cells);
+        ForEach(dispatcher, slabs, [&](size_t slab) {
+            size_t const first=(slab*cells)/slabs, last=((slab+1)*cells)/slabs;
+            for(size_t i=first;i<last;++i) {
+                GfVec3f const& d=density[i];
+                hairDensity[i]=std::min(UsdGenFurTauClamp,(d[0]+d[1]+d[2])*(1.f/3.f));
+            }
+        });
+    }
+
     // --- occluder triangles, and which side of them the solid is on ----------
     // Built before the shell is injected, because the scalp-shadow cap needs
     // hair-only depth and the side vote needs hair-only density.
@@ -931,7 +1136,7 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     if(params.scalpShadow && scalpShadow && !triangles.empty()) {
         TRACE_SCOPE("usdGen occlusion: scalp shadow");
         sweep();   // hair only: the head shadowing itself is the skin shader's job
-        BuildScalpShadow(triangles, vertexNormals, inward, grid,
+        BuildScalpShadow(triangles, vertexNormals, inward,
                          params.scalpMaxTriangles, gather, scalpShadow);
     }
 
@@ -949,6 +1154,19 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
         // mark/2 and mark; twice the naive share covers the worst phase, and
         // the ceiling absorbs the rest.
         float const perVoxel=2.f*UsdGenFurTauClamp/float(mark);
+
+        // How much solid lies behind each vertex, so a surface's shell stops
+        // at the far side of a solid thinner than the shell is deep (an ear)
+        // instead of coming out into the hair beyond it.
+        // The marking's own lattice, so each sample knows its thickness.
+        auto latticeOf=[&](Triangle const& tri) {
+            float const extent=std::max({(tri.b-tri.a).GetLength(),
+                                         (tri.c-tri.a).GetLength(),
+                                         (tri.c-tri.b).GetLength()});
+            return std::clamp(int(std::ceil(1.5f*extent*grid.invH)),1,512);
+        };
+        SolidThickness const thickness=MeasureSolidThickness(
+            triangles,inward,float(bias+mark+1)*h,latticeOf,dispatcher);
 
         // A shell taken with max(), so it does not depend on how densely the
         // triangles happen to be sampled. Slabs own disjoint cells, and each
@@ -981,14 +1199,18 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                 Triangle const& tri=triangles[size_t(index)];
                 GfVec3f const e1=tri.b-tri.a, e2=tri.c-tri.a;
                 // Barycentric lattice fine enough that adjacent samples'
-                // trilinear stencils overlap, so the shell has no pinholes.
-                float const extent=std::max({e1.GetLength(),e2.GetLength(),
-                                             (tri.c-tri.b).GetLength()});
-                int const n=std::clamp(int(std::ceil(1.5f*extent*grid.invH)),1,512);
+                // trilinear stencils overlap, so the shell has no pinholes
+                // (chosen by latticeOf above, with each sample's thickness).
+                int const n=thickness.lattice[size_t(index)];
                 GfVec3f const step=tri.normal*(inward*h);
                 for(int i=0;i<=n;++i) for(int j=0;i+j<=n;++j) {
-                    GfVec3f const on=tri.a+e1*(float(i)/float(n))+e2*(float(j)/float(n));
+                    float const u=float(i)/float(n), v=float(j)/float(n);
+                    GfVec3f const on=tri.a+e1*u+e2*v;
+                    float const solid=thickness.At(size_t(index),i,j);
                     for(int layer=0;layer<mark;++layer) {
+                        // The far edge of this layer's splat must still be
+                        // inside the solid.
+                        if((float(bias+layer)+1.f)*h>solid) break;
                         GfVec3f const at=on+step*(float(bias+layer)+0.5f);
                         if(!grid.Contains(at)) continue;
                         int c[3]; float w[3];
@@ -1037,6 +1259,7 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     {
         TRACE_SCOPE("usdGen occlusion: gather");
         std::vector<std::array<float*,2>> planes(tileCount, {nullptr,nullptr});
+        std::vector<float*> densityPlanes(tileCount, nullptr);
         for(size_t t=0;t<tileCount;++t) {
             auto& out=(*tiles)[t].extraUniform;
             out.erase(std::remove_if(out.begin(),out.end(),
@@ -1051,19 +1274,34 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                 });
                 out.push_back(std::move(plane));
             }
+            if(params.localDensity) {
+                UsdGenPlane plane;plane.name=TfToken(kDensityName);
+                plane.interpolation=TfToken("vertex");plane.type=TfToken("float");plane.arity=1;
+                plane.f.resize((*tiles)[t].points.size(), [](float* b, float* e) {
+                    std::uninitialized_default_construct(b, e);
+                });
+                out.push_back(std::move(plane));
+            }
             std::sort(out.begin(),out.end(),[](auto const& a,auto const& b){return a.name<b.name;});
             for(int which=0;which<2;++which) {
                 auto it=std::find_if(out.begin(),out.end(),
                     [&](auto const& p){return p.name==names[which];});
                 planes[t][which]=it->f.data();   // detaches this tile's own new plane
             }
+            if(params.localDensity) {
+                auto it=std::find_if(out.begin(),out.end(),
+                    [](auto const& p){return p.name==kDensityName;});
+                densityPlanes[t]=it->f.data();
+            }
         }
+        size_t const densityY=size_t(grid.n[0]), densityZ=size_t(grid.n[0])*grid.n[1];
         size_t const strideY=size_t(grid.n[0])*6, strideZ=size_t(grid.n[0])*grid.n[1]*6;
         ForEach(dispatcher, jobs.size(), [&](size_t index) {
             Job const& job=jobs[index];
             // names[0] (P) holds the even directions, names[1] (N) the odd.
             float* const p0=planes[job.tile][0];
             float* const p1=planes[job.tile][1];
+            float* const pd=densityPlanes[job.tile];
             auto const& p=positions[job.tile];
             for(size_t i=job.firstCv;i<job.firstCv+job.cvCount;++i) {
                 int c[3]; float w[3];
@@ -1103,9 +1341,184 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                     p0[i*3+d]=values[d*2]*(1.f/kDepthScale);
                     p1[i*3+d]=values[d*2+1]*(1.f/kDepthScale);
                 }
+                if(pd) {
+                    // Same corners and weights as the depths, over the
+                    // hair-only scalar grid (plain float: one value per cell).
+                    float const* const at=&hairDensity[grid.Index(c[0],c[1],c[2])];
+                    float sum=0.f;
+                    for(int z=0;z<2;++z) for(int y=0;y<2;++y) for(int x=0;x<2;++x) {
+                        float const weight=(x?w[0]:1-w[0])*(y?w[1]:1-w[1])*(z?w[2]:1-w[2]);
+                        sum+=weight*at[x+y*densityY+z*densityZ];
+                    }
+                    pd[i]=sum;
+                }
             }
         });
     }
     return true;
+}
+
+UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
+    std::vector<UsdGenScalpShadowContribution> const& parts)
+{
+    TRACE_FUNCTION();
+    UsdGenScalpShadowPublication out;
+    // The first usable part fixes the lattice; the rest must share it.
+    UsdGenScalpShadowContribution const* first=nullptr;
+    std::vector<UsdGenScalpShadowContribution const*> used;
+    for(UsdGenScalpShadowContribution const& part:parts) {
+        UsdGenScalpShadowPublication const* cap=part.cap;
+        if(!cap || cap->IsEmpty() || !cap->latticeKey) continue;
+        if(cap->latticeIds.size()!=cap->points.size() ||
+           cap->normals.size()!=cap->points.size()) continue;
+        if(first && cap->latticeKey!=first->cap->latticeKey) continue;
+        bool planes=true;
+        for(char const* name:names) {
+            bool found=false;
+            for(UsdGenPlane const& plane:cap->extraUniform)
+                if(plane.name==TfToken(name)) {
+                    found = plane.arity==3 && plane.f.size()==cap->points.size()*3;
+                    break;
+                }
+            planes = planes && found;
+        }
+        if(!planes) continue;
+        if(!first) first=&part;
+        used.push_back(&part);
+    }
+    if(!first) return out;
+    UsdGenScalpShadowPublication const& lead=*first->cap;
+    out.primPath=lead.primPath;
+    out.purpose=lead.purpose;
+    out.visibility=lead.visibility;
+    out.materialPath=lead.materialPath;
+    out.latticeKey=lead.latticeKey;
+    out.lift=lead.lift;
+    if(used.size()==1) {
+        // Nothing to sum: share the part's arrays outright.
+        out.points=lead.points; out.normals=lead.normals;
+        out.faceVertexCounts=lead.faceVertexCounts;
+        out.faceVertexIndices=lead.faceVertexIndices;
+        out.extraUniform=lead.extraUniform;
+        out.latticeIds=lead.latticeIds;
+        out.extentMin=lead.extentMin; out.extentMax=lead.extentMax;
+        out.digest=lead.digest;
+        return out;
+    }
+
+    auto plane=[](UsdGenScalpShadowPublication const& cap,char const* name)
+        -> VtFloatArray const& {
+        for(UsdGenPlane const& p:cap.extraUniform)
+            if(p.name==TfToken(name)) return p.f;
+        static VtFloatArray const none;
+        return none;
+    };
+    bool sameAlbedo=true;
+    for(auto const* part:used)
+        sameAlbedo = sameAlbedo && part->albedo==first->albedo;
+
+    // Lattice id -> merged point. Ids are dense per surface (source triangle
+    // times slots per triangle), so a flat table beats hashing.
+    int maxId=-1;
+    for(auto const* part:used)
+        for(int id:part->cap->latticeIds) maxId=std::max(maxId,id);
+    std::vector<int> slot(size_t(maxId)+1,-1);
+    VtVec3fArray points, normals;
+    VtIntArray ids;
+    std::vector<float> tau[2];
+    std::vector<GfVec3f> albedoSum;
+    std::vector<float> albedoWeight;
+    for(auto const* part:used) {
+        UsdGenScalpShadowPublication const& cap=*part->cap;
+        VtFloatArray const& p=plane(cap,names[0]);
+        VtFloatArray const& n=plane(cap,names[1]);
+        for(size_t i=0;i<cap.points.size();++i) {
+            int const id=cap.latticeIds[i];
+            if(id<0) continue;
+            int& at=slot[size_t(id)];
+            if(at<0) {
+                at=int(points.size());
+                points.push_back(cap.points[i]);
+                normals.push_back(cap.normals[i]);
+                ids.push_back(id);
+                for(auto& t:tau) t.insert(t.end(),3,0.f);
+                if(!sameAlbedo) { albedoSum.emplace_back(0.f); albedoWeight.push_back(0.f); }
+            }
+            size_t const o=size_t(at);
+            float values[6];
+            for(int d=0;d<3;++d) {
+                tau[0][o*3+d]+=p[i*3+d];
+                tau[1][o*3+d]+=n[i*3+d];
+                values[d*2]=p[i*3+d]; values[d*2+1]=n[i*3+d];
+            }
+            if(!sameAlbedo) {
+                // Weight each colour by how much of that hair this patch of
+                // skin sees, the quantity the cull and the shader both use.
+                float const w=HemisphereDepth(values,cap.normals[i]);
+                albedoSum[o]+=part->albedo*w;
+                albedoWeight[o]+=w;
+            }
+        }
+    }
+    // Every triangle any part kept, once. A part's triangles are emitted in
+    // lattice order, so the same lattice triangle has the same id triple in
+    // every part.
+    VtIntArray counts, indices;
+    std::set<std::array<int,3>> seen;
+    for(auto const* part:used) {
+        UsdGenScalpShadowPublication const& cap=*part->cap;
+        for(size_t f=0;f+2<cap.faceVertexIndices.size();f+=3) {
+            std::array<int,3> key;
+            bool ok=true;
+            for(int c=0;c<3;++c) {
+                int const v=cap.faceVertexIndices[f+size_t(c)];
+                ok = ok && v>=0 && size_t(v)<cap.latticeIds.size();
+                key[size_t(c)] = ok ? cap.latticeIds[size_t(v)] : -1;
+            }
+            if(!ok || !seen.insert(key).second) continue;
+            counts.push_back(3);
+            for(int id:key) indices.push_back(slot[size_t(id)]);
+        }
+    }
+
+    out.points=points; out.normals=normals; out.latticeIds=ids;
+    out.faceVertexCounts=counts; out.faceVertexIndices=indices;
+    for(int which=0;which<2;++which) {
+        UsdGenPlane p;
+        p.name=TfToken(names[which]);
+        p.interpolation=TfToken("vertex");
+        p.type=TfToken("float");
+        p.arity=3;
+        p.f.assign(tau[which].begin(),tau[which].end());
+        out.extraUniform.push_back(std::move(p));
+    }
+    if(!sameAlbedo) {
+        UsdGenPlane p;
+        p.name=TfToken("furCapAlbedo");
+        p.interpolation=TfToken("vertex");
+        p.type=TfToken("float");
+        p.arity=3;
+        p.f.resize(points.size()*3);
+        for(size_t i=0;i<points.size();++i) {
+            // A point no part sees hair from keeps the lead colour; it is
+            // not darkened anyway.
+            GfVec3f const c = albedoWeight[i]>0.f
+                ? albedoSum[i]/albedoWeight[i] : first->albedo;
+            for(int d=0;d<3;++d) p.f[i*3+d]=c[d];
+        }
+        out.extraUniform.push_back(std::move(p));
+    }
+    GfVec3f lo=points[0], hi=points[0];
+    for(GfVec3f const& q:points) for(int d=0;d<3;++d) {
+        lo[d]=std::min(lo[d],q[d]); hi[d]=std::max(hi[d],q[d]);
+    }
+    out.extentMin=GfVec3d(lo); out.extentMax=GfVec3d(hi);
+    Hash hash;
+    for(auto const* part:used) {
+        hash.Value(part->cap->digest);
+        hash.Value(part->albedo);
+    }
+    out.digest=hash.h;
+    return out;
 }
 }

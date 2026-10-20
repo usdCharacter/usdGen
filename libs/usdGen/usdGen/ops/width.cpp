@@ -1,10 +1,16 @@
 // usdGen — UsdGenWidthOp implementation (M1). 02-schema.md §2.7.1, 04 §2.11.
 // Authors `widths` from a base width, a root->tip ramp (usdGen:width:knots,
 // S11) and taper; usdGen:replace selects set (true) vs multiply (false).
+// usdGen:width:profile:mode = "bezier" replaces the knots ramp with the
+// imported groom's thickness profile: the quadratic Bezier through
+// (0, root), (midShift, mid), (1, tip) at t = i/(n-1) (controls clamped to
+// [0,1], midShift to [0.1,0.9]; all three controls 0 -> mid = 1), and
+// target = max(width, 0) * clamp01(f) with f <= 1e-6 -> 1.
 // TopologyEffect = None.
 #include "usdGen/ops/width.h"
 
 #include "usdGen/opParams.h"
+#include "usdGen/ops/strandUtil.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
@@ -33,6 +39,40 @@ VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
     return {};
 }
 
+/// The thickness profile of usdGen:width:profile:mode = "bezier", read once
+/// per evaluate (value-class, groom evaluation).
+struct BezierWidth
+{
+    bool on = false;
+    float root = 1.0f, mid = 1.0f, midShift = 0.5f, tip = 1.0f;
+
+    /// clamp01(f) of point i of n, f <= 1e-6 -> 1.
+    float At(size_t i, size_t n) const
+    {
+        float const t = n > 1 ? float(i) / float(n - 1) : 0.0f;
+        float const f = strand::BezierProfile(t, root, mid, midShift, tip);
+        return f <= 1e-6f ? 1.0f : strand::Clamp01(f);
+    }
+};
+
+BezierWidth ReadBezierWidth(UsdGenParamView const *p)
+{
+    BezierWidth b;
+    if (!p || p->GetToken(TfToken("width:profile:mode"), TfToken("ramp")) != TfToken("bezier"))
+        return b;
+    b.on = true;
+    auto read = [&](char const *name, float fallback) {
+        float const v = float(p->GetDouble(TfToken(name), fallback));
+        return std::isfinite(v) ? v : fallback;
+    };
+    b.root = strand::Clamp01(read("width:root", 1.0f));
+    b.mid = strand::Clamp01(read("width:mid", 1.0f));
+    b.midShift = read("width:midShift", 0.5f);
+    b.tip = strand::Clamp01(read("width:tip", 1.0f));
+    if (b.root + b.mid + b.tip <= 1e-6f) b.mid = 1.0f;
+    return b;
+}
+
 struct UsdGenWidthCapture final : public UsdGenCapturePayload
 {
     std::unique_ptr<UsdGenCapture> Clone() const override
@@ -47,6 +87,14 @@ struct UsdGenWidthCapture final : public UsdGenCapturePayload
 };
 
 }  // namespace
+
+bool UsdGenWidthBezierLut(UsdGenParamView const &params, float *lut, size_t size)
+{
+    BezierWidth const bezier = ReadBezierWidth(&params);
+    if (!bezier.on || !lut || size < 2) return false;
+    for (size_t k = 0; k < size; ++k) lut[k] = bezier.At(k, size);
+    return true;
+}
 
 static TfTokenVector _topoParams = [] {
     TfTokenVector v = UsdGenBaseTopologyParams();
@@ -65,6 +113,10 @@ static TfTokenVector _valueParams = [] {
     // the param name is the prefix-stripped form. Value-class: the 257-entry
     // LUT is rebuilt from the live parameters every evaluate (see below).
     v.push_back(TfToken("width:interpolation"));
+    // Bezier thickness profile (value-class like the knots ramp).
+    for (char const *name : {"width:profile:mode", "width:root", "width:mid",
+                             "width:midShift", "width:tip"})
+        v.push_back(TfToken(name));
     v.push_back(TfToken("mask"));        // operator envelope (02 §2.13)
     return v;
 }();
@@ -158,10 +210,11 @@ void UsdGenWidthOp::Evaluate(
     // Reuse worker-local LUT storage for nonempty knots. Flat ramps use the
     // exact scalar 1.0 below and require no allocated table.
     float const *lutPtr = nullptr;
-    VtVec2fArray const widthKnots = ReadRampKnots(p, sKnots);
-    bool const magFlat = widthKnots.empty();
+    BezierWidth const bezier = ReadBezierWidth(p);
+    VtVec2fArray const widthKnots = bezier.on ? VtVec2fArray() : ReadRampKnots(p, sKnots);
+    bool const magFlat = widthKnots.empty() && !bezier.on;
     thread_local std::vector<float> tLut;
-    if (!magFlat) {
+    if (!widthKnots.empty()) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(widthKnots, p ? p->GetToken(sKnotsInterp, sCatmullRom) : sCatmullRom, tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
@@ -224,7 +277,9 @@ void UsdGenWidthOp::Evaluate(
             // and multiply have different identity values (04 §2.11).
             const float width =
                 static_cast<float>(widthField.Value(curveBase + c, cvBase + o));
-            float const target = width * (magFlat ? 1.0f : UsdGenEvalLut257(lutPtr, t));
+            float const target = bezier.on
+                ? std::max(width, 0.0f) * bezier.At(i, cv)
+                : width * (magFlat ? 1.0f : UsdGenEvalLut257(lutPtr, t));
             // usdGen:mask IS the envelope, so a zero mask is a true
             // pass-through of the input width.
             const float envelope = std::clamp(

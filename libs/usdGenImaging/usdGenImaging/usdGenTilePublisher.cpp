@@ -9,6 +9,8 @@
 #include "usdGenImaging/usdGenTokens.h"
 
 #include "pxr/base/tf/diagnostic.h"
+#include "pxr/base/tf/envSetting.h"
+#include "pxr/base/tf/getenv.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/imaging/hd/basisCurvesSchema.h"
 #include "pxr/imaging/hd/basisCurvesTopologySchema.h"
@@ -34,6 +36,11 @@
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
+
+TF_DEFINE_ENV_SETTING(USDGEN_SCALP_SHADOW_MASK, -1,
+    "Steps the scalp-shadow cap's opaque sample mask spends its darkening in: "
+    "-1 follows HDX_MSAA_SAMPLE_COUNT (Storm's MSAA, default 4); 0 or 1 "
+    "publishes no mask, leaving the translucent cap to darken on its own.");
 
 namespace usdGenImaging {
 
@@ -128,10 +135,16 @@ _Topology(usdGen::UsdGenTilePublication const &tile)
                 .SetCurveVertexCounts(
                     HdRetainedTypedSampledDataSource<VtIntArray>::New(
                         tile.curveVertexCounts))
-                .SetType(_Tok(HdTokens->cubic))
-                .SetBasis(_Tok(tile.basis.empty() ? HdTokens->bezier
-                                                  : TfToken(tile.basis)))
-                .SetWrap(_Tok(HdTokens->pinned))
+                // usdGen:curve:basis = "linear" publishes polylines
+                // (type linear, wrap nonperiodic): the strands imported from
+                // groomers that author polylines keep their exact points.
+                .SetType(_Tok(tile.basis == "linear" ? HdTokens->linear
+                                                     : HdTokens->cubic))
+                .SetBasis(_Tok(tile.basis.empty() || tile.basis == "linear"
+                                   ? HdTokens->bezier
+                                   : TfToken(tile.basis)))
+                .SetWrap(_Tok(tile.basis == "linear" ? HdTokens->nonperiodic
+                                                     : HdTokens->pinned))
                 .Build())
         .Build();
 }
@@ -817,13 +830,73 @@ UsdGenTilePublisher::ScalpShadowIdentifier()
 }
 
 /*static*/
+SdfPath
+UsdGenTilePublisher::ScalpShadowMaskPath(SdfPath const &descriptionPath)
+{
+    static TfToken const name("scalpShadowMask");
+    return descriptionPath.AppendChild(RenderNamespace()).AppendChild(name);
+}
+
+/*static*/
+SdfPath
+UsdGenTilePublisher::ScalpShadowMaskMaterialPath(SdfPath const &descriptionPath)
+{
+    static TfToken const name("material_scalpShadowMask");
+    return descriptionPath.AppendChild(RenderNamespace()).AppendChild(name);
+}
+
+/*static*/
+TfToken const &
+UsdGenTilePublisher::ScalpShadowMaskIdentifier()
+{
+    static TfToken const identifier("UsdGenScalpShadowMask");
+    return identifier;
+}
+
+/*static*/
+int
+UsdGenTilePublisher::ScalpShadowMaskLevels()
+{
+    // Read once: the materials and the mask prim must agree for the whole
+    // session, and the task controller reads its own setting once too.
+    static int const levels = [] {
+        int value = TfGetEnvSetting(USDGEN_SCALP_SHADOW_MASK);
+        if (value < 0) value = TfGetenvInt("HDX_MSAA_SAMPLE_COUNT", 4);
+        value = std::clamp(value, 0, 16);
+        return value < 2 ? 0 : value;
+    }();
+    return levels;
+}
+
+/*static*/
+GfVec3f
+UsdGenTilePublisher::ScalpShadowAlbedo(usdGen::UsdGenLookDesc const &look)
+{
+    // The transmitted light is tinted by what the hair absorbs, so the cap
+    // needs the same root albedo the strands use.
+    GfVec3f root = look.rootColor;
+    if (!look.rampColors.empty()) root = look.rampColors.front();
+    return root;
+}
+
+/*static*/
 HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildScalpShadowDataSource(
-    usdGen::UsdGenScalpShadowPublication const &cap, int64_t generation)
+    usdGen::UsdGenScalpShadowPublication const &cap, int64_t generation,
+    bool mask, SdfPath const &maskMaterial)
 {
     TRACE_FUNCTION();
     if (cap.IsEmpty()) return nullptr;
     size_t const points = cap.points.size();
+    // The mask shares the cap's points exactly, so both halves interpolate
+    // the same values at every pixel and agree on how many whole steps the
+    // mask blackens: offsetting the mask's geometry instead shifted where
+    // each pixel read the cap and left a dotted seam of disagreement along
+    // every step contour. The mask pushes its own DEPTH back by half the lift
+    // instead (usdGenScalpShadowMask.glslfx), still clear of the skin, so the
+    // translucent half always wins the depth test against the mask's samples.
+    float const lift = cap.lift;
+    VtVec3fArray const &meshPoints = cap.points;
 
     std::vector<TfToken> names;
     std::vector<HdDataSourceBaseHandle> values;
@@ -846,11 +919,13 @@ UsdGenTilePublisher::BuildScalpShadowDataSource(
     std::vector<TfToken> pvNames;
     std::vector<HdDataSourceBaseHandle> pvValues;
     _Add(&pvNames, &pvValues, TfToken("points"),
-         _Primvar(_Samp(cap.points), TfToken("vertex"), TfToken("point")));
+         _Primvar(_Samp(meshPoints), TfToken("vertex"), TfToken("point")));
     if (cap.normals.size() == points) {
         _Add(&pvNames, &pvValues, TfToken("normals"),
              _Primvar(_Samp(cap.normals), TfToken("vertex"), TfToken("normal")));
     }
+    _Add(&pvNames, &pvValues, TfToken("usdGenCapLift"),
+         _Primvar(_Samp(lift), TfToken("constant")));
     for (usdGen::UsdGenPlane const &plane : cap.extraUniform) {
         if (plane.arity != 3 || plane.f.size() != points * 3) continue;
         // The same vec3 packing a tile's depths get: separate scalar buffers
@@ -892,7 +967,8 @@ UsdGenTilePublisher::BuildScalpShadowDataSource(
              .Build());
 
     HdDataSourceBaseHandle binding = HdMaterialBindingSchema::Builder()
-        .SetPath(HdRetainedTypedSampledDataSource<SdfPath>::New(cap.materialPath))
+        .SetPath(HdRetainedTypedSampledDataSource<SdfPath>::New(
+            mask ? maskMaterial : cap.materialPath))
         .Build();
     _Add(&names, &values, TfToken("materialBindings"),
          _Container({_HydraMaterialPurpose(TfToken())}, {binding}));
@@ -906,16 +982,23 @@ HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildScalpShadowMaterialDataSource(
     usdGen::UsdGenLookDesc const &look)
 {
+    return BuildScalpShadowMaterialDataSource(look, 0, false);
+}
+
+/*static*/
+HdContainerDataSourceHandle
+UsdGenTilePublisher::BuildScalpShadowMaterialDataSource(
+    usdGen::UsdGenLookDesc const &look, int maskLevels, bool mask)
+{
     static TfToken const baseColor("baseColor");
-    // The transmitted light is tinted by what the hair absorbs, so the cap
-    // needs the same root albedo the strands use.
-    GfVec3f root = look.rootColor;
-    if (!look.rampColors.empty()) root = look.rampColors.front();
-    TfToken const names[] = {baseColor};
-    HdDataSourceBaseHandle const values[] = {_Param(root)};
+    static TfToken const levels("maskLevels");
+    GfVec3f const root = ScalpShadowAlbedo(look);
+    TfToken const names[] = {baseColor, levels};
+    HdDataSourceBaseHandle const values[] = {
+        _Param(root), _Param(float(maskLevels > 1 ? maskLevels : 0))};
     return _SurfaceMaterial(
-        ScalpShadowIdentifier(),
-        HdRetainedContainerDataSource::New(1, names, values), root);
+        mask ? ScalpShadowMaskIdentifier() : ScalpShadowIdentifier(),
+        HdRetainedContainerDataSource::New(2, names, values), root);
 }
 
 }  // namespace usdGenImaging

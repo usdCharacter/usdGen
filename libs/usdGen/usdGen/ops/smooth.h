@@ -3,7 +3,10 @@
 // its own neighbours (new[i] = lerp(old[i], neighborAvg, strength * mask),
 // endpoints clamped to the single adjacent CV, CV0 pinned by lockRoot);
 // neighbours blends each CV toward the same-index CVs of nearby strands
-// (roots within searchRadius, up to numNeighbors nearest, self excluded).
+// (roots within searchRadius, up to numNeighbors nearest, self excluded);
+// box is the imported-groom smoother: a Jacobi pass of
+// P[k] = (1 - s) O[k] + s mean(O[k-w .. k+w]) with both endpoints fixed
+// (s = clamp(strength, 0, 1) * mask, w = usdGen:window).
 // TopologyEffect = None.
 #ifndef USDGEN_OP_SMOOTH_H
 #define USDGEN_OP_SMOOTH_H
@@ -42,7 +45,9 @@ private:
     const TfToken sMode{"mode"}, sLockRoot{"lockRoot"};
     const TfToken sSearchRadius{"searchRadius"}, sNumNeighbors{"numNeighbors"};
     const TfToken sAlongCurve{"alongCurve"}, sNeighbours{"neighbours"};
+    const TfToken sBox{"box"}, sWindow{"window"};
     const TfToken sMask{"mask"};
+    void EvaluateBox(UsdGenEvalContext const &ctx, UsdGenChunkView *view) const;
 };
 
 }  // namespace usdGen

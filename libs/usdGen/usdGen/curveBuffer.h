@@ -544,14 +544,19 @@ struct UsdGenTilePublication
     SdfPath       dependencySurface;          // __dependencies: dependedOnPrimPath
 };
 
-/// The scalp-shadow cap: one synthetic Mesh per description,
-/// <description>/__usdGenRender/scalpShadow. It is the haired part of the
-/// groom's emitting surface, offset a hair's breadth along its own normal and
-/// carrying the same furTauP/furTauN a strand carries, so a translucent
-/// material can darken whatever skin shader the user bound underneath by the
-/// fraction of light the hair above it absorbs. Points and normals are WORLD
-/// space and the prim's xform is identity with resetXformStack, exactly as a
-/// tile's is. Empty when the description has no occluder or no hair over it.
+/// The scalp-shadow cap: the haired part of a groom's emitting surface,
+/// offset a hair's breadth along its own normal and carrying the same
+/// furTauP/furTauN a strand carries, so a material can darken whatever skin
+/// shader the user bound underneath by the fraction of light the hair above it
+/// absorbs. Points and normals are WORLD space and the prim's xform is
+/// identity with resetXformStack, exactly as a tile's is. Empty when the
+/// description has no occluder or no hair over it.
+///
+/// Each description bakes its own cap, but the groom scene index publishes
+/// one per emitting surface: caps with the same `latticeKey` are sampled on
+/// the same lattice, vertex for vertex, so they are summed
+/// (UsdGenMergeScalpShadows) into a single cap at
+/// <owner description>/__usdGenRender/scalpShadow.
 struct UsdGenScalpShadowPublication
 {
     SdfPath       primPath;
@@ -560,7 +565,8 @@ struct UsdGenScalpShadowPublication
     VtIntArray    faceVertexCounts;           // all 3
     VtIntArray    faceVertexIndices;
     // furTauP / furTauN, vertex, arity 3 -- the same planes a tile publishes,
-    // so the publisher packs them through the same path.
+    // so the publisher packs them through the same path. A merged cap over
+    // hair of different colours also carries furCapAlbedo (vertex, arity 3).
     std::vector<UsdGenPlane> extraUniform;
     GfVec3d       extentMin{0.0}, extentMax{0.0};
     TfToken       purpose;
@@ -569,6 +575,18 @@ struct UsdGenScalpShadowPublication
     // Content identity: the scene index dirties the prim when this changes and
     // shares the previous immutable arrays when it does not.
     uint64_t      digest = 0;
+    // The lattice the cap was sampled on. It depends on the emitting surface
+    // alone (its triangles, their refinement, the lift and which side is
+    // solid), never on the description's own voxel grid, so two descriptions
+    // over the same surface at the same frame produce equal keys and
+    // identical points. Zero means the cap cannot be merged.
+    uint64_t      latticeKey = 0;
+    // Per point: its slot in that lattice (source triangle * slots per
+    // triangle + slot), so caps that dropped different triangles still line
+    // up when merged.
+    VtIntArray    latticeIds;
+    // How far the points sit above the skin along their normals.
+    float         lift = 0.f;
 
     bool IsEmpty() const { return points.empty() || faceVertexIndices.empty(); }
 };

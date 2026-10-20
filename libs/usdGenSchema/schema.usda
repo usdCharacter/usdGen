@@ -79,7 +79,7 @@ class UsdGenDescription "UsdGenDescription" (
     )
     uniform token usdGen:curve:basis = "bspline" (
         doc = """Basis token copied onto every published BasisCurves prim: "bspline" or "catmullRom". Publication only; no kernel evaluates the basis. Expression evaluation: groom (once per operator)."""
-        allowedTokens = ["bspline", "catmullRom"]
+        allowedTokens = ["bspline", "catmullRom", "linear"]
     )
     float usdGen:width:default = 0.01 (
         doc = """Fallback strand width in scene units used wherever no upstream width plane exists. Must be finite and >= 0. One value per description. Expression evaluation: groom (once per operator)."""
@@ -211,7 +211,7 @@ class UsdGenScatter "UsdGenScatter" (
 )
 {
     int usdGen:subdivisionLevel = 0 (
-        doc = """0 preserves polygon-cage scattering. 1-6 opt into CPU OpenSubdiv Catmull-Clark limit patches with this adaptive isolation depth and a 2^level area quadrature grid. Level 3 is the production felt setting. Requires quad topology, preserves coarse face/Ptex coordinates, honors holes/boundaries/creases. CUDA limit scattering is not supported. Expression evaluation: groom (once per operator)."""
+        doc = """0 preserves polygon-cage scattering. 1-6 opt into CPU OpenSubdiv Catmull-Clark limit patches with this adaptive isolation depth; level 3 is the production felt setting. The default random per-face path samples each coarse face on a 2^level area quadrature grid and keeps the coarse face (u,v) as rootUV, so it requires quad topology and preserves coarse face/Ptex coordinates. The generation modes (even, uvGrid, vertex, perGuide, or a surface count) draw their roots on the cage as at level 0 and then move each root, with its frame, to the limit point under it, on any polygon topology; their rootPrim/rootUV keep the cage face and texture coordinates. Holes, boundaries and creases are honored. CUDA limit scattering is not supported. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
     float usdGen:density = 100.0 (
@@ -220,6 +220,32 @@ class UsdGenScatter "UsdGenScatter" (
     )
     bool usdGen:flip = false (
         doc = """Negates the tangent and binormal of every root frame, mirroring the handedness the downstream operators grow and twist along. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    uniform token usdGen:distribution = "random" (
+        doc = """How roots are placed: random (area-weighted, per-face stochastic counts), even (Poisson-disk dart throwing with relaxation), uvGrid (deterministic grid in the surface UV space), vertex (one root per unique mesh vertex position, shuffled), perGuide (one root at each guide root, in guide order). Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["random", "even", "uvGrid", "vertex", "perGuide"]
+    )
+    uniform token usdGen:countMode = "perFace" (
+        doc = """perFace rounds density * faceArea per face (random only); surface draws round(density * surfaceArea) roots over the whole bound surface (always used by the non-random distributions). Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["perFace", "surface"]
+    )
+    rel usdGen:densityMap (
+        doc = """UsdGenPaintMap / UsdGenImageMap masks sampled at every root and multiplied; a root survives when the mask is >= 0.999 or its stable hash is <= the mask. Thinning never changes the target count."""
+    )
+    rel usdGen:guides (
+        doc = """Guide curves for usdGen:distribution = perGuide and for the guide-proximity domain."""
+    )
+    uniform token usdGen:proximity:mode = "none" (
+        doc = """Restricts roots to the neighbourhood of the guide roots: distance keeps surface within usdGen:proximity:distance of a guide root; coverage keeps the usdGen:proximity:coverage share of the surface nearest the guides. The root count is unchanged; roots pack into the kept domain. Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["none", "distance", "coverage"]
+    )
+    float usdGen:proximity:distance = 0.01 (
+        doc = """Guide-root distance (scene units) for proximity mode distance. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:proximity:coverage = 1.0 (
+        doc = """Share of the surface kept in proximity mode coverage, in [0, 1]. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
 }
@@ -233,7 +259,7 @@ class UsdGenGrow "UsdGenGrow" (
 )
 {
     int usdGen:segments = 8 (
-        doc = """CVs per generated strand, in [2, 64]. This is the operator that fixes the CV topology of the chain. Expression evaluation: groom (once per operator)."""
+        doc = """CVs per generated strand, in [2, 4096]. This is the operator that fixes the CV topology of the chain. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
     float usdGen:length = 1.0 (
@@ -280,7 +306,7 @@ class UsdGenGuideInterpolate "UsdGenGuideInterpolate" (
         doc = """The guide curves: one BasisCurves prim whose curves are the sparse guides. Each input root grows a strand of usdGen:cvCount CVs by blending the root-local shapes of its nearest guides."""
     )
     int usdGen:cvCount = 8 (
-        doc = """CVs per generated strand, in [2, 64]. Guides are resampled to this count by arc length. Expression evaluation: groom (once per operator)."""
+        doc = """CVs per generated strand, in [2, 4096]. Guides are resampled to this count by arc length. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
     int usdGen:maxGuides = 3 (
@@ -321,6 +347,50 @@ class UsdGenGuideInterpolate "UsdGenGuideInterpolate" (
     )
     float usdGen:regionCrossover = 0.0 (
         doc = """Weight scale for guides of another region, in [0, 1]. 0 keeps region borders hard (parting lines); larger values let neighbouring regions' guides soften the border. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    uniform token usdGen:weighting = "falloff" (
+        doc = """Guide weighting: falloff ((1 - d/R)^decay over maxGuides within influenceRadius), nearest (the nearest guide's shape translated to the root), inverseDistance (the 3 nearest guides, weight 1/d), gaussian (a Gaussian kernel over all guides with sigma from the guide-root spacing, sharpened by usdGen:tightness). Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["falloff", "nearest", "inverseDistance", "gaussian"]
+    )
+    float usdGen:tightness = 3.0 (
+        doc = """Gaussian weighting exponent, clamped to [0.25, 8]; higher follows the nearest guide more closely. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:bendFollow = false (
+        doc = """Carries each root's offset in the guide's rotation-minimising frame so hair stays round around bent guides. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:defaultLength = 0.01 (
+        doc = """Length of the straight strand grown along the root normal when no guide is available (scene units). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    point3f[] usdGen:part:points = [] (
+        doc = """Parting curve points (scene units), concatenated; usdGen:part:counts splits them into curves. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int[] usdGen:part:counts = [] (
+        doc = """Points per parting curve. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    normal3f[] usdGen:part:normals = [] (
+        doc = """Optional surface normal per parting point. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:part:amount = 0.0 (
+        doc = """How strongly hair moves away from the parting lines, in [0, 1]; 0 disables parting. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:part:angle = 80.0 (
+        doc = """How steeply hair lifts off the parting line, in degrees [0, 89]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:part:radius = 0.5 (
+        doc = """Width of the parting effect as a fraction of the parting curve's length, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:part:distance = 1.0 (
+        doc = """How far along the strand the parting lasts, in [0, 1] (1 rotates the whole strand rigidly). Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
 }
@@ -464,6 +534,73 @@ class UsdGenClump "UsdGenClump" (
         doc = """1 restores every segment to its input length after the pull, root locked; 0 keeps the pulled lengths; values between blend. In [0, 1]. Expression evaluation: primitive (once per curve root)."""
         customData = { dictionary usdGen = { string evaluation = "primitive" } }
     )
+    uniform token usdGen:clump:centers = "density" (
+        doc = """How clump centres are chosen when usdGen:clump:map is unconnected: density (centres per unit area), count (usdGen:clump:count centres by farthest-point sampling, balanced membership, strands pulled toward their centre strand), guides (one clump per guide, strands pulled toward the guide curve itself), guideSeeded (count centres seeded per guide, centre curves rebuilt from the guide). Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["density", "count", "guides", "guideSeeded"]
+    )
+    int usdGen:clump:count = 10 (
+        doc = """Number of clumps for usdGen:clump:centers = count / guideSeeded. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    rel usdGen:guides (
+        doc = """Guide curves for usdGen:clump:centers = guides / guideSeeded."""
+    )
+    uniform token usdGen:clump:profile:mode = "ramp" (
+        doc = """ramp uses usdGen:clump:profile:knots; bezier uses root/mid/midShift/tip (the clump weight is clamp01(amount * profile)). Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["ramp", "bezier"]
+    )
+    float usdGen:clump:root = 0.0 (
+        doc = """Clump tightness at the root (quadratic Bezier root/mid/tip profile: control points (0, root), (midShift, mid), (1, tip); mid is a control value, midShift its position along the strand). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:mid = 0.5 (
+        doc = """Clump tightness middle control value of the Bezier profile. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:midShift = 0.5 (
+        doc = """Position of the clump tightness mid control along the strand, clamped to [0.1, 0.9]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:tip = 1.0 (
+        doc = """Clump tightness at the tip. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:flyaway:fraction = 0.0 (
+        doc = """Share of strands that escape their clump (stable per strand), in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:flyaway:amount = 0.0 (
+        doc = """Multiplier on a flyaway strand's clump weight, in [0, 1] (0 = fully free); flyaways get clumpId -1. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:clump:sub:enabled = false (
+        doc = """Splits every clump into angular sub-clumps. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:clump:sub:count = 2 (
+        doc = """Sub-clumps per clump. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:sub:spread = 0.5 (
+        doc = """How spread out the sub-clumps are within a clump, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clump:sub:amount = 1.0 (
+        doc = """How strongly strands pull into their sub-clump, in [0.1, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:clump:sub:ids = false (
+        doc = """Writes sub-clump ids into clumpId_0. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int[] usdGen:clump:overrides = [] (
+        doc = """Per-strand clump override in generation order: INT_MIN keeps the generated clump, -1 unclumps, >= 0 forms a custom clump. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:clump:overrideCount = 0 (
+        doc = """Strand count the overrides were authored for; overrides apply only when it equals the current count. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
 }
 
 # UsdGenNoise — frizz; correlated fBm in the root frame.
@@ -527,7 +664,7 @@ class UsdGenLength "UsdGenLength" (
 {
     uniform token usdGen:length:mode = "scale" (
         doc = """How usdGen:length:value is interpreted: "set" is an absolute target length, "scale" a multiplier, "cull" removes strands below the threshold. Expression evaluation: groom (once per operator)."""
-        allowedTokens = ["set", "scale", "cull"]
+        allowedTokens = ["set", "scale", "cull", "randomRange"]
     )
     float usdGen:length:value = 1.0 (
         doc = """Target length in scene units ("set") or multiplier ("scale"). Must be >= 0. Expression evaluation: primitive (once per curve root)."""
@@ -553,6 +690,29 @@ class UsdGenLength "UsdGenLength" (
         doc = """Strands whose resolved length is below this value are zero-lengthened. Scene units, >= 0. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
+    float usdGen:length:min = 0.01 (
+        doc = """randomRange: shortest length multiplier, in [0.01, 2]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:length:max = 1.0 (
+        doc = """randomRange: length multiplier with no randomisation, in [0.01, 2]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:length:randomize = 0.0 (
+        doc = """randomRange: blend from max toward a random multiplier in [min, max], in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:length:shareByClump = false (
+        doc = """randomRange: strands of one clump share the random length. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:length:followClumpMean = false (
+        doc = """randomRange: strands follow their clump's mean curve (keeping their offset) when lengthened or shortened. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    rel usdGen:lengthMap (
+        doc = """UsdGenPaintMap / UsdGenImageMap masks sampled at each root and multiplied into the randomRange length."""
+    )
 }
 
 # UsdGenWidth — strand profile; usdGen:replace == true sets, false multiplies.
@@ -577,6 +737,26 @@ class UsdGenWidth "UsdGenWidth" (
     )
     bool usdGen:replace = true (
         doc = """True sets the width plane from this operator's profile; false multiplies the incoming widths by it. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    uniform token usdGen:width:profile:mode = "ramp" (
+        doc = """ramp uses usdGen:width:knots; bezier scales usdGen:width by clamp01(profile) from root/mid/midShift/tip. Expression evaluation: groom (once per operator)."""
+        allowedTokens = ["ramp", "bezier"]
+    )
+    float usdGen:width:root = 1.0 (
+        doc = """Width multiplier at the root (quadratic Bezier root/mid/tip profile: control points (0, root), (midShift, mid), (1, tip); mid is a control value, midShift its position along the strand). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:width:mid = 1.0 (
+        doc = """Width multiplier middle control value of the Bezier profile. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:width:midShift = 0.5 (
+        doc = """Position of the width multiplier mid control along the strand, clamped to [0.1, 0.9]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:width:tip = 1.0 (
+        doc = """Width multiplier at the tip. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
 }
@@ -656,7 +836,7 @@ class UsdGenSmooth "UsdGenSmooth" (
     )
     uniform token usdGen:mode = "alongCurve" (
         doc = """Mode token for Smooth. Declared for the frozen v1-v3 vocabulary; no kernel implements Smooth yet (02 §8.2), so this value is never read. Expression evaluation: groom (once per operator)."""
-        allowedTokens = ["alongCurve", "neighbours"]
+        allowedTokens = ["alongCurve", "neighbours", "box"]
     )
     bool usdGen:lockRoot = true (
         doc = """Authored Smooth control "lockRoot". Declared for the frozen v1-v3 vocabulary; no kernel implements Smooth yet (02 §8.2), so this value is never read. Expression evaluation: groom (once per operator)."""
@@ -669,6 +849,10 @@ class UsdGenSmooth "UsdGenSmooth" (
     int usdGen:numNeighbors = 4 (
         doc = """Authored Smooth control "numNeighbors". Declared for the frozen v1-v3 vocabulary; no kernel implements Smooth yet (02 §8.2), so this value is never read. Expression evaluation: primitive (once per curve root)."""
         customData = { dictionary usdGen = { string evaluation = "primitive" } }
+    )
+    int usdGen:window = 2 (
+        doc = """mode box: half-width of the box average in points (one Jacobi pass, both endpoints fixed). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
 }
 
@@ -690,6 +874,10 @@ class UsdGenResample "UsdGenResample" (
     )
     bool usdGen:restoreSegmentLengths = false (
         doc = """Authored Resample control "restoreSegmentLengths". Declared for the frozen v1-v3 vocabulary; no kernel implements Resample yet (02 §8.2), so this value is never read. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:spacing = 0.0 (
+        doc = """> 0: resample each strand to clamp(ceil(length / spacing) + 1, 2, 4096) points uniformly in arc length (ragged output); 0 uses usdGen:cvCount. Expression evaluation: groom (once per operator)."""
         customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
 }
@@ -1034,7 +1222,348 @@ class UsdGenCollide "UsdGenCollide" (
     )
     uniform token usdGen:resolveType = "flexible" (
         doc = """How the push-out moves the strand: "flexible" corrects each CV independently, "stiff" hinges the strand about the last clean CV. Expression evaluation: groom (once per operator)."""
-        allowedTokens = ["flexible", "stiff"]
+        allowedTokens = ["flexible", "stiff", "relax"]
+    )
+    float usdGen:clearance:root = 0.0 (
+        doc = """resolveType relax: clearance kept at the root (scene units), blended to usdGen:clearance:tip along the strand. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:clearance:tip = 0.0 (
+        doc = """resolveType relax: clearance kept at the tip (scene units). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:relax:iterations = 24 (
+        doc = """resolveType relax: smoothing/relaxation sweeps. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+}
+
+# ---------------------------------------------------------------------------
+# Whole-strand stylers and the card generator (groom import)
+# ---------------------------------------------------------------------------
+
+# UsdGenBraid — three-lane braid woven around each guide; emits clumpId_0
+# (3 * guide + lane) and the per-CV braidKnotMask.
+class UsdGenBraid "UsdGenBraid" (
+    inherits = </UsdGenStyler>
+    customData = {
+        string className = "Braid"
+    }
+)
+{
+    rel usdGen:guides (
+        doc = """Guide curves the braids are woven around (one braid per guide)."""
+    )
+    float usdGen:braid:frequency = 8.0 (
+        doc = """Number of crossings along the braid per reference length. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:width = 1.0 (
+        doc = """Braid width relative to the reference length. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:flatness = 0.55 (
+        doc = """Flattens the braided strands, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:knotTightness = 0.5 (
+        doc = """How tightly the braid is woven, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:fadeIn = 0.1 (
+        doc = """Eases the weave in from the root, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:fadeOut = 0.1 (
+        doc = """Eases the weave out toward the tip, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:rootSpread = 0.0 (
+        doc = """How far the strands spread apart at the root. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:tipSpread = 0.0 (
+        doc = """How far the strands spread apart at the tip. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:tailLength = 0.0 (
+        doc = """Loose, unbraided share of the length at the end, in [0, 0.9]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:tailRelax = 0.5 (
+        doc = """How loosely the tail hangs, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:tailCinch = 0.6 (
+        doc = """Tightens the tail where the braid ends, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:referenceLength = 0.0 (
+        doc = """Length that braid width and frequency are relative to; 0 uses the diagonal of the bound surface's rest bounds. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:root = 0.0 (
+        doc = """Braid pull at the root (quadratic Bezier root/mid/tip profile: control points (0, root), (midShift, mid), (1, tip); mid is a control value, midShift its position along the strand). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:mid = 0.5 (
+        doc = """Braid pull middle control value of the Bezier profile. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:midShift = 0.5 (
+        doc = """Position of the braid pull mid control along the strand, clamped to [0.1, 0.9]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:tip = 1.0 (
+        doc = """Braid pull at the tip. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:amount = 1.0 (
+        doc = """Overall braid pull, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:flyaway:fraction = 0.0 (
+        doc = """Share of strands that escape the braid, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:braid:flyaway:amount = 0.0 (
+        doc = """Multiplier on a flyaway strand's braid weight, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:braid:knotMask = false (
+        doc = """Emits braidKnotMask (1 - knot) so Frizz can keep the crossings clean. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+}
+
+# UsdGenTwist — rotates strands about the mean curve of their guide group or
+# clump by a root/mid/tip angle profile.
+class UsdGenTwist "UsdGenTwist" (
+    inherits = </UsdGenStyler>
+    customData = {
+        string className = "Twist"
+    }
+)
+{
+    float usdGen:twist:amount = 1.0 (
+        doc = """Multiplies the whole twist (2 turns a 180 degree twist into a full turn). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:twist:root = 0.0 (
+        doc = """Twist angle in degrees at the root (quadratic Bezier root/mid/tip profile: control points (0, root), (midShift, mid), (1, tip); mid is a control value, midShift its position along the strand). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:twist:mid = 0.0 (
+        doc = """Twist angle in degrees middle control value of the Bezier profile. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:twist:midShift = 0.5 (
+        doc = """Position of the twist angle in degrees mid control along the strand, clamped to [0.1, 0.9]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:twist:tip = 0.0 (
+        doc = """Twist angle in degrees at the tip. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:twist:noise = 0.0 (
+        doc = """Per-strand variation of the twist along the length, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:twist:useClumpIds = false (
+        doc = """Each clump twists around its own centre (clumpId_0) instead of around its guide group. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:twist:resnapRoot = true (
+        doc = """Snaps a root that the twist moved back onto the bound surface with a smooth falloff. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+}
+
+# UsdGenTrim — cuts strands at their first crossing with blade ribbons that
+# stand on the trim curves.
+class UsdGenTrim "UsdGenTrim" (
+    inherits = </UsdGenStyler>
+    customData = {
+        string className = "Trim"
+    }
+)
+{
+    rel usdGen:trim:curves (
+        doc = """Trim curves drawn on the surface; each carries a blade of height usdGen:trim:distance. Optional per-curve overrides: primvars:usdGen:plane:trimAngle / trimInvert / trimDistance (uniform)."""
+    )
+    float usdGen:trim:angle = 0.0 (
+        doc = """Tilts the cutting blade about the curve tangent, in degrees [0, 89]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:trim:invert = false (
+        doc = """Tilts the blade the other way. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:trim:distance = 0.1 (
+        doc = """Blade height off the surface (scene units). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:trim:normalSearch = 0.08 (
+        doc = """Radius (scene units) searched on the bound surface for the blade normal at each trim point. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+}
+
+# UsdGenFrizz — two-axis wave plus value-noise kinks in a transport frame,
+# with a root/mid/tip profile; amplitude relative to the strand length.
+class UsdGenFrizz "UsdGenFrizz" (
+    inherits = </UsdGenStyler>
+    customData = {
+        string className = "Frizz"
+    }
+)
+{
+    float usdGen:frizz:amplitude = 0.0 (
+        doc = """Displacement amplitude as a fraction of the strand's reference length (restLength when present). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:wavesX = 0.0 (
+        doc = """Waves per reference length on the first axis. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:wavesZ = 0.0 (
+        doc = """Waves per reference length on the second axis. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:noise = 0.0 (
+        doc = """Weight of the value-noise kinks added to the waves, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:noiseSize = 0.1 (
+        doc = """Length of one noise kink along the strand (scene units). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:sharpness = 0.0 (
+        doc = """0 bends in smooth bumps; 1 in straight runs with sharp corners. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:root = 0.0 (
+        doc = """Frizz strength at the root (quadratic Bezier root/mid/tip profile: control points (0, root), (midShift, mid), (1, tip); mid is a control value, midShift its position along the strand). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:mid = 0.5 (
+        doc = """Frizz strength middle control value. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:midShift = 0.5 (
+        doc = """Position of the frizz mid control along the strand, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:frizz:tip = 1.0 (
+        doc = """Frizz strength at the tip. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:frizz:useClumpIds = false (
+        doc = """Strands of one clump (clumpId_0) frizz together. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:frizz:preserveKnots = false (
+        doc = """Reduces frizz at braid crossings using braidKnotMask. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+}
+
+# UsdGenTieClump — pulls the strands of tied guides toward the hair-tie points.
+class UsdGenTieClump "UsdGenTieClump" (
+    inherits = </UsdGenStyler>
+    customData = {
+        string className = "TieClump"
+    }
+)
+{
+    rel usdGen:guides (
+        doc = """The guide curves the ties bind to (strands follow primaryGuide)."""
+    )
+    float usdGen:tie:amount = 1.0 (
+        doc = """How strongly strands clump to the ties, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:tie:spread = 0.25 (
+        doc = """How far the tie clumping reaches along the strand, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    point3f[] usdGen:tie:positions = [] (
+        doc = """Tie positions (scene units). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int[] usdGen:tie:entryCounts = [] (
+        doc = """Number of (guide, vertex) bindings per tie. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int[] usdGen:tie:guideIndices = [] (
+        doc = """Guide curve index (in the guide set) of each binding, concatenated over ties. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int[] usdGen:tie:vertexIndices = [] (
+        doc = """Guide point index of each binding, concatenated over ties. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+}
+
+# UsdGenCardSource — grows strands on hair cards: card spines (usdGen:cards)
+# are meshed into surface grids and a tile-space strand library
+# (usdGen:cardStrands) is mapped onto every card using that tile.
+class UsdGenCardSource "UsdGenCardSource" (
+    inherits = </UsdGenGenerator>
+    customData = {
+        string className = "CardSource"
+    }
+)
+{
+    rel usdGen:cards (
+        doc = """Card spine BasisCurves (one curve per card) carrying the card parameters as primvars:usdGen:plane:* (see the card plane contract)."""
+    )
+    rel usdGen:cardStrands (
+        doc = """Tile-space strand library BasisCurves with uniform primvars:usdGen:plane:uvId and :tile."""
+    )
+    int usdGen:cardSource:layer = -1 (
+        doc = """Grow only on cards of this layer (-1 = all). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:cardSource:uvId = -1 (
+        doc = """Grow only on cards with this UV set id (-1 = all). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:cardSource:tile = -1 (
+        doc = """Grow only on cards using this tile (-1 = all). Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:cardSource:braid = false (
+        doc = """Grow on braid cards instead of ribbon/cross/tube cards. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:cardSource:amount = 1.0 (
+        doc = """Share of the tile's strands grown on each card, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:cardSource:rootFlatten = 0.0 (
+        doc = """Presses the hair onto the card surface: 0 keeps the tile depth, 1 lays every strand flat. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    bool usdGen:cardSource:smooth = true (
+        doc = """Grows on the smoothed (subdivided) cards. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:cvCount = 8 (
+        doc = """CVs per generated strand, in [2, 4096]; strands are resampled uniformly in arc length. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:cardSource:braidWidth = 1.0 (
+        doc = """Braid cards: width of the strand spread around each braid card, relative to the reference length. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    float usdGen:cardSource:braidFlatness = 0.55 (
+        doc = """Braid cards: flattens the strand spread across the braid, in [0, 1]. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
+    )
+    int usdGen:cardSource:maxStrands = 2000000 (
+        doc = """Upper bound on generated strands; larger libraries are subsampled evenly. Expression evaluation: groom (once per operator)."""
+        customData = { dictionary usdGen = { string evaluation = "groom" } }
     )
     uniform token usdGen:deepPenetrationMode = "collide" (
         doc = """Handling for deep closed-collider penetration: "collide" preserves the ordinary solver, while "cutThenCollide" statelessly and smoothly removes remaining source arc beyond a deep contact before collision. Flexible cut-mode collision projects entry and endpoint constraints from current geometry; stiff resolution retains its established strategy. Source length recovers when penetration clears. Below the threshold no pre-cut is applied; flexible collision may still change segment lengths. Expression evaluation: groom (once per operator)."""

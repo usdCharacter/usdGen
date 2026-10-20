@@ -1729,8 +1729,11 @@ static void CheckRegistryContracts()
           "Collide topology parameters include deep-penetration mode");
     Check(value == std::set<std::string>{"enabled", "mask", "offset",
                                          "pushAmount", "iterations",
-                                         "cutDepthThreshold", "cutBlendDepth"},
-          "Collide value parameters include cut-depth threshold");
+                                         "cutDepthThreshold", "cutBlendDepth",
+                                         "clearance:root", "clearance:tip",
+                                         "relax:iterations"},
+          "Collide value parameters include cut-depth threshold and the relax "
+          "clearance:root/clearance:tip/relax:iterations");
 }
 
 // --- (2) CPU cooks -------------------------------------------------------

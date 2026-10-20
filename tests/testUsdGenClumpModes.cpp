@@ -272,7 +272,11 @@ void TestContracts()
     Check(refs.size() == 1 && refs[0] == TfToken("guides"),
           "UsdGenClump declares the guides reference input");
     TfSpan<const TfToken> const outs = op->OutputPrimvars();
-    Check(outs.size() == 1 && outs[0] == TfToken("clumpId_0"), "UsdGenClump emits clumpId_0");
+    Check(outs.size() == 4 && outs[0] == TfToken("clumpId_0") &&
+              outs[1] == TfToken("clumpCenter_0") &&
+              outs[2] == TfToken("clumpCenterId_0") &&
+              outs[3] == TfToken("clumpWeight_0"),
+          "UsdGenClump emits clumpId_0 plus its centre/weight planes");
     TfSpan<const TfToken> const topo = op->TopologyParameters();
     for (char const *name : {"clump:centers", "clump:count", "clump:profile:mode", "clump:root",
                              "clump:flyaway:fraction", "clump:sub:enabled", "clump:overrides",

@@ -26,6 +26,7 @@
 
 #include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/ops/strandUtil.h"
 
 #include "pxr/base/gf/vec3d.h"
 #include "pxr/base/gf/vec3f.h"
@@ -57,6 +58,18 @@ const TfToken sDeepMode{"deepPenetrationMode"};
 const TfToken sCollide{"collide"}, sCutThenCollide{"cutThenCollide"};
 const TfToken sCutThreshold{"cutDepthThreshold"};
 const TfToken sCutBlendDepth{"cutBlendDepth"};
+const TfToken sRelax{"relax"};
+const TfToken sClearanceRoot{"clearance:root"}, sClearanceTip{"clearance:tip"};
+const TfToken sRelaxIterations{"relax:iterations"};
+const TfToken sUnresolved{"collideUnresolved"};
+
+// Relax (imported-groom push-out) constants, reference values.
+constexpr float kRelaxMinClearance = 1e-4f;   // clearance floor, scene units
+constexpr float kRelaxGain = 0.8f;            // per-iteration relaxation
+constexpr float kRelaxUnresolved = 1e-4f;     // "still penetrating" distance
+constexpr float kRelaxMinSegment = 1e-6f;    // length-preservation guard
+constexpr int kRelaxDefaultIterations = 24;
+constexpr int kRelaxMaxWindow = 10;           // min(n,1000)/min(n,100) <= 10
 
 struct UsdGenCollideCollider
 {
@@ -99,6 +112,8 @@ struct UsdGenCollideCollider
 struct UsdGenCollideCapture final : public UsdGenCapture
 {
     std::vector<UsdGenCollideCollider> colliders;  // node.surfaces order
+    bool relax = false;
+    std::vector<strand::TriangleBvh> relaxBvhs;    // relax, one per collider
     uint32_t upstreamCurves = 0;
     uint32_t upstreamCvs = 0;
 
@@ -1501,6 +1516,9 @@ static TfTokenVector _valueParams = [] {
     v.push_back(TfToken("iterations"));
     v.push_back(sCutThreshold);
     v.push_back(sCutBlendDepth);
+    v.push_back(sClearanceRoot);               // relax only
+    v.push_back(sClearanceTip);                 // relax only
+    v.push_back(sRelaxIterations);              // relax only
     return v;
 }();
 
@@ -1512,14 +1530,174 @@ TfSpan<const TfToken> UsdGenCollideOp::ValueParameters() const
 {
     return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
 }
+TfSpan<const TfToken> UsdGenCollideOp::OutputPrimvars() const
+{
+    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
+}
 std::unique_ptr<UsdGenCapture> UsdGenCollideOp::CreateCapture() const
 {
     return std::make_unique<UsdGenCollideCapture>();
 }
+void BuildRelaxBvh(UsdGenSurfaceDesc const &geometry, std::vector<int> const &faces,
+                   strand::TriangleBvh *bvh)
+{
+    std::vector<strand::FanTriangle> all, kept;
+    VtIntArray restricted(faces.begin(), faces.end());
+    strand::FanTriangulate(geometry.faceVertexCounts, geometry.faceVertexIndices, &all,
+                           faces.empty() ? nullptr : &restricted);
+    kept.reserve(all.size());
+    for (strand::FanTriangle const &t : all) {
+        GfVec3d const a(geometry.points[size_t(t.v[0])]);
+        GfVec3d const b(geometry.points[size_t(t.v[1])]);
+        GfVec3d const c(geometry.points[size_t(t.v[2])]);
+        double const l = GfCross(b - a, c - a).GetLength();
+        if (l > 0.0 && Finite(l)) kept.push_back(t);
+    }
+    bvh->Build(geometry.points, kept);
+}
+
+// --- relax ------------------------------------------------------------------
+
+struct RelaxSample
+{
+    bool hit = false;
+    float d = 0.0f;              // signed distance (negative inside)
+    GfVec3f n{0.0f, 0.0f, 1.0f}; // unit gradient of d (outward)
+};
+
+// Signed distance to the union of the colliders (minimum over colliders,
+// first collider on ties). The closest point is exact; the side comes from
+// the interpolated vertex normal at it, and the gradient is the unit
+// direction away from (outside) / toward (inside) the closest point. A
+// point on the surface (within ~1e-6 relative) takes the vertex normal.
+RelaxSample SignedDistance(std::vector<strand::TriangleBvh> const &bvhs, GfVec3f const &p)
+{
+    RelaxSample best;
+    float const scale = 1.0f + std::max(std::fabs(p[0]), std::max(std::fabs(p[1]), std::fabs(p[2])));
+    for (strand::TriangleBvh const &bvh : bvhs) {
+        if (bvh.Empty()) continue;
+        strand::ClosestHit const h = bvh.Closest(p);
+        if (!h.hit) continue;
+        GfVec3f const surfaceN = bvh.Normal(h.triangle, h.bary);
+        GfVec3f const diff = p - h.point;
+        float const len = diff.GetLength();
+        RelaxSample s;
+        s.hit = true;
+        if (len > 1e-6f * scale) {
+            float const sign = GfDot(diff, surfaceN) < 0.0f ? -1.0f : 1.0f;
+            s.d = sign * len;
+            float const k = sign / len;
+            s.n = GfVec3f(diff[0] * k, diff[1] * k, diff[2] * k);
+        } else {
+            s.d = GfDot(diff, surfaceN);
+            s.n = surfaceN;
+        }
+        if (!best.hit || s.d < best.d) best = s;
+    }
+    return best;
+}
+
+// The push-out window w = max(1, round(r)), r = steps(cap 1000) /
+// steps(cap 100) with steps = clamp(n, 3, cap): 1 for n <= 100.
+int RelaxWindow(size_t n)
+{
+    float const steps1000 = float(std::clamp<size_t>(n, 3, 1000));
+    float const steps100 = float(std::clamp<size_t>(n, 3, 100));
+    long const w = std::lroundf(steps1000 / steps100);
+    return int(std::clamp<long>(w, 1, kRelaxMaxWindow));
+}
+
+inline GfVec3f Mul(GfVec3f const &v, float s) { return GfVec3f(v[0] * s, v[1] * s, v[2] * s); }
+
+// One strand, in place: `in` is the upstream strand (A), `out` receives the
+// result. Between iterations `out[k]` (k >= 1) holds Wk; inside an iteration
+// it holds the displacement Disp (the reference keeps both arrays; Disp is
+// always Wk - A at an iteration boundary, so one array suffices). The
+// smoothing is a Jacobi pass done in place: a ring of the last w overwritten
+// displacements supplies the k - w tap. Returns the "still penetrating"
+// flag. Allocation-free.
+bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
+                 float const *ix, float const *iy, float const *iz,
+                 float *ox, float *oy, float *oz, size_t n,
+                 float clearRoot, float clearTip, int iterations)
+{
+    auto in = [&](size_t k) { return GfVec3f(ix[k], iy[k], iz[k]); };
+    auto out = [&](size_t k) { return GfVec3f(ox[k], oy[k], oz[k]); };
+    auto put = [&](size_t k, GfVec3f const &v) { ox[k] = v[0]; oy[k] = v[1]; oz[k] = v[2]; };
+    for (size_t k = 0; k < n; ++k) { ox[k] = ix[k]; oy[k] = iy[k]; oz[k] = iz[k]; }
+    if (n < 2 || iterations < 1) return false;
+    float const span = float(n - 1);
+    auto clearance = [&](size_t k) {
+        return clearRoot + (clearTip - clearRoot) * (float(k) / span);
+    };
+    bool penetrating = false;
+    for (size_t k = 1; k < n && !penetrating; ++k) {
+        RelaxSample const s = SignedDistance(bvhs, in(k));
+        penetrating = s.hit && s.d < clearance(k);
+    }
+    if (!penetrating) return false;
+
+    size_t const w = size_t(RelaxWindow(n));
+    GfVec3f ring[kRelaxMaxWindow];
+    for (int it = 0; it < iterations; ++it) {
+        // Disp[k] = (Wk[k] - A[k]) + n * 0.8 * (clear(k) - d) when inside the
+        // clearance, sampled at the current Wk.
+        for (size_t k = 1; k < n; ++k) {
+            GfVec3f const wk = out(k);
+            GfVec3f disp = wk - in(k);
+            RelaxSample const s = SignedDistance(bvhs, wk);
+            float const c = clearance(k);
+            if (s.hit && s.d < c) disp += Mul(s.n, kRelaxGain * (c - s.d));
+            put(k, disp);
+        }
+        // S[k] = 0.25 Disp[max(0,k-w)] + 0.5 Disp[k] + 0.25 Disp[min(n-1,k+w)]
+        // for k = 1..n-2; S[n-1] = 0.5 Disp[n-1] + 0.5 Disp[max(0,n-1-w)];
+        // Disp[0] == 0 (the root never moves).
+        for (size_t k = 1; k + 1 < n; ++k) {
+            size_t const lo = k > w ? k - w : 0;
+            GfVec3f const a = lo == 0 ? GfVec3f(0.0f) : ring[lo % w];
+            GfVec3f const b = out(k);
+            GfVec3f const c = out(std::min(n - 1, k + w));
+            ring[k % w] = b;
+            put(k, Mul(a, 0.25f) + Mul(b, 0.5f) + Mul(c, 0.25f));
+        }
+        {
+            size_t const last = n - 1;
+            size_t const lo = last > w ? last - w : 0;
+            GfVec3f const a = lo == 0 ? GfVec3f(0.0f) : ring[lo % w];
+            put(last, Mul(out(last), 0.5f) + Mul(a, 0.5f));
+        }
+        // Wk = A + S, then follow-the-leader from the fixed root restores
+        // every rest segment length |A[k] - A[k-1]|.
+        GfVec3f prev = in(0);
+        for (size_t k = 1; k < n; ++k) {
+            GfVec3f const a = in(k);
+            float const seg = (a - in(k - 1)).GetLength();
+            GfVec3f const target = a + out(k);
+            GfVec3f const dir = target - prev;
+            float const len = dir.GetLength();
+            GfVec3f const unit = len > kRelaxMinSegment
+                ? GfVec3f(dir[0] / len, dir[1] / len, dir[2] / len)
+                : GfVec3f(0.0f, 1.0f, 0.0f);
+            GfVec3f const wk = prev + Mul(unit, seg);
+            put(k, wk);
+            prev = wk;
+        }
+    }
+    for (size_t k = 1; k < n; ++k) {
+        RelaxSample const s = SignedDistance(bvhs, out(k));
+        if (s.hit && s.d <= kRelaxUnresolved) return true;
+    }
+    return false;
+}
+
 void UsdGenCollideOp::Configure(UsdGenParamView const &params)
 {
     _cutThenCollide =
         params.GetToken(sDeepMode, sCollide) == sCutThenCollide;
+    _outputs.clear();
+    if (params.GetToken(sResolveType, sFlexible) == sRelax)
+        _outputs.push_back(sUnresolved);
 }
 uint32_t UsdGenCollideOp::PlanesTouched() const
 {
@@ -1530,7 +1708,7 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
                            UsdGenDiagnostics *diag)
 {
     TfToken const resolveType = params.GetToken(sResolveType, sFlexible);
-    if (resolveType != sFlexible && resolveType != sStiff) {
+    if (resolveType != sFlexible && resolveType != sStiff && resolveType != sRelax) {
         if (diag) diag->Error("UsdGenCollide: unknown usdGen:resolveType '" +
                               resolveType.GetString() + "'");
         return false;
@@ -1553,7 +1731,7 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
             "UsdGenCollide: usdGen:cutBlendDepth must be finite and > 0");
         return false;
     }
-    for (TfToken const *name : {&sOffset, &sPushAmount}) {
+    for (TfToken const *name : {&sOffset, &sPushAmount, &sClearanceRoot, &sClearanceTip}) {
         double const v = params.GetDoubleLiteral(*name, 0.0);
         if (!Finite(v)) {
             if (diag) diag->Error("UsdGenCollide: usdGen:" + name->GetString() +
@@ -1563,6 +1741,10 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
     }
     if (params.GetInt(sIterations, 1) < 1) {
         if (diag) diag->Error("UsdGenCollide: usdGen:iterations must be at least 1");
+        return false;
+    }
+    if (params.GetInt(sRelaxIterations, kRelaxDefaultIterations) < 1) {
+        if (diag) diag->Error("UsdGenCollide: usdGen:relax:iterations must be at least 1");
         return false;
     }
     return true;
@@ -1885,6 +2067,14 @@ bool UsdGenCollideOp::Capture(
         }
         cap.colliders.push_back(std::move(collider));
     }
+    cap.relax = p->GetToken(sResolveType, sFlexible) == sRelax;
+    cap.relaxBvhs.clear();
+    if (cap.relax) {
+        cap.relaxBvhs.resize(cap.colliders.size());
+        for (size_t i = 0; i < cap.colliders.size(); ++i)
+            BuildRelaxBvh(ctx.desc->surfaces[cap.colliders[i].geometry],
+                          cap.colliders[i].faces, &cap.relaxBvhs[i]);
+    }
     // Every connected value is scanned, so a non-finite expression fails
     // closed at capture instead of writing NaN points (displace precedent).
     UsdGenParamField const offset = p->GetScalarField(sOffset, 0.0);
@@ -1969,6 +2159,42 @@ void UsdGenCollideOp::Evaluate(
     auto store = [&](size_t o, GfVec3d const &v) {
         px[o] = float(v[0]); py[o] = float(v[1]); pz[o] = float(v[2]);
     };
+    // The optional per-curve unresolved flag (relax nodes only).
+    float *flags = (view->outCount > 0 && view->outF) ? view->outF[0] : nullptr;
+    if (cap.relax) {
+        double const rootClear = p ? Sanitize(p->GetDouble(sClearanceRoot, 0.0)) : 0.0;
+        double const tipClear = p ? Sanitize(p->GetDouble(sClearanceTip, 0.0)) : 0.0;
+        float const cR = std::max(kRelaxMinClearance, float(rootClear));
+        float const cT = std::max(kRelaxMinClearance, float(tipClear));
+        int const relaxIterations =
+            p ? p->GetInt(sRelaxIterations, kRelaxDefaultIterations) : kRelaxDefaultIterations;
+        for (uint32_t c = 0; c < view->curveCount; ++c) {
+            size_t const n =
+                ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
+            size_t const g =
+                ragged ? size_t(cvOff[c] - cvOff[0]) : view->Cv(c, 0);
+            size_t const curve = curveBase + c;
+            bool const unresolved = RelaxStrand(
+                cap.relaxBvhs, inPx + g, inPy + g, inPz + g, px + g, py + g, pz + g,
+                n, cR, cT, relaxIterations);
+            // usdGen:mask envelopes the relaxed result per CV.
+            for (size_t i = 0; i < n; ++i) {
+                size_t const o = g + i;
+                float const m = float(std::clamp(
+                    Sanitize(maskField.Value(curve, cvBase + o)), 0.0, 1.0));
+                if (m == 1.0f) continue;
+                if (m == 0.0f) { copyInput(o); continue; }
+                px[o] = inPx[o] + (px[o] - inPx[o]) * m;
+                py[o] = inPy[o] + (py[o] - inPy[o]) * m;
+                pz[o] = inPz[o] + (pz[o] - inPz[o]) * m;
+            }
+            if (flags) flags[c] = unresolved ? 1.0f : 0.0f;
+        }
+        return;
+    }
+    if (flags)
+        for (uint32_t c = 0; c < view->curveCount; ++c) flags[c] = 0.0f;
+
     if (iterations < 1 || cap.colliders.empty() || !ctx.desc) {
         for (uint32_t c = 0; c < view->curveCount; ++c) {
             size_t const n =

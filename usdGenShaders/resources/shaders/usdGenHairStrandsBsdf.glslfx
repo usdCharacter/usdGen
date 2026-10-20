@@ -57,6 +57,30 @@
 //   * `delta_b` and `sigma_b` follow Zinke's published equations; the host renderer's shipped
 //     lines differ (see UsdGenStrandsDualScattering).
 //
+// MATCHING CONTROLS BEYOND THE KARIS MODEL (docs/storm-fur.md, "Matching an
+// imported look"). Every one of them defaults to a value that selects the
+// exact expression the single-roughness model evaluated before it existed --
+// usually behind a uniform branch, so an unauthored material runs the same
+// arithmetic, not merely an equivalent one:
+//   * primaryRoughness / longitudinalRoughness split the R lobe from TT/TRT
+//     (UsdGenStrandsLobes); azimuthalRoughness broadens TRT in azimuth;
+//     cuticleTilt and backScatter expose the cuticle shift and the
+//     dual-scattering back-scatter gain. (No `ior`: see UsdGenStrandsHairF.)
+//   * usePresetColors selects one of three per-strand three-stop gradients by
+//     hairId; randomSaturation, the HSV offsets and jitterMode extend the
+//     per-strand colour variation; rootBlendRate reshapes the root/tip blend.
+//   * indirectMultiplier scales the dome, ambientFill adds a flat
+//     albedo-tinted fill, rootFade fades coverage near the root.
+//
+// THE OTHER MODEL. A build can compile the absorption-based Marschner model
+// of usdGenHairStrandsMarschner.glslfx instead of the Karis lobes below
+// (CMake USDGEN_HAIR_SHADING_MODEL; usdGenHairModel.glslfx records the
+// choice). Colour, coverage and alpha stay in this file and are shared; only
+// the lighting loop in surfaceShader() changes.
+//
+
+#import ./usdGenHairModel.glslfx
+#import ./usdGenHairStrandsMarschner.glslfx
 
 --- --------------------------------------------------------------------------
 -- glsl UsdGenStrands.Common
@@ -155,6 +179,42 @@ vec3 UsdGenStrandsHueShift(vec3 c, float amount)
     const vec3 k = vec3(0.57735);
     float ca = cos(amount * 6.2831853), sa = sin(amount * 6.2831853);
     return c * ca + cross(k, c) * sa + k * dot(k, c) * (1.0 - ca);
+}
+
+// smoothstep() with a degenerate edge pair defined: GLSL leaves
+// edge0 >= edge1 undefined, and a preset whose last two points both clamp to 1
+// produces exactly that. A zero-width step then never fires, which is what a
+// saturate()-based smoothstep does with the same input.
+float UsdGenStrandsSmoothstep(float edge0, float edge1, float x)
+{
+    float s = clamp((x - edge0) / max(edge1 - edge0, 1e-6), 0.0, 1.0);
+    return s * s * (3.0 - 2.0 * s);
+}
+
+// The sRGB transfer function, inverted (IEC 61966-2-1), per channel.
+vec3 UsdGenStrandsSrgbToLinear(vec3 c)
+{
+    vec3 lo = c / 12.92;
+    vec3 hi = pow(max((c + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+    return mix(lo, hi, step(vec3(0.04045), c));
+}
+
+// Branch-free RGB <-> HSV (Sam Hocevar's formulation). H in [0,1) turns.
+vec3 UsdGenStrandsRgbToHsv(vec3 c)
+{
+    vec4 k = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    vec4 p = mix(vec4(c.bg, k.wz), vec4(c.gb, k.xy), step(c.b, c.g));
+    vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+    float d = q.x - min(q.w, q.y);
+    float e = 1.0e-6;
+    return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+vec3 UsdGenStrandsHsvToRgb(vec3 c)
+{
+    vec4 k = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+    return c.z * mix(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
 }
 
 // ---------------------------------------------------------------------------
@@ -343,12 +403,46 @@ float UsdGenStrandsHairG(float B, float theta)
     return exp(-0.5 * theta * theta / (b * b)) / (2.5066282746 * b);
 }
 
+// The F0 stays a LITERAL on purpose: there is no `ior` input. The driver
+// folds this constant into the lobes' (1-f)^2 / (1-f)^2*f factors, and every
+// way of making it authorable -- a uniform f0, or an exact-zero correction
+// added on top -- changed that folding and moved pixels of the DEFAULT look by
+// one LSB in the render check, which the matching controls must not do. A
+// different IOR would also contradict Karis' n' fit below, which is for 1.55.
 float UsdGenStrandsHairF(float cosTheta)
 {
     // n = 1.55 (human hair); F0 = ((1-n)/(1+n))^2 = 0.04645...
     const float F0 = 0.0464576;
     return F0 + (1.0 - F0) * UsdGenStrandsPow5(1.0 - clamp(cosTheta, 0.0, 1.0));
 }
+
+// The built-in cuticle shift, in radians, used whenever the material leaves
+// `cuticleTilt` unauthored (< 0).
+#define USDGEN_STRANDS_SHIFT 0.035
+
+// Upper clamp of the TT/TRT roughness. Karis clamps one shared roughness to 1;
+// a separate longitudinal control has to reach far wider lobes, because a
+// Chiang-style longitudinal variance of v gives B_TT = v/2, B_TRT = 2v, and
+// v reaches ~8 at a longitudinal roughness of 0.95. 4 (B_TRT = 32) is already
+// flat over the whole sin(theta) domain.
+#define USDGEN_STRANDS_MAX_LONGITUDINAL 4.0
+
+// Per-fragment lobe parameters, resolved once from the material inputs by
+// UsdGenStrandsMaterialLobes(). Every field defaults to what the
+// single-roughness model hard-wired, so a material that authors none of the
+// matching controls evaluates exactly the old expressions.
+struct UsdGenStrandsLobes
+{
+    float primary;       // R roughness:      B_R  = primary^2
+    float longitudinal;  // TT/TRT roughness: B_TT = l^2/2, B_TRT = 2*l^2
+    float scattering;    // roughness the a_f/a_b fits and the dome albedo read
+    float trtAzimuthal;  // TRT azimuthal sharpness s in [0,1]; 1 = Karis
+    float shift;         // cuticle shift: Alpha = {-2, 1, 4} * shift (radians)
+    float customTilt;    // 1 when cuticleTilt is authored, else 0
+    float shiftRCos;     // 2*sin(a)*cos(a) = sin(2a),   a = Alpha[0] = -2*shift
+    float shiftRSin;     // 2*sin(a)^2      = 1 - cos(2a)
+    float backScatter;   // gain on the dual-scattering back-scatter lobe
+};
 
 // The geometry HairShading() derives from (T, L, V). Factored out so the dome
 // loop and the dual-scattering terms can reuse it without recomputing trig.
@@ -379,17 +473,22 @@ UsdGenStrandsGeometry UsdGenStrandsGeometryOf(vec3 T, vec3 L, vec3 V)
 // `area` is the host renderer's Area: a VARIANCE added to each lobe's B (not a multiplier).
 // 0 for a punctual light, the squared pixel footprint for highlight filtering,
 // 0.2 for the environment (EvaluateEnvHair).
+//
+// Karis ties the three widths to one roughness r as {r^2, r^2/2, 2r^2}. Here
+// R reads `lobes.primary` and TT/TRT read `lobes.longitudinal`; both equal r
+// unless the material authors primaryRoughness / longitudinalRoughness, so
+// the default widths are Karis' to the bit.
 vec3 UsdGenStrandsShading(UsdGenStrandsGeometry g, vec3 baseColor,
-                          float roughness, float specular, float backlit,
-                          float area)
+                          UsdGenStrandsLobes lobes, float specular,
+                          float backlit, float area)
 {
-    float r = clamp(roughness, 1.0 / 255.0, 1.0);
-    float r2 = r * r;
-    // Alpha = {-Shift*2, Shift, Shift*4}, Shift = 0.035 rad (cuticle tilt).
-    const float kShift = 0.035;
-    float B0 = area + r2;
-    float B1 = area + r2 * 0.5;
-    float B2 = area + r2 * 2.0;
+    float rR2 = lobes.primary * lobes.primary;
+    float rL2 = lobes.longitudinal * lobes.longitudinal;
+    // Alpha = {-Shift*2, Shift, Shift*4}, Shift = 0.035 rad (cuticle tilt)
+    // unless the material authors cuticleTilt.
+    float B0 = area + rR2;
+    float B1 = area + rL2 * 0.5;
+    float B2 = area + rL2 * 2.0;
     float cosThetaD = max(g.cosThetaD, 1e-3);
     float nPrime = 1.19 / cosThetaD + 0.36 * cosThetaD;
 
@@ -397,13 +496,29 @@ vec3 UsdGenStrandsShading(UsdGenStrandsGeometry g, vec3 baseColor,
 
     // ---- R: the white primary highlight, shifted toward the root.
     {
-        const float sa = -0.0699428;   // sin(-0.07)
-        const float ca =  0.9975510;   // cos(-0.07)
-        float shiftR = 2.0 * sa * (ca * g.cosHalfPhi *
-                                   sqrt(max(0.0, 1.0 - g.sinThetaV * g.sinThetaV))
-                                   + sa * g.sinThetaV);
-        float Mp = UsdGenStrandsHairG(B0 * 1.4142136 * g.cosHalfPhi,
-                                      g.sinThetaL + g.sinThetaV - shiftR);
+        // The Gaussian argument sinThetaL + sinThetaV - ShiftR is computed
+        // WHOLE in each branch. With the default tilt it must stay Karis'
+        // literal expression end to end: the driver contracts the literal
+        // 2*sa product into that subtraction, so evaluating ShiftR with
+        // uniform sa/ca -- or even selecting between two ShiftR values before
+        // subtracting -- moved pixels of the default look by one LSB.
+        float thetaR;
+        if (lobes.customTilt > 0.5) {
+            // Karis' ShiftR = 2 sa (ca X + sa Y), sa, ca = sin, cos(Alpha[0]),
+            // expanded as sin(2a) X + (1 - cos 2a) Y.
+            thetaR = g.sinThetaL + g.sinThetaV -
+                     (lobes.shiftRCos * g.cosHalfPhi *
+                          sqrt(max(0.0, 1.0 - g.sinThetaV * g.sinThetaV))
+                      + lobes.shiftRSin * g.sinThetaV);
+        } else {
+            const float sa = -0.0699428;   // sin(-0.07)
+            const float ca =  0.9975510;   // cos(-0.07)
+            float shiftR = 2.0 * sa * (ca * g.cosHalfPhi *
+                                       sqrt(max(0.0, 1.0 - g.sinThetaV * g.sinThetaV))
+                                       + sa * g.sinThetaV);
+            thetaR = g.sinThetaL + g.sinThetaV - shiftR;
+        }
+        float Mp = UsdGenStrandsHairG(B0 * 1.4142136 * g.cosHalfPhi, thetaR);
         float Np = 0.25 * g.cosHalfPhi;
         float Fp = UsdGenStrandsHairF(sqrt(clamp(0.5 + 0.5 * g.VoL, 0.0, 1.0)));
         S += vec3(Mp * Np * Fp * (specular * 2.0) *
@@ -411,8 +526,11 @@ vec3 UsdGenStrandsShading(UsdGenStrandsGeometry g, vec3 baseColor,
     }
 
     // ---- TT: forward scattering through the fibre; the coloured rim.
+    // azimuthalRoughness does NOT reach this lobe: Karis' fixed
+    // exp(-3.65 cosPhi - 3.98) is a fit at one azimuthal width, and the
+    // roughness-indexed tables other renderers use for it are not public.
     {
-        float Mp = UsdGenStrandsHairG(B1, g.sinThetaL + g.sinThetaV - kShift);
+        float Mp = UsdGenStrandsHairG(B1, g.sinThetaL + g.sinThetaV - lobes.shift);
         float a = 1.0 / nPrime;
         float h = g.cosHalfPhi * (1.0 + a * (0.6 - 0.8 * g.cosPhi));
         float f = UsdGenStrandsHairF(cosThetaD *
@@ -429,11 +547,20 @@ vec3 UsdGenStrandsShading(UsdGenStrandsGeometry g, vec3 baseColor,
 
     // ---- TRT: the tight coloured secondary highlight.
     {
-        float Mp = UsdGenStrandsHairG(B2, g.sinThetaL + g.sinThetaV - kShift * 4.0);
+        float Mp = UsdGenStrandsHairG(B2, g.sinThetaL + g.sinThetaV -
+                                          lobes.shift * 4.0);
         float f = UsdGenStrandsHairF(cosThetaD * 0.5);
         float Fp = UsdGenStrandsPow2(1.0 - f) * f;
         vec3 Tp = pow(max(baseColor, vec3(1e-5)), vec3(0.8 / cosThetaD));
         float Np = exp(17.0 * g.cosPhi - 16.78);
+        // Azimuthal broadening: s*exp(s*(17 cosPhi - 16.78)) with
+        // s = saturate(1.5*(1 - azimuthalRoughness)); Karis' term is the
+        // s = 1 member of the family, i.e. every azimuthalRoughness <= 1/3.
+        // Applied as the ratio s*exp((s-1)*(17 cosPhi - 16.78)) on top of the
+        // untouched Karis term, which is exactly 1 at s = 1 (see HairF for
+        // why the default must not be rewritten as the general formula).
+        float s = lobes.trtAzimuthal;
+        Np *= s * exp((s - 1.0) * 17.0 * g.cosPhi - (s - 1.0) * 16.78);
         S += Mp * Np * Fp * Tp;
     }
 
@@ -612,10 +739,20 @@ struct UsdGenStrandsDual
 //     — a SUM. the host renderer multiplies the two halves.
 //   * sigma_b: the paper's second numerator term is ab^3*sqrt(2*Bf^2 + 3*Bb^2);
 //     the host renderer repeats sqrt(2*Bf^2 + Bb^2) there.
-UsdGenStrandsDual UsdGenStrandsDualScattering(float hairCount, float roughness,
+//
+// The fits are integrals of the Karis BSDF at ONE roughness, so a split
+// material indexes them by `lobes.scattering`: the longitudinal (TT/TRT)
+// roughness clamped into the fitted 0..1, since TT and TRT carry the colour
+// that multiple scattering accumulates. The R width and the TRT azimuthal
+// sharpness then enter a_f/a_b only through that one roughness -- an
+// approximation, documented in docs/storm-fur.md, that is exact again
+// whenever the matching controls are left at their defaults.
+UsdGenStrandsDual UsdGenStrandsDualScattering(float hairCount,
+                                              UsdGenStrandsLobes lobes,
                                               vec3 baseColor,
                                               float sinThetaL, float sinThetaV)
 {
+    float roughness = lobes.scattering;
     const float kMaxAverage = 0.99;
     const float df = 0.7;
     const float db = 0.7;
@@ -645,9 +782,11 @@ UsdGenStrandsDual UsdGenStrandsDualScattering(float hairCount, float roughness,
     float betaR   = UsdGenStrandsPow2(r);
     float betaTT  = UsdGenStrandsPow2(r * 0.5);
     float betaTRT = UsdGenStrandsPow2(r * 2.0);
-    const float shiftR   = -0.07;
-    const float shiftTT  =  0.035;
-    const float shiftTRT =  0.14;
+    // {-0.07, 0.035, 0.14} at the built-in shift; scaling by a power of two is
+    // exact, so the default reproduces those literals to the bit.
+    float shiftR   = -2.0 * lobes.shift;
+    float shiftTT  =  lobes.shift;
+    float shiftTRT =  4.0 * lobes.shift;
 
     // "Always shift the hair count by one to remove self-occlusion/shadow
     // aliasing": the fibre being shaded must not shadow itself.
@@ -702,6 +841,9 @@ UsdGenStrandsDual UsdGenStrandsDualScattering(float hairCount, float roughness,
     // Below one crossing the fragment is directly lit: lerp to 1.
     out_.global = mix(vec3(1.0), Tf * Sf * df, clamp(n, 0.0, 1.0));
     out_.local = 2.0 * Ab * Sb * db;
+    // backScatter: a plain gain on the back-scatter lobe, as other real-time
+    // hair renderers expose it. 1 multiplies by exactly one.
+    out_.local *= lobes.backScatter;
     return out_;
 }
 
@@ -732,8 +874,8 @@ struct UsdGenStrandsResponse
 };
 
 UsdGenStrandsResponse UsdGenStrandsMultipleScattering(
-    vec3 S, vec3 albedo, float roughness, float shadow, float hairCount,
-    float selfShadow, float t, UsdGenStrandsGeometry g)
+    vec3 S, vec3 albedo, UsdGenStrandsLobes lobes, float shadow,
+    float hairCount, float selfShadow, float t, UsdGenStrandsGeometry g)
 {
     UsdGenStrandsResponse out_;
     // the host renderer's `Shadow` here is FShadowTerms.TransmissionShadow, i.e. the shadow
@@ -744,7 +886,7 @@ UsdGenStrandsResponse UsdGenStrandsMultipleScattering(
     out_.transmission = shadow;
 #if defined(USDGEN_STRANDS_HAS_DENSITY)
     UsdGenStrandsDual dual = UsdGenStrandsDualScattering(
-        hairCount, roughness, albedo, g.sinThetaL, g.sinThetaV);
+        hairCount, lobes, albedo, g.sinThetaL, g.sinThetaV);
     out_.value = dual.global * (S + dual.local);
 #else
     // No density bake: the legacy hairT canopy approximation stands in for the
@@ -795,6 +937,124 @@ vec3 UsdGenStrandsDomeRadiance(vec3 dir, mat4 worldToLightTransform)
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Lobe parameters from the material inputs. `roughness` stays the one coupled
+// control; primaryRoughness / longitudinalRoughness, when authored (>= 0),
+// replace it for the R lobe / the TT+TRT lobes. randomRoughness jitters all of
+// them by the same per-strand factor.
+UsdGenStrandsLobes UsdGenStrandsMaterialLobes(float seed)
+{
+    float jitter =
+        max(0.0, 1.0 + (fract(seed * 29.0) - 0.5) * 2.0 * HdGet_randomRoughness());
+    float roughness = clamp(HdGet_roughness() * jitter, 1.0 / 255.0, 1.0);
+
+    UsdGenStrandsLobes lobes;
+    lobes.primary = roughness;
+    lobes.longitudinal = roughness;
+    lobes.scattering = roughness;
+    float primary = HdGet_primaryRoughness();
+    if (primary >= 0.0) {
+        lobes.primary = clamp(primary * jitter, 1.0 / 255.0, 1.0);
+    }
+    float longitudinal = HdGet_longitudinalRoughness();
+    if (longitudinal >= 0.0) {
+        lobes.longitudinal = clamp(longitudinal * jitter, 1.0 / 255.0,
+                                   USDGEN_STRANDS_MAX_LONGITUDINAL);
+        lobes.scattering = min(lobes.longitudinal, 1.0);
+    }
+
+    // The default -1 (unauthored), 0 and anything up to 1/3 give s = 1:
+    // Karis' TRT exactly.
+    lobes.trtAzimuthal =
+        clamp(1.5 * (1.0 - HdGet_azimuthalRoughness()), 0.0, 1.0);
+
+    lobes.shift = USDGEN_STRANDS_SHIFT;
+    lobes.customTilt = 0.0;
+    lobes.shiftRCos = 0.0;
+    lobes.shiftRSin = 0.0;
+    float tilt = HdGet_cuticleTilt();
+    if (tilt >= 0.0) {
+        lobes.shift = radians(tilt);
+        lobes.customTilt = 1.0;
+        // a = Alpha[0] = -2*shift, so 2a = -4*shift.
+        lobes.shiftRCos = sin(-4.0 * lobes.shift);
+        lobes.shiftRSin = 1.0 - cos(-4.0 * lobes.shift);
+    }
+
+    lobes.backScatter = max(HdGet_backScatter(), 0.0);
+    return lobes;
+}
+
+// ---------------------------------------------------------------------------
+// Per-strand preset gradients. Three gradients A/B/C, each three colour stops
+// along hairT blended by two smoothsteps over four control points:
+//     mix(mix(c1, c2, smoothstep(p.x, p.y, t)), c3, smoothstep(p.z, p.w, t))
+// and one of the three picked per strand by weight: the strand's selector
+// fract(hairId + presetWeights.w) falls into [0, A), [A, A+B) or [A+B, 1) of
+// the normalised weights. The points are first forced ascending (each at least
+// 1e-4 past the previous, all inside [0,1]), so any authored order is legal.
+vec3 UsdGenStrandsPresetGradient(float t, vec3 c1, vec3 c2, vec3 c3,
+                                 vec4 points)
+{
+    vec4 p = clamp(points, vec4(0.0), vec4(1.0));
+    p.y = max(p.y, p.x + 1.0e-4);
+    p.z = max(p.z, p.y + 1.0e-4);
+    p.w = max(p.w, p.z + 1.0e-4);
+    p = min(p, vec4(1.0));
+    float first = UsdGenStrandsSmoothstep(p.x, p.y, t);
+    float second = UsdGenStrandsSmoothstep(p.z, p.w, t);
+    return mix(mix(c1, c2, first), c3, second);
+}
+
+vec3 UsdGenStrandsPresetColor(float t, float strandRandom)
+{
+    vec4 weights = HdGet_presetWeights();
+    vec3 w = max(weights.xyz, vec3(0.0));
+    float total = max(w.x + w.y + w.z, 1.0e-4);
+    float thresholdA = w.x / total;
+    float thresholdAB = (w.x + w.y) / total;
+    float selector = fract(strandRandom + weights.w);
+
+    // Only the selected gradient is evaluated; the pick does not depend on t.
+    vec3 c;
+    if (selector < thresholdA) {
+        c = UsdGenStrandsPresetGradient(t, HdGet_presetColorA1().rgb,
+                                        HdGet_presetColorA2().rgb,
+                                        HdGet_presetColorA3().rgb,
+                                        HdGet_presetPointsA());
+    } else if (selector < thresholdAB) {
+        c = UsdGenStrandsPresetGradient(t, HdGet_presetColorB1().rgb,
+                                        HdGet_presetColorB2().rgb,
+                                        HdGet_presetColorB3().rgb,
+                                        HdGet_presetPointsB());
+    } else {
+        c = UsdGenStrandsPresetGradient(t, HdGet_presetColorC1().rgb,
+                                        HdGet_presetColorC2().rgb,
+                                        HdGet_presetColorC3().rgb,
+                                        HdGet_presetPointsC());
+    }
+    // presetSrgb: the stops are display-encoded, blended as authored and
+    // linearised afterwards -- the order a display-referred colour preset
+    // expects, which differs from blending in linear light.
+    if (HdGet_presetSrgb() > 0.5) {
+        c = UsdGenStrandsSrgbToLinear(clamp(c, vec3(0.0), vec3(1.0)));
+    }
+    return max(c, vec3(0.0));
+}
+
+// Sky visibility for ambientFill at one dome tap: the fraction of light that
+// crosses `hairCount` fibres with pure extinction, after the same
+// self-occlusion shift dual scattering applies. Without a density bake the
+// legacy hairT canopy stands in, as it does for the lobes.
+float UsdGenStrandsFillVisibility(float hairCount, float selfShadow, float t)
+{
+#if defined(USDGEN_STRANDS_HAS_DENSITY)
+    return exp(-max(0.0, hairCount - 1.0));
+#else
+    return mix(1.0, smoothstep(0.0, 1.0, t), clamp(selfShadow * 0.5, 0.0, 1.0));
+#endif
+}
+
 vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
 {
     vec3 P = Peye.xyz / (abs(Peye.w) > 1e-8 ? Peye.w : 1.0);
@@ -830,14 +1090,29 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
 #ifdef HD_HAS_hairColorRamp
     colorRamp = HdGet_hairColorRamp();
 #endif
-    vec3 albedo = mix(root, tipColor, pow(t, max(colorRamp, 0.001)));
+    // rootBlendRate > 0 makes the root/tip blend a smoothstep that completes
+    // at that fraction of the strand; colorRamp still shapes it.
+    float rampT = t;
+    float rootBlendRate = HdGet_rootBlendRate();
+    if (rootBlendRate > 1e-4) {
+        rampT = smoothstep(0.0, rootBlendRate, t);
+    }
+    vec3 albedo = mix(root, tipColor, pow(rampT, max(colorRamp, 0.001)));
     albedo = mix(albedo,
                  UsdGenStrandsColorFromMelanin(HdGet_melanin(), HdGet_redness(),
                                                HdGet_dyeColor().rgb),
                  clamp(HdGet_useMelanin(), 0.0, 1.0));
-    albedo *= HdGet_baseColorMap().rgb;
 
     float seed = UsdGenStrands_HairId();
+    // Per-strand preset gradients replace the root/tip (and melanin) colour
+    // by this fraction. The same hairId later drives the one-sided jitter, so
+    // the pick and the variation are correlated as a preset model expects.
+    float usePreset = clamp(HdGet_usePresetColors(), 0.0, 1.0);
+    if (usePreset > 0.0) {
+        albedo = mix(albedo, UsdGenStrandsPresetColor(t, seed), usePreset);
+    }
+    albedo *= HdGet_baseColorMap().rgb;
+
     float randomHue = HdGet_randomHue();
 #ifdef HD_HAS_hairRandomHue
     randomHue = HdGet_hairRandomHue();
@@ -846,17 +1121,33 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
 #ifdef HD_HAS_hairRandomValue
     randomValue = HdGet_hairRandomValue();
 #endif
-    albedo = UsdGenStrandsHueShift(albedo,
-                                   (fract(seed * 17.0) - 0.5) * randomHue);
-    albedo *= max(0.0, 1.0 + (fract(seed * 41.0) - 0.5) * 2.0 * randomValue);
+    float randomSaturation = HdGet_randomSaturation();
+    vec3 hsvOffset = vec3(HdGet_hueOffset(), HdGet_saturationOffset(),
+                          HdGet_valueOffset());
+    if (HdGet_jitterMode() > 0.5) {
+        // One-sided HSV variation keyed on hairId itself: every jitter moves
+        // in one direction by hairId * amount, after the constant offsets.
+        vec3 hsv = UsdGenStrandsRgbToHsv(max(albedo, vec3(0.0)));
+        hsv.x = fract(hsv.x + hsvOffset.x + seed * randomHue);
+        hsv.y = clamp(hsv.y + hsvOffset.y + seed * randomSaturation, 0.0, 1.0);
+        hsv.z = clamp(hsv.z + hsvOffset.z + seed * randomValue, 0.0, 1.0);
+        albedo = UsdGenStrandsHsvToRgb(hsv);
+    } else {
+        // Symmetric jitter, each amount on its own decorrelated hash of hairId.
+        albedo = UsdGenStrandsHueShift(albedo,
+                                       (fract(seed * 17.0) - 0.5) * randomHue);
+        albedo *= max(0.0, 1.0 + (fract(seed * 41.0) - 0.5) * 2.0 * randomValue);
+        if (randomSaturation != 0.0 || any(notEqual(hsvOffset, vec3(0.0)))) {
+            vec3 hsv = UsdGenStrandsRgbToHsv(max(albedo, vec3(0.0)));
+            hsv.x = fract(hsv.x + hsvOffset.x);
+            hsv.y = clamp(hsv.y + hsvOffset.y +
+                          (fract(seed * 53.0) - 0.5) * 2.0 * randomSaturation,
+                          0.0, 1.0);
+            hsv.z = max(hsv.z + hsvOffset.z, 0.0);
+            albedo = UsdGenStrandsHsvToRgb(hsv);
+        }
+    }
     albedo = clamp(albedo, vec3(0.0), vec3(1.0));
-
-    float roughness = clamp(
-        HdGet_roughness() *
-            max(0.0, 1.0 + (fract(seed * 29.0) - 0.5) * 2.0 * HdGet_randomRoughness()),
-        1.0 / 255.0, 1.0);
-    float specular = max(HdGet_specular(), 0.0);
-    float backlit = max(HdGet_backlit(), 0.0);
 
     // ---- Karis' "increase the roughness as an approximation of a wider area
     // light source", here driven by the strand's pixel footprint instead: the
@@ -866,10 +1157,19 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
     float footprint = min(0.5, length(fwidth(T)));
     float area = footprint * footprint;
 
+#if defined(USDGEN_STRANDS_MODEL_MARSCHNER)
+    vec3 result = UsdGenMarschnerLighting(Peye, P, V, T, t, seed, albedo, area);
+#else
+    UsdGenStrandsLobes lobes = UsdGenStrandsMaterialLobes(seed);
+    float specular = max(HdGet_specular(), 0.0);
+    float backlit = max(HdGet_backlit(), 0.0);
+
     vec3 tauP = UsdGenStrandsTauPositive(t);
     vec3 tauN = UsdGenStrandsTauNegative(t);
     float selfShadow = max(HdGet_selfShadow(), 0.0);
     float scatter = max(HdGet_scatter(), 0.0);
+    float indirectMultiplier = max(HdGet_indirectMultiplier(), 0.0);
+    float ambientFill = max(HdGet_ambientFill(), 0.0);
 
     vec3 result = vec3(0.0);
 #if NUM_LIGHTS > 0
@@ -887,6 +1187,7 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
             vec3 num = vec3(0.0);
             vec3 den = vec3(0.0);
             vec3 meanRadiance = vec3(0.0);
+            float fillVisibility = 0.0;
             for (int band = 0; band < 2; ++band) {
                 float sL = clamp(-sV + (band == 0 ? -0.55 : 0.55), -0.97, 0.97);
                 float cL = sqrt(max(0.0, 1.0 - sL * sL));
@@ -894,33 +1195,51 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
                     float phi = float(a) * 1.5707963;
                     vec3 L = sL * T + cL * (cos(phi) * Nf + sin(phi) * Bt);
                     UsdGenStrandsGeometry g = UsdGenStrandsGeometryOf(T, L, V);
-                    vec3 S = UsdGenStrandsShading(g, albedo, roughness, specular,
+                    vec3 S = UsdGenStrandsShading(g, albedo, lobes, specular,
                                                   backlit,
                                                   USDGEN_STRANDS_DOME_AREA + area);
+                    float hairCount =
+                        UsdGenStrandsHairCount(L, tauP, tauN, selfShadow);
                     UsdGenStrandsResponse response =
                         UsdGenStrandsMultipleScattering(
-                            S, albedo, roughness, 1.0,
-                            UsdGenStrandsHairCount(L, tauP, tauN, selfShadow),
-                            selfShadow, t, g);
+                            S, albedo, lobes, 1.0, hairCount, selfShadow, t, g);
                     vec3 radiance = UsdGenStrandsDomeRadiance(
                         L, light.worldToLightTransform);
                     num += response.value * radiance;
                     den += S;
                     meanRadiance += radiance;
+                    if (ambientFill > 0.0) {
+                        fillVisibility += UsdGenStrandsFillVisibility(
+                            hairCount, selfShadow, t);
+                    }
                 }
             }
             meanRadiance *= 1.0 / float(USDGEN_STRANDS_DOME_TAPS);
             vec3 domeAlbedo =
-                UsdGenStrandsDirectionalAlbedo(roughness, albedo, sV);
+                UsdGenStrandsDirectionalAlbedo(lobes.scattering, albedo, sV);
+            // indirectMultiplier scales the dome as the BSDF sees it (lobes
+            // and the scatter fake). It folds into the light colour, so at
+            // its default of 1 the expression below is the original one.
+            vec3 domeLight = light.diffuse.rgb * indirectMultiplier;
             // The Kajiya term is NOT carried through the normalised quadrature:
             // it is not part of the single-scattering `den`, so where the lobes
             // are dim (a strand oblique to the view) num/den would run away
             // with it. the host renderer evaluates the environment at one imaginary direction
             // anyway (EvaluateEnvHair uses L = normalize(V - N*dot(V,N))), so
             // the fake is added once there, against the mean tap radiance.
-            result += domeAlbedo * num / max(den, vec3(1e-4)) * light.diffuse.rgb
+            result += domeAlbedo * num / max(den, vec3(1e-4)) * domeLight
                     + UsdGenStrandsScatterFake(T, Nf, V, albedo, scatter, 1.0) *
-                      meanRadiance * light.diffuse.rgb;
+                      meanRadiance * domeLight;
+            // ambientFill: the flat, albedo-tinted ambient a simpler real-time
+            // hair model uses instead of evaluating the sky through the BSDF:
+            // albedo * mean sky radiance * gain * sky visibility through the
+            // coat. Independent of indirectMultiplier, so the two can be
+            // traded against each other.
+            if (ambientFill > 0.0) {
+                result += albedo * meanRadiance * light.diffuse.rgb *
+                          (ambientFill * fillVisibility /
+                           float(USDGEN_STRANDS_DOME_TAPS));
+            }
             continue;
         }
 
@@ -933,9 +1252,9 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
         if (light.hasShadow) sceneShadow = shadowing(i, Peye);
 #endif
         UsdGenStrandsGeometry g = UsdGenStrandsGeometryOf(T, L, V);
-        vec3 S = UsdGenStrandsShading(g, albedo, roughness, specular, backlit, area);
+        vec3 S = UsdGenStrandsShading(g, albedo, lobes, specular, backlit, area);
         UsdGenStrandsResponse response = UsdGenStrandsMultipleScattering(
-            S, albedo, roughness, sceneShadow,
+            S, albedo, lobes, sceneShadow,
             UsdGenStrandsHairCount(L, tauP, tauN, selfShadow),
             selfShadow, t, g);
         // HairShading() adds the Kajiya term AFTER the multiple-scattering
@@ -946,11 +1265,20 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
         result += lit * light.diffuse.rgb * attenuation * sceneShadow;
     }
 #endif
+#endif // USDGEN_STRANDS_MODEL_MARSCHNER
 
     float alpha = clamp(HdGet_opacity(), 0.0, 1.0);
 #ifdef HD_HAS_displayOpacity
     alpha *= color.a;
 #endif
+    // rootFade: blend the strand into the scalp over the first 18% of its
+    // length, so a dense hairline does not end in a hard opaque edge. Goes
+    // through the coverage path below like any other alpha, so the opaque
+    // variant spends it through the stochastic sample mask.
+    float rootFade = clamp(HdGet_rootFade(), 0.0, 1.0);
+    if (rootFade > 0.0) {
+        alpha *= 1.0 - rootFade * (1.0 - smoothstep(0.0, 0.18, t));
+    }
     alpha *= UsdGenStrandsCoverage(P, T, V, HdGet_hairCoverageScale(),
                                    HdGet_minPixelWidth());
 #if defined(USDGEN_STRANDS_STOCHASTIC_COVERAGE)

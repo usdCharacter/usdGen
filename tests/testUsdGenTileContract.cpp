@@ -780,6 +780,30 @@ int main()
                   fallback.GetNodeIdentifier()->GetTypedValue(0) ==
                       TfToken("UsdPreviewSurface"),
               "scalp-shadow material falls back to UsdPreviewSurface");
+
+        // The opaque sample mask beside it, and both halves told the same
+        // number of steps: the translucent half takes only what the mask's
+        // whole steps leave, so they must agree.
+        auto levelsOf = [](HdMaterialNodeSchema const &node) {
+            HdSampledDataSourceHandle const value = HdSampledDataSource::Cast(
+                HdContainerDataSource::Get(node.GetContainer(),
+                    HdDataSourceLocator(TfToken("parameters"), TfToken("maskLevels"),
+                                        TfToken("value"))));
+            return value ? value->GetValue(0.0f).GetWithDefault<float>(-1.f) : -1.f;
+        };
+        HdMaterialNodeSchema const mask = HdMaterialSchema::GetFromParent(
+                UsdGenTilePublisher::BuildScalpShadowMaterialDataSource(look, 4, true))
+            .GetMaterialNetwork(TfToken("glslfx")).GetNodes().Get(TfToken("surface"));
+        HdMaterialNodeSchema const remainder = HdMaterialSchema::GetFromParent(
+                UsdGenTilePublisher::BuildScalpShadowMaterialDataSource(look, 4, false))
+            .GetMaterialNetwork(TfToken("glslfx")).GetNodes().Get(TfToken("surface"));
+        Check(mask.IsDefined() && mask.GetNodeIdentifier() &&
+                  mask.GetNodeIdentifier()->GetTypedValue(0) ==
+                      UsdGenTilePublisher::ScalpShadowMaskIdentifier(),
+              "the sample mask shades UsdGenScalpShadowMask in glslfx");
+        Check(levelsOf(mask) == 4.f && levelsOf(remainder) == 4.f &&
+                  levelsOf(shaded) == 0.f,
+              "both halves carry the mask's steps; a cap alone carries none");
     }
 
     // Bulk-vs-serial tile differential: the same scatter->grow geometry

@@ -12,10 +12,21 @@
 // "cutExtend" is the same radial re-position on M1's straight chains; culling
 // zero-lengthens a curve (stable ids; a true curve removal is M2's topology
 // work, and R14 already routes usdGen:cullThreshold as topology).
+//
+// "randomRange" (imported grooms, CPU lane only) is a whole-strand capture:
+// Capture runs ops/lengthRange.h over every strand (clump means, root-sampled
+// usdGen:lengthMap masks, arc-length resampling) and keeps the result plus
+// the per-strand reference length; Evaluate lerps input -> result by the
+// usdGen:mask envelope and writes the `restLength` plane. Its capture
+// tracks upstream VALUES (positions), unlike the factor modes.
 #include "usdGen/ops/length.h"
 
 
 #include "usdGen/opParams.h"
+#include "usdGen/ops/lengthRange.h"
+#include "usdGen/ops/opUtil.h"
+#include "usdGen/ops/strandUtil.h"
+#include "usdGen/ops/wholeStrand.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "pxr/base/tf/diagnostic.h"
@@ -23,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -77,7 +89,15 @@ struct UsdGenLengthCapture final : public UsdGenCapturePayload
     double cullThreshold = 0.0;
     double minRemaining = 0.0;
     uint64_t upstreamTopologyVersion = 0;
+    uint64_t upstreamValueVersion = 0;
     uint32_t upstreamCurves = 0;
+    uint32_t upstreamCvs = 0;
+    // randomRange only: the whole-strand result (3 * totalCvs) and the
+    // per-strand reference (pre-scale) length.
+    bool range = false;
+    bool rangeReady = false;
+    std::vector<float> rangeResult;
+    std::vector<float> restLength;
 
     std::unique_ptr<UsdGenCapture> Clone() const override
     {
@@ -86,10 +106,22 @@ struct UsdGenLengthCapture final : public UsdGenCapturePayload
     bool OwnsBuffer() const override { return false; }
     bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
     {
+        if (range && (upstream.valueVersion != upstreamValueVersion ||
+                      upstream.totalCvs != upstreamCvs))
+            return false;   // randomRange resamples the upstream POSITIONS
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.totalCurves == upstreamCurves;
     }
 };
+
+const TfToken kRandomRange{"randomRange"};
+const TfToken kLengthMap{"usdGen:lengthMap"};
+const TfToken kRestLength{"restLength"};
+
+bool FiniteParam(UsdGenParamView const &p, char const *name, double fallback)
+{
+    return std::isfinite(p.GetDouble(TfToken(name), fallback));
+}
 
 
 }  // namespace
@@ -104,6 +136,12 @@ static TfTokenVector _topoParams = [] {
     v.push_back(TfToken("length:random"));
     v.push_back(TfToken("minRemainingLength"));
     v.push_back(TfToken("cullThreshold"));
+    // randomRange (capture-class): the whole-strand result is recaptured.
+    v.push_back(TfToken("length:min"));
+    v.push_back(TfToken("length:max"));
+    v.push_back(TfToken("length:randomize"));
+    v.push_back(TfToken("length:shareByClump"));
+    v.push_back(TfToken("length:followClumpMean"));
     return v;
 }();
 
@@ -129,12 +167,23 @@ uint32_t UsdGenLengthOp::PlanesTouched() const
 {
     return kPlanePoints;
 }
+TfSpan<const TfToken> UsdGenLengthOp::OutputPrimvars() const
+{
+    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
+}
+void UsdGenLengthOp::Configure(UsdGenParamView const &params)
+{
+    _outputs.clear();
+    if (params.GetToken(TfToken("length:mode"), TfToken("scale")) == kRandomRange)
+        _outputs.push_back(kRestLength);
+}
 
 bool UsdGenLengthOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
     TfToken mode = params.GetToken(TfToken("length:mode"), TfToken("scale"));
     TfToken method = params.GetToken(TfToken("length:method"), TfToken("scale"));
-    if (mode != TfToken("set") && mode != TfToken("scale") && mode != TfToken("cull")) {
+    if (mode != TfToken("set") && mode != TfToken("scale") && mode != TfToken("cull") &&
+        mode != kRandomRange) {
         if (diag)
             diag->Error("UsdGenLength: unknown usdGen:length:mode '" + mode.GetString() + "'");
         return false;
@@ -142,6 +191,12 @@ bool UsdGenLengthOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag
     if (method != TfToken("scale") && method != TfToken("cutExtend")) {
         if (diag)
             diag->Error("UsdGenLength: unknown usdGen:length:method '" + method.GetString() + "'");
+        return false;
+    }
+    if (!FiniteParam(params, "length:min", 0.01) || !FiniteParam(params, "length:max", 1.0) ||
+        !FiniteParam(params, "length:randomize", 0.0)) {
+        if (diag)
+            diag->Error("UsdGenLength: usdGen:length:min/max/randomize must be finite");
         return false;
     }
     return true;
@@ -166,10 +221,114 @@ UsdGenEpoch UsdGenLengthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
         feed("lenRandomLo", doubleAsBits(lo));
         feed("lenRandomHi", doubleAsBits(hi));
         feed("seed", ctx.seed);
+        feed("rangeMin", doubleAsBits(p->GetDouble(TfToken("length:min"), 0.01)));
+        feed("rangeMax", doubleAsBits(p->GetDouble(TfToken("length:max"), 1.0)));
+        feed("rangeRandomize", doubleAsBits(p->GetDouble(TfToken("length:randomize"), 0.0)));
+        feed("rangeShare", p->GetBool(TfToken("length:shareByClump"), false) ? 1u : 0u);
+        feed("rangeFollow", p->GetBool(TfToken("length:followClumpMean"), false) ? 1u : 0u);
     }
+    // A bound length map is sampled on the surface: its geometry is a
+    // capture input (the map identity itself is mixed by the scheduler).
+    if (ctx.desc && ctx.surface < ctx.desc->surfaces.size() &&
+        !strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount, kLengthMap).empty())
+        feed("surface", ctx.desc->surfaces[ctx.surface].surfaceGeneration);
     feed("upstream", ctx.upstreamGeneration);
     return {h, h ^ 0x9E3779B97F4A7C15ull};
 }
+
+namespace {
+
+// randomRange: the whole-strand length stage over every upstream strand.
+// The upstream node has completed its sweep (dependency frontier), so its
+// point planes hold this run's positions.
+bool CaptureRandomRange(UsdGenCaptureContext const &ctx,
+                        UsdGenCurveBuffer const &upstream,
+                        UsdGenLengthCapture *cap, UsdGenDiagnostics *diag)
+{
+    auto fail = [&](std::string const &message) {
+        if (diag) diag->Error("UsdGenLength: " + message);
+        return false;
+    };
+    UsdGenParamView const *p = ctx.params;
+    std::vector<uint32_t> spans;
+    std::string error;
+    if (!opUtil::CurveSpans(upstream, &spans, &error))
+        return fail("strand topology: " + error);
+    size_t const R = upstream.totalCurves, totalCvs = upstream.totalCvs;
+    if (upstream.px.size() != totalCvs || upstream.py.size() != totalCvs ||
+        upstream.pz.size() != totalCvs)
+        return fail("input point planes do not match the CV count");
+
+    lengthRange::Settings settings;
+    if (p) {
+        settings.min = float(p->GetDouble(TfToken("length:min"), 0.01));
+        settings.max = float(p->GetDouble(TfToken("length:max"), 1.0));
+        settings.randomize = float(p->GetDouble(TfToken("length:randomize"), 0.0));
+        settings.shareByClump = p->GetBool(TfToken("length:shareByClump"), false);
+        settings.followClumpMean = p->GetBool(TfToken("length:followClumpMean"), false);
+    }
+    if (!std::isfinite(settings.min) || !std::isfinite(settings.max) ||
+        !std::isfinite(settings.randomize))
+        return fail("usdGen:length:min/max/randomize must be finite");
+
+    // Strand identity: clumpId_0, strandSeed and strandIndex planes when the
+    // upstream carries them (UsdGenStrandSet fallbacks otherwise).
+    UsdGenStrandSet ids;
+    ids.upstream = &upstream;
+    lengthRange::Strands strands;
+    strands.spans = &spans;
+    if (int const *clump = ids.CurveInt(TfToken("clumpId_0")))
+        strands.clumpId.assign(clump, clump + R);
+    strands.seed.resize(R);
+    strands.order.resize(R);
+    std::vector<uint32_t> index(R);
+    for (uint32_t c = 0; c < R; ++c) {
+        strands.seed[c] = ids.Seed(c);
+        index[c] = ids.Index(c);
+        strands.order[c] = c;
+    }
+    std::stable_sort(strands.order.begin(), strands.order.end(),
+                     [&](uint32_t a, uint32_t b) { return index[a] < index[b]; });
+
+    // usdGen:lengthMap: the product of every bound mask, sampled at the root
+    // (closest point on the rest surface to the strand's rest root).
+    std::vector<UsdGenMapDesc const *> const maps =
+        strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount, kLengthMap);
+    if (!maps.empty()) {
+        strands.mask.assign(R, 1.0f);
+        strand::TriangleBvh bvh;
+        if (ctx.desc && ctx.surface < ctx.desc->surfaces.size())
+            strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], true, &bvh);
+        if (bvh.Empty()) {
+            if (diag) diag->Warn("UsdGenLength: usdGen:lengthMap needs a bound surface; "
+                                 "the length mask is ignored");
+        } else {
+            for (size_t c = 0; c < R; ++c) {
+                if (spans[c + 1] == spans[c]) continue;
+                strand::ClosestHit const hit = bvh.Closest(opUtil::RestPoint(upstream, spans[c]));
+                if (!hit.hit) continue;
+                float m = 1.0f;
+                for (UsdGenMapDesc const *map : maps)
+                    m *= strand::SampleMaskMap(*map, bvh, hit.triangle, hit.bary, 1.0f);
+                strands.mask[c] = strand::Clamp01(m);
+            }
+        }
+    }
+
+    cap->rangeResult.resize(3 * totalCvs);
+    for (size_t i = 0; i < totalCvs; ++i) {
+        cap->rangeResult[3 * i] = upstream.px[i];
+        cap->rangeResult[3 * i + 1] = upstream.py[i];
+        cap->rangeResult[3 * i + 2] = upstream.pz[i];
+    }
+    lengthRange::Apply(settings, strands, &cap->rangeResult, &cap->restLength, ctx.dispatcher);
+    for (float v : cap->rangeResult)
+        if (!std::isfinite(v)) return fail("randomRange computed a non-finite point");
+    cap->rangeReady = true;
+    return true;
+}
+
+}  // namespace
 
 bool UsdGenLengthOp::Capture(
     UsdGenCaptureContext const &ctx,
@@ -177,7 +336,6 @@ bool UsdGenLengthOp::Capture(
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(diag);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     auto &cap = *static_cast<UsdGenLengthCapture *>(out);
     cap.upstreamTopologyVersion = upstream.topologyVersion;
@@ -192,6 +350,16 @@ bool UsdGenLengthOp::Capture(
     cap.value = value;
     cap.cullThreshold = cullThreshold;
     cap.minRemaining = minRemaining;
+    cap.upstreamValueVersion = upstream.valueVersion;
+    cap.upstreamCvs = upstream.totalCvs;
+    cap.range = cap.mode == kRandomRange;
+    cap.rangeReady = false;
+    cap.rangeResult.clear();
+    cap.restLength.clear();
+    if (cap.range) {
+        cap.perCurve.clear();
+        return CaptureRandomRange(ctx, upstream, &cap, diag);
+    }
 
     // Capture draws only the seed-sensitive multiplier; lengths are a runtime
     // quantity (see UsdGenLengthCapture comment).
@@ -240,6 +408,41 @@ void UsdGenLengthOp::Evaluate(
     const size_t cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
     // sSet is operator-owned: no per-curve token interning and no lazy
     // static destruction while an asynchronous evaluation is still running.
+    // restLength slot: bound only on a node configured for randomRange.
+    float *restOut = (view->outCount > 0 && view->outF) ? view->outF[0] : nullptr;
+
+    if (cap.range) {
+        // randomRange: lerp input -> captured whole-strand result by the
+        // usdGen:mask envelope (mask == 0 is a bitwise pass-through).
+        bool const ready = cap.rangeReady &&
+            cap.rangeResult.size() == size_t(cap.upstreamCvs) * 3;
+        for (uint32_t c = 0; c < view->curveCount; ++c) {
+            const size_t cv = view->cvCount ? size_t(view->cvCount)
+                : (view->cvOffsets ? size_t(view->cvOffsets[c + 1] - view->cvOffsets[c]) : 0);
+            const size_t base = view->cvCount ? size_t(c) * view->cvCount
+                : (view->cvOffsets ? size_t(view->cvOffsets[c]) - cvBase : 0);
+            const size_t curve = curveBase + c;
+            for (size_t i = 0; i < cv; ++i) {
+                const size_t o = base + i;
+                const size_t abs = cvBase + o;
+                const float m = ready ? std::clamp(
+                    static_cast<float>(maskField.Value(curve, abs)), 0.0f, 1.0f) : 0.0f;
+                if (m == 0.0f || abs * 3 + 2 >= cap.rangeResult.size()) {
+                    px[o] = inPx[o]; py[o] = inPy[o]; pz[o] = inPz[o];
+                    continue;
+                }
+                float const *r = &cap.rangeResult[abs * 3];
+                px[o] = m == 1.0f ? r[0] : inPx[o] + (r[0] - inPx[o]) * m;
+                py[o] = m == 1.0f ? r[1] : inPy[o] + (r[1] - inPy[o]) * m;
+                pz[o] = m == 1.0f ? r[2] : inPz[o] + (r[2] - inPz[o]) * m;
+            }
+            if (restOut)
+                restOut[c] = ready && curve < cap.restLength.size()
+                    ? cap.restLength[curve]
+                    : (cv ? UsdGenPolylineRestLength(inPx, inPy, inPz, base, cv) : 0.0f);
+        }
+        return;
+    }
 
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         const size_t cv = view->cvCount ? size_t(view->cvCount)
@@ -247,6 +450,10 @@ void UsdGenLengthOp::Evaluate(
         const size_t base = view->cvCount ? size_t(c) * view->cvCount
             : (view->cvOffsets ? size_t(view->cvOffsets[c]) -
                 (view->desc ? size_t(view->desc->firstCv) : 0) : 0);
+        // A node configured for randomRange and later switched to a factor
+        // mode keeps its restLength slot: publish the pre-scale length.
+        if (restOut)
+            restOut[c] = cv ? UsdGenPolylineRestLength(inPx, inPy, inPz, base, cv) : 0.0f;
         if (!cv) continue;
         const float rx = inPx[base], ry = inPy[base], rz = inPz[base];
         const double m = mult ? double(mult[curveBase + c]) : 1.0;

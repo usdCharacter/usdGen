@@ -166,9 +166,9 @@ uint32_t UsdGenGrowOp::PlanesTouched() const
 bool UsdGenGrowOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
     int segments = params.GetInt(TfToken("segments"), 8);
-    if (segments < 2 || segments > 64) {
+    if (segments < 2 || segments > int(kUsdGenMaxCvsPerCurve)) {
         if (diag)
-            diag->Error("UsdGenGrow: usdGen:segments must be in [2, 64]");
+            diag->Error("UsdGenGrow: usdGen:segments must be in [2, 4096]");
         return false;
     }
     TfToken dir = params.GetToken(TfToken("direction"), TfToken("surfaceNormal"));
@@ -258,8 +258,8 @@ bool UsdGenGrowOp::Capture(
     auto &cap = *static_cast<UsdGenGrowCapture *>(out);
 
     int segments = p ? p->GetInt(TfToken("segments"), 8) : 8;
-    if (segments < 2 || segments > 64) {
-        if (diag) diag->Error("UsdGenGrow: usdGen:segments must be in [2, 64]");
+    if (segments < 2 || segments > int(kUsdGenMaxCvsPerCurve)) {
+        if (diag) diag->Error("UsdGenGrow: usdGen:segments must be in [2, 4096]");
         return false;
     }
     double const lift = p ? p->GetDouble(TfToken("lift"), 0.0) : 0.0;

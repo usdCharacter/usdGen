@@ -351,7 +351,7 @@ bool Prepare(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         offset += size_t(count);
     }
     for (UsdGenSurfaceCageOwner const &owner : candidate.input.owners) {
-        if (owner.cvCount < 2 || owner.cvCount > 64 || !Finite(owner.density) ||
+        if (owner.cvCount < 2 || owner.cvCount > int(kUsdGenMaxCvsPerCurve) || !Finite(owner.density) ||
             !(owner.density >= 0.0f))
             return Fail("surface-cage owner controls are invalid", error);
         for (int face = 0; face != int(surface->faceVertexCounts.size()); ++face) {

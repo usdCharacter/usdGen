@@ -8,6 +8,9 @@
 // CV (mask = 0 holds the input shape); roots are exact in all modes.
 // Widths and rest resample with the same weights at capture; points evaluate
 // per chunk so mask edits sweep without recapture.
+// usdGen:spacing > 0 replaces the fixed count by a per-strand one,
+// clamp(ceil(L / spacing) + 1, 2, kUsdGenMaxCvsPerCurve) with L the strand's
+// current (upstream) length, and publishes a ragged layout (cvOffsets).
 // TopologyEffect = CvCount.
 #ifndef USDGEN_OP_RESAMPLE_H
 #define USDGEN_OP_RESAMPLE_H
@@ -45,6 +48,7 @@ private:
     const TfToken sCvCount{"cvCount"}, sDistribution{"distribution"};
     const TfToken sUniform{"uniform"}, sKeepParam{"keepParam"};
     const TfToken sRestore{"restoreSegmentLengths"}, sMask{"mask"};
+    const TfToken sSpacing{"spacing"};
 };
 
 }  // namespace usdGen

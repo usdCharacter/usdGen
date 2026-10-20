@@ -41,6 +41,8 @@ ninja -C build
 
 `bin/build_usdgen.sh` wraps configure and build. On Windows, `bin/build_usdgen.ps1` does the same job. The OpenUSD prefix must match the compiler you are using.
 
+The Storm hair material has two strand models. The default, `-DUSDGEN_HAIR_SHADING_MODEL=karis`, is the Karis R/TT/TRT model. `-DUSDGEN_HAIR_SHADING_MODEL=marschner` compiles the absorption-based Marschner model that imported real-time grooms were authored against, with its own multiple scattering and hair ambient occlusion. Switching takes a re-configure and recompiles one source file: the choice is a generated shader file plus one compile definition on the fur-bake call site. See [docs/storm-fur.md](docs/storm-fur.md#strand-models).
+
 Load the build tree and run a flatten smoke test:
 
 ```sh

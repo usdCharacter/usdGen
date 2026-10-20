@@ -19,6 +19,7 @@
 #include "usdGen/limitSurface.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/ops/scatterModes.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -288,8 +289,15 @@ static TfTokenVector _topoParams = [] {
     v.push_back(TfToken("density"));     // capture (02 §6.4)
     v.push_back(TfToken("flip"));
     v.push_back(TfToken("subdivisionLevel"));
+    // Generation-order modes (ops/scatterModes.h).
+    for (char const *name : {"distribution", "countMode", "proximity:mode",
+                             "proximity:distance", "proximity:coverage", "guides",
+                             "densityMap"})
+        v.push_back(TfToken(name));
     return v;
 }();
+
+static TfTokenVector const _referenceInputs{TfToken("guides")};
 
 // Scatter is a generator: it has no upstream curves to leave untouched, so it
 // declares no usdGen:mask.
@@ -304,6 +312,10 @@ TfSpan<const TfToken> UsdGenScatterOp::TopologyParameters() const
 TfSpan<const TfToken> UsdGenScatterOp::ValueParameters() const
 {
     return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
+}
+TfSpan<const TfToken> UsdGenScatterOp::ReferenceInputs() const
+{
+    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
 }
 std::unique_ptr<UsdGenCapture> UsdGenScatterOp::CreateCapture() const
 {
@@ -368,6 +380,12 @@ bool UsdGenScatterOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *dia
         if (diag) diag->Error("UsdGenScatter: density must be finite and >= 0");
         return false;
     }
+    scatter::ModeConfig modes;
+    std::string modeError;
+    if (!scatter::ReadModeConfig(&params, &modes, &modeError)) {
+        if (diag) diag->Error("UsdGenScatter: " + modeError);
+        return false;
+    }
     return true;
 }
 
@@ -386,6 +404,32 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     feed("flip", p && p->GetBool(TfToken("flip"), false) ? 1u : 0u);
     feed("seed", ctx.seed);
     feed("subdivisionLevel", p ? p->GetInt(TfToken("subdivisionLevel"),0) : 0);
+    // Generation-order modes: their parameters, the guide set and the
+    // density maps (identity folds the painted values) are capture inputs.
+    auto tokenBits = [](TfToken const &t) {
+        opUtil::Digest d;
+        d.Mix(t);
+        return d.h;
+    };
+    feed("distribution", p ? tokenBits(p->GetToken(TfToken("distribution"), TfToken("random"))) : 0);
+    feed("countMode", p ? tokenBits(p->GetToken(TfToken("countMode"), TfToken("perFace"))) : 0);
+    feed("proximity:mode", p ? tokenBits(p->GetToken(TfToken("proximity:mode"), TfToken("none"))) : 0);
+    feed("proximity:distance",
+         p ? double_as_bits(p->GetDouble(TfToken("proximity:distance"), 0.01)) : 0);
+    feed("proximity:coverage",
+         p ? double_as_bits(p->GetDouble(TfToken("proximity:coverage"), 1.0)) : 0);
+    feed("references", uint64_t(ctx.referenceCount));
+    for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
+        if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
+            feed("referenceIdentity", ctx.resolvedReferences[i]->identity);
+            feed("referenceGeneration", ctx.resolvedReferences[i]->curveGeneration);
+        } else if (ctx.references && ctx.references[i]) {
+            feed("referenceGeneration", ctx.references[i]->generation);
+        }
+    }
+    feed("maps", uint64_t(ctx.mapCount));
+    for (uint32_t i = 0; i < ctx.mapCount; ++i)
+        if (ctx.maps && ctx.maps[i]) feed("mapIdentity", ctx.maps[i]->identity);
     UsdGenGraphDesc const *desc = ctx.desc;
     if (desc && ctx.surface < desc->surfaces.size()) {
         auto const &surface = desc->surfaces[ctx.surface];
@@ -413,6 +457,12 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
         auto const &mult = desc->surfaces[ctx.surface].densityMultiplier;
         feed("densityMultSize", uint64_t(mult.size()));
         feed("densityMult", densityMultDigest_.Digest(mult));
+        scatter::ModeConfig modes;
+        std::string modeError;
+        if (scatter::ReadModeConfig(p, &modes, &modeError) && modes.GenerationPath()) {
+            array("restNormals", restNormalsDigest_, surface.restNormals);
+            feed("restNormalDomain", uint64_t(surface.restNormalDomain));
+        }
     }
 
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -436,9 +486,38 @@ bool UsdGenScatterOp::Capture(
         return false;
     }
     UsdGenSurfaceDesc const &surf = desc->surfaces[ctx.surface];
+    scatter::ModeConfig modes;
+    {
+        std::string modeError;
+        if (!scatter::ReadModeConfig(p, &modes, &modeError)) {
+            if (diag) diag->Error("UsdGenScatter::Capture: " + modeError);
+            return false;
+        }
+    }
+    if (modes.GenerationPath()) {
+        // uvGrid / vertex / even / perGuide, or random with a surface-wide
+        // count: generation-order roots on the base cage (ops/scatterModes.h).
+        UsdGenCurveBuffer &modeBuf =
+            static_cast<UsdGenScatterCapture *>(out)->MutableBuffer();
+        modeBuf.topologyVersion += 1;
+        modeBuf.extraCurve.clear();
+        modeBuf.extraCv.clear();
+        if ((surf.faceVertexCounts.empty() || surf.restPoints.empty()) && diag)
+            diag->Warn(std::string("UsdGenScatter::Capture: surface '") +
+                       surf.path.GetText() + "' has no topology");
+        return scatter::CaptureModes(ctx, modes, surf, &modeBuf, diag);
+    }
     int const level=p ? p->GetInt(TfToken("subdivisionLevel"),0) : 0;
     UsdGenLimitSurface limit;
     if(level) {
+        // The random per-face path quadratures each coarse face on a 2^level
+        // (u,v) grid and keeps that (u,v) as rootUV, so it needs quads; the
+        // generation modes move cage roots onto the limit of any polygon mesh.
+        for(int n:surf.faceVertexCounts) if(n!=4) {
+            if(diag)diag->Error("UsdGenScatter: random per-face limit scatter requires quad faces; "
+                                "use an even, uvGrid, vertex or surface-count distribution for other polygons");
+            return false;
+        }
         std::string error;
         if(!limit.Build(surf,level,&error)) {
             if(diag)diag->Error("UsdGenScatter: "+error);
@@ -462,6 +541,10 @@ bool UsdGenScatterOp::Capture(
     UsdGenScatterCapture &cap = *static_cast<UsdGenScatterCapture *>(out);
     UsdGenCurveBuffer &buf = cap.MutableBuffer();
     buf.topologyVersion += 1;
+    // Planes come only from the thinning below (a reused capture may still
+    // hold the previous run's).
+    buf.extraCurve.clear();
+    buf.extraCv.clear();
 
     auto const *rest = surf.restPoints.empty() ? nullptr : surf.restPoints.data();
     auto const *fvc = surf.faceVertexCounts.empty() ? nullptr : surf.faceVertexCounts.data();
@@ -1240,6 +1323,34 @@ bool UsdGenScatterOp::Capture(
         aT = all.aT.data(); aN = all.aN.data(); aB = all.aB.data();
     }
 
+    // Density-map / guide-proximity thinning of the per-face random roots.
+    // Inactive unless usdGen:densityMap is bound or a proximity mode has
+    // guides, so the default path is unchanged; survivors keep their
+    // emission index as strandIndex (thinning never renumbers).
+    scatter::RandomPathFilter filter;
+    if (!filter.Init(ctx, modes, surf, diag)) return false;
+    ScatterEmission kept;
+    std::vector<uint32_t> keptIndex;
+    if (filter.Active()) {
+        kept.reserve(total);
+        keptIndex.reserve(total);
+        for (size_t i = 0; i < total; ++i) {
+            if (!filter.Keep(GfVec3f(ax[i], ay[i], az[i]), aids[i])) continue;
+            kept.ax.push_back(ax[i]); kept.ay.push_back(ay[i]); kept.az.push_back(az[i]);
+            kept.aids.push_back(aids[i]);
+            kept.aPrim.push_back(aPrim[i]);
+            kept.aUv.push_back(aUv[i]);
+            kept.aT.push_back(aT[i]); kept.aN.push_back(aN[i]); kept.aB.push_back(aB[i]);
+            keptIndex.push_back(uint32_t(i));
+        }
+        ax = kept.ax.data(); ay = kept.ay.data(); az = kept.az.data();
+        aids = kept.aids.data();
+        aPrim = kept.aPrim.data();
+        aUv = kept.aUv.data();
+        aT = kept.aT.data(); aN = kept.aN.data(); aB = kept.aB.data();
+        total = kept.size();
+    }
+
     // Morton-sort the roots by rest position: surface-major, locality-
     // preserving chunk placement (plan/04 :641, ADR §4.1). cellScale 64
     // cells/unit is an M1 choice — the plan does not pin a cell size; ties
@@ -1441,6 +1552,16 @@ bool UsdGenScatterOp::Capture(
 
     buf.totalCurves = uint32_t(N);
     buf.totalCvs = uint32_t(N);
+    auto emitStrandPlanes = [&]() {
+        if (!filter.Active()) return;
+        VtIntArray index(N), seed(N);
+        for (size_t i = 0; i < N; ++i) {
+            int const v = int(keptIndex[perm[i]]);
+            index[i] = v;
+            seed[i] = v;
+        }
+        scatter::SetStrandPlanes(&buf, std::move(index), std::move(seed));
+    };
     // Per-plane gather (bit-identical): the permuted read stream jumps over
     // the whole emission range, so gathering every plane in one loop keeps
     // ~68MB of random-read working set live and thrashes the LLC. One plane
@@ -1486,6 +1607,7 @@ bool UsdGenScatterOp::Capture(
             for (float *d = b; d != e; ++d)
                 new (d) float(0.0f);
         });
+        emitStrandPlanes();
         return true;
     }
     // Fused parallel gather (bit-identical): the nine planes plus the zero
@@ -1545,6 +1667,7 @@ bool UsdGenScatterOp::Capture(
         for (size_t i = i0; i < i1; ++i)
             new (dh + i) float(0.0f);
     });
+    emitStrandPlanes();
     return true;
 }
 

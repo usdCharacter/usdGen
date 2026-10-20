@@ -435,7 +435,8 @@ int main() {
         if (variant == 1) c.widths[0] = -1;
         if (variant == 2) c.widths[0] = std::numeric_limits<float>::quiet_NaN();
         if (variant == 3) c.curveVertexCounts[0] = 1;
-        if (variant == 4) c.type = TfToken("linear");
+        // Linear polylines are accepted now; a cubic bezier basis is not.
+        if (variant == 4) c.basis = TfToken("bezier");
         if (variant == 5) c.widthsInterpolation = TfToken("varying");
         if (variant == 6) bad.nodes[0].curves = {SdfPath("/Missing")};
         if (variant == 7) bad.nodes[0].curves.push_back(SdfPath("/Other"));

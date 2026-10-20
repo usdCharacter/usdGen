@@ -654,9 +654,100 @@ def Scope "Groom"
               "ray-tracing publication omits cap geometry, material and notices");
         Check(traced->GetPrim(FirstTile(raster)).primType == TfToken("basisCurves"),
               "ray-tracing publication retains the actual groom strands");
+        // The cap's opaque sample mask and its material sit beside it on
+        // Storm, and nowhere else.
+        SdfPath const mask = render.AppendChild(TfToken("scalpShadowMask"));
+        SdfPath const maskMaterial = render.AppendChild(TfToken("material_scalpShadowMask"));
+        Check(HasChild(*raster.groom, render, mask) &&
+                  HasChild(*raster.groom, render, maskMaterial) &&
+                  raster.groom->GetPrim(mask).primType == TfToken("mesh") &&
+                  raster.groom->GetPrim(maskMaterial).primType == TfToken("material"),
+              "Storm publication draws the cap's sample mask beside it");
+        Check(!HasChild(*traced, render, mask) && traced->GetPrim(mask).primType.IsEmpty() &&
+                  traced->GetPrim(maskMaterial).primType.IsEmpty(),
+              "ray-tracing publication omits the sample mask too");
         traced->RemoveObserver(TfCreateWeakPtr(&capNotices));
         traced->RemoveObserver(TfCreateWeakPtr(&materialNotices));
     }
+    {
+        // Two descriptions growing from one surface publish ONE cap, on the
+        // first by path, carrying both descriptions' hair: a cap per
+        // description would stack past Storm's eight OIT layers on a real
+        // head, and the sample mask needs the total darkening in one place.
+        auto fixture = [](bool both) {
+            std::string const ops = R"USDA(
+        rel usdGen:surface = </Scalp>
+        def Scope "Ops"
+        {
+            def UsdGenWidth "width"
+            {
+                float usdGen:width = .01
+                bool usdGen:replace = true
+            }
+            def UsdGenGrow "grow"
+            {
+                float usdGen:length = .025
+                int usdGen:segments = 4
+            }
+            def UsdGenScatter "scatter"
+            {
+                float usdGen:density = 1000
+            }
+        }
+)USDA";
+            return std::string(R"USDA(#usda 1.0
+def Mesh "Scalp" (prepend apiSchemas = ["UsdGenRestAPI"])
+{
+    int[] faceVertexCounts = [4]
+    int[] faceVertexIndices = [0,1,2,3]
+    point3f[] points = [(-.1,0,-.1),(-.1,0,.1),(.1,0,.1),(.1,0,-.1)]
+    point3f[] primvars:rest = [(-.1,0,-.1),(-.1,0,.1),(.1,0,.1),(.1,0,-.1)] (interpolation = "vertex")
+}
+def Scope "Groom"
+{
+    def UsdGenDescription "hairA"
+    {)USDA") + ops + "    }\n" +
+                (both ? std::string("    def UsdGenDescription \"hairB\"\n    {") + ops + "    }\n"
+                      : std::string()) + "}\n";
+        };
+        auto meanDepth = [](Scene const &scene, SdfPath const &cap) {
+            HdSampledDataSourceHandle const sampled = HdSampledDataSource::Cast(
+                HdContainerDataSource::Get(scene.groom->GetPrim(cap).dataSource,
+                    HdDataSourceLocator(TfToken("primvars"), TfToken("furTauP"),
+                                        TfToken("primvarValue"))));
+            if (!sampled) return -1.0;
+            VtValue const value = sampled->GetValue(0.0f);
+            if (!value.IsHolding<VtVec3fArray>()) return -1.0;
+            double sum = 0;
+            VtVec3fArray const &depths = value.UncheckedGet<VtVec3fArray>();
+            for (GfVec3f const &d : depths) sum += d[0] + d[1] + d[2];
+            return depths.empty() ? -1.0 : sum / double(depths.size());
+        };
+        std::string const singleText = fixture(false), pairText = fixture(true);
+        Scene single = MakeScene("scalp-shadow-single", singleText.c_str());
+        Scene pair = MakeScene("scalp-shadow-pair", pairText.c_str());
+        single.owner->Synchronize();
+        pair.owner->Synchronize();
+        SdfPath const renderA("/Groom/hairA/__usdGenRender");
+        SdfPath const renderB("/Groom/hairB/__usdGenRender");
+        SdfPath const capA = renderA.AppendChild(TfToken("scalpShadow"));
+        SdfPath const capB = renderB.AppendChild(TfToken("scalpShadow"));
+        SdfPath const maskA = renderA.AppendChild(TfToken("scalpShadowMask"));
+        SdfPath const maskB = renderB.AppendChild(TfToken("scalpShadowMask"));
+        Check(HasChild(*pair.groom, renderA, capA) && HasChild(*pair.groom, renderA, maskA) &&
+                  pair.groom->GetPrim(capA).primType == TfToken("mesh"),
+              "two descriptions over one surface show its cap on the first");
+        Check(!HasChild(*pair.groom, renderB, capB) && !HasChild(*pair.groom, renderB, maskB) &&
+                  pair.groom->GetPrim(capB).primType.IsEmpty() &&
+                  pair.groom->GetPrim(maskB).primType.IsEmpty(),
+              "the second description shows no cap of its own");
+        double const one = meanDepth(single, capA), two = meanDepth(pair, capA);
+        std::printf("summed cap: mean depth %.4f for one description, %.4f for two\n",
+                    one, two);
+        Check(one > 0.0 && two > 1.5 * one,
+              "the shown cap carries both descriptions' hair");
+    }
+
     Scene first = MakeScene("scene-publication-first");
     Check(first.owner != nullptr, "first concrete groom scene owner is available");
     if (!first.owner) return 1;
