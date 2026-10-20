@@ -45,6 +45,7 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 #include "usdGen/gpu/topology.h"
 #include "usdGen/gpu/curveTiles.h"
 #include "usdGen/gpu/curveTileBounds.h"
+#include "usdGen/ops/width.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 #endif
 
@@ -109,6 +110,12 @@ bool ValidateLength(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) 
             valid = param.value == VtValue(TfToken("scale")) || param.value == VtValue(TfToken("cutExtend"));
         else if (name == "rebuild")
             valid = param.value == VtValue(TfToken("keepParam")) || param.value == VtValue(TfToken("reparam"));
+        // randomRange controls are inert here (that mode itself is refused
+        // above); accept their schema defaults so ordinary Length nodes plan.
+        else if (name == "length:min" || name == "length:max" || name == "length:randomize")
+            valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
+        else if (name == "length:shareByClump" || name == "length:followClumpMean")
+            valid = param.value.IsHolding<bool>();
         if (!valid) return Fail(diagnostics, "unsupported or malformed Length parameter " + name);
     }
     for (auto const& ramp : node.ramps)
@@ -123,8 +130,10 @@ bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
     // it. Do not reject the Description's ordinary inherited scalp target.
     if (!node.references.empty() || !node.curves.empty() || !node.mode.IsEmpty())
         return Fail(diagnostics, "Width references/curves/mode are not supported");
+    // The Bezier profile controls are literal floats; the profile itself is
+    // folded into the per-node LUT (UsdGenWidthBezierLut) below.
     static const std::set<std::string> floats{
-        "width", "mask"};
+        "width", "mask", "width:root", "width:mid", "width:midShift", "width:tip"};
     std::set<std::string> seen;
     for (auto const& param : node.params) {
         auto const& name = param.name.GetString();
@@ -133,6 +142,8 @@ bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         if (floats.count(name)) valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
         else if (name == "replace") valid = param.value.IsHolding<bool>();
         else if (name == "width:interpolation") valid = param.value.IsHolding<TfToken>();
+        else if (name == "width:profile:mode")
+            valid = param.value == VtValue(TfToken("ramp")) || param.value == VtValue(TfToken("bezier"));
         else if (name == "width:knots") {
             valid = param.value.IsHolding<VtVec2fArray>();
             float previous = -1;
@@ -277,6 +288,22 @@ bool ValidateScatterGrow(UsdGenGraphDesc const& desc, uint32_t source, uint32_t 
         if(param.name==TfToken("subdivisionLevel") &&
            (!param.value.IsHolding<int>() || param.value.UncheckedGet<int>()!=0))
             return Fail(diagnostics,"OpenSubdiv limit Scatter requires the CPU reference backend");
+    // Distribution, surface counting, proximity and density maps are CPU
+    // reference behaviours; refuse them instead of running random scatter.
+    for (auto const& param : scatter.params) {
+        auto nonDefault = [&](char const* name, char const* fallback) {
+            return param.name == TfToken(name) &&
+                !(param.value.IsHolding<TfToken>() &&
+                  param.value.UncheckedGet<TfToken>() == TfToken(fallback));
+        };
+        if (nonDefault("distribution", "random") || nonDefault("countMode", "perFace") ||
+            nonDefault("proximity:mode", "none"))
+            return Fail(diagnostics,
+                "Scatter distribution/count/proximity modes require the CPU reference backend");
+    }
+    if (!c3 && (!scatter.mapBindings.empty() || !scatter.curves.empty()))
+        return Fail(diagnostics,
+            "Scatter density maps and guides require the CPU reference backend");
     auto const& grow = desc.nodes[terminal];
     if (!grow.mode.IsEmpty())
         return Fail(diagnostics, "Scatter->Grow has no Grow mode property");
@@ -2917,6 +2944,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             };
             if (step->type == TfToken("UsdGenWidth")) {
                 lut("width:knots", "width:interpolation", step->profile);
+                UsdGenWidthBezierLut(params, step->profile.data(), step->profile.size());
             } else if (step->type == TfToken("UsdGenNoise")) {
                 lut("noise:magnitude:knots", "noise:magnitude:interpolation", step->profile);
             }
@@ -3210,9 +3238,10 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             UsdGenBuildRampLut(value.UncheckedGet<VtVec2fArray>(),
                 params.GetToken(TfToken(interpolationName), TfToken("catmullRom")), output.data(), output.size());
         };
-        if (width->type == TfToken("UsdGenWidth"))
+        if (width->type == TfToken("UsdGenWidth")) {
             lut("width:knots", "width:interpolation", width->profile);
-        else if (width->type == TfToken("UsdGenNoise"))
+            UsdGenWidthBezierLut(params, width->profile.data(), width->profile.size());
+        } else if (width->type == TfToken("UsdGenNoise"))
             lut("noise:magnitude:knots", "noise:magnitude:interpolation", width->profile);
         if (width->type == TfToken("UsdGenDeform")) {
             auto found = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),

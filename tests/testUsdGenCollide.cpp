@@ -237,8 +237,11 @@ static void CheckRegistryContracts()
                                         "colliders", "resolveType"},
           "Collide topology parameters are input/surface/seed/colliders/resolveType");
     Check(value == std::set<std::string>{"enabled", "mask", "offset",
-                                         "pushAmount", "iterations"},
-          "Collide value parameters are enabled/mask/offset/pushAmount/iterations");
+                                         "pushAmount", "iterations",
+                                         "clearance:root", "clearance:tip",
+                                         "relax:iterations"},
+          "Collide value parameters are enabled/mask/offset/pushAmount/iterations "
+          "plus the relax clearance:root/clearance:tip/relax:iterations");
 }
 
 // --- (2) CPU cooks -------------------------------------------------------

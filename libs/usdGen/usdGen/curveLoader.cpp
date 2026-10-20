@@ -345,13 +345,16 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
         return Fail(diag, "CurveSource requires a C3 hair BasisCurves source; guide/reference lanes are not implemented here");
     if (!Finite(source.worldMatrix))
         return Fail(diag, "C3 worldMatrix contains non-finite values");
-    if (source.type != TfToken("cubic") ||
-        (source.basis != TfToken("bspline") && source.basis != TfToken("catmullRom")) ||
+    // Linear polylines are accepted as-is (the basis is ignored for linear
+    // curves); cubic curves must be bspline or catmullRom.
+    bool const linear = source.type == TfToken("linear");
+    if ((!linear && (source.type != TfToken("cubic") ||
+                     (source.basis != TfToken("bspline") && source.basis != TfToken("catmullRom")))) ||
         source.wrap == TfToken("periodic"))
-        return Fail(diag, "C3 requires cubic bspline/catmullRom curves with non-periodic wrapping");
+        return Fail(diag, "C3 requires linear, or cubic bspline/catmullRom, curves with non-periodic wrapping");
     if (source.wrap != TfToken("pinned") && source.wrap != TfToken("nonperiodic"))
         return Fail(diag, "C3 wrap must be 'pinned' or 'nonperiodic'");
-    if (source.wrap == TfToken("nonperiodic"))
+    if (source.wrap == TfToken("nonperiodic") && !linear)
         Warn(diag, "nonperiodic C3 curves are promoted to pinned semantics without changing CVs");
     if (!options.expectedEpoch.empty() && options.expectedEpoch != source.frozenEpoch) {
         if (options.staleAction == TfToken("block"))

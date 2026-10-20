@@ -19,6 +19,11 @@ Two parts:
    darken, the bare half must not, the effect must follow `strength`, and a
    pale hair colour must darken less than a black one (which a failed glslfx
    compile -- Storm falls back silently -- cannot reproduce).
+3. The opaque sample mask, `UsdGenScalpShadowMask`, beside the cap: on bare
+   skin the two halves must compose to exactly the cap's darkening, and under
+   sub-pixel black strips -- hair edges -- they must recover most of the
+   shadow the translucent cap alone loses to Storm's one-sample-per-pixel
+   translucent depth test.
 
 Needs the plugin search path (bin/record_usd.ps1 / bin/_env.sh set it). Exits
 77 (ctest SKIP) when the bindings, NumPy/Pillow or a GL context are missing.
@@ -37,12 +42,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SHADERS = os.path.join(HERE, "..", "resources", "shaders")
 FILE = "usdGenScalpShadow.glslfx"
 IDENT = "UsdGenScalpShadow"
-PRIMVARS = {"furTauP", "furTauN"}
+MASK_FILE = "usdGenScalpShadowMask.glslfx"
+MASK_IDENT = "UsdGenScalpShadowMask"
+PRIMVARS = {"furTauP", "furTauN", "furCapAlbedo", "usdGenCapLift"}
 EXPECTED = [
     ("baseColor", [0.035, 0.018, 0.008]),
     ("roughness", 0.35),
     ("strength", 1.0),
     ("ambient", 0.35),
+    ("maskLevels", 0.0),
 ]
 NAMES = [n for n, _ in EXPECTED]
 DEFAULTS = dict(EXPECTED)
@@ -53,23 +61,42 @@ def _skip(reason):
     sys.exit(77)
 
 
-def tag_check():
-    with open(os.path.join(SHADERS, FILE)) as f:
+def _config(name):
+    with open(os.path.join(SHADERS, name)) as f:
         source = f.read()
     m = re.search(r"^-- configuration\n(\{.*?\n\})\n", source, re.M | re.S)
-    if not m:
+    return m.group(1) if m else None
+
+
+def tag_check():
+    config = _config(FILE)
+    if config is None:
         print("FAIL: no configuration block in %s" % FILE)
         return False
-    n = len(re.findall(r'"materialTag"\s*:', m.group(1)))
+    n = len(re.findall(r'"materialTag"\s*:', config))
     if n != 1:
         print("FAIL: %s declares %d materialTag entries (want 1)" % (FILE, n))
         return False
-    tag = json.loads(m.group(1)).get("metadata", {}).get("materialTag")
+    tag = json.loads(config).get("metadata", {}).get("materialTag")
     if tag != "translucent":
         print("FAIL: %s materialTag %r (want 'translucent'; the cap has to "
               "blend with the skin, not replace it)" % (FILE, tag))
         return False
     print("OK: %s single materialTag %r" % (FILE, tag))
+    # The mask is the opposite: it must land in the OPAQUE pass, the only one
+    # Storm depth-tests per sample. Its own configuration is the one glslfx
+    # keeps (an importing file's configuration replaces the imported one), so
+    # it must not name a tag at all.
+    config = _config(MASK_FILE)
+    if config is None:
+        print("FAIL: no configuration block in %s" % MASK_FILE)
+        return False
+    tag = json.loads(config).get("metadata", {}).get("materialTag")
+    if tag not in (None, "defaultMaterialTag"):
+        print("FAIL: %s materialTag %r (want the default, opaque pass)"
+              % (MASK_FILE, tag))
+        return False
+    print("OK: %s draws in the opaque pass" % MASK_FILE)
     return True
 
 
@@ -103,7 +130,12 @@ def sdr_check():
             (reg.GetShaderNodeFromAsset(
                 os.path.abspath(os.path.join(SHADERS, FILE)),
                 sourceType="glslfx"), FILE, None),
-            (reg.GetShaderNodeByIdentifier(IDENT), IDENT, ["surface"])):
+            (reg.GetShaderNodeByIdentifier(IDENT), IDENT, ["surface"]),
+            (reg.GetShaderNodeFromAsset(
+                os.path.abspath(os.path.join(SHADERS, MASK_FILE)),
+                sourceType="glslfx"), MASK_FILE, None),
+            (reg.GetShaderNodeByIdentifier(MASK_IDENT), MASK_IDENT,
+             ["surface"])):
         if not node:
             print("FAIL: %s did not parse/register (sdrGlslfx parser or "
                   "usdGenShaders discovery missing from PXR_PLUGINPATH?)" % label)
@@ -138,7 +170,10 @@ def sdr_check():
 
 
 def build_stage(Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt):
-    """A grey plane with the scalp cap over it: dense hair on -x, none on +x."""
+    """A grey plane with the scalp cap over it: dense hair on -x, none on +x.
+
+    Also the cap's sample mask just under it, and sub-pixel black strips over
+    the haired half standing in for hair edges; both start hidden."""
     stage = Usd.Stage.CreateInMemory()
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.y)
     world = UsdGeom.Xform.Define(stage, "/World")
@@ -147,7 +182,7 @@ def build_stage(Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt):
     n = 24                                   # cap resolution across the plane
     half = 1.0
 
-    def grid(prim, y, with_depth):
+    def grid(prim, y, with_depth, lift=None):
         pts, counts, indices, normals = [], [], [], []
         tauP, tauN = [], []
         for j in range(n + 1):
@@ -179,6 +214,11 @@ def build_stage(Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt):
                               UsdGeom.Tokens.vertex).Set(Vt.Vec3fArray(tauP))
             api.CreatePrimvar("furTauN", Sdf.ValueTypeNames.Vector3fArray,
                               UsdGeom.Tokens.vertex).Set(Vt.Vec3fArray(tauN))
+            if lift is not None:
+                # As the scene index publishes it: each half's own height
+                # above the skin, so both find the same skin point.
+                api.CreatePrimvar("usdGenCapLift", Sdf.ValueTypeNames.Float,
+                                  UsdGeom.Tokens.constant).Set(lift)
         else:
             api.CreatePrimvar("displayColor", Sdf.ValueTypeNames.Color3fArray,
                               UsdGeom.Tokens.constant).Set(
@@ -186,16 +226,48 @@ def build_stage(Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt):
         return mesh
 
     grid("/World/Skin", 0.0, False)
-    cap = grid("/World/Cap", 0.004, True)
+    cap = grid("/World/Cap", 0.004, True, 0.004)
+    # The mask shares the cap's geometry, as the scene index publishes it; its
+    # shader pushes its own depth back.
+    mask = grid("/World/CapMask", 0.004, True, 0.004)
 
-    material = UsdShade.Material.Define(stage, "/World/Looks/Cap")
-    shader = UsdShade.Shader.Define(stage, "/World/Looks/Cap/Surface")
-    shader.GetPrim().CreateAttribute("info:id", Sdf.ValueTypeNames.Token,
-                                     True).Set(IDENT)
-    shader.CreateOutput("surface", Sdf.ValueTypeNames.Token)
-    material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(),
-                                                   "surface")
-    UsdShade.MaterialBindingAPI.Apply(cap.GetPrim()).Bind(material)
+    def bind(prim, path, ident):
+        material = UsdShade.Material.Define(stage, path)
+        shader = UsdShade.Shader.Define(stage, path + "/Surface")
+        shader.GetPrim().CreateAttribute("info:id", Sdf.ValueTypeNames.Token,
+                                         True).Set(ident)
+        shader.CreateOutput("surface", Sdf.ValueTypeNames.Token)
+        material.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(),
+                                                       "surface")
+        UsdShade.MaterialBindingAPI.Apply(prim.GetPrim()).Bind(material)
+        return shader
+
+    shader = bind(cap, "/World/Looks/Cap", IDENT)
+    mask_shader = bind(mask, "/World/Looks/CapMask", MASK_IDENT)
+    UsdGeom.Imageable(mask).MakeInvisible()
+
+    # Black strips a third of a pixel wide every few pixels over the haired
+    # half, a little off the pixel grid so their coverage varies along them:
+    # sub-pixel hair edges over shadowed skin.
+    pts, counts, indices = [], [], []
+    width, x = 0.0018, -0.9
+    while x < -0.2:
+        a = len(pts)
+        for px, pz in ((x, -0.95), (x + width, -0.95),
+                       (x + width + 0.11, 0.95), (x + 0.11, 0.95)):
+            pts.append(Gf.Vec3f(px, 0.02, pz))
+        counts.append(4)
+        indices += [a, a + 1, a + 2, a + 3]
+        x += 0.019
+    strips = UsdGeom.Mesh.Define(stage, "/World/Strips")
+    strips.CreateFaceVertexCountsAttr(Vt.IntArray(counts))
+    strips.CreateFaceVertexIndicesAttr(Vt.IntArray(indices))
+    strips.CreatePointsAttr(Vt.Vec3fArray(pts))
+    strips.CreateDoubleSidedAttr(True)
+    UsdGeom.PrimvarsAPI(strips.GetPrim()).CreatePrimvar(
+        "displayColor", Sdf.ValueTypeNames.Color3fArray,
+        UsdGeom.Tokens.constant).Set(Vt.Vec3fArray([Gf.Vec3f(0, 0, 0)]))
+    strips.MakeInvisible()
 
     key = UsdLux.DistantLight.Define(stage, "/World/Lights/Key")
     key.CreateIntensityAttr(3.0)
@@ -211,7 +283,7 @@ def build_stage(Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt):
     xf = UsdGeom.Xformable(camera)
     xf.AddTranslateOp().Set(Gf.Vec3d(0, 3.2, 0.001))
     xf.AddRotateXYZOp().Set(Gf.Vec3f(-90, 0, 0))
-    return stage, shader, camera
+    return stage, shader, mask_shader, mask, strips, camera
 
 
 def render_check(args):
@@ -238,8 +310,8 @@ def render_check(args):
 
     out = args.out or tempfile.mkdtemp(prefix="usdGenScalpShadow_")
     os.makedirs(out, exist_ok=True)
-    stage, shader, camera = build_stage(Gf, Sdf, Usd, UsdGeom, UsdLux,
-                                        UsdShade, Vt)
+    stage, shader, mask_shader, mask, strips, camera = build_stage(
+        Gf, Sdf, Usd, UsdGeom, UsdLux, UsdShade, Vt)
     recorder = UsdAppUtils.FrameRecorder("HdStormRendererPlugin", True)
     recorder.SetImageWidth(args.width)
     recorder.SetComplexity(1.3)
@@ -304,6 +376,70 @@ def render_check(args):
           "a pale coat shadows less than a black one (%.1f vs %.1f), so "
           "baseColor reaches the shader and it compiled"
           % (pale_delta, shaded_delta))
+
+    # ---- the sample mask --------------------------------------------------
+    # Storm's translucent pass depth-tests against one sample per pixel, so a
+    # strand covering part of a pixel can hide the translucent cap from all of
+    # it. The opaque mask is tested per sample. Measured in linear light.
+    base.Set(Gf.Vec3f(0.02, 0.01, 0.005))
+    strength.Set(1.0)
+    levels = 4.0                      # Storm's default MSAA sample count
+    remainder = shader.CreateInput("maskLevels", Sdf.ValueTypeNames.Float)
+    for name, value in (("baseColor", Gf.Vec3f(0.02, 0.01, 0.005)),
+                        ("strength", 1.0), ("maskLevels", levels)):
+        kind = (Sdf.ValueTypeNames.Color3f if name == "baseColor"
+                else Sdf.ValueTypeNames.Float)
+        mask_shader.CreateInput(name, kind).Set(value)
+
+    def linear(img):
+        x = img / 255.0
+        return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
+    def mean(img):
+        return float(linear(img)[haired].mean())
+
+    def configure(with_mask, with_strips):
+        remainder.Set(levels if with_mask else 0.0)
+        img = UsdGeom.Imageable(mask)
+        img.MakeVisible() if with_mask else img.MakeInvisible()
+        img = UsdGeom.Imageable(strips)
+        img.MakeVisible() if with_strips else img.MakeInvisible()
+
+    strength.Set(0.0)
+    configure(False, False)
+    bare_off = mean(render("mask_off"))
+    configure(False, True)
+    strips_off = mean(render("mask_off_strips"))
+    strength.Set(1.0)
+    configure(False, False)
+    alone = mean(render("mask_alone"))
+    configure(True, False)
+    paired = mean(render("mask_paired"))
+    configure(False, True)
+    alone_strips = mean(render("mask_alone_strips"))
+    configure(True, True)
+    paired_strips = mean(render("mask_paired_strips"))
+    configure(False, False)
+
+    transmitted = alone / bare_off
+    check(abs(paired - alone) <= 0.02 * alone + 1e-4,
+          "on bare skin the mask and the remainder compose to the cap's own "
+          "darkening (%.4f vs %.4f)" % (paired, alone))
+    # Under the strips the skin should lose the same fraction of its light as
+    # bare skin does, and the strips stay black.
+    ideal = strips_off * transmitted
+    lost_alone = alone_strips - ideal
+    lost_paired = paired_strips - ideal
+    print("      under strips: ideal %.4f, cap alone %.4f (+%.4f), with mask "
+          "%.4f (+%.4f)" % (ideal, alone_strips, lost_alone, paired_strips,
+                            lost_paired))
+    check(lost_alone > 0.02 * ideal,
+          "the translucent cap alone leaves hair edges brighter than the "
+          "shadow they sit in (the fringe this mask exists for)")
+    check(abs(lost_paired) < 0.5 * lost_alone,
+          "with the mask, hair edges keep most of their shadow "
+          "(%.0f%% of the fringe left)" % (100.0 * abs(lost_paired) /
+                                           max(lost_alone, 1e-9)))
 
     print("images in", out)
     return not failures

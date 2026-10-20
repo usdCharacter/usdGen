@@ -11,6 +11,7 @@
 #include "usdGenImaging/usdGenGraphDescShared.h"
 #include "usdGenImaging/usdGenTokens.h"
 
+#include "usdGen/authoredPlaneConvert.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/expressions/valueShape.h"
 
@@ -526,7 +527,8 @@ _HPullUsdGen(HdContainerDataSourceHandle const &usdGen, _HdTime t,
                 } else if (leaf == "references" || leaf == "reference") {
                     bucket = &node->references;
                 } else if (leaf == "guides" || leaf == "curves" ||
-                           full == "usdGen:direction:source") {
+                           full == "usdGen:direction:source" ||
+                           full == "usdGen:cards" || full == "usdGen:cardStrands") {
                     // node.curves, not node.references: operator sources only
                     // resolve through curveRefs (guides rule).
                     bucket = &node->curves;
@@ -987,6 +989,30 @@ _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
     _HForwardOwnershipPlane(primDs, TfToken("tubeId"), t, out);
     _HForwardOwnershipPlane(primDs, TfToken("regionId"), t, out);
     _HForwardOwnershipPlane(primDs, TfToken("hierarchyLevel"), t, out);
+    // Generic transport: primvars:usdGen:plane:<name> -> authored plane
+    // <name> (usdGen/authoredPlaneConvert.h), flattened like the stage path.
+    {
+        size_t points = 0;
+        for (int count : out->curveVertexCounts) points += size_t(std::max(count, 0));
+        std::string const &prefix = usdGen::UsdGenAuthoredPlanePrefix();
+        HdPrimvarsSchema const primvars = HdPrimvarsSchema::GetFromParent(primDs);
+        for (TfToken const &pvName : primvars.GetPrimvarNames()) {
+            std::string const name = pvName.GetString();
+            if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0)
+                continue;
+            HdPrimvarSchema const primvar = primvars.GetPrimvar(pvName);
+            HdSampledDataSourceHandle const values = primvar.GetFlattenedPrimvarValue();
+            if (!values) continue;
+            TfToken interpolation;
+            if (HdTokenDataSourceHandle const i = primvar.GetInterpolation())
+                interpolation = i->GetTypedValue(t);
+            usdGen::UsdGenAuthoredPlaneDesc plane;
+            if (usdGen::ConvertAuthoredPlane(TfToken(name.substr(prefix.size())),
+                                             values->GetValue(t), interpolation,
+                                             out->curveVertexCounts.size(), points, &plane))
+                out->authoredPlanes.push_back(std::move(plane));
+        }
+    }
 
     TfToken curveRole;
     _HPrimvarTyped(primDs, "usdGen:role", t, &curveRole);
@@ -1185,6 +1211,27 @@ _HReadNode(HdSceneIndexBase &input, SdfPath const &p, _HdTime t)
     // after surface inheritance below.
     if (node.type == TfToken("UsdGenCollide"))
         _HGetPathArray(ug, &captured.colliders, {"colliders"});
+    // Reference-lane curve sets of the whole-strand operators (Trim blades,
+    // CardSource spines + tile strand library), mirrored from the stage path.
+    for (std::initializer_list<char const *> const &locator :
+         {std::initializer_list<char const *>{"trim", "curves"},
+          std::initializer_list<char const *>{"cards"},
+          std::initializer_list<char const *>{"cardStrands"}}) {
+        SdfPathVector targets;
+        if (_HGetPathArray(ug, &targets, locator))
+            captured.guides.insert(captured.guides.end(), targets.begin(), targets.end());
+    }
+    // Mask maps sampled at strand roots (any number of targets).
+    auto maskMaps = [&](char const *field, char const *relationship) {
+        SdfPathVector targets;
+        if (!_HGetPathArray(ug, &targets, {field})) return;
+        for (SdfPath const &target : targets) {
+            node.maps.push_back(target);
+            node.mapBindings.push_back({target, TfToken(relationship)});
+        }
+    };
+    if (node.type == TfToken("UsdGenScatter")) maskMaps("densityMap", "usdGen:densityMap");
+    if (node.type == TfToken("UsdGenLength")) maskMaps("lengthMap", "usdGen:lengthMap");
     if (node.type == TfToken("UsdGenCurveSource") || node.type == TfToken("UsdGenDeform") ||
         node.type == TfToken("UsdGenGuideInterpolate")) {
         SdfPathVector regionMap;

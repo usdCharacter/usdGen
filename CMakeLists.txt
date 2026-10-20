@@ -368,6 +368,22 @@ if(_usdgen_host_expr_fp_options)
     set_property(SOURCE
         libs/usdGen/usdGen/ops/noise.cpp
         libs/usdGen/usdGen/ops/wind.cpp
+        # Imported-groom kernels reproduce a reference generator bit for bit;
+        # keep their float evaluation order independent of the toolchain.
+        libs/usdGen/usdGen/ops/strandUtil.cpp
+        libs/usdGen/usdGen/ops/wholeStrand.cpp
+        libs/usdGen/usdGen/ops/scatterModes.cpp
+        libs/usdGen/usdGen/ops/guideBlend.cpp
+        libs/usdGen/usdGen/ops/guideInterpolate.cpp
+        libs/usdGen/usdGen/ops/clumpModes.cpp
+        libs/usdGen/usdGen/ops/braid.cpp
+        libs/usdGen/usdGen/ops/twist.cpp
+        libs/usdGen/usdGen/ops/frizz.cpp
+        libs/usdGen/usdGen/ops/lengthRange.cpp
+        libs/usdGen/usdGen/ops/trim.cpp
+        libs/usdGen/usdGen/ops/tieClump.cpp
+        libs/usdGen/usdGen/ops/cardSource.cpp
+        libs/usdGen/usdGen/ops/cardGeometry.cpp
         libs/usdGen/usdGen/cpuParameters.cpp
         libs/usdGen/usdGen/expressions/cpuEvaluator.cpp
         libs/usdGen/usdGen/expressions/frontend.cpp
@@ -636,10 +652,46 @@ file(GENERATE OUTPUT "${_usdgen_shader_pluginfo}"
     CONTENT "${_usdgen_shader_pluginfo_content}")
 file(COPY
     "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/shaders/"
-    DESTINATION "${_usdgen_shader_resources}/shaders")
+    DESTINATION "${_usdgen_shader_resources}/shaders"
+    PATTERN "usdGenHairModel.glslfx" EXCLUDE)
 file(COPY
     "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/hairLook.usda"
     DESTINATION "${_usdgen_shader_resources}")
+
+# The strand model UsdGenHairStrands compiles (docs/storm-fur.md, "Strand
+# models"). Storm compiles glslfx at draw time, so the choice travels as the
+# one-line usdGenHairModel.glslfx the build writes beside the other shaders;
+# the source copy selects the default so a source checkout still parses.
+#   karis      Karis R/TT/TRT with the matching controls (default)
+#   marschner  the absorption-based Marschner model imported grooms were
+#              shaded with; also makes the fur bake publish the furDensity
+#              primvar its hair occlusion reads (USDGEN_FUR_DENSITY)
+set(USDGEN_HAIR_SHADING_MODEL "karis" CACHE STRING
+    "Strand shading model of UsdGenHairStrands: karis or marschner")
+set_property(CACHE USDGEN_HAIR_SHADING_MODEL PROPERTY STRINGS karis marschner)
+string(TOLOWER "${USDGEN_HAIR_SHADING_MODEL}" _usdgen_hair_model)
+if(NOT _usdgen_hair_model MATCHES "^(karis|marschner)$")
+    message(FATAL_ERROR "USDGEN_HAIR_SHADING_MODEL must be karis or marschner, "
+        "not '${USDGEN_HAIR_SHADING_MODEL}'")
+endif()
+string(TOUPPER "${_usdgen_hair_model}" _usdgen_hair_model_upper)
+set(_usdgen_hair_model_source
+    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/shaders/usdGenHairModel.glslfx")
+set(_usdgen_hair_model_file "${_usdgen_shader_resources}/shaders/usdGenHairModel.glslfx")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_usdgen_hair_model_source}")
+file(READ "${_usdgen_hair_model_source}" _usdgen_hair_model_content)
+string(REGEX REPLACE "#define USDGEN_STRANDS_MODEL_[A-Z]+ 1"
+    "#define USDGEN_STRANDS_MODEL_${_usdgen_hair_model_upper} 1"
+    _usdgen_hair_model_content "${_usdgen_hair_model_content}")
+file(CONFIGURE OUTPUT "${_usdgen_hair_model_file}"
+    CONTENT "${_usdgen_hair_model_content}" @ONLY)
+# Only the cooker reads it (the USDGEN_FUR_DENSITY default), so it is a source
+# property: switching models recompiles that one file, not the library.
+if(_usdgen_hair_model STREQUAL "marschner")
+    set_property(SOURCE libs/usdGen/usdGen/sessionCooker.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS USDGEN_FUR_LOCAL_DENSITY=1)
+endif()
+message(STATUS "usdGen: strand shading model ${_usdgen_hair_model}")
 
 # ---------------------------------------------------------------------------
 # usdGenTools: usdview plugin (SeExpr expression editor). Pure Python. The
@@ -2872,6 +2924,24 @@ target_link_libraries(testUsdGenScatterDegenerateFan PRIVATE usdGenMath)
 set_tests_properties(testUsdGenScatterTwoPassMult PROPERTIES LABELS "T0;sources;scatter;twopassmult")
 target_link_libraries(testUsdGenScatterTwoPassMult PRIVATE usdGenMath)
 
+# Groom-import operators: whole-strand stylers (Braid, Twist, Trim, Frizz,
+# TieClump), the extended Scatter/GuideInterpolate/Clump/Length/Collide/
+# Smooth/Width/Resample modes, and the CardSource generator.
+foreach(_t testUsdGenStrandUtil testUsdGenScatterModes testUsdGenGuideBlend
+           testUsdGenClumpModes testUsdGenBraid testUsdGenTwistFrizz
+           testUsdGenLengthTrim testUsdGenTieCollide testUsdGenCardSource)
+    add_executable(${_t} tests/${_t}.cpp)
+    target_link_libraries(${_t} PRIVATE usdGenTestUtils usdGenMath)
+    add_test(NAME ${_t} COMMAND ${_t})
+    set_tests_properties(${_t} PROPERTIES SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
+                         LABELS "T0;operators;groom-import")
+endforeach()
+# Offline validation utility (test-only: the stage-sourced graph builder is
+# fenced to test utilities): cooks every description of a stage on the CPU
+# lane and prints per-description strand/CV counts, optionally baking them.
+add_executable(usdGenCookStats tools/cookStats.cpp)
+target_link_libraries(usdGenCookStats PRIVATE usdGenTestUtilsHd)
+
 # M1 T0 perf benches (E-1/E-7 via --threads; E-2 sparse; carried in from
 # prototypes/data-plane-benchmark, 11 §2.2).
 foreach(_t benchUsdGenChain benchUsdGenSparse)
@@ -4214,9 +4284,23 @@ if(_usdgen_test_python)
         FAIL_REGULAR_EXPRESSION "FAIL:|Traceback"
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 
+    # The Marschner model's multiple-scattering table: rebuilds it from the
+    # NumPy reference and asserts the glslfx carries it. Runs whichever model
+    # the build selects -- the table ships in both.
+    add_test(NAME testUsdGenHairMarschnerTable
+        COMMAND "${_usdgen_test_python}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/tabulate_hair_marschner.py"
+            --check)
+    set_tests_properties(testUsdGenHairMarschnerTable PROPERTIES
+        LABELS "T1;shaders" TIMEOUT 600
+        FAIL_REGULAR_EXPRESSION "FAIL|Traceback"
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+
     add_test(NAME testUsdGenHairStrandsDefs
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_strands_defs.py")
+            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_strands_defs.py"
+            --model "${_usdgen_hair_model}"
+            --built "${_usdgen_shader_resources}/shaders")
     set_tests_properties(testUsdGenHairStrandsDefs PROPERTIES
         LABELS "T1;shaders;gate:L-2" TIMEOUT 180
         FAIL_REGULAR_EXPRESSION "FAIL:|Traceback"
@@ -4248,7 +4332,8 @@ if(_usdgen_test_python)
     add_test(NAME testUsdGenHairStrandsRender
         COMMAND "${_usdgen_test_python}"
             "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_strands_render.py"
-            --usdrecord "${USD_INSTALL_DIR}/bin/usdrecord")
+            --usdrecord "${USD_INSTALL_DIR}/bin/usdrecord"
+            --model "${_usdgen_hair_model}")
     set_tests_properties(testUsdGenHairStrandsRender PROPERTIES
         LABELS "T2;shaders;gate:L-2" TIMEOUT 600 RUN_SERIAL TRUE
         FAIL_REGULAR_EXPRESSION "FAIL:|Traceback"
@@ -4450,6 +4535,10 @@ install(FILES
 # plugInfo's "ShaderResources": "shaders" never looks (Sdr discovery found
 # zero shaders in the install tree).
 install(DIRECTORY usdGenShaders/resources/shaders/
+    DESTINATION "${USDGEN_INSTALL_PLUGINDIR}/usdGenShaders/resources/shaders"
+    PATTERN "usdGenHairModel.glslfx" EXCLUDE)
+# The strand-model selector the build generated (USDGEN_HAIR_SHADING_MODEL).
+install(FILES "${_usdgen_hair_model_file}"
     DESTINATION "${USDGEN_INSTALL_PLUGINDIR}/usdGenShaders/resources/shaders")
 
 # usdGenTools usdview plugin: plugInfo beside the other plugin resources,

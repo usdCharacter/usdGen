@@ -48,14 +48,27 @@ struct UsdGenFurOcclusionParams
     int   opaqueMarkVoxels = 4;
 
     /// Also build the scalp-shadow cap (UsdGenScalpShadowPublication): the
-    /// occluders' haired area, tessellated to about the voxel size, carrying
-    /// HAIR-ONLY optical depth so it darkens the skin by what the hair above
-    /// absorbs and not by the head shadowing itself, which the skin shader's
-    /// own N.L already does.
+    /// occluders' haired area, tessellated on a lattice fixed by the occluders
+    /// alone, carrying HAIR-ONLY optical depth so it darkens the skin by what
+    /// the hair above absorbs and not by the head shadowing itself, which the
+    /// skin shader's own N.L already does.
     bool scalpShadow = false;
     /// Ceiling on the cap's triangle count; the tessellation level is the
-    /// largest that fits it and still does not exceed the voxel size.
+    /// largest that fits it and still does not refine past an edge of 1/128
+    /// of the occluders' bounding diagonal.
     int  scalpMaxTriangles = 200000;
+
+    /// Also publish `furDensity` (vertex, float, arity 1) on every tile: the
+    /// LOCAL hair density at each CV, for a hair shading model that darkens
+    /// ambient light by local hair density. It is the per-voxel optical depth
+    /// of the hair-only density grid -- the expected fibre crossings of a ray
+    /// traversing one voxel along an axis, averaged over x, y and z --
+    /// trilinearly gathered at the CV. Units are crossings per voxel, so the
+    /// value scales with the voxel edge (`voxelSize`). HAIR ONLY: the opaque
+    /// occluder shell is not in it, so roots resting on a surface do not read
+    /// as saturated. Clamped at UsdGenFurTauClamp. Off by default, so a groom
+    /// whose shading does not ask for it carries no extra primvar.
+    bool localDensity = false;
 
     /// With a dispatcher, tiles are splatted and gathered in parallel on its
     /// arena and the occluder shell is marked in parallel slabs.
@@ -96,6 +109,12 @@ struct UsdGenFurOcclusionParams
 /// All tiles of a description participate in one volume, so tile boundaries do
 /// not become lighting boundaries. There is no light or camera dependency.
 ///
+/// With `params.localDensity`, every tile also carries `furDensity` (vertex
+/// float, one value per CV): the hair-only per-voxel optical depth around the
+/// CV, averaged over the three axes. It is a non-directional measure of how
+/// crowded the CV's neighbourhood is, not a path integral; see the parameter.
+/// Without it any `furDensity` plane already on a tile is removed.
+///
 /// Returns false when nothing changed and the previous COW planes were shared.
 /// `previous` alone cannot see a parameter or occluder edit, so pass
 /// `volumeKey`: caller-owned state, 0 on the first call, written back every
@@ -118,5 +137,31 @@ bool UsdGenBuildFurOcclusion(
 
 /// The saturation ceiling of the published depths.
 inline constexpr float UsdGenFurTauClamp = 64.0f;
+
+/// One description's cap and the root albedo of its hair, for
+/// UsdGenMergeScalpShadows.
+struct UsdGenScalpShadowContribution
+{
+    UsdGenScalpShadowPublication const* cap = nullptr;
+    GfVec3f albedo{0.f};
+};
+
+/// Sums caps baked over the same emitting surface into one cap.
+///
+/// Every cap must carry the same nonzero `latticeKey`; parts that do not are
+/// ignored. The result keeps every triangle any part kept, and each point's
+/// depths are the sums of the parts' depths there (a part that dropped the
+/// point contributes nothing, which is what dropping meant: no hair over it).
+/// Summing is exact for the skin: the light that reaches it has crossed the
+/// hair of every description in turn.
+///
+/// When the parts' albedos differ, the result also carries `furCapAlbedo`
+/// (vertex, float3): the parts' albedos weighted by how much of each one's
+/// hair the point sees. Otherwise the material's baseColor stands for all.
+///
+/// The identity fields (primPath, purpose, visibility, materialPath) come from
+/// the first contributing part. Returns an empty cap when no part contributes.
+UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
+    std::vector<UsdGenScalpShadowContribution> const& parts);
 }
 #endif

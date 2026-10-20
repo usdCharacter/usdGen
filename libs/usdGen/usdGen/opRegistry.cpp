@@ -38,6 +38,12 @@
 #include "usdGen/ops/exprOp.h"
 #include "usdGen/ops/freeze.h"
 #include "usdGen/ops/collide.h"
+#include "usdGen/ops/braid.h"
+#include "usdGen/ops/twist.h"
+#include "usdGen/ops/trim.h"
+#include "usdGen/ops/frizz.h"
+#include "usdGen/ops/tieClump.h"
+#include "usdGen/ops/cardSource.h"
 
 #include "pxr/pxr.h"
 
@@ -138,10 +144,16 @@ std::unique_ptr<UsdGenOp> CreateWindOp() { return std::make_unique<UsdGenWindOp>
 std::unique_ptr<UsdGenOp> CreateExprOp() { return std::make_unique<UsdGenExprOp>(); }
 std::unique_ptr<UsdGenOp> CreateFreezeOp() { return std::make_unique<UsdGenFreezeOp>(); }
 std::unique_ptr<UsdGenOp> CreateCollideOp() { return std::make_unique<UsdGenCollideOp>(); }
+std::unique_ptr<UsdGenOp> CreateBraidOp() { return std::make_unique<UsdGenBraidOp>(); }
+std::unique_ptr<UsdGenOp> CreateTwistOp() { return std::make_unique<UsdGenTwistOp>(); }
+std::unique_ptr<UsdGenOp> CreateTrimOp() { return std::make_unique<UsdGenTrimOp>(); }
+std::unique_ptr<UsdGenOp> CreateFrizzOp() { return std::make_unique<UsdGenFrizzOp>(); }
+std::unique_ptr<UsdGenOp> CreateTieClumpOp() { return std::make_unique<UsdGenTieClumpOp>(); }
+std::unique_ptr<UsdGenOp> CreateCardSourceOp() { return std::make_unique<UsdGenCardSourceOp>(); }
 
 UsdGenOpRegistry::UsdGenOpRegistry()
 {
-    _entries.reserve(26);
+    _entries.reserve(32);
     Register(TfToken("UsdGenScatter"), &CreateScatterOp);
     Register(TfToken("UsdGenGrow"), &CreateGrowOp);
     Register(TfToken("UsdGenNoise"), &CreateNoiseOp);
@@ -170,6 +182,13 @@ UsdGenOpRegistry::UsdGenOpRegistry()
     Register(TfToken("UsdGenExprOp"), &CreateExprOp);
     Register(TfToken("UsdGenFreeze"), &CreateFreezeOp);
     Register(TfToken("UsdGenCollide"), &CreateCollideOp);
+    // Whole-strand stylers and the card generator (CPU reference lane).
+    Register(TfToken("UsdGenBraid"), &CreateBraidOp);
+    Register(TfToken("UsdGenTwist"), &CreateTwistOp);
+    Register(TfToken("UsdGenTrim"), &CreateTrimOp);
+    Register(TfToken("UsdGenFrizz"), &CreateFrizzOp);
+    Register(TfToken("UsdGenTieClump"), &CreateTieClumpOp);
+    Register(TfToken("UsdGenCardSource"), &CreateCardSourceOp);
 }
 
 void usdGenRegisterM1Operators() { (void)UsdGenOpRegistry::Get(); }

@@ -365,6 +365,15 @@ bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
             if (param.value != VtValue(TfToken("scale")) &&
                 param.value != VtValue(TfToken("set")) && param.value != VtValue(TfToken("cull")))
                 return Fail(diagnostics, "only literal Length scale, set or cull modes supported");
+        } else if (name == "length:min" || name == "length:max" ||
+                   name == "length:randomize") {
+            // Inert randomRange controls (that mode is refused above).
+            float inert = 0.0f;
+            if (!ReadFloat(param, &inert))
+                return Fail(diagnostics, "Length range controls must be finite literals");
+        } else if (name == "length:shareByClump" || name == "length:followClumpMean") {
+            if (!param.value.IsHolding<bool>())
+                return Fail(diagnostics, "Length range toggles must be bool literals");
         } else if (name == "length:method") {
             if (param.value == VtValue(TfToken("scale")))
                 stage->lengthMethod = VulkanSourceWidthStage::LengthMethod::Scale;
@@ -675,6 +684,10 @@ bool ValidateResample(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
         } else if (name == "restoreSegmentLengths" || name == "usdGen:restoreSegmentLengths") {
             if (param.value != VtValue(false))
                 return Fail(diagnostics, "Resample restoreSegmentLengths must be false");
+        } else if (name == "spacing" || name == "usdGen:spacing") {
+            float spacing = 0.0f;
+            if (!ReadFloat(param, &spacing) || spacing != 0.0f)
+                return Fail(diagnostics, "Resample spacing requires the CPU reference backend");
         } else if (name == "enabled") {
             if (!param.value.IsHolding<bool>())
                 return Fail(diagnostics, "Resample enabled must be a bool literal");

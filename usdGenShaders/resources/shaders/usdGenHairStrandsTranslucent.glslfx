@@ -50,10 +50,13 @@
     "techniques": {
         "default": {
             "surfaceShader": {
-                "source": [ "UsdGenStrands.Common",
+                "source": [ "UsdGenStrands.Model",
+                            "UsdGenStrands.Common",
                             "UsdGenStrands.Melanin",
                             "UsdGenStrands.Bsdf",
                             "UsdGenStrands.DualScattering",
+                            "UsdGenStrands.MarschnerTables",
+                            "UsdGenStrands.Marschner",
                             "UsdGenStrands.Surface" ]
             }
         }
@@ -90,19 +93,19 @@
         },
         "roughness": {
             "default": 0.35,
-            "documentation": "UE's hair Roughness, i.e. Marschner's longitudinal beta. The three lobe variances are B = {roughness^2, roughness^2/2, roughness^2*2}; smaller is a tighter, brighter primary highlight."
+            "documentation": "UE's hair Roughness, i.e. Marschner's longitudinal beta. The three lobe variances are B = {roughness^2, roughness^2/2, roughness^2*2}; smaller is a tighter, brighter primary highlight. Marschner build: the same widths, B_R = roughness^2 and longitudinal variance v = roughness^2, whenever primaryRoughness / longitudinalRoughness are unauthored."
         },
         "specular": {
             "default": 0.5,
-            "documentation": "Scales the R (primary, uncoloured) lobe only, as `specular*2` — so the UE default 0.5 means a multiplier of exactly 1. TT and TRT are unaffected."
+            "documentation": "Scales the R (primary, uncoloured) lobe only, as `specular*2` — so the UE default 0.5 means a multiplier of exactly 1. TT and TRT are unaffected. The same in both builds."
         },
         "scatter": {
             "default": 0.0,
-            "documentation": "UE's `Scatter` pin (GBuffer.Metallic): the strength of the wrapped-Lambert fake multiple-scattering term, added on top of dual scattering exactly where HairShading() adds it. 0 is UE's own default and what its strands path forces, relying on dual scattering alone. Raise it for a scene lit only by a headlight, where every Marschner lobe is near zero because they all need the light close to the specular cone: 0.3 is enough to read the coat, at the cost of a flat fill over the self-shadowing."
+            "documentation": "UE's `Scatter` pin (GBuffer.Metallic): the strength of the wrapped-Lambert fake multiple-scattering term, added on top of dual scattering exactly where HairShading() adds it. 0 is UE's own default and what its strands path forces, relying on dual scattering alone. Raise it for a scene lit only by a headlight, where every Marschner lobe is near zero because they all need the light close to the specular cone: 0.3 is enough to read the coat, at the cost of a flat fill over the self-shadowing. Marschner build: the model's colourised wrap term, sqrt(albedo)*albedo/max(albedo)*(N_fake.L + 1)*scatter, used only without dual scattering (selfShadow 0 or no density bake)."
         },
         "backlit": {
             "default": 1.0,
-            "documentation": "UE's Backlit pin. Scales the TT lobe fully, and the R lobe by lerp(1, backlit, saturate(-dot(V,L))) — i.e. only where the light is behind the fibre."
+            "documentation": "UE's Backlit pin. Scales the TT lobe fully, and the R lobe by lerp(1, backlit, saturate(-dot(V,L))) — i.e. only where the light is behind the fibre. Marschner build: scales the TT lobe only."
         },
         "opacity": {
             "default": 1.0,
@@ -122,7 +125,7 @@
         },
         "selfShadow": {
             "default": 1.0,
-            "documentation": "Multiplier on the baked optical depth before it is used as UE's hair count: 0 disables self-shadowing and dual scattering, 1 uses the bake as-is, >1 makes the coat denser. furTauP/furTauN hold the world-axis depths; optional furTipTauP/furTipTauN enable instanced root/tip interpolation. Without them the shader falls back to the legacy hairT canopy approximation plus UE's Scatter fake."
+            "documentation": "Multiplier on the baked optical depth before it is used as UE's hair count: 0 disables self-shadowing and dual scattering, 1 uses the bake as-is, >1 makes the coat denser. furTauP/furTauN hold the world-axis depths; optional furTipTauP/furTipTauN enable instanced root/tip interpolation. Without them the shader falls back to the legacy hairT canopy approximation plus UE's Scatter fake. Marschner build: 0 switches dual scattering off and the wrap fallback (`scatter`) applies; about 0.45 maps the bake onto the reference model's density units. It also scales furDensity for aoIntensity."
         },
         "hairCoverageScale": {
             "default": 1.0,
@@ -131,6 +134,130 @@
         "minPixelWidth": {
             "default": 1.0,
             "documentation": "The minimum projected strand width, in pixels, that coverage compensation assumes Storm rasterized. INFORMATIONAL: the clamp itself is the prim's `minScreenSpaceWidths` primvar (basisCurves.glslfx:780-790), which overrides this when present. Set both together if you change either."
+        },
+        "primaryRoughness": {
+            "default": -1.0,
+            "documentation": "Roughness of the R (primary, white) lobe alone, in `roughness` units: B_R = primaryRoughness^2, clamped to [1/255, 1]. Negative (the default) follows `roughness`. Split it from longitudinalRoughness to get a sharp white highlight over broad, almost flat TT/TRT lobes, which one coupled roughness cannot express. randomRoughness jitters it too. Marschner build: B_R = clamp(primaryRoughness^2, 1/255, 1) without Karis' sqrt(2)*cos(phi/2) scaling, so a reference Roughness R at longitudinal variance v is sqrt(2*v*R)."
+        },
+        "longitudinalRoughness": {
+            "default": -1.0,
+            "documentation": "Roughness of the TT and TRT lobes, in `roughness` units: B_TT = l^2/2, B_TRT = 2*l^2, clamped to [1/255, 4] (wider than `roughness`, so a Chiang-style longitudinal variance v is reachable as l = sqrt(v)). Negative (the default) follows `roughness`. Also indexes the dual-scattering fits and the dome albedo, clamped to their fitted 0..1. randomRoughness jitters it too. Marschner build: the longitudinal variance v = l^2 itself (B_TT = v/2, B_TRT = 2v; a reference longitudinal roughness b gives v = (0.726b + 0.812b^2 + 3.7b^20)^2), and the scattering table reads clamp(v, 0.18, 0.6)."
+        },
+        "azimuthalRoughness": {
+            "default": -1.0,
+            "documentation": "Azimuthal roughness in [0,1], broadening the TRT (secondary) lobe around the fibre: Np_TRT = s*exp(s*(17*cosPhi - 16.78)) with s = saturate(1.5*(1 - azimuthalRoughness)). Every value up to 1/3, including the default -1 (unauthored), gives s = 1, i.e. the unchanged Karis TRT. TT keeps its fixed azimuthal fit. Marschner build: the same TRT broadening, and it sets the width of the TT azimuthal lobe; floored at 0.02, and negative keeps the model's 0.35."
+        },
+        "cuticleTilt": {
+            "default": -1.0,
+            "documentation": "Cuticle scale tilt in DEGREES, as the Karis shift: the lobes are centred at {-2, +1, +4} x cuticleTilt (R through Karis' ShiftR expression, toward the root), and dual scattering follows. Negative (the default) keeps the built-in 0.035 rad (about 2.005 degrees). Marschner build: the shift s = 4*cuticleTilt in radians, with R at -s, TT at +s/2 and TRT at +1.5s -- the same R shift the Karis lobes give for the same value; negative keeps s = 0.03 rad (cuticleTilt 0.43 degrees)."
+        },
+        "backScatter": {
+            "default": 1.0,
+            "documentation": "Gain on the dual-scattering back-scatter lobe (the light that bounces back out of the coat), with the baked hair count only. 1 leaves it alone, 0 removes it. Marschner build: also scales the weak albedo back-scatter fill used without dual scattering."
+        },
+        "usePresetColors": {
+            "default": 0.0,
+            "documentation": "Blend from the root/tip (and melanin) albedo (0) to the per-strand preset gradients (1). Each strand picks gradient A, B or C by presetWeights from its hairId, then evaluates that gradient along hairT. baseColorMap and the jitters apply on top. Needs the hairId primvar for the per-strand pick (without it every strand takes the selector fract(presetWeights.w))."
+        },
+        "presetSrgb": {
+            "default": 0.0,
+            "documentation": "0: the preset colour stops are linear, like every other colour input. 1: they are sRGB-encoded display colours, blended along the strand as authored and linearised afterwards (clamped to [0,1] first), which is how display-referred colour presets are defined."
+        },
+        "presetColorA1": {
+            "default": [0.035, 0.018, 0.008],
+            "documentation": "Preset gradient A, first stop (root side)."
+        },
+        "presetColorA2": {
+            "default": [0.12, 0.065, 0.026],
+            "documentation": "Preset gradient A, middle stop."
+        },
+        "presetColorA3": {
+            "default": [0.21, 0.115, 0.045],
+            "documentation": "Preset gradient A, last stop (tip side)."
+        },
+        "presetPointsA": {
+            "default": [0.0, 0.33, 0.66, 1.0],
+            "documentation": "Preset gradient A control points along hairT: colour = mix(mix(c1, c2, smoothstep(x, y, t)), c3, smoothstep(z, w, t)). Clamped to [0,1] and forced ascending (each at least 1e-4 past the previous)."
+        },
+        "presetColorB1": {
+            "default": [0.25, 0.16, 0.08],
+            "documentation": "Preset gradient B, first stop (root side)."
+        },
+        "presetColorB2": {
+            "default": [0.45, 0.32, 0.17],
+            "documentation": "Preset gradient B, middle stop."
+        },
+        "presetColorB3": {
+            "default": [0.6, 0.45, 0.26],
+            "documentation": "Preset gradient B, last stop (tip side)."
+        },
+        "presetPointsB": {
+            "default": [0.0, 0.33, 0.66, 1.0],
+            "documentation": "Preset gradient B control points, as presetPointsA."
+        },
+        "presetColorC1": {
+            "default": [0.01, 0.006, 0.004],
+            "documentation": "Preset gradient C, first stop (root side)."
+        },
+        "presetColorC2": {
+            "default": [0.01, 0.006, 0.004],
+            "documentation": "Preset gradient C, middle stop."
+        },
+        "presetColorC3": {
+            "default": [0.01, 0.006, 0.004],
+            "documentation": "Preset gradient C, last stop (tip side)."
+        },
+        "presetPointsC": {
+            "default": [0.0, 0.33, 0.66, 1.0],
+            "documentation": "Preset gradient C control points, as presetPointsA."
+        },
+        "presetWeights": {
+            "default": [1.0, 0.0, 0.0, 0.0],
+            "documentation": "x, y, z: relative weights of gradients A, B, C (negative counts as 0; normalised by their sum). w: selector offset. A strand takes A when fract(hairId + w) < x/sum, else B when it is < (x+y)/sum, else C."
+        },
+        "jitterMode": {
+            "default": 0.0,
+            "documentation": "0: symmetric jitter -- randomHue rotates about the grey axis by +-randomHue/2 turn, randomValue scales by 1 +- randomValue, randomSaturation adds +-randomSaturation, each on its own hash of hairId; the offsets then apply in HSV. 1: one-sided HSV jitter keyed on hairId itself, as colour-preset models define it: h = fract(h + hueOffset + hairId*randomHue), s = saturate(s + saturationOffset + hairId*randomSaturation), v = saturate(v + valueOffset + hairId*randomValue), so it is correlated with the preset pick."
+        },
+        "randomSaturation": {
+            "default": 0.0,
+            "documentation": "Per-curve saturation jitter amount (HSV saturation, additive), driven by the hairId primvar; see jitterMode."
+        },
+        "hueOffset": {
+            "default": 0.0,
+            "documentation": "Constant hue offset in turns, applied in HSV to every strand; see jitterMode."
+        },
+        "saturationOffset": {
+            "default": 0.0,
+            "documentation": "Constant HSV saturation offset, additive; -1 makes the hair grey. See jitterMode."
+        },
+        "valueOffset": {
+            "default": 0.0,
+            "documentation": "Constant HSV value offset, additive. See jitterMode."
+        },
+        "rootBlendRate": {
+            "default": 0.0,
+            "documentation": "When > 0, the root/tip colour blend becomes smoothstep(0, rootBlendRate, hairT) -- the tip colour is fully reached at that fraction of the strand -- before colorRamp shapes it. 0 (the default) blends linearly in hairT as before."
+        },
+        "indirectMultiplier": {
+            "default": 1.0,
+            "documentation": "Multiplies the dome light as the BSDF sees it (all lobes, dual scattering and the scatter fake). 0 removes the sky from the hair without touching the DomeLight, e.g. to replace it with ambientFill. Marschner build: the sky never goes through the BSDF; indirectMultiplier + ambientFill is the gain of the model's flat ambient, albedo * mean sky radiance * hair occlusion (aoIntensity)."
+        },
+        "ambientFill": {
+            "default": 0.0,
+            "documentation": "Flat albedo-tinted ambient: adds albedo * mean dome radiance * ambientFill, times the sky visibility through the coat (the mean over the dome taps of exp(-max(0, hairCount - 1)); the hairT canopy without a density bake). The simple ambient model of real-time groom previews; set indirectMultiplier 0 and ambientFill to that model's multiplier to reproduce it. Needs a DomeLight. Marschner build: adds to indirectMultiplier as the gain of the flat ambient; the sky visibility is aoIntensity's hair occlusion instead."
+        },
+        "rootFade": {
+            "default": 0.0,
+            "documentation": "Fades coverage near the root so a dense hairline blends into the scalp: alpha *= 1 - rootFade*(1 - smoothstep(0, 0.18, hairT)). 0 (the default) leaves the root opaque; 0.5 halves it at the root."
+        },
+        "ior": {
+            "default": 1.55,
+            "documentation": "Index of refraction of the fibre. Marschner build only: Fresnel F0 = ((1-ior)/(1+ior))^2 and the Bravais index of the TT/TRT paths (clamped to >= 1). The Karis lobes keep their fixed n = 1.55. The multiple-scattering table is built at 1.55 either way."
+        },
+        "aoIntensity": {
+            "default": 0.0,
+            "documentation": "Marschner build only: hair ambient occlusion on the flat ambient term, exp(-aoIntensity * selfShadow * furDensity), from the local hair density the fur bake publishes as the furDensity primvar. 0 (the default) disables it; nothing happens without furDensity."
         }
     },
 
@@ -146,6 +273,11 @@
         "furTauN": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
         "furTipTauP": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
         "furTipTauN": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
+        "furDensity": {
+            "type": "float",
+            "default": 0.0,
+            "documentation": "Local hair density at the CV, in crossings per voxel along an axis averaged over x/y/z, hair only. Published by the fur bake in Marschner builds (or with USDGEN_FUR_DENSITY=1); read by aoIntensity."
+        },
         "hairT": {
             "type": "float",
             "default": 0.0,

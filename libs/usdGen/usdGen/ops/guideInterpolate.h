@@ -1,9 +1,14 @@
 // usdGen — UsdGenGuideInterpolateOp. 02-schema.md §2.6, 04-operators.md §2.3.
-// Roots -> strands shaped by a sparse guide curve set (usdGen:guides): every
-// strand blends the root-local shapes of its nearest guides, in each guide's
-// root frame, constrained by a region field (usdGen:region, a connectable
-// per-strand id: a ptex region map, a geoSampler voronoi over the guide
-// roots, any expression). Emits guideIndex / guideWeight (uniform, arity 3).
+// Roots -> strands shaped by a sparse guide curve set (usdGen:guides).
+// usdGen:weighting = "falloff" (default): every strand blends the root-local
+// shapes of its nearest guides, in each guide's root frame, constrained by a
+// region field (usdGen:region, a connectable per-strand id: a ptex region
+// map, a geoSampler voronoi over the guide roots, any expression).
+// "nearest" / "inverseDistance" / "gaussian": the imported-groom guide blend
+// (ops/guideBlend.h) with bend-follow frames and parting.
+// Emits guideIndex / guideWeight (uniform, arity 3) and the uniform int
+// planes primaryGuide, nearestGuide, partId, mirrorSign; upstream uniform
+// planes (strandIndex, strandSeed) are carried through.
 // TopologyEffect = CvCount, like Grow.
 #ifndef USDGEN_OP_GUIDE_INTERPOLATE_H
 #define USDGEN_OP_GUIDE_INTERPOLATE_H

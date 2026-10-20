@@ -29,6 +29,12 @@ using UsdGenSurfaceId = uint16_t;   // index into UsdGenGraphDesc::surfaces
 
 constexpr UsdGenNodeId kUsdGenInvalidNode = ~0u;
 
+/// CPU-lane ceiling on CVs per generated or resampled strand (Grow segments,
+/// GuideInterpolate/CardSource cvCount, Resample cvCount/spacing). The CUDA
+/// and Vulkan lanes keep their own, smaller kernel limits and refuse a graph
+/// above them at admission.
+constexpr uint32_t kUsdGenMaxCvsPerCurve = 4096u;
+
 /// 128-bit digest; used for the Merkle structural digest and the capture epoch.
 using UsdGenEpoch = std::array<uint64_t, 2>;
 

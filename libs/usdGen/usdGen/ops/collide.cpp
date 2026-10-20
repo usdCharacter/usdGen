@@ -9,14 +9,15 @@
 // Only deformed points are read; worldMatrix is ignored exactly like
 // UsdGenScatter (post-flattening groom space, S4).
 //
-// Closest-point search is brute force over fan-triangulated faces (04 §4
-// notes the production BVH this waits on): deterministic first-win ties in
-// node order / ascending faces, double precision, no allocation in
-// Evaluate. Capture resolves and validates every collider mesh; Evaluate
-// reads live points through the captured indices, so an animated collider
-// re-captures (surfaceGeneration digest terms) and re-evaluates every cook
-// with no stale geometry. Value-class edits (offset/pushAmount/iterations)
-// sweep without recapturing (displace precedent), so Evaluate additionally
+// Closest-point search: Capture resolves and validates every collider mesh
+// and indexes the CURRENT collider points — flexible/stiff in one exact BVH
+// over all colliders (ops/collideBvh.h: the former brute-force scan's
+// results, first-win ties in node order / ascending faces, double
+// precision), relax in one strand::TriangleBvh per collider. Evaluate only
+// queries the captured indices (no allocation). An animated collider
+// re-captures (surfaceGeneration digest terms), so the indices are never
+// stale. Value-class edits (offset/pushAmount/iterations/clearance) sweep
+// without recapturing (displace precedent), so Evaluate additionally
 // sanitizes: a non-finite connected value reads as 0, iterations < 1 copies
 // the input, and an unknown resolveType falls back to flexible. Capture
 // still hard-errors on every one of those states; the Evaluate fallbacks
@@ -24,7 +25,9 @@
 #include "usdGen/ops/collide.h"
 
 #include "usdGen/opParams.h"
+#include "usdGen/ops/collideBvh.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/ops/strandUtil.h"
 
 #include "pxr/base/gf/vec3d.h"
 #include "pxr/base/gf/vec3f.h"
@@ -46,6 +49,18 @@ namespace {
 const TfToken sOffset{"offset"}, sPushAmount{"pushAmount"};
 const TfToken sIterations{"iterations"}, sResolveType{"resolveType"};
 const TfToken sFlexible{"flexible"}, sStiff{"stiff"}, sMask{"mask"};
+const TfToken sRelax{"relax"};
+const TfToken sClearanceRoot{"clearance:root"}, sClearanceTip{"clearance:tip"};
+const TfToken sRelaxIterations{"relax:iterations"};
+const TfToken sUnresolved{"collideUnresolved"};
+
+// Relax (imported-groom push-out) constants, reference values.
+constexpr float kRelaxMinClearance = 1e-4f;   // clearance floor, scene units
+constexpr float kRelaxGain = 0.8f;            // per-iteration relaxation
+constexpr float kRelaxUnresolved = 1e-4f;     // "still penetrating" distance
+constexpr float kRelaxMinSegment = 1e-6f;     // length-preservation guard
+constexpr int kRelaxDefaultIterations = 24;
+constexpr int kRelaxMaxWindow = 10;           // min(n,1000)/min(n,100) <= 10
 
 struct UsdGenCollideCollider
 {
@@ -56,6 +71,9 @@ struct UsdGenCollideCollider
 struct UsdGenCollideCapture final : public UsdGenCapture
 {
     std::vector<UsdGenCollideCollider> colliders;  // node.surfaces order
+    bool relax = false;
+    UsdGenCollideExactBvh exact;                   // flexible / stiff
+    std::vector<strand::TriangleBvh> relaxBvhs;    // relax, one per collider
     uint32_t upstreamCurves = 0;
     uint32_t upstreamCvs = 0;
 
@@ -96,121 +114,39 @@ bool FindSurface(UsdGenGraphDesc const *desc, SdfPath const &path,
     return false;
 }
 
-// Ericson 5.1.5 closest point on triangle abc. False when the triangle is
-// degenerate (zero area); the caller skips those. Non-degenerate edges are
-// all nonzero, so the three interior divisions are exact and safe.
-bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
-                       GfVec3d const &c, GfVec3d *closest, double *dist2)
+// First face-vertex index of every face (validated topology: counts >= 0
+// and summing to the index count).
+std::vector<size_t> FaceOffsets(UsdGenSurfaceDesc const &geometry)
 {
-    GfVec3d const n = GfCross(b - a, c - a);
-    double const len = n.GetLength();
-    if (!(len > 0.0) || !Finite(len)) return false;
-    GfVec3d const ab = b - a, ac = c - a, ap = p - a;
-    double const d1 = GfDot(ab, ap), d2 = GfDot(ac, ap);
-    if (d1 <= 0.0 && d2 <= 0.0) {
-        *closest = a;
-    } else {
-        GfVec3d const bp = p - b;
-        double const d3 = GfDot(ab, bp), d4 = GfDot(ac, bp);
-        if (d3 >= 0.0 && d4 <= d3) {
-            *closest = b;
-        } else {
-            double const vc = d1 * d4 - d3 * d2;
-            if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
-                *closest = a + ab * (d1 / (d1 - d3));
-            } else {
-                GfVec3d const cp = p - c;
-                double const d5 = GfDot(ab, cp), d6 = GfDot(ac, cp);
-                if (d6 >= 0.0 && d5 <= d6) {
-                    *closest = c;
-                } else {
-                    double const vb = d5 * d2 - d1 * d6;
-                    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
-                        *closest = a + ac * (d2 / (d2 - d6));
-                    } else {
-                        double const va = d3 * d6 - d5 * d4;
-                        double const d43 = d4 - d3, d56 = d5 - d6;
-                        if (va <= 0.0 && d43 >= 0.0 && d56 >= 0.0) {
-                            *closest = b + (c - b) * (d43 / (d43 + d56));
-                        } else {
-                            double const denom = 1.0 / (va + vb + vc);
-                            *closest = a + ab * (vb * denom) + ac * (vc * denom);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    GfVec3d const d = p - *closest;
-    *dist2 = GfDot(d, d);
-    return true;
+    std::vector<size_t> offsets(geometry.faceVertexCounts.size() + 1, 0);
+    for (size_t f = 0; f < geometry.faceVertexCounts.size(); ++f)
+        offsets[f + 1] = offsets[f] + size_t(std::max(0, geometry.faceVertexCounts[f]));
+    return offsets;
 }
 
-struct ClosestHit
+// Calls emit(a, b, c) for every fan triangle of the collider in scan order:
+// ascending (restricted) faces, fan triangles (c0, ck, ck+1).
+template <class F>
+void ForEachFanTriangle(UsdGenSurfaceDesc const &geometry,
+                        std::vector<int> const &faces, F const &emit)
 {
-    bool found = false;
-    GfVec3d q, a, b, c;   // closest point + its winning corners (for dist 0)
-    double dist2 = 0.0;
-};
-
-// Closest point over every captured collider: node order, ascending faces,
-// first win on ties. Reads live points through captured indices; never
-// allocates. A hit with non-finite distance is impossible after Capture
-// validated the meshes (the desc is immutable within a run); the guard
-// below keeps it from ever producing NaN output regardless.
-ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
-                              UsdGenCollideCapture const &cap, GfVec3d const &p)
-{
-    ClosestHit best;
-    if (!desc) return best;
-    for (UsdGenCollideCollider const &collider : cap.colliders) {
-        if (collider.geometry >= desc->surfaces.size()) continue;
-        UsdGenSurfaceDesc const &surf = desc->surfaces[collider.geometry];
-        size_t const F = surf.faceVertexCounts.size();
-        if (surf.points.empty() || surf.faceVertexIndices.empty()) continue;
-        size_t fi = 0;  // merge cursor over the sorted restricted faces
-        size_t off = 0;
-        size_t const Nfvi = surf.faceVertexIndices.size();
-        for (size_t f = 0; f < F; ++f) {
-            int const corners = surf.faceVertexCounts[f];
-            if (corners < 0 || off + size_t(corners) > Nfvi) break;
-            bool const use = collider.faces.empty()
-                ? true
-                : (fi < collider.faces.size() && size_t(collider.faces[fi]) == f);
-            if (use) {
-                ++fi;
-                if (corners >= 3) {
-                    int const v0 = surf.faceVertexIndices[off];
-                    for (int k = 1; k + 1 < corners; ++k) {
-                        int const v1 = surf.faceVertexIndices[off + size_t(k)];
-                        int const v2 = surf.faceVertexIndices[off + size_t(k) + 1];
-                        if (v0 < 0 || v1 < 0 || v2 < 0 ||
-                            size_t(v0) >= surf.points.size() ||
-                            size_t(v1) >= surf.points.size() ||
-                            size_t(v2) >= surf.points.size())
-                            continue;
-                        GfVec3d const a(surf.points[size_t(v0)]);
-                        GfVec3d const b(surf.points[size_t(v1)]);
-                        GfVec3d const c(surf.points[size_t(v2)]);
-                        GfVec3d q;
-                        double d2 = 0.0;
-                        if (!ClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
-                        if (!(d2 >= 0.0)) continue;
-                        if (!best.found || d2 < best.dist2) {
-                            best.found = true;
-                            best.q = q;
-                            best.a = a;
-                            best.b = b;
-                            best.c = c;
-                            best.dist2 = d2;
-                        }
-                    }
-                }
-            }
-            off += size_t(corners);
+    std::vector<size_t> const offsets = FaceOffsets(geometry);
+    auto face = [&](size_t f) {
+        int const corners = geometry.faceVertexCounts[f];
+        if (corners < 3) return;
+        size_t const off = offsets[f];
+        int const v0 = geometry.faceVertexIndices[off];
+        for (int k = 1; k + 1 < corners; ++k) {
+            int const v1 = geometry.faceVertexIndices[off + size_t(k)];
+            int const v2 = geometry.faceVertexIndices[off + size_t(k) + 1];
+            emit(v0, v1, v2);
         }
+    };
+    if (faces.empty()) {
+        for (size_t f = 0; f < geometry.faceVertexCounts.size(); ++f) face(f);
+    } else {
+        for (int f : faces) face(size_t(f));
     }
-    return best;
 }
 
 // Validates one resolved collider mesh and produces its restricted face
@@ -280,27 +216,15 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
     }
     // At least one non-degenerate triangle must exist; count the skipped.
     size_t valid = 0, skipped = 0;
-    auto scanFace = [&](size_t f) {
-        size_t off = 0;
-        for (size_t k = 0; k < f; ++k)
-            off += size_t(geometry.faceVertexCounts[k]);
-        int const n = geometry.faceVertexCounts[f];
-        if (n < 3) return;
-        for (int k = 1; k + 1 < n; ++k) {
-            GfVec3d const a(geometry.points[size_t(geometry.faceVertexIndices[off])]);
-            GfVec3d const b(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k)])]);
-            GfVec3d const c(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k) + 1])]);
-            GfVec3d const cr = GfCross(b - a, c - a);
-            double const l = cr.GetLength();
-            if (l > 0.0 && Finite(l)) ++valid;
-            else ++skipped;
-        }
-    };
-    if (faces->empty()) {
-        for (size_t f = 0; f < geometry.faceVertexCounts.size(); ++f) scanFace(f);
-    } else {
-        for (int f : *faces) scanFace(size_t(f));
-    }
+    ForEachFanTriangle(geometry, *faces, [&](int v0, int v1, int v2) {
+        GfVec3d const a(geometry.points[size_t(v0)]);
+        GfVec3d const b(geometry.points[size_t(v1)]);
+        GfVec3d const c(geometry.points[size_t(v2)]);
+        GfVec3d const cr = GfCross(b - a, c - a);
+        double const l = cr.GetLength();
+        if (l > 0.0 && Finite(l)) ++valid;
+        else ++skipped;
+    });
     if (!valid) {
         *error = "collider surface '" + path.GetString() +
                  "' has no valid triangle";
@@ -311,6 +235,162 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
                    std::to_string(skipped) + " degenerate triangle(s)";
     }
     return true;
+}
+
+// One strand::TriangleBvh over the collider's CURRENT points: the
+// (restricted) fan triangles minus the degenerate ones the validation
+// skipped; corner normals are area-weighted vertex normals of those points.
+void BuildRelaxBvh(UsdGenSurfaceDesc const &geometry, std::vector<int> const &faces,
+                   strand::TriangleBvh *bvh)
+{
+    std::vector<strand::FanTriangle> all, kept;
+    VtIntArray restricted(faces.begin(), faces.end());
+    strand::FanTriangulate(geometry.faceVertexCounts, geometry.faceVertexIndices, &all,
+                           faces.empty() ? nullptr : &restricted);
+    kept.reserve(all.size());
+    for (strand::FanTriangle const &t : all) {
+        GfVec3d const a(geometry.points[size_t(t.v[0])]);
+        GfVec3d const b(geometry.points[size_t(t.v[1])]);
+        GfVec3d const c(geometry.points[size_t(t.v[2])]);
+        double const l = GfCross(b - a, c - a).GetLength();
+        if (l > 0.0 && Finite(l)) kept.push_back(t);
+    }
+    bvh->Build(geometry.points, kept);
+}
+
+// --- relax ------------------------------------------------------------------
+
+struct RelaxSample
+{
+    bool hit = false;
+    float d = 0.0f;              // signed distance (negative inside)
+    GfVec3f n{0.0f, 0.0f, 1.0f}; // unit gradient of d (outward)
+};
+
+// Signed distance to the union of the colliders (minimum over colliders,
+// first collider on ties). The closest point is exact; the side comes from
+// the interpolated vertex normal at it, and the gradient is the unit
+// direction away from (outside) / toward (inside) the closest point. A
+// point on the surface (within ~1e-6 relative) takes the vertex normal.
+RelaxSample SignedDistance(std::vector<strand::TriangleBvh> const &bvhs, GfVec3f const &p)
+{
+    RelaxSample best;
+    float const scale = 1.0f + std::max(std::fabs(p[0]), std::max(std::fabs(p[1]), std::fabs(p[2])));
+    for (strand::TriangleBvh const &bvh : bvhs) {
+        if (bvh.Empty()) continue;
+        strand::ClosestHit const h = bvh.Closest(p);
+        if (!h.hit) continue;
+        GfVec3f const surfaceN = bvh.Normal(h.triangle, h.bary);
+        GfVec3f const diff = p - h.point;
+        float const len = diff.GetLength();
+        RelaxSample s;
+        s.hit = true;
+        if (len > 1e-6f * scale) {
+            float const sign = GfDot(diff, surfaceN) < 0.0f ? -1.0f : 1.0f;
+            s.d = sign * len;
+            float const k = sign / len;
+            s.n = GfVec3f(diff[0] * k, diff[1] * k, diff[2] * k);
+        } else {
+            s.d = GfDot(diff, surfaceN);
+            s.n = surfaceN;
+        }
+        if (!best.hit || s.d < best.d) best = s;
+    }
+    return best;
+}
+
+// The push-out window w = max(1, round(r)), r = steps(cap 1000) /
+// steps(cap 100) with steps = clamp(n, 3, cap): 1 for n <= 100.
+int RelaxWindow(size_t n)
+{
+    float const steps1000 = float(std::clamp<size_t>(n, 3, 1000));
+    float const steps100 = float(std::clamp<size_t>(n, 3, 100));
+    long const w = std::lroundf(steps1000 / steps100);
+    return int(std::clamp<long>(w, 1, kRelaxMaxWindow));
+}
+
+inline GfVec3f Mul(GfVec3f const &v, float s) { return GfVec3f(v[0] * s, v[1] * s, v[2] * s); }
+
+// One strand, in place: `in` is the upstream strand (A), `out` receives the
+// result. Between iterations `out[k]` (k >= 1) holds Wk; inside an iteration
+// it holds the displacement Disp (the reference keeps both arrays; Disp is
+// always Wk - A at an iteration boundary, so one array suffices). The
+// smoothing is a Jacobi pass done in place: a ring of the last w overwritten
+// displacements supplies the k - w tap. Returns the "still penetrating"
+// flag. Allocation-free.
+bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
+                 float const *ix, float const *iy, float const *iz,
+                 float *ox, float *oy, float *oz, size_t n,
+                 float clearRoot, float clearTip, int iterations)
+{
+    auto in = [&](size_t k) { return GfVec3f(ix[k], iy[k], iz[k]); };
+    auto out = [&](size_t k) { return GfVec3f(ox[k], oy[k], oz[k]); };
+    auto put = [&](size_t k, GfVec3f const &v) { ox[k] = v[0]; oy[k] = v[1]; oz[k] = v[2]; };
+    for (size_t k = 0; k < n; ++k) { ox[k] = ix[k]; oy[k] = iy[k]; oz[k] = iz[k]; }
+    if (n < 2 || iterations < 1) return false;
+    float const span = float(n - 1);
+    auto clearance = [&](size_t k) {
+        return clearRoot + (clearTip - clearRoot) * (float(k) / span);
+    };
+    bool penetrating = false;
+    for (size_t k = 1; k < n && !penetrating; ++k) {
+        RelaxSample const s = SignedDistance(bvhs, in(k));
+        penetrating = s.hit && s.d < clearance(k);
+    }
+    if (!penetrating) return false;
+
+    size_t const w = size_t(RelaxWindow(n));
+    GfVec3f ring[kRelaxMaxWindow];
+    for (int it = 0; it < iterations; ++it) {
+        // Disp[k] = (Wk[k] - A[k]) + n * 0.8 * (clear(k) - d) when inside the
+        // clearance, sampled at the current Wk.
+        for (size_t k = 1; k < n; ++k) {
+            GfVec3f const wk = out(k);
+            GfVec3f disp = wk - in(k);
+            RelaxSample const s = SignedDistance(bvhs, wk);
+            float const c = clearance(k);
+            if (s.hit && s.d < c) disp += Mul(s.n, kRelaxGain * (c - s.d));
+            put(k, disp);
+        }
+        // S[k] = 0.25 Disp[max(0,k-w)] + 0.5 Disp[k] + 0.25 Disp[min(n-1,k+w)]
+        // for k = 1..n-2; S[n-1] = 0.5 Disp[n-1] + 0.5 Disp[max(0,n-1-w)];
+        // Disp[0] == 0 (the root never moves).
+        for (size_t k = 1; k + 1 < n; ++k) {
+            size_t const lo = k > w ? k - w : 0;
+            GfVec3f const a = lo == 0 ? GfVec3f(0.0f) : ring[lo % w];
+            GfVec3f const b = out(k);
+            GfVec3f const c = out(std::min(n - 1, k + w));
+            ring[k % w] = b;
+            put(k, Mul(a, 0.25f) + Mul(b, 0.5f) + Mul(c, 0.25f));
+        }
+        {
+            size_t const last = n - 1;
+            size_t const lo = last > w ? last - w : 0;
+            GfVec3f const a = lo == 0 ? GfVec3f(0.0f) : ring[lo % w];
+            put(last, Mul(out(last), 0.5f) + Mul(a, 0.5f));
+        }
+        // Wk = A + S, then follow-the-leader from the fixed root restores
+        // every rest segment length |A[k] - A[k-1]|.
+        GfVec3f prev = in(0);
+        for (size_t k = 1; k < n; ++k) {
+            GfVec3f const a = in(k);
+            float const seg = (a - in(k - 1)).GetLength();
+            GfVec3f const target = a + out(k);
+            GfVec3f const dir = target - prev;
+            float const len = dir.GetLength();
+            GfVec3f const unit = len > kRelaxMinSegment
+                ? GfVec3f(dir[0] / len, dir[1] / len, dir[2] / len)
+                : GfVec3f(0.0f, 1.0f, 0.0f);
+            GfVec3f const wk = prev + Mul(unit, seg);
+            put(k, wk);
+            prev = wk;
+        }
+    }
+    for (size_t k = 1; k < n; ++k) {
+        RelaxSample const s = SignedDistance(bvhs, out(k));
+        if (s.hit && s.d <= kRelaxUnresolved) return true;
+    }
+    return false;
 }
 
 }  // namespace
@@ -329,6 +409,9 @@ static TfTokenVector _valueParams = [] {
     v.push_back(TfToken("offset"));
     v.push_back(TfToken("pushAmount"));
     v.push_back(TfToken("iterations"));
+    v.push_back(sClearanceRoot);          // relax only
+    v.push_back(sClearanceTip);           // relax only
+    v.push_back(sRelaxIterations);        // relax only
     return v;
 }();
 
@@ -339,6 +422,16 @@ TfSpan<const TfToken> UsdGenCollideOp::TopologyParameters() const
 TfSpan<const TfToken> UsdGenCollideOp::ValueParameters() const
 {
     return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
+}
+TfSpan<const TfToken> UsdGenCollideOp::OutputPrimvars() const
+{
+    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
+}
+void UsdGenCollideOp::Configure(UsdGenParamView const &params)
+{
+    _outputs.clear();
+    if (params.GetToken(sResolveType, sFlexible) == sRelax)
+        _outputs.push_back(sUnresolved);
 }
 std::unique_ptr<UsdGenCapture> UsdGenCollideOp::CreateCapture() const
 {
@@ -353,12 +446,12 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
                            UsdGenDiagnostics *diag)
 {
     TfToken const resolveType = params.GetToken(sResolveType, sFlexible);
-    if (resolveType != sFlexible && resolveType != sStiff) {
+    if (resolveType != sFlexible && resolveType != sStiff && resolveType != sRelax) {
         if (diag) diag->Error("UsdGenCollide: unknown usdGen:resolveType '" +
                               resolveType.GetString() + "'");
         return false;
     }
-    for (TfToken const *name : {&sOffset, &sPushAmount}) {
+    for (TfToken const *name : {&sOffset, &sPushAmount, &sClearanceRoot, &sClearanceTip}) {
         double const v = params.GetDoubleLiteral(*name, 0.0);
         if (!Finite(v)) {
             if (diag) diag->Error("UsdGenCollide: usdGen:" + name->GetString() +
@@ -370,6 +463,10 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
         if (diag) diag->Error("UsdGenCollide: usdGen:iterations must be at least 1");
         return false;
     }
+    if (params.GetInt(sRelaxIterations, kRelaxDefaultIterations) < 1) {
+        if (diag) diag->Error("UsdGenCollide: usdGen:relax:iterations must be at least 1");
+        return false;
+    }
     return true;
 }
 
@@ -377,8 +474,9 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
 {
     // Structural resolveType plus the resolved collider geometry: an animated
     // collider (or a reordered surface pool, which moves the captured indices)
-    // re-captures. Value edits (offset/pushAmount/iterations, and connected
-    // values folded in separately by the scheduler) sweep without recapture.
+    // re-captures. Value edits (offset/pushAmount/iterations/clearance, and
+    // connected values folded in separately by the scheduler) sweep without
+    // recapture.
     opUtil::Digest d;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     d.Mix(p ? p->GetToken(sResolveType, sFlexible) : sFlexible);
@@ -438,6 +536,9 @@ bool UsdGenCollideOp::Capture(
     }
     auto &cap = *static_cast<UsdGenCollideCapture *>(out);
     cap.colliders.clear();
+    cap.exact.Clear();
+    cap.relaxBvhs.clear();
+    cap.relax = p->GetToken(sResolveType, sFlexible) == sRelax;
     cap.upstreamCurves = upstream.totalCurves;
     cap.upstreamCvs = upstream.totalCvs;
     for (SdfPath const &path : p->node->surfaces) {
@@ -493,6 +594,22 @@ bool UsdGenCollideOp::Capture(
             }
         }
     }
+    // Index the current collider points (validated above).
+    if (cap.relax) {
+        cap.relaxBvhs.resize(cap.colliders.size());
+        for (size_t i = 0; i < cap.colliders.size(); ++i)
+            BuildRelaxBvh(ctx.desc->surfaces[cap.colliders[i].geometry],
+                          cap.colliders[i].faces, &cap.relaxBvhs[i]);
+    } else {
+        for (UsdGenCollideCollider const &collider : cap.colliders) {
+            UsdGenSurfaceDesc const &geometry = ctx.desc->surfaces[collider.geometry];
+            ForEachFanTriangle(geometry, collider.faces, [&](int v0, int v1, int v2) {
+                cap.exact.Add(geometry.points[size_t(v0)], geometry.points[size_t(v1)],
+                              geometry.points[size_t(v2)]);
+            });
+        }
+        cap.exact.Build();
+    }
     return true;
 }
 
@@ -520,17 +637,47 @@ void UsdGenCollideOp::Evaluate(
     size_t const cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
     auto const *cvOff = view->cvOffsets;
     bool const ragged = cvOff != nullptr;
+    // The optional per-curve unresolved flag (relax nodes only).
+    float *flags = (view->outCount > 0 && view->outF) ? view->outF[0] : nullptr;
     auto copyInput = [&](size_t o) {
         px[o] = inPx[o]; py[o] = inPy[o]; pz[o] = inPz[o];
     };
-    auto current = [&](size_t o, int it) -> GfVec3d {
-        if (it == 0) return GfVec3d(inPx[o], inPy[o], inPz[o]);
-        return GfVec3d(px[o], py[o], pz[o]);
-    };
-    auto store = [&](size_t o, GfVec3d const &v) {
-        px[o] = float(v[0]); py[o] = float(v[1]); pz[o] = float(v[2]);
-    };
-    if (iterations < 1 || cap.colliders.empty() || !ctx.desc) {
+
+    if (cap.relax) {
+        double const rootClear = p ? Sanitize(p->GetDouble(sClearanceRoot, 0.0)) : 0.0;
+        double const tipClear = p ? Sanitize(p->GetDouble(sClearanceTip, 0.0)) : 0.0;
+        float const cR = std::max(kRelaxMinClearance, float(rootClear));
+        float const cT = std::max(kRelaxMinClearance, float(tipClear));
+        int const relaxIterations =
+            p ? p->GetInt(sRelaxIterations, kRelaxDefaultIterations) : kRelaxDefaultIterations;
+        for (uint32_t c = 0; c < view->curveCount; ++c) {
+            size_t const n =
+                ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
+            size_t const g =
+                ragged ? size_t(cvOff[c] - cvOff[0]) : view->Cv(c, 0);
+            size_t const curve = curveBase + c;
+            bool const unresolved = RelaxStrand(
+                cap.relaxBvhs, inPx + g, inPy + g, inPz + g, px + g, py + g, pz + g,
+                n, cR, cT, relaxIterations);
+            // usdGen:mask envelopes the relaxed result per CV.
+            for (size_t i = 0; i < n; ++i) {
+                size_t const o = g + i;
+                float const m = float(std::clamp(
+                    Sanitize(maskField.Value(curve, cvBase + o)), 0.0, 1.0));
+                if (m == 1.0f) continue;
+                if (m == 0.0f) { copyInput(o); continue; }
+                px[o] = inPx[o] + (px[o] - inPx[o]) * m;
+                py[o] = inPy[o] + (py[o] - inPy[o]) * m;
+                pz[o] = inPz[o] + (pz[o] - inPz[o]) * m;
+            }
+            if (flags) flags[c] = unresolved ? 1.0f : 0.0f;
+        }
+        return;
+    }
+    if (flags)
+        for (uint32_t c = 0; c < view->curveCount; ++c) flags[c] = 0.0f;
+
+    if (iterations < 1 || cap.colliders.empty() || cap.exact.Empty() || !ctx.desc) {
         for (uint32_t c = 0; c < view->curveCount; ++c) {
             size_t const n =
                 ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
@@ -540,6 +687,22 @@ void UsdGenCollideOp::Evaluate(
         }
         return;
     }
+    auto current = [&](size_t o, int it) -> GfVec3d {
+        if (it == 0) return GfVec3d(inPx[o], inPy[o], inPz[o]);
+        return GfVec3d(px[o], py[o], pz[o]);
+    };
+    auto store = [&](size_t o, GfVec3d const &v) {
+        px[o] = float(v[0]); py[o] = float(v[1]); pz[o] = float(v[2]);
+    };
+    // Only a hit closer than the offset can push (pen = off - dist > 0), so
+    // the search is bounded just above off^2: the exact closest triangle is
+    // returned whenever it can push, and "no hit" otherwise — the same
+    // outcome as the unbounded scan's non-positive penetration.
+    auto closest = [&](GfVec3d const &pos, double off) {
+        UsdGenCollideHit none;
+        if (!(off > 0.0)) return none;
+        return cap.exact.Closest(pos, off * off * (1.0 + 1e-6));
+    };
 
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n =
@@ -562,13 +725,12 @@ void UsdGenCollideOp::Evaluate(
                         continue;
                     }
                     GfVec3d const pos = current(o, it);
-                    ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos);
+                    double const off = Sanitize(offsetField.Value(curve, cv));
+                    UsdGenCollideHit const hit = closest(pos, off);
                     if (!hit.found) {
                         if (it == 0) copyInput(o);
                         continue;
                     }
-                    double const off = Sanitize(offsetField.Value(curve, cv));
                     double const pen = off - std::sqrt(hit.dist2);
                     if (!(pen > 0.0)) {
                         if (it == 0) copyInput(o);
@@ -599,12 +761,11 @@ void UsdGenCollideOp::Evaluate(
                     double const m = std::clamp(
                         Sanitize(maskField.Value(curve, cv)), 0.0, 1.0);
                     GfVec3d const pos = current(o, it);
-                    ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos);
+                    double const off = Sanitize(offsetField.Value(curve, cv));
+                    UsdGenCollideHit const hit = closest(pos, off);
                     double pen = 0.0;
                     GfVec3d dir(0.0, 0.0, 1.0);
                     if (hit.found) {
-                        double const off = Sanitize(offsetField.Value(curve, cv));
                         pen = off - std::sqrt(hit.dist2);
                         dir = hit.dist2 == 0.0
                             ? UnitNormal(hit.a, hit.b, hit.c)

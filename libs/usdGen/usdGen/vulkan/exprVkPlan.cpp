@@ -6,6 +6,7 @@
 #include "usdGen/expressionTargets.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
+#include "usdGen/ops/width.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
 #include <cctype>
@@ -125,6 +126,17 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
                 return false;
             }
             interpolation = param.value.UncheckedGet<TfToken>();
+        } else if (name == "width:profile:mode") {
+            if (param.value != VtValue(TfToken("ramp")) && param.value != VtValue(TfToken("bezier"))) {
+                Error(diagnostics, "Width profile mode must be ramp or bezier");
+                return false;
+            }
+        } else if (name == "width:root" || name == "width:mid" || name == "width:midShift" ||
+                   name == "width:tip") {
+            if (!param.value.IsHolding<float>() || !std::isfinite(param.value.UncheckedGet<float>())) {
+                Error(diagnostics, "Width profile controls must be finite float literals");
+                return false;
+            }
         } else {
             Error(diagnostics, "unsupported Width parameter " + name);
             return false;
@@ -137,9 +149,13 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
         }
     if (!knots.empty())
         UsdGenBuildRampLut(knots, interpolation, data.literal.profile.data(), 257);
+    // Bezier profile mode replaces the ramp LUT with the profile factor.
+    UsdGenParamView const params{&desc, &node};
+    bool const bezier = UsdGenWidthBezierLut(params, data.literal.profile.data(), 257);
     if (!ExprVkCompileStageBindings(desc, node, &data.bindings, diagnostics))
         return false;
-    data.literal.extended = !knots.empty() || data.literal.mask != 1.0f || !data.bindings.empty();
+    data.literal.extended = !knots.empty() || bezier || data.literal.mask != 1.0f ||
+        !data.bindings.empty();
     *out = std::move(data);
     return true;
 }

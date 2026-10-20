@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <map>
 #include <stdexcept>
 
 using namespace usdGen;
@@ -472,6 +473,47 @@ int main() try {
                 "the surface still blocks light to whatever is behind it");
     }
 
+    // ---- a solid thinner than the shell -----------------------------------
+    // The shell is marked two to six voxels under every surface. Under one
+    // side of a thin solid -- an ear -- that depth is already past the other
+    // side, and the shell came out into the air beyond it: hair lying over an
+    // imported head's ear read saturated toward every light and rendered black
+    // in the ear's outline. A thin closed fin beside a haired sphere (which
+    // keeps the solid-side vote unambiguous), and a zero-width probe just
+    // above the fin, where that stray shell used to be.
+    {
+        auto box=[](GfVec3f const& lo,GfVec3f const& hi) {
+            UsdGenFurOccluder b;
+            b.points={GfVec3f(lo[0],lo[1],lo[2]),GfVec3f(hi[0],lo[1],lo[2]),
+                      GfVec3f(hi[0],hi[1],lo[2]),GfVec3f(lo[0],hi[1],lo[2]),
+                      GfVec3f(lo[0],lo[1],hi[2]),GfVec3f(hi[0],lo[1],hi[2]),
+                      GfVec3f(hi[0],hi[1],hi[2]),GfVec3f(lo[0],hi[1],hi[2])};
+            // Wound like SphereMesh as the bake sees it (its vote puts the
+            // solid on the +normal side): the solid side is one decision per
+            // bake, so every occluder in it must agree.
+            b.faceVertexCounts={4,4,4,4,4,4};
+            b.faceVertexIndices={1,2,3,0, 7,6,5,4, 4,5,1,0, 2,6,7,3, 3,7,4,0, 5,6,2,1};
+            return b;
+        };
+        GfVec3f const above(1.15f,0.07f,0.f);
+        std::vector<UsdGenTilePublication> scene{
+            HairShell(0,1500,7u), Probe(1,above,above+GfVec3f(0.f,0.001f,0.f))};
+        UsdGenFurOcclusionParams params;
+        params.occluders.push_back(SphereMesh(0.5f,24,48));
+        params.occluders.push_back(box(GfVec3f(1.0f,-0.002f,-0.1f),GfVec3f(1.3f,0.002f,0.1f)));
+        UsdGenBuildFurOcclusion(&scene,nullptr,params);
+        float const sideways=Reconstruct(Tau(scene[1],"furTauP",0),
+                                         Tau(scene[1],"furTauN",0),GfVec3f(0,0,-1));
+        float const up=Reconstruct(Tau(scene[1],"furTauP",0),
+                                   Tau(scene[1],"furTauN",0),GfVec3f(0,1,0));
+        float const down=Reconstruct(Tau(scene[1],"furTauP",0),
+                                     Tau(scene[1],"furTauN",0),GfVec3f(0,-1,0));
+        std::printf("  above a 4 mm fin: %.2f crossings sideways, %.2f up, %.2f "
+                    "down through the fin\n",sideways,up,down);
+        Require(sideways<1.f && up<1.f,
+                "the shell under a thin solid does not come out the other side");
+    }
+
     // ---- the scalp-shadow cap ------------------------------------------------
     // Hair over half a plane: the cap must darken the half under it and leave
     // the bare half alone, and must sit just off the surface without being
@@ -582,6 +624,249 @@ int main() try {
         Require(!UsdGenBuildFurOcclusion(&live,&before,params,&volumeKey,&carried),
                 "unchanged groom reuses");
         Require(carried.points.IsIdentical(kept.points),"the cap shares its arrays");
+    }
+
+    // ---- one cap per surface -------------------------------------------------
+    // Descriptions over the same surface bake caps on the same lattice, so the
+    // scene index can sum them into the single cap it publishes: the sum keeps
+    // every triangle either kept, adds the depths point for point, and carries
+    // a per-point hair colour only when the colours differ.
+    {
+        auto capOver=[&](UsdGenTilePublication const& hair,float half) {
+            std::vector<UsdGenTilePublication> scene{hair};
+            UsdGenFurOcclusionParams params;
+            params.occluders.push_back(Quad(0.f,half,false));
+            params.scalpShadow=true;
+            UsdGenScalpShadowPublication cap;
+            UsdGenBuildFurOcclusion(&scene,nullptr,params,nullptr,&cap);
+            return cap;
+        };
+        UsdGenScalpShadowPublication const left=capOver(Comb(0,-0.55f,400,0.3f),0.6f);
+        UsdGenScalpShadowPublication const right=capOver(Comb(1,0.15f,400,0.3f),0.6f);
+        Require(!left.IsEmpty() && !right.IsEmpty(),"both descriptions bake a cap");
+        Require(left.latticeKey!=0 && left.latticeKey==right.latticeKey,
+                "caps over one surface share a lattice, whatever their hair");
+        Require(left.latticeIds.size()==left.points.size(),"one lattice id per cap point");
+        Require(left.lift>0.f && left.lift<0.05f,"the cap records its lift");
+        UsdGenScalpShadowPublication const elsewhere=capOver(Comb(0,-0.55f,400,0.3f),0.7f);
+        Require(elsewhere.latticeKey!=left.latticeKey,"another surface is another lattice");
+
+        GfVec3f const dark(0.02f,0.01f,0.005f), pale(0.8f,0.7f,0.5f);
+        UsdGenScalpShadowPublication const ignored=
+            UsdGenMergeScalpShadows({{&left,dark},{&elsewhere,dark}});
+        Require(ignored.digest==left.digest && ignored.points.IsIdentical(left.points),
+                "a part on another lattice is left out");
+        UsdGenScalpShadowPublication const alone=UsdGenMergeScalpShadows({{&left,dark}});
+        Require(alone.points.IsIdentical(left.points) && alone.digest==left.digest,
+                "one part passes through, sharing its arrays");
+        Require(UsdGenMergeScalpShadows({}).IsEmpty(),"nothing to merge, no cap");
+
+        UsdGenScalpShadowPublication const both=
+            UsdGenMergeScalpShadows({{&left,dark},{&right,dark}});
+        size_t const tl=left.faceVertexCounts.size(), tr=right.faceVertexCounts.size();
+        size_t const tb=both.faceVertexCounts.size();
+        std::printf("  merged caps: %zu + %zu triangles -> %zu\n",tl,tr,tb);
+        Require(tb>=std::max(tl,tr) && tb<=tl+tr,
+                "the sum keeps every triangle either part kept, once");
+        Require(both.faceVertexIndices.size()==tb*3,"merged cap face cardinality");
+        for(int index:both.faceVertexIndices)
+            Require(index>=0 && size_t(index)<both.points.size(),"merged cap index in range");
+        Require(both.normals.size()==both.points.size() &&
+                both.latticeIds.size()==both.points.size(),"merged cap per-point arrays");
+        auto byId=[](UsdGenScalpShadowPublication const& cap) {
+            std::map<int,std::pair<GfVec3f,GfVec3f>> m;
+            UsdGenPlane const& p=Plane(cap.extraUniform,"furTauP");
+            for(size_t i=0;i<cap.points.size();++i)
+                m[cap.latticeIds[i]]={cap.points[i],
+                                      GfVec3f(p.f[i*3],p.f[i*3+1],p.f[i*3+2])};
+            return m;
+        };
+        auto const inLeft=byId(left), inRight=byId(right), inBoth=byId(both);
+        float worst=0;
+        bool samePoints=true;
+        for(auto const& [id,value]:inBoth) {
+            GfVec3f want(0.f);
+            for(auto const* part:{&inLeft,&inRight}) {
+                auto const found=part->find(id);
+                if(found==part->end()) continue;
+                want+=found->second.second;
+                samePoints = samePoints && found->second.first==value.first;
+            }
+            worst=std::max(worst,(value.second-want).GetLength());
+        }
+        Require(samePoints,"both parts put a lattice id at the same point");
+        Require(worst<1e-5f,"merged depths are the sums of the parts' depths");
+        bool leftSide=false, rightSide=false;
+        for(GfVec3f const& p:both.points) { leftSide|=p[0]<-0.35f; rightSide|=p[0]>0.2f; }
+        Require(leftSide && rightSide,"the merged cap covers both patches");
+
+        bool colour=false;
+        for(auto const& p:both.extraUniform) colour|=p.name==TfToken("furCapAlbedo");
+        Require(!colour,"one hair colour needs no per-point colour");
+        UsdGenScalpShadowPublication const mixed=
+            UsdGenMergeScalpShadows({{&left,dark},{&right,pale}});
+        UsdGenPlane const& albedo=Plane(mixed.extraUniform,"furCapAlbedo");
+        Require(albedo.interpolation==TfToken("vertex") && albedo.arity==3 &&
+                albedo.f.size()==mixed.points.size()*3,"per-point colour is vertex float3");
+        // Straight under each patch, the colour is that patch's.
+        float underLeft=-1, underRight=-1;
+        for(size_t i=0;i<mixed.points.size();++i) {
+            if(mixed.points[i][0]<-0.45f && mixed.points[i][0]>-0.5f) underLeft=albedo.f[i*3];
+            if(mixed.points[i][0]>0.25f && mixed.points[i][0]<0.3f) underRight=albedo.f[i*3];
+        }
+        std::printf("  merged colour: %.3f under the dark patch, %.3f under the pale one\n",
+                    underLeft,underRight);
+        Require(underLeft>=0.f && underLeft<0.3f,"skin under dark hair takes the dark colour");
+        Require(underRight>0.5f,"skin under pale hair takes the pale colour");
+        Require(mixed.digest!=both.digest,"the hair colours are part of the merged identity");
+    }
+
+    // ---- local hair density --------------------------------------------------
+    // furDensity is a gather of the HAIR-ONLY density grid: how crowded a CV's
+    // own neighbourhood is, averaged over the three axes, in crossings per
+    // voxel. It is published only when asked for, never reads the opaque
+    // shell, and follows the same reuse rules as the depths.
+    {
+        auto has=[](UsdGenTilePublication const& tile) {
+            for(auto const& p:tile.extraUniform) if(p.name==TfToken("furDensity")) return true;
+            return false;
+        };
+        auto density=[](UsdGenTilePublication const& tile,size_t cv) {
+            return Plane(tile,"furDensity").f[cv];
+        };
+        auto cleared=[](std::vector<UsdGenTilePublication> tiles) {
+            for(auto& tile:tiles) tile.extraUniform.clear();   // a cooker's new tiles
+            return tiles;
+        };
+        // A lone strand, a dense bundle (x in [0.2, 0.39]), and two zero-width
+        // probes: one in the middle of the bundle, one far from any hair.
+        auto scene=[] { return std::vector<UsdGenTilePublication>{
+            Make(0,0,1),Make(1,0.2f,400),
+            Probe(2,GfVec3f(0.3f,0.5f,0),GfVec3f(0.3f,0.55f,0)),
+            Probe(3,GfVec3f(-0.4f,0.5f,0),GfVec3f(-0.4f,0.55f,0))}; };
+        UsdGenFurOcclusionParams on; on.localDensity=true;
+        UsdGenFurOcclusionParams const off;
+        auto plain=scene(), lit=scene();
+        Require(UsdGenBuildFurOcclusion(&plain,nullptr,off),"plain bake");
+        Require(UsdGenBuildFurOcclusion(&lit,nullptr,on),"local density bake");
+        for(auto const& tile:plain) Require(!has(tile),"no furDensity unless it is asked for");
+        for(size_t t=0;t<lit.size();++t) {
+            UsdGenPlane const& plane=Plane(lit[t],"furDensity");
+            Require(plane.interpolation==TfToken("vertex") && plane.type==TfToken("float") &&
+                    plane.arity==1,"furDensity is a vertex float");
+            Require(plane.f.size()==lit[t].points.size(),"one furDensity value per CV");
+            for(float x:plane.f)
+                Require(std::isfinite(x)&&x>=0&&x<=UsdGenFurTauClamp,"finite bounded density");
+            // Turning it on adds one plane and changes nothing else.
+            Require(lit[t].extraUniform.size()==plain[t].extraUniform.size()+1,
+                    "local density adds exactly one plane");
+            for(size_t i=1;i<lit[t].extraUniform.size();++i)
+                Require(lit[t].extraUniform[i-1].name<lit[t].extraUniform[i].name,
+                        "planes stay sorted by name");
+            for(auto name:{"furTauP","furTauN"}) {
+                VtFloatArray const& withDensity=Plane(lit[t],name).f;
+                VtFloatArray const& without=Plane(plain[t],name).f;
+                Require(withDensity.size()==without.size(),"local density keeps tau cardinality");
+                for(size_t i=0;i<without.size();++i)
+                    Require(withDensity[i]==without[i],"local density leaves the depths alone");
+            }
+        }
+        float const inside=density(lit[2],0), open=density(lit[3],0);
+        float const lone=density(lit[0],0);
+        std::printf("  local density: %.3f crossings per voxel inside a bundle, %.3f at a "
+                    "lone strand's root, %.4f in the open\n",inside,lone,open);
+        Require(inside>0.5f,"a CV inside a dense bundle reads the hair around it");
+        Require(inside>10.f*open,"a crowded CV reads far more than an isolated one");
+        Require(lone<inside,"a lone strand is less crowded than a bundle");
+        {   // Diff sees the new plane generically: first appearance is new.
+            UsdGenGeneration gPlain,gLit; gPlain.tiles=plain; gLit.tiles=lit;
+            auto rep=UsdGenGenerationStore().Diff(gPlain,gLit);
+            for(auto const& td:rep.tiles)
+                Require(std::find(td.newPrimvars.begin(),td.newPrimvars.end(),
+                                  TfToken("furDensity"))!=td.newPrimvars.end(),
+                        "furDensity appears as a new primvar");
+        }
+        {   // Hydra transport: a plain vertex float primvar, one value per CV.
+            auto litDs=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(lit[1]);
+            auto litPv=HdPrimvarsSchema::GetFromParent(litDs).GetPrimvar(TfToken("furDensity"));
+            Require(litPv.IsDefined()&&litPv.GetInterpolation()->GetTypedValue(0)==TfToken("vertex"),
+                    "furDensity Hydra vertex transport");
+            VtValue const value=litPv.GetPrimvarValue()->GetValue(0);
+            Require(value.IsHolding<VtFloatArray>() &&
+                    value.UncheckedGet<VtFloatArray>().size()==lit[1].points.size(),
+                    "furDensity reaches Hydra as one float per CV");
+            auto plainDs=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(plain[1]);
+            Require(!HdPrimvarsSchema::GetFromParent(plainDs).GetPrimvar(
+                        TfToken("furDensity")).IsDefined(),"no furDensity primvar when off");
+        }
+
+        // Hair only: sparse hair standing on an opaque quad, and a zero-width
+        // probe INSIDE the shell the quad injects (2.5 to 5.5 voxels under the
+        // surface, about 4 voxels at y = -0.1 here). The shell is ~32 crossings
+        // per voxel; with it, furDensity there would sit near the clamp.
+        auto sparse=[&](bool withOccluder) {
+            std::vector<UsdGenTilePublication> s{
+                Make(0,-0.1f,20), Probe(1,GfVec3f(0.1f,-0.1f,0.1f),GfVec3f(0.1f,-0.09f,0.1f))};
+            UsdGenFurOcclusionParams params; params.localDensity=true;
+            if(withOccluder) params.occluders.push_back(Quad(0.f,0.2f,false));
+            UsdGenBuildFurOcclusion(&s,nullptr,params);
+            return s;
+        };
+        auto bare=sparse(false), floored=sparse(true);
+        GfVec3f const up=Tau(floored[1],"furTauP",0), down=Tau(floored[1],"furTauN",0);
+        float worst=0, peak=0;
+        for(size_t i=0;i<floored[0].points.size();++i) {
+            worst=std::max(worst,std::fabs(density(floored[0],i)-density(bare[0],i)));
+            peak=std::max(peak,density(floored[0],i));
+        }
+        std::printf("  inside the shell: tau up %.1f down %.1f, furDensity %.4f; "
+                    "sparse hair peaks at %.3f, the occluder moves it by %.5f\n",
+                    up[1],down[1],density(floored[1],0),peak,worst);
+        Require(std::max(up[1],down[1])>0.25f*UsdGenFurTauClamp,
+                "the probe sits inside the opaque shell, and the depths see it");
+        Require(density(floored[1],0)<0.05f,"the opaque shell is not hair");
+        Require(peak<2.f,"sparse hair reads as sparse next to an occluder");
+        Require(worst<0.01f,"the occluder does not change the hair's own density");
+
+        // Reuse: unchanged geometry and parameters share the density buffer;
+        // the switch itself rebakes, with or without a volume key.
+        uint64_t volumeKey=0;
+        auto live=scene();
+        Require(UsdGenBuildFurOcclusion(&live,nullptr,on,&volumeKey),"first density bake");
+        auto const before=live;
+        auto carried=cleared(before);
+        Require(!UsdGenBuildFurOcclusion(&carried,&before,on,&volumeKey),
+                "an unchanged density bake is reused");
+        for(size_t t=0;t<carried.size();++t) {
+            Require(Plane(carried[t],"furDensity").f.IsIdentical(Plane(before[t],"furDensity").f),
+                    "the reuse path shares furDensity");
+            Require(Plane(carried[t],"furTauP").f.IsIdentical(Plane(before[t],"furTauP").f),
+                    "the reuse path still shares the depths");
+        }
+        auto dropped=cleared(before);
+        Require(UsdGenBuildFurOcclusion(&dropped,&before,off,&volumeKey),
+                "turning local density off rebakes");
+        for(auto const& tile:dropped) Require(!has(tile),"turning it off drops furDensity");
+        auto restored=cleared(before);
+        Require(UsdGenBuildFurOcclusion(&restored,&dropped,on,&volumeKey),
+                "turning local density back on rebakes");
+        for(size_t t=0;t<restored.size();++t)
+            for(size_t i=0;i<restored[t].points.size();++i)
+                Require(density(restored[t],i)==density(before[t],i),"the rebake is deterministic");
+        // Without a key, the previous planes alone must reveal the switch.
+        auto keylessOn=cleared(before);
+        Require(UsdGenBuildFurOcclusion(&keylessOn,&dropped,on),
+                "a previous bake without furDensity is not reused for one that wants it");
+        Require(has(keylessOn[0]),"the keyless rebake publishes furDensity");
+        auto keylessOff=cleared(before);
+        Require(UsdGenBuildFurOcclusion(&keylessOff,&before,off),
+                "a previous bake with furDensity is not reused for one that does not");
+        Require(!has(keylessOff[0]),"the keyless rebake drops furDensity");
+        auto keylessSame=cleared(before);
+        Require(!UsdGenBuildFurOcclusion(&keylessSame,&before,on),
+                "a matching previous bake is reused without a key");
+        Require(Plane(keylessSame[1],"furDensity").f.IsIdentical(Plane(before[1],"furDensity").f),
+                "the keyless reuse shares furDensity");
     }
 
     std::vector<UsdGenTilePublication> bench{Make(0,0,50000)};

@@ -159,6 +159,14 @@ UsdGenPlane DefaultOutputPlane(TfToken const &name)
     if (name == TfToken("guideIndex") || name == TfToken("partId") ||
         name.GetString().rfind("clumpId_", 0) == 0)
         plane.type = TfToken("int");
+    // Shared whole-strand vocabulary (ops/wholeStrand.h): per-strand guide
+    // and seed identities are ints; the braid knot mask is a per-CV float.
+    if (name == TfToken("primaryGuide") || name == TfToken("nearestGuide") ||
+        name == TfToken("strandSeed") || name == TfToken("strandIndex") ||
+        name == TfToken("mirrorSign"))
+        plane.type = TfToken("int");
+    if (name == TfToken("braidKnotMask"))
+        plane.interpolation = TfToken("vertex");
     if (name == TfToken("guideIndex") || name == TfToken("guideWeight"))
         plane.arity = 3;
     return plane;
@@ -204,8 +212,11 @@ void PrepareExtraPlanes(UsdGenCompiledNode &node,
         else if (UsdGenPlane const *curvePlane = FindPlane(oldCurve, name)) old = {curvePlane, false};
 
         PlaneLookup const layout = source.plane ? source : old;
-        bool const cv = layout.plane ? layout.cv : false;
         UsdGenPlane plane = layout.plane ? *layout.plane : DefaultOutputPlane(name);
+        // A first producer's domain comes from its default layout (vertex
+        // planes such as braidKnotMask are sized per CV).
+        bool const cv = layout.plane ? layout.cv
+                                     : plane.interpolation == TfToken("vertex");
         size_t const values = size_t(cv ? buffer.totalCvs : buffer.totalCurves) *
             std::max<uint8_t>(plane.arity, 1);
 

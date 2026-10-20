@@ -9,6 +9,8 @@ The product introduction is the [repository README](../README.md). This page is 
 - [moonray-fur.md](moonray-fur.md) — Instanced fur through the MoonRay Hydra delegate (`hdMoonray`)
 - [grow-azimuth.md](grow-azimuth.md) — Grow azimuth
 - [limit-scatter.md](limit-scatter.md) — Scatter limits
+- [groom-import.md](groom-import.md) — Operators, modes and data channels for imported grooms (card-grown hair, braids, twist, trim, ...)
+- [groom importer](../tools/sisir/README.md) — Importer for external groom scenes and hair presets
 - [workstation-protocol.md](workstation-protocol.md) — Manual display checks (tier T4). Not run in CI
 - [../examples/README.md](../examples/README.md) — Example scenes
 

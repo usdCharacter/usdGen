@@ -1294,8 +1294,15 @@ void CheckPlaybackNotices()
     HdDataSourceLocator const points(primvars, TfToken("points"));
     // `normals` is the scalp cap's: it follows the emitting surface, which the
     // RBF drivers deform, so it moves whenever the cap's points do.
+    // `furDensity` is the occlusion bake's optional local-density plane,
+    // present when the build or USDGEN_FUR_DENSITY turns it on.
+    // `usdGenCapLift` is the cap's height above the skin, which follows the
+    // surface's size, and `furCapAlbedo` a summed cap's per-point colour.
     std::vector<TfToken> const moving = {TfToken("points"), TfToken("furTauP"),
-                                         TfToken("furTauN"), TfToken("normals")};
+                                         TfToken("furTauN"), TfToken("normals"),
+                                         TfToken("furDensity"),
+                                         TfToken("usdGenCapLift"),
+                                         TfToken("furCapAlbedo")};
     std::string universal, unexpected;
     size_t tilesWithPoints = 0;
     bool driverPoints = false, driverUniversal = false;
@@ -1308,10 +1315,12 @@ void CheckPlaybackNotices()
             continue;
         }
         bool const tile = std::find(tiles.begin(), tiles.end(), entry.primPath) != tiles.end();
-        // The scalp-shadow cap is rebaked with the groom, so it moves every
-        // frame too. It is held to the same discipline as a tile: precise
-        // locators over the primvars that actually change, never universal.
-        bool const cap = entry.primPath.GetName() == "scalpShadow";
+        // The scalp-shadow cap and its sample mask are rebaked with the
+        // groom, so they move every frame too. They are held to the same
+        // discipline as a tile: precise locators over the primvars that
+        // actually change, never universal.
+        bool const cap = entry.primPath.GetName() == "scalpShadow" ||
+                         entry.primPath.GetName() == "scalpShadowMask";
         if (!tile && !cap) {
             if (entry.primPath.HasPrefix(render))
                 unexpected += " " + entry.primPath.GetString() + ":" + Describe(locators);

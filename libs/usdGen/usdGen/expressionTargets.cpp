@@ -266,6 +266,29 @@ bool ValidateBend(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 
 /// Wave displaces along the root tangent/normal by sine fields. Amplitudes
 /// and the mask are sampled per CV; frequencies are sampled per curve root.
+/// Whole-strand stylers (Braid, Twist, Trim, Frizz, TieClump): the result is
+/// computed at capture over every strand, so only the per-CV usdGen:mask
+/// envelope (and the groom-level enabled toggle) is connectable.
+bool ValidateWholeStrand(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
+{
+    std::set<std::string> seen;
+    bool ok = true;
+    for (auto const &binding : node.expressionBindings) {
+        const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
+        const bool boolean = name == "enabled";
+        if ((!boolean && name != "mask") || !seen.insert(name).second ||
+            !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
+                     boolean ? "bool" : "float", 1u)) {
+            ok = Reject(errors, "unsupported or incorrectly typed " + node.type.GetString() +
+                        " expression " + name);
+            continue;
+        }
+        if (boolean && binding.domain != Domain::Groom)
+            ok = Reject(errors, node.type.GetString() + " enabled requires groom evaluation");
+    }
+    return ok;
+}
+
 bool ValidateWave(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
     static const std::set<std::string> floats{
@@ -556,13 +579,15 @@ bool ValidateExprOp(UsdGenNodeDesc const &node, std::vector<std::string> *errors
 /// groom-wide; the mask is sampled per CV.
 bool ValidateCollide(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{"offset", "pushAmount", "mask"};
+    static const std::set<std::string> floats{"offset", "pushAmount", "mask",
+                                              "clearance:root", "clearance:tip"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        const bool integer = name == "iterations";
+        const bool integer = name == "iterations" || name == "relax:iterations";
+        const bool clearance = name == "clearance:root" || name == "clearance:tip";
         bool shape = false;
         if (boolean) shape = ShapeOk(binding, Type::Bool, "bool", 1u);
         else if (integer) shape = ShapeOk(binding, Type::Int32, "int", 1u);
@@ -571,8 +596,8 @@ bool ValidateCollide(UsdGenNodeDesc const &node, std::vector<std::string> *error
             ok = Reject(errors, "unsupported or incorrectly typed Collide expression " + name);
             continue;
         }
-        if ((boolean || integer) && binding.domain != Domain::Groom)
-            ok = Reject(errors, "Collide enabled/iterations require groom evaluation");
+        if ((boolean || integer || clearance) && binding.domain != Domain::Groom)
+            ok = Reject(errors, "Collide enabled/iterations/clearance require groom evaluation");
         else if (name != "mask" && binding.domain == Domain::Point)
             ok = Reject(errors, "Collide " + name + " requires groom/primitive evaluation");
     }
@@ -614,6 +639,10 @@ bool UsdGenValidateExpressionTargets(UsdGenNodeDesc const &node,
     if (node.type == TfToken("UsdGenWind")) return ValidateWind(node, errors);
     if (node.type == TfToken("UsdGenExprOp")) return ValidateExprOp(node, errors);
     if (node.type == TfToken("UsdGenCollide")) return ValidateCollide(node, errors);
+    if (node.type == TfToken("UsdGenBraid") || node.type == TfToken("UsdGenTwist") ||
+        node.type == TfToken("UsdGenTrim") || node.type == TfToken("UsdGenFrizz") ||
+        node.type == TfToken("UsdGenTieClump"))
+        return ValidateWholeStrand(node, errors);
     // Scatter owns its topology and consumes no connected control: it would
     // silently ignore one on both lanes, which is worse than a diagnostic.
     // WidthBlend blends two proved widths and owns no parameter evaluation;

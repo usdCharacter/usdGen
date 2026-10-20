@@ -25,6 +25,18 @@
 // under usdview's default lighting (camera headlight + default dome), which is
 // where a shadow map would have nothing to offer at all.
 //
+// The cap is drawn in two halves. Storm's translucent pass tests depth
+// against a buffer already resolved to ONE sample per pixel, so wherever a
+// strand covers part of a pixel and wins that sample, this translucent cap is
+// hidden from the whole pixel and the skin between the strand's samples keeps
+// its full light: a bright fringe along every strand over shadowed skin. The
+// opaque half, usdGenScalpShadowMask.glslfx, is depth-tested per sample and
+// blackens the whole steps of the darkening (steps/maskLevels of each pixel's
+// samples); this half then carries only the remainder, which is all a hidden
+// pixel can lose. The scene index publishes one cap per emitting surface,
+// summed over every description that grows from it, because the mask needs
+// the total darkening in one place.
+//
 // NOT part of the C5 freeze (docs/freezes/C5.md), which covers the `inputs:`
 // block of the three usdGenHairPreview* files only.
 //
@@ -53,6 +65,7 @@
                 "source": [ "UsdGenStrands.Common",
                             "UsdGenStrands.Bsdf",
                             "UsdGenStrands.DualScattering",
+                            "UsdGenScalp.Darkening",
                             "UsdGenScalp.Surface" ]
             }
         }
@@ -74,12 +87,18 @@
         "ambient": {
             "default": 0.35,
             "documentation": "The share of the hair's own albedo that bounces back down onto the skin, standing in for the hair-to-skin inter-reflection a single transmittance cannot carry. It is a FRACTION OF baseColor, not an absolute floor: a dark coat bounces almost nothing (0.35 of a 0.02-luminance coat floors the skin at 0.007, i.e. effectively not at all) while a blonde one bounces a lot. A constant floor here was measured clamping more than half the cap fragments of a dense dark coat, so the scalp could not go below 0.15 of the skin's own shading however much hair was above it. 0 removes the bounce entirely."
+        },
+        "maskLevels": {
+            "default": 0.0,
+            "documentation": "The steps the opaque sample mask (UsdGenScalpShadowMask) spends the darkening in; the scene index sets it on both halves to Storm's MSAA sample count when it publishes the mask. With a mask beside this cap, the mask has already blackened the whole steps and this cap takes only the remainder. 0 (no mask) darkens entirely here, as a cap bound on its own must."
         }
     },
 
     "attributes": {
         "furTauP": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
-        "furTauN": {"type": "vec3", "default": [0.0, 0.0, 0.0]}
+        "furTauN": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
+        "furCapAlbedo": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
+        "usdGenCapLift": {"type": "float", "default": 0.0}
     },
 
     "metadata": {
@@ -88,7 +107,7 @@
 }
 
 --- --------------------------------------------------------------------------
--- glsl UsdGenScalp.Surface
+-- glsl UsdGenScalp.Darkening
 
 // Cosine-weighted taps for the dome: the normal plus a ring at 60 degrees off
 // it. Three axis depths alone would sample only the normal direction, and the
@@ -112,11 +131,19 @@ vec3 UsdGenScalpTransmittance(vec3 albedo, float roughness, float cosNL,
     return pow(max(af, vec3(1e-4)), vec3(max(hairCount, 0.0)));
 }
 
-vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
+// The fraction of the skin's light the cap takes away, in [0, 1]. Both halves
+// of the cap call this and must agree on every pixel, or the mask would
+// blacken a step the remainder does not expect. Each half is lifted off the
+// skin by a different amount, so both work from the SKIN point: they read
+// their own lift back from usdGenCapLift and step down to it.
+float UsdGenScalpDarkening(vec4 Peye, vec3 Neye)
 {
     vec3 P = Peye.xyz / (abs(Peye.w) > 1e-8 ? Peye.w : 1.0);
-    vec3 V = UsdGenStrandsSafeNormalize(-P, vec3(0.0, 0.0, 1.0));
     vec3 N = UsdGenStrandsSafeNormalize(Neye, vec3(0.0, 0.0, 1.0));
+#if defined(HD_HAS_usdGenCapLift)
+    P -= N * HdGet_usdGenCapLift();
+#endif
+    vec3 V = UsdGenStrandsSafeNormalize(-P, vec3(0.0, 0.0, 1.0));
     // The cap is doubleSided and Storm does not flip a back face's normal, so
     // a scalp seen from inside the head would weight every light by a negative
     // cosine and never shadow anything.
@@ -124,7 +151,12 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
 
     vec3 tauP = max(vec3(0.0), HdGet_furTauP());
     vec3 tauN = max(vec3(0.0), HdGet_furTauN());
+#if defined(HD_HAS_furCapAlbedo)
+    // A cap summed over hair of several colours: each point's own mix.
+    vec3 albedo = clamp(HdGet_furCapAlbedo(), vec3(0.0), vec3(1.0));
+#else
     vec3 albedo = clamp(HdGet_baseColor().rgb, vec3(0.0), vec3(1.0));
+#endif
     float roughness = clamp(HdGet_roughness(), 1.0 / 255.0, 1.0);
 
     vec3 survived = vec3(0.0);
@@ -199,5 +231,34 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
     // costs nothing real: at grazing angles what the camera sees is hair, not
     // scalp.
     alpha *= smoothstep(0.05, 0.35, dot(N, V));
+    return alpha;
+}
+
+// How many of `levels` steps the sample mask blackens: the whole ones only,
+// so the translucent remainder never has to brighten anything.
+float UsdGenScalpMaskSteps(float darkening, float levels)
+{
+    return levels >= 2.0 ? min(floor(darkening * levels), levels) : 0.0;
+}
+
+--- --------------------------------------------------------------------------
+-- glsl UsdGenScalp.Surface
+
+vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
+{
+    float darkening = UsdGenScalpDarkening(Peye, Neye);
+    // With the sample mask beside this cap, `steps` of `levels` are already
+    // black, so take only what is left: on bare skin
+    // (1 - steps/levels) * (1 - alpha) == 1 - darkening exactly. Where a strand
+    // hides this cap from a pixel, the skin there still lost the mask's steps,
+    // and misses at most one step instead of all of it.
+    float levels = HdGet_maskLevels();
+    float steps = UsdGenScalpMaskSteps(darkening, levels);
+    float alpha = darkening;
+    if (steps > 0.0) {
+        float kept = 1.0 - steps / levels;
+        alpha = kept > 0.0
+            ? clamp(1.0 - (1.0 - darkening) / kept, 0.0, 1.0) : 0.0;
+    }
     return vec4(0.0, 0.0, 0.0, alpha);
 }

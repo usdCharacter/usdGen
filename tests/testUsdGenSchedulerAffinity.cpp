@@ -36,6 +36,12 @@
 #include <sched.h>
 #endif
 
+#if defined(_WIN32)
+// MSVC has no POSIX setenv/unsetenv; tests only need set and clear.
+static int setenv(char const *name, char const *value, int) { return _putenv_s(name, value); }
+static int unsetenv(char const *name) { return _putenv_s(name, ""); }
+#endif
+
 using namespace usdGen;
 
 namespace {

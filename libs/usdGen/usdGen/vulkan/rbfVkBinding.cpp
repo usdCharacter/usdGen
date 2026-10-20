@@ -15,6 +15,10 @@
 #include <functional>
 #include <new>
 
+#if defined(_MSC_VER) && defined(_M_X64)
+#include <intrin.h>
+#endif
+
 namespace usdGen::vulkan {
 
 char const* RbfVkStatusName(RbfVkStatus s) noexcept {
@@ -54,9 +58,11 @@ VkResult SpinWaitForFence(VkDevice device, VkFence fence)
         // double the spin's cost against a contested driver lock).
         if ((spin & 255) == 0 && std::chrono::steady_clock::now() >= deadline)
             return VK_TIMEOUT;
-#if defined(__aarch64__)
+#if defined(_MSC_VER) && defined(_M_X64)
+        _mm_pause();
+#elif defined(__aarch64__)
         __asm__ volatile("yield" ::: "memory");
-#elif defined(__x86_64__) || defined(_M_X64)
+#elif defined(__x86_64__)
         __asm__ volatile("pause" ::: "memory");
 #endif
     }

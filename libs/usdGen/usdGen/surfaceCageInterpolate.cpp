@@ -171,7 +171,7 @@ bool ValidateInput(UsdGenSurfaceCageInput const &input,
         int const end = input.ownerLengthProfileOffsets[ownerIndex + 1];
         if (owner.ownerTubeId < 0 || owner.ownerTubeId >= 16777216 ||
             !Finite(owner.density) || owner.density < 0.0f ||
-            owner.cvCount < 2 || owner.cvCount > 64 ||
+            owner.cvCount < 2 || owner.cvCount > int(kUsdGenMaxCvsPerCurve) ||
             !Finite(owner.defaultWidth) || owner.defaultWidth < 0.0f ||
             !Finite(owner.edgeBias) || owner.edgeBias < -1.0f || owner.edgeBias > 1.0f ||
             !Finite(owner.chartCentroid) ||

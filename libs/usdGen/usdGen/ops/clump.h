@@ -3,8 +3,11 @@
 // connected usdGen:clump:map (one clump per distinct map value: a ptex region
 // map, a geoSampler voronoi, any expression) or, unconnected, from centres
 // scattered at usdGen:clump:density. Further levels split every clump into
-// smaller ones (usdGen:clump:levels). Emits clumpId_<n> (uniform int) per
-// level. TopologyEffect = None.
+// smaller ones (usdGen:clump:levels). usdGen:clump:centers selects the
+// reference modes instead (count / guides / guideSeeded, see clump.cpp and
+// ops/clumpModes.h), with Bezier profile, flyaways, overrides and
+// sub-clumps. Emits clumpId_<n> (uniform int) per level. TopologyEffect =
+// None.
 #ifndef USDGEN_OP_CLUMP_H
 #define USDGEN_OP_CLUMP_H
 
@@ -28,6 +31,9 @@ public:
     TfSpan<const TfToken> TopologyParameters() const override;
     TfSpan<const TfToken> ValueParameters() const override;
     TfSpan<const TfToken> OutputPrimvars() const override;
+    /// "guides": the guide set of the guides / guideSeeded centre modes.
+    /// Optional: a node with no usdGen:guides target resolves none.
+    TfSpan<const TfToken> ReferenceInputs() const override;
     void Configure(UsdGenParamView const &params) override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;

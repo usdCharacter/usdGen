@@ -8,6 +8,7 @@
 #include "usdGenImaging/imageMapCache.h"
 #include "usdGenImaging/usdGenGraphDescShared.h"
 
+#include "usdGen/authoredPlaneConvert.h"
 #include "usdGen/expressions/valueShape.h"
 #include "usdGen/executionBackend.h"
 
@@ -782,6 +783,26 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
     forwardOwnership(TfToken("regionId"));
     forwardOwnership(TfToken("hierarchyLevel"));
 
+    // Generic transport: primvars:usdGen:plane:<name> -> authored plane
+    // <name> (usdGen/authoredPlaneConvert.h). Indexed primvars are flattened.
+    {
+        size_t points = 0;
+        for (int count : out->curveVertexCounts) points += size_t(std::max(count, 0));
+        std::string const &prefix = usdGen::UsdGenAuthoredPlanePrefix();
+        for (UsdGeomPrimvar const &pv : UsdGeomPrimvarsAPI(prim).GetPrimvarsWithValues()) {
+            std::string const name = pv.GetPrimvarName().GetString();
+            if (name.size() <= prefix.size() || name.compare(0, prefix.size(), prefix) != 0)
+                continue;
+            VtValue value;
+            if (!pv.ComputeFlattened(&value, UsdTimeCode(time))) continue;
+            usdGen::UsdGenAuthoredPlaneDesc plane;
+            if (usdGen::ConvertAuthoredPlane(TfToken(name.substr(prefix.size())), value,
+                                             pv.GetInterpolation(),
+                                             out->curveVertexCounts.size(), points, &plane))
+                out->authoredPlanes.push_back(std::move(plane));
+        }
+    }
+
     TfToken curveRole;
     _GetPrimvarTyped(prim, TfToken("usdGen:role"), UsdTimeCode::Default(),
                      &curveRole);
@@ -1037,8 +1058,36 @@ BuildGraphDescFromStage(
                 (node.type == TfToken("UsdGenCurveSource") || node.type == TfToken("UsdGenDeform") ||
                  node.type == TfToken("UsdGenGuideInterpolate")) &&
                 rel.GetName().GetString() == "usdGen:regionMap";
+            // Reference-lane curve sets of the whole-strand operators: trim
+            // blades (Trim), card spines and the tile strand library
+            // (CardSource). Matched by full name like part:curves.
+            std::string const fullName = rel.GetName().GetString();
+            bool const isExtraReference =
+                fullName == "usdGen:trim:curves" || fullName == "usdGen:cards" ||
+                fullName == "usdGen:cardStrands";
+            // Mask maps sampled at strand roots: Scatter's density masks and
+            // Length's length masks. Any number of targets (multiplied).
+            bool const isMaskMap =
+                (node.type == TfToken("UsdGenScatter") && fullName == "usdGen:densityMap") ||
+                (node.type == TfToken("UsdGenLength") && fullName == "usdGen:lengthMap");
             SdfPathVector *bucket = &node.references;
-            if (name == "input") {
+            if (isMaskMap) {
+                SdfPathVector targets;
+                rel.GetTargets(&targets);
+                for (SdfPath const &target : targets) {
+                    node.maps.push_back(target);
+                    node.mapBindings.push_back({target, TfToken(fullName)});
+                }
+                continue;
+            } else if (isExtraReference) {
+                SdfPathVector targets;
+                rel.GetTargets(&targets);
+                for (SdfPath const &target : targets) {
+                    node.curves.push_back(target);
+                    curveRoles[target.GetString()] = UsdGenRole::Reference;
+                }
+                continue;
+            } else if (name == "input") {
                 bucket = &node.inputs;
             } else if (name == "references" || name == "reference") {
                 bucket = &node.references;

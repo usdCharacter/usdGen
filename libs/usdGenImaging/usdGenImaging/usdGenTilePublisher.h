@@ -159,7 +159,9 @@ public:
     /// that darkens whatever skin shader is underneath by the fraction of
     /// light the hair above it absorbs. Stock Storm casts no shadows from any
     /// UsdLux light, so this is the only route to hair-on-scalp shadowing, and
-    /// it works under usdview's headlight + dome default lighting.
+    /// it works under usdview's headlight + dome default lighting. The groom
+    /// scene index publishes one per emitting surface, under the first of the
+    /// descriptions that grow from it.
     static SdfPath ScalpShadowPath(SdfPath const &descriptionPath);
 
     /// Its material, <description>/__usdGenRender/material_scalpShadow,
@@ -167,17 +169,44 @@ public:
     static SdfPath ScalpShadowMaterialPath(SdfPath const &descriptionPath);
     static TfToken const &ScalpShadowIdentifier();
 
+    /// The cap's sample mask: <description>/__usdGenRender/scalpShadowMask,
+    /// the same surface drawn OPAQUE, black on a whole number of each pixel's
+    /// samples (`UsdGenScalpShadowMask`). Storm's translucent pass sees one
+    /// depth sample per pixel, so a strand that covers part of a pixel hides
+    /// the translucent cap from all of it; the mask is depth-tested per
+    /// sample, so it still darkens the skin between a strand's samples. The
+    /// translucent cap then carries only what the whole samples cannot.
+    static SdfPath ScalpShadowMaskPath(SdfPath const &descriptionPath);
+    static SdfPath ScalpShadowMaskMaterialPath(SdfPath const &descriptionPath);
+    static TfToken const &ScalpShadowMaskIdentifier();
+
+    /// How many steps the mask spends the cap's darkening in: the
+    /// USDGEN_SCALP_SHADOW_MASK setting, or by default the MSAA sample count
+    /// Storm's task controller allocates (HDX_MSAA_SAMPLE_COUNT, 4). 0 means
+    /// no mask: the translucent cap darkens on its own, as it did before.
+    static int ScalpShadowMaskLevels();
+
     /// The `mesh` data source for ScalpShadowPath(): topology, points,
     /// normals and the same furTauP/furTauN vertex primvars a tile carries.
     /// The cap is deliberately given no primOrigin, so picking passes through
-    /// it to whatever the user authored underneath.
+    /// it to whatever the user authored underneath. With `mask`, the data
+    /// source for ScalpShadowMaskPath(): the same mesh, bound to
+    /// `maskMaterial`, whose shader pushes its depth back by half the lift.
     static HdContainerDataSourceHandle BuildScalpShadowDataSource(
-        usdGen::UsdGenScalpShadowPublication const &cap, int64_t generation);
+        usdGen::UsdGenScalpShadowPublication const &cap, int64_t generation,
+        bool mask = false, SdfPath const &maskMaterial = SdfPath());
 
     /// The `material` data source for ScalpShadowMaterialPath(), carrying the
-    /// look's hair colour so light hair leaves a tinted shadow.
+    /// look's hair colour so light hair leaves a tinted shadow. `maskLevels`
+    /// above 1 tells it the mask beside it already darkened the whole steps;
+    /// with `mask` it is the mask's own material instead.
     static HdContainerDataSourceHandle BuildScalpShadowMaterialDataSource(
         usdGen::UsdGenLookDesc const &look);
+    static HdContainerDataSourceHandle BuildScalpShadowMaterialDataSource(
+        usdGen::UsdGenLookDesc const &look, int maskLevels, bool mask);
+
+    /// The hair colour the cap's transmittance is computed with.
+    static GfVec3f ScalpShadowAlbedo(usdGen::UsdGenLookDesc const &look);
 
     /// The reserved name of the synthetic default material prim.
     static TfToken const &MaterialName()

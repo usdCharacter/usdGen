@@ -27,16 +27,30 @@ Part 3 needs the plugin search path (bin/record_usd.ps1 / bin/_env.sh set it).
 Exits 77 (ctest SKIP) only when OpenUSD's Python bindings cannot be imported;
 any other failure exits 1.
 
-Usage: python3 check_hair_strands_defs.py [shaderDir]
+With --model/--built (ctest passes both) it also checks the build's copy of
+the shader directory: that its generated usdGenHairModel.glslfx selects the
+configured strand model (USDGEN_HAIR_SHADING_MODEL) and that every other
+strand file is identical to the source. CMake copies shaders/ at configure
+time, so a source edit without a re-configure fails here instead of rendering
+the stale shader.
+
+Usage: python3 check_hair_strands_defs.py [shaderDir] [--model karis|marschner
+                                          --built BUILD_SHADER_DIR]
 """
+import argparse
 import json
 import os
 import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SHADERS = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-    HERE, "..", "resources", "shaders")
+_ap = argparse.ArgumentParser()
+_ap.add_argument("shaders", nargs="?",
+                 default=os.path.join(HERE, "..", "resources", "shaders"))
+_ap.add_argument("--model", choices=("karis", "marschner"))
+_ap.add_argument("--built")
+ARGS = _ap.parse_args()
+SHADERS = ARGS.shaders
 
 FILES = [
     "usdGenHairStrands.glslfx",
@@ -56,6 +70,8 @@ EXPECTED_TAG = {
 # The `attributes` block of both files, i.e. what HdSt is told to bind.
 PRIMVARS = {"hairId", "hairT", "st",
             "furTauP", "furTauN", "furTipTauP", "furTipTauN",
+            # Local density for the Marschner model's hair occlusion.
+            "furDensity",
             # The look, carried as constant primvars so it reaches the shader
             # whatever material is bound. HdSt only asks the prim for a primvar
             # the def names here, so dropping one of these silently reverts
@@ -85,6 +101,41 @@ EXPECTED = [
     ("selfShadow", 1.0),
     ("hairCoverageScale", 1.0),
     ("minPixelWidth", 1.0),
+    # Matching controls (docs/storm-fur.md "Matching an imported look"). Each
+    # default selects the pre-existing expression, so these values ARE the
+    # "unchanged look" contract: -1 = follow roughness / built-in constant.
+    ("primaryRoughness", -1.0),
+    ("longitudinalRoughness", -1.0),
+    ("azimuthalRoughness", -1.0),
+    ("cuticleTilt", -1.0),
+    ("backScatter", 1.0),
+    ("usePresetColors", 0.0),
+    ("presetSrgb", 0.0),
+    ("presetColorA1", [0.035, 0.018, 0.008]),
+    ("presetColorA2", [0.12, 0.065, 0.026]),
+    ("presetColorA3", [0.21, 0.115, 0.045]),
+    ("presetPointsA", [0.0, 0.33, 0.66, 1.0]),
+    ("presetColorB1", [0.25, 0.16, 0.08]),
+    ("presetColorB2", [0.45, 0.32, 0.17]),
+    ("presetColorB3", [0.6, 0.45, 0.26]),
+    ("presetPointsB", [0.0, 0.33, 0.66, 1.0]),
+    ("presetColorC1", [0.01, 0.006, 0.004]),
+    ("presetColorC2", [0.01, 0.006, 0.004]),
+    ("presetColorC3", [0.01, 0.006, 0.004]),
+    ("presetPointsC", [0.0, 0.33, 0.66, 1.0]),
+    ("presetWeights", [1.0, 0.0, 0.0, 0.0]),
+    ("jitterMode", 0.0),
+    ("randomSaturation", 0.0),
+    ("hueOffset", 0.0),
+    ("saturationOffset", 0.0),
+    ("valueOffset", 0.0),
+    ("rootBlendRate", 0.0),
+    ("indirectMultiplier", 1.0),
+    ("ambientFill", 0.0),
+    ("rootFade", 0.0),
+    # Marschner-model inputs (unused by the Karis lobes).
+    ("ior", 1.55),
+    ("aoIntensity", 0.0),
     ("baseColorMap", [1.0, 1.0, 1.0]),
 ]
 NAMES = [n for n, _ in EXPECTED]
@@ -238,9 +289,47 @@ def sdr_check():
     return ok
 
 
+# The strand files whose build copy must match the source exactly.
+STRAND_FILES = FILES + ["usdGenHairStrandsBsdf.glslfx",
+                        "usdGenHairStrandsMarschner.glslfx", "shaderDefs.usda"]
+
+
+def built_check(model, built):
+    ok = True
+    path = os.path.join(built, "usdGenHairModel.glslfx")
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError as e:
+        print("FAIL: no generated model selector (%s)" % e)
+        return False
+    found = re.findall(r"^#define USDGEN_STRANDS_MODEL_([A-Z]+) 1$", text, re.M)
+    if found != [model.upper()]:
+        print("FAIL: %s selects %s, the build is configured for %s"
+              % (path, found, model))
+        ok = False
+    else:
+        print("OK: build selects the %s strand model" % model)
+    for f in STRAND_FILES:
+        a = open(os.path.join(SHADERS, f), "rb").read()
+        try:
+            b = open(os.path.join(built, f), "rb").read()
+        except OSError:
+            b = None
+        if a != b:
+            print("FAIL: build copy of %s is stale or missing -- re-run CMake "
+                  "(shaders/ is copied at configure time)" % f)
+            ok = False
+    if ok:
+        print("OK: build copies of %d strand files match the source"
+              % len(STRAND_FILES))
+    return ok
+
+
 def main():
     ok = block_check()
     ok = tag_check() and ok
+    if ARGS.model and ARGS.built:
+        ok = built_check(ARGS.model, ARGS.built) and ok
     if not ok:
         print("HAIR STRANDS DEF CHECK: FAIL")
         return 1
