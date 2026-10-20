@@ -1,0 +1,155 @@
+-- glslfx version 0.1
+
+//
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+//
+// usdGenScalpShadowMask.glslfx   (the opaque half of the scalp-shadow cap)
+//
+// The translucent cap, usdGenScalpShadow.glslfx, darkens the skin under hair
+// by blending black over it. Storm runs that blend in its OIT pass, which
+// tests depth against a buffer already resolved to one sample per pixel. A
+// strand that covers part of a pixel and wins that sample therefore hides the
+// cap from the WHOLE pixel, and the skin between the strand's samples keeps
+// its full light: every strand that crosses shadowed skin -- a hairline, the
+// lashes, a lock hanging across a cheek -- grows a bright fringe.
+//
+// Stock Storm has no per-sample pass that can multiply; the opaque pass can
+// only replace samples and the additive pass can only add. So the darkening
+// is split. This mesh is the translucent cap's own geometry, its depth pushed
+// just behind it, drawn opaque and depth-tested per sample; it blackens
+// `steps` of every `maskLevels`
+// samples of a pixel, where `steps` is the whole number of steps in the
+// darkening. The translucent cap then takes only the remainder, so on bare
+// skin the two compose exactly; where a strand hides the translucent cap, the
+// skin between its samples has still lost the mask's steps and misses at most
+// one step of shadow instead of all of it.
+//
+// The mask darkens nothing in a pass with one sample per pixel: an id pass
+// (so picking passes straight through it, like the translucent cap) or a host
+// without MSAA. `maskLevels` is set by the scene index to the MSAA sample
+// count Storm's task controller allocates (HDX_MSAA_SAMPLE_COUNT, default 4);
+// USDGEN_SCALP_SHADOW_MASK overrides it, and 0 publishes no mask at all.
+//
+// The mask needs the cap's TOTAL darkening in one place: masks from several
+// caps over one surface would union their samples instead of multiplying. The
+// scene index therefore sums every description's cap over a surface into one
+// (UsdGenMergeScalpShadows) before publishing either half.
+//
+
+#import ./usdGenScalpShadow.glslfx
+
+-- configuration
+{
+    "techniques": {
+        "default": {
+            "surfaceShader": {
+                "source": [ "UsdGenStrands.Common",
+                            "UsdGenStrands.Bsdf",
+                            "UsdGenStrands.DualScattering",
+                            "UsdGenScalp.Darkening",
+                            "UsdGenScalp.MaskSurface" ]
+            }
+        }
+    },
+
+    "parameters": {
+        "baseColor": {
+            "default": [0.035, 0.018, 0.008],
+            "documentation": "As on UsdGenScalpShadow: the hair's root albedo, which the transmitted light is attenuated by."
+        },
+        "roughness": {
+            "default": 0.35,
+            "documentation": "As on UsdGenScalpShadow."
+        },
+        "strength": {
+            "default": 1.0,
+            "documentation": "As on UsdGenScalpShadow. Both halves must carry the same value."
+        },
+        "ambient": {
+            "default": 0.35,
+            "documentation": "As on UsdGenScalpShadow."
+        },
+        "maskLevels": {
+            "default": 0.0,
+            "documentation": "The steps the darkening is spent in, normally Storm's MSAA sample count. Below 2 the mask draws nothing. The translucent half must carry the same value."
+        }
+    },
+
+    "attributes": {
+        "furTauP": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
+        "furTauN": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
+        "furCapAlbedo": {"type": "vec3", "default": [0.0, 0.0, 0.0]},
+        "usdGenCapLift": {"type": "float", "default": 0.0}
+    }
+}
+
+--- --------------------------------------------------------------------------
+-- glsl UsdGenScalp.MaskSurface
+
+vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
+{
+    float levels = HdGet_maskLevels();
+    uint samples = 1u;
+#if defined(HD_HAS_multisampleCount)
+    samples = clamp(HdGet_multisampleCount(), 1u, 16u);
+#endif
+    // One sample has no room for a fraction of a pixel.
+    if (samples < 2u || levels < 2.0) discard;
+
+    float steps = UsdGenScalpMaskSteps(UsdGenScalpDarkening(Peye, Neye), levels);
+    // steps/levels of this pass's samples. Exact when the sample count is a
+    // multiple of the levels, which it is by default (both are the MSAA
+    // count); otherwise rounded per pixel, right on average.
+    vec2 pixel = floor(gl_FragCoord.xy);
+    float want = steps / levels * float(samples);
+    uint k = uint(clamp(floor(want + UsdGenStrandsCoverageDither(pixel + vec2(0.5, 17.5))),
+                        0.0, float(samples)));
+    if (k == 0u) discard;
+
+    uint full = (1u << samples) - 1u;
+    uint mask = full;
+    if (k < samples) {
+        // Which samples. The translucent half is hidden from a pixel exactly
+        // when a strand covers the ONE sample its depth test reads, which is
+        // the sample the MSAA depth resolve keeps: sample 0 (glBlitFramebuffer
+        // with GL_NEAREST; measured on NVIDIA, where leaving sample 0 free cut
+        // the fringe under sub-pixel strips from 29% to 5% of the unmasked
+        // one, against 29-41% for any other choice). So the black samples are
+        // taken from the others: where the translucent half is hidden, sample
+        // 0 is hair, and the skin samples are exactly the ones this mask
+        // blackens. Where it is not hidden, it composites over the whole pixel
+        // and the positions do not matter. A driver that resolves another
+        // sample loses only that refinement. The run is rotated per pixel
+        // among samples 1..n-1, so it never lines up with a strand's own.
+        uint others = samples - 1u;
+        uint run = (1u << k) - 1u;
+        uint rot = uint(UsdGenStrandsCoverageDither(pixel.yx + vec2(3.5, 41.5)) *
+                        float(others)) % others;
+        uint othersFull = (1u << others) - 1u;
+        run = ((run << rot) | (run >> (others - rot))) & othersFull;
+        mask = run << 1u;
+    }
+    gl_SampleMask[0] = int(mask);
+
+    // Same points as the translucent half, so it interpolates the same values
+    // here and the two agree on `steps`; but the translucent half must win
+    // the depth test against these samples on any driver, so push this
+    // fragment back along the view ray by half the cap's lift. The skin is a
+    // whole lift away along the normal, so at least that far along the ray:
+    // the mask stays in front of it.
+    float lift = 0.0;
+#if defined(HD_HAS_usdGenCapLift)
+    lift = HdGet_usdGenCapLift();
+#endif
+    vec3 P = Peye.xyz / (abs(Peye.w) > 1e-8 ? Peye.w : 1.0);
+    vec3 back = P + normalize(P) * (0.5 * lift);
+    vec4 here = GetProjectionMatrix() * vec4(P, 1.0);
+    vec4 there = GetProjectionMatrix() * vec4(back, 1.0);
+    // As a difference from this fragment's own window depth, so the depth
+    // range's offset cancels; its scale is 0.5 for GL's [-1, 1] clip depth.
+    gl_FragDepth = clamp(gl_FragCoord.z +
+                         0.5 * (there.z / there.w - here.z / here.w), 0.0, 1.0);
+    // Opaque, so alpha-to-coverage's own mask is all ones and ANDs away.
+    return vec4(0.0, 0.0, 0.0, 1.0);
+}
