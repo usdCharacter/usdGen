@@ -71,6 +71,10 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
+    bool ReadsTime(UsdGenParamView const &params) const override {
+        auto const gust = params.GetScalarField(sGust, 0.0);
+        return gust.connected || gust.literal != 0.0;
+    }
 private:
     const TfToken sDirection{"direction"}, sConst{"constStrength"};
     const TfToken sGust{"gustStrength"}, sStiffness{"stiffness"};

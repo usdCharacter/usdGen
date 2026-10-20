@@ -24,6 +24,12 @@ while the CPU evaluator publishes finished hair tiles, so the first completed
 tile can appear before the full groom finishes. Pass an explicit non-Storm
 renderer name to leave asynchronous scene processing disabled.
 
+During playback, an existing groom keeps its complete previous pose until the
+next pose is ready, then updates the existing tiles together. This also applies
+to authoring edits; progressive publication is used for initial population.
+Unchanged operators retain their cached results; animated inputs and clock
+consumers reevaluate their affected downstream operators.
+
 Tile preparation and generation run on workers. Hydra input capture, source
 notices, and `asyncPoll` remain serialized on the frontend thread, which is
 the safe boundary for the stage scene index. A host other than usdview must set

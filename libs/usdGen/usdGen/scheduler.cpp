@@ -1072,6 +1072,14 @@ UsdGenRunResult UsdGenScheduler::Run(
             return true;
         }
 
+        if (op.ReadsTime(node.paramView) &&
+            (!node.hasEvaluationTime || node.lastEvaluationTime != evalCtx.time ||
+             node.lastTimeCodesPerSecond != graph.Desc().timeCodesPerSecond))
+            graph.MarkNode(static_cast<UsdGenNodeId>(pos), UsdGenDirtyParameter);
+        node.hasEvaluationTime = true;
+        node.lastEvaluationTime = evalCtx.time;
+        node.lastTimeCodesPerSecond = graph.Desc().timeCodesPerSecond;
+
         UsdGenEpoch const captureIdentity =
             WithExternalValueIdentity(op.CaptureDigest(cctx), node, graph);
         // First reason wins; the trace reports it.

@@ -1006,9 +1006,58 @@ static void CheckCudaRejectsWind()
           "CUDA rejection names UsdGenWind (or the unbuilt backend)");
 }
 
+static void CheckIncrementalPlayback()
+{
+    UsdGenGraphDesc desc;
+    desc.description = SdfPath("/playback");
+    desc.curveSets.push_back(StraightStrands(SdfPath("/curves"),
+        {GfVec3f(0), GfVec3f(1, 0, 0)}, 4, 1.0f));
+    desc.nodes.push_back(SourceNode(SdfPath("/source"), SdfPath("/curves")));
+    auto wind = OpNode("/wind", "UsdGenWind", SdfPath("/source"), 17);
+    wind.params.push_back({TfToken("gustStrength"), VtValue(1.0f), false});
+    desc.nodes.push_back(wind);
+    desc.nodes.push_back(OpNode("/width", "UsdGenWidth", wind.path, 0));
+    desc.terminal = SdfPath("/width");
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    Check(compiler.Compile(desc, &graph).ok, "playback graph compiles");
+    if (!graph.NodeCount()) return;
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    ctx.desc = &graph.Desc();
+    ctx.time = 0;
+    Check(!scheduler.Run(graph, ctx, 1).diagnostics.HasErrors(), "initial playback pose cooks");
+    // Graph buffers are mutable work storage; detach the saved point planes.
+    auto initial = graph.Output();
+    initial.px.data(); initial.py.data(); initial.pz.data();
+    auto const source = graph.NodeIdForPath(SdfPath("/source"));
+    auto const windId = graph.NodeIdForPath(wind.path);
+    auto const sourceVersion = graph.Node(source).buffer.valueVersion;
+    auto const capture = graph.Node(windId).capture.get();
+    ctx.time = 240;
+    auto run = scheduler.Run(graph, ctx, 2);
+    Check(!run.diagnostics.HasErrors() && !PointsEqual(initial, graph.Output()),
+          "cached Wind animates on a new frame");
+    Check(graph.Node(source).buffer.valueVersion == sourceVersion &&
+              graph.Node(windId).capture.get() == capture,
+          "playback reuses static source and Wind capture");
+    auto animated = graph.Output();
+    animated.px.data(); animated.py.data(); animated.pz.data();
+    auto const windVersion = graph.Node(windId).buffer.valueVersion;
+    run = scheduler.Run(graph, ctx, 3);
+    Check(!run.diagnostics.HasErrors() && PointsEqual(animated, graph.Output()) &&
+              graph.Node(windId).buffer.valueVersion == windVersion,
+          "unchanged frame skips Wind evaluation");
+    ctx.time = 0;
+    run = scheduler.Run(graph, ctx, 4);
+    Check(!run.diagnostics.HasErrors() && PointsEqual(initial, graph.Output()),
+          "backward playback restores deterministic points through downstream Width");
+}
+
 int main()
 {
     usdGenRegisterM1Operators();
+    CheckIncrementalPlayback();
     CheckRegistryContracts();
     CheckIdentityCook();
     CheckConstantCook();

@@ -261,6 +261,27 @@ int main()
         Check(WaitFor(terminal) && terminalPublished.load(std::memory_order_acquire),
               "full generation publishes after held tile completes");
         progressive.Drain();
+        auto const baseline = progressive.Generation();
+        auto animated = MakeProgressDesc();
+        for (auto& node : animated.nodes)
+            if (node.type == TfToken("UsdGenWidth"))
+                node.params.front().value = VtValue(0.04f);
+        progressive.SetGraphDesc(animated);
+        std::atomic<unsigned> playbackTiles{0};
+        terminal.store(false, std::memory_order_release);
+        UsdGenSession::CommitRequest playback;
+        playback.frame = 2.0;
+        Check(progressive.CommitAsync(std::move(playback),
+            [&](UsdGenSession::SnapshotPtr, UsdGenExecutionPipeline::Outcome) {
+                terminal.store(true, std::memory_order_release);
+            }, [&](UsdGenSession::TileProgressPtr) { ++playbackTiles; }),
+            "animated value update accepted with progress subscriber");
+        Check(WaitFor(terminal), "playback update completes");
+        progressive.Drain();
+        auto const next = progressive.Generation();
+        Check(next && baseline && next->id > baseline->id && next->frame == 2.0 &&
+                  next->tiles.size() == baseline->tiles.size() && playbackTiles == 0,
+              "frame change publishes existing tiles atomically without progressive redraw");
     }
     {
         UsdGenSession progressive(4);

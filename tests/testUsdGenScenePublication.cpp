@@ -558,7 +558,7 @@ def Scope "Groom"
     ProgressiveTileHold::release.store(false, std::memory_order_release);
     UsdAttribute width = scene.stage->GetAttributeAtPath(
         SdfPath("/Groom/hair/Ops/width.usdGen:width"));
-    Check(width.Set(0.04f), "new width edit starts a second progressive cook");
+    Check(width.Set(0.04f), "new width edit starts an existing-groom update");
     scene.indices.stageSceneIndex->ApplyPendingUpdates();
     Check(WaitFor(ProgressiveTileHold::entered),
           "second cook reaches held later tile");
@@ -570,8 +570,9 @@ def Scope "Groom"
         changedEarly = std::fabs(FirstWidth(scene, first) - .04f) < 1e-5f;
         std::this_thread::yield();
     }
-    Check(changedEarly && !ProgressiveTileHold::timedOut.load(std::memory_order_acquire),
-          "changed tile appears before the second complete generation");
+    Check(!changedEarly && std::fabs(FirstWidth(scene, first) - .025f) < 1e-5f &&
+              !ProgressiveTileHold::timedOut.load(std::memory_order_acquire),
+          "existing groom retains complete pose while later tiles evaluate");
     Check(scene.stage->RemovePrim(SdfPath("/Groom/hair")),
           "removing held groom cancels its provisional scene publication");
     scene.indices.stageSceneIndex->ApplyPendingUpdates();

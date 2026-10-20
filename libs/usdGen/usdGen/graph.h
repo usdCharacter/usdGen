@@ -132,6 +132,9 @@ struct UsdGenCompiledNode
     uint64_t lastParamDigest  = 0;  // the paramValueDigest last evaluated
     double lastEvalTime = std::numeric_limits<double>::quiet_NaN();
     double lastEvalRate = std::numeric_limits<double>::quiet_NaN();
+    bool hasEvaluationTime = false;
+    double lastEvaluationTime = 0.0;
+    double lastTimeCodesPerSecond = 0.0;
 };
 
 class UsdGenGraph

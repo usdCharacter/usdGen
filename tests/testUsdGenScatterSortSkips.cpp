@@ -30,6 +30,15 @@ PXR_NAMESPACE_USING_DIRECTIVE
 // One axis-aligned quad (x0,0,0)-(x0+s,0,0)-(x0+s,s,0)-(x0,s,0): fan area
 // exactly s*s for exact s (translation only shifts Sterbenz-exact corner
 // differences), so an integral density*s*s emits an exact root count.
+// Quad origins sit half a morton cell above the integer (2^-7 at the
+// test scale of 64.0f). The barycentric blend rounds in float, which can
+// land a root ~1 ULP below its quad origin; without the offset that
+// sub-ULP shortfall crosses an integer boundary and flips the low
+// morton digits these cases pin. With it every root still quantizes to
+// exactly 64*k (nominal fraction .5, >0.4 headroom each side), so the
+// skipped-pass premises hold on any seed, thread count, or platform.
+constexpr float kHalfMortonCell = 0.0078125f;  // 2^-7
+
 static void AddQuad(UsdGenSurfaceDesc *s, float x0, float w)
 {
     int const vb = int(s->restPoints.size());
@@ -234,8 +243,8 @@ int main()
     {
         UsdGenSurfaceDesc s;
         s.path = SdfPath("/Scalp");
-        AddQuad(&s, 0.0f, 0.0009765625f);
-        AddQuad(&s, 1.0f, 0.0009765625f);
+        AddQuad(&s, kHalfMortonCell, 0.0009765625f);
+        AddQuad(&s, 1.0f + kHalfMortonCell, 0.0009765625f);
         UsdGenGraphDesc const d = Desc(s, 1048576.0, seed);  // 2^20
         UsdGenCurveBuffer b;
         CHECK(RunDirect(d, &b));
@@ -256,7 +265,7 @@ int main()
         UsdGenSurfaceDesc s;
         s.path = SdfPath("/Scalp");
         for (int k = 0; k < 200; ++k)
-            AddQuad(&s, float(k), 0.0009765625f);
+            AddQuad(&s, float(k) + kHalfMortonCell, 0.0009765625f);
         UsdGenGraphDesc const d = Desc(s, 209715200.0, seed);  // 200*2^20
         UsdGenCurveBuffer b;
         CHECK(RunDirect(d, &b));

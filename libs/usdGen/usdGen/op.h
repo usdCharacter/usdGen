@@ -393,6 +393,10 @@ public:
     static constexpr uint32_t kPlaneWidths = 1u << 1;
     static constexpr uint32_t kPlaneHairT  = 1u << 2;
     virtual uint32_t PlanesTouched() const { return 0; }
+    // Native clock consumers invalidate only their own evaluation and its
+    // descendants. Animated parameters and external inputs have their own
+    // value/capture identities and do not need this flag.
+    virtual bool ReadsTime(UsdGenParamView const &) const { return false; }
 };
 
 

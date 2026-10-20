@@ -31,6 +31,7 @@
 #include <cstring>
 #include "pxr/imaging/hd/systemMessages.h"
 #include "pxr/usdImaging/usdImaging/stageSceneIndex.h"
+#include "pxr/imaging/hd/tokens.h"
 #include <tbb/flow_graph.h>
 #include <algorithm>
 #include <chrono>
@@ -99,6 +100,9 @@ TfToken TypeName(HdSceneIndexPrim const& prim) {
 }
 bool IsGroom(TfToken const& type) {
     return type == TfToken("UsdGenGroom") || type == TfToken("UsdGenDescription");
+}
+bool IsRenderControl(TfToken const& type) {
+    return type == HdPrimTypeTokens->renderBuffer || type == HdPrimTypeTokens->camera;
 }
 
 HdContainerDataSourceHandle RenderDataSource() {
@@ -2183,11 +2187,27 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                 };
                 collect(before, beforeNames, beforeSynthetic);
                 collect(target, targetNames, targetSynthetic);
+                // Render buffers are renderer control prims, announced on the
+                // frontend at creation/removal. Both sides of the deferred
+                // diff must use their LIVE namespace: replaying an older
+                // snapshot could remove a newly allocated AOV. Keeping them
+                // in these maps also re-adds surviving buffers if a deferred
+                // ancestor removal requires a subtree resync.
+                for (auto* names : {&beforeNames, &targetNames}) {
+                    for (auto it = names->begin(); it != names->end();) {
+                        if (IsRenderControl(it->second))
+                            it = names->erase(it);
+                        else ++it;
+                    }
+                    for (auto const& entry : _renderBuffers)
+                        (*names)[entry.first] = entry.second;
+                }
                 Added added;
                 Removed removed;
                 Dirtied dirtied;
                 std::set<SdfPath> removedPaths;
                 for (auto const& old : beforeNames) {
+                    if (IsRenderControl(old.second)) continue;
                     auto now = targetNames.find(old.first);
                     const bool oldSource = before->source->count(old.first);
                     const bool nowSource = target->source->count(old.first);
@@ -2214,6 +2234,7 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                     }
                     auto targetSource = target->source->find(now.first);
                     auto beforeSource = before->source->find(now.first);
+                    if (IsRenderControl(now.second)) continue;
                     if (targetSource != target->source->end() && beforeSource != before->source->end()) {
                         if (targetSource->second.stamp != beforeSource->second.stamp) {
                             HdDataSourceLocatorSet const& locators =
@@ -2505,6 +2526,8 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
                         if (IsGroom(fallback)) projected = fallback;
                     }
                     packet.source.push_back({path, projected});
+                    if (packet.initial && IsRenderControl(projected))
+                        _renderBuffers[path] = projected;
                 }
                 auto children = input->GetChildPrimPaths(path);
                 sourceStack.insert(sourceStack.end(), children.begin(), children.end());
@@ -2650,14 +2673,48 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
     if (!state->asyncAllowed.load(std::memory_order_acquire))
         _DrainPublications(true);
 }
+void UsdGenGroomSceneIndex::_ForwardRenderBufferNotices(
+    Added const& added, Removed const& removed) {
+    Removed buffersRemoved;
+    Added buffersAdded;
+    for (auto const& entry : removed) {
+        auto it = _renderBuffers.lower_bound(entry.primPath);
+        while (it != _renderBuffers.end() && it->first.HasPrefix(entry.primPath)) {
+            buffersRemoved.emplace_back(it->first);
+            it = _renderBuffers.erase(it);
+        }
+    }
+    for (auto const& entry : added) {
+        if (IsRenderControl(entry.primType)) {
+            _renderBuffers[entry.primPath] = entry.primType;
+            buffersAdded.push_back(entry);
+        } else if (_renderBuffers.erase(entry.primPath)) {
+            buffersRemoved.emplace_back(entry.primPath);
+        }
+    }
+    // HdxTaskControllerSceneIndex creates color/depth AOVs immediately before
+    // rendering. Storm needs the Bprims in its render index before AddPrims
+    // returns, including when groom publication is asynchronous or saturated.
+    if (!buffersRemoved.empty()) _SendPrimsRemoved(buffersRemoved);
+    if (!buffersAdded.empty()) _SendPrimsAdded(buffersAdded);
+}
 void UsdGenGroomSceneIndex::_PrimsAdded(HdSceneIndexBase const&, Added const& entries) {
+    _ForwardRenderBufferNotices(entries, {});
     _Ingress packet; packet.added = entries; _CaptureAndSubmit(std::move(packet));
 }
 void UsdGenGroomSceneIndex::_PrimsRemoved(HdSceneIndexBase const&, Removed const& entries) {
+    _ForwardRenderBufferNotices({}, entries);
     _Ingress packet; packet.removed = entries; _CaptureAndSubmit(std::move(packet));
 }
 void UsdGenGroomSceneIndex::_PrimsDirtied(HdSceneIndexBase const&, Dirtied const& entries) {
-    _Ingress packet; packet.dirtied = entries;
+    _Ingress packet;
+    Dirtied buffers;
+    for (auto const& entry : entries) {
+        if (_renderBuffers.count(entry.primPath)) buffers.push_back(entry);
+        else packet.dirtied.push_back(entry);
+    }
+    if (!buffers.empty()) _SendPrimsDirtied(buffers);
+    if (packet.dirtied.empty() && !buffers.empty()) return;
     // Async pass-through.  With asynchronous scene processing, notices reach
     // Hydra only when the drain runs, and the drain runs on asyncPoll -- a
     // host timer (usdview: every 100 ms).  Holding upstream dirties until
@@ -2665,13 +2722,13 @@ void UsdGenGroomSceneIndex::_PrimsDirtied(HdSceneIndexBase const&, Dirtied const
     // selection, rig deformation), groom or not.  A dirty never changes
     // namespace, and GetPrim serves every upstream prim straight from the
     // input, so forwarding it now is exactly what the drain would send later.
-    // Namespace notices and everything synthetic (tiles, render scopes,
+    // Non-buffer namespace notices and everything synthetic (tiles, render scopes,
     // materials, the scalp cap) stay on the drain, whose snapshot ordering
     // they depend on; the packet still enters the owner so cooks and
     // dependency tracking see the dirty.
     if (_state->asyncAllowed.load(std::memory_order_acquire) &&
         !_state->closing.load(std::memory_order_acquire) && !entries.empty()) {
-        _SendPrimsDirtied(entries);
+        _SendPrimsDirtied(packet.dirtied);
         packet.dirtiedDelivered = true;
     }
     _CaptureAndSubmit(std::move(packet));
@@ -2681,6 +2738,7 @@ void UsdGenGroomSceneIndex::_PrimsRenamed(HdSceneIndexBase const& sender,
     _Ingress packet;
     HdSceneIndexObserver::ConvertPrimsRenamedToRemovedAndAdded(sender, entries,
         &packet.removed, &packet.added);
+    _ForwardRenderBufferNotices(packet.added, packet.removed);
     _CaptureAndSubmit(std::move(packet));
 }
 

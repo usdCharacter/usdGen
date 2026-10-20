@@ -1358,7 +1358,7 @@ set_tests_properties(testUsdGenSchedulerAffinity PROPERTIES
 add_executable(testUsdGenWorkerPool tests/testUsdGenWorkerPool.cpp)
 target_link_libraries(testUsdGenWorkerPool PRIVATE usdGen)
 add_test(NAME testUsdGenWorkerPool COMMAND testUsdGenWorkerPool)
-set_tests_properties(testUsdGenWorkerPool PROPERTIES LABELS "T0;scheduling;pool" TIMEOUT 60)
+set_tests_properties(testUsdGenWorkerPool PROPERTIES LABELS "T0;scheduling;pool" RUN_SERIAL ON TIMEOUT 60)
 add_executable(testUsdGenExecutionTaskGraph tests/testUsdGenExecutionTaskGraph.cpp)
 target_link_libraries(testUsdGenExecutionTaskGraph PRIVATE usdGen)
 add_test(NAME testUsdGenExecutionTaskGraph COMMAND testUsdGenExecutionTaskGraph)

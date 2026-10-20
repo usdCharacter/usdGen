@@ -34,8 +34,10 @@ public:
     void PrimsAdded(HdSceneIndexBase const&,AddedPrimEntries const& entries) override {
         if(!OnFrontend()) return;
         for(auto const& entry:entries) events.push_back("A:"+entry.primPath.GetString());
-        try { owner->Synchronize(); }
-        catch(std::logic_error const&) { synchronizeRejected=true; }
+        if (checkReentry) {
+            try { owner->Synchronize(); }
+            catch(std::logic_error const&) { synchronizeRejected=true; }
+        }
         auto action=std::move(onAdd); onAdd={};
         if(action) action();
     }
@@ -53,6 +55,7 @@ public:
         }
     }
     void PrimsRenamed(HdSceneIndexBase const&,RenamedPrimEntries const&) override {}
+    bool checkReentry = true;
 };
 bool PollUntil(HdSceneIndexBase& index,std::function<bool()> const& predicate) {
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
@@ -109,6 +112,55 @@ int main() {
     Check(PollUntil(*index,[&] { return !observer.events.empty(); }),"asyncPoll delivers completed work");
     Check(observer.events==std::vector<std::string>{"A:/deferred"} && !observer.wrongThread,
           "async notice is delivered once on polling thread");
+    // Match usdview startup: AOVs are created after asyncAllow and used before
+    // the next poll. Buffer resync and resize must also work in that interval.
+    observer.checkReentry = false;
+    observer.events.clear();
+    add("/viewport/color", "renderBuffer");
+    add("/viewport/depth", "renderBuffer");
+    Check(observer.events == std::vector<std::string>{
+              "A:/viewport/color", "A:/viewport/depth"},
+          "color and depth buffers are announced before the first async poll");
+    UsdGenImagingTestHook::drainGroomOwnersWithoutFrontend(*index);
+    index->SystemMessage(HdSystemMessageTokens->asyncPoll, nullptr);
+    Check(observer.events.size() == 2, "poll does not replay AOV creation");
+    observer.events.clear();
+    input->RemovePrims({{SdfPath("/viewport")}});
+    add("/viewport/color", "renderBuffer");
+    input->DirtyPrims({{SdfPath("/viewport/color"),
+        HdDataSourceLocatorSet{HdDataSourceLocator(TfToken("renderBuffer"))}}});
+    std::vector<std::string> const bufferEvents{
+        "R:/viewport/color", "R:/viewport/depth", "A:/viewport/color", "d:/viewport/color"};
+    Check(observer.events == bufferEvents,
+          "AOV subtree removal, replacement and resize are immediate");
+    UsdGenImagingTestHook::drainGroomOwnersWithoutFrontend(*index);
+    index->SystemMessage(HdSystemMessageTokens->asyncPoll, nullptr);
+    Check(observer.events == bufferEvents,
+          "coalesced snapshots do not remove or replay the replacement AOV");
+    // A deferred removal of an actual ancestor must re-add a surviving AOV.
+    add("/viewport");
+    UsdGenImagingTestHook::drainGroomOwnersWithoutFrontend(*index);
+    index->SystemMessage(HdSystemMessageTokens->asyncPoll, nullptr);
+    observer.events.clear();
+    input->RemovePrims({{SdfPath("/viewport")}});
+    add("/viewport/color", "renderBuffer");
+    UsdGenImagingTestHook::drainGroomOwnersWithoutFrontend(*index);
+    index->SystemMessage(HdSystemMessageTokens->asyncPoll, nullptr);
+    Check(observer.events == std::vector<std::string>{
+              "R:/viewport/color", "A:/viewport/color", "R:/viewport", "A:/viewport/color"},
+          "deferred ancestor removal re-adds the live replacement buffer");
+    observer.events.clear();
+    add("/viewport/color", "Scope");
+    Check(observer.events == std::vector<std::string>{"R:/viewport/color"},
+          "changing a buffer to an ordinary prim removes the AOV immediately");
+    UsdGenImagingTestHook::drainGroomOwnersWithoutFrontend(*index);
+    index->SystemMessage(HdSystemMessageTokens->asyncPoll, nullptr);
+    Check(observer.events == std::vector<std::string>{"R:/viewport/color", "A:/viewport/color"},
+          "the replacement ordinary prim is published on the next poll");
+    input->RemovePrims({{SdfPath("/viewport")}});
+    UsdGenImagingTestHook::drainGroomOwnersWithoutFrontend(*index);
+    index->SystemMessage(HdSystemMessageTokens->asyncPoll, nullptr);
+    observer.checkReentry = true;
     observer.events.clear();
     input->RemovePrims({{SdfPath("/deferred")}});
     add("/deferred");
