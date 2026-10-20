@@ -769,7 +769,11 @@ namespace {
 // alignments), so an unfunded pose costs no vkAllocateMemory. The caller
 // clamps the capacity to the pose's point count: the floor gates the
 // budget, not small poses (a 12-point pose on a big budget funds 12).
-uint32_t AffordableCachePrefix(size_t freeBytes, int n) {
+// maxRowBytes caps the whole-bound R rows (and proof snapshot) to the
+// device single-descriptor range as well as the pool budget: bindings
+// carry the full buffer, so a budget-funded prefix must also fit
+// maxStorageBufferRange (128MiB on lavapipe and the spec minimum).
+uint32_t AffordableCachePrefix(size_t freeBytes, int n, uint64_t maxRowBytes) {
     if (freeBytes <= kEvalCacheFundingMargin) return 0;
     size_t const free = freeBytes - kEvalCacheFundingMargin;
     auto aligned = [](uint64_t bytes) {
@@ -778,6 +782,11 @@ uint32_t AffordableCachePrefix(size_t freeBytes, int n) {
     };
     uint64_t p = free / (uint64_t(n) * 8u + 12u);
     if (p > kEvalCacheMaxPrefixCVs) p = kEvalCacheMaxPrefixCVs;
+    uint64_t const perRow = uint64_t(n) * 8u;
+    uint64_t rowCap = perRow ? maxRowBytes / perRow : 0;
+    uint64_t const proofCap = maxRowBytes / 12u;
+    if (rowCap > proofCap) rowCap = proofCap;
+    if (p > rowCap) p = rowCap;
     while (p >= kEvalCacheMinPrefixCVs) {
         uint64_t const charged =
             aligned(p * 12u) + aligned(p * uint64_t(n) * 8u);
@@ -1452,6 +1461,15 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                 evalCacheBypassed.fetch_add(1, std::memory_order_relaxed);
                 cacheLock.unlock();
             } else {
+                // Single-descriptor range cap for the whole-bound R rows
+                // (and proof snapshot): queried per funding decision, so
+                // steady-state poses pay no driver call.
+                auto maxRowBytes = [&]() {
+                    VkPhysicalDeviceProperties props{};
+                    vkGetPhysicalDeviceProperties(context->physicalDevice(),
+                                                  &props);
+                    return uint64_t(props.limits.maxStorageBufferRange);
+                };
                 auto poolFree = [&]() {
                     auto snap = context->resources()->Snapshot();
                     return snap.usableBytes > snap.usedBytes
@@ -1501,12 +1519,20 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                 // and retries next pose.
                 bool funded = cache.proof && cache.r;
                 if (!funded) {
-                    uint32_t const cap = AffordableCachePrefix(poolFree(), n);
+                    uint32_t const cap =
+                        AffordableCachePrefix(poolFree(), n, maxRowBytes());
                     uint32_t const p = std::min(points, cap);
                     funded = p != 0 && fundFresh(p) != 0;
                 }
                 // R grows to a high-water n; shrinks never reallocate. A
                 // failed grow keeps the old rows and runs direct.
+                if (funded && n > cache.rowsAlloc &&
+                    uint64_t(cache.rowsFunded) * uint64_t(n) * 8u > maxRowBytes()) {
+                    // Grown samples would push the whole-bound R rows past
+                    // the single-descriptor range: run this pose direct and
+                    // keep the old cache for smaller-n poses.
+                    funded = false;
+                }
                 if (funded && n > cache.rowsAlloc) {
                     VkBufferCreateInfo bi{};
                     bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1536,7 +1562,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                         size_t const freeExcl = poolFree() +
                             cache.proof->allocationBytes() + cache.r->allocationBytes();
                         uint32_t const target = std::min(
-                            want, AffordableCachePrefix(freeExcl, n));
+                            want, AffordableCachePrefix(freeExcl, n, maxRowBytes()));
                         if (target > cache.rowsFunded) {
                             VkBufferCreateInfo bi{};
                             bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

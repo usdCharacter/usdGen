@@ -6,8 +6,9 @@
 // Asserted (every platform):
 //   0. Every index runs exactly once (disjoint writes over several
 //      counts, including 0, 1, and counts below the worker number).
-//   1. At least two distinct worker threads run tasks when the pool is
-//      wide (parallelism actually happened).
+//   1. At least two distinct worker threads run tasks on dispatches
+//      large enough that scheduling granularity cannot decide the race
+//      (count above 8 per worker; parallelism actually happened).
 //   2. A body exception reaches the caller (first error rethrown) after
 //      every chunk completed, and the pool stays usable.
 //   3. The sleep path is correct: with USDGEN_POOL_SPIN_US=0 every
@@ -35,6 +36,17 @@ using namespace usdGen;
 
 namespace {
 
+#if defined(_WIN32)
+// MSVC has no setenv/unsetenv. _putenv_s covers set; an empty value
+// reads back as unset for SpinBudgetUs (empty means default), which is
+// all this test's save/restore needs.
+inline int PoolSetEnv(char const *name, char const *value) { return _putenv_s(name, value); }
+inline int PoolUnsetEnv(char const *name) { return _putenv_s(name, ""); }
+#else
+inline int PoolSetEnv(char const *name, char const *value) { return ::setenv(name, value, 1); }
+inline int PoolUnsetEnv(char const *name) { return ::unsetenv(name); }
+#endif
+
 int g_failures = 0;
 
 void Check(bool ok, std::string const &what)
@@ -57,8 +69,14 @@ void CountBody(size_t i, void *p)
 {
     auto *pl = static_cast<CountPayload *>(p);
     pl->hits[i].fetch_add(1, std::memory_order_relaxed);
-    std::lock_guard<std::mutex> lock(*pl->threadsMutex);
-    pl->threads->insert(std::this_thread::get_id());
+    {
+        std::lock_guard<std::mutex> lock(*pl->threadsMutex);
+        pl->threads->insert(std::this_thread::get_id());
+    }
+    // Pace the claimer: without this a single hot thread can win every
+    // fetch_add race while peers are descheduled (oversubscribed CI),
+    // which the distribution asserts below would misread as a pool bug.
+    std::this_thread::yield();
 }
 
 void ThrowBody(size_t i, void *p)
@@ -81,7 +99,12 @@ void CheckCountsChunk(UsdGenWorkerPool &pool, size_t count, size_t chunk,
     for (auto &h : hits)
         if (h.load(std::memory_order_relaxed) != 1) once = false;
     Check(once, std::string("every index runs exactly once (") + what + ")");
-    if (count > 1 && pool.Workers() > 1)
+    // Spread needs a race longer than scheduler wakeup granularity: a
+    // tiny dispatch can finish on the first woken thread while peers are
+    // still waking, which the scheduler decides, not the pool. Assert
+    // spread only where the pool determines it (enough chunks that
+    // staggered peers join the race); exactness is asserted always.
+    if (count > size_t(8) * size_t(pool.Workers()) && pool.Workers() > 1)
         Check(threads.size() >= 2,
               std::string("at least two workers ran tasks (") + what + ")");
 }
@@ -98,9 +121,27 @@ void CheckCounts(UsdGenWorkerPool &pool, size_t count, char const *what)
     for (auto &h : hits)
         if (h.load(std::memory_order_relaxed) != 1) once = false;
     Check(once, std::string("every index runs exactly once (") + what + ")");
-    if (count > 1 && pool.Workers() > 1)
+    // Spread needs a race longer than scheduler wakeup granularity: a
+    // tiny dispatch can finish on the first woken thread while peers are
+    // still waking, which the scheduler decides, not the pool. Assert
+    // spread only where the pool determines it (enough chunks that
+    // staggered peers join the race); exactness is asserted always.
+    if (count > size_t(8) * size_t(pool.Workers()) && pool.Workers() > 1)
         Check(threads.size() >= 2,
               std::string("at least two workers ran tasks (") + what + ")");
+}
+
+// Prove every worker started and is spinning before a measured
+// dispatch: the first woken thread otherwise claims small counts alone
+// (cold start), which reads as a pool bug on slow CI runners.
+void WarmUpPool(UsdGenWorkerPool &pool)
+{
+    std::vector<std::atomic<int>> warm(64);
+    for (auto &h : warm) h.store(0, std::memory_order_relaxed);
+    std::set<std::thread::id> ignore;
+    std::mutex ignoreMutex;
+    CountPayload pl{warm.data(), &ignore, &ignoreMutex};
+    pool.ParallelFor(warm.size(), CountBody, &pl);
 }
 
 }  // namespace
@@ -110,6 +151,7 @@ int main()
     {
         UsdGenWorkerPool pool(8);
         Check(pool.Workers() == 8, "worker count reports");
+        WarmUpPool(pool); // all workers started and spinning before measured dispatches
         CheckCounts(pool, 0, "empty");
         CheckCounts(pool, 1, "single");
         CheckCounts(pool, 3, "fewer than workers");
@@ -151,7 +193,7 @@ int main()
         char const *outer = std::getenv("USDGEN_POOL_SPIN_US");
         std::string const saved = outer ? outer : "";
         bool const had = outer != nullptr;
-        setenv("USDGEN_POOL_SPIN_US", "0", 1);
+        PoolSetEnv("USDGEN_POOL_SPIN_US", "0");
         {
             UsdGenWorkerPool pool(8);
             CheckCounts(pool, 1000, "forced sleep/wake");
@@ -173,8 +215,8 @@ int main()
             }
             Check(slept, "100 forced-sleep dispatches are all exact");
         }
-        if (had) setenv("USDGEN_POOL_SPIN_US", saved.c_str(), 1);
-        else unsetenv("USDGEN_POOL_SPIN_US");
+        if (had) PoolSetEnv("USDGEN_POOL_SPIN_US", saved.c_str());
+        else PoolUnsetEnv("USDGEN_POOL_SPIN_US");
     }
     if (g_failures) return 1;
 
@@ -224,6 +266,7 @@ int main()
     // one worker, since a single claim takes the whole range).
     {
         UsdGenWorkerPool pool(8);
+        WarmUpPool(pool); // all workers started and spinning before measured dispatches
         CheckCountsChunk(pool, 101, 1, "chunk 1 over prime 101");
         CheckCountsChunk(pool, 101, 7, "chunk 7 over prime 101");
         {

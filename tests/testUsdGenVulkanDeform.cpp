@@ -1646,7 +1646,29 @@ int main(int argc, char** argv) {
                 off.size() * sizeof(uint32_t));
             auto tgtBuf = Upload(dlContext, tgt.data(), tgt.size() * sizeof(float));
             CHECK(ptsBuf && offBuf && tgtBuf);
-            CHECK((ptsBuf->memoryPropertyFlags() & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0);
+            // The staged copy must land in device-local memory. It is only
+            // non-mappable where the device offers non-host-visible
+            // device-local memory; unified-memory devices (lavapipe,
+            // integrated GPUs) have none, so the strict half is skipped there.
+            VkPhysicalDeviceMemoryProperties memProps{};
+            vkGetPhysicalDeviceMemoryProperties(native->physical, &memProps);
+            bool hasDiscreteLocal = false;
+            for (uint32_t mi = 0; mi < memProps.memoryTypeCount; ++mi) {
+                VkMemoryPropertyFlags const mf = memProps.memoryTypes[mi].propertyFlags;
+                if ((mf & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+                    !(mf & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+                    hasDiscreteLocal = true;
+                    break;
+                }
+            }
+            CHECK((ptsBuf->memoryPropertyFlags() & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0);
+            if (hasDiscreteLocal) {
+                CHECK((ptsBuf->memoryPropertyFlags() &
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0);
+            } else {
+                std::puts("Case 20b (staged-copy placement): unified memory, "
+                    "non-mappable check skipped");
+            }
             auto mkHetDl = [&]() {
                 DeformPipeline::BeginInfo info;
                 info.points = ptsBuf;
