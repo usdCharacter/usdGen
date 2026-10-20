@@ -99,15 +99,23 @@ int main()
     char const *outerLimit = std::getenv("USDGEN_THREAD_LIMIT");
     std::string const savedLimit = outerLimit ? outerLimit : "";
     bool const hadLimit = outerLimit != nullptr;
+#ifdef _WIN32
+    _putenv_s("USDGEN_THREAD_LIMIT", "3");
+#else
     setenv("USDGEN_THREAD_LIMIT", "3", 1);
+#endif
     {
         UsdGenScheduler fromEnv;
         Check(fromEnv.ThreadLimit() == 3, "USDGEN_THREAD_LIMIT=3 sizes a default scheduler");
         UsdGenScheduler explicitWins(5);
         Check(explicitWins.ThreadLimit() == 5, "an explicit count wins over USDGEN_THREAD_LIMIT");
     }
+#ifdef _WIN32
+    _putenv_s("USDGEN_THREAD_LIMIT", hadLimit ? savedLimit.c_str() : "");
+#else
     if (hadLimit) setenv("USDGEN_THREAD_LIMIT", savedLimit.c_str(), 1);
     else unsetenv("USDGEN_THREAD_LIMIT");
+#endif
     if (g_failures) return 1;
 
 #if !defined(__linux__) || defined(__ANDROID__)

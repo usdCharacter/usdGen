@@ -151,7 +151,11 @@ int main()
         char const *outer = std::getenv("USDGEN_POOL_SPIN_US");
         std::string const saved = outer ? outer : "";
         bool const had = outer != nullptr;
+#ifdef _WIN32
+        _putenv_s("USDGEN_POOL_SPIN_US", "0");
+#else
         setenv("USDGEN_POOL_SPIN_US", "0", 1);
+#endif
         {
             UsdGenWorkerPool pool(8);
             CheckCounts(pool, 1000, "forced sleep/wake");
@@ -173,8 +177,12 @@ int main()
             }
             Check(slept, "100 forced-sleep dispatches are all exact");
         }
+#ifdef _WIN32
+        _putenv_s("USDGEN_POOL_SPIN_US", had ? saved.c_str() : "");
+#else
         if (had) setenv("USDGEN_POOL_SPIN_US", saved.c_str(), 1);
         else unsetenv("USDGEN_POOL_SPIN_US");
+#endif
     }
     if (g_failures) return 1;
 

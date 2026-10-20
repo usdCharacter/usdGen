@@ -180,6 +180,17 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
         return false;
     }
     *out = graph.Output();
+    if (std::getenv("USDGEN_TEST_COLLIDE_FINGERPRINT")) {
+        uint64_t hash = 14695981039346656037ull;
+        for (auto const* plane : {&out->px, &out->py, &out->pz, &out->width}) {
+            auto const* bytes =
+                reinterpret_cast<unsigned char const*>(plane->cdata());
+            for (size_t i=0; i<plane->size()*sizeof(float); ++i)
+                hash = (hash ^ bytes[i]) * 1099511628211ull;
+        }
+        std::printf("fingerprint: %u %u %llu\n", out->totalCurves,
+                    out->totalCvs, static_cast<unsigned long long>(hash));
+    }
     return true;
 }
 
@@ -2549,6 +2560,28 @@ static void CheckCutGrazingEntry()
 #endif
 }
 
+// Coincident strands deliberately share query coordinates but not offsets.
+// Cross a chunk boundary and exceed the bounded query cache's capacity.
+static void CheckCoincidentStrandOffsets()
+{
+    auto desc = CollideDesc({{TfToken("pushAmount"), VtValue(1.0f), false}});
+    desc.curveSets.front() = StraightStrands(SdfPath("/collide/hair"),
+        std::vector<GfVec3f>(600, GfVec3f(0.0f)), 6, 0.25f);
+    AddBinding(desc, SdfPath("/collide/op"), SdfPath("/collide/offset"),
+        "0.1 + 0.001 * $primIndex", TfToken("float"), FloatShape(),
+        TfToken("offset"), expr::Domain::Primitive, VtValue(0.0f));
+    UsdGenCurveBuffer output;
+    bool ok = Cook(desc, &output) && output.totalCvs == 3600;
+    if (ok) for (size_t c = 0; c < 600; ++c) {
+        float const z = std::max(0.0f, float(0.1 + 0.001 * c) - 0.25f);
+        for (size_t i = 0; i < 6; ++i)
+            ok = ok && Near(output.pz[c * 6 + i], z, 1e-6f) &&
+                Near(output.px[c * 6 + i], 0.0f, 1e-6f) &&
+                Near(output.py[c * 6 + i], float(i) * 0.25f, 1e-6f);
+    }
+    Check(ok, "coincident strands preserve distinct offsets across chunks and cache eviction");
+}
+
 int main()
 {
     usdGenRegisterM1Operators();
@@ -2557,6 +2590,23 @@ int main()
     }
     if (std::getenv("USDGEN_TEST_CURVE7000_ONLY")) {
         CheckCutTemporalCurve7000();
+        return failures ? 1 : 0;
+    }
+    // Opt-in repeatable performance fixture; run with ctest -V for timing.
+    if (std::getenv("USDGEN_TEST_COLLIDE_BENCHMARK")) {
+        auto surface = ClosedCube(SdfPath("/collide/collider"));
+        surface.subdivisionScheme = TfToken("catmullClark");
+        auto desc = OneLimitStrand(surface, GfVec3f(0.5f, -0.1f, 0.5f), 0.01f);
+        std::vector<GfVec3f> roots;
+        for (int z=0; z<16; ++z) for (int x=0; x<16; ++x)
+            roots.emplace_back(0.28f + x*0.03f, -0.1f, 0.28f + z*0.03f);
+        desc.curveSets.front() = StraightStrands(
+            SdfPath("/collide/hair"), roots, 16, 0.04f);
+        desc.nodes.back().params[2].value = VtValue(128);
+        desc.nodes.back().params.push_back({TfToken("deepPenetrationMode"),
+            VtValue(TfToken("cutThenCollide")), false});
+        UsdGenCurveBuffer output;
+        Check(Cook(desc, &output), "dense cut collision benchmark");
         return failures ? 1 : 0;
     }
     CheckRegistryContracts();
@@ -2570,6 +2620,7 @@ int main()
     CheckCutProjectedCurve1870();
     CheckIdentityCook();
     CheckFlexiblePush();
+    CheckCoincidentStrandOffsets();
     CheckMaskCook();
     CheckStiffCook();
     CheckTwoSurfaceCook();

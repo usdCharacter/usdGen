@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <array>
 #include <memory>
 #include <limits>
@@ -193,12 +194,48 @@ struct ClosestHit
     bool found = false;
     bool inside = false;
     size_t collider = 0;
-    GfVec3d q, a, b, c;   // closest point + its winning corners (for dist 0)
+    GfVec3d q{0.0}, a{0.0}, b{0.0}, c{0.0}; // point and winning corners
     GfVec3d normal{0.0, 0.0, 1.0};
     int face = -1;
     uint32_t proxyTriangle = ~uint32_t(0);
     GfVec2d uv{0.0};
     double dist2 = 0.0;
+};
+
+// Exact query memoization, owned by one Evaluate invocation. Repeated sweeps
+// often revisit unchanged CVs and segments. Keep all coordinate bits (including
+// signed zero), query modes and offsets in the key: collisions only evict work,
+// never substitute another contact. No capture/frame state survives evaluation.
+template <size_t N>
+class ContactQueryCache
+{
+    struct Entry {
+        std::array<uint64_t, N> key{};
+        ClosestHit hit;
+        bool valid = false;
+    };
+    std::vector<Entry> _entries{256};
+public:
+    template <class Query>
+    ClosestHit Find(std::array<double, N> const &values, Query &&query)
+    {
+        std::array<uint64_t, N> key;
+        uint64_t hash = 0;
+        for (size_t i = 0; i < N; ++i) {
+            std::memcpy(&key[i], &values[i], sizeof(double));
+            uint64_t bits = key[i];
+            bits = (bits ^ (bits >> 30)) * 0xbf58476d1ce4e5b9ull;
+            bits = (bits ^ (bits >> 27)) * 0x94d049bb133111ebull;
+            hash ^= (bits ^ (bits >> 31)) + 0x9e3779b97f4a7c15ull +
+                    (hash << 6) + (hash >> 2);
+        }
+        Entry &entry = _entries[hash & (_entries.size() - 1)];
+        if (entry.valid && entry.key == key) return entry.hit;
+        entry.hit = query();
+        entry.key = key;
+        entry.valid = true;
+        return entry.hit;
+    }
 };
 
 double BoxDistance2(GfVec3d const &p, GfVec3d const &lo,
@@ -344,6 +381,9 @@ bool RefineLimitHit(UsdGenCollideCollider const &c,
             GfVec2d const trial = lockToFacet
                 ? ClampToFacet(uv + step * scale,t)
                 : ClampToSearchDomain(c,t,uv + step * scale);
+            // A clamped/rounded step at the current UV cannot improve d2.
+            // Keep trying smaller steps, but do not evaluate the same patch.
+            if (trial == uv) continue;
             GfVec3d tq, tu, tv;
             if (!LimitPoint(c, t.face, trial, &tq, &tu, &tv)) continue;
             double const trialD2 = (p - tq).GetLengthSq();
@@ -700,6 +740,11 @@ ClosestHit ClosestOnLimit(UsdGenCollideCollider const &c,
         rankFace(rankFace, face.root);
         for (auto const &entry : seeds) {
             if (entry.second == ~uint32_t(0)) break;
+            // The global seeds have already run this identical patch solve.
+            // Preserve every distinct seed and its deterministic tie order.
+            if (std::any_of(proxySeeds.begin(), proxySeeds.end(),
+                    [&](auto const &seed) { return seed.second == entry.second; }))
+                continue;
             ClosestHit candidate;
             if (!RefineLimitHit(c,c.triangles[entry.second],p,&candidate))
                 continue;
@@ -1953,6 +1998,23 @@ void UsdGenCollideOp::Evaluate(
         return;
     }
 
+    ContactQueryCache<4> pointQueries;
+    ContactQueryCache<7> segmentQueries;
+    auto closest = [&](GfVec3d const &point, double offset) {
+        return pointQueries.Find({point[0], point[1], point[2], offset}, [&] {
+            return ClosestOnColliders(ctx.desc, cap, point, offset);
+        });
+    };
+    auto firstCrossing = [&](GfVec3d const &start, GfVec3d const &end,
+                             bool completePolygonHit = false) {
+        return segmentQueries.Find({start[0], start[1], start[2],
+                                    end[0], end[1], end[2],
+                                    double(completePolygonHit)}, [&] {
+            return FirstClosedSegmentHit(ctx.desc, cap, start, end,
+                                         completePolygonHit);
+        });
+    };
+
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n =
             ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
@@ -2012,6 +2074,15 @@ void UsdGenCollideOp::Evaluate(
                     std::clamp(Sanitize(maskField.Value(curve,cvBase+g+i+1)),0.0,1.0),
                     0.0,1.0);
                 if (wa==0.0 && wb==0.0) continue;
+                // Blend is at most one. Once an earlier contact has removed
+                // more length than this entire weighted tail can remove,
+                // no depth sample on this segment can change the result.
+                // Pad roundoff outward; this is not a contact tolerance.
+                double const boundPad = 32.0 *
+                    std::numeric_limits<double>::epsilon() * std::max(1.0,total);
+                double const tailUpper = std::max(wa,wb) *
+                    std::max(0.0,total-arc[i]);
+                if (cut > tailUpper + boundPad) continue;
                 for (size_t ci=0;ci<cap.colliders.size();++ci) {
                     if (!cap.colliders[ci].closed) continue;
                     auto const &closedCollider=cap.colliders[ci];
@@ -2055,6 +2126,11 @@ void UsdGenCollideOp::Evaluate(
                     size_t workCount=0;
                     auto add=[&](double ta,double tb,DepthSample const &da,
                                  DepthSample const &db) {
+                        double const weightBound=std::max(
+                            wa+(wb-wa)*ta,wa+(wb-wa)*tb);
+                        double const tailBound=std::max(
+                            0.0,total-(arc[i]+segmentLength*ta));
+                        if (cut > weightBound*tailBound + boundPad) return;
                         double const tm=(ta+tb)*0.5; DepthSample const dm=depth(tm);
                         if (queryFailed) {
                             PublishEvalFailure(ctx,
@@ -2178,15 +2254,13 @@ void UsdGenCollideOp::Evaluate(
                     double const off = Sanitize(offsetField.Value(curve, cv));
                     if (hasClosed && !cutMode) {
                         ClosestHit const reference =
-                            ClosestOnColliders(ctx.desc, cap, original,
-                                               std::max(0.0,off));
+                            closest(original, std::max(0.0,off));
                         if (reference.inside) {
                             if (!anchored || anchor.collider != reference.collider) {
                                 ClosestHit entry;
                                 if (i > 0) {
                                     GfVec3d const previous=source(o-1);
-                                    entry = FirstClosedSegmentHit(
-                                        ctx.desc, cap, previous, original);
+                                    entry = firstCrossing(previous, original);
                                 }
                                 anchor = entry.found &&
                                     entry.collider == reference.collider
@@ -2195,16 +2269,16 @@ void UsdGenCollideOp::Evaluate(
                             anchored = true;
                         } else if (i > 0) {
                             GfVec3d const previous=source(o-1);
-                            ClosestHit const crossing = FirstClosedSegmentHit(
-                                ctx.desc, cap, previous, original);
+                            ClosestHit const crossing =
+                                firstCrossing(previous, original);
                             ClosestHit correctedCrossing;
                             bool onEnteredFace = false;
                             if (anchored) {
                                 GfVec3d const correctedPrevious(
                                     px[o - 1], py[o - 1], pz[o - 1]);
                                 GfVec3d const candidate = current(o, it);
-                                correctedCrossing = FirstClosedSegmentHit(
-                                    ctx.desc, cap, correctedPrevious, candidate);
+                                correctedCrossing = firstCrossing(
+                                    correctedPrevious, candidate);
                                 ClosestHit anchoredFace = anchor;
                                 onEnteredFace = ClosestOnHitFacet(
                                     cap, candidate, &anchoredFace) &&
@@ -2241,8 +2315,7 @@ void UsdGenCollideOp::Evaluate(
                         GfVec3d previous=pos;
                         if (i>0) {
                             previous=GfVec3d(px[o-1],py[o-1],pz[o-1]);
-                            entry=FirstClosedSegmentHit(
-                                ctx.desc,cap,previous,pos,true);
+                            entry=firstCrossing(previous,pos,true);
                         }
                         if (entry.found) {
                             GfVec3d normal=entry.normal;
@@ -2253,8 +2326,7 @@ void UsdGenCollideOp::Evaluate(
                             storeFlexible(o,pos+normal*(amount*push*m));
                             continue;
                         }
-                        ClosestHit const hit=ClosestOnColliders(
-                            ctx.desc,cap,pos,std::max(0.0,off));
+                        ClosestHit const hit=closest(pos, std::max(0.0,off));
                         if (!hit.found) {
                             if (it==0) copyInput(o);
                             continue;
@@ -2284,8 +2356,7 @@ void UsdGenCollideOp::Evaluate(
                         }
                     }
                     ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos,
-                                           std::max(0.0,off));
+                        closest(pos, std::max(0.0,off));
                     if (!hit.found) {
                         if (it == 0) copyInput(o);
                         continue;
@@ -2328,12 +2399,10 @@ void UsdGenCollideOp::Evaluate(
                     GfVec3d const pos = current(o, it);
                     double const off = Sanitize(offsetField.Value(curve, cv));
                     ClosestHit const hit =
-                        ClosestOnColliders(ctx.desc, cap, pos,
-                                           std::max(0.0,off));
+                        closest(pos, std::max(0.0,off));
                     ClosestHit entry;
                     if (i > 0)
-                        entry = FirstClosedSegmentHit(
-                            ctx.desc, cap, current(g + i - 1, it), pos);
+                        entry = firstCrossing(current(g + i - 1, it), pos);
                     bool const solidContact = entry.found || hit.inside;
                     double pen = 0.0;
                     GfVec3d dir(0.0, 0.0, 1.0);
@@ -2429,12 +2498,9 @@ void UsdGenCollideOp::Evaluate(
                                                  double(rotated[1]),
                                                  double(rotated[2]));
                                     ClosestHit const candidateHit =
-                                        ClosestOnColliders(ctx.desc, cap,
-                                                           candidate,0.0);
+                                        closest(candidate,0.0);
                                     ClosestHit const crossing =
-                                        FirstClosedSegmentHit(ctx.desc, cap,
-                                                              previous,
-                                                              candidate);
+                                        firstCrossing(previous, candidate);
                                     if ((candidateHit.inside &&
                                          candidateHit.collider ==
                                              entry.collider) ||
@@ -2519,12 +2585,9 @@ void UsdGenCollideOp::Evaluate(
                                             double(rotated[0]),double(rotated[1]),
                                             double(rotated[2]));
                                         ClosestHit const candidateHit =
-                                            ClosestOnColliders(ctx.desc,cap,
-                                                               candidate,0.0);
+                                            closest(candidate,0.0);
                                         ClosestHit const crossing =
-                                            FirstClosedSegmentHit(ctx.desc,cap,
-                                                                  previous,
-                                                                  candidate);
+                                            firstCrossing(previous, candidate);
                                         if (candidateHit.inside || crossing.found) {
                                             *badIndex = j;
                                             return false;
