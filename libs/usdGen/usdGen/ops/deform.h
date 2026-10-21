@@ -55,6 +55,8 @@ public:
                  UsdGenChunkView *view) const override;
    std::unique_ptr<UsdGenCapture> CreateCapture() const override;
    uint32_t PlanesTouched() const override;
+   rbf::CubicField const& AnimationField() const { return field_; }
+   std::vector<size_t> const& AnimationSamples() const { return surfaceSelection_; }
 
    // Testing only: the cached surface selection (empty until the first
    // surface-driven capture settles it), and how many digests hashed

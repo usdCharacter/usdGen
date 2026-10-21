@@ -368,9 +368,12 @@ static void CheckColliderWorldTransforms()
     relative *= translation;
     scaled.xformMatrix.SetTranslate(GfVec3d(4, 5, 6));
     scaled.surfaces.front().worldMatrix = relative * scaled.xformMatrix;
+    // The oracle is geometry authored elsewhere: its Default-time rest moves
+    // with it (operators before a deform read the rest), so both do.
     UsdGenGraphDesc oracle = base;
     for (GfVec3f &point : oracle.surfaces.front().points)
         point = GfVec3f(relative.Transform(GfVec3d(point)));
+    oracle.surfaces.front().restPoints = oracle.surfaces.front().points;
     UsdGenCurveBuffer scaledOut, oracleOut;
     Check(Cook(scaled, &scaledOut) && Cook(oracle, &oracleOut),
           "Scaled reflected collider and baked-point oracle cook");
@@ -2102,6 +2105,8 @@ static void CheckEdgesFailClosed()
                                         {TfToken("pushAmount"), VtValue(1.0f), false}});
     flat.surfaces.front().points = {GfVec3f(0, 0, 0), GfVec3f(1, 0, 0),
                                     GfVec3f(2, 0, 0)};
+    // Collide without a deform reads the collider's Default-time rest.
+    flat.surfaces.front().restPoints = flat.surfaces.front().points;
     Check(!Cook(flat, &out), "Collide with an all-degenerate collider fails closed");
 }
 
@@ -2466,8 +2471,10 @@ static void CheckSubdivisionLimit()
         Check(Near(holedOut.pz[0],0.01f),
               "polygon fallback does not restore an authored hole face");
     grid.points[4][2] = std::numeric_limits<float>::quiet_NaN();
+    // Collide without a deform reads the collider's Default-time rest.
+    grid.restPoints = grid.points;
     auto invalid = OneLimitStrand(grid,GfVec3f(0,0,0),0.03f);
-    Check(!Cook(invalid,&polygon),"non-finite posed limit fails closed");
+    Check(!Cook(invalid,&polygon),"non-finite limit fails closed");
 }
 
 static void CheckCutGrazingEntry()

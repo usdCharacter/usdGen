@@ -6,6 +6,7 @@
 #include "usdGen/limitSurface.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/furOcclusion.h"
+#include "usdGen/ops/deform.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
@@ -613,6 +614,16 @@ bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
         if (!addTile(tile)) return false;
     for (auto const &tile : generation.guides)
         if (!addTile(tile)) return false;
+    if (generation.animationBinding) {
+        auto const& binding = *generation.animationBinding;
+        size_t const n = binding.sampleIndices.size(), order = n + 4;
+        if (!_AddBytes(&total, 1, sizeof(UsdGenRbfAnimationBinding)) ||
+            !_AddBytes(&total, order * order + 9 * order, sizeof(double)) ||
+            !_AddBytes(&total, n + order, sizeof(size_t))) return false;
+        for (auto const& tile : binding.tiles)
+            if (!_AddBytes(&total, 1, sizeof(UsdGenRbfAnimationTile)) ||
+                !_AddBytes(&total, tile.restPoints.size(), sizeof(GfVec3f))) return false;
+    }
     for (UsdGenInstancerPublication const &instancer : generation.instancers) {
         if (!_AddBytes(&total, 1, sizeof(UsdGenInstancerPublication)) ||
             !_AddBytes(&total, instancer.primPath.GetString().size(), sizeof(char)) ||
@@ -2120,6 +2131,22 @@ UsdGenStats publishedStats, bool invalidateValues,
     _lastDiagnostics = result.diagnostics;
     phases.Phase("run operators");
 
+    // A points-only run: every node that did work writes nothing but points
+    // (no generator, no output planes, no remapped vertex planes), so the
+    // terminal's other channels are the ones the published tiles were built
+    // from -- if they were (_tileChannelsSettled). Cleared here whatever
+    // happens next, so a failed or superseded run never leaves it set.
+    bool pointsOnlyRun = !result.topologyChanged;
+    for (UsdGenNodeRunStats const &rs : result.nodeStats) {
+        if (!pointsOnlyRun) break;
+        if (rs.id >= static_cast<UsdGenNodeId>(_graph.NodeCount())) { pointsOnlyRun = false; break; }
+        UsdGenCompiledNode const &n = _graph.Node(rs.id);
+        pointsOnlyRun = n.op && !n.op->IsGenerator() && !n.op->RemapsVertexPlanes() &&
+            n.op->PlanesTouched() == UsdGenOp::kPlanePoints && n.outputPrimvars.empty();
+    }
+    bool const channelsSettled = _tileChannelsSettled && pointsOnlyRun;
+    _tileChannelsSettled = false;
+
     if (result.diagnostics.HasErrors()) {
         // A partially executed graph is never a publishable generation.
         // Rebuild capture/evaluation state on retry; retain the last completed
@@ -2203,26 +2230,39 @@ UsdGenStats publishedStats, bool invalidateValues,
     size_t rebuiltTiles = 0;
     size_t rebuildCvs = 0;
     std::vector<UsdGenTileView const *> buildViews;
+    // Points-only republication: the previous tile with fresh points (every
+    // other channel shared), when nothing but points moved since it was built.
+    bool const refreshPoints = channelsSettled && prev && !recolour && !_rebuildAllTiles &&
+        !_previewColors.active;
+    size_t refreshedTiles = 0;
     for (UsdGenTileView const &tv : result.tiles) {
         // E-4: untouched tiles carry over their publication wholesale (the
         // VtArray copies share buffers, so step 7 sees IsIdentical == true).
         const bool rebuild =
             result.topologyChanged || tv.pointsDirty || tv.widthsDirty || recolour ||
             _rebuildAllTiles;
-        const UsdGenTilePublication *carry = nullptr;
-        if (!rebuild && prev) {
+        const UsdGenTilePublication *previous = nullptr;
+        if (prev) {
             auto it = std::lower_bound(
                 prev->tiles.begin(), prev->tiles.end(), tv.tile,
                 [](UsdGenTilePublication const &p, UsdGenTileId t) {
                     return p.tile < t;
                 });
-            if (it != prev->tiles.end() && it->tile == tv.tile) carry = &*it;
+            if (it != prev->tiles.end() && it->tile == tv.tile) previous = &*it;
         }
-        if (carry) {
-            gen.tiles.push_back(*carry);
+        if (!rebuild && previous) {
+            gen.tiles.push_back(*previous);
             continue;
         }
         ++rebuiltTiles;
+        if (refreshPoints && previous && !tv.widthsDirty) {
+            UsdGenTilePublication refreshed;
+            if (_RefreshTilePoints(tv, result, *previous, &refreshed)) {
+                gen.tiles.push_back(std::move(refreshed));
+                ++refreshedTiles;
+                continue;
+            }
+        }
         auto streamed = streamedTiles.find(tv.tile);
         if (streamed != streamedTiles.end()) {
             gen.tiles.push_back(streamed->second);
@@ -2281,7 +2321,10 @@ UsdGenStats publishedStats, bool invalidateValues,
               [](UsdGenTilePublication const &a, UsdGenTilePublication const &b) {
                   return a.tile < b.tile;
               });
-    phases.Phase("tiles", rebuiltTiles, gen.tiles.size());
+    phases.Phase(refreshedTiles == rebuiltTiles && refreshedTiles ? "tile points" : "tiles",
+                 rebuiltTiles, gen.tiles.size());
+    if (UsdGenRbfAnimationEnabled())
+        gen.animationBinding = _BuildAnimationBinding(result, gen.tiles);
 
     // Whole-groom optical depth includes neighboring tiles. Unchanged
     // geometry reuses the immutable planes, including on look-only edits.
@@ -2380,6 +2423,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         })) return _store.Get();
     _publicationFence = ExecutionPublicationFence{cacheDomain, *fence};
     _graphBaselineDetached = false;
+    _tileChannelsSettled = true;   // published from this graph's current buffers
     phases.Phase("publish");
 
     // -- step 7: diff vs the previous generation (06 §5.1) -----------------
@@ -2732,6 +2776,96 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     pub.primOrigin = scalars.primOrigin;
     pub.dependencySurface = scalars.dependencySurface;
     return pub;
+}
+
+std::shared_ptr<const UsdGenRbfAnimationBinding>
+UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
+    std::vector<UsdGenTilePublication> const& tiles) const
+{
+    auto const& terminal = _graph.Node(_graph.TerminalNodeId());
+    auto const* deform = dynamic_cast<UsdGenDeformOp const*>(terminal.op.get());
+    if (!deform || !terminal.desc || !terminal.desc->enabled ||
+        (!terminal.desc->mode.IsEmpty() && terminal.desc->mode != TfToken("rbf")) || terminal.inputs.size() != 1 ||
+        !terminal.desc->curves.empty() || !terminal.desc->references.empty() ||
+        !terminal.desc->expressionBindings.empty() || !terminal.desc->maps.empty() ||
+        !terminal.desc->mapBindings.empty() ||
+        terminal.surface >= _desc.surfaces.size() ||
+        terminal.paramView.GetBool(TfToken("lockRoots"), true) ||
+        terminal.paramView.GetDouble(TfToken("mask"), 1.0) != 1.0 ||
+        !terminal.outputPrimvars.empty() || deform->AnimationSamples().empty()) return {};
+    // Only a static styling stack followed by one surface-driven RBF can
+    // retain its upstream geometry while the surface poses.
+    for (int i = 0; i != _graph.NodeCount(); ++i) {
+        auto const& node = _graph.Node(i);
+        if (!node.op || node.op->ReadsTime() || !node.desc->expressionBindings.empty()) return {};
+        if (&node != &terminal && node.op->Type() == TfToken("UsdGenDeform")) return {};
+        for (auto const& param : node.desc->params) if (param.animated) return {};
+    }
+    auto binding = std::make_shared<UsdGenRbfAnimationBinding>();
+    binding->surface = _desc.surfaces[terminal.surface].path;
+    binding->sampleIndices = deform->AnimationSamples();
+    binding->field = deform->AnimationField();
+    auto restResult = result;
+    restResult.terminalOutput = &_graph.Node(terminal.inputs.front()).buffer;
+    for (auto const& tv : result.tiles) {
+        auto tile = std::find_if(tiles.begin(), tiles.end(), [&](auto const& t) { return t.tile == tv.tile; });
+        UsdGenTilePublication rest;
+        if (tile == tiles.end() || !_RefreshTilePoints(tv, restResult, *tile, &rest)) return {};
+        double padding = 0;
+        for (float width : tile->widths) padding = std::max(padding, double(width) * 0.5);
+        binding->tiles.push_back({tile->primPath, std::move(rest.points), padding});
+    }
+    return binding;
+}
+
+bool UsdGenSessionCooker::_RefreshTilePoints(UsdGenTileView const &tv,
+                                             UsdGenRunResult const &result,
+                                             UsdGenTilePublication const &previous,
+                                             UsdGenTilePublication *out) const
+{
+    // The same chunk -> live curve -> CV walk as _BuildTilePublication, so
+    // the points land in the order the previous build published them; any
+    // disagreement with the previous curve layout refuses the refresh.
+    UsdGenCurveBuffer const &term = *result.terminalOutput;
+    UsdGenCompiledNode const &tn = _graph.Node(_graph.TerminalNodeId());
+    size_t const count = previous.points.size();
+    VtVec3fArray points(count);
+    GfVec3f *dst = points.data();
+    size_t k = 0, curve = 0;
+    GfRange3f e;
+    for (uint32_t i = 0; i < tv.chunkCount; ++i) {
+        if (size_t(tv.firstChunk) + i >= tn.chunks.size()) return false;
+        UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
+        for (uint32_t c = 0; c < cd.liveCount; ++c) {
+            uint32_t const g = cd.firstCurve + c;
+            uint32_t p0 = 0, len = 0;
+            if (cd.cvCount != 0) {
+                len = cd.cvCount;
+                p0 = cd.firstCv + c * cd.cvCount;
+            } else if (g + 1 < term.cvOffsets.size()) {   // ragged chunk
+                p0 = static_cast<uint32_t>(term.cvOffsets[g]);
+                len = static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
+            }
+            if (curve >= previous.curveVertexCounts.size() ||
+                previous.curveVertexCounts[curve] != static_cast<int>(len) ||
+                size_t(p0) + len > term.px.size() || k + len > count)
+                return false;
+            ++curve;
+            for (uint32_t v = 0; v < len; ++v) {
+                uint32_t const p = p0 + v;
+                GfVec3f const pt(term.px[p], term.py[p], term.pz[p]);
+                dst[k++] = pt;
+                e.ExtendBy(pt);
+            }
+        }
+    }
+    if (k != count || curve != previous.curveVertexCounts.size()) return false;
+    *out = previous;
+    out->points = std::move(points);
+    if (e.IsEmpty()) e = GfRange3f(GfVec3f(0.f), GfVec3f(0.f));
+    out->extentMin = GfVec3d(e.GetMin()[0], e.GetMin()[1], e.GetMin()[2]);
+    out->extentMax = GfVec3d(e.GetMax()[0], e.GetMax()[1], e.GetMax()[2]);
+    return true;
 }
 
 std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats() const

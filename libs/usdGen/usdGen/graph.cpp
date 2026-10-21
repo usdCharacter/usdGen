@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -40,6 +41,97 @@ UsdGenNodeDesc const &UsdGenGraph::NodeDesc(UsdGenNodeId id) const
         throw std::out_of_range("UsdGenGraph::NodeDesc: invalid node id");
     }
     return *_nodes[id]->desc;
+}
+
+namespace {
+
+// Word-at-a-time FNV-1a over a surface's Default-space content: topology,
+// rest points and normals, uv, subset and world matrix. The posed points,
+// shutter samples and velocities are deliberately not terms.
+class RestContentHash
+{
+public:
+    void Bytes(void const *data, size_t size)
+    {
+        auto const *bytes = static_cast<unsigned char const *>(data);
+        size_t i = 0;
+        for (; i + 8 <= size; i += 8) {
+            uint64_t word;
+            std::memcpy(&word, bytes + i, 8);
+            Mix(word);
+        }
+        uint64_t tail = 0;
+        if (i < size) std::memcpy(&tail, bytes + i, size - i);
+        Mix(tail);
+        Mix(uint64_t(size));
+    }
+    template <class T> void Array(VtArray<T> const &a)
+    {
+        Bytes(a.empty() ? nullptr : a.cdata(), a.size() * sizeof(T));
+    }
+    void Mix(uint64_t word) { _h ^= word; _h *= 0x100000001b3ULL; }
+    uint64_t Value() const { return _h ? _h : 1; }
+
+private:
+    uint64_t _h = 1469598103934665603ULL;
+};
+
+uint64_t RestSurfaceGeneration(UsdGenSurfaceDesc const &surface)
+{
+    RestContentHash h;
+    h.Mix(0x5265737453726675ULL);   // distinct from any posed generation domain
+    h.Array(surface.faceVertexCounts);
+    h.Array(surface.faceVertexIndices);
+    h.Array(surface.restPoints);
+    h.Array(surface.restNormals);
+    h.Mix(uint64_t(surface.restNormalDomain));
+    h.Array(surface.uv);
+    h.Array(surface.subsetFaces);
+    h.Mix(surface.isSubset ? 1u : 0u);
+    h.Bytes(surface.worldMatrix.GetArray(), 16 * sizeof(double));
+    return h.Value();
+}
+
+std::array<uint64_t, 3> RestSourceKey(UsdGenSurfaceDesc const &surface)
+{
+    return {surface.surfaceGeneration,
+            uint64_t(reinterpret_cast<uintptr_t>(surface.points.cdata())),
+            uint64_t(reinterpret_cast<uintptr_t>(surface.restPoints.cdata()))};
+}
+
+}  // namespace
+
+UsdGenGraphDesc const &UsdGenGraph::RestDesc() const
+{
+    if (!_desc) {
+        if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphDesc>();
+        return *_restDesc;
+    }
+    bool fresh = _restDesc && _restSource == _desc.get() &&
+        _restSourceKeys.size() == _desc->surfaces.size();
+    for (size_t s = 0; fresh && s < _desc->surfaces.size(); ++s)
+        fresh = _restSourceKeys[s] == RestSourceKey(_desc->surfaces[s]);
+    if (fresh) return *_restDesc;
+
+    auto rest = std::make_unique<UsdGenGraphDesc>(*_desc);
+    for (UsdGenSurfaceDesc &surface : rest->surfaces) {
+        if (surface.restFromCurrentPoints || surface.restPoints.empty() ||
+            surface.restPoints.size() != surface.points.size())
+            continue;   // no authored rest: Default space is the current geometry
+        surface.points = surface.restPoints;
+        if (!surface.samples.empty()) {
+            surface.samples.resize(1);
+            surface.samples[0].points = surface.restPoints;
+        }
+        surface.velocities = VtVec3fArray();
+        surface.surfaceGeneration = RestSurfaceGeneration(surface);
+    }
+    _restSourceKeys.clear();
+    for (UsdGenSurfaceDesc const &surface : _desc->surfaces)
+        _restSourceKeys.push_back(RestSourceKey(surface));
+    _restSource = _desc.get();
+    _restDesc = std::move(rest);
+    return *_restDesc;
 }
 
 TfSpan<const UsdGenResolvedReferenceValue> UsdGenGraph::ReferenceValues() const

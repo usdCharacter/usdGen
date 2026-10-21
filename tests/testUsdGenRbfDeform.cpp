@@ -29,6 +29,13 @@
 #include "usdGen/workerPool.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
+#include "usdGenImaging/rbfAnimation.h"
+#include "pxr/imaging/hd/retainedSceneIndex.h"
+#include "pxr/imaging/hd/retainedDataSource.h"
+#include "pxr/imaging/hd/primvarsSchema.h"
+#include "pxr/imaging/hd/extentSchema.h"
+#include "pxr/imaging/hd/overlayContainerDataSource.h"
+#include "pxr/imaging/hdsi/extComputationPrimvarPruningSceneIndex.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/base/gf/matrix4d.h"
@@ -36,6 +43,7 @@
 #include "pxr/base/gf/rotation.h"
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
+#include "pxr/imaging/hd/systemMessages.h"
 #include "pxr/imaging/hdsi/sceneGlobalsSceneIndex.h"
 #include "pxr/usd/sdf/path.h"
 #include "pxr/usd/usd/attribute.h"
@@ -51,6 +59,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -815,6 +824,129 @@ void CheckDeformChosenDigest()
           "the re-capture reuses the rest-decided selection");
 }
 
+// Operators evaluate in Default space until a deform. Scatter -> Grow -> Clump
+// -> Deform on a surface with authored rest: moving only the posed points
+// (with the builder's surfaceGeneration bump) re-captures the deform alone,
+// Clump's output stays bitwise at rest, and the deform carries it by the pose.
+// The same stack without the deform stays at rest.
+void CheckDefaultSpaceUntilDeform()
+{
+    UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
+    UsdGenNodeDesc clump;
+    clump.path = SdfPath("/groom/clump");
+    clump.type = TfToken("UsdGenClump");
+    clump.enabled = true;
+    clump.seed = 45;
+    clump.inputs.push_back(SdfPath("/groom/grow"));
+    clump.surfaces.push_back(SdfPath("/groom/surface"));
+    clump.params.push_back(UsdGenParamValue{TfToken("clump:centers"), VtValue(TfToken("count")), false});
+    clump.params.push_back(UsdGenParamValue{TfToken("clump:count"), VtValue(8), false});
+    for (auto &n : desc.nodes)
+        if (n.path == SdfPath("/groom/deform")) {
+            n.inputs = {SdfPath("/groom/clump")};
+            for (auto &p : n.params)
+                if (p.name == TfToken("lockRoots")) p.value = VtValue(false);
+        }
+    desc.nodes.insert(desc.nodes.begin() + 2, clump);
+    desc.surfaces[0].surfaceGeneration = 1;
+    GfVec3f const offset(0.3f, -0.2f, 0.5f);
+
+    auto bits = [](UsdGenCurveBuffer const &b) {
+        std::vector<float> out(b.px.begin(), b.px.end());
+        out.insert(out.end(), b.py.begin(), b.py.end());
+        out.insert(out.end(), b.pz.begin(), b.pz.end());
+        return out;
+    };
+    for (bool withDeform : {true, false}) {
+        UsdGenGraphDesc d = desc;
+        std::string const label = withDeform ? "with a deform" : "without a deform";
+        if (!withDeform) {
+            d.terminal = SdfPath("/groom/clump");
+            d.nodes.erase(std::remove_if(d.nodes.begin(), d.nodes.end(), [](UsdGenNodeDesc const &n) {
+                return n.path == SdfPath("/groom/deform");
+            }), d.nodes.end());
+        }
+        UsdGenCompiler compiler;
+        UsdGenGraph graph;
+        UsdGenCompileResult const compiled = compiler.Compile(d, &graph);
+        Check(compiled.ok, "the Default-space fixture compiles " + label);
+        if (!compiled.ok) continue;
+        UsdGenScheduler scheduler(2);
+        UsdGenEvalContext ctx;
+        uint64_t gen = 0;
+        auto run = [&]() -> bool {
+            UsdGenCompileResult const rr = compiler.Recompile(d, &graph);
+            ctx.desc = &graph.Desc();
+            UsdGenRunResult const result = scheduler.Run(graph, ctx, ++gen);
+            return rr.ok && !result.diagnostics.HasErrors();
+        };
+        UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/groom/clump"));
+        UsdGenNodeId const terminal = graph.TerminalNodeId();
+        Check(run(), "the rest pose cooks " + label);
+        UsdGenCurveBuffer const &clumped = graph.Node(clumpId).buffer;
+        if (clumped.totalCurves == 0) { Check(false, "the fixture grows curves " + label); continue; }
+        UsdGenCapture const *restCapture = graph.Node(clumpId).capture.get();
+        std::vector<float> const clumpRest = bits(clumped);
+        std::vector<float> const terminalRest = bits(graph.Node(terminal).buffer);
+
+        VtVec3fArray posed = d.surfaces[0].restPoints;
+        for (GfVec3f &p : posed) p += offset;
+        d.surfaces[0].points = posed;
+        d.surfaces[0].surfaceGeneration = 2;
+        Check(run(), "the posed surface cooks " + label);
+        Check(graph.Node(clumpId).capture.get() == restCapture,
+              "a posed surface does not re-capture Clump upstream of the deform " + label);
+        Check(bits(graph.Node(clumpId).buffer) == clumpRest,
+              "Clump's output stays in Default space " + label);
+        UsdGenCurveBuffer const &out = graph.Node(terminal).buffer;
+        if (withDeform) {
+            double error = 0.0;
+            for (size_t cv = 0; cv < out.totalCvs && cv < clumped.totalCvs; ++cv)
+                error = std::max(error, double((P(out, cv) - (P(graph.Node(clumpId).buffer, cv) + offset)).GetLength()));
+            Check(out.totalCvs == clumped.totalCvs && error < 1e-4,
+                  "the deform carries the rest groom by the pose, error " + std::to_string(error));
+        } else {
+            Check(bits(out) == terminalRest, "without a deform the groom stays at rest");
+        }
+    }
+
+    // After the deform the stack is in pose space: Clump moved below the
+    // deform reads the posed surface, so the pose re-captures it.
+    UsdGenGraphDesc after = desc;
+    after.terminal = SdfPath("/groom/clump");
+    for (auto &n : after.nodes) {
+        if (n.path == SdfPath("/groom/deform")) n.inputs = {SdfPath("/groom/grow")};
+        if (n.path == SdfPath("/groom/clump")) n.inputs = {SdfPath("/groom/deform")};
+    }
+    std::stable_sort(after.nodes.begin(), after.nodes.end(), [](UsdGenNodeDesc const &a, UsdGenNodeDesc const &b) {
+        auto rank = [](UsdGenNodeDesc const &n) {
+            return n.path == SdfPath("/groom/clump") ? 1 : 0;
+        };
+        return rank(a) < rank(b);
+    });
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    if (!compiler.Compile(after, &graph).ok) { Check(false, "the pose-space fixture compiles"); return; }
+    UsdGenScheduler scheduler(2);
+    UsdGenEvalContext ctx;
+    uint64_t gen = 0;
+    auto run = [&]() -> bool {
+        UsdGenCompileResult const rr = compiler.Recompile(after, &graph);
+        ctx.desc = &graph.Desc();
+        return rr.ok && !scheduler.Run(graph, ctx, ++gen).diagnostics.HasErrors();
+    };
+    UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/groom/clump"));
+    Check(run(), "the pose-space fixture cooks its rest pose");
+    UsdGenCapture const *restCapture = graph.Node(clumpId).capture.get();
+    VtVec3fArray posed = after.surfaces[0].restPoints;
+    for (GfVec3f &p : posed) p += offset;
+    after.surfaces[0].points = posed;
+    after.surfaces[0].surfaceGeneration = 2;
+    Check(run(), "the pose-space fixture cooks the pose");
+    Check(restCapture && graph.Node(clumpId).capture.get() != restCapture,
+          "an operator after the deform re-captures when the pose moves");
+}
+
 void CheckDeformEvaluateViewShapes()
 {
     // Deform Evaluate must be view-shape transparent: one real capture,
@@ -1240,6 +1372,77 @@ public:
     size_t added = 0, removed = 0;
     DirtiedPrimEntries dirtied;
 };
+
+// Run separately with resident animation enabled. Reads inside the source
+// dirty observer must already see the corresponding hair pose, without an
+// asyncPoll, another input event, or a full groom synchronization.
+void CheckImmediateAnimationPublication()
+{
+    auto stage = UsdStage::Open(USDGEN_TEST_SOURCE_DIR "/examples/motion/felt_sphere_animated.usda");
+    Check(bool(stage), "GPU publication fixture opens");
+    if (!stage) return;
+    SdfPath const description("/World/Motion/Groom/Hair");
+    SdfPath const surface("/World/Motion/Sphere");
+    stage->GetPrimAtPath(description.AppendPath(SdfPath("Ops/scatter")))
+        .GetAttribute(TfToken("usdGen:density")).Set(50.0f);
+    UsdImagingCreateSceneIndicesInfo info;
+    info.stage = stage;
+    auto indices = UsdImagingCreateSceneIndices(info);
+    indices.stageSceneIndex->SetTime(UsdTimeCode(1.0));
+    auto groom = UsdGenGroomSceneIndex::New(indices.finalSceneIndex, 8910, false, true);
+    auto* owner = dynamic_cast<UsdGenGroomSceneIndex*>(groom.operator->());
+    owner->Synchronize();
+    groom->SystemMessage(HdSystemMessageTokens->asyncAllow, nullptr);
+    auto resolved = HdSiExtComputationPrimvarPruningSceneIndex::New(groom);
+    auto const rest = PublishedPoints(resolved, description);
+    Check(!rest.empty(), "resident fixture publishes hair");
+    auto const coefficients = description.AppendPath(SdfPath("__usdGenRender/usdGenAnimationCoefficients"));
+    Check(groom->GetPrim(coefficients).primType == TfToken("extComputation"),
+          "resident fixture uses GPU deformation");
+    if (rest.empty() || groom->GetPrim(coefficients).primType.IsEmpty()) return;
+    auto points = stage->GetPrimAtPath(surface).GetAttribute(TfToken("points"));
+    VtVec3fArray surfaceRest;
+    points.Get(&surfaceRest, UsdTimeCode(1.0));
+    auto const cooks = UsdGenImagingTestHook::groomCookCount(*groom);
+    struct Observer final : DirtyLog {
+        std::function<void()> onSurface;
+        SdfPath surface;
+        size_t sourceNotices = 0;
+        void PrimsDirtied(HdSceneIndexBase const& sender, DirtiedPrimEntries const& entries) override {
+            DirtyLog::PrimsDirtied(sender, entries);
+            for (auto const& entry : entries)
+                if (entry.primPath == surface && entry.dirtyLocators.Intersects(
+                        HdDataSourceLocator(TfToken("primvars"), TfToken("points")))) {
+                    ++sourceNotices;
+                    onSurface();
+                }
+        }
+    } log;
+    log.surface = surface;
+    GfVec3f offset(0);
+    auto matches = [&] {
+        auto const actual = PublishedPoints(resolved, description);
+        if (actual.size() != rest.size()) return false;
+        for (size_t i = 0; i < rest.size(); ++i)
+            if ((actual[i] - rest[i] - offset).GetLength() > 2e-6f) return false;
+        return true;
+    };
+    log.onSurface = [&] { Check(matches(), "rig dirty observer sees the matching hair pose"); };
+    groom->AddObserver(HdSceneIndexObserverPtr(&log));
+    for (int pose = 1; pose <= 20; ++pose) {
+        offset = GfVec3f(.01f * pose, -.004f * pose, .002f * pose);
+        auto posed = surfaceRest;
+        for (auto& p : posed) p += offset;
+        points.Set(posed, UsdTimeCode(1.0));
+        indices.stageSceneIndex->ApplyPendingUpdates();
+        Check(matches(), "hair reaches each input pose before the frontend call returns");
+    }
+    Check(log.sourceNotices == 20, "each rig pose sends one source points notice");
+    Check(log.added == 0 && log.removed == 0, "drag retains the hair namespace");
+    Check(UsdGenImagingTestHook::groomCookCount(*groom) == cooks,
+          "same-update publication does not run groom cooks");
+    groom->RemoveObserver(HdSceneIndexObserverPtr(&log));
+}
 
 bool Universal(HdDataSourceLocatorSet const &locators)
 {
@@ -1714,16 +1917,97 @@ void CheckCaptureDirectFailureRestore()
     Check(restored, "failure restore: the failed run restores the input planes");
 }
 
-int main()
+// Judge the renderer's resident binding through Hydra's computation graph,
+// independent of the shader. GPU execution is covered by the viewport probe.
+void CheckResidentAnimation()
+{
+    auto binding = std::make_shared<UsdGenRbfAnimationBinding>();
+    binding->surface = SdfPath("/surface");
+    std::vector<GfVec3d> rest = Cloud(20, 59);
+    std::string error;
+    Check(binding->field.Bind(rest, &error) && binding->field.Solve(rest, &error),
+          "resident animation: bind the rest driver field");
+    UsdGenRbfAnimationTile tile;
+    tile.path = SdfPath("/groom/render/tile");
+    tile.widthPadding = 0.025;
+    for (auto p : Cloud(200, 81)) tile.restPoints.push_back(GfVec3f(p));
+    binding->tiles.push_back(tile);
+    UsdGenGraphDesc desc;
+    desc.surfaces.resize(1);
+    desc.surfaces[0].path = binding->surface;
+    for (size_t i=0; i!=rest.size(); ++i) {
+        binding->sampleIndices.push_back(i);
+        desc.surfaces[0].points.push_back(GfVec3f(rest[i]));
+    }
+    auto initial = usdGenImaging::BuildRbfAnimation(binding, GfMatrix4d(1));
+    Check(bool(initial), "resident animation: build static renderer inputs");
+    if (!initial) return;
+    for (int pose=0; pose!=3; ++pose) {
+        std::vector<GfVec3d> now;
+        for (size_t i=0; i!=rest.size(); ++i) {
+            GfVec3d p = rest[i];
+            if (pose == 1) p = GfVec3d(p[2]*1.2+0.4, p[1]*0.8-0.1, -p[0]*1.1);
+            if (pose == 2) p += GfVec3d(std::sin(p[1])*0.15, p[2]*p[2]*0.08, 0.2);
+            desc.surfaces[0].points[i] = GfVec3f(p);
+            now.push_back(GfVec3d(desc.surfaces[0].points[i]));
+        }
+        auto posed = usdGenImaging::PoseRbfAnimation(*initial,desc);
+        Check(bool(posed), "resident animation: sparse pose solves");
+        if (!posed) continue;
+        size_t replaced = 0;
+        for (auto const& entry : initial->computations)
+            replaced += posed->computations.at(entry.first) != entry.second;
+        Check(replaced == 1 && posed->binding == initial->binding,
+              "resident animation: only coefficient input changes; static CVs and kernel retained");
+        auto scene = HdRetainedSceneIndex::New();
+        for (auto const& entry : posed->computations)
+            scene->AddPrims({{entry.first,TfToken("extComputation"),entry.second}});
+        scene->AddPrims({{tile.path,TfToken("basisCurves"),
+            HdOverlayContainerDataSource::New(posed->overlays.at(tile.path),
+                HdRetainedContainerDataSource::New(HdPrimvarsSchema::GetSchemaToken(),
+                    HdRetainedContainerDataSource::New()))}});
+        auto pruned = HdSiExtComputationPrimvarPruningSceneIndex::New(scene);
+        auto ds = pruned->GetPrim(tile.path).dataSource;
+        auto pv = HdPrimvarsSchema::GetFromParent(ds).GetPrimvar(TfToken("points")).GetPrimvarValue();
+        VtValue value = pv ? pv->GetValue(0) : VtValue();
+        Check(value.IsHolding<VtVec3fArray>(), "resident animation: Hydra resolves computed positions");
+        if (!value.IsHolding<VtVec3fArray>()) continue;
+        auto const& points = value.UncheckedGet<VtVec3fArray>();
+        auto field = binding->field;
+        Check(field.Solve(now,&error), "resident animation: reference field solves");
+        auto extent = HdExtentSchema::GetFromParent(posed->overlays.at(tile.path));
+        GfRange3d box(extent.GetMin()->GetTypedValue(0), extent.GetMax()->GetTypedValue(0));
+        bool exact = points.size() == tile.restPoints.size(), contained = exact;
+        for (size_t i=0; exact && i!=points.size(); ++i) {
+            GfVec3d const p(tile.restPoints[i]);
+            exact = (GfVec3d(points[i])-GfVec3d(GfVec3f(p+field.Displacement(p)))).GetLength() < 1e-6;
+            contained = contained && box.Contains(GfVec3d(points[i]));
+        }
+        Check(exact, "resident animation: rest/affine/nonlinear points match engine field");
+        Check(contained, "resident animation: sparse conservative bounds contain every CV");
+    }
+    desc.surfaces[0].points.clear();
+    Check(!usdGenImaging::PoseRbfAnimation(*initial,desc),
+          "resident animation: changed driver topology rejects resident pose");
+}
+
+int main(int argc, char** argv)
 {
     usdGenRegisterM1Operators();
+    if (argc == 2 && std::strcmp(argv[1], "--gpu-pose") == 0) {
+        CheckImmediateAnimationPublication();
+        UsdGenGroomSceneIndex::DrainRetired();
+        return g_failures ? 1 : 0;
+    }
     CheckField();
+    CheckResidentAnimation();
     CheckBatchBitwise();
     CheckBatchPathsAgree();
     CheckBatchPlanarBitwise();
     CheckBatchThreaded();
     CheckBatchConcurrent();
     CheckDeformChosenDigest();
+    CheckDefaultSpaceUntilDeform();
     CheckDeformEvaluateViewShapes();
     CheckFusedTileExtents();
     CheckCaptureDirectChained();

@@ -183,6 +183,12 @@ private:
     uint64_t _furVolumeKey = 0;
     // The published baseline is not this graph's last run: rebuild every tile.
     bool _rebuildAllTiles = false;
+    // The published generation's tiles carry every channel but the points of
+    // the graph's current terminal buffer: it was built from this graph, and
+    // no node that writes more than points has run since. A cook whose nodes
+    // again wrote only points (a deform over an unchanged upstream) then
+    // refreshes just the tiles' points (_RefreshTilePoints).
+    bool _tileChannelsSettled = false;
     UsdGenGenerationStore _store;
     size_t _executionCacheBytes = kDefaultExecutionCacheBytes;
     bool _cacheDomainExplicit = false;
@@ -211,6 +217,14 @@ private:
     uint64_t _lastCookedEpoch = 0;
     UsdGenTilePublication _BuildTilePublication(UsdGenTileView const&, UsdGenRunResult const&,
                                                 UsdGenGenerationConstPtr const&);
+    /// `previous` with its points regathered from the terminal buffer, every
+    /// other channel shared. False (and `out` untouched) when the tile's
+    /// curve layout no longer matches `previous`.
+    bool _RefreshTilePoints(UsdGenTileView const&, UsdGenRunResult const&,
+                            UsdGenTilePublication const& previous,
+                            UsdGenTilePublication *out) const;
+    std::shared_ptr<const UsdGenRbfAnimationBinding> _BuildAnimationBinding(
+        UsdGenRunResult const&, std::vector<UsdGenTilePublication> const&) const;
 };
 } // namespace usdGen
 #endif

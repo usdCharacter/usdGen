@@ -81,6 +81,11 @@ public:
 
     bool Bound() const { return _order != 0; }
     size_t SampleCount() const { return _rest.size(); }
+    // Immutable normalized field data for renderer compute kernels.
+    std::vector<GfVec3d> const& Samples() const { return _rest; }
+    std::vector<double> const& Coefficients() const { return _coefficients; }
+    GfVec3d Centre() const { return _centre; }
+    double Scale() const { return _scale; }
 
 private:
     std::vector<GfVec3d> _rest;        // normalised rest samples

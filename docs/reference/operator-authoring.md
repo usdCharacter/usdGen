@@ -29,6 +29,22 @@ runs once for the groom, each strand, or each CV. The
 shows a connected width and frizz mask. `UsdGenExprOp` is different: it
 evaluates a program as a geometry or width operation in the stack.
 
+## Default space and pose space
+
+Operators evaluate in Default space until a `UsdGenDeform`. Every operator
+upstream of the first deform on its path reads each bound surface (and each
+`Collide` collider) at its Default-time rest — the `UsdGenRestAPI` rest that
+Scatter already roots on — so its result does not depend on how the surface is
+posed or animated. The deform carries that rest-space groom onto the current,
+posed surface, and the deform and every operator after it see the posed
+geometry. Animating or rigging the surface therefore re-runs only the deform and
+what follows it: the rest of the stack keeps its cached result, the strands
+are not regrown, and when nothing but points changed the published tiles keep
+every other channel and refresh just their points. A stack with no deform stays
+at rest. A surface without `UsdGenRestAPI` has no separate Default-time data
+and is read as it is, as before. The rule holds on the CPU lane (the
+host scheduler); the CUDA and Vulkan executors keep their own surface inputs.
+
 Schema defaults describe attributes, not guaranteed visible results. For
 example, `Collide` has `usdGen:pushAmount = 0`, so its default correction is
 zero, and `Wind` starts with zero strengths. A relationship needs a valid

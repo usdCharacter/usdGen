@@ -6,6 +6,11 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenEnable.h"
 #include "usdGenImaging/testHook.h"
+#include "usdGenImaging/rbfAnimation.h"
+#include "pxr/imaging/hd/extComputationSchema.h"
+#include "pxr/imaging/hd/extComputationPrimvarsSchema.h"
+#include "pxr/imaging/hd/extentSchema.h"
+#include "pxr/imaging/hd/xformSchema.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
@@ -362,7 +367,26 @@ std::optional<double> StageFrame(HdSceneIndexBaseRefPtr const& input) {
     return std::nullopt;
 }
 
-// A time-only capture may replace an in-flight cook without invalidating its
+bool SameSurfaceCage(
+    std::shared_ptr<const usdGen::UsdGenSurfaceCagePayload> const& a,
+    std::shared_ptr<const usdGen::UsdGenSurfaceCagePayload> const& b) {
+    if (a == b) return true;
+    if (!a || !b) return false;
+    // Hydra capture allocates a fresh payload even when the authored guide
+    // cage is unchanged. Pointer identity is not a structural edit.
+    return a->ownerIds == b->ownerIds && a->ownerDensities == b->ownerDensities &&
+        a->ownerSeeds == b->ownerSeeds && a->ownerCvCounts == b->ownerCvCounts &&
+        a->ownerEdgeBias == b->ownerEdgeBias &&
+        a->ownerLengthProfileOffsets == b->ownerLengthProfileOffsets &&
+        a->ownerLengthProfile == b->ownerLengthProfile &&
+        a->normalizedT == b->normalizedT && a->triangles == b->triangles &&
+        a->triangleOwnerIndices == b->triangleOwnerIndices &&
+        a->triangleRootCharts == b->triangleRootCharts &&
+        a->ownerChartCentroids == b->ownerChartCentroids &&
+        a->ownerChartMeanRadii == b->ownerChartMeanRadii;
+}
+
+// A pose-only capture may replace an in-flight cook without invalidating its
 // structural assumptions. An authored graph or topology edit must retain the
 // existing immediate-cancel path. Deliberately ignored value changes are
 // sampled points/transforms and params marked animated by the builder.
@@ -393,9 +417,26 @@ bool PlaybackCompatible(Desc const& a, Desc const& b) {
         a.preview.evaluation != b.preview.evaluation ||
         a.preview.shading != b.preview.shading ||
         !a.validationErrors.empty() || !b.validationErrors.empty()) return false;
-    // Map/expression payloads have their own sampled inputs. Until their
-    // authored controls can be compared independently, use immediate commits.
-    if (!a.maps.empty() || !a.expressions.empty() || !a.geometries.empty()) return false;
+    // Unchanged density/length maps do not make a surface pose structural.
+    // Compare their complete captured identity, including paint and reloads.
+    // Expressions still require immediate commits until their sampled inputs
+    // can be compared independently of authored controls.
+    if (!a.expressions.empty() || !a.geometries.empty()) return false;
+    for (size_t i = 0; i != a.maps.size(); ++i) {
+        auto const& x = a.maps[i]; auto const& y = b.maps[i];
+        if (x.path != y.path || x.type != y.type ||
+            x.resolvedAssetPath != y.resolvedAssetPath ||
+            x.textureGeneration != y.textureGeneration ||
+            x.paintSurface != y.paintSurface || x.paintPrimvar != y.paintPrimvar ||
+            x.paintInterpolation != y.paintInterpolation || x.paintValues != y.paintValues ||
+            x.params.size() != y.params.size()) return false;
+        // Immutable decoded pixels use textureGeneration as their identity.
+        if (bool(x.imagePayload) != bool(y.imagePayload)) return false;
+        for (size_t j = 0; j != x.params.size(); ++j)
+            if (x.params[j].name != y.params[j].name ||
+                x.params[j].animated != y.params[j].animated ||
+                x.params[j].value != y.params[j].value) return false;
+    }
     for (size_t i = 0; i != a.nodes.size(); ++i) {
         auto const& x = a.nodes[i]; auto const& y = b.nodes[i];
         if (x.path != y.path || x.type != y.type || x.mode != y.mode ||
@@ -451,7 +492,7 @@ bool PlaybackCompatible(Desc const& a, Desc const& b) {
             x.curveVertexCounts != y.curveVertexCounts || x.curveId != y.curveId ||
             x.skinPrim != y.skinPrim || x.points.size() != y.points.size() ||
             x.authoredPlanes.size() != y.authoredPlanes.size() ||
-            x.surfaceCage != y.surfaceCage || x.rest != y.rest ||
+            !SameSurfaceCage(x.surfaceCage, y.surfaceCage) || x.rest != y.rest ||
             x.restFromCurrentPoints != y.restFromCurrentPoints ||
             x.widths != y.widths || x.skinPrimUv != y.skinPrimUv ||
             x.rootFrame != y.rootFrame || x.frozenEpoch != y.frozenEpoch) return false;
@@ -463,6 +504,21 @@ bool PlaybackCompatible(Desc const& a, Desc const& b) {
                 x.authoredPlanes[j].floatValues != y.authoredPlanes[j].floatValues ||
                 x.authoredPlanes[j].intValues != y.authoredPlanes[j].intValues) return false;
     }
+    return true;
+}
+
+// A resident rest groom admits surface-point poses only. Changes to guide
+// positions or rest-space transforms still rebuild its styling input.
+bool AnimationCompatible(Desc const& a, Desc const& b) {
+    if (a.xformMatrix != b.xformMatrix) return false;
+    for (size_t i=0; i!=a.surfaces.size(); ++i)
+        if (a.surfaces[i].worldMatrix != b.surfaces[i].worldMatrix) return false;
+    for (size_t i=0; i!=a.curveSets.size(); ++i)
+        if (a.curveSets[i].points != b.curveSets[i].points ||
+            a.curveSets[i].worldMatrix != b.curveSets[i].worldMatrix) return false;
+    for (size_t i=0; i!=a.nodes.size(); ++i)
+        for (size_t j=0; j!=a.nodes[i].params.size(); ++j)
+            if (a.nodes[i].params[j].value != b.nodes[i].params[j].value) return false;
     return true;
 }
 
@@ -538,6 +594,9 @@ struct UsdGenGroomSceneIndex::_Ingress {
     // when it arrived (see _PrimsDirtied), so Apply advances the source stamps
     // without recording locators for the drain to send a second time.
     bool dirtiedDelivered = false;
+    // Resident animation poses are published with their upstream dirty, on
+    // this frontend turn. Only Apply is awaited, never its asynchronous cooks.
+    bool synchronousAnimation = false;
     SdfPathVector captureRoots;
     Added added;
     Removed removed;
@@ -769,6 +828,10 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         uint64_t structuralRevision = 0;
         bool structuralPending = false;
         bool playbackFailed = false;
+        std::shared_ptr<const ::usdGenImaging::RbfAnimation> animation;
+        uint64_t animationPose = 0;
+        bool animationNeedsSettle = false, animationSettling = false;
+        std::chrono::steady_clock::time_point lastAnimationPose;
     };
     struct View {
         uint64_t id = 0;
@@ -802,6 +865,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         bool structuralPending = false, progressActive = false, playbackFailed = false;
         // Shown-cap handles; null until ShowScalpShadows sums the caps.
         HdContainerDataSourceHandle scalpShadow, scalpMask;
+        std::shared_ptr<const ::usdGenImaging::RbfAnimation> animation;
     };
     struct Snapshot {
         std::vector<View> members;
@@ -1036,6 +1100,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                                      g.scalpShadow, g.dormant, g.hidden, g.scalpDigest,
                                      g.activeCooks, g.deferredCook, g.structuralPending,
                                      g.progressActive, g.playbackFailed});
+            next->members.back().animation = g.animation;
         }
         ShowScalpShadows(next->members);
         auto result = std::shared_ptr<const Snapshot>(std::move(next));
@@ -1250,7 +1315,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         if (closing.load() || !Current(g) ||
             !sourceSession || g->session != sourceSession ||
             g->attachmentEpoch != attachmentEpoch ||
-            (g->structuralPending && !currentCook)) return;
+            ((g->structuralPending || g->animationNeedsSettle) && !currentCook)) return;
         if (payload.progressEpoch && payload.progressEpoch < g->progressEpoch)
             return;
         if (!payload.published || !payload.generation) {
@@ -1343,6 +1408,10 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         g->generation = generation.id;
         g->publishedFrame = generation.frame;
         g->tiles = std::move(fresh);
+        g->animation = progressiveRenderer && generation.scalpShadow.IsEmpty() ? ::usdGenImaging::BuildRbfAnimation(
+            generation.animationBinding, generation.tiles.empty()
+                ? GfMatrix4d(1.0) : generation.tiles.front().xformMatrix) : nullptr;
+        g->animationNeedsSettle = false;
         g->progressBaseline.reset();
         g->progressScalpBaseline = nullptr;
         g->progressActive = false;
@@ -1357,7 +1426,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                          uint64_t attachmentEpoch,
                          Session::ProgressPayload const& payload,
                          uint64_t cookStructuralRevision) {
-        if (closing.load() || !Current(g) || g->dormant || !sourceSession ||
+        if (closing.load() || !Current(g) || g->dormant || g->animation || !sourceSession ||
             g->session != sourceSession || g->attachmentEpoch != attachmentEpoch ||
             cookStructuralRevision != g->structuralRevision ||
             !payload.epoch || !payload.tiles || payload.tiles->empty() ||
@@ -1418,6 +1487,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         if (g->attachmentEpoch == attachmentEpoch && g->session == sourceSession) {
             if (!g->activeCooks) std::terminate();
             --g->activeCooks;
+            if (!g->activeCooks) g->animationSettling = false;
             if (!g->activeCooks && g->deferredCook) {
                 uint64_t const next = g->deferredCook;
                 g->deferredCook = 0;
@@ -1449,6 +1519,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         ProcessCooks().fetch_add(1, std::memory_order_acq_rel);
         uint64_t const attachmentEpoch = g->attachmentEpoch;
         uint64_t const structuralRevision = g->structuralRevision;
+        uint64_t const animationPose = g->animationPose;
         Session::CommitRequest request;
         request.reason = usdGen::UsdGenCommitReason::NoticeBatchEnd;
         request.desc = g->desc;
@@ -1458,7 +1529,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         // session state) so CUDA authoring fails closed and retains the
         // previous CPU snapshot.
         request.devicePublication = false;
-        request.progressive = progressiveRenderer &&
+        request.progressive = progressiveRenderer && !g->animation &&
             asyncAllowed.load(std::memory_order_acquire);
         if (!g->session->HasAppDriver()) request.frame = g->frame;
         auto self = shared_from_this();
@@ -1485,13 +1556,13 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                 };
             }
             accepted = sourceSession->CommitAsync(std::move(request),
-                [self, g, sourceSession, attachmentEpoch, structuralRevision,
+                [self, g, sourceSession, attachmentEpoch, structuralRevision, animationPose,
                  seq, ticket, reveals](
                      Session::CommitPayload const& payload, Pipeline::Outcome outcome) {
                     (void)self->Post(std::move(*ticket), [self, g, sourceSession,
-                        attachmentEpoch, structuralRevision, seq, payload, reveals, outcome] {
+                        attachmentEpoch, structuralRevision, animationPose, seq, payload, reveals, outcome] {
                         try {
-                            if (g->structuralRevision == structuralRevision) {
+                            if (g->structuralRevision == structuralRevision && g->animationPose == animationPose) {
                                 self->Publish(g, sourceSession, attachmentEpoch, payload, true);
                                 if (g->attachmentEpoch == attachmentEpoch && g->session == sourceSession)
                                     g->playbackFailed = outcome != Pipeline::Outcome::Published ||
@@ -1521,6 +1592,20 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         // Rejected cook admission leaves the descriptor latch intact for the
         // next ingress.  The accepted producer has its reply ticket already.
         g->session->ConsumeNeedsDesc();
+    }
+    void SettleAnimations() {
+        auto const now = std::chrono::steady_clock::now();
+        for (auto const& entry : members) {
+            auto const& g = entry.second;
+            if (!g->animationNeedsSettle || g->activeCooks || g->dormant ||
+                g->structuralPending || closing.load() ||
+                now - g->lastAnimationPose < std::chrono::milliseconds(350)) continue;
+            // Refresh CPU picking/occlusion once interaction is quiet. Retain
+            // the current GPU pose until the complete replacement is ready.
+            g->animationSettling = true;
+            Cook(g, g->captured);
+            Notify({}, {}, {});
+        }
     }
     void Attach(std::shared_ptr<Groom> const& g, uint64_t seq) {
         auto self = shared_from_this();
@@ -1835,15 +1920,34 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                     bool const duplicateGlobals = !movedTime && rootGlobalsOnly &&
                         packet.added.empty() && packet.removed.empty() &&
                         !packet.forceFullDiscovery && compatible;
+                    // Rig previews change surface points without advancing
+                    // time. Let an admitted pose finish and retain only the
+                    // newest pending pose, just as during playback; cancelling
+                    // on every mouse sample can starve publication indefinitely.
                     bool const temporal = asyncAllowed.load(std::memory_order_acquire) &&
-                        movedTime && packet.added.empty() && packet.removed.empty() &&
+                        packet.added.empty() && packet.removed.empty() &&
                         !packet.forceFullDiscovery && !packet.recoverSourceNamespace &&
                         !dirtiedGroom && compatible;
+                    bool gpuPose = false;
+                    if (!duplicateGlobals && !movedTime && temporal && groom->animation &&
+                        !groom->structuralPending && (!groom->activeCooks || groom->animationSettling) &&
+                        !groom->deferredCook && AnimationCompatible(*groom->desc, *input.desc)) {
+                        auto animation = ::usdGenImaging::PoseRbfAnimation(*groom->animation, *input.desc);
+                        if (animation) {
+                            groom->animation = std::move(animation);
+                            groom->publishedFrame = packet.frame;
+                            ++groom->animationPose;
+                            groom->animationNeedsSettle = true;
+                            groom->lastAnimationPose = std::chrono::steady_clock::now();
+                            gpuPose = true;
+                        }
+                    }
                     if (!duplicateGlobals && !temporal) {
                         ++groom->structuralRevision;
                         groom->structuralPending = true;
+                        groom->animationNeedsSettle = false;
                     }
-                    if (!duplicateGlobals) startCook.emplace_back(groom, temporal);
+                    if (!duplicateGlobals && !gpuPose) startCook.emplace_back(groom, temporal);
                 } else {
                     startAttach.push_back(groom);
                 }
@@ -2051,6 +2155,7 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
         if (explicitWait)
             throw std::logic_error("Synchronize cannot re-enter from a scene-index notice");
         if (waitForIngress) _deferredSynchronousFlush = true;
+        else _deferredPublicationFlush = true;
         return;
     }
     auto live = TfCreateRefPtrFromProtectedWeakPtr(_state->recipient);
@@ -2066,6 +2171,7 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                 _state->Synchronize();
             }
             _deferredSynchronousFlush = false;
+            _deferredPublicationFlush = false;
             // A poll consumes precisely one newest target.  Snapshot diffing
             // here (rather than retaining owner-side notice history) keeps
             // presentation bounded even when a renderer stops polling.
@@ -2111,6 +2217,9 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                     // The groom is hidden: GetPrim overlays visibility false
                     // on its tiles and cap, so a flip is a visibility dirty.
                     bool hidden = false;
+                    std::shared_ptr<const ::usdGenImaging::RbfAnimation> animation;
+                    HdContainerDataSourceHandle computation;
+                    bool coefficients = false;
                 };
                 std::map<SdfPath, TfToken> beforeNames, targetNames;
                 std::map<SdfPath, Synthetic> beforeSynthetic, targetSynthetic;
@@ -2182,6 +2291,17 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                             synthetic.emplace(tile.first, Synthetic{TfToken("basisCurves"),
                                 g.id, g.generation, g.tiles, descStamp, 0, 0, nullptr,
                                 g.hidden});
+                            synthetic[tile.first].animation = g.animation;
+                        }
+                        if (g.animation) for (auto const& computation : g.animation->computations) {
+                            if (names.count(computation.first)) continue;
+                            names.emplace(computation.first, TfToken("extComputation"));
+                            Synthetic value;
+                            value.type = TfToken("extComputation");
+                            value.rootId = g.id;
+                            value.computation = computation.second;
+                            value.coefficients = computation.first == g.animation->coefficientsPath;
+                            synthetic.emplace(computation.first, std::move(value));
                         }
                     }
                 };
@@ -2245,6 +2365,23 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                         auto const& a = beforeSynthetic[now.first];
                         auto const& b = targetSynthetic[now.first];
                         bool const sameRoot = a.rootId == b.rootId;
+                        if (b.type == TfToken("extComputation")) {
+                            if (a.computation != b.computation)
+                                dirtied.emplace_back(now.first, HdDataSourceLocatorSet{
+                                    a.coefficients && b.coefficients && sameRoot
+                                        ? HdExtComputationSchema::GetDefaultLocator().Append(TfToken("inputValues"))
+                                        : HdExtComputationSchema::GetDefaultLocator()});
+                            continue;
+                        }
+                        if (b.type == TfToken("basisCurves") && a.animation != b.animation) {
+                            HdDataSourceLocatorSet locators{
+                                HdPrimvarsSchema::GetDefaultLocator().Append(HdTokens->points),
+                                HdExtentSchema::GetDefaultLocator(), HdXformSchema::GetDefaultLocator()};
+                            if (!a.animation || !b.animation ||
+                                a.animation->binding != b.animation->binding)
+                                locators.insert(HdExtComputationPrimvarsSchema::GetDefaultLocator());
+                            dirtied.emplace_back(now.first, locators);
+                        }
                         HdContainerDataSourceHandle beforeTile, targetTile;
                         if (sameRoot && b.type == TfToken("basisCurves") && a.tiles && b.tiles) {
                             auto ia = a.tiles->find(now.first);
@@ -2374,7 +2511,7 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
             // cannot wait recursively; its causal flush belongs to this outer
             // frontend turn and remains FIFO after the current packet.
             waitForIngress = _deferredSynchronousFlush;
-        } while (waitForIngress);
+        } while (waitForIngress || _deferredPublicationFlush);
     } catch (...) {
         _dispatching = false;
         throw;
@@ -2658,7 +2795,8 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
         throw;
     }
     uint64_t const sequence = packet.sequence;
-    (void)state->Post(std::move(*ingressTicket), [state, packet=std::move(packet)] {
+    bool const synchronousAnimation = packet.synchronousAnimation;
+    auto apply = [state, packet=std::move(packet)] {
         try { state->Apply(packet); }
         catch (...) {
             // Required ownership/hold updates are not transactionally
@@ -2666,7 +2804,22 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
             // Never disguise partial mutation as a completed ingress.
             std::terminate();
         }
-    }, [state, sequence] { state->CompleteIngress(sequence); });
+    };
+    if (synchronousAnimation) {
+        TRACE_SCOPE("usdGen publish resident animation with input pose");
+        // Use the already admitted command's reply, not Synchronize: that
+        // fence also waits for background groom cooks and quiet-time settling.
+        state->owner->Await([&](std::function<void()> done) {
+            if (!state->Post(std::move(*ingressTicket),
+                    [apply=std::move(apply), done] { apply(); done(); },
+                    [state, sequence, done] { state->CompleteIngress(sequence); done(); }))
+                done();
+        });
+        _DrainPublications(false);
+    } else {
+        (void)state->Post(std::move(*ingressTicket), std::move(apply),
+            [state, sequence] { state->CompleteIngress(sequence); });
+    }
     // Without asyncAllow, the upstream observer call is the only legal
     // frontend delivery point.  Wait through causal attach/cook/publication
     // work, then send from this caller rather than the owner worker.
@@ -2728,10 +2881,32 @@ void UsdGenGroomSceneIndex::_PrimsDirtied(HdSceneIndexBase const&, Dirtied const
     // dependency tracking see the dirty.
     if (_state->asyncAllowed.load(std::memory_order_acquire) &&
         !_state->closing.load(std::memory_order_acquire) && !entries.empty()) {
-        _SendPrimsDirtied(packet.dirtied);
-        packet.dirtiedDelivered = true;
+        auto const catalog = _state->SnapshotValue();
+        for (auto const& member : catalog->members) {
+            if (!member.animation || member.dormant) continue;
+            for (auto const& dirty : packet.dirtied) {
+                auto const& path = dirty.primPath;
+                if (path.HasPrefix(member.root) || member.root.HasPrefix(path) ||
+                    !member.dependencies || std::any_of(member.dependencies->begin(),
+                        member.dependencies->end(), [&](auto const& dependency) {
+                            return dependency.HasPrefix(path);
+                        })) {
+                    packet.synchronousAnimation = true;
+                    break;
+                }
+            }
+            if (packet.synchronousAnimation) break;
+        }
+        // Install the hair snapshot before notifying any observer about the
+        // matching rig pose. The drain combines both in the same dirty batch.
+        if (!packet.synchronousAnimation) {
+            _SendPrimsDirtied(packet.dirtied);
+            packet.dirtiedDelivered = true;
+        }
     }
     _CaptureAndSubmit(std::move(packet));
+    // Also drain unrelated completions without awaiting background work.
+    if (_state->asyncAllowed.load(std::memory_order_acquire)) _DrainPublications(false);
 }
 void UsdGenGroomSceneIndex::_PrimsRenamed(HdSceneIndexBase const& sender,
     HdSceneIndexObserver::RenamedPrimEntries const& entries) {
@@ -2750,12 +2925,16 @@ void UsdGenGroomSceneIndex::_SystemMessage(
     }
     if (messageType == HdSystemMessageTokens->asyncPoll &&
         _state->asyncAllowed.load(std::memory_order_acquire)) {
-        // Poll is a render-thread flush: it never awaits owner work, and it
-        // starts no capture or cook of its own.  The engine's temporary
-        // observer sees these notices.
+        // Poll never awaits owner work. The engine's temporary observer sees
+        // these notices. A quiet GPU preview also schedules its final CPU
+        // picking/occlusion refresh on the owner, without recapturing Hydra.
         auto live = TfCreateRefPtrFromProtectedWeakPtr(_state->recipient);
         if (!live) return;
         _DrainPublications(false);
+        if (usdGen::UsdGenRbfAnimationEnabled()) {
+            auto state = _state;
+            state->Post([state] { state->SettleAnimations(); });
+        }
         // The one exception: a notice dropped under admission backpressure
         // (deferredFullCapture) is owed an authoritative rescan, and in async
         // mode nothing else would run it until the NEXT external notice --
@@ -2826,6 +3005,11 @@ HdSceneIndexPrim UsdGenGroomSceneIndex::GetPrim(SdfPath const& path) const {
     }
     for (auto const& g : snapshot->members) {
         if (path == g.root) return {TfToken("UsdGenGroom"), {}};
+        if (g.animation) {
+            auto computation = g.animation->computations.find(path);
+            if (computation != g.animation->computations.end())
+                return {TfToken("extComputation"), computation->second};
+        }
         if (path == RenderPath(g.description))
             return {TfToken("scope"), RenderDataSource()};
         if (path == MaterialPath(g.description))
@@ -2875,15 +3059,20 @@ HdSceneIndexPrim UsdGenGroomSceneIndex::GetPrim(SdfPath const& path) const {
         // On Storm only, the same overlay masks material bindings at the
         // two lowest levels to match its native curve repr restrictions.
         // A hidden groom's tiles read invisible over all of it.
-        HdContainerDataSourceHandle upstream = DescriptionOverlay(
+        HdContainerDataSourceHandle const upstream = DescriptionOverlay(
             input, g.description, path, tile->second, _stormMaterialPolicy);
-        if (g.hidden)
-            upstream = upstream
-                ? HdOverlayContainerDataSource::New(HiddenOverlay(), upstream)
-                : HiddenOverlay();
-        if (upstream)
+        HdContainerDataSourceHandle animation;
+        if (g.animation) {
+            auto overlay = g.animation->overlays.find(path);
+            if (overlay != g.animation->overlays.end())
+                animation = overlay->second;
+        }
+        if (upstream || animation || g.hidden)
+            // Resolve all layers together. A nested overlay consumes blocks
+            // before they reach the tile (notably points/materialBindings).
             return {TfToken("basisCurves"),
-                    HdOverlayContainerDataSource::New(upstream, tile->second)};
+                    HdOverlayContainerDataSource::New({
+                        g.hidden ? HiddenOverlay() : nullptr, upstream, animation, tile->second})};
         return {TfToken("basisCurves"), tile->second};
     }
     return {};
@@ -2913,6 +3102,8 @@ SdfPathVector UsdGenGroomSceneIndex::GetChildPrimPaths(SdfPath const& path) cons
                 }
             }
         }
+        if (g.animation) for (auto const& computation : g.animation->computations)
+            if (computation.first.GetParentPath() == path) append(computation.first);
     }
     return result;
 }

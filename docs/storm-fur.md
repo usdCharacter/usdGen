@@ -34,8 +34,8 @@ Tile preparation and generation run on workers. Hydra input capture, source
 notices, and `asyncPoll` remain serialized on the frontend thread, which is
 the safe boundary for the stage scene index. A host other than usdview must set
 `allowAsynchronousSceneProcessing` when it creates its imaging engine and poll
-for asynchronous updates itself. This is currently a CPU publication path;
-there is no stock-Storm GPU-resident tile handoff.
+for asynchronous updates itself. Initial generation is a CPU publication path;
+whole-graph CUDA/Vulkan device publications still have no stock-Storm handoff.
 
 The timeline **Play** button waits for every enabled groom's complete current
 generation in Storm and for the viewport to present its converged image before advancing.
@@ -59,6 +59,35 @@ gating is supported for Storm; ordinary USD scenes can be playblasted with
 other delegates when their viewport converges.
 `USDGEN_USDVIEW_FRAME_TIMEOUT` controls the per-frame wait limit in seconds
 (default 900; `0` waits until completion or cancellation).
+
+### GPU rig-pose previews
+
+Set `USDGEN_STORM_GPU_DEFORM=1` before launching Storm with `--allow-async`
+to keep an eligible cooked groom resident and update its points with a GPU
+computation during rig dragging. The sparse surface RBF solve stays on the
+CPU; only its coefficients are uploaded per pose. Rest points, topology,
+widths, colors, and other shading inputs are retained. Ordinary rig poses
+use a conditioned single-precision kernel; fields with large cancellation or
+extrapolation retain double precision. This path requires OpenGL compute and
+shader double-precision support.
+
+Eligibility is deliberately narrow: static styling followed by one terminal,
+surface-driven RBF Deform, `lockRoots=false`, constant mask 1, and no scalp
+shadow cap (`USDGEN_SCALP_SHADOW=0`). Changes to guides, maps, topology,
+styling, or rest-space transforms take the normal cook path. Compatible
+same-frame surface edits also coalesce on the CPU fallback path, so repeated
+mouse samples cannot continually cancel the only result being prepared.
+
+Each compatible pose publishes its coefficients and hair point dirties in
+the same frontend update as the rig's dirty notice, before the viewport can
+draw. This waits only for pose preparation, not background groom cooks or
+the host's asynchronous polling timer.
+
+After 350 ms without another pose, one complete CPU refresh updates baked
+occlusion and CPU picking data. The latest GPU pose remains visible until
+that refresh completes; partial tiles never replace it. Resuming the drag
+invalidates an older refresh's publication. This affects viewport previews;
+the engine's final CPU geometry remains authoritative.
 
 ## Collide practice frames
 

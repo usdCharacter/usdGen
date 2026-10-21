@@ -933,6 +933,28 @@ UsdGenRunResult UsdGenScheduler::Run(
         transactionalRun |= node.op && node.op->RemapsVertexPlanes();
     }
 
+    // Operators evaluate in Default space until a deform: a deform, and every
+    // node reading one's output, sees the posed surfaces (graph.Desc()); every
+    // other node sees their Default-time rest (graph.RestDesc()), so a posed
+    // surface re-captures only the deform and what follows it. Nodes are in
+    // topological order; the loop repeats only if an input ever follows its
+    // reader.
+    std::vector<char> poseSpace(static_cast<size_t>(graph.NodeCount()), 0);
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (int pos = 0; pos < graph.NodeCount(); ++pos) {
+            if (poseSpace[size_t(pos)]) continue;
+            UsdGenCompiledNode const &node = graph.Node(pos);
+            bool posed = node.op && node.op->Type() == sDeformType;
+            for (UsdGenNodeId input : node.inputs)
+                posed = posed || (input < UsdGenNodeId(graph.NodeCount()) && poseSpace[input]);
+            if (posed) { poseSpace[size_t(pos)] = 1; changed = true; }
+        }
+    }
+    auto spaceDesc = [&](int pos) -> UsdGenGraphDesc const & {
+        return poseSpace[size_t(pos)] ? graph.Desc() : graph.RestDesc();
+    };
+
     // Each frontier is dependency-ready and therefore may share one flattened
     // chunk sweep. Capture, COW preparation, repartition and bookkeeping stay
     // on this commit thread; arena workers only execute SweepChunk.
@@ -981,7 +1003,7 @@ UsdGenRunResult UsdGenScheduler::Run(
         }
 
         UsdGenCaptureContext cctx;
-        cctx.desc = &graph.Desc();
+        cctx.desc = &spaceDesc(pos);
         cctx.params = &node.paramView;
         cctx.references = job->referenceSets.empty() ? nullptr
             : job->referenceSets.data();
@@ -1035,7 +1057,7 @@ UsdGenRunResult UsdGenScheduler::Run(
             double const seconds = std::isfinite(rate) && rate > 0.0
                 ? evalCtx.time / rate : evalCtx.time;
             std::vector<std::string> expressionErrors;
-            if (!node.expressions.Evaluate(graph.Desc(), *node.desc, upBuf,
+            if (!node.expressions.Evaluate(spaceDesc(pos), *node.desc, upBuf,
                                            evalCtx.time, seconds, cctx.seed,
                                            &job->expressionsChanged,
                                            &expressionErrors))
@@ -1214,7 +1236,7 @@ UsdGenRunResult UsdGenScheduler::Run(
         pl.graph = &graph;
         pl.ctx = evalCtx;
         pl.ctx.params = &node.paramView;
-        pl.ctx.desc = &graph.Desc();
+        pl.ctx.desc = &spaceDesc(pos);
         pl.ctx.references = job->referenceSets.empty() ? nullptr
             : job->referenceSets.data();
         pl.ctx.resolvedReferences = job->resolvedReferences.empty() ? nullptr

@@ -11,6 +11,7 @@
 #include "usdGen/op.h"
 #include "usdGen/types.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -189,6 +190,16 @@ public:
     bool AnyDirty() const noexcept;
 
     UsdGenGraphDesc const &Desc() const noexcept { return *_desc; }
+    /// Desc() in Default space. Operators evaluate in Default space until a
+    /// UsdGenDeform: every node upstream of the first deform on its path sees
+    /// this view, the deform and everything after it see Desc(). Here a
+    /// surface with authored rest data (UsdGenRestAPI) reads its Default-time
+    /// rest as its current points -- one shutter sample at the desc time, no
+    /// velocities -- and its surfaceGeneration follows only that rest content,
+    /// so animating the surface re-captures nothing upstream of a deform. A
+    /// surface without authored rest is unchanged. Built on first use after
+    /// the descriptor or any surface's content changes; commit thread only.
+    UsdGenGraphDesc const &RestDesc() const;
     std::shared_ptr<const UsdGenCudaExecutionPlan> const& CudaPlan() const noexcept { return _cudaPlan; }
     UsdGenNodeDesc const &NodeDesc(NodeId id) const;
     /// Immutable descriptor-value identities resolved during compilation.
@@ -224,6 +235,11 @@ private:
     void _PropagateDescendantBits(uint32_t bits, std::vector<bool> const &descendants);
 
     std::unique_ptr<UsdGenGraphDesc> _desc;  // owned copy taken at Compile
+    // RestDesc()'s view and the source it was built from: the descriptor, and
+    // per surface its generation and its points' and rest's buffers.
+    mutable std::unique_ptr<UsdGenGraphDesc> _restDesc;
+    mutable UsdGenGraphDesc const *_restSource = nullptr;
+    mutable std::vector<std::array<uint64_t, 3>> _restSourceKeys;
     std::shared_ptr<const UsdGenCudaExecutionPlan> _cudaPlan;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _nodes; // indexed by id
     std::vector<UsdGenTileView> _tiles;          // terminal tile partition

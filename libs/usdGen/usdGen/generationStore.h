@@ -10,6 +10,7 @@
 
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
+#include "usdGen/rbfAnimation.h"
 
 #include <cstdint>
 #include <memory>
@@ -59,6 +60,7 @@ struct UsdGenGeneration
     // Present only for a CUDA publication.  It is built from the same accepted
     // descriptor snapshot as `device`, never from a later scene read.
     std::optional<UsdGenDevicePresentationMetadata> devicePresentation;
+    std::shared_ptr<const UsdGenRbfAnimationBinding> animationBinding;
 };
 using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;
 

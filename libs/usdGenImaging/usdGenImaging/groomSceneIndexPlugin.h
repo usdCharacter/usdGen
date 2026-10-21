@@ -180,6 +180,7 @@ private:
     std::shared_ptr<_State> _state;
     bool _dispatching = false;
     bool _deferredSynchronousFlush = false;
+    bool _deferredPublicationFlush = false;
     // Frontend-only live namespace: AOV allocation cannot wait for asyncPoll.
     std::map<SdfPath, TfToken> _renderBuffers;
 

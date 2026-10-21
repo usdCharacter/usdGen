@@ -3218,6 +3218,11 @@ target_compile_definitions(testUsdGenRbfDeform PRIVATE
 add_test(NAME testUsdGenRbfDeform COMMAND testUsdGenRbfDeform)
 set_tests_properties(testUsdGenRbfDeform PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;examples;deform" TIMEOUT 300)
+add_test(NAME testUsdGenRbfImmediatePose COMMAND testUsdGenRbfDeform --gpu-pose)
+set_tests_properties(testUsdGenRbfImmediatePose PROPERTIES
+    ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}"
+    ENVIRONMENT "USDGEN_STORM_GPU_DEFORM=1;USDGEN_SCALP_SHADOW=0"
+    LABELS "T1;deform;publication" TIMEOUT 60)
 
 # usdGen:preview:* — the viewport value preview through the groom scene index.
 add_executable(testUsdGenValuePreview tests/testUsdGenValuePreview.cpp)
