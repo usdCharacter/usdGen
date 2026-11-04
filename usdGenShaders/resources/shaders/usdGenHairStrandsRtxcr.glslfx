@@ -1,0 +1,558 @@
+-- glslfx version 0.1
+
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+//
+// GLSL port of the direct far-field evaluator from NVIDIA RTXCR Material Library.
+// Source revision: eb184f9637f81a58a620d0e3cb4356acbc45cbe6
+// HairFarFieldBCSDF.hlsli, HairMaterial.hlsli, utils/RtxcrMath.hlsli and
+// utils/RtxcrHairBsdfHelper.hlsli and utils/RtxcrBsdf.hlsli.
+// Their file-level MIT grant is retained below.
+// This software contains source code provided by NVIDIA Corporation.
+//
+// Changes: HLSL -> GLSL, no path sampling/PDF, optional R-width and R/TT gains.
+// The evaluator includes the cylindrical integration measure: do NOT multiply
+// its result by N.L or cos(thetaI). Storm integration is a separate section.
+//
+// Helper source files also carry Copyright (c) 2024-2025, NVIDIA CORPORATION.
+/*
+* Copyright (c) 2024-2026, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+
+--- --------------------------------------------------------------------------
+-- glsl UsdGenStrands.Rtxcr
+
+#if defined(USDGEN_STRANDS_MODEL_RTXCR)
+
+#define UsdGenRtxcrPI 3.141592653589
+#define UsdGenRtxcrTWO_PI (2.0 * UsdGenRtxcrPI)
+#define UsdGenRtxcrONE_OVER_TWO_PI (1.0 / UsdGenRtxcrTWO_PI)
+
+float UsdGenRtxcrSaturate(float x) { return clamp(x, 0.0, 1.0); }
+vec3 UsdGenRtxcrSaturate(vec3 x) { return clamp(x, vec3(0.0), vec3(1.0)); }
+float UsdGenRtxcrCalculateBaseReflectivity(float a, float b) {
+    float r = (a - b) / (a + b);
+    return r * r;
+}
+float UsdGenRtxcrEvalFresnelSchlick(float f0, float c) {
+    float x = 1.0 - c;
+    return f0 + (1.0 - f0) * x * x * x * x * x;
+}
+float UsdGenRtxcrAtan2safe(float x, float y)
+{
+    return abs(x) + abs(y) < 1e-7 ? 0 : atan(x, y);
+}
+
+float UsdGenRtxcrI0(float x)
+{
+    float val = 0.;
+    float x2i = 1.;
+    float ifact = 1.;
+    uint i4 = 1;
+
+    for (uint i = 0; i < 10; i++)
+    {
+        if (i > 1)
+            ifact *= i;
+        val += x2i / (ifact * ifact * i4);
+        x2i *= x * x;
+        i4 *= 4;
+    }
+    return val;
+}
+
+float UsdGenRtxcrLogI0(float x)
+{
+    if (x > 12)
+    {
+        return x + 0.5 * (-log(UsdGenRtxcrTWO_PI) + log(1. / x) + 0.125 / x);
+    }
+    else
+    {
+        return log(UsdGenRtxcrI0(x));
+    }
+}
+
+float UsdGenRtxcrGaussian1D(float x, float stddev)
+{
+    return exp(-x * x / (2.0 * stddev * stddev)) / (stddev * sqrt(2.0 * UsdGenRtxcrPI));
+}
+
+float UsdGenRtxcrMP(float cosThetaI, float cosThetaO, float sinThetaI, float sinThetaO, float v)
+{
+    float a = cosThetaI * cosThetaO / v;
+    float b = sinThetaI * sinThetaO / v;
+    float mp = (v <= 0.1) ? exp(UsdGenRtxcrLogI0(a) - b - 1.0 / v + 0.6931 + log(0.5 / v)) : (exp(-b) * UsdGenRtxcrI0(a)) / (sinh(1.0 / v) * 2.0 * v);
+    return mp;
+}
+
+vec3 UsdGenRtxcrAbsorptionCoefficientFromColor(vec3 color, float betaN)
+{
+    float tmp = 5.969 - 0.215 * betaN + 2.532 * betaN * betaN - 10.73 * pow(betaN, 3.0) + 5.574 * pow(betaN, 4.0) + 0.245 * pow(betaN, 5.0);
+    vec3 sqrtAbsorptionCoefficient = log(max(color, 1e-4)) / tmp;
+    return sqrtAbsorptionCoefficient * sqrtAbsorptionCoefficient;
+}
+
+struct UsdGenRtxcrHairInteractionSurface {
+    vec3 shadingNormal;
+    vec3 tangent;
+};
+struct UsdGenRtxcrHairMaterialInteractionBcsdf {
+    vec3 diffuseReflectionTint;
+    float diffuseReflectionWeight;
+    float roughness;
+    vec3 absorptionCoefficient;
+    float ior;
+    float cuticleAngle;
+    // usdGen extensions; neutral at primaryRoughness == roughness and gains 1.
+    float primaryRoughness;
+    float reflectionGain;
+    float transmissionGain;
+};
+struct UsdGenRtxcrFarFieldTrtFit {
+    float peak;
+    float weight1;
+    float weight2;
+    float width1;
+    float width2;
+};
+float UsdGenRtxcrFarFieldWrapAngle(float angle)
+{
+    float wrapped = mod(angle + UsdGenRtxcrPI, UsdGenRtxcrTWO_PI);
+    if (wrapped < 0.0)
+    {
+        wrapped += UsdGenRtxcrTWO_PI;
+    }
+    return wrapped - UsdGenRtxcrPI;
+}
+
+float UsdGenRtxcrFarFieldWrappedGaussian(float angle, float stddev)
+{
+    float sigma = max(stddev, 1e-4);
+    float delta = UsdGenRtxcrFarFieldWrapAngle(angle);
+
+    if (sigma < 1.0)
+    {
+        return UsdGenRtxcrGaussian1D(delta - UsdGenRtxcrTWO_PI, sigma) +
+               UsdGenRtxcrGaussian1D(delta, sigma) +
+               UsdGenRtxcrGaussian1D(delta + UsdGenRtxcrTWO_PI, sigma);
+    }
+
+    float result = 1.0;
+    for (uint harmonic = 1; harmonic <= 6; ++harmonic)
+    {
+        float n = float(harmonic);
+        result += 2.0 * exp(-0.5 * sigma * sigma * n * n) * cos(n * delta);
+    }
+    return max(result * UsdGenRtxcrONE_OVER_TWO_PI, 0.0);
+}
+
+void UsdGenRtxcrFarFieldComputeTrtFit(float thetaI,
+                                 float roughness,
+                                 out UsdGenRtxcrFarFieldTrtFit fit)
+{
+    // TRT lobe: custom 3-Gaussian lobe based on fitting to MC simulation
+    // The elliptic-hair fit is parameterized by |theta_i|, not theta_d.
+    float ti = abs(thetaI);
+    float variance1;
+    float variance2;
+
+    if (ti < 0.525)
+    {
+        fit.peak = cos(ti) - 0.733;
+        fit.weight1 = (-0.000111282) * (-0.103125 + ti) * ti + pow(ti, 15.7265) + 0.00023939;
+        fit.weight2 = 0.000322755 * ((ti - pow(1.80972 * ti, 16.7669)) * tan(ti) + 0.991977);
+        variance1 = 0.00597578 + 0.000428897 * cos(5.41149 * ti);
+        variance2 = 0.0181 * tan(cos(2.121 * ti));
+    }
+    else if (ti < 1.1)
+    {
+        fit.peak = max(0.0, 0.00493 + 0.579 * ti - 0.775 * ti * ti);
+        fit.weight1 = 0.00108 - 0.0014 * ti + 0.0003937 * ti * ti;
+        fit.weight2 = -0.00119 + 0.00219 * ti;
+        variance1 = 0.0391 - 0.0888 * ti + 0.0581 * ti * ti;
+        variance2 = 0.384 - 1.14 * ti + 0.942 * ti * ti;
+    }
+    else
+    {
+        fit.peak = 0.0;
+        fit.weight1 = 0.0;
+        fit.weight2 = 0.000239 + 0.00139 * ti * ti * ti - 0.00053124 * ti * ti * ti * ti * ti;
+        variance1 = 1.0;
+        variance2 = -1.86 + 2.73 * ti - 0.7437 * ti * ti;
+    }
+
+    fit.weight1 = max(fit.weight1, 0.0);
+    fit.weight2 = max(fit.weight2, 0.0);
+    float widthScale = max(roughness, 1e-4) / 0.06;
+    fit.width1 = max(widthScale * sqrt(max(variance1, 0.0)), 1e-4);
+    fit.width2 = max(widthScale * sqrt(max(variance2, 0.0)), 1e-4);
+}
+
+float UsdGenRtxcrFarFieldTrtAzimuth(float phi,
+                                UsdGenRtxcrFarFieldTrtFit fit)
+{
+    return fit.weight1 * UsdGenRtxcrFarFieldWrappedGaussian(phi - fit.peak, fit.width1) +
+           fit.weight1 * UsdGenRtxcrFarFieldWrappedGaussian(phi + fit.peak, fit.width1) +
+           fit.weight2 * UsdGenRtxcrFarFieldWrappedGaussian(phi, fit.width2);
+}
+
+float UsdGenRtxcrFarFieldVariance(float beta)
+{
+    // Very large v is already indistinguishable from a uniform elevation
+    // distribution, and clamping avoids loss of precision in sinh(1 / v).
+    return clamp(beta * beta, 1e-6, 100.0);
+}
+
+float UsdGenRtxcrFarFieldLongitudinal(float thetaOp,
+                                 float sinThetaI,
+                                 float cosThetaI,
+                                 float beta)
+{
+    float sinThetaOp = sin(thetaOp);
+    float cosThetaOp = abs(cos(thetaOp));
+    return UsdGenRtxcrMP(cosThetaOp, cosThetaI, sinThetaOp, sinThetaI, UsdGenRtxcrFarFieldVariance(beta));
+}
+
+void UsdGenRtxcrFarFieldCoordinateFrame(in UsdGenRtxcrHairInteractionSurface hairInteractionSurface,
+                                   in vec3 wo,
+                                   out vec3 tangent,
+                                   out vec3 azimuthOrigin,
+                                   out vec3 azimuthBitangent,
+                                   out float sinThetaO,
+                                   out float cosThetaO)
+{
+    tangent = normalize(hairInteractionSurface.tangent); // tangent of hair
+    sinThetaO = clamp(dot(wo, tangent), -1.0, 1.0);
+    cosThetaO = sqrt(max(1.0 - sinThetaO * sinThetaO, 0.0));
+
+    vec3 projectedWo = wo - sinThetaO * tangent;
+    if (dot(projectedWo, projectedWo) < 1e-10)
+    {
+        projectedWo = hairInteractionSurface.shadingNormal -
+                      dot(hairInteractionSurface.shadingNormal, tangent) * tangent;
+        if (dot(projectedWo, projectedWo) < 1e-10)
+        {
+            vec3 fallbackAxis = abs(tangent.z) < 0.9 ?
+                                       vec3(0.0, 0.0, 1.0) :
+                                       vec3(0.0, 1.0, 0.0);
+            projectedWo = fallbackAxis - dot(fallbackAxis, tangent) * tangent;
+        }
+    }
+
+    azimuthOrigin = normalize(projectedWo);
+    azimuthBitangent = normalize(cross(azimuthOrigin, tangent));
+}
+
+void UsdGenRtxcrFarFieldDirectionCoordinates(in vec3 wi,
+                                        in vec3 tangent,
+                                        in vec3 azimuthOrigin,
+                                        in vec3 azimuthBitangent,
+                                        out float sinThetaI,
+                                        out float cosThetaI,
+                                        out float phi,
+                                        out float cosPhi)
+{
+    sinThetaI = clamp(dot(wi, tangent), -1.0, 1.0);
+    cosThetaI = sqrt(max(1.0 - sinThetaI * sinThetaI, 0.0));
+
+    vec3 projectedWi = wi - sinThetaI * tangent;
+    float invCosThetaI = 1.0 / max(cosThetaI, 1e-7);
+    cosPhi = clamp(dot(projectedWi, azimuthOrigin) * invCosThetaI, -1.0, 1.0);
+    float sinPhi = clamp(dot(projectedWi, azimuthBitangent) * invCosThetaI, -1.0, 1.0);
+    phi = abs(UsdGenRtxcrAtan2safe(sinPhi, cosPhi));
+}
+
+float UsdGenRtxcrFarFieldTtAzimuthPdf(float phi,
+                                 float cosPhi,
+                                 float etaPrimeInverse,
+                                 out float hTT)
+{
+    float a = clamp(etaPrimeInverse, 0.0, 1.0);
+    float supportStart = 2.0 * asin(a);
+    if (phi < supportStart)
+    {
+        hTT = 1.0;
+        return 0.0;
+    }
+
+    // hTT: root of phi(h) for p = 1
+    float numerator = 0.5 + 0.5 * cosPhi;
+    float denominator = 1.0 + a * a -
+                              2.0 * a * sqrt(max(0.5 - 0.5 * cosPhi, 0.0));
+    hTT = sqrt(UsdGenRtxcrSaturate(numerator / max(denominator, 1e-7)));
+
+    float dhR = sqrt(max(1.0 - hTT * hTT, 1e-7));
+    float dhT = sqrt(max(1.0 - a * a * hTT * hTT, 1e-7));
+    float derivative = abs(-2.0 / dhR + 2.0 * a / dhT);
+    return derivative > 1e-7 ? 0.5 / derivative : 0.0;
+}
+
+void UsdGenRtxcrHairFarFieldBcsdfEval(in UsdGenRtxcrHairInteractionSurface hairInteractionSurface,
+                                 in UsdGenRtxcrHairMaterialInteractionBcsdf hairMaterialInteractionBcsdf,
+                                 in vec3 wi,     // pointing to light
+                                 in vec3 wo,     // pointing to camera
+                                 out vec3 bsdf,        // Far-field CRCF for hair lobes (R, TT, TRT)
+                                 out vec3 bsdfDiffuse)
+{
+    vec3 tangent;
+    vec3 azimuthOrigin;
+    vec3 azimuthBitangent;
+    float sinThetaO;
+    float cosThetaO;
+    UsdGenRtxcrFarFieldCoordinateFrame(hairInteractionSurface, wo, tangent,
+                                  azimuthOrigin, azimuthBitangent,
+                                  sinThetaO, cosThetaO);
+
+    // determine cylindrical coordinates (theta/phi) [Marschner et al. 2003]
+    float sinThetaI;
+    float cosThetaI;
+    float phi;
+    float cosPhi;
+    UsdGenRtxcrFarFieldDirectionCoordinates(wi, tangent, azimuthOrigin, azimuthBitangent, sinThetaI, cosThetaI, phi, cosPhi);
+
+    float thetaI = asin(sinThetaI);
+    float thetaO = asin(sinThetaO);
+    float thetaD = 0.5 * (thetaO - thetaI);
+    float sinThetaD = sin(thetaD);
+    float cosThetaD = cos(thetaD);
+
+    // load fiber properties
+    float roughness = max(hairMaterialInteractionBcsdf.roughness, 1e-4);
+    float alpha = hairMaterialInteractionBcsdf.cuticleAngle;
+    float ior = max(hairMaterialInteractionBcsdf.ior, 1.0001);
+    float iorSqr = ior * ior;
+    float f0 = UsdGenRtxcrCalculateBaseReflectivity(1.0, ior);
+    vec3 mua = max(hairMaterialInteractionBcsdf.absorptionCoefficient, 0.0);
+
+    // Compute R lobe - smooth azimuthal N term, normalized longitudinal M term
+    // p(phi) = cos(phi / 2) / 4 is normalized on [-pi, pi].
+    float azimuthR = 0.25 * max(cos(0.5 * phi), 0.0);
+    // tighten the R lobe (or not) with phi - [d'Eon et al. 2014 SIGGRAPH talk]
+    float betaR = sqrt(2.0) * max(hairMaterialInteractionBcsdf.primaryRoughness, 1e-4) * max(0.01, cos(0.5 * phi));
+    float longitudinalR = UsdGenRtxcrFarFieldLongitudinal(thetaO + 2.0 * alpha, sinThetaI, cosThetaI, betaR);
+    // Attenuation is parameterized by the outgoing ray and cylinder offset,
+    // as in Ap.  Keeping it independent of the normalized longitudinal term
+    // is what makes the lobe's directional integral conservative.
+    // [d'Eon et al. 2011 - (12)], using the outgoing-ray approximation.
+    float fresnelR = UsdGenRtxcrEvalFresnelSchlick(f0, UsdGenRtxcrSaturate(cosThetaO * cos(0.5 * phi)));
+
+    // Compute TT lobe - exact azimuthal Jacobian N term, normalized longitudinal M term
+    // Sample/evaluate the exact Jacobian of uniform cylinder offset h.
+    float betaTT = 0.5 * roughness * sqrt(max((iorSqr - 1.0) / max(cosThetaO * cosThetaO, 1e-7), 0.0));
+    float longitudinalTT = UsdGenRtxcrFarFieldLongitudinal(thetaO - alpha,
+                                                            sinThetaI, cosThetaI, betaTT);
+    float etaPrimeInverse = cosThetaD / // 1.0 / eta_prime
+                                  sqrt(max(iorSqr - sinThetaD * sinThetaD, 1e-7));
+    float hTT;
+    float azimuthTT = UsdGenRtxcrFarFieldTtAzimuthPdf(phi, cosPhi, etaPrimeInverse, hTT);
+    float cosGammaI = sqrt(max(1.0 - hTT * hTT, 0.0));
+    // [d'Eon et al. 2011 - (14)], using the outgoing-ray approximation.
+    float fresnelTT = UsdGenRtxcrEvalFresnelSchlick(f0, UsdGenRtxcrSaturate(cosThetaO * cosGammaI));
+    float cosThetaT = sqrt(max(1.0 - sinThetaO * sinThetaO / iorSqr, 1e-7));
+    float etaPrimeInverseO = cosThetaO / sqrt(max(iorSqr - sinThetaO * sinThetaO, 1e-7));
+    float cosGammaT = sqrt(max(1.0 - hTT * hTT * etaPrimeInverseO * etaPrimeInverseO, 0.0));
+    vec3 attenuationTT = (1.0 - fresnelTT) * (1.0 - fresnelTT) * exp(-2.0 * mua * cosGammaT / cosThetaT); // TODO: absorption with Medulla
+
+    // compute TRT lobe as sum of 3 Gaussians
+    // The Gaussians are wrapped periodically and their fit parameters are functions of theta_i.
+    float betaTRT = roughness * (2.0 + pow(abs(thetaO), 1.5));
+    float longitudinalTRT = UsdGenRtxcrFarFieldLongitudinal(thetaO - 3.0 * alpha,
+                                                             sinThetaI, cosThetaI, betaTRT);
+    UsdGenRtxcrFarFieldTrtFit trtFit;
+    UsdGenRtxcrFarFieldComputeTrtFit(thetaI, roughness, trtFit);
+    float trtAzimuthUnnormalized = UsdGenRtxcrFarFieldTrtAzimuth(phi, trtFit);
+    float trtAzimuthIntegral = max(2.0 * trtFit.weight1 + trtFit.weight2, 1e-7);
+    // assume h = 0 for absorption
+    float fresnelSpec = UsdGenRtxcrEvalFresnelSchlick(f0, cosThetaO);
+    vec3 transmittanceSpec = exp(-2.0 * mua / cosThetaT);
+    // The fitted weights define the TRT azimuthal shape.  Give that normalized
+    // shape the physical A2 energy at h = 0 so IOR and absorption affect TRT,
+    // instead of accidentally counting the fit amplitude as extra energy.
+    vec3 attenuationTRT = (1.0 - fresnelSpec) * (1.0 - fresnelSpec) *
+                                  fresnelSpec * transmittanceSpec * transmittanceSpec;
+
+    float diffuseWeight = UsdGenRtxcrSaturate(hairMaterialInteractionBcsdf.diffuseReflectionWeight);
+    float diffuseAzimuth = max((UsdGenRtxcrPI - phi) * cosPhi + sin(phi), 0.0);
+    float diffusePdf = cosThetaI * (0.25 / UsdGenRtxcrPI) * diffuseAzimuth;
+
+    // eval:
+    bsdf = max((1.0 - diffuseWeight) *
+               (hairMaterialInteractionBcsdf.reflectionGain * longitudinalR * azimuthR * fresnelR +
+                hairMaterialInteractionBcsdf.transmissionGain * longitudinalTT * azimuthTT * attenuationTT +
+                longitudinalTRT * trtAzimuthUnnormalized / trtAzimuthIntegral * attenuationTRT),
+               0.0);
+    bsdfDiffuse = diffuseWeight * diffusePdf * UsdGenRtxcrSaturate(hairMaterialInteractionBcsdf.diffuseReflectionTint);
+
+}
+
+#endif // USDGEN_STRANDS_MODEL_RTXCR
+
+--- --------------------------------------------------------------------------
+-- glsl UsdGenStrands.RtxcrLighting
+
+#if defined(USDGEN_STRANDS_MODEL_RTXCR)
+
+// Defined by the shared surface section after this one.
+vec3 UsdGenStrandsDomeRadiance(vec3 dir, mat4 worldToLightTransform);
+float UsdGenStrandsFillVisibility(float hairCount, float selfShadow, float t);
+
+float UsdGenRtxcrAmbientOcclusion(float hairCount, float selfShadow)
+{
+#ifdef HD_HAS_furDensity
+    float localCount = selfShadow * max(HdGet_furDensity(), 0.0);
+#if defined(USDGEN_STRANDS_HAS_DENSITY)
+    // A boundary voxel can be crowded while a ray leaving it sees open sky.
+    // The directional bake already includes this voxel: limit extra local AO
+    // to the occluding count on this ray, with the same receiver subtraction
+    // as the coat transport. Multiplying the entire dome by exp(-localCount)
+    // instead encloses even exposed tips in an opaque shell at high density.
+    localCount = min(localCount, max(hairCount - 1.0, 0.0));
+#endif
+    return exp(-max(HdGet_aoIntensity(), 0.0) * localCount);
+#else
+    return 1.0;
+#endif
+}
+
+vec3 UsdGenRtxcrLighting(vec4 Peye, vec3 P, vec3 V, vec3 T, float t,
+                       float seed, vec3 albedo, float area)
+{
+    UsdGenRtxcrHairInteractionSurface surface;
+    // The shared tangent points toward the root; RTXCR uses root -> tip.
+    surface.tangent = -T;
+    surface.shadingNormal = V;
+
+    float jitter = max(0.0, 1.0 + (fract(seed * 29.0) - 0.5) *
+                       2.0 * HdGet_randomRoughness());
+    float longitudinal = HdGet_longitudinalRoughness();
+    float primary = HdGet_primaryRoughness();
+    float beta = clamp((longitudinal < 0.0 ? HdGet_roughness() : longitudinal)
+                       * jitter, 0.01, 1.0);
+    float betaR = clamp((primary < 0.0 ? HdGet_roughness() : primary)
+                        * jitter, 0.01, 1.0);
+    float azimuth = HdGet_azimuthalRoughness();
+    azimuth = azimuth < 0.0 ? 0.35 : clamp(azimuth, 0.0, 1.0);
+
+    UsdGenRtxcrHairMaterialInteractionBcsdf material;
+    material.diffuseReflectionTint = albedo;
+    material.diffuseReflectionWeight = clamp(HdGet_scatter(), 0.0, 1.0);
+    // Pixel footprint widens the input widths, independently of material edits.
+    material.roughness = sqrt(beta * beta + area);
+    material.primaryRoughness = sqrt(betaR * betaR + area);
+    material.absorptionCoefficient =
+        UsdGenRtxcrAbsorptionCoefficientFromColor(albedo, azimuth);
+    material.ior = clamp(HdGet_ior(), 1.0001, 4.0);
+    material.cuticleAngle = radians(HdGet_cuticleTilt() < 0.0 ? 2.0 :
+                                    clamp(HdGet_cuticleTilt(), 0.0, 30.0));
+    material.reflectionGain = max(2.0 * HdGet_specular(), 0.0);
+    material.transmissionGain = max(HdGet_backlit(), 0.0);
+
+    // The far-field evaluator describes a single fiber. A dense viewport groom
+    // also needs the light redistributed by neighboring fibers. Reuse the
+    // existing fitted coat transport as an approximation; pure exp(-count)
+    // discards that light and makes camera-lit hair almost black.
+    UsdGenStrandsLobes coatLobes;
+    coatLobes.primary = betaR;
+    coatLobes.longitudinal = beta;
+    coatLobes.scattering = beta;
+    coatLobes.trtAzimuthal = 1.0;
+    coatLobes.shift = material.cuticleAngle;
+    coatLobes.customTilt = 1.0;
+    coatLobes.shiftRCos = sin(-4.0 * coatLobes.shift);
+    coatLobes.shiftRSin = 1.0 - cos(-4.0 * coatLobes.shift);
+    coatLobes.backScatter = max(HdGet_backScatter(), 0.0);
+
+    vec3 tauP = UsdGenStrandsTauPositive(t);
+    vec3 tauN = UsdGenStrandsTauNegative(t);
+    float selfShadow = max(HdGet_selfShadow(), 0.0);
+    float indirectGain = max(HdGet_indirectMultiplier(), 0.0);
+    float fillGain = max(HdGet_ambientFill(), 0.0);
+    vec3 result = vec3(0.0);
+#if NUM_LIGHTS > 0
+    for (int i = 0; i < GetLightCount(); ++i) {
+        LightSource light = GetLightSource(i);
+        if (light.isIndirectLight) {
+            // Use the shared viewport estimator: eight fiber-frame taps,
+            // normalized by their single-fiber response. The fitted coat
+            // albedo/transport supplies the magnitude; RTXCR supplies the
+            // directional distribution. This is not path-traced RTXCR GI.
+            if (indirectGain > 0.0 || fillGain > 0.0) {
+                float sV = clamp(dot(T, V), -1.0, 1.0);
+                vec3 Nf = UsdGenStrandsSafeNormalize(V - T * sV,
+                                                   vec3(1.0, 0.0, 0.0));
+                vec3 Bt = UsdGenStrandsSafeNormalize(cross(T, Nf),
+                                                   vec3(0.0, 1.0, 0.0));
+                UsdGenRtxcrHairMaterialInteractionBcsdf environmentMaterial = material;
+                environmentMaterial.roughness = sqrt(beta * beta + area + 0.2);
+                environmentMaterial.primaryRoughness = sqrt(betaR * betaR + area + 0.2);
+                vec3 num = vec3(0.0), den = vec3(0.0), fill = vec3(0.0);
+                for (int band = 0; band < 2; ++band) {
+                    float sL = clamp(-sV + (band == 0 ? -0.55 : 0.55), -0.97, 0.97);
+                    float cL = sqrt(max(0.0, 1.0 - sL * sL));
+                    for (int a = 0; a < 4; ++a) {
+                        float phi = float(a) * 0.5 * UsdGenRtxcrPI;
+                        vec3 L = sL * T + cL * (cos(phi) * Nf + sin(phi) * Bt);
+                        vec3 specularResponse, diffuseResponse;
+                        UsdGenRtxcrHairFarFieldBcsdfEval(surface, environmentMaterial,
+                            L, V, specularResponse, diffuseResponse);
+                        vec3 S = specularResponse + diffuseResponse;
+                        float count = UsdGenStrandsHairCount(L, tauP, tauN, selfShadow);
+                        UsdGenStrandsResponse response = UsdGenStrandsMultipleScattering(
+                            S, albedo, coatLobes, 1.0, count, selfShadow, t,
+                            UsdGenStrandsGeometryOf(T, L, V));
+                        vec3 radiance = UsdGenStrandsDomeRadiance(L, light.worldToLightTransform);
+                        radiance *= UsdGenRtxcrAmbientOcclusion(count, selfShadow);
+                        num += response.value * radiance;
+                        den += S;
+                        fill += radiance * UsdGenStrandsFillVisibility(count, selfShadow, t);
+                    }
+                }
+                vec3 domeAlbedo = UsdGenStrandsDirectionalAlbedo(beta, albedo, sV);
+                result += (domeAlbedo * num / max(den, vec3(1e-4)) * indirectGain +
+                           albedo * fill * (fillGain / 8.0)) * light.diffuse.rgb;
+            }
+            continue;
+        }
+        vec3 L = UsdGenStrandsSafeNormalize(
+            light.position.xyz - P * light.position.w, vec3(0.0, 1.0, 0.0));
+        float attenuation = lightDistanceAttenuation(Peye, i) *
+                            lightSpotAttenuation(L, i);
+        float sceneShadow = 1.0;
+#if USE_SHADOWS
+        if (light.hasShadow) sceneShadow = shadowing(i, Peye);
+#endif
+        vec3 specularResponse, diffuseResponse;
+        UsdGenRtxcrHairFarFieldBcsdfEval(surface, material, L, V,
+                                       specularResponse, diffuseResponse);
+        UsdGenStrandsResponse response = UsdGenStrandsMultipleScattering(
+            specularResponse + diffuseResponse, albedo, coatLobes, sceneShadow,
+            UsdGenStrandsHairCount(L, tauP, tauN, selfShadow), selfShadow, t,
+            UsdGenStrandsGeometryOf(T, L, V));
+        result += response.value * light.diffuse.rgb *
+                  (attenuation * sceneShadow);
+    }
+#endif
+    return result;
+}
+
+#endif // USDGEN_STRANDS_MODEL_RTXCR
+

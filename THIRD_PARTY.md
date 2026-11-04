@@ -26,6 +26,26 @@ relicense. Link against an OpenUSD build you supply (`USD` or
 | `thirdparty/nanoflann/nanoflann.hpp` | nanoflann | BSD-2-Clause, in the header |
 | `thirdparty/zlib` | zlib | zlib License. `thirdparty/zlib/LICENSE` |
 
+## RTXCR hair evaluator
+
+`usdGenShaders/resources/shaders/usdGenHairStrandsRtxcr.glslfx` contains a
+GLSL adaptation of `HairFarFieldBCSDF.hlsli` and selected functions from
+`HairMaterial.hlsli`, `utils/RtxcrMath.hlsli`, and
+`utils/RtxcrHairBsdfHelper.hlsli`, and `utils/RtxcrBsdf.hlsli` in
+[NVIDIA-RTX/RTXCR-Material-Library](https://github.com/NVIDIA-RTX/RTXCR-Material-Library/tree/eb184f9637f81a58a620d0e3cb4356acbc45cbe6/shaders/include/rtxcr),
+pinned to revision `eb184f9637f81a58a620d0e3cb4356acbc45cbe6`.
+
+Those source files carry explicit MIT permission notices, retained in the
+adaptation, with Copyright (c) 2024-2026, NVIDIA CORPORATION (2024-2025 for
+the helper files). This attribution concerns those shader files, not the
+whole SDK: the upstream repository also has an NVIDIA RTX SDK `License.txt`.
+This integration does not vendor that SDK, path tracer, or denoiser.
+
+Changes include GLSL syntax, removal of sampling/PDF code, optional independent
+R roughness and R/TT gains, and a separate Storm adapter for lighting,
+pixel-footprint filtering, existing hair-count visibility and ambient fill.
+The adapter and project changes are Copyright (c) 2026 Nick Burkard, MIT.
+
 ## `usdNoodles/`
 
 The directory is a copy of [facebookexperimental/noodles](https://github.com/facebookexperimental/noodles)

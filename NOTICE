@@ -26,6 +26,17 @@ oneTBB
   Apache License 2.0
   https://github.com/uxlfoundation/oneTBB
 
+RTXCR hair evaluator
+--------------------
+
+usdGenShaders/resources/shaders/usdGenHairStrandsRtxcr.glslfx adapts the
+far-field evaluator and helpers from NVIDIA-RTX/RTXCR-Material-Library,
+revision eb184f9637f81a58a620d0e3cb4356acbc45cbe6.
+Copyright (c) 2024-2026, NVIDIA CORPORATION. All rights reserved.
+The shader files' MIT permission notices are retained in the adapted file.
+This software contains source code provided by NVIDIA Corporation.
+No other RTX SDK components are included by this integration.
+
 Vendored in thirdparty/
 -----------------------
 

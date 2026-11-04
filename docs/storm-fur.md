@@ -419,12 +419,13 @@ the shader's single lerp; its first and last stops are used.
 
 ### Strand models
 
-`UsdGenHairStrands` and `UsdGenHairStrandsTranslucent` can be built with either
-of two strand models. The CMake cache variable `USDGEN_HAIR_SHADING_MODEL`
+`UsdGenHairStrands` and `UsdGenHairStrandsTranslucent` can be built with one
+of three strand models. The CMake cache variable `USDGEN_HAIR_SHADING_MODEL`
 picks one:
 
 ```sh
-cmake -S . -B build -DUSDGEN_HAIR_SHADING_MODEL=marschner   # or karis, the default
+cmake -S . -B build -DUSDGEN_HAIR_SHADING_MODEL=rtxcr   # or marschner / karis (default)
+cmake --build build
 ```
 
 | | `karis` (default) | `marschner` |
@@ -438,22 +439,91 @@ cmake -S . -B build -DUSDGEN_HAIR_SHADING_MODEL=marschner   # or karis, the defa
 
 Storm compiles glslfx when it draws, so the selection is a file:
 `shaders/usdGenHairModel.glslfx` holds one `#define USDGEN_STRANDS_MODEL_KARIS`
-or `..._MARSCHNER` line. CMake writes the build tree's and the install's copy
+or `..._MARSCHNER` / `..._RTXCR` line. CMake writes the build tree's and the install's copy
 from the cache variable; the source copy selects `karis` so a source checkout's
-shader directory still parses. Choosing `marschner` also defines
+shader directory still parses. Choosing `marschner` or `rtxcr` also defines
 `USDGEN_FUR_LOCAL_DENSITY` on `sessionCooker.cpp`, which turns on the fur
 bake's `furDensity` output. The `USDGEN_FUR_DENSITY` environment setting
 overrides that at run time either way. Switching models takes a re-configure,
 which recompiles that one source file and relinks.
 
-Both builds declare the same inputs with the same defaults, so a material
+All three builds declare the same inputs with the same defaults, so a material
 authored for one loads in the other. Colour (root/tip, melanin, presets,
 jitter), coverage, root fade and the stochastic sample mask are shared code;
 only the lighting loop in `surfaceShader()` differs. The two inputs the Karis
-lobes have no use for, `ior` and `aoIntensity`, are declared in both builds
+lobes have no use for, `ior` and `aoIntensity`, are declared in all builds
 and ignored by `karis`. `testUsdGenHairStrandsDefs` fails when the build's
 shader copy selects a different model than the cache, or when `shaders/`
 changed without a re-configure (CMake copies the directory at configure time).
+
+#### The RTXCR far-field model
+
+`rtxcr` ports the direct far-field evaluator described in NVIDIA's
+[RTXCR hair guide](https://github.com/NVIDIA-RTX/RTXCR/blob/main/docs/RtxcrHairGuide.md)
+from the [Material Library at revision
+`eb184f9`](https://github.com/NVIDIA-RTX/RTXCR-Material-Library/tree/eb184f9637f81a58a620d0e3cb4356acbc45cbe6).
+The implementation is `usdGenHairStrandsRtxcr.glslfx`: normalized longitudinal
+scattering, Fresnel reflection, absorption-colored transmission, and the
+three-Gaussian TRT fit. It averages over a strand's cross section, which suits
+thin viewport curves. It requires no RTX hardware API, SDK download, new
+render delegate, or OpenUSD patch. Restart the viewer after changing models;
+the build selection applies to both strand material variants and all grooms
+that bind them. Existing material identifiers and USD files still work.
+
+The evaluator returns scattering with the cylindrical integration measure
+included. The Storm adapter multiplies by light radiance, attenuation and
+visibility without an additional surface cosine. It converts the shared
+root-facing tangent back to root-to-tip and widens roughness using the pixel
+footprint. With neutral gains and zero footprint, the direct evaluator follows
+the pinned upstream model. The HLSL sampling and PDF functions are omitted.
+
+| Input | RTXCR meaning |
+|---|---|
+| `roughness` | Far-field width parameter, clamped to 0.01–1 before footprint filtering; passed directly, not squared. |
+| `primaryRoughness`, `longitudinalRoughness` | Optional independent R and TT/TRT widths in the same units; negative follows `roughness`. These split widths extend the upstream single-width model. |
+| `randomRoughness` | Shared per-strand jitter on both widths. |
+| `azimuthalRoughness` | Parameter of RTXCR's color-to-absorption conversion; negative uses 0.35. The far-field lobe shapes use `roughness`, not a separate azimuthal width. |
+| `cuticleTilt` | Cuticle angle in degrees, clamped to 0–30; negative uses 2 degrees. |
+| `ior` | Fiber index, clamped to 1.0001–4; affects Fresnel and refraction. |
+| `specular`, `backlit` | Artist gains on R (`2 * specular`) and TT (`backlit`); defaults preserve the upstream response. |
+| `scatter` | Weight of RTXCR's optional diffuse layer (0–1), tinted by the strand color. It replaces that fraction of the specular response. |
+| `selfShadow` | Scales the existing directional hair count used by the shared fitted coat transport. Without baked depths the existing root-to-tip canopy fallback applies. |
+| `indirectMultiplier` | Scales the dome evaluated through eight fiber-frame RTXCR taps, with the shared fitted directional albedo and coat transport. |
+| `ambientFill` | Adds albedo-tinted dome fill with directional visibility, separately from `indirectMultiplier`. |
+| `aoIntensity` | Additional local-density occlusion per dome direction, limited by that direction's baked occluding hair count. Open sky stays visible even in a crowded boundary voxel. |
+| `backScatter` | Gain on the shared approximation for light scattered back through the coat. |
+
+Root/tip colors, melanin, dye, preset gradients, textures, jitter, root fade,
+coverage and alpha-to-coverage/OIT retain the shared behavior. RTXCR uses its
+color absorption mode on that final color, so melanin remains the existing
+usdGen color workflow rather than RTXCR's separate physics absorption mode.
+
+The single-fiber evaluator is surrounded by the existing Karis-fitted
+dual-scattering approximation for light transport through a groom. This keeps
+the light redirected by nearby fibers, which a visibility-only multiplier
+would discard and which matters especially with usdview's camera light.
+The fits are not integrations of the RTXCR lobes, so coat transport and dome
+albedo remain approximations. Dome directionality uses eight widened RTXCR
+samples normalized by their single-fiber response; `ambientFill` is separate.
+
+This is a raster viewport integration. Traced indirect hair bounces,
+ray-traced visibility, Chiang near-field scattering,
+LSS geometry, motion-vector generation and denoisers from the RTXCR guide are
+not implemented. Existing six-direction baked occlusion is still an
+approximation, and no quality or performance parity with RTXCR is claimed.
+The file-level NVIDIA MIT permission notices are retained; see
+[third-party notices](../THIRD_PARTY.md#rtxcr-hair-evaluator).
+
+`testUsdGenHairStrandsDefs` checks discovery and the configured shader copy.
+`usdGenShaders/test/check_hair_strands_render.py --model rtxcr` checks both
+material variants with differential renders, including IOR, tilt, split
+roughness, diffuse layering, baked visibility and local ambient occlusion.
+`testUsdGenHairRtxcrViewport` checks camera and dome lighting in usdview itself,
+including coat scattering, brown hair, and both material variants against a
+black, overlay-free background.
+`testUsdGenHairRtxcrNumerics` executes the shipped evaluator in an OpenGL
+compute shader to check axial views, parameter limits, rotation invariance,
+absorption, analytic diffuse response and longitudinal normalization.
 
 #### The Marschner model
 

@@ -674,12 +674,13 @@ file(COPY
 #   marschner  the absorption-based Marschner model imported grooms were
 #              shaded with; also makes the fur bake publish the furDensity
 #              primvar its hair occlusion reads (USDGEN_FUR_DENSITY)
+#   rtxcr      RTXCR far-field scattering with Storm visibility and ambient
 set(USDGEN_HAIR_SHADING_MODEL "karis" CACHE STRING
-    "Strand shading model of UsdGenHairStrands: karis or marschner")
-set_property(CACHE USDGEN_HAIR_SHADING_MODEL PROPERTY STRINGS karis marschner)
+    "Strand shading model of UsdGenHairStrands: karis, marschner or rtxcr")
+set_property(CACHE USDGEN_HAIR_SHADING_MODEL PROPERTY STRINGS karis marschner rtxcr)
 string(TOLOWER "${USDGEN_HAIR_SHADING_MODEL}" _usdgen_hair_model)
-if(NOT _usdgen_hair_model MATCHES "^(karis|marschner)$")
-    message(FATAL_ERROR "USDGEN_HAIR_SHADING_MODEL must be karis or marschner, "
+if(NOT _usdgen_hair_model MATCHES "^(karis|marschner|rtxcr)$")
+    message(FATAL_ERROR "USDGEN_HAIR_SHADING_MODEL must be karis, marschner or rtxcr, "
         "not '${USDGEN_HAIR_SHADING_MODEL}'")
 endif()
 string(TOUPPER "${_usdgen_hair_model}" _usdgen_hair_model_upper)
@@ -695,7 +696,7 @@ file(CONFIGURE OUTPUT "${_usdgen_hair_model_file}"
     CONTENT "${_usdgen_hair_model_content}" @ONLY)
 # Only the cooker reads it (the USDGEN_FUR_DENSITY default), so it is a source
 # property: switching models recompiles that one file, not the library.
-if(_usdgen_hair_model STREQUAL "marschner")
+if(_usdgen_hair_model MATCHES "^(marschner|rtxcr)$")
     set_property(SOURCE libs/usdGen/usdGen/sessionCooker.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS USDGEN_FUR_LOCAL_DENSITY=1)
 endif()
@@ -4407,6 +4408,28 @@ if(_usdgen_test_python)
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 
     # GPU-bound, so T2 and RUN_SERIAL like the other Storm tests.
+    add_test(NAME testUsdGenHairRtxcrNumerics
+        COMMAND "${_usdgen_test_python}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_rtxcr.py"
+            --usdrecord "${USD_INSTALL_DIR}/bin/usdrecord")
+    set_tests_properties(testUsdGenHairRtxcrNumerics PROPERTIES
+        LABELS "T2;shaders" TIMEOUT 180 RUN_SERIAL TRUE
+        FAIL_REGULAR_EXPRESSION "FAIL:|Traceback"
+        ENVIRONMENT_MODIFICATION "${_usdgen_hair_plugin_env};${_usdgen_hair_python_env}"
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+
+    if(_usdgen_hair_model STREQUAL "rtxcr")
+        add_test(NAME testUsdGenHairRtxcrViewport
+            COMMAND "${_usdgen_test_python}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_rtxcr_viewport.py"
+                --testusdview "${USD_INSTALL_DIR}/bin/testusdview")
+        set_tests_properties(testUsdGenHairRtxcrViewport PROPERTIES
+            LABELS "T2;shaders;usdview" TIMEOUT 300 RUN_SERIAL TRUE
+            FAIL_REGULAR_EXPRESSION "FAIL:|Traceback"
+            ENVIRONMENT_MODIFICATION "${_usdgen_hair_plugin_env};${_usdgen_hair_python_env}"
+            SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    endif()
+
     add_test(NAME testUsdGenHairStrandsRender
         COMMAND "${_usdgen_test_python}"
             "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_strands_render.py"

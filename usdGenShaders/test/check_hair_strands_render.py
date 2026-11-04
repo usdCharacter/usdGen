@@ -24,6 +24,10 @@ to move by more than noise. A fallback shader ignores all of them.
      neutral settings are that model's defaults instead (azimuthalRoughness
      0.35, cuticleTilt 0.43 degrees, ior 1.55), and ior and aoIntensity (with
      the furDensity primvar) must reach the pixels.
+  8. --model rtxcr: the far-field defaults are azimuthalRoughness 0.35,
+     cuticleTilt 2 degrees and ior 1.55. The diffuse layer, IOR and ambient
+     occlusion and the viewport coat-scattering approximation must reach the
+     pixels, including backScatter.
 
 The scene is built in memory: 2400 cubic bspline curves on a sphere with the
 primvars a usdGen tile publishes (widths, hairT, hairId, st,
@@ -211,17 +215,27 @@ def matching_checks(np, Gf, Sdf, shader, render, check, tag, model="karis"):
     moves(ref, wide, "longitudinalRoughness")
     sharp = shot("primary_sharp", {"primaryRoughness": 0.1})
     moves(ref, sharp, "primaryRoughness")
-    if model == "marschner":
+    if model in ("marschner", "rtxcr"):
         same(ref, shot("azimuthal_default", {"azimuthalRoughness": 0.35}),
              "azimuthalRoughness authored as the model's 0.35")
     else:
         same(ref, shot("azimuthal_third", {"azimuthalRoughness": 0.3}),
              "azimuthalRoughness 0.3 (s = 1)")
-    moves(ref, shot("azimuthal_rough", {"azimuthalRoughness": 0.9}),
-          "azimuthalRoughness", at_least=0.05)
-    if model == "marschner":
-        same(ref, shot("tilt_builtin", {"cuticleTilt": 0.42971835}),
-             "cuticleTilt authored as the model's s = 0.03 rad")
+    if model == "rtxcr":
+        # RTXCR uses this for single-fiber absorption. Isolate that response
+        # from the fitted coat albedo, which is independent of this input.
+        single = {"selfShadow": 0.0, "backScatter": 0.0,
+                  "indirectMultiplier": 0.0}
+        moves(shot("azimuthal_single", single),
+              shot("azimuthal_rough", dict(single, azimuthalRoughness=0.9)),
+              "azimuthalRoughness", at_least=0.05)
+    else:
+        moves(ref, shot("azimuthal_rough", {"azimuthalRoughness": 0.9}),
+              "azimuthalRoughness", at_least=0.05)
+    if model in ("marschner", "rtxcr"):
+        tilt = 2.0 if model == "rtxcr" else 0.42971835
+        same(ref, shot("tilt_builtin", {"cuticleTilt": tilt}),
+             "cuticleTilt authored as the model's default")
         same(ref, shot("ior_default", {"ior": 1.55}),
              "ior authored as the default 1.55")
         moves(ref, shot("ior_high", {"ior": 2.2}), "ior", at_least=0.05)
@@ -234,6 +248,9 @@ def matching_checks(np, Gf, Sdf, shader, render, check, tag, model="karis"):
     check(lum(ref) - lum(no_back) > 0.05,
           "%s: backScatter 0 darkens the coat (mean delta %.3f/255)"
           % (tag, lum(ref) - lum(no_back)))
+    if model == "rtxcr":
+        moves(ref, shot("diffuse_layer", {"scatter": 1.0}),
+              "RTXCR diffuse layer")
 
     # -- preset gradients ---------------------------------------------------
     preset = {"usePresetColors": 1.0}
@@ -318,7 +335,7 @@ def matching_checks(np, Gf, Sdf, shader, render, check, tag, model="karis"):
     check(lum(fill) - lum(ref) > 0.5,
           "%s: ambientFill adds a flat fill (brighter by %.2f/255)"
           % (tag, lum(fill) - lum(ref)))
-    if model == "marschner":
+    if model in ("marschner", "rtxcr"):
         occluded = shot("hair_ao", {"aoIntensity": 8.0})
         check(lum(ref) - lum(occluded) > 0.2,
               "%s: aoIntensity darkens the ambient by furDensity (darker by "
@@ -339,7 +356,7 @@ def main():
         os.path.join(os.environ.get("USD", ""), "bin", "usdrecord")))
     parser.add_argument("--out", default="")
     parser.add_argument("--width", type=int, default=480)
-    parser.add_argument("--model", choices=("karis", "marschner"),
+    parser.add_argument("--model", choices=("karis", "marschner", "rtxcr"),
                         default="karis",
                         help="the strand model the build compiled "
                              "(USDGEN_HAIR_SHADING_MODEL)")
@@ -459,7 +476,7 @@ def main():
         shadowed = render(stage, camera, tag + "_shadowed")
         delta = float(np.mean(unshadowed - shadowed))
         check(abs(delta) > 0.5,
-              "%s: the baked hair count drives dual scattering "
+              "%s: the baked hair count changes shading "
               "(mean delta %.2f/255)" % (tag, delta))
         check(delta > 0.0,
               "%s: more extinction darkens the coat (mean delta %.2f/255)"

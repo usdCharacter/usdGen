@@ -14,6 +14,8 @@
 //              (usdGenHairStrandsBsdf.glslfx). The default.
 //   marschner  the absorption-based Marschner model imported grooms were
 //              shaded with (usdGenHairStrandsMarschner.glslfx).
+//   rtxcr      RTXCR far-field BCSDF with Storm lighting and visibility
+//              (usdGenHairStrandsRtxcr.glslfx).
 //
 // This source copy selects the default, so the shader directory of a source
 // checkout still parses on its own. Exactly one USDGEN_STRANDS_MODEL_* line;

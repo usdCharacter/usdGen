@@ -241,10 +241,10 @@ void Compare(Packet const& cuda, Packet const& vulkan, float pointTolerance = 0,
         }
         auto av = Values<float>(a); auto bv = Values<float>(b);
         for (size_t i = 0; i != av.size(); ++i) {
-            bool near = std::isfinite(av[i]) && std::isfinite(bv[i]) && std::fabs(av[i]-bv[i]) <= tolerance;
-            if (!near) std::fprintf(stderr, "%s[%zu] CUDA=%g Vulkan=%g tolerance=%g\n",
+            bool withinTolerance = std::isfinite(av[i]) && std::isfinite(bv[i]) && std::fabs(av[i]-bv[i]) <= tolerance;
+            if (!withinTolerance) std::fprintf(stderr, "%s[%zu] CUDA=%g Vulkan=%g tolerance=%g\n",
                 entry.first.c_str(), i, av[i], bv[i], tolerance);
-            CHECK(near);
+            CHECK(withinTolerance);
         }
     }
 }

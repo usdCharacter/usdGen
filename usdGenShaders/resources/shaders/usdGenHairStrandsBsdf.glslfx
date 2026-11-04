@@ -81,6 +81,7 @@
 
 #import ./usdGenHairModel.glslfx
 #import ./usdGenHairStrandsMarschner.glslfx
+#import ./usdGenHairStrandsRtxcr.glslfx
 
 --- --------------------------------------------------------------------------
 -- glsl UsdGenStrands.Common
@@ -1159,6 +1160,8 @@ vec4 surfaceShader(vec4 Peye, vec3 Neye, vec4 color, vec4 patchCoord)
 
 #if defined(USDGEN_STRANDS_MODEL_MARSCHNER)
     vec3 result = UsdGenMarschnerLighting(Peye, P, V, T, t, seed, albedo, area);
+#elif defined(USDGEN_STRANDS_MODEL_RTXCR)
+    vec3 result = UsdGenRtxcrLighting(Peye, P, V, T, t, seed, albedo, area);
 #else
     UsdGenStrandsLobes lobes = UsdGenStrandsMaterialLobes(seed);
     float specular = max(HdGet_specular(), 0.0);

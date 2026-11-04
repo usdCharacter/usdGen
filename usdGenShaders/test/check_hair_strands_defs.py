@@ -47,7 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 _ap = argparse.ArgumentParser()
 _ap.add_argument("shaders", nargs="?",
                  default=os.path.join(HERE, "..", "resources", "shaders"))
-_ap.add_argument("--model", choices=("karis", "marschner"))
+_ap.add_argument("--model", choices=("karis", "marschner", "rtxcr"))
 _ap.add_argument("--built")
 ARGS = _ap.parse_args()
 SHADERS = ARGS.shaders
@@ -291,7 +291,8 @@ def sdr_check():
 
 # The strand files whose build copy must match the source exactly.
 STRAND_FILES = FILES + ["usdGenHairStrandsBsdf.glslfx",
-                        "usdGenHairStrandsMarschner.glslfx", "shaderDefs.usda"]
+                        "usdGenHairStrandsMarschner.glslfx",
+                        "usdGenHairStrandsRtxcr.glslfx", "shaderDefs.usda"]
 
 
 def built_check(model, built):
