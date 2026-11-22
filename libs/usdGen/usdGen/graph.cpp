@@ -262,7 +262,7 @@ bool UsdGenGraph::AnyDirty() const noexcept
     for (auto const &n : _nodes) {
         if (!n) continue;
         if (n->captureNeeded) return true;
-        for (uint8_t b : n->chunkDirty) {
+        for (UsdGenChunkDirtyBits b : n->chunkDirty) {
             if (b != UsdGenDirtyNone) return true;
         }
     }
@@ -288,11 +288,11 @@ void UsdGenGraph::MarkNode(UsdGenNodeId id, uint32_t bits)
     // consumes capture at the owner and the session drains structural.
     // (Surface-major chunk order keeps a surface dirty a contiguous
     // range — see DirtySurface.)
-    uint8_t const byte = static_cast<uint8_t>(bits);
-    for (uint8_t &b : n.chunkDirty) b |= byte;
+    UsdGenChunkDirtyBits const byte = static_cast<UsdGenChunkDirtyBits>(bits);
+    for (UsdGenChunkDirtyBits &b : n.chunkDirty) b |= byte;
     for (UsdGenNodeId d : n.descendants) {
         if (d >= _nodes.size() || !_nodes[d]) continue;
-        for (uint8_t &b : _nodes[d]->chunkDirty) b |= byte;
+        for (UsdGenChunkDirtyBits &b : _nodes[d]->chunkDirty) b |= byte;
     }
 }
 
@@ -340,7 +340,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
         for (size_t c = 0; c < n.chunks.size(); ++c) {
             if (n.chunks[c].surface != surface) continue;
             any = true;
-            n.chunkDirty[c] |= static_cast<uint8_t>(bits);
+            n.chunkDirty[c] |= static_cast<UsdGenChunkDirtyBits>(bits);
         }
         if (any) {
             uint32_t valueBits = bits & ~(UsdGenDirtyCapture | UsdGenDirtyStructural);
@@ -350,7 +350,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
                 for (size_t c = 0; c < dn.chunks.size(); ++c) {
                     if (dn.chunks[c].surface != surface) continue;
                     if (bits & UsdGenDirtyCapture) dn.captureNeeded = true;
-                    dn.chunkDirty[c] |= static_cast<uint8_t>(
+                    dn.chunkDirty[c] |= static_cast<UsdGenChunkDirtyBits>(
                         valueBits ? valueBits : UsdGenDirtyParameter);
                 }
             }

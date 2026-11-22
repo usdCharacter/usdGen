@@ -125,7 +125,7 @@ UsdGenGraphDesc MakeG3(int NX = 250, int NY = 10)
 // True when any chunk byte of the node has any dirty bit set.
 bool NodeAnyDirty(UsdGenGraph const &g, UsdGenNodeId id)
 {
-    for (uint8_t b : g.Node(id).chunkDirty)
+    for (UsdGenChunkDirtyBits b : g.Node(id).chunkDirty)
         if (b != UsdGenDirtyNone) return true;
     return false;
 }
@@ -241,7 +241,7 @@ int main()
     // ---- 6: structural bits keep the graph dirty ------------------------------
     graph.MarkNode(grow, UsdGenDirtyStructural);
     bool structuralSeen = true;
-    for (uint8_t b : graph.Node(width).chunkDirty)
+    for (UsdGenChunkDirtyBits b : graph.Node(width).chunkDirty)
         structuralSeen = structuralSeen && (b & UsdGenDirtyStructural) != 0;
     Check(structuralSeen && graph.AnyDirty(),
           "MarkNode(grow, Structural) sets the Structural byte on descendants "
@@ -267,7 +267,7 @@ graph.Node(width).lastParamDigest = 0;
 // The armed dirty set, BEFORE the run: every width chunk byte carries the
 // Parameter (points/primvarValue-class) bit.
 bool widthHasParam = true;
-for (uint8_t b : graph.Node(width).chunkDirty)
+for (UsdGenChunkDirtyBits b : graph.Node(width).chunkDirty)
     widthHasParam = widthHasParam && ((b & UsdGenDirtyParameter) != 0);
 Check(widthHasParam,
       "bare primvars locator: width chunks armed with the Parameter dirty bit");
@@ -283,7 +283,7 @@ Check(ChunksEvaluated(seven, scatter) == 0 && ChunksEvaluated(seven, grow) == 0,
 // consumed clean.
 {
     bool widthClean = true;
-    for (uint8_t b : graph.Node(width).chunkDirty)
+    for (UsdGenChunkDirtyBits b : graph.Node(width).chunkDirty)
         widthClean = widthClean && (b == UsdGenDirtyNone);
     Check(widthClean,
           "bare primvars locator: width chunk bytes clean after the run");

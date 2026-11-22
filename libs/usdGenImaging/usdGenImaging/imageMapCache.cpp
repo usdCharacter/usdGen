@@ -229,8 +229,23 @@ UsdGenDecodedImageMap ResolveUsdGenImageMap(std::string const& path) {
         }
         // Decode, image allocation, and ImagePayload construction occur with
         // no cache mutex held.
-        UsdGenDecodedImageMap decoded = Decode(path, generation);
-        auto completed = std::make_shared<const UsdGenDecodedImageMap>(decoded);
+        // A throwing decode must still complete the entry, or every waiter
+        // on it blocks forever.
+        UsdGenDecodedImageMap decoded;
+        std::shared_ptr<const UsdGenDecodedImageMap> completed;
+        try {
+            decoded = Decode(path, generation);
+            completed = std::make_shared<const UsdGenDecodedImageMap>(decoded);
+        } catch (std::exception const& error) {
+            decoded = UsdGenDecodedImageMap{{}, generation,
+                std::string("ImageMap decode threw: ") + error.what()};
+        } catch (...) {
+            decoded = UsdGenDecodedImageMap{{}, generation, "ImageMap decode threw"};
+        }
+        if (!completed) {
+            try { completed = std::make_shared<const UsdGenDecodedImageMap>(decoded); }
+            catch (...) {}   // waiters then report a missing result
+        }
         {
             std::lock_guard<std::mutex> lock(cache.mutex);
             entry->result = std::move(completed);

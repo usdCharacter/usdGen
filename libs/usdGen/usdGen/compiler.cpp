@@ -912,6 +912,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, Us
     _Build(newDesc, out, out, result);
     if (result.errors.empty()) {
         result.ok = true;
+        result.graphIntact = true;
         out->_inputVersions =
             UsdGenExecutionInputVersions::FromDescription(out->Desc());
         // Rebuilt nodes re-capture; digest-stable nodes keep their runtime
@@ -1370,25 +1371,6 @@ void UsdGenCompiler::_Build(
             }
         }
     }
-    std::vector<std::unique_ptr<UsdGenCompiledNode>> oldNodes;
-    // descIdx → node index over the OLD graph (E-6): the merge and the node
-    // loop map by position, with a linear path scan only for reorder misses
-    // (rare) — no index vector, no sort, no per-lookup searches on the hit
-    // path. SdfPath::operator== is an integer compare (no strings).
-    std::vector<size_t> nodeByDesc;
-    if (reuse && reuse != out) {
-        // Defensive: Recompile always passes out as reuse; a foreign graph
-        // is indexed read-only (no moves) — nodes rebuild fully below.
-    } else if (reuse) {
-        oldNodes = std::move(out->_nodes);
-    }
-    if (!oldNodes.empty() && out->_desc) {
-        nodeByDesc.assign(out->_desc->nodes.size(), SIZE_MAX);
-        for (size_t i = 0; i < oldNodes.size(); ++i)
-            if (oldNodes[i] && oldNodes[i]->descIdx >= 0 &&
-                size_t(oldNodes[i]->descIdx) < nodeByDesc.size())
-                nodeByDesc[size_t(oldNodes[i]->descIdx)] = i;
-    }
     // Desc copy elision (E-6): node entries byte-identical to the previous
     // graph's copy move instead of copying — a 201-entry copy is ~600 small
     // allocs (vectors + VtValue holders per param). Scalars always copy.
@@ -1427,6 +1409,59 @@ void UsdGenCompiler::_Build(
         }
         return true;
     };
+    // Transactional recompile: a rebuilt operator binds its extra plane
+    // slots from its own Configure(), so probe every node that will rebuild
+    // (no byte-identical entry in the previous descriptor) before any old
+    // node or descriptor entry moves. Reused nodes keep slots that already
+    // bound. A failure here leaves *out untouched.
+    if (reuse == out && out->_desc) {
+        UsdGenGraphDesc const &prev = *out->_desc;
+        for (int di = 0; di < n; ++di) {
+            UsdGenNodeDesc const &nd = desc.nodes[size_t(di)];
+            UsdGenNodeDesc const *old = nullptr;
+            if (size_t(di) < prev.nodes.size() && prev.nodes[size_t(di)].path == nd.path)
+                old = &prev.nodes[size_t(di)];
+            for (size_t j = 0; !old && j < prev.nodes.size(); ++j)
+                if (prev.nodes[j].path == nd.path) old = &prev.nodes[j];
+            bool const kept = old && sameNodeDesc(*old, nd);
+            if (kept) continue;
+            std::unique_ptr<UsdGenOp> probe = UsdGenOpRegistry::Get().Create(nd.type);
+            if (!probe) {
+                result.errors.push_back("UsdGenCompiler: no kernel registered for '" +
+                    nd.type.GetString() + "' (prim " + nd.path.GetString() + ")");
+                return;
+            }
+            UsdGenCompiledNode scratch;
+            scratch.desc = &nd;
+            scratch.paramView.desc = &desc;
+            scratch.paramView.node = &nd;
+            scratch.paramView.expressions = &scratch.expressions;
+            if (nd.type == tok::Clump())
+                static_cast<UsdGenClumpOp *>(probe.get())->SetLevelBase(clumpBase[size_t(di)]);
+            probe->Configure(scratch.paramView);
+            if (!BindExtraPlaneSlots(*probe, &scratch, &result)) return;
+        }
+    }
+    std::vector<std::unique_ptr<UsdGenCompiledNode>> oldNodes;
+    // descIdx → node index over the OLD graph (E-6): the merge and the node
+    // loop map by position, with a linear path scan only for reorder misses
+    // (rare) — no index vector, no sort, no per-lookup searches on the hit
+    // path. SdfPath::operator== is an integer compare (no strings).
+    std::vector<size_t> nodeByDesc;
+    if (reuse && reuse != out) {
+        // Defensive: Recompile always passes out as reuse; a foreign graph
+        // is indexed read-only (no moves) — nodes rebuild fully below.
+    } else if (reuse) {
+        oldNodes = std::move(out->_nodes);
+        result.graphIntact = false;   // restored to true on success
+    }
+    if (!oldNodes.empty() && out->_desc) {
+        nodeByDesc.assign(out->_desc->nodes.size(), SIZE_MAX);
+        for (size_t i = 0; i < oldNodes.size(); ++i)
+            if (oldNodes[i] && oldNodes[i]->descIdx >= 0 &&
+                size_t(oldNodes[i]->descIdx) < nodeByDesc.size())
+                nodeByDesc[size_t(oldNodes[i]->descIdx)] = i;
+    }
     UsdGenGraphDesc *oldDescPtr = (reuse && out->_desc) ? out->_desc.get() : nullptr;
     std::vector<char> descChanged(desc.nodes.size(), 1);
     // oldNodeForNewDesc[di] = old node index, or -1 (recorded by the merge,

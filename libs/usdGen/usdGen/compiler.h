@@ -33,12 +33,17 @@ struct UsdGenCompileResult
     std::vector<UsdGenNodeId> reordered;     // nodes whose topological index moved
     std::vector<std::string>  errors;        // cycle, terminal ambiguity, unknown op, ...
     std::vector<std::string>  warnings;      // non-fatal authoring diagnostics
+    /// False only when a failed Recompile had already moved state out of
+    /// *out (a broken invariant: every failure is preflighted). The caller
+    /// must then discard the graph.
+    bool                      graphIntact = true;
 };
 
 class UsdGenCompiler
 {
 public:
     /// Fills *out (moves the compiled state). ok=false leaves *out untouched.
+    /// Recompile is transactional too: validation runs before any node moves.
     UsdGenCompileResult Compile(UsdGenGraphDesc const &desc, UsdGenGraph *out);
 
     /// Private integration boundary for an explicitly injected device provider.

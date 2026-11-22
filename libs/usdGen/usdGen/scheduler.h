@@ -89,9 +89,15 @@ public:
     /// step 8 notices are the session/imaging side). Evaluates every node in
     /// topological order with its dirty chunks, runs the reference lane first,
     /// interleaves dirty tiles, and checks for supersession between nodes.
+    /// `superseded`, when set, is polled before each dependency frontier;
+    /// a true answer stops the run with result.superseded (cooperative
+    /// cancel). The graph is then partially evaluated and must not be
+    /// published.
+    using Superseded = std::function<bool()>;
     UsdGenRunResult Run(UsdGenGraph &graph, UsdGenEvalContext const &evalCtx,
                         uint64_t generationRequested,
-                        TileCompleted tileCompleted = {});
+                        TileCompleted tileCompleted = {},
+                        Superseded const &superseded = {});
 
 private:
     // Retained for the Arena() accessor; parallel regions run on _pool.

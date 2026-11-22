@@ -466,6 +466,10 @@ struct NodeSweepPayload
     std::atomic<uint32_t> failureCode{0};
     bool deferCompletion = false;
     std::vector<GfVec3d> pointScratch;
+    // Writable extra-CV plane bases, detached on the commit thread. Workers
+    // write through these and never touch the VtArray handles.
+    std::vector<float *> extraCvF;
+    std::vector<int *> extraCvI;
     std::vector<double> scalarScratch;
     std::vector<uint8_t> didEval;  // one byte per chunk: a bit-packed
                                    // vector<bool> makes 64 workers share one
@@ -681,6 +685,8 @@ void SweepChunk(size_t index, void *payload)
     view.inI = view.inCount ? inI.data() : nullptr;
     view.extraCv = pl.op->RemapsVertexPlanes() && !buf.extraCv.empty()
         ? buf.extraCv.data() : nullptr;
+    view.extraCvF = pl.extraCvF.empty() ? nullptr : pl.extraCvF.data();
+    view.extraCvI = pl.extraCvI.empty() ? nullptr : pl.extraCvI.data();
     view.inExtraCv = pl.op->RemapsVertexPlanes() && !upBuf.extraCv.empty()
         ? upBuf.extraCv.data() : nullptr;
     view.extraCvCount = pl.op->RemapsVertexPlanes()
@@ -870,9 +876,10 @@ UsdGenRunResult UsdGenScheduler::Run(
     UsdGenGraph &graph,
     UsdGenEvalContext const &evalCtx,
     uint64_t generationRequested,
-    TileCompleted tileCompleted)
+    TileCompleted tileCompleted,
+    Superseded const &superseded)
 {
-    TF_UNUSED(generationRequested);  // supersession is checked by the session
+    TF_UNUSED(generationRequested);
     TRACE_FUNCTION();
 
     UsdGenRunResult result;
@@ -1167,12 +1174,12 @@ UsdGenRunResult UsdGenScheduler::Run(
 
         if (job->reCaptured && node.capture) {
             std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
-                      static_cast<uint8_t>(UsdGenDirtyParameter));
+                      static_cast<UsdGenChunkDirtyBits>(UsdGenDirtyParameter));
             for (UsdGenNodeId d : node.descendants) {
                 if (d >= static_cast<UsdGenNodeId>(graph.NodeCount())) continue;
                 std::fill(graph.Node(d).chunkDirty.begin(),
                           graph.Node(d).chunkDirty.end(),
-                          static_cast<uint8_t>(UsdGenDirtyParameter));
+                          static_cast<UsdGenChunkDirtyBits>(UsdGenDirtyParameter));
             }
         }
         job->captureEnd = std::chrono::steady_clock::now();
@@ -1187,7 +1194,7 @@ UsdGenRunResult UsdGenScheduler::Run(
                        job->expressionsChanged;
         node.lastParamDigest = node.paramValueDigest;
         node.lastExpressionDigest = node.expressions.Digest();
-        for (uint8_t b : node.chunkDirty)
+        for (UsdGenChunkDirtyBits b : node.chunkDirty)
             job->anyChunkDirty |= (b & UsdGenDirtyParameter) != 0;
 
         return true;
@@ -1262,6 +1269,17 @@ UsdGenRunResult UsdGenScheduler::Run(
             pl.pointScratch.resize(node.buffer.totalCvs);
             pl.scalarScratch.resize(node.buffer.totalCvs);
         }
+        pl.extraCvF.clear();
+        pl.extraCvI.clear();
+        if (op.RemapsVertexPlanes()) {
+            pl.extraCvF.reserve(node.buffer.extraCv.size());
+            pl.extraCvI.reserve(node.buffer.extraCv.size());
+            for (UsdGenPlane &plane : node.buffer.extraCv) {
+                bool const isInt = plane.type == TfToken("int");
+                pl.extraCvI.push_back(isInt && !plane.i.empty() ? plane.i.data() : nullptr);
+                pl.extraCvF.push_back(!isInt && !plane.f.empty() ? plane.f.data() : nullptr);
+            }
+        }
         pl.didEval.assign(node.chunks.size(), 0);
         if (pos == extentWriter && extentWriter >= 0) {
             pl.extentBase = extentScratch.data();
@@ -1288,6 +1306,11 @@ UsdGenRunResult UsdGenScheduler::Run(
             remaining += ((graph.Node(pos).role == UsdGenRole::Reference) ==
                           referenceLane);
         while (remaining > 0) {
+            if (superseded && superseded()) {
+                result.superseded = true;
+                result.diagnostics = std::move(aggregated);
+                return result;
+            }
             std::vector<int> frontier;
             for (int pos = 0; pos < graph.NodeCount(); ++pos) {
                 UsdGenCompiledNode const &node = graph.Node(pos);

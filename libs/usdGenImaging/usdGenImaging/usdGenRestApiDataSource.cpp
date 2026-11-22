@@ -36,7 +36,8 @@
 
 #include "usdGenImaging/usdGenTokens.h"
 
-#include <unordered_set>
+#include <atomic>
+#include <cstdint>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -104,13 +105,26 @@ private:
 
 // One hard diagnostic per prim, not per pull (06 §9: "emitted once per groom
 // per compile"; a scene-index pull happens many times a frame).
+// Lock-free warn-once: a fixed open-addressed set of path hashes claimed by
+// CAS. Pulls run on any render thread; a full table still warns.
+struct _WarnedPaths {
+    static constexpr size_t kSlots = 1024;
+    std::atomic<uint64_t> slots[kSlots] = {};
+};
+
 bool
-_WarnOnce(std::unordered_set<std::string> *warned, SdfPath const &path, char const *msg)
+_WarnOnce(_WarnedPaths *warned, SdfPath const &path, char const *msg)
 {
-    if (warned->count(path.GetText())) {
-        return false;
+    uint64_t const hash = uint64_t(path.GetHash()) | 1u;   // 0 marks empty
+    for (size_t probe = 0; probe < _WarnedPaths::kSlots; ++probe) {
+        std::atomic<uint64_t> &slot =
+            warned->slots[(hash + probe) & (_WarnedPaths::kSlots - 1)];
+        uint64_t seen = slot.load(std::memory_order_acquire);
+        if (seen == hash) return false;
+        if (seen == 0 && slot.compare_exchange_strong(
+                seen, hash, std::memory_order_acq_rel)) break;
+        if (seen == hash) return false;
     }
-    warned->insert(path.GetText());
     TF_WARN("usdGen: %s", msg);
     return true;
 }
@@ -123,7 +137,7 @@ HdContainerDataSourceHandle UsdGenRestApiContainerFactory(
 {
     TF_UNUSED(globals);
 
-    static std::unordered_set<std::string> _warned;
+    static _WarnedPaths _warned;
 
     // R15: a GeomSubset target is the sibling case of hard diagnostic 2.
     if (prim.IsA<UsdGeomSubset>()) {

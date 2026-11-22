@@ -437,7 +437,9 @@ struct UsdGenChunkView
     const float **inF;                       // upstream planes this node reads
     const int   **inI;
     uint32_t      outCount, inCount;
-    UsdGenPlane *extraCv = nullptr;
+    UsdGenPlane const *extraCv = nullptr;    // descriptors only; write via extraCvF/I
+    float *const *extraCvF = nullptr;         // writable bases, per extraCv slot
+    int *const *extraCvI = nullptr;
     UsdGenPlane const *inExtraCv = nullptr;
     uint32_t extraCvCount = 0;
     // Commit-thread-sized transient storage for operators that remap a

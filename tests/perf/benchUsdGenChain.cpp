@@ -157,7 +157,7 @@ UsdGenGraphDesc MakeChain(int n)
 void ForceFullDirty(UsdGenGraph &g)
 {
     for (int i = 0; i < g.NodeCount(); ++i)
-        for (uint8_t &byte : g.Node(i).chunkDirty)
+        for (UsdGenChunkDirtyBits &byte : g.Node(i).chunkDirty)
             byte = UsdGenDirtyParameter;
 }
 

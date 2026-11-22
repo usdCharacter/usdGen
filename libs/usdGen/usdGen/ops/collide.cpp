@@ -2207,16 +2207,16 @@ void UsdGenCollideOp::Evaluate(
                 if (cutMode && view->width && view->inWidth)
                     view->width[local]=view->inWidth[local];
                 if (cutMode) for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
-                    UsdGenPlane &out=view->extraCv[plane];
+                    UsdGenPlane const &out=view->extraCv[plane];
                     UsdGenPlane const &in=view->inExtraCv[plane];
                     uint8_t const arity=std::max<uint8_t>(out.arity,1);
                     size_t const first=(cvBase+local)*arity;
                     for (uint8_t component=0;component<arity;++component) {
                         size_t const value=first+component;
                         if (out.type==TfToken("int"))
-                            const_cast<int *>(out.i.cdata())[value]=in.i[value];
+                            view->extraCvI[plane][value]=in.i[value];
                         else
-                            const_cast<float *>(out.f.cdata())[value]=in.f[value];
+                            view->extraCvF[plane][value]=in.f[value];
                     }
                 }
             }
@@ -2258,16 +2258,16 @@ void UsdGenCollideOp::Evaluate(
                 size_t const cv=g+i;
                 if (view->width && view->inWidth) view->width[cv]=view->inWidth[cv];
                 for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
-                    UsdGenPlane &out=view->extraCv[plane];
+                    UsdGenPlane const &out=view->extraCv[plane];
                     UsdGenPlane const &in=view->inExtraCv[plane];
                     uint8_t const arity=std::max<uint8_t>(out.arity,1);
                     size_t const first=(cvBase+cv)*arity;
                     for (uint8_t component=0;component<arity;++component) {
                         size_t const value=first+component;
                         if (out.type==TfToken("int"))
-                            const_cast<int *>(out.i.cdata())[value]=in.i[value];
+                            view->extraCvI[plane][value]=in.i[value];
                         else
-                            const_cast<float *>(out.f.cdata())[value]=in.f[value];
+                            view->extraCvF[plane][value]=in.f[value];
                     }
                 }
             }
@@ -2435,7 +2435,7 @@ void UsdGenCollideOp::Evaluate(
                         view->width[dst]=float(double(view->inWidth[src0])+
                             (double(view->inWidth[src1])-view->inWidth[src0])*alpha);
                     for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
-                        UsdGenPlane &out=view->extraCv[plane];
+                        UsdGenPlane const &out=view->extraCv[plane];
                         UsdGenPlane const &in=view->inExtraCv[plane];
                         uint8_t const arity=std::max<uint8_t>(out.arity,1);
                         for (uint8_t component=0;component<arity;++component) {
@@ -2443,10 +2443,10 @@ void UsdGenCollideOp::Evaluate(
                             size_t const x=(cvBase+src0)*arity+component;
                             size_t const y=(cvBase+src1)*arity+component;
                             if (out.type==TfToken("int"))
-                                const_cast<int *>(out.i.cdata())[d]=
+                                view->extraCvI[plane][d]=
                                     alpha<0.5 ? in.i[x] : in.i[y];
                             else
-                                const_cast<float *>(out.f.cdata())[d]=float(
+                                view->extraCvF[plane][d]=float(
                                     double(in.f[x])+(double(in.f[y])-in.f[x])*alpha);
                         }
                     }

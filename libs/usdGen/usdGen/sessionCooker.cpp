@@ -1081,11 +1081,14 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphDesc> desc,
             _traceCompile = buffer;
         }
         if (!cr.ok) {
-            // A CPU recompile edits the graph in place and can fail halfway;
-            // never reuse what it left. (A CUDA recompile is transactional
-            // and keeps the last usable plan.)
-            if (incremental && _desc.executionBackend != UsdGenExecutionBackend::Cuda)
+            // Recompile is transactional: a rejected edit keeps the last
+            // usable graph. Discard it only if the compiler reports that a
+            // failure got past its preflight.
+            if (!cr.graphIntact)
                 _graph = UsdGenGraph();
+            // The kept graph still describes the previous descriptor, so the
+            // next cook must compile again rather than run it as current.
+            _descIdentity.reset();
             _lastDiagnostics.errors = std::move(cr.errors);
             return false;
         }
@@ -2127,7 +2130,7 @@ UsdGenStats publishedStats, bool invalidateValues,
             emitProgress(std::move(publication));
         }) : UsdGenScheduler::TileCompleted{};
     UsdGenRunResult result = _scheduler.Run(_graph, evalCtx, myReq,
-                                             std::move(tileCompleted));
+                                             std::move(tileCompleted), superseded);
     _lastDiagnostics = result.diagnostics;
     phases.Phase("run operators");
 
@@ -2878,7 +2881,7 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
         s.type = n.type; s.path = n.desc ? n.desc->path : SdfPath();
         s.captureMs = entry.second.captureMs; s.lastEvalMs = entry.second.evalMs;
         s.meanEvalMs = entry.second.evalMs; s.curvesOut = n.buffer.totalCurves;
-        for (uint8_t bit : n.chunkDirty) if (bit) ++s.chunksDirty;
+        for (UsdGenChunkDirtyBits bit : n.chunkDirty) if (bit) ++s.chunksDirty;
         s.chunksTotal = n.chunks.size();
     }
     return out;

@@ -99,7 +99,7 @@ struct UsdGenCompiledNode
     UsdGenCurveBuffer      buffer;               // this node's output (S24)
     std::unique_ptr<UsdGenCapture> capture;       // epoch-keyed payload
     std::vector<UsdGenChunkDesc> chunks;          // this node's chunk partition
-    std::vector<uint8_t>      chunkDirty;         // one dirty byte per chunk (UsdGenDirtyBits)
+    std::vector<UsdGenChunkDirtyBits> chunkDirty; // one dirty word per chunk
     std::vector<uint8_t>      chunkCaptured;      // capture-validity byte per chunk (reference lane: single flag)
 
     // --- compile-time routing data (03 §5.1; filled by UsdGenCompiler) ----

@@ -1,5 +1,6 @@
 // usdGenPomade — C ABI implementation (P0 model + P1 commit + P2 graph/bake).
 #include "usdGenPomade/pomadeApi.h"
+#include "usdGenPomade/pomadeApiImpl.h"
 #include "usdGenPomade/pomadeBake.h"
 #include "usdGenPomade/pomadeCommit.h"
 #include "usdGenPomade/pomadeModel.h"
@@ -22,24 +23,9 @@ void _SetError(char const *what)
     _tlError = what ? what : "unknown pomade error";
 }
 
-struct PomadeModelContextImpl {
-    usdGenPomade::PomadeModel model;
-    usdGenPomade::PomadePinnedStaging positions;
-    usdGenPomade::PomadePinnedStaging normals;
-    // The registry id this model was created under (plan/18 §2.1). The
-    // scene indices find the model through it; without it a tool's edits
-    // never reach the viewport.
-    int modelId = 0;
-
-    PomadeModelContextImpl()
-    {
-        modelId = usdGenPomade::PomadeRegistry::Get().Register(&model);
-    }
-    ~PomadeModelContextImpl()
-    {
-        usdGenPomade::PomadeRegistry::Get().Unregister(modelId);
-    }
-};
+using usdGenPomade::PomadeModelContextImpl;
+using usdGenPomade::PomadeCommitterContextImpl;
+using usdGenPomade::PomadeBakeContextImpl;
 
 PomadeModelContextImpl *_Impl(PomadeModelContext *ctx)
 {
@@ -51,10 +37,6 @@ PomadeModelContextImpl const *_Impl(PomadeModelContext const *ctx)
     return reinterpret_cast<PomadeModelContextImpl const *>(ctx);
 }
 
-struct PomadeCommitterContextImpl {
-    std::unique_ptr<usdGenPomade::PomadeCommitter> committer;
-};
-
 PomadeCommitterContextImpl *_CImpl(PomadeCommitterContext *cc)
 {
     return reinterpret_cast<PomadeCommitterContextImpl *>(cc);
@@ -64,15 +46,6 @@ PomadeCommitterContextImpl const *_CImpl(PomadeCommitterContext const *cc)
 {
     return reinterpret_cast<PomadeCommitterContextImpl const *>(cc);
 }
-
-struct PomadeBakeContextImpl {
-    usdGenPomade::PomadeModel *model = nullptr;  // non-owning (outlives us)
-    std::unique_ptr<usdGenPomade::PomadeBakeWorker> worker;
-    std::string outDir;
-    std::string baseName = "regionMap";
-    int resOverride = -1;
-    int levelCount = 1;
-};
 
 PomadeBakeContextImpl *_BImpl(PomadeBakeContext *bake)
 {

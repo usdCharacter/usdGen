@@ -82,6 +82,12 @@ constexpr uint32_t UsdGenDirtyMap           = 1u << 6;  // asset path / textureG
 constexpr uint32_t UsdGenDirtyStructural    = 1u << 7;  // recompile (Merkle digest term)
 constexpr uint32_t UsdGenDirtyLiveOverride  = 1u << 8;  // brush stroke, chunk-scoped
 
+/// Per-chunk dirty word. Wide enough for every class bit above; a byte
+/// silently dropped UsdGenDirtyLiveOverride.
+using UsdGenChunkDirtyBits = uint16_t;
+static_assert(UsdGenDirtyLiveOverride <= UINT16_MAX,
+              "UsdGenChunkDirtyBits must hold every dirty class bit");
+
 /// Commit triggers (ADR §4.3 as amended by ADR §9 R32; 06-imaging.md §3.9).
 enum class UsdGenCommitReason : uint8_t {
     SetTime,         // (a) UsdGenImaging_SetTime() / app driver currentFrameChanged
