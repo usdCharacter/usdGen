@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <set>
 #include <memory>
@@ -344,10 +345,24 @@ SolidThickness MeasureSolidThickness(std::vector<Triangle> const& triangles,
 /// their caps into one (UsdGenMergeScalpShadows). One cap per surface is what
 /// lets the cap be drawn partly as an opaque sample mask, which is the only
 /// thing in stock Storm that darkens the skin between a strand's samples.
+// One block's share of the cap, built in parallel and concatenated in block
+// order, so the cap is identical to a serial walk of the triangles. Kept in
+// the cache between bakes.
+struct ScalpBlock {
+    std::vector<GfVec3f> points, normals;
+    std::vector<float> tauP, tauN;
+    std::vector<int> counts, indices, ids;
+    std::vector<GfVec3f> local, localN;
+    std::vector<float> depth, shaded;
+    std::vector<int> remap;
+};
+
 template <class Gather>
 void BuildScalpShadow(std::vector<Triangle> const& triangles,
                       std::vector<GfVec3f> const& vertexNormals, float inward,
                       int maxTriangles, Gather const& gather,
+                      UsdGenWorkDispatcher* dispatcher,
+                      std::vector<ScalpBlock>* blocks,
                       UsdGenScalpShadowPublication* out)
 {
     // The 90th-percentile edge decides the level, so one oversized face cannot
@@ -407,69 +422,103 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
         }
     }
 
-    VtVec3fArray points, normals;
-    VtFloatArray tauP, tauN;
-    VtIntArray counts, indices, ids;
-    points.reserve(triangles.size()*perTriangle);
-    std::vector<GfVec3f> local(perTriangle), localN(perTriangle);
-    std::vector<float> depth(perTriangle*6), shaded(perTriangle);
-    std::vector<int> remap(perTriangle);
-    for(size_t triIndex=0;triIndex<triangles.size();++triIndex) {
-        Triangle const& tri=triangles[triIndex];
-        GfVec3f const na=vertexNormals[tri.ia]*outward;
-        GfVec3f const nb=vertexNormals[tri.ib]*outward;
-        GfVec3f const nc=vertexNormals[tri.ic]*outward;
-        GfVec3f const flat=tri.normal*outward;
-        GfVec3f const e1=tri.b-tri.a, e2=tri.c-tri.a;
-        size_t index=0;
-        bool any=false;
-        for(int i=0;i<=k;++i) for(int j=0;i+j<=k;++j,++index) {
-            float const u=float(i)/float(k), v=float(j)/float(k);
-            GfVec3f const on=tri.a+e1*u+e2*v;
-            GfVec3f n=na*(1.f-u-v)+nb*u+nc*v;
-            float const length=n.GetLength();
-            n = length>1e-6f ? n/length : flat;
-            local[index]=on; localN[index]=n;
-            gather(on+n*(probe+lift),&depth[index*6]);
-            shaded[index]=HemisphereDepth(&depth[index*6],n);
-            if(shaded[index]>kScalpShadowFloor) any=true;
-        }
-        if(!any) continue;
-        // (i, j) -> the lattice slot, walking i in rows of decreasing length.
-        auto slot=[&](int i,int j) {
-            int base=0;
-            for(int r=0;r<i;++r) base+=k+1-r;
-            return base+j;
-        };
-        std::fill(remap.begin(),remap.end(),-1);
-        auto emit=[&](int i,int j)->int {
-            int const s=slot(i,j);
-            if(remap[size_t(s)]<0) {
-                remap[size_t(s)]=int(points.size());
-                points.push_back(local[size_t(s)]+localN[size_t(s)]*lift);
-                normals.push_back(localN[size_t(s)]);
-                ids.push_back(int(triIndex*perTriangle+size_t(s)));
-                for(int d=0;d<3;++d) {
-                    tauP.push_back(depth[size_t(s)*6+d*2]);
-                    tauN.push_back(depth[size_t(s)*6+d*2+1]);
-                }
+    // Triangles are independent until the points are numbered, so blocks of
+    // them gather and emit in parallel with block-local numbering, and the
+    // concatenation below offsets each block's indices.
+    size_t const blockCount=std::min<size_t>(
+        std::max<size_t>(1,triangles.size()/1024),256);
+    if(blocks->size()<blockCount) blocks->resize(blockCount);
+    ForEach(dispatcher,blockCount,[&](size_t block) {
+        ScalpBlock& b=(*blocks)[block];
+        b.points.clear(); b.normals.clear(); b.tauP.clear(); b.tauN.clear();
+        b.counts.clear(); b.indices.clear(); b.ids.clear();
+        b.local.resize(perTriangle); b.localN.resize(perTriangle);
+        b.depth.resize(perTriangle*6); b.shaded.resize(perTriangle);
+        b.remap.resize(perTriangle);
+        size_t const first=(block*triangles.size())/blockCount;
+        size_t const last=((block+1)*triangles.size())/blockCount;
+        for(size_t triIndex=first;triIndex<last;++triIndex) {
+            Triangle const& tri=triangles[triIndex];
+            GfVec3f const na=vertexNormals[tri.ia]*outward;
+            GfVec3f const nb=vertexNormals[tri.ib]*outward;
+            GfVec3f const nc=vertexNormals[tri.ic]*outward;
+            GfVec3f const flat=tri.normal*outward;
+            GfVec3f const e1=tri.b-tri.a, e2=tri.c-tri.a;
+            size_t index=0;
+            bool any=false;
+            for(int i=0;i<=k;++i) for(int j=0;i+j<=k;++j,++index) {
+                float const u=float(i)/float(k), v=float(j)/float(k);
+                GfVec3f const on=tri.a+e1*u+e2*v;
+                GfVec3f n=na*(1.f-u-v)+nb*u+nc*v;
+                float const length=n.GetLength();
+                n = length>1e-6f ? n/length : flat;
+                b.local[index]=on; b.localN[index]=n;
+                gather(on+n*(probe+lift),&b.depth[index*6]);
+                b.shaded[index]=HemisphereDepth(&b.depth[index*6],n);
+                if(b.shaded[index]>kScalpShadowFloor) any=true;
             }
-            return remap[size_t(s)];
-        };
-        auto face=[&](int i0,int j0,int i1,int j1,int i2,int j2) {
-            int const t0=slot(i0,j0), t1=slot(i1,j1), t2=slot(i2,j2);
-            bool lit=false;
-            for(int s:{t0,t1,t2})
-                if(shaded[size_t(s)]>kScalpShadowFloor) lit=true;
-            if(!lit) return;
-            counts.push_back(3);
-            indices.push_back(emit(i0,j0));
-            indices.push_back(emit(i1,j1));
-            indices.push_back(emit(i2,j2));
-        };
-        for(int i=0;i<k;++i) for(int j=0;i+j<k;++j) {
-            face(i,j, i+1,j, i,j+1);
-            if(i+j+2<=k) face(i+1,j, i+1,j+1, i,j+1);
+            if(!any) continue;
+            // (i, j) -> the lattice slot, walking i in rows of decreasing length.
+            auto slot=[&](int i,int j) {
+                int base=0;
+                for(int r=0;r<i;++r) base+=k+1-r;
+                return base+j;
+            };
+            std::fill(b.remap.begin(),b.remap.end(),-1);
+            auto emit=[&](int i,int j)->int {
+                int const s=slot(i,j);
+                if(b.remap[size_t(s)]<0) {
+                    b.remap[size_t(s)]=int(b.points.size());
+                    b.points.push_back(b.local[size_t(s)]+b.localN[size_t(s)]*lift);
+                    b.normals.push_back(b.localN[size_t(s)]);
+                    b.ids.push_back(int(triIndex*perTriangle+size_t(s)));
+                    for(int d=0;d<3;++d) {
+                        b.tauP.push_back(b.depth[size_t(s)*6+d*2]);
+                        b.tauN.push_back(b.depth[size_t(s)*6+d*2+1]);
+                    }
+                }
+                return b.remap[size_t(s)];
+            };
+            auto face=[&](int i0,int j0,int i1,int j1,int i2,int j2) {
+                int const t0=slot(i0,j0), t1=slot(i1,j1), t2=slot(i2,j2);
+                bool lit=false;
+                for(int s:{t0,t1,t2})
+                    if(b.shaded[size_t(s)]>kScalpShadowFloor) lit=true;
+                if(!lit) return;
+                b.counts.push_back(3);
+                b.indices.push_back(emit(i0,j0));
+                b.indices.push_back(emit(i1,j1));
+                b.indices.push_back(emit(i2,j2));
+            };
+            for(int i=0;i<k;++i) for(int j=0;i+j<k;++j) {
+                face(i,j, i+1,j, i,j+1);
+                if(i+j+2<=k) face(i+1,j, i+1,j+1, i,j+1);
+            }
+        }
+    });
+    size_t nPoints=0, nFaces=0;
+    for(size_t block=0;block<blockCount;++block) {
+        nPoints+=(*blocks)[block].points.size();
+        nFaces+=(*blocks)[block].counts.size();
+    }
+    VtVec3fArray points(nPoints), normals(nPoints);
+    VtFloatArray tauP(nPoints*3), tauN(nPoints*3);
+    VtIntArray counts(nFaces), indices(nFaces*3), ids(nPoints);
+    {
+        GfVec3f* pp=points.data(); GfVec3f* pn=normals.data();
+        float* tp=tauP.data(); float* tn=tauN.data();
+        int* pc=counts.data(); int* pi=indices.data(); int* pd=ids.data();
+        int base=0;
+        for(size_t block=0;block<blockCount;++block) {
+            ScalpBlock const& b=(*blocks)[block];
+            pp=std::copy(b.points.begin(),b.points.end(),pp);
+            pn=std::copy(b.normals.begin(),b.normals.end(),pn);
+            tp=std::copy(b.tauP.begin(),b.tauP.end(),tp);
+            tn=std::copy(b.tauN.begin(),b.tauN.end(),tn);
+            pc=std::copy(b.counts.begin(),b.counts.end(),pc);
+            pd=std::copy(b.ids.begin(),b.ids.end(),pd);
+            for(int index:b.indices) *pi++=index+base;
+            base+=int(b.points.size());
         }
     }
     out->points=points; out->normals=normals;
@@ -510,7 +559,39 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
         "usdGen fur: scalp shadow %d x refinement, %zu points, %zu triangles, "
         "lift %.3g\n", k, points.size(), counts.size(), double(lift));
 }
+
+// Word-wise hash of the occluder triangles: the byte-wise volume key costs
+// several milliseconds over a dense scalp, and this one runs every bake.
+uint64_t TriangleKey(std::vector<Triangle> const& triangles)
+{
+    uint64_t h=0x9e3779b97f4a7c15ull^uint64_t(triangles.size());
+    auto mix=[&h](uint64_t v) {
+        h^=v+0x9e3779b97f4a7c15ull+(h<<6)+(h>>2);
+    };
+    for(Triangle const& t:triangles) {
+        static_assert(sizeof(GfVec3f)==12,"packed corners");
+        uint64_t words[6];   // a, b, c and the normal, 48 contiguous bytes
+        std::memcpy(words,&t.a,sizeof(words));
+        for(uint64_t w:words) mix(w);
+        mix(uint64_t(t.ia)|(uint64_t(t.ib)<<32)); mix(t.ic);
+    }
+    return h;
 }
+}  // namespace
+
+struct UsdGenFurOcclusionCache::Impl
+{
+    bool hasThickness=false;
+    uint64_t thicknessKey=0;
+    SolidThickness thickness;
+    bool hasMask=false;
+    uint64_t maskKey=0;
+    std::vector<float> mask;
+    std::vector<ScalpBlock> scalpBlocks;
+};
+
+UsdGenFurOcclusionCache::UsdGenFurOcclusionCache() : impl(std::make_unique<Impl>()) {}
+UsdGenFurOcclusionCache::~UsdGenFurOcclusionCache() = default;
 
 bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     std::vector<UsdGenTilePublication> const* previous,
@@ -1136,8 +1217,11 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     if(params.scalpShadow && scalpShadow && !triangles.empty()) {
         TRACE_SCOPE("usdGen occlusion: scalp shadow");
         sweep();   // hair only: the head shadowing itself is the skin shader's job
+        std::vector<ScalpBlock> localBlocks;
         BuildScalpShadow(triangles, vertexNormals, inward,
-                         params.scalpMaxTriangles, gather, scalpShadow);
+                         params.scalpMaxTriangles, gather, dispatcher,
+                         params.cache ? &params.cache->impl->scalpBlocks : &localBlocks,
+                         scalpShadow);
     }
 
     // --- opaque occluders: a saturated shell just under the surface -----------
@@ -1165,13 +1249,52 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                                          (tri.c-tri.b).GetLength()});
             return std::clamp(int(std::ceil(1.5f*extent*grid.invH)),1,512);
         };
-        SolidThickness const thickness=MeasureSolidThickness(
-            triangles,inward,float(bias+mark+1)*h,latticeOf,dispatcher);
+        // Thickness depends on the occluders and the voxel edge alone, and
+        // the shell mask on those and the grid: a hair edit that keeps both
+        // reuses them.
+        float const reach=float(bias+mark+1)*h;
+        UsdGenFurOcclusionCache::Impl* const cache=
+            params.cache ? params.cache->impl.get() : nullptr;
+        uint64_t thicknessKey=0;
+        {
+            Hash hk;
+            hk.Value(TriangleKey(triangles)); hk.Value(inward);
+            hk.Value(reach); hk.Value(grid.invH);
+            thicknessKey=hk.h;
+        }
+        SolidThickness localThickness;
+        SolidThickness const* thicknessOf=&localThickness;
+        if(cache) {
+            if(!cache->hasThickness || cache->thicknessKey!=thicknessKey) {
+                cache->thickness=MeasureSolidThickness(
+                    triangles,inward,reach,latticeOf,dispatcher);
+                cache->thicknessKey=thicknessKey;
+                cache->hasThickness=true;
+                cache->hasMask=false;
+            }
+            thicknessOf=&cache->thickness;
+        } else {
+            localThickness=MeasureSolidThickness(
+                triangles,inward,reach,latticeOf,dispatcher);
+        }
+        SolidThickness const& thickness=*thicknessOf;
+        uint64_t maskKey=0;
+        {
+            Hash hk;
+            hk.Value(thicknessKey); hk.Value(grid.n); hk.Value(grid.origin);
+            hk.Value(grid.h); hk.Value(bias); hk.Value(mark);
+            maskKey=hk.h;
+        }
 
         // A shell taken with max(), so it does not depend on how densely the
         // triangles happen to be sampled. Slabs own disjoint cells, and each
         // slab only walks the triangles whose shell can reach it.
-        std::vector<float> mask(cells,0.f);
+        std::vector<float> localMask;
+        std::vector<float>& mask=cache ? cache->mask : localMask;
+        bool const maskReused=cache && cache->hasMask && cache->maskKey==maskKey &&
+                              mask.size()==cells;
+        if(!maskReused) {
+        mask.assign(cells,0.f);
         std::vector<std::vector<int>> buckets(slabs);
         for(size_t i=0;i<triangles.size();++i) {
             Triangle const& tri=triangles[i];
@@ -1227,6 +1350,8 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                 }
             }
         });
+        if(cache) { cache->maskKey=maskKey; cache->hasMask=true; }
+        }
         ForEach(dispatcher,slabs,[&](size_t slab) {
             size_t const first=(slab*cells)/slabs, last=((slab+1)*cells)/slabs;
             for(size_t i=first;i<last;++i)

@@ -2335,6 +2335,8 @@ UsdGenStats publishedStats, bool invalidateValues,
         UsdGenWorkDispatcher dispatcher = _scheduler.MakeWorkDispatcher();
         UsdGenFurOcclusionParams occlusion;
         occlusion.dispatcher = &dispatcher;
+        if (!_furCache) _furCache = std::make_shared<UsdGenFurOcclusionCache>();
+        occlusion.cache = _furCache.get();
         // The emitting surfaces are opaque: without them light reaches hair
         // through the scalp (a host renderer injects the opaque depth for the same
         // reason). Deformed points at this frame, in the same world space the

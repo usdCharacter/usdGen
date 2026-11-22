@@ -3,6 +3,8 @@
 
 #include "usdGen/curveBuffer.h"
 
+#include <memory>
+
 namespace usdGen {
 class UsdGenWorkDispatcher;
 
@@ -19,6 +21,23 @@ struct UsdGenFurOccluder
     VtIntArray   faceVertexCounts;
     VtIntArray   faceVertexIndices;
     GfMatrix4d   worldMatrix{1.0};
+};
+
+/// Occluder work kept between bakes of one groom: the solid thickness behind
+/// every occluder sample, the opaque shell's voxel mask, and the scalp cap's
+/// working buffers. Keyed on everything they depend on, so an edit that
+/// leaves the occluders and the voxel size alone (any hair edit) skips them.
+/// Caller-owned, one per groom; not for concurrent bakes.
+class UsdGenFurOcclusionCache
+{
+public:
+    UsdGenFurOcclusionCache();
+    ~UsdGenFurOcclusionCache();
+    UsdGenFurOcclusionCache(UsdGenFurOcclusionCache const &) = delete;
+    UsdGenFurOcclusionCache &operator=(UsdGenFurOcclusionCache const &) = delete;
+
+    struct Impl;
+    std::unique_ptr<Impl> impl;
 };
 
 struct UsdGenFurOcclusionParams
@@ -73,6 +92,9 @@ struct UsdGenFurOcclusionParams
     /// With a dispatcher, tiles are splatted and gathered in parallel on its
     /// arena and the occluder shell is marked in parallel slabs.
     UsdGenWorkDispatcher* dispatcher = nullptr;
+    /// Reuse occluder work across bakes (see UsdGenFurOcclusionCache).
+    /// Results are bit-identical with and without it.
+    UsdGenFurOcclusionCache* cache = nullptr;
 };
 
 /// Bakes geometry-derived directional optical depth for a whole groom.

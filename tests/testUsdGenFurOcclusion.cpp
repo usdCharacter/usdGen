@@ -875,5 +875,35 @@ int main() try {
     auto end=std::chrono::steady_clock::now();
     std::printf("PASS fur optical depth; 50k strands / 100k CV: %.2f ms bake\n",
         std::chrono::duration<double,std::milli>(end-start).count());
+    // ---- the occluder cache changes nothing it is used for -----------------
+    // Thickness, shell mask and cap buffers carried across bakes must give the
+    // same bytes as a fresh bake, through a hair edit (cache hit) and an
+    // occluder edit (miss).
+    {
+        UsdGenFurOcclusionCache cache;
+        auto bake=[&](int strands,float quad,bool cached,
+                      UsdGenScalpShadowPublication* cap) {
+            std::vector<UsdGenTilePublication> scene{Comb(0,-0.55f,strands,0.3f)};
+            UsdGenFurOcclusionParams params;
+            params.occluders.push_back(Quad(0.f,quad,false));
+            params.scalpShadow=true;
+            params.cache=cached?&cache:nullptr;
+            UsdGenBuildFurOcclusion(&scene,nullptr,params,nullptr,cap);
+            return scene;
+        };
+        auto same=[&](int strands,float quad) {
+            UsdGenScalpShadowPublication capA, capB;
+            auto a=bake(strands,quad,false,&capA);
+            auto b=bake(strands,quad,true,&capB);
+            for(char const* name:{"furTauP","furTauN"})
+                Require(Plane(a[0],name).f==Plane(b[0],name).f,
+                        "cached bake matches a fresh one");
+            Require(capA.digest==capB.digest && capA.points==capB.points,
+                    "cached cap matches a fresh one");
+        };
+        same(400,0.6f);   // cold cache
+        same(300,0.6f);   // hair edit: occluder work reused
+        same(300,0.7f);   // occluder edit: rebuilt
+    }
     return 0;
 } catch(std::exception const& e) {std::fprintf(stderr,"FAIL: %s\n",e.what());return 1;}

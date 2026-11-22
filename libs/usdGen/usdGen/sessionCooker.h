@@ -181,6 +181,8 @@ private:
     // Identity of the fur density volume's non-tile inputs (occluder meshes,
     // grid parameters): the tile COW check alone cannot see them change.
     uint64_t _furVolumeKey = 0;
+    // Occluder work reused across bakes (furOcclusion.h); made on first use.
+    std::shared_ptr<class UsdGenFurOcclusionCache> _furCache;
     // The published baseline is not this graph's last run: rebuild every tile.
     bool _rebuildAllTiles = false;
     // The published generation's tiles carry every channel but the points of
