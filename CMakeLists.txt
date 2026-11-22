@@ -3019,6 +3019,10 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME)
         TIMEOUT 600 SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
         FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
 endif()
+# Restructure before/after numbers (engine cook, compile, Hydra publish/pull,
+# allocations). Informational: run manually, never gates on timing.
+add_executable(benchUsdGenRestructure tests/perf/benchUsdGenRestructure.cpp)
+target_link_libraries(benchUsdGenRestructure PRIVATE usdGenTestUtilsHd)
 add_executable(benchUsdGenSurfaceBindings tests/perf/benchUsdGenSurfaceBindings.cpp)
 target_link_libraries(benchUsdGenSurfaceBindings PRIVATE usdGenTestUtils)
 add_test(NAME benchUsdGenSurfaceBindings COMMAND benchUsdGenSurfaceBindings)
