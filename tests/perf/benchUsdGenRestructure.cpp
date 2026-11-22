@@ -41,6 +41,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef _WIN32
+#include <malloc.h>
+#endif
 #include <new>
 #include <string>
 #include <thread>
@@ -61,18 +64,30 @@ void *operator new(std::size_t n, std::align_val_t a)
 {
     g_allocs.fetch_add(1, std::memory_order_relaxed);
     size_t const al = static_cast<size_t>(a);
+#ifdef _WIN32
+    if (void *p = _aligned_malloc(n ? n : 1, al)) return p;   // MSVC has no aligned_alloc
+#else
     if (void *p = std::aligned_alloc(al, (n + al - 1) / al * al)) return p;
+#endif
     throw std::bad_alloc();
+}
+inline void AlignedFree(void *p) noexcept
+{
+#ifdef _WIN32
+    _aligned_free(p);
+#else
+    std::free(p);
+#endif
 }
 void *operator new[](std::size_t n, std::align_val_t a) { return operator new(n, a); }
 void operator delete(void *p) noexcept { std::free(p); }
 void operator delete[](void *p) noexcept { std::free(p); }
 void operator delete(void *p, std::size_t) noexcept { std::free(p); }
 void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
-void operator delete(void *p, std::align_val_t) noexcept { std::free(p); }
-void operator delete[](void *p, std::align_val_t) noexcept { std::free(p); }
-void operator delete(void *p, std::size_t, std::align_val_t) noexcept { std::free(p); }
-void operator delete[](void *p, std::size_t, std::align_val_t) noexcept { std::free(p); }
+void operator delete(void *p, std::align_val_t) noexcept { AlignedFree(p); }
+void operator delete[](void *p, std::align_val_t) noexcept { AlignedFree(p); }
+void operator delete(void *p, std::size_t, std::align_val_t) noexcept { AlignedFree(p); }
+void operator delete[](void *p, std::size_t, std::align_val_t) noexcept { AlignedFree(p); }
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
