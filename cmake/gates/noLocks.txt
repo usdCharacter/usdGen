@@ -32,7 +32,6 @@ libs/usdGen/usdGen/vulkan/rbfVkBinding.cpp 5
 libs/usdGen/usdGen/vulkan/rbfVkBinding.h 2
 libs/usdGen/usdGen/vulkan/sessionProvider.cpp 4
 libs/usdGen/usdGen/vulkan/sourceWidthJob.cpp 5
-libs/usdGen/usdGen/workerPool.cpp 10
 libs/usdGenImaging/usdGenImaging/attributePreviewSceneIndex.cpp 14
 libs/usdGenImaging/usdGenImaging/attributePreviewSceneIndex.h 3
 libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.cpp 21

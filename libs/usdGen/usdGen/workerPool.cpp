@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/workerPool.h"
+#include "usdGen/parkingWord.h"
 #include "usdGen/tbbFastCores.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <chrono>
-#include <condition_variable>
 #include <cstdlib>
 #include <exception>
-#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -67,8 +67,6 @@ void CpuRelax(unsigned spin)
 
 struct UsdGenWorkerPool::State {
     std::vector<std::thread> threads;
-    std::mutex mutex;
-    std::condition_variable wake;
     // Dispatch generation: even values are idle. The master publishes
     // body/payload/count/chunk, then release-stores an odd generation and
     // wakes; workers acquire-load it. finished counts workers done with
@@ -77,7 +75,10 @@ struct UsdGenWorkerPool::State {
     // then joins observed before the next dispatch, so no worker can be
     // a whole cycle behind when a new payload publishes (a descheduled
     // sleeper delays the next dispatch; it can never miss one).
-    std::atomic<unsigned> epoch{0};
+    // Workers that spun out park on this word (parkingWord.h); the master
+    // only makes the wake call when one has.
+    std::atomic<uint32_t> epoch{0};
+    std::atomic<uint32_t> sleepers{0};
     std::atomic<unsigned> finished{0};
     std::atomic<unsigned> observed{0};
     std::atomic<bool> stop{false};
@@ -89,7 +90,9 @@ struct UsdGenWorkerPool::State {
     // static split would.
     std::atomic<size_t> next{0};
     size_t chunk = 1;
-    std::mutex errorMutex;
+    // The first worker to throw claims the slot; the master reads it after
+    // the finished join, which orders the write.
+    std::atomic<bool> errorClaimed{false};
     std::exception_ptr firstError;
     // One fast CPU per worker where the topology qualifies, else empty
     // (workers float). Read once: affinity is process-stable in practice.
@@ -127,7 +130,7 @@ struct UsdGenWorkerPool::State {
 #else
         (void)id;
 #endif
-        unsigned seen = 0;
+        uint32_t seen = 0;
         for (;;) {
             // Spin phase: a dispatch landing here costs no mutex. The
             // clock is sampled sparingly (a vDSO read per iteration
@@ -137,7 +140,7 @@ struct UsdGenWorkerPool::State {
             auto const spinUntil =
                 std::chrono::steady_clock::now() + std::chrono::microseconds(spinUs);
             for (unsigned spin = 0;; ++spin) {
-                unsigned const e = epoch.load(std::memory_order_acquire);
+                uint32_t const e = epoch.load(std::memory_order_acquire);
                 if (e != seen) break;
                 if (stop.load(std::memory_order_relaxed)) return;
                 if (spinUs <= 0) break;
@@ -146,18 +149,18 @@ struct UsdGenWorkerPool::State {
                     break;
                 CpuRelax(spin);
             }
-            unsigned e = epoch.load(std::memory_order_acquire);
+            uint32_t e = epoch.load(std::memory_order_acquire);
             if (e == seen && !stop.load(std::memory_order_relaxed)) {
-                std::unique_lock<std::mutex> lock(mutex);
-                if (epoch.load(std::memory_order_acquire) == seen &&
-                    !stop.load(std::memory_order_relaxed)) {
-                    wake.wait(lock, [&] {
-                        return epoch.load(std::memory_order_acquire) != seen ||
-                            stop.load(std::memory_order_relaxed);
-                    });
-                }
+                // Announce before the final check (both seq_cst): either the
+                // master's bump is seen here, or the master sees a sleeper
+                // and wakes. The kernel re-compares the word, so a bump
+                // between the check and the park returns at once.
+                sleepers.fetch_add(1, std::memory_order_seq_cst);
+                while ((e = epoch.load(std::memory_order_seq_cst)) == seen &&
+                       !stop.load(std::memory_order_relaxed))
+                    UsdGenParkWhileEqual(epoch, seen);
+                sleepers.fetch_sub(1, std::memory_order_relaxed);
                 if (stop.load(std::memory_order_relaxed)) return;
-                e = epoch.load(std::memory_order_acquire);
             }
             if (stop.load(std::memory_order_relaxed)) return;
             if (e == seen) continue;  // defensive: re-park on a stale load
@@ -181,8 +184,8 @@ struct UsdGenWorkerPool::State {
                     for (size_t i = lo; i < hi; ++i) runBody(i, runPayload);
                 }
             } catch (...) {
-                std::lock_guard<std::mutex> errors(errorMutex);
-                if (!firstError) firstError = std::current_exception();
+                if (!errorClaimed.exchange(true, std::memory_order_acq_rel))
+                    firstError = std::current_exception();
             }
             finished.fetch_add(1, std::memory_order_release);
         }
@@ -207,11 +210,8 @@ UsdGenWorkerPool::~UsdGenWorkerPool()
 {
     if (!_state) return;
     _state->stop.store(true, std::memory_order_relaxed);
-    {
-        std::lock_guard<std::mutex> lock(_state->mutex);
-        _state->epoch.fetch_add(1, std::memory_order_release);
-    }
-    _state->wake.notify_all();
+    _state->epoch.fetch_add(1, std::memory_order_seq_cst);
+    UsdGenUnparkAll(_state->epoch);
     for (std::thread &t : _state->threads) t.join();
     delete _state;
 }
@@ -224,10 +224,8 @@ void UsdGenWorkerPool::ParallelFor(size_t count, void (*body)(size_t, void *),
         for (size_t i = 0; i < count; ++i) body(i, payload);
         return;
     }
-    {
-        std::lock_guard<std::mutex> errors(_state->errorMutex);
-        _state->firstError = nullptr;
-    }
+    _state->firstError = nullptr;
+    _state->errorClaimed.store(false, std::memory_order_relaxed);
     // Publish the dispatch before the release-store hands it over.
     // Claim chunks of ~4 indices: a stacked worker's straggler bound is
     // one chunk, and the fetch_add traffic is one op per chunk. An
@@ -242,43 +240,30 @@ void UsdGenWorkerPool::ParallelFor(size_t count, void (*body)(size_t, void *),
     _state->next.store(0, std::memory_order_relaxed);
     _state->finished.store(0, std::memory_order_relaxed);
     _state->observed.store(0, std::memory_order_relaxed);
-    // The bump holds the sleep mutex: a worker checks the epoch under the
-    // same mutex before parking, so bump-then-notify is atomic against
-    // check-then-sleep and no wakeup is lost. A lock-free bump lets the
-    // notify land between the worker's check and its park; the sleeper
-    // then misses the dispatch and the join below deadlocks (5/10
-    // SPIN_US=0 bench runs hung before this).
-    {
-        std::lock_guard<std::mutex> lock(_state->mutex);
-        _state->epoch.fetch_add(1, std::memory_order_release);  // idle even -> work odd
-    }
-    _state->wake.notify_all();  // no-op for spinning workers, wakes sleepers
+    // No wake is lost: the park re-compares the epoch in the kernel, and a
+    // worker announces itself in sleepers before its last check (see
+    // WorkerMain), so a bump it missed is one this side wakes for.
+    auto bump = [s = _state] {
+        s->epoch.fetch_add(1, std::memory_order_seq_cst);
+        if (s->sleepers.load(std::memory_order_seq_cst) != 0)
+            UsdGenUnparkAll(s->epoch);
+    };
+    bump();  // idle even -> work odd
     for (unsigned spin = 0;
          _state->finished.load(std::memory_order_acquire) !=
          unsigned(_state->workers);
          ++spin)
         CpuRelax(spin);
-    // Same mutex as the dispatch bump above: the marker must not slip
-    // between a worker's check and its park either.
-    {
-        std::lock_guard<std::mutex> lock(_state->mutex);
-        _state->epoch.fetch_add(1, std::memory_order_release);  // work odd -> idle even
-    }
     // Sleepers parked between their finished++ and this bump need the
-    // kick to observe the marker; without it the observed join below
-    // deadlocks against a worker that never wakes.
-    _state->wake.notify_all();
+    // wake to observe the marker, or the observed join below never ends.
+    bump();  // work odd -> idle even
     for (unsigned spin = 0;
          _state->observed.load(std::memory_order_acquire) !=
          unsigned(_state->workers);
          ++spin)
         CpuRelax(spin);
-    std::exception_ptr error;
-    {
-        std::lock_guard<std::mutex> errors(_state->errorMutex);
-        error = _state->firstError;
-        _state->firstError = nullptr;
-    }
+    std::exception_ptr error = std::move(_state->firstError);
+    _state->firstError = nullptr;
     if (error) std::rethrow_exception(error);
 }
 

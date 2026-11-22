@@ -7,8 +7,8 @@
 #   testUsdGenWarmAllocations  no heap allocation in a warm cook
 #
 # After removing hits, refresh a baseline with, for example:
-#   cmake -DWRITE=ON -DSOURCE_DIR=. -DNAME=no-locks -DDIRS=libs \
-#         "-DPATTERN=<pattern>" -DBASELINE=cmake/gates/noLocks.txt \
+#   cmake -DWRITE=ON -DSOURCE_DIR=$PWD -DNAME=no-locks -DDIRS=libs \
+#         "-DPATTERN=<pattern>" -DBASELINE=$PWD/cmake/gates/noLocks.txt \
 #         -P cmake/gates/RatchetScan.cmake
 
 set(USDGEN_LOCK_PATTERN
