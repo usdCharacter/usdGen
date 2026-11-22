@@ -2788,6 +2788,9 @@ foreach(_f testUsdGenLinkRuleNegativeFixture testUsdGenLinkRulePositiveFixture
         PROPERTIES LABELS "T0;build")
 endforeach()
 
+# Restructure gates: no locks, no pxr below the hosts, no warm allocations.
+include(cmake/gates/Gates.cmake)
+
 # M2: staging-rule tests (gate B-2) — the Hydra-sourced staging fence
 # (13-codebase-alignment.md §7 V2-8). Mirrors the B-1 gate pattern: an
 # include-regex half over the fenced staging TUs plus an nm
