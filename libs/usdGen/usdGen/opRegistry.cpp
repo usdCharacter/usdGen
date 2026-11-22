@@ -11,6 +11,7 @@
 // milestones register more via the same entry point; the registry is
 // internal in v1/v2 (03 §8.2).
 #include "usdGen/opRegistry.h"
+#include "usdGen/registrar.h"
 
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/grow.h"
@@ -59,6 +60,7 @@ UsdGenOpRegistry &UsdGenOpRegistry::Get()
 
 bool UsdGenOpRegistry::Register(TfToken const &type, Factory factory)
 {
+    if (IsFrozen()) return false;
     for (Entry const &e : _entries) {
         if (e.type == type) return false;
     }
@@ -169,43 +171,53 @@ std::unique_ptr<UsdGenOp> CreateCardSourceOp() { return std::make_unique<UsdGenC
 UsdGenOpRegistry::UsdGenOpRegistry()
 {
     _entries.reserve(32);
-    Register(TfToken("UsdGenScatter"), &CreateScatterOp);
-    Register(TfToken("UsdGenGrow"), &CreateGrowOp);
-    Register(TfToken("UsdGenNoise"), &CreateNoiseOp);
-    Register(TfToken("UsdGenLength"), &CreateLengthOp);
-    Register(TfToken("UsdGenWidth"), &CreateWidthOp);
-    Register(TfToken("UsdGenWidthBlend"), &CreateWidthBlendOp);
-    Register(TfToken("UsdGenCurveSource"), &CreateCurveSourceOp);
-    Register(TfToken("UsdGenDeform"), &CreateDeformOp);
-    Register(TfToken("UsdGenReferenceSource"), &CreateReferenceSourceOp);
-    // CPU reference lane only; CUDA admission refuses these by type
-    // (the capability matrix has no rows for them).
-    Register(TfToken("UsdGenClump"), &CreateClumpOp);
-    Register(TfToken("UsdGenGuideInterpolate"), &CreateGuideInterpolateOp);
-    Register(TfToken("UsdGenCurl"), &CreateCurlOp);
-    Register(TfToken("UsdGenBend"), &CreateBendOp);
-    Register(TfToken("UsdGenWave"), &CreateWaveOp);
-    Register(TfToken("UsdGenPart"), &CreatePartOp);
-    Register(TfToken("UsdGenDirection"), &CreateDirectionOp);
-    Register(TfToken("UsdGenSmooth"), &CreateSmoothOp);
-    Register(TfToken("UsdGenResample"), &CreateResampleOp);
-    Register(TfToken("UsdGenScale"), &CreateScaleOp);
-    Register(TfToken("UsdGenStraighten"), &CreateStraightenOp);
-    Register(TfToken("UsdGenDisplace"), &CreateDisplaceOp);
-    Register(TfToken("UsdGenSculptLayer"), &CreateSculptLayerOp);
-    Register(TfToken("UsdGenWind"), &CreateWindOp);
-    Register(TfToken("UsdGenExprOp"), &CreateExprOp);
-    Register(TfToken("UsdGenFreeze"), &CreateFreezeOp);
-    Register(TfToken("UsdGenCollide"), &CreateCollideOp);
-    // Whole-strand stylers and the card generator (CPU reference lane).
-    Register(TfToken("UsdGenBraid"), &CreateBraidOp);
-    Register(TfToken("UsdGenTwist"), &CreateTwistOp);
-    Register(TfToken("UsdGenTrim"), &CreateTrimOp);
-    Register(TfToken("UsdGenFrizz"), &CreateFrizzOp);
-    Register(TfToken("UsdGenTieClump"), &CreateTieClumpOp);
-    Register(TfToken("UsdGenCardSource"), &CreateCardSourceOp);
+    UsdGenRegistrar r(*this);
+    usdGenRegister_usdGenCurves(r);
 }
 
 void usdGenRegisterM1Operators() { (void)UsdGenOpRegistry::Get(); }
 
 }  // namespace usdGen
+
+using namespace usdGen;
+
+// Built-in curve operators. Moves to libs/core/primitives/usdGenCurves with
+// step 6; until then it lives beside the registry and the constructor calls it.
+extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
+{
+    r.RegisterOp(TfToken("UsdGenScatter"), &CreateScatterOp);
+    r.RegisterOp(TfToken("UsdGenGrow"), &CreateGrowOp);
+    r.RegisterOp(TfToken("UsdGenNoise"), &CreateNoiseOp);
+    r.RegisterOp(TfToken("UsdGenLength"), &CreateLengthOp);
+    r.RegisterOp(TfToken("UsdGenWidth"), &CreateWidthOp);
+    r.RegisterOp(TfToken("UsdGenWidthBlend"), &CreateWidthBlendOp);
+    r.RegisterOp(TfToken("UsdGenCurveSource"), &CreateCurveSourceOp);
+    r.RegisterOp(TfToken("UsdGenDeform"), &CreateDeformOp);
+    r.RegisterOp(TfToken("UsdGenReferenceSource"), &CreateReferenceSourceOp);
+    // CPU reference lane only; CUDA admission refuses these by type
+    // (the capability matrix has no rows for them).
+    r.RegisterOp(TfToken("UsdGenClump"), &CreateClumpOp);
+    r.RegisterOp(TfToken("UsdGenGuideInterpolate"), &CreateGuideInterpolateOp);
+    r.RegisterOp(TfToken("UsdGenCurl"), &CreateCurlOp);
+    r.RegisterOp(TfToken("UsdGenBend"), &CreateBendOp);
+    r.RegisterOp(TfToken("UsdGenWave"), &CreateWaveOp);
+    r.RegisterOp(TfToken("UsdGenPart"), &CreatePartOp);
+    r.RegisterOp(TfToken("UsdGenDirection"), &CreateDirectionOp);
+    r.RegisterOp(TfToken("UsdGenSmooth"), &CreateSmoothOp);
+    r.RegisterOp(TfToken("UsdGenResample"), &CreateResampleOp);
+    r.RegisterOp(TfToken("UsdGenScale"), &CreateScaleOp);
+    r.RegisterOp(TfToken("UsdGenStraighten"), &CreateStraightenOp);
+    r.RegisterOp(TfToken("UsdGenDisplace"), &CreateDisplaceOp);
+    r.RegisterOp(TfToken("UsdGenSculptLayer"), &CreateSculptLayerOp);
+    r.RegisterOp(TfToken("UsdGenWind"), &CreateWindOp);
+    r.RegisterOp(TfToken("UsdGenExprOp"), &CreateExprOp);
+    r.RegisterOp(TfToken("UsdGenFreeze"), &CreateFreezeOp);
+    r.RegisterOp(TfToken("UsdGenCollide"), &CreateCollideOp);
+    // Whole-strand stylers and the card generator (CPU reference lane).
+    r.RegisterOp(TfToken("UsdGenBraid"), &CreateBraidOp);
+    r.RegisterOp(TfToken("UsdGenTwist"), &CreateTwistOp);
+    r.RegisterOp(TfToken("UsdGenTrim"), &CreateTrimOp);
+    r.RegisterOp(TfToken("UsdGenFrizz"), &CreateFrizzOp);
+    r.RegisterOp(TfToken("UsdGenTieClump"), &CreateTieClumpOp);
+    r.RegisterOp(TfToken("UsdGenCardSource"), &CreateCardSourceOp);
+}

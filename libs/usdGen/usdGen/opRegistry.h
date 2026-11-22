@@ -8,6 +8,7 @@
 
 #include "usdGen/op.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -25,9 +26,13 @@ public:
 
     /// Register the kernel for `type`. The registry owns the factory, not the
     /// instances. Returns false on a duplicate type.
-    /// Extension registration is startup-only: finish before launching any
-    /// compiler/readers. Runtime graph compilation never mutates the registry.
+    /// Startup-only: fails after Freeze(). Libraries register through
+    /// usdGenRegister (registrar.h), never by calling this directly.
     bool Register(TfToken const &type, Factory factory);
+
+    /// Make the registry immutable. Readers then need no synchronisation.
+    void Freeze() { _frozen.store(true, std::memory_order_release); }
+    bool IsFrozen() const { return _frozen.load(std::memory_order_acquire); }
 
     /// Create an operator instance. nullptr when the type has no kernel
     /// (published types with unimplemented kernels: 02 §8.2).
@@ -63,6 +68,7 @@ private:
         bool samplesFrameInputs;
     };
     std::vector<Entry> _entries;
+    std::atomic<bool> _frozen{false};
 };
 
 // --- M1 kernel factories (registered by usdGenOpRegistryInit) ----------------

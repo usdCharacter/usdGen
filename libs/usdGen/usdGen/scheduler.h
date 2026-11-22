@@ -48,7 +48,9 @@ struct UsdGenRunResult
     bool superseded = false;   // a newer request arrived; the published generation is unchanged
     bool topologyChanged = false; // re-partition happened; every tile re-interleaves
     UsdGenDiagnostics diagnostics; // node diagnostics for this run
-    std::vector<UsdGenNodeRunStats> nodeStats;  // one entry per node with work
+    /// One entry per node with work. Points into the scheduler; valid until
+    /// its next Run.
+    TfSpan<const UsdGenNodeRunStats> nodeStats;
 };
 
 /// The work dispatcher handed to Capture() for intra-node parallelism (03 §8.1).
@@ -68,6 +70,8 @@ public:
 private:
     UsdGenWorkerPool *_pool;
 };
+
+struct UsdGenRunScratch;
 
 class UsdGenScheduler
 {
@@ -100,6 +104,13 @@ public:
                         Superseded const &superseded = {});
 
 private:
+    UsdGenRunResult _Run(UsdGenGraph &graph, UsdGenEvalContext const &evalCtx,
+                         TileCompleted const &tileCompleted,
+                         Superseded const &superseded);
+
+    // Per-run working memory, kept across runs so a warm cook reuses it.
+    // Run is not reentrant on one scheduler.
+    std::unique_ptr<UsdGenRunScratch> _scratch;
     // Retained for the Arena() accessor; parallel regions run on _pool.
     tbb::task_arena _arena;
     int _threadLimit;

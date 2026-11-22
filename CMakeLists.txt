@@ -469,7 +469,7 @@ target_include_directories(usdGen PUBLIC
 target_link_libraries(usdGen
     PUBLIC tf gf vt sdf TBB::tbb usdGenExecutionResources
     PRIVATE usdGenMath arch js plug ts ar work trace hio pxOsd
-            usdGen_seexpr usdGenExprFrontend)
+            usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 # Vendored Ptex (usdGen/maps/ptexMap.cpp); private like the other archives.
 target_link_libraries(usdGen PRIVATE usdGen_ptex)
 # usdGen is a SHARED plugin-host library: its public API (UsdGenSession,

@@ -11,6 +11,7 @@
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/opRegistry.h"
+#include "usdGen/registrar.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/types.h"
 
@@ -66,8 +67,8 @@ namespace {
 
 // Budgets measured on the restructure branch; ratchet only downward.
 // Target: 0 for both (plan: zero heap allocation per steady-state cook).
-constexpr uint64_t kWarmCookBudget = 79;   // BUDGET_WARM
-constexpr uint64_t kParamEditBudget = 115;  // BUDGET_EDIT
+constexpr uint64_t kWarmCookBudget = 23;   // BUDGET_WARM
+constexpr uint64_t kParamEditBudget = 76;   // BUDGET_EDIT
 
 UsdGenGraphDesc MakeDesc(double magnitude)
 {
@@ -135,6 +136,12 @@ uint64_t Counted(Fn &&fn)
 int main()
 {
     usdGenRegisterM1Operators();
+    UsdGenFreezeRegistries();   // compile and exec read frozen registries
+    if (UsdGenOpRegistry::Get().Register(TfToken("UsdGenLateOp"),
+                                         [] { return std::unique_ptr<UsdGenOp>(); })) {
+        std::printf("FAIL: registration after freeze\n");
+        return 1;
+    }
     UsdGenGraphDesc const a = MakeDesc(0.05), b = MakeDesc(0.06);
     UsdGenCompiler compiler;
     UsdGenGraph graph;

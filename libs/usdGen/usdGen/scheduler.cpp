@@ -513,6 +513,37 @@ struct NodeExecution
     std::chrono::steady_clock::time_point captureStart;
     std::chrono::steady_clock::time_point captureEnd;
     std::chrono::steady_clock::time_point evaluationStart;
+
+    // Back to a fresh job, keeping every vector's capacity.
+    void Reset()
+    {
+        upstreamInputs.clear();
+        referenceSets.clear();
+        resolvedReferences.clear();
+        resolvedMaps.clear();
+        NodeSweepPayload &s = sweep;
+        s.node = nullptr;
+        s.graph = nullptr;
+        s.ctx = UsdGenEvalContext{};
+        s.op = nullptr;
+        s.up = s.up2 = nullptr;
+        s.evalAll = false;
+        s.planes = 0;
+        s.failureCode.store(0, std::memory_order_relaxed);
+        s.deferCompletion = false;
+        s.pointScratch.clear();
+        s.scalarScratch.clear();
+        s.didEval.clear();
+        s.extraCvF.clear();
+        s.extraCvI.clear();
+        s.onChunkCompleted = nullptr;
+        s.extentBase = nullptr;
+        s.extentCap = 0;
+        recaptureReason = nullptr;
+        reCaptured = expressionsChanged = shouldSweep = sweptDirect = false;
+        evalAll = anyChunkDirty = false;
+        captureStart = captureEnd = evaluationStart = {};
+    }
 };
 
 struct ChunkExecution
@@ -520,6 +551,35 @@ struct ChunkExecution
     NodeSweepPayload *payload = nullptr;
     size_t chunk = 0;
 };
+
+// Everything the terminal node's per-chunk completion needs, so the
+// std::function holds one pointer and stays in its small buffer.
+struct TerminalTiles
+{
+    UsdGenGraph const *graph = nullptr;
+    UsdGenCompiledNode const *node = nullptr;
+    std::atomic<uint32_t> *remaining = nullptr;
+    int nTiles = 0;
+    UsdGenScheduler::TileCompleted const *completed = nullptr;
+};
+
+}  // namespace
+
+struct UsdGenRunScratch
+{
+    std::vector<UsdGenChunkExtent> extents;
+    std::vector<char> tileTouched, poseSpace, completed;
+    std::vector<int> frontier;
+    std::vector<std::unique_ptr<NodeExecution>> jobs;   // grows, never shrinks
+    std::vector<ChunkExecution> work;
+    std::unique_ptr<std::atomic<uint32_t>[]> terminalRemaining;
+    size_t terminalCapacity = 0;
+    TerminalTiles terminal;
+    std::vector<UsdGenNodeRunStats> nodeStats;
+    std::atomic<bool> running{false};
+};
+
+namespace {
 
 void SweepChunk(size_t index, void *payload);
 
@@ -880,7 +940,28 @@ UsdGenRunResult UsdGenScheduler::Run(
     Superseded const &superseded)
 {
     TF_UNUSED(generationRequested);
+    if (!_scratch) _scratch = std::make_unique<UsdGenRunScratch>();
+    if (_scratch->running.exchange(true, std::memory_order_acquire)) {
+        TF_CODING_ERROR("UsdGenScheduler::Run is not reentrant");
+        UsdGenRunResult refused;
+        refused.diagnostics.Error("UsdGen: scheduler is already running");
+        return refused;
+    }
+    _scratch->nodeStats.clear();
+    UsdGenRunResult result = _Run(graph, evalCtx, tileCompleted, superseded);
+    result.nodeStats = TfSpan<const UsdGenNodeRunStats>(_scratch->nodeStats);
+    _scratch->running.store(false, std::memory_order_release);
+    return result;
+}
+
+UsdGenRunResult UsdGenScheduler::_Run(
+    UsdGenGraph &graph,
+    UsdGenEvalContext const &evalCtx,
+    TileCompleted const &tileCompleted,
+    Superseded const &superseded)
+{
     TRACE_FUNCTION();
+    UsdGenRunScratch &S = *_scratch;
 
     UsdGenRunResult result;
     if (graph.NodeCount() == 0) return result;
@@ -921,7 +1002,8 @@ UsdGenRunResult UsdGenScheduler::Run(
             if (extentChunks == 0) extentWriter = -1;
         }
     }
-    std::vector<UsdGenChunkExtent> extentScratch;
+    std::vector<UsdGenChunkExtent> &extentScratch = S.extents;
+    extentScratch.clear();
     if (extentWriter >= 0) extentScratch.resize(extentChunks);
     bool extentSwept = false;
 
@@ -930,7 +1012,8 @@ UsdGenRunResult UsdGenScheduler::Run(
     UsdGenCurveBuffer const emptyBuf;
 
     int nTiles = graph.NumTiles();
-    std::vector<char> tileTouched(nTiles, 0);
+    std::vector<char> &tileTouched = S.tileTouched;
+    tileTouched.assign(size_t(nTiles), 0);
     bool transactionalRun=false;
     for (int pos=0;pos<graph.NodeCount();++pos) {
         UsdGenCompiledNode const &node=graph.Node(pos);
@@ -946,7 +1029,8 @@ UsdGenRunResult UsdGenScheduler::Run(
     // surface re-captures only the deform and what follows it. Nodes are in
     // topological order; the loop repeats only if an input ever follows its
     // reader.
-    std::vector<char> poseSpace(static_cast<size_t>(graph.NodeCount()), 0);
+    std::vector<char> &poseSpace = S.poseSpace;
+    poseSpace.assign(static_cast<size_t>(graph.NodeCount()), 0);
     for (bool changed = true; changed;) {
         changed = false;
         for (int pos = 0; pos < graph.NodeCount(); ++pos) {
@@ -965,11 +1049,12 @@ UsdGenRunResult UsdGenScheduler::Run(
     // Each frontier is dependency-ready and therefore may share one flattened
     // chunk sweep. Capture, COW preparation, repartition and bookkeeping stay
     // on this commit thread; arena workers only execute SweepChunk.
-    std::vector<char> completed(static_cast<size_t>(graph.NodeCount()), 0);
+    std::vector<char> &completed = S.completed;
+    completed.assign(static_cast<size_t>(graph.NodeCount()), 0);
     auto prepareNode = [&](int pos, NodeExecution *job) -> bool {
         UsdGenCompiledNode &node = graph.Node(pos);
         UsdGenOp &op = *node.op;
-        TRACE_SCOPE_DYNAMIC("usdGen prepare " + NodeLabel(node));
+        TRACE_SCOPE("usdGen prepare");   // a dynamic name interns a token per node
         UsdGenDiagnostics nodeDiag;
         bool const hasUp = !node.inputs.empty();
         UsdGenCurveBuffer const &upBuf = hasUp
@@ -1119,7 +1204,7 @@ UsdGenRunResult UsdGenScheduler::Run(
             !node.capture->ValidForTopology(upBuf) ? "input changed" : nullptr;
         job->reCaptured = job->recaptureReason != nullptr;
         if (job->reCaptured) {
-            TRACE_SCOPE_DYNAMIC("usdGen capture " + NodeLabel(node));
+            TRACE_SCOPE("usdGen capture");
             TRACE_COUNTER_DELTA("usdGen nodes captured", 1);
             cctx.previousCapture = node.capture.get();
             auto cap = op.CreateCapture();
@@ -1311,7 +1396,8 @@ UsdGenRunResult UsdGenScheduler::Run(
                 result.diagnostics = std::move(aggregated);
                 return result;
             }
-            std::vector<int> frontier;
+            std::vector<int> &frontier = S.frontier;
+            frontier.clear();
             for (int pos = 0; pos < graph.NodeCount(); ++pos) {
                 UsdGenCompiledNode const &node = graph.Node(pos);
                 if (completed[size_t(pos)] ||
@@ -1335,11 +1421,13 @@ UsdGenRunResult UsdGenScheduler::Run(
                 return result;
             }
 
-            std::vector<std::unique_ptr<NodeExecution>> jobs;
-            jobs.reserve(frontier.size());
-            for (int pos : frontier) {
-                jobs.push_back(std::make_unique<NodeExecution>());
-                if (!prepareNode(pos, jobs.back().get())) {
+            while (S.jobs.size() < frontier.size())
+                S.jobs.push_back(std::make_unique<NodeExecution>());
+            TfSpan<const std::unique_ptr<NodeExecution>> const jobs(
+                S.jobs.data(), frontier.size());
+            for (size_t j = 0; j < frontier.size(); ++j) {
+                jobs[j]->Reset();
+                if (!prepareNode(frontier[j], jobs[j].get())) {
                     result.diagnostics = std::move(aggregated);
                     return result;
                 }
@@ -1360,7 +1448,8 @@ UsdGenRunResult UsdGenScheduler::Run(
                 }
             }
 
-            std::vector<ChunkExecution> work;
+            std::vector<ChunkExecution> &work = S.work;
+            work.clear();
             size_t sweepJobs = 0;
             bool frontierFallible = false;
             for (auto const &job : jobs) {
@@ -1380,12 +1469,17 @@ UsdGenRunResult UsdGenScheduler::Run(
             // are disjoint, so completion of the last selected chunk in a
             // tile makes that tile safe to copy while other tiles still run.
             // The counters live through ParallelFor's synchronous join.
-            std::unique_ptr<std::atomic<uint32_t>[]> terminalRemaining;
+            std::atomic<uint32_t> *terminalRemaining = nullptr;
             if (tileCompleted && !transactionalRun && nTiles > 0) {
                 for (auto const &job : jobs) {
                     if (!job->shouldSweep ||
                         job->sweep.node->id != graph.TerminalNodeId()) continue;
-                    terminalRemaining = std::make_unique<std::atomic<uint32_t>[]>(nTiles);
+                    if (S.terminalCapacity < size_t(nTiles)) {
+                        S.terminalRemaining =
+                            std::make_unique<std::atomic<uint32_t>[]>(size_t(nTiles));
+                        S.terminalCapacity = size_t(nTiles);
+                    }
+                    terminalRemaining = S.terminalRemaining.get();
                     for (int t = 0; t < nTiles; ++t)
                         terminalRemaining[t].store(0, std::memory_order_relaxed);
                     for (ChunkExecution const &item : work) {
@@ -1394,11 +1488,14 @@ UsdGenRunResult UsdGenScheduler::Run(
                         if (tile < static_cast<UsdGenTileId>(nTiles))
                             terminalRemaining[tile].fetch_add(1, std::memory_order_relaxed);
                     }
-                    job->sweep.onChunkCompleted = [&, node=job->sweep.node](size_t chunk) {
-                        UsdGenTileId const tile = node->chunks[chunk].tile;
-                        if (tile >= static_cast<UsdGenTileId>(nTiles)) return;
-                        if (terminalRemaining[tile].fetch_sub(1, std::memory_order_acq_rel) == 1)
-                            tileCompleted(graph.Tiles()[tile], node->buffer);
+                    S.terminal = TerminalTiles{&graph, job->sweep.node,
+                                               terminalRemaining, nTiles,
+                                               &tileCompleted};
+                    job->sweep.onChunkCompleted = [t = &S.terminal](size_t chunk) {
+                        UsdGenTileId const tile = t->node->chunks[chunk].tile;
+                        if (tile >= static_cast<UsdGenTileId>(t->nTiles)) return;
+                        if (t->remaining[tile].fetch_sub(1, std::memory_order_acq_rel) == 1)
+                            (*t->completed)(t->graph->Tiles()[tile], t->node->buffer);
                     };
                     break;
                 }
@@ -1472,7 +1569,7 @@ UsdGenRunResult UsdGenScheduler::Run(
                         job.captureEnd - job.captureStart).count();
                     st.evalMs = 0.0;
                     st.chunksEvaluated = node.chunks.size();
-                    result.nodeStats.push_back(st);
+                    S.nodeStats.push_back(st);
                 }
                 if (job.shouldSweep) {
                     bool wrote = job.reCaptured;
@@ -1495,7 +1592,7 @@ UsdGenRunResult UsdGenScheduler::Run(
                     st.evalMs = std::chrono::duration<double, std::milli>(
                         end - job.evaluationStart).count();
                     for (uint8_t b : job.sweep.didEval) if (b) ++st.chunksEvaluated;
-                    result.nodeStats.push_back(st);
+                    S.nodeStats.push_back(st);
                 }
                 if (TfDebug::IsEnabled(USDGEN_SCHEDULE)) {
                     size_t evaluated = 0;
