@@ -3,6 +3,9 @@
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
 #include "usdGen/maps/ptexMap.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/token.h"
 
 #include "pxr/base/gf/half.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -23,6 +26,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
+#include <string_view>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -346,16 +351,14 @@ bool ReadsVariable(expr::IRProgram const &program, expr::Variable a, expr::Varia
 }
 
 // Only the connected single-source ancestry qualifies. Another description
-// scattering on the same surface must not reinterpret this chain's UVs.
+// scattering on the same surface must not reinterpret this chain's UVs. The
+// walk stops at the first op that can emit limit-surface UVs.
 bool HasLimitScatter(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node) {
     auto const* current=&node;
     for(size_t step=0;step<=desc.nodes.size();++step) {
-        if(current->type==TfToken("UsdGenScatter")) {
-            for(auto const& p:current->params)
-                if(p.name==TfToken("subdivisionLevel") && p.value.IsHolding<int>())
-                    return p.value.UncheckedGet<int>()>0;
-            return false;
-        }
+        UsdGenOpRecord const* record=UsdGenNodeRecord(*current);
+        if(record && record->Def().hooks.emitsLimitSurfaceUv)
+            return UsdGenNodeEmitsLimitSurfaceUv(desc,*current);
         if(current->inputs.size()!=1) return false;
         auto it=std::find_if(desc.nodes.begin(),desc.nodes.end(),[&](auto const& n){return n.path==current->inputs.front();});
         if(it==desc.nodes.end()) return false;
@@ -364,7 +367,84 @@ bool HasLimitScatter(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node) {
     return false;
 }
 
+/// The destination without `usdGen:`; interns only a prefixed name (compile scope).
+TfToken CanonicalName(TfToken const &name)
+{
+    std::string const &text = name.GetString();
+    constexpr char kPrefix[] = "usdGen:";
+    constexpr size_t kPrefixLength = sizeof(kPrefix) - 1;
+    if (text.compare(0, kPrefixLength, kPrefix) != 0) return name;
+    return UsdGenInternToken(std::string_view(text).substr(kPrefixLength));
+}
+
+/// Text of `name` without `usdGen:`.
+std::string_view StripPrefix(TfToken const &name)
+{
+    std::string_view text(name.GetString());
+    constexpr std::string_view kPrefix("usdGen:");
+    return text.substr(0, kPrefix.size()) == kPrefix ? text.substr(kPrefix.size()) : text;
+}
+
 } // namespace
+
+UsdGenOpRecord const *UsdGenNodeRecord(UsdGenNodeDesc const &node) noexcept
+{
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    UsdGenOpId const id = node.opId != UsdGenOpId::Invalid ? node.opId : ops.Find(node.type);
+    return id != UsdGenOpId::Invalid ? &ops.Record(id) : nullptr;
+}
+
+bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node)
+{
+    UsdGenOpRecord const *record = UsdGenNodeRecord(node);
+    if (!record || !record->Def().hooks.emitsLimitSurfaceUv) return false;
+    UsdGenParamView view;   // S4-2: UsdGenStackParams once slots exist
+    view.desc = &desc;
+    view.node = &node;
+    return record->Def().hooks.emitsLimitSurfaceUv(view);
+}
+
+bool UsdGenParseMapOptions(UsdGenMapDesc const &map, UsdGenMapOptions *out, std::string *error)
+{
+    if (!out) {
+        if (error) *error = "map options output is null";
+        return false;
+    }
+    UsdGenMapOptions o;
+    o.filterAuthored = MapToken(map, "map:filter", &o.filter);
+    o.borderModeAuthored = MapToken(map, "map:borderMode", &o.borderMode);
+    o.blurAuthored = FindMapParam(map, "map:blur") != nullptr;
+    o.blur = float(MapNumber(map, "map:blur", 0.0));
+    o.firstChannel = int(MapNumber(map, "map:firstChannel", 0.0));
+    o.channelCount = int(MapNumber(map, "map:channelCount", 1.0));
+    MapToken(map, "map:channel", &o.channel);
+    o.scale = MapNumber(map, "map:scale", 1.0);
+    o.offset = MapNumber(map, "map:offset", 0.0);
+    o.fallback = MapNumber(map, "map:default", 0.0);
+    if (UsdGenParamValue const *clamp = FindMapParam(map, "map:clamp")) {
+        if (clamp->value.IsHolding<GfVec2f>()) {
+            GfVec2f const range = clamp->value.UncheckedGet<GfVec2f>();
+            o.clamp = true;
+            o.clampLo = range[0];
+            o.clampHi = range[1];
+        }
+    }
+    if (UsdGenParamValue const *generation = FindMapParam(map, "map:textureGeneration"))
+        if (generation->value.IsHolding<uint64_t>())
+            o.textureGeneration = generation->value.UncheckedGet<uint64_t>();
+    *out = std::move(o);
+    return true;
+}
+
+void UsdGenCpuParameters::IndexSlots() noexcept
+{
+    std::fill(std::begin(slotToValue_), std::end(slotToValue_), uint16_t(0));
+    for (size_t i = 0; i < values_.size() && i < 0xFFFEu; ++i) {
+        UsdGenParamSlot const slot = values_[i].slot;
+        if (slot < kUsdGenMaxParamsPerOp && slotToValue_[slot] == 0)
+            slotToValue_[slot] = uint16_t(i + 1);   // the first binding wins, as Find
+    }
+}
 
 std::vector<std::string> UsdGenCpuParameters::TakeWarnings()
 {
@@ -415,28 +495,26 @@ bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphDesc const &desc,
             UsdGenMapDesc const *map = FindMap(desc, input->maps.front());
             if (!map)
                 return fail(call + ": map " + input->maps.front().GetString() + " was not resolved");
-            if (map->type != TfToken("UsdGenPtexMap") && map->type != TfToken("UsdGenPaintMap"))
+            if (!UsdGenMapHas(*map, kUsdGenTypeMapExprSampleable))
                 return fail(call + ": " + map->path.GetString() + " is a " + map->type.GetString() +
                             ", not a UsdGenPtexMap or UsdGenPaintMap");
             state->map = map->path;
-            state->paint = map->type == TfToken("UsdGenPaintMap");
+            state->paint = UsdGenMapHas(*map, kUsdGenTypeMapPaintSnapshot);
+            UsdGenMapOptions parsed;
+            UsdGenParseMapOptions(*map, &parsed, nullptr);
             UsdGenPtexMapOptions options;
-            MapToken(*map, "map:filter", &options.filter);
-            MapToken(*map, "map:borderMode", &options.borderMode);
-            options.blur = float(MapNumber(*map, "map:blur", 0.0));
-            options.firstChannel = int(MapNumber(*map, "map:firstChannel", 0.0));
-            options.channelCount = int(MapNumber(*map, "map:channelCount", 1.0));
-            std::string channel = "r";
-            MapToken(*map, "map:channel", &channel);
-            state->scale = MapNumber(*map, "map:scale", 1.0);
-            state->offset = MapNumber(*map, "map:offset", 0.0);
-            state->fallback = MapNumber(*map, "map:default", 0.0);
-            if (UsdGenParamValue const *clamp = FindMapParam(*map, "map:clamp")) {
-                if (clamp->value.IsHolding<GfVec2f>()) {
-                    GfVec2f const range = clamp->value.UncheckedGet<GfVec2f>();
-                    state->clampLo = range[0];
-                    state->clampHi = range[1];
-                }
+            if (parsed.filterAuthored) options.filter = parsed.filter;
+            if (parsed.borderModeAuthored) options.borderMode = parsed.borderMode;
+            options.blur = parsed.blur;
+            options.firstChannel = parsed.firstChannel;
+            options.channelCount = parsed.channelCount;
+            std::string const &channel = parsed.channel;
+            state->scale = parsed.scale;
+            state->offset = parsed.offset;
+            state->fallback = parsed.fallback;
+            if (parsed.clamp) {
+                state->clampLo = parsed.clampLo;
+                state->clampHi = parsed.clampHi;
             }
             if (channel == "r") state->channel = 0;
             else if (channel == "g") state->channel = 1;
@@ -657,6 +735,7 @@ bool UsdGenCpuParameters::Clear() noexcept
 {
     const bool had = !values_.empty();
     values_.clear();
+    IndexSlots();
     digest_ = 0;
     return had;
 }
@@ -668,9 +747,16 @@ UsdGenExpressionValue const *UsdGenCpuParameters::Find(TfToken const &destinatio
     // interning) that the empty scan below would do anyway. Every
     // per-chunk param read in an expression-less graph pays this.
     if (values_.empty()) return nullptr;
-    const TfToken canonical = UsdGenCanonicalParamName(destination);
+    if (record_) {
+        UsdGenParamSlot const slot = record_->FindParam(destination);
+        if (slot != kUsdGenNoParam) return FindSlot(slot);
+    }
+    // Undeclared names (and recordless nodes): pointer, then text, compare.
     for (auto const &value : values_)
-        if (value.destination == canonical) return &value;
+        if (value.destination == destination) return &value;
+    std::string_view const canonical = StripPrefix(destination);
+    for (auto const &value : values_)
+        if (std::string_view(value.destination.GetString()) == canonical) return &value;
     return nullptr;
 }
 
@@ -685,6 +771,8 @@ bool UsdGenCpuParameters::Compile(UsdGenGraphDesc const &desc, UsdGenNodeDesc co
     };
     items_.clear();
     compiled_ = false;
+    UsdGenCompileTokenScope tokenScope;
+    record_ = UsdGenNodeRecord(node);
     for (auto const &binding : node.expressionBindings) {
         auto const name = binding.destination.GetString();
         if (binding.destination.IsEmpty() || binding.expression.IsEmpty())
@@ -711,7 +799,9 @@ bool UsdGenCpuParameters::Compile(UsdGenGraphDesc const &desc, UsdGenNodeDesc co
             return fail(name, "output native type/shape mismatch");
         Item item;
         item.binding = binding;
-        item.canonical = UsdGenCanonicalParamName(binding.destination);
+        item.slot = record_ ? record_->FindParam(binding.destination) : kUsdGenNoParam;
+        item.canonical = item.slot != kUsdGenNoParam ? record_->ParamName(item.slot)
+                                                     : CanonicalName(binding.destination);
         if (!Literal(binding.literal, binding.destinationShape, &item.literal))
             return fail(name, "literal must have the exact finite native type; "
                               "int64/uint64 currently limited to 2^53");
@@ -914,6 +1004,7 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc c
         }
         UsdGenExpressionValue value;
         value.destination = item.canonical;
+        value.slot = item.slot;
         value.domain = item.binding.domain;
         value.type = type;
         value.components = components;
@@ -934,6 +1025,7 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc c
         for (double v : value.values) digest = MixDouble(digest, v);
     }
     values_ = std::move(candidate);
+    IndexSlots();
     digest_ = digest;
     return publish(true);
 }
