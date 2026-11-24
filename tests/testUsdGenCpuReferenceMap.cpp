@@ -143,6 +143,9 @@ private:
 int gContractConstructions = 0;
 
 char const *const kProbeReferences[]={"guides","centers"};
+// Map-taking probes declare their map relationship (the compiler validates
+// typed bindings against UsdGenOpDef::mapSlots).
+constexpr UsdGenMapSlotDecl kProbeMapSlots[]={{"usdGen:map"}};
 
 void RegisterProbes(UsdGenRegistrar &r)
 {
@@ -153,6 +156,7 @@ void RegisterProbes(UsdGenRegistrar &r)
     ref.role=UsdGenRole::Reference;
     ref.geometryInputArity=0;
     ref.referenceInputs=UsdGenSpan(kProbeReferences);
+    ref.mapSlots=UsdGenSpan(kProbeMapSlots);
     r.RegisterOp(ref);
     UsdGenOpDef curve;
     curve.name="UsdGenTestCurveProbe";
@@ -178,6 +182,7 @@ void RegisterContractProbes(UsdGenRegistrar &r)
     source.displayName="TestSourceContract";
     source.create=create;
     source.geometryInputArity=0;
+    source.mapSlots=UsdGenSpan(kProbeMapSlots);
     gContractRegistered[0]=r.RegisterOp(source)!=UsdGenOpId::Invalid;
     UsdGenOpDef ref;
     ref.name="UsdGenTestReferenceContract";
