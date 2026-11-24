@@ -868,7 +868,32 @@ int main() {
         CHECK(exerciseResampleFault(false)==0);
         CHECK(exerciseResampleFault(true)==0);
     }
-    UsdGenRef<const UsdGenCudaQueueSnapshot> retained;
+    {
+        // A queue releases its last snapshot's generation when it is
+        // destroyed, even while another thread holds an epoch pin.
+        std::weak_ptr<const UsdGenDeviceGeneration> weakGeneration;
+        std::atomic<int> pin{0};
+        std::thread pinned;
+        {
+            UsdGenCudaExecutionQueue q(runtime,-1,&diagnostics);
+            CHECK(q.Valid() && q.Submit(plan,1,[](uint64_t, auto, auto const&) {}));
+            q.Drain();
+            {
+                auto s = q.Snapshot(); CHECK(s && s->generation);
+                weakGeneration = s->generation;
+            }
+            pinned = std::thread([&] {
+                UsdGenEpochGuard guard;
+                pin.store(1);
+                while (pin.load() != 2) std::this_thread::yield();
+            });
+            while (pin.load() != 1) std::this_thread::yield();
+        }
+        bool const released = weakGeneration.expired();
+        pin.store(2); pinned.join();
+        CHECK(released);
+    }
+    std::shared_ptr<const UsdGenCudaQueueSnapshot> retained;
     {
         UsdGenCudaExecutionQueue a(runtime,-1,&diagnostics), b(runtime,-1,&diagnostics);
         CHECK(a.Valid() && b.Valid() && !a.Snapshot() && !b.Snapshot());
@@ -1064,7 +1089,7 @@ int main() {
     CHECK(retired == 32);
     plan.reset();
     CHECK(Root(retained->generation,.45f,reader)); // queue/workspace/plan gone
-    retained.Reset();
+    retained.reset();
     CHECK(cudaStreamDestroy(reader) == cudaSuccess);
     return 0;
 }

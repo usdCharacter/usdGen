@@ -13,7 +13,10 @@ struct UsdGenCudaExecutionQueue::Impl {
     // Declaration order is intentional: the pipeline drains before the
     // workspace is destroyed, and the workspace owns all mutable CUDA state.
     std::unique_ptr<UsdGenCudaExecutionWorkspace> workspace;
-    UsdGenAtomicRef<const UsdGenCudaQueueSnapshot> snapshot;
+    // The displaced snapshot (and the generation it holds) is released by
+    // the thread that displaces it, and the last one when Impl destroys the
+    // cell, before the workspace: never later on some epoch drainer.
+    UsdGenSharedCell<const UsdGenCudaQueueSnapshot> snapshot;
     std::shared_ptr<UsdGenExecutionTaskGraph> dispatcher;
     std::unique_ptr<Pipeline> pipeline;
 
@@ -201,15 +204,14 @@ uint64_t UsdGenCudaExecutionQueue::Submit(
                                 std::runtime_error("CUDA execution failed")));
                             return;
                         }
-                        auto next = UsdGenMakeRef<UsdGenCudaQueueSnapshot>();
+                        auto next = std::make_shared<UsdGenCudaQueueSnapshot>();
                         next->epoch = epoch;
                         next->frame = frame;
                         next->generation = std::move(generation);
                         next->bindings = GetCudaBindingStats(*impl->workspace);
-                        (*completion)([impl, next = std::move(next)] {
+                        (*completion)([impl, next = std::shared_ptr<const UsdGenCudaQueueSnapshot>(
+                                          std::move(next))] {
                             impl->snapshot.Store(next);
-                            // Free the displaced snapshot now when no reader is pinned.
-                            UsdGenEpochDrain();
                         }, {});
                     } catch (...) { (*completion)({}, std::current_exception()); }
                 })) {
@@ -244,7 +246,7 @@ uint64_t UsdGenCudaExecutionQueue::CancelPending() {
     return Valid() ? impl_->pipeline->CancelPending() : 0;
 }
 
-UsdGenRef<const UsdGenCudaQueueSnapshot>
+std::shared_ptr<const UsdGenCudaQueueSnapshot>
 UsdGenCudaExecutionQueue::Snapshot() const noexcept {
     if (!impl_) return {};
     return impl_->snapshot.Load();
