@@ -19,6 +19,8 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/pool.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/token.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -81,18 +83,100 @@ struct UsdGenParamField
     bool Uniform() const { return !connected || domain == expr::Domain::Groom; }
 };
 
+/// One declared parameter resolved at compile (UsdGenResolveParams).
+struct UsdGenResolvedParam
+{
+    UsdGenParamValue const *authored = nullptr;   // first param with exactly the decl name
+    TfToken token;                                // token value; a std::string is interned at compile
+    int32_t enumIndex = -1;                       // decl enumerant index; -1 none/unmatched
+};
+
 struct UsdGenParamView
 {
     UsdGenGraphDesc const *desc = nullptr;
     UsdGenNodeDesc const  *node = nullptr;
+    /// The node's op record and its resolved slots (op->ParamCount()
+    /// entries); null for views built outside the compiler.
+    UsdGenOpRecord const *op = nullptr;
+    UsdGenResolvedParam const *slots = nullptr;
     /// This node's evaluated connected parameters, or null when the node has
     /// none (or when the caller is a validator that never evaluates them).
     UsdGenCpuParameters const *expressions = nullptr;
+
+    // ---- by slot ---------------------------------------------------------------
+    UsdGenResolvedParam const *Slot(UsdGenParamSlot s) const noexcept
+    {
+        return slots && op && s < op->ParamCount() ? &slots[s] : nullptr;
+    }
+    bool IsAuthored(UsdGenParamSlot s) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && r->authored;
+    }
+    UsdGenExpressionValue const *Expression(UsdGenParamSlot s) const
+    {
+        // S4-3 makes this an O(1) slot lookup (UsdGenCpuParameters::FindSlot).
+        return expressions && Slot(s) ? expressions->Find(op->ParamName(s)) : nullptr;
+    }
+    bool GroomExpressionValue(UsdGenParamSlot s, double *out) const
+    {
+        return GroomValue(Expression(s), out);
+    }
+    double GetDoubleLiteral(UsdGenParamSlot s, double fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return DoubleLiteral(r ? r->authored : nullptr, fallback);
+    }
+    double GetDouble(UsdGenParamSlot s, double fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(s, &expression)) return expression;
+        return GetDoubleLiteral(s, fallback);
+    }
+    int GetInt(UsdGenParamSlot s, int fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(s, &expression)) return static_cast<int>(expression);
+        UsdGenResolvedParam const *r = Slot(s);
+        return IntLiteral(r ? r->authored : nullptr, fallback);
+    }
+    bool GetBool(UsdGenParamSlot s, bool fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(s, &expression)) return expression != 0.0;
+        UsdGenResolvedParam const *r = Slot(s);
+        return BoolLiteral(r ? r->authored : nullptr, fallback);
+    }
+    /// The decl enumerant index of an authored token value; fallback when
+    /// unauthored or not one of the decl's enumerants.
+    int GetEnum(UsdGenParamSlot s, int fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && r->enumIndex >= 0 ? r->enumIndex : fallback;
+    }
+    TfToken const &GetToken(UsdGenParamSlot s, TfToken const &fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && HoldsToken(r->authored) ? r->token : fallback;
+    }
+    VtValue const &GetValue(UsdGenParamSlot s, VtValue const &fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && r->authored ? r->authored->value : fallback;
+    }
+    UsdGenParamField GetScalarField(UsdGenParamSlot s, double fallback) const
+    {
+        return Field(GetDoubleLiteral(s, fallback), Expression(s));
+    }
+
+    // ---- by name: shims until S4-8. A declared name goes through its slot;
+    // anything else scans the node's params, exact spelling, as before. ---------
 
     /// nullptr when the property is not authored and carries no C1 default in
     /// the node description (the builder materializes C1 defaults).
     UsdGenParamValue const *FindParam(TfToken const &name) const
     {
+        if (UsdGenResolvedParam const *r = SlotByName(name)) return r->authored;
         if (!node) return nullptr;
         for (auto const &p : node->params) if (p.name == name) return &p;
         return nullptr;
@@ -110,35 +194,24 @@ struct UsdGenParamView
     /// control without the operator knowing that expressions exist.
     bool GroomExpressionValue(TfToken const &name, double *out) const
     {
-        UsdGenExpressionValue const *value = FindExpression(name);
-        if (!value || value->domain != expr::Domain::Groom || value->values.empty())
-            return false;
-        *out = value->values.front();
-        return true;
+        return GroomValue(FindExpression(name), out);
     }
 
     /// A connectable scalar parameter as a field. Falls back to the authored
     /// literal at every element when nothing is connected.
     UsdGenParamField GetScalarField(TfToken const &name, double fallback) const
     {
-        UsdGenParamField field;
-        field.literal = GetDoubleLiteral(name, fallback);
-        UsdGenExpressionValue const *value = FindExpression(name);
-        if (!value || value->values.empty()) return field;
-        field.connected = true;
-        field.values = value->values.data();
-        field.count = value->count;
-        field.components = value->components;
-        field.domain = value->domain;
-        return field;
+        return Field(GetDoubleLiteral(name, fallback), FindExpression(name));
     }
     TfToken GetToken(TfToken const &name, TfToken fallback) const
     {
+        if (UsdGenResolvedParam const *r = SlotByName(name))
+            return HoldsToken(r->authored) ? r->token : fallback;
         if (UsdGenParamValue const *p = FindParam(name)) {
             if (p->value.IsHolding<TfToken>())
                 return p->value.UncheckedGet<TfToken>();
             if (p->value.IsHolding<std::string>())
-                return TfToken(p->value.UncheckedGet<std::string>().c_str());
+                return UsdGenInternToken(p->value.UncheckedGet<std::string>());
         }
         return fallback;
     }
@@ -147,11 +220,7 @@ struct UsdGenParamView
     /// the literal that expression gets as $value.
     double GetDoubleLiteral(TfToken const &name, double fallback) const
     {
-        if (UsdGenParamValue const *p = FindParam(name)) {
-            if (p->value.IsHolding<double>()) return p->value.UncheckedGet<double>();
-            if (p->value.IsHolding<float>())  return p->value.UncheckedGet<float>();
-        }
-        return fallback;
+        return DoubleLiteral(FindParam(name), fallback);
     }
     double GetDouble(TfToken const &name, double fallback) const
     {
@@ -163,7 +232,62 @@ struct UsdGenParamView
     {
         double expression = 0.0;
         if (GroomExpressionValue(name, &expression)) return static_cast<int>(expression);
-        if (UsdGenParamValue const *p = FindParam(name)) {
+        return IntLiteral(FindParam(name), fallback);
+    }
+    bool GetBool(TfToken const &name, bool fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(name, &expression)) return expression != 0.0;
+        return BoolLiteral(FindParam(name), fallback);
+    }
+    VtValue GetVtValue(TfToken const &name, VtValue const &fallback) const
+    {
+        if (UsdGenParamValue const *p = FindParam(name)) return p->value;
+        return fallback;
+    }
+
+private:
+    /// The resolved slot declared with exactly this spelling, or null.
+    UsdGenResolvedParam const *SlotByName(TfToken const &name) const noexcept
+    {
+        if (!slots || !op) return nullptr;
+        UsdGenParamSlot const s = op->FindParam(name);
+        return s != kUsdGenNoParam && op->ParamName(s) == name ? &slots[s] : nullptr;
+    }
+    static bool HoldsToken(UsdGenParamValue const *p) noexcept
+    {
+        return p && (p->value.IsHolding<TfToken>() || p->value.IsHolding<std::string>());
+    }
+    static bool GroomValue(UsdGenExpressionValue const *value, double *out) noexcept
+    {
+        if (!value || value->domain != expr::Domain::Groom || value->values.empty())
+            return false;
+        *out = value->values.front();
+        return true;
+    }
+    static UsdGenParamField Field(double literal, UsdGenExpressionValue const *value) noexcept
+    {
+        UsdGenParamField field;
+        field.literal = literal;
+        if (!value || value->values.empty()) return field;
+        field.connected = true;
+        field.values = value->values.data();
+        field.count = value->count;
+        field.components = value->components;
+        field.domain = value->domain;
+        return field;
+    }
+    static double DoubleLiteral(UsdGenParamValue const *p, double fallback) noexcept
+    {
+        if (p) {
+            if (p->value.IsHolding<double>()) return p->value.UncheckedGet<double>();
+            if (p->value.IsHolding<float>())  return p->value.UncheckedGet<float>();
+        }
+        return fallback;
+    }
+    static int IntLiteral(UsdGenParamValue const *p, int fallback) noexcept
+    {
+        if (p) {
             if (p->value.IsHolding<int>()) return p->value.UncheckedGet<int>();
             // Integer-valued authored VtValues are tolerated (schema declares
             // e.g. usdGen:seed as `uniform int`; callers may author the
@@ -173,20 +297,38 @@ struct UsdGenParamView
         }
         return fallback;
     }
-    bool GetBool(TfToken const &name, bool fallback) const
+    static bool BoolLiteral(UsdGenParamValue const *p, bool fallback) noexcept
     {
-        double expression = 0.0;
-        if (GroomExpressionValue(name, &expression)) return expression != 0.0;
-        if (UsdGenParamValue const *p = FindParam(name)) {
-            if (p->value.IsHolding<bool>()) return p->value.UncheckedGet<bool>();
-        }
+        if (p && p->value.IsHolding<bool>()) return p->value.UncheckedGet<bool>();
         return fallback;
     }
-    VtValue GetVtValue(TfToken const &name, VtValue const &fallback) const
+};
+
+/// Compile phase: resolve node.params into out[0, rec.ParamCount()). A param
+/// binds the slot declared with exactly its name; the first one wins.
+USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDesc const &node,
+                                         UsdGenResolvedParam *out);
+
+/// Stack resolution for validators that have no compiled node. Compile
+/// phase only (about 3 KB of stack).
+class UsdGenStackParams
+{
+public:
+    UsdGenStackParams(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+                      UsdGenOpRecord const &rec)
     {
-        if (UsdGenParamValue const *p = FindParam(name)) return p->value;
-        return fallback;
+        UsdGenResolveParams(rec, node, _slots);
+        _view.desc = &desc;
+        _view.node = &node;
+        _view.op = &rec;
+        _view.slots = _slots;
     }
+    UsdGenStackParams(UsdGenStackParams const &) = delete;
+    UsdGenStackParams &operator=(UsdGenStackParams const &) = delete;
+    UsdGenParamView const &View() const noexcept { return _view; }
+private:
+    UsdGenResolvedParam _slots[kUsdGenMaxParamsPerOp];
+    UsdGenParamView _view;
 };
 
 /// Opaque per-node capture payload; M1 operators derive their own concrete

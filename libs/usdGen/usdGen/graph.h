@@ -114,6 +114,14 @@ struct UsdGenCompiledNode : UsdGenPooled
 
     // --- compile-time routing data (03 §5.1; filled by UsdGenCompiler) ----
     UsdGenParamView        paramView;            // points into the graph's desc copy
+    // record->ParamCount() resolved slots, re-resolved on every compile;
+    // paramView.slots points here.
+    UsdGenPoolVector<UsdGenResolvedParam> params;
+    int                    indexedPlaneBase = -1;  // first indexed plane (clumpId_<base>)
+    uint8_t                indexedPlaneCount = 0;
+    bool                   limitSurfaceUv = false; // hooks.emitsLimitSurfaceUv at compile
+    // Plane slots resolved per run by the scheduler; negative: curve rate.
+    std::array<int16_t, kUsdGenMaxExtraPlaneSlots> outPlaneIndex{}, inPlaneIndex{};
     // Connected (expression) parameters evaluated for this node, once per
     // cook, over its INPUT geometry. paramView.expressions points here.
     UsdGenCpuParameters    expressions;
