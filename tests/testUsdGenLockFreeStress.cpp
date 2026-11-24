@@ -4,10 +4,12 @@
 // testUsdGenLockFreeStress — multi-thread stress for the lock-free engine
 // pieces: shared-pointer cells, the execution cache store (leases against
 // eviction) and domain coalescing (Invalidate against settling leaders and
-// publications), the memory reservation word, and a 64-thread Submit/Visible run against one Session. Tracked
+// publications), the pipeline's newest-wins mailbox, the memory reservation
+// word, and a 64-thread Submit/Visible run against one Session. Tracked
 // values live in a never-reused poisoned arena, so reading a freed one fails.
 #include "usdGen/epoch.h"
 #include "usdGen/executionCache.h"
+#include "usdGen/executionPipeline.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/opRegistry.h"
 #include "usdGen/session.h"
@@ -478,6 +480,26 @@ void PublishVersusInvalidate()
     Check(late.load() == 0, "publish fence: no old-epoch action outlives its Invalidate");
 }
 
+// PostLatestCommand against the owner's recheck: the newest command always
+// runs (store-load ordering on scheduled/latest on both sides).
+void MailboxNewestRuns()
+{
+    UsdGenExecutionRuntime runtime(4);
+    UsdGenExecutionPipeline pipeline(runtime, 4, 64);
+    auto mailbox = pipeline.ReserveCommandMailbox();
+    std::atomic<int> last{-1};
+    int stranded = 0;
+    int const rounds = 20000;
+    for (int round = 0; round != rounds; ++round) {
+        pipeline.PostLatestCommand(mailbox, [&last, round] { last.store(2 * round, std::memory_order_relaxed); });
+        for (int y = 0; y != round % 16; ++y) std::this_thread::yield();
+        pipeline.PostLatestCommand(mailbox, [&last, round] { last.store(2 * round + 1, std::memory_order_relaxed); });
+        pipeline.Drain();
+        if (last.load() != 2 * round + 1) ++stranded;
+    }
+    Check(stranded == 0, "mailbox: the newest command always runs");
+}
+
 void ReservationStress()
 {
     UsdGenExecutionResourcePool pool(1u << 20);
@@ -603,6 +625,7 @@ int main()
     StaleWithdrawUnpinned();
     PublishVersusInvalidate();
     DomainCoalescingStress();
+    MailboxNewestRuns();
     ReservationStress();
     SessionSubmitVisibleStress();
     DrainEpochs();
