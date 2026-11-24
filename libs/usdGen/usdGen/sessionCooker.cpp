@@ -3,6 +3,8 @@
 // Private serial work-owner implementation. The command owner supplies a
 // copied request and alone decides whether this candidate may publish.
 #include "usdGen/sessionCooker.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/token.h"
 #include "usdGen/limitSurface.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/furOcclusion.h"
@@ -464,7 +466,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
         // values themselves join the key or a length stroke would hit the
         // pre-stroke cache entry and the groom would freeze (the density
         // multiplier's row below is the same contract).
-        if (map.type == TfToken("UsdGenPaintMap"))
+        if (UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot))
             _CacheMixArray(&h0, map.paintValues, &terms);
         _CacheMix(&h0, static_cast<uint64_t>(map.params.size()));
         for (UsdGenParamValue const &param : map.params) {
@@ -675,16 +677,49 @@ bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
 
 SdfPath _RenderNamespace(SdfPath const &description)
 {
-    return description.AppendChild(TfToken("__usdGenRender"));
+    return description.AppendChild(UsdGenTokens().renderNamespace);
 }
+
+// tile_NNNN names, interned once per tile index for the process (a bounded
+// vocabulary, counted as compile interns like the engine tokens); published
+// by CAS, never freed. Indices past the table intern per call.
+constexpr size_t kTileNameCache = size_t(1) << 16;
+std::atomic<TfToken *> gTileNames[kTileNameCache];
+
+TfToken _InternTileName(UsdGenTileId tile)
+{
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "tile_%04d", static_cast<int>(tile));
+    UsdGenCompileTokenScope scope;
+    return UsdGenInternToken(buf);
+}
+
+TfToken _TileName(UsdGenTileId tile)
+{
+    size_t const index = size_t(tile);
+    if (index >= kTileNameCache) return _InternTileName(tile);
+    if (TfToken *name = gTileNames[index].load(std::memory_order_acquire)) return *name;
+    auto *fresh = new TfToken;
+    *fresh = _InternTileName(tile);
+    TfToken *winner = nullptr;
+    if (gTileNames[index].compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
+                                                  std::memory_order_acquire))
+        return *fresh;
+    delete fresh;
+    return *winner;
+}
+
+// Look constants published on tiles (addLookConstant below).
+TfToken const kHairTipColor = UsdGenInternToken("hairTipColor");
+TfToken const kHairColorRamp = UsdGenInternToken("hairColorRamp");
+TfToken const kHairRandomHue = UsdGenInternToken("hairRandomHue");
+TfToken const kHairRandomValue = UsdGenInternToken("hairRandomValue");
 
 // <description>/__usdGenRender/tile_NNNN — must stay byte-identical to the
 // imaging-side UsdGenTilePublisher::TilePath formula (06 §4.2).
 SdfPath _TilePath(SdfPath const &description, UsdGenTileId tile)
 {
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "tile_%04d", static_cast<int>(tile));
-    return _RenderNamespace(description).AppendChild(TfToken(buf));
+    return _RenderNamespace(description).AppendChild(_TileName(tile));
 }
 
 struct _PresentationScalars
@@ -693,7 +728,7 @@ struct _PresentationScalars
     TfToken purpose;
     TfToken visibility;
     SdfPath materialPath;
-    TfToken materialPurpose{TfToken("allPurpose")};
+    TfToken materialPurpose{UsdGenTokens().allPurpose};
     int refineLevel = 2;
     SdfPath primOrigin;
     SdfPath dependencySurface;
@@ -749,9 +784,9 @@ UsdGenDevicePresentationMetadata _BuildDevicePresentation(
 void _GatherPlane(const UsdGenPlane &plane, uint32_t curveIdx, uint32_t cvIdx,
                   bool wantUniform, VtFloatArray *outF)
 {
-    if (plane.type == TfToken("int") || plane.arity == 0) return;
+    if (plane.type == UsdGenTokens().int_ || plane.arity == 0) return;
     const size_t idx =
-        (wantUniform && plane.interpolation != TfToken("vertex"))
+        (wantUniform && plane.interpolation != UsdGenTokens().vertex)
             ? curveIdx : cvIdx;
     if ((idx + 1) * plane.arity > plane.f.size()) return;
     for (uint8_t k = 0; k < plane.arity; ++k)
@@ -763,13 +798,13 @@ bool _GatherPlaneElement(UsdGenPlane const& plane, size_t index,
 {
     if (!out || plane.arity == 0) return false;
     size_t const begin = index * plane.arity;
-    if (plane.type == TfToken("int")) {
+    if (plane.type == UsdGenTokens().int_) {
         if (begin + plane.arity > plane.i.size()) return false;
         for (uint8_t component = 0; component != plane.arity; ++component)
             out->i.push_back(plane.i[begin + component]);
         return true;
     }
-    if (plane.type != TfToken("float") || begin + plane.arity > plane.f.size())
+    if (plane.type != UsdGenTokens().float_ || begin + plane.arity > plane.f.size())
         return false;
     for (uint8_t component = 0; component != plane.arity; ++component)
         out->f.push_back(plane.f[begin + component]);
@@ -2480,12 +2515,12 @@ UsdGenStats publishedStats, bool invalidateValues,
                 _desc, SdfPath());
             gen.scalpShadow.primPath =
                 _RenderNamespace(_desc.description).AppendChild(
-                    TfToken("scalpShadow"));
+                    UsdGenTokens().scalpShadow);
             gen.scalpShadow.purpose = scalars.purpose;
             gen.scalpShadow.visibility = scalars.visibility;
             gen.scalpShadow.materialPath =
                 _RenderNamespace(_desc.description).AppendChild(
-                    TfToken("material_scalpShadow"));
+                    UsdGenTokens().materialScalpShadow);
         }
     }
     phases.Phase("occlusion");
@@ -2595,7 +2630,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     pub.hairT.reserve(tv.totalLiveCvs);
     pub.hairId.reserve(tv.totalLiveCurves);
 
-    UsdGenPlane const *displayColor = _FindPlane(term.extraCurve, TfToken("displayColor"));
+    UsdGenPlane const *displayColor = _FindPlane(term.extraCurve, UsdGenTokens().displayColor);
     struct ExtraPlanePublication {
         UsdGenPlane const* source = nullptr;
         UsdGenPlane output;
@@ -2609,14 +2644,14 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     if (!sourceColor) sourceColor = _FindPlane(term.extraCv,
                                                UsdGenSourceColorPlane());
     auto addExtraPlane = [&](UsdGenPlane const& plane, TfToken expectedInterpolation) {
-        if (plane.name == TfToken("displayColor") ||
+        if (plane.name == UsdGenTokens().displayColor ||
             plane.name == UsdGenSourceColorPlane()) return;
-        size_t const elements = expectedInterpolation == TfToken("constant") ? 1 :
-            expectedInterpolation == TfToken("vertex") ? term.totalCvs : term.totalCurves;
+        size_t const elements = expectedInterpolation == UsdGenTokens().constant ? 1 :
+            expectedInterpolation == UsdGenTokens().vertex ? term.totalCvs : term.totalCurves;
         size_t const values = elements * plane.arity;
-        bool const validPayload = plane.type == TfToken("int")
+        bool const validPayload = plane.type == UsdGenTokens().int_
             ? plane.i.size() == values && plane.f.empty()
-            : plane.type == TfToken("float") && plane.f.size() == values && plane.i.empty();
+            : plane.type == UsdGenTokens().float_ && plane.f.size() == values && plane.i.empty();
         if (plane.name.IsEmpty() || plane.arity == 0 ||
             plane.arity > kUsdGenMaxExtraPlaneSlots ||
             plane.interpolation != expectedInterpolation || !validPayload)
@@ -2633,21 +2668,21 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         entry.output.interpolation = plane.interpolation;
         entry.output.type = plane.type;
         entry.output.arity = plane.arity;
-        if (plane.interpolation == TfToken("constant"))
+        if (plane.interpolation == UsdGenTokens().constant)
             _GatherPlaneElement(plane, 0, &entry.output);
         extraPlanes.push_back(std::move(entry));
     };
     for (UsdGenPlane const &p : term.extraCurve) {
-        if (p.interpolation == TfToken("constant"))
-            addExtraPlane(p, TfToken("constant"));
-        else if (p.interpolation == TfToken("uniform"))
-            addExtraPlane(p, TfToken("uniform"));
-        else if (p.name != TfToken("displayColor"))
+        if (p.interpolation == UsdGenTokens().constant)
+            addExtraPlane(p, UsdGenTokens().constant);
+        else if (p.interpolation == UsdGenTokens().uniform)
+            addExtraPlane(p, UsdGenTokens().uniform);
+        else if (p.name != UsdGenTokens().displayColor)
             throw std::runtime_error("invalid per-curve extra-plane interpolation for '" +
                                      p.name.GetString() + "'");
     }
     for (UsdGenPlane const& p : term.extraCv)
-        addExtraPlane(p, TfToken("vertex"));
+        addExtraPlane(p, UsdGenTokens().vertex);
 
     // Precedence (02 §2.14): an AUTHORED look on the description wins;
     // otherwise the source curves' own displayColor, which is what a
@@ -2676,16 +2711,16 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     // applies exactly as before: the default-material path is unchanged by
     // construction, and a forwarded asset colour (one flat colour per curve)
     // never acquires an invented tip.
-    auto addLookConstant = [&](char const* name, std::initializer_list<float> v) {
+    auto addLookConstant = [&](TfToken const& name, std::initializer_list<float> v) {
         // An authored plane of the same name wins: the user asked for it by
         // hand, and two planes with one name is not a publishable tile.
         if (std::any_of(extraPlanes.begin(), extraPlanes.end(),
                         [&](auto const& e) { return e.output.name == name; }))
             return;
         UsdGenPlane plane;
-        plane.name = TfToken(name);
-        plane.interpolation = TfToken("constant");
-        plane.type = TfToken("float");
+        plane.name = name;
+        plane.interpolation = UsdGenTokens().constant;
+        plane.type = UsdGenTokens().float_;
         plane.arity = static_cast<decltype(plane.arity)>(v.size());
         plane.f.assign(v.begin(), v.end());
         ExtraPlanePublication entry;
@@ -2699,15 +2734,15 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         GfVec3f const tip = _desc.look.rampColors.size() >= 2
             ? _desc.look.rampColors[_desc.look.rampColors.size() - 1]
             : _desc.look.tipColor;
-        addLookConstant("hairTipColor", {tip[0], tip[1], tip[2]});
+        addLookConstant(kHairTipColor, {tip[0], tip[1], tip[2]});
     }
     if (_desc.look.rampExponent != lookFallback.rampExponent)
-        addLookConstant("hairColorRamp",
+        addLookConstant(kHairColorRamp,
                         {std::max(_desc.look.rampExponent, 0.001f)});
     if (_desc.look.hueJitter != lookFallback.hueJitter)
-        addLookConstant("hairRandomHue", {std::max(_desc.look.hueJitter, 0.0f)});
+        addLookConstant(kHairRandomHue, {std::max(_desc.look.hueJitter, 0.0f)});
     if (_desc.look.valueJitter != lookFallback.valueJitter)
-        addLookConstant("hairRandomValue",
+        addLookConstant(kHairRandomValue,
                         {std::max(_desc.look.valueJitter, 0.0f)});
 
     GfRange3f bounds;
@@ -2727,7 +2762,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         colorMode = Preview;
     else if (displayColor)
         colorMode = Plane;
-    else if (_desc.look.bakeTarget != TfToken("none"))
+    else if (_desc.look.bakeTarget != UsdGenTokens().none)
         colorMode = (!authoredLook && sourceColor) ? SourcePlane : Root;
     // Extra planes partitioned once per tile (bit-identical): the CV loop
     // gathered the vertex-interpolated planes and the curve loop the
@@ -2736,9 +2771,9 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     // token work; constant planes stay out of both loops, as before.
     std::vector<ExtraPlanePublication *> vertexPlanes, uniformPlanes;
     for (auto &extra : extraPlanes) {
-        if (extra.output.interpolation == TfToken("vertex"))
+        if (extra.output.interpolation == UsdGenTokens().vertex)
             vertexPlanes.push_back(&extra);
-        else if (extra.output.interpolation == TfToken("uniform"))
+        else if (extra.output.interpolation == UsdGenTokens().uniform)
             uniformPlanes.push_back(&extra);
     }
     // Pre-size the remaining per-curve/per-CV arrays (bit-identical: same
@@ -2757,14 +2792,14 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         pub.displayColor.reserve(tv.totalLiveCurves);
     for (ExtraPlanePublication *extra : vertexPlanes) {
         size_t const n = size_t(tv.totalLiveCvs) * extra->output.arity;
-        if (extra->output.type == TfToken("int"))
+        if (extra->output.type == UsdGenTokens().int_)
             extra->output.i.reserve(n);
         else
             extra->output.f.reserve(n);
     }
     for (ExtraPlanePublication *extra : uniformPlanes) {
         size_t const n = size_t(tv.totalLiveCurves) * extra->output.arity;
-        if (extra->output.type == TfToken("int"))
+        if (extra->output.type == UsdGenTokens().int_)
             extra->output.i.reserve(n);
         else
             extra->output.f.reserve(n);
@@ -2879,7 +2914,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         // The look's shader blends toward the tip colour; the preview shows
         // exactly the published displayColor, over any authored material.
         pub.materialPath = UsdGenPreviewMaterialPath(_desc.description, _desc.preview.shading);
-        pub.materialPurpose = TfToken("allPurpose");
+        pub.materialPurpose = UsdGenTokens().allPurpose;
     }
     pub.refineLevel = scalars.refineLevel;
     pub.primOrigin = scalars.primOrigin;
