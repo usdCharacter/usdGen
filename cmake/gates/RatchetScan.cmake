@@ -8,6 +8,7 @@
 #   DIRS        dirs to scan (relative to SOURCE_DIR), separated by , or ;
 #   PATTERN     regex; one hit per matching line
 #   EXCLUDE     optional regex; a PATTERN line that also matches it is no hit
+#   EXCLUDE_PATHS optional regex on the relative path; matching files are skipped
 #   BASELINE    baseline file: "<relative path> <count>" per line, # comments
 #   WRITE       optional; ON rewrites BASELINE from the current tree
 
@@ -48,6 +49,10 @@ foreach(_dir IN LISTS DIRS)
     foreach(_f IN LISTS _files)
         math(EXPR _scanned "${_scanned} + 1")
         file(RELATIVE_PATH _rel "${SOURCE_DIR}" "${_f}")
+        if(DEFINED EXCLUDE_PATHS AND NOT "${EXCLUDE_PATHS}" STREQUAL "" AND
+           _rel MATCHES "${EXCLUDE_PATHS}")
+            continue()
+        endif()
         file(STRINGS "${_f}" _hits REGEX "${PATTERN}")
         if(DEFINED EXCLUDE AND NOT "${EXCLUDE}" STREQUAL "" AND _hits)
             # Not list(FILTER): it drops the escaping of a ";" inside a line.
