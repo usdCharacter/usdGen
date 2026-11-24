@@ -12,7 +12,7 @@
 #include <new>
 #include <thread>
 
-#include "usdGen/workerPool.h"
+#include "usdGen/taskScheduler.h"
 
 namespace usdGen::vulkan {
 namespace {
@@ -20,22 +20,6 @@ constexpr VkDeviceSize kWordBytes = sizeof(uint32_t);
 constexpr uint32_t kLocalSize = 256;
 constexpr size_t kCpuBuildChunks = 8;
 
-// Host build pool: made by the first big build (published by CAS, never
-// destroyed, so nothing joins at exit) and owned by one build at a time,
-// taken by exchange. A concurrent build runs its ranges inline instead;
-// per-curve work is partition-independent, so the bytes are the same.
-std::atomic<UsdGenWorkerPool*> gBuildPool{nullptr};
-std::atomic<bool> gBuildPoolMade{false};
-
-UsdGenWorkerPool* TakeBuildPool() noexcept {
-    if (auto* pool = gBuildPool.exchange(nullptr, std::memory_order_acq_rel)) return pool;
-    if (gBuildPoolMade.exchange(true, std::memory_order_acq_rel)) return nullptr;  // in use
-    try { return new UsdGenWorkerPool(int(kCpuBuildChunks)); }
-    catch (...) { gBuildPoolMade.store(false, std::memory_order_release); return nullptr; }
-}
-void PutBuildPool(UsdGenWorkerPool* pool) noexcept {
-    if (pool) gBuildPool.store(pool, std::memory_order_release);
-}
 
 // SplitMix64 finalizer (UsdGenDraw01/hash.h) — the CUDA Hash64.
 inline uint64_t Hash64(uint64_t key, uint64_t salt) noexcept {
@@ -246,14 +230,10 @@ bool ScatterGrowPipeline::BuildCpu(std::vector<float> const& positions,
             if (!(*pl->run)(c0, c1))
                 pl->failed[p] = 1;
         };
-        UsdGenWorkerPool* pool = TakeBuildPool();
-        if (pool) {
-            try { pool->ParallelFor(cpuChunks, body, &payload, 1); }
-            catch (...) { PutBuildPool(pool); throw; }
-            PutBuildPool(pool);
-        } else {
-            for (size_t p = 0; p < cpuChunks; ++p) body(p, &payload);
-        }
+        // The host build runs on the process task scheduler (safe to call
+        // from several builds at once); per-curve work is
+        // partition-independent, so the bytes match a serial build.
+        UsdGenParallelFor(cpuChunks, body, &payload, kCpuBuildChunks);
         for (size_t p = 0; p < cpuChunks; ++p)
             if (failed[p])
                 return bad();
