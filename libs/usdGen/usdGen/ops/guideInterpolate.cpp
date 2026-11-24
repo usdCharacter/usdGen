@@ -45,12 +45,13 @@
 #include "usdGen/ops/guideInterpolate.h"
 
 #include "usdGen/clumpMotion.h"
-#include "usdGen/opParams.h"
 #include "usdGen/ops/guideBlend.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/regionMap.h"
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/token.h"
 #include "usdGen/types.h"
 #include "usdGenMath/usdGenMath/hash.h"
 
@@ -74,18 +75,7 @@ namespace usdGen {
 
 namespace {
 
-const TfToken sCvCount{"cvCount"}, sMaxGuides{"maxGuides"}, sRadius{"influenceRadius"},
-    sDecay{"influenceDecay"}, sMaxAngle{"maxGuideAngle"}, sBlendMethod{"blendMethod"},
-    sSkinSpace{"blendInSkinSpace"}, sUnique{"useUniqueGuide"}, sRandomize{"randomizeGuide"},
-    sCrossover{"regionCrossover"}, sRegion{"region"}, sLinear{"linearBlend"},
-    sExtrude{"extrudeAndBlend"}, sGuideIndex{"guideIndex"}, sGuideWeight{"guideWeight"};
-const TfToken sWeighting{"weighting"}, sFalloff{"falloff"}, sNearest{"nearest"},
-    sInverseDistance{"inverseDistance"}, sGaussian{"gaussian"}, sTightness{"tightness"},
-    sBendFollow{"bendFollow"}, sDefaultLength{"defaultLength"}, sPartPoints{"part:points"},
-    sPartCounts{"part:counts"}, sPartNormals{"part:normals"}, sPartAmount{"part:amount"},
-    sPartAngle{"part:angle"}, sPartRadius{"part:radius"}, sPartDistance{"part:distance"},
-    sPrimaryGuide{"primaryGuide"}, sNearestGuide{"nearestGuide"}, sPartId{"partId"},
-    sMirrorSign{"mirrorSign"};
+using namespace guideP;
 
 constexpr uint32_t kSaltGuide = 0x47554944u;   // "GUID"
 constexpr size_t kMaxCandidates = 32;
@@ -147,6 +137,27 @@ struct Settings {
     double partAmount = 0.0, partAngle = 80.0, partRadius = 0.5, partDistance = 1.0;
 };
 
+/// The decl enumerant index of an authored token value; -1 when authored but
+/// not an enumerant; fallback when unauthored or not a token (GetEnum alone
+/// cannot tell the last two apart, and an unknown value must fail the cook).
+int AuthoredEnum(UsdGenParamView const &p, UsdGenParamSlot slot, int fallback)
+{
+    UsdGenResolvedParam const *r = p.Slot(slot);
+    if (!r || !r->authored) return fallback;
+    VtValue const &v = r->authored->value;
+    return v.IsHolding<TfToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
+}
+
+/// Clump plane name: pre-interned for the first kClumpLevels levels.
+constexpr char const *kClumpFamily[4] = {"clumpId_", "clumpCenter_", "clumpCenterId_",
+                                         "clumpWeight_"};
+TfToken ClumpPlaneName(UsdGenOpRecord const &record, int level, int family)
+{
+    if (level >= 0 && level < kClumpLevels)
+        return record.Token(uint16_t(kTokClump0 + level * 4 + family));
+    return UsdGenInternToken(std::string(kClumpFamily[family]) + std::to_string(level));
+}
+
 /// A point/normal array parameter as float vectors (point3f[] / normal3f[],
 /// double spellings tolerated). False when the value has another type.
 bool ReadVec3s(VtValue const &value, std::vector<guideBlend::V3> *out)
@@ -183,15 +194,15 @@ bool ReadParting(UsdGenParamView const *p, Settings const &s, guideBlend::Partin
     std::vector<guideBlend::V3> points, normals;
     std::vector<int> counts;
     if (p) {
-        if (!ReadVec3s(p->GetVtValue(sPartPoints, VtValue()), &points)) {
+        if (!ReadVec3s(p->GetValue(kPartPoints, VtValue()), &points)) {
             *error = "usdGen:part:points must be a point3f[]";
             return false;
         }
-        if (!ReadInts(p->GetVtValue(sPartCounts, VtValue()), &counts)) {
+        if (!ReadInts(p->GetValue(kPartCounts, VtValue()), &counts)) {
             *error = "usdGen:part:counts must be an int[]";
             return false;
         }
-        if (!ReadVec3s(p->GetVtValue(sPartNormals, VtValue()), &normals)) {
+        if (!ReadVec3s(p->GetValue(kPartNormals, VtValue()), &normals)) {
             *error = "usdGen:part:normals must be a normal3f[]";
             return false;
         }
@@ -231,32 +242,34 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
         return false;
     };
     if (!p) return true;
-    s->cvCount = p->GetInt(sCvCount, 8);
-    s->maxGuides = p->GetInt(sMaxGuides, 3);
-    s->radius = p->GetDouble(sRadius, 4.0);
-    s->decay = p->GetDouble(sDecay, 2.0);
-    s->maxAngle = p->GetDouble(sMaxAngle, 90.0);
-    s->skin = p->GetDouble(sSkinSpace, 1.0);
-    s->randomize = p->GetDouble(sRandomize, 0.0);
-    s->crossover = p->GetDouble(sCrossover, 0.0);
-    s->unique = p->GetBool(sUnique, false);
-    TfToken const method = p->GetToken(sBlendMethod, sLinear);
-    if (method != sLinear && method != sExtrude)
+    s->cvCount = p->GetInt(kCvCount, 8);
+    s->maxGuides = p->GetInt(kMaxGuides, 3);
+    s->radius = p->GetDouble(kInfluenceRadius, 4.0);
+    s->decay = p->GetDouble(kInfluenceDecay, 2.0);
+    s->maxAngle = p->GetDouble(kMaxGuideAngle, 90.0);
+    s->skin = p->GetDouble(kBlendInSkinSpace, 1.0);
+    s->randomize = p->GetDouble(kRandomizeGuide, 0.0);
+    s->crossover = p->GetDouble(kRegionCrossover, 0.0);
+    s->unique = p->GetBool(kUseUniqueGuide, false);
+    int const method = AuthoredEnum(*p, kBlendMethod, kBlendLinear);
+    if (method != kBlendLinear && method != kBlendExtrude)
         return fail("usdGen:blendMethod must be linearBlend or extrudeAndBlend");
-    s->extrude = method == sExtrude;
-    TfToken const weighting = p->GetToken(sWeighting, sFalloff);
-    if (weighting == sFalloff) s->mode = Mode::Falloff;
-    else if (weighting == sNearest) s->mode = Mode::Nearest;
-    else if (weighting == sInverseDistance) s->mode = Mode::InverseDistance;
-    else if (weighting == sGaussian) s->mode = Mode::Gaussian;
-    else return fail("usdGen:weighting must be falloff, nearest, inverseDistance or gaussian");
-    s->tightness = p->GetDouble(sTightness, 3.0);
-    s->bendFollow = p->GetBool(sBendFollow, false);
-    s->defaultLength = p->GetDouble(sDefaultLength, 0.01);
-    s->partAmount = p->GetDouble(sPartAmount, 0.0);
-    s->partAngle = p->GetDouble(sPartAngle, 80.0);
-    s->partRadius = p->GetDouble(sPartRadius, 0.5);
-    s->partDistance = p->GetDouble(sPartDistance, 1.0);
+    s->extrude = method == kBlendExtrude;
+    switch (AuthoredEnum(*p, kWeighting, kWeightFalloff)) {
+    case kWeightFalloff: s->mode = Mode::Falloff; break;
+    case kWeightNearest: s->mode = Mode::Nearest; break;
+    case kWeightInverseDistance: s->mode = Mode::InverseDistance; break;
+    case kWeightGaussian: s->mode = Mode::Gaussian; break;
+    default:
+        return fail("usdGen:weighting must be falloff, nearest, inverseDistance or gaussian");
+    }
+    s->tightness = p->GetDouble(kTightness, 3.0);
+    s->bendFollow = p->GetBool(kBendFollow, false);
+    s->defaultLength = p->GetDouble(kDefaultLength, 0.01);
+    s->partAmount = p->GetDouble(kPartAmount, 0.0);
+    s->partAngle = p->GetDouble(kPartAngle, 80.0);
+    s->partRadius = p->GetDouble(kPartRadius, 0.5);
+    s->partDistance = p->GetDouble(kPartDistance, 1.0);
     if (s->cvCount < 2 || s->cvCount > int(kUsdGenMaxCvsPerCurve))
         return fail("usdGen:cvCount must be in [2, " + std::to_string(kUsdGenMaxCvsPerCurve) + "]");
     if (s->maxGuides < 1 || s->maxGuides > 8) return fail("usdGen:maxGuides must be in [1, 8]");
@@ -313,11 +326,11 @@ std::vector<int> CurveInts(UsdGenCurveBuffer const &buffer, TfToken const &name)
 {
     for (UsdGenPlane const &plane : buffer.extraCurve) {
         if (plane.name != name || plane.arity != 1 ||
-            plane.interpolation != TfToken("uniform"))
+            plane.interpolation != UsdGenTokens().uniform)
             continue;
-        if (plane.type == TfToken("int") && plane.i.size() == buffer.totalCurves)
+        if (plane.type == UsdGenTokens().int_ && plane.i.size() == buffer.totalCurves)
             return std::vector<int>(plane.i.begin(), plane.i.end());
-        if (plane.type == TfToken("float") && plane.f.size() == buffer.totalCurves) {
+        if (plane.type == UsdGenTokens().float_ && plane.f.size() == buffer.totalCurves) {
             std::vector<int> out(plane.f.size());
             for (size_t i = 0; i < out.size(); ++i)
                 out[i] = std::isfinite(plane.f[i]) ? int(std::lround(plane.f[i])) : 0;
@@ -329,38 +342,79 @@ std::vector<int> CurveInts(UsdGenCurveBuffer const &buffer, TfToken const &name)
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("guides"));
-    v.push_back(TfToken("regionMap"));
-    for (char const *name : {"cvCount", "maxGuides", "influenceRadius", "influenceDecay",
-                             "maxGuideAngle", "blendMethod", "blendInSkinSpace",
-                             "useUniqueGuide", "randomizeGuide", "regionCrossover", "region",
-                             "weighting", "tightness", "bendFollow", "defaultLength",
-                             "part:points", "part:counts", "part:normals", "part:amount",
-                             "part:angle", "part:radius", "part:distance"})
-        v.push_back(TfToken(name));
-    return v;
-}();
+namespace {
 
-static TfTokenVector _valueParams = [] {
-    return UsdGenBaseValueParams();
-}();
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
 
-static TfTokenVector const _referenceInputs{TfToken("guides")};
+constexpr char const *kBlendMethods[] = {"linearBlend", "extrudeAndBlend"};
+constexpr char const *kWeightings[] = {"falloff", "nearest", "inverseDistance", "gaussian"};
 
+// The legacy topology list, in order; there is no value list (no mask).
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Capture, true, kBoolGroom},
+    {"guides", UsdGenParamClass::Capture},
+    {"regionMap", UsdGenParamClass::Capture},
+    {"cvCount", UsdGenParamClass::Capture},
+    {"maxGuides", UsdGenParamClass::Capture},
+    {"influenceRadius", UsdGenParamClass::Capture},
+    {"influenceDecay", UsdGenParamClass::Capture},
+    {"maxGuideAngle", UsdGenParamClass::Capture},
+    {"blendMethod", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kBlendMethods)},
+    {"blendInSkinSpace", UsdGenParamClass::Capture},
+    {"useUniqueGuide", UsdGenParamClass::Capture},
+    {"randomizeGuide", UsdGenParamClass::Capture},
+    {"regionCrossover", UsdGenParamClass::Capture},
+    {"region", UsdGenParamClass::Capture, true, kFloatRoot},
+    {"weighting", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kWeightings)},
+    {"tightness", UsdGenParamClass::Capture},
+    {"bendFollow", UsdGenParamClass::Capture},
+    {"defaultLength", UsdGenParamClass::Capture},
+    {"part:points", UsdGenParamClass::Capture},
+    {"part:counts", UsdGenParamClass::Capture},
+    {"part:normals", UsdGenParamClass::Capture},
+    {"part:amount", UsdGenParamClass::Capture},
+    {"part:angle", UsdGenParamClass::Capture},
+    {"part:radius", UsdGenParamClass::Capture},
+    {"part:distance", UsdGenParamClass::Capture},
+};
+char const *const kReferences[] = {"guides"};
+UsdGenMapSlotDecl const kMaps[] = {{"usdGen:regionMap"}};
+// Order is guideP::Tok: plane names, then four clump families per level.
+char const *const kTokens[] = {
+    "guideIndex", "guideWeight", "primaryGuide", "nearestGuide", "partId", "mirrorSign",
+    "clumpId_0", "clumpCenter_0", "clumpCenterId_0", "clumpWeight_0",
+    "clumpId_1", "clumpCenter_1", "clumpCenterId_1", "clumpWeight_1",
+    "clumpId_2", "clumpCenter_2", "clumpCenterId_2", "clumpWeight_2",
+    "clumpId_3", "clumpCenter_3", "clumpCenterId_3", "clumpWeight_3",
+    "clumpId_4", "clumpCenter_4", "clumpCenterId_4", "clumpWeight_4",
+    "clumpId_5", "clumpCenter_5", "clumpCenterId_5", "clumpWeight_5"};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenGuideInterpolateOp>(r);
+}
+
+}  // namespace
+
+UsdGenGuideInterpolateOp::UsdGenGuideInterpolateOp(UsdGenOpRecord const &record)
+    : _record(&record)
+{
+    for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s)
+        (record.ParamClass(s) == UsdGenParamClass::Value ? _value : _topology)
+            .push_back(record.ParamName(s));
+}
 TfSpan<const TfToken> UsdGenGuideInterpolateOp::TopologyParameters() const
 {
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
+    return TfSpan<const TfToken>(_topology.data(), _topology.size());
 }
 TfSpan<const TfToken> UsdGenGuideInterpolateOp::ValueParameters() const
 {
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
-TfSpan<const TfToken> UsdGenGuideInterpolateOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
+    return TfSpan<const TfToken>(_value.data(), _value.size());
 }
 std::unique_ptr<UsdGenCapture> UsdGenGuideInterpolateOp::CreateCapture() const
 {
@@ -381,9 +435,9 @@ UsdGenEpoch UsdGenGuideInterpolateOp::CaptureDigest(UsdGenCaptureContext const &
 {
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
-        for (TfToken const &name : _topoParams) {
-            d.Mix(name);
-            d.Mix(p->GetVtValue(name, VtValue()));
+        for (UsdGenParamSlot s = 0; s < _record->ParamCount(); ++s) {
+            d.Mix(_record->ParamName(s));
+            d.Mix(p->GetValue(s, VtValue()));
         }
     }
     d.Mix(uint64_t(ctx.seed));
@@ -471,7 +525,7 @@ bool UsdGenGuideInterpolateOp::Capture(
     bool mapped = false;
     if (falloff) {
         UsdGenParamField const regionField =
-            p ? p->GetScalarField(sRegion, 0.0) : UsdGenParamField{};
+            p ? p->GetScalarField(kRegion, 0.0) : UsdGenParamField{};
         if (regionField.connected)
             for (size_t c = 0; c < R; ++c)
                 hairRegion[c] = opUtil::RegionKey(regionField.Value(c, rootSpans[c]));
@@ -822,8 +876,10 @@ bool UsdGenGuideInterpolateOp::Capture(
     // the other guides continue shaping geometry without claiming that this
     // strand moves rigidly with a group it did not fully follow. Numeric
     // levels not present on guides retain the root-source planes above.
-    auto findGuideIds = [&guides](int level) -> UsdGenPlane const * {
-        TfToken const name("clumpId_" + std::to_string(level));
+    UsdGenOpRecord const &record = *_record;
+    auto const &tk = UsdGenTokens();
+    auto findGuideIds = [&guides, &record](int level) -> UsdGenPlane const * {
+        TfToken const name = ClumpPlaneName(record, level, 0);
         auto const it = std::lower_bound(guides.extraCurve.begin(), guides.extraCurve.end(), name,
             [](UsdGenPlane const &plane, TfToken const &needle) { return plane.name < needle; });
         return it != guides.extraCurve.end() && it->name == name ? &*it : nullptr;
@@ -847,25 +903,24 @@ bool UsdGenGuideInterpolateOp::Capture(
         if (level.weight.empty()) continue; // legacy ID only
         UsdGenPlane const *guideIds = findGuideIds(level.level);
         if (!guideIds || guideIds->i.size() != G) continue;
-        std::string const suffix = std::to_string(level.level);
         UsdGenPlane outId, outCenter, outCenterId, outWeight;
-        outId.name = TfToken("clumpId_" + suffix);
-        outId.interpolation = TfToken("uniform");
-        outId.type = TfToken("int");
+        outId.name = ClumpPlaneName(record, level.level, 0);
+        outId.interpolation = tk.uniform;
+        outId.type = tk.int_;
         outId.i = VtIntArray(R, -1);
-        outCenter.name = TfToken("clumpCenter_" + suffix);
-        outCenter.interpolation = TfToken("uniform");
-        outCenter.type = TfToken("float");
+        outCenter.name = ClumpPlaneName(record, level.level, 1);
+        outCenter.interpolation = tk.uniform;
+        outCenter.type = tk.float_;
         outCenter.arity = 3;
         outCenter.f = VtFloatArray(R * 3, 0.0f);
-        outCenterId.name = TfToken("clumpCenterId_" + suffix);
-        outCenterId.interpolation = TfToken("uniform");
-        outCenterId.type = TfToken("int");
+        outCenterId.name = ClumpPlaneName(record, level.level, 2);
+        outCenterId.interpolation = tk.uniform;
+        outCenterId.type = tk.int_;
         outCenterId.arity = 2;
         outCenterId.i = VtIntArray(R * 2, 0);
-        outWeight.name = TfToken("clumpWeight_" + suffix);
-        outWeight.interpolation = TfToken("vertex");
-        outWeight.type = TfToken("float");
+        outWeight.name = ClumpPlaneName(record, level.level, 3);
+        outWeight.interpolation = tk.vertex;
+        outWeight.type = tk.float_;
         outWeight.f = VtFloatArray(R * n, 0.0f);
         for (size_t c = 0; c < R; ++c) {
             uint32_t selected = UINT32_MAX;
@@ -940,30 +995,30 @@ bool UsdGenGuideInterpolateOp::Capture(
     auto intPlane = [&](TfToken const &name, std::vector<int> const &values, uint8_t arity) {
         UsdGenPlane plane;
         plane.name = name;
-        plane.interpolation = TfToken("uniform");
-        plane.type = TfToken("int");
+        plane.interpolation = tk.uniform;
+        plane.type = tk.int_;
         plane.arity = arity;
         plane.i = VtIntArray(values.begin(), values.end());
         insertPlane(std::move(plane));
     };
-    intPlane(sGuideIndex, planeIndex, 3);
+    intPlane(record.Token(kTokGuideIndex), planeIndex, 3);
     UsdGenPlane weight;
-    weight.name = sGuideWeight;
-    weight.interpolation = TfToken("uniform");
-    weight.type = TfToken("float");
+    weight.name = record.Token(kTokGuideWeight);
+    weight.interpolation = tk.uniform;
+    weight.type = tk.float_;
     weight.arity = 3;
     weight.f = VtFloatArray(planeWeight.begin(), planeWeight.end());
     insertPlane(std::move(weight));
-    intPlane(sPrimaryGuide, primaryGuide, 1);
-    intPlane(sNearestGuide, nearestGuide, 1);
-    intPlane(sPartId, partId, 1);
-    std::vector<int> const guideMirror = CurveInts(guides, sMirrorSign);
+    intPlane(record.Token(kTokPrimaryGuide), primaryGuide, 1);
+    intPlane(record.Token(kTokNearestGuide), nearestGuide, 1);
+    intPlane(record.Token(kTokPartId), partId, 1);
+    std::vector<int> const guideMirror = CurveInts(guides, record.Token(kTokMirrorSign));
     std::vector<int> mirror(R, 1);
     for (size_t c = 0; c < R; ++c) {
         int const g = primaryGuide[c];
         if (g >= 0 && size_t(g) < guideMirror.size()) mirror[c] = guideMirror[size_t(g)] < 0 ? -1 : 1;
     }
-    intPlane(sMirrorSign, mirror, 1);
+    intPlane(record.Token(kTokMirrorSign), mirror, 1);
     return true;
 }
 
@@ -1000,7 +1055,17 @@ void UsdGenGuideInterpolateOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenGuideInterpolateOp().Type(), [] { return std::make_unique<UsdGenGuideInterpolateOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenGuideInterpolate";
+    d.displayName = "GuideInterpolate";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CvCount;
+    d.traits = kUsdGenOpGenerator | kUsdGenOpCaptureOwnsRestAndPlanes;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen
