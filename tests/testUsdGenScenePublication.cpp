@@ -24,11 +24,6 @@
 #include <memory>
 #include <thread>
 #include <vector>
-#if defined(__GLIBC__)
-#include <exception>
-#include <execinfo.h>
-#include <unistd.h>
-#endif
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -600,26 +595,8 @@ def Scope "Groom"
 }
 } // namespace
 
-#if defined(__GLIBC__)
-// DIAGNOSTIC (temporary): print the terminating stack instead of aborting.
-static void UsdGenDiagTerminate()
-{
-    std::fflush(stdout);
-    void *frames[64];
-    int const n = backtrace(frames, 64);
-    std::fprintf(stderr, "DIAG terminate stack:\n");
-    std::fflush(stderr);
-    backtrace_symbols_fd(frames, n, 2);
-    _exit(134);
-}
-#endif
-
 int main()
 {
-#if defined(__GLIBC__)
-    std::set_terminate(&UsdGenDiagTerminate);
-    setvbuf(stdout, nullptr, _IOLBF, 0);
-#endif
     usdGen::usdGenRegisterM1Operators();
     TestProgressiveStormPublication();
     {
@@ -1153,6 +1130,5 @@ def Scope "Groom"
     }
 
     std::printf("testUsdGenScenePublication: %s\n", failures ? "FAILED" : "PASS");
-    std::fflush(stdout);
     return failures ? 1 : 0;
 }
