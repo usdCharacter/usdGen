@@ -348,12 +348,16 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (params.GetBool(TfToken("flip"), false))
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input does not yet support flip frame handedness", reason);
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenScatter"));
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    UsdGenOpId const scatterId = registry.Find(TfToken("UsdGenScatter"));
+    std::unique_ptr<UsdGenOp> op = registry.Create(scatterId);
     if (!op || op->GeometryInputArity() != 0)
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input cannot resolve the authoritative random Scatter kernel", reason);
+    // Slot-resolved view: the kernel reads its parameters by slot.
+    UsdGenStackParams const resolved(desc, node, registry.Record(scatterId));
     UsdGenDiagnostics diagnostics;
-    if (!op->Bind(params, &diagnostics))
+    if (!op->Bind(resolved.View(), &diagnostics))
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     diagnostics.errors.empty() ? "Scatter Bind failed" : diagnostics.errors.front(), reason);
     // Pooled shell (see above): checkout the thread's idle capture or
@@ -367,7 +371,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenCurveBuffer emptyUpstream;
     UsdGenCaptureContext context;
     context.desc = &desc;
-    context.params = &params;
+    context.params = &resolved.View();
     context.surface = static_cast<UsdGenSurfaceId>(surfaceIt - desc.surfaces.begin());
     context.seed = static_cast<uint32_t>(node.seed);
     context.diag = &diagnostics;
