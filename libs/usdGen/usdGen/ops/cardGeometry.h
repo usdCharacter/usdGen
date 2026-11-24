@@ -145,7 +145,7 @@ void MeshCounts(std::vector<Span> const &spans, uint64_t *vertices, uint64_t *in
 
 /// The uniform plane `name` of a curve set with the given arity, int or float,
 /// sized to the curve count; null when absent or malformed.
-UsdGenPlane const *CurvePlane(UsdGenCurveBuffer const &set, TfToken const &name, uint8_t arity = 1);
+UsdGenPlane const *CurvePlane(UsdGenCurveBuffer const &set, char const *name, uint8_t arity = 1);
 
 /// A uniform scalar plane read as int or float whichever way it was authored.
 struct PlaneColumn
