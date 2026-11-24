@@ -7,6 +7,7 @@
 #include "usdGenImaging/usdGenInstancer.h"
 
 #include "pxr/base/gf/matrix4d.h"
+#include "pxr/base/tf/staticTokens.h"
 #include "pxr/base/gf/quatd.h"
 #include "pxr/base/gf/quath.h"
 #include "pxr/base/gf/vec2f.h"
@@ -37,6 +38,22 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenImaging {
+// Built on first use by CAS (TfStaticData), not in guarded function statics.
+namespace {
+TF_DEFINE_PRIVATE_TOKENS(_instancerTokens,
+    ((constant, "constant"))
+    ((linear, "linear"))
+    ((catmullRom, "catmullRom"))
+    ((bspline, "bspline"))
+    ((cards, "cards"))
+    ((spheres, "spheres"))
+    ((archives, "archives"))
+    ((surfaceFrame, "surfaceFrame"))
+    ((curveTangent, "curveTangent"))
+    ((world, "world"))
+);
+}  // namespace
+
 
 namespace {
 
@@ -281,10 +298,10 @@ float
 _RampEvalOne(VtVec2fArray const &knots, TfToken const &interpolation, float u)
 {
     u = _RampClampU(u);
-    static const TfToken sConstant{"constant"};
-    static const TfToken sLinear{"linear"};
-    static const TfToken sCatmullRom{"catmullRom"};
-    static const TfToken sBspline{"bspline"};
+    TfToken const &sConstant = _instancerTokens->constant;
+    TfToken const &sLinear = _instancerTokens->linear;
+    TfToken const &sCatmullRom = _instancerTokens->catmullRom;
+    TfToken const &sBspline = _instancerTokens->bspline;
     if (knots.size() < 2) return 1.0f;
     if (u <= float(knots.front()[0])) return float(knots.front()[1]);
     if (u >= float(knots.back()[0]))  return float(knots.back()[1]);
@@ -504,43 +521,37 @@ _InstancePrimvar(HdSampledDataSourceHandle const &values,
 /*static*/ TfToken const &
 UsdGenInstancer::PrimitiveCards()
 {
-    static TfToken const token("cards");
-    return token;
+    return _instancerTokens->cards;
 }
 
 /*static*/ TfToken const &
 UsdGenInstancer::PrimitiveSpheres()
 {
-    static TfToken const token("spheres");
-    return token;
+    return _instancerTokens->spheres;
 }
 
 /*static*/ TfToken const &
 UsdGenInstancer::PrimitiveArchives()
 {
-    static TfToken const token("archives");
-    return token;
+    return _instancerTokens->archives;
 }
 
 /*static*/ TfToken const &
 UsdGenInstancer::OrientSurfaceFrame()
 {
-    static TfToken const token("surfaceFrame");
-    return token;
+    return _instancerTokens->surfaceFrame;
 }
 
 /*static*/ TfToken const &
 UsdGenInstancer::OrientCurveTangent()
 {
-    static TfToken const token("curveTangent");
-    return token;
+    return _instancerTokens->curveTangent;
 }
 
 /*static*/ TfToken const &
 UsdGenInstancer::OrientWorld()
 {
-    static TfToken const token("world");
-    return token;
+    return _instancerTokens->world;
 }
 
 // -- paths --------------------------------------------------------------------

@@ -9,6 +9,7 @@
 #include "usdGenImaging/usdGenTokens.h"
 
 #include "pxr/base/tf/diagnostic.h"
+#include "pxr/base/tf/staticTokens.h"
 #include "pxr/base/tf/envSetting.h"
 #include "pxr/base/tf/getenv.h"
 #include "pxr/base/trace/trace.h"
@@ -43,6 +44,28 @@ TF_DEFINE_ENV_SETTING(USDGEN_SCALP_SHADOW_MASK, -1,
     "publishes no mask, leaving the translucent cap to darken on its own.");
 
 namespace usdGenImaging {
+// Built on first use by CAS (TfStaticData), not in guarded function statics.
+namespace {
+TF_DEFINE_PRIVATE_TOKENS(_tilePublisherTokens,
+    ((materialPreview, "material_preview"))
+    ((materialPreviewFlat, "material_preview_flat"))
+    ((surface, "surface"))
+    ((displayColorReader, "DisplayColor"))
+    ((result, "result"))
+    ((hairStrands, "UsdGenHairStrands"))
+    ((shading, "shading"))
+    ((scalpShadow, "scalpShadow"))
+    ((materialScalpShadow, "material_scalpShadow"))
+    ((scalpShadowId, "UsdGenScalpShadow"))
+    ((scalpShadowMask, "scalpShadowMask"))
+    ((materialScalpShadowMask, "material_scalpShadowMask"))
+    ((scalpShadowMaskId, "UsdGenScalpShadowMask"))
+    ((baseColor, "baseColor"))
+    ((maskLevels, "maskLevels"))
+);
+std::atomic<int> s_scalpShadowMaskLevels{-1};  // -1 until first read
+}  // namespace
+
 
 namespace {
 
@@ -531,7 +554,7 @@ UsdGenTilePublisher::DefaultMaterialPath(SdfPath const &tilePath)
 SdfPath
 UsdGenTilePublisher::PreviewMaterialPath(SdfPath const &descriptionPath, bool flat)
 {
-    static TfToken const lit("material_preview"), flatName("material_preview_flat");
+    TfToken const &lit = _tilePublisherTokens->materialPreview, &flatName = _tilePublisherTokens->materialPreviewFlat;
     return descriptionPath.AppendChild(RenderNamespace())
         .AppendChild(flat ? flatName : lit);
 }
@@ -557,7 +580,7 @@ HdContainerDataSourceHandle
 _Network(TfToken const &identifier, HdContainerDataSourceHandle const &parameters,
          HdContainerDataSourceHandle const &inputConnections)
 {
-    static TfToken const surface("surface");
+    TfToken const &surface = _tilePublisherTokens->surface;
     HdContainerDataSourceHandle const node =
         HdMaterialNodeSchema::Builder()
             .SetNodeIdentifier(_Tok(identifier))
@@ -611,9 +634,9 @@ _Param(TfToken const &value)
 HdContainerDataSourceHandle
 _PreviewNetwork(GfVec3f const &rootFallback)
 {
-    static TfToken const surface("surface");
-    static TfToken const reader("DisplayColor");
-    static TfToken const result("result");
+    TfToken const &surface = _tilePublisherTokens->surface;
+    TfToken const &reader = _tilePublisherTokens->displayColorReader;
+    TfToken const &result = _tilePublisherTokens->result;
     HdDataSourceBaseHandle const connection =
         HdMaterialConnectionSchema::Builder()
             .SetUpstreamNodePath(_Tok(reader))
@@ -771,7 +794,7 @@ UsdGenTilePublisher::DefaultMaterialIdentifier()
     // A groom is exactly the case the OIT budget cannot take, so the default
     // is the opaque one. Bind UsdGenHairStrandsTranslucent by hand for a hero
     // shot of a groom that fits the budget: it is smoother, with no dither.
-    static TfToken const identifier("UsdGenHairStrands");
+    TfToken const &identifier = _tilePublisherTokens->hairStrands;
     return identifier;
 }
 
@@ -794,7 +817,7 @@ UsdGenTilePublisher::DefaultMaterialLookDigest(
 HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildPreviewMaterialDataSource(bool flat)
 {
-    static TfToken const shading("shading");
+    TfToken const &shading = _tilePublisherTokens->shading;
     HdDataSourceBaseHandle const value = HdMaterialNodeParameterSchema::Builder()
         .SetValue(HdRetainedTypedSampledDataSource<float>::New(flat ? 0.0f : 1.0f))
         .Build();
@@ -809,7 +832,7 @@ UsdGenTilePublisher::BuildPreviewMaterialDataSource(bool flat)
 SdfPath
 UsdGenTilePublisher::ScalpShadowPath(SdfPath const &descriptionPath)
 {
-    static TfToken const name("scalpShadow");
+    TfToken const &name = _tilePublisherTokens->scalpShadow;
     return descriptionPath.AppendChild(RenderNamespace()).AppendChild(name);
 }
 
@@ -817,7 +840,7 @@ UsdGenTilePublisher::ScalpShadowPath(SdfPath const &descriptionPath)
 SdfPath
 UsdGenTilePublisher::ScalpShadowMaterialPath(SdfPath const &descriptionPath)
 {
-    static TfToken const name("material_scalpShadow");
+    TfToken const &name = _tilePublisherTokens->materialScalpShadow;
     return descriptionPath.AppendChild(RenderNamespace()).AppendChild(name);
 }
 
@@ -825,7 +848,7 @@ UsdGenTilePublisher::ScalpShadowMaterialPath(SdfPath const &descriptionPath)
 TfToken const &
 UsdGenTilePublisher::ScalpShadowIdentifier()
 {
-    static TfToken const identifier("UsdGenScalpShadow");
+    TfToken const &identifier = _tilePublisherTokens->scalpShadowId;
     return identifier;
 }
 
@@ -833,7 +856,7 @@ UsdGenTilePublisher::ScalpShadowIdentifier()
 SdfPath
 UsdGenTilePublisher::ScalpShadowMaskPath(SdfPath const &descriptionPath)
 {
-    static TfToken const name("scalpShadowMask");
+    TfToken const &name = _tilePublisherTokens->scalpShadowMask;
     return descriptionPath.AppendChild(RenderNamespace()).AppendChild(name);
 }
 
@@ -841,7 +864,7 @@ UsdGenTilePublisher::ScalpShadowMaskPath(SdfPath const &descriptionPath)
 SdfPath
 UsdGenTilePublisher::ScalpShadowMaskMaterialPath(SdfPath const &descriptionPath)
 {
-    static TfToken const name("material_scalpShadowMask");
+    TfToken const &name = _tilePublisherTokens->materialScalpShadowMask;
     return descriptionPath.AppendChild(RenderNamespace()).AppendChild(name);
 }
 
@@ -849,7 +872,7 @@ UsdGenTilePublisher::ScalpShadowMaskMaterialPath(SdfPath const &descriptionPath)
 TfToken const &
 UsdGenTilePublisher::ScalpShadowMaskIdentifier()
 {
-    static TfToken const identifier("UsdGenScalpShadowMask");
+    TfToken const &identifier = _tilePublisherTokens->scalpShadowMaskId;
     return identifier;
 }
 
@@ -858,13 +881,16 @@ int
 UsdGenTilePublisher::ScalpShadowMaskLevels()
 {
     // Read once: the materials and the mask prim must agree for the whole
-    // session, and the task controller reads its own setting once too.
-    static int const levels = [] {
-        int value = TfGetEnvSetting(USDGEN_SCALP_SHADOW_MASK);
-        if (value < 0) value = TfGetenvInt("HDX_MSAA_SAMPLE_COUNT", 4);
-        value = std::clamp(value, 0, 16);
-        return value < 2 ? 0 : value;
-    }();
+    // session, and the task controller reads its own setting once too. The
+    // first value installed by CAS wins.
+    int levels = s_scalpShadowMaskLevels.load(std::memory_order_acquire);
+    if (levels >= 0) return levels;
+    int value = TfGetEnvSetting(USDGEN_SCALP_SHADOW_MASK);
+    if (value < 0) value = TfGetenvInt("HDX_MSAA_SAMPLE_COUNT", 4);
+    value = std::clamp(value, 0, 16);
+    value = value < 2 ? 0 : value;
+    if (s_scalpShadowMaskLevels.compare_exchange_strong(levels, value, std::memory_order_acq_rel))
+        return value;
     return levels;
 }
 
@@ -990,8 +1016,8 @@ HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildScalpShadowMaterialDataSource(
     usdGen::UsdGenLookDesc const &look, int maskLevels, bool mask)
 {
-    static TfToken const baseColor("baseColor");
-    static TfToken const levels("maskLevels");
+    TfToken const &baseColor = _tilePublisherTokens->baseColor;
+    TfToken const &levels = _tilePublisherTokens->maskLevels;
     GfVec3f const root = ScalpShadowAlbedo(look);
     TfToken const names[] = {baseColor, levels};
     HdDataSourceBaseHandle const values[] = {

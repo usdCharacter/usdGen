@@ -141,25 +141,28 @@ _HUsdGen(HdContainerDataSourceHandle const &primDs)
     return primDs;
 }
 
+// Built at library load, not on first use (no guarded function statics).
+std::unordered_set<std::string> const s_hydraStockNames{
+    "__usdGenValidationErrors",
+    "primvars", "xform", "mesh", "basisCurves", "geomSubset",
+    "points", "widths", "visibility", "purpose", "materialBindings",
+    "extent", "proxyPrim", "xformOpOrder", "model", "geomModel",
+    "primOrigin", "__usdPrimInfo", "__usdUpAxis", "skelBinding",
+    "coordSysBinding", "usdMaterialBindings", "displayStyle",
+    "categories",
+    // Adapter-owned derived metadata is consumed explicitly by the
+    // builder and must not enter S14's authored parameter sweep.
+    "expressionBindings", "expressions", "operatorOrder",
+    "usdGenRuntime", "usdGenCurveRest",
+};
+
 // Stock-served top-level names sharing the overlaid prim root. The S14 sweep
 // must not mistake them for mapped usdGen:* properties (the stage builder's
 // prefix filter has no Hydra equivalent once the overlay flattens serving).
 bool
 _HIsStock(std::string const &name)
 {
-    static std::unordered_set<std::string> const stock{
-        "__usdGenValidationErrors",
-        "primvars", "xform", "mesh", "basisCurves", "geomSubset",
-        "points", "widths", "visibility", "purpose", "materialBindings",
-        "extent", "proxyPrim", "xformOpOrder", "model", "geomModel",
-        "primOrigin", "__usdPrimInfo", "__usdUpAxis", "skelBinding",
-        "coordSysBinding", "usdMaterialBindings", "displayStyle",
-        "categories",
-        // Adapter-owned derived metadata is consumed explicitly by the
-        // builder and must not enter S14's authored parameter sweep.
-        "expressionBindings", "expressions", "operatorOrder",
-        "usdGenRuntime", "usdGenCurveRest",
-    };
+    std::unordered_set<std::string> const &stock = s_hydraStockNames;
     if (stock.count(name) != 0) {
         return true;
     }
@@ -390,6 +393,13 @@ _HForwardSourceColor(HdContainerDataSourceHandle const &primDs, _HdTime t,
     out->authoredPlanes.push_back(std::move(plane));
 }
 
+// Built at library load, not on first use (no guarded function statics).
+std::set<TfToken> const s_reservedCurvePlanes{
+    TfToken("points"), TfToken("rest"), TfToken("widths"), TfToken("st"),
+    TfToken("skinprim"), TfToken("skinprimuv"), TfToken("displayColor"),
+    TfToken("usdGen:curveId"), TfToken("usdGen:rootFrame"),
+    TfToken("usdGen:role"), usdGen::UsdGenSourceColorPlane()};
+
 // Mirror the Stage builder's generic authored-plane import. Hydra presents
 // primvars by local name and flattens indexed values before GetPrimvarValue.
 // Native clump fields fail closed: dropping one would silently change motion.
@@ -399,11 +409,7 @@ _HForwardAuthoredPlanes(HdContainerDataSourceHandle const &primDs,
                         usdGen::UsdGenCurveSetDesc *out,
                         std::vector<std::string> *errors)
 {
-    static std::set<TfToken> const reserved{
-        TfToken("points"), TfToken("rest"), TfToken("widths"), TfToken("st"),
-        TfToken("skinprim"), TfToken("skinprimuv"), TfToken("displayColor"),
-        TfToken("usdGen:curveId"), TfToken("usdGen:rootFrame"),
-        TfToken("usdGen:role"), usdGen::UsdGenSourceColorPlane()};
+    std::set<TfToken> const &reserved = s_reservedCurvePlanes;
     auto const isClump = [](std::string const &name) {
         return name.rfind("clumpId_", 0) == 0 ||
                name.rfind("clumpCenter_", 0) == 0 ||

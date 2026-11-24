@@ -1,16 +1,17 @@
 #include "usdGenImaging/imageMapCache.h"
+#include "usdGenImaging/atomicShared.h"
+
+#include "usdGen/parkingWord.h"
 
 #include "pxr/imaging/hio/image.h"
 #include "pxr/imaging/hio/types.h"
 
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <limits>
-#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -26,24 +27,28 @@ struct Key {
         return generation == rhs.generation && path == rhs.path;
     }
 };
+// A loading entry is inserted by CAS; the caller that inserted it decodes,
+// and later callers for the key park on its state word until it completes.
 struct Entry {
-    enum class State : uint8_t { Loading, Ready, Failed };
-    State state = State::Loading;
+    enum : uint32_t { kLoading = 0, kReady = 1, kFailed = 2 };
+    std::atomic<uint32_t> state{kLoading};
+    // Written once, before the release store that leaves kLoading.
     std::shared_ptr<const UsdGenDecodedImageMap> result;
-    std::condition_variable complete;
 };
-using Table = std::vector<std::pair<Key, std::shared_ptr<Entry>>>;
-struct Cache {
-    std::mutex mutex;
-    // A copy-on-write table keeps all entry/table allocation and retirement
-    // out of the mutex. Image maps are few, so linear lookup is intentional.
-    std::shared_ptr<const Table> entries = std::make_shared<Table>();
-    std::atomic<uint64_t> generation{1};
+// Immutable once published. The generation lives in the table, so swapping
+// the table is the invalidation. Image maps are few: linear lookup.
+struct Table {
+    uint64_t generation = 1;
+    std::vector<std::pair<Key, std::shared_ptr<Entry>>> entries;
 };
-Cache& GetCache() {
-    static auto* cache = new Cache;
-    return *cache;
+// Null until the first insert or invalidation: generation 1, no entries.
+UsdGenAtomicShared<Table const> g_table;
+
+uint64_t GenerationOf(std::shared_ptr<Table const> const& table) noexcept {
+    return table ? table->generation : 1;
 }
+
+constexpr char kDecodePrefix[] = "[ImageMapDecode] ";
 
 float HalfToFloat(uint16_t bits) noexcept {
     uint32_t const sign = uint32_t(bits & 0x8000u) << 16;
@@ -124,12 +129,12 @@ UsdGenDecodedImageMap Decode(std::string const& path, uint64_t generation) {
 } // namespace
 
 uint64_t CurrentUsdGenImageMapGeneration() noexcept {
-    return GetCache().generation.load(std::memory_order_acquire);
+    return GenerationOf(g_table.Load());
 }
 
 void ResolveUsdGenImageMaps(usdGen::UsdGenGraphDesc* desc) {
     if (!desc) return;
-    static std::string const prefix = "[ImageMapDecode] ";
+    std::string const prefix = kDecodePrefix;
     desc->validationErrors.erase(std::remove_if(
         desc->validationErrors.begin(), desc->validationErrors.end(),
         [&](std::string const& error) { return error.rfind(prefix, 0) == 0; }),
@@ -163,74 +168,52 @@ void ResolveUsdGenImageMaps(usdGen::UsdGenGraphDesc* desc) {
 }
 
 uint64_t InvalidateUsdGenImageMapCache() noexcept {
-    Cache& cache = GetCache();
-    // Move all owners out while locked, but let every payload/entry destructor
-    // run after unlock. In-flight plans retain their own shared references.
-    auto empty = std::make_shared<Table>();
-    std::shared_ptr<const Table> retired;
-    uint64_t next = 0;
-    {
-        std::lock_guard<std::mutex> lock(cache.mutex);
-        uint64_t const current = cache.generation.load(std::memory_order_relaxed);
+    // Swap in an empty table of the next generation. The old table, its
+    // entries and payloads retire through the epochs; in-flight plans retain
+    // their own shared references.
+    for (;;) {
+        std::shared_ptr<Table const> current = g_table.Load();
+        uint64_t const generation = GenerationOf(current);
         // Wrapping would make a stale decoded payload current again.
-        if (current == std::numeric_limits<uint64_t>::max()) std::terminate();
-        next = current + 1;
-        cache.generation.store(next, std::memory_order_release);
-        retired = std::move(cache.entries);
-        cache.entries = std::move(empty);
+        if (generation == std::numeric_limits<uint64_t>::max()) std::terminate();
+        auto next = std::make_shared<Table>();
+        next->generation = generation + 1;
+        if (g_table.CompareExchange(current, std::move(next))) return generation + 1;
     }
-    return next;
 }
 
 UsdGenDecodedImageMap ResolveUsdGenImageMap(std::string const& path) {
-    Cache& cache = GetCache();
-    auto find = [](std::shared_ptr<const Table> const& table, Key const& key) {
-        auto it = std::find_if(table->begin(), table->end(), [&](auto const& item) {
-            return item.first == key;
-        });
-        return it == table->end() ? std::shared_ptr<Entry>() : it->second;
-    };
     for (;;) {
-        uint64_t const generation = CurrentUsdGenImageMapGeneration();
+        std::shared_ptr<Table const> table = g_table.Load();
+        uint64_t const generation = GenerationOf(table);
         Key const key{path, generation};
         std::shared_ptr<Entry> entry;
-        bool decode = false;
-        {
-            std::unique_lock<std::mutex> lock(cache.mutex);
-            if (generation != cache.generation.load(std::memory_order_acquire))
-                continue;
-            auto table = cache.entries;
-            entry = find(table, key);
-            if (!entry) {
-                lock.unlock();
-                auto candidate = std::make_shared<Entry>();
-                auto replacement = std::make_shared<Table>(*table);
-                replacement->push_back({key, candidate});
-                lock.lock();
-                if (generation != cache.generation.load(std::memory_order_acquire) ||
-                    cache.entries != table)
-                    continue;
-                cache.entries = std::move(replacement);
-                entry = std::move(candidate); decode = true;
-            }
-            if (!decode && entry->state == Entry::State::Loading)
-                entry->complete.wait(lock, [&] { return entry->state != Entry::State::Loading; });
-            if (!decode && generation != CurrentUsdGenImageMapGeneration()) {
-                lock.unlock();
-                continue;
-            }
-            if (!decode) {
-                auto result = entry->result;
-                lock.unlock();
-                return result ? *result : UsdGenDecodedImageMap{
-                    {}, generation, "ImageMap cache entry completed without a result"};
-            }
-            lock.unlock();
+        if (table) {
+            for (auto const& item : table->entries)
+                if (item.first == key) { entry = item.second; break; }
         }
-        // Decode, image allocation, and ImagePayload construction occur with
-        // no cache mutex held.
+        if (!entry) {
+            // Insert a loading entry; a lost CAS (another insert or an
+            // invalidation) retries against the new table.
+            auto candidate = std::make_shared<Entry>();
+            auto next = std::make_shared<Table>();
+            next->generation = generation;
+            if (table) next->entries = table->entries;
+            next->entries.push_back({key, candidate});
+            if (!g_table.CompareExchange(table, std::move(next))) continue;
+            entry = std::move(candidate);
+        } else {
+            uint32_t state;
+            while ((state = entry->state.load(std::memory_order_acquire)) == Entry::kLoading)
+                usdGen::UsdGenParkWhileEqual(entry->state, Entry::kLoading);
+            if (generation != CurrentUsdGenImageMapGeneration()) continue;
+            auto const& result = entry->result;
+            return result ? *result : UsdGenDecodedImageMap{
+                {}, generation, "ImageMap cache entry completed without a result"};
+        }
+        // This caller inserted the entry: decode outside any shared state.
         // A throwing decode must still complete the entry, or every waiter
-        // on it blocks forever.
+        // on it parks forever.
         UsdGenDecodedImageMap decoded;
         std::shared_ptr<const UsdGenDecodedImageMap> completed;
         try {
@@ -246,12 +229,9 @@ UsdGenDecodedImageMap ResolveUsdGenImageMap(std::string const& path) {
             try { completed = std::make_shared<const UsdGenDecodedImageMap>(decoded); }
             catch (...) {}   // waiters then report a missing result
         }
-        {
-            std::lock_guard<std::mutex> lock(cache.mutex);
-            entry->result = std::move(completed);
-            entry->state = decoded ? Entry::State::Ready : Entry::State::Failed;
-            entry->complete.notify_all();
-        }
+        entry->result = std::move(completed);
+        entry->state.store(decoded ? Entry::kReady : Entry::kFailed, std::memory_order_release);
+        usdGen::UsdGenUnparkAll(entry->state);
         if (generation != CurrentUsdGenImageMapGeneration()) continue;
         return decoded;
     }
