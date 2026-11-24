@@ -1334,18 +1334,8 @@ struct UsdGenPomadeSceneIndex::_Shared {
     template <class Edit>
     void EditTiles(Edit &&edit)
     {
-        for (;;) {
-            usdGen::UsdGenRef<Tiles> const current = tiles.Load();
-            usdGen::UsdGenRef<Tiles> next = current
-                ? usdGen::UsdGenMakeRef<Tiles>(*current)
-                : usdGen::UsdGenMakeRef<Tiles>();
-            if (!edit(next->paths)) {
-                return;
-            }
-            if (tiles.CompareExchange(current, next)) {
-                return;
-            }
-        }
+        (void)usdGen::UsdGenCowUpdateIf(
+            tiles, [&](Tiles &t) { return edit(t.paths); });
     }
 };
 

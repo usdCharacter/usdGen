@@ -1343,8 +1343,11 @@ private:
     // (tubeId, reason) per tube the last refill skipped (RefillDrops).
     std::vector<std::pair<int, std::string>> _refillDrops;
     // Single writer: every member is owned by the authoring thread. Other
-    // threads read only the published state below (GetVersion is atomic).
-    std::atomic<PomadeModelState const *> _published{nullptr};
+    // threads read only the published state below (GetVersion is atomic):
+    // a usdGen::UsdGenAtomicRef behind this pointer, so this header needs no
+    // usdGen include.
+    struct _Published;
+    std::unique_ptr<_Published> _published;
     // P2 state. The bake and commit workers never read the live model:
     // the bake takes a PomadeBakeInput, the committer the published state.
     std::shared_ptr<PomadeScalpMesh> _scalp;

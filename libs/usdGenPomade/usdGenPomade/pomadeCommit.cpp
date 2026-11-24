@@ -1,12 +1,13 @@
 // usdGenPomade — the asynchronous commit pipeline (plan/17 section 3, P1).
 #include "usdGenPomade/pomadeCommit.h"
-#include "usdGenPomade/pomadeLane.h"
 #include "usdGenPomade/pomadeModelState.h"
 #include "usdGenPomade/pomadeBake.h"
 
 // The cook the stage swap starts lives on the description's imaging
 // session; cancelling it is the plan/17 §3.2 rule 2 half of G7.
 #include "usdGenImaging/usdGenImagingSession.h"
+
+#include "usdGen/parkingWord.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/vec2f.h"
@@ -3679,9 +3680,12 @@ PomadeSaveGroomAndMaps(UsdStagePtr const &stage, SdfLayerHandle const &live,
 
 // The lane's shared state (see the header).
 struct PomadeCommitter::_Lane {
-    struct Request {
+    struct Request : usdGen::UsdGenRefCounted {
         uint64_t version = 0;
         PomadeFillPlan plan;
+    };
+    struct Diagnostic : usdGen::UsdGenRefCounted {
+        std::string text;
     };
     struct Paths : usdGen::UsdGenRefCounted {
         PomadeCommitPaths paths;
@@ -3700,12 +3704,20 @@ struct PomadeCommitter::_Lane {
                                                 std::memory_order_acq_rel);
         }
     };
-    PomadeMailbox<Request> pending;
+    // Newest-wins handoffs; the worker parks on `wake`, reading it BEFORE
+    // it checks for work, so a Notify in between makes the park return.
+    usdGen::UsdGenNewestWins<Request> pending;
     usdGen::UsdGenAtomicRef<Paths> paths;
     usdGen::UsdGenAtomicRef<Built> ready;
     usdGen::UsdGenRef<Built> partial;  // UI thread: the layer in transfer
-    PomadeMailbox<std::string> diagnostic;
-    PomadeWakeWord wake;
+    usdGen::UsdGenNewestWins<Diagnostic> diagnostic;
+    std::atomic<uint32_t> wake{0};
+
+    void Notify()
+    {
+        wake.fetch_add(1u, std::memory_order_seq_cst);
+        usdGen::UsdGenUnparkAll(wake);
+    }
 
     uint64_t ReadyVersion() const
     {
@@ -3721,8 +3733,9 @@ struct PomadeCommitter::_Lane {
     }
     void Diagnose(std::string text)
     {
-        diagnostic.Publish(std::unique_ptr<std::string>(
-            new std::string(std::move(text))));
+        auto d = usdGen::UsdGenMakeRef<Diagnostic>();
+        d->text = std::move(text);
+        diagnostic.Publish(std::move(d));
     }
 };
 
@@ -3738,8 +3751,8 @@ PomadeCommitter::PomadeCommitter(PomadeModel *model, PomadeCommitPaths paths)
 
 PomadeCommitter::~PomadeCommitter()
 {
-    _stop.store(true, std::memory_order_release);
-    _lane->wake.Notify();
+    _stop.store(true, std::memory_order_seq_cst);
+    _lane->Notify();
     if (_worker.joinable()) {
         _worker.join();
     }
@@ -3850,7 +3863,7 @@ PomadeCommitter::EnqueuePlan(PomadeFillPlan const &plan,
     // The worker builds from the newest published state, never the live
     // model, so publish before the request becomes visible.
     _model->PublishState();
-    std::unique_ptr<_Lane::Request> request(new _Lane::Request());
+    auto request = usdGen::UsdGenMakeRef<_Lane::Request>();
     request->version = _model->GetVersion();
     request->plan = plan;
     if (request->plan.opPath.IsEmpty()) {
@@ -3858,7 +3871,7 @@ PomadeCommitter::EnqueuePlan(PomadeFillPlan const &plan,
     }
     _pendingVersionAtomic.store(request->version);
     _lane->pending.Publish(std::move(request));
-    _lane->wake.Notify();
+    _lane->Notify();
 }
 
 void
@@ -3903,7 +3916,7 @@ PomadeCommitter::Reattach()
     // A new live-layer lineage: the fresh live layer carries nothing yet,
     // whatever the old lineage committed.
     _committedVersion.store(0);
-    _lane->wake.Notify();
+    _lane->Notify();
 }
 
 bool
@@ -3916,16 +3929,16 @@ void
 PomadeCommitter::_WorkerLoop()
 {
     for (;;) {
-        uint32_t const seen = _lane->wake.Sequence();
-        if (_stop.load(std::memory_order_acquire)) {
+        uint32_t const seen = _lane->wake.load(std::memory_order_seq_cst);
+        if (_stop.load(std::memory_order_seq_cst)) {
             return;
         }
-        std::unique_ptr<_Lane::Request> request;
-        if (!_paused.load(std::memory_order_acquire) && !_detached.load()) {
+        usdGen::UsdGenRef<_Lane::Request> request;
+        if (!_paused.load(std::memory_order_seq_cst) && !_detached.load()) {
             request = _lane->pending.Take();
         }
         if (!request) {
-            _lane->wake.Park(seen);
+            usdGen::UsdGenParkWhileEqual(_lane->wake, seen);
             continue;
         }
         if (request->version <= _lane->ReadyVersion()) {
@@ -4421,8 +4434,8 @@ PomadeCommitter::_SwapPartialSlot(SdfLayerHandle const &live,
 void
 PomadeCommitter::PauseWorker(bool pause)
 {
-    _paused.store(pause, std::memory_order_release);
-    _lane->wake.Notify();
+    _paused.store(pause, std::memory_order_seq_cst);
+    _lane->Notify();
 }
 
 void
@@ -4450,8 +4463,8 @@ PomadeCommitter::ThrowOnNextBuildsForTest(int count)
 std::string
 PomadeCommitter::TakeDiagnostic()
 {
-    std::unique_ptr<std::string> d = _lane->diagnostic.Take();
-    return d ? std::move(*d) : std::string();
+    usdGen::UsdGenRef<_Lane::Diagnostic> d = _lane->diagnostic.Take();
+    return d ? std::move(d->text) : std::string();
 }
 
 uint64_t

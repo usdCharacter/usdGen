@@ -21,7 +21,6 @@
 
 #include "usdGenPomade/api.h"
 
-#include <atomic>
 #include <cstdint>
 
 namespace usdGenPomade {
@@ -49,13 +48,16 @@ public:
 
 class USDGENPOMADE_API PomadeRegistry {
 public:
-    // Constant-initialised and trivially destructible: Hydra scene indices
+    // Constant-initialised and trivially destructible, and so is the table
+    // cell behind it (a leaked process-lifetime object): Hydra scene indices
     // can be destroyed during static destruction, and DetachIndex must not
-    // touch a registry that has already run its own destructor.
+    // touch anything that has already run its destructor.
     //
     // The tables are copy-on-write, published by atomic pointer: readers
     // pin an epoch, take a reference and never wait; writers build the next
-    // table and CAS it in, retiring the old one through the epochs.
+    // table and CAS it in, retiring the old one through the epochs. Ids are
+    // handed out by the table itself, so they grow in publish order and the
+    // table stays sorted however registrations race.
     static PomadeRegistry &Get();
 
     // Model lifetime. Register returns a model id > 0; Unregister on the
@@ -91,8 +93,6 @@ private:
     PomadeRegistry &operator=(PomadeRegistry const &) = delete;
 
     static PomadeRegistry _instance;
-    std::atomic<PomadeRegistryTable const *> _table{nullptr};
-    std::atomic<int> _nextId{1};
 };
 
 } // namespace usdGenPomade

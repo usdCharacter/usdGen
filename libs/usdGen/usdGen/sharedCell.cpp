@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "usdGen/sharedCell.h"
 
+#include "usdGen/parkingWord.h"
+
 namespace usdGen {
 namespace {
 
@@ -9,6 +11,9 @@ namespace {
 // ABA. Constant-initialized and trivially destructible: nothing runs at DLL
 // detach.
 UsdGenTreiberStack<UsdGenSharedCellHolder, &UsdGenSharedCellHolder::freeNext> gFree;
+// Bumped whenever a UsdGenLazyLeaked slot leaves its sentinel; first callers
+// that lost the claim park on it. Constant-initialized, never destroyed.
+std::atomic<uint32_t> gLazySequence{0};
 // This thread's spare holders (see UsdGenSharedCellAcquire).
 thread_local UsdGenSharedCellHolder *tlsSpare = nullptr;
 
@@ -55,6 +60,22 @@ void UsdGenSharedCellRecycle(UsdGenSharedCellHolder *h) noexcept
 void UsdGenSharedCellRetire(UsdGenSharedCellHolder *h) noexcept
 {
     UsdGenEpochRetire(h, &RecycleDeleter);
+}
+
+uint32_t UsdGenLazyLeakedSequence() noexcept
+{
+    return gLazySequence.load(std::memory_order_seq_cst);
+}
+
+void UsdGenLazyLeakedPark(uint32_t seen) noexcept
+{
+    UsdGenParkWhileEqual(gLazySequence, seen);
+}
+
+void UsdGenLazyLeakedPublished() noexcept
+{
+    gLazySequence.fetch_add(1, std::memory_order_seq_cst);
+    UsdGenUnparkAll(gLazySequence);
 }
 
 }  // namespace usdGen

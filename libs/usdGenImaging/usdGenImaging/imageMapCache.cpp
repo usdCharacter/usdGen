@@ -42,7 +42,12 @@ struct Table {
     std::vector<std::pair<Key, std::shared_ptr<Entry>>> entries;
 };
 // Null until the first insert or invalidation: generation 1, no entries.
-usdGen::UsdGenSharedCell<Table const> g_table;
+// The cell is leaked, so no decoded map is freed during static destruction.
+std::atomic<usdGen::UsdGenSharedCell<Table const> *> g_table{nullptr};
+usdGen::UsdGenSharedCell<Table const> &TableCell()
+{
+    return usdGen::UsdGenLazyLeaked(g_table);
+}
 
 uint64_t GenerationOf(std::shared_ptr<Table const> const& table) noexcept {
     return table ? table->generation : 1;
@@ -129,7 +134,7 @@ UsdGenDecodedImageMap Decode(std::string const& path, uint64_t generation) {
 } // namespace
 
 uint64_t CurrentUsdGenImageMapGeneration() noexcept {
-    return GenerationOf(g_table.Load());
+    return GenerationOf(TableCell().Load());
 }
 
 void ResolveUsdGenImageMaps(usdGen::UsdGenGraphDesc* desc) {
@@ -172,19 +177,19 @@ uint64_t InvalidateUsdGenImageMapCache() noexcept {
     // entries and payloads retire through the epochs; in-flight plans retain
     // their own shared references.
     for (;;) {
-        std::shared_ptr<Table const> current = g_table.Load();
+        std::shared_ptr<Table const> current = TableCell().Load();
         uint64_t const generation = GenerationOf(current);
         // Wrapping would make a stale decoded payload current again.
         if (generation == std::numeric_limits<uint64_t>::max()) std::terminate();
         auto next = std::make_shared<Table>();
         next->generation = generation + 1;
-        if (g_table.CompareExchange(current, std::move(next))) return generation + 1;
+        if (TableCell().CompareExchange(current, std::move(next))) return generation + 1;
     }
 }
 
 UsdGenDecodedImageMap ResolveUsdGenImageMap(std::string const& path) {
     for (;;) {
-        std::shared_ptr<Table const> table = g_table.Load();
+        std::shared_ptr<Table const> table = TableCell().Load();
         uint64_t const generation = GenerationOf(table);
         Key const key{path, generation};
         std::shared_ptr<Entry> entry;
@@ -200,7 +205,7 @@ UsdGenDecodedImageMap ResolveUsdGenImageMap(std::string const& path) {
             next->generation = generation;
             if (table) next->entries = table->entries;
             next->entries.push_back({key, candidate});
-            if (!g_table.CompareExchange(table, std::move(next))) continue;
+            if (!TableCell().CompareExchange(table, std::move(next))) continue;
             entry = std::move(candidate);
         } else {
             uint32_t state;

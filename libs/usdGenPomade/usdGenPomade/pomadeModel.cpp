@@ -62,7 +62,13 @@ struct PomadeModel::_Device {
 #endif
 };
 
-PomadeModel::PomadeModel() : _device(new _Device())
+struct PomadeModel::_Published {
+    usdGen::UsdGenAtomicRef<PomadeModelState const> cell;
+};
+
+PomadeModel::PomadeModel()
+    : _device(new _Device())
+    , _published(new _Published())
 {
 #ifdef USDGEN_POMADE_HAS_CUDA
     if (cudaStreamCreate(&_device->stream) == cudaSuccess) {
@@ -73,11 +79,7 @@ PomadeModel::PomadeModel() : _device(new _Device())
 
 PomadeModel::~PomadeModel()
 {
-    if (PomadeModelState const *state =
-            _published.exchange(nullptr, std::memory_order_acq_rel)) {
-        usdGen::UsdGenEpochRetire(const_cast<PomadeModelState *>(state),
-                                  &usdGen::UsdGenEpochReleaseNode);
-    }
+    _published.reset();  // retires the published state through the epochs
 #ifdef USDGEN_POMADE_HAS_CUDA
     if (_device && _device->streamOwned && _device->stream) {
         cudaStreamDestroy(_device->stream);
@@ -1083,23 +1085,14 @@ PomadeModel::CaptureState() const
 void
 PomadeModel::PublishState()
 {
-    PomadeModelState const *next = CaptureState();
-    if (PomadeModelState const *old =
-            _published.exchange(next, std::memory_order_acq_rel)) {
-        usdGen::UsdGenEpochRetire(const_cast<PomadeModelState *>(old),
-                                  &usdGen::UsdGenEpochReleaseNode);
-    }
+    _published->cell.Store(
+        usdGen::UsdGenRef<PomadeModelState const>::Adopt(CaptureState()));
 }
 
 PomadeModelState const *
 PomadeModel::AcquireState() const
 {
-    usdGen::UsdGenEpochGuard guard;
-    PomadeModelState const *state = _published.load(std::memory_order_acquire);
-    if (state) {
-        state->AddRef();
-    }
-    return state;
+    return _published->cell.Load().Detach();
 }
 
 PomadeModel::TubeSnapshot
