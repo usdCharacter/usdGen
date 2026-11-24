@@ -7,6 +7,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -110,8 +111,9 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
                       std::string *error = nullptr)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenParamView params{&d, &node};
-    UsdGenScatterOp op;
+    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    UsdGenParamView const &params = stackParams.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag))
         return false;
