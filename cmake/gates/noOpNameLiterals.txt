@@ -6,8 +6,6 @@ libs/usdGen/usdGen/cudaScatterInput.cpp 2
 libs/usdGen/usdGen/expressionTargets.cpp 25
 libs/usdGen/usdGen/ops/bend.h 1
 libs/usdGen/usdGen/ops/braid.h 1
-libs/usdGen/usdGen/ops/clump.cpp 1
-libs/usdGen/usdGen/ops/clump.h 1
 libs/usdGen/usdGen/ops/collide.h 1
 libs/usdGen/usdGen/ops/curl.h 1
 libs/usdGen/usdGen/ops/deform.h 1
@@ -17,8 +15,6 @@ libs/usdGen/usdGen/ops/exprOp.h 1
 libs/usdGen/usdGen/ops/freeze.cpp 2
 libs/usdGen/usdGen/ops/freeze.h 1
 libs/usdGen/usdGen/ops/frizz.h 1
-libs/usdGen/usdGen/ops/guideInterpolate.h 1
-libs/usdGen/usdGen/ops/part.h 1
 libs/usdGen/usdGen/ops/resample.h 1
 libs/usdGen/usdGen/ops/scale.h 1
 libs/usdGen/usdGen/ops/sculptLayer.h 1

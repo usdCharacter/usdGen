@@ -10,7 +10,6 @@
 // TopologyEffect = None.
 #include "usdGen/ops/part.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include <nanoflann.hpp>
@@ -64,39 +63,54 @@ bool Finite(double v) { return std::isfinite(v); }
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("part:curves"));   // structural: the parting set (02 §2.7.2)
-    v.push_back(TfToken("part:radius"));   // capture: rebuilds the side assignment
-    return v;
-}();
+namespace {
 
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("part:strength"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
+using namespace partP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
 
-static TfTokenVector const _referenceInputs{TfToken("part:curves")};
-static TfTokenVector const _outputPrimvars{TfToken("partId")};
+// Topology list (input, surface, seed, part:curves, part:radius), then the
+// value list (enabled, part:strength, mask), as the static lists were.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"part:curves", UsdGenParamClass::Structural},   // the parting set (02 §2.7.2)
+    {"part:radius", UsdGenParamClass::Capture, true, kFloatRoot},   // rebuilds the side assignment
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"part:strength", UsdGenParamClass::Value, true, kFloatRoot},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+char const *const kReferences[] = {"part:curves"};
+UsdGenPlaneDecl const kOutputs[] = {{"partId", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1}};
 
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenPartOp>(r);
+}
+
+}  // namespace
+
+UsdGenPartOp::UsdGenPartOp(UsdGenOpRecord const &record) : _record(&record)
+{
+    for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s)
+        (record.ParamClass(s) == UsdGenParamClass::Value ? _value : _topology)
+            .push_back(record.ParamName(s));
+    for (UsdGenPlane const &plane : record.OutputPlanes()) _outputs.push_back(plane.name);
+}
 TfSpan<const TfToken> UsdGenPartOp::TopologyParameters() const
 {
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
+    return TfSpan<const TfToken>(_topology.data(), _topology.size());
 }
 TfSpan<const TfToken> UsdGenPartOp::ValueParameters() const
 {
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
-TfSpan<const TfToken> UsdGenPartOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
+    return TfSpan<const TfToken>(_value.data(), _value.size());
 }
 TfSpan<const TfToken> UsdGenPartOp::OutputPrimvars() const
 {
-    return TfSpan<const TfToken>(_outputPrimvars.data(), _outputPrimvars.size());
+    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
 }
 std::unique_ptr<UsdGenCapture> UsdGenPartOp::CreateCapture() const
 {
@@ -110,12 +124,12 @@ uint32_t UsdGenPartOp::PlanesTouched() const
 
 bool UsdGenPartOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    double const radius = params.GetDoubleLiteral(sRadius, 0.05);
+    double const radius = params.GetDoubleLiteral(kRadius, 0.05);
     if (!Finite(radius) || radius <= 0.0) {
         if (diag) diag->Error("UsdGenPart: usdGen:part:radius must be finite and > 0");
         return false;
     }
-    double const strength = params.GetDoubleLiteral(sStrength, 1.0);
+    double const strength = params.GetDoubleLiteral(kStrength, 1.0);
     if (!Finite(strength) || strength < 0.0 || strength > 1.0) {
         if (diag) diag->Error("UsdGenPart: usdGen:part:strength must be finite and in [0, 1]");
         return false;
@@ -132,8 +146,8 @@ UsdGenEpoch UsdGenPartOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // reference values, as it does for GuideInterpolate.
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
-        d.Mix(TfToken("part:radius"));
-        d.Mix(p->GetVtValue(TfToken("part:radius"), VtValue()));
+        d.Mix(_record->ParamName(kRadius));
+        d.Mix(p->GetValue(kRadius, VtValue()));
     }
     d.Mix(uint64_t(ctx.seed));
     d.Mix(ctx.upstreamGeneration);
@@ -203,11 +217,11 @@ bool UsdGenPartOp::Capture(
     CloudIndex index(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
 
     UsdGenParamField const radiusField =
-        p ? p->GetScalarField(sRadius, 0.05) : UsdGenParamField{0.05};
+        p ? p->GetScalarField(kRadius, 0.05) : UsdGenParamField{0.05};
     UsdGenParamField const strengthField =
-        p ? p->GetScalarField(sStrength, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kStrength, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     cap.partId.assign(R, -1);
     for (size_t c = 0; c < R; ++c) {
         uint32_t const root = rootSpans[c];
@@ -264,7 +278,15 @@ void UsdGenPartOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterPartOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenPartOp().Type(), [] { return std::make_unique<UsdGenPartOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenPart";
+    d.displayName = "Part";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    d.outputPlanes = UsdGenSpan(kOutputs);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen
