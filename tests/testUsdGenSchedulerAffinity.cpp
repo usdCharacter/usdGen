@@ -21,7 +21,7 @@
 //      USDGEN_NO_FAST_CORE_PIN kill switch restores 8.
 
 #include "usdGen/scheduler.h"
-#include "usdGen/tbbFastCores.h"
+#include "usdGen/fastCores.h"
 
 #include <algorithm>
 #include <cstdio>

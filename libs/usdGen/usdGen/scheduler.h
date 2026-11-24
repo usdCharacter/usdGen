@@ -110,7 +110,7 @@ private:
     int _threadLimit;
     // Persistent fork/join pool behind MakeWorkDispatcher (workerPool.h):
     // workers parked on a generation counter and pinned to fast cores where
-    // the topology qualifies (tbbFastCores.h FastCoreList).
+    // the topology qualifies (fastCores.h FastCoreList).
     UsdGenWorkerPool _pool;
 };
 
