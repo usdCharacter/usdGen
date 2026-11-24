@@ -208,10 +208,23 @@ void RunTestHook(UsdGenExecutionCacheDomain::TestPoint point) noexcept
 }
 
 // The domain (if any) whose publication action this thread is running, and
-// how deep: an Invalidate reached from inside that action must not wait for
-// its own caller.
+// how deep (packed by epoch parity, like _publishing): an Invalidate reached
+// from inside that action must not wait for its own caller.
 thread_local UsdGenExecutionCacheDomain const* tPublishDomain = nullptr;
 thread_local uint32_t tPublishDepth = 0;
+
+// _publishing counts publications by the parity of the epoch they were
+// checked against, 15 bits each, so an Invalidate waits only for those of
+// the epoch it retired, never for publications of the new epoch that keep
+// starting meanwhile.
+constexpr uint32_t PublishUnit(uint64_t epoch) noexcept
+{
+    return 1u << (15u * uint32_t(epoch & 1u));
+}
+constexpr uint32_t PublishCount(uint32_t word, uint64_t epoch) noexcept
+{
+    return (word >> (15u * uint32_t(epoch & 1u))) & 0x7fffu;
+}
 
 }  // namespace
 
@@ -524,7 +537,7 @@ bool UsdGenExecutionCacheDomain::Invalidate() noexcept
         }
     }
     // No old-epoch publication may land after this returns.
-    _AwaitPublications();
+    _AwaitPublications(value);
     bool const cleared = store_._Clear(&next);
     if (!cleared) _clearFailed.store(true, std::memory_order_release);
     while (stale) {
@@ -541,18 +554,22 @@ bool UsdGenExecutionCacheDomain::_PublishIfCurrent(
 {
     // Store-load against Invalidate (seq_cst on both sides): either this
     // announcement is visible to its count load, or its bump is visible here.
-    _publishing.fetch_add(1, std::memory_order_seq_cst);
+    // Counted under the fence's epoch: the one an Invalidate retiring it
+    // waits for.
+    uint32_t const unit = PublishUnit(epoch);
+    _publishing.fetch_add(unit, std::memory_order_seq_cst);
     struct Scope {
         UsdGenExecutionCacheDomain* domain;
         UsdGenExecutionCacheDomain const* previousDomain;
         uint32_t previousDepth;
+        uint32_t unit;
         ~Scope() {
             tPublishDomain = previousDomain;
             tPublishDepth = previousDepth;
-            domain->_EndPublish();
+            domain->_EndPublish(unit);
         }
-    } scope{this, tPublishDomain, tPublishDepth};
-    tPublishDepth = tPublishDomain == this ? tPublishDepth + 1 : 1;
+    } scope{this, tPublishDomain, tPublishDepth, unit};
+    tPublishDepth = tPublishDomain == this ? tPublishDepth + unit : unit;
     tPublishDomain = this;
     if (_clearFailed.load(std::memory_order_seq_cst) ||
         epoch != epoch_.load(std::memory_order_seq_cst))
@@ -561,26 +578,26 @@ bool UsdGenExecutionCacheDomain::_PublishIfCurrent(
     return true;
 }
 
-void UsdGenExecutionCacheDomain::_EndPublish() noexcept
+void UsdGenExecutionCacheDomain::_EndPublish(uint32_t unit) noexcept
 {
-    uint32_t const before = _publishing.fetch_sub(1, std::memory_order_seq_cst);
+    uint32_t const before = _publishing.fetch_sub(unit, std::memory_order_seq_cst);
     if (!(before & kPublishWaiter)) return;
     // A parked Invalidate: the last publication clears the flag; every
     // decrement wakes, so a waiter re-entered from an action sees its count.
-    if (before == (kPublishWaiter | 1)) {
+    if (before == (kPublishWaiter | unit)) {
         uint32_t expected = kPublishWaiter;
         _publishing.compare_exchange_strong(expected, 0, std::memory_order_seq_cst);
     }
     UsdGenUnparkAll(_publishing);
 }
 
-void UsdGenExecutionCacheDomain::_AwaitPublications() noexcept
+void UsdGenExecutionCacheDomain::_AwaitPublications(uint64_t epoch) noexcept
 {
     // Never wait at process exit: the publishers may already be gone.
     if (UsdGenProcessShutdownInProgress()) return;
-    uint32_t const own = tPublishDomain == this ? tPublishDepth : 0;
+    uint32_t const own = tPublishDomain == this ? PublishCount(tPublishDepth, epoch) : 0;
     uint32_t word = _publishing.load(std::memory_order_seq_cst);
-    while ((word & ~kPublishWaiter) > own) {
+    while (PublishCount(word, epoch) > own) {
         if (!(word & kPublishWaiter)) {
             if (!_publishing.compare_exchange_weak(word, word | kPublishWaiter,
                                                    std::memory_order_seq_cst))

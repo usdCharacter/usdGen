@@ -672,9 +672,9 @@ private:
                         std::optional<Lease> const& lease) noexcept;
     // Announce, check the epoch, run(context), withdraw. False: not current.
     bool _PublishIfCurrent(uint64_t epoch, void (*run)(void*), void* context);
-    void _EndPublish() noexcept;
+    void _EndPublish(uint32_t unit) noexcept;
     // Park until every publication announced before the epoch bump ended.
-    void _AwaitPublications() noexcept;
+    void _AwaitPublications(uint64_t epoch) noexcept;
 
     UsdGenExecutionCacheDomainKey key_;
     std::atomic<uint64_t> epoch_{0};
@@ -684,7 +684,8 @@ private:
     std::atomic<uint64_t> _nextWaiter{0};
     std::atomic<uint64_t> _coalesced{0};
     std::atomic<FlightList*> _flights{nullptr};
-    // Publications in flight; kPublishWaiter is set by a parked Invalidate.
+    // Publications in flight, by epoch parity (executionCache.cpp);
+    // kPublishWaiter is set by a parked Invalidate.
     static constexpr uint32_t kPublishWaiter = 0x80000000u;
     std::atomic<uint32_t> _publishing{0};
     Store store_;
