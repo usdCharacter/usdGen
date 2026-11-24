@@ -587,7 +587,7 @@ uint64_t _HashTubeSelection(uint64_t h, _TubeSelection const &sel)
 void _FillSelection(_SelectionByTube const &selection,
                     PomadeStagedLevel *staged)
 {
-    static _TubeSelection const kNone;
+    _TubeSelection const kNone;
     staged->faceSelected.assign(staged->faceVertexCounts.size(), 0);
     staged->centerCurveSelected.assign(staged->tubes.size(), 0);
     staged->ringCurveSelected.assign(staged->ringCurveSection.size(), 0);

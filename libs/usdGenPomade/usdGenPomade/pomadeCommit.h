@@ -20,11 +20,10 @@
 #include "pxr/usd/usd/stage.h"
 
 #include <atomic>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <map>
-#include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -401,9 +400,11 @@ PomadePlanClumpFill(UsdStagePtr const &stage, PomadeCommitPaths const &paths,
 // The committer: version coalescing, a build worker, and the idle swap.
 class USDGENPOMADE_API PomadeCommitter {
 public:
-    // `model` is non-owning and must outlive the committer; all model reads
-    // go through PomadeModel::Snapshot under the model's mutex. The worker
-    // thread starts here and joins in the destructor.
+    // `model` is non-owning and must outlive the committer. The worker
+    // never reads the live model: Enqueue publishes the model's state
+    // (PomadeModel::PublishState) and the worker builds from the newest
+    // published state. The worker thread starts here and joins in the
+    // destructor.
     PomadeCommitter(PomadeModel *model, PomadeCommitPaths paths);
     ~PomadeCommitter();
     PomadeCommitter(PomadeCommitter const &) = delete;
@@ -523,6 +524,7 @@ private:
                          uint64_t version);
     SwapResult _SwapPartialSlot(SdfLayerHandle const &live,
                                 SdfLayerHandle const &built, uint64_t version);
+    void _ClearPartial();
     void _BeginPartial(SdfLayerHandle const &built);
 
     struct _PartialSlot {
@@ -535,42 +537,38 @@ private:
     };
 
     PomadeModel *_model;
+    // UI-thread copy of the paths (Enqueue plans, swaps, the output guard).
+    // SetScalpPath also publishes a copy for the worker (see _Lane).
     PomadeCommitPaths _paths;
     // The per-version dirty set for the guide refill (plan/18 §7 G6).
     // Worker-thread only: every read and write happens inside _WorkerLoop's
-    // call to PomadeBuildCommitLayer, so it needs no lock of its own.
+    // call to PomadeBuildCommitLayer.
     PomadeGuideCache _guideCache;
     // Output uses a density-scaled private snapshot. Keep it separate from
     // interactive Guides so toggling Output cannot evict their cache; width
     // is intentionally not part of this geometry key.
     PomadeGuideCache _outputGuideCache;
 
-    std::thread _worker;
-    mutable std::mutex _mutex;
-    std::condition_variable _wake;
-    bool _stop = false;
-    bool _paused = false;
-    bool _detached = false;
-    bool _building = false;  // worker holds a snapshot newer than `ready`
-    // Latest enqueue: a version plus the UI-captured fill-in plan. The worker
-    // takes these when it wakes (coalescing) and snapshots the live model
-    // itself, so the snapshot always matches the version it builds.
-    uint64_t _pendingVersion = 0;
-    PomadeFillPlan _pendingPlan;
-    // The version whose build failed (or threw). The worker will not retry
-    // it: the predicate below would otherwise spin on a persistent failure
-    // at full speed. A newer enqueue clears it by being a newer version.
-    uint64_t _failedVersion = 0;
-    // Latest built layer and its version; replaced wholesale (the replaced
-    // layer counts as dropped when it never swapped). A strong reference:
-    // anonymous layers die with their last RefPtr, so a weak handle here
-    // would expire the moment the worker's local goes out of scope.
-    SdfLayerRefPtr _ready;
-    uint64_t _readyVersion = 0;
-    // Partial-transfer cursor into _partialSlots for _partialVersion.
+    // The commit lane: one dedicated thread fed by a newest-wins request
+    // mailbox and parked on a wake word; the built layer comes back by
+    // atomic reference (pomadeCommit.cpp). No locks.
+    struct _Lane;
+    std::unique_ptr<_Lane> _lane;
+    std::atomic<bool> _stop{false};
+    std::atomic<bool> _paused{false};
+    std::atomic<bool> _detached{false};
+    std::atomic<bool> _building{false};  // worker holds a newer snapshot
+    // The version whose build failed (or threw), or whose enqueue the guard
+    // refused. The worker never retries it on its own: a request is taken
+    // from the mailbox once, so only a new enqueue builds again.
+    std::atomic<uint64_t> _failedVersion{0};
+    // UI-thread-only partial-transfer cursor into _partialSlots for
+    // _partialVersion (the layer is _Lane::partial).
     std::vector<_PartialSlot> _partialSlots;
     size_t _partialNext = 0;
     uint64_t _partialVersion = 0;
+    // Started in the constructor body, once every member is live.
+    std::thread _worker;
 
     std::atomic<uint64_t> _committedVersion{0};
     std::atomic<uint64_t> _pendingVersionAtomic{0};
@@ -581,7 +579,6 @@ private:
     std::atomic<bool> _partialMode{false};
     std::atomic<int> _throwBuilds{0};
     std::atomic<size_t> _workerThrowCount{0};
-    std::string _diagnostic;
 };
 
 } // namespace usdGenPomade

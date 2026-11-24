@@ -2,6 +2,7 @@
 #include "usdGenPomade/pomadeBake.h"
 
 #include "usdGenPomade/pomadeHierarchy.h"
+#include "usdGenPomade/pomadeLane.h"
 #include "usdGenPomade/pomadeModel.h"
 
 #include "usdGen/maps/ptexMap.h"
@@ -791,23 +792,37 @@ bool PomadeBakePtex(PomadeBakeInput const &input, std::string const &outPath,
     return _WritePtexFile(plan, *texelCache, outPath, err);
 }
 
+// The lane's shared state. Requests, completions, swap notes and
+// diagnostics are newest-wins mailboxes; the worker parks on `wake`, and
+// WaitCompleted parks on `completed`.
+struct PomadeBakeWorker::_Lane {
+    struct Request {
+        uint64_t version = 0;
+        PomadeBakeInput input;
+    };
+    struct Completion {
+        uint64_t version = 0;
+        std::string path;
+    };
+    PomadeMailbox<Request> pending;
+    PomadeMailbox<Completion> completed;
+    PomadeMailbox<Completion> swapped;  // NoteSwapped, consumed by sweeps
+    PomadeMailbox<std::string> diagnostic;
+    PomadeWakeWord wake;
+    PomadeWakeWord completedWord;
+};
+
 PomadeBakeWorker::PomadeBakeWorker()
+    : _lane(new _Lane())
 {
-    // _worker is the first data member, so starting it from the initializer
-    // list runs _WorkerLoop before _mutex and _wake exist. Under ctest -j
-    // that race aborts in glibc ("The futex facility returned an unexpected
-    // error code"). Default-construct the thread with the other members,
-    // then start it once they are live. Same pattern as PomadeCommitter.
+    // Every member is live before the lane starts (see the header).
     _worker = std::thread(&PomadeBakeWorker::_WorkerLoop, this);
 }
 
 PomadeBakeWorker::~PomadeBakeWorker()
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _stop = true;
-    }
-    _wake.notify_all();
+    _stop.store(true, std::memory_order_release);
+    _lane->wake.Notify();
     if (_worker.joinable()) {
         _worker.join();
     }
@@ -815,53 +830,45 @@ PomadeBakeWorker::~PomadeBakeWorker()
 
 void PomadeBakeWorker::Enqueue(uint64_t mapVersion, PomadeBakeInput input)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _pendingVersion = mapVersion;
-        _pendingInput = std::move(input);
-        _hasPending = true;
-        _pendingVersionAtomic.store(mapVersion);
-    }
-    _wake.notify_one();
+    std::unique_ptr<_Lane::Request> request(new _Lane::Request());
+    request->version = mapVersion;
+    request->input = std::move(input);
+    _pendingVersionAtomic.store(mapVersion);
+    _lane->pending.Publish(std::move(request));
+    _lane->wake.Notify();
 }
 
 bool PomadeBakeWorker::TakeCompleted(uint64_t *mapVersion, std::string *path)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    if (!_hasCompleted) {
+    std::unique_ptr<_Lane::Completion> done = _lane->completed.Take();
+    if (!done) {
         return false;
     }
     if (mapVersion) {
-        *mapVersion = _completedVersion;
+        *mapVersion = done->version;
     }
     if (path) {
-        *path = _completedPath;
+        *path = std::move(done->path);
     }
-    _hasCompleted = false;
     return true;
 }
 
 void PomadeBakeWorker::NoteSwapped(uint64_t mapVersion, std::string const &path)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _swappedVersion = mapVersion;
-        _swappedPath = path;
-        // The wake predicate needs its own reason: with no pending bake the
-        // worker would go straight back to sleep and the file the previous
-        // swap pinned would survive forever.
-        _sweepRequested = true;
-    }
-    _wake.notify_one();
+    // Its own wake reason: with no pending bake the worker would otherwise
+    // go straight back to sleep and the file the previous swap pinned
+    // would survive forever.
+    std::unique_ptr<_Lane::Completion> note(new _Lane::Completion());
+    note->version = mapVersion;
+    note->path = path;
+    _lane->swapped.Publish(std::move(note));
+    _lane->wake.Notify();
 }
 
 void PomadeBakeWorker::PauseWorker(bool pause)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _paused = pause;
-    }
-    _wake.notify_all();
+    _paused.store(pause, std::memory_order_release);
+    _lane->wake.Notify();
 }
 
 bool PomadeBakeWorker::WaitCompleted(uint64_t mapVersion, int timeoutMs)
@@ -869,22 +876,20 @@ bool PomadeBakeWorker::WaitCompleted(uint64_t mapVersion, int timeoutMs)
     auto const deadline = std::chrono::steady_clock::now() +
                           std::chrono::milliseconds(timeoutMs);
     for (;;) {
+        uint32_t const seen = _lane->completedWord.Sequence();
         if (_completedVersionAtomic.load() >= mapVersion) {
             return true;
         }
-        if (std::chrono::steady_clock::now() > deadline) {
-            return false;
+        if (!_lane->completedWord.ParkUntil(seen, deadline)) {
+            return _completedVersionAtomic.load() >= mapVersion;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
 
 std::string PomadeBakeWorker::TakeDiagnostic()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    std::string out = _diagnostic;
-    _diagnostic.clear();
-    return out;
+    std::unique_ptr<std::string> d = _lane->diagnostic.Take();
+    return d ? std::move(*d) : std::string();
 }
 
 void PomadeBakeWorker::_WorkerLoop()
@@ -894,40 +899,43 @@ void PomadeBakeWorker::_WorkerLoop()
 #else
     void *bakeStream = nullptr;
 #endif
-    for (;;) {
-        uint64_t version = 0;
-        PomadeBakeInput input;
-        bool cleanup = false;
-        {
-            std::unique_lock<std::mutex> lock(_mutex);
-            _wake.wait(lock, [&] {
-                return _stop || (!_paused && !_baking &&
-                                 (_hasPending || _sweepRequested));
-            });
-            if (_stop) {
-                break;
-            }
-            if (!_hasPending) {
-                // A swap freed an older versioned file and no bake follows:
-                // sweep and go back to sleep (plan/18 §7 G5).
-                _sweepRequested = false;
-                std::string const dir = _lastOutDir;
-                std::string const base = _lastBaseName;
-                lock.unlock();
-                if (!dir.empty()) {
-                    _SweepStale(dir, base);
-                }
-                continue;
-            }
-            // Coalescing: take the latest enqueue, whatever woke us.
-            version = _pendingVersion;
-            input = std::move(_pendingInput);
-            _hasPending = false;
-            _sweepRequested = false;
-            _baking = true;
-            _lastOutDir = input.outDir;
-            _lastBaseName = input.baseName;
+    auto takeSwapNote = [&] {
+        if (std::unique_ptr<_Lane::Completion> note = _lane->swapped.Take()) {
+            _swappedPath = std::move(note->path);
+            return true;
         }
+        return false;
+    };
+    for (;;) {
+        uint32_t const seen = _lane->wake.Sequence();
+        if (_stop.load(std::memory_order_acquire)) {
+            break;
+        }
+        std::unique_ptr<_Lane::Request> request;
+        if (!_paused.load(std::memory_order_acquire)) {
+            request = _lane->pending.Take();
+            if (!request) {
+                if (takeSwapNote()) {
+                    // A swap freed an older versioned file and no bake
+                    // follows: sweep and go back to sleep (plan/18 §7 G5).
+                    if (!_lastOutDir.empty()) {
+                        _SweepStale(_lastOutDir, _lastBaseName);
+                    }
+                    continue;
+                }
+            }
+        }
+        if (!request) {
+            _lane->wake.Park(seen);
+            continue;
+        }
+        // Coalescing: the mailbox holds only the latest enqueue. A swap
+        // note taken here is served by the sweep after this bake.
+        takeSwapNote();
+        uint64_t const version = request->version;
+        PomadeBakeInput const &input = request->input;
+        _lastOutDir = input.outDir;
+        _lastBaseName = input.baseName;
         std::string outPath;
         std::string err;
         bool ok = false;
@@ -955,29 +963,26 @@ void PomadeBakeWorker::_WorkerLoop()
             ok = false;
             err = "PomadeBakeWorker: worker threw an unknown exception";
         }
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            _baking = false;
-            if (!ok) {
-                if (err.empty()) {
-                    // Cancelled at a tile boundary: no file, no completion.
-                    _cancelCount.fetch_add(1);
-                } else {
-                    _diagnostic = err;
-                }
-                _wake.notify_one();  // a newer version may be waiting
-                continue;
+        if (!ok) {
+            if (err.empty()) {
+                // Cancelled at a tile boundary: no file, no completion.
+                _cancelCount.fetch_add(1);
+            } else {
+                _lane->diagnostic.Publish(
+                    std::unique_ptr<std::string>(new std::string(err)));
             }
-            _bakeCount.fetch_add(1);
-            _completedVersion = version;
-            _completedPath = outPath;
-            _hasCompleted = true;
-            _completedVersionAtomic.store(version);
-            cleanup = true;
+            continue;  // a newer version may be waiting in the mailbox
         }
-        if (cleanup) {
-            _SweepStale(input.outDir, input.baseName);
-        }
+        _bakeCount.fetch_add(1);
+        _completedPath = outPath;
+        std::unique_ptr<_Lane::Completion> done(new _Lane::Completion());
+        done->version = version;
+        done->path = outPath;
+        _lane->completed.Publish(std::move(done));
+        _completedVersionAtomic.store(version);
+        _lane->completedWord.Notify();
+        takeSwapNote();
+        _SweepStale(input.outDir, input.baseName);
     }
 #ifdef USDGEN_POMADE_HAS_CUDA
     if (bakeStream) {
@@ -992,7 +997,8 @@ void PomadeBakeWorker::_SweepStale(std::string const &outDir,
                                   std::string const &baseName)
 {
     // Keep the file the live layer references and the latest completion;
-    // delete older versioned files. Runs on the worker only.
+    // delete older versioned files. Runs on the worker only, so the two
+    // kept paths are the worker's own copies.
     std::error_code ec;
     if (outDir.empty() || !fs::is_directory(outDir, ec)) {
         return;
@@ -1009,7 +1015,6 @@ void PomadeBakeWorker::_SweepStale(std::string const &outDir,
             continue;
         }
         std::string const full = entry.path().string();
-        std::lock_guard<std::mutex> lock(_mutex);
         if (full == _swappedPath || full == _completedPath) {
             continue;
         }
@@ -1040,8 +1045,9 @@ bool PomadeBakeWorker::_Bake(uint64_t mapVersion, PomadeBakeInput const &input,
     // Cancelled bakes report success=false with an EMPTY error (the loop
     // counts them as cancellations, not failures).
     auto cancelled = [&] {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _stop || (_hasPending && _pendingVersion > mapVersion);
+        return _stop.load(std::memory_order_acquire) ||
+               (!_lane->pending.Empty() &&
+                _pendingVersionAtomic.load() > mapVersion);
     };
     if (!input.scalp || !input.scalp->finalized) {
         return fail("bad scalp input");
