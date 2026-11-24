@@ -18,7 +18,8 @@ template <class T> struct DeviceView {
 };
 
 // Diagnostic gauge for tests: idle device bytes currently retained by the
-// DeviceBuffer reuse cache process-wide. Cached storage is uncharged (its
+// DeviceBuffer reuse cache process-wide, counted as the bytes their last
+// owners requested (blocks are allocated in size classes). Cached storage is uncharged (its
 // permit released at insert), so pool accounting reads as if freed; this
 // gauge is the only window into the retained physical bytes.
 size_t UsdGenGpuDeviceBufferCacheBytes() noexcept;
@@ -38,8 +39,9 @@ public:
         return *this;
     }
 
-    // A non-null reservation is consumed only when this call must replace an
-    // allocation; same-size reuse retains its existing permit unchanged.
+    // A non-null reservation is consumed only when this call changes the
+    // size; same-size reuse retains its existing permit unchanged. A size in
+    // the same class keeps the block and recharges only the permit.
     cudaError_t reset(size_t count,
                       UsdGenExecutionMemoryReservation* reservation = nullptr,
                       UsdGenExecutionResourceKind kind =
@@ -54,7 +56,7 @@ public:
     // Only for a lost device or unprovable completion: abandon handles rather
     // than free storage still potentially in use. Context teardown reclaims
     // these intentionally quarantined allocations/events.
-    void quarantine() noexcept { permit_.Abandon(); data_ = nullptr; size_ = 0; ready_ = nullptr; device_ = -1; }
+    void quarantine() noexcept { permit_.Abandon(); data_ = nullptr; size_ = 0; ready_ = nullptr; device_ = -1; capacity_ = 0; }
     DeviceView<T> view() { return {data_, size_}; }
     DeviceView<const T> view() const { return {data_, size_}; }
     size_t size() const { return size_; }
@@ -76,6 +78,7 @@ private:
     size_t size_ = 0;
     cudaEvent_t ready_ = nullptr;
     int device_ = -1;
+    size_t capacity_ = 0;  // size class allocated, >= bytes()
     UsdGenExecutionResourcePermit permit_;
 };
 
