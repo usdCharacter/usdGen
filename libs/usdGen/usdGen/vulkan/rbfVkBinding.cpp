@@ -1604,14 +1604,20 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
         // Same prologue as the direct submit: the shared flag resets
         // only when no evaluation is pending, and the host-solved
         // coefficients copy into device-local coef ahead of the read.
-        if (!evalPending_)
-            vkCmdFillBuffer(cmd, native.flagBuf->buffer(), 0, 4, 0u);
+        // Orders the flag reset and the coefficient copy after every earlier
+        // submit on the queue (the bind's identity fill and earlier evaluations
+        // write or read flag and coef), not only after a host-side proof of
+        // completion, plus host writes of the staged coefficients.
         VkMemoryBarrier stageVisible{};
         stageVisible.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        stageVisible.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-        stageVisible.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT,
+        stageVisible.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
+                                     VK_ACCESS_SHADER_WRITE_BIT;
+        stageVisible.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT |
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &stageVisible, 0, nullptr, 0, nullptr);
+        if (!evalPending_)
+            vkCmdFillBuffer(cmd, native.flagBuf->buffer(), 0, 4, 0u);
         VkBufferCopy coefCopy{0, 0, VkDeviceSize(order_) * 24u};
         vkCmdCopyBuffer(cmd, native.coefStagingBuf->buffer(), native.coefBuf->buffer(), 1, &coefCopy);
         VkMemoryBarrier coefReady{};
@@ -1838,16 +1844,22 @@ RbfVkStatus RbfVkBinding::Evaluate(std::shared_ptr<const ChargedBuffer> cvs,
     if (r == VK_SUCCESS) {
         // Like CUDA (rbf.cu:491), the shared flag resets only when no
         // evaluation is pending; stacked submissions accumulate into it.
-        if (!evalPending_)
-            vkCmdFillBuffer(cmd, native.flagBuf->buffer(), 0, 4, 0u);
         // Host-solved coefficients into device-local coef (replaces the
         // retired device triSolve write).
+        // Orders the flag reset and the coefficient copy after every earlier
+        // submit on the queue (the bind's identity fill and earlier evaluations
+        // write or read flag and coef), not only after a host-side proof of
+        // completion, plus host writes of the staged coefficients.
         VkMemoryBarrier stageVisible{};
         stageVisible.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        stageVisible.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-        stageVisible.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT,
+        stageVisible.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
+                                     VK_ACCESS_SHADER_WRITE_BIT;
+        stageVisible.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT |
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &stageVisible, 0, nullptr, 0, nullptr);
+        if (!evalPending_)
+            vkCmdFillBuffer(cmd, native.flagBuf->buffer(), 0, 4, 0u);
         VkBufferCopy coefCopy{0, 0, VkDeviceSize(order_) * 24u};
         vkCmdCopyBuffer(cmd, native.coefStagingBuf->buffer(), native.coefBuf->buffer(), 1, &coefCopy);
         VkMemoryBarrier coefReady{};
