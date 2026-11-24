@@ -2899,9 +2899,12 @@ void UsdGenGroomSceneIndex::_PrimsDirtied(HdSceneIndexBase const&, Dirtied const
             packet.dirtiedDelivered = true;
         }
     }
-    _CaptureAndSubmit(std::move(packet));
-    // Also drain unrelated completions without awaiting background work.
+    // Also drain unrelated completions without awaiting background work:
+    // those that landed before this notice. Draining after the submit would
+    // also install this packet's own result whenever the owner finished it
+    // first, so an async edit could appear before asyncPoll or not, by race.
     if (_state->asyncAllowed.load(std::memory_order_acquire)) _DrainPublications(false);
+    _CaptureAndSubmit(std::move(packet));
 }
 void UsdGenGroomSceneIndex::_PrimsRenamed(HdSceneIndexBase const& sender,
     HdSceneIndexObserver::RenamedPrimEntries const& entries) {
