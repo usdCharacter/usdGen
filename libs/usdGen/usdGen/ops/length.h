@@ -19,17 +19,24 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace lengthP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kMode, kMethod, kRebuild, kValue, kRandom,
+    kMinRemaining, kCull, kMin, kMax, kRandomize, kShareByClump, kFollowClumpMean,
+    kMask,
+    kCount
+};
+enum Mode : int { kModeScale, kModeSet, kModeCull, kModeRandomRange };
+enum Method : int { kMethodScale, kMethodCutExtend };
+enum Tok : uint16_t { kTokClumpId0, kTokLengthMap, kTokRestLength };
+}  // namespace lengthP
+
 class UsdGenLengthOp final : public UsdGenOp
 {
 public:
-    UsdGenLengthOp() = default;
+    explicit UsdGenLengthOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenLengthOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenLength"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
     TfSpan<const TfToken> OutputPrimvars() const override;
     void Configure(UsdGenParamView const &params) override;
 
@@ -45,15 +52,11 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
 private:
-    const TfToken sSet{"set"}, sMask{"mask"};
-    const TfToken sValue{"length:value"}, sCull{"cullThreshold"};
-    const TfToken sMinRemaining{"minRemainingLength"};
     // {"restLength"} once Configure() saw randomRange, else empty.
     TfTokenVector _outputs;
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterLengthOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

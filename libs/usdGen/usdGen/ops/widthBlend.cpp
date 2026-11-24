@@ -10,11 +10,46 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 namespace {
 
-TfTokenVector const kTopologyParameters{};
-TfTokenVector const kValueParameters{TfToken("enabled"),
-                                     TfToken("widthBlend:weight")};
+using namespace widthBlendP;
 
-TfToken const kWeight{"widthBlend:weight"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"enabled", UsdGenParamClass::Value},
+    {"widthBlend:weight", UsdGenParamClass::Value},
+};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenWidthBlendOp>(r);
+}
+
+/// The closed descriptor ABI of the first binary value fan-in. Disabled
+/// operators bypass runtime Bind(), so the compiler runs this at compile.
+bool ValidateNode(UsdGenGraphDesc const &, UsdGenNodeDesc const &node,
+                  UsdGenParamView const &view, std::string *error)
+{
+    bool paramsOk = true;
+    TfToken const &weightName = view.op->ParamName(kWeight);
+    for (UsdGenParamValue const &param : node.params)
+        paramsOk = paramsOk && param.name == weightName;
+    double const weight = view.GetDoubleLiteral(kWeight, 1.0);
+    if (!node.enabled || !std::isfinite(weight) || weight < 0.0 ||
+        weight > 1.0 || !node.mode.IsEmpty() ||
+        !paramsOk || !node.ramps.empty() ||
+        !node.expressionBindings.empty() || !node.references.empty() ||
+        !node.curves.empty() || !node.surfaces.empty() ||
+        !node.maps.empty() || !node.mapBindings.empty()) {
+        if (error) *error =
+            "UsdGenCompiler: WidthBlend requires enabled=true, a finite "
+            "usdGen:widthBlend:weight in [0,1], and no auxiliary inputs";
+        return false;
+    }
+    if (node.inputs[0] == node.inputs[1]) {
+        if (error) *error =
+            "UsdGenCompiler: WidthBlend requires two distinct ordered geometry inputs";
+        return false;
+    }
+    return true;
+}
 
 /// The ordered interpolation weight, clamped to exact endpoints.
 bool ReadWeight(UsdGenParamView const *params, float *out,
@@ -87,17 +122,6 @@ struct UsdGenWidthBlendCapture final : public UsdGenCapture
 
 }  // namespace
 
-TfSpan<const TfToken> UsdGenWidthBlendOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(kTopologyParameters.data(),
-                                 kTopologyParameters.size());
-}
-
-TfSpan<const TfToken> UsdGenWidthBlendOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(kValueParameters.data(), kValueParameters.size());
-}
-
 std::unique_ptr<UsdGenCapture> UsdGenWidthBlendOp::CreateCapture() const
 {
     return std::make_unique<UsdGenWidthBlendCapture>();
@@ -112,7 +136,7 @@ bool UsdGenWidthBlendOp::Bind(UsdGenParamView const &params,
     bool paramsOk = true;
     if (node)
         for (UsdGenParamValue const &param : node->params)
-            paramsOk = paramsOk && param.name == kWeight;
+            paramsOk = paramsOk && param.name == params.op->ParamName(kWeight);
     if (!node || !node->enabled ||
         !node->mode.IsEmpty() || !paramsOk ||
         !node->ramps.empty() || !node->expressionBindings.empty() ||
@@ -218,7 +242,16 @@ void UsdGenWidthBlendOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterWidthBlendOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenWidthBlendOp().Type(), [] { return std::make_unique<UsdGenWidthBlendOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenWidthBlend";
+    d.displayName = "WidthBlend";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.geometryInputArity = 2;
+    d.traits = kUsdGenOpGeometryInputsOrdered;
+    d.params = UsdGenSpan(kParams);
+    d.hooks.validateNode = &ValidateNode;
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

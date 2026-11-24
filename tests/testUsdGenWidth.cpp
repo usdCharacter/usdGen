@@ -59,8 +59,11 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
     node.path = SdfPath("/groom/width");
     node.type = TfToken("UsdGenWidth");
     node.params = params;
-    UsdGenParamView view;
-    view.node = &node;
+    // A direct-kernel fixture: slots resolved as the compiler does.
+    UsdGenGraphDesc desc;
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    UsdGenStackParams const stack(desc, node, ops.Record(ops.Find(node.type)));
+    UsdGenParamView const &view = stack.View();
 
     UsdGenDiagnostics diag;
     if (!op->Bind(view, &diag)) {
