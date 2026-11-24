@@ -19,4 +19,7 @@ void UsdGenParkWhileEqual(std::atomic<uint32_t> &word, uint32_t expected);
 /// Wake every thread parked on `word`. Call after changing it.
 void UsdGenUnparkAll(std::atomic<uint32_t> &word);
 
+/// Wake at most one thread parked on `word`. Call after changing it.
+void UsdGenUnparkOne(std::atomic<uint32_t> &word);
+
 }  // namespace usdGen

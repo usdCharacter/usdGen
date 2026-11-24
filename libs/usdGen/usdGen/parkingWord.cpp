@@ -46,4 +46,16 @@ void UsdGenUnparkAll(std::atomic<uint32_t> &word)
 #endif
 }
 
+void UsdGenUnparkOne(std::atomic<uint32_t> &word)
+{
+#if defined(_WIN32)
+    WakeByAddressSingle(&word);
+#elif defined(__linux__)
+    syscall(SYS_futex, reinterpret_cast<uint32_t *>(&word),
+            FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
+#else
+    (void)word;
+#endif
+}
+
 }  // namespace usdGen
