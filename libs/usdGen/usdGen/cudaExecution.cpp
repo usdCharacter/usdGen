@@ -16,6 +16,8 @@
 #include <initializer_list>
 #include <chrono>
 #include <cstring>
+#include <iterator>
+#include <string_view>
 #include <thread>
 #include <stdexcept>
 
@@ -51,6 +53,24 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 
 namespace usdGen {
 namespace {
+template <size_t N>
+bool Contains(std::string_view const (&names)[N], std::string_view name) noexcept {
+    return std::find(std::begin(names), std::end(names), name) != std::end(names);
+}
+// Lazily built process-lifetime singleton, published by CAS: no
+// function-local static (MSVC guards those with a lock). A racing builder
+// that loses frees its candidate.
+template <class T, class Make>
+T& LazyPublish(std::atomic<T*>& cell, Make make) {
+    T* p = cell.load(std::memory_order_acquire);
+    if (p) return *p;
+    T* fresh = make();
+    if (cell.compare_exchange_strong(p, fresh, std::memory_order_acq_rel,
+                                     std::memory_order_acquire))
+        return *fresh;
+    delete fresh;
+    return *p;
+}
 bool Fail(UsdGenDiagnostics* diagnostics, std::string message) {
     if (diagnostics) diagnostics->Error("CUDA: " + std::move(message));
     return false;
@@ -119,14 +139,14 @@ bool ValidateLength(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) 
         !node.references.empty() || !node.curves.empty() || !node.maps.empty() ||
         !node.mapBindings.empty())
         return Fail(diagnostics, "unsupported Length mode/reference/map configuration");
-    static const std::set<std::string> floats{
+    static constexpr std::string_view floats[] = {
         "length:value", "minRemainingLength", "cullThreshold", "mask"};
     std::set<std::string> seen;
     for (auto const& param : node.params) {
         auto name = param.name.GetString();
         if (!seen.insert(name).second) return Fail(diagnostics, "duplicate Length parameter " + name);
         bool valid = false;
-        if (floats.count(name))
+        if (Contains(floats, name))
             valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>()) &&
                 param.value.UncheckedGet<float>() >= 0 &&
                 (name != "mask" || param.value.UncheckedGet<float>() <= 1);
@@ -165,14 +185,14 @@ bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         return Fail(diagnostics, "Width references/curves/mode are not supported");
     // The Bezier profile controls are literal floats; the profile itself is
     // folded into the per-node LUT (UsdGenWidthBezierLut) below.
-    static const std::set<std::string> floats{
+    static constexpr std::string_view floats[] = {
         "width", "mask", "width:root", "width:mid", "width:midShift", "width:tip"};
     std::set<std::string> seen;
     for (auto const& param : node.params) {
         auto const& name = param.name.GetString();
         if (!seen.insert(name).second) return Fail(diagnostics, "duplicate Width parameter " + name);
         bool valid = false;
-        if (floats.count(name)) valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
+        if (Contains(floats, name)) valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
         else if (name == "replace") valid = param.value.IsHolding<bool>();
         else if (name == "width:interpolation") valid = param.value.IsHolding<TfToken>();
         else if (name == "width:profile:mode")
@@ -228,7 +248,7 @@ bool ValidateNoise(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         !node.curves.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.mode.IsEmpty())
         return Fail(diagnostics, "Noise does not accept references, curves, maps, or mode");
-    static const std::set<std::string> floats{
+    static constexpr std::string_view floats[] = {
         "noise:magnitude", "noise:frequency", "noise:correlation",
         "noise:lacunarity", "noise:gain", "preserveLength", "mask"};
     std::set<std::string> seen;
@@ -236,7 +256,7 @@ bool ValidateNoise(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         auto const name = LocalName(param.name);
         if (!seen.insert(name).second) return Fail(diagnostics, "duplicate Noise parameter " + name);
         bool valid = false;
-        if (floats.count(name)) {
+        if (Contains(floats, name)) {
             valid = param.value.IsHolding<float>() &&
                 std::isfinite(param.value.UncheckedGet<float>());
             if (valid && (name == "noise:magnitude" || name == "noise:frequency" ||
@@ -354,16 +374,15 @@ bool ValidateScatterGrow(UsdGenGraphDesc const& desc, uint32_t source, uint32_t 
     // deliberately substitute defaults for malformed native values.  This
     // compact GPU slice has no alternate interpretation for an authored
     // control, so every authored value must be both unique and native-typed.
-    static std::set<TfToken> const allowed{
-        TfToken("segments"), TfToken("length"), TfToken("lengthRandom"),
-        TfToken("lift"), TfToken("azimuth"), TfToken("azimuthRandom"),
-        TfToken("direction"), TfToken("directionVector")};
+    static constexpr std::string_view allowed[] = {
+        "segments", "length", "lengthRandom", "lift", "azimuth", "azimuthRandom",
+        "direction", "directionVector"};
     std::set<TfToken> seen;
     for (auto const& value : grow.params) {
         if (value.animated || !seen.insert(value.name).second)
             return Fail(diagnostics, "Scatter->Grow has animated or duplicate Grow control " +
                 value.name.GetString());
-        if (!allowed.count(value.name))
+        if (!Contains(allowed, value.name.GetString()))
             return Fail(diagnostics, "Scatter->Grow has unsupported Grow control " +
                 value.name.GetString());
         bool valid = false;
@@ -1604,7 +1623,8 @@ void failNextCudaWidthBlendGraphCaptureForTesting() {
 UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexcept {
     // Bump the matrix version whenever a row or its executor contract changes;
     // compiled-plan/cache keys can then reject stale backend assumptions.
-    static const UsdGenExecutionCapabilityMatrix matrix{
+    static std::atomic<UsdGenExecutionCapabilityMatrix const*> cell{nullptr};
+    return LazyPublish(cell, [] { return new UsdGenExecutionCapabilityMatrix const{
         "cuda", 35,
 #ifdef USDGEN_ENABLE_CUDA
         true,
@@ -1638,8 +1658,7 @@ UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexce
                 UsdGenCapabilityExclusiveWorkspace},
             {TfToken("UsdGenWidthBlend"), 6, 0, 0,
                 UsdGenCapabilityCopyOnWriteWrites}
-        }};
-    return matrix;
+        }}; });
 }
 
 std::shared_ptr<const UsdGenExecutionPlanMetadata> GetCudaExecutionPlanMetadata(
@@ -2808,7 +2827,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
             return Fail(diagnostics, "RBF currently requires identity Description and CurveSource transforms");
     }
     // Never silently ignore an authored effect just because this is a source.
-    static const std::set<std::string> supported{
+    static constexpr std::string_view supported[] = {
         "useRest", "idSource", "expectEpoch", "staleAction",
         "resampleTo", "rebind", "interpolationMode", "densityMultiplier",
         "regionMapChannel", "expectMapGeneration"};
@@ -2817,7 +2836,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate source parameter " + param.name.GetString());
         auto const& name = param.name.GetString();
-        if (!supported.count(name))
+        if (!Contains(supported, name))
             return Fail(diagnostics, "unsupported CurveSource parameter " + param.name.GetString());
         const bool validType = name == "useRest" ? param.value.IsHolding<bool>() :
             name == "resampleTo" || name == "regionMapChannel" ? param.value.IsHolding<int>() :
@@ -4672,7 +4691,10 @@ struct SourceRelayService {
 };
 // The service is intentionally process-lifetime.  CUDA may invoke a native
 // callback while static session/scene teardown is under way.
-SourceRelayService& SourceRelays() { static auto* service = new SourceRelayService; return *service; }
+std::atomic<SourceRelayService*> s_sourceRelays{nullptr};
+SourceRelayService& SourceRelays() {
+    return LazyPublish(s_sourceRelays, [] { return new SourceRelayService; });
+}
 void SourceRelayService::Slot::Signal(unsigned phase, cudaError_t value) noexcept {
     // Publish status before terminal.  The arrival that observes both gates
     // owns posting; no relay is touched by the CUDA callback.
@@ -5392,7 +5414,10 @@ struct OperatorRelayService {
 };
 
 namespace {
-OperatorRelayService& OperatorRelays() { static auto* service = new OperatorRelayService; return *service; }
+std::atomic<OperatorRelayService*> s_operatorRelays{nullptr};
+OperatorRelayService& OperatorRelays() {
+    return LazyPublish(s_operatorRelays, [] { return new OperatorRelayService; });
+}
 void OperatorCallback(cudaStream_t, cudaError_t status, void* data) noexcept {
     auto* identity = static_cast<OperatorRelayService::Slot::CallbackIdentity*>(data);
     auto* slot = identity->slot;
@@ -6659,7 +6684,10 @@ struct FinalizationReturnGate : UsdGenRefCounted {
 };
 
 namespace {
-FinalizationRelayService& FinalizationRelays() { static auto* service = new FinalizationRelayService; return *service; }
+std::atomic<FinalizationRelayService*> s_finalizationRelays{nullptr};
+FinalizationRelayService& FinalizationRelays() {
+    return LazyPublish(s_finalizationRelays, [] { return new FinalizationRelayService; });
+}
 void FinalizationCallback(cudaStream_t, cudaError_t status, void* data) noexcept {
     auto* identity = static_cast<FinalizationRelayService::Slot::CallbackIdentity*>(data);
     auto* slot = identity->slot;

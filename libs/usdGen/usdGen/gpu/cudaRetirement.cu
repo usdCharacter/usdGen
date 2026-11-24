@@ -12,10 +12,9 @@ void CloseCudaRetirementAtExit() noexcept {
     // CUDA runtime call, so it can run before loader CUDA finalization.
     CloseCudaRetirementBackend();
 }
-std::atomic<bool>& AtexitRegistered() {
-    static auto* value = new std::atomic<bool>{false};
-    return *value;
-}
+// Constant-initialized and trivially destructible: no guard, no static dtor.
+std::atomic<bool> g_atexitRegistered{false};
+std::atomic<bool>& AtexitRegistered() { return g_atexitRegistered; }
 bool RegisterCudaRetirementAtExit() noexcept {
     if (AtexitRegistered().load(std::memory_order_acquire)) return true;
     // Do not publish readiness before registration succeeds. Concurrent first
