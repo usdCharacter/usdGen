@@ -1,5 +1,8 @@
 #include "usdGen/executionCache.h"
 
+#include "usdGen/executionRuntimeInternal.h"
+#include "usdGen/parkingWord.h"
+
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -192,6 +195,32 @@ uint64_t UsdGenExecutionCacheKey::Hash() const noexcept
 }
 
 
+namespace {
+
+// Test seam; constant-initialized, read with one acquire load per point.
+std::atomic<UsdGenExecutionCacheDomain::TestHook> gTestHook{nullptr};
+std::atomic<void*> gTestHookContext{nullptr};
+
+void RunTestHook(UsdGenExecutionCacheDomain::TestPoint point) noexcept
+{
+    if (auto hook = gTestHook.load(std::memory_order_acquire))
+        hook(point, gTestHookContext.load(std::memory_order_acquire));
+}
+
+// The domain (if any) whose publication action this thread is running, and
+// how deep: an Invalidate reached from inside that action must not wait for
+// its own caller.
+thread_local UsdGenExecutionCacheDomain const* tPublishDomain = nullptr;
+thread_local uint32_t tPublishDepth = 0;
+
+}  // namespace
+
+void UsdGenExecutionCacheDomain::SetTestHook(TestHook hook, void* context) noexcept
+{
+    gTestHookContext.store(context, std::memory_order_release);
+    gTestHook.store(hook, std::memory_order_release);
+}
+
 UsdGenExecutionCacheDomain::~UsdGenExecutionCacheDomain()
 {
     // No caller remains. Unsettled waiters are dropped without a callback.
@@ -233,59 +262,68 @@ UsdGenExecutionCacheDomain::BeginCoalesced(
             }
             std::unique_ptr<Flight> fresh;
             std::unique_ptr<FlightList> nextList;
-            UsdGenEpochGuard guard;
-            FlightList* list = _flights.load(std::memory_order_seq_cst);
-            Flight* flight = _FindFlight(list, key);
-            if (flight && !flight->settled.load(std::memory_order_acquire)) {
-                if (flight->epoch != epoch_.load(std::memory_order_acquire))
-                    return std::nullopt;
-                if (flight->waiters.Push(waiter.get())) {
-                    Waiter* joined = waiter.release();
-                    _coalesced.fetch_add(1, std::memory_order_acq_rel);
-                    return CoalescedRegistration{key, flight->id, joined->id, false};
+            RunTestHook(TestPoint::BeginCoalescedBeforePublish);
+            // Set only on the withdraw path, and used after the guard ends:
+            // callbacks never run or die inside it.
+            Flight* published = nullptr;
+            CoalescedCallback unused;
+            {
+                UsdGenEpochGuard guard;
+                FlightList* list = _flights.load(std::memory_order_seq_cst);
+                Flight* flight = _FindFlight(list, key);
+                if (flight && !flight->settled.load(std::memory_order_acquire)) {
+                    if (flight->epoch != epoch_.load(std::memory_order_acquire))
+                        return std::nullopt;
+                    if (flight->waiters.Push(waiter.get())) {
+                        Waiter* joined = waiter.release();
+                        _coalesced.fetch_add(1, std::memory_order_acq_rel);
+                        return CoalescedRegistration{key, flight->id, joined->id, false};
+                    }
+                    continue;  // closed meanwhile: it is settled now
                 }
-                continue;  // closed meanwhile: it is settled now
-            }
-            // No open flight: publish one, dropping a settled leftover.
-            fresh.reset(new Flight);
-            fresh->key = key;
-            fresh->id = _nextFlight.fetch_add(1, std::memory_order_relaxed) + 1;
-            fresh->epoch = epoch;
-            fresh->leaderWaiter = waiter->id;
-            fresh->notifyLeader = notifyLeader;
-            waiter->next = nullptr;
-            fresh->waiters.Push(waiter.get());
-            nextList.reset(new FlightList);
-            if (list) {
-                nextList->flights.reserve(list->flights.size() + 1);
-                for (Flight* other : list->flights)
-                    if (other != flight) nextList->flights.push_back(other);
-            }
-            nextList->flights.push_back(fresh.get());
-            if (!_flights.compare_exchange_strong(list, nextList.get(),
-                                                  std::memory_order_seq_cst))
-                continue;
-            nextList.release();
-            Flight* published = fresh.release();
-            Waiter* leader = waiter.release();
-            if (list) UsdGenEpochRetireDelete(list);
-            // An Invalidate that bumped the epoch before it could see this
-            // flight: withdraw it unless Invalidate already settled it.
-            if (epoch_.load(std::memory_order_seq_cst) != epoch) {
+                // No open flight: publish one, dropping a settled leftover.
+                fresh.reset(new Flight);
+                fresh->key = key;
+                fresh->id = _nextFlight.fetch_add(1, std::memory_order_relaxed) + 1;
+                fresh->epoch = epoch;
+                fresh->leaderWaiter = waiter->id;
+                fresh->notifyLeader = notifyLeader;
+                waiter->next = nullptr;
+                fresh->waiters.Push(waiter.get());
+                nextList.reset(new FlightList);
+                if (list) {
+                    nextList->flights.reserve(list->flights.size() + 1);
+                    for (Flight* other : list->flights)
+                        if (other != flight) nextList->flights.push_back(other);
+                }
+                nextList->flights.push_back(fresh.get());
+                if (!_flights.compare_exchange_strong(list, nextList.get(),
+                                                      std::memory_order_seq_cst))
+                    continue;
+                nextList.release();
+                Flight* candidate = fresh.release();
+                Waiter* leader = waiter.release();
+                if (list) UsdGenEpochRetireDelete(list);
+                // An Invalidate that bumped the epoch before it could see this
+                // flight: withdraw it unless Invalidate already settled it (then
+                // Invalidate owns it, and only the guard keeps it readable here).
                 uint32_t open = 0;
-                if (published->settled.compare_exchange_strong(
-                        open, 1, std::memory_order_acq_rel)) {
-                    // Not registered: the leader's callback never runs.
-                    leader->claimed.store(1, std::memory_order_release);
-                    CoalescedCallback unused = std::move(leader->callback);
-                    bool const unlisted = _Unlist(published);
-                    // Followers that joined meanwhile are registered: Stale.
-                    _Notify(published, CoalescedStatus::Stale, std::nullopt);
-                    if (unlisted) UsdGenEpochRetireDelete(published);
-                    return std::nullopt;
-                }
+                if (epoch_.load(std::memory_order_seq_cst) == epoch ||
+                    !candidate->settled.compare_exchange_strong(
+                        open, 1, std::memory_order_acq_rel))
+                    return CoalescedRegistration{key, candidate->id, leader->id, true};
+                // Not registered: the leader's callback never runs.
+                leader->claimed.store(1, std::memory_order_release);
+                unused = std::move(leader->callback);
+                published = candidate;
             }
-            return CoalescedRegistration{key, published->id, leader->id, true};
+            // Winning the settled CAS made this thread the flight's only
+            // retirer, so it stays valid without a guard.
+            bool const unlisted = _Unlist(published);
+            // Followers that joined meanwhile are registered: Stale.
+            _Notify(published, CoalescedStatus::Stale, std::nullopt);
+            if (unlisted) UsdGenEpochRetireDelete(published);
+            return std::nullopt;
         } catch (...) {
             return std::nullopt;
         }
@@ -361,6 +399,7 @@ bool UsdGenExecutionCacheDomain::_Settle(
             return false;
         flight = found;
     }
+    RunTestHook(TestPoint::SettleWonFlight);
     bool const listed = !_Unlist(flight);
     auto stale = [&] {
         return flight->epoch != epoch_.load(std::memory_order_acquire) ||
@@ -375,11 +414,12 @@ bool UsdGenExecutionCacheDomain::_Settle(
         status = CoalescedStatus::Failed;
         bool inserted = false;
         try {
+            // The lease is taken before the entry is published, so a racing
+            // inserter cannot evict it between admission and delivery.
             inserted = store_._Insert(registration.key, std::move(payload), bytes,
-                                      reason, &flight->epoch);
+                                      reason, &flight->epoch, &lease);
         } catch (...) {}
         if (inserted) {
-            lease = store_._Lookup(registration.key, &flight->epoch);
             if (lease) {
                 status = CoalescedStatus::Success;
                 result = true;
@@ -437,7 +477,7 @@ bool UsdGenExecutionCacheDomain::Insert(UsdGenExecutionCacheKey key,
     // clear: finish the clear instead of failing.
     if (store_._StateEpoch() < epoch) store_._Clear(&epoch);
     bool const inserted = store_._Insert(std::move(key), std::move(payload), bytes,
-                                         reason, &epoch);
+                                         reason, &epoch, nullptr);
     if (inserted) {
         uint64_t mark = _publicationWatermark.load(std::memory_order_acquire);
         while (generation > mark &&
@@ -464,18 +504,27 @@ bool UsdGenExecutionCacheDomain::Invalidate() noexcept
     }
     uint64_t const next = value + 1;
     // Every flight of the old epoch goes Stale. Taking the whole list makes
-    // this thread the only one that can retire it.
+    // this thread the only one that can retire it, but not its flights: a
+    // leader (or a withdrawing BeginCoalesced) that wins a flight's settled
+    // CAS retires it, so the walk stays pinned. Pinned before the exchange,
+    // so every such retire comes after the pin.
     Flight* stale = nullptr;
-    if (FlightList* list = _flights.exchange(nullptr, std::memory_order_seq_cst)) {
-        for (Flight* flight : list->flights) {
-            uint32_t open = 0;
-            if (flight->settled.compare_exchange_strong(open, 1, std::memory_order_acq_rel)) {
-                flight->settleNext = stale;
-                stale = flight;
+    {
+        UsdGenEpochGuard guard;
+        if (FlightList* list = _flights.exchange(nullptr, std::memory_order_seq_cst)) {
+            RunTestHook(TestPoint::InvalidateTookFlights);
+            for (Flight* flight : list->flights) {
+                uint32_t open = 0;
+                if (flight->settled.compare_exchange_strong(open, 1, std::memory_order_acq_rel)) {
+                    flight->settleNext = stale;
+                    stale = flight;
+                }
             }
+            UsdGenEpochRetireDelete(list);
         }
-        UsdGenEpochRetireDelete(list);
     }
+    // No old-epoch publication may land after this returns.
+    _AwaitPublications();
     bool const cleared = store_._Clear(&next);
     if (!cleared) _clearFailed.store(true, std::memory_order_release);
     while (stale) {
@@ -485,6 +534,62 @@ bool UsdGenExecutionCacheDomain::Invalidate() noexcept
         UsdGenEpochRetireDelete(flight);
     }
     return cleared;
+}
+
+bool UsdGenExecutionCacheDomain::_PublishIfCurrent(
+    uint64_t epoch, void (*run)(void*), void* context)
+{
+    // Store-load against Invalidate (seq_cst on both sides): either this
+    // announcement is visible to its count load, or its bump is visible here.
+    _publishing.fetch_add(1, std::memory_order_seq_cst);
+    struct Scope {
+        UsdGenExecutionCacheDomain* domain;
+        UsdGenExecutionCacheDomain const* previousDomain;
+        uint32_t previousDepth;
+        ~Scope() {
+            tPublishDomain = previousDomain;
+            tPublishDepth = previousDepth;
+            domain->_EndPublish();
+        }
+    } scope{this, tPublishDomain, tPublishDepth};
+    tPublishDepth = tPublishDomain == this ? tPublishDepth + 1 : 1;
+    tPublishDomain = this;
+    if (_clearFailed.load(std::memory_order_seq_cst) ||
+        epoch != epoch_.load(std::memory_order_seq_cst))
+        return false;
+    run(context);
+    return true;
+}
+
+void UsdGenExecutionCacheDomain::_EndPublish() noexcept
+{
+    uint32_t const before = _publishing.fetch_sub(1, std::memory_order_seq_cst);
+    if (!(before & kPublishWaiter)) return;
+    // A parked Invalidate: the last publication clears the flag; every
+    // decrement wakes, so a waiter re-entered from an action sees its count.
+    if (before == (kPublishWaiter | 1)) {
+        uint32_t expected = kPublishWaiter;
+        _publishing.compare_exchange_strong(expected, 0, std::memory_order_seq_cst);
+    }
+    UsdGenUnparkAll(_publishing);
+}
+
+void UsdGenExecutionCacheDomain::_AwaitPublications() noexcept
+{
+    // Never wait at process exit: the publishers may already be gone.
+    if (UsdGenProcessShutdownInProgress()) return;
+    uint32_t const own = tPublishDomain == this ? tPublishDepth : 0;
+    uint32_t word = _publishing.load(std::memory_order_seq_cst);
+    while ((word & ~kPublishWaiter) > own) {
+        if (!(word & kPublishWaiter)) {
+            if (!_publishing.compare_exchange_weak(word, word | kPublishWaiter,
+                                                   std::memory_order_seq_cst))
+                continue;
+            word |= kPublishWaiter;
+        }
+        UsdGenParkWhileEqual(_publishing, word);
+        word = _publishing.load(std::memory_order_seq_cst);
+    }
 }
 
 namespace {

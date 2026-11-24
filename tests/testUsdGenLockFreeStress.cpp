@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: MIT
 //
 // testUsdGenLockFreeStress — multi-thread stress for the lock-free engine
-// pieces: shared-pointer cells, the execution cache store and domain
-// coalescing, the memory reservation word, and a 64-thread Submit/Visible
-// run against one Session. Tracked payloads live in never-reused poisoned
-// storage, so a use after free reads poison rather than a reused block.
+// pieces: shared-pointer cells, the execution cache store (leases against
+// eviction) and domain coalescing (Invalidate against settling leaders and
+// publications), the pipeline's newest-wins mailbox, the memory reservation
+// word, and a 64-thread Submit/Visible run against one Session. Tracked
+// values live in a never-reused poisoned arena, so reading a freed one fails.
 #include "usdGen/epoch.h"
 #include "usdGen/executionCache.h"
+#include "usdGen/executionPipeline.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/opRegistry.h"
 #include "usdGen/session.h"
@@ -22,8 +24,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
+#include <cstdlib>
 #include <memory>
 #include <random>
 #include <string>
@@ -51,32 +53,34 @@ struct Tracked {
     int64_t mirror;
 };
 
-// Never-reused, poisoned storage for Tracked and its control block: a value
-// read after its last reference dropped finds 0xDD bytes (not Intact, and a
-// dead control block), instead of a fresh object the heap put at the same
-// address.
+// A bump arena that never hands memory out twice and poisons what is freed,
+// so a value (or its control block) read after its last release is never a
+// fresh object at the same address: Intact() fails on the poison.
 struct PoisonArena {
-    static constexpr size_t kCell = 128, kCells = size_t(1) << 18;
-    static unsigned char *base;
-    static std::atomic<size_t> next;
-    static void *Allocate(size_t bytes)
+    static constexpr size_t kBytes = size_t(128) << 20;
+    unsigned char *base = static_cast<unsigned char *>(std::malloc(kBytes));
+    std::atomic<size_t> used{0};
+    void *Allocate(size_t n)
     {
-        size_t const i = next.fetch_add(1);
-        if (bytes > kCell || i >= kCells) std::abort();
-        return base + i * kCell;
+        n = (n + 63) & ~size_t(63);
+        size_t const at = used.fetch_add(n);
+        if (!base || at + n > kBytes) {
+            std::puts("FAIL: poison arena exhausted");
+            std::abort();
+        }
+        return base + at;
     }
-    static void Free(void *p, size_t bytes) { std::memset(p, 0xDD, bytes); }
+    static void Free(void *p, size_t n) { std::memset(p, 0xdd, n); }
 };
-unsigned char *PoisonArena::base = nullptr;
-std::atomic<size_t> PoisonArena::next{0};
+PoisonArena gArena;
 
 template <class T>
 struct PoisonAllocator {
     using value_type = T;
-    PoisonAllocator() noexcept = default;
+    PoisonAllocator() = default;
     template <class U>
     PoisonAllocator(PoisonAllocator<U> const &) noexcept {}
-    T *allocate(size_t n) { return static_cast<T *>(PoisonArena::Allocate(n * sizeof(T))); }
+    T *allocate(size_t n) { return static_cast<T *>(gArena.Allocate(n * sizeof(T))); }
     void deallocate(T *p, size_t n) noexcept { PoisonArena::Free(p, n * sizeof(T)); }
     template <class U>
     bool operator==(PoisonAllocator<U> const &) const noexcept { return true; }
@@ -261,6 +265,241 @@ void DomainCoalescingStress()
     Check(domain->Bytes() <= domain->MaxBytes(), "domain: accounting stays bounded");
 }
 
+
+// A held lease keeps its entry resident and charged: an inserter that needs
+// room never evicts it, so a second lookup under the lease always hits.
+void LeasedEvictionStress()
+{
+    {
+        UsdGenExecutionCacheStore<Tracked> store(8);
+        UsdGenExecutionCacheKey const base = BaseKey();
+        std::atomic<int> evictedUnderLease{0}, wrong{0}, leased{0};
+        std::atomic<int> inserters{0};
+        int const nInserters = 6, nLeasers = 10;
+        RunThreads(nInserters + nLeasers, [&](int t) {
+            std::mt19937 rng(777u + unsigned(t));
+            if (t < nInserters) {
+                for (int k = 0; k != 30000; ++k) {
+                    UsdGenExecutionCacheKey key = base;
+                    key.layoutDigest = rng() % 32;
+                    store.Insert(key, MakeTracked(int64_t(key.layoutDigest)), 1);
+                }
+                inserters.fetch_add(1);
+                return;
+            }
+            while (inserters.load() != nInserters) {
+                UsdGenExecutionCacheKey key = base;
+                key.layoutDigest = rng() % 32;
+                auto lease = store.Lookup(key);
+                if (!lease) continue;
+                leased.fetch_add(1);
+                for (int y = 0; y != 4; ++y) std::this_thread::yield();
+                if (!(*lease)->Intact() || (*lease)->value != int64_t(key.layoutDigest))
+                    wrong.fetch_add(1);
+                if (!store.Lookup(key)) evictedUnderLease.fetch_add(1);
+            }
+        });
+        Check(leased.load() > 0, "leased eviction: lookups lease entries under insert pressure");
+        Check(evictedUnderLease.load() == 0, "leased eviction: a leased entry is never evicted");
+        Check(wrong.load() == 0, "leased eviction: a lease reads its own intact payload");
+        Check(store.Bytes() <= store.MaxBytes(), "leased eviction: accounting stays bounded");
+    }
+    DrainEpochs();
+    Check(gAlive.load() == 0, "leased eviction: every payload is released");
+}
+
+using Domain = UsdGenExecutionCacheDomain;
+
+std::shared_ptr<Domain> MakeDomain(uint64_t identity)
+{
+    return std::make_shared<Domain>(
+        UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::CpuReference, -1, identity}, 1u << 20);
+}
+
+UsdGenExecutionCacheKey DomainKey(Domain const &domain, uint64_t layout)
+{
+    UsdGenExecutionCacheKey key = BaseKey();
+    key.layoutDigest = layout;
+    key.context.deviceGeneration = domain.Epoch();
+    return key;
+}
+
+uint64_t EpochNow() { return UsdGenEpochGetStats().epoch; }
+
+// Invalidate walks flights it took from the list while a leader that won a
+// flight's settled CAS before the take retires it. The walk must stay pinned:
+// with the leader's retire done and drained, the global epoch may advance at
+// most once (to free the flight it must advance twice).
+void InvalidateWalkPinned()
+{
+    auto domain = MakeDomain(0x57414c4bu);
+    struct Ctx {
+        std::atomic<int> phase{0};
+        uint64_t advanced = 0;
+    } ctx;
+    auto reg = domain->BeginCoalesced(DomainKey(*domain, 1),
+                                      [](Domain::CoalescedStatus, std::optional<Domain::Lease>) {});
+    Check(reg && reg->IsLeader(), "invalidate walk: a leader registers");
+    auto wait = [](std::atomic<int> &phase, int value) {
+        while (phase.load() < value) std::this_thread::yield();
+    };
+    Domain::SetTestHook([](Domain::TestPoint point, void *p) {
+        auto &c = *static_cast<Ctx *>(p);
+        auto wait = [&c](int value) { while (c.phase.load() < value) std::this_thread::yield(); };
+        if (point == Domain::TestPoint::SettleWonFlight && c.phase.load() == 0) {
+            c.phase.store(1);
+            wait(2);
+        } else if (point == Domain::TestPoint::InvalidateTookFlights && c.phase.load() == 1) {
+            c.phase.store(2);
+            wait(3);
+        }
+    }, &ctx);
+    bool rejected = false;
+    std::thread leader([&] {
+        rejected = domain->RejectCoalesced(*reg, Domain::CoalescedStatus::Failed);
+        uint64_t const before = EpochNow();
+        DrainEpochs();
+        ctx.advanced = EpochNow() - before;
+        ctx.phase.store(3);
+    });
+    wait(ctx.phase, 1);
+    std::thread invalidator([&] { domain->Invalidate(); });
+    leader.join();
+    invalidator.join();
+    Domain::SetTestHook(nullptr, nullptr);
+    Check(ctx.phase.load() == 3 && !rejected,
+          "invalidate walk: the leader settled its flight before Invalidate walked it (Stale)");
+    Check(ctx.advanced <= 1, "invalidate walk: a flight Invalidate still walks cannot be reclaimed");
+}
+
+// BeginCoalesced withdraws a flight an Invalidate made stale before it was
+// published. The leader's callback dies there and must die unpinned.
+void StaleWithdrawUnpinned()
+{
+    auto domain = MakeDomain(0x5354414cu);
+    struct Ctx {
+        Domain *domain = nullptr;
+        std::atomic<int> fired{0};
+    } ctx{domain.get()};
+    struct Probe {
+        std::shared_ptr<std::atomic<int>> unpinned = std::make_shared<std::atomic<int>>(-1);
+        ~Probe()
+        {
+            if (!unpinned) return;
+            // Drain does nothing on a pinned thread; unpinned, nothing else
+            // in this process holds a pin, so the epoch moves.
+            uint64_t const before = EpochNow();
+            UsdGenEpochDrain();
+            unpinned->store(EpochNow() > before ? 1 : 0);
+        }
+        Probe() = default;
+        Probe(Probe &&o) noexcept : unpinned(std::move(o.unpinned)) {}
+    };
+    Probe probe;
+    auto result = probe.unpinned;
+    UsdGenExecutionCacheKey const key = DomainKey(*domain, 2);
+    Domain::SetTestHook([](Domain::TestPoint point, void *p) {
+        auto &c = *static_cast<Ctx *>(p);
+        if (point == Domain::TestPoint::BeginCoalescedBeforePublish && !c.fired.exchange(1))
+            c.domain->Invalidate();
+    }, &ctx);
+    auto holder = std::make_shared<Probe>(std::move(probe));
+    bool called = false;
+    auto reg = domain->BeginCoalesced(key, [holder = std::move(holder), &called](
+                                               Domain::CoalescedStatus, std::optional<Domain::Lease>) {
+        called = true;
+    });
+    Domain::SetTestHook(nullptr, nullptr);
+    Check(ctx.fired.load() == 1 && !reg && !called,
+          "stale withdraw: a flight made stale before publication is withdrawn silently");
+    Check(result->load() == 1, "stale withdraw: the leader's callback is destroyed outside a guard");
+}
+
+// No publication that passed its epoch check may land after Invalidate has
+// returned: Invalidate waits for the action that is already running.
+void PublishVersusInvalidate()
+{
+    auto domain = MakeDomain(0x50554255u);
+    int violations = 0, published = 0;
+    for (int round = 0; round != 8; ++round) {
+        auto fence = domain->CapturePublicationFence(DomainKey(*domain, 3));
+        if (!fence) { ++violations; continue; }
+        uint64_t const epoch = fence->Epoch();
+        std::atomic<int> entered{0}, returned{0};
+        std::thread publisher([&] {
+            bool const ok = domain->PublishIfCurrent(*fence, [&] {
+                entered.store(1);
+                auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                while (domain->Epoch() == epoch && std::chrono::steady_clock::now() < deadline)
+                    std::this_thread::yield();
+                auto const linger = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+                while (std::chrono::steady_clock::now() < linger) std::this_thread::yield();
+                if (returned.load()) ++violations;
+                ++published;
+                return std::shared_ptr<const void>();
+            });
+            if (!ok) ++violations;
+        });
+        while (!entered.load()) std::this_thread::yield();
+        domain->Invalidate();
+        returned.store(1);
+        publisher.join();
+    }
+    Check(published == 8, "publish fence: an action that passed its check completes");
+    Check(violations == 0, "publish fence: no publication lands after Invalidate returns");
+
+    // Many publishers against a repeating Invalidate: an action with an old
+    // fence never runs after the Invalidate that retired its epoch returned.
+    std::atomic<uint64_t> invalidatedThrough{0};  // epochs < this are retired
+    std::atomic<int> late{0}, ran{0};
+    std::atomic<bool> stop{false};
+    std::thread invalidator([&] {
+        for (int i = 0; i != 400; ++i) {
+            uint64_t const before = domain->Epoch();
+            domain->Invalidate();
+            invalidatedThrough.store(before + 1);
+            std::this_thread::yield();
+        }
+        stop.store(true);
+    });
+    RunThreads(8, [&](int) {
+        while (!stop.load()) {
+            auto fence = domain->CapturePublicationFence(DomainKey(*domain, 4));
+            if (!fence) continue;
+            uint64_t const epoch = fence->Epoch();
+            domain->PublishIfCurrent(*fence, [&] {
+                for (int y = 0; y != 3; ++y) std::this_thread::yield();
+                if (invalidatedThrough.load() > epoch) late.fetch_add(1);
+                ran.fetch_add(1);
+                return std::shared_ptr<const void>();
+            });
+        }
+    });
+    invalidator.join();
+    Check(ran.load() > 0, "publish fence: concurrent publications run");
+    Check(late.load() == 0, "publish fence: no old-epoch action outlives its Invalidate");
+}
+
+// PostLatestCommand against the owner's recheck: the newest command always
+// runs (store-load ordering on scheduled/latest on both sides).
+void MailboxNewestRuns()
+{
+    UsdGenExecutionRuntime runtime(4);
+    UsdGenExecutionPipeline pipeline(runtime, 4, 64);
+    auto mailbox = pipeline.ReserveCommandMailbox();
+    std::atomic<int> last{-1};
+    int stranded = 0;
+    int const rounds = 20000;
+    for (int round = 0; round != rounds; ++round) {
+        pipeline.PostLatestCommand(mailbox, [&last, round] { last.store(2 * round, std::memory_order_relaxed); });
+        for (int y = 0; y != round % 16; ++y) std::this_thread::yield();
+        pipeline.PostLatestCommand(mailbox, [&last, round] { last.store(2 * round + 1, std::memory_order_relaxed); });
+        pipeline.Drain();
+        if (last.load() != 2 * round + 1) ++stranded;
+    }
+    Check(stranded == 0, "mailbox: the newest command always runs");
+}
+
 void ReservationStress()
 {
     UsdGenExecutionResourcePool pool(1u << 20);
@@ -274,10 +513,13 @@ void ReservationStress()
                 reservation->Release();
                 closed.store(true);
             }
+            // Read before Consume: a Release that already happened must win.
+            bool const released = closed.load();
             auto permit = reservation->Consume(1 + size_t(k % 7), UsdGenExecutionResourceKind::Scratch);
-            if (permit && closed.load() && t == 0) overdraw.fetch_add(1);
+            if (permit && released) overdraw.fetch_add(1);
             auto direct = pool.TryReserve(1 + size_t(t % 5), UsdGenExecutionResourceKind::Active);
-            if (pool.Snapshot().usedBytes > pool.Snapshot().usableBytes) overdraw.fetch_add(1);
+            auto const snapshot = pool.Snapshot();
+            if (snapshot.usedBytes > snapshot.usableBytes) overdraw.fetch_add(1);
         }
     });
     auto const snapshot = pool.Snapshot();
@@ -376,11 +618,14 @@ void SessionSubmitVisibleStress()
 int main()
 {
     usdGenRegisterM1Operators();
-    PoisonArena::base = static_cast<unsigned char *>(
-        ::operator new(PoisonArena::kCell * PoisonArena::kCells));
     SharedCellStress();
     CacheStoreStress();
+    LeasedEvictionStress();
+    InvalidateWalkPinned();
+    StaleWithdrawUnpinned();
+    PublishVersusInvalidate();
     DomainCoalescingStress();
+    MailboxNewestRuns();
     ReservationStress();
     SessionSubmitVisibleStress();
     DrainEpochs();

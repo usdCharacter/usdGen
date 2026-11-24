@@ -375,13 +375,17 @@ struct UsdGenExecutionPipeline::Impl {
         if (message.kind == Message::Kind::Mailbox) {
             auto mailbox = std::move(message.mailbox);
             auto command = mailbox->latest.Take();
-            mailbox->scheduled.store(false, std::memory_order_release);
+            mailbox->scheduled.store(false, std::memory_order_seq_cst);
             if (command) {
                 try { command->fn(); }
                 catch (...) { callbackFailures.fetch_add(1, std::memory_order_relaxed); }
             }
             // A producer may have replaced latest while this owner frame ran.
-            // Schedule one successor, never poll or retry in a loop.
+            // Schedule one successor, never poll or retry in a loop. Store
+            // scheduled, then load latest; the producer stores latest, then
+            // loads scheduled: both sides fence, or each can miss the other
+            // and strand the newest command.
+            std::atomic_thread_fence(std::memory_order_seq_cst);
             if (mailbox->latest.HasValue()) {
                 bool expected = false;
                 if (mailbox->scheduled.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
@@ -554,6 +558,9 @@ bool UsdGenExecutionPipeline::PostLatestCommand(CommandMailbox const& mailbox,
         impl_->closing->load(std::memory_order_acquire) ||
         mailbox.state_->broken.load(std::memory_order_acquire)) return false;
     mailbox.state_->latest.Publish(UsdGenMakeRef<LatestCommand>(std::move(command)));
+    // Pairs with the owner's fence between clearing scheduled and its
+    // recheck of latest (store-load on both sides).
+    std::atomic_thread_fence(std::memory_order_seq_cst);
     if (mailbox.state_->broken.load(std::memory_order_acquire)) {
         mailbox.state_->latest.Take();
         return false;
