@@ -784,13 +784,13 @@ std::shared_ptr<RbfVkFactorCache::Entry const> RbfVkFactorCache::Lookup(
     uint64_t smoothingBits = 0;
     static_assert(sizeof(smoothingBits) == sizeof(smoothing), "");
     std::memcpy(&smoothingBits, &smoothing, sizeof(smoothing));
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!entry_ || entry_->context != context || entry_->n != n ||
-        entry_->smoothingBits != smoothingBits ||
-        entry_->rest.size() != size_t(n) * 3 ||
-        std::memcmp(entry_->rest.data(), rest, size_t(n) * 3 * sizeof(float)) != 0)
+    auto entry = entry_.Load();
+    if (!entry || entry->context != context || entry->n != n ||
+        entry->smoothingBits != smoothingBits ||
+        entry->rest.size() != size_t(n) * 3 ||
+        std::memcmp(entry->rest.data(), rest, size_t(n) * 3 * sizeof(float)) != 0)
         return nullptr;
-    return entry_;
+    return entry;
 }
 
 void RbfVkFactorCache::Store(DeviceContext* context, int n, double smoothing,
@@ -807,8 +807,7 @@ void RbfVkFactorCache::Store(DeviceContext* context, int n, double smoothing,
     entry->rest = rest;
     entry->lu = lu;
     entry->perm = perm;
-    std::lock_guard<std::mutex> lock(mutex_);
-    entry_ = std::move(entry);
+    entry_.Store(std::move(entry));
 }
 
 void RbfVkBinding::SetFactorCache(std::shared_ptr<RbfVkFactorCache> cache) {
@@ -819,14 +818,15 @@ void RbfVkBinding::SetEvalCache(std::shared_ptr<RbfVkEvalCache> cache) {
     evalCache_ = std::move(cache);
 }
 
+RbfVkEvalCache::RbfVkEvalCache() : state_(new State) {}
+RbfVkEvalCache::~RbfVkEvalCache() { delete state_.load(std::memory_order_acquire); }
+
 uint64_t RbfVkEvalCache::hitsForTesting() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return hits_;
+    return hits_.load(std::memory_order_relaxed);
 }
 
 uint64_t RbfVkEvalCache::missesForTesting() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return misses_;
+    return misses_.load(std::memory_order_relaxed);
 }
 
 void TestDisableRbfVkEvalCache(bool disable) noexcept {
@@ -1361,13 +1361,20 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     // InvalidArgument result exactly.
     if (groupsY > physical.limits.maxComputeWorkGroupCount[1]) return false;
 
-    // The whole cached phase (decide, submit, wait, bookkeeping) runs
-    // under the cache mutex, like the deform proof phase, so a force
-    // commit is atomic with its fill and shared-cache users serialize.
-    std::unique_lock<std::mutex> cacheLock(cache->mutex_);
-    if (!cache->context_) cache->context_ = native.context.get();
+    // The whole cached phase (decide, submit, wait, bookkeeping) owns the
+    // entry, taken by exchange, so a force commit is atomic with its fill.
+    // A user that finds it taken evaluates directly (bitwise the same)
+    // instead of waiting; the entry returns when this phase ends.
+    struct Hold {
+        RbfVkEvalCache* cache;
+        RbfVkEvalCache::State* state;
+        ~Hold() { if (state) cache->state_.store(state, std::memory_order_release); }
+    } hold{cache.get(), cache->state_.exchange(nullptr, std::memory_order_acq_rel)};
+    RbfVkEvalCache::State* const st = hold.state;
+    if (!st) return false;
+    if (!st->context_) st->context_ = native.context.get();
     // A single-context cache: foreign-context users run directly.
-    if (cache->context_ != native.context.get()) return false;
+    if (st->context_ != native.context.get()) return false;
     // Host key: cachedRest mirrors restBuf (updated and cleared
     // together in BeginBind/AllocateBuffers), and the extent-derived
     // center/scale are deterministic in the rest bytes; both compare
@@ -1375,14 +1382,14 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     // needs no key. Shrinking reuses the entry (the shaders bound by
     // the active count); growing reshapes to the exact count.
     size_t const restFloats = size_t(n) * 3u;
-    bool const restMatch = cache->armed_ && cache->entryN_ == n && cache->entryP_ >= count &&
-        cache->entryRest_.size() == restFloats &&
-        std::memcmp(cache->entryRest_.data(), native.cachedRest.data(),
+    bool const restMatch = st->armed_ && st->entryN_ == n && st->entryP_ >= count &&
+        st->entryRest_.size() == restFloats &&
+        std::memcmp(st->entryRest_.data(), native.cachedRest.data(),
                     restFloats * sizeof(float)) == 0 &&
-        std::memcmp(cache->entryCenter_, center_, sizeof(center_)) == 0 &&
-        std::memcmp(&cache->entryScale_, &scale_, sizeof(scale_)) == 0;
+        std::memcmp(st->entryCenter_, center_, sizeof(center_)) == 0 &&
+        std::memcmp(&st->entryScale_, &scale_, sizeof(scale_)) == 0;
     bool const force = !restMatch;
-    uint32_t const P = restMatch ? cache->entryP_ : count;
+    uint32_t const P = restMatch ? st->entryP_ : count;
     // The rest commit stages before the submit (an allocation failure
     // throws here, before anything observable) and lands after the
     // submit proves, so a rejected submit retries the force.
@@ -1419,18 +1426,18 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
                         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                         UsdGenExecutionResourceKind::Cache, &proof))
             return false;
-        cache->rCache_ = std::move(rCache);
-        cache->proof_ = std::move(proof);
+        st->rCache_ = std::move(rCache);
+        st->proof_ = std::move(proof);
     }
     auto mkArgs = [&](std::shared_ptr<ChargedBuffer>* slot) {
         return *slot || mkCacheBuf(12u, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
                                          host, UsdGenExecutionResourceKind::Scratch, slot);
     };
-    if (!mkArgs(&cache->fillArgs_) || !mkArgs(&cache->cachedArgs_)) return false;
-    if (!cache->verifyUbo_ &&
+    if (!mkArgs(&st->fillArgs_) || !mkArgs(&st->cachedArgs_)) return false;
+    if (!st->verifyUbo_ &&
         !mkCacheBuf(sizeof(RbfVkVerifyUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, host,
-                    UsdGenExecutionResourceKind::Scratch, &cache->verifyUbo_))
+                    UsdGenExecutionResourceKind::Scratch, &st->verifyUbo_))
         return false;
 
     // UBO contents plus the indirect args pre-writes. The fill and the
@@ -1463,10 +1470,10 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     uint32_t cachedArgs[3] = {force ? 0u : groupsX, force ? 1u : groupsY, 1u};
     struct Fill { std::shared_ptr<ChargedBuffer> const* slot; void const* data; uint32_t bytes; };
     Fill const fills[] = {
-        {&cache->verifyUbo_, &v, sizeof(v)},
+        {&st->verifyUbo_, &v, sizeof(v)},
         {&native.uboBuf, &c, sizeof(c)},
-        {&cache->fillArgs_, &fillArgs, sizeof(fillArgs)},
-        {&cache->cachedArgs_, &cachedArgs, sizeof(cachedArgs)},
+        {&st->fillArgs_, &fillArgs, sizeof(fillArgs)},
+        {&st->cachedArgs_, &cachedArgs, sizeof(cachedArgs)},
     };
     for (auto const& fill : fills)
         if (WriteBytes(d, **fill.slot, fill.bytes, fill.data) != VK_SUCCESS) return false;
@@ -1515,10 +1522,10 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     VkDeviceSize const cvBytes = VkDeviceSize(count) * 12u;
     writeLayoutSet(verifySet,
                    {{0, {cvs->buffer(), 0, cvBytes}},
-                    {1, {cache->proof_->buffer(), 0, cache->proof_->sizeBytes()}},
-                    {2, {cache->fillArgs_->buffer(), 0, 12}},
-                    {3, {cache->verifyUbo_->buffer(), 0, sizeof(RbfVkVerifyUbo)}},
-                    {4, {cache->cachedArgs_->buffer(), 0, 12}}},
+                    {1, {st->proof_->buffer(), 0, st->proof_->sizeBytes()}},
+                    {2, {st->fillArgs_->buffer(), 0, 12}},
+                    {3, {st->verifyUbo_->buffer(), 0, sizeof(RbfVkVerifyUbo)}},
+                    {4, {st->cachedArgs_->buffer(), 0, 12}}},
                    3);
     writeLayoutSet(fillSet,
                    {{0, {cvs->buffer(), 0, cvBytes}},
@@ -1527,12 +1534,12 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
                     {3, {native.coefBuf->buffer(), 0, VkDeviceSize(m) * 24u}},
                     {4, {native.uboBuf->buffer(), 0, 64}},
                     {5, {native.flagBuf->buffer(), 0, 4}},
-                    {6, {cache->rCache_->buffer(), 0, cache->rCache_->sizeBytes()}}},
+                    {6, {st->rCache_->buffer(), 0, st->rCache_->sizeBytes()}}},
                    4);
     writeLayoutSet(cachedSet,
                    {{0, {cvs->buffer(), 0, cvBytes}},
                     {1, {out->buffer(), 0, cvBytes}},
-                    {2, {cache->rCache_->buffer(), 0, cache->rCache_->sizeBytes()}},
+                    {2, {st->rCache_->buffer(), 0, st->rCache_->sizeBytes()}},
                     {3, {native.coefBuf->buffer(), 0, VkDeviceSize(m) * 24u}},
                     {4, {native.uboBuf->buffer(), 0, 64}},
                     {5, {native.flagBuf->buffer(), 0, 4}}},
@@ -1589,7 +1596,7 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.fillPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
             native.fillPipelineLayout, 0, 1, &fillSet, 0, nullptr);
-        vkCmdDispatchIndirect(cmd, cache->fillArgs_->buffer(), 0);
+        vkCmdDispatchIndirect(cmd, st->fillArgs_->buffer(), 0);
         VkMemoryBarrier fillToCached{};
         fillToCached.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         fillToCached.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1601,7 +1608,7 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.cachedPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
             native.evaluatePipelineLayout, 0, 1, &cachedSet, 0, nullptr);
-        vkCmdDispatchIndirect(cmd, cache->cachedArgs_->buffer(), 0);
+        vkCmdDispatchIndirect(cmd, st->cachedArgs_->buffer(), 0);
         AfterBarrier(cmd);
         r = vkEndCommandBuffer(cmd);
     }
@@ -1644,11 +1651,11 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     native.evalOwners.push_back(std::move(out));
     // The entry buffers join the submit lifetime: the cache may be
     // destroyed while this evaluation is pending.
-    native.evalOwners.push_back(cache->rCache_);
-    native.evalOwners.push_back(cache->proof_);
-    native.evalOwners.push_back(cache->fillArgs_);
-    native.evalOwners.push_back(cache->cachedArgs_);
-    native.evalOwners.push_back(cache->verifyUbo_);
+    native.evalOwners.push_back(st->rCache_);
+    native.evalOwners.push_back(st->proof_);
+    native.evalOwners.push_back(st->fillArgs_);
+    native.evalOwners.push_back(st->cachedArgs_);
+    native.evalOwners.push_back(st->verifyUbo_);
     evalPending_ = true;
     VkSubmitInfo submit{};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1662,7 +1669,7 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
         return true;
     }
     // Synchronous proof phase (the deform discipline): the fence proves
-    // the submit while the cache lock serializes shared users. The
+    // the submit while this phase owns the entry. The
     // pending protocol is unchanged — the fence is simply already
     // signaled when Finish/PollEvaluate consume it.
     r = SpinWaitForFence(d, fence);
@@ -1677,20 +1684,20 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     // work already ran, so a failed readback still returns Ok (counted
     // a miss with the entry disarmed, forcing the next refill).
     uint32_t argsBack[3] = {0, 0, 0};
-    if (ReadBytes(d, *cache->fillArgs_, sizeof(argsBack), &argsBack) != VK_SUCCESS) {
-        cache->armed_ = false;
-        ++cache->misses_;
+    if (ReadBytes(d, *st->fillArgs_, sizeof(argsBack), &argsBack) != VK_SUCCESS) {
+        st->armed_ = false;
+        cache->misses_.fetch_add(1, std::memory_order_relaxed);
     } else {
         if (argsBack[0] == 0)
-            ++cache->hits_;
+            cache->hits_.fetch_add(1, std::memory_order_relaxed);
         else
-            ++cache->misses_;
-        cache->entryN_ = n;
-        cache->entryP_ = P;
-        std::memcpy(cache->entryCenter_, center_, sizeof(center_));
-        std::memcpy(&cache->entryScale_, &scale_, sizeof(scale_));
-        cache->entryRest_ = std::move(restCommit);
-        cache->armed_ = true;
+            cache->misses_.fetch_add(1, std::memory_order_relaxed);
+        st->entryN_ = n;
+        st->entryP_ = P;
+        std::memcpy(st->entryCenter_, center_, sizeof(center_));
+        std::memcpy(&st->entryScale_, &scale_, sizeof(scale_));
+        st->entryRest_ = std::move(restCommit);
+        st->armed_ = true;
     }
     *status = RbfVkStatus::Ok;
     return true;

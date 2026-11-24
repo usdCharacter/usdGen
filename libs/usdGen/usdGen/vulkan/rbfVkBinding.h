@@ -36,11 +36,12 @@
 
 #include "usdGen/vulkan/chargedBuffer.h"
 #include "usdGen/vulkan/deviceContext.h"
+#include "usdGen/vulkan/epochCell.h"
 
 #include <cstdint>
 #include <functional>
+#include <atomic>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <vector>
 
@@ -71,8 +72,9 @@ char const* RbfVkStatusName(RbfVkStatus status) noexcept;
 // protocol, admission hooks, and buffer state are unchanged. Only
 // successful binds are stored (failures re-run and fail as before), and
 // the key covers the device, count, smoothing bits, and rest bytes, so a
-// hit adopts bitwise what a fresh bind would compute. Thread-safe;
-// single-entry (one rest at a time, like the CPU boundRest_ skip).
+// hit adopts bitwise what a fresh bind would compute. Lock-free: the
+// immutable entry is published by atomic pointer; single-entry (one rest at
+// a time, like the CPU boundRest_ skip).
 class RbfVkFactorCache {
 public:
     RbfVkFactorCache() = default;
@@ -95,8 +97,7 @@ private:
     void Store(DeviceContext* context, int n, double smoothing,
                std::vector<float> const& rest, std::vector<double> const& lu,
                std::vector<int> const& perm, int m);
-    std::mutex mutex_;
-    std::shared_ptr<Entry const> entry_;
+    VulkanEpochCell<Entry const> entry_;
 };
 
 struct RbfVkBindingSpirv {
@@ -121,14 +122,15 @@ struct RbfVkBindingSpirv {
 // center/scale, all verified bitwise (CVs on the device, rest/n on the
 // host), so a hit evaluates through the cache and a miss refills it
 // first; either way the bytes match the direct shader bit for bit. The
-// whole cached submit (decide, submit, wait, bookkeeping) runs under
-// one mutex, so concurrent evaluations sharing a cache serialize like
-// the deform pipeline's proof phase. Single-entry (one shape at a
-// time); over the cap, or when a reshape does not fit the pool, the
-// binding evaluates directly with no added work. Thread-safe.
+// whole cached submit (decide, submit, wait, bookkeeping) owns the entry,
+// taken by atomic exchange; a concurrent evaluation that finds it taken
+// runs directly instead of waiting. Single-entry (one shape at a time);
+// over the cap, or when a reshape does not fit the pool, the binding
+// evaluates directly with no added work. Lock-free; relaxed counters.
 class RbfVkEvalCache {
 public:
-    RbfVkEvalCache() = default;
+    RbfVkEvalCache();
+    ~RbfVkEvalCache();
     RbfVkEvalCache(RbfVkEvalCache const&) = delete;
     RbfVkEvalCache& operator=(RbfVkEvalCache const&) = delete;
 
@@ -139,21 +141,24 @@ public:
 
 private:
     friend class RbfVkBinding;
-    mutable std::mutex mutex_;
-    DeviceContext* context_ = nullptr;
-    int entryN_ = 0;
-    uint32_t entryP_ = 0;
-    double entryCenter_[3] = {};
-    double entryScale_ = 1.0;
-    std::vector<float> entryRest_;
-    bool armed_ = false;
-    std::shared_ptr<ChargedBuffer> rCache_;
-    std::shared_ptr<ChargedBuffer> proof_;
-    std::shared_ptr<ChargedBuffer> fillArgs_;
-    std::shared_ptr<ChargedBuffer> cachedArgs_;
-    std::shared_ptr<ChargedBuffer> verifyUbo_;
-    uint64_t hits_ = 0;
-    uint64_t misses_ = 0;
+    // Owned by the one evaluation holding it (state_ is null meanwhile).
+    struct State {
+        DeviceContext* context_ = nullptr;
+        int entryN_ = 0;
+        uint32_t entryP_ = 0;
+        double entryCenter_[3] = {};
+        double entryScale_ = 1.0;
+        std::vector<float> entryRest_;
+        bool armed_ = false;
+        std::shared_ptr<ChargedBuffer> rCache_;
+        std::shared_ptr<ChargedBuffer> proof_;
+        std::shared_ptr<ChargedBuffer> fillArgs_;
+        std::shared_ptr<ChargedBuffer> cachedArgs_;
+        std::shared_ptr<ChargedBuffer> verifyUbo_;
+    };
+    std::atomic<State*> state_;
+    std::atomic<uint64_t> hits_{0};
+    std::atomic<uint64_t> misses_{0};
 };
 
 // Global test seam (mirrors CUDA's TestDisableCudaRbfEvalCache): while
