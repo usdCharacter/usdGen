@@ -2,8 +2,7 @@
 
 #include "usdGen/opRegistry.h"
 
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
+#include "usdGen/taskScheduler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,10 +11,19 @@
 #include <limits>
 #include <memory>
 #include <set>
+#include <type_traits>
 #include <vector>
 
 namespace usdGen {
 namespace {
+
+// body(c) for c in [0, chunks) on the process scheduler.
+template <class Body>
+void ForChunks(size_t chunks, Body&& body) {
+    using B = std::remove_reference_t<Body>;
+    UsdGenParallelFor(chunks, [](size_t c, void* p) { (*static_cast<B*>(p))(c); },
+                      const_cast<void*>(static_cast<void const*>(&body)));
+}
 
 CudaScatterInputStatus Fail(CudaScatterInputStatus status, std::string message,
                             std::string* reason) {
@@ -47,10 +55,10 @@ bool ValidScatterParam(UsdGenParamValue const& param) {
 // groups keep their serial order with the same early exit between groups,
 // so chunking within a group only changes how fast the verdict arrives.
 // Small arrays stay serial (dispatch costs more than the scan below ~32K
-// elements). Plain TBB: validation runs outside any scheduler arena.
+// elements).
 template <class T, class Bad>
 bool ValidateAnyBad(T const* data, size_t n, Bad bad) {
-    int const workers = tbb::this_task_arena::max_concurrency();
+    int const workers = UsdGenParallelForConcurrency();
     size_t const chunks =
         (workers > 1 && n > 32768) ? std::min({size_t(workers), size_t(8), n})
                                    : 1;
@@ -60,18 +68,15 @@ bool ValidateAnyBad(T const* data, size_t n, Bad bad) {
         return false;
     }
     std::vector<unsigned char> partial(chunks, 0);
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, chunks),
-        [&](tbb::blocked_range<size_t> const& range) {
-            for (size_t c = range.begin(); c != range.end(); ++c) {
-                size_t const i0 = (c * n) / chunks;
-                size_t const i1 = ((c + 1) * n) / chunks;
-                bool hit = false;
-                for (size_t i = i0; i < i1; ++i) {
-                    if (bad(data[i])) { hit = true; break; }
-                }
-                partial[c] = hit ? 1 : 0;
-            }
-        });
+    ForChunks(chunks, [&](size_t c) {
+        size_t const i0 = (c * n) / chunks;
+        size_t const i1 = ((c + 1) * n) / chunks;
+        bool hit = false;
+        for (size_t i = i0; i < i1; ++i) {
+            if (bad(data[i])) { hit = true; break; }
+        }
+        partial[c] = hit ? 1 : 0;
+    });
     for (unsigned char f : partial)
         if (f) return true;
     return false;
@@ -86,7 +91,7 @@ bool ValidateAnyBad(T const* data, size_t n, Bad bad) {
 // Same verdict, same total, any chunking.
 bool ValidateCounts(int const* counts, size_t n, size_t* corners) {
     constexpr size_t kMax = std::numeric_limits<size_t>::max();
-    int const workers = tbb::this_task_arena::max_concurrency();
+    int const workers = UsdGenParallelForConcurrency();
     size_t const chunks =
         (workers > 1 && n > 32768) ? std::min({size_t(workers), size_t(8), n})
                                    : 1;
@@ -102,25 +107,22 @@ bool ValidateCounts(int const* counts, size_t n, size_t* corners) {
     }
     struct CountChunk { bool bad = false; size_t sum = 0; };
     std::vector<CountChunk> partial(chunks);
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, chunks),
-        [&](tbb::blocked_range<size_t> const& range) {
-            for (size_t c = range.begin(); c != range.end(); ++c) {
-                size_t const i0 = (c * n) / chunks;
-                size_t const i1 = ((c + 1) * n) / chunks;
-                size_t acc = 0;
-                bool bad = false;
-                for (size_t i = i0; i < i1; ++i) {
-                    int const count = counts[i];
-                    if (count < 3 || size_t(count) > kMax - acc) {
-                        bad = true;
-                        break;
-                    }
-                    acc += size_t(count);
-                }
-                partial[c].bad = bad;
-                partial[c].sum = acc;
+    ForChunks(chunks, [&](size_t c) {
+        size_t const i0 = (c * n) / chunks;
+        size_t const i1 = ((c + 1) * n) / chunks;
+        size_t acc = 0;
+        bool bad = false;
+        for (size_t i = i0; i < i1; ++i) {
+            int const count = counts[i];
+            if (count < 3 || size_t(count) > kMax - acc) {
+                bad = true;
+                break;
             }
-        });
+            acc += size_t(count);
+        }
+        partial[c].bad = bad;
+        partial[c].sum = acc;
+    });
     size_t total = 0;
     for (auto const& p : partial) {
         if (p.bad) return false;
@@ -398,8 +400,8 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     // uninitialized fill over reused-or-fresh storage (a vector's resize
     // would value-init first). Every output slot is an independent
     // function of its three input floats into a disjoint lane, so the
-    // fill chunks over workers for big inputs (plain TBB: this runs
-    // outside any scheduler arena) and serially below the threshold.
+    // fill chunks over the process scheduler for big inputs and serially
+    // below the threshold.
     // Same bytes, any chunking.
     {
         UsdGenCurveBuffer& mut = capture->MutableBuffer();
@@ -414,7 +416,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
         float const* px = roots.px.cdata();
         float const* py = roots.py.cdata();
         float const* pz = roots.pz.cdata();
-        int const transposeWorkers = tbb::this_task_arena::max_concurrency();
+        int const transposeWorkers = UsdGenParallelForConcurrency();
         size_t const transposeChunks =
             (transposeWorkers > 1 && n > 32768)
                 ? std::min({size_t(transposeWorkers), size_t(8), n})
@@ -428,17 +430,12 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                     return;
                 }
                 size_t const M = size_t(e - b);
-                tbb::parallel_for(
-                    tbb::blocked_range<size_t>(0, transposeChunks),
-                    [&](tbb::blocked_range<size_t> const& range) {
-                        for (size_t c = range.begin(); c != range.end();
-                             ++c) {
-                            size_t const i0 = (c * M) / transposeChunks;
-                            size_t const i1 = ((c + 1) * M) / transposeChunks;
-                            for (size_t i = i0; i < i1; ++i)
-                                new (b + i) GfVec3f(px[i], py[i], pz[i]);
-                        }
-                    });
+                ForChunks(transposeChunks, [&](size_t c) {
+                    size_t const i0 = (c * M) / transposeChunks;
+                    size_t const i1 = ((c + 1) * M) / transposeChunks;
+                    for (size_t i = i0; i < i1; ++i)
+                        new (b + i) GfVec3f(px[i], py[i], pz[i]);
+                });
             });
     }
     *out = std::shared_ptr<gpu::ScatterGrowRoots const>(

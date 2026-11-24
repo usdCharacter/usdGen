@@ -1,21 +1,29 @@
 #include "scatterGrow.h"
 #include "cudaCompat.h"
+#include "cudaCompletionLane.h"
 
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
-#include "tbb/task_group.h"
+#include "usdGen/taskScheduler.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <atomic>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace usdGen::gpu {
 namespace {
+// body(c) for c in [0, chunks) on the process scheduler.
+template <class Body>
+void ForChunks(size_t chunks, Body&& body) {
+    using B = std::remove_reference_t<Body>;
+    UsdGenParallelFor(chunks, [](size_t c, void* p) { (*static_cast<B*>(p))(c); },
+                      const_cast<void*>(static_cast<void const*>(&body)));
+}
 constexpr int kNonFinite = 2;
 constexpr int kPendingStatus = std::numeric_limits<int>::min();
 ScatterGrowStatus Status(cudaError_t e) { return e == cudaSuccess ? ScatterGrowStatus::Ok : ScatterGrowStatus::CudaError; }
@@ -144,7 +152,7 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
         // second-occurrences the global sort would. The global minimum
         // over shards is the identical index. A pathological skew (one
         // shard past n/2) falls through to the legacy global path.
-        int const shardWorkers = tbb::this_task_arena::max_concurrency();
+        int const shardWorkers = UsdGenParallelForConcurrency();
         size_t const shardChunks =
             (shardWorkers > 1 && n > 32768)
                 ? std::min({size_t(shardWorkers), size_t(8), n})
@@ -176,9 +184,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
             uint64_t const* idsIn = ids;
             size_t const nn = n;
             size_t const nch = shardChunks;
-            tbb::parallel_for(tbb::blocked_range<size_t>(0, nch),
-                [&](tbb::blocked_range<size_t> const& range) {
-                    for (size_t c = range.begin(); c != range.end(); ++c) {
+            ForChunks(nch, [&](size_t c) {
+                    {
                         size_t const i0 = (c * nn) / nch;
                         size_t const i1 = ((c + 1) * nn) / nch;
                         size_t local[kShards] = {};
@@ -225,10 +232,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
                 uint64_t* shardTmp = ds.tmp.get();
                 uint32_t* shardHist = ds.tab.get();
                 uint64_t* partOut = shardItems;
-                tbb::parallel_for(tbb::blocked_range<size_t>(0, nch),
-                    [&](tbb::blocked_range<size_t> const& range) {
-                        for (size_t c = range.begin(); c != range.end();
-                             ++c) {
+                ForChunks(nch, [&](size_t c) {
+                    {
                             size_t const i0 = (c * nn) / nch;
                             size_t const i1 = ((c + 1) * nn) / nch;
                             size_t cur[kShards];
@@ -291,13 +296,11 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
                     return dBad;
                 };
                 std::vector<size_t> shardMin(kShards, n);
-                tbb::parallel_for(tbb::blocked_range<size_t>(0, kShards),
-                    [&](tbb::blocked_range<size_t> const& range) {
-                        for (size_t s = range.begin(); s != range.end();
-                             ++s) {
+                ForChunks(kShards, [&](size_t s) {
+                    {
                             size_t const b0 = shardBase[s];
                             size_t const m = shardBase[s + 1] - b0;
-                            if (m <= 1) continue;
+                            if (m <= 1) return;
                             uint64_t* w = shardItems + b0;
                             uint64_t* wOut = shardTmp + b0;
                             uint32_t* cnt =
@@ -371,8 +374,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
     // range in input order -- within a digit the landing order is chunk
     // order then input order, exactly the serial scatter's order, so
     // any chunking sorts bit-identically and the resolve below reads
-    // the same array. Plain TBB (validate runs outside any arena).
-    int const dupWorkers = tbb::this_task_arena::max_concurrency();
+    // the same array.
+    int const dupWorkers = UsdGenParallelForConcurrency();
     size_t const dupChunks =
         (dupWorkers > 1 && n > 32768)
             ? std::min({size_t(dupWorkers), size_t(8), n})
@@ -390,9 +393,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
     } else {
         struct DupPackPartial { uint32_t orKeys = 0, andKeys = ~uint32_t(0); };
         std::vector<DupPackPartial> partial(dupChunks);
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, dupChunks),
-            [&](tbb::blocked_range<size_t> const& range) {
-                for (size_t c = range.begin(); c != range.end(); ++c) {
+        ForChunks(dupChunks, [&](size_t c) {
+                    {
                     size_t const i0 = (c * n) / dupChunks;
                     size_t const i1 = ((c + 1) * n) / dupChunks;
                     uint32_t orLocal = 0, andLocal = ~uint32_t(0);
@@ -454,9 +456,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
             uint32_t* offBase = parOff;
             std::fill(cntBase, cntBase + dupChunks * 65536, uint32_t(0));
             uint64_t const* wIn = w;
-            tbb::parallel_for(tbb::blocked_range<size_t>(0, dupChunks),
-                [&](tbb::blocked_range<size_t> const& range) {
-                    for (size_t c = range.begin(); c != range.end(); ++c) {
+            ForChunks(dupChunks, [&](size_t c) {
+                    {
                         size_t const i0 = (c * n) / dupChunks;
                         size_t const i1 = ((c + 1) * n) / dupChunks;
                         uint32_t* hc = cntBase + c * 65536;
@@ -474,9 +475,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
                 }
             }
             uint64_t* oOut = wOut;
-            tbb::parallel_for(tbb::blocked_range<size_t>(0, dupChunks),
-                [&](tbb::blocked_range<size_t> const& range) {
-                    for (size_t c = range.begin(); c != range.end(); ++c) {
+            ForChunks(dupChunks, [&](size_t c) {
+                    {
                         size_t const i0 = (c * n) / dupChunks;
                         size_t const i1 = ((c + 1) * n) / dupChunks;
                         uint32_t* off = offBase + c * 65536;
@@ -567,9 +567,8 @@ size_t RadixFirstDup(uint64_t const* ids, size_t n) {
         return dBad;
     }
     std::vector<size_t> chunkMin(dupChunks, n);
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, dupChunks),
-        [&](tbb::blocked_range<size_t> const& range) {
-            for (size_t c = range.begin(); c != range.end(); ++c) {
+    ForChunks(dupChunks, [&](size_t c) {
+                    {
                 size_t const i0 = (c * n) / dupChunks;
                 size_t const i1 = ((c + 1) * n) / dupChunks;
                 // Owned sub-range: skip the left-partial group (it
@@ -1050,7 +1049,7 @@ ScatterGrowStatus CudaScatterGrow::ValidateRoots(
     // is min(firstBad(u, n), lim) -- so scanning every plane at lim=n
     // and min-combining is verdict-identical. The positions scan is
     // byte-for-byte the serial call (same lim=n it always ran with),
-    // so posMaxBits is identical too. Plain TBB.
+    // so posMaxBits is identical too.
     size_t fBad = n;
     uint32_t posMaxBits = 0;
     uint32_t const *posW =
@@ -1063,13 +1062,12 @@ ScatterGrowStatus CudaScatterGrow::ValidateRoots(
         reinterpret_cast<uint32_t const *>(r->rootB.data());
     uint32_t const *nW =
         reinterpret_cast<uint32_t const *>(r->rootN.data());
-    int const scanWorkers = tbb::this_task_arena::max_concurrency();
+    int const scanWorkers = UsdGenParallelForConcurrency();
     if (scanWorkers > 1 && n > 32768) {
         size_t planeBad[5] = {n, n, n, n, n};
         uint32_t planeMax = 0;
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, 5),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t i = range.begin(); i != range.end(); ++i) {
+        ForChunks(5, [&](size_t i) {
+                    {
                     switch (i) {
                     case 0: {
                         uint32_t mx = 0;
@@ -1311,10 +1309,10 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         return cudaGetLastError();
     };
     if (overlapCopies) {
-        // A task on the arena the scans run in issues the staging copies on
+        // A process-scheduler part issues the staging copies on
         // copyStream_ (pageable sources stage synchronously on the CPU) and
         // fires the grow kernel while this thread runs the validation scans;
-        // the task join proves both issued. The kernel launch is speculative
+        // the join proves both issued. The kernel launch is speculative
         // but sound: stream order (memset, copies, kernel) is kept by the
         // issued_/copied_ events and the kernel arguments match the serial
         // spelling, so the success path is bit-identical and the device-side
@@ -1344,9 +1342,11 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         }
         cudaError_t copyError = cudaSuccess;
         cudaError_t launchError = cudaSuccess;
-        tbb::task_group copies;
-        try {
-            copies.run([this, &issueCopies, &launchGrow, &copyError, &launchError]() {
+        std::exception_ptr validateError;
+        // Part 0 issues the copies and the kernel, part 1 validates; a busy
+        // scheduler runs both on this thread, which only loses the overlap.
+        ForChunks(2, [&](size_t part) {
+            if (part == 0) {
                 int prior = -1;
                 cudaError_t ce = cudaGetDevice(&prior);
                 if (ce == cudaSuccess) ce = cudaSetDevice(deviceIndex_);
@@ -1354,25 +1354,24 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
                 copyError = ce;
                 if (ce == cudaSuccess) launchError = launchGrow();
                 if (prior >= 0 && prior != deviceIndex_) cudaSetDevice(prior);
-            });
-        } catch (...) {
-            discardPending();
-            return ScatterGrowStatus::CudaError;
-        }
-        try {
-            s = validate(rootsOwner_, controls, &total);
-        } catch (...) {
-            // Join first, then leave the object as clean as the pre-alloc
-            // validation throw: the stream sync proves the memset, copies
-            // and kernel, so discarding is safe. The throw propagates.
-            copies.wait();
-            if (cudaStreamSynchronize(stream) == cudaSuccess) {
+                return;
+            }
+            try {
+                s = validate(rootsOwner_, controls, &total);
+            } catch (...) {
+                validateError = std::current_exception();
+            }
+        });
+        if (validateError) {
+            // Both parts joined. Leave the object as clean as the pre-alloc
+            // validation throw: proving the stream idle covers the memset,
+            // copies and kernel, so discarding is safe. The throw propagates.
+            if (CudaFenceStream(stream) == cudaSuccess) {
                 unprovenWork_ = false;
                 discardPending();
             }
-            throw;
+            std::rethrow_exception(validateError);
         }
-        copies.wait();
         if (copyError != cudaSuccess) return Status(copyError);
         if (launchError != cudaSuccess) return Status(launchError);
         if (s != ScatterGrowStatus::Ok) {
@@ -1380,7 +1379,7 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
             // idle before discarding, so the object stays clean and
             // reusable like the pre-alloc validation failure. Failure path
             // only.
-            cudaError_t const syncE = cudaStreamSynchronize(stream);
+            cudaError_t const syncE = CudaFenceStream(stream);
             if (syncE != cudaSuccess) return Status(syncE);
             unprovenWork_ = false;
             discardPending();

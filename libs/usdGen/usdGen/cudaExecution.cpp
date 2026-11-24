@@ -1,5 +1,6 @@
 #include "usdGen/cudaExecution.h"
 #include "usdGen/epoch.h"
+#include "usdGen/taskScheduler.h"
 
 #include "usdGen/expressionTargets.h"
 #include "usdGen/opRegistry.h"
@@ -28,9 +29,8 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGen/surfaceRootFrames.h"
 #include "usdGen/curveRootCapture.h"
-#include <tbb/flow_graph.h>
-#include <tbb/task_arena.h>
 #include "usdGen/gpu/generation.h"
+#include "usdGen/gpu/cudaCompletionLane.h"
 #include "usdGen/gpu/namedChannelTopology.h"
 #include "usdGen/cudaParameters.h"
 #include "usdGen/gpu/width.h"
@@ -4161,7 +4161,7 @@ bool ExecuteCudaJobSource(UsdGenCudaExecutionJob& job) {
             status = gpu::ScatterGrowStatus::CudaError;
         if (status == gpu::ScatterGrowStatus::Ok)
             status=owner->FinishFreshAsync(stream, CudaInlineCompletionCallback,done.get());
-        if (status != gpu::ScatterGrowStatus::Ok || cudaStreamSynchronize(stream) != cudaSuccess ||
+        if (status != gpu::ScatterGrowStatus::Ok || gpu::CudaFenceStream(stream) != cudaSuccess ||
             done->status.load(std::memory_order_acquire) != int(cudaSuccess) ||
             owner->CommitFreshFinish() != gpu::ScatterGrowStatus::Ok) {
             if (owner->HasUnprovenWork()) {
@@ -4218,7 +4218,7 @@ std::array<UsdGenAtomicRef<SourceAsyncTestGate>, 3> s_sourceAsyncControlGates;
 void SourceAsyncGateCallback(cudaStream_t, cudaError_t, void* data) noexcept {
     auto* gate = static_cast<SourceAsyncTestGate*>(data);
     gate->entered.store(true, std::memory_order_release);
-    // Native CUDA callbacks must not call flow-graph wait_for_all(): that can
+    // Native CUDA callbacks must not wait on scheduler work: that can
     // steal and execute arbitrary application work on the CUDA callback
     // thread.  This is a test-only bounded yield gate.
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -4230,8 +4230,27 @@ void SourceAsyncGateCallback(cudaStream_t, cudaError_t, void* data) noexcept {
         std::this_thread::yield();
     }
 }
+// One permanent relay message (slot, phase) on the process scheduler. A post
+// while it is queued or running adds one more delivery instead of queuing the
+// task twice, so posting never allocates, blocks or fails.
+template <class Service>
+struct RelayMessage : UsdGenTask {
+    Service* service = nullptr;
+    size_t message = 0;
+    std::atomic<uint32_t> posts{0};
+    RelayMessage() noexcept : UsdGenTask(&RelayMessage::Run) {}
+    void Bind(Service* owner, size_t index) noexcept { service = owner; message = index; }
+    void Post() noexcept {
+        if (posts.fetch_add(1, std::memory_order_acq_rel) == 0)
+            UsdGenTaskScheduler::Process().Post(this);
+    }
+    static void Run(UsdGenTask* task) noexcept {
+        auto* self = static_cast<RelayMessage*>(task);
+        do self->service->Deliver(self->message);
+        while (self->posts.fetch_sub(1, std::memory_order_acq_rel) != 1);
+    }
+};
 constexpr size_t kSourceRelayCapacity = 1024;
-constexpr int kSourceRelayWorkers = 8;
 constexpr unsigned kSourceRelayPhases = 6;
 enum SourceRelayPhase : unsigned {
     SourceContexts, SourcePrograms, SourceScalars, SourceUpload,
@@ -4282,30 +4301,24 @@ struct SourceRelayService {
         void ReturnFromLauncher(unsigned phase) noexcept;
     };
     std::array<Slot, kSourceRelayCapacity> slots;
-    tbb::task_arena arena;
-    std::unique_ptr<tbb::flow::graph> graph;
-    std::unique_ptr<tbb::flow::function_node<size_t>> worker;
+    std::array<RelayMessage<SourceRelayService>, kSourceRelayCapacity * kSourceRelayPhases> messages;
     std::atomic<size_t> capacity{kSourceRelayCapacity};
     std::array<std::atomic<bool>, kSourceRelayPhases> failInstall{}, failNative{};
 
-    SourceRelayService() : arena(kSourceRelayWorkers, 0) {
-        arena.execute([this] {
-          graph = std::make_unique<tbb::flow::graph>();
-          worker = std::make_unique<tbb::flow::function_node<size_t>>(*graph, tbb::flow::unlimited,
-        [this](size_t index) {
-            try { Complete(index); }
-            catch (...) {
-                auto const slot = index / kSourceRelayPhases;
-                auto relay = slots[slot].relay;
-                bool const unsafe = relay && (relay->quarantine.load(std::memory_order_acquire) ||
-                    (relay->job && relay->job->state.HasUnprovenAsyncWork()) ||
-                    (relay->controls && relay->controls->HasUnprovenWork()) ||
-                    (relay->scalarPacket && relay->scalarPacket->HasUnprovenWork()));
-                if (unsafe) Quarantine(slot); else AbortClean(slot);
-            }
-            return tbb::flow::continue_msg{};
-        });
-        });
+    void Deliver(size_t index) noexcept {
+        try { Complete(index); }
+        catch (...) {
+            auto const slot = index / kSourceRelayPhases;
+            auto relay = slots[slot].relay;
+            bool const unsafe = relay && (relay->quarantine.load(std::memory_order_acquire) ||
+                (relay->job && relay->job->state.HasUnprovenAsyncWork()) ||
+                (relay->controls && relay->controls->HasUnprovenWork()) ||
+                (relay->scalarPacket && relay->scalarPacket->HasUnprovenWork()));
+            if (unsafe) Quarantine(slot); else AbortClean(slot);
+        }
+    }
+    SourceRelayService() {
+        for (size_t i = 0; i != messages.size(); ++i) messages[i].Bind(this, i);
         for (size_t i = 0; i != slots.size(); ++i) {
             slots[i].service = this;
             slots[i].index = i;
@@ -4345,8 +4358,7 @@ struct SourceRelayService {
         return nullptr;
     }
     void Post(size_t index, unsigned phase = 0) noexcept {
-        try { if (!worker->try_put(index * kSourceRelayPhases + phase)) std::terminate(); }
-        catch (...) { std::terminate(); }
+        messages[index * kSourceRelayPhases + phase].Post();
     }
     void Complete(size_t message) {
         size_t const index = message / kSourceRelayPhases; unsigned const phase = unsigned(message % kSourceRelayPhases);
@@ -4990,7 +5002,6 @@ bool ExecuteCudaJobSourceAsync(std::shared_ptr<UsdGenCudaExecutionJob> job,
 #ifdef USDGEN_ENABLE_CUDA
 namespace {
 constexpr size_t kOperatorRelayCapacity = 1024;
-constexpr int kOperatorRelayWorkers = 8;
 // Context/program proof is shared by all operators.  RBF then has a scalar
 // budget readback, three rest-factor phases, posed-surface/solve proof, and
 // four deformation phases.  Keep all of them in the same permanent callback
@@ -5229,22 +5240,16 @@ struct OperatorRelayService {
         void Return(unsigned) noexcept;
     };
     std::array<Slot, kOperatorRelayCapacity> slots;
-    tbb::task_arena arena{kOperatorRelayWorkers, 0};
-    std::unique_ptr<tbb::flow::graph> graph;
-    std::unique_ptr<tbb::flow::function_node<size_t>> worker;
+    std::array<RelayMessage<OperatorRelayService>, kOperatorRelayCapacity * kOperatorRelayPhases> messages;
     std::atomic<size_t> capacity{kOperatorRelayCapacity};
     std::array<std::atomic<bool>, kOperatorRelayPhases> failInstall{}, failNative{};
 
+    void Deliver(size_t message) noexcept {
+        try { Complete(message / kOperatorRelayPhases, unsigned(message % kOperatorRelayPhases)); }
+        catch (...) { Quarantine(message / kOperatorRelayPhases); }
+    }
     OperatorRelayService() {
-        arena.execute([this] {
-            graph = std::make_unique<tbb::flow::graph>();
-            worker = std::make_unique<tbb::flow::function_node<size_t>>(*graph,
-                tbb::flow::unlimited, [this](size_t message) {
-                    try { Complete(message / kOperatorRelayPhases, unsigned(message % kOperatorRelayPhases)); }
-                    catch (...) { Quarantine(message / kOperatorRelayPhases); }
-                    return tbb::flow::continue_msg{};
-                });
-        });
+        for (size_t i = 0; i != messages.size(); ++i) messages[i].Bind(this, i);
         for (size_t i = 0; i != slots.size(); ++i) {
             slots[i].service = this; slots[i].index = i;
             for (unsigned phase = 0; phase != kOperatorRelayPhases; ++phase)
@@ -5276,8 +5281,7 @@ struct OperatorRelayService {
         return nullptr;
     }
     void Post(size_t index, unsigned phase) noexcept {
-        try { if (!worker->try_put(index * kOperatorRelayPhases + phase)) std::terminate(); }
-        catch (...) { std::terminate(); }
+        messages[index * kOperatorRelayPhases + phase].Post();
     }
     bool Install(Slot& slot, unsigned phase, cudaStream_t stream,
                  void (*callback)(cudaStream_t, cudaError_t, void*) noexcept) noexcept {
@@ -5703,7 +5707,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                 sizeof(step.profile), cudaMemcpyHostToDevice, stream);
             bool const uploaded = upload == cudaSuccess;
             if (upload != cudaSuccess) {
-                bool const unsafe = uploaded && cudaStreamSynchronize(stream) != cudaSuccess;
+                bool const unsafe = uploaded && gpu::CudaFenceStream(stream) != cudaSuccess;
                 selected.Restore(); Finish(slotIndex, false, unsafe); return;
             }
             UsdGenParamView values; values.desc = &job->plan->desc;
@@ -5762,13 +5766,13 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                 binormal->recordUse(stream) != cudaSuccess ||
                 normal->recordUse(stream) != cudaSuccess ||
                 noise.profile->recordUse(stream) != cudaSuccess) {
-                bool const unsafe = cudaStreamSynchronize(stream) != cudaSuccess;
+                bool const unsafe = gpu::CudaFenceStream(stream) != cudaSuccess;
                 selected.Restore(); Finish(slotIndex, false, unsafe); return;
             }
             if (noise.noise->FinishFreshAsync(stream, OperatorCallback,
                     &slots[slotIndex].callback[2]) != gpu::StyleStatus::Ok) {
                 bool unsafe = noise.noise->HasUnprovenWork();
-                if (!unsafe) unsafe = cudaStreamSynchronize(stream) != cudaSuccess;
+                if (!unsafe) unsafe = gpu::CudaFenceStream(stream) != cudaSuccess;
                 selected.Restore(); Finish(slotIndex, false, unsafe); return;
             }
             selected.Restore(); slots[slotIndex].Return(2); return;
@@ -6566,7 +6570,6 @@ bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob>, size_t
 #ifdef USDGEN_ENABLE_CUDA
 namespace {
 constexpr size_t kFinalizationRelayCapacity = 1024;
-constexpr int kFinalizationRelayWorkers = 8;
 constexpr unsigned kFinalizationRelayPhases = 3;
 
 // Finalization owns pinned D2H targets itself.  It is deliberately retained
@@ -6646,25 +6649,23 @@ struct FinalizationRelayService {
         void Return(unsigned) noexcept;
     };
     std::array<Slot, kFinalizationRelayCapacity> slots;
-    tbb::task_arena arena{kFinalizationRelayWorkers, 0};
-    std::unique_ptr<tbb::flow::graph> graph;
-    std::unique_ptr<tbb::flow::function_node<size_t>> worker;
+    std::array<RelayMessage<FinalizationRelayService>, kFinalizationRelayCapacity * kFinalizationRelayPhases> messages;
     std::atomic<size_t> capacity{kFinalizationRelayCapacity};
     std::atomic<bool> failAllocation{false}, failTopologyAllocation{false};
     std::array<std::atomic<bool>, kFinalizationRelayPhases> failInstall{}, failNative{};
 
+    void Deliver(size_t message) noexcept {
+        try { Complete(message / kFinalizationRelayPhases, unsigned(message % kFinalizationRelayPhases)); }
+        catch (...) { Finish(message / kFinalizationRelayPhases, {}, true); }
+    }
     FinalizationRelayService() {
-        arena.execute([this] { graph = std::make_unique<tbb::flow::graph>();
-            worker = std::make_unique<tbb::flow::function_node<size_t>>(*graph, tbb::flow::unlimited,
-                [this](size_t message) { try { Complete(message / kFinalizationRelayPhases, unsigned(message % kFinalizationRelayPhases)); }
-                    catch (...) { Finish(message / kFinalizationRelayPhases, {}, true); }
-                    return tbb::flow::continue_msg{}; }); });
+        for (size_t i = 0; i != messages.size(); ++i) messages[i].Bind(this, i);
         for (size_t i = 0; i != slots.size(); ++i) { slots[i].service = this; slots[i].index = i;
             for (unsigned phase = 0; phase != kFinalizationRelayPhases; ++phase) slots[i].callback[phase] = {&slots[i], phase}; }
     }
     FinalizationRelay* Reserve(std::shared_ptr<UsdGenCudaExecutionJob> job,
         std::function<void(std::shared_ptr<const UsdGenDeviceGeneration>)> done) noexcept;
-    void Post(size_t index, unsigned phase) noexcept { try { if (!worker->try_put(index * kFinalizationRelayPhases + phase)) std::terminate(); } catch (...) { std::terminate(); } }
+    void Post(size_t index, unsigned phase) noexcept { messages[index * kFinalizationRelayPhases + phase].Post(); }
     bool Install(Slot&, unsigned, cudaStream_t) noexcept;
     void Finish(size_t, std::shared_ptr<const UsdGenDeviceGeneration>, bool) noexcept;
     void Complete(size_t, unsigned);
@@ -7213,7 +7214,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecuteCudaGraph(
             status=owner->FinishFreshAsync(workspace.impl_->stream,
                 CudaInlineCompletionCallback,done.get());
         if (status != gpu::ScatterGrowStatus::Ok ||
-            cudaStreamSynchronize(workspace.impl_->stream)!=cudaSuccess ||
+            gpu::CudaFenceStream(workspace.impl_->stream)!=cudaSuccess ||
             done->status.load(std::memory_order_acquire)!=int(cudaSuccess) ||
             owner->CommitFreshFinish()!=gpu::ScatterGrowStatus::Ok) {
             if (owner->HasUnprovenWork()) {
@@ -7363,7 +7364,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::Finalize(
     uint32_t tileError = 0;
     cudaError_t const statusCopy = cudaMemcpyAsync(&tileError, tileStatus.data(),
         sizeof(tileError), cudaMemcpyDeviceToHost, stream);
-    cudaError_t const statusFence = cudaStreamSynchronize(stream);
+    cudaError_t const statusFence = gpu::CudaFenceStream(stream);
     if (statusCopy != cudaSuccess || statusFence != cudaSuccess) {
         Fail(diagnostics, "CUDA tile metadata status readback failed; previous generation retained"); return {};
     }
@@ -7403,7 +7404,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::Finalize(
     uint32_t boundsError = 0;
     cudaError_t boundsStatusCopy = cudaMemcpyAsync(&boundsError, boundsStatus.data(),
         sizeof(boundsError), cudaMemcpyDeviceToHost, stream);
-    cudaError_t const boundsStatusFence = cudaStreamSynchronize(stream);
+    cudaError_t const boundsStatusFence = gpu::CudaFenceStream(stream);
     if (boundsStatusCopy != cudaSuccess || boundsStatusFence != cudaSuccess) {
         Fail(diagnostics, "CUDA tile bounds status readback failed; previous generation retained"); return {};
     }
@@ -7422,7 +7423,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::Finalize(
         maximumCopy = cudaMemcpyAsync(tileMaxs.data(), tileMaximums.data(),
             tileMaxs.size() * sizeof(float3), cudaMemcpyDeviceToHost, stream);
     }
-    cudaError_t const spanFence = cudaStreamSynchronize(stream);
+    cudaError_t const spanFence = gpu::CudaFenceStream(stream);
     if (spanCopy != cudaSuccess || minimumCopy != cudaSuccess ||
         maximumCopy != cudaSuccess || spanFence != cudaSuccess) {
         Fail(diagnostics, "CUDA tile bounds readback failed; previous generation retained"); return {};
@@ -8159,7 +8160,7 @@ bool ExecutionState::PrepareNoiseFrames(CudaSourcePrepared const& preparedSource
             submitted = submitted || status == cudaSuccess;
         }
         if (status != cudaSuccess) {
-            if (cudaStreamSynchronize(stream) != cudaSuccess) {
+            if (gpu::CudaFenceStream(stream) != cudaSuccess) {
                 tangent->quarantine(); binormal->quarantine(); normal->quarantine();
                 workspace.impl_->poisoned.store(true, std::memory_order_release);
             }
@@ -8168,7 +8169,7 @@ bool ExecutionState::PrepareNoiseFrames(CudaSourcePrepared const& preparedSource
         if (tangent->recordUse(stream) != cudaSuccess ||
             binormal->recordUse(stream) != cudaSuccess ||
             normal->recordUse(stream) != cudaSuccess) {
-            if (submitted && cudaStreamSynchronize(stream) != cudaSuccess) {
+            if (submitted && gpu::CudaFenceStream(stream) != cudaSuccess) {
                 tangent->quarantine(); binormal->quarantine(); normal->quarantine();
                 workspace.impl_->poisoned.store(true, std::memory_order_release);
             }
@@ -8491,7 +8492,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             uint8_t value = 0;
             if (field->type != expr::ScalarType::Bool || field->count != 1 ||
                 cudaMemcpyAsync(&value, field->data, sizeof(value), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-                cudaStreamSynchronize(stream) != cudaSuccess) {
+                gpu::CudaFenceStream(stream) != cudaSuccess) {
                 Fail(diagnostics, "invalid useRest expression value; previous generation retained"); this->failed = true; return false;
             }
             if (value > 1) { Fail(diagnostics, "invalid useRest expression value; previous generation retained"); this->failed = true; return false; }
@@ -8501,7 +8502,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             int value = 0;
             if (field->type != expr::ScalarType::Int32 || field->count != 1 ||
                 cudaMemcpyAsync(&value, field->data, sizeof(value), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-                cudaStreamSynchronize(stream) != cudaSuccess || value < 0 || value == 1) {
+                gpu::CudaFenceStream(stream) != cudaSuccess || value < 0 || value == 1) {
                 Fail(diagnostics, "invalid resampleTo expression value; previous generation retained"); this->failed = true; return false;
             }
             options.resampleTo = value;
@@ -8667,7 +8668,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             workspace.impl_->poisoned.store(true, std::memory_order_release);
         };
         auto proveRawOrPreserve = [&] {
-            if (cudaStreamSynchronize(stream) == cudaSuccess) return true;
+            if (gpu::CudaFenceStream(stream) == cudaSuccess) return true;
             preserveRawOwnersOnProofLoss();
             return false;
         };
@@ -8689,7 +8690,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             return Fail(diagnostics,
                 "CUDA source named topology callback installation failed");
         }
-        if (cudaStreamSynchronize(stream) != cudaSuccess) {
+        if (gpu::CudaFenceStream(stream) != cudaSuccess) {
             candidate.Quarantine();
             // The callback is armed and CUDA may still dereference userdata
             // after a failed synchronization; retain it with the quarantined
@@ -9760,7 +9761,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             auto completion = std::make_unique<CudaInlineCompletion>();
             if (candidate->grow->FinishFreshAsync(stream, CudaInlineCompletionCallback,
                     completion.get()) != gpu::CurveGrowStatus::Ok ||
-                cudaStreamSynchronize(stream) != cudaSuccess ||
+                gpu::CudaFenceStream(stream) != cudaSuccess ||
                 completion->status.load(std::memory_order_acquire) != int(cudaSuccess)) {
                 completion.release(); preserveValue();
                 return Fail(diagnostics, "CUDA Grow value completion proof failed");
@@ -9772,14 +9773,14 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             if (!BeginGrowNamedValue(geometryRef, candidate.get(), stream, {},
                     inputValue.namedOwners, diagnostics)) {
                 if ((candidate->namedTopology && candidate->namedTopology->HasUnprovenWork()) ||
-                    cudaStreamSynchronize(stream) != cudaSuccess) preserveValue();
+                    gpu::CudaFenceStream(stream) != cudaSuccess) preserveValue();
                 return false;
             }
             if (candidate->namedTopology) {
                 auto namedCompletion = std::make_unique<CudaInlineCompletion>();
                 if (candidate->namedTopology->FinishAsync(CudaInlineCompletionCallback,
                         namedCompletion.get()) != cudaSuccess ||
-                    cudaStreamSynchronize(stream) != cudaSuccess ||
+                    gpu::CudaFenceStream(stream) != cudaSuccess ||
                     namedCompletion->status.load(std::memory_order_acquire) != int(cudaSuccess)) {
                     namedCompletion.release(); preserveValue();
                     return Fail(diagnostics, "CUDA Grow value named completion proof failed");
@@ -9811,7 +9812,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         };
         if (!BeginCurveGrow(width.grow, stream, diagnostics)) return false;
         auto status = curveGrow->FinishFreshAsync(stream, CudaInlineCompletionCallback, completion.get());
-        if (status != gpu::CurveGrowStatus::Ok || cudaStreamSynchronize(stream) != cudaSuccess ||
+        if (status != gpu::CurveGrowStatus::Ok || gpu::CudaFenceStream(stream) != cudaSuccess ||
             completion->status.load(std::memory_order_acquire) != int(cudaSuccess)) {
             completion.release(); preserve();
             return Fail(diagnostics, "CUDA C3 Grow completion proof failed");
@@ -9821,13 +9822,13 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         auto const inputNames = plan.geometryValueDag
             ? geometryValues[width.inputNode].namedOwners : nullptr;
         if (!BeginGrowNamed(stream, {}, inputNames, diagnostics)) {
-            if (cudaStreamSynchronize(stream) != cudaSuccess) preserve();
+            if (gpu::CudaFenceStream(stream) != cudaSuccess) preserve();
             return false;
         }
         if (growNamedTopology) {
             auto namedCompletion = std::make_unique<CudaInlineCompletion>();
             if (growNamedTopology->FinishAsync(CudaInlineCompletionCallback, namedCompletion.get()) != cudaSuccess ||
-                cudaStreamSynchronize(stream) != cudaSuccess ||
+                gpu::CudaFenceStream(stream) != cudaSuccess ||
                 namedCompletion->status.load(std::memory_order_acquire) != int(cudaSuccess)) {
                 namedCompletion.release(); preserve();
                 return Fail(diagnostics, "CUDA C3 Grow named completion proof failed");
@@ -9897,7 +9898,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                     return Fail(diagnostics, "CUDA WidthBlend non-width comparison admission failed");
                 }
                 compareStatus = compare.EnqueueFreshStatus(stream);
-                if (compareStatus != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess) {
+                if (compareStatus != cudaSuccess || gpu::CudaFenceStream(stream) != cudaSuccess) {
                     compare.Quarantine(); preserveDirectValueOwners();
                     execution.poisoned.store(true, std::memory_order_release);
                     return Fail(diagnostics, "CUDA WidthBlend non-width completion proof failed");
@@ -9937,7 +9938,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                 desc.nodes[width.semanticNode].path.GetString());
         }
         if (next->recordUse(stream) != cudaSuccess ||
-            cudaStreamSynchronize(stream) != cudaSuccess) {
+            gpu::CudaFenceStream(stream) != cudaSuccess) {
             preserveDirectValueOwners();
             if (graphLease) graphLease.Quarantine();
             next->quarantine();
@@ -10085,7 +10086,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             sizeof(width.profile), cudaMemcpyHostToDevice, stream);
         bool const uploaded = upload == cudaSuccess;
         if (upload != cudaSuccess) {
-            if (uploaded && cudaStreamSynchronize(stream) != cudaSuccess) {
+            if (uploaded && gpu::CudaFenceStream(stream) != cudaSuccess) {
                 profile->quarantine(); next->quarantine();
                 preserveNoiseProofLoss();
                 execution.poisoned.store(true, std::memory_order_release);
@@ -10114,7 +10115,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         if (noise->ApplyFresh(geometryRef, hairTRef, frames,
                 parameters, next->view(), stream, memoryReservation) != gpu::StyleStatus::Ok) {
             bool unsafe = noise->HasUnprovenWork();
-            if (!unsafe && cudaStreamSynchronize(stream) != cudaSuccess) unsafe = true;
+            if (!unsafe && gpu::CudaFenceStream(stream) != cudaSuccess) unsafe = true;
             if (unsafe) {
                 profile->quarantine(); next->quarantine();
                 preserveNoiseProofLoss();
@@ -10125,7 +10126,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         if (tangent->recordUse(stream) != cudaSuccess ||
             binormal->recordUse(stream) != cudaSuccess ||
             normal->recordUse(stream) != cudaSuccess) {
-            if (cudaStreamSynchronize(stream) != cudaSuccess) {
+            if (gpu::CudaFenceStream(stream) != cudaSuccess) {
                 profile->quarantine(); next->quarantine();
                 preserveNoiseProofLoss();
                 execution.poisoned.store(true, std::memory_order_release);
@@ -10136,7 +10137,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         if (noise->FinishFreshAsync(stream, CudaInlineCompletionCallback,
                                     completion.get()) != gpu::StyleStatus::Ok) {
             bool unsafe = noise->HasUnprovenWork();
-            if (!unsafe) unsafe = cudaStreamSynchronize(stream) != cudaSuccess;
+            if (!unsafe) unsafe = gpu::CudaFenceStream(stream) != cudaSuccess;
             if (unsafe) {
                 completion.release();
                 profile->quarantine(); next->quarantine();
@@ -10145,7 +10146,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             }
             return Fail(diagnostics, "CUDA Noise completion submission failed");
         }
-        if (cudaStreamSynchronize(stream) != cudaSuccess ||
+        if (gpu::CudaFenceStream(stream) != cudaSuccess ||
             completion->status.load(std::memory_order_acquire) != int(cudaSuccess)) {
             completion.release();
             profile->quarantine(); next->quarantine();
@@ -10213,7 +10214,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             // A successful fence proves all uploads/operator work on this
             // primary lane, allowing ordinary destructors to release their
             // permits.  Only an unsuccessful proof requires quarantine.
-            if (cudaStreamSynchronize(stream) == cudaSuccess) return;
+            if (gpu::CudaFenceStream(stream) == cudaSuccess) return;
             QuarantineGeometryBundles();
             changedPoints.quarantine();
             keep.quarantine();
@@ -10329,7 +10330,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                 execution.poisoned.store(true, std::memory_order_release);
             };
             auto proveRawOrPreserve = [&] {
-                if (cudaStreamSynchronize(stream) == cudaSuccess) return true;
+                if (gpu::CudaFenceStream(stream) == cudaSuccess) return true;
                 preserveRawOwnersOnProofLoss();
                 return false;
             };
@@ -10363,7 +10364,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                 Fail(diagnostics, "Length named-channel callback installation failed");
                 return false;
             }
-            if (cudaStreamSynchronize(stream) != cudaSuccess) {
+            if (gpu::CudaFenceStream(stream) != cudaSuccess) {
                 namedTopology.Quarantine();
                 completion.release();
                 preserveRawOwnersOnProofLoss();
@@ -10433,7 +10434,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
     }
     if (width.type == TfToken("UsdGenDeform")) {
         int budget = values.GetInt(TfToken("rbfSamples"), 100);
-        if (auto const* expression = runtime.parameters.Find(TfToken("rbfSamples"))) if (cudaMemcpyAsync(&budget, expression->data, sizeof(budget), cudaMemcpyDeviceToHost, stream) != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess) { cudaStreamSynchronize(stream); Fail(diagnostics, "cannot read expression-driven RBF sample count"); return false; }
+        if (auto const* expression = runtime.parameters.Find(TfToken("rbfSamples"))) if (cudaMemcpyAsync(&budget, expression->data, sizeof(budget), cudaMemcpyDeviceToHost, stream) != cudaSuccess || gpu::CudaFenceStream(stream) != cudaSuccess) { gpu::CudaFenceStream(stream); Fail(diagnostics, "cannot read expression-driven RBF sample count"); return false; }
         if (budget < 4 || budget > 46336) { Fail(diagnostics, "RBF sample count exceeds the supported solver range [4,46336]"); return false; }
         auto nextPoints = std::make_unique<gpu::DeviceBuffer<float3>>();
         if (nextPoints->reset(geometryRef.pointCount, memoryReservation) != cudaSuccess) { Fail(diagnostics, "RBF point allocation failed"); return false; }
@@ -10472,7 +10473,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                     freshUploadSubmitted;
             };
             auto synchronizeProof = [&] {
-                bool const proved = cudaStreamSynchronize(stream) == cudaSuccess;
+                bool const proved = gpu::CudaFenceStream(stream) == cudaSuccess;
                 // Successful synchronization proves every preceding host to
                 // device upload on this lane as well as the staged operation.
                 if (proved) freshUploadSubmitted = false;
@@ -10672,7 +10673,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         // A successful primary-lane fence proves every upload and Width
         // command, so normal DeviceBuffer destructors can release permits.
         // Quarantine is reserved for the case where that proof itself fails.
-        if (cudaStreamSynchronize(stream) == cudaSuccess) return;
+        if (gpu::CudaFenceStream(stream) == cudaSuccess) return;
         QuarantineGeometryBundles();
         profile.quarantine();
         for (auto& value : geometryValues) if (value.points) value.points->quarantine();
