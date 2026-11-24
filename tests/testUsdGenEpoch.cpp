@@ -13,6 +13,8 @@
 //   3. Treiber stack, continuation stack, newest-wins slot under threads.
 //   4. Slot exhaustion: more threads than slots still pin correctly through
 //      the overflow counters; slots come back at thread exit.
+//   5. Use from a thread_local destroyed after the epoch's thread state
+//      claims no slot and is still reclaimed.
 
 #include "usdGen/epoch.h"
 
@@ -251,25 +253,41 @@ void TestHelpers()
     for (auto &i : items) once = once && i.v == 1;
     Check(popped.load() == kProducers * kPer && once, "Treiber stack: every push popped exactly once");
 
-    UsdGenContinuationStack<Item, &Item::next> cont;
-    std::vector<Item> conts(kProducers * 1000);
-    std::atomic<int> ranSelf{0}, start{0};
-    ts.clear();
-    for (int p = 0; p < kProducers; ++p)
-        ts.emplace_back([&, p] {
-            while (!start.load()) std::this_thread::yield();
-            for (int i = 0; i < 1000; ++i)
-                if (!cont.Push(&conts[p * 1000 + i])) ++conts[p * 1000 + i].v, ranSelf.fetch_add(1);
-        });
-    start.store(1);
-    std::this_thread::yield();
-    int closed = 0;
-    for (Item *n = cont.Close(); n; n = n->next) ++n->v, ++closed;
-    for (auto &t : ts) t.join();
-    once = cont.IsClosed() && cont.Close() == nullptr;
-    for (auto &i : conts) once = once && i.v == 1;
-    Check(once && closed + ranSelf.load() == kProducers * 1000,
-          "continuation stack: each continuation runs once, by the leader or itself");
+    // Push vs Close: many short rounds, each closing after a different
+    // number of successful pushes, so Close lands while producers push.
+    constexpr int kRounds = 200, kPerRound = 250;
+    long long closedTotal = 0, selfTotal = 0;
+    bool contOnce = true;
+    for (int round = 0; round < kRounds; ++round) {
+        UsdGenContinuationStack<Item, &Item::next> cont;
+        std::vector<Item> conts(kProducers * kPerRound);
+        std::atomic<int> ranSelf{0}, start{0}, pushed{0}, finished{0};
+        int const closeAfter = (round * 7919) % (kProducers * kPerRound);
+        ts.clear();
+        for (int p = 0; p < kProducers; ++p)
+            ts.emplace_back([&, p] {
+                while (!start.load()) std::this_thread::yield();
+                for (int i = 0; i < kPerRound; ++i) {
+                    Item &it = conts[p * kPerRound + i];
+                    if (cont.Push(&it)) pushed.fetch_add(1);
+                    else ++it.v, ranSelf.fetch_add(1);
+                }
+                finished.fetch_add(1);
+            });
+        start.store(1);
+        while (pushed.load() < closeAfter && finished.load() != kProducers) std::this_thread::yield();
+        int closed = 0;
+        for (Item *n = cont.Close(); n; n = n->next) ++n->v, ++closed;
+        for (auto &t : ts) t.join();
+        contOnce = contOnce && cont.IsClosed() && cont.Close() == nullptr &&
+                   closed + ranSelf.load() == kProducers * kPerRound;
+        for (auto &i : conts) contOnce = contOnce && i.v == 1;
+        closedTotal += closed;
+        selfTotal += ranSelf.load();
+    }
+    std::printf("continuation stack: %lld by the leader, %lld by themselves\n", closedTotal, selfTotal);
+    Check(contOnce, "continuation stack: each continuation runs once, by the leader or itself");
+    Check(closedTotal > 0 && selfTotal > 0, "continuation stack: both the leader and the late-push paths ran");
 
     size_t const live0 = Live();
     {
@@ -290,6 +308,39 @@ void TestHelpers()
         Check(monotonic && last == kN, "newest-wins: values only move forward and the last arrives");
     }
     Check(Live() == live0, "newest-wins: displaced values released");
+}
+
+// A thread_local whose destructor runs after the epoch's own thread state
+// (constructed first, so destroyed last) still pins and retires. It must not
+// claim a slot then: nobody would ever free it.
+struct LateUser {
+    UsdGenAtomicRef<Obj> *cell = nullptr;
+    ~LateUser()
+    {
+        if (!cell) return;
+        UsdGenRef<Obj> r = cell->Load();
+        if (!r || !r->Valid()) g_bad.fetch_add(1);
+        UsdGenEpochRetireDelete(new Plain);
+    }
+};
+thread_local LateUser tLate;
+
+void TestLateThreadLocal()
+{
+    DrainAll();
+    UsdGenAtomicRef<Obj> cell(UsdGenMakeRef<Obj>(42));
+    uint32_t const slots0 = UsdGenEpochGetStats().slotsInUse;
+    int const d0 = Plain::deleted.load();
+    int const bad0 = g_bad.load();
+    for (int i = 0; i < 16; ++i)
+        std::thread([&] {
+            tLate.cell = &cell;          // constructed first: destroyed last
+            UsdGenRef<Obj> r = cell.Load();  // now the epoch's state exists
+        }).join();
+    Check(UsdGenEpochGetStats().slotsInUse == slots0, "late thread_local use claims no slot");
+    Check(g_bad.load() == bad0, "late thread_local reads a valid value");
+    DrainAll();
+    Check(Plain::deleted.load() == d0 + 16, "late thread_local retires are reclaimed");
 }
 
 void TestExhaustion()
@@ -332,6 +383,7 @@ int main()
     TestAccounting();
     TestStress();
     TestHelpers();
+    TestLateThreadLocal();
     TestExhaustion();
     Check(UsdGenEpochShutdown() == 0, "shutdown leaves nothing pending");
     std::printf("%s (%d failures)\n", g_failures ? "FAILED" : "PASSED", g_failures);

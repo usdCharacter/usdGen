@@ -4,7 +4,8 @@
 // testUsdGenLockFreeStress — multi-thread stress for the lock-free engine
 // pieces: shared-pointer cells, the execution cache store and domain
 // coalescing, the memory reservation word, and a 64-thread Submit/Visible
-// run against one Session.
+// run against one Session. Tracked payloads live in never-reused poisoned
+// storage, so a use after free reads poison rather than a reused block.
 #include "usdGen/epoch.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/executionResources.h"
@@ -21,6 +22,8 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <random>
 #include <string>
@@ -48,6 +51,44 @@ struct Tracked {
     int64_t mirror;
 };
 
+// Never-reused, poisoned storage for Tracked and its control block: a value
+// read after its last reference dropped finds 0xDD bytes (not Intact, and a
+// dead control block), instead of a fresh object the heap put at the same
+// address.
+struct PoisonArena {
+    static constexpr size_t kCell = 128, kCells = size_t(1) << 18;
+    static unsigned char *base;
+    static std::atomic<size_t> next;
+    static void *Allocate(size_t bytes)
+    {
+        size_t const i = next.fetch_add(1);
+        if (bytes > kCell || i >= kCells) std::abort();
+        return base + i * kCell;
+    }
+    static void Free(void *p, size_t bytes) { std::memset(p, 0xDD, bytes); }
+};
+unsigned char *PoisonArena::base = nullptr;
+std::atomic<size_t> PoisonArena::next{0};
+
+template <class T>
+struct PoisonAllocator {
+    using value_type = T;
+    PoisonAllocator() noexcept = default;
+    template <class U>
+    PoisonAllocator(PoisonAllocator<U> const &) noexcept {}
+    T *allocate(size_t n) { return static_cast<T *>(PoisonArena::Allocate(n * sizeof(T))); }
+    void deallocate(T *p, size_t n) noexcept { PoisonArena::Free(p, n * sizeof(T)); }
+    template <class U>
+    bool operator==(PoisonAllocator<U> const &) const noexcept { return true; }
+    template <class U>
+    bool operator!=(PoisonAllocator<U> const &) const noexcept { return false; }
+};
+
+std::shared_ptr<const Tracked> MakeTracked(int64_t v)
+{
+    return std::allocate_shared<Tracked>(PoisonAllocator<Tracked>(), v);
+}
+
 void DrainEpochs()
 {
     for (int i = 0; i != 8; ++i) UsdGenEpochDrain();
@@ -66,7 +107,7 @@ void SharedCellStress()
 {
     {
         UsdGenSharedCell<Tracked const> cell;
-        cell.Store(std::make_shared<const Tracked>(0));
+        cell.Store(MakeTracked(0));
         std::atomic<int64_t> next{1};
         std::atomic<int> writersDone{0};
         std::atomic<int> torn{0}, nulls{0};
@@ -75,7 +116,7 @@ void SharedCellStress()
             if (i < writers) {
                 for (int k = 0; k != 20000; ++k) {
                     int64_t const v = next.fetch_add(1);
-                    auto old = cell.Exchange(std::make_shared<const Tracked>(v));
+                    auto old = cell.Exchange(MakeTracked(v));
                     if (!old || !old->Intact()) torn.fetch_add(1);
                 }
                 writersDone.fetch_add(1);
@@ -97,7 +138,7 @@ void SharedCellStress()
 
     // Prepared publication allocates nothing at the exchange.
     UsdGenSharedCell<Tracked const> cell;
-    auto prepared = cell.Prepare(std::make_shared<const Tracked>(7));
+    auto prepared = cell.Prepare(MakeTracked(7));
     Check(prepared && prepared->value == 7 && !cell.Load(), "shared cell: prepare does not publish");
     auto displaced = cell.Exchange(std::move(prepared));
     Check(!displaced && cell.Load() && cell.Load()->value == 7, "shared cell: prepared value publishes");
@@ -125,7 +166,7 @@ void CacheStoreStress()
                 key.layoutDigest = rng() % 256;
                 unsigned const op = rng() % 100;
                 if (op < 45) {
-                    if (store.Insert(key, std::make_shared<const Tracked>(int64_t(key.layoutDigest)),
+                    if (store.Insert(key, MakeTracked(int64_t(key.layoutDigest)),
                                      1 + key.layoutDigest % 3))
                         inserted.fetch_add(1);
                 } else if (op < 99) {
@@ -335,6 +376,8 @@ void SessionSubmitVisibleStress()
 int main()
 {
     usdGenRegisterM1Operators();
+    PoisonArena::base = static_cast<unsigned char *>(
+        ::operator new(PoisonArena::kCell * PoisonArena::kCells));
     SharedCellStress();
     CacheStoreStress();
     DomainCoalescingStress();

@@ -24,8 +24,9 @@ namespace usdGen {
 /// Largest pooled request; bigger ones go to operator new.
 constexpr std::size_t kUsdGenPoolMaxBytes = std::size_t(64) << 20;
 
-/// A block of at least `bytes`, 16-byte aligned (64-byte above 256 bytes).
-/// Never returns null: falls back to operator new (throws bad_alloc).
+/// A block of at least `bytes`, 16-byte aligned (64-byte above 256 bytes,
+/// heap fallback included). Never returns null: falls back to operator new
+/// (throws bad_alloc).
 USDGEN_CORE_API void *UsdGenPoolAlloc(std::size_t bytes);
 /// Return a block; `bytes` must be the size it was requested with.
 USDGEN_CORE_API void UsdGenPoolFree(void *p, std::size_t bytes) noexcept;
@@ -39,6 +40,9 @@ struct UsdGenPoolStats
     uint64_t reservedBytes = 0;  // carved so far
 };
 USDGEN_CORE_API UsdGenPoolStats UsdGenPoolGetStats() noexcept;
+/// Tests only: while set, the pools do not grow, so empty classes fall back
+/// to the heap.
+USDGEN_CORE_API void UsdGenPoolTestDenyGrowth(bool deny) noexcept;
 
 /// Derive to allocate a type (and everything derived from it, through a
 /// virtual destructor) from the pools.

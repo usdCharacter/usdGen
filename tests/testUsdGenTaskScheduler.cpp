@@ -1,11 +1,13 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 //
-// Engine task scheduler: multi-producer posting, ring overflow, pending-count
+// Engine task scheduler: multi-producer posting, ring overflow (one worker,
+// and several with parked workers and a blocking task), pending-count
 // parking, fork/join regions (nested, concurrent, throwing) and a 64-thread
 // pipeline / task-graph submit stress.
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionTaskGraph.h"
+#include "usdGen/epoch.h"
 #include "usdGen/taskScheduler.h"
 
 #include <atomic>
@@ -93,6 +95,150 @@ int TestOverflowAndDrainOnDestroy()
     }
     CHECK(ran.load() == int(tasks.size()));
     CHECK(pending.Count() == 0);
+    return 0;
+}
+
+// Several workers, ring full, tasks in the overflow. The first worker to
+// reach the overflow takes it all; the others find it empty and park. The
+// task it keeps (the newest) blocks until the oldest overflow task runs, so
+// the remainder must reach a parked worker: a pop that re-publishes without
+// a wake leaves it stranded and the blocker times out.
+struct CountGate : UsdGenTask {
+    CountGate() noexcept : UsdGenTask(&Run) {}
+    std::atomic<bool> *open = nullptr;
+    std::atomic<int> *entered = nullptr;
+    static void Run(UsdGenTask *t) noexcept {
+        auto *self = static_cast<CountGate *>(t);
+        self->entered->fetch_add(1);
+        while (!self->open->load()) std::this_thread::yield();  // test rendezvous only
+    }
+};
+
+struct LatchTask : UsdGenTask {
+    LatchTask() noexcept : UsdGenTask(&Run) {}
+    std::atomic<bool> *latch = nullptr;
+    UsdGenPendingCount *pending = nullptr;
+    static void Run(UsdGenTask *t) noexcept {
+        auto *self = static_cast<LatchTask *>(t);
+        self->latch->store(true);
+        self->pending->Release();
+    }
+};
+
+struct BlockerTask : UsdGenTask {
+    BlockerTask() noexcept : UsdGenTask(&Run) {}
+    std::atomic<bool> *latch = nullptr;
+    std::atomic<int> *timedOut = nullptr;
+    UsdGenPendingCount *pending = nullptr;
+    static void Run(UsdGenTask *t) noexcept {
+        auto *self = static_cast<BlockerTask *>(t);
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!self->latch->load()) {
+            if (std::chrono::steady_clock::now() > deadline) {
+                self->timedOut->fetch_add(1);
+                break;
+            }
+            std::this_thread::yield();
+        }
+        self->pending->Release();
+    }
+};
+
+int TestOverflowWakesParkedWorkers()
+{
+    constexpr int kWorkers = 4, kRounds = 40, kFill = 1024, kOverflow = 2000;
+    std::atomic<int> timedOut{0};
+    for (int round = 0; round != kRounds && !timedOut.load(); ++round) {
+        std::atomic<bool> open{false}, latch{false};
+        std::atomic<int> entered{0}, ran{0};
+        UsdGenPendingCount pending;
+        std::vector<CountGate> gates(kWorkers);
+        std::vector<CountTask> fill(kFill + kOverflow);
+        LatchTask oldest;
+        BlockerTask newest;
+        UsdGenTaskScheduler scheduler(kWorkers);
+        for (auto &g : gates) {
+            g.open = &open;
+            g.entered = &entered;
+            scheduler.Post(&g);
+        }
+        while (entered.load() != kWorkers) std::this_thread::yield();
+        pending.Add(uint32_t(fill.size() + 2));
+        // Ring first, then the overflow: oldest at the bottom, newest on top.
+        for (int i = 0; i != kFill; ++i) {
+            fill[size_t(i)].ran = &ran;
+            fill[size_t(i)].pending = &pending;
+            scheduler.Post(&fill[size_t(i)]);
+        }
+        oldest.latch = &latch;
+        oldest.pending = &pending;
+        scheduler.Post(&oldest);
+        for (int i = kFill; i != kFill + kOverflow; ++i) {
+            fill[size_t(i)].ran = &ran;
+            fill[size_t(i)].pending = &pending;
+            scheduler.Post(&fill[size_t(i)]);
+        }
+        newest.latch = &latch;
+        newest.timedOut = &timedOut;
+        newest.pending = &pending;
+        scheduler.Post(&newest);
+        open.store(true);
+        pending.Wait();
+        CHECK(ran.load() == int(fill.size()));
+    }
+    CHECK(timedOut.load() == 0);
+    return 0;
+}
+
+// A value displaced on a worker is freed once the workers go idle, with
+// nobody calling UsdGenEpochDrain: idle workers drain before they park.
+struct Tracked : UsdGenRefCounted {
+    explicit Tracked(std::atomic<int> *d) : destroyed(d) {}
+    ~Tracked() override { destroyed->fetch_add(1); }
+    std::atomic<int> *destroyed;
+};
+
+struct StoreTask : UsdGenTask {
+    StoreTask() noexcept : UsdGenTask(&Run) {}
+    UsdGenAtomicRef<Tracked> *cell = nullptr;
+    std::atomic<int> *destroyed = nullptr;
+    UsdGenPendingCount *pending = nullptr;
+    static void Run(UsdGenTask *t) noexcept {
+        auto *self = static_cast<StoreTask *>(t);
+        self->cell->Store(UsdGenMakeRef<Tracked>(self->destroyed));
+        self->pending->Release();
+    }
+};
+
+// Static: the cell's last value is freed by a later drain, possibly on a
+// worker after this function returned.
+std::atomic<int> g_trackedDestroyed{0};
+
+int TestIdleWorkersDrainEpochs()
+{
+    std::atomic<int> &destroyed = g_trackedDestroyed;
+    UsdGenAtomicRef<Tracked> cell(UsdGenMakeRef<Tracked>(&destroyed));
+    {
+        UsdGenTaskScheduler scheduler(2);
+        constexpr int kStores = 3;  // far below the per-thread auto-drain
+        std::vector<StoreTask> tasks(kStores);
+        UsdGenPendingCount pending;
+        pending.Add(kStores);
+        for (auto &t : tasks) {
+            t.cell = &cell;
+            t.destroyed = &destroyed;
+            t.pending = &pending;
+            scheduler.Post(&t);
+        }
+        pending.Wait();
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (destroyed.load() != kStores && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        CHECK(destroyed.load() == kStores);
+    }
+    cell.Store(nullptr);
+    for (int i = 0; i != 64 && destroyed.load() != 4; ++i) UsdGenEpochDrain();
+    CHECK(destroyed.load() == 4);
     return 0;
 }
 
@@ -251,6 +397,8 @@ int main()
 {
     if (TestMultiProducer()) return 1;
     if (TestOverflowAndDrainOnDestroy()) return 1;
+    if (TestOverflowWakesParkedWorkers()) return 1;
+    if (TestIdleWorkersDrainEpochs()) return 1;
     if (TestPendingCountStress()) return 1;
     if (TestParallelFor()) return 1;
     if (TestPipelineSubmitStress()) return 1;

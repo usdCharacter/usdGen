@@ -4,16 +4,15 @@
 // workerPool.h — a persistent fork/join pool for the scheduler's parallel
 // regions.
 //
-// TBB's arena pays ~0.2ms per region on this machine (wakeup stagger plus
-// the calling thread's lottery: the master joins the arena, so a master
-// parked on a slow core drags the span). The pool instead keeps one worker
-// per fast CPU parked on a generation counter: dispatch is one
-// release-store plus a wake, the master coordinates without computing, and
-// small claimed chunks keep a stacked or slow worker from setting the
-// wall the way a static split would. Workers spin generously (bench and
-// frame gaps never sleep) and then block on a condition variable, so a
-// truly idle pool costs no power while hot loops never touch the wake
-// path.
+// TBB's arena paid ~0.2ms per region (wakeup stagger plus the calling
+// thread's lottery: the master joins the arena, so a master parked on a
+// slow core drags the span). The pool instead keeps one worker per fast CPU
+// waiting on a generation counter: dispatch is one store plus a wake, the
+// master coordinates without computing, and small claimed chunks keep a
+// stacked or slow worker from setting the wall the way a static split
+// would. Idle workers and the joining master spin briefly (about 1ms, so
+// the gaps inside a cook stay off the wake path) and then park on a
+// parkingWord, so an idle pool or a long region burns no cores.
 //
 // Semantics mirror UsdGenWorkDispatcher::ParallelFor: body(0..count-1),
 // joined before return, any partition (callers must be partition-agnostic,

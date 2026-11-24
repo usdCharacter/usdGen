@@ -11,8 +11,9 @@
 //      (count above 8 per worker; parallelism actually happened).
 //   2. A body exception reaches the caller (first error rethrown) after
 //      every chunk completed, and the pool stays usable.
-//   3. The sleep path is correct: with USDGEN_POOL_SPIN_US=0 every
-//      dispatch parks and wakes through the condition variable.
+//   3. The park path is correct: with USDGEN_POOL_SPIN_US=0 every
+//      dispatch parks and wakes through the parking word, on both sides
+//      (idle workers and the joining master), including long bodies.
 //   4. Repeated dispatches are all correct (generation counter wraps
 //      safely over 300 back-to-back regions with gaps).
 //   5. A single-wide pool runs inline (no threads needed for Dispatch).
@@ -32,6 +33,15 @@
 #include <thread>
 #include <vector>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <intrin.h>
+#else
+#include <time.h>
+#endif
+
 using namespace usdGen;
 
 namespace {
@@ -48,6 +58,85 @@ inline int PoolUnsetEnv(char const *name) { return ::unsetenv(name); }
 #endif
 
 int g_failures = 0;
+
+// CPU time in milliseconds: the calling thread's, and the whole process's.
+// Windows: cycle counts (GetThreadTimes is charged per 15.6 ms tick, far too
+// coarse), converted with the time-stamp counter rate measured against QPC.
+#if defined(_WIN32)
+double CyclesPerMs()
+{
+    static double rate = 0.0;  // test-only, single-threaded use
+    if (rate == 0.0) {
+        LARGE_INTEGER f, q0, q1;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&q0);
+        uint64_t const c0 = __rdtsc();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        uint64_t const c1 = __rdtsc();
+        QueryPerformanceCounter(&q1);
+        rate = double(c1 - c0) / (double(q1.QuadPart - q0.QuadPart) * 1e3 / double(f.QuadPart));
+    }
+    return rate;
+}
+#endif
+
+double ThreadCpuMs()
+{
+#if defined(_WIN32)
+    ULONG64 cycles = 0;
+    QueryThreadCycleTime(GetCurrentThread(), &cycles);
+    return double(cycles) / CyclesPerMs();
+#else
+    timespec ts{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return double(ts.tv_sec) * 1e3 + double(ts.tv_nsec) / 1e6;
+#endif
+}
+
+double ProcessCpuMs()
+{
+#if defined(_WIN32)
+    ULONG64 cycles = 0;
+    QueryProcessCycleTime(GetCurrentProcess(), &cycles);
+    return double(cycles) / CyclesPerMs();
+#else
+    timespec ts{};
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+    return double(ts.tv_sec) * 1e3 + double(ts.tv_nsec) / 1e6;
+#endif
+}
+
+struct SlowPayload {
+    std::atomic<int> *hits;
+    std::atomic<int> *inFlight;
+    int sleepMs;
+};
+
+void SlowBody(size_t i, void *p)
+{
+    auto *pl = static_cast<SlowPayload *>(p);
+    pl->inFlight->fetch_add(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(pl->sleepMs));
+    pl->hits[i].fetch_add(1, std::memory_order_relaxed);
+    pl->inFlight->fetch_sub(1);
+}
+
+// A region of long bodies: every index once and nothing still running when
+// ParallelFor returns. Returns the caller's CPU time spent in the call.
+double RunSlowRegion(UsdGenWorkerPool &pool, size_t count, int sleepMs, bool *exact)
+{
+    std::vector<std::atomic<int>> hits(count);
+    for (auto &h : hits) h.store(0);
+    std::atomic<int> inFlight{0};
+    SlowPayload pl{hits.data(), &inFlight, sleepMs};
+    double const cpu0 = ThreadCpuMs();
+    pool.ParallelFor(count, SlowBody, &pl, 1);
+    double const cpu = ThreadCpuMs() - cpu0;
+    bool ok = inFlight.load() == 0;
+    for (auto &h : hits) ok = ok && h.load() == 1;
+    *exact = ok;
+    return cpu;
+}
 
 void Check(bool ok, std::string const &what)
 {
@@ -188,7 +277,7 @@ int main()
     }
     if (g_failures) return 1;
 
-    // Sleep path: force every dispatch through the condition variable.
+    // Park path: force every dispatch and every join through the parking word.
     {
         char const *outer = std::getenv("USDGEN_POOL_SPIN_US");
         std::string const saved = outer ? outer : "";
@@ -214,6 +303,12 @@ int main()
                     if (h.load(std::memory_order_relaxed) != 1) slept = false;
             }
             Check(slept, "100 forced-sleep dispatches are all exact");
+            // Long bodies: the master parks in the join while workers still
+            // run, and is woken by the last one.
+            bool exact = true;
+            for (int round = 0; round < 20 && exact; ++round)
+                RunSlowRegion(pool, size_t(8 + round % 5), 1 + round % 3, &exact);
+            Check(exact, "forced-park joins over long bodies are exact and complete");
         }
         if (had) PoolSetEnv("USDGEN_POOL_SPIN_US", saved.c_str());
         else PoolUnsetEnv("USDGEN_POOL_SPIN_US");
@@ -238,6 +333,30 @@ int main()
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         Check(ok, "300 back-to-back dispatches are all exact");
+    }
+    if (g_failures) return 1;
+
+    // The join and the idle wait are bounded spins: a master waiting on a
+    // long region parks instead of burning its core for the region, and
+    // idle workers park soon after a region instead of spinning for tens of
+    // milliseconds. Skipped when the spin budget is overridden.
+    if (!std::getenv("USDGEN_POOL_SPIN_US") || !*std::getenv("USDGEN_POOL_SPIN_US")) {
+#if defined(_WIN32)
+        CyclesPerMs();  // calibrate before anything is measured
+#endif
+        UsdGenWorkerPool pool(8);
+        WarmUpPool(pool);
+        bool exact = true;
+        double const joinCpu = RunSlowRegion(pool, 8, 60, &exact);
+        std::printf("join over a 60 ms region: %.1f ms caller CPU\n", joinCpu);
+        Check(exact, "long region is exact and complete");
+        Check(joinCpu < 25.0, "the joining master parks instead of spinning through a long region");
+        WarmUpPool(pool);
+        double const cpu0 = ProcessCpuMs();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        double const idleCpu = ProcessCpuMs() - cpu0;
+        std::printf("8 idle workers, 100 ms after a region: %.1f ms process CPU\n", idleCpu);
+        Check(idleCpu < 60.0, "idle workers park soon after a region");
     }
     if (g_failures) return 1;
 

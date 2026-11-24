@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/workerPool.h"
-#include "usdGen/parkingWord.h"
+#include "usdGen/executionRuntimeInternal.h"
 #include "usdGen/fastCores.h"
+#include "usdGen/parkingWord.h"
+#include "usdGen/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>
@@ -27,16 +29,19 @@ namespace usdGen {
 
 namespace {
 
-// Spin budget before a parked worker blocks: bench gaps (~0.5ms),
-// interactive frame gaps (16ms), and scheduling hiccups never sleep, so
-// the wake path stays out of every hot loop; a truly idle pool still
-// blocks instead of burning cores. USDGEN_POOL_SPIN_US overrides (0
-// forces the sleep path; the pool test uses it).
+// Spin budget before a waiting thread parks: an idle worker waiting for the
+// next dispatch, and the master waiting for the join. Gaps between the
+// regions of one cook (~0.5ms) stay on the spin path; longer gaps (frames,
+// long bodies) park instead of taking cores from other pools and the task
+// scheduler. USDGEN_POOL_SPIN_US overrides (0 forces the park path; the
+// pool test uses it). Read once per pool.
+constexpr long kDefaultSpinUs = 1000;
+
 long SpinBudgetUs()
 {
     char const *env = std::getenv("USDGEN_POOL_SPIN_US");
     if (env && *env) return std::atol(env);
-    return 50000;
+    return kDefaultSpinUs;
 }
 
 // Spin-hint most iterations, with a periodic true yield so a parked
@@ -67,21 +72,19 @@ void CpuRelax(unsigned spin)
 
 struct UsdGenWorkerPool::State {
     std::vector<std::thread> threads;
-    // Dispatch generation: even values are idle. The master publishes
-    // body/payload/count/chunk, then release-stores an odd generation and
-    // wakes; workers acquire-load it. finished counts workers done with
-    // the current odd generation; observed counts workers that parked on
-    // the following even marker. The master joins finished, bumps even,
-    // then joins observed before the next dispatch, so no worker can be
-    // a whole cycle behind when a new payload publishes (a descheduled
-    // sleeper delays the next dispatch; it can never miss one).
-    // Workers that spun out park on this word (parkingWord.h); the master
-    // only makes the wake call when one has.
+    // Dispatch generation, bumped once per dispatch. The master publishes
+    // body/payload/count/chunk, then bumps (seq_cst) and wakes; workers
+    // acquire-load it. Each worker releases `pending` once per generation
+    // after its last touch of the dispatch; the master joins on it (spin,
+    // then park), so every worker is back to reading only `epoch` and
+    // `stop` before the next payload is written, and none can miss a
+    // generation. Workers that spun out park on `epoch` (parkingWord.h);
+    // the master makes the wake call only when one has.
     std::atomic<uint32_t> epoch{0};
     std::atomic<uint32_t> sleepers{0};
-    std::atomic<unsigned> finished{0};
-    std::atomic<unsigned> observed{0};
+    UsdGenPendingCount pending;
     std::atomic<bool> stop{false};
+    long spinUs = kDefaultSpinUs;
     void (*body)(size_t, void *) = nullptr;
     void *payload = nullptr;
     size_t count = 0;
@@ -91,7 +94,7 @@ struct UsdGenWorkerPool::State {
     std::atomic<size_t> next{0};
     size_t chunk = 1;
     // The first worker to throw claims the slot; the master reads it after
-    // the finished join, which orders the write.
+    // the join, which orders the write.
     std::atomic<bool> errorClaimed{false};
     std::exception_ptr firstError;
     // One fast CPU per worker where the topology qualifies, else empty
@@ -132,11 +135,10 @@ struct UsdGenWorkerPool::State {
 #endif
         uint32_t seen = 0;
         for (;;) {
-            // Spin phase: a dispatch landing here costs no mutex. The
-            // clock is sampled sparingly (a vDSO read per iteration
+            // Spin phase: a dispatch landing here costs no system call.
+            // The clock is sampled sparingly (a vDSO read per iteration
             // would double the spin's core burn while siblings still
             // compute).
-            long const spinUs = SpinBudgetUs();
             auto const spinUntil =
                 std::chrono::steady_clock::now() + std::chrono::microseconds(spinUs);
             for (unsigned spin = 0;; ++spin) {
@@ -165,12 +167,6 @@ struct UsdGenWorkerPool::State {
             if (stop.load(std::memory_order_relaxed)) return;
             if (e == seen) continue;  // defensive: re-park on a stale load
             seen = e;
-            if (!(e & 1)) {
-                // The master's all-done marker: acknowledge it so the
-                // next dispatch knows every worker parked here.
-                observed.fetch_add(1, std::memory_order_release);
-                continue;
-            }
             size_t const n = count;
             void (*runBody)(size_t, void *) = body;
             void *runPayload = payload;
@@ -187,8 +183,24 @@ struct UsdGenWorkerPool::State {
                 if (!errorClaimed.exchange(true, std::memory_order_acq_rel))
                     firstError = std::current_exception();
             }
-            finished.fetch_add(1, std::memory_order_release);
+            pending.Release();  // last touch of this dispatch
         }
+    }
+
+    // The master's join: spin up to the budget (capped), then park.
+    void Join() noexcept
+    {
+        long const joinSpinUs = std::min(spinUs, kDefaultSpinUs);
+        if (joinSpinUs > 0) {
+            auto const spinUntil =
+                std::chrono::steady_clock::now() + std::chrono::microseconds(joinSpinUs);
+            for (unsigned spin = 1;; ++spin) {
+                if (pending.Count() == 0) return;
+                if ((spin & 255) == 0 && std::chrono::steady_clock::now() >= spinUntil) break;
+                CpuRelax(spin);
+            }
+        }
+        pending.Wait();
     }
 };
 
@@ -200,6 +212,7 @@ UsdGenWorkerPool::UsdGenWorkerPool(int workers) : _workers(workers)
     }
     _state = new State();
     _state->workers = workers;
+    _state->spinUs = SpinBudgetUs();
     _state->pinCpus = FastCoreList(workers);
     _state->threads.reserve(size_t(workers));
     for (int i = 0; i < workers; ++i)
@@ -212,6 +225,12 @@ UsdGenWorkerPool::~UsdGenWorkerPool()
     _state->stop.store(true, std::memory_order_relaxed);
     _state->epoch.fetch_add(1, std::memory_order_seq_cst);
     UsdGenUnparkAll(_state->epoch);
+    if (UsdGenProcessShutdownInProgress()) {
+        // Process detach: the workers are gone or must not be waited for;
+        // the state stays leaked with them.
+        for (std::thread &t : _state->threads) t.detach();
+        return;
+    }
     for (std::thread &t : _state->threads) t.join();
     delete _state;
 }
@@ -238,30 +257,14 @@ void UsdGenWorkerPool::ParallelFor(size_t count, void (*body)(size_t, void *),
         1, std::min<size_t>(4, (count + size_t(_state->workers) - 1) /
                                    size_t(_state->workers)));
     _state->next.store(0, std::memory_order_relaxed);
-    _state->finished.store(0, std::memory_order_relaxed);
-    _state->observed.store(0, std::memory_order_relaxed);
+    _state->pending.Add(uint32_t(_state->workers));
     // No wake is lost: the park re-compares the epoch in the kernel, and a
     // worker announces itself in sleepers before its last check (see
     // WorkerMain), so a bump it missed is one this side wakes for.
-    auto bump = [s = _state] {
-        s->epoch.fetch_add(1, std::memory_order_seq_cst);
-        if (s->sleepers.load(std::memory_order_seq_cst) != 0)
-            UsdGenUnparkAll(s->epoch);
-    };
-    bump();  // idle even -> work odd
-    for (unsigned spin = 0;
-         _state->finished.load(std::memory_order_acquire) !=
-         unsigned(_state->workers);
-         ++spin)
-        CpuRelax(spin);
-    // Sleepers parked between their finished++ and this bump need the
-    // wake to observe the marker, or the observed join below never ends.
-    bump();  // work odd -> idle even
-    for (unsigned spin = 0;
-         _state->observed.load(std::memory_order_acquire) !=
-         unsigned(_state->workers);
-         ++spin)
-        CpuRelax(spin);
+    _state->epoch.fetch_add(1, std::memory_order_seq_cst);
+    if (_state->sleepers.load(std::memory_order_seq_cst) != 0)
+        UsdGenUnparkAll(_state->epoch);
+    _state->Join();
     std::exception_ptr error = std::move(_state->firstError);
     _state->firstError = nullptr;
     if (error) std::rethrow_exception(error);

@@ -22,8 +22,7 @@ struct UsdGenTaskScheduler::State {
     };
     alignas(64) std::atomic<size_t> enq{0};
     alignas(64) std::atomic<size_t> deq{0};
-    alignas(64) std::atomic<uint32_t> wake{0};
-    std::atomic<uint32_t> sleepers{0};
+    alignas(64) UsdGenWakeWord wake;
     std::atomic<bool> stop{false};
     std::atomic<uint32_t> refs{1};  // owner + one per live worker
     int workers = 0;
@@ -75,29 +74,58 @@ struct UsdGenTaskScheduler::State {
             }
         }
     }
+    // The overflow is a stack: a pop takes all of it, keeps the oldest task
+    // and hands the rest to the ring in age order (what does not fit goes
+    // back), then wakes sleepers, since a worker that found the overflow
+    // empty meanwhile may have parked with these tasks queued.
     UsdGenTask *TryPop() noexcept
     {
         if (UsdGenTask *t = TryDequeue()) return t;
-        UsdGenTask *chain = overflow.PopAll();
+        UsdGenTask *chain = overflow.PopAll();  // newest first
         if (!chain) return nullptr;
-        UsdGenTask *rest = chain->taskNext;
-        chain->taskNext = nullptr;
-        if (rest) {
-            UsdGenTask *last = rest;
-            while (last->taskNext) last = last->taskNext;
-            overflow.PushChain(rest, last);
+        UsdGenTask *oldest = nullptr;
+        while (chain) {
+            UsdGenTask *const n = chain->taskNext;
+            chain->taskNext = oldest;
+            oldest = chain;
+            chain = n;
         }
-        return chain;
+        UsdGenTask *rest = oldest->taskNext;
+        oldest->taskNext = nullptr;
+        if (rest) Republish(rest);
+        return oldest;
+    }
+    void Republish(UsdGenTask *rest) noexcept  // oldest first
+    {
+        bool const several = rest->taskNext != nullptr;
+        while (rest) {
+            UsdGenTask *const n = rest->taskNext;  // read before it can run
+            rest->taskNext = nullptr;
+            if (!TryEnqueue(rest)) {
+                rest->taskNext = n;
+                break;
+            }
+            rest = n;
+        }
+        if (rest) {
+            UsdGenTask *const last = rest;  // oldest left over: the bottom
+            UsdGenTask *head = nullptr;
+            while (rest) {
+                UsdGenTask *const n = rest->taskNext;
+                rest->taskNext = head;
+                head = rest;
+                rest = n;
+            }
+            overflow.PushChain(head, last);
+        }
+        if (several) wake.NotifyAll();
+        else wake.NotifyOne();
     }
     void Post(UsdGenTask *t) noexcept
     {
         t->taskNext = nullptr;
         if (!TryEnqueue(t)) overflow.Push(t);
-        std::atomic_thread_fence(std::memory_order_seq_cst);
-        if (sleepers.load(std::memory_order_relaxed)) {
-            wake.fetch_add(1, std::memory_order_release);
-            UsdGenUnparkOne(wake);
-        }
+        wake.NotifyOne();
     }
     void Loop() noexcept;
 };
@@ -115,20 +143,21 @@ void UsdGenTaskScheduler::State::Loop() noexcept
             t->taskRun(t);
             continue;
         }
-        uint32_t const seen = wake.load(std::memory_order_acquire);
-        sleepers.fetch_add(1, std::memory_order_seq_cst);
-        std::atomic_thread_fence(std::memory_order_seq_cst);
+        // Idle: free what earlier tasks displaced (cells, snapshots) before
+        // sleeping, so retired values do not linger while the engine rests.
+        // Never blocks; a no-op with nothing pending or a reader pinned.
+        if (UsdGenEpochDrain()) continue;
+        uint32_t const token = wake.Announce();
         if (UsdGenTask *t = TryPop()) {
-            sleepers.fetch_sub(1, std::memory_order_relaxed);
+            wake.Cancel();
             t->taskRun(t);
             continue;
         }
         if (stop.load(std::memory_order_acquire)) {
-            sleepers.fetch_sub(1, std::memory_order_relaxed);
+            wake.Cancel();
             break;
         }
-        UsdGenParkWhileEqual(wake, seen);
-        sleepers.fetch_sub(1, std::memory_order_relaxed);
+        wake.Park(token);
     }
     tlsWorkerOf = nullptr;
     Unref();
@@ -138,8 +167,7 @@ namespace {
 void StopState(UsdGenTaskScheduler::State *s) noexcept
 {
     s->stop.store(true, std::memory_order_seq_cst);
-    s->wake.fetch_add(1, std::memory_order_release);
-    UsdGenUnparkAll(s->wake);
+    s->wake.WakeAll();
     // Process detach: the workers are gone or must not be waited for.
     bool const detach = UsdGenProcessShutdownInProgress();
     auto const self = std::this_thread::get_id();
