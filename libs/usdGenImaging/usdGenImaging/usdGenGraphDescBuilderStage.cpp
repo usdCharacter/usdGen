@@ -630,25 +630,28 @@ _BuildSubsetSurface(UsdStageRefPtr const &stage, SdfPath const &path,
     out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount);
 }
 
+// Built at library load, not on first use (no guarded function statics).
+TfToken const s_surfaceCageAttrs[] = {
+    TfToken("usdGen:surfaceCage:ownerIds"),
+    TfToken("usdGen:surfaceCage:ownerDensities"),
+    TfToken("usdGen:surfaceCage:ownerSeeds"),
+    TfToken("usdGen:surfaceCage:ownerCvCounts"),
+    TfToken("usdGen:surfaceCage:ownerEdgeBias"),
+    TfToken("usdGen:surfaceCage:ownerLengthProfileOffsets"),
+    TfToken("usdGen:surfaceCage:ownerLengthProfile"),
+    TfToken("usdGen:surfaceCage:normalizedT"),
+    TfToken("usdGen:surfaceCage:triangles"),
+    TfToken("usdGen:surfaceCage:triangleOwnerIndices"),
+    TfToken("usdGen:surfaceCage:triangleRootCharts"),
+    TfToken("usdGen:surfaceCage:ownerChartCentroids"),
+    TfToken("usdGen:surfaceCage:ownerChartMeanRadii")};
+
 bool
 _BuildSurfaceCagePayload(UsdPrim const &prim, UsdTimeCode time,
                          std::shared_ptr<const UsdGenSurfaceCagePayload> *out)
 {
     if (!prim || !out) return false;
-    static TfToken const names[] = {
-        TfToken("usdGen:surfaceCage:ownerIds"),
-        TfToken("usdGen:surfaceCage:ownerDensities"),
-        TfToken("usdGen:surfaceCage:ownerSeeds"),
-        TfToken("usdGen:surfaceCage:ownerCvCounts"),
-        TfToken("usdGen:surfaceCage:ownerEdgeBias"),
-        TfToken("usdGen:surfaceCage:ownerLengthProfileOffsets"),
-        TfToken("usdGen:surfaceCage:ownerLengthProfile"),
-        TfToken("usdGen:surfaceCage:normalizedT"),
-        TfToken("usdGen:surfaceCage:triangles"),
-        TfToken("usdGen:surfaceCage:triangleOwnerIndices"),
-        TfToken("usdGen:surfaceCage:triangleRootCharts"),
-        TfToken("usdGen:surfaceCage:ownerChartCentroids"),
-        TfToken("usdGen:surfaceCage:ownerChartMeanRadii")};
+    auto const &names = s_surfaceCageAttrs;
     bool present = false;
     for (TfToken const &name : names) {
         if (prim.GetAttribute(name)) {
@@ -684,6 +687,13 @@ _BuildSurfaceCagePayload(UsdPrim const &prim, UsdTimeCode time,
     *out = std::move(cage);
     return true;
 }
+
+// Built at library load, not on first use (no guarded function statics).
+std::set<TfToken> const s_reservedCurvePlanes{
+    TfToken("rest"), TfToken("widths"), TfToken("st"),
+    TfToken("skinprim"), TfToken("skinprimuv"), TfToken("displayColor"),
+    TfToken("usdGen:curveId"), TfToken("usdGen:rootFrame"),
+    TfToken("usdGen:role"), usdGen::UsdGenSourceColorPlane()};
 
 void
 _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
@@ -768,11 +778,7 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
     // in particular clumpCenterId_<level> is int2 carrying two exact ID words.
     // Standard geometry/identity channels are handled above and must not be
     // duplicated as authored extra planes.
-    static std::set<TfToken> const reserved{
-        TfToken("rest"), TfToken("widths"), TfToken("st"),
-        TfToken("skinprim"), TfToken("skinprimuv"), TfToken("displayColor"),
-        TfToken("usdGen:curveId"), TfToken("usdGen:rootFrame"),
-        TfToken("usdGen:role"), usdGen::UsdGenSourceColorPlane()};
+    std::set<TfToken> const &reserved = s_reservedCurvePlanes;
     auto const isClump = [](std::string const &name) {
         return name.rfind("clumpId_", 0) == 0 ||
                name.rfind("clumpCenter_", 0) == 0 ||

@@ -3,6 +3,7 @@
 // one hash lookup per notice entry plus a longest-prefix walk (I7, S17).
 #include "usdGenImaging/usdGenDirtyRouter.h"
 
+#include "usdGenImaging/atomicShared.h"
 #include "usdGenImaging/primAdapter.h"
 #include "usdGenImaging/usdGenTokens.h"
 #include "usdGen/executionPipeline.h"
@@ -86,8 +87,8 @@ _WarnUnknownRoute(SdfPath const &path, TfToken const &leaf)
     // destructor here runs at DLL_PROCESS_DETACH on Windows, after ExitProcess
     // has killed the TBB workers, so a drain could never complete. A warning
     // still queued when the process exits is the only thing lost.
-    static auto* warningsOwner = new Warnings;
-    Warnings& warnings = *warningsOwner;
+    static std::atomic<Warnings*> warningsOwner{nullptr};  // constant-initialized
+    Warnings& warnings = ::usdGenImaging::UsdGenLazyLeaked(warningsOwner);
     // Diagnostics do not make notice routing await the warning registry.
     // The owner deduplicates immutable keys and emits each warning once.
     warnings.owner.PostCommand([path, leaf, &warnings] {
@@ -289,12 +290,15 @@ UsdGenDirtyRouter::Rebuild(usdGen::UsdGenGraphRoutingSnapshot const &snapshot)
     }
 }
 
+// Built at library load, not on first use (no guarded function statics).
+HdDataSourceLocator const s_containerLocator(UsdGenContainerToken());
+
 void
 UsdGenDirtyRouter::Route(
     HdSceneIndexObserver::DirtiedPrimEntries const &entries,
     usdGen::UsdGenPendingDirty *out) const
 {
-    static HdDataSourceLocator const s_container(UsdGenContainerToken());
+    HdDataSourceLocator const &s_container = s_containerLocator;
 
     for (auto const &entry : entries) {
         auto const it = _byPrim.find(entry.primPath);

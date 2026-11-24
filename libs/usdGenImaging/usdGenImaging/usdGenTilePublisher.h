@@ -27,6 +27,7 @@
 #define USDGEN_IMAGING_TILE_PUBLISHER_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/staticToken.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 
@@ -42,6 +43,11 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenImaging {
+
+inline constexpr char kUsdGenMaterialStormText[] = "material_storm";
+inline UsdGenStaticToken<kUsdGenMaterialStormText> const s_usdGenMaterialStormToken;
+inline constexpr char kUsdGenRenderText[] = "__usdGenRender";
+inline UsdGenStaticToken<kUsdGenRenderText> const s_usdGenRenderToken;
 
 class UsdGenTilePublisher
 {
@@ -209,19 +215,11 @@ public:
     static GfVec3f ScalpShadowAlbedo(usdGen::UsdGenLookDesc const &look);
 
     /// The reserved name of the synthetic default material prim.
-    static TfToken const &MaterialName()
-    {
-        static TfToken const token("material_storm");
-        return token;
-    }
+    static TfToken const &MaterialName() { return *s_usdGenMaterialStormToken; }
 
     /// The reserved Hydra-only render-namespace child of a description
     /// (06 §4, 02 §0.6).
-    static TfToken const &RenderNamespace()
-    {
-        static TfToken const token("__usdGenRender");
-        return token;
-    }
+    static TfToken const &RenderNamespace() { return *s_usdGenRenderToken; }
 };
 
 }  // namespace usdGenImaging

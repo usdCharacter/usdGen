@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -277,7 +278,8 @@ UsdGenIsMapTypeName(TfToken const &typeName)
 inline bool
 _isDedicated(TfToken const &name)
 {
-    static std::unordered_set<std::string> const dedicated{
+    // Constant data, not a guarded function static.
+    static constexpr char const *dedicated[] = {
         "usdGen:type", "usdGen:mode",
         "usdGen:enabled", "usdGen:seed",
         "usdGen:references", "usdGen:guides", "usdGen:curves",
@@ -285,8 +287,10 @@ _isDedicated(TfToken const &name)
         // description-level dedicated fields
         "usdGen:tileTarget", "usdGen:curve:basis",
     };
+    bool const isDedicated = std::any_of(std::begin(dedicated), std::end(dedicated),
+        [&](char const *d) { return name.GetString() == d; });
     // usdGen:look:* lives in UsdGenLookDesc, not params.
-    return dedicated.count(name.GetString()) != 0 ||
+    return isDedicated ||
            name.GetString().rfind("usdGen:look:", 0) == 0 ||
            name.GetString().rfind("usdGen:surfaceCage:", 0) == 0;
 }

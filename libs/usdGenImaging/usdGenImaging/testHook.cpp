@@ -164,6 +164,13 @@ UsdGenImagingTestHook::publishedTileCount(SdfPath const &groom)
     return total;
 }
 
+// Built at library load, not on first use (no guarded function statics).
+HdDataSourceLocator const s_curveCountsLocator(
+    TfToken("basisCurves"), TfToken("topology"),
+    TfToken("curveVertexCounts"));
+HdDataSourceLocator const s_curvePointsLocator(
+    TfToken("primvars"), TfToken("points"), TfToken("primvarValue"));
+
 bool
 UsdGenImagingTestHook::publishedCurveStats(SdfPath const &groom,
                                            uint64_t *curves,
@@ -175,11 +182,8 @@ UsdGenImagingTestHook::publishedCurveStats(SdfPath const &groom,
     RegistrySnapshot weaks = _HookSnapshot();
     if (weaks && groom.IsAbsolutePath() && groom.IsPrimPath()) {
         SdfPath const render = groom.AppendChild(TfToken("__usdGenRender"));
-        static HdDataSourceLocator const countsLoc(
-            TfToken("basisCurves"), TfToken("topology"),
-            TfToken("curveVertexCounts"));
-        static HdDataSourceLocator const pointsLoc(
-            TfToken("primvars"), TfToken("points"), TfToken("primvarValue"));
+        HdDataSourceLocator const &countsLoc = s_curveCountsLocator;
+        HdDataSourceLocator const &pointsLoc = s_curvePointsLocator;
         for (auto const &entry : *weaks) {
             HdSceneIndexBaseRefPtr live =
                 TfCreateRefPtrFromProtectedWeakPtr(entry.weak);

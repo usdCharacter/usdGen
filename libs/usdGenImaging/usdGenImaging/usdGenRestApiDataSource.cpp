@@ -189,6 +189,20 @@ HdContainerDataSourceHandle UsdGenRestApiContainerFactory(
         1, &UsdGenContainerToken(), rootValues);
 }
 
+// Built at library load, not on first use (no guarded function statics).
+HdDataSourceLocator const s_restPoints{
+    TfToken("usdGen"), TfToken("rest"), TfToken("points")};
+HdDataSourceLocator const s_restFaceVertexCounts{
+    TfToken("usdGen"), TfToken("rest"), TfToken("faceVertexCounts")};
+HdDataSourceLocator const s_restFaceVertexIndices{
+    TfToken("usdGen"), TfToken("rest"), TfToken("faceVertexIndices")};
+HdDataSourceLocator const s_restSt{
+    TfToken("usdGen"), TfToken("rest"), TfToken("st")};
+HdDataSourceLocator const s_restNormals{
+    TfToken("usdGen"), TfToken("rest"), TfToken("normals")};
+HdDataSourceLocator const s_restNormalsInterpolation{
+    TfToken("usdGen"), TfToken("rest"), TfToken("normalsInterpolation")};
+
 HdDataSourceLocatorSet UsdGenRestApiInvalidateMapping(
     UsdPrim const &prim,
     TfTokenVector const &properties,
@@ -198,18 +212,12 @@ HdDataSourceLocatorSet UsdGenRestApiInvalidateMapping(
     TF_UNUSED(invalidationType);
 
     HdDataSourceLocatorSet result;
-    static HdDataSourceLocator const points{
-        TfToken("usdGen"), TfToken("rest"), TfToken("points")};
-    static HdDataSourceLocator const fvc{
-        TfToken("usdGen"), TfToken("rest"), TfToken("faceVertexCounts")};
-    static HdDataSourceLocator const fvi{
-        TfToken("usdGen"), TfToken("rest"), TfToken("faceVertexIndices")};
-    static HdDataSourceLocator const st{
-        TfToken("usdGen"), TfToken("rest"), TfToken("st")};
-    static HdDataSourceLocator const normals{
-        TfToken("usdGen"), TfToken("rest"), TfToken("normals")};
-    static HdDataSourceLocator const normalsInterpolation{
-        TfToken("usdGen"), TfToken("rest"), TfToken("normalsInterpolation")};
+    HdDataSourceLocator const &points = s_restPoints;
+    HdDataSourceLocator const &fvc = s_restFaceVertexCounts;
+    HdDataSourceLocator const &fvi = s_restFaceVertexIndices;
+    HdDataSourceLocator const &st = s_restSt;
+    HdDataSourceLocator const &normals = s_restNormals;
+    HdDataSourceLocator const &normalsInterpolation = s_restNormalsInterpolation;
 
     for (TfToken const &property : properties) {
         const std::string p = property.GetString();

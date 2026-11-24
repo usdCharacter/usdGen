@@ -12,24 +12,28 @@
 #ifndef USDGEN_IMAGING_TOKENS_H
 #define USDGEN_IMAGING_TOKENS_H
 
+#include "usdGenImaging/staticToken.h"
 #include "pxr/base/tf/token.h"
 #include "pxr/pxr.h"
 
 namespace usdGenImaging {
 
+inline constexpr char kUsdGenContainerText[] = "usdGen";
+inline constexpr char kUsdGenRenderNamespaceText[] = "__usdGenRender";
+inline UsdGenStaticToken<kUsdGenContainerText> const s_usdGenContainerToken;
+inline UsdGenStaticToken<kUsdGenRenderNamespaceText> const s_usdGenRenderNamespaceToken;
+
 /// Container token for all usdGen-published Hydra data ("usdGen").
 inline PXR_NS::TfToken const &UsdGenContainerToken()
 {
-    static TfToken const token("usdGen");
-    return token;
+    return *s_usdGenContainerToken;
 }
 
 /// Namespace of published tile/guide prims under a groom description
 /// (06-imaging.md §3.4.1; authored prims of the same name are hidden).
 inline PXR_NS::TfToken const &UsdGenRenderNamespaceToken()
 {
-    static TfToken const token("__usdGenRender");
-    return token;
+    return *s_usdGenRenderNamespaceToken;
 }
 
 }  // namespace usdGenImaging

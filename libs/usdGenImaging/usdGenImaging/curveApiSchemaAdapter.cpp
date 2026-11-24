@@ -104,6 +104,30 @@ private:
     TfToken _name;
 };
 
+// Built at library load, not on first use (no guarded function statics).
+TfToken const s_cageNames[] = {
+    TfToken("ownerIds"), TfToken("ownerDensities"),
+    TfToken("ownerSeeds"), TfToken("ownerCvCounts"),
+    TfToken("ownerEdgeBias"), TfToken("ownerLengthProfileOffsets"),
+    TfToken("ownerLengthProfile"), TfToken("normalizedT"),
+    TfToken("triangles"), TfToken("triangleOwnerIndices"),
+    TfToken("triangleRootCharts"), TfToken("ownerChartCentroids"),
+    TfToken("ownerChartMeanRadii")};
+TfToken const s_cageAttrs[] = {
+    TfToken("usdGen:surfaceCage:ownerIds"),
+    TfToken("usdGen:surfaceCage:ownerDensities"),
+    TfToken("usdGen:surfaceCage:ownerSeeds"),
+    TfToken("usdGen:surfaceCage:ownerCvCounts"),
+    TfToken("usdGen:surfaceCage:ownerEdgeBias"),
+    TfToken("usdGen:surfaceCage:ownerLengthProfileOffsets"),
+    TfToken("usdGen:surfaceCage:ownerLengthProfile"),
+    TfToken("usdGen:surfaceCage:normalizedT"),
+    TfToken("usdGen:surfaceCage:triangles"),
+    TfToken("usdGen:surfaceCage:triangleOwnerIndices"),
+    TfToken("usdGen:surfaceCage:triangleRootCharts"),
+    TfToken("usdGen:surfaceCage:ownerChartCentroids"),
+    TfToken("usdGen:surfaceCage:ownerChartMeanRadii")};
+
 }  // namespace
 
 TF_REGISTRY_FUNCTION(TfType)
@@ -131,35 +155,13 @@ usdGenImaging::UsdGenCurveRestContainerFactory(
         TfToken("points"), TfToken("hasAuthoredRest")};
     HdContainerDataSourceHandle leaves =
         HdRetainedContainerDataSource::New(2, names, values);
-    static TfToken const cageNames[] = {
-        TfToken("ownerIds"), TfToken("ownerDensities"),
-        TfToken("ownerSeeds"), TfToken("ownerCvCounts"),
-        TfToken("ownerEdgeBias"), TfToken("ownerLengthProfileOffsets"),
-        TfToken("ownerLengthProfile"), TfToken("normalizedT"),
-        TfToken("triangles"), TfToken("triangleOwnerIndices"),
-        TfToken("triangleRootCharts"), TfToken("ownerChartCentroids"),
-        TfToken("ownerChartMeanRadii")};
-    static TfToken const cageAttrs[] = {
-        TfToken("usdGen:surfaceCage:ownerIds"),
-        TfToken("usdGen:surfaceCage:ownerDensities"),
-        TfToken("usdGen:surfaceCage:ownerSeeds"),
-        TfToken("usdGen:surfaceCage:ownerCvCounts"),
-        TfToken("usdGen:surfaceCage:ownerEdgeBias"),
-        TfToken("usdGen:surfaceCage:ownerLengthProfileOffsets"),
-        TfToken("usdGen:surfaceCage:ownerLengthProfile"),
-        TfToken("usdGen:surfaceCage:normalizedT"),
-        TfToken("usdGen:surfaceCage:triangles"),
-        TfToken("usdGen:surfaceCage:triangleOwnerIndices"),
-        TfToken("usdGen:surfaceCage:triangleRootCharts"),
-        TfToken("usdGen:surfaceCage:ownerChartCentroids"),
-        TfToken("usdGen:surfaceCage:ownerChartMeanRadii")};
     std::vector<TfToken> presentNames;
     std::vector<HdDataSourceBaseHandle> presentValues;
-    for (size_t i = 0; i != sizeof(cageAttrs) / sizeof(cageAttrs[0]); ++i) {
-        if (!prim.GetAttribute(cageAttrs[i])) continue;
-        presentNames.push_back(cageNames[i]);
+    for (size_t i = 0; i != sizeof(s_cageAttrs) / sizeof(s_cageAttrs[0]); ++i) {
+        if (!prim.GetAttribute(s_cageAttrs[i])) continue;
+        presentNames.push_back(s_cageNames[i]);
         presentValues.push_back(
-            _CurveSurfaceCageValueDataSource::New(prim, cageAttrs[i]));
+            _CurveSurfaceCageValueDataSource::New(prim, s_cageAttrs[i]));
     }
     if (!presentNames.empty()) {
         HdContainerDataSourceHandle const cage =

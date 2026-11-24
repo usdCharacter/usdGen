@@ -6,6 +6,7 @@
 // "shaders/", so HioGlslfx can resolve the .glslfx files and Sdr can
 // discover the three shader defs declared in shaders/shaderDefs.usda.
 #include "usdGenImaging/usdGenShadersDiscoveryPlugin.h"
+#include "usdGenImaging/atomicShared.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/plug/plugin.h"
@@ -31,7 +32,7 @@ namespace {
 std::string
 _GetShaderResourcePath(char const *resourceName = "")
 {
-    static PlugPluginPtr plugin =
+    PlugPluginPtr const plugin =
         PlugRegistry::GetInstance().GetPluginWithName("usdGenShaders");
     const std::string path =
         PlugFindPluginResource(plugin, TfStringCatPaths("shaders",
@@ -41,13 +42,16 @@ _GetShaderResourcePath(char const *resourceName = "")
     return path;
 }
 
+std::atomic<SdrStringVec const *> s_searchPaths{nullptr};
+
 } // namespace
 
 const SdrStringVec &
 UsdGenShadersDiscoveryPlugin::GetSearchURIs() const
 {
-    static const SdrStringVec searchPaths{_GetShaderResourcePath()};
-    return searchPaths;
+    // Installed once by CAS; never destroyed.
+    return ::usdGenImaging::UsdGenLazyLeaked(s_searchPaths,
+        [] { return new SdrStringVec{_GetShaderResourcePath()}; });
 }
 
 SdrShaderNodeDiscoveryResultVec
@@ -56,7 +60,7 @@ UsdGenShadersDiscoveryPlugin::DiscoverShaderNodes(
 {
     SdrShaderNodeDiscoveryResultVec result;
 
-    static std::string shaderDefsFile = _GetShaderResourcePath("shaderDefs.usda");
+    std::string const shaderDefsFile = _GetShaderResourcePath("shaderDefs.usda");
     if (shaderDefsFile.empty()) {
         return result;
     }
