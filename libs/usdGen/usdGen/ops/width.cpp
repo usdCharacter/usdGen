@@ -134,6 +134,9 @@ namespace {
 
 constexpr char const *kProfileModes[] = {"ramp", "bezier"};
 constexpr char const *kTokens[] = {"catmullRom"};
+// Width reads no map; descriptors that bind a plain usdGen:map to it (the
+// imaging and CUDA session fixtures) were accepted before and stay so.
+constexpr UsdGenMapSlotDecl kMaps[] = {{"usdGen:map"}};
 
 using D = expr::Domain;
 UsdGenExprAdmission const kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
@@ -344,6 +347,7 @@ UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &r)
     d.create = &Create;
     d.topoFx = UsdGenTopoFx::None;
     d.params = UsdGenSpan(kParams);
+    d.mapSlots = UsdGenSpan(kMaps);
     d.tokens = UsdGenSpan(kTokens);
     return r.RegisterOp(d);
 }
