@@ -6,7 +6,8 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenEnable.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
+#include "usdGenImaging/cleanupQueue.h"
 #include "usdGenImaging/rbfAnimation.h"
 #include "pxr/imaging/hd/extComputationSchema.h"
 #include "pxr/imaging/hd/extComputationPrimvarsSchema.h"
@@ -39,7 +40,6 @@
 #include "pxr/imaging/hd/systemMessages.h"
 #include "pxr/usdImaging/usdImaging/stageSceneIndex.h"
 #include "pxr/imaging/hd/tokens.h"
-#include <tbb/flow_graph.h>
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -634,8 +634,8 @@ struct TestDrainWaitGate {
     ParkLatch entered;
     void Signal() { entered.Open(); }
 };
-::usdGenImaging::UsdGenAtomicShared<TestFinalDeleterGate> s_testFinalDeleterGate;
-::usdGenImaging::UsdGenAtomicShared<TestDrainWaitGate> s_testDrainWaitGate;
+::usdGen::UsdGenSharedCell<TestFinalDeleterGate> s_testFinalDeleterGate;
+::usdGen::UsdGenSharedCell<TestDrainWaitGate> s_testDrainWaitGate;
 }
 
 // Constructed after the store: scenes close before store/retirement teardown.
@@ -667,23 +667,22 @@ struct UsdGenSceneService {
     };
     using Entries = std::vector<Entry>;
     usdGen::UsdGenExecutionRuntime runtime{8};
-    // State destruction can wait during Pipeline shutdown, so it runs on
-    // `cleanup` (unlimited), never inline on the final-reference thread.
-    tbb::flow::graph retirement;
-    tbb::flow::function_node<std::function<void()>> cleanup;
+    // State destruction can wait during Pipeline shutdown, so it runs as a
+    // `cleanup` task (concurrently), never inline on the final-reference thread.
+    ::usdGenImaging::UsdGenCleanupQueue cleanup;
     // Registered scenes: a copy-on-write vector installed by CAS. Readers
     // (playback status, drains, counts) load it and never wait.
-    ::usdGenImaging::UsdGenAtomicShared<Entries const> registered{std::make_shared<Entries const>()};
+    ::usdGen::UsdGenSharedCell<Entries const> registered{std::make_shared<Entries const>()};
     std::atomic<uint64_t> playbackLifecycle{0}, playbackLive{0};
-    UsdGenSceneService() : cleanup(retirement, tbb::flow::unlimited,
-        [](std::function<void()> action) { action(); return tbb::flow::continue_msg{}; }) {}
+    UsdGenSceneService() = default;
     ~UsdGenSceneService();
-    void Retire(std::function<void()> action) {
-        if (!cleanup.try_put(std::move(action))) std::terminate();
+    void Retire(std::function<void()> action) noexcept {
+        try { cleanup.Post(std::move(action)); }
+        catch (...) { std::terminate(); }
     }
     void Register(Entry entry) {
         RetirementRecord* const record = entry.retirement.get();
-        ::usdGenImaging::UsdGenCowUpdateIf(registered, [&](Entries& e) {
+        ::usdGen::UsdGenCowUpdateIf(registered, [&](Entries& e) {
             // Done is set only by Erase after State deletion, so this
             // retains the final-reference -> cleanup-enqueue gap.
             if (!record->pending.load(std::memory_order_acquire)) return false;
@@ -701,7 +700,7 @@ struct UsdGenSceneService {
         record->Done();
     }
     void Remove(RetirementRecord* record) {
-        ::usdGenImaging::UsdGenCowUpdateIf(registered, [&](Entries& e) {
+        ::usdGen::UsdGenCowUpdateIf(registered, [&](Entries& e) {
             auto const end = std::remove_if(e.begin(), e.end(),
                 [&](Entry const& entry) { return entry.retirement.get() == record; });
             if (end == e.end()) return false;
@@ -738,7 +737,7 @@ UsdGenSceneService& SceneService() {
     // That destructor quiesces through the scheduled actors and through each
     // scene's pipeline. Every one of those steps needs some other thread to
     // execute a posted task, and by the time atexit handlers run on Windows
-    // the TBB worker threads are gone: the posted task is never executed (a
+    // the worker threads are gone: the posted task is never executed (a
     // task put to the registry node and given two seconds with no help was
     // still unexecuted) and the wait for it spins at 100% CPU for as long as
     // the process is allowed to live. A flow graph's wait_for_all only runs
@@ -752,7 +751,7 @@ UsdGenSceneService& SceneService() {
     // reclaims the mapping at process death. Scenes torn down while the
     // process is live are unaffected -- they retire through the actors as
     // before, with the workers running.
-    return ::usdGenImaging::UsdGenLazyLeaked(s_sceneService);
+    return ::usdGen::UsdGenLazyLeaked(s_sceneService);
 }
 }
 
@@ -911,13 +910,13 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
     };
     // catalog is owner-written/capture-read. visible is only installed by
     // the serialized Hydra frontend immediately before its matching notice.
-    ::usdGenImaging::UsdGenAtomicShared<const Snapshot> catalog{std::make_shared<const Snapshot>()};
-    ::usdGenImaging::UsdGenAtomicShared<const Snapshot> visible{std::make_shared<const Snapshot>()};
+    ::usdGen::UsdGenSharedCell<const Snapshot> catalog{std::make_shared<const Snapshot>()};
+    ::usdGen::UsdGenSharedCell<const Snapshot> visible{std::make_shared<const Snapshot>()};
     // The owner replaces this single presentation target.  There is no
     // historical notice queue: a stalled async consumer retains at most the
     // newest immutable snapshot and the frontend computes its complete delta
     // from the snapshot it actually displayed.
-    ::usdGenImaging::UsdGenAtomicShared<const Snapshot> pending;
+    ::usdGen::UsdGenSharedCell<const Snapshot> pending;
     HdSceneIndexBasePtr recipient; // initialized before admission; weak
     usdGen::UsdGenExecutionSequenceWindow sequences;
     std::atomic<bool> closing{false};
@@ -2050,7 +2049,7 @@ UsdGenSceneService::~UsdGenSceneService() {
     // Cleanup deletion events erase their registration only after State
     // destruction, on the cleanup lane. Public construction is stopped, so
     // this exclusive shutdown wait prevents member teardown racing a late erase.
-    retirement.wait_for_all();
+    cleanup.Wait();
     sessions.clear();
     Session::DrainRetired();
 }
@@ -2079,10 +2078,10 @@ void UsdGenSceneService::DrainRetired() {
     // Release the references captured above before waiting: their final
     // release can be the producer that enqueues retirement cleanup.
     retired.clear();
-    // Do not call retirement.wait_for_all here. The pinned TBB graph resets
-    // its root count after a wait, so a concurrent final-reference producer
-    // can race a global drain. Each record instead waits through exactly its
-    // State's final-reference -> enqueue -> deletion completion boundary.
+    // Do not wait for the whole cleanup queue here: a concurrent
+    // final-reference producer keeps adding to it, so a global drain races
+    // them. Each record instead waits through exactly its State's
+    // final-reference -> enqueue -> deletion completion boundary.
     for (auto const& record : records) {
         if (expired.count(record.get()) && record->pending.load(std::memory_order_acquire))
             if (auto gate = s_testDrainWaitGate.Load()) gate->Signal();

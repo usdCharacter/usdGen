@@ -6,7 +6,8 @@
 // (a)/(b)/(c). GetPrim paths never commit — they atomic_load the latest
 // generation (I7). Superseded commits leave the session dirty (03 §5.6).
 #include "usdGenImaging/usdGenImagingSession.h"
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
+#include "usdGenImaging/cleanupQueue.h"
 #include "usdGenImaging/imageMapCache.h"
 
 #include "usdGen/epoch.h"
@@ -24,7 +25,6 @@
 #include <unordered_map>
 #include <limits>
 #include <stdexcept>
-#include <tbb/flow_graph.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -32,8 +32,8 @@ namespace usdGenImaging {
 
 namespace {
 using Pipeline = usdGen::UsdGenExecutionPipeline;
-// Process-lifetime objects that own TBB arenas or flow graphs are leaked on
-// purpose throughout this file (runtime, retirement queue, session store). A
+// Process-lifetime objects that own worker threads or outstanding tasks are
+// leaked on purpose throughout this file (runtime, retirement queue, session store). A
 // static destructor in this library runs at DLL_PROCESS_DETACH on Windows,
 // which is after ExitProcess has terminated every other thread: a graph wait
 // or arena teardown issued there can never be serviced by a worker, so it
@@ -44,28 +44,24 @@ using Pipeline = usdGen::UsdGenExecutionPipeline;
 // performs anyway.
 std::atomic<usdGen::UsdGenExecutionRuntime*> g_imagingRuntime{nullptr};
 usdGen::UsdGenExecutionRuntime& ImagingRuntime() {
-    return UsdGenLazyLeaked(g_imagingRuntime,
+    return usdGen::UsdGenLazyLeaked(g_imagingRuntime,
         [] { return new usdGen::UsdGenExecutionRuntime(8); });
 }
 
 // Public TfRefPtr handles may disappear during a notice callback. Retirement
-// is a separate framework graph, never an inline wait/destructor in that
-// callback. Its nodes own the retired state until all relayed replies finish.
+// runs as scheduler tasks, never an inline wait/destructor in that callback.
+// Each task owns its retired state until all relayed replies finish.
 class Retirements {
-    tbb::flow::graph graph;
-    tbb::flow::function_node<std::function<void()>> cleanup;
+    UsdGenCleanupQueue cleanup;
 public:
-    Retirements() : cleanup(graph, tbb::flow::unlimited,
-        [](std::function<void()> action) { action(); return tbb::flow::continue_msg{}; }) {}
-    ~Retirements() { graph.wait_for_all(); }
-    void Post(std::function<void()> action) { cleanup.try_put(std::move(action)); }
+    void Post(std::function<void()> action) { cleanup.Post(std::move(action)); }
     void Drain() {
         if (Pipeline::IsExecuting()) throw std::logic_error("callback cannot drain retired imaging states");
-        graph.wait_for_all();
+        cleanup.Wait();
     }
 };
 std::atomic<Retirements*> g_retirementQueue{nullptr};
-Retirements& RetirementQueue() { return UsdGenLazyLeaked(g_retirementQueue); }
+Retirements& RetirementQueue() { return usdGen::UsdGenLazyLeaked(g_retirementQueue); }
 }
 
 struct UsdGenImagingSession::State {
@@ -578,7 +574,7 @@ void StartCommitBatch(std::vector<UsdGenSessionHandle> sessions,
 struct UsdGenSessionStore::State {
     using Members = std::unordered_map<UsdGenSessionKey, UsdGenSessionHandle,
                                        UsdGenSessionKeyHash>;
-    UsdGenAtomicShared<const Members> published{std::make_shared<const Members>()};
+    usdGen::UsdGenSharedCell<const Members> published{std::make_shared<const Members>()};
     std::optional<double> frame;
     std::optional<usdGen::UsdGenContext> context;
     std::atomic<bool> accepting{true};
@@ -682,7 +678,7 @@ UsdGenSessionStore &UsdGenSessionStore::GetInstance()
     // leaked (see ImagingRuntime): the store destructor's close Await cannot
     // complete during DLL_PROCESS_DETACH, where no worker thread remains.
     (void)RetirementQueue();
-    return UsdGenLazyLeaked(s_storeInstance, [] { return new UsdGenSessionStore; });
+    return usdGen::UsdGenLazyLeaked(s_storeInstance, [] { return new UsdGenSessionStore; });
 }
 
 UsdGenSessionHandle UsdGenSessionStore::Attach(UsdGenSessionKey const &key)

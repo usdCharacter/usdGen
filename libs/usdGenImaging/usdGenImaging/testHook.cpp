@@ -13,7 +13,7 @@
 // (usdGenTestUtilsHd -> usdGenImaging). No new public plugin API.
 #include "usdGenImaging/testHook.h"
 
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 
 #include "pxr/imaging/hd/dataSource.h"
@@ -32,8 +32,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
 
-using ::usdGenImaging::UsdGenAtomicShared;
-using ::usdGenImaging::UsdGenCowUpdate;
 
 struct RegistryEntry {
     HdSceneIndexBasePtr weak;
@@ -48,14 +46,14 @@ using RegistrySnapshot = std::shared_ptr<RegistryVector const>;
 // visible when it returns, from any thread, and never waits. Readers load a
 // completed immutable vector; weak promotion then keeps an index alive for a
 // probe. Constant-initialized; never destroyed in a way that waits.
-UsdGenAtomicShared<RegistryVector const> g_hookRegistry;
+usdGen::UsdGenSharedCell<RegistryVector const> g_hookRegistry;
 
 RegistrySnapshot _HookSnapshot() { return g_hookRegistry.Load(); }
 
 template <class Mutation>
 void _MutateRegistry(Mutation mutation)
 {
-    UsdGenCowUpdate(g_hookRegistry, mutation);
+    usdGen::UsdGenCowUpdate(g_hookRegistry, mutation);
 }
 
 }  // namespace

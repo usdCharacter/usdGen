@@ -8,6 +8,8 @@ namespace {
 // Free holders. Push and take-all only, so there is no ABA. Constant-
 // initialized and trivially destructible: nothing runs at DLL detach.
 std::atomic<UsdGenSharedCellHolder *> gFree{nullptr};
+// This thread's spare holders (see UsdGenSharedCellAcquire).
+thread_local UsdGenSharedCellHolder *tlsSpare = nullptr;
 
 void PushFree(UsdGenSharedCellHolder *first, UsdGenSharedCellHolder *last) noexcept
 {
@@ -25,17 +27,27 @@ void RecycleDeleter(UsdGenEpochNode *n) noexcept
 
 UsdGenSharedCellHolder *UsdGenSharedCellAcquire(std::shared_ptr<const void> value)
 {
-    UsdGenSharedCellHolder *h = gFree.exchange(nullptr, std::memory_order_acquire);
-    if (h) {
-        if (UsdGenSharedCellHolder *rest = h->freeNext) {
-            UsdGenSharedCellHolder *last = rest;
-            while (last->freeNext) last = last->freeNext;
-            PushFree(rest, last);
+    // O(1): pop this thread's spare chain, else take the whole free stack,
+    // keep its head and hand the rest back in one CAS. Only when another
+    // thread pushed meanwhile does the rest stay on this thread (a thread
+    // that exits with spares leaks them, like the free stack itself).
+    UsdGenSharedCellHolder *h = tlsSpare;
+    if (!h) {
+        h = gFree.exchange(nullptr, std::memory_order_acquire);
+        if (h && h->freeNext) {
+            UsdGenSharedCellHolder *rest = h->freeNext;
+            UsdGenSharedCellHolder *expected = nullptr;
+            if (!gFree.compare_exchange_strong(expected, rest, std::memory_order_release,
+                                               std::memory_order_relaxed))
+                tlsSpare = rest;
+            h->freeNext = nullptr;
         }
-        h->freeNext = nullptr;
     } else {
-        h = new UsdGenSharedCellHolder;
+        tlsSpare = h->freeNext;
+        h->freeNext = nullptr;
     }
+    if (!h) h = new UsdGenSharedCellHolder;
+    h->raw = value.get();
     h->weak = value;
     h->strong = std::move(value);
     return h;
@@ -45,6 +57,7 @@ void UsdGenSharedCellRecycle(UsdGenSharedCellHolder *h) noexcept
 {
     h->strong.reset();
     h->weak.reset();
+    h->raw = nullptr;
     PushFree(h, h);
 }
 

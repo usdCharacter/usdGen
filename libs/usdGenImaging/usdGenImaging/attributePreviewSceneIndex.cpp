@@ -163,7 +163,7 @@ std::atomic<UsdGenAttributePreviewRegistry *> s_previewRegistry{nullptr};
 
 UsdGenAttributePreviewRegistry &UsdGenAttributePreviewRegistry::Get()
 {
-    return UsdGenLazyLeaked(s_previewRegistry,
+    return usdGen::UsdGenLazyLeaked(s_previewRegistry,
                             [] { return new UsdGenAttributePreviewRegistry(); });
 }
 
@@ -171,7 +171,7 @@ bool UsdGenAttributePreviewRegistry::Set(SdfPath const &target, VtVec3fArray con
 {
     if (target.IsEmpty() || colors.empty()) return false;
     bool structural = false;
-    UsdGenCowUpdate(_entries, [&](Entries &entries) {
+    usdGen::UsdGenCowUpdate(_entries, [&](Entries &entries) {
         auto found = entries.find(target);
         if (found == entries.end()) {
             structural = true;
@@ -189,7 +189,7 @@ bool UsdGenAttributePreviewRegistry::Set(SdfPath const &target, VtVec3fArray con
 
 bool UsdGenAttributePreviewRegistry::Clear(SdfPath const &target)
 {
-    if (!UsdGenCowUpdateIf(_entries, [&](Entries &entries) {
+    if (!usdGen::UsdGenCowUpdateIf(_entries, [&](Entries &entries) {
             return entries.erase(target) != 0;
         }))
         return false;
@@ -226,7 +226,7 @@ void UsdGenAttributePreviewRegistry::Attach(UsdGenAttributePreviewSceneIndex *in
     // Called from the index constructor: weak, not strong, so the count the
     // TfCreateRefPtr in New() takes stays the first.
     TfWeakPtr<UsdGenAttributePreviewSceneIndex> weak(index);
-    UsdGenCowUpdateIf(_indices, [&](Indices &indices) {
+    usdGen::UsdGenCowUpdateIf(_indices, [&](Indices &indices) {
         for (Attached const &a : indices)
             if (a.index == index) return false;
         indices.push_back({index, weak});
@@ -236,7 +236,7 @@ void UsdGenAttributePreviewRegistry::Attach(UsdGenAttributePreviewSceneIndex *in
 
 void UsdGenAttributePreviewRegistry::Detach(UsdGenAttributePreviewSceneIndex *index)
 {
-    UsdGenCowUpdateIf(_indices, [&](Indices &indices) {
+    usdGen::UsdGenCowUpdateIf(_indices, [&](Indices &indices) {
         auto const end = std::remove_if(indices.begin(), indices.end(),
             [&](Attached const &a) { return a.index == index; });
         if (end == indices.end()) return false;
@@ -296,7 +296,7 @@ void UsdGenAttributePreviewSceneIndex::_NotifyRegistryChange(SdfPath const &targ
 bool UsdGenAttributePreviewSceneIndex::_Store(SdfPath const &target, Entry entry)
 {
     bool structural = false;
-    UsdGenCowUpdate(_previews, [&](Previews &previews) {
+    usdGen::UsdGenCowUpdate(_previews, [&](Previews &previews) {
         auto found = previews.find(target);
         structural = found == previews.end() ||
                      found->second.faceVarying != entry.faceVarying ||
@@ -355,7 +355,7 @@ bool UsdGenAttributePreviewSceneIndex::SetGroomPreview(
 
 bool UsdGenAttributePreviewSceneIndex::ClearPreview(SdfPath const &target)
 {
-    if (!UsdGenCowUpdateIf(_previews, [&](Previews &previews) {
+    if (!usdGen::UsdGenCowUpdateIf(_previews, [&](Previews &previews) {
             return previews.erase(target) != 0;
         }))
         return false;

@@ -1,5 +1,5 @@
 #include "usdGenImaging/imageMapCache.h"
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 
 #include "usdGen/parkingWord.h"
 
@@ -42,7 +42,7 @@ struct Table {
     std::vector<std::pair<Key, std::shared_ptr<Entry>>> entries;
 };
 // Null until the first insert or invalidation: generation 1, no entries.
-UsdGenAtomicShared<Table const> g_table;
+usdGen::UsdGenSharedCell<Table const> g_table;
 
 uint64_t GenerationOf(std::shared_ptr<Table const> const& table) noexcept {
     return table ? table->generation : 1;

@@ -1,8 +1,8 @@
 #include "usdGen/surfaceRootBindings.h"
 
+#include "usdGen/taskScheduler.h"
+
 #include <nanoflann.hpp>
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_for.h>
 
 #include <algorithm>
 #include <array>
@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -24,6 +25,16 @@ constexpr double kEncodingReconstructionTolerance = 1.0e-5;
 constexpr size_t kNearestFaceCount = 8;
 constexpr size_t kParallelRootThreshold = 128;
 constexpr size_t kParallelRootGrain = 32;
+
+// body(i) for every i in [0, n) through UsdGenParallelFor (process
+// scheduler; safe to nest and to call from several threads at once).
+template <class F>
+void _ParallelEach(size_t n, F &&body)
+{
+    using Body = std::remove_reference_t<F>;
+    UsdGenParallelFor(n, [](size_t i, void *p) { (*static_cast<Body *>(p))(i); },
+                           const_cast<void *>(static_cast<void const *>(&body)));
+}
 
 bool Fail(std::string const &message, std::string *error)
 {
@@ -609,7 +620,7 @@ bool UsdGenRestSurfaceBindingCache::Bind(
             return Fail("automatic root binding requires a surface with at least one face", error);
 
         size_t const k = std::min(kNearestFaceCount, _impl->centroids.points.size());
-        // Detach every output plane before entering TBB. Workers access only
+        // Detach every output plane before the parallel region. Workers access only
         // these stable raw ranges; they never touch a VtArray object or share
         // a result counter/refcount. The final unresolved reduction and COW
         // publication happen after the parallel region joins.
@@ -741,11 +752,12 @@ bool UsdGenRestSurfaceBindingCache::Bind(
         if (roots < kParallelRootThreshold) {
             for (size_t rootIndex = 0; rootIndex != roots; ++rootIndex) bindOne(rootIndex);
         } else {
-            tbb::parallel_for(tbb::blocked_range<size_t>(0, roots, kParallelRootGrain),
-                [&](tbb::blocked_range<size_t> const &range) {
-                    for (size_t rootIndex = range.begin(); rootIndex != range.end(); ++rootIndex)
-                        bindOne(rootIndex);
-                });
+            size_t const blocks = (roots + kParallelRootGrain - 1) / kParallelRootGrain;
+            _ParallelEach(blocks, [&](size_t block) {
+                size_t const end = std::min(roots, (block + 1) * kParallelRootGrain);
+                for (size_t rootIndex = block * kParallelRootGrain; rootIndex != end; ++rootIndex)
+                    bindOne(rootIndex);
+            });
         }
         if (transformFailure.load(std::memory_order_relaxed))
             return Fail("source rest root cannot be transformed into finite surface-local space", error);

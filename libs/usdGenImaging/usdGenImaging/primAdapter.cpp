@@ -24,7 +24,7 @@
 // disappears; the dirty router treats that as graph-structural (02 §6.6
 // rule 2).
 #include "usdGenImaging/primAdapter.h"
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 
 #include "usdGenImaging/expressionConnection.h"
 
@@ -528,7 +528,7 @@ namespace {
 // table holds each mapping too, so a returned reference never dangles.
 using _MappingTable = std::unordered_map<
     TfToken, std::shared_ptr<const UsdImagingDataSourceMapped::PropertyMappings>, TfHash>;
-::usdGenImaging::UsdGenAtomicShared<_MappingTable const> s_mappingTable;
+::usdGen::UsdGenSharedCell<_MappingTable const> s_mappingTable;
 }
 
 const UsdImagingDataSourceMapped::PropertyMappings &
@@ -586,7 +586,7 @@ UsdGenPrimAdapterBase::_Mappings(TfToken const &key, UsdPrimDefinition const *de
     // Concurrent builders may construct equivalent candidates.  Only the
     // canonical inserted value is returned, so all callers retain a stable
     // reference and no mutable published object is ever replaced.
-    ::usdGenImaging::UsdGenCowUpdateIf(s_mappingTable, [&](_MappingTable &table) {
+    ::usdGen::UsdGenCowUpdateIf(s_mappingTable, [&](_MappingTable &table) {
         return table.emplace(key, slot).second;
     });
     return *s_mappingTable.Load()->at(key);

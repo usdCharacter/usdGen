@@ -4,15 +4,27 @@
 
 #include "usdGen/digest.h"
 
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
+#include "usdGen/taskScheduler.h"
 
 #include <algorithm>
+#include <type_traits>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 
 namespace usdGen {
+namespace {
+
+// body(i) for every i in [0, n) through UsdGenParallelFor (process
+// scheduler; safe to nest and to call from several threads at once).
+template <class F>
+void _ParallelEach(size_t n, F &&body)
+{
+    using Body = std::remove_reference_t<F>;
+    UsdGenParallelFor(n, [](size_t i, void *p) { (*static_cast<Body *>(p))(i); },
+                           const_cast<void *>(static_cast<void const *>(&body)));
+}
+}  // namespace
 
 bool UsdGenAttributeCookInstances(UsdGenAttributeInstanceInput const &input,
                                   UsdGenAttributeInstanceResult *result,
@@ -164,16 +176,18 @@ bool UsdGenAttributeCookInstances(UsdGenAttributeInstanceInput const &input,
         cooked.prototype[i] = slot;
         return slot;
     };
-    // Threaded sampling over root ranges for big cooks (plain TBB: the
-    // cook API carries no scheduler context): each chunk samples its own
+    // Threaded sampling over root ranges for big cooks (process scheduler:
+    // the cook API carries no scheduler context): each chunk samples its own
     // range into the shared planes (disjoint lanes) plus chunk-local
     // slot lists, which concatenate in chunk order -- chunk ranges are
     // ascending, so every slot's list matches the serial push order
-    // exactly. kept is an order-free sum. Small cooks, single-worker
-    // arenas, and huge prototype counts (chunk-local lists would fan
+    // exactly. kept is an order-free sum. Small cooks, maxThreads 1
+    // cooks, and huge prototype counts (chunk-local lists would fan
     // out) stay serial. The digest below runs serially either way over
     // the identical planes, so it is identical too.
-    int const cookWorkers = tbb::this_task_arena::max_concurrency();
+    int const cookWorkers = input.maxThreads > 0
+        ? std::min(input.maxThreads, UsdGenParallelForConcurrency())
+        : UsdGenParallelForConcurrency();
     size_t const cookChunks =
         (cookWorkers > 1 && count > 32768 && input.numPrototypes <= 4096)
             ? std::min({size_t(cookWorkers), size_t(8), count})
@@ -198,20 +212,17 @@ bool UsdGenAttributeCookInstances(UsdGenAttributeInstanceInput const &input,
             for (std::vector<int> &slot : ch.slots)
                 slot.reserve(perChunkShare);
         }
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, cookChunks),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t c = range.begin(); c != range.end(); ++c) {
-                    size_t const i0 = (c * count) / cookChunks;
-                    size_t const i1 = ((c + 1) * count) / cookChunks;
-                    CookChunk &ch = chunks[c];
-                    for (size_t i = i0; i < i1; ++i) {
-                        int const slot = sampleRoot(i);
-                        if (slot < 0) continue;
-                        ch.slots[size_t(slot)].push_back(int(i));
-                        ++ch.kept;
-                    }
-                }
-            });
+        _ParallelEach(cookChunks, [&](size_t c) {
+            size_t const i0 = (c * count) / cookChunks;
+            size_t const i1 = ((c + 1) * count) / cookChunks;
+            CookChunk &ch = chunks[c];
+            for (size_t i = i0; i < i1; ++i) {
+                int const slot = sampleRoot(i);
+                if (slot < 0) continue;
+                ch.slots[size_t(slot)].push_back(int(i));
+                ++ch.kept;
+            }
+        });
         for (size_t s = 0; s < nProto; ++s) {
             std::vector<int> &dst = cooked.instanceIndices[s];
             for (CookChunk const &ch : chunks)
@@ -267,15 +278,12 @@ bool UsdGenAttributeCookInstances(UsdGenAttributeInstanceInput const &input,
         for (; i < count; ++i)
             feed(lane[0], i);
     } else {
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, 4),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t l = range.begin(); l != range.end(); ++l) {
-                    uint64_t h = lane[l];
-                    for (size_t i = l; i < n4; i += 4)
-                        feed(h, i);
-                    lane[l] = h;
-                }
-            });
+        _ParallelEach(4, [&](size_t l) {
+            uint64_t h = lane[l];
+            for (size_t i = l; i < n4; i += 4)
+                feed(h, i);
+            lane[l] = h;
+        });
         for (size_t i = n4; i < count; ++i)
             feed(lane[0], i);
     }

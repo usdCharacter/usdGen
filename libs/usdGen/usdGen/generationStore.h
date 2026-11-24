@@ -68,7 +68,7 @@ using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;
 class UsdGenGenerationStore
 {
 public:
-    using PreparedPublication = UsdGenSharedCell<UsdGenGeneration>::Prepared;
+    using PreparedPublication = UsdGenSharedCell<UsdGenGeneration const>::Prepared;
     /// Private worker candidate stores start from the last published immutable
     /// generation. Discarded candidates consume no public generation ids;
     /// only the accepted publication advances the public sequence.
@@ -103,7 +103,7 @@ public:
 
     int64_t NextId() const noexcept;
 private:
-    UsdGenSharedCell<UsdGenGeneration> _current;
+    UsdGenSharedCell<UsdGenGeneration const> _current;
     int64_t _nextId = 0;
 };
 

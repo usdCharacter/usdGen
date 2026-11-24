@@ -4,7 +4,7 @@
 //  * Evaluate is const, allocates nothing, touches no stage, reads nothing
 //    outside view/capture/ctx (S8).
 //  * Capture may allocate into its own node's capture and buffer under the
-//    graph's scheduled work owner; it runs there or inside a tbb::parallel_for
+//    graph's scheduled work owner; it runs there or inside a parallel region
 //    over independent nodes in the private arena (R22).
 //  * TopologyParameters() ∪ ValueParameters() == the node's mapped property set
 //    (S14); asserted in debug builds (USDGEN_OP_CHECKS=1).
