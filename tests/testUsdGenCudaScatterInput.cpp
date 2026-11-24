@@ -26,9 +26,14 @@ static UsdGenGraphDesc Desc(double density = 8.0) {
 }
 
 static bool Direct(UsdGenGraphDesc const& d, UsdGenCurveBuffer* out) {
-    UsdGenParamView p{&d,&d.nodes.front()}; UsdGenDiagnostics diag;
-    auto op=UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenScatter")));
-    if (!op || !op->Bind(p,&diag)) return false;
+    UsdGenDiagnostics diag;
+    auto const &registry=UsdGenOpRegistry::Get();
+    UsdGenOpId const id=registry.Find(TfToken("UsdGenScatter"));
+    auto op=registry.Create(id);
+    if (!op) return false;
+    UsdGenStackParams const resolved(d,d.nodes.front(),registry.Record(id));
+    UsdGenParamView const &p=resolved.View();
+    if (!op->Bind(p,&diag)) return false;
     auto capture=op->CreateCapture(); UsdGenCurveBuffer empty; UsdGenCaptureContext c;
     c.desc=&d; c.params=&p; c.surface=0; c.seed=uint32_t(d.nodes.front().seed); c.diag=&diag;
     if (!op->Capture(c,empty,capture.get(),&diag)) return false;
