@@ -13,17 +13,21 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace noiseP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kMagnitude, kMagKnots, kMagInterp, kFrequency,
+    kCorrelation, kOctaves, kLacunarity, kGain, kCumulative, kPreserveLength, kMask,
+    kNoiseSeed,                          // admission only; unrouted, never read
+    kCount
+};
+enum Tok : uint16_t { kTokCatmullRom };
+}  // namespace noiseP
+
 class UsdGenNoiseOp final : public UsdGenOp
 {
 public:
-    UsdGenNoiseOp() = default;
+    explicit UsdGenNoiseOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenNoiseOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenNoise"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -35,20 +39,10 @@ public:
                   UsdGenCapture const &capture,
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
-    bool CaptureDigestComplete() const override { return true; }
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sMagnitude{"noise:magnitude"}, sCumulative{"cumulative"};
-    const TfToken sPreserveLength{"preserveLength"}, sMagKnots{"noise:magnitude:knots"};
-    const TfToken sMagInterp{"noise:magnitude:interpolation"}, sCatmullRom{"catmullRom"};
-    const TfToken sMask{"mask"};
-    const TfToken sFrequency{"noise:frequency"}, sCorrelation{"noise:correlation"};
-    const TfToken sLacunarity{"noise:lacunarity"}, sGain{"noise:gain"};
-    const TfToken sOctaves{"noise:octaves"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterNoiseOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

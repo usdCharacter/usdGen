@@ -16,7 +16,6 @@
 #include "usdGen/ops/noise.h"
 #include "usdGen/clumpMotion.h"
 
-#include "usdGen/opParams.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
@@ -35,16 +34,20 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+using namespace noiseP;
+
 namespace {
+
+VtValue const kNoValue;
 
 
 /// Read a float2[] ramp-knots property (02 §2.17 scalar ramp). Missing or
 /// differently typed values fall back to the caller's default.
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
     VtVec2fArray knots;
     if (p) {
-        if (VtValue const v = p->GetVtValue(name, VtValue());
+        if (VtValue const &v = p->GetValue(slot, kNoValue);
             v.IsHolding<VtVec2fArray>()) {
             knots = v.UncheckedGet<VtVec2fArray>();
         }
@@ -118,35 +121,43 @@ bool UsdGenNoiseCaptureGPU(const float *base,
                            float *perCurve);
 #endif
 
-static TfTokenVector _topoParams = [] {
-    return UsdGenBaseTopologyParams();
-}();
+namespace {
 
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));      // toggle: value-class (02 §6.3)
-    v.push_back(TfToken("noise:magnitude"));
-    v.push_back(TfToken("noise:magnitude:knots"));
-    v.push_back(TfToken("noise:magnitude:interpolation"));
-    v.push_back(TfToken("noise:frequency"));
-    v.push_back(TfToken("noise:correlation"));
-    v.push_back(TfToken("noise:octaves"));
-    v.push_back(TfToken("noise:lacunarity"));
-    v.push_back(TfToken("noise:gain"));
-    v.push_back(TfToken("cumulative"));
-    v.push_back(TfToken("preserveLength"));
-    v.push_back(TfToken("mask"));        // operator envelope (02 §2.13)
-    return v;
-}();
+constexpr char const *kTokens[] = {"catmullRom"};
 
-TfSpan<const TfToken> UsdGenNoiseOp::TopologyParameters() const
+using D = expr::Domain;
+UsdGenExprAdmission const kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+UsdGenExprAdmission const kIntAll{expr::ScalarType::Int32, 1, "int", D::All};
+UsdGenExprAdmission const kIntRoot{expr::ScalarType::Int32, 1, "int", D::Groom | D::Primitive};
+UsdGenExprAdmission const kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+UsdGenExprAdmission const kBoolRoot{expr::ScalarType::Bool, 1, "bool", D::Groom | D::Primitive};
+
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},       // toggle: value-class (02 §6.3)
+    {"noise:magnitude", UsdGenParamClass::Value, true, kFloatAll},
+    {"noise:magnitude:knots", UsdGenParamClass::Value},
+    {"noise:magnitude:interpolation", UsdGenParamClass::Value},
+    {"noise:frequency", UsdGenParamClass::Value, true, kFloatAll},
+    {"noise:correlation", UsdGenParamClass::Value, true, kFloatAll},
+    {"noise:octaves", UsdGenParamClass::Value, true, kIntAll},
+    {"noise:lacunarity", UsdGenParamClass::Value, true, kFloatAll},
+    {"noise:gain", UsdGenParamClass::Value, true, kFloatAll},
+    {"cumulative", UsdGenParamClass::Value, true, kBoolRoot},
+    {"preserveLength", UsdGenParamClass::Value, true, kFloatAll},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},           // operator envelope (02 §2.13)
+    {"noise:seed", UsdGenParamClass::Capture, false, kIntRoot},   // admitted, not routed
+};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
+    return std::make_unique<UsdGenNoiseOp>(r);
 }
-TfSpan<const TfToken> UsdGenNoiseOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+
+}  // namespace
+
 std::unique_ptr<UsdGenCapture> UsdGenNoiseOp::CreateCapture() const
 {
     return std::make_unique<UsdGenNoiseCapture>();
@@ -158,9 +169,9 @@ uint32_t UsdGenNoiseOp::PlanesTouched() const
 
 bool UsdGenNoiseOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    int octaves = params.GetInt(TfToken("noise:octaves"), 1);
-    float lacunarity = static_cast<float>(params.GetDouble(TfToken("noise:lacunarity"), 2.0));
-    float gain = static_cast<float>(params.GetDouble(TfToken("noise:gain"), 0.5));
+    int octaves = params.GetInt(kOctaves, 1);
+    float lacunarity = static_cast<float>(params.GetDouble(kLacunarity, 2.0));
+    float gain = static_cast<float>(params.GetDouble(kGain, 0.5));
     if (octaves < 1 || octaves > 6) {
         if (diag) diag->Error("UsdGenNoise: usdGen:noise:octaves must be in [1, 6]");
         return false;
@@ -192,13 +203,13 @@ UsdGenEpoch UsdGenNoiseOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     };
     if (p) {
         feed("frequency", static_cast<uint32_t>(
-                              p->GetDouble(TfToken("noise:frequency"), 3.0) * 10000.0));
+                              p->GetDouble(kFrequency, 3.0) * 10000.0));
         feed("correlation", static_cast<uint32_t>(
-                                p->GetDouble(TfToken("noise:correlation"), 0.5) * 100000.0));
-        feed("octaves", uint64_t(p->GetInt(TfToken("noise:octaves"), 1)));
+                                p->GetDouble(kCorrelation, 0.5) * 100000.0));
+        feed("octaves", uint64_t(p->GetInt(kOctaves, 1)));
         feed("lacunarity", doubleAsBits(
-                               p->GetDouble(TfToken("noise:lacunarity"), 2.0)));
-        feed("gain", doubleAsBits(p->GetDouble(TfToken("noise:gain"), 0.5)));
+                               p->GetDouble(kLacunarity, 2.0)));
+        feed("gain", doubleAsBits(p->GetDouble(kGain, 0.5)));
     }
     feed("seed", ctx.seed);
     feed("upstreamTopology", ctx.upstreamGeneration);
@@ -238,15 +249,15 @@ bool UsdGenNoiseOp::Capture(
     // re-captures. Per-curve controls sample the curve's ROOT CV; the
     // frequency is sampled at each CV, which is where the CUDA kernel reads it.
     UsdGenParamField const frequencyField =
-        p ? p->GetScalarField(sFrequency, 3.0) : UsdGenParamField{3.0};
+        p ? p->GetScalarField(kFrequency, 3.0) : UsdGenParamField{3.0};
     UsdGenParamField const correlationField =
-        p ? p->GetScalarField(sCorrelation, 0.5) : UsdGenParamField{0.5};
+        p ? p->GetScalarField(kCorrelation, 0.5) : UsdGenParamField{0.5};
     UsdGenParamField const lacunarityField =
-        p ? p->GetScalarField(sLacunarity, 2.0) : UsdGenParamField{2.0};
+        p ? p->GetScalarField(kLacunarity, 2.0) : UsdGenParamField{2.0};
     UsdGenParamField const gainField =
-        p ? p->GetScalarField(sGain, 0.5) : UsdGenParamField{0.5};
+        p ? p->GetScalarField(kGain, 0.5) : UsdGenParamField{0.5};
     UsdGenParamField const octavesField =
-        p ? p->GetScalarField(sOctaves, double(p->GetInt(sOctaves, 1)))
+        p ? p->GetScalarField(kOctaves, double(p->GetInt(kOctaves, 1)))
           : UsdGenParamField{1.0};
 
     // `noise:magnitude` and its knots are value-class (02-schema.md :638-639),
@@ -422,14 +433,14 @@ void UsdGenNoiseOp::Evaluate(
     // usdGen:mask are CONNECTABLE value-class controls; an authored literal is
     // a uniform field and the arithmetic below is unchanged.
     UsdGenParamField const magnitudeField =
-        p ? p->GetScalarField(sMagnitude, 0.05) : UsdGenParamField{0.05};
+        p ? p->GetScalarField(kMagnitude, 0.05) : UsdGenParamField{0.05};
     UsdGenParamField const preserveField =
-        p ? p->GetScalarField(sPreserveLength, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kPreserveLength, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const cumulativeField =
-        p ? p->GetScalarField(sCumulative, p->GetBool(sCumulative, false) ? 1.0 : 0.0)
+        p ? p->GetScalarField(kCumulative, p->GetBool(kCumulative, false) ? 1.0 : 0.0)
           : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     auto const *hairT = view->hairT;
@@ -439,12 +450,13 @@ void UsdGenNoiseOp::Evaluate(
     // Worker-local storage avoids per-chunk allocations. Empty knots use
     // scalar 1.0 below; there is no shared table with static exit lifetime.
     float const *lutPtr = nullptr;
-    VtVec2fArray const magKnots = ReadRampKnots(p, sMagKnots);
+    VtVec2fArray const magKnots = ReadRampKnots(p, kMagKnots);
     bool const magFlat = magKnots.empty();
     thread_local std::vector<float> tLut;
     if (!magFlat) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(magKnots, p ? p->GetToken(sMagInterp, sCatmullRom) : sCatmullRom, tLut.data(), kUsdGenRampLutSize);
+        UsdGenBuildRampLut(magKnots, p ? p->GetToken(kMagInterp, Record().Token(kTokCatmullRom))
+                : Record().Token(kTokCatmullRom), tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
     const size_t cv = size_t(view->cvCount);
@@ -518,7 +530,15 @@ void UsdGenNoiseOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterNoiseOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenNoiseOp().Type(), [] { return std::make_unique<UsdGenNoiseOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenNoise";
+    d.displayName = "Noise";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.traits = kUsdGenOpCaptureDigestComplete;
+    d.params = UsdGenSpan(kParams);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

@@ -15,19 +15,15 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace widthBlendP {
+enum : UsdGenParamSlot { kEnabled, kWeight, kCount };
+}  // namespace widthBlendP
+
 class UsdGenWidthBlendOp final : public UsdGenOp
 {
 public:
-    UsdGenWidthBlendOp() = default;
+    explicit UsdGenWidthBlendOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenWidthBlendOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenWidthBlend"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-    size_t GeometryInputArity() const override { return 2; }
-    bool GeometryInputsOrdered() const override { return true; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -43,7 +39,6 @@ public:
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterWidthBlendOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

@@ -14,17 +14,21 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace widthP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kReplace, kEnabled, kWidth, kKnots, kKnotsInterp,
+    kProfileMode, kRoot, kMid, kMidShift, kTip, kMask,
+    kCount
+};
+enum ProfileMode : int { kProfileRamp, kProfileBezier };
+enum Tok : uint16_t { kTokCatmullRom };
+}  // namespace widthP
+
 class UsdGenWidthOp final : public UsdGenOp
 {
 public:
-    UsdGenWidthOp() = default;
+    explicit UsdGenWidthOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenWidthOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenWidth"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -37,11 +41,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    // Intern once per operator, with the same lifetime as its scheduled work.
-    const TfToken sWidth{"width"}, sReplace{"replace"}, sMask{"mask"};
-    const TfToken sKnots{"width:knots"}, sKnotsInterp{"width:interpolation"};
-    const TfToken sCatmullRom{"catmullRom"};
 };
 
 /// For lanes that sample a width profile LUT over hairT (CUDA, Vulkan): when
@@ -52,7 +51,6 @@ private:
 bool UsdGenWidthBezierLut(UsdGenParamView const &params, float *lut, size_t size);
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

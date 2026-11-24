@@ -39,6 +39,7 @@ public:
 
     TfSpan<const std::pair<TfToken, uint32_t>> Routing() const noexcept;    // == TypeClassTable::routing
     TfSpan<const UsdGenParamSlot> DigestSlots() const noexcept;             // == TypeClassTable::digestParams
+    TfSpan<const TfToken> ParamNames() const noexcept;                          // per slot, no "usdGen:"
     TfSpan<const TfToken> ReferenceInputs() const noexcept;
     TfSpan<const UsdGenPlane> InputPlanes() const noexcept;                 // layouts filled, no payload
     TfSpan<const UsdGenPlane> OutputPlanes() const noexcept;                // static outputs only

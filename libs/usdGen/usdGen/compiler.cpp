@@ -733,20 +733,8 @@ int AuthoredInt(UsdGenNodeDesc const &nd, char const *name, int fallback)
     }
     return fallback;
 }
-double AuthoredDouble(UsdGenNodeDesc const &nd, char const *name, double fallback)
-{
-    for (UsdGenParamValue const &p : nd.params) {
-        if (std::strcmp(p.name.GetText(), name) != 0) continue;
-        if (p.value.IsHolding<double>()) return p.value.UncheckedGet<double>();
-        if (p.value.IsHolding<float>()) return p.value.UncheckedGet<float>();
-        return fallback;
-    }
-    return fallback;
-}
-
 /// A registered op by name text; compile phase, no interning. Clump (4a-1)
-/// and WidthBlend (until its validateNode hook) are the two the compiler
-/// still names.
+/// is the one the compiler still names.
 UsdGenOpRecord const *FindRecordByText(UsdGenOpRegistry const &ops, char const *name)
 {
     for (uint32_t i = 0; i < ops.Count(); ++i) {
@@ -1198,7 +1186,6 @@ void UsdGenCompiler::_Build(
         UsdGenRole role = UsdGenRole::Curves;
     };
     PVec<StaticOperatorContract> operatorContracts(desc.nodes.size());
-    UsdGenOpRecord const *const widthBlendRecord = FindRecordByText(ops, "UsdGenWidthBlend");
     for (size_t nodeIndex = 0; nodeIndex != desc.nodes.size(); ++nodeIndex) {
         UsdGenNodeDesc const& node = desc.nodes[nodeIndex];
         UsdGenOpRecord const *const record = descRecord[nodeIndex];
@@ -1230,28 +1217,6 @@ void UsdGenCompiler::_Build(
             std::string error;
             if (!validate(desc, node, params.View(), &error)) {
                 result.errors.push_back(std::move(error));
-                return;
-            }
-        } else if (record == widthBlendRecord) {
-            bool paramsOk = true;
-            for (UsdGenParamValue const &param : node.params)
-                paramsOk = paramsOk &&
-                    std::strcmp(param.name.GetText(), "widthBlend:weight") == 0;
-            double const weight = AuthoredDouble(node, "widthBlend:weight", 1.0);
-            if (!node.enabled || !std::isfinite(weight) || weight < 0.0 ||
-                weight > 1.0 || !node.mode.IsEmpty() ||
-                !paramsOk || !node.ramps.empty() ||
-                !node.expressionBindings.empty() || !node.references.empty() ||
-                !node.curves.empty() || !node.surfaces.empty() ||
-                !node.maps.empty() || !node.mapBindings.empty()) {
-                result.errors.push_back(
-                    "UsdGenCompiler: WidthBlend requires enabled=true, a finite "
-                    "usdGen:widthBlend:weight in [0,1], and no auxiliary inputs");
-                return;
-            }
-            if (node.inputs[0] == node.inputs[1]) {
-                result.errors.push_back(
-                    "UsdGenCompiler: WidthBlend requires two distinct ordered geometry inputs");
                 return;
             }
         }
