@@ -31,6 +31,9 @@ void CUDART_CB FenceDone(cudaStream_t, cudaError_t status, void *data) noexcept
 
 cudaError_t CudaFenceStream(cudaStream_t stream) noexcept
 {
+    // Already idle (common after small work): no callback round trip.
+    cudaError_t const now = cudaStreamQuery(stream);
+    if (now != cudaErrorNotReady) return now;
     Fence fence;
     cudaError_t const added = cudaStreamAddCallback(stream, FenceDone, &fence, 0);
     if (added != cudaSuccess) {
