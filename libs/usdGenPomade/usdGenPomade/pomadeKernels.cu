@@ -8,7 +8,7 @@
 
 #include <cfloat>
 #include <cstdio>
-#include <mutex>
+#include <atomic>
 #include <utility>
 
 #include <math_constants.h>  // CUDART_INF_F (cf. curveTileBounds.cu)
@@ -3284,31 +3284,71 @@ struct PomadeHArena {
     }
 };
 
-// Deliberately leaked (see above); one instance, serialised by _HArenaMutex.
-PomadeHArena *_HArenaInstance()
-{
-    static PomadeHArena *arena = new PomadeHArena();
-    return arena;
-}
+// One kernel context per device: the arena plus an ownership word. A call
+// claims its device's context with one CAS and never waits for it; a call
+// that finds it claimed fails like an allocation failure, and the model's
+// lanes take their bit-exact CPU twin. Contexts are published by CAS on
+// first use and deliberately leaked (see above).
+struct PomadeKernelContext {
+    std::atomic<uint32_t> owned{0};
+    PomadeHArena arena;
+};
 
-std::mutex &_HArenaMutex()
+constexpr int kPomadeKernelDevices = 64;
+std::atomic<PomadeKernelContext *> g_kernelContexts[kPomadeKernelDevices];
+
+PomadeKernelContext *_ClaimKernelContext()
 {
-    static std::mutex *mu = new std::mutex();
-    return *mu;
+    int device = 0;
+    if (cudaGetDevice(&device) != cudaSuccess || device < 0 ||
+        device >= kPomadeKernelDevices) {
+        return nullptr;
+    }
+    std::atomic<PomadeKernelContext *> &cell = g_kernelContexts[device];
+    PomadeKernelContext *ctx = cell.load(std::memory_order_acquire);
+    if (!ctx) {
+        PomadeKernelContext *fresh = new PomadeKernelContext();
+        if (cell.compare_exchange_strong(ctx, fresh,
+                                         std::memory_order_acq_rel,
+                                         std::memory_order_acquire)) {
+            ctx = fresh;
+        } else {
+            delete fresh;
+        }
+    }
+    uint32_t idle = 0;
+    if (!ctx->owned.compare_exchange_strong(idle, 1u,
+                                            std::memory_order_acquire,
+                                            std::memory_order_relaxed)) {
+        return nullptr;
+    }
+    return ctx;
 }
 
 // Device allocations for one call, handed back to the arena on return.
 struct PomadeHScratch {
-    std::lock_guard<std::mutex> lock;
+    PomadeKernelContext *ctx;
     PomadeHArena *arena;
     bool ok = true;
 
-    PomadeHScratch() : lock(_HArenaMutex()), arena(_HArenaInstance())
+    PomadeHScratch()
+        : ctx(_ClaimKernelContext()), arena(ctx ? &ctx->arena : nullptr)
     {
-        arena->Reset();
+        ok = arena != nullptr;
+        if (arena) {
+            arena->Reset();
+        }
     }
 
-    ~PomadeHScratch() { arena->Reset(); }
+    ~PomadeHScratch()
+    {
+        if (ctx) {
+            arena->Reset();
+            ctx->owned.store(0u, std::memory_order_release);
+        }
+    }
+    PomadeHScratch(PomadeHScratch const &) = delete;
+    PomadeHScratch &operator=(PomadeHScratch const &) = delete;
 
     template <class T>
     T *Alloc(size_t n)

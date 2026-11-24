@@ -3497,6 +3497,13 @@ add_test(NAME testUsdGenPomadeIndexNoTestTube
 set_tests_properties(testUsdGenPomadeIndexNoTestTube PROPERTIES
     ENVIRONMENT "USDGENPOMADE_TEST_TUBE=0"
     LABELS "T1;pomade" TIMEOUT 120)
+# The lock-free Pomade handoffs (lane mailbox, registry tables, published
+# model state) under many threads.
+add_executable(testUsdGenPomadeLanes tests/testUsdGenPomadeLanes.cpp)
+target_link_libraries(testUsdGenPomadeLanes PRIVATE usdGenPomade usdGen)
+add_test(NAME testUsdGenPomadeLanes COMMAND testUsdGenPomadeLanes)
+set_tests_properties(testUsdGenPomadeLanes PROPERTIES
+    LABELS "T0;pomade" TIMEOUT 120)
 add_executable(testUsdGenPomadeApi tests/testUsdGenPomadeApi.cpp)
 target_link_libraries(testUsdGenPomadeApi PRIVATE usdGenPomade)
 add_test(NAME testUsdGenPomadeApi COMMAND testUsdGenPomadeApi)

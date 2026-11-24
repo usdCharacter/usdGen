@@ -45,13 +45,16 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace usdGenPomade {
+
+// The immutable cross-thread view of a model (pomadeModelState.h, which
+// only usdGenPomade's own sources include).
+struct PomadeModelState;
 
 #ifdef USDGEN_POMADE_HAS_CUDA
 // Forward of the K11 reduction record (pomadeKernels.h); this header
@@ -131,7 +134,7 @@ public:
     PomadeTubeShape GetShape() const { return _shape; }
 
     // Host mirrors (authoritative). Valid after BuildTestTube; Sync refreshes.
-    // UI-thread-only: the commit worker reads through Snapshot() instead.
+    // Authoring thread only: the commit worker reads the published state.
     struct HostTubeMesh {
         std::vector<float> positions;   // 3 * vertexCount, ring-major
         std::vector<float> normals;     // 3 * vertexCount
@@ -200,9 +203,9 @@ public:
     void GetLockFlags(bool *locked, bool *lockParents,
                       bool *lockChildren) const;
 
-    // A plain-data copy of the tube for the commit worker: snapshot under the
-    // model's mutex, then build the SdfLayer from the snapshot with no model
-    // access. Guides are NOT stored; both the committer and hydrate derive
+    // A plain-data copy of the tube for the commit worker: taken on the
+    // authoring thread into the published state, then the SdfLayer is built
+    // from it with no model access. Guides are NOT stored; both the committer and hydrate derive
     // them from the snapshot through PomadeGenerateGuides, which is what makes
     // the hydrate bit-equality assert meaningful.
     struct TubeSnapshot {
@@ -229,6 +232,24 @@ public:
     };
     TubeSnapshot Snapshot() const;
 
+    // -- Threading ---------------------------------------------------------
+    //
+    // Every method above and below belongs to the authoring (UI) thread; the
+    // model is single-writer and takes no lock. Another thread reads the
+    // model only through its published state: an immutable, refcounted
+    // copy of what a commit serialises, published by atomic pointer.
+    //
+    // PublishState (authoring thread) captures the current state and makes
+    // it the published one; the displaced state is retired through the
+    // usdGen epochs, so a reader that loaded it keeps it valid.
+    // AcquireState (any thread) returns the published state with one
+    // reference the caller owns (usdGen::UsdGenRef<>::Adopt it), or null
+    // before the first publish. CaptureState (authoring thread) builds a
+    // fresh state without publishing it, again with one owned reference.
+    void PublishState();
+    PomadeModelState const *AcquireState() const;
+    PomadeModelState const *CaptureState() const;
+
     // Restore the tube from a snapshot (the hydrate write path). Rebuilds
     // the center column, re-tessellates, bumps the version, marks topology
     // dirty. Returns false when the snapshot holds no tube.
@@ -251,8 +272,8 @@ public:
                    std::vector<int> const &faceVertexIndices,
                    std::vector<int> const &activeFaces = std::vector<int>());
     bool HasScalp() const;
-    // UI-thread-only views (like GetHostMesh); the commit worker reads
-    // through SnapshotGraph() instead.
+    // Authoring-thread views (like GetHostMesh); the commit worker reads
+    // the published state instead.
     PomadeScalpGraph const &GetGraph() const { return _graph; }
     PomadeRegionMaps const &GetRegionMaps() const { return _maps; }
     PomadeRegionLoops const &GetRegionLoops() const { return _loops; }
@@ -976,12 +997,12 @@ public:
 private:
     bool _TessellateHost();
     bool _TessellateSectionsHost();  // P3 K5 path (validates + fills _frames)
-    // The tube desc from live members; the caller must hold _mutex (Sync
-    // runs under the caller's lock, so the locking BuildTubeDesc would
-    // deadlock here).
+    // The tube desc from live members (internal twin of BuildTubeDesc).
+    // The *Locked suffix on internals predates the single-writer rule; it
+    // now means "called from inside a public entry", nothing more.
     PomadeTubeDesc _BuildTubeDescLocked() const;
     void _AttachTubeRootLocked(PomadeTubeDesc *desc) const;
-    // P4 hierarchy store (guarded by _mutex like the rest). Holds every
+    // P4 hierarchy store (authoring thread). Holds every
     // tube but the first L1 root: subdivided children, imports, on-the-fly
     // parents AND the second and later L1 roots (parentTubeId -1, level 1).
     std::map<int, HierarchyTube> _tubes;  // non-zero tubes by id
@@ -1037,7 +1058,7 @@ private:
     // topology dirty; no version bump (caller).
     bool _WriteDescToTube0Locked(PomadeTubeDesc const &desc);
     // K6 re-derive of tubeId's whole subtree from its (new) actual;
-    // K7 refresh of its ancestors. Caller holds _mutex; no version bump.
+    // K7 refresh of its ancestors. Authoring thread; no version bump.
     struct HierarchyRollback;
     bool _PropagateDownLocked(int tubeId);
     // Attachment-only K6: after a graph region edit changes an L1 root's
@@ -1055,8 +1076,8 @@ private:
     bool _PropagateUpLocked(int tubeId,
                             HierarchyRollback const *beforeEdit = nullptr);
     // One sculpt stroke's mutation (deltas already shaped): apply, keep
-    // the length, re-derive deltas, K6 down and K7 up. The CALLER holds
-    // _mutex and owns the rollback snapshot, the undo push and the version
+    // the length, re-derive deltas, K6 down and K7 up. The CALLER
+    // owns the rollback snapshot, the undo push and the version
     // bump, which is how a mirrored stroke stays one undo step.
     // `beforeEdit` is the hierarchy before the entire shaped stroke; K7
     // needs it to distinguish an inherited boundary from an internal CV.
@@ -1064,7 +1085,7 @@ private:
                             int const *cvIds, float const *deltas,
                             int cvCount, bool preserveLength, bool mirrorX,
                             HierarchyRollback const *beforeEdit = nullptr);
-    // V0b per-tube edits (caller holds _mutex). _ChildDescLocked hands out
+    // V0b per-tube edits (authoring thread). _ChildDescLocked hands out
     // the child's mutable record; _FinishChildEditLocked recomputes the
     // deltas against the derived shape (imports keep theirs at zero),
     // propagates K6 down and K7 up, and leaves the version bump to the
@@ -1078,7 +1099,7 @@ private:
     bool _EditChildTube(int tubeId, bool layoutChanged, uint32_t dirtyBits,
                         std::function<bool(PomadeTubeDesc &)> const &edit);
     bool _RefillGuidesLocked(float fraction);
-    // Import core (caller holds _mutex): validates + inserts, bumps
+    // Import core (authoring thread): validates + inserts, bumps
     // version + map. Shared by ImportLockedTube/ImportSweptMesh.
     bool _ImportLockedTubeLocked(int parentId, float const *cx,
                                  float const *cy, float const *cz, int nCv,
@@ -1150,7 +1171,7 @@ private:
     void _EnforceUndoBudgetLocked();
     void _ClearUndoLocked();
     static uint64_t _UndoSnapshotBytes(HierarchyRollback const &snap);
-    // V1 undo/redo internals (caller holds _mutex). The graph state is
+    // V1 undo/redo internals (authoring thread). The graph state is
     // cached against _mapVersion; restoring a step re-derives the region
     // maps the way hydrate does.
     std::shared_ptr<GraphUndoState const> _GraphUndoStateLocked() const;
@@ -1168,12 +1189,12 @@ private:
     // Every tube id in the model, ascending (tube 0 when built, then the
     // store). The selection prunes against this on read.
     std::vector<int> _LiveTubeIdsLocked() const;
-    // Active-cut helpers. The caller holds _mutex. A collapsed tube owns the
+    // Active-cut helpers. The authoring thread. A collapsed tube owns the
     // frontier and hides its descendants; an expanded tube hides itself.
     bool _IsTubeVisibleInActiveCutLocked(int tubeId) const;
     bool _IsDescendantOfLocked(int tubeId, int ancestorTubeId) const;
     void _PruneActiveCutLocked();
-    // V1 selection internals (caller holds _mutex). _BuildPickSetsLocked
+    // V1 selection internals (authoring thread). _BuildPickSetsLocked
     // fills `sets` from the scratch vectors it also fills, so the point
     // pick, the marquee and the selection bounds all read one candidate
     // layout. _nodeIds maps a graph-node candidate ordinal to its node id.
@@ -1254,7 +1275,7 @@ private:
 #endif
     bool _SyncDevice();
 #ifdef USDGEN_POMADE_HAS_CUDA
-    // K11 production device path (caller holds _mutex; const: the device
+    // K11 production device path (authoring thread; const: the device
     // buffers are caches). _PickDeviceLocked reduces the heavyweight
     // kinds on the model's stream and folds the CPU small-kind winner in
     // kind order with the twin's exact rule; false (any device failure)
@@ -1270,7 +1291,7 @@ private:
                            PomadeDevicePickBest *out) const;
     bool _UploadGuideCVsLocked(PomadePickSets const &sets) const;
     bool _SyncSectionsDevice();  // P3 K4/K5 device lane
-    // P6 OOM fallback (caller holds _mutex): destroy the stream, release
+    // P6 OOM fallback (authoring thread): destroy the stream, release
     // every device buffer, mark streamOwned false and record `reason`.
     // Later syncs take the CPU-only early-out; the host mirror is
     // authoritative either way. Idempotent after the first call.
@@ -1321,13 +1342,11 @@ private:
     std::string _diagnostic;
     // (tubeId, reason) per tube the last refill skipped (RefillDrops).
     std::vector<std::pair<int, std::string>> _refillDrops;
-    // Guards _shape/_host/_fill/_subdivide/_locks/_dirty/_graph/_maps/_scalp.
-    // GetVersion is lock-free (atomic); GetHostMesh/GetGraph stay
-    // UI-thread-only by convention.
-    mutable std::mutex _mutex;
-    // P2 state (guarded by _mutex; _mapVersion read lock-free like _version
-    // would race the graph it keys on, so it is mutex-guarded — but the
-    // bake worker only ever reads snapshots, never the live model).
+    // Single writer: every member is owned by the authoring thread. Other
+    // threads read only the published state below (GetVersion is atomic).
+    std::atomic<PomadeModelState const *> _published{nullptr};
+    // P2 state. The bake and commit workers never read the live model:
+    // the bake takes a PomadeBakeInput, the committer the published state.
     std::shared_ptr<PomadeScalpMesh> _scalp;
     PomadeScalpBvh _bvh;
     PomadeScalpGraph _graph;
@@ -1342,14 +1361,14 @@ private:
 
     struct _Device;
     std::unique_ptr<_Device> _device;
-    // P6 fallback state (guarded by _mutex like the rest).
+    // P6 fallback state (authoring thread).
     bool _deviceFallback = false;
     std::string _deviceFallbackReason;
     // Guide content generation: bumped at every wholesale _guides
     // assignment. The K11 device path uploads guide CVs once per
     // generation (version-stamped), never per pick.
     uint64_t _guideVersion = 0;
-    // P6 undo stack (guarded by _mutex): pre-mutation snapshots, oldest
+    // P6 undo stack (authoring thread): pre-mutation snapshots, oldest
     // first, bounded by count AND bytes (either bound evicts oldest).
     std::deque<HierarchyRollback> _undoStack;
     uint64_t _undoBytes = 0;  // running total over the stack
@@ -1374,7 +1393,7 @@ private:
     PomadeBrushRingRecord _brush;
     mutable std::shared_ptr<GraphUndoState const> _graphUndoCache;
     mutable uint64_t _graphUndoCacheMap = ~uint64_t(0);
-    // V0 viewport display state (guarded by _mutex like the rest).
+    // V0 viewport display state (authoring thread).
     // Sparse: a level with no entry reads the LevelDisplay default.
     std::map<int, LevelDisplay> _levelDisplay;
     int _focusLevel = 0;
