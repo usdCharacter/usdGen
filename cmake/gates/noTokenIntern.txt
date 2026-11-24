@@ -38,10 +38,6 @@ libs/usdGen/usdGen/ops/grow.cpp 40
 libs/usdGen/usdGen/ops/grow.h 2
 libs/usdGen/usdGen/ops/guideInterpolate.cpp 26
 libs/usdGen/usdGen/ops/guideInterpolate.h 1
-libs/usdGen/usdGen/ops/length.cpp 45
-libs/usdGen/usdGen/ops/length.h 4
-libs/usdGen/usdGen/ops/noise.cpp 20
-libs/usdGen/usdGen/ops/noise.h 8
 libs/usdGen/usdGen/ops/part.cpp 9
 libs/usdGen/usdGen/ops/part.h 3
 libs/usdGen/usdGen/ops/referenceSource.cpp 1
@@ -67,10 +63,6 @@ libs/usdGen/usdGen/ops/twist.h 1
 libs/usdGen/usdGen/ops/wave.cpp 8
 libs/usdGen/usdGen/ops/wave.h 4
 libs/usdGen/usdGen/ops/wholeStrand.cpp 4
-libs/usdGen/usdGen/ops/width.cpp 10
-libs/usdGen/usdGen/ops/width.h 4
-libs/usdGen/usdGen/ops/widthBlend.cpp 2
-libs/usdGen/usdGen/ops/widthBlend.h 1
 libs/usdGen/usdGen/ops/wind.cpp 14
 libs/usdGen/usdGen/ops/wind.h 10
 libs/usdGen/usdGen/registries/token.cpp 1
