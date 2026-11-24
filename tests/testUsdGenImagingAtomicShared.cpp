@@ -11,7 +11,8 @@
 //   2. 64 threads Load/Store/Exchange/CAS on one cell; every value carries a
 //      canary, and every value is destroyed exactly once.
 //   3. UsdGenCowUpdate from 64 threads loses no update.
-//   4. UsdGenLazyLeaked from 64 threads installs exactly one object.
+//   4. UsdGenLazyLeaked from 64 threads installs exactly one object and
+//      destroys none.
 
 #include "usdGenImaging/atomicShared.h"
 
@@ -178,7 +179,7 @@ void LazyLeaked()
     bool same = true;
     for (Lazy *p : seen) same = same && p == seen[0];
     Check(same && seen[0] == g_lazy.load(), "every racer gets the installed object");
-    Check(Lazy::made.load() - Lazy::freed.load() == 1, "losers delete their candidates");
+    Check(Lazy::made.load() >= 1 && Lazy::freed.load() == 0, "no candidate is destroyed");
 }
 
 }  // namespace

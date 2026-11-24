@@ -13,8 +13,9 @@
 //
 // UsdGenLazyLeaked installs a process-lifetime object into a constant-
 // initialized atomic pointer by CAS (no function-local static, no guard
-// lock). A racing loser deletes its candidate; the winner is never freed,
-// so no static destructor runs at DLL detach.
+// lock). Nothing it makes is ever destroyed, so no destructor that might
+// wait runs at DLL detach or on a racing loser: a loser's candidate (only
+// when two threads race the first call) is leaked like the winner.
 #ifndef USDGEN_IMAGING_ATOMIC_SHARED_H
 #define USDGEN_IMAGING_ATOMIC_SHARED_H
 
@@ -124,6 +125,19 @@ std::shared_ptr<T const> UsdGenCowUpdate(UsdGenAtomicShared<T const> &cell, Edit
     }
 }
 
+/// As UsdGenCowUpdate, but `edit(T&)` returns false to leave the cell
+/// unchanged; returns whether an edited copy was installed.
+template <class T, class Edit>
+bool UsdGenCowUpdateIf(UsdGenAtomicShared<T const> &cell, Edit &&edit)
+{
+    for (;;) {
+        std::shared_ptr<T const> current = cell.Load();
+        auto next = current ? std::make_shared<T>(*current) : std::make_shared<T>();
+        if (!edit(*next)) return false;
+        if (cell.CompareExchange(current, std::shared_ptr<T const>(std::move(next)))) return true;
+    }
+}
+
 template <class T, class Make>
 T &UsdGenLazyLeaked(std::atomic<T *> &slot, Make &&make)
 {
@@ -133,8 +147,7 @@ T &UsdGenLazyLeaked(std::atomic<T *> &slot, Make &&make)
     if (slot.compare_exchange_strong(p, candidate, std::memory_order_acq_rel,
                                      std::memory_order_acquire))
         return *candidate;
-    delete candidate;  // lost the race; p holds the winner
-    return *p;
+    return *p;  // lost the race: p holds the winner; candidate stays leaked
 }
 
 template <class T>
