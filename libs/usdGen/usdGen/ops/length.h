@@ -7,8 +7,8 @@
 // length stage: a whole-strand capture (ops/lengthRange.h) that rescales
 // every strand to a random multiple of its own (or its clump mean's) length,
 // resampled uniformly in arc length, and emits the `restLength` plane (the
-// pre-scale reference length). The plane is declared only by a node
-// configured in randomRange mode.
+// pre-scale reference length). The emittedPlanes hook declares the plane
+// only for a node in randomRange mode.
 #ifndef USDGEN_OP_LENGTH_H
 #define USDGEN_OP_LENGTH_H
 
@@ -37,9 +37,6 @@ public:
     explicit UsdGenLengthOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenLengthOp() override = default;
 
-    TfSpan<const TfToken> OutputPrimvars() const override;
-    void Configure(UsdGenParamView const &params) override;
-
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
     bool Capture(UsdGenCaptureContext const &ctx,
@@ -51,9 +48,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    // {"restLength"} once Configure() saw randomRange, else empty.
-    TfTokenVector _outputs;
 };
 
 class UsdGenRegistrar;

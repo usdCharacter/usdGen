@@ -60,12 +60,12 @@ public:
 
     TfSpan<const TfToken> TopologyParameters() const override;
     TfSpan<const TfToken> ValueParameters() const override;
-    /// The planes of the levels Configure() numbered (4a-1 moves this to a hook).
+    /// Legacy instance view (S4-8 removes it): the level-0 planes. Compiled
+    /// nodes bind the emittedPlanes hook's planes at their allocated level.
     TfSpan<const TfToken> OutputPrimvars() const override;
     /// "guides": the guide set of the guides / guideSeeded centre modes.
     /// Optional: a node with no usdGen:guides target resolves none.
     TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
-    void Configure(UsdGenParamView const &params) override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -82,14 +82,7 @@ public:
 private:
     UsdGenOpRecord const *_record;
     std::vector<TfToken> _topology, _value;
-    // Four native motion planes per level, set by Configure().
-    // Default (level 0) outputs; Configure() recomputes per settings.
-    std::vector<TfToken> _outputs;
-    int _levelBaseOverride = -1;
-public:
-    // The compiler supplies the chain-wide topological allocation. Direct
-    // standalone Configure callers retain the descriptor-order fallback.
-    void SetLevelBase(int base) { _levelBaseOverride = base; }
+    std::vector<TfToken> _outputs;   // level 0
 };
 
 class UsdGenRegistrar;

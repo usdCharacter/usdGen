@@ -186,6 +186,14 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
     return std::make_unique<UsdGenLengthOp>(r);
 }
 
+/// randomRange writes the uniform float restLength plane.
+void EmittedPlanes(UsdGenParamView const &p, int, UsdGenPlaneSink &sink)
+{
+    if (p.GetEnum(kMode, kModeScale) == kModeRandomRange)
+        sink.Add(p.op->Token(kTokRestLength).GetString(), UsdGenPlaneRate::Uniform,
+                 UsdGenPlaneScalar::Float, 1);
+}
+
 
 }  // namespace
 
@@ -196,16 +204,6 @@ std::unique_ptr<UsdGenCapture> UsdGenLengthOp::CreateCapture() const
 uint32_t UsdGenLengthOp::PlanesTouched() const
 {
     return kPlanePoints;
-}
-TfSpan<const TfToken> UsdGenLengthOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
-}
-void UsdGenLengthOp::Configure(UsdGenParamView const &params)
-{
-    _outputs.clear();
-    if (params.GetEnum(kMode, kModeScale) == kModeRandomRange)
-        _outputs.push_back(Record().Token(kTokRestLength));
 }
 
 bool UsdGenLengthOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
@@ -538,6 +536,7 @@ UsdGenOpId UsdGenRegisterLengthOp(UsdGenRegistrar &r)
     d.params = UsdGenSpan(kParams);
     d.mapSlots = UsdGenSpan(kMaps);
     d.tokens = UsdGenSpan(kTokens);
+    d.hooks.emittedPlanes = &EmittedPlanes;
     return r.RegisterOp(d);
 }
 

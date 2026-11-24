@@ -69,18 +69,13 @@ namespace usdGen {
 class UsdGenCollideOp final : public UsdGenOp
 {
 public:
-    UsdGenCollideOp() = default;
+    explicit UsdGenCollideOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenCollideOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenCollide"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-    bool SamplesFrameInputs() const override { return true; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
     void Configure(UsdGenParamView const &params) override;
     bool RemapsVertexPlanes() const override { return _cutThenCollide; }
-    /// `collideUnresolved` when Configure() saw resolveType = relax, else none.
+    /// Legacy instance view of the emittedPlanes hook (S4-8 removes it):
+    /// `collideUnresolved` when Configure() saw resolveType = relax.
     TfSpan<const TfToken> OutputPrimvars() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;

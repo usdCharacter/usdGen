@@ -15,7 +15,6 @@
 #include "usdGen/compiler.h"
 
 #include "usdGen/expressionTargets.h"
-#include "usdGen/ops/clump.h"
 
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
@@ -208,7 +207,7 @@ bool BindExtraPlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
         return true;
     };
     // Record planes when the op declares them; a legacy op still names its
-    // planes through the virtuals (Configure-dependent until 4a-1).
+    // planes through the virtuals.
     auto bind = [&](TfSpan<const UsdGenPlane> planes, TfSpan<const TfToken> legacy,
                     std::vector<TfToken> *slots, char const *direction) {
         if (planes.empty()) return bindNames(legacy, slots, direction);
@@ -222,7 +221,29 @@ bool BindExtraPlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
         for (size_t i = 0; i < planes.size(); ++i) names[i] = planes[i].name;
         return bindNames(TfSpan<const TfToken>(names, planes.size()), slots, direction);
     };
-    return bind(record.OutputPlanes(), op.OutputPrimvars(), &node->outputPrimvars, "output") &&
+    bool outputs = false;
+    if (auto const emit = record.Def().hooks.emittedPlanes) {
+        // Parameter-dependent names (4a): interned here, compile scope.
+        struct Sink final : UsdGenPlaneSink {
+            TfToken names[kUsdGenMaxExtraPlaneSlots + 1];
+            size_t count = 0;
+            void Add(std::string const &name, UsdGenPlaneRate, UsdGenPlaneScalar,
+                     uint8_t) override
+            {
+                if (count < kUsdGenMaxExtraPlaneSlots + 1) names[count] = UsdGenInternToken(name);
+                ++count;
+            }
+        } sink;
+        emit(node->paramView, node->indexedPlaneBase, sink);
+        // One past the limit is enough for bindNames to reject.
+        size_t const kept = std::min(sink.count, size_t(kUsdGenMaxExtraPlaneSlots) + 1);
+        outputs = bindNames(TfSpan<const TfToken>(sink.names, kept), &node->outputPrimvars,
+                            "output");
+    } else {
+        outputs = bind(record.OutputPlanes(), op.OutputPrimvars(), &node->outputPrimvars,
+                       "output");
+    }
+    return outputs &&
         bind(record.InputPlanes(), op.InputPrimvars(), &node->inputPrimvars, "input");
 }
 
@@ -242,10 +263,13 @@ bool SameSlots(TfSpan<const UsdGenPlane> planes, std::vector<TfToken> const &slo
     return true;
 }
 /// The planes BindExtraPlaneSlots would bind are the ones already bound.
+/// emittedPlanes reads structural params and the indexed run only, so on a
+/// value-only edit with an unchanged run its planes are the bound ones.
 bool SamePlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
                     UsdGenCompiledNode const &node)
 {
-    bool const out = record.OutputPlanes().empty()
+    bool const out = record.Def().hooks.emittedPlanes ? true
+        : record.OutputPlanes().empty()
         ? SameSlots(op.OutputPrimvars(), node.outputPrimvars)
         : SameSlots(record.OutputPlanes(), node.outputPrimvars);
     bool const in = record.InputPlanes().empty()
@@ -721,27 +745,115 @@ uint64_t ParamValueDigest(UsdGenNodeDesc const &nd, UsdGenOpRecord const &record
     return vh;
 }
 
-/// First authored param named `name`, as an int literal (UsdGenParamView
-/// rules, no expressions): compile-time reads before any node exists.
-int AuthoredInt(UsdGenNodeDesc const &nd, char const *name, int fallback)
+/// The decimal suffix of `name` after `prefix` (no sign, no leading zero).
+bool IndexedSuffix(std::string const &name, char const *prefix, int *index)
 {
-    for (UsdGenParamValue const &p : nd.params) {
-        if (std::strcmp(p.name.GetText(), name) != 0) continue;
-        if (p.value.IsHolding<int>()) return p.value.UncheckedGet<int>();
-        if (p.value.IsHolding<uint32_t>()) return static_cast<int>(p.value.UncheckedGet<uint32_t>());
-        return fallback;
+    size_t const len = std::strlen(prefix);
+    if (name.compare(0, len, prefix) != 0) return false;
+    if (name.size() == len || (name.size() > len + 1 && name[len] == '0')) return false;
+    int value = 0;
+    for (size_t i = len; i < name.size(); ++i) {
+        char const digit = name[i];
+        if (digit < '0' || digit > '9' ||
+            value > (std::numeric_limits<int>::max() - (digit - '0')) / 10)
+            return false;
+        value = value * 10 + (digit - '0');
     }
-    return fallback;
+    *index = value;
+    return true;
 }
-/// A registered op by name text; compile phase, no interning. Clump (4a-1)
-/// is the one the compiler still names.
-UsdGenOpRecord const *FindRecordByText(UsdGenOpRegistry const &ops, char const *name)
+
+/// Indexed plane runs (4a) for nodes whose op has hooks.indexedPlanes, one
+/// namespace per UsdGenOpDef::indexedPlaneFamily, in compiled topological
+/// order. Authored curve-set planes <family><n> reserve n (imports); a
+/// pinned run takes its indices, an auto run the first free consecutive
+/// ones. Disabled nodes reserve too, so a toggle renumbers nothing.
+bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
+                           PVec<UsdGenOpRecord const *> const &descRecord,
+                           PVec<int> *bases, PVec<int> *counts,
+                           UsdGenCompileResult &result)
 {
-    for (uint32_t i = 0; i < ops.Count(); ++i) {
-        UsdGenOpRecord const &record = ops.Record(UsdGenOpId(i));
-        if (std::strcmp(record.Name().GetText(), name) == 0) return &record;
+    auto familyOf = [&](int di) -> char const * {
+        UsdGenOpRecord const *record = descRecord[size_t(di)];
+        if (!record || !record->Def().hooks.indexedPlanes) return nullptr;
+        char const *family = record->Def().indexedPlaneFamily;
+        return family ? family : "";
+    };
+    for (size_t first = 0; first < order.size(); ++first) {
+        char const *const family = familyOf(order[first]);
+        if (!family) continue;
+        bool seen = false;   // families are few: rescan instead of a set
+        for (size_t k = 0; !seen && k < first; ++k) {
+            char const *const other = familyOf(order[k]);
+            seen = other && std::strcmp(other, family) == 0;
+        }
+        if (seen) continue;
+        PMap<int, SdfPath> owner;
+        if (*family) {
+            for (UsdGenCurveSetDesc const &curves : desc.curveSets) {
+                for (UsdGenAuthoredPlaneDesc const &plane : curves.authoredPlanes) {
+                    int index = 0;
+                    if (IndexedSuffix(plane.name.GetString(), family, &index))
+                        owner.emplace(index, curves.path);
+                }
+            }
+        }
+        int nextAuto = 0;
+        for (size_t k = first; k < order.size(); ++k) {
+            int const di = order[k];
+            char const *const f = familyOf(di);
+            if (!f || std::strcmp(f, family) != 0) continue;
+            UsdGenNodeDesc const &nd = desc.nodes[size_t(di)];
+            UsdGenOpRecord const &record = *descRecord[size_t(di)];
+            UsdGenIndexedPlaneRequest request;
+            {
+                UsdGenStackParams const params(desc, nd, record);
+                request = record.Def().hooks.indexedPlanes(params.View());
+            }
+            if (request.count == 0) continue;
+            int const count = request.count, pinned = request.pinnedBase;
+            char const *const display = record.Def().displayName ? record.Def().displayName
+                                                                 : record.Name().GetText();
+            if (count < 0 || pinned < -1 ||
+                (pinned >= 0 && pinned > std::numeric_limits<int>::max() - count) ||
+                nextAuto > std::numeric_limits<int>::max() - count) {
+                result.errors.push_back(std::string("UsdGenCompiler: invalid ") + display +
+                                        " level range on '" + nd.path.GetString() + "'");
+                return false;
+            }
+            int base = pinned >= 0 ? pinned : nextAuto;
+            if (pinned < 0) {
+                // First free consecutive run; runs stay contiguous around imports.
+                for (;;) {
+                    if (base > std::numeric_limits<int>::max() - count) {
+                        result.errors.push_back(std::string("UsdGenCompiler: no free ") +
+                            display + " level range on '" + nd.path.GetString() + "'");
+                        return false;
+                    }
+                    bool occupied = false;
+                    for (int offset = 0; offset < count; ++offset)
+                        occupied = occupied || owner.count(base + offset) != 0;
+                    if (!occupied) break;
+                    ++base;
+                }
+            }
+            (*bases)[size_t(di)] = base;
+            (*counts)[size_t(di)] = count;
+            nextAuto = std::max(nextAuto, base + count);
+            for (int offset = 0; offset < count; ++offset) {
+                int const index = base + offset;
+                auto const inserted = owner.emplace(index, nd.path);
+                if (!inserted.second) {
+                    result.errors.push_back("UsdGenCompiler: " + std::string(family) +
+                        std::to_string(index) + " is emitted by both '" +
+                        inserted.first->second.GetString() + "' and '" +
+                        nd.path.GetString() + "'");
+                    return false;
+                }
+            }
+        }
     }
-    return nullptr;
+    return true;
 }
 
 /// Points the node's view at its desc entry and re-resolves its slots;
@@ -1043,82 +1155,10 @@ void UsdGenCompiler::_Build(
         UsdGenOpId const id = ops.Find(desc.nodes[size_t(i)].type);
         if (id != UsdGenOpId::Invalid) descRecord[size_t(i)] = &ops.Record(id);
     }
-    UsdGenOpRecord const *const clumpRecord = FindRecordByText(ops, "UsdGenClump");
-
-    // Allocate auto Clump levels in compiled topological order. Reserve every
-    // emitted level, including disabled nodes, and reject pinned collisions
-    // before moving any reusable graph state.
-    PVec<int> clumpBase(size_t(n), -1);
-    PVec<int> clumpLevels(size_t(n), 0);
-    PMap<int, SdfPath> clumpOwner;
-    // CurveSource can import an existing Clump quartet. Its level names are
-    // already part of the graph namespace, so a following auto Clump must
-    // allocate around them rather than replace those authored planes.
-    for (UsdGenCurveSetDesc const &curves : desc.curveSets) {
-        for (UsdGenAuthoredPlaneDesc const &plane : curves.authoredPlanes) {
-            std::string const name = plane.name.GetString();
-            constexpr char prefix[] = "clumpId_";
-            if (name.compare(0, sizeof(prefix) - 1, prefix) != 0) continue;
-            std::string const suffix = name.substr(sizeof(prefix) - 1);
-            if (suffix.empty() || (suffix.size() > 1 && suffix.front() == '0')) continue;
-            int level = 0;
-            bool valid = true;
-            for (char digit : suffix) {
-                if (digit < '0' || digit > '9' ||
-                    level > (std::numeric_limits<int>::max() - (digit - '0')) / 10) {
-                    valid = false;
-                    break;
-                }
-                level = level * 10 + (digit - '0');
-            }
-            if (valid) clumpOwner.emplace(level, curves.path);
-        }
-    }
-    int nextAutoLevel = 0;
-    for (int di : order) {
-        UsdGenNodeDesc const &nd = desc.nodes[di];
-        if (!clumpRecord || descRecord[size_t(di)] != clumpRecord) continue;
-        int const levels = AuthoredInt(nd, "clump:levels", 1);
-        int const pinned = AuthoredInt(nd, "clump:level", -1);
-        if (levels < 1 || levels > 4 || pinned < -1 ||
-            (pinned >= 0 && pinned > std::numeric_limits<int>::max() - levels) ||
-            nextAutoLevel > std::numeric_limits<int>::max() - levels) {
-            result.errors.push_back("UsdGenCompiler: invalid Clump level range on '" +
-                                    nd.path.GetString() + "'");
-            return;
-        }
-        int base = pinned >= 0 ? pinned : nextAutoLevel;
-        if (pinned < 0) {
-            // Find the first contiguous run of free level names. Each node's
-            // multilevel output remains consecutive even around imports.
-            for (;;) {
-                if (base > std::numeric_limits<int>::max() - levels) {
-                    result.errors.push_back("UsdGenCompiler: no free Clump level range on '" +
-                                            nd.path.GetString() + "'");
-                    return;
-                }
-                bool occupied = false;
-                for (int offset = 0; offset < levels; ++offset)
-                    occupied = occupied || clumpOwner.count(base + offset) != 0;
-                if (!occupied) break;
-                ++base;
-            }
-        }
-        clumpBase[size_t(di)] = base;
-        clumpLevels[size_t(di)] = levels;
-        nextAutoLevel = std::max(nextAutoLevel, base + levels);
-        for (int offset = 0; offset < levels; ++offset) {
-            int const level = base + offset;
-            auto const inserted = clumpOwner.emplace(level, nd.path);
-            if (!inserted.second) {
-                result.errors.push_back("UsdGenCompiler: clumpId_" +
-                    std::to_string(level) + " is emitted by both '" +
-                    inserted.first->second.GetString() + "' and '" +
-                    nd.path.GetString() + "'");
-                return;
-            }
-        }
-    }
+    PVec<int> indexedBases(size_t(n), -1);
+    PVec<int> indexedCounts(size_t(n), 0);
+    if (!AllocateIndexedPlanes(desc, order, descRecord, &indexedBases, &indexedCounts, result))
+        return;
 
     UsdGenNodeId const terminalId =
         static_cast<UsdGenNodeId>(topoOfDesc[termIt->second]);
@@ -1409,10 +1449,8 @@ void UsdGenCompiler::_Build(
             }
             UsdGenCompiledNode scratch;
             scratch.desc = &nd;
-            BindParams(scratch, &desc, &nd, &record, clumpBase[size_t(di)],
-                       clumpLevels[size_t(di)]);
-            if (&record == clumpRecord)
-                static_cast<UsdGenClumpOp *>(probe.get())->SetLevelBase(clumpBase[size_t(di)]);
+            BindParams(scratch, &desc, &nd, &record, indexedBases[size_t(di)],
+                       indexedCounts[size_t(di)]);
             probe->Configure(scratch.paramView);
             if (!BindExtraPlaneSlots(*probe, record, &scratch, &result)) return;
         }
@@ -1548,12 +1586,11 @@ void UsdGenCompiler::_Build(
         int const di = order[pos];
         UsdGenNodeDesc const &nd = desc.nodes[di];
         UsdGenOpRecord const *const record = descRecord[size_t(di)];
-        int const indexedBase = clumpBase[size_t(di)];
-        int const indexedCount = clumpLevels[size_t(di)];
+        int const indexedBase = indexedBases[size_t(di)];
+        int const indexedCount = indexedCounts[size_t(di)];
         UsdGenNodeDesc const *const newNd = &out->_desc->nodes[di];
-        // A Clump whose level run moved binds different plane names.
-        bool const clumpSlotsChanged = clumpRecord && record == clumpRecord &&
-            oldNodeForNewDesc[di] >= 0 &&
+        // A node whose indexed run moved binds different plane names.
+        bool const indexedSlotsChanged = oldNodeForNewDesc[di] >= 0 &&
             oldNodes[size_t(oldNodeForNewDesc[di])] &&
             (oldNodes[size_t(oldNodeForNewDesc[di])]->indexedPlaneBase != indexedBase ||
              oldNodes[size_t(oldNodeForNewDesc[di])]->indexedPlaneCount != indexedCount);
@@ -1568,7 +1605,7 @@ void UsdGenCompiler::_Build(
         for (int k = e0; !inputChanged && k < e1; ++k)
             inputChanged = digestChanged[topoOfDesc[edgeIds[size_t(k)]]] != 0;
         if (!oldNodes.empty() && !descChanged[di] && !inputChanged &&
-            !clumpSlotsChanged &&
+            !indexedSlotsChanged &&
             oldNodeForNewDesc[di] >= 0) {
             UsdGenCompiledNode &oldS = *oldNodes[size_t(oldNodeForNewDesc[di])];
             if (oldS.type == nd.type) {
@@ -1615,12 +1652,12 @@ void UsdGenCompiler::_Build(
                 old.role == record->Def().role &&
                 ValueOnlyEdit(*old.desc, nd, *record)) {
                 uint32_t const planes = old.op->PlanesTouched();
+                bool const sameRun = old.indexedPlaneBase == indexedBase &&
+                    old.indexedPlaneCount == indexedCount;
                 // Re-resolved against the new entry before Configure reads it.
                 BindParams(old, out->_desc.get(), newNd, record, indexedBase, indexedCount);
-                if (record == clumpRecord)
-                    static_cast<UsdGenClumpOp *>(old.op.get())->SetLevelBase(indexedBase);
                 old.op->Configure(old.paramView);
-                if (planes == old.op->PlanesTouched() &&
+                if (planes == old.op->PlanesTouched() && sameRun &&
                     SamePlaneSlots(*old.op, *record, old)) {
                     auto moved = std::move(oldNodes[size_t(oldNodeAtPath[di])]);
                     moved->id = static_cast<UsdGenNodeId>(pos);
@@ -1676,7 +1713,7 @@ void UsdGenCompiler::_Build(
                 UsdGenEpoch const dg0 = ComputeNodeDigest(
                     nd, TypeSeed(nd.type), record,
                     inputPaths0, refPaths0, bindings0, childDigests0);
-                if (dg0 == old0.structuralDigest && !clumpSlotsChanged &&
+                if (dg0 == old0.structuralDigest && !indexedSlotsChanged &&
                     old0.topoFx == record->Def().topoFx &&
                     old0.role == record->Def().role) {
                     // Stable: move whole, refresh desc-owned fields only.
@@ -1739,8 +1776,6 @@ void UsdGenCompiler::_Build(
         // the planes are bound: an operator may name its planes from its
         // parameters.
         BindParams(*node, out->_desc.get(), newNd, record, indexedBase, indexedCount);
-        if (record == clumpRecord)
-            static_cast<UsdGenClumpOp *>(node->op.get())->SetLevelBase(indexedBase);
         node->op->Configure(node->paramView);
         if (!BindExtraPlaneSlots(*node->op, *record, node.get(), &result)) return;
 
@@ -1821,7 +1856,7 @@ void UsdGenCompiler::_Build(
         // is NOT a rebuild: the capture installs lazily on the next commit.
         if (!oldNodes.empty() && oldNodeForNewDesc[di] >= 0) {
             UsdGenCompiledNode const &oldRef = *oldNodes[size_t(oldNodeForNewDesc[di])];
-            bool const stable = !clumpSlotsChanged &&
+            bool const stable = !indexedSlotsChanged &&
                 oldRef.structuralDigest == node->structuralDigest &&
                 oldRef.type == node->type &&
                 oldRef.topoFx == node->topoFx &&

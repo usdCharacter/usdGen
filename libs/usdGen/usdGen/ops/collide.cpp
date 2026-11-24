@@ -24,7 +24,6 @@
 #include "usdGen/ops/collide.h"
 #include "usdGen/limitSurface.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
 
@@ -86,14 +85,25 @@ UsdGenParamDecl const kParams[kCount] = {
 constexpr UsdGenMapSlotDecl kMaps[] = {    // compiler.cpp:428-431, all four as today
     {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
 
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *)
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return std::make_unique<UsdGenCollideOp>();
+    return std::make_unique<UsdGenCollideOp>(r);
 }
 
 TfToken const &ResolveType(UsdGenParamView const &p)
 {
     return p.GetToken(kResolveType, p.op->Token(kTokFlexible));
+}
+/// relax reports unresolved strands in the uniform float collideUnresolved plane.
+bool EmitsUnresolved(UsdGenParamView const &p)
+{
+    return ResolveType(p) == p.op->Token(kTokRelax);
+}
+void EmittedPlanes(UsdGenParamView const &p, int, UsdGenPlaneSink &sink)
+{
+    if (EmitsUnresolved(p))
+        sink.Add(p.op->Token(kTokUnresolved).GetString(), UsdGenPlaneRate::Uniform,
+                 UsdGenPlaneScalar::Float, 1);
 }
 TfToken const &DeepMode(UsdGenParamView const &p)
 {
@@ -1541,37 +1551,6 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("colliders"));    // rel retarget recompiles (02 §6)
-    v.push_back(TfToken("resolveType"));  // structural kernel branch (C1)
-    v.push_back(TfToken("deepPenetrationMode"));  // structural plane-routing branch
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("mask"));
-    v.push_back(TfToken("offset"));
-    v.push_back(TfToken("pushAmount"));
-    v.push_back(TfToken("iterations"));
-    v.push_back(TfToken("cutDepthThreshold"));
-    v.push_back(TfToken("cutBlendDepth"));
-    v.push_back(TfToken("clearance:root"));     // relax only
-    v.push_back(TfToken("clearance:tip"));      // relax only
-    v.push_back(TfToken("relax:iterations"));   // relax only
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenCollideOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenCollideOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
 TfSpan<const TfToken> UsdGenCollideOp::OutputPrimvars() const
 {
     return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
@@ -1737,8 +1716,7 @@ void UsdGenCollideOp::Configure(UsdGenParamView const &params)
 {
     _cutThenCollide = DeepMode(params) == params.op->Token(kTokCutThenCollide);
     _outputs.clear();
-    if (ResolveType(params) == params.op->Token(kTokRelax))
-        _outputs.push_back(params.op->Token(kTokUnresolved));
+    if (EmitsUnresolved(params)) _outputs.push_back(params.op->Token(kTokUnresolved));
 }
 uint32_t UsdGenCollideOp::PlanesTouched() const
 {
@@ -2963,7 +2941,7 @@ UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
     d.params = UsdGenSpan(kParams);
     d.mapSlots = UsdGenSpan(kMaps);
     d.tokens = UsdGenSpan(kTokens);
-    // 4a-1 adds d.hooks.emittedPlanes (collideUnresolved in relax, Configure above)
+    d.hooks.emittedPlanes = &EmittedPlanes;
     return r.RegisterOp(d);
 }
 

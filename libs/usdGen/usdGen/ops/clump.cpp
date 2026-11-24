@@ -62,7 +62,6 @@
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/token.h"
 #include "usdGen/scheduler.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -374,6 +373,33 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
     return std::make_unique<UsdGenClumpOp>(r);
 }
 
+/// clump:levels (1..4) consecutive clumpId_ indices; clump:level pins the
+/// first. count -1: levels out of range (the compiler rejects the node).
+UsdGenIndexedPlaneRequest IndexedPlanes(UsdGenParamView const &p)
+{
+    UsdGenIndexedPlaneRequest request;
+    int const levels = p.GetInt(kLevels, 1);
+    request.count = levels >= 1 && levels <= 4 ? levels : -1;
+    request.pinnedBase = p.GetInt(kLevel, -1);
+    return request;
+}
+
+/// Four native motion planes per level, numbered from the allocated base.
+void EmittedPlanes(UsdGenParamView const &p, int base, UsdGenPlaneSink &sink)
+{
+    if (base < 0) base = std::max(p.GetInt(kLevel, -1), 0);
+    int const levels = std::clamp(p.GetInt(kLevels, 1), 1, 4);
+    using R = UsdGenPlaneRate;
+    using S = UsdGenPlaneScalar;
+    for (int l = 0; l < levels; ++l) {
+        std::string const suffix = std::to_string(base + l);
+        sink.Add("clumpId_" + suffix, R::Uniform, S::Int, 1);
+        sink.Add("clumpCenter_" + suffix, R::Uniform, S::Float, 3);
+        sink.Add("clumpCenterId_" + suffix, R::Uniform, S::Int, 2);
+        sink.Add("clumpWeight_" + suffix, R::Vertex, S::Float, 1);
+    }
+}
+
 }  // namespace
 
 UsdGenClumpOp::UsdGenClumpOp(UsdGenOpRecord const &record) : _record(&record)
@@ -403,36 +429,6 @@ std::unique_ptr<UsdGenCapture> UsdGenClumpOp::CreateCapture() const
 uint32_t UsdGenClumpOp::PlanesTouched() const
 {
     return kPlanePoints;
-}
-
-void UsdGenClumpOp::Configure(UsdGenParamView const &params)
-{
-    // usdGen:clump:level = -1 numbers this node by its ordinal among every
-    // UsdGenClump of the description, disabled ones included, so toggling a
-    // node never renumbers another's published planes (04 §2.8).
-    int base = params.GetInt(kLevel, -1);
-    if (base < 0 && _levelBaseOverride >= 0) base = _levelBaseOverride;
-    if (base < 0) {
-        base = 0;
-        if (params.desc && params.node) {
-            for (UsdGenNodeDesc const &node : params.desc->nodes) {
-                if (&node == params.node || node.path == params.node->path) break;
-                if (node.type == params.node->type) {
-                    UsdGenStackParams const prior(*params.desc, node, *params.op);
-                    base += std::clamp(prior.View().GetInt(kLevels, 1), 1, 4);
-                }
-            }
-        }
-    }
-    int const levels = std::clamp(params.GetInt(kLevels, 1), 1, 4);
-    _outputs.clear();
-    for (int l = 0; l < levels; ++l) {
-        std::string const suffix = std::to_string(base + l);
-        _outputs.push_back(UsdGenInternToken("clumpId_" + suffix));
-        _outputs.push_back(UsdGenInternToken("clumpCenter_" + suffix));
-        _outputs.push_back(UsdGenInternToken("clumpCenterId_" + suffix));
-        _outputs.push_back(UsdGenInternToken("clumpWeight_" + suffix));
-    }
 }
 
 bool UsdGenClumpOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
@@ -1096,7 +1092,9 @@ UsdGenOpId UsdGenRegisterClumpOp(UsdGenRegistrar &r)
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);
     d.tokens = UsdGenSpan(kTokens);
-    // 4a-1 adds hooks.indexedPlanes / emittedPlanes and indexedPlaneFamily "clumpId_".
+    d.indexedPlaneFamily = "clumpId_";
+    d.hooks.indexedPlanes = &IndexedPlanes;
+    d.hooks.emittedPlanes = &EmittedPlanes;
     return r.RegisterOp(d);
 }
 
