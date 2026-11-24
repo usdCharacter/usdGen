@@ -430,7 +430,9 @@ list(REMOVE_ITEM USDGEN_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/cudaScatterInput.cpp")
 add_library(usdGenExecutionResources SHARED
     libs/usdGen/usdGen/executionResources.cpp
-    libs/usdGen/usdGen/executionRetirement.cpp)
+    libs/usdGen/usdGen/executionRetirement.cpp
+    # Private copy of the parking primitive for the retirement drain.
+    libs/usdGen/usdGen/parkingWord.cpp)
 target_include_directories(usdGenExecutionResources PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>
     $<INSTALL_INTERFACE:include>)
