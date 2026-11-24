@@ -1,5 +1,6 @@
 #include "usdGen/cudaExecution.h"
 #include "usdGen/epoch.h"
+#include "usdGen/sharedCell.h"
 #include "usdGen/taskScheduler.h"
 
 #include "usdGen/expressionTargets.h"
@@ -56,20 +57,6 @@ namespace {
 template <size_t N>
 bool Contains(std::string_view const (&names)[N], std::string_view name) noexcept {
     return std::find(std::begin(names), std::end(names), name) != std::end(names);
-}
-// Lazily built process-lifetime singleton, published by CAS: no
-// function-local static (MSVC guards those with a lock). A racing builder
-// that loses frees its candidate.
-template <class T, class Make>
-T& LazyPublish(std::atomic<T*>& cell, Make make) {
-    T* p = cell.load(std::memory_order_acquire);
-    if (p) return *p;
-    T* fresh = make();
-    if (cell.compare_exchange_strong(p, fresh, std::memory_order_acq_rel,
-                                     std::memory_order_acquire))
-        return *fresh;
-    delete fresh;
-    return *p;
 }
 bool Fail(UsdGenDiagnostics* diagnostics, std::string message) {
     if (diagnostics) diagnostics->Error("CUDA: " + std::move(message));
@@ -820,6 +807,10 @@ private:
         return captureStream_ ||
             cudaStreamCreateWithFlags(&captureStream_, cudaStreamNonBlocking) == cudaSuccess;
     }
+    // The destructor finds the token taken only when a lease was abandoned
+    // (its holder retained without a release proof): no holder still runs,
+    // since a live lease would outlive this cache. Quarantine then keeps the
+    // abandoned slot's buffers from freeing under work that was never proven.
     void Destroy() noexcept {
         if (quarantined_.load(std::memory_order_acquire)) return;
         bool expected = false;
@@ -1624,7 +1615,7 @@ UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexce
     // Bump the matrix version whenever a row or its executor contract changes;
     // compiled-plan/cache keys can then reject stale backend assumptions.
     static std::atomic<UsdGenExecutionCapabilityMatrix const*> cell{nullptr};
-    return LazyPublish(cell, [] { return new UsdGenExecutionCapabilityMatrix const{
+    return UsdGenLazyLeaked(cell, [] { return new UsdGenExecutionCapabilityMatrix const{
         "cuda", 35,
 #ifdef USDGEN_ENABLE_CUDA
         true,
@@ -4705,7 +4696,7 @@ struct SourceRelayService {
 // callback while static session/scene teardown is under way.
 std::atomic<SourceRelayService*> s_sourceRelays{nullptr};
 SourceRelayService& SourceRelays() {
-    return LazyPublish(s_sourceRelays, [] { return new SourceRelayService; });
+    return UsdGenLazyLeaked(s_sourceRelays, [] { return new SourceRelayService; });
 }
 void SourceRelayService::Slot::Signal(unsigned phase, cudaError_t value) noexcept {
     // Publish status before terminal.  The arrival that observes both gates
@@ -5420,7 +5411,7 @@ struct OperatorRelayService {
 namespace {
 std::atomic<OperatorRelayService*> s_operatorRelays{nullptr};
 OperatorRelayService& OperatorRelays() {
-    return LazyPublish(s_operatorRelays, [] { return new OperatorRelayService; });
+    return UsdGenLazyLeaked(s_operatorRelays, [] { return new OperatorRelayService; });
 }
 void OperatorCallback(cudaStream_t, cudaError_t status, void* data) noexcept {
     auto* identity = static_cast<OperatorRelayService::Slot::CallbackIdentity*>(data);
@@ -6687,7 +6678,7 @@ struct FinalizationReturnGate : UsdGenRefCounted {
 namespace {
 std::atomic<FinalizationRelayService*> s_finalizationRelays{nullptr};
 FinalizationRelayService& FinalizationRelays() {
-    return LazyPublish(s_finalizationRelays, [] { return new FinalizationRelayService; });
+    return UsdGenLazyLeaked(s_finalizationRelays, [] { return new FinalizationRelayService; });
 }
 void FinalizationCallback(cudaStream_t, cudaError_t status, void* data) noexcept {
     auto* identity = static_cast<FinalizationRelayService::Slot::CallbackIdentity*>(data);
