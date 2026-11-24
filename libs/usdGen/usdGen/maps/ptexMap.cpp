@@ -34,9 +34,9 @@
 #include "pxr/base/tf/getenv.h"
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <limits>
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -72,31 +72,42 @@ int EnvInt(char const *name, int fallback, int minimum)
     return static_cast<int>(parsed);
 }
 
+UsdGenPtexErrorHandler g_ptexErrorHandler;
+std::atomic<PtexCache *> g_processCache{nullptr};
+
 // Deliberately never released: textures and samplers may outlive static
 // destruction, and a cache torn down under them would be a use-after-free.
+// Published once by CAS: a thread that loses the race releases its own cache
+// and uses the winner's, so nobody waits.
 PtexCache *ProcessCache()
 {
-    static PtexCache *cache = nullptr;
-    static std::once_flag once;
-    std::call_once(once, [] {
-        static UsdGenPtexErrorHandler errorHandler;
-        int const maxFiles = EnvInt("USDGEN_PTEX_MAX_FILES", 32, 1);
-        int const cacheMB = EnvInt("USDGEN_PTEX_CACHE_MB", 256, 0);
-        cache = PtexCache::create(maxFiles, size_t(cacheMB) << 20,
-                                  /*premultiply*/ false, /*inputHandler*/ nullptr,
-                                  &errorHandler);
-    });
-    return cache;
+    if (PtexCache *cache = g_processCache.load(std::memory_order_acquire)) return cache;
+    int const maxFiles = EnvInt("USDGEN_PTEX_MAX_FILES", 32, 1);
+    int const cacheMB = EnvInt("USDGEN_PTEX_CACHE_MB", 256, 0);
+    PtexCache *fresh = PtexCache::create(maxFiles, size_t(cacheMB) << 20,
+                                         /*premultiply*/ false, /*inputHandler*/ nullptr,
+                                         &g_ptexErrorHandler);
+    PtexCache *winner = nullptr;
+    if (g_processCache.compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
+                                               std::memory_order_acquire))
+        return fresh;
+    fresh->release();
+    return winner;
 }
+
+struct FilterName {
+    char const *token;
+    PtexFilter::FilterType type;
+};
+constexpr FilterName kFilters[] = {
+    {"nearest", PtexFilter::f_point},       {"bilinear", PtexFilter::f_bilinear},
+    {"box", PtexFilter::f_box},             {"gaussian", PtexFilter::f_gaussian},
+    {"bicubic", PtexFilter::f_bicubic},     {"bspline", PtexFilter::f_bspline},
+    {"catmullrom", PtexFilter::f_catmullrom}, {"mitchell", PtexFilter::f_mitchell},
+};
 
 bool ParseFilter(std::string const &token, PtexFilter::FilterType *type)
 {
-    static const struct { char const *token; PtexFilter::FilterType type; } kFilters[] = {
-        {"nearest", PtexFilter::f_point},       {"bilinear", PtexFilter::f_bilinear},
-        {"box", PtexFilter::f_box},             {"gaussian", PtexFilter::f_gaussian},
-        {"bicubic", PtexFilter::f_bicubic},     {"bspline", PtexFilter::f_bspline},
-        {"catmullrom", PtexFilter::f_catmullrom}, {"mitchell", PtexFilter::f_mitchell},
-    };
     for (auto const &entry : kFilters) {
         if (token == entry.token) { *type = entry.type; return true; }
     }
