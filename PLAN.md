@@ -46,11 +46,15 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | Gate | Baseline now | Target |
 |---|---|---|
 | `testUsdGenNoLocks` (locks, atomic shared_ptr, TBB) | empty | empty |
-| `testUsdGenNoGuardedStatics` | 5 (compiler.cpp 1, usdGenMath ramp.cpp 4) | empty |
+| `testUsdGenNoGuardedStatics` | 4 (usdGenMath ramp.cpp) | empty |
 | `testUsdGenNoPxrIncludes` | see `noPxrIncludes.txt` | empty under libs/core |
 | `testUsdGenNoPxrLink_usdGen` | tf gf vt sdf arch js plug ts ar work trace hio pxOsd | none |
 | `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
-| `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted) | 0 / 0 |
+| `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted); 0 interns each | 0 / 0 |
+| `testUsdGenNoOpNameLiterals` | empty | empty |
+| `testUsdGenNoTokenIntern` | token.cpp, curveLoader.cpp, furOcclusion.cpp, limitSurface.cpp | token.cpp only |
+| `testUsdGenEngineNoOpCoupling` | 4 rbfField includes | empty |
+| `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
 
@@ -125,34 +129,34 @@ Left over, none of it blocking 4:
 | Ops outside the bench graph still make a fresh capture on re-capture (no `Recyclable()`) | step 5, ElementSet arenas |
 | No cook-lane epoch drain; idle scheduler workers drain | step 5 |
 | Pomade lanes keep their own threads | step 13 |
-| Cache domains, Ptex cache and op registry are made on first use, not in `Engine::Create` | step 4, with the registries |
+| Cache domains, Ptex cache and op registry are made on first use, not in `Engine::Create` | step 5 (step 4 freezes the registries at the first compile) |
 
-### 4. Registries and name tables into OpDef
+### 4 and 4a. Done
 
-- **Goal:** exec never looks anything up by name.
-- **Work:**
-  - Add the type, op and backend registries (`registries/`) with handles.
-  - Move these name tables into OpDef traits and hooks: digest params, expression admission, clump plane names, RBF, rest ownership.
-  - Resolve parameter and channel names to slots at compile.
-- **Where:**
-  - `compiler.cpp:18` includes `ops/clump.h`; `:641-673` holds the hard-coded op and clump tokens; `:708` clump plane naming
-  - digest and param tables in compiler, session, sessionCooker, executionTaskGraph, cudaExecution and cudaGeneration
-  - admission in `expressions/cpuEvaluator.h`
-  - `TfToken("UsdGenDeform")` and `dynamic_cast<UsdGenDeformOp const*>` in `sessionCooker.cpp:2786-2809` (RBF animation binding)
-- **Done:**
-  - no `TfToken("UsdGen...")` literal outside an op's registration
-  - the Token interner's debug counter fails any cook that interns
-  - output unchanged
-- **Proves it:** golden tests; `testUsdGenWarmAllocations`; recook times.
-- **Depends on:** 2.
+- **4:** `registries/`: op, type and backend-kernel registries with dense handles, frozen by the first compile. Every op registers an `UsdGenOpDef` (param decls with dirty class, routing and expression admission; planes; traits; hooks); `UsdGenOp` has no static virtuals and `UsdGenParamView` reads by slot only. CUDA and Vulkan kernels are registered rows (`UsdGenKernelDef`). `UsdGenInternToken` is the only interner; `UsdGenScheduler::Run`, the cook after `_Prepare` and CUDA/Vulkan completion fail on an exec-phase intern (`USDGEN_TOKEN_CHECKS=0` warns). Gates: no op-name literal, no `TfToken` from text outside the interner and three host-side files, warm cook and param edit 0 allocations and 0 interns (`testUsdGenTokenChecks`, `testUsdGenWarmAllocations`). Goldens and contracts byte-identical to S4-0.
+- **4a:** Clump, Length and Collide name their planes through `emittedPlanes` with a generic indexed-plane allocator; RBF binding is Deform's `makeAnimationBinding` hook. No engine file outside ops/ includes an op header or casts to an op class.
 
-### 4a. Untangle compiler from clump and sessionCooker from deform (before 6)
+Bench, main (b741e6c) against step 4, same Windows machine, 4 threads, medians of 5 alternating rounds, no other build running:
 
-- **Why:** step 6 moves ops into a separate DLL, so the engine can't include op headers.
-- **Work:**
-  - Clump plane naming becomes a Clump OpDef hook (`EmittedPlanes(params)`), so compiler.cpp drops `ops/clump.h`.
-  - RBF animation binding becomes an OpDef hook (`MakeAnimationBinding`) that Deform registers. sessionCooker asks the terminal op's def instead of `dynamic_cast`, and drops `ops/deform.h`.
-- **Done:** `grep -rn 'usdGen/ops/' libs/usdGen/usdGen/*.cpp` finds only ops/ itself.
+| Metric | main | step 4 |
+|---|---|---|
+| Cold cook, 100k curves | 131.3 ms | 125.7 ms |
+| Warm recook | 121.2 ms | 108.0 ms |
+| Param-edit recook | 102.9 ms | 3.2 ms |
+| Hydra publish | 662.6 ms | 295.6 ms |
+| Hydra pull | 0.41 ms | 0.44 ms |
+
+Left over:
+
+| What | Where it goes |
+|---|---|
+| `TfToken` from text in curveLoader.cpp (44, host loader), furOcclusion.cpp (15, publish look), limitSurface.cpp (6, pxOsd) | 7, 9, 10 |
+| Device channels by `std::string` (cudaGeneration.cpp); capture-time plane lookups by token (wholeStrand, clump, trim, length); `UsdGenPlane::interpolation/type` are tokens | 5 |
+| ops/rbfField.h included by rbfAnimation.h, vulkan/rbfVkPlan.h, vulkan/executionPlan.cpp, vulkan/surfaceVk.cpp (engineNoOpCoupling baseline) | 6 and 8 |
+| Hydra vocabulary in sessionCooker (engine tokens, no interning) | 9 |
+| Op registry is built on first use and frozen by the first compile; Ptex cache and the cache-domain table are still made on first use. There is no `Engine::Create` to own them | 5 |
+| CUDA plan task types "UsdGenScatterGrow"/"UsdGenPublication" are interned once at load, spelled in two pieces for gate 1 | 8 |
+| `testUsdGenScenePublication` also aborts at exit intermittently (0xc0000409), on restructure/s4 too | not a step; owner of the imaging exit path |
 
 ### 5. Generic data model
 
