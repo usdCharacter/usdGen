@@ -197,8 +197,10 @@ private:
 // domain proofs must still see closed admission, never stale storage.
 std::atomic<ExternalRetirementQueue*> gQueue{nullptr};
 
+// Read only through UsdGenLazyLeaked: while the first caller constructs the
+// queue the slot holds its busy sentinel (address 1), which a raw load would
+// hand back as a queue. Its own fast path already skips the sentinel.
 ExternalRetirementQueue* Queue() noexcept {
-    if (auto* q = gQueue.load(std::memory_order_acquire)) return q;
     try {
         return &UsdGenLazyLeaked(gQueue);
     } catch (...) { return nullptr; }
