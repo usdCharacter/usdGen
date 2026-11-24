@@ -21,14 +21,13 @@
 
 #include "usdGenPomade/api.h"
 
+#include <atomic>
 #include <cstdint>
-#include <map>
-#include <mutex>
-#include <vector>
 
 namespace usdGenPomade {
 
 class PomadeModel;
+struct PomadeRegistryTable;
 
 // Anything that draws a model. UsdGenPomadeSceneIndex is the only
 // implementation; the T1 tests use it directly.
@@ -50,9 +49,13 @@ public:
 
 class USDGENPOMADE_API PomadeRegistry {
 public:
-    // Deliberately leaked: Hydra scene indices can be destroyed during
-    // static destruction, and DetachIndex must not touch a registry that
-    // has already run its own destructor.
+    // Constant-initialised and trivially destructible: Hydra scene indices
+    // can be destroyed during static destruction, and DetachIndex must not
+    // touch a registry that has already run its own destructor.
+    //
+    // The tables are copy-on-write, published by atomic pointer: readers
+    // pin an epoch, take a reference and never wait; writers build the next
+    // table and CAS it in, retiring the old one through the epochs.
     static PomadeRegistry &Get();
 
     // Model lifetime. Register returns a model id > 0; Unregister on the
@@ -82,16 +85,14 @@ public:
                              int *outTubeCount) const;
 
 private:
-    PomadeRegistry() = default;
+    constexpr PomadeRegistry() noexcept = default;
     ~PomadeRegistry() = default;
     PomadeRegistry(PomadeRegistry const &) = delete;
     PomadeRegistry &operator=(PomadeRegistry const &) = delete;
 
-    mutable std::mutex _mutex;
-    std::map<int, PomadeModel *> _models;
-    std::vector<PomadePublishTarget *> _targets;
-    int _nextId = 1;
-    int _activeId = 0;
+    static PomadeRegistry _instance;
+    std::atomic<PomadeRegistryTable const *> _table{nullptr};
+    std::atomic<int> _nextId{1};
 };
 
 } // namespace usdGenPomade
