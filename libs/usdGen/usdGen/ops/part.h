@@ -10,22 +10,36 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"
 
+#include <vector>
+
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace partP {
+// Declaration order of ops/part.cpp kParams (topology list, then value list).
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kCurves, kRadius,
+    kEnabled, kStrength, kMask,
+    kCount
+};
+}  // namespace partP
+
 class UsdGenPartOp final : public UsdGenOp
 {
 public:
-    UsdGenPartOp() = default;
+    explicit UsdGenPartOp(UsdGenOpRecord const &record);
     ~UsdGenPartOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenPart"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
+    UsdGenOpRecord const &Record() const noexcept { return *_record; }
 
+    // Static description, answered from the record until S4-8 removes the
+    // virtuals (tests and the engine still ask the instance).
+    TfToken Type() const override { return _record->Name(); }
+    UsdGenTopoFx TopologyEffect() const override { return _record->Def().topoFx; }
     TfSpan<const TfToken> TopologyParameters() const override;
     TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
+    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
     TfSpan<const TfToken> OutputPrimvars() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
@@ -40,12 +54,11 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
 private:
-    const TfToken sRadius{"part:radius"}, sStrength{"part:strength"};
-    const TfToken sMask{"mask"};
+    UsdGenOpRecord const *_record;
+    std::vector<TfToken> _topology, _value, _outputs;
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterPartOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
