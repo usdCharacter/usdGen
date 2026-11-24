@@ -60,6 +60,9 @@ struct UsdGenExecutionInputVersions {
 
     static UsdGenExecutionInputVersions FromDescription(
         UsdGenGraphDesc const& desc);
+    /// The same, refilling *out in place (its vectors keep their capacity).
+    static void FromDescription(UsdGenGraphDesc const& desc,
+                                UsdGenExecutionInputVersions* out);
 
     bool operator==(UsdGenExecutionInputVersions const& rhs) const noexcept {
         return valid == rhs.valid && sources == rhs.sources &&

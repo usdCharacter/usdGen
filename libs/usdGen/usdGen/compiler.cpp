@@ -927,8 +927,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, Us
     if (result.errors.empty()) {
         result.ok = true;
         result.graphIntact = true;
-        out->_inputVersions =
-            UsdGenExecutionInputVersions::FromDescription(out->Desc());
+        UsdGenExecutionInputVersions::FromDescription(out->Desc(), &out->_inputVersions);
         // Rebuilt nodes re-capture; digest-stable nodes keep their runtime
         // state (capture, buffer, chunk + dirty bytes) moved over by
         // _Build. The runtime partition is re-established by the first
