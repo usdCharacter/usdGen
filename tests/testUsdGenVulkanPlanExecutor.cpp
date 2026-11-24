@@ -602,7 +602,7 @@ int main(int argc, char** argv) {
     CHECK(!cutRaw.empty() && cutRaw.size() % sizeof(uint32_t) == 0);
     std::vector<uint32_t> cutSpirv(cutRaw.size() / sizeof(uint32_t));
     std::memcpy(cutSpirv.data(), cutRaw.data(), cutRaw.size());
-    std::ifstream reparamShader(argv[6]); CHECK(reparamShader);
+    std::ifstream reparamShader(argv[6], std::ios::binary); CHECK(reparamShader);
     std::vector<char> reparamRaw((std::istreambuf_iterator<char>(reparamShader)), {});
     CHECK(!reparamRaw.empty() && reparamRaw.size() % sizeof(uint32_t) == 0);
     std::vector<uint32_t> reparamSpirv(reparamRaw.size() / sizeof(uint32_t));
