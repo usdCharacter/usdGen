@@ -220,6 +220,11 @@ void UsdGenEpochEnter() noexcept
     if (Slot *s = OwnSlot()) {
         s->pinned.store(g.epoch.load(kSeq), kSeq);
         t.pinnedSlot = s;
+        // The pin is a store that later loads must not pass (a Dekker pair
+        // with the advancer's pin scan). The fence keeps a guarded load
+        // ordered even when its caller uses acquire or relaxed (ARM64 may
+        // satisfy an LDAPR before an earlier STLR is visible).
+        std::atomic_thread_fence(kSeq);
         return;
     }
     for (;;) {  // retries only if the epoch moved meanwhile
@@ -233,6 +238,7 @@ void UsdGenEpochEnter() noexcept
         c.v.fetch_sub(1, std::memory_order_release);
     }
     g.overflowPins.fetch_add(1, std::memory_order_relaxed);
+    std::atomic_thread_fence(kSeq);  // as above
 }
 
 void UsdGenEpochLeave() noexcept
@@ -251,6 +257,11 @@ void UsdGenEpochRetire(Node *node, UsdGenEpochDeleter deleter) noexcept
 {
     if (!node) return;
     g.retired.fetch_add(1, std::memory_order_relaxed);
+    // The unpublishing store (an exchange or CAS, possibly acq_rel in the
+    // caller) must be ordered before the retire epoch is read; otherwise the
+    // node could be stamped with an epoch older than a reader that still
+    // loads it.
+    std::atomic_thread_fence(kSeq);
     if (I::Pending(node).fetch_add(1, kSeq) != 0) return;  // already queued
     I::Deleter(node) = deleter;
     I::Batch(node) = 1;

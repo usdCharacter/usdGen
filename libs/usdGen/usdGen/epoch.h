@@ -14,7 +14,9 @@
 //
 // - A pointer read under a guard stays valid until the guard ends; hold a
 //   UsdGenRef for anything longer. Guards nest, never block, and must not span
-//   a callback or host code.
+//   a callback or host code. Entering ends with a seq_cst fence and Retire
+//   starts with one, so the guarded load and the unpublishing store may use
+//   any memory order; UsdGenAtomicRef is still the cell to use.
 // - Retired objects are freed by Drain once the global epoch is two past their
 //   retire epoch. Drain never waits and does nothing on a pinned thread or
 //   during process detach. Every kUsdGenEpochAutoDrain retires, an unpinned
