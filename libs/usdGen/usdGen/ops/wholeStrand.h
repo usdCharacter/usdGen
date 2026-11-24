@@ -20,7 +20,7 @@
 #ifndef USDGEN_OPS_WHOLE_STRAND_H
 #define USDGEN_OPS_WHOLE_STRAND_H
 
-#include "usdGen/op.h"
+#include "usdGen/ops/recordedOp.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -33,7 +33,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
-/// One output plane a whole-strand styler writes.
+/// One output plane a whole-strand styler writes (built from its record).
 struct UsdGenStrandPlaneSpec
 {
     TfToken name;
@@ -79,13 +79,13 @@ struct UsdGenStrandSet
     uint32_t Index(uint32_t c) const;
 };
 
-class UsdGenWholeStrandOp : public UsdGenOp
+/// The def of a subclass declares, in order: input, surface, seed, its
+/// structural parameters, then enabled and mask (Value class), and its output
+/// planes (UsdGenOpDef::outputPlanes). TopologyEffect stays None.
+class UsdGenWholeStrandOp : public UsdGenRecordedOp
 {
 public:
-    UsdGenTopoFx TopologyEffect() const final { return UsdGenTopoFx::None; }
-    TfSpan<const TfToken> TopologyParameters() const final;
-    TfSpan<const TfToken> ValueParameters() const final;
-    TfSpan<const TfToken> OutputPrimvars() const final;
+    explicit UsdGenWholeStrandOp(UsdGenOpRecord const &record);
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const final;
     bool Capture(UsdGenCaptureContext const &ctx,
@@ -99,11 +99,6 @@ public:
     uint32_t PlanesTouched() const final { return kPlanePoints; }
 
 protected:
-    /// Every capture-class parameter (no usdGen: prefix), excluding the base
-    /// input/surface/seed and the value-class enabled/mask. Read once.
-    virtual TfTokenVector StructuralParameters() const = 0;
-    /// Output planes, in slot order. Default none.
-    virtual std::vector<UsdGenStrandPlaneSpec> OutputPlaneSpecs() const { return {}; }
     /// Moves `strands.points` and fills `planes` (pre-sized to the specs,
     /// default -1 for ints and 0 for floats). Return false (with a
     /// diagnostic) to fail the capture; the node then passes its input
@@ -112,13 +107,11 @@ protected:
                          std::vector<UsdGenStrandPlaneData> &planes,
                          UsdGenDiagnostics *diag) = 0;
     /// Short type name for diagnostics ("UsdGenTwist").
-    std::string Label() const { return Type().GetString(); }
+    std::string Label() const { return Record().Name().GetString(); }
 
 private:
-    void EnsureTables() const;
-    mutable bool _tablesReady = false;
-    mutable TfTokenVector _topo, _value, _outputs;
-    mutable std::vector<UsdGenStrandPlaneSpec> _specs;
+    UsdGenParamSlot _mask = kUsdGenNoParam;
+    std::vector<UsdGenStrandPlaneSpec> _specs;   // the record's output planes, in slot order
 };
 
 }  // namespace usdGen

@@ -29,23 +29,27 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace frizzP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kAmplitude, kWavesX, kWavesZ, kNoise, kNoiseSize, kSharpness, kRoot, kMid, kMidShift, kTip, kUseClumpIds, kPreserveKnots, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokClumpId0, kTokRestLength, kTokKnotMask };
+}  // namespace frizzP
+
 class UsdGenFrizzOp final : public UsdGenWholeStrandOp
 {
 public:
-    UsdGenFrizzOp() = default;
+    explicit UsdGenFrizzOp(UsdGenOpRecord const &record) : UsdGenWholeStrandOp(record) {}
     ~UsdGenFrizzOp() override = default;
-    TfToken Type() const override { return TfToken("UsdGenFrizz"); }
 
 protected:
-    TfTokenVector StructuralParameters() const override;
-    std::vector<UsdGenStrandPlaneSpec> OutputPlaneSpecs() const override;
     bool Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                  std::vector<UsdGenStrandPlaneData> &planes,
                  UsdGenDiagnostics *diag) override;
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterFrizzOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

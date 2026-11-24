@@ -31,16 +31,31 @@ namespace usdGen {
 
 namespace {
 
-TfTokenVector const kTieClumpReferences{TfToken("guides")};
-
-TfToken const sGuides{"guides"};
-TfToken const sAmount{"tie:amount"};
-TfToken const sSpread{"tie:spread"};
-TfToken const sPositions{"tie:positions"};
-TfToken const sEntryCounts{"tie:entryCounts"};
-TfToken const sGuideIndices{"tie:guideIndices"};
-TfToken const sVertexIndices{"tie:vertexIndices"};
-TfToken const sPrimaryGuide{"primaryGuide"};
+using namespace tieClumpP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// input, surface, seed, the structural parameters, then enabled and mask.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"guides", UsdGenParamClass::Capture},
+    {"tie:amount", UsdGenParamClass::Capture},
+    {"tie:spread", UsdGenParamClass::Capture},
+    {"tie:positions", UsdGenParamClass::Capture},
+    {"tie:entryCounts", UsdGenParamClass::Capture},
+    {"tie:guideIndices", UsdGenParamClass::Capture},
+    {"tie:vertexIndices", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+constexpr char const *kReferences[] = {"guides"};
+constexpr char const *kTokens[] = {"primaryGuide"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenTieClumpOp>(r);
+}
 
 constexpr double kGate = 1e-4;          // amount threshold
 constexpr float kMinLength = 1e-6f;     // strands this short are skipped
@@ -147,21 +162,6 @@ void PullStrand(float *p, size_t n, std::vector<Tie> const &ties, float amount, 
 
 }  // namespace
 
-TfSpan<const TfToken> UsdGenTieClumpOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(kTieClumpReferences.data(), kTieClumpReferences.size());
-}
-
-TfTokenVector UsdGenTieClumpOp::StructuralParameters() const
-{
-    return {sGuides, sAmount, sSpread, sPositions, sEntryCounts, sGuideIndices, sVertexIndices};
-}
-
-std::vector<UsdGenStrandPlaneSpec> UsdGenTieClumpOp::OutputPlaneSpecs() const
-{
-    return {};
-}
-
 bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                                std::vector<UsdGenStrandPlaneData> &, UsdGenDiagnostics *diag)
 {
@@ -171,18 +171,18 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
     };
     UsdGenParamView const *p = ctx.params;
     if (!p) return fail("no parameters");
-    double const amount = p->GetDouble(sAmount, 1.0);
-    double const spread = p->GetDouble(sSpread, 0.25);
+    double const amount = p->GetDouble(kAmount, 1.0);
+    double const spread = p->GetDouble(kSpread, 0.25);
     if (!std::isfinite(amount) || !std::isfinite(spread))
         return fail("usdGen:tie:amount and usdGen:tie:spread must be finite");
 
     std::vector<GfVec3f> positions;
     std::vector<int> counts, guideIndices, vertexIndices;
-    if (!ReadPositions(p->GetVtValue(sPositions, VtValue()), &positions))
+    if (!ReadPositions(UsdGenAuthoredValue(*p, kPositions), &positions))
         return fail("usdGen:tie:positions must be a point3f[]");
-    if (!ReadInts(p->GetVtValue(sEntryCounts, VtValue()), &counts) ||
-        !ReadInts(p->GetVtValue(sGuideIndices, VtValue()), &guideIndices) ||
-        !ReadInts(p->GetVtValue(sVertexIndices, VtValue()), &vertexIndices))
+    if (!ReadInts(UsdGenAuthoredValue(*p, kEntryCounts), &counts) ||
+        !ReadInts(UsdGenAuthoredValue(*p, kGuideIndices), &guideIndices) ||
+        !ReadInts(UsdGenAuthoredValue(*p, kVertexIndices), &vertexIndices))
         return fail("usdGen:tie:entryCounts/guideIndices/vertexIndices must be int[]");
     if (counts.size() != positions.size())
         return fail("usdGen:tie:entryCounts needs one entry count per tie position");
@@ -243,7 +243,7 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
     for (auto const &list : tiesOf) anyTied = anyTied || !list.empty();
     if (!anyTied) return true;
 
-    int const *primary = strands.CurveInt(sPrimaryGuide);
+    int const *primary = strands.CurveInt(Record().Token(kTokPrimaryGuide));
     if (!primary)
         return fail("the upstream strands carry no primaryGuide plane "
                     "(place a GuideInterpolate upstream)");
@@ -259,7 +259,14 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
 
 UsdGenOpId UsdGenRegisterTieClumpOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenTieClumpOp().Type(), [] { return std::make_unique<UsdGenTieClumpOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenTieClump";
+    d.displayName = "TieClump";
+    d.create = &Create;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen
