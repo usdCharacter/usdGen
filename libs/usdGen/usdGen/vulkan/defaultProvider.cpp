@@ -343,13 +343,27 @@ public:
                         (void)retained;
                         return;
                     }
-                    auto lifecycleLock = exitDomain ? exitDomain->Lock()
-                        : std::unique_lock<std::mutex>{};
-                    if (exitDomain && exitDomain->IsQuiesced()) {
+                    // A close never waits: one in flight reruns for us, and
+                    // once quiescence began everything stays retained.
+                    auto const entry = exitDomain ? exitDomain->BeginClose()
+                        : VulkanExternalRetirementDomain::CloseEntry::Run;
+                    if (entry == VulkanExternalRetirementDomain::CloseEntry::Deferred) return;
+                    if (entry == VulkanExternalRetirementDomain::CloseEntry::Retain) {
                         auto* retained = new std::shared_ptr<Retirement>(shared_from_this());
                         (void)retained;
                         return;
                     }
+                    do CloseOnce();
+                    while (exitDomain && exitDomain->EndClose());
+                } catch (...) {
+                    if (exitDomain) (void)exitDomain->EndClose();
+                    auto* retained = new std::shared_ptr<Retirement>(shared_from_this());
+                    (void)retained;
+                }
+            }
+            // One registered close; the domain's lifecycle word is held.
+            void CloseOnce() noexcept {
+                try {
                     if (preparer) preparer->Drain();
                     if (queueOwner) queueOwner->Drain();
                     if (domain && !domain->Close()) {
