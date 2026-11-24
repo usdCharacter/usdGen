@@ -45,11 +45,12 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 
 | Gate | Baseline now | Target |
 |---|---|---|
-| `testUsdGenNoLocks` | 553 hits in 50 files (`noLocks.txt`) | empty |
-| `testUsdGenNoPxrIncludes` | 262 (`noPxrIncludes.txt`) | empty under libs/core |
+| `testUsdGenNoLocks` (locks, atomic shared_ptr, TBB) | empty | empty |
+| `testUsdGenNoGuardedStatics` | 5 (compiler.cpp 1, usdGenMath ramp.cpp 4) | empty |
+| `testUsdGenNoPxrIncludes` | see `noPxrIncludes.txt` | empty under libs/core |
 | `testUsdGenNoPxrLink_usdGen` | tf gf vt sdf arch js plug ts ar work trace hio pxOsd | none |
 | `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
-| `testUsdGenWarmAllocations` | 23 per warm cook, 76 per param edit (10k curves) | 0 / 0 |
+| `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted) | 0 / 0 |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
 
@@ -61,15 +62,31 @@ These tests fail on main too, so they aren't regressions:
 
 CI on #21: `ctest -L '^T[01]$'` fails only on ScenePublication and PomadeIndex, the same as main's last 5 runs. Build, install, offline configure and software Vulkan all pass.
 
+## Windows (verified 2026-11-24)
+
+RTX 4090, MSVC 14.36, CUDA 12.6, Vulkan on, serial `ctest -L '^(T0|T1)$'`: 420 of 422 pass.
+- `testUsdGenScenePublication` fails as on main.
+- `testUsdGenPomadeCommit` TN-4 (8 ms idle slot) and `testUsdGenWorkerPool` "at least two workers ran tasks" are timing checks that also fail intermittently on main.
+- The 36 Vulkan tests that failed on main on Windows now pass. Causes: a per-module copy of an inline function-local static registry, a text-mode SPIR-V read, a DLL-local `atexit`, and two submissions that ran past the 2 s TDR limit.
+- Allocation counting covers every module (`allocCounter.h` wraps the CRT heap imports), so the Windows numbers are real.
+
+Bench, main (b741e6c) against the branch, same machine, 4 threads, medians of 5 alternating rounds:
+
+| Metric | main | branch |
+|---|---|---|
+| Cold cook, 100k curves | 128.6 ms | 125.0 ms |
+| Warm recook | 121.0 ms | 118.4 ms |
+| Param-edit recook | 103.3 ms | 3.7 ms |
+| Hydra publish | 663.1 ms | 303.6 ms |
+| Hydra pull | 0.41 ms | 0.44 ms |
+
+main's allocation rows read 0 on Windows because its counter only sees the test exe.
+
 ## Not verified
 
-- **Windows / MSVC build.** Never compiled. Watch these:
-  - `parkingWord.cpp`: the WaitOnAddress path and linking `Synchronization.lib`
-  - `registrar.cpp`: LoadLibrary / GetProcAddress, and `usdGenRegister_usdGenCurves` exported extern "C"
-  - the `_aligned_malloc` branch in the two counting allocators
-- **Allocation counting on Windows.** Replacing `operator new` in the test exe only counts the exe's own allocations, because usdGen.dll has its own CRT `operator new`. On MSVC, `testUsdGenWarmAllocations` will read low. Fix: count in usdGen's own pools (step 2's proof in the review), or use a `_CrtSetAllocHook` debug build.
-- **Parking under contention on Windows.** On Linux, `testUsdGenWorkerPool` and `testUsdGenScheduling` each passed 40 runs with `USDGEN_POOL_SPIN_US=0`. Repeat that on Windows.
-- **CUDA and Vulkan timings.** No GPU, so none were measured. The Vulkan software-device CI job passes.
+- **Linux build of everything after the PLAN commit.** Steps 2 and 3 were built and tested on Windows only. CI covers Linux with CUDA off.
+- **TSan.** The stress tests ran natively; MSVC has no TSan. Run `testUsdGenLockFreeStress`, `testUsdGenEpoch`, `testUsdGenTaskScheduler`, `testUsdGenPomadeLanes` under TSan on Linux.
+- **ARM64.** Store-load handshakes use seq_cst fences, but nothing ran on ARM64.
 
 ## Run locally
 
@@ -92,60 +109,23 @@ To get a main build, use a worktree at b741e6c: main's code plus the bench. Alte
 
 Each step is one commit (or a short series). Build, tests and gates stay green after every commit, and each step ends with a compareBench table in its PR.
 
-### 2 (rest). Engine allocation through usdGen pools
+### 2 and 3. Done
 
-- **Goal:** warm cook and param edit at 0 allocations.
-- **Work:**
-  - Size-class pools in usdGen.dll, with per-thread magazines and a depot stack (review: lock-free table, "Size-class pools").
-  - A per-worker bump scratch, reset per chunk, replacing chunk-local `std::vector`s.
-  - Slot tables and ParamBlocks built once at compile.
-  - Arenas recycled through retirement.
-- **Find the 23 / 76:** run `testUsdGenWarmAllocations` under heaptrack, or break on `operator new` while counting is on. The param-edit path is `UsdGenCompiler::Recompile` (compiler.cpp).
-- **Done:** both budgets are 0. On Windows the count comes from the pool counters (see Not verified).
-- **Proves it:** `testUsdGenWarmAllocations`; `allocs.cook.*` in the bench.
-- **Depends on:** nothing. Can run in parallel with 3.
+- **2:** size-class pools (`pool.h`), per-thread scratch (`scratch.h`), captures and written planes recycled through retirement, compiled node kept on a value-only edit. Budgets are 0 / 0.
+- **3:** `epoch.h` (epoch reclamation, intrusive refcounts, atomic publication), `taskScheduler.h` (lanes, pending counts, process-wide `UsdGenParallelFor`), `sharedCell.h`, `parkingWord.h` wake words. No lock, TBB or atomic shared_ptr is left under `libs/`; usdGen no longer links TBB.
 
-### 3 (rest). Locks out of core and hosts
+Left over, none of it blocking 4:
 
-- **Goal:** `noLocks.txt` empty for core and hosts.
-- **Done:** the no-lock gate covers libs/core and libs/hosts with no baseline, and a 64-thread Submit/Visible stress test passes under TSan.
-- **Proves it:** `testUsdGenNoLocks`; warm and param-edit recook must not regress.
-- **Order:** engine first, then Vulkan/CUDA, then imaging, then Pomade.
-- **Current hits:** usdGen 243 in 32 files, usdGenImaging 60 in 7, usdGenPomade 250 in 11 (pomadeModel.cpp alone has 186).
-
-| Today | Replacement |
+| What | Where it goes |
 |---|---|
-| `executionTaskGraph.cpp:89` mutex, workerReady/drained CVs (15 hits) | engine scheduler; drain = per-graph pending count hitting 0, parked on a `parkingWord` |
-| TBB flow graph, task_arena, parallel_for, concurrent_unordered_map (sessionCooker, scheduler, executionPipeline, retirement, scatter, Vulkan deform; 21 files) | engine scheduler and `ParallelFor`; frozen or open-addressing tables |
-| `std::atomic_load/store` on shared_ptr (cudaExecution 62, groomSceneIndexPlugin 20, testHook 9, deviceGenerationAdapter 7, executionPipeline 7, sessionCooker 5, session 4, ...) | atomic raw pointer plus intrusive refcount; readers take an epoch guard (load acquire, AddRef, leave); writers store release and retire the old one through epochs |
-| `session.cpp:63` CoalescedControl mutex | cache entry state word plus a Treiber follower stack; the leader exchanges it for CLOSED |
-| `executionCache.h:298` `mutex_` (cache and LRU) | entry table by atomic pointer, CAS insert, CLOCK reference bits; the cook lane advances the hand |
-| `executionCache.h:741` registry mutex | cache domains made in `Engine::Create`, then frozen |
-| `executionCache.h:791` in-flight coalescing | entry state word and continuation stack |
-| `executionResources.cpp:57` permits | one atomic byte budget: Consume CAS loop, Release fetch_add |
-| `executionBackend.cpp:23` AdapterRegistry | BackendRegistry, frozen (reuse `UsdGenFreezeRegistries`) |
-| `sessionCooker.cpp:2097` progressMutex | tile slots in the cook arena, fetch_add sequence, release store of the count |
-| `cudaExecution.cpp:827` width-blend graph cache | owned by the session cook lane; readers by atomic pointer |
-| `vulkan/deformPipeline.cpp:283,302` factor/cache mutex (fence wait inside) | immutable entry by atomic pointer; proof phase on the cook lane; wait becomes a timeline check |
-| `deformPipeline.cpp:334-339` heteroPool once/mutexes | made at backend registration on the shared scheduler |
-| `deformPipeline.cpp:390` scratchMutex | per-worker scratch |
-| `rbfVkBinding.h:98,142` | immutable entry by atomic pointer, relaxed counters |
-| `vulkan/fencePool.h:47` | one timeline semaphore per queue; delete the fence pool |
-| `vulkan/externalRetirement` mutexes and worker thread | completion lane, SPSC rings, non-blocking queries |
-| `ops/rbfField.cpp:733` static mutex | per-worker pool |
-| `maps/attributeBake.h:126` mutex, CV, `sleep_for(5ms)` | I/O lane ring plus parking, no polling |
-| `maps/ptexMap.cpp:80` once_flag | done in `Engine::Create` |
-| `gpu/scatterGrow.cu:1330` copy thread | `cudaMemcpyAsync` on a copy stream plus an event |
-| `sessionBackendExecutor.cpp:116` thread per request | a scheduler task |
-| ~150 `cuda*Synchronize` | events polled by the completion lane; blocking only at shutdown, device loss and in tests |
-| `cudaMalloc`/`vkAllocateMemory` per buffer (`deviceBuffer.cu` 8) | size-class device pools that grow only on topology change |
-| `usdGenImagingSession.cpp:141` ProgressRelay | newest-wins atomic pointer |
-| `imageMapCache.cpp:33,37` decode once | CAS-inserted loading entry, waiters as continuations, decode on the I/O lane |
-| `attributePreviewSceneIndex.h:137,165,169` | copy-on-write tables by atomic pointer, written only on the frontend thread |
-| Pomade: pomadeModel, pomadeRegistry, pomadeSceneIndex mutexes; pomadeCommit and pomadeBake CV workers with sleep polling; `pomadeKernels.cu:3296` | model as a Cow snapshot by atomic pointer; registry frozen; rings to the commit and bake lanes with parking; one kernel context per device |
-| function-local statics with dynamic init | made in `Engine::Create`; ban them in the gate pattern |
-
-- **Needs first:** an epoch reclamation module (`exec/epoch.h`): global epoch, per-thread slot, retire lists drained by the cook lane. Every atomic shared_ptr replacement depends on it.
+| CUDA executor still returns synchronously (parks on a callback-woken fence); the completion lane exists but no production path uses it | step 8 |
+| Vulkan: only deform and RBF binding use the queue timeline; about 35 submit sites still make a fence each; `sourceWidthJob` calls the blocking `DeformPipeline::Begin` | step 8 |
+| Retirement lane is a dedicated thread in usdGenExecutionResources (below usdGen, cannot reach the scheduler) | step 8, when that DLL folds into the backend runtime |
+| `UsdGenWorkerPool` and `UsdGenTaskScheduler` are two pools | merge during step 5 |
+| Ops outside the bench graph still make a fresh capture on re-capture (no `Recyclable()`) | step 5, ElementSet arenas |
+| No cook-lane epoch drain; idle scheduler workers drain | step 5 |
+| Pomade lanes keep their own threads | step 13 |
+| Cache domains, Ptex cache and op registry are made on first use, not in `Engine::Create` | step 4, with the registries |
 
 ### 4. Registries and name tables into OpDef
 
@@ -263,7 +243,6 @@ Each step is one commit (or a short series). Build, tests and gates stay green a
 ## Order and parallelism
 
 ```
-2 rest ─┐
-3 rest ─┼─> 4 -> 4a -> 5 -> 6 -> 7 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14
-        └──────────────────────> 8 (after 3 GPU rows and 6)
+4 -> 4a -> 5 -> 6 -> 7 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14
+               └─> 8 (after 6)
 ```
