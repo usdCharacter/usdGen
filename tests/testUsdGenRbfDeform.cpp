@@ -1062,8 +1062,11 @@ void CheckDeformEvaluateViewShapes()
     // Partial uniform mask: ragged and uniform agree on the blend path too.
     UsdGenNodeDesc maskNode;
     maskNode.params.push_back(UsdGenParamValue{TfToken("mask"), VtValue(0.5), false});
-    UsdGenParamView maskView;
-    maskView.node = &maskNode;
+    UsdGenGraphDesc const maskGraph;
+    UsdGenOpRegistry const &maskRegistry = UsdGenOpRegistry::Get();
+    UsdGenStackParams maskStack(maskGraph, maskNode,
+        maskRegistry.Record(maskRegistry.Find(TfToken("UsdGenDeform"))));
+    UsdGenParamView const &maskView = maskStack.View();
     UsdGenEvalContext maskCtx;
     maskCtx.params = &maskView;
     std::vector<float> blendUniPx(term.totalCvs), blendUniPy(term.totalCvs),
