@@ -9,8 +9,8 @@
 
 namespace usdGen {
 
-// Shared private arena. Independent description pipelines use the same worker
-// budget; ownership of a description never serializes unrelated descriptions.
+// Shared private scheduler. Independent description pipelines use the same
+// worker budget; ownership of a description never serializes unrelated ones.
 class UsdGenExecutionRuntime {
 public:
     explicit UsdGenExecutionRuntime(int concurrency = 8);
@@ -126,7 +126,7 @@ public:
     bool CommandMailboxBroken(CommandMailbox const& mailbox) const noexcept;
     // Synchronous compatibility boundaries only. Every call owns a separate
     // framework completion graph, so concurrent callers never drain the same
-    // graph. Waiting cooperates with TBB; no application mutex/future/spin loop.
+    // graph. The caller parks on its own latch; no mutex/future/spin loop.
     // Both reject calls from ANY pipeline work item or callback.
     void InvokeOwner(std::function<void()> command);
     // dispatch must invoke/retain completion and eventually call it. It may
