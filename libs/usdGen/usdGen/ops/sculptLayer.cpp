@@ -18,7 +18,6 @@
 // stylers, never this layer. Stage-free: ctx/desc/params only.
 #include "usdGen/ops/sculptLayer.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include "pxr/base/gf/vec2f.h"
@@ -66,42 +65,41 @@ struct UsdGenSculptLayerCapture final : public UsdGenCapture
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtValue FindValue(UsdGenParamView const &params, TfToken const &name)
+VtValue FindValue(UsdGenParamView const &params, UsdGenParamSlot slot)
 {
-    return params.GetVtValue(name, VtValue());
+    return UsdGenAuthoredValue(params, slot);
+}
+
+using namespace sculptP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatGroom{expr::ScalarType::Float32, 1, "float", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// Decl order is the legacy topology list, then the value list.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"sculpt:space", UsdGenParamClass::Structural},     // kernel branch (02 §2.10)
+    {"sculpt:curveIds", UsdGenParamClass::Capture},     // re-match deltas to ids
+    {"sculpt:cvOffsets", UsdGenParamClass::Capture},
+    {"sculpt:epoch", UsdGenParamClass::Capture},        // authored-against epoch
+    {"sculpt:lockedCurves", UsdGenParamClass::Capture}, // freeze-brush id set
+    {"sculpt:rootPrims", UsdGenParamClass::Capture},    // rebase metadata
+    {"sculpt:rootUVs", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+    {"sculpt:weight", UsdGenParamClass::Value, true, kFloatGroom},
+    {"sculpt:deltas", UsdGenParamClass::Value},
+};
+constexpr char const *kTokens[] = {"rootFrame", "object"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenSculptLayerOp>(r);
 }
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("sculpt:space"));         // structural kernel branch (02 §2.10)
-    v.push_back(TfToken("sculpt:curveIds"));      // capture: re-match deltas to ids
-    v.push_back(TfToken("sculpt:cvOffsets"));     // capture: re-match deltas to ids
-    v.push_back(TfToken("sculpt:epoch"));         // capture: authored-against epoch
-    v.push_back(TfToken("sculpt:lockedCurves"));  // capture: freeze-brush id set
-    v.push_back(TfToken("sculpt:rootPrims"));     // capture: rebase metadata
-    v.push_back(TfToken("sculpt:rootUVs"));       // capture: rebase metadata
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("mask"));
-    v.push_back(TfToken("sculpt:weight"));
-    v.push_back(TfToken("sculpt:deltas"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenSculptLayerOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenSculptLayerOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenSculptLayerOp::CreateCapture() const
 {
     return std::make_unique<UsdGenSculptLayerCapture>();
@@ -117,22 +115,22 @@ bool UsdGenSculptLayerOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics 
         if (diag) diag->Error("UsdGenSculptLayer: " + message);
         return false;
     };
-    TfToken const space = params.GetToken(sSpace, sRootFrame);
-    if (space != sRootFrame && space != sObject)
+    TfToken const space = params.GetToken(kSpace, Record().Token(kTokRootFrame));
+    if (space != Record().Token(kTokRootFrame) && space != Record().Token(kTokObject))
         return fail("unknown usdGen:sculpt:space '" + space.GetString() + "'");
-    double const weight = params.GetDoubleLiteral(sWeight, 1.0);
+    double const weight = params.GetDoubleLiteral(kWeight, 1.0);
     if (!Finite(weight) || weight < 0.0 || weight > 1.0)
         return fail("usdGen:sculpt:weight must be finite and in [0, 1]");
-    if (!Finite(params.GetDoubleLiteral(sMask, 1.0)))
+    if (!Finite(params.GetDoubleLiteral(kMask, 1.0)))
         return fail("usdGen:mask must be finite");
 
-    VtValue const ids = FindValue(params, sCurveIds);
-    VtValue const offsets = FindValue(params, sCvOffsets);
-    VtValue const deltas = FindValue(params, sDeltas);
-    VtValue const epoch = FindValue(params, sEpoch);
-    VtValue const locked = FindValue(params, sLocked);
-    VtValue const rootPrims = FindValue(params, sRootPrims);
-    VtValue const rootUVs = FindValue(params, sRootUVs);
+    VtValue const ids = FindValue(params, kCurveIds);
+    VtValue const offsets = FindValue(params, kCvOffsets);
+    VtValue const deltas = FindValue(params, kDeltas);
+    VtValue const epoch = FindValue(params, kEpoch);
+    VtValue const locked = FindValue(params, kLocked);
+    VtValue const rootPrims = FindValue(params, kRootPrims);
+    VtValue const rootUVs = FindValue(params, kRootUVs);
     if (!ids.IsEmpty() && !ids.IsHolding<VtArray<uint64_t>>())
         return fail("usdGen:sculpt:curveIds must be uint64[]");
     if (!offsets.IsEmpty() && !offsets.IsHolding<VtIntArray>())
@@ -227,14 +225,14 @@ UsdGenEpoch UsdGenSculptLayerOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
     // identity separately) sweep without recapturing.
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     opUtil::Digest digest;
-    digest.Mix(p ? p->GetToken(sSpace, sRootFrame) : sRootFrame);
+    digest.Mix(p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame));
     if (p) {
-        digest.Mix(FindValue(*p, sCurveIds));
-        digest.Mix(FindValue(*p, sCvOffsets));
-        digest.Mix(FindValue(*p, sEpoch));
-        digest.Mix(FindValue(*p, sLocked));
-        digest.Mix(FindValue(*p, sRootPrims));
-        digest.Mix(FindValue(*p, sRootUVs));
+        digest.Mix(FindValue(*p, kCurveIds));
+        digest.Mix(FindValue(*p, kCvOffsets));
+        digest.Mix(FindValue(*p, kEpoch));
+        digest.Mix(FindValue(*p, kLocked));
+        digest.Mix(FindValue(*p, kRootPrims));
+        digest.Mix(FindValue(*p, kRootUVs));
     }
     digest.Mix(ctx.upstreamGeneration);
     digest.Mix(uint64_t(ctx.seed));
@@ -265,22 +263,22 @@ bool UsdGenSculptLayerOp::Capture(
     if (!opUtil::CurveSpans(upstream, &spans, &spansError))
         return fail("upstream CV topology " + spansError);
 
-    VtValue const ids = p ? FindValue(*p, sCurveIds) : VtValue();
-    VtValue const offsets = p ? FindValue(*p, sCvOffsets) : VtValue();
+    VtValue const ids = p ? FindValue(*p, kCurveIds) : VtValue();
+    VtValue const offsets = p ? FindValue(*p, kCvOffsets) : VtValue();
     VtArray<uint64_t> const emptyIds;
     VtIntArray const emptyInts;
     VtArray<uint64_t> const &idArray = ids.IsHolding<VtArray<uint64_t>>()
         ? ids.UncheckedGet<VtArray<uint64_t>>() : emptyIds;
     VtIntArray const &offsetArray = offsets.IsHolding<VtIntArray>()
         ? offsets.UncheckedGet<VtIntArray>() : emptyInts;
-    TfToken const space = p ? p->GetToken(sSpace, sRootFrame) : sRootFrame;
+    TfToken const space = p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame);
 
     // Connected weight and mask scans, so a non-finite or out-of-range
     // expression fails closed at capture instead of writing NaN points.
     UsdGenParamField const weightField =
-        p ? p->GetScalarField(sWeight, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kWeight, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     if (weightField.connected && weightField.components != 1)
         return fail("connected sculpt:weight must be float");
     if (maskField.connected && maskField.components != 1)
@@ -300,7 +298,7 @@ bool UsdGenSculptLayerOp::Capture(
     // rest root frame the compiler publishes per curve.
     if (upstream.curveId.size() != upstream.totalCurves)
         return fail("a sculpt layer needs stable per-curve ids upstream");
-    if (space == sRootFrame &&
+    if (space == Record().Token(kTokRootFrame) &&
         (upstream.rootT.size() != upstream.totalCurves ||
          upstream.rootB.size() != upstream.totalCurves ||
          upstream.rootN.size() != upstream.totalCurves))
@@ -356,7 +354,7 @@ void UsdGenSculptLayerOp::Evaluate(
     // resized deltas array against a stale capture span is a router-level
     // inconsistency Evaluate cannot diagnose, so it passes through rather
     // than reading out of bounds.
-    VtValue const deltasValue = p ? FindValue(*p, sDeltas) : VtValue();
+    VtValue const deltasValue = p ? FindValue(*p, kDeltas) : VtValue();
     VtVec3fArray const emptyDeltas;
     VtVec3fArray const *deltas = deltasValue.IsHolding<VtVec3fArray>()
         ? &deltasValue.UncheckedGet<VtVec3fArray>() : &emptyDeltas;
@@ -364,17 +362,17 @@ void UsdGenSculptLayerOp::Evaluate(
         for (uint32_t c = 0; c < view->curveCount; ++c) copyThrough(c);
         return;
     }
-    TfToken const space = p ? p->GetToken(sSpace, sRootFrame) : sRootFrame;
-    bool const rootFrame = space == sRootFrame;
-    if (space != sRootFrame && space != sObject) {
+    TfToken const space = p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame);
+    bool const rootFrame = space == Record().Token(kTokRootFrame);
+    if (space != Record().Token(kTokRootFrame) && space != Record().Token(kTokObject)) {
         // Defensive pass-through; Capture already failed closed.
         for (uint32_t c = 0; c < view->curveCount; ++c) copyThrough(c);
         return;
     }
     UsdGenParamField const weightField =
-        p ? p->GetScalarField(sWeight, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kWeight, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;
     size_t const cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
     auto const *curveId = view->curveId;
@@ -433,7 +431,13 @@ void UsdGenSculptLayerOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterSculptLayerOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenSculptLayerOp().Type(), [] { return std::make_unique<UsdGenSculptLayerOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenSculptLayer";
+    d.displayName = "SculptLayer";
+    d.create = &Create;
+    d.params = UsdGenSpan(kParams);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen
