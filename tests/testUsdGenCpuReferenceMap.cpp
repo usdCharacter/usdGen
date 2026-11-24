@@ -7,6 +7,7 @@
 #include "usdGen/imagePayload.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/pxr.h"
@@ -141,27 +142,89 @@ private:
 
 int gContractConstructions = 0;
 
+char const *const kProbeReferences[]={"guides","centers"};
+
+void RegisterProbes(UsdGenRegistrar &r)
+{
+    UsdGenOpDef ref;
+    ref.name="UsdGenTestReferenceProbe";
+    ref.displayName="TestReferenceProbe";
+    ref.create=[](UsdGenOpRecord const&,void*)->std::unique_ptr<UsdGenOp>{return std::make_unique<ReferenceProbe>();};
+    ref.role=UsdGenRole::Reference;
+    ref.geometryInputArity=0;
+    ref.referenceInputs=UsdGenSpan(kProbeReferences);
+    r.RegisterOp(ref);
+    UsdGenOpDef curve;
+    curve.name="UsdGenTestCurveProbe";
+    curve.displayName="TestCurveProbe";
+    curve.create=[](UsdGenOpRecord const&,void*)->std::unique_ptr<UsdGenOp>{return std::make_unique<CurveProbe>();};
+    curve.geometryInputArity=0;
+    r.RegisterOp(curve);
+}
+
+bool gContractRegistered[3]={false,false,false};
+char const *const kContractReferences[]={"first","second"};
+
+void RegisterContractProbes(UsdGenRegistrar &r)
+{
+    // The contract lives in the def, so registration constructs no operator.
+    auto create=[](UsdGenOpRecord const&,void *context)->std::unique_ptr<UsdGenOp>{
+        ++gContractConstructions;
+        return std::make_unique<ContractProbe>(context!=nullptr);
+    };
+    static int reference=0;
+    UsdGenOpDef source;
+    source.name="UsdGenTestSourceContract";
+    source.displayName="TestSourceContract";
+    source.create=create;
+    source.geometryInputArity=0;
+    gContractRegistered[0]=r.RegisterOp(source)!=UsdGenOpId::Invalid;
+    UsdGenOpDef ref;
+    ref.name="UsdGenTestReferenceContract";
+    ref.displayName="TestReferenceContract";
+    ref.create=create;
+    ref.createContext=&reference;
+    ref.role=UsdGenRole::Reference;
+    ref.geometryInputArity=1;
+    ref.referenceInputs=UsdGenSpan(kContractReferences);
+    gContractRegistered[1]=r.RegisterOp(ref)!=UsdGenOpId::Invalid;
+    UsdGenOpDef again=source;
+    again.createContext=&reference;
+    gContractRegistered[2]=r.RegisterOp(again)!=UsdGenOpId::Invalid;
+}
+
+bool OperatorContract(UsdGenOpRegistry const &registry,TfToken const &type,size_t *geometry,
+                      size_t *references,UsdGenRole *role)
+{
+    UsdGenOpId const id=registry.Find(type);
+    if(id==UsdGenOpId::Invalid)return false;
+    UsdGenOpRecord const &record=registry.Record(id);
+    *geometry=record.Def().geometryInputArity;
+    *references=record.ReferenceInputs().size();
+    *role=record.Def().role;
+    return true;
+}
+
 void ValidateRegistryContractReuse()
 {
     auto& registry=UsdGenOpRegistry::Get();
     TfToken const type("UsdGenTestSourceContract");
     TfToken const referenceType("UsdGenTestReferenceContract");
-    Check(registry.Register(type,[]{++gContractConstructions;return std::make_unique<ContractProbe>(false);}) &&
-          registry.Register(referenceType,[]{++gContractConstructions;return std::make_unique<ContractProbe>(true);}),
+    Check(gContractRegistered[0]&&gContractRegistered[1],
           "registers one static input contract per type");
     int const probed=gContractConstructions;
-    Check(probed==2,"registration probes each factory exactly once");
-    Check(!registry.Register(type,[]{++gContractConstructions;return std::make_unique<ContractProbe>(true);}),
+    Check(probed==0,"registration constructs no operator");
+    Check(!gContractRegistered[2],
           "a type has exactly one kernel: re-registration is refused");
     Check(gContractConstructions==probed,"a refused registration constructs nothing");
     size_t geometry=99,references=99;UsdGenRole role=UsdGenRole::Reference;
-    Check(registry.GetOperatorContract(type,&geometry,&references,&role)&&
+    Check(OperatorContract(registry,type,&geometry,&references,&role)&&
           geometry==0&&references==0&&role==UsdGenRole::Curves,
           "the source type retains its geometry/reference/role contract");
-    Check(registry.GetOperatorContract(referenceType,&geometry,&references,&role)&&
+    Check(OperatorContract(registry,referenceType,&geometry,&references,&role)&&
           geometry==1&&references==2&&role==UsdGenRole::Reference,
           "the reference type has its distinct reference contract");
-    Check(!registry.GetOperatorContract(TfToken("UsdGenMissingContract"),&geometry,&references,&role),
+    Check(!OperatorContract(registry,TfToken("UsdGenMissingContract"),&geometry,&references,&role),
           "a missing type does not borrow a different contract");
     Check(gContractConstructions==probed,"contract queries do not construct operators");
 
@@ -620,12 +683,10 @@ void ValidateReferenceProducerChain()
 
 int main()
 {
-    usdGenRegisterM1Operators();
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestReferenceProbe"),
-          [] { return std::make_unique<ReferenceProbe>(); }),
+    Check(UsdGenRegisterStatic(&RegisterContractProbes)&&UsdGenRegisterStatic(&RegisterProbes)&&
+          UsdGenOpRegistry::Get().Find(TfToken("UsdGenTestReferenceProbe"))!=UsdGenOpId::Invalid,
           "registers reference-lane probe");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestCurveProbe"),
-          [] { return std::make_unique<CurveProbe>(); }),
+    Check(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTestCurveProbe"))!=UsdGenOpId::Invalid,
           "registers curve-lane probe");
     ValidateRegistryContractReuse();
     RunReferenceMapLowering();

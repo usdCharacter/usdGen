@@ -220,12 +220,20 @@ uint64_t Counted(char const *what, Fn &&fn)
 
 }  // namespace
 
+void RegisterLateOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenLateOp";
+    d.displayName = "LateOp";
+    d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> { return nullptr; };
+    r.RegisterOp(d);
+}
+
 int main()
 {
-    usdGenRegisterM1Operators();
+    (void)UsdGenOpRegistry::Get();   // built-ins register on first use
     UsdGenFreezeRegistries();   // compile and exec read frozen registries
-    if (UsdGenOpRegistry::Get().Register(TfToken("UsdGenLateOp"),
-                                         [] { return std::unique_ptr<UsdGenOp>(); })) {
+    if (UsdGenRegisterStatic(&RegisterLateOp)) {
         std::printf("FAIL: registration after freeze\n");
         return 1;
     }

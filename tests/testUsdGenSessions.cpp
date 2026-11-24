@@ -9,6 +9,7 @@
 
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/session.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/graph.h"
@@ -45,6 +46,19 @@ public:
     }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
 };
+
+void RegisterFailingCaptureOp(UsdGenRegistrar &r)
+{
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenFailingCaptureTest";
+        d.displayName = "FailingCaptureTest";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<FailingCaptureOp>();
+        };
+        r.RegisterOp(d);
+    }
+}
 
 void Check(bool ok, std::string const &what)
 {
@@ -149,7 +163,8 @@ UsdGenGraphDesc MakeDoubleGraph(int NX = 50, int NY = 5)
 
 int main()
 {
-    usdGenRegisterM1Operators();
+    // Before the first compile: registries freeze there.
+    UsdGenRegisterStatic(&RegisterFailingCaptureOp);
 
     // ---- Build a graph with two surfaces sharing one session ----
     UsdGenGraphDesc const desc = MakeDoubleGraph();
@@ -271,8 +286,6 @@ int main()
     Check(failureSession.Commit(3, UsdGenCommitReason::SetTime) == previous,
           "rejected descriptor stays structural-dirty on retry");
 
-    UsdGenOpRegistry::Get().Register(TfToken("UsdGenFailingCaptureTest"),
-        [] { return std::make_unique<FailingCaptureOp>(); });
     rejected = desc;
     UsdGenNodeDesc failing;
     failing.path = SdfPath("/groom/failing");

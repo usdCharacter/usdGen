@@ -27,6 +27,7 @@
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
 
@@ -99,6 +100,22 @@ public:
 private:
     std::array<TfToken, 1> const _outputs{{TfToken("guideIndex")}};
 };
+
+void RegisterGuideIndexWriter(UsdGenRegistrar &r)
+{
+    static UsdGenPlaneDecl const kOut[] = {
+        {"guideIndex", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 3}};
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestGuideIndexWriter";
+        d.displayName = "TestGuideIndexWriter";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<GuideIndexWriter>();
+        };
+        d.outputPlanes = UsdGenSpan(kOut);
+        r.RegisterOp(d);
+    }
+}
 
 const int kCurveCount = 32768;   // >= 32768 per plan 05's SI-1 fixture size
 const int kVertsPerCurve = 4;
@@ -320,9 +337,9 @@ void CheckPartitionBoundaries()
 
 int main()
 {
-    usdGenRegisterM1Operators();
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestGuideIndexWriter"),
-              [] { return std::make_unique<GuideIndexWriter>(); }),
+    Check(UsdGenRegisterStatic(&RegisterGuideIndexWriter) &&
+              UsdGenOpRegistry::Get().Find(TfToken("UsdGenTestGuideIndexWriter")) !=
+                  UsdGenOpId::Invalid,
           "registers typed extra-plane publication writer");
     CheckPartitionBoundaries();
 

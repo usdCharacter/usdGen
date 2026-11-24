@@ -8,6 +8,7 @@
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/pxr.h"
@@ -300,15 +301,26 @@ void TestTransactionalFailure(bool unequalDepth)
     std::printf("completed %s transactional case\n", shape);
 }
 
+bool gRegisteredFallible = false;
+
+void RegisterFallibleRemap(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenTestFallibleRemap";
+    d.displayName = "TestFallibleRemap";
+    d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<FallibleRemap>();
+    };
+    d.traits = kUsdGenOpRemapsVertexPlanes;
+    gRegisteredFallible = r.RegisterOp(d) != UsdGenOpId::Invalid;
+}
+
 } // namespace
 
 int main()
 {
-    usdGenRegisterM1Operators();
-    Check(UsdGenOpRegistry::Get().Register(
-              TfToken("UsdGenTestFallibleRemap"),
-              [] { return std::make_unique<FallibleRemap>(); }),
-          "registers fallible remapper");
+    UsdGenRegisterStatic(&RegisterFallibleRemap);
+    Check(gRegisteredFallible, "registers fallible remapper");
     TestTransactionalFailure(false);
     TestTransactionalFailure(true);
     std::printf(g_failures ? "testUsdGenCutFailure: FAILED (%d)\n"

@@ -4,6 +4,7 @@
 #include "usdGenImaging/testHook.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
@@ -347,6 +348,19 @@ public:
     }
 };
 
+void RegisterTileHoldOp(usdGen::UsdGenRegistrar &r)
+{
+    {
+        usdGen::UsdGenOpDef d;
+        d.name = "UsdGenImagingTileHold";
+        d.displayName = "ImagingTileHold";
+        d.create = [](usdGen::UsdGenOpRecord const&, void*) -> std::unique_ptr<usdGen::UsdGenOp> {
+            return std::make_unique<ProgressiveTileHoldOp>();
+        };
+        r.RegisterOp(d);
+    }
+}
+
 class ProgressiveTypeOverlay final : public HdSingleInputFilteringSceneIndexBase {
 public:
     static HdSceneIndexBaseRefPtr New(HdSceneIndexBaseRefPtr const& input) {
@@ -444,8 +458,6 @@ public:
 
 void TestProgressiveStormPublication()
 {
-    usdGen::UsdGenOpRegistry::Get().Register(TfToken("UsdGenImagingTileHold"),
-        [] { return std::make_unique<ProgressiveTileHoldOp>(); });
     ProgressiveTileHold::entered.store(false, std::memory_order_release);
     ProgressiveTileHold::release.store(false, std::memory_order_release);
     ProgressiveTileHold::timedOut.store(false, std::memory_order_release);
@@ -598,7 +610,7 @@ def Scope "Groom"
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
+    usdGen::UsdGenRegisterStatic(&RegisterTileHoldOp);
     TestProgressiveStormPublication();
     {
         // Scatter over an area: the one-line publication fixture above has

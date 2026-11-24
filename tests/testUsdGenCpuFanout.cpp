@@ -10,6 +10,7 @@
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/ops/grow.h"
 #include "usdGen/scheduler.h"
 
@@ -177,6 +178,54 @@ UsdGenGraphDesc MakeFanout(std::string const &terminalName,
     nodes.push_back(WidthNode(siblingName, 0.75f));
     for (int i : authoredOrder) desc.nodes.push_back(nodes.at(size_t(i)));
     return desc;
+}
+
+bool GeometryArity(char const *type, size_t *out)
+{
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    UsdGenOpId const id = registry.Find(TfToken(type));
+    if (id == UsdGenOpId::Invalid) return false;
+    *out = registry.Record(id).Def().geometryInputArity;
+    return true;
+}
+
+void RegisterFanoutTestOps(UsdGenRegistrar &r)
+{
+    static UsdGenPlaneDecl const kCv[] = {
+        {"cvPayload", UsdGenPlaneRate::Vertex, UsdGenPlaneScalar::Float, 1}};
+    static UsdGenPlaneDecl const kCurve[] = {
+        {"curvePayload", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1}};
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestExtraCvWriter";
+        d.displayName = "TestExtraCvWriter";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<ExtraCvWriter>();
+        };
+        d.inputPlanes = UsdGenSpan(kCv);
+        d.outputPlanes = UsdGenSpan(kCv);
+        r.RegisterOp(d);
+    }
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestExtraCurveWriter";
+        d.displayName = "TestExtraCurveWriter";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<ExtraCurveWriter>();
+        };
+        d.inputPlanes = UsdGenSpan(kCurve);
+        d.outputPlanes = UsdGenSpan(kCurve);
+        r.RegisterOp(d);
+    }
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestHeldWidthWriter";
+        d.displayName = "TestHeldWidthWriter";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<HeldWidthWriter>();
+        };
+        r.RegisterOp(d);
+    }
 }
 
 struct FanoutResult
@@ -1432,8 +1481,7 @@ void TestOrderedWidthBlend()
     desc.nodes = {merge, right, source, left};
 
     size_t arity = 0;
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenWidthBlend"), &arity) && arity == 2,
+    Check(GeometryArity("UsdGenWidthBlend", &arity) && arity == 2,
           "registry exposes WidthBlend ordered binary contract");
 
     UsdGenCompiler compiler;
@@ -1592,29 +1640,21 @@ void TestDependencyReadyHeldFanout()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     size_t arity = 99;
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenCurveSource"), &arity) && arity == 0,
+    Check(GeometryArity("UsdGenCurveSource", &arity) && arity == 0,
           "registry exposes CurveSource zero-input contract");
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenWidth"), &arity) && arity == 1,
+    Check(GeometryArity("UsdGenWidth", &arity) && arity == 1,
           "registry exposes Width unary contract");
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenGrow"), &arity) && arity == 1,
+    Check(GeometryArity("UsdGenGrow", &arity) && arity == 1,
           "topology-owning Grow remains a unary geometry consumer");
-    Check(!UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenMissingInputContract"), &arity),
+    Check(!GeometryArity("UsdGenMissingInputContract", &arity),
           "registry rejects an unknown input contract");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestExtraCvWriter"),
-          [] { return std::make_unique<ExtraCvWriter>(); }),
-          "registers the extra-CV slot writer");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestExtraCurveWriter"),
-          [] { return std::make_unique<ExtraCurveWriter>(); }),
-          "registers the extra-curve slot writer");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestHeldWidthWriter"),
-          [] { return std::make_unique<HeldWidthWriter>(); }),
-          "registers the held-width scheduler test writer");
+    Check(UsdGenRegisterStatic(&RegisterFanoutTestOps),
+          "registers the fan-out test writers");
+    for (char const *name : {"UsdGenTestExtraCvWriter", "UsdGenTestExtraCurveWriter",
+                             "UsdGenTestHeldWidthWriter"})
+        Check(UsdGenOpRegistry::Get().Find(TfToken(name)) != UsdGenOpId::Invalid,
+              std::string("registered ") + name);
     TestFanoutDeterminism();
     TestCowAliasesRefreshAfterTopologyRevision();
     TestExtraPlaneCowAndTopologyRefresh();

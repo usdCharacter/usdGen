@@ -1,8 +1,8 @@
 // UsdGenFreeze operator contract and CPU cooks.
 //
 // Covers the session-tier freeze (02 §2.9):
-//   (1) registry HasKernel/Create/TopologyEffect/ReferenceInputs/
-//       OutputPrimvars/PlanesTouched plus the Topology/Value partition;
+//   (1) registry Find/Record/Create, topoFx/role/arity/ReferenceInputs/
+//       planes, PlanesTouched plus the Topology/Value partition;
 //   (2) happy-path numerics: frozen chain-input snapshot, frozen explicit
 //       snapshot (points, widths, curve ids), live passthrough, the
 //       no-widths defaultWidth fill;
@@ -14,30 +14,11 @@
 //   (5) explicit CUDA-backend rejection (capability matrix has no row);
 //   (6) tier lowering: sublayer/payload cook as session with a warning.
 //
-// PARENT INTEGRATION (this file + ops/freeze.{h,cpp} are complete; the parent
-// applies these exact edits, no kernel changes):
-//   REQUIRED:
-//   - CMakeLists.txt ~line 1716: add Freeze to the styler foreach
-//     (foreach(_styler_test Direction Smooth Resample Scale Straighten
-//     Displace Freeze)) — the usdGen lib itself is GLOB_RECURSE, so
-//     ops/freeze.cpp needs no source-list edit.
-//   - libs/usdGen/usdGen/opRegistry.h after CreateDisplaceOp (~line 82):
-//     std::unique_ptr<UsdGenOp> CreateFreezeOp();
-//   - libs/usdGen/usdGen/opRegistry.cpp: #include "usdGen/ops/freeze.h"
-//     (~line 33), the CreateFreezeOp factory (~line 128), and
-//     Register(TfToken("UsdGenFreeze"), &CreateFreezeOp) in the ctor
-//     (~line 155, bump _entries.reserve(21) to 22).
-//   RECOMMENDED (02 §6.1 fidelity; v1 is correct without it because the
-//   session-tier layout rule makes recapture equivalent):
-//   - compiler.cpp IsDigestParam (~line 664): frozen:mode and frozen:curves
-//     as UsdGenFreeze digest terms (structural recompile on edit).
-//   APPLIED: scheduler.cpp PrepareNodeForEval captureAuthorsRest /
-//   captureOwnsTransformedPlanes extend the Grow/Resample conditions to
-//   UsdGenFreeze, and DeepCopyBuffer copies the named planes, so frozen
-//   output carries the snapshot's rest and named planes instead of the
-//   upstream ones (asserted by the immunity checks below). No
-//   expressionTargets.cpp edit: the default Reject covers Freeze
-//   (asserted below).
+// Freeze is a built-in op (ops/registerCurves.cpp). It keeps the scheduler's
+// rest/named-plane ownership (kUsdGenOpCaptureOwnsRestAndPlanes), so frozen
+// output carries the snapshot's rest and named planes instead of the
+// upstream ones (asserted by the immunity checks below). The default
+// expression Reject covers Freeze (asserted below).
 #include "usdGen/compiler.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
@@ -233,28 +214,33 @@ static bool SameAs(FrozenCopy const &s, UsdGenCurveBuffer const &b)
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenFreeze");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenFreeze)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    UsdGenOpId const id = registry.Find(type);
+    Check(id != UsdGenOpId::Invalid && registry.Record(id).Def().create,
+          "Find(UsdGenFreeze) has a kernel");
+    if (id == UsdGenOpId::Invalid) return;
+    UsdGenOpRecord const &record = registry.Record(id);
+    std::unique_ptr<UsdGenOp> op = registry.Create(id);
     Check(op != nullptr, "Create(UsdGenFreeze)");
     if (!op) return;
-    Check(op->Type() == type, "Freeze reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::CurveCount,
+    Check(record.Name() == type, "Freeze reports its own type");
+    Check(record.Def().topoFx == UsdGenTopoFx::CurveCount,
           "Freeze has TopologyEffect CurveCount (static worst case)");
-    Check(op->Role() == UsdGenRole::Curves, "Freeze is a Curves-role chain node");
-    Check(op->GeometryInputArity() == 1, "Freeze consumes one chain input");
-    Check(!op->IsGenerator(), "Freeze is not a generator");
-    TfSpan<const TfToken> const refs = op->ReferenceInputs();
+    Check(record.Def().role == UsdGenRole::Curves, "Freeze is a Curves-role chain node");
+    Check(record.Def().geometryInputArity == 1, "Freeze consumes one chain input");
+    Check(!record.Has(kUsdGenOpGenerator), "Freeze is not a generator");
+    TfSpan<const TfToken> const refs = record.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("frozen:curves"),
           "Freeze declares the frozen:curves reference input");
-    Check(op->OutputPrimvars().empty(), "Freeze emits no output primvars");
-    Check(op->InputPrimvars().empty(), "Freeze reads no input primvars");
+    Check(record.OutputPlanes().empty(), "Freeze emits no output primvars");
+    Check(record.InputPlanes().empty(), "Freeze reads no input primvars");
     Check(op->PlanesTouched() == (UsdGenOp::kPlanePoints | UsdGenOp::kPlaneWidths),
           "Freeze touches the points and widths planes only");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s)
+        (record.ParamClass(s) == UsdGenParamClass::Value ? value : topo)
+            .insert(record.ParamName(s).GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed", "enabled",
                                         "frozen:curves", "frozen:mode",
                                         "frozen:epoch"},
@@ -898,12 +884,6 @@ static void CheckCudaRejection()
 
 int main()
 {
-    usdGenRegisterM1Operators();
-    // Local registration: the parent wires CreateFreezeOp into opRegistry.cpp;
-    // until then the test brings its own factory (duplicate-safe).
-    UsdGenOpRegistry::Get().Register(TfToken("UsdGenFreeze"), [] {
-        return std::make_unique<UsdGenFreezeOp>();
-    });
     CheckRegistryContracts();
     CheckFrozenChainInput();
     CheckSchemaDefaults();

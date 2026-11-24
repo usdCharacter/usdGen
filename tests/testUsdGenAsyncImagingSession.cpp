@@ -3,6 +3,7 @@
 
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGenImaging/imageMapCache.h"
@@ -200,6 +201,19 @@ public:
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
 };
 
+void RegisterBatchHoldOp(UsdGenRegistrar &r)
+{
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenImagingBatchHold";
+        d.displayName = "ImagingBatchHold";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<BatchHoldOp>();
+        };
+        r.RegisterOp(d);
+    }
+}
+
 void TestPairedConcurrentRequests()
 {
     auto session = NewSession();
@@ -226,7 +240,6 @@ void TestPairedConcurrentRequests()
             accepted.fetch_add(1, std::memory_order_relaxed);
     };
 
-    usdGenRegisterM1Operators();
     std::thread a(submit, descA, 10.0, .031f);
     std::thread b(submit, descB, 11.0, .047f);
     a.join();
@@ -746,8 +759,7 @@ void TestImageMapReloadStagesNewCowGeneration()
 
 int main()
 {
-    UsdGenOpRegistry::Get().Register(TfToken("UsdGenImagingBatchHold"),
-        [] { return std::make_unique<BatchHoldOp>(); });
+    UsdGenRegisterStatic(&RegisterBatchHoldOp);
     TestPairedConcurrentRequests();
     TestDevicePublicationRequestRelay();
     TestCallbackUnregisterAndReentry();

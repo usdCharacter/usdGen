@@ -23,6 +23,7 @@
 #include "usdGen/executionBackend.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/vulkan/executionPlan.h"
@@ -298,11 +299,11 @@ int main() {
     // which are out of scope for this proof) must reject with the operator
     // diagnostic. This doubles as the operator sweep for resample and the
     // expression operator above.
-    usdGenRegisterM1Operators();
     {
         std::set<std::string> known;
-        for (auto const& type : UsdGenOpRegistry::Get().KnownTypes())
-            known.insert(type.GetString());
+        UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+        for (uint32_t i = 0; i < registry.Count(); ++i)
+            known.insert(registry.Record(UsdGenOpId(i)).Name().GetString());
         bool const sane =
             known.count("UsdGenCurveSource") && known.count("UsdGenWidth") &&
             known.count("UsdGenLength") && known.count("UsdGenWidthBlend") &&
