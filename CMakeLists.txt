@@ -2487,6 +2487,12 @@ if(USDGEN_ENABLE_CUDA)
     set_tests_properties(testUsdGenCudaScatterGrowOverlap PROPERTIES
         LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    add_executable(testUsdGenCudaScatterGrowOverlapFault tests/testUsdGenCudaScatterGrowOverlapFault.cpp)
+    target_link_libraries(testUsdGenCudaScatterGrowOverlapFault PRIVATE usdGen usdGenGpu)
+    add_test(NAME testUsdGenCudaScatterGrowOverlapFault COMMAND testUsdGenCudaScatterGrowOverlapFault)
+    set_tests_properties(testUsdGenCudaScatterGrowOverlapFault PROPERTIES
+        LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaScatterInput tests/testUsdGenCudaScatterInput.cpp)
     add_executable(testUsdGenCudaScatterGrowSession tests/testUsdGenCudaScatterGrowSession.cpp)
     add_executable(testUsdGenCudaScatterGrowWidthDag tests/testUsdGenCudaScatterGrowWidthDag.cpp)

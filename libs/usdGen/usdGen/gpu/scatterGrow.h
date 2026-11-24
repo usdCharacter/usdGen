@@ -200,6 +200,11 @@ struct ScatterGrowRequirements {
 ScatterGrowStatus GetScatterGrowRequirements(size_t curveCount, uint32_t cvCount,
                                             ScatterGrowRequirements* result);
 
+// Test-only, for the next big-grow overlap BeginFresh: failCopy fails the
+// last staging copy's issue after the earlier copies were queued on the copy
+// stream; throwInValidate throws from the validation scans.
+void SetScatterGrowOverlapFaultsForTesting(bool failCopy, bool throwInValidate) noexcept;
+
 // A fresh, immutable Grow topology owner.  BeginFresh never mutates a
 // published generation.  A caller must commit only from the relay which saw
 // FinishFreshAsync report cudaSuccess; if that proof is lost it must call
