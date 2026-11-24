@@ -1712,11 +1712,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenCollide");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenCollide)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenCollide)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenCollide)");
     if (!op) return;
-    Check(op->Type() == type, "Collide reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "Collide reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "Collide has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),

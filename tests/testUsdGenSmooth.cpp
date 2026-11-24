@@ -141,11 +141,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenSmooth");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenSmooth)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenSmooth)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenSmooth)");
     if (!op) return;
-    Check(op->Type() == type, "UsdGenSmooth reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenSmooth reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "UsdGenSmooth has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),

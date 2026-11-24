@@ -179,11 +179,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenExprOp");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenExprOp)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenExprOp)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenExprOp)");
     if (!op) return;
-    Check(op->Type() == type, "ExprOp reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "ExprOp reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "ExprOp has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),

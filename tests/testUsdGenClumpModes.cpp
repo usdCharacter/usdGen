@@ -266,7 +266,7 @@ bool SamePoints(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 
 void TestContracts()
 {
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenClump"));
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenClump")));
     Check(op != nullptr, "registry creates UsdGenClump");
     if (!op) return;
     TfSpan<const TfToken> const refs = op->ReferenceInputs();

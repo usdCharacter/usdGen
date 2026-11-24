@@ -183,11 +183,11 @@ static void CheckRegistryContract()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenStraighten");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenStraighten)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenStraighten)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenStraighten)");
     if (!op) return;
-    Check(op->Type() == type, "UsdGenStraighten reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenStraighten reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "UsdGenStraighten has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),

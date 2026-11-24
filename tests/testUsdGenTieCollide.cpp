@@ -284,8 +284,8 @@ static void CheckTieRegistry()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenTieClump");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenTieClump)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenTieClump)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenTieClump)");
     if (!op) return;
     Check(op->TopologyEffect() == UsdGenTopoFx::None, "TieClump has TopologyEffect None");
@@ -552,7 +552,7 @@ static Polyline DivingStrand(GfVec3f root, int cvs, float step)
 
 static void CheckRelaxContract()
 {
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenCollide"));
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenCollide")));
     if (!op) { Check(false, "Create(UsdGenCollide)"); return; }
     std::set<std::string> value;
     for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
