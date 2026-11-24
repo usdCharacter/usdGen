@@ -161,11 +161,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenDirection");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenDirection)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenDirection)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenDirection)");
     if (!op) return;
-    Check(op->Type() == type, "Direction reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "Direction reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "Direction has TopologyEffect None");
     TfSpan<const TfToken> const refs = op->ReferenceInputs();

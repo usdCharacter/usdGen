@@ -282,7 +282,7 @@ static void Set(Params *p, char const *name, VtValue v)
 
 static void CheckRegistry()
 {
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenBraid"));
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenBraid")));
     Check(op != nullptr, "UsdGenBraid is registered");
     if (!op) return;
     TfSpan<const TfToken> refs = op->ReferenceInputs();

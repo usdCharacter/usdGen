@@ -168,11 +168,11 @@ static void CheckRegistryContracts()
     for (Expect const &expect : kOps) {
         TfToken const type(expect.type);
         std::string const name = type.GetString();
-        Check(registry.HasKernel(type), "HasKernel(" + name + ")");
-        std::unique_ptr<UsdGenOp> op = registry.Create(type);
+        Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(" + name + ")");
+        std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
         Check(op != nullptr, "Create(" + name + ")");
         if (!op) continue;
-        Check(op->Type() == type, name + " reports its own type");
+        Check(registry.Record(registry.Find(type)).Name() == type, name + " reports its own type");
         Check(op->TopologyEffect() == UsdGenTopoFx::None,
               name + " has TopologyEffect None");
         TfSpan<const TfToken> const refs = op->ReferenceInputs();

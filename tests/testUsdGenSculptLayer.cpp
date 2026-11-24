@@ -139,11 +139,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenSculptLayer");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenSculptLayer)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenSculptLayer)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenSculptLayer)");
     if (!op) return;
-    Check(op->Type() == type, "SculptLayer reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "SculptLayer reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "SculptLayer has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),

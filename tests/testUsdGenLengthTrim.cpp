@@ -544,7 +544,7 @@ static bool CutAt(UsdGenCurveBuffer const &out, uint32_t c, float s, float tol =
 static void TestTrim()
 {
     // Registry contract.
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenTrim"));
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTrim")));
     Check(op && op->ReferenceInputs().size() == 1 &&
           op->ReferenceInputs()[0] == TfToken("trim:curves") &&
           op->TopologyEffect() == UsdGenTopoFx::None, "UsdGenTrim declares trim:curves");

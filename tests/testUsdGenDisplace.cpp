@@ -152,11 +152,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenDisplace");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenDisplace)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenDisplace)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenDisplace)");
     if (!op) return;
-    Check(op->Type() == type, "Displace reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "Displace reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "Displace has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),

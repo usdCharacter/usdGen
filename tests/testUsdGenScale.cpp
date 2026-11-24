@@ -166,11 +166,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenScale");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenScale)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenScale)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenScale)");
     if (!op) return;
-    Check(op->Type() == type, "Scale reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "Scale reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "Scale has TopologyEffect None");
     Check(op->PlanesTouched() ==

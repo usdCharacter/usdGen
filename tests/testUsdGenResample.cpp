@@ -132,11 +132,11 @@ static void CheckRegistry()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenResample");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenResample)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenResample)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenResample)");
     if (!op) return;
-    Check(op->Type() == type, "UsdGenResample reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenResample reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::CvCount,
           "UsdGenResample has TopologyEffect CvCount");
     Check(op->ReferenceInputs().empty(),

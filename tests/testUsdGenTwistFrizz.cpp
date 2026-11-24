@@ -205,8 +205,8 @@ static void TestRegistry()
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     for (char const *name : {"UsdGenTwist", "UsdGenFrizz"}) {
         TfToken const type(name);
-        std::unique_ptr<UsdGenOp> op = registry.Create(type);
-        Check(registry.HasKernel(type) && op && op->Type() == type, std::string(name) + " registered");
+        std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
+        Check(registry.Find(type) != UsdGenOpId::Invalid && op && registry.Record(registry.Find(type)).Name() == type, std::string(name) + " registered");
         if (!op) continue;
         Check(op->TopologyEffect() == UsdGenTopoFx::None && op->OutputPrimvars().empty(),
               std::string(name) + " keeps topology and emits no planes");

@@ -173,11 +173,11 @@ static void CheckRegistryContracts()
 {
     UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenWind");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenWind)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenWind)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenWind)");
     if (!op) return;
-    Check(op->Type() == type, "Wind reports its own type");
+    Check(registry.Record(registry.Find(type)).Name() == type, "Wind reports its own type");
     Check(op->TopologyEffect() == UsdGenTopoFx::None,
           "Wind has TopologyEffect None");
     Check(op->ReferenceInputs().empty(),
