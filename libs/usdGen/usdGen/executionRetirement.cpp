@@ -274,7 +274,10 @@ struct UsdGenExecutionRetirementSignal::State {
 // only when it sleeps; the lane parks on a word, never polls. It is started
 // on first use, detached and never joined: process exit ends it, and nothing
 // waits for it in a static destructor. Zero-initialized, trivially
-// destructible.
+// destructible. It stays a thread rather than a UsdGenTaskScheduler lane:
+// this file is in usdGenExecutionResources, below usdGen, so it cannot reach
+// the process scheduler, and a private scheduler copy would add a second
+// hardware-sized pool; cleanup may also block, which a shared worker must not.
 UsdGenExecutionRetirementSignal::State::Lane UsdGenExecutionRetirementSignal::State::lane;
 
 void UsdGenExecutionRetirementSignal::State::_LaneRun() noexcept {

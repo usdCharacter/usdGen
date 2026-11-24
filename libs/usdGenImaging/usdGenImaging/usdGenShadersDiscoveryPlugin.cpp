@@ -6,7 +6,7 @@
 // "shaders/", so HioGlslfx can resolve the .glslfx files and Sdr can
 // discover the three shader defs declared in shaders/shaderDefs.usda.
 #include "usdGenImaging/usdGenShadersDiscoveryPlugin.h"
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/plug/plugin.h"
@@ -50,7 +50,7 @@ const SdrStringVec &
 UsdGenShadersDiscoveryPlugin::GetSearchURIs() const
 {
     // Installed once by CAS; never destroyed.
-    return ::usdGenImaging::UsdGenLazyLeaked(s_searchPaths,
+    return ::usdGen::UsdGenLazyLeaked(s_searchPaths,
         [] { return new SdrStringVec{_GetShaderResourcePath()}; });
 }
 

@@ -65,7 +65,7 @@ void RunThreads(int n, F &&body)
 void SharedCellStress()
 {
     {
-        UsdGenSharedCell<Tracked> cell;
+        UsdGenSharedCell<Tracked const> cell;
         cell.Store(std::make_shared<const Tracked>(0));
         std::atomic<int64_t> next{1};
         std::atomic<int> writersDone{0};
@@ -96,7 +96,7 @@ void SharedCellStress()
     Check(gAlive.load() == 0, "shared cell: destroying the cell releases the value");
 
     // Prepared publication allocates nothing at the exchange.
-    UsdGenSharedCell<Tracked> cell;
+    UsdGenSharedCell<Tracked const> cell;
     auto prepared = cell.Prepare(std::make_shared<const Tracked>(7));
     Check(prepared && prepared->value == 7 && !cell.Load(), "shared cell: prepare does not publish");
     auto displaced = cell.Exchange(std::move(prepared));

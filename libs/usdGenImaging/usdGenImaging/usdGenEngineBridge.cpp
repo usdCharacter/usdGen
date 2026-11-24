@@ -1,5 +1,5 @@
 #include "usdGenImaging/usdGenEngineBridge.h"
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 
 #include "usdGen/executionPipeline.h"
 #include "pxr/base/tf/diagnostic.h"
@@ -11,8 +11,6 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace usdGenImaging {
 
-using ::usdGenImaging::UsdGenAtomicShared;
-using ::usdGenImaging::UsdGenLazyLeaked;
 
 namespace {
 
@@ -34,7 +32,7 @@ BridgeOwner &_BridgeOwner()
     // destructor here runs at DLL_PROCESS_DETACH on Windows, after ExitProcess
     // has killed the TBB workers, so its drain could never complete. Callers
     // that need queued commands delivered before exit call Drain explicitly.
-    return UsdGenLazyLeaked(g_bridgeOwner);
+    return usdGen::UsdGenLazyLeaked(g_bridgeOwner);
 }
 
 } // namespace
@@ -47,7 +45,7 @@ struct UsdGenEngineBridge::State {
         size_t seenEntries = 0;
         bool firstDrain = true;
     };
-    UsdGenAtomicShared<Snapshot const> published{std::make_shared<Snapshot const>()};
+    usdGen::UsdGenSharedCell<Snapshot const> published{std::make_shared<Snapshot const>()};
 };
 
 namespace {

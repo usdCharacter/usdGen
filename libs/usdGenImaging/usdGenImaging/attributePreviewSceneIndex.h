@@ -38,14 +38,14 @@
 // (the primvar goes away and upstream shows through again).
 //
 // Threading: the tables are copy-on-write maps published by atomic pointer
-// (atomicShared.h). GetPrim and the queries read them from any thread and
+// (usdGen/sharedCell.h). GetPrim and the queries read them from any thread and
 // never wait. Writers install by CAS. Set/Clear notices, index construction
 // and index destruction belong to the frontend thread (as Hydra's own
 // notices do); a notice holds a strong reference to each index it calls.
 #ifndef USDGEN_IMAGING_ATTRIBUTE_PREVIEW_SCENE_INDEX_H
 #define USDGEN_IMAGING_ATTRIBUTE_PREVIEW_SCENE_INDEX_H
 
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 #include "usdGen/maps/attributeMap.h"
 
 #include "pxr/base/gf/vec2f.h"
@@ -141,7 +141,7 @@ private:
     };
     using Previews = std::map<SdfPath, Entry>;
     bool _Store(SdfPath const &target, Entry entry);
-    UsdGenAtomicShared<Previews const> _previews;
+    usdGen::UsdGenSharedCell<Previews const> _previews;
     bool _attached = false;
 };
 
@@ -169,7 +169,7 @@ private:
     UsdGenAttributePreviewRegistry() = default;
     void _Notify(SdfPath const &target, bool structural);
     using Entries = std::map<SdfPath, VtVec3fArray>;
-    UsdGenAtomicShared<Entries const> _entries;
+    usdGen::UsdGenSharedCell<Entries const> _entries;
     // Attached indices. The raw pointer is the identity Detach removes; the
     // weak pointer gives a notice a strong reference, or nothing once the
     // index is gone (an observer may destroy an index mid-notice).
@@ -178,7 +178,7 @@ private:
         TfWeakPtr<UsdGenAttributePreviewSceneIndex> weak;
     };
     using Indices = std::vector<Attached>;
-    UsdGenAtomicShared<Indices const> _indices;
+    usdGen::UsdGenSharedCell<Indices const> _indices;
 };
 
 }  // namespace usdGenImaging

@@ -28,8 +28,9 @@
 #include <cstring>
 #include <new>
 
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
+#include "usdGen/taskScheduler.h"
+
+#include <type_traits>
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -73,13 +74,23 @@ struct BakeRangeSlot {
     BakeRangeError error;
 };
 
+// body(i) for every i in [0, n) through usdGen::UsdGenParallelFor (process
+// scheduler; safe to nest and to call from several threads at once).
+template <class F>
+void _ParallelEach(size_t n, F &&body)
+{
+    using Body = std::remove_reference_t<F>;
+    usdGen::UsdGenParallelFor(n, [](size_t i, void *p) { (*static_cast<Body *>(p))(i); },
+                           const_cast<void *>(static_cast<void const *>(&body)));
+}
+
 // -- chunked bulk copy (bit-identical: disjoint ranges, same bytes) ---------
 // Small copies stay serial: below ~256KB the dispatch costs more than
 // the copy.
 void
 _MemcpyChunked(void *dst, void const *src, size_t bytes)
 {
-    int const workers = tbb::this_task_arena::max_concurrency();
+    int const workers = usdGen::UsdGenParallelForConcurrency();
     size_t const chunks =
         (workers > 1 && bytes > 262144) ? std::min({size_t(workers),
                                                    size_t(8)})
@@ -90,14 +101,11 @@ _MemcpyChunked(void *dst, void const *src, size_t bytes)
     }
     auto *d = static_cast<unsigned char *>(dst);
     auto const *s = static_cast<unsigned char const *>(src);
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, chunks),
-        [&](tbb::blocked_range<size_t> const &range) {
-            for (size_t c = range.begin(); c != range.end(); ++c) {
-                size_t const b0 = (c * bytes) / chunks;
-                size_t const b1 = ((c + 1) * bytes) / chunks;
-                std::memcpy(d + b0, s + b0, b1 - b0);
-            }
-        });
+    _ParallelEach(chunks, [&](size_t c) {
+        size_t const b0 = (c * bytes) / chunks;
+        size_t const b1 = ((c + 1) * bytes) / chunks;
+        std::memcpy(d + b0, s + b0, b1 - b0);
+    });
 }
 
 // -- vector quatf->quath (bit-identical to the scalar loop) ------------------
@@ -214,7 +222,7 @@ _ConvertQuatsRange(GfQuath *dst, GfQuatf const *src, size_t n)
 void
 _ConvertQuats(GfQuath *dst, GfQuatf const *src, size_t n)
 {
-    int const workers = tbb::this_task_arena::max_concurrency();
+    int const workers = usdGen::UsdGenParallelForConcurrency();
     size_t const chunks =
         (workers > 1 && n > 32768) ? std::min({size_t(workers), size_t(8),
                                                n})
@@ -223,14 +231,11 @@ _ConvertQuats(GfQuath *dst, GfQuatf const *src, size_t n)
         _ConvertQuatsRange(dst, src, n);
         return;
     }
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, chunks),
-        [&](tbb::blocked_range<size_t> const &range) {
-            for (size_t c = range.begin(); c != range.end(); ++c) {
-                size_t const q0 = (c * n) / chunks;
-                size_t const q1 = ((c + 1) * n) / chunks;
-                _ConvertQuatsRange(dst + q0, src + q0, q1 - q0);
-            }
-        });
+    _ParallelEach(chunks, [&](size_t c) {
+        size_t const q0 = (c * n) / chunks;
+        size_t const q1 = ((c + 1) * n) / chunks;
+        _ConvertQuatsRange(dst + q0, src + q0, q1 - q0);
+    });
 }
 
 // -- pinned draws (canonical: usdGenMath/usdGenMath/hash.h) -------------------
@@ -766,7 +771,7 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
     // bit-identical. Small bakes stay serial (below ~32K curves the
     // dispatch costs more than the loop). The loop body below is
     // byte-for-byte the serial spelling, only wrapped in the range.
-    int const workers = tbb::this_task_arena::max_concurrency();
+    int const workers = usdGen::UsdGenParallelForConcurrency();
     size_t const bakeChunks =
         (workers > 1 && n > 32768) ? std::min({size_t(workers), size_t(8),
                                                size_t(n)})
@@ -935,16 +940,13 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
     if (bakeChunks == 1) {
         bakeRange(0, n, slots[0]);
     } else {
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, bakeChunks),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t t = range.begin(); t != range.end(); ++t) {
-                    uint32_t const c0 =
-                        uint32_t((t * uint64_t(n)) / bakeChunks);
-                    uint32_t const c1 =
-                        uint32_t(((t + 1) * uint64_t(n)) / bakeChunks);
-                    bakeRange(c0, c1, slots[t]);
-                }
-            });
+        _ParallelEach(bakeChunks, [&](size_t t) {
+            uint32_t const c0 =
+                uint32_t((t * uint64_t(n)) / bakeChunks);
+            uint32_t const c1 =
+                uint32_t(((t + 1) * uint64_t(n)) / bakeChunks);
+            bakeRange(c0, c1, slots[t]);
+        });
     }
     // Ranges are curve-ordered, so the first failed range holds the serial
     // loop's first failure: same _Fail contract.
@@ -1038,26 +1040,20 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                         return;
                     }
                     size_t const M = size_t(e - b) / 3;
-                    tbb::parallel_for(
-                        tbb::blocked_range<size_t>(0, gatherChunks),
-                        [&](tbb::blocked_range<size_t> const &range) {
-                            for (size_t t = range.begin(); t != range.end();
-                                 ++t) {
-                                size_t const c0 = (t * M) / gatherChunks;
-                                size_t const c1 =
-                                    ((t + 1) * M) / gatherChunks;
-                                for (size_t c = c0; c < c1; ++c) {
-                                    GfVec3f const v = colors[uniformSpans
-                                                                 ? uint32_t(c) *
-                                                                       uniformPer
-                                                                 : offsets[c]];
-                                    float *d = b + 3 * c;
-                                    new (d + 0) float(v[0]);
-                                    new (d + 1) float(v[1]);
-                                    new (d + 2) float(v[2]);
-                                }
-                            }
-                        });
+                    _ParallelEach(gatherChunks, [&](size_t t) {
+                        size_t const c0 = (t * M) / gatherChunks;
+                        size_t const c1 = ((t + 1) * M) / gatherChunks;
+                        for (size_t c = c0; c < c1; ++c) {
+                            GfVec3f const v = colors[uniformSpans
+                                                         ? uint32_t(c) *
+                                                               uniformPer
+                                                         : offsets[c]];
+                            float *d = b + 3 * c;
+                            new (d + 0) float(v[0]);
+                            new (d + 1) float(v[1]);
+                            new (d + 2) float(v[2]);
+                        }
+                    });
                 });
             }
             out.varyings.push_back(plane);

@@ -21,7 +21,7 @@
 #include "usdGen/debugCodes.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
-#include "usdGen/tbbFastCores.h"
+#include "usdGen/fastCores.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"
@@ -907,7 +907,7 @@ void UsdGenWorkDispatcher::ParallelFor(
     // Every parallel region runs over the scheduler's worker pool (never
     // pxr work::, which honours the process-global PXR_WORK_THREAD_LIMIT
     // and would serialise under PXR_WORK_THREAD_LIMIT=1, 03 §5.3 caveat).
-    // The pool replaced the private arena's tbb::parallel_for here: same
+    // The pool replaced the private TBB arena's parallel_for here: same
     // body/count contract, without the arena's ~0.2ms per-region wakeup.
     if (!_pool) {
         for (size_t i = 0; i < count; ++i) body(i, payload);

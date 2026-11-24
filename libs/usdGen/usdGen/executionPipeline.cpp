@@ -12,10 +12,6 @@
 namespace usdGen {
 thread_local bool usdGenExecutionGraphActive = false;
 namespace {
-// Pins TBB's worker market before any one-slot arena exists; retirement and
-// the CUDA relays still run TBB arenas. Pipelines themselves no longer do.
-[[maybe_unused]] const bool kUsdGenTbbMarket = (EnsureUsdGenTbbMarket(), true);
-
 thread_local bool executingPipeline = false;
 thread_local void const* executingOwner = nullptr;
 struct ExecutionScope {

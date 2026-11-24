@@ -52,7 +52,7 @@ UsdGenGenerationStore::PreparePublication(UsdGenGeneration gen) const
     // published history `id == Stats().commits - 1` (03 §9: exactly one publish
     // per committed request; superseded or aborted commits allocate no id).
     gen.id = _nextId;
-    return UsdGenSharedCell<UsdGenGeneration>::Prepare(
+    return UsdGenSharedCell<UsdGenGeneration const>::Prepare(
         std::make_shared<const UsdGenGeneration>(std::move(gen)));
 }
 

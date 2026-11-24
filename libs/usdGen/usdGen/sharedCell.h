@@ -1,23 +1,30 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 //
-// usdGen — lock-free publication of a std::shared_ptr. Replaces
-// std::atomic_load/store/exchange on shared_ptr (a hidden lock in MSVC and
-// libstdc++) where the published type must stay a shared_ptr:
+// usdGen — lock-free publication of a std::shared_ptr, the one helper for
+// every module (engine, Vulkan, CUDA, Hydra host). Replaces
+// std::atomic_load/store/exchange on shared_ptr and atomic<shared_ptr> (a
+// hidden lock in MSVC and libstdc++):
 //
-//   UsdGenSharedCell<T> cell;
+//   UsdGenSharedCell<T const> cell;
 //   cell.Store(p);                           // writer: one exchange
-//   std::shared_ptr<const T> old = cell.Exchange(p);
+//   std::shared_ptr<T const> old = cell.Exchange(p);
 //   auto prepared = cell.Prepare(p);         // allocate outside a fence,
 //   cell.Exchange(std::move(prepared));      // then publish allocation-free
-//   std::shared_ptr<const T> v = cell.Load();  // any thread, never waits
+//   cell.CompareExchange(expected, p);       // by pointer; false if changed
+//   std::shared_ptr<T const> v = cell.Load();  // any thread, never waits
 //
 // - The cell's reference moves to the writer that displaces it, so the old
-//   value dies exactly when the last reference drops, as with atomic_exchange.
+//   value dies exactly when the last reference drops, as with atomic_exchange;
+//   a pinned reader never delays it.
 // - Readers reach the value through an epoch-protected holder and take their
 //   reference with weak_ptr::lock (a CAS that never resurrects a dead count);
 //   a reader that loses to a writer reloads the newer holder. Lock-free.
 // - Holders are recycled through a free stack: no allocation after warm-up.
+// - T may be const or not; Load hands back std::shared_ptr<T>.
+//
+// UsdGenCowUpdate edits a published value copy-on-write, and UsdGenLazyLeaked
+// installs a process-lifetime object without a function-local static.
 #pragma once
 
 #include "usdGen/epoch.h"
@@ -31,6 +38,7 @@ namespace usdGen {
 struct UsdGenSharedCellHolder : UsdGenEpochNode {
     std::shared_ptr<const void> strong;  // the cell's reference
     std::weak_ptr<const void> weak;      // what readers lock
+    void const *raw = nullptr;           // the published address
     UsdGenSharedCellHolder *freeNext = nullptr;
 };
 
@@ -47,6 +55,8 @@ public:
     UsdGenSharedCellBase(UsdGenSharedCellBase const &) = delete;
     UsdGenSharedCellBase &operator=(UsdGenSharedCellBase const &) = delete;
 
+    explicit operator bool() const noexcept { return cur_.load(std::memory_order_acquire) != nullptr; }
+
 protected:
     std::shared_ptr<const void> LoadVoid() const noexcept
     {
@@ -60,7 +70,26 @@ protected:
     }
     std::shared_ptr<const void> ExchangeHolder(UsdGenSharedCellHolder *h) noexcept
     {
-        UsdGenSharedCellHolder *old = cur_.exchange(h, std::memory_order_seq_cst);
+        return Displace(cur_.exchange(h, std::memory_order_seq_cst));
+    }
+    /// Installs h if the cell still publishes `expected`; h stays the
+    /// caller's on failure. The displaced value is returned through *out.
+    bool CompareExchangeHolder(void const *expected, UsdGenSharedCellHolder *h,
+                               std::shared_ptr<const void> *out) noexcept
+    {
+        UsdGenSharedCellHolder *cur;
+        {
+            UsdGenEpochGuard guard;  // a holder seen here is not recycled (no ABA)
+            cur = cur_.load(std::memory_order_seq_cst);
+            if ((cur ? cur->raw : nullptr) != expected ||
+                !cur_.compare_exchange_strong(cur, h, std::memory_order_seq_cst))
+                return false;
+        }
+        *out = Displace(cur);
+        return true;
+    }
+    static std::shared_ptr<const void> Displace(UsdGenSharedCellHolder *old) noexcept
+    {
         if (!old) return {};
         std::shared_ptr<const void> displaced = std::move(old->strong);
         UsdGenSharedCellRetire(old);
@@ -72,7 +101,7 @@ protected:
 template <class T>
 class UsdGenSharedCell : public UsdGenSharedCellBase {
 public:
-    using Ptr = std::shared_ptr<const T>;
+    using Ptr = std::shared_ptr<T>;
 
     /// A value with its holder, ready to publish without allocating.
     class Prepared {
@@ -88,13 +117,10 @@ public:
             return *this;
         }
         ~Prepared() { Reset(); }
-        T const *Get() const noexcept { return h_ ? static_cast<T const *>(h_->strong.get()) : nullptr; }
-        T const *operator->() const noexcept { return Get(); }
+        T *Get() const noexcept { return h_ ? const_cast<T *>(static_cast<T const *>(h_->raw)) : nullptr; }
+        T *operator->() const noexcept { return Get(); }
         explicit operator bool() const noexcept { return Get() != nullptr; }
-        Ptr Value() const noexcept
-        {
-            return h_ ? std::static_pointer_cast<const T>(h_->strong) : nullptr;
-        }
+        Ptr Value() const noexcept { return h_ ? Cast(h_->strong) : nullptr; }
 
     private:
         friend class UsdGenSharedCell;
@@ -110,34 +136,88 @@ public:
     explicit UsdGenSharedCell(Ptr v) { Store(std::move(v)); }
     ~UsdGenSharedCell() { (void)ExchangeHolder(nullptr); }
 
+    /// Only a non-null value may allocate (and throw).
     static Prepared Prepare(Ptr v)
     {
         return Prepared(v ? UsdGenSharedCellAcquire(std::move(v)) : nullptr);
     }
-    Ptr Load() const noexcept { return std::static_pointer_cast<const T>(LoadVoid()); }
+    /// Any thread; never waits.
+    Ptr Load() const noexcept { return Cast(LoadVoid()); }
     /// Publishes and returns the displaced value (the caller may drop it last).
-    Ptr Exchange(Prepared p) noexcept
-    {
-        return std::static_pointer_cast<const T>(ExchangeHolder(std::exchange(p.h_, nullptr)));
-    }
+    Ptr Exchange(Prepared p) noexcept { return Cast(ExchangeHolder(std::exchange(p.h_, nullptr))); }
     Ptr Exchange(Ptr v) { return Exchange(Prepare(std::move(v))); }
     void Store(Ptr v) { (void)Exchange(std::move(v)); }
+    /// Clears the cell; never allocates.
+    void Reset() noexcept { (void)ExchangeHolder(nullptr); }
+    /// Clears the cell and returns what it held; never allocates.
+    Ptr Take() noexcept { return Cast(ExchangeHolder(nullptr)); }
+    /// Publishes `desired` if the cell still holds `expected` (compared by
+    /// pointer); false if it changed first. Never waits; callers loop.
+    bool CompareExchange(Ptr const &expected, Ptr desired)
+    {
+        Prepared p = Prepare(std::move(desired));
+        std::shared_ptr<const void> displaced;
+        if (!CompareExchangeHolder(expected.get(), p.h_, &displaced)) return false;
+        p.h_ = nullptr;
+        return true;
+    }
+
+private:
+    static Ptr Cast(std::shared_ptr<const void> const &v) noexcept
+    {
+        return std::const_pointer_cast<T>(std::static_pointer_cast<T const>(v));
+    }
 };
 
-/// For namespace-scope cells: constant-initialized, no destructor, so nothing
-/// runs at DLL detach. The last value is leaked with the process.
-template <class T>
-class UsdGenStaticSharedCell : public UsdGenSharedCellBase {
-public:
-    using Ptr = std::shared_ptr<const T>;
-    constexpr UsdGenStaticSharedCell() noexcept = default;
-    Ptr Load() const noexcept { return std::static_pointer_cast<const T>(LoadVoid()); }
-    Ptr Exchange(Ptr v)
-    {
-        return std::static_pointer_cast<const T>(
-            ExchangeHolder(v ? UsdGenSharedCellAcquire(std::move(v)) : nullptr));
+/// Copy-on-write update of a published value: `edit(T&)` runs on a copy of
+/// the current value (or a default one) until the CAS lands. `edit` may run
+/// more than once and must only touch the copy. Returns the value installed.
+template <class T, class Edit>
+std::shared_ptr<T const> UsdGenCowUpdate(UsdGenSharedCell<T const> &cell, Edit &&edit)
+{
+    for (;;) {
+        std::shared_ptr<T const> current = cell.Load();
+        auto next = current ? std::make_shared<T>(*current) : std::make_shared<T>();
+        edit(*next);
+        std::shared_ptr<T const> installed = std::move(next);
+        if (cell.CompareExchange(current, installed)) return installed;
     }
-    void Store(Ptr v) { (void)Exchange(std::move(v)); }
-};
+}
+
+/// As UsdGenCowUpdate, but `edit(T&)` returns false to leave the cell
+/// unchanged; returns whether an edited copy was installed.
+template <class T, class Edit>
+bool UsdGenCowUpdateIf(UsdGenSharedCell<T const> &cell, Edit &&edit)
+{
+    for (;;) {
+        std::shared_ptr<T const> current = cell.Load();
+        auto next = current ? std::make_shared<T>(*current) : std::make_shared<T>();
+        if (!edit(*next)) return false;
+        if (cell.CompareExchange(current, std::shared_ptr<T const>(std::move(next)))) return true;
+    }
+}
+
+/// Installs a process-lifetime object into a constant-initialized atomic
+/// pointer by CAS (no function-local static, no guard lock). Nothing it makes
+/// is destroyed, so no destructor that might wait runs at DLL detach or on a
+/// racing loser: a loser's candidate (only when two threads race the first
+/// call) is leaked like the winner.
+template <class T, class Make>
+T &UsdGenLazyLeaked(std::atomic<T *> &slot, Make &&make)
+{
+    T *p = slot.load(std::memory_order_acquire);
+    if (p) return *p;
+    T *candidate = make();
+    if (slot.compare_exchange_strong(p, candidate, std::memory_order_acq_rel,
+                                     std::memory_order_acquire))
+        return *candidate;
+    return *p;  // lost the race: p holds the winner; candidate stays leaked
+}
+
+template <class T>
+T &UsdGenLazyLeaked(std::atomic<T *> &slot)
+{
+    return UsdGenLazyLeaked(slot, [] { return new T; });
+}
 
 }  // namespace usdGen

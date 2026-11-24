@@ -330,7 +330,6 @@ target_include_directories(usdGenMath PUBLIC
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenMath PUBLIC
     arch tf gf vt work
-    TBB::tbb
     nanoflann
     usdGen_seexpr)
 if(TARGET rigExec::rigExecMath)
@@ -436,7 +435,7 @@ add_library(usdGenExecutionResources SHARED
 target_include_directories(usdGenExecutionResources PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>
     $<INSTALL_INTERFACE:include>)
-target_link_libraries(usdGenExecutionResources PUBLIC TBB::tbb)
+target_link_libraries(usdGenExecutionResources PRIVATE Threads::Threads)
 set_target_properties(usdGenExecutionResources PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
@@ -469,7 +468,10 @@ target_include_directories(usdGen PUBLIC
 # a non-installed target); usdGen's own sources still see its headers
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
-    PUBLIC tf gf vt sdf TBB::tbb usdGenExecutionResources
+    PUBLIC tf gf vt sdf usdGenExecutionResources
+    # TBB only for the GPU backends' arenas (cudaExecution, cudaScatterInput,
+    # gpu/scatterGrow.cu) and tbbFastCores.cpp.
+    PRIVATE TBB::tbb
     PRIVATE usdGenMath arch js plug ts ar work trace hio pxOsd
             usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 if(WIN32)
@@ -518,8 +520,7 @@ target_link_libraries(usdGenImaging
     PUBLIC hd hdsi hf usd usdGeom usdShade sdr usdImaging
            sdf tf gf vt trace pxOsd usdGen
     PRIVATE hio js
-    PRIVATE usdGenSchema
-    PRIVATE TBB::tbb)  # Bake ranges run on plain TBB (no scheduler ctx here)
+    PRIVATE usdGenSchema)
 set_target_properties(usdGenImaging PROPERTIES
     CXX_VISIBILITY_PRESET default
     # Produce the import library that downstream Windows consumers need.
@@ -971,6 +972,9 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
         # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
         # on toolkits older than 12.8.
         target_link_libraries(usdGenGpu PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver usdGenExecutionResources)
+        # gpu/scatterGrow.cu still runs TBB (and reaches pxr/ headers through
+        # TBB's include path, as it did through usdGenExecutionResources).
+        target_link_libraries(usdGenGpu PUBLIC TBB::tbb)
         target_compile_definitions(usdGen PRIVATE USDGEN_ENABLE_CUDA)
         target_link_libraries(usdGen PRIVATE usdGenGpu)
         target_compile_definitions(usdGenImaging PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
@@ -1390,6 +1394,11 @@ target_include_directories(testUsdGenImagingAtomicShared PRIVATE ${CMAKE_CURRENT
 target_link_libraries(testUsdGenImagingAtomicShared PRIVATE usdGen)
 add_test(NAME testUsdGenImagingAtomicShared COMMAND testUsdGenImagingAtomicShared)
 set_tests_properties(testUsdGenImagingAtomicShared PROPERTIES LABELS "T0;scheduling;epoch" RUN_SERIAL ON TIMEOUT 120)
+add_executable(testUsdGenCleanupQueue tests/testUsdGenCleanupQueue.cpp)
+target_include_directories(testUsdGenCleanupQueue PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging)
+target_link_libraries(testUsdGenCleanupQueue PRIVATE usdGen)
+add_test(NAME testUsdGenCleanupQueue COMMAND testUsdGenCleanupQueue)
+set_tests_properties(testUsdGenCleanupQueue PROPERTIES LABELS "T0;scheduling;stress" RUN_SERIAL ON TIMEOUT 120)
 add_executable(testUsdGenExecutionTaskGraph tests/testUsdGenExecutionTaskGraph.cpp)
 target_link_libraries(testUsdGenExecutionTaskGraph PRIVATE usdGen)
 add_test(NAME testUsdGenExecutionTaskGraph COMMAND testUsdGenExecutionTaskGraph)

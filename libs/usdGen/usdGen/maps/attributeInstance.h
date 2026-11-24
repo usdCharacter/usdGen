@@ -58,6 +58,9 @@ struct UsdGenAttributeInstanceInput {
     float defaultValue = 0.0f;
     // Card/archive variants; must be >= 1.
     int numPrototypes = 1;
+    // Most threads the cook may use; 0 is the process scheduler's width,
+    // 1 cooks serially. Results are bit-identical either way.
+    int maxThreads = 0;
 };
 
 struct UsdGenAttributeInstanceResult {

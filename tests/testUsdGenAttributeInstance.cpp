@@ -14,7 +14,6 @@
 #include "usdGen/maps/attributeInstance.h"
 #include "usdGen/maps/attributeMap.h"
 
-#include "tbb/task_arena.h"
 
 #include <cmath>
 #include <cstdio>
@@ -286,11 +285,10 @@ void CheckThreadedEquivalence()
         input.roots.push_back(root);
     }
     UsdGenAttributeInstanceResult serial, threaded;
-    tbb::task_arena serialArena(1);
-    serialArena.execute([&] {
-        CHECK(UsdGenAttributeCookInstances(input, &serial, &error),
-              "serial cook accepts");
-    });
+    UsdGenAttributeInstanceInput serialInput = input;
+    serialInput.maxThreads = 1;
+    CHECK(UsdGenAttributeCookInstances(serialInput, &serial, &error),
+          "serial cook accepts");
     CHECK(UsdGenAttributeCookInstances(input, &threaded, &error),
           "threaded cook accepts");
     CHECK(serial.kept > 10000 && serial.kept < 40000,

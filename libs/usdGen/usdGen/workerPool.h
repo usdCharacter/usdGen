@@ -36,7 +36,7 @@ class UsdGenWorkerPool
 {
 public:
     /// Spawns `workers` persistent threads, pinned to the fast-core set
-    /// where the topology qualifies (tbbFastCores.h policy). `workers <= 1`
+    /// where the topology qualifies (fastCores.h policy). `workers <= 1`
     /// spawns nothing: ParallelFor runs inline on the caller.
     explicit UsdGenWorkerPool(int workers);
     ~UsdGenWorkerPool();

@@ -3,7 +3,7 @@
 // one hash lookup per notice entry plus a longest-prefix walk (I7, S17).
 #include "usdGenImaging/usdGenDirtyRouter.h"
 
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 #include "usdGenImaging/primAdapter.h"
 #include "usdGenImaging/usdGenTokens.h"
 #include "usdGen/executionPipeline.h"
@@ -88,7 +88,7 @@ _WarnUnknownRoute(SdfPath const &path, TfToken const &leaf)
     // has killed the TBB workers, so a drain could never complete. A warning
     // still queued when the process exits is the only thing lost.
     static std::atomic<Warnings*> warningsOwner{nullptr};  // constant-initialized
-    Warnings& warnings = ::usdGenImaging::UsdGenLazyLeaked(warningsOwner);
+    Warnings& warnings = ::usdGen::UsdGenLazyLeaked(warningsOwner);
     // Diagnostics do not make notice routing await the warning registry.
     // The owner deduplicates immutable keys and emits each warning once.
     warnings.owner.PostCommand([path, leaf, &warnings] {

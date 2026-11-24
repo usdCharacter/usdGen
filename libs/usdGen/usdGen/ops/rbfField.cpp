@@ -1,5 +1,5 @@
 #include "usdGen/ops/rbfField.h"
-#include "usdGen/tbbFastCores.h"
+#include "usdGen/fastCores.h"
 #include "usdGen/workerPool.h"
 
 #include "pxr/base/gf/vec3i.h"

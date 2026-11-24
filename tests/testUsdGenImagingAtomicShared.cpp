@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: MIT
 
 // testUsdGenImagingAtomicShared — T0: lock-free shared_ptr publication used by
-// the Hydra host (usdGenImaging/atomicShared.h).
+// the Hydra host (usdGen/sharedCell.h).
 //
 //   0. Single thread: Load/Store/Exchange/CompareExchange; a displaced value
 //      is released at once when no reader is pinned.
-//   1. A reader pinned on another thread keeps a displaced box alive; it is
-//      released after the reader leaves and a writer drains.
+//   1. A reader pinned on another thread never delays a displaced value: it
+//      dies with its last reference; the holder recycles after a drain.
 //   2. 64 threads Load/Store/Exchange/CAS on one cell; every value carries a
 //      canary, and every value is destroyed exactly once.
 //   3. UsdGenCowUpdate from 64 threads loses no update.
 //   4. UsdGenLazyLeaked from 64 threads installs exactly one object and
 //      destroys none.
 
-#include "usdGenImaging/atomicShared.h"
+#include "usdGen/sharedCell.h"
 
 #include <atomic>
 #include <cstdio>
@@ -23,7 +23,7 @@
 #include <thread>
 #include <vector>
 
-using namespace usdGenImaging;
+using namespace usdGen;
 
 namespace {
 
@@ -52,7 +52,7 @@ struct Value {
 
 void SingleThread()
 {
-    UsdGenAtomicShared<Value const> cell;
+    UsdGenSharedCell<Value const> cell;
     Check(!cell.Load(), "empty cell loads null");
     cell.Store(std::make_shared<Value const>(1));
     Check(cell.Load() && cell.Load()->value == 1, "store then load");
@@ -72,7 +72,7 @@ void SingleThread()
 
 void PinnedReader()
 {
-    UsdGenAtomicShared<Value const> cell(std::make_shared<Value const>(10));
+    UsdGenSharedCell<Value const> cell(std::make_shared<Value const>(10));
     std::weak_ptr<Value const> first = cell.Load();
     std::atomic<int> phase{0};
     std::thread reader([&] {
@@ -82,11 +82,14 @@ void PinnedReader()
     });
     while (phase.load() != 1) std::this_thread::yield();
     cell.Store(std::make_shared<Value const>(11));
-    Check(!first.expired(), "a pinned reader holds the displaced box");
+    Check(first.expired(), "a pinned reader does not hold the displaced value");
+    auto const pinned = usdGen::UsdGenEpochGetStats();
     phase.store(2);
     reader.join();
-    usdGen::UsdGenEpochDrain();
-    Check(first.expired(), "released after the reader leaves and a drain");
+    for (int i = 0; i != 4; ++i) usdGen::UsdGenEpochDrain();
+    auto const drained = usdGen::UsdGenEpochGetStats();
+    Check(drained.freed > pinned.freed, "the displaced holder recycles after the reader leaves and a drain");
+    Check(cell.Load() && cell.Load()->value == 11, "the new value stays published");
 }
 
 void Stress()
@@ -94,7 +97,7 @@ void Stress()
     usdGen::UsdGenEpochShutdown();  // earlier sections' cells
     int64_t const before = g_live.load();
     {
-        UsdGenAtomicShared<Value const> cell(std::make_shared<Value const>(0));
+        UsdGenSharedCell<Value const> cell(std::make_shared<Value const>(0));
         std::atomic<bool> stop{false};
         std::atomic<uint64_t> bad{0}, loads{0};
         std::vector<std::thread> threads;
@@ -142,7 +145,7 @@ void Stress()
 
 void CowUpdate()
 {
-    UsdGenAtomicShared<std::vector<int> const> cell;
+    UsdGenSharedCell<std::vector<int> const> cell;
     constexpr int kThreads = 64, kEach = 200;
     std::vector<std::thread> threads;
     for (int t = 0; t < kThreads; ++t)
