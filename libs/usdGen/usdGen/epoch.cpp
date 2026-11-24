@@ -20,6 +20,7 @@ namespace usdGen {
 using Node = UsdGenEpochNode;
 
 struct UsdGenEpochInternal {
+    using Stack = UsdGenTreiberStack<Node, &Node::epochNext_>;
     static Node *&Next(Node *n) noexcept { return n->epochNext_; }
     static uint64_t &Retired(Node *n) noexcept { return n->epochRetired_; }
     static UsdGenEpochDeleter &Deleter(Node *n) noexcept { return n->epochDeleter_; }
@@ -32,10 +33,12 @@ namespace {
 
 constexpr auto kSeq = std::memory_order_seq_cst;
 
+using Stack = I::Stack;
+
 struct alignas(64) Slot {
     std::atomic<uint32_t> owner{0};
     std::atomic<uint64_t> pinned{0};  // 0 idle, else the pinned epoch
-    std::atomic<Node *> retired{nullptr};
+    Stack retired;
 };
 
 struct alignas(64) Counter {
@@ -50,7 +53,7 @@ struct State {
     alignas(64) std::atomic<uint64_t> retired{0};
     std::atomic<uint64_t> freed{0};
     std::atomic<uint64_t> overflowPins{0};
-    std::atomic<Node *> orphans{nullptr};  // lists of threads without a slot
+    Stack orphans;  // lists of threads without a slot
     Slot slots[kUsdGenEpochSlots];
 };
 State g;
@@ -63,25 +66,23 @@ struct ThreadState {
     uint32_t claimBackoff = 0;
     uint32_t sinceDrain = 0;
     bool draining = false;
+    // Set by the destructor. A thread_local destroyed after this one may
+    // still pin or retire; it then goes through the overflow counters and
+    // the orphan list instead of claiming a slot nobody would free.
+    bool dead = false;
     ~ThreadState();
 };
 thread_local ThreadState t;
 
-void PushChain(std::atomic<Node *> &head, Node *first, Node *last) noexcept
-{
-    Node *h = head.load(std::memory_order_relaxed);
-    do { I::Next(last) = h; } while (!head.compare_exchange_weak(h, first, std::memory_order_release,
-                                                                    std::memory_order_relaxed));
-}
-
 ThreadState::~ThreadState()
 {
     // Thread exit (also at DLL detach): hand the list over, free the slot.
+    dead = true;
     if (!slot) return;
-    if (Node *first = slot->retired.exchange(nullptr, std::memory_order_acquire)) {
+    if (Node *first = slot->retired.PopAll()) {
         Node *last = first;
         while (I::Next(last)) last = I::Next(last);
-        PushChain(g.orphans, first, last);
+        g.orphans.PushChain(first, last);
     }
     slot->pinned.store(0, std::memory_order_release);
     slot->owner.store(0, std::memory_order_release);
@@ -92,6 +93,7 @@ ThreadState::~ThreadState()
 Slot *OwnSlot() noexcept
 {
     if (t.slot) return t.slot;
+    if (t.dead) return nullptr;
     if (t.claimBackoff) {
         --t.claimBackoff;
         return nullptr;
@@ -111,13 +113,24 @@ Slot *OwnSlot() noexcept
     return nullptr;
 }
 
+#if defined(_WIN32)
+using DetachProbe = BOOLEAN(NTAPI *)();
+// Resolved once by whichever thread asks first; a racing second lookup
+// stores the same address. Constant-initialized: no guarded static.
+std::atomic<DetachProbe> g_detachProbe{nullptr};
+#endif
+
 bool ProcessDetaching() noexcept
 {
 #if defined(_WIN32)
-    using Fn = BOOLEAN(NTAPI *)();
-    auto fn = reinterpret_cast<Fn>(reinterpret_cast<void *>(
-        ::GetProcAddress(::GetModuleHandleW(L"ntdll.dll"), "RtlDllShutdownInProgress")));
-    return fn && fn();
+    DetachProbe fn = g_detachProbe.load(std::memory_order_relaxed);
+    if (!fn) {
+        fn = reinterpret_cast<DetachProbe>(reinterpret_cast<void *>(
+            ::GetProcAddress(::GetModuleHandleW(L"ntdll.dll"), "RtlDllShutdownInProgress")));
+        if (!fn) return false;
+        g_detachProbe.store(fn, std::memory_order_relaxed);
+    }
+    return fn() != 0;
 #else
     return false;
 #endif
@@ -137,9 +150,9 @@ bool TryAdvance() noexcept
     return g.epoch.compare_exchange_strong(e, e + 1, kSeq);
 }
 
-size_t DrainList(std::atomic<Node *> &head) noexcept
+size_t DrainList(Stack &head) noexcept
 {
-    Node *list = head.exchange(nullptr, std::memory_order_acquire);
+    Node *list = head.PopAll();
     Node *keep = nullptr, *keepLast = nullptr;
     size_t n = 0;
     uint64_t const now = g.epoch.load(kSeq);
@@ -166,7 +179,36 @@ size_t DrainList(std::atomic<Node *> &head) noexcept
             keep = node;
         }
     }
-    if (keep) PushChain(head, keep, keepLast);
+    if (keep) head.PushChain(keep, keepLast);
+    return n;
+}
+
+// Retires not yet freed (a relaxed estimate; exact once retirers are quiet).
+bool AnyPending() noexcept
+{
+    return g.retired.load(std::memory_order_relaxed) != g.freed.load(std::memory_order_relaxed);
+}
+
+// Drain and the auto-drain: advance, then free what is due in one list
+// (own) or, with own == nullptr, in every list.
+size_t DrainImpl(Stack *own) noexcept
+{
+    if (t.depth || t.draining) return 0;  // a pinned drainer would block itself
+    if (!AnyPending() || ProcessDetaching()) return 0;
+    t.draining = true;
+    if (TryAdvance()) TryAdvance();
+    size_t n = 0;
+    if (own) {
+        if (!own->Empty()) n += DrainList(*own);
+    } else {
+        uint32_t const hi = g.slotsHigh.load(std::memory_order_acquire);
+        for (uint32_t i = 0; i < hi; ++i) {
+            if (!g.slots[i].retired.Empty()) n += DrainList(g.slots[i].retired);
+        }
+        if (!g.orphans.Empty()) n += DrainList(g.orphans);
+    }
+    g.freed.fetch_add(n, std::memory_order_relaxed);
+    t.draining = false;
     return n;
 }
 
@@ -214,28 +256,18 @@ void UsdGenEpochRetire(Node *node, UsdGenEpochDeleter deleter) noexcept
     I::Batch(node) = 1;
     I::Retired(node) = g.epoch.load(kSeq);
     Slot *s = OwnSlot();
-    PushChain(s ? s->retired : g.orphans, node, node);
+    Stack &list = s ? s->retired : g.orphans;
+    list.Push(node);
+    // The auto-drain frees only this thread's own retires (or the orphans
+    // it fed), so a writer never runs deleters other threads queued. Full
+    // drains run at quiescent points: idle scheduler workers, cook lanes.
     if (++t.sinceDrain >= kUsdGenEpochAutoDrain && !t.depth && !t.draining) {
         t.sinceDrain = 0;
-        if (!ProcessDetaching()) UsdGenEpochDrain();
+        DrainImpl(&list);
     }
 }
 
-size_t UsdGenEpochDrain() noexcept
-{
-    if (t.depth || t.draining) return 0;  // a pinned drainer would block itself
-    t.draining = true;
-    if (TryAdvance()) TryAdvance();
-    size_t n = 0;
-    uint32_t const hi = g.slotsHigh.load(std::memory_order_acquire);
-    for (uint32_t i = 0; i < hi; ++i) {
-        if (g.slots[i].retired.load(std::memory_order_relaxed)) n += DrainList(g.slots[i].retired);
-    }
-    if (g.orphans.load(std::memory_order_relaxed)) n += DrainList(g.orphans);
-    g.freed.fetch_add(n, std::memory_order_relaxed);
-    t.draining = false;
-    return n;
-}
+size_t UsdGenEpochDrain() noexcept { return DrainImpl(nullptr); }
 
 size_t UsdGenEpochShutdown() noexcept
 {

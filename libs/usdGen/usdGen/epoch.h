@@ -16,8 +16,12 @@
 //   UsdGenRef for anything longer. Guards nest, never block, and must not span
 //   a callback or host code.
 // - Retired objects are freed by Drain once the global epoch is two past their
-//   retire epoch. Drain never waits and does nothing on a pinned thread. Retire
-//   also drains every kUsdGenEpochAutoDrain retires on an unpinned thread.
+//   retire epoch. Drain never waits and does nothing on a pinned thread or
+//   during process detach. Every kUsdGenEpochAutoDrain retires, an unpinned
+//   thread also frees its own due retires (never other threads'). Idle
+//   scheduler workers run a full Drain before they park.
+// - A thread_local destroyed after the epoch's own thread state may still pin
+//   and retire; it pins through the overflow counters and claims no slot.
 // - A thread claims one of kUsdGenEpochSlots slots on first use (CAS, no
 //   allocation) and frees it at thread exit. With the table full, threads pin
 //   through two shared counters instead: correct, just contended.
@@ -64,6 +68,8 @@ void UsdGenEpochLeave() noexcept;
 void UsdGenEpochRetire(UsdGenEpochNode *node, UsdGenEpochDeleter deleter) noexcept;
 
 /// Try to advance the epoch and run every due deleter. Returns deleters run.
+/// Returns 0 at once on a pinned thread, with nothing pending, or during
+/// process detach.
 size_t UsdGenEpochDrain() noexcept;
 
 /// Drain what is safe without waiting; returns retires still pending.
@@ -240,6 +246,14 @@ public:
                                                                       std::memory_order_relaxed));
     }
     T *PopAll() noexcept { return head_.exchange(nullptr, std::memory_order_acquire); }
+    /// Installs the chain at first (already linked) only if the stack is
+    /// empty; false leaves the chain with the caller.
+    bool InstallIfEmpty(T *first) noexcept
+    {
+        T *expected = nullptr;
+        return head_.compare_exchange_strong(expected, first, std::memory_order_release,
+                                             std::memory_order_relaxed);
+    }
     bool Empty() const noexcept { return head_.load(std::memory_order_acquire) == nullptr; }
 
 private:

@@ -5,18 +5,12 @@
 namespace usdGen {
 namespace {
 
-// Free holders. Push and take-all only, so there is no ABA. Constant-
-// initialized and trivially destructible: nothing runs at DLL detach.
-std::atomic<UsdGenSharedCellHolder *> gFree{nullptr};
+// Free holders. Push, take-all and install-if-empty only, so there is no
+// ABA. Constant-initialized and trivially destructible: nothing runs at DLL
+// detach.
+UsdGenTreiberStack<UsdGenSharedCellHolder, &UsdGenSharedCellHolder::freeNext> gFree;
 // This thread's spare holders (see UsdGenSharedCellAcquire).
 thread_local UsdGenSharedCellHolder *tlsSpare = nullptr;
-
-void PushFree(UsdGenSharedCellHolder *first, UsdGenSharedCellHolder *last) noexcept
-{
-    UsdGenSharedCellHolder *head = gFree.load(std::memory_order_relaxed);
-    do { last->freeNext = head; } while (!gFree.compare_exchange_weak(
-        head, first, std::memory_order_release, std::memory_order_relaxed));
-}
 
 void RecycleDeleter(UsdGenEpochNode *n) noexcept
 {
@@ -33,13 +27,10 @@ UsdGenSharedCellHolder *UsdGenSharedCellAcquire(std::shared_ptr<const void> valu
     // that exits with spares leaks them, like the free stack itself).
     UsdGenSharedCellHolder *h = tlsSpare;
     if (!h) {
-        h = gFree.exchange(nullptr, std::memory_order_acquire);
+        h = gFree.PopAll();
         if (h && h->freeNext) {
             UsdGenSharedCellHolder *rest = h->freeNext;
-            UsdGenSharedCellHolder *expected = nullptr;
-            if (!gFree.compare_exchange_strong(expected, rest, std::memory_order_release,
-                                               std::memory_order_relaxed))
-                tlsSpare = rest;
+            if (!gFree.InstallIfEmpty(rest)) tlsSpare = rest;
             h->freeNext = nullptr;
         }
     } else {
@@ -58,7 +49,7 @@ void UsdGenSharedCellRecycle(UsdGenSharedCellHolder *h) noexcept
     h->strong.reset();
     h->weak.reset();
     h->raw = nullptr;
-    PushFree(h, h);
+    gFree.Push(h);
 }
 
 void UsdGenSharedCellRetire(UsdGenSharedCellHolder *h) noexcept
