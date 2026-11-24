@@ -11,6 +11,7 @@
 // offsets by r(0). All work is per curve/CV in Evaluate; Capture only
 // validates.
 #include "usdGen/ops/curl.h"
+#include "usdGen/scratch.h"
 #include "usdGen/clumpMotion.h"
 
 #include "usdGen/opParams.h"
@@ -232,13 +233,13 @@ void UsdGenCurlOp::Evaluate(
     float const *lutPtr = nullptr;
     VtVec2fArray const knots = ReadRampKnots(p, sRadiusKnots);
     bool const rampFlat = knots.empty();
-    thread_local std::vector<float> tLut;
+    UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
-        if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
+        float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
             p ? p->GetToken(sRadiusInterp, sCatmullRom) : sCatmullRom,
-            tLut.data(), kUsdGenRampLutSize);
-        lutPtr = tLut.data();
+            lut, kUsdGenRampLutSize);
+        lutPtr = lut;
     }
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;

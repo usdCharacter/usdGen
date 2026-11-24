@@ -75,7 +75,7 @@ struct UsdGenGraphRoutingSnapshot
 
 /// One compiled node. Owns its UsdGenOp, its output buffer, its capture, its
 /// chunk dirty bytes and its digests (03 §3.2).
-struct UsdGenCompiledNode
+struct UsdGenCompiledNode : UsdGenPooled
 {
     UsdGenNodeDesc const *desc = nullptr;         // points into the graph's desc copy
     int                  descIdx = -1;            // index of that desc in graph Desc().nodes
@@ -235,6 +235,10 @@ private:
     void _PropagateDescendantBits(uint32_t bits, std::vector<bool> const &descendants);
 
     std::unique_ptr<UsdGenGraphDesc> _desc;  // owned copy taken at Compile
+    // The previous descriptor, overwritten by the next Recompile, and the
+    // node vector Recompile swaps out: both keep capacity across compiles.
+    std::unique_ptr<UsdGenGraphDesc> _spareDesc;
+    std::vector<std::unique_ptr<UsdGenCompiledNode>> _retiredNodes;
     // RestDesc()'s view and the source it was built from: the descriptor, and
     // per surface its generation and its points' and rest's buffers.
     mutable std::unique_ptr<UsdGenGraphDesc> _restDesc;
@@ -246,7 +250,8 @@ private:
     std::vector<UsdGenResolvedReferenceValue> _referenceValues;
     std::vector<UsdGenResolvedMapValue> _mapValues;
     UsdGenNodeId      _terminal = InvalidNode;
-    std::unordered_map<SdfPath, UsdGenNodeId, SdfPath::Hash> _nodeByPath;
+    std::unordered_map<SdfPath, UsdGenNodeId, SdfPath::Hash, std::equal_to<SdfPath>,
+                       UsdGenPoolAllocator<std::pair<const SdfPath, UsdGenNodeId>>> _nodeByPath;
     int _chunkSize = kUsdGenDefaultChunkSize;
     int _tileTarget = kUsdGenTileTargetDefault;
     int _chunksPerTile = 1;

@@ -14,6 +14,7 @@
 // direction/constStrength/gustStrength sample per curve root (primitive);
 // stiffness and its ramp are groom-wide; the mask envelopes per CV.
 #include "usdGen/ops/wind.h"
+#include "usdGen/scratch.h"
 
 #include "usdGen/clumpMotion.h"
 #include "usdGen/opParams.h"
@@ -380,13 +381,13 @@ void UsdGenWindOp::Evaluate(
     float const *lutPtr = nullptr;
     VtVec2fArray const knots = ReadRampKnots(p, sKnots);
     bool const stiffFlat = knots.empty();
-    thread_local std::vector<float> tLut;
+    UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!stiffFlat) {
-        if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
+        float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
             p ? p->GetToken(sInterp, sCatmullRom) : sCatmullRom,
-            tLut.data(), kUsdGenRampLutSize);
-        lutPtr = tLut.data();
+            lut, kUsdGenRampLutSize);
+        lutPtr = lut;
     }
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
@@ -415,10 +416,10 @@ void UsdGenWindOp::Evaluate(
         }
     }
     size_t const activeLevels = hasClumps ? cap.clumps.levels.size() : 0;
-    std::vector<uint32_t> curveGroup(activeLevels, UINT32_MAX);
-    std::vector<float> curveGroupGust(activeLevels, 0.0f);
-    std::vector<float> curveGroupLow(activeLevels, 0.0f);
-    std::vector<float> curveGroupHigh(activeLevels, 0.0f);
+    uint32_t *curveGroup = scratch.Filled<uint32_t>(activeLevels, UINT32_MAX);
+    float *curveGroupGust = scratch.Filled<float>(activeLevels, 0.0f);
+    float *curveGroupLow = scratch.Filled<float>(activeLevels, 0.0f);
+    float *curveGroupHigh = scratch.Filled<float>(activeLevels, 0.0f);
 
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);

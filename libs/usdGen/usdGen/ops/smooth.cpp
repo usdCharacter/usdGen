@@ -20,6 +20,7 @@
 //   includes self), for k = 1 .. n-2; both endpoints are always fixed (no
 //   lockRoot), and there is no length preservation.
 #include "usdGen/ops/smooth.h"
+#include "usdGen/scratch.h"
 
 #include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
@@ -410,7 +411,6 @@ void UsdGenSmoothOp::Evaluate(
     if (!neighbours) {
         // alongCurve: Jacobi passes ping-ponging between the scratch buffer
         // (first read) and the output planes.
-        thread_local std::vector<float> tScratch;
         for (uint32_t c = 0; c < view->curveCount; ++c) {
             size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
             size_t const g = ragged ? size_t(cvOff[c] - cvOff[0]) : view->Cv(c, 0);
@@ -418,8 +418,8 @@ void UsdGenSmoothOp::Evaluate(
             size_t const curve = curveBase + c;
             float const strength =
                 static_cast<float>(strengthField.Value(curve, cvBase + g));
-            if (tScratch.size() < 3 * n) tScratch.assign(3 * n, 0.0f);
-            float *sx = tScratch.data(), *sy = sx + n, *sz = sy + n;
+            UsdGenScratchScope scratch;   // per curve; rewinds each iteration
+            float *sx = scratch.Array<float>(3 * n), *sy = sx + n, *sz = sy + n;
             for (size_t i = 0; i < n; ++i) {
                 sx[i] = inPx[g + i]; sy[i] = inPy[g + i]; sz[i] = inPz[g + i];
             }

@@ -152,7 +152,7 @@ UsdGenEpoch UsdGenWidthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // deliberately excluded — its ramp is rebuilt every evaluate (gate SI-2).
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
-    auto feed = [&](std::string const &k, uint64_t v) {
+    auto feed = [&](std::string_view k, uint64_t v) {
         h ^= v; h *= 0x100000001b3ULL;
         h ^= k.size(); h *= 0x100000001b3ULL;
     };

@@ -89,12 +89,13 @@ bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
             !Find(buffer.extraCurve, "clumpId_" + std::to_string(level)))
             return Fail("orphan clump motion plane " + plane.name.GetString(), error);
     }
-    std::set<int> seenLevels;
+    UsdGenPoolVector<int> seenLevels;   // empty unless clump planes exist; no node alloc
     for (UsdGenPlane const &ids : buffer.extraCurve) {
         int level = 0;
         if (!ParseLevel(ids.name, "clumpId_", &level)) continue;
-        if (!seenLevels.insert(level).second)
+        if (std::find(seenLevels.begin(), seenLevels.end(), level) != seenLevels.end())
             return Fail("duplicate clump level " + std::to_string(level), error);
+        seenLevels.push_back(level);
         if (ids.interpolation != TfToken("uniform") ||
             ids.type != TfToken("int") || ids.arity != 1 ||
             ids.i.size() != buffer.totalCurves)

@@ -168,7 +168,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          h ^= p[i]; h *= 0x100000001b3ULL;
       }
    };
-   auto feed = [&](std::string const &k, uint64_t v) {
+   auto feed = [&](std::string_view k, uint64_t v) {
       bytes(k.data(), k.size());
       bytes(&v, sizeof(v));
    };

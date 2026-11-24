@@ -113,7 +113,10 @@ UsdGenGraphDesc const &UsdGenGraph::RestDesc() const
         fresh = _restSourceKeys[s] == RestSourceKey(_desc->surfaces[s]);
     if (fresh) return *_restDesc;
 
-    auto rest = std::make_unique<UsdGenGraphDesc>(*_desc);
+    // Copy-assign into the retained view: its vectors keep their capacity.
+    if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphDesc>();
+    UsdGenGraphDesc *rest = _restDesc.get();
+    *rest = *_desc;
     for (UsdGenSurfaceDesc &surface : rest->surfaces) {
         if (surface.restFromCurrentPoints || surface.restPoints.empty() ||
             surface.restPoints.size() != surface.points.size())
@@ -130,7 +133,6 @@ UsdGenGraphDesc const &UsdGenGraph::RestDesc() const
     for (UsdGenSurfaceDesc const &surface : _desc->surfaces)
         _restSourceKeys.push_back(RestSourceKey(surface));
     _restSource = _desc.get();
-    _restDesc = std::move(rest);
     return *_restDesc;
 }
 

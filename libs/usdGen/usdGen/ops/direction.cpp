@@ -5,6 +5,7 @@
 // nearest-sample tangent per strand root; Evaluate shapes the target in the
 // root frame and rotates rigidly or per segment. Roots never move.
 #include "usdGen/ops/direction.h"
+#include "usdGen/scratch.h"
 
 #include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
@@ -479,13 +480,13 @@ void UsdGenDirectionOp::Evaluate(
     float const *lutPtr = nullptr;
     VtVec2fArray const knots = ReadRampKnots(p, sKnots);
     bool const rampFlat = knots.empty();
-    thread_local std::vector<float> tLut;
+    UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
-        if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
+        float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
             p ? p->GetToken(sInterp, sCatmullRom) : sCatmullRom,
-            tLut.data(), kUsdGenRampLutSize);
-        lutPtr = tLut.data();
+            lut, kUsdGenRampLutSize);
+        lutPtr = lut;
     }
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
