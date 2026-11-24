@@ -45,9 +45,9 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGenImaging {
 
 inline constexpr char kUsdGenMaterialStormText[] = "material_storm";
-inline UsdGenStaticToken<kUsdGenMaterialStormText> const s_usdGenMaterialStormToken;
+inline UsdGenStaticToken<kUsdGenMaterialStormText> const s_usdGenMaterialStormToken{};
 inline constexpr char kUsdGenRenderText[] = "__usdGenRender";
-inline UsdGenStaticToken<kUsdGenRenderText> const s_usdGenRenderToken;
+inline UsdGenStaticToken<kUsdGenRenderText> const s_usdGenRenderToken{};
 
 class UsdGenTilePublisher
 {

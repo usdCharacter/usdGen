@@ -20,8 +20,8 @@ namespace usdGenImaging {
 
 inline constexpr char kUsdGenContainerText[] = "usdGen";
 inline constexpr char kUsdGenRenderNamespaceText[] = "__usdGenRender";
-inline UsdGenStaticToken<kUsdGenContainerText> const s_usdGenContainerToken;
-inline UsdGenStaticToken<kUsdGenRenderNamespaceText> const s_usdGenRenderNamespaceToken;
+inline UsdGenStaticToken<kUsdGenContainerText> const s_usdGenContainerToken{};
+inline UsdGenStaticToken<kUsdGenRenderNamespaceText> const s_usdGenRenderNamespaceToken{};
 
 /// Container token for all usdGen-published Hydra data ("usdGen").
 inline PXR_NS::TfToken const &UsdGenContainerToken()
