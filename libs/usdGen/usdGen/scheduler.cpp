@@ -1027,7 +1027,9 @@ UsdGenRunResult UsdGenScheduler::Run(
         return refused;
     }
     _scratch->nodeStats.clear();
+    UsdGenCookTokenCheck const tokenCheck;
     UsdGenRunResult result = _Run(graph, evalCtx, tileCompleted, superseded);
+    UsdGenCookInternFails(tokenCheck, &result.diagnostics);
     result.nodeStats = TfSpan<const UsdGenNodeRunStats>(_scratch->nodeStats);
     _scratch->running.store(false, std::memory_order_release);
     return result;

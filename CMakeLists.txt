@@ -3346,6 +3346,15 @@ target_include_directories(testUsdGenRegistries PRIVATE ${CMAKE_CURRENT_SOURCE_D
 add_test(NAME testUsdGenRegistries COMMAND testUsdGenRegistries)
 set_tests_properties(testUsdGenRegistries PROPERTIES LABELS "T0;registries")
 
+# Step 4 gate 4: an exec-phase intern fails the cook (warns with checks off).
+add_executable(testUsdGenTokenChecks tests/testUsdGenTokenChecks.cpp)
+target_link_libraries(testUsdGenTokenChecks PRIVATE usdGenTestUtils)
+add_test(NAME testUsdGenTokenChecks COMMAND testUsdGenTokenChecks)
+add_test(NAME testUsdGenTokenChecksOff COMMAND testUsdGenTokenChecks off)
+set_tests_properties(testUsdGenTokenChecksOff PROPERTIES ENVIRONMENT "USDGEN_TOKEN_CHECKS=0")
+set_tests_properties(testUsdGenTokenChecks testUsdGenTokenChecksOff PROPERTIES
+    LABELS "T0;registries;gate;gate:registries")
+
 # UsdGenDeform on the CPU lane: hair deformed by animated curves (RBF).
 add_executable(testUsdGenRbfDeform tests/testUsdGenRbfDeform.cpp)
 target_link_libraries(testUsdGenRbfDeform PRIVATE usdGenTestUtilsHd)

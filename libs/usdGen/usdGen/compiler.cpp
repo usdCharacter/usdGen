@@ -1016,6 +1016,8 @@ void UsdGenCompiler::_Build(
     UsdGenGraph const *reuse,
     UsdGenCompileResult &result)
 {
+    // The first compile freezes every registry (idempotent).
+    UsdGenFreezeRegistries();
     UsdGenCompileTokenScope tokenScope;
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
 

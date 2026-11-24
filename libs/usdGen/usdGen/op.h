@@ -47,6 +47,20 @@ struct UsdGenDiagnostics
     void Warn(std::string msg)     { warnings.push_back(std::move(msg)); }
 };
 
+/// The exec-phase token rule: true (and an error on diag) when the phase
+/// `check` brackets interned a token; with USDGEN_TOKEN_CHECKS=0 a warning
+/// on diag and false.
+inline bool UsdGenCookInternFails(UsdGenCookTokenCheck const &check, UsdGenDiagnostics *diag)
+{
+    if (!check.Violated()) return false;
+    char const *const message = "usdGen: a token was interned during the cook";
+    bool const fail = UsdGenTokenChecksEnabled();
+    if (diag) {
+        if (fail) diag->Error(message);
+        else diag->Warn(message);
+    }
+    return fail;
+}
 
 /// This node's resolved parameters and ramps, handed in by the scheduler at
 /// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the

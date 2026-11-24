@@ -5,7 +5,7 @@
 // After two warm-up cooks, a steady-state cook (same topology, every chunk
 // dirty) and a value-only parameter edit must not allocate more than their
 // budgets. The budgets ratchet down to zero; lower them when a change frees
-// allocations, never raise them. The graph is the bench's G3 chain
+// allocations, never raise them. Neither may intern a token (step-4 gate 4). The graph is the bench's G3 chain
 // (scatter -> grow -> noise -> length -> width) at 10k curves. Every
 // measured cook must also reproduce a fresh compile's output bit for bit,
 // and recycling must never write into a buffer something still holds.
@@ -17,6 +17,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
+#include "usdGen/registries/token.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/types.h"
 
@@ -266,13 +267,24 @@ int main()
     scheduler.Run(graph, ctx, ++gen);
 
     fullDirty();
-    uint64_t const warm = Counted("warm", [&] { scheduler.Run(graph, ctx, ++gen); });
+    uint64_t warmInterns = 0, editInterns = 0;
+    uint64_t const warm = Counted("warm", [&] {
+        uint64_t const before = UsdGenTotalInternCount();
+        scheduler.Run(graph, ctx, ++gen);
+        warmInterns = UsdGenTotalInternCount() - before;
+    });
     uint64_t const edit = Counted("edit", [&] {
+        uint64_t const before = UsdGenTotalInternCount();
         compiler.Recompile(b, &graph);
         ctx.desc = &graph.Desc();
         scheduler.Run(graph, ctx, ++gen);
+        editInterns = UsdGenTotalInternCount() - before;
     });
     int failures = 0;
+    std::printf("warm cook interns: %llu, param edit interns: %llu (target 0)\n",
+                (unsigned long long)warmInterns, (unsigned long long)editInterns);
+    if (warmInterns != 0) { std::printf("FAIL: the warm cook interned a token\n"); ++failures; }
+    if (editInterns != 0) { std::printf("FAIL: the param edit interned a token\n"); ++failures; }
     // Recycled storage must not change a single bit of the output.
     UsdGenCurveBuffer const &out = graph.Node(graph.TerminalNodeId()).buffer;
     if (out.totalCurves == 0 || !SameOutput(out, FreshCook(b))) {

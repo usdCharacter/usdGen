@@ -1307,6 +1307,8 @@ void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
         completion(_store.Get(), {});
         return;
     }
+    // Exec phase from here to the job's completion (registries/token.h).
+    UsdGenCookTokenCheck const tokenCheck;
     if (callerDevice==-2) _lastDiagnostics.Error("CUDA caller device capture failed");
     else if (!_devicePublicationEnabled) _lastDiagnostics.Error("CUDA publication requires a device-aware consumer; renderer graphics interop is unavailable");
     else if (!_graph.CudaPlan()) _lastDiagnostics.Error("CUDA graph has no compiled execution plan");
@@ -1503,16 +1505,21 @@ void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
         return;
     }
     graph.tasks.push_back({terminalMetadata->dependencies,
-                           [this, stages](auto const&, auto done) {
+                           [this, stages, tokenCheck](auto const&, auto done) {
         auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
             std::move(done));
         try {
             if (!FinalizeCudaExecutionJobAsync(stages->job,
-                    [this, stages, completion](std::shared_ptr<const UsdGenDeviceGeneration> device) {
+                    [this, stages, completion, tokenCheck](std::shared_ptr<const UsdGenDeviceGeneration> device) {
                 try {
                     if (!device) {
                         (*completion)({}, std::make_exception_ptr(
                             std::runtime_error("CUDA final stage failed")));
+                        return;
+                    }
+                    if (UsdGenCookInternFails(tokenCheck, nullptr)) {
+                        (*completion)({}, std::make_exception_ptr(std::runtime_error(
+                            "usdGen: a token was interned during the cook")));
                         return;
                     }
                     // Allocate native diagnostic snapshots before advancing
@@ -1580,6 +1587,8 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
                   [provider](UsdGenGraphDesc const& d, UsdGenDiagnostics* diag) {
                       return provider->Compile(d, diag);
                   }, &plan)) { completion(_store.Get(), {}); return; }
+    // Exec phase from here to the device result (registries/token.h).
+    UsdGenCookTokenCheck const tokenCheck;
     auto const identity = provider->Identity();
     if (!_devicePublicationEnabled || !plan ||
         identity.backend != UsdGenDeviceBackend::Vulkan ||
@@ -1666,7 +1675,7 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
         completion(_store.Get(), {}); return;
     }
     auto handler = [this, provider, domain, key, frame, identity, source, final, intermediates, expectedTopology,
-                    completion](
+                    completion, tokenCheck](
         std::shared_ptr<const UsdGenSessionDeviceResult> result) mutable {
         if (result && result->error) {
             try { std::rethrow_exception(result->error); }
@@ -1693,6 +1702,10 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
             _lastDiagnostics.Error("Vulkan device result failed immutable identity or readiness validation");
             completion(_store.Get(), result && result->error ? result->error :
                 std::make_exception_ptr(std::runtime_error("Vulkan device result validation failed"))); return;
+        }
+        if (UsdGenCookInternFails(tokenCheck, &_lastDiagnostics)) {
+            completion(_store.Get(), std::make_exception_ptr(std::runtime_error(
+                "usdGen: a token was interned during the cook"))); return;
         }
         if (!_FinalizeDevicePublication(result->generation, domain, key, frame)) {
             completion(_store.Get(), std::make_exception_ptr(std::runtime_error(
@@ -1956,6 +1969,8 @@ UsdGenStats publishedStats, bool invalidateValues,
                   std::move(previous), std::move(publishedStats), invalidateValues,
                   previousPublishedWorkerEpoch)) return _store.Get();
     phases.Phase("prepare");
+    // Exec phase from here: an intern fails the cook (registries/token.h).
+    UsdGenCookTokenCheck const tokenCheck;
 
     const uint64_t myReq = workEpoch;
     if (_desc.executionBackend != UsdGenExecutionBackend::Cuda &&
@@ -2559,6 +2574,10 @@ UsdGenStats publishedStats, bool invalidateValues,
         gen.signature.primvarNames.push_back(std::move(names));
     }
 
+    if (UsdGenCookInternFails(tokenCheck, &_lastDiagnostics)) {
+        _graphUntrusted = true;
+        return _store.Get();
+    }
     auto prepared = _store.PreparePublication(std::move(gen));
     auto fence = cacheDomain->CapturePublicationFence(cacheKey);
     if (!fence || !cacheDomain->PublishIfCurrent(*fence, [this, &prepared] {
