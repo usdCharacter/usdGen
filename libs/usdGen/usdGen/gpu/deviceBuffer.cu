@@ -39,30 +39,29 @@ struct CachedBlock {
     size_t capacity = 0;  // the class allocated
     int device = -1;
 };
-// Lock-free and allocation-free: blocks hang off fixed nodes in per-(device,
-// bytes) buckets. A bucket is a Treiber stack whose head packs a 32-bit ABA
-// tag with a 1-based node index; bucket keys are CAS-inserted and never
-// removed, so the table only grows with new sizes (topology changes). A full
-// table or node array frees the block instead of caching it.
+// Lock-free and allocation-free: blocks hang off fixed nodes in one bucket
+// per (device, size class). A bucket is a Treiber stack whose head packs a
+// 32-bit ABA tag with a 1-based node index. Buckets are indexed directly by
+// device and class (classes are bounded: 161 below 2^48 bytes), so no key is
+// ever claimed or exhausted and a lookup never probes; a device past
+// kCacheDevices, or a full node array, frees the block instead of caching it.
 // Deliberately leaked: entries must never run cudaFree during process
 // teardown (the CUDA context may already be gone); the driver reclaims
 // device memory with the context. All state is constant-initialized.
 constexpr uint32_t kCacheNodes = 8192;
-constexpr uint32_t kCacheBuckets = 1024;  // power of two
+constexpr uint32_t kCacheDevices = 16;
+constexpr uint32_t kCacheClasses = 1 + 4 * (48 - 8);  // 256 bytes, then 4 per power of two
 struct CacheNode {
     void* ptr = nullptr;
     cudaEvent_t ready = nullptr;
     size_t bytes = 0;
     std::atomic<uint32_t> next{0};
 };
-struct CacheBucket {
-    std::atomic<uint64_t> key{0};   // 0 = empty
-    std::atomic<uint64_t> head{0};  // tag << 32 | node index + 1
-};
 CacheNode g_nodes[kCacheNodes];
 std::atomic<uint32_t> g_nodesUsed{0};
 std::atomic<uint64_t> g_freeNodes{0};
-CacheBucket g_buckets[kCacheBuckets];
+std::atomic<uint64_t> g_buckets[kCacheDevices * kCacheClasses];  // tag << 32 | node index + 1
+std::atomic<uint32_t> g_deviceBlocks[kCacheDevices];  // cached blocks per device (scan hint)
 std::atomic<size_t> g_cacheBytes{0};     // requested bytes (gauge)
 std::atomic<size_t> g_cachePhysical{0};  // class bytes (cap)
 // Idle physical retention bound. Covers one scatter-grow peak (~380MB)
@@ -70,14 +69,42 @@ std::atomic<size_t> g_cachePhysical{0};  // class bytes (cap)
 // regardless of this value.
 constexpr size_t kCacheCapBytes = size_t{1} << 30;
 
+unsigned FloorLog2(size_t v) noexcept {
+    unsigned top = 0;
+    while (v >>= 1) ++top;
+    return top;
+}
+
 // 256 bytes, then four classes per power of two (at most 25% slack).
 size_t ClassBytes(size_t bytes) noexcept {
     if (bytes <= 256) return 256;
-    unsigned top = 0;
-    for (size_t v = bytes - 1; v >>= 1;) ++top;  // floor(log2(bytes - 1))
+    unsigned const top = FloorLog2(bytes - 1);
     size_t const step = size_t{1} << (top - 2);
     size_t const rounded = (bytes + step - 1) & ~(step - 1);
     return rounded < bytes ? bytes : rounded;
+}
+
+// The bucket class of a ClassBytes result; kCacheClasses when it has none
+// (2^48 bytes or more).
+uint32_t ClassIndex(size_t capacity) noexcept {
+    if (capacity <= 256) return 0;
+    unsigned const top = FloorLog2(capacity - 1);  // capacity in (2^top, 2^(top+1)]
+    if (top >= 48) return kCacheClasses;
+    size_t const step = size_t{1} << (top - 2);
+    size_t const k = (capacity - (size_t{1} << top)) / step;  // 1..4
+    return 1 + (top - 8) * 4 + uint32_t(k - 1);
+}
+size_t ClassCapacity(uint32_t index) noexcept {
+    if (!index) return 256;
+    unsigned const top = 8 + (index - 1) / 4;
+    return (size_t{1} << top) + size_t((index - 1) % 4 + 1) * (size_t{1} << (top - 2));
+}
+std::atomic<uint64_t>* Bucket(int device, size_t capacity) noexcept {
+    uint32_t const c = ClassIndex(capacity);
+    if (device < 0 || uint32_t(device) >= kCacheDevices || c >= kCacheClasses ||
+        ClassCapacity(c) != capacity)
+        return nullptr;
+    return &g_buckets[uint32_t(device) * kCacheClasses + c];
 }
 
 uint64_t Pack(uint64_t head, uint32_t index) noexcept {
@@ -114,48 +141,33 @@ void FreeNode(uint32_t i) noexcept {
     g_nodes[i - 1].ptr = nullptr; g_nodes[i - 1].ready = nullptr; g_nodes[i - 1].bytes = 0;
     PushIndex(g_freeNodes, i);
 }
-uint64_t Key(int device, size_t bytes) noexcept {
-    if (device < 0 || device >= 0xFFFE || bytes == 0 || bytes >= (uint64_t{1} << 48)) return 0;
-    return (uint64_t(device + 1) << 48) | uint64_t(bytes);
-}
-int KeyDevice(uint64_t key) noexcept { return int(key >> 48) - 1; }
-size_t KeyBytes(uint64_t key) noexcept { return size_t(key & ((uint64_t{1} << 48) - 1)); }
-CacheBucket* FindBucket(uint64_t key, bool insert) noexcept {
-    if (!key) return nullptr;
-    uint64_t h = key * 0x9E3779B97F4A7C15ull;
-    h ^= h >> 29;
-    for (uint32_t probe = 0; probe != kCacheBuckets; ++probe) {
-        CacheBucket& b = g_buckets[(h + probe) & (kCacheBuckets - 1)];
-        uint64_t k = b.key.load(std::memory_order_acquire);
-        if (k == key) return &b;
-        if (k) continue;
-        if (!insert) return nullptr;  // keys are never removed
-        if (b.key.compare_exchange_strong(k, key, std::memory_order_acq_rel,
-                                          std::memory_order_acquire) || k == key)
-            return &b;
-    }
-    return nullptr;
-}
-bool PopBucket(CacheBucket& b, CachedBlock* out) noexcept {
-    uint32_t const i = PopIndex(b.head);
+bool PopBucket(int device, uint32_t c, CachedBlock* out) noexcept {
+    uint32_t const i = PopIndex(g_buckets[uint32_t(device) * kCacheClasses + c]);
     if (!i) return false;
-    uint64_t const key = b.key.load(std::memory_order_relaxed);
     *out = CachedBlock{g_nodes[i - 1].ptr, g_nodes[i - 1].ready, g_nodes[i - 1].bytes,
-                       KeyBytes(key), KeyDevice(key)};
+                       ClassCapacity(c), device};
     FreeNode(i);
+    g_deviceBlocks[device].fetch_sub(1, std::memory_order_acq_rel);
     g_cacheBytes.fetch_sub(out->bytes, std::memory_order_acq_rel);
     g_cachePhysical.fetch_sub(out->capacity, std::memory_order_acq_rel);
     return true;
 }
+// Pops one of `device`'s blocks, largest class first (most memory back per
+// eviction, and big blocks of sizes no longer in use do not outstay small
+// fresh ones).
+bool PopLargest(int device, CachedBlock* out) noexcept {
+    if (!g_deviceBlocks[device].load(std::memory_order_acquire)) return false;
+    for (uint32_t c = kCacheClasses; c-- != 0;)
+        if (PopBucket(device, c, out)) return true;
+    return false;
+}
 // Pops any block, preferring `device` (or only `device` when `only`).
 bool PopAny(int device, bool only, CachedBlock* out) noexcept {
-    for (int pass = 0; pass != (only ? 1 : 2); ++pass) {
-        for (auto& b : g_buckets) {
-            uint64_t const key = b.key.load(std::memory_order_acquire);
-            if (!key || (KeyDevice(key) == device) != (pass == 0)) continue;
-            if (PopBucket(b, out)) return true;
-        }
-    }
+    bool const local = device >= 0 && uint32_t(device) < kCacheDevices;
+    if (local && PopLargest(device, out)) return true;
+    if (only) return false;
+    for (uint32_t d = 0; d != kCacheDevices; ++d)
+        if (int(d) != device && PopLargest(int(d), out)) return true;
     return false;
 }
 
@@ -166,8 +178,7 @@ void FreeBlock(CachedBlock const& b) noexcept {
 
 // Same (device, class), most-recently-freed first.
 bool PopCache(int device, size_t capacity, CachedBlock* out) {
-    CacheBucket* b = FindBucket(Key(device, capacity), false);
-    return b && PopBucket(*b, out);
+    return Bucket(device, capacity) && PopBucket(device, ClassIndex(capacity), out);
 }
 
 // Insert a freed block, then evict while over the cap. The caller has
@@ -175,14 +186,15 @@ bool PopCache(int device, size_t capacity, CachedBlock* out) {
 // save/set/restore around the free. A failed set keeps the entry and stops
 // eviction (soft cap) rather than leaking or spinning.
 bool PushBlock(CachedBlock const& block) noexcept {
-    CacheBucket* b = FindBucket(Key(block.device, block.capacity), true);
+    std::atomic<uint64_t>* b = Bucket(block.device, block.capacity);
     uint32_t const i = b ? AllocNode() : 0;
     if (!i) return false;
     g_nodes[i - 1].ptr = block.ptr; g_nodes[i - 1].ready = block.ready;
     g_nodes[i - 1].bytes = block.bytes;
     g_cacheBytes.fetch_add(block.bytes, std::memory_order_acq_rel);
     g_cachePhysical.fetch_add(block.capacity, std::memory_order_acq_rel);
-    PushIndex(b->head, i);
+    g_deviceBlocks[block.device].fetch_add(1, std::memory_order_acq_rel);
+    PushIndex(*b, i);
     return true;
 }
 void PushCache(CachedBlock const& block) {

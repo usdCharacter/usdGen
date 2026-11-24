@@ -40,6 +40,29 @@ int main() {
     }
     CHECK(resources->Snapshot().usedBytes == 0);
 
+    // Every class from 256 bytes to 64MiB has its own cache bucket: a freed
+    // block of each class comes back for a smaller request in that class.
+    {
+        std::vector<size_t> classes{256};
+        for (size_t top = 8; top != 26; ++top)
+            for (size_t k = 1; k <= 4; ++k)
+                classes.push_back((size_t{1} << top) + k * (size_t{1} << (top - 2)));
+        std::vector<void*> blocks;
+        for (size_t bytes : classes) {
+            gpu::DeviceBuffer<unsigned char> b;
+            CHECK(b.reset(bytes) == cudaSuccess);
+            blocks.push_back(b.data());
+        }
+        CHECK(gpu::UsdGenGpuDeviceBufferCacheBytes() > 0);
+        for (size_t i = 0; i != classes.size(); ++i) {
+            // The smallest request that still rounds up to this class.
+            size_t const below = i ? classes[i - 1] + 1 : 1;
+            gpu::DeviceBuffer<unsigned char> b;
+            CHECK(b.reset(below) == cudaSuccess && b.data() == blocks[i]);
+        }
+    }
+    CHECK(resources->Snapshot().usedBytes == 0);
+
     // Threads resize within and across classes and check their own bytes.
     std::atomic<int> errors{0};
     std::vector<std::thread> threads;
