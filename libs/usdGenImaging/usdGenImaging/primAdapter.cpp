@@ -24,6 +24,7 @@
 // disappears; the dirty router treats that as graph-structural (02 §6.6
 // rule 2).
 #include "usdGenImaging/primAdapter.h"
+#include "usdGenImaging/atomicShared.h"
 
 #include "usdGenImaging/expressionConnection.h"
 
@@ -42,7 +43,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
-#include <tbb/concurrent_unordered_map.h>
+#include <unordered_map>
 
 #include "usdGenImaging/usdGenTokens.h"
 PXR_NAMESPACE_OPEN_SCOPE
@@ -522,17 +523,20 @@ UsdGenPrimAdapterBase::Mappings(TfToken const &schemaTypeName)
                          .FindConcretePrimDefinition(schemaTypeName));
 }
 
+namespace {
+// Append-only table of immutable mappings, copy-on-write by CAS. Every later
+// table holds each mapping too, so a returned reference never dangles.
+using _MappingTable = std::unordered_map<
+    TfToken, std::shared_ptr<const UsdImagingDataSourceMapped::PropertyMappings>, TfHash>;
+::usdGenImaging::UsdGenAtomicShared<_MappingTable const> s_mappingTable;
+}
+
 const UsdImagingDataSourceMapped::PropertyMappings &
 UsdGenPrimAdapterBase::_Mappings(TfToken const &key, UsdPrimDefinition const *def)
 {
     using Mapping = UsdImagingDataSourceMapped::PropertyMappings;
-    // Entries are append-only and values are immutable after publication.
-    // shared_ptr keeps the returned reference valid even if a concurrent
-    // duplicate loses insertion; the map itself is never cleared/erased.
-    static tbb::concurrent_unordered_map<
-        TfToken, std::shared_ptr<const Mapping>, TfHash> cache;
-    if (auto it = cache.find(key); it != cache.end()) {
-        return *it->second;
+    if (auto table = s_mappingTable.Load()) {
+        if (auto it = table->find(key); it != table->end()) return *it->second;
     }
     std::vector<UsdImagingDataSourceMapped::PropertyMapping> mappings;
     if (def) {
@@ -582,8 +586,10 @@ UsdGenPrimAdapterBase::_Mappings(TfToken const &key, UsdPrimDefinition const *de
     // Concurrent builders may construct equivalent candidates.  Only the
     // canonical inserted value is returned, so all callers retain a stable
     // reference and no mutable published object is ever replaced.
-    auto res = cache.emplace(key, std::move(slot));
-    return *res.first->second;
+    ::usdGenImaging::UsdGenCowUpdateIf(s_mappingTable, [&](_MappingTable &table) {
+        return table.emplace(key, slot).second;
+    });
+    return *s_mappingTable.Load()->at(key);
 }
 
 // Split per 02 §0.7 (relative elements, no container prefix).
