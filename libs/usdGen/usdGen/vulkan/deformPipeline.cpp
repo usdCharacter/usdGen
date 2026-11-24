@@ -3,9 +3,10 @@
 
 #include "deformPipeline.h"
 #include "deformEvaluateCpu.h"
-#include "epochCell.h"
-#include "fencePool.h"
-#include "usdGen/workerPool.h"
+#include "queueTimeline.h"
+#include "usdGen/epoch.h"
+#include "usdGen/scratch.h"
+#include "usdGen/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>
@@ -122,34 +123,9 @@ std::atomic<uint64_t> heteroRuns{0};
 
 uint32_t Groups(uint32_t n, uint32_t size) { return (n + size - 1) / size; }
 
-// Fence wait without the wakeup lottery: a blocking vkWaitForFences pays
-// the futex wakeup lottery (~180us median on the qualified driver, the
-// same lottery the bench's apply poll spins past), while the work these
-// proof fences guard is sub-millisecond with a host overlap already
-// scheduled. Spinning observes the signal within one vkGetFenceStatus;
-// the deadline matches the retired blocking timeout (10s) and fails the
-// pose the same way a blocking timeout did. Error returns (device loss,
-// driver errors) propagate exactly like the blocking wait's.
-VkResult SpinWaitForFence(VkDevice device, VkFence fence)
-{
-    auto const deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    for (unsigned spin = 0;; ++spin) {
-        VkResult const r = vkGetFenceStatus(device, fence);
-        if (r != VK_NOT_READY) return r;
-        // The clock is sampled sparingly (a vDSO read per poll would
-        // double the spin's cost against a contested driver lock).
-        if ((spin & 255) == 0 && std::chrono::steady_clock::now() >= deadline)
-            return VK_TIMEOUT;
-#if defined(_MSC_VER) && defined(_M_X64)
-        _mm_pause();
-#elif defined(__aarch64__)
-        __asm__ volatile("yield" ::: "memory");
-#elif defined(__x86_64__)
-        __asm__ volatile("pause" ::: "memory");
-#endif
-    }
-}
+// The synchronous Begin's proof wait bound, matching the retired fence
+// timeout: a proof that has not signaled by then fails the pose.
+constexpr uint64_t kProofTimeoutNs = 10000000000ull;
 
 // Scratch pooling: a pose allocates 8 buffers and frees them at candidate
 // destruction, and vkAllocateMemory/vkFreeMemory cost ~70/80us (median) each
@@ -165,7 +141,7 @@ VkResult SpinWaitForFence(VkDevice device, VkFence fence)
 // to the next pose. The coefficient/sample buffers
 // are allocated at their max (sampleCount is rejected above 100) so a pooled
 // set fits any pose; the warped buffer must match the pose's point count
-// exactly. Like the fence pool, only proven-idle sets rejoin: a set from a
+// exactly. Only proven-idle sets rejoin: a set from a
 // failed or unproven submission stays with its owner for quarantine or
 // destruction, never pooled.
 constexpr int kMaxRbfSamples = 100;
@@ -278,13 +254,13 @@ struct DeformPipeline::Native {
     // the triangular solves. Begin may run on several threads: the entry
     // is immutable and published by atomic pointer; a miss builds a fresh
     // one and publishes it (concurrent misses each build the same bytes).
-    struct FactorEntry {
+    struct FactorEntry final : UsdGenRefCounted {
         std::vector<float> rest;
         double smoothing = 0.0;
         int n = 0;
         RbfFactorization factor;
     };
-    VulkanEpochCell<FactorEntry const> factorCache;
+    UsdGenAtomicRef<FactorEntry> factorCache;
     // Pose-invariant R cache. R[j*P+i] is the radius-cubed kernel value
     // for CV i and sample j: it depends only on the CVs, the rest
     // samples, and the rest-derived center/scale, so poses that keep
@@ -309,18 +285,15 @@ struct DeformPipeline::Native {
         int bypassLeft = 0;                   // direct poses left in backoff
         bool everFilled = false;
     };
-    // Heterogeneous suffix execution: the worker pool (one thread per
-    // fast CPU, no per-region wakeup) plus the adaptive policy. The device
-    // copies the suffix CVs into the idle warped suffix (byte staging, no
-    // extra buffer) while the host evaluates the suffix (bitwise the
-    // direct shader) during the prefix proof; host-visible coherent
-    // inputs map directly instead (no staging copy). The policy and the
-    // pool live in ProofState below, so only its owner dispatches: one
-    // pool serves one dispatch at a time without any lock. The pool is
-    // born lazily at its first suffix: pipeline creation precedes the
-    // first pose by longer than the spin budget, so an eager pool would
-    // sleep through setup and make the first suffix pay the full wake
-    // stagger (and talk the policy out of arming).
+    // Heterogeneous suffix execution: the adaptive policy for running the
+    // past-prefix suffix on the host. The device copies the suffix CVs
+    // into the idle warped suffix (byte staging, no extra buffer) while the
+    // host evaluates the suffix (bitwise the direct shader) during the
+    // prefix proof; host-visible coherent inputs map directly instead (no
+    // staging copy). The suffix runs on the process task scheduler
+    // (UsdGenParallelFor), which exists before any backend registers, so
+    // there is no pipeline-owned pool to create or keep warm. The policy
+    // lives in ProofState below, so only its owner updates it.
     struct HeteroPolicy {
         double cpuNsPerCv = 0.0;   // host suffix throughput (EMA), 0 = uncalibrated
         double gpuNsPerCv = 0.0;   // device suffix throughput, 0 = seed
@@ -338,7 +311,6 @@ struct DeformPipeline::Native {
     struct ProofState {
         EvalCache evalCache;
         HeteroPolicy hetero;
-        std::unique_ptr<UsdGenWorkerPool> heteroPool;
     };
     std::atomic<ProofState*> proofState{new ProofState};
     // Owns the proof state from Take until Put (or scope exit).
@@ -356,6 +328,10 @@ struct DeformPipeline::Native {
             if (state_) native_->proofState.store(state_, std::memory_order_release);
             state_ = nullptr;
         }
+        // Hands the held state to a staged proof (Candidate::State::proof)
+        // without putting it back; Adopt takes it again.
+        ProofState* Release() noexcept { ProofState* p = state_; state_ = nullptr; return p; }
+        void Adopt(ProofState* p) noexcept { Put(); state_ = p; }
         ProofState* operator->() const noexcept { return state_; }
         explicit operator bool() const noexcept { return state_ != nullptr; }
     private:
@@ -370,11 +346,6 @@ struct DeformPipeline::Native {
     // past which the host idles while the device runs, or UINT32_MAX for
     // no cap. Caller owns the proof state.
     static uint32_t HeteroBalanceCap(HeteroPolicy& hp, uint32_t points);
-    // Idle submit fences: fence create/destroy costs ~0.7ms each on the
-    // qualified driver, so per-pose submits check out of this pool instead
-    // of creating. Candidates hold Native by shared_ptr, so the pool
-    // outlives every checkout.
-    VulkanFencePool fencePool;
     // Idle per-pose scratch sets (everything but outPoints): allocation
     // lifecycle costs ~150us per buffer per pose, so proven-idle sets are
     // checked out by the next Begin instead of allocating. Guarded: Begin
@@ -438,7 +409,6 @@ struct DeformPipeline::Native {
         delete proofState.load(std::memory_order_acquire);
         if (!context) return;
         auto d = context->device();
-        fencePool.Clear(d);
         if (verifyPipeline) vkDestroyPipeline(d, verifyPipeline, nullptr);
         if (fillPipeline) vkDestroyPipeline(d, fillPipeline, nullptr);
         if (cachedPipeline) vkDestroyPipeline(d, cachedPipeline, nullptr);
@@ -479,7 +449,42 @@ struct DeformPipeline::Candidate::State {
     bool warpedHostVisible = false;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE, proofFence = VK_NULL_HANDLE;
+    // Proof: the evaluate proof is in flight (Advance/Poll move it on);
+    // Apply: the apply is in flight (applyValue); Done: proved (output or
+    // a rejection semantic); Failed: failure holds the error.
+    enum class Stage : uint8_t { Proof, Apply, Done, Failed };
+    Stage stage = Stage::Done;
+    VkResult failure = VK_SUCCESS;
+    uint64_t applyValue = 0;  // the apply submit's timeline value
+    // Everything the proof stage needs after the proof submit returns.
+    struct ProofStage {
+        Native::ProofState* owned = nullptr;  // held from Launch until observed
+        BeforeSubmit beforeSubmit;
+        VkCommandBuffer applyCmd = VK_NULL_HANDLE;
+        uint64_t copyValue = 0, proofValue = 0;
+        std::chrono::steady_clock::time_point submitted;
+        double samplesNorm[3 * kMaxRbfSamples] = {};
+        double coef[3 * (kMaxRbfSamples + 4)] = {};
+        double center[3] = {};
+        double invScale = 1.0, scale = 1.0;
+        int n = 0, m = 0;
+        uint32_t cacheActive = 0;
+        VkDeviceSize pointsBytes = 0, outBytes = 0;
+        bool useCache = false, forceFill = false, heteroEligible = false;
+        bool useHetero = false, stageCopy = false, suffixDone = false;
+        uint32_t heteroFlag = 0;
+        double heteroCpuNs = 0.0;
+    } proof;
+    // The timeline value the proof stage is blocked on.
+    uint64_t ProofWaitValue() const noexcept {
+        return proof.useHetero && proof.stageCopy && !proof.suffixDone ? proof.copyValue
+                                                                        : proof.proofValue;
+    }
+    // Returns a proof state the stage still holds (failure paths).
+    void PutProof() noexcept {
+        if (proof.owned) native->proofState.store(proof.owned, std::memory_order_release);
+        proof.owned = nullptr;
+    }
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;
     uint32_t pointCount = 0;
@@ -558,16 +563,9 @@ struct DeformPipeline::Candidate::State {
         // readers may outlive the proof). Exactly once: this runs once.
         if (!pending && !lost)
             ReturnOutPoints();
-        // This runs only when nothing is pending (else the Candidate
-        // quarantines instead of destroying), so a proven fence is idle
-        // and rejoins the pool; an unproven one is destroyed as before.
-        // proofFence is pooled or destroyed inside Begin; a leftover here
-        // is unproven by construction.
-        if (fence) {
-            if (proved) native->fencePool.Release(d, fence);
-            else vkDestroyFence(d, fence, nullptr);
-        }
-        if (proofFence) vkDestroyFence(d, proofFence, nullptr);
+        // Only reached with nothing pending (else the Candidate quarantines
+        // instead), so a proof state still held here is idle.
+        PutProof();
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -600,7 +598,10 @@ std::shared_ptr<DeformPipeline> DeformPipeline::Create(
     if (wantCache && (!valid(cacheSpirv.verify) || !valid(cacheSpirv.fill) ||
                       !valid(cacheSpirv.cached)))
         return {};
-    if (!context->shaderFloat64Enabled()) return {};
+    if (!context->shaderFloat64Enabled() || !context->computeTimeline()) return {};
+    // The hetero suffix runs on the process task scheduler: bring it up with
+    // the pipeline (backend registration), not inside the first pose.
+    (void)UsdGenTaskScheduler::Process();
     VkPhysicalDeviceProperties physical{};
     vkGetPhysicalDeviceProperties(context->physicalDevice(), &physical);
     if (physical.limits.maxComputeWorkGroupInvocations < kApplyLocalSize ||
@@ -729,7 +730,21 @@ std::shared_ptr<DeformPipeline> DeformPipeline::Create(
 // ============================ Candidate ============================
 
 DeformPipeline::Candidate::Candidate(std::shared_ptr<State> s) : state_(std::move(s)) {}
-DeformPipeline::Candidate::~Candidate() { if (state_->pending) Quarantine(); }
+DeformPipeline::Candidate::~Candidate() {
+    auto& s = *state_;
+    if (s.stage == State::Stage::Proof && s.pending && !s.lost) {
+        // Dropped mid-proof: the proof still reads the cache buffers the
+        // proof state owns. Destruction may block (never the cook path):
+        // wait it out, then the proof state rejoins without a commit (the
+        // next pose re-verifies or refills).
+        auto* timeline = s.native->context->computeTimeline();
+        if (timeline->Wait(s.proof.proofValue, kProofTimeoutNs) == VK_SUCCESS) {
+            s.pending = false;
+            s.PutProof();
+        }
+    }
+    if (s.pending) Quarantine();
+}
 
 void DeformPipeline::Candidate::Quarantine() noexcept {
     if (!state_->pending || state_->lost) return;
@@ -762,9 +777,13 @@ uint32_t DeformPipeline::Candidate::pointCount() const noexcept {
 VkResult DeformPipeline::Candidate::Poll(DeformSemantic* semantic) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
+    if (s.stage == State::Stage::Proof || s.stage == State::Stage::Failed) {
+        VkResult r = Advance(semantic);
+        if (r != VK_SUCCESS) return r;
+    }
     if (!s.proved) {
         auto d = s.native->context->device();
-        VkResult r = vkGetFenceStatus(d, s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.applyValue);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         void* data = nullptr;
@@ -774,7 +793,8 @@ VkResult DeformPipeline::Candidate::Poll(DeformSemantic* semantic) {
         vkUnmapMemory(d, s.status->memory());
         s.pending = false;
         s.proved = true;
-        // The apply fence signaled, so the scratch set is GPU-idle and no
+        s.stage = State::Stage::Done;
+        // The apply signaled, so the scratch set is GPU-idle and no
         // host reader remains (Poll copied the only scalar): rejoin the
         // pool now, while this candidate is still alive, so the next pose's
         // Begin reuses it. Exactly once; concurrent Polls share the guard.
@@ -826,7 +846,8 @@ uint32_t AffordableCachePrefix(size_t freeBytes, int n, uint64_t maxRowBytes) {
     return uint32_t(p);
 }
 
-// Runs the past-prefix suffix [begin, end) on the hetero worker pool.
+// Runs the past-prefix suffix [begin, end) on the process task scheduler
+// (at most kHeteroWorkers threads, the caller included).
 // `cvs` and `warped` are the mapped warped buffer base (the device staged
 // the suffix CV bytes into warped[begin, end) first); the range writes its
 // own warped triples and ORs the non-finite flag. Every query is
@@ -834,7 +855,7 @@ uint32_t AffordableCachePrefix(size_t freeBytes, int n, uint64_t maxRowBytes) {
 // kHeteroGrainsize CVs keep the claimed-chunk traffic negligible. Returns
 // false only on a programming error (nulls, bad n/m), which the caller
 // quarantines: a silent partial suffix must never reach apply.
-bool RunHeteroSuffixPool(UsdGenWorkerPool& pool, DeformEvalCpuParams const& p,
+bool RunHeteroSuffix(DeformEvalCpuParams const& p,
                          float const* cvs, float* warped,
                          uint32_t begin, uint32_t end, uint32_t* flag)
 {
@@ -852,7 +873,7 @@ bool RunHeteroSuffixPool(UsdGenWorkerPool& pool, DeformEvalCpuParams const& p,
     Payload payload{&p, cvs, warped, begin, end, &bad, &ok};
     size_t const grains =
         (size_t(end - begin) + kHeteroGrainsize - 1) / kHeteroGrainsize;
-    pool.ParallelFor(grains,
+    UsdGenParallelFor(grains,
                      [](size_t g, void* v) {
                          auto* pl = static_cast<Payload*>(v);
                          size_t const lo =
@@ -865,7 +886,7 @@ bool RunHeteroSuffixPool(UsdGenWorkerPool& pool, DeformEvalCpuParams const& p,
                              pl->ok->store(false, std::memory_order_relaxed);
                          if (f) pl->bad->fetch_or(f, std::memory_order_relaxed);
                      },
-                     &payload);
+                     &payload, size_t(kHeteroWorkers));
     if (bad.load(std::memory_order_relaxed)) *flag |= 1u;
     return ok.load(std::memory_order_relaxed);
 }
@@ -877,9 +898,12 @@ double CalibrateHeteroCpu(double const* samplesNorm, double const* coef,
                            int n, int m, double const center[3],
                            double invScale, double scale)
 {
-    std::vector<float> qs(size_t(kHeteroCalibCvs) * 3), ds(size_t(kHeteroCalibCvs) * 3);
+    UsdGenScratchScope scratch;
+    float* const qs = scratch.Array<float>(size_t(kHeteroCalibCvs) * 3);
+    float* const ds = scratch.Array<float>(size_t(kHeteroCalibCvs) * 3);
     uint64_t s = 0x243f6a8885a308d3ull;
-    for (float& v : qs) {
+    for (size_t i = 0; i < size_t(kHeteroCalibCvs) * 3; ++i) {
+        float& v = qs[i];
         s ^= s << 13;
         s ^= s >> 7;
         s ^= s << 17;
@@ -897,7 +921,7 @@ double CalibrateHeteroCpu(double const* samplesNorm, double const* coef,
     p.scale = scale;
     uint32_t flag = 0;
     auto t0 = std::chrono::steady_clock::now();
-    DeformEvaluateCpu(p, qs.data(), ds.data(), kHeteroCalibCvs, &flag);
+    DeformEvaluateCpu(p, qs, ds, kHeteroCalibCvs, &flag);
     double ns = std::chrono::duration<double, std::nano>(
                     std::chrono::steady_clock::now() - t0)
                     .count();
@@ -962,7 +986,7 @@ uint32_t DeformPipeline::Native::HeteroBalanceCap(HeteroPolicy& hp,
     return cap;
 }
 
-std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
+std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Launch(
     BeginInfo info, VkResult* result, DeformSemantic* semantic, BeforeSubmit beforeSubmit) {
     auto finish = [&](VkResult r) { if (result) *result = r; };
     auto reject = [&](DeformSemantic code) {
@@ -976,6 +1000,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                    : (info.curveOffsets ? info.curveOffsets->context() : nullptr);
     if (!context) context = native_->context;
     if (!context || context != native_->context) return {};
+    if (!context->computeTimeline()) return {};
 
     uint32_t const curves = info.curveCount, points = info.pointCount;
     int const n = info.sampleCount;
@@ -1074,7 +1099,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
             cache->rest.size() == info.restSamples.size() &&
             std::memcmp(cache->rest.data(), info.restSamples.data(), restBytes) == 0;
         if (!hit) {
-            auto fresh = std::make_shared<Native::FactorEntry>();
+            auto fresh = UsdGenMakeRef<Native::FactorEntry>();
             fresh->rest = info.restSamples;
             fresh->n = n;
             fresh->smoothing = info.smoothing;
@@ -1103,7 +1128,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
     // hetero suffix so both consume identical doubles. Pure host math on
     // already-validated inputs, hoisted before scratch funding so the
     // hetero calibration below can use it.
-    std::vector<double> samplesNorm(size_t(3) * size_t(n));
+    double samplesNorm[3 * kMaxRbfSamples];
     for (int j = 0; j < n; ++j) {
         samplesNorm[size_t(3 * j)] =
             double(info.restSamples[size_t(3 * j)]) - rstate.center[0];
@@ -1142,7 +1167,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         }
         uint32_t const tentSuffix = points > tentPrefix ? points - tentPrefix : 0;
         if (heteroStatic && tentSuffix > 0 && hp.cpuNsPerCv <= 0.0) {
-            hp.cpuNsPerCv = CalibrateHeteroCpu(samplesNorm.data(), rstate.coef,
+            hp.cpuNsPerCv = CalibrateHeteroCpu(samplesNorm, rstate.coef,
                 n, m, rstate.center, invScale, rstate.scale);
         }
         wantHeteroTent = heteroStatic && tentSuffix > 0 &&
@@ -1368,7 +1393,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
             void* data = nullptr;
             r = vkMapMemory(d, s->samplesBuf->memory(), 0, samplesBytes, 0, &data);
             if (r != VK_SUCCESS) { finish(r); return {}; }
-            std::memcpy(data, samplesNorm.data(), size_t(samplesBytes));
+            std::memcpy(data, samplesNorm, size_t(samplesBytes));
             vkUnmapMemory(d, s->samplesBuf->memory());
         }
         // evalUbo: HOST_VISIBLE, 64B. Funded here with the rest of the
@@ -1667,9 +1692,9 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
             heteroRuns.fetch_add(1, std::memory_order_relaxed);
         // Suffix input staging: the host suffix needs the suffix CV bytes.
         // A device-local points buffer stages them through cmds[2] into the
-        // idle warped suffix (the copy submit + fence below); a
+        // idle warped suffix (the copy batch below); a
         // host-visible coherent points buffer maps directly instead,
-        // skipping the submit, the fence, the copy's queue slot ahead of
+        // skipping the copy batch, its queue slot ahead of
         // the proof, and the copy wait. info.points is never
         // device-written (an input; check() rejects unproven buffers), so
         // mapped reads see exactly the bytes the copy would stage, and
@@ -1982,7 +2007,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         // produces, and the driver record calls then overlap the 13ms eval
         // instead of serializing behind the proof wait. A failed proof
         // discards the recording with the command pool; the submit below
-        // still gates on the proof, the fence, and beforeSubmit.
+        // still gates on the proof and beforeSubmit.
         // No zero-fill: every apply thread writes its point or reports a
         // status first (each early return calls StatusErr), so status 0
         // implies every point was written, and any other status discards
@@ -2018,7 +2043,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         if (r != VK_SUCCESS) { finish(r); return {}; }
         // cmds[2] (staged-copy hetero only): stage the suffix CV bytes
         // into the idle warped suffix for the host. Submitted before the
-        // proof so its fence delivers the CVs while the prefix still
+        // proof so its timeline value delivers the CVs while the prefix still
         // runs; the proof's barrier orders it against the cached writes
         // (disjoint ranges). Direct-points hetero maps the inputs
         // instead and records no copy.
@@ -2041,7 +2066,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                 vkCmdCopyBuffer(cmds[2], info.points->buffer(),
                     s->warped->buffer(), 1, &region);
                 // Post-copy availability: the host suffix maps and reads
-                // these bytes right after the copy fence. The fence alone
+                // these bytes right after the copy signals. The signal alone
                 // only orders queue completion; without this barrier the
                 // transfer writes' host visibility lags the signal by a
                 // timing window (wider under unified-memory pressure),
@@ -2060,240 +2085,285 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
             }
             if (r != VK_SUCCESS) { finish(r); return {}; }
         }
-        s->proofFence = native_->fencePool.Acquire(d, &r);
-        if (!s->proofFence) { finish(r); return {}; }
-        VkFence copyFence = VK_NULL_HANDLE;
-        if (stageCopy) {
-            copyFence = native_->fencePool.Acquire(d, &r);
-            if (!copyFence) { finish(r); return {}; }
-        }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
+        // Proof submit on the queue timeline: the staged suffix copy (when
+        // any) and the evaluate proof go out as consecutive batches, so the
+        // copy's value signals first and the host suffix can start while
+        // the prefix still runs. Nothing waits here: Advance (or Poll)
+        // checks the values, and Begin waits on them for its synchronous
+        // contract.
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        auto& ps = s->proof;
+        VkCommandBuffer const proofCmds[2] = {cmds[2], cmds[0]};
         s->pending = true; // proof owns the same allocations as the final submit
-        bool copySubmitted = false;
-        if (stageCopy) {
-            submit.pCommandBuffers = &cmds[2];
-            r = vkQueueSubmit(context->computeQueue(), 1, &submit, copyFence);
-            copySubmitted = (r == VK_SUCCESS);
+        uint64_t const last = stageCopy ? timeline->Submit(proofCmds, 2u, &r)
+                                        : timeline->Submit(&cmds[0], 1u, &r);
+        if (!last) { candidate->Quarantine(); finish(r); return {}; }
+        ps.submitted = std::chrono::steady_clock::now();
+        ps.proofValue = last;
+        ps.copyValue = stageCopy ? last - 1u : 0u;
+        ps.applyCmd = cmds[1];
+        ps.beforeSubmit = std::move(beforeSubmit);
+        std::memcpy(ps.samplesNorm, samplesNorm, sizeof(double) * size_t(3 * n));
+        std::memcpy(ps.coef, rstate.coef, sizeof(ps.coef));
+        ps.center[0] = rstate.center[0];
+        ps.center[1] = rstate.center[1];
+        ps.center[2] = rstate.center[2];
+        ps.invScale = invScale;
+        ps.scale = rstate.scale;
+        ps.n = n;
+        ps.m = m;
+        ps.cacheActive = cacheActive;
+        ps.pointsBytes = pointsBytes;
+        ps.outBytes = outBytes;
+        ps.useCache = useCache;
+        ps.forceFill = forceFill;
+        ps.heteroEligible = heteroEligible;
+        ps.useHetero = useHetero;
+        ps.stageCopy = stageCopy;
+        // The proof state rides with the stage until the proof is observed.
+        ps.owned = proof.Release();
+        s->stage = Candidate::State::Stage::Proof;
+        finish(VK_SUCCESS);
+        return candidate;
+    } catch (std::bad_alloc const&) { finish(VK_ERROR_OUT_OF_HOST_MEMORY); return {}; }
+}
+
+
+// ============================ Proof stage ============================
+
+VkResult DeformPipeline::Candidate::Advance(DeformSemantic* semantic) {
+    auto& s = *state_;
+    using Stage = State::Stage;
+    if (semantic) *semantic = DeformSemantic::Ok;
+    if (s.lost) return VK_ERROR_DEVICE_LOST;
+    if (s.stage == Stage::Failed) return s.failure;
+    if (s.stage != Stage::Proof) {
+        if (semantic && s.proved) *semantic = static_cast<DeformSemantic>(s.semantic);
+        return VK_SUCCESS;
+    }
+    auto& ps = s.proof;
+    Native* const native = s.native.get();
+    auto const& context = native->context;
+    VkDevice const d = context->device();
+    VulkanQueueTimeline* const timeline = context->computeTimeline();
+    auto fail = [&](VkResult r) {
+        s.stage = Stage::Failed;
+        s.failure = r;
+        return r;
+    };
+    uint32_t const points = s.pointCount;
+    VkResult r = VK_SUCCESS;
+    if (ps.useHetero && !ps.suffixDone) {
+        // The staged CVs (or the host-visible inputs, mapped directly), then
+        // the suffix on the shared scheduler while the prefix proof runs. A
+        // failed map runs the quarantine path like any proof failure: no
+        // output escapes.
+        void* pointsMap = nullptr;
+        if (ps.stageCopy) {
+            r = timeline->Check(ps.copyValue);
+            if (r == VK_NOT_READY) return r;
+        } else {
+            r = vkMapMemory(d, s.inputs.points->memory(), 0, ps.pointsBytes, 0, &pointsMap);
         }
-        auto tProofSubmit = std::chrono::steady_clock::now();
         if (r == VK_SUCCESS) {
-            submit.pCommandBuffers = &cmds[0];
-            r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->proofFence);
-        }
-        if (r != VK_SUCCESS) {
-            // A submit failed: prove in-flight work idle, then release the
-            // proven fence and destroy the rest (pool contract), exactly as
-            // the proof fence path below does via quarantine.
-            if (copyFence) {
-                bool proven = false;
-                if (copySubmitted)
-                    proven = vkWaitForFences(d, 1, &copyFence, VK_TRUE,
-                                             10000000000ull) == VK_SUCCESS;
-                if (proven)
-                    native_->fencePool.Release(d, copyFence);
-                else
-                    vkDestroyFence(d, copyFence, nullptr);
+            void* warpMap = nullptr;
+            r = vkMapMemory(d, s.warped->memory(), 0, ps.outBytes, 0, &warpMap);
+            if (r == VK_SUCCESS) {
+                DeformEvalCpuParams xp;
+                xp.samples = ps.samplesNorm;
+                xp.coef = ps.coef;
+                xp.n = ps.n; xp.m = ps.m;
+                xp.cx = ps.center[0];
+                xp.cy = ps.center[1];
+                xp.cz = ps.center[2];
+                xp.invScale = ps.invScale;
+                xp.scale = ps.scale;
+                // Staged copies read back out of the warped suffix; direct
+                // points read the inputs in place (same bytes, same
+                // absolute suffix range).
+                float const* suffixCvs = ps.stageCopy
+                    ? static_cast<float const*>(warpMap)
+                    : static_cast<float const*>(pointsMap);
+                auto tCpu0 = std::chrono::steady_clock::now();
+                bool suffixOk = RunHeteroSuffix(xp, suffixCvs, static_cast<float*>(warpMap),
+                                                ps.cacheActive, points, &ps.heteroFlag);
+                ps.heteroCpuNs = std::chrono::duration<double, std::nano>(
+                    std::chrono::steady_clock::now() - tCpu0).count();
+                vkUnmapMemory(d, s.warped->memory());
+                if (!suffixOk) r = VK_ERROR_UNKNOWN;
             }
+            if (pointsMap) vkUnmapMemory(d, s.inputs.points->memory());
+        }
+        ps.suffixDone = true;
+        if (r != VK_SUCCESS) {
+            s.PutProof();
+            Quarantine();
+            return fail(r);
+        }
+    }
+    r = timeline->Check(ps.proofValue);
+    if (r == VK_NOT_READY) return r;
+    // Submit-to-observed: the GPU prefix (plus the GPU suffix on direct
+    // poses) regardless of host overlap. Drives the hetero policy.
+    double const proofNs = std::chrono::duration<double, std::nano>(
+        std::chrono::steady_clock::now() - ps.submitted).count();
+    // The proof is observed: the proof state is this stage's again, and the
+    // hold puts it back on every exit below.
+    Native::ProofHold proof(native);
+    proof.Adopt(ps.owned);
+    ps.owned = nullptr;
+    if (r != VK_SUCCESS) { Quarantine(); return fail(r); }
+    s.pending = false;
+    uint32_t st = 0;
+    {
+        void* data = nullptr;
+        r = vkMapMemory(d, s.evalStatus->memory(), 0, 4, 0, &data);
+        if (r == VK_SUCCESS) {
+            std::memcpy(&st, data, 4);
+            vkUnmapMemory(d, s.evalStatus->memory());
+        }
+    }
+    st |= ps.heteroFlag;
+    // The indirect args double as the miss signal: nonzero x means the
+    // refill ran (forced or by mismatch). A free 12B read on the
+    // already-synchronized proof path.
+    uint32_t argsX = 0;
+    if (ps.useCache && r == VK_SUCCESS) {
+        void* data = nullptr;
+        r = vkMapMemory(d, s.fillArgs->memory(), 0, kFillArgsBytes, 0, &data);
+        if (r == VK_SUCCESS) {
+            std::memcpy(&argsX, data, 4);
+            vkUnmapMemory(d, s.fillArgs->memory());
+        }
+    }
+    if (r != VK_SUCCESS) return fail(r);
+    if (ps.useCache) {
+        // Still owning the proof state: commit the force (R/proof now
+        // hold this pose's fill) and account the hit/miss. The commit is
+        // correct even for a NonFinite pose (the fill ran regardless;
+        // NaN inputs fill NaN words the cached evaluator flags on).
+        auto& cache = proof->evalCache;
+        uint32_t const cacheActive = ps.cacheActive;
+        if (ps.forceFill) {
+            cache.rest = s.inputs.restSamples;
+            cache.n = ps.n;
+            cache.filled = cacheActive;
+            cache.everFilled = true;
+        }
+        if (argsX != 0) {
+            evalCacheMisses.fetch_add(1, std::memory_order_relaxed);
+            if (++cache.missStreak >= kEvalCacheBypassMisses) {
+                cache.bypassLeft = kEvalCacheBypassPoses;
+                cache.missStreak = 0;
+            }
+        } else {
+            evalCacheHits.fetch_add(1, std::memory_order_relaxed);
+            cache.missStreak = 0;
+        }
+        if (ps.heteroEligible) {
+            // Hetero policy, still owning the proof state. Hit-only
+            // proof EMAs: fills
+            // pollute the proof wait, while the CPU suffix measures
+            // clean every hetero pose. A GPU hit against a known prefix
+            // derives the device suffix rate; until then the seed
+            // decides, and the first hetero pose corrects it.
+            auto& hp = proof->hetero;
+            bool const hit = (argsX == 0);
+            uint32_t const suffixCvs = points - cacheActive;
+            auto ema = [](double oldV, double newV) {
+                return oldV <= 0.0 ? newV
+                    : oldV + kHeteroEmaAlpha * (newV - oldV);
+            };
+            if (ps.useHetero) {
+                if (suffixCvs > 0)
+                    hp.cpuNsPerCv = ema(hp.cpuNsPerCv, ps.heteroCpuNs *
+                        double(kHeteroWorkers) / double(suffixCvs));
+                hp.everProbed = true;
+                if (hit) {
+                    hp.prefixProofNs = ema(hp.prefixProofNs, proofNs);
+                    hp.prefixProofCvs = cacheActive;
+                }
+                double const cpuEst = double(suffixCvs) * hp.cpuNsPerCv /
+                        double(kHeteroWorkers) +
+                    kHeteroFixedOverheadNs;
+                double const gpuSuffix = hp.gpuNsPerCv > 0.0
+                    ? double(suffixCvs) * hp.gpuNsPerCv
+                    : double(suffixCvs) * kHeteroSeedGpuDirectNsPerCv;
+                if (cpuEst < gpuSuffix + hp.prefixProofNs) {
+                    hp.armed = true;
+                    hp.probeInterval = kHeteroProbeBase;
+                } else {
+                    hp.armed = false;
+                    hp.probeIn = hp.probeInterval;
+                    if (hp.probeInterval < kHeteroProbeMax)
+                        hp.probeInterval *= 2;
+                }
+            } else {
+                if (hp.probeIn > 0) --hp.probeIn;
+                if (hit && hp.prefixProofNs > 0.0 && suffixCvs > 0) {
+                    double const gpuSuffix = proofNs - hp.prefixProofNs;
+                    if (gpuSuffix > 0.0)
+                        hp.gpuNsPerCv = ema(hp.gpuNsPerCv,
+                            gpuSuffix / double(suffixCvs));
+                }
+            }
+        }
+        // End of the cached proof phase; the apply submit below (and
+        // its beforeSubmit hook) runs without the proof state, as before.
+        proof.Put();
+    }
+    if (st != 0) {
+        // A bad evaluation: rejected before any apply work is scheduled.
+        s.stage = Stage::Done;
+        s.proved = true;
+        s.semantic = static_cast<uint32_t>(DeformSemantic::NonFinite);
+        if (semantic) *semantic = DeformSemantic::NonFinite;
+        return VK_SUCCESS;
+    }
+    // cmd1 was recorded before the eval submit (see Launch); the submit
+    // below still gates on the proof and beforeSubmit.
+    if (ps.beforeSubmit) {
+        bool admitted = false;
+        try { admitted = ps.beforeSubmit(); }
+        catch (...) { return fail(VK_ERROR_UNKNOWN); }
+        if (!admitted) return fail(VK_ERROR_OUT_OF_DEVICE_MEMORY);
+    }
+    s.pending = true;
+    s.applyValue = timeline->Submit(&ps.applyCmd, 1u, &r);
+    if (!s.applyValue) { Quarantine(); return fail(r); }
+    s.stage = Stage::Apply;
+    return VK_SUCCESS;
+}
+
+std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
+    BeginInfo info, VkResult* result, DeformSemantic* semantic, BeforeSubmit beforeSubmit) {
+    auto finish = [&](VkResult r) { if (result) *result = r; };
+    auto candidate = Launch(std::move(info), result, semantic, std::move(beforeSubmit));
+    if (!candidate || candidate->state_->stage != Candidate::State::Stage::Proof)
+        return candidate;
+    // The synchronous contract: wait the proof on the timeline (a kernel
+    // wait, no spin) and advance until the apply is submitted.
+    VulkanQueueTimeline* const timeline = native_->context->computeTimeline();
+    for (;;) {
+        DeformSemantic sem = DeformSemantic::Ok;
+        VkResult r = candidate->Advance(&sem);
+        if (r == VK_NOT_READY) {
+            r = timeline->Wait(candidate->state_->ProofWaitValue(), kProofTimeoutNs);
+            if (r == VK_SUCCESS) continue;
+            candidate->state_->PutProof();
             candidate->Quarantine();
             finish(r);
             return {};
         }
-        double heteroCpuNs = 0.0;
-        uint32_t heteroFlag = 0;
-        if (useHetero) {
-            // Wait the staged CVs (or map the host-visible inputs
-            // directly), run the suffix on the pool while the prefix
-            // proof runs, then wait the proof. A failed map runs the
-            // quarantine path like any proof failure: no output escapes.
-            void* pointsMap = nullptr;
-            if (stageCopy) {
-                r = SpinWaitForFence(d, copyFence);
-                if (r == VK_SUCCESS) {
-                    native_->fencePool.Release(d, copyFence);
-                    copyFence = VK_NULL_HANDLE;
-                } else if (copyFence) {
-                    vkDestroyFence(d, copyFence, nullptr);
-                    copyFence = VK_NULL_HANDLE;
-                }
-            } else {
-                r = vkMapMemory(d, info.points->memory(), 0, pointsBytes, 0,
-                    &pointsMap);
-            }
-            if (r == VK_SUCCESS) {
-                void* warpMap = nullptr;
-                r = vkMapMemory(d, s->warped->memory(), 0, outBytes, 0, &warpMap);
-                if (r == VK_SUCCESS) {
-                    DeformEvalCpuParams xp;
-                    xp.samples = samplesNorm.data();
-                    xp.coef = rstate.coef;
-                    xp.n = n; xp.m = m;
-                    xp.cx = rstate.center[0];
-                    xp.cy = rstate.center[1];
-                    xp.cz = rstate.center[2];
-                    xp.invScale = invScale;
-                    xp.scale = rstate.scale;
-                    // Staged copies read back out of the warped suffix;
-                    // direct points read the inputs in place (same bytes,
-                    // same absolute suffix range).
-                    float const* suffixCvs = stageCopy
-                        ? static_cast<float const*>(warpMap)
-                        : static_cast<float const*>(pointsMap);
-                    // One pool serves one dispatch: only the proof state's
-                    // owner gets here, so it has the pool to itself. The
-                    // pool is born here, at its first suffix, so its
-                    // workers are fresh and spinning; the warm dispatch
-                    // parks them before the timed region, so creation
-                    // never pollutes the policy's throughput EMA (an
-                    // unstable first sample moves the balance split).
-                    if (!proof->heteroPool) {
-                        proof->heteroPool =
-                            std::make_unique<UsdGenWorkerPool>(kHeteroWorkers);
-                        proof->heteroPool->ParallelFor(
-                            1, [](size_t, void *) {}, nullptr);
-                    }
-                    auto tCpu0 = std::chrono::steady_clock::now();
-                    bool suffixOk = RunHeteroSuffixPool(*proof->heteroPool, xp,
-                                              suffixCvs,
-                                              static_cast<float*>(warpMap),
-                                              cacheActive, points, &heteroFlag);
-                    heteroCpuNs = std::chrono::duration<double, std::nano>(
-                        std::chrono::steady_clock::now() - tCpu0).count();
-                    vkUnmapMemory(d, s->warped->memory());
-                    if (!suffixOk) r = VK_ERROR_UNKNOWN;
-                }
-                if (pointsMap) vkUnmapMemory(d, info.points->memory());
-            }
-        }
-        if (r == VK_SUCCESS)
-            r = SpinWaitForFence(d, s->proofFence);
-        // Submit-to-signal: the GPU prefix (plus the GPU suffix on direct
-        // poses) regardless of host overlap. Drives the hetero policy.
-        double const proofNs = std::chrono::duration<double, std::nano>(
-            std::chrono::steady_clock::now() - tProofSubmit).count();
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
-        s->pending = false;
-        uint32_t st = 0;
-        if (r == VK_SUCCESS) {
-            void* data = nullptr;
-            r = vkMapMemory(d, s->evalStatus->memory(), 0, 4, 0, &data);
-            if (r == VK_SUCCESS) {
-                std::memcpy(&st, data, 4);
-                vkUnmapMemory(d, s->evalStatus->memory());
-            }
-        }
-        st |= heteroFlag;
-        // The indirect args double as the miss signal: nonzero x means the
-        // refill ran (forced or by mismatch). A free 12B read on the
-        // already-synchronized proof path.
-        uint32_t argsX = 0;
-        if (useCache && r == VK_SUCCESS) {
-            void* data = nullptr;
-            r = vkMapMemory(d, s->fillArgs->memory(), 0, kFillArgsBytes, 0, &data);
-            if (r == VK_SUCCESS) {
-                std::memcpy(&argsX, data, 4);
-                vkUnmapMemory(d, s->fillArgs->memory());
-            }
-        }
-        // The proof wait above succeeded, so the fence is idle and rejoins
-        // the pool even when the status readback fails.
-        native_->fencePool.Release(d, s->proofFence);
-        s->proofFence = VK_NULL_HANDLE;
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        if (useCache) {
-            // Still owning the proof state: commit the force (R/proof now
-            // hold this pose's fill) and account the hit/miss. The commit is
-            // correct even for a NonFinite pose (the fill ran regardless;
-            // NaN inputs fill NaN words the cached evaluator flags on).
-            auto& cache = proof->evalCache;
-            if (forceFill) {
-                cache.rest = info.restSamples;
-                cache.n = n;
-                cache.filled = cacheActive;
-                cache.everFilled = true;
-            }
-            if (argsX != 0) {
-                evalCacheMisses.fetch_add(1, std::memory_order_relaxed);
-                if (++cache.missStreak >= kEvalCacheBypassMisses) {
-                    cache.bypassLeft = kEvalCacheBypassPoses;
-                    cache.missStreak = 0;
-                }
-            } else {
-                evalCacheHits.fetch_add(1, std::memory_order_relaxed);
-                cache.missStreak = 0;
-            }
-            if (heteroEligible) {
-                // Hetero policy, still owning the proof state. Hit-only
-                // proof EMAs: fills
-                // pollute the proof wait, while the CPU suffix measures
-                // clean every hetero pose. A GPU hit against a known prefix
-                // derives the device suffix rate; until then the seed
-                // decides, and the first hetero pose corrects it.
-                auto& hp = proof->hetero;
-                bool const hit = (argsX == 0);
-                uint32_t const suffixCvs = points - cacheActive;
-                auto ema = [](double oldV, double newV) {
-                    return oldV <= 0.0 ? newV
-                        : oldV + kHeteroEmaAlpha * (newV - oldV);
-                };
-                if (useHetero) {
-                    if (suffixCvs > 0)
-                        hp.cpuNsPerCv = ema(hp.cpuNsPerCv, heteroCpuNs *
-                            double(kHeteroWorkers) / double(suffixCvs));
-                    hp.everProbed = true;
-                    if (hit) {
-                        hp.prefixProofNs = ema(hp.prefixProofNs, proofNs);
-                        hp.prefixProofCvs = cacheActive;
-                    }
-                    double const cpuEst = double(suffixCvs) * hp.cpuNsPerCv /
-                            double(kHeteroWorkers) +
-                        kHeteroFixedOverheadNs;
-                    double const gpuSuffix = hp.gpuNsPerCv > 0.0
-                        ? double(suffixCvs) * hp.gpuNsPerCv
-                        : double(suffixCvs) * kHeteroSeedGpuDirectNsPerCv;
-                    if (cpuEst < gpuSuffix + hp.prefixProofNs) {
-                        hp.armed = true;
-                        hp.probeInterval = kHeteroProbeBase;
-                    } else {
-                        hp.armed = false;
-                        hp.probeIn = hp.probeInterval;
-                        if (hp.probeInterval < kHeteroProbeMax)
-                            hp.probeInterval *= 2;
-                    }
-                } else {
-                    if (hp.probeIn > 0) --hp.probeIn;
-                    if (hit && hp.prefixProofNs > 0.0 && suffixCvs > 0) {
-                        double const gpuSuffix = proofNs - hp.prefixProofNs;
-                        if (gpuSuffix > 0.0)
-                            hp.gpuNsPerCv = ema(hp.gpuNsPerCv,
-                                gpuSuffix / double(suffixCvs));
-                    }
-                }
-            }
-            // End of the cached proof phase; the apply submit below (and
-            // its beforeSubmit hook) runs without the proof state, as before.
-            proof.Put();
+        if (sem != DeformSemantic::Ok) {
+            if (semantic) *semantic = sem;
+            finish(VK_ERROR_INITIALIZATION_FAILED);
+            return {};
         }
-        if (st != 0) return reject(DeformSemantic::NonFinite);
-
-        // cmd1 was recorded before the eval submit (see above); the submit
-        // below still gates on the proof, the fence, and beforeSubmit.
-        s->fence = native_->fencePool.Acquire(d, &r);
-        if (!s->fence) { finish(r); return {}; }
-        if (beforeSubmit) {
-            bool admitted = false;
-            try { admitted = beforeSubmit(); }
-            catch (...) { finish(VK_ERROR_UNKNOWN); return {}; }
-            if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
-        }
-        s->pending = true;
-        submit.pCommandBuffers = &cmds[1];
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
         finish(VK_SUCCESS);
         return candidate;
-    } catch (std::bad_alloc const&) { finish(VK_ERROR_OUT_OF_HOST_MEMORY); return {}; }
+    }
 }
 
 } // namespace usdGen::vulkan

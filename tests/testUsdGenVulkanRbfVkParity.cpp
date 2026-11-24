@@ -562,7 +562,7 @@ int main(int argc, char** argv) {
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64{};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable) return 77;
     CHECK(native);
 
@@ -577,6 +577,7 @@ int main(int argc, char** argv) {
     ci.nativeLifetime = native;
     ci.resources = {size_t{64} << 20, size_t{4} << 20};
     ci.shaderFloat64Enabled = true;
+    ci.timelineSemaphoreEnabled = true;
     auto context = DeviceContext::Create(ci);
     CHECK(context);
 

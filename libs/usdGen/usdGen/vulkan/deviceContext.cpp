@@ -66,6 +66,19 @@ std::shared_ptr<DeviceContext> DeviceContext::Create(CreateInfo const& info, VkR
             {UsdGenExecutionResourceBackend::Vulkan, info.resourceDeviceId}, info.resources);
         if (!pool) return {};
         auto context = std::shared_ptr<DeviceContext>(new DeviceContext(info, std::move(pool)));
+        // Idle device memory kept for reuse: a quarter of the budget, at
+        // least 16 MiB.
+        VkDeviceSize const retain = std::max<VkDeviceSize>(VkDeviceSize(16) << 20,
+                                                           VkDeviceSize(info.resources.limitBytes / 4));
+        context->memoryPool_ = std::make_unique<VulkanDeviceMemoryPool>(info.device, retain);
+        if (info.timelineSemaphoreEnabled) {
+            VkResult tr = VK_SUCCESS;
+            context->timeline_ = VulkanQueueTimeline::Create(info.device, info.computeQueue, &tr);
+            if (!context->timeline_) {
+                if (result) *result = tr;
+                return {};
+            }
+        }
         if (result) *result = VK_SUCCESS;
         return context;
     } catch (...) {

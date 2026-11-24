@@ -9,10 +9,11 @@
 //   1. HOST: solve the RBF coefficients in double precision on the CPU
 //      (deformRbfHost.h). A host rejection means the candidate is never
 //      built.
-//   2. EVALUATE (proof, synchronous): deformEvaluate.comp warps every control
-//      vertex (CV) into a `warped` buffer and records a non-finite flag. Begin
-//      submits it on a proof fence, waits, and reads the flag back — a bad
-//      evaluation is rejected before any apply work is scheduled.
+//   2. EVALUATE (proof): deformEvaluate.comp warps every control vertex (CV)
+//      into a `warped` buffer and records a non-finite flag. Launch submits
+//      it on the context's queue timeline; Advance checks the value and reads
+//      the flag back — a bad evaluation is rejected before any apply work is
+//      scheduled. Begin is Launch plus a timeline wait.
 //   3. APPLY (candidate, asynchronous): deformApply.comp blends the input CVs
 //      toward the warped CVs by an (optional) envelope with root-lock
 //      correction, writing the output CVs. Poll() reports completion.
@@ -138,10 +139,22 @@ public:
 
     std::shared_ptr<DeviceContext> const& context() const noexcept;
 
-    // Host-validate, solve, record both dispatches; submit the evaluate proof
-    // synchronously (waiting and reading its flag) and return a candidate that
-    // is proven but not yet polled. `beforeSubmit` is invoked before the
-    // evaluate submit. Rejects (null) on host error or a bad evaluate flag.
+    // Host-validate, solve, record both dispatches and submit the evaluate
+    // proof without waiting. The returned candidate is in its proof stage:
+    // Candidate::Advance (or Poll) checks the proof on the queue timeline,
+    // reads its flag, runs `beforeSubmit` and submits the apply, never
+    // blocking. Null on a host rejection (semantic set) or a Vulkan error.
+    // The context must have its queue timeline (timelineSemaphoreEnabled).
+    std::unique_ptr<Candidate> Launch(
+        BeginInfo info,
+        VkResult* result = nullptr,
+        DeformSemantic* semantic = nullptr,
+        BeforeSubmit beforeSubmit = {});
+
+    // Launch, then wait the proof on the timeline and advance: returns a
+    // candidate that is proven but not yet polled. `beforeSubmit` is invoked
+    // before the apply submit. Rejects (null) on host error or a bad
+    // evaluate flag. Blocks; the cook lane uses Launch + Poll instead.
     std::unique_ptr<Candidate> Begin(
         BeginInfo info,
         VkResult* result = nullptr,
@@ -169,7 +182,15 @@ public:
 
     // VK_NOT_READY: pending; VK_SUCCESS: done. On success `semantic` is
     // written and `output()` is valid. Never destroys the underlying work.
+    // A candidate still in its proof stage advances first (see Advance).
     VkResult Poll(DeformSemantic* semantic = nullptr);
+
+    // Proof stage, non-blocking and owner-only: VK_NOT_READY while the
+    // evaluate proof runs; VK_SUCCESS once it is proven and the apply is
+    // submitted, or once the evaluation was rejected (`semantic` set, no
+    // output); any other result failed the candidate. After the proof stage
+    // it reports the stage's outcome again.
+    VkResult Advance(DeformSemantic* semantic = nullptr);
 
     Output output() const noexcept;
     bool succeeded() const noexcept;

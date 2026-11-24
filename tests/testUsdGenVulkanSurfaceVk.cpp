@@ -449,7 +449,7 @@ bool InitVulkanLeg(char const* evalPath, char const* applyPath, VulkanLeg* leg) 
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64{};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable) {
         std::printf("SKIP: no Vulkan compute device with shaderFloat64\n");
         return false;
@@ -475,6 +475,7 @@ bool InitVulkanLeg(char const* evalPath, char const* applyPath, VulkanLeg* leg) 
     ci.nativeLifetime = native;
     ci.resources = {size_t{32} << 20, 0};
     ci.shaderFloat64Enabled = true;
+    ci.timelineSemaphoreEnabled = true;
     auto context = DeviceContext::Create(ci);
     if (!context) {
         Check(false, "B: Vulkan context creation succeeds");

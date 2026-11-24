@@ -16,7 +16,7 @@ namespace usdGen::vulkan {
 
 struct VulkanWidthOverlapWitnessControls {
     uint32_t expected = 0;        // rendezvous arrivals, must be >= 2
-    uint32_t dwellIterations = 0;  // spin budget, must be nonzero
+    uint32_t dwellIterations = 0;  // spin budget (register-hash steps), must be nonzero
 };
 static_assert(sizeof(VulkanWidthOverlapWitnessControls) == 8,
               "witness push-constant ABI");

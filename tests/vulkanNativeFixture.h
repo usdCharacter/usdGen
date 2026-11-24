@@ -145,4 +145,16 @@ static std::shared_ptr<NativeOwner> CreateNative(bool* unavailable,
     return native;
 }
 
+// A native device with the timeline semaphore feature enabled, for contexts
+// whose pipelines submit on the queue timeline (set
+// DeviceContext::CreateInfo::timelineSemaphoreEnabled with it).
+static std::shared_ptr<NativeOwner> CreateTimelineNative(bool* unavailable,
+    VkPhysicalDeviceFeatures const* coreFeatures = nullptr,
+    std::vector<char const*> const& extensions = {}) {
+    VkPhysicalDeviceTimelineSemaphoreFeatures timeline{};
+    timeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+    timeline.timelineSemaphore = VK_TRUE;
+    return CreateNative(unavailable, extensions, &timeline, coreFeatures);
+}
+
 #endif

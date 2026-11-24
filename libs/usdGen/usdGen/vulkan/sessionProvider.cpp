@@ -18,7 +18,7 @@ std::exception_ptr Failure(char const* message) noexcept {
 }
 } // namespace
 
-struct VulkanSessionProvider::PlanRecord final {
+struct VulkanSessionProvider::PlanRecord final : UsdGenRefCounted {
     std::weak_ptr<const UsdGenExecutionPlanHandle> handle;
 };
 
@@ -56,11 +56,10 @@ UsdGenSessionDevicePlanHandle VulkanSessionProvider::Compile(
     if (!handle) return {};
     auto typed = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
     if (!typed) return {};
-    std::shared_ptr<const PlanRecord> record;
+    UsdGenRef<PlanRecord> record;
     try {
-        auto mutableRecord = std::make_shared<PlanRecord>();
-        mutableRecord->handle = handle;
-        record = std::move(mutableRecord);
+        record = UsdGenMakeRef<PlanRecord>();
+        record->handle = handle;
     } catch (...) { return {}; }
     // Each record snapshot (epoch-published) protects the slot while Submit
     // verifies it. Replacing only an empty/expired record cannot invalidate a
