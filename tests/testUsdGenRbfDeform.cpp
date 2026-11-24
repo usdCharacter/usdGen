@@ -385,7 +385,7 @@ void CheckBatchThreaded()
 }
 
 // The pool discipline holds: concurrent large batches from many threads
-// serialize and stay bitwise, and large batches issued from another
+// claim the pool or run serially and stay bitwise, and large batches issued from another
 // pool's workers block-join the displace pool without deadlocking.
 void CheckBatchConcurrent()
 {

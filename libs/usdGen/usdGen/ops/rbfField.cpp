@@ -9,7 +9,6 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <mutex>
 #include <type_traits>
 #include <unordered_set>
 
@@ -709,30 +708,34 @@ void DisplaceRangePlanar(CubicField const &field, DisplaceParams const &p,
 // the last slice carries a tail). Production deform batches (~256
 // queries per strand group, already spread over the scheduler pool)
 // stay serial, as do nested calls from pool workers (the re-entry
-// guard); concurrent top-level dispatches serialize on the pool mutex
-// (one ParallelFor per pool at a time).
+// guard). The pool runs one ParallelFor at a time: a dispatch claims it with
+// one exchange, and a concurrent one that finds it taken runs its own batch
+// serially instead of waiting (same output; slices are independent).
 size_t constexpr kDisplaceThreadQueries = 16384;
 size_t constexpr kDisplaceBlock = 1024;
 
+std::atomic<UsdGenWorkerPool *> g_displacePool{nullptr};
+std::atomic<bool> g_displacePoolClaimed{false};
+
+// Called only by the claim holder, so at most one pool is ever built.
 UsdGenWorkerPool &DisplacePool()
 {
+    if (UsdGenWorkerPool *pool = g_displacePool.load(std::memory_order_acquire))
+        return *pool;
     // Leaked like the TBB market: joining workers at DSO unload waits
     // for threads process shutdown may already have stopped.
-    static UsdGenWorkerPool *const pool = [] {
-        // The scheduler's sizing: the fast-core count where the topology
-        // qualifies (pinning engages by construction), else the 8-thread
-        // floor. 8/10/20 measured 1.44/1.14/1.30ms on the bench's 200k
-        // batch (the 20-wide float loses to 10 pinned fast cores).
-        return new UsdGenWorkerPool(std::max(8, FastCoreCount()));
-    }();
+    // The scheduler's sizing: the fast-core count where the topology
+    // qualifies (pinning engages by construction), else the 8-thread
+    // floor. 8/10/20 measured 1.44/1.14/1.30ms on the bench's 200k
+    // batch (the 20-wide float loses to 10 pinned fast cores).
+    UsdGenWorkerPool *pool = new UsdGenWorkerPool(std::max(8, FastCoreCount()));
+    g_displacePool.store(pool, std::memory_order_release);
     return *pool;
 }
 
-std::mutex &DisplacePoolMutex()
-{
-    static std::mutex mutex;
-    return mutex;
-}
+struct DisplacePoolClaim {
+    ~DisplacePoolClaim() { g_displacePoolClaimed.store(false, std::memory_order_release); }
+};
 
 thread_local bool t_inDisplaceBody = false;
 
@@ -780,12 +783,13 @@ void DisplacePlanarBlock(size_t b, void *payload)
                         job.dz + lo, hi - lo);
 }
 
-// False when nested (the caller runs the serial range instead).
+// False when nested or the pool is busy (the caller runs the serial range).
 bool DisplaceDispatch(size_t count, void (*body)(size_t, void *),
                       void *payload)
 {
     if (t_inDisplaceBody) return false;
-    std::lock_guard<std::mutex> lock(DisplacePoolMutex());
+    if (g_displacePoolClaimed.exchange(true, std::memory_order_acquire)) return false;
+    DisplacePoolClaim claim;
     DisplacePool().ParallelFor((count + kDisplaceBlock - 1) / kDisplaceBlock,
                                body, payload);
     return true;
