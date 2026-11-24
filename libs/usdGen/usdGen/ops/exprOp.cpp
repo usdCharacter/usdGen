@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -418,6 +419,11 @@ void UsdGenExprOp::Evaluate(
             }
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterExprOpOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenExprOp().Type(), [] { return std::make_unique<UsdGenExprOp>(); });
 }
 
 }  // namespace usdGen

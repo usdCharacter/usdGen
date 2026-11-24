@@ -20,6 +20,7 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -294,6 +295,11 @@ void UsdGenWidthOp::Evaluate(
             view->width[o] = std::max(0.0f, w);
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenWidthOp().Type(), [] { return std::make_unique<UsdGenWidthOp>(); });
 }
 
 }  // namespace usdGen

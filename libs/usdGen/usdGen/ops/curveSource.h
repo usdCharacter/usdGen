@@ -2,6 +2,7 @@
 #define USDGEN_OP_CURVESOURCE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -45,6 +46,10 @@ private:
    // indices, never a process-global mutable cache shared between sessions.
    std::shared_ptr<const UsdGenRestSurfaceBindingCache> bindingCache_;
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterCurveSourceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

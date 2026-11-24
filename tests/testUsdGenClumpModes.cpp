@@ -19,7 +19,8 @@
 //   (4) Width bezier profile (set and multiply).
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/clumpModes.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"

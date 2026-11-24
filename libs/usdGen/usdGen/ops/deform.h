@@ -9,6 +9,7 @@
 #include "pxr/base/gf/vec3f.h"
 
 #include <vector>
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -117,6 +118,10 @@ private:
                        UsdGenSurfaceDesc const &surface) const;
    mutable uint64_t chosenDigestHits_ = 0;
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

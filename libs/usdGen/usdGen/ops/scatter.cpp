@@ -38,6 +38,7 @@
 #include <numeric>
 #include <type_traits>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
@@ -1676,6 +1677,11 @@ void UsdGenScatterOp::Evaluate(
     // A generator's Evaluate is identity: Capture filled the node buffer
     // (framework pre-copied the planes from the capture buffer).
     TF_UNUSED(ctx); TF_UNUSED(capture); TF_UNUSED(view);
+}
+
+UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenScatterOp().Type(), [] { return std::make_unique<UsdGenScatterOp>(); });
 }
 
 }  // namespace usdGen

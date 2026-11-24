@@ -2,7 +2,6 @@
 # Counts may only go down. The target is an empty file.
 libs/usdGen/usdGen/compiler.cpp 4
 libs/usdGen/usdGen/cudaExecution.cpp 1
-libs/usdGen/usdGen/opRegistry.cpp 32
 libs/usdGen/usdGen/rbfAnimation.h 1
 libs/usdGen/usdGen/sessionCooker.cpp 2
 libs/usdGen/usdGen/vulkan/executionPlan.cpp 1

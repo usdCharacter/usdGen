@@ -25,6 +25,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -241,6 +242,11 @@ void UsdGenStraightenOp::Evaluate(
             pz[o] = lz + T[2] * rT + N[2] * rN + B[2] * dB;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterStraightenOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenStraightenOp().Type(), [] { return std::make_unique<UsdGenStraightenOp>(); });
 }
 
 }  // namespace usdGen

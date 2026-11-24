@@ -20,6 +20,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -546,6 +547,11 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuf
     buf.extraCurve.push_back(std::move(strandIndex));
     buf.extraCurve.push_back(std::move(strandSeed));
     return true;
+}
+
+UsdGenOpId UsdGenRegisterCardSourceOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenCardSourceOp().Type(), [] { return std::make_unique<UsdGenCardSourceOp>(); });
 }
 
 }  // namespace usdGen

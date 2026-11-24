@@ -8,6 +8,7 @@
 
 #include "usdGen/op.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -69,6 +70,10 @@ private:
     };
     mutable SubdivisionDigestCache subdivisionDigest_;
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

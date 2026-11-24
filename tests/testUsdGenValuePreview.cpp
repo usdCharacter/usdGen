@@ -23,7 +23,8 @@
 #include "pxr/imaging/hd/materialSchema.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/valuePreview.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"

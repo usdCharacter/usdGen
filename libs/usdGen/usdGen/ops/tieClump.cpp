@@ -23,6 +23,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -254,6 +255,11 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
         PullStrand(strands.P(uint32_t(c)), strands.Size(uint32_t(c)), tiesOf[size_t(g)], amt, spr);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterTieClumpOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenTieClumpOp().Type(), [] { return std::make_unique<UsdGenTieClumpOp>(); });
 }
 
 }  // namespace usdGen

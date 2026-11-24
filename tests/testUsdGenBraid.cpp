@@ -17,7 +17,8 @@
 // no-guide pass-through, determinism (repeat cooks, 1 vs 4 threads).
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>

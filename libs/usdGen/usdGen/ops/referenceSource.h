@@ -3,6 +3,7 @@
 #define USDGEN_OP_REFERENCESOURCE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -33,6 +34,10 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterReferenceSourceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

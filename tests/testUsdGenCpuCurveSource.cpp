@@ -1,7 +1,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/imagePayload.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #ifdef USDGEN_TEST_CUDA_SOURCE_PARITY
 #include "usdGen/cudaExecution.h"

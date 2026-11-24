@@ -6,7 +6,8 @@
 // reading back cached pre-stroke roots.
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/sessionCooker.h"

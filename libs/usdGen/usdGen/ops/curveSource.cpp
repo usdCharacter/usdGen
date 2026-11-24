@@ -2,7 +2,8 @@
 
 #include "usdGen/curveLoader.h"
 #include "usdGen/surfaceCageSource.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGen/opParams.h"
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
@@ -639,6 +641,11 @@ void UsdGenCurveSourceOp::Evaluate(UsdGenEvalContext const &ctx,
                                    UsdGenChunkView *view) const
 {
    (void)ctx; (void)capture; (void)view;
+}
+
+UsdGenOpId UsdGenRegisterCurveSourceOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenCurveSourceOp().Type(), [] { return std::make_unique<UsdGenCurveSourceOp>(); });
 }
 
 }  // namespace usdGen

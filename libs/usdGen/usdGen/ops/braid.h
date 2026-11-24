@@ -35,6 +35,7 @@
 #define USDGEN_OP_BRAID_H
 
 #include "usdGen/ops/wholeStrand.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -55,6 +56,10 @@ protected:
                  std::vector<UsdGenStrandPlaneData> &planes,
                  UsdGenDiagnostics *diag) override;
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterBraidOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

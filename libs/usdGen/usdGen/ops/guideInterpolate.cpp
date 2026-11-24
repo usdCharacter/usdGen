@@ -66,6 +66,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -995,6 +996,11 @@ void UsdGenGuideInterpolateOp::Evaluate(
             if (view->hairT) view->hairT[o] = n > 1 ? float(i) / float(n - 1) : 0.0f;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenGuideInterpolateOp().Type(), [] { return std::make_unique<UsdGenGuideInterpolateOp>(); });
 }
 
 }  // namespace usdGen

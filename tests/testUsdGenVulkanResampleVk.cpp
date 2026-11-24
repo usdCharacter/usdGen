@@ -25,7 +25,7 @@
 #include "usdGen/vulkan/executionPlan.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/op.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
 #include "vulkanNativeFixture.h"

@@ -5,6 +5,7 @@
 #define USDGEN_GRAPH_DESC_H
 
 #include "usdGen/types.h"
+#include "usdGen/registries/handles.h"
 #include "usdGen/expressions/context.h"
 
 #include "pxr/pxr.h"
@@ -213,6 +214,7 @@ struct UsdGenNodeDesc
     std::vector<UsdGenParamValue> params;      // EVERY mapped locator of this prim (S14 pull-all)
     std::vector<UsdGenExpressionBinding> expressionBindings;
     std::vector<UsdGenRampDesc>   ramps;
+    UsdGenOpId                   opId = UsdGenOpId::Invalid;   // engine-filled at intake (UsdGenResolveDescIds)
 };
 
 /// One authored C3 `BasisCurves` input: a UsdGenGuideSet child, a freeze, an
@@ -328,6 +330,7 @@ struct UsdGenMapDesc
     // immutable payload is backend-neutral; callers replacing it must also
     // advance textureGeneration, which is the deterministic cache identity.
     std::shared_ptr<const UsdGenImagePayload> imagePayload;
+    UsdGenTypeId typeId = UsdGenTypeId::Invalid;   // engine-filled at intake (UsdGenResolveDescIds)
 };
 
 /// Compiler-resolved map value.  It contains no stage or backend handle: the

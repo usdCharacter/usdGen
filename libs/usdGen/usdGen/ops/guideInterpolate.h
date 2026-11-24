@@ -14,6 +14,7 @@
 #define USDGEN_OP_GUIDE_INTERPOLATE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -45,6 +46,10 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

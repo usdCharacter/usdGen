@@ -12,6 +12,7 @@
 #define USDGEN_OP_DISPLACE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -46,6 +47,10 @@ private:
     const TfToken sOffset{"displace:offset"}, sMode{"mode"};
     const TfToken sHeight{"height"}, sVector{"vector"}, sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterDisplaceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

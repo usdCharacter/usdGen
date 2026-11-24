@@ -7,7 +7,8 @@
 // UsdGenMaskAPI block was replaced with, but the resolution is generic.
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 

@@ -1,6 +1,7 @@
 #include "usdGen/cudaScatterInput.h"
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "usdGen/taskScheduler.h"
 

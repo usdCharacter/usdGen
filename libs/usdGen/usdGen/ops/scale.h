@@ -9,6 +9,7 @@
 #define USDGEN_OP_SCALE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -43,6 +44,10 @@ private:
     const TfToken sScaleRandom{"scaleRandom"}, sWidthToo{"widthToo"};
     const TfToken sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterScaleOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

@@ -48,6 +48,7 @@
 #define USDGEN_OP_EXPROP_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -83,6 +84,10 @@ private:
     const TfToken sDisplacement{"displacement"}, sWidth{"width"}, sColor{"color"};
     const TfToken sCv{"cv"}, sCurve{"curve"}, sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterExprOpOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

@@ -39,6 +39,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -373,6 +374,11 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
                                 lengthRange::TipDirection(original.data(), n), sCut, n, pts);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterTrimOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenTrimOp().Type(), [] { return std::make_unique<UsdGenTrimOp>(); });
 }
 
 }  // namespace usdGen

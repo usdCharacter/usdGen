@@ -16,6 +16,7 @@
 #define USDGEN_OP_SCULPT_LAYER_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -52,6 +53,10 @@ private:
     const TfToken sRootUVs{"sculpt:rootUVs"};
     const TfToken sRootFrame{"rootFrame"}, sObject{"object"}, sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterSculptLayerOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

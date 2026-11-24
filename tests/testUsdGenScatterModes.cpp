@@ -11,7 +11,8 @@
 // stable strand identity, determinism).
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/scatterModes.h"
 #include "usdGen/ops/strandUtil.h"

@@ -32,6 +32,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -836,6 +837,11 @@ bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
                    clumpIds, mask);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterBraidOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenBraidOp().Type(), [] { return std::make_unique<UsdGenBraidOp>(); });
 }
 
 }  // namespace usdGen

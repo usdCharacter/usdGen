@@ -11,7 +11,8 @@
 #include "usdGen/executionCache.h"
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionResources.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/sharedCell.h"
 

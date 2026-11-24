@@ -13,7 +13,8 @@
 // (every corner 1.0 -> 0.3), cooks again through the real UsdImaging chain
 // and asserts the strands got shorter; then does the same for width.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/usd/sdf/layer.h"

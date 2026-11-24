@@ -37,6 +37,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -523,6 +524,11 @@ void UsdGenSmoothOp::Evaluate(
             pz[o] = inPz[o] + alpha * (nz - inPz[o]);
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterSmoothOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenSmoothOp().Type(), [] { return std::make_unique<UsdGenSmoothOp>(); });
 }
 
 }  // namespace usdGen

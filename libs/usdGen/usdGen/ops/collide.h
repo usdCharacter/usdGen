@@ -60,6 +60,7 @@
 #include "usdGen/op.h"
 #include <array>
 #include <atomic>
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -103,6 +104,10 @@ private:
                   UsdGenSurfaceDesc const &, std::vector<int> const &,
                   std::string const &) const;
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

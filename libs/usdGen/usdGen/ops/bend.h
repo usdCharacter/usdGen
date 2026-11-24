@@ -9,6 +9,7 @@
 #define USDGEN_OP_BEND_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -44,6 +45,10 @@ private:
     const TfToken sAxisMode{"axisMode"}, sRootDirection{"rootDirection"};
     const TfToken sUniform{"uniform"}, sAttribute{"attribute"}, sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterBendOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

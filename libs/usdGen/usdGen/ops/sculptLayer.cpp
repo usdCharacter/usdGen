@@ -31,6 +31,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -428,6 +429,11 @@ void UsdGenSculptLayerOp::Evaluate(
             }
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterSculptLayerOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenSculptLayerOp().Type(), [] { return std::make_unique<UsdGenSculptLayerOp>(); });
 }
 
 }  // namespace usdGen

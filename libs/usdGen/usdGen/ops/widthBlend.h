@@ -9,6 +9,7 @@
 #define USDGEN_OP_WIDTH_BLEND_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -40,6 +41,10 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return kPlaneWidths; }
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterWidthBlendOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

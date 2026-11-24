@@ -1,5 +1,6 @@
 #include "usdGen/cudaExecution.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include <algorithm>
 #include <array>

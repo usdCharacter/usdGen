@@ -2,7 +2,8 @@
 // registered by the integration owner.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"

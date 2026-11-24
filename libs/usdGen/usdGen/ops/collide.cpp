@@ -44,6 +44,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -2901,6 +2902,11 @@ void UsdGenCollideOp::Evaluate(
             }
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenCollideOp().Type(), [] { return std::make_unique<UsdGenCollideOp>(); });
 }
 
 }  // namespace usdGen

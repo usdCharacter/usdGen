@@ -11,7 +11,8 @@
 // exactly 1.0) with a {2.0, 0.5, 1.0, 0.0} mult cycle pin per-face counts
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenMath/usdGenMath/hash.h"
 

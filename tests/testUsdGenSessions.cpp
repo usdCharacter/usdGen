@@ -7,7 +7,8 @@
 // that both indices republish identically: same generation id, same prim paths,
 // same frame, and identical prim set.
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/graph.h"

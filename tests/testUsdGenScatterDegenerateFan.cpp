@@ -8,7 +8,8 @@
 // fallback (0,1,0) while still emitting roots. Both emission paths (the
 // one-pass emitRange fan and the two-pass fanFace+spill fan) must publish
 // the fallback on every rootN.
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"

@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -369,6 +370,11 @@ void UsdGenFreezeOp::Evaluate(
     // this node's buffer at capture and prepare keeps it (sizes match, and it
     // aliases neither upstream nor any older generation). Rewriting it here
     // would write through const-cast pointers into capture-shared planes.
+}
+
+UsdGenOpId UsdGenRegisterFreezeOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenFreezeOp().Type(), [] { return std::make_unique<UsdGenFreezeOp>(); });
 }
 
 }  // namespace usdGen

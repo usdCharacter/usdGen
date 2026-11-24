@@ -7,7 +7,6 @@ libs/usdGen/usdGen/cudaScatterInput.cpp 2
 libs/usdGen/usdGen/expressionTargets.cpp 25
 libs/usdGen/usdGen/graph.cpp 2
 libs/usdGen/usdGen/graphDesc.h 1
-libs/usdGen/usdGen/opRegistry.cpp 32
 libs/usdGen/usdGen/ops/bend.h 1
 libs/usdGen/usdGen/ops/braid.h 1
 libs/usdGen/usdGen/ops/cardSource.h 1
@@ -44,6 +43,7 @@ libs/usdGen/usdGen/ops/wave.h 1
 libs/usdGen/usdGen/ops/width.h 1
 libs/usdGen/usdGen/ops/widthBlend.h 1
 libs/usdGen/usdGen/ops/wind.h 1
+libs/usdGen/usdGen/registries/legacyOpTraits.cpp 21
 libs/usdGen/usdGen/scheduler.cpp 10
 libs/usdGen/usdGen/sessionCooker.cpp 2
 libs/usdGen/usdGen/surfaceCageSource.cpp 1

@@ -1,7 +1,8 @@
 // testUsdGenAsyncImagingSession -- imaging-owner request pairing, callback
 // re-entry, retirement, and terminal shutdown behavior.
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGenImaging/imageMapCache.h"

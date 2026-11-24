@@ -10,7 +10,8 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"

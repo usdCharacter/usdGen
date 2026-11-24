@@ -2,7 +2,8 @@
 // publication snapshots.  The held Capture operator makes owner/work
 // separation observable without a timing-dependent sleep.
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 
 #include "pxr/pxr.h"

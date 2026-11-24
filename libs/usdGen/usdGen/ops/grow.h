@@ -6,6 +6,7 @@
 #define USDGEN_OP_GROW_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -39,6 +40,10 @@ public:
 private:
     const TfToken sVector{"vector"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterGrowOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

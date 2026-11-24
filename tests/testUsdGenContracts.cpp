@@ -25,7 +25,8 @@
 #include "pxr/usd/usd/schemaRegistry.h"
 
 #include "usdGen/compiler.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 
 #include <cstdio>

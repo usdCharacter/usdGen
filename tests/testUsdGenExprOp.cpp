@@ -22,7 +22,8 @@
 #include "usdGen/executionBackend.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>

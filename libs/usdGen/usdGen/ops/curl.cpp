@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -343,6 +344,11 @@ void UsdGenCurlOp::Evaluate(
             pz[o] = inPz[o] + r * (co * N[2] + sgn * si * B[2]);
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterCurlOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenCurlOp().Type(), [] { return std::make_unique<UsdGenCurlOp>(); });
 }
 
 }  // namespace usdGen

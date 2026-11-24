@@ -16,6 +16,7 @@
 #define USDGEN_OP_RESAMPLE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -50,6 +51,10 @@ private:
     const TfToken sRestore{"restoreSegmentLengths"}, sMask{"mask"};
     const TfToken sSpacing{"spacing"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterResampleOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

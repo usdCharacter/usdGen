@@ -33,6 +33,7 @@
 #include <numeric>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -329,6 +330,11 @@ bool UsdGenTwistOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         if (hit.hit) strand::ResnapRoot(P, g.n, hit.point - p0);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterTwistOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenTwistOp().Type(), [] { return std::make_unique<UsdGenTwistOp>(); });
 }
 
 }  // namespace usdGen

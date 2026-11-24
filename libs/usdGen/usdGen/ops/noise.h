@@ -7,6 +7,7 @@
 #define USDGEN_OP_NOISE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -45,6 +46,10 @@ private:
     const TfToken sLacunarity{"noise:lacunarity"}, sGain{"noise:gain"};
     const TfToken sOctaves{"noise:octaves"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterNoiseOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

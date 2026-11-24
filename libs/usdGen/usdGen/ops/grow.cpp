@@ -23,6 +23,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -692,6 +693,11 @@ void UsdGenGrowOp::Evaluate(
             if (view->hairT) view->hairT[o] = t;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterGrowOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenGrowOp().Type(), [] { return std::make_unique<UsdGenGrowOp>(); });
 }
 
 }  // namespace usdGen

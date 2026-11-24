@@ -21,7 +21,6 @@ libs/usdGen/usdGen/graphDesc.h 18
 libs/usdGen/usdGen/limitSurface.cpp 6
 libs/usdGen/usdGen/op.h 1
 libs/usdGen/usdGen/opParams.h 1
-libs/usdGen/usdGen/opRegistry.cpp 32
 libs/usdGen/usdGen/ops/bend.cpp 8
 libs/usdGen/usdGen/ops/bend.h 6
 libs/usdGen/usdGen/ops/braid.cpp 1
@@ -89,6 +88,7 @@ libs/usdGen/usdGen/ops/widthBlend.cpp 2
 libs/usdGen/usdGen/ops/widthBlend.h 1
 libs/usdGen/usdGen/ops/wind.cpp 14
 libs/usdGen/usdGen/ops/wind.h 10
+libs/usdGen/usdGen/registries/token.cpp 1
 libs/usdGen/usdGen/scheduler.cpp 34
 libs/usdGen/usdGen/sessionCooker.cpp 36
 libs/usdGen/usdGen/surfaceCageSource.cpp 8

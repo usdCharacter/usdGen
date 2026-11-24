@@ -8,7 +8,8 @@
 // all-varying sort. The sort must return the stable key order in every shape:
 // each case pins its shape premise from the reference morton keys plus the
 // full sort contract (sorted, stable, exact permutation).
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"

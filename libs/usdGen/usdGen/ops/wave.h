@@ -7,6 +7,7 @@
 #define USDGEN_OP_WAVE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -40,6 +41,10 @@ private:
     const TfToken sAmplitudeU{"amplitudeU"}, sAmplitudeN{"amplitudeN"};
     const TfToken sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterWaveOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

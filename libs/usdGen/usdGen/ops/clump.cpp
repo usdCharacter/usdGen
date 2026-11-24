@@ -82,6 +82,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -1048,6 +1049,11 @@ void UsdGenClumpOp::Evaluate(
             }
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterClumpOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenClumpOp().Type(), [] { return std::make_unique<UsdGenClumpOp>(); });
 }
 
 }  // namespace usdGen

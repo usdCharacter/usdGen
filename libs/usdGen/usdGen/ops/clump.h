@@ -14,6 +14,7 @@
 #include "usdGen/op.h"
 
 #include <vector>
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -61,6 +62,10 @@ public:
 private:
     const TfToken sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterClumpOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

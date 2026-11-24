@@ -24,7 +24,6 @@ libs/usdGen/usdGen/limitSurface.h 2
 libs/usdGen/usdGen/maps/ptexMap.cpp 3
 libs/usdGen/usdGen/op.h 2
 libs/usdGen/usdGen/opParams.h 2
-libs/usdGen/usdGen/opRegistry.cpp 1
 libs/usdGen/usdGen/ops/bend.cpp 2
 libs/usdGen/usdGen/ops/cardGeometry.h 3
 libs/usdGen/usdGen/ops/clump.cpp 1
@@ -63,6 +62,12 @@ libs/usdGen/usdGen/ops/width.cpp 1
 libs/usdGen/usdGen/ops/wind.cpp 2
 libs/usdGen/usdGen/rbfAnimation.cpp 1
 libs/usdGen/usdGen/rbfAnimation.h 3
+libs/usdGen/usdGen/registries/backendRegistry.h 1
+libs/usdGen/usdGen/registries/engineTokens.h 1
+libs/usdGen/usdGen/registries/opDef.h 1
+libs/usdGen/usdGen/registries/opRegistry.h 1
+libs/usdGen/usdGen/registries/token.h 1
+libs/usdGen/usdGen/registries/typeRegistry.h 1
 libs/usdGen/usdGen/scheduler.cpp 6
 libs/usdGen/usdGen/sessionCooker.cpp 3
 libs/usdGen/usdGen/stats.h 3

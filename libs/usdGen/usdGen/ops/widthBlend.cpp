@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -213,6 +214,11 @@ void UsdGenWidthBlendOp::Evaluate(
                 : left + (right - left) * weight;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterWidthBlendOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenWidthBlendOp().Type(), [] { return std::make_unique<UsdGenWidthBlendOp>(); });
 }
 
 }  // namespace usdGen

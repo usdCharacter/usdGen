@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -617,6 +618,11 @@ void UsdGenDirectionOp::Evaluate(
             pz[q] = pz[o] + turned[2];
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterDirectionOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenDirectionOp().Type(), [] { return std::make_unique<UsdGenDirectionOp>(); });
 }
 
 }  // namespace usdGen

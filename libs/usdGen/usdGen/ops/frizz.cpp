@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <numeric>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -300,6 +301,11 @@ bool UsdGenFrizzOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         FrizzStrand(strands.P(c), strands.Size(c), seed, s, shared, refL, mask);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterFrizzOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenFrizzOp().Type(), [] { return std::make_unique<UsdGenFrizzOp>(); });
 }
 
 }  // namespace usdGen

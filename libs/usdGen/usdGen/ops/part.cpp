@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -259,6 +260,11 @@ void UsdGenPartOp::Evaluate(
         size_t const curve = curveBase + c;
         plane[c] = curve < cap.partId.size() ? cap.partId[curve] : -1;
     }
+}
+
+UsdGenOpId UsdGenRegisterPartOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenPartOp().Type(), [] { return std::make_unique<UsdGenPartOp>(); });
 }
 
 }  // namespace usdGen

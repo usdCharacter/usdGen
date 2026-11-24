@@ -8,6 +8,7 @@
 #define USDGEN_OP_WIDTH_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -49,6 +50,10 @@ private:
 /// applies per point (clamp01(f), f <= 1e-6 -> 1) and returns true; returns
 /// false and leaves `lut` untouched in ramp mode.
 bool UsdGenWidthBezierLut(UsdGenParamView const &params, float *lut, size_t size);
+
+class UsdGenRegistrar;
+/// Legacy registration stub; S4-4 replaces it with a def.
+UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

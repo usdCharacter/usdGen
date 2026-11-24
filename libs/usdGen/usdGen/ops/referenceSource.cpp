@@ -1,6 +1,7 @@
 #include "usdGen/ops/referenceSource.h"
 
 #include <memory>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -57,6 +58,11 @@ bool UsdGenReferenceSourceOp::Capture(
     static_cast<UsdGenReferenceSourceCapture *>(out)->MutableBuffer() =
         ctx.resolvedReferences[0]->value->buffer;
     return true;
+}
+
+UsdGenOpId UsdGenRegisterReferenceSourceOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenReferenceSourceOp().Type(), [] { return std::make_unique<UsdGenReferenceSourceOp>(); });
 }
 
 }  // namespace usdGen

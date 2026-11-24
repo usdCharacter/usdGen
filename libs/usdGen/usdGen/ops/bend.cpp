@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -369,6 +370,11 @@ void UsdGenBendOp::Evaluate(
             pz[q] = pz[o] + vz * co + cz * si + axis[2] * dot * omc;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterBendOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenBendOp().Type(), [] { return std::make_unique<UsdGenBendOp>(); });
 }
 
 }  // namespace usdGen

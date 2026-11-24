@@ -4,7 +4,8 @@
 #include "usdGen/taskScheduler.h"
 
 #include "usdGen/expressionTargets.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/surfaceCageSource.h"
 
 #include <algorithm>

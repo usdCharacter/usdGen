@@ -9,6 +9,7 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 #include "usdGen/types.h"
 
 #include <array>
@@ -25,6 +26,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 class UsdGenCudaExecutionPlan;
+class UsdGenOpRecord;
 
 /// Extra-plane pointer tables are stack-local in the chunk evaluator.  The
 /// current R24 contract has only a handful of named outputs; keep an explicit
@@ -82,6 +84,8 @@ struct UsdGenCompiledNode : UsdGenPooled
 
     UsdGenNodeId           id = kUsdGenInvalidNode;
     TfToken                type;
+    UsdGenOpId             opId = UsdGenOpId::Invalid;
+    UsdGenOpRecord const  *record = nullptr;         // immutable, process lifetime
     std::unique_ptr<UsdGenOp> op;
 
     UsdGenNodeId           input = kUsdGenInvalidNode;   // primary usdGen:input (dense range test)

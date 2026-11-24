@@ -41,6 +41,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include "usdGen/registries/registrar.h"
 
 namespace usdGen {
 
@@ -942,6 +943,11 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
         extSlot->firstCv = view->desc->firstCv;
         extSlot->cvCount = view->desc->cvCount;
     }
+}
+
+UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenDeformOp().Type(), [] { return std::make_unique<UsdGenDeformOp>(); });
 }
 
 } // namespace usdGen

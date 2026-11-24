@@ -16,7 +16,8 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
 

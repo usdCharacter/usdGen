@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -513,6 +514,11 @@ void UsdGenNoiseOp::Evaluate(
             px[o] = dx; py[o] = dy; pz[o] = dz;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterNoiseOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenNoiseOp().Type(), [] { return std::make_unique<UsdGenNoiseOp>(); });
 }
 
 }  // namespace usdGen

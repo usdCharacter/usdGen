@@ -17,7 +17,7 @@
 #include "usdGen/expressionTargets.h"
 #include "usdGen/ops/clump.h"
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/pool.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
@@ -1006,7 +1006,9 @@ void UsdGenCompiler::_Build(
     UsdGenGraph const *reuse,
     UsdGenCompileResult &result)
 {
-    usdGenRegisterM1Operators();   // idempotent
+    // Registries exist (built-ins registered). Freezing here waits for S4-T:
+    // testUsdGenExecutionBackend and testUsdGenAsyncSession register after a compile.
+    (void)UsdGenOpRegistry::Get();
 
     if (desc.nodes.empty()) {
         result.errors.push_back("UsdGenCompiler: graph has no operator nodes");
@@ -1622,6 +1624,7 @@ void UsdGenCompiler::_Build(
         }
         out->_spareDesc = std::move(out->_desc);
         out->_desc = std::move(fresh);
+        UsdGenResolveDescIds(out->_desc.get());
         // RestDesc() keys its cache on the descriptor's address, which the
         // double buffer reuses: drop the cache with the descriptor.
         out->_restSource = nullptr;
@@ -1854,7 +1857,10 @@ void UsdGenCompiler::_Build(
         node->desc = &out->_desc->nodes[di];
         node->descIdx = di;
 
-        std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(nd.type);
+        node->opId = node->desc->opId;
+        node->record = node->opId != UsdGenOpId::Invalid
+            ? &UsdGenOpRegistry::Get().Record(node->opId) : nullptr;
+        std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(node->opId);
         if (!op) {
             result.errors.push_back(
                 "UsdGenCompiler: no kernel registered for '" +

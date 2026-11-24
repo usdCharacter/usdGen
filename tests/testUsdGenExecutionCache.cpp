@@ -1,7 +1,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/sessionCooker.h"
 
 #include "pxr/base/gf/vec3f.h"

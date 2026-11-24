@@ -19,7 +19,8 @@
 #include "usdGen/expressionTargets.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/types.h"

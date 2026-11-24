@@ -23,6 +23,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -219,6 +220,11 @@ void UsdGenWaveOp::Evaluate(
             pz[o] = inPz[o] + T[2] * dT + N[2] * dN;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterWaveOp(UsdGenRegistrar &r)
+{
+    return r.RegisterLegacyOp(UsdGenWaveOp().Type(), [] { return std::make_unique<UsdGenWaveOp>(); });
 }
 
 }  // namespace usdGen
