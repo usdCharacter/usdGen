@@ -14,24 +14,27 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace trimP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kAngle, kInvert, kDistance, kNormalSearch, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokAngle, kTokInvert, kTokDistance, kTokNormal };
+}  // namespace trimP
+
 class UsdGenTrimOp final : public UsdGenWholeStrandOp
 {
 public:
-    UsdGenTrimOp() = default;
+    explicit UsdGenTrimOp(UsdGenOpRecord const &record) : UsdGenWholeStrandOp(record) {}
     ~UsdGenTrimOp() override = default;
-    TfToken Type() const override { return TfToken("UsdGenTrim"); }
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
 protected:
-    TfTokenVector StructuralParameters() const override;
-    std::vector<UsdGenStrandPlaneSpec> OutputPlaneSpecs() const override;
     bool Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                  std::vector<UsdGenStrandPlaneData> &planes,
                  UsdGenDiagnostics *diag) override;
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterTrimOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

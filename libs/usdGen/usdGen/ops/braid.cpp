@@ -40,32 +40,48 @@ namespace usdGen {
 
 namespace {
 
-TfTokenVector const kBraidReferences{TfToken("guides")};
-
-TfToken const sFrequency("braid:frequency");
-TfToken const sWidth("braid:width");
-TfToken const sFlatness("braid:flatness");
-TfToken const sKnotTightness("braid:knotTightness");
-TfToken const sFadeIn("braid:fadeIn");
-TfToken const sFadeOut("braid:fadeOut");
-TfToken const sRootSpread("braid:rootSpread");
-TfToken const sTipSpread("braid:tipSpread");
-TfToken const sTailLength("braid:tailLength");
-TfToken const sTailRelax("braid:tailRelax");
-TfToken const sTailCinch("braid:tailCinch");
-TfToken const sReferenceLength("braid:referenceLength");
-TfToken const sRoot("braid:root");
-TfToken const sMid("braid:mid");
-TfToken const sMidShift("braid:midShift");
-TfToken const sTip("braid:tip");
-TfToken const sAmount("braid:amount");
-TfToken const sFlyFraction("braid:flyaway:fraction");
-TfToken const sFlyAmount("braid:flyaway:amount");
-TfToken const sKnotMask("braid:knotMask");
-
-TfToken const sClumpId("clumpId_0");
-TfToken const sKnotMaskPlane("braidKnotMask");
-TfToken const sNearestGuide("nearestGuide");
+using namespace braidP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// input, surface, seed, the structural parameters, then enabled and mask.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"braid:frequency", UsdGenParamClass::Capture},
+    {"braid:width", UsdGenParamClass::Capture},
+    {"braid:flatness", UsdGenParamClass::Capture},
+    {"braid:knotTightness", UsdGenParamClass::Capture},
+    {"braid:fadeIn", UsdGenParamClass::Capture},
+    {"braid:fadeOut", UsdGenParamClass::Capture},
+    {"braid:rootSpread", UsdGenParamClass::Capture},
+    {"braid:tipSpread", UsdGenParamClass::Capture},
+    {"braid:tailLength", UsdGenParamClass::Capture},
+    {"braid:tailRelax", UsdGenParamClass::Capture},
+    {"braid:tailCinch", UsdGenParamClass::Capture},
+    {"braid:referenceLength", UsdGenParamClass::Capture},
+    {"braid:root", UsdGenParamClass::Capture},
+    {"braid:mid", UsdGenParamClass::Capture},
+    {"braid:midShift", UsdGenParamClass::Capture},
+    {"braid:tip", UsdGenParamClass::Capture},
+    {"braid:amount", UsdGenParamClass::Capture},
+    {"braid:flyaway:fraction", UsdGenParamClass::Capture},
+    {"braid:flyaway:amount", UsdGenParamClass::Capture},
+    {"braid:knotMask", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+constexpr char const *kReferences[] = {"guides"};
+constexpr UsdGenPlaneDecl kOutputs[] = {
+    {"clumpId_0", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int},
+    {"braidKnotMask", UsdGenPlaneRate::Vertex, UsdGenPlaneScalar::Float},
+};
+constexpr char const *kTokens[] = {"nearestGuide"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenBraidOp>(r);
+}
 
 constexpr float kPi6 = 0.5235988f;        // pi / 6
 constexpr float kTwoPi3 = 2.0943952f;     // 2 pi / 3
@@ -88,30 +104,30 @@ Settings ReadSettings(UsdGenParamView const *p)
 {
     Settings s;
     if (!p) return s;
-    auto f = [p](TfToken const &name, float fallback) {
-        double const v = p->GetDouble(name, double(fallback));
+    auto f = [p](UsdGenParamSlot slot, float fallback) {
+        double const v = p->GetDouble(slot, double(fallback));
         return std::isfinite(v) ? float(v) : fallback;
     };
-    s.frequency = f(sFrequency, s.frequency);
-    s.width = f(sWidth, s.width);
-    s.flatness = f(sFlatness, s.flatness);
-    s.knotTightness = f(sKnotTightness, s.knotTightness);
-    s.fadeIn = f(sFadeIn, s.fadeIn);
-    s.fadeOut = f(sFadeOut, s.fadeOut);
-    s.rootSpread = f(sRootSpread, s.rootSpread);
-    s.tipSpread = f(sTipSpread, s.tipSpread);
-    s.tailLength = f(sTailLength, s.tailLength);
-    s.tailRelax = f(sTailRelax, s.tailRelax);
-    s.tailCinch = f(sTailCinch, s.tailCinch);
-    s.referenceLength = f(sReferenceLength, s.referenceLength);
-    s.root = f(sRoot, s.root);
-    s.mid = f(sMid, s.mid);
-    s.midShift = f(sMidShift, s.midShift);
-    s.tip = f(sTip, s.tip);
-    s.amount = f(sAmount, s.amount);
-    s.flyFraction = f(sFlyFraction, s.flyFraction);
-    s.flyAmount = f(sFlyAmount, s.flyAmount);
-    s.knotMask = p->GetBool(sKnotMask, s.knotMask);
+    s.frequency = f(kFrequency, s.frequency);
+    s.width = f(kWidth, s.width);
+    s.flatness = f(kFlatness, s.flatness);
+    s.knotTightness = f(kKnotTightness, s.knotTightness);
+    s.fadeIn = f(kFadeIn, s.fadeIn);
+    s.fadeOut = f(kFadeOut, s.fadeOut);
+    s.rootSpread = f(kRootSpread, s.rootSpread);
+    s.tipSpread = f(kTipSpread, s.tipSpread);
+    s.tailLength = f(kTailLength, s.tailLength);
+    s.tailRelax = f(kTailRelax, s.tailRelax);
+    s.tailCinch = f(kTailCinch, s.tailCinch);
+    s.referenceLength = f(kReferenceLength, s.referenceLength);
+    s.root = f(kRoot, s.root);
+    s.mid = f(kMid, s.mid);
+    s.midShift = f(kMidShift, s.midShift);
+    s.tip = f(kTip, s.tip);
+    s.amount = f(kAmount, s.amount);
+    s.flyFraction = f(kFlyFraction, s.flyFraction);
+    s.flyAmount = f(kFlyAmount, s.flyAmount);
+    s.knotMask = p->GetBool(kKnotMask, s.knotMask);
     return s;
 }
 
@@ -673,32 +689,6 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
 
 }  // namespace
 
-TfSpan<const TfToken> UsdGenBraidOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(kBraidReferences.data(), kBraidReferences.size());
-}
-
-TfTokenVector UsdGenBraidOp::StructuralParameters() const
-{
-    return {sFrequency,   sWidth,      sFlatness,    sKnotTightness, sFadeIn,
-            sFadeOut,     sRootSpread, sTipSpread,   sTailLength,    sTailRelax,
-            sTailCinch,   sReferenceLength, sRoot,   sMid,           sMidShift,
-            sTip,         sAmount,     sFlyFraction, sFlyAmount,     sKnotMask};
-}
-
-std::vector<UsdGenStrandPlaneSpec> UsdGenBraidOp::OutputPlaneSpecs() const
-{
-    UsdGenStrandPlaneSpec clump;
-    clump.name = sClumpId;
-    clump.cv = false;
-    clump.isInt = true;
-    UsdGenStrandPlaneSpec knot;
-    knot.name = sKnotMaskPlane;
-    knot.cv = true;
-    knot.isInt = false;
-    return {clump, knot};
-}
-
 bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                             std::vector<UsdGenStrandPlaneData> &planes,
                             UsdGenDiagnostics *diag)
@@ -797,7 +787,7 @@ bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
     std::stable_sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) {
         return strands.Index(a) < strands.Index(b);
     });
-    int const *nearestPlane = strands.CurveInt(sNearestGuide);
+    int const *nearestPlane = strands.CurveInt(Record().Token(kTokNearestGuide));
     std::vector<std::vector<uint32_t>> members(G);
     for (uint32_t c : order) {
         if (strands.Size(c) == 0) continue;
@@ -841,7 +831,15 @@ bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
 
 UsdGenOpId UsdGenRegisterBraidOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenBraidOp().Type(), [] { return std::make_unique<UsdGenBraidOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenBraid";
+    d.displayName = "Braid";
+    d.create = &Create;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    d.outputPlanes = UsdGenSpan(kOutputs);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

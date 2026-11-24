@@ -15,24 +15,27 @@
 #ifndef USDGEN_OP_RESAMPLE_H
 #define USDGEN_OP_RESAMPLE_H
 
-#include "usdGen/op.h"
+#include "usdGen/ops/recordedOp.h"
 #include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
-class UsdGenResampleOp final : public UsdGenOp
+namespace resampleP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kCvCount, kDistribution, kRestore, kSpacing, kEnabled,
+    kMask, kCount
+};
+enum Tok : uint16_t { kTokUniform, kTokKeepParam };
+}  // namespace resampleP
+
+class UsdGenResampleOp final : public UsdGenRecordedOp
 {
 public:
-    UsdGenResampleOp() = default;
+    explicit UsdGenResampleOp(UsdGenOpRecord const &record) : UsdGenRecordedOp(record) {}
     ~UsdGenResampleOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenResample"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CvCount; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -45,15 +48,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sCvCount{"cvCount"}, sDistribution{"distribution"};
-    const TfToken sUniform{"uniform"}, sKeepParam{"keepParam"};
-    const TfToken sRestore{"restoreSegmentLengths"}, sMask{"mask"};
-    const TfToken sSpacing{"spacing"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterResampleOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

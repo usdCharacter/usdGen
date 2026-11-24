@@ -4,7 +4,6 @@
 // usdGen — whole-strand styler base. See wholeStrand.h.
 #include "usdGen/ops/wholeStrand.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include <algorithm>
@@ -47,9 +46,8 @@ UsdGenPlane const *FindPlane(std::vector<UsdGenPlane> const &planes, TfToken con
     return nullptr;
 }
 
-const TfToken sMask{"mask"};
-const TfToken sStrandSeed{"strandSeed"};
-const TfToken sStrandIndex{"strandIndex"};
+const TfToken sStrandSeed = UsdGenInternToken("strandSeed");
+const TfToken sStrandIndex = UsdGenInternToken("strandIndex");
 
 }  // namespace
 
@@ -94,36 +92,18 @@ uint32_t UsdGenStrandSet::Index(uint32_t c) const
     return c;
 }
 
-void UsdGenWholeStrandOp::EnsureTables() const
+UsdGenWholeStrandOp::UsdGenWholeStrandOp(UsdGenOpRecord const &record)
+    : UsdGenRecordedOp(record)
+    , _mask(record.FindParam(UsdGenTokens().mask))
 {
-    if (_tablesReady) return;
-    _topo = UsdGenBaseTopologyParams();
-    for (TfToken const &t : StructuralParameters()) _topo.push_back(t);
-    _value = UsdGenBaseValueParams();
-    _value.push_back(TfToken("enabled"));
-    _value.push_back(sMask);
-    _specs = OutputPlaneSpecs();
-    _outputs.clear();
-    for (auto const &s : _specs) _outputs.push_back(s.name);
-    _tablesReady = true;
-}
-
-TfSpan<const TfToken> UsdGenWholeStrandOp::TopologyParameters() const
-{
-    EnsureTables();
-    return TfSpan<const TfToken>(_topo.data(), _topo.size());
-}
-
-TfSpan<const TfToken> UsdGenWholeStrandOp::ValueParameters() const
-{
-    EnsureTables();
-    return TfSpan<const TfToken>(_value.data(), _value.size());
-}
-
-TfSpan<const TfToken> UsdGenWholeStrandOp::OutputPrimvars() const
-{
-    EnsureTables();
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
+    UsdGenEngineTokens const &t = UsdGenTokens();
+    for (UsdGenPlane const &plane : record.OutputPlanes()) {
+        UsdGenStrandPlaneSpec spec;
+        spec.name = plane.name;
+        spec.cv = plane.interpolation == t.vertex;
+        spec.isInt = plane.type == t.int_;
+        _specs.push_back(spec);
+    }
 }
 
 bool UsdGenWholeStrandOp::Bind(UsdGenParamView const &, UsdGenDiagnostics *)
@@ -138,13 +118,14 @@ std::unique_ptr<UsdGenCapture> UsdGenWholeStrandOp::CreateCapture() const
 
 UsdGenEpoch UsdGenWholeStrandOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 {
-    EnsureTables();
     opUtil::Digest d;
-    d.Mix(Type());
+    d.Mix(Record().Name());
     if (UsdGenParamView const *p = ctx.params) {
-        for (TfToken const &name : _topo) {
-            d.Mix(name);
-            d.Mix(p->GetVtValue(name, VtValue()));
+        UsdGenOpRecord const &record = Record();
+        for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s) {
+            if (record.ParamClass(s) == UsdGenParamClass::Value) continue;
+            d.Mix(record.ParamName(s));
+            d.Mix(UsdGenAuthoredValue(*p, s));
         }
     }
     d.Mix(uint64_t(ctx.seed));
@@ -168,7 +149,6 @@ bool UsdGenWholeStrandOp::Capture(UsdGenCaptureContext const &ctx,
                                   UsdGenCurveBuffer const &upstream,
                                   UsdGenCapture *out, UsdGenDiagnostics *diag)
 {
-    EnsureTables();
     auto &cap = *static_cast<UsdGenWholeStrandCapture *>(out);
     cap.upstreamTopologyVersion = upstream.topologyVersion;
     cap.upstreamValueVersion = upstream.valueVersion;
@@ -224,7 +204,7 @@ void UsdGenWholeStrandOp::Evaluate(UsdGenEvalContext const &ctx,
 {
     auto const &cap = static_cast<UsdGenWholeStrandCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
-    UsdGenParamField const maskField = p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+    UsdGenParamField const maskField = p ? p->GetScalarField(_mask, 1.0) : UsdGenParamField{1.0};
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;
     size_t const firstCv = view->desc ? size_t(view->desc->firstCv) : 0;
     auto const *cvOff = view->cvOffsets;

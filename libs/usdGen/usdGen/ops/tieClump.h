@@ -41,24 +41,27 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace tieClumpP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kGuides, kAmount, kSpread, kPositions, kEntryCounts, kGuideIndices, kVertexIndices, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokPrimaryGuide };
+}  // namespace tieClumpP
+
 class UsdGenTieClumpOp final : public UsdGenWholeStrandOp
 {
 public:
-    UsdGenTieClumpOp() = default;
+    explicit UsdGenTieClumpOp(UsdGenOpRecord const &record) : UsdGenWholeStrandOp(record) {}
     ~UsdGenTieClumpOp() override = default;
-    TfToken Type() const override { return TfToken("UsdGenTieClump"); }
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
 protected:
-    TfTokenVector StructuralParameters() const override;
-    std::vector<UsdGenStrandPlaneSpec> OutputPlaneSpecs() const override;
     bool Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                  std::vector<UsdGenStrandPlaneData> &planes,
                  UsdGenDiagnostics *diag) override;
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterTieClumpOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
