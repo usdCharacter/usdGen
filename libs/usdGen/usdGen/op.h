@@ -460,30 +460,50 @@ struct UsdGenEvalContext
 class UsdGenOp : public UsdGenPooled
 {
 public:
+    UsdGenOp() = default;
+    /// An op registered by def: the static description below defaults to
+    /// the record (S4-8 removes the virtuals and the default constructor).
+    explicit UsdGenOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
     virtual ~UsdGenOp() = default;
+    UsdGenOpRecord const &Record() const noexcept { return *_record; }
 
     // ---- static description, read at compile -------------------------------
     /// C1 type name, e.g. "UsdGenScatter".
-    virtual TfToken Type() const = 0;
+    virtual TfToken Type() const { return _record ? _record->Name() : TfToken(); }
     /// Static TopologyEffect (R14): e.g. UsdGenLengthOp is always CurveCount
     /// because cull mode exists.
-    virtual UsdGenTopoFx TopologyEffect() const { return UsdGenTopoFx::None; }
-    virtual UsdGenRole Role() const { return UsdGenRole::Curves; }
+    virtual UsdGenTopoFx TopologyEffect() const
+    {
+        return _record ? _record->Def().topoFx : UsdGenTopoFx::None;
+    }
+    virtual UsdGenRole Role() const { return _record ? _record->Def().role : UsdGenRole::Curves; }
     /// Evaluate reads the live cook time (and potentially seconds via the
     /// description's timeCodesPerSecond), independent of authored samples.
-    virtual bool ReadsTime() const { return false; }
+    virtual bool ReadsTime() const { return _record && _record->Has(kUsdGenOpReadsTime); }
     /// Capture reads scene inputs sampled at the current frame. The imaging
     /// owner must refresh the description on frame-only scene-global dirties.
-    virtual bool SamplesFrameInputs() const { return false; }
+    virtual bool SamplesFrameInputs() const
+    {
+        return _record && _record->Has(kUsdGenOpSamplesFrameInputs);
+    }
     /// C1-frozen parameter partition (02 §6 rows; docs/freezes/C1.md):
     /// TopologyParameters = capture/topology-class edits, ValueParameters =
     /// per-frame edits. The union must equal the node's mapped property set
     /// (S14); usdGen:enabled joins whichever set its dirty class implies
     /// (02 §6.2 topology for generators/Length, §6.3 value-toggle for the rest).
-    virtual TfSpan<const TfToken> TopologyParameters() const = 0;
-    virtual TfSpan<const TfToken> ValueParameters() const = 0;
+    virtual TfSpan<const TfToken> TopologyParameters() const
+    {
+        return _record ? ParamRange(false) : TfSpan<const TfToken>();
+    }
+    virtual TfSpan<const TfToken> ValueParameters() const
+    {
+        return _record ? ParamRange(true) : TfSpan<const TfToken>();
+    }
     /// Named reference inputs (guide sets, clump centres, card roots).
-    virtual TfSpan<const TfToken> ReferenceInputs() const { return {}; }
+    virtual TfSpan<const TfToken> ReferenceInputs() const
+    {
+        return _record ? _record->ReferenceInputs() : TfSpan<const TfToken>();
+    }
     /// Extra planes this operator writes, in slot order (R24 fixed types/arity).
     virtual TfSpan<const TfToken> OutputPrimvars() const { return {}; }
     /// Upstream planes this operator reads, in slot order.
@@ -491,17 +511,26 @@ public:
     /// True when Evaluate remaps every inherited vertex-domain extra plane.
     /// The scheduler then materializes private outputs and exposes matching
     /// input/output descriptors through UsdGenChunkView.
-    virtual bool RemapsVertexPlanes() const { return false; }
+    virtual bool RemapsVertexPlanes() const
+    {
+        return _record && _record->Has(kUsdGenOpRemapsVertexPlanes);
+    }
     /// Exact number of geometry-producing usdGen:input edges consumed by
     /// this kernel. This is deliberately separate from IsGenerator(): Grow
     /// owns its generated strand topology, but still consumes one upstream
     /// root geometry. Current kernels are either source operators (0) or
     /// unary operators (1); a future multi-input kernel must declare and
     /// implement its merge semantics before increasing this value.
-    virtual size_t GeometryInputArity() const { return 1; }
+    virtual size_t GeometryInputArity() const
+    {
+        return _record ? _record->Def().geometryInputArity : 1;
+    }
     /// Whether the authored order of geometry inputs is semantic.  Unary
     /// operators retain the historical canonicalized digest behavior.
-    virtual bool GeometryInputsOrdered() const { return false; }
+    virtual bool GeometryInputsOrdered() const
+    {
+        return _record && _record->Has(kUsdGenOpGeometryInputsOrdered);
+    }
     /// Called by the compiler once per fresh node, before OutputPrimvars() is
     /// read, for an operator whose emitted plane NAMES depend on authored
     /// values (UsdGenClump's clumpId_<level>). The parameters that feed it must
@@ -511,7 +540,10 @@ public:
     /// A value-class edit then keeps the compiled node and its capture, and
     /// the digest decides whether to re-capture; otherwise the kept node is
     /// re-captured.
-    virtual bool CaptureDigestComplete() const { return false; }
+    virtual bool CaptureDigestComplete() const
+    {
+        return _record && _record->Has(kUsdGenOpCaptureDigestComplete);
+    }
 
     // ---- binding -------------------------------------------------------------
     virtual bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) = 0;
@@ -534,7 +566,7 @@ public:
     // ---- generators only ------------------------------------------------------
     /// When true, Capture produces the node's topology from scratch (no
     /// upstream buffer). False for all stylers/deformers.
-    virtual bool IsGenerator() const { return false; }
+    virtual bool IsGenerator() const { return _record && _record->Has(kUsdGenOpGenerator); }
 
     /// Allocate the concrete capture payload for this operator. The payload
     /// owns its per-curve results; generators additionally fill
@@ -554,6 +586,20 @@ public:
     // descendants. Animated parameters and external inputs have their own
     // value/capture identities and do not need this flag.
     virtual bool ReadsTime(UsdGenParamView const &) const { return false; }
+
+private:
+    /// The routed decl names: non-Value class (topology) or the Value run.
+    TfSpan<const TfToken> ParamRange(bool value) const noexcept
+    {
+        uint16_t const n = _record->ParamCount();
+        uint16_t first = 0, end = 0;
+        while (end < n && _record->Def().params[end].routed) ++end;
+        while (first < end && _record->ParamClass(first) != UsdGenParamClass::Value) ++first;
+        TfSpan<const TfToken> const names = _record->ParamNames();
+        return value ? TfSpan<const TfToken>(names.data() + first, size_t(end - first))
+                     : TfSpan<const TfToken>(names.data(), size_t(first));
+    }
+    UsdGenOpRecord const *_record = nullptr;
 };
 
 

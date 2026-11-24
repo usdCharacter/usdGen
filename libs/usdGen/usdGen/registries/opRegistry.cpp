@@ -79,6 +79,10 @@ TfSpan<const UsdGenParamSlot> UsdGenOpRecord::DigestSlots() const noexcept
 {
     return _tables ? SpanOf(_tables->digest) : TfSpan<const UsdGenParamSlot>();
 }
+TfSpan<const TfToken> UsdGenOpRecord::ParamNames() const noexcept
+{
+    return _tables ? SpanOf(_tables->paramNames) : TfSpan<const TfToken>();
+}
 TfSpan<const TfToken> UsdGenOpRecord::ReferenceInputs() const noexcept
 {
     return _tables ? SpanOf(_tables->referenceInputs) : TfSpan<const TfToken>();
