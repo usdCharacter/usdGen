@@ -3322,6 +3322,23 @@ add_test(NAME testUsdGenGroomExamples COMMAND testUsdGenGroomExamples)
 set_tests_properties(testUsdGenGroomExamples PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;expressions;examples;maps" TIMEOUT 300)
 
+# Restructure step 4 guards: the CPU lane's output of record and the op
+# contract snapshot. Both compare against tests/golden/*.txt byte for byte.
+foreach(_t testUsdGenOutputGoldens)
+    add_executable(${_t} tests/${_t}.cpp tests/golden/goldenGraphs.cpp)
+    target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
+    target_include_directories(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_definitions(${_t} PRIVATE
+        USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+        USDGEN_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden")
+    add_test(NAME ${_t} COMMAND ${_t})
+    set_tests_properties(${_t} PROPERTIES
+        ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T0;gate;gate:golden"
+        TIMEOUT 900)
+endforeach()
+# The output golden belongs to one toolchain; another skips with 77.
+set_tests_properties(testUsdGenOutputGoldens PROPERTIES SKIP_RETURN_CODE 77)
+
 # UsdGenDeform on the CPU lane: hair deformed by animated curves (RBF).
 add_executable(testUsdGenRbfDeform tests/testUsdGenRbfDeform.cpp)
 target_link_libraries(testUsdGenRbfDeform PRIVATE usdGenTestUtilsHd)
