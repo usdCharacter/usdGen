@@ -128,10 +128,11 @@ public:
     }
     void Complete() noexcept { planes_.clear(); lease_.Complete(); }
     std::vector<VulkanSourceGeneration::PlaneView> const& Planes() const noexcept {
-        static std::vector<VulkanSourceGeneration::PlaneView> const empty;
-        return lease_ ? planes_ : empty;
+        return lease_ ? planes_ : NoPlanes();
     }
 private:
+    // Namespace-scope empty list in the .cpp: no guarded local static.
+    static std::vector<VulkanSourceGeneration::PlaneView> const& NoPlanes() noexcept;
     VulkanGenerationLease(UsdGenDeviceLease lease,
                           std::vector<VulkanSourceGeneration::PlaneView> planes) noexcept
         : lease_(std::move(lease)), planes_(std::move(planes)) {}

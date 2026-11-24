@@ -10,6 +10,13 @@
 
 namespace usdGen::vulkan {
 
+namespace {
+std::vector<VulkanSourceGeneration::PlaneView> const kNoPlanes;
+}
+std::vector<VulkanSourceGeneration::PlaneView> const& VulkanGenerationLease::NoPlanes() noexcept {
+    return kNoPlanes;
+}
+
 std::shared_ptr<VulkanGenerationAdapterDomain>
 VulkanGenerationAdapterDomain::Create(CreateInfo info, std::string* reason)
 {

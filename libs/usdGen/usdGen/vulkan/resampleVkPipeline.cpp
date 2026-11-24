@@ -204,9 +204,9 @@ uint32_t ResampleVkPipeline::Candidate::curveCount() const noexcept { return sta
 uint32_t ResampleVkPipeline::Candidate::pointCount() const noexcept { return state_->points; }
 uint32_t ResampleVkPipeline::Candidate::target() const noexcept { return state_->target; }
 bool ResampleVkPipeline::Candidate::succeeded() const noexcept { return state_->proved && !state_->lost && !state_->semantic; }
+namespace { std::vector<ResampleVkPipeline::Candidate::OutputPlane> const kNoResampleOutputs; }
 std::vector<ResampleVkPipeline::Candidate::OutputPlane> const& ResampleVkPipeline::Candidate::outputs() const noexcept {
-    static std::vector<OutputPlane> const empty;
-    return succeeded() ? state_->outputs : empty;
+    return succeeded() ? state_->outputs : kNoResampleOutputs;
 }
 std::vector<UsdGenChunkDesc> const& ResampleVkPipeline::Candidate::chunks() const noexcept { return state_->chunks; }
 std::vector<UsdGenDeviceTileMetadata> const& ResampleVkPipeline::Candidate::tiles() const noexcept { return state_->tiles; }

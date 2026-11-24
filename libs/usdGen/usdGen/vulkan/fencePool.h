@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-// fencePool.h — a tiny freelist of idle VkFences, one per pipeline/binding.
+// fencePool.h — a tiny lock-free set of idle VkFences, one per pipeline/binding.
 //
 // vkCreateFence/vkDestroyFence cost ~0.7ms each on the qualified NVIDIA
 // driver (phase timers + nsys: median 729/753us), and every per-pose submit
@@ -10,13 +10,17 @@
 // exactly like fresh ones; only proven-idle fences are ever released back
 // (a fence from a failed or unproven submission stays with its owner for
 // quarantine or destruction, never pooled).
+//
+// Idle fences sit in fixed slots: checkout exchanges a slot to null, release
+// CASes an empty slot, so nothing waits and nothing allocates. A release
+// that finds every slot full destroys its fence.
 #ifndef USDGEN_VULKAN_FENCE_POOL_H
 #define USDGEN_VULKAN_FENCE_POOL_H
 
 #include <vulkan/vulkan.h>
 
-#include <mutex>
-#include <vector>
+#include <atomic>
+#include <cstddef>
 
 namespace usdGen::vulkan {
 
@@ -29,14 +33,14 @@ public:
 
     /// An unsignaled fence: a reset idle one when the pool holds one, else a
     /// fresh vkCreateFence. VK_NULL_HANDLE (with *result set) when creation
-    /// fails. Thread-safe.
+    /// fails. Thread-safe, lock-free.
     inline VkFence Acquire(VkDevice device, VkResult *result = nullptr);
 
     /// Returns a proven-idle fence to the pool. Never throws and never
-    /// fails: when the freelist cannot grow the fence is destroyed instead.
-    /// Thread-safe. Only fences whose completion was proven (a successful
-    /// wait or a VK_SUCCESS fence-status poll) may be released; an unproven
-    /// fence must stay with (or be destroyed by) its owner.
+    /// fails: when every slot is taken the fence is destroyed instead.
+    /// Thread-safe, lock-free. Only fences whose completion was proven (a
+    /// successful wait or a VK_SUCCESS fence-status poll) may be released;
+    /// an unproven fence must stay with (or be destroyed by) its owner.
     inline void Release(VkDevice device, VkFence fence) noexcept;
 
     /// Destroys every pooled fence. The pool must outlive its checkouts:
@@ -44,30 +48,26 @@ public:
     inline void Clear(VkDevice device) noexcept;
 
 private:
-    std::mutex mutex_;
-    std::vector<VkFence> idle_;
+    static constexpr size_t kSlots = 16;
+    std::atomic<VkFence> idle_[kSlots] = {};
 };
 
 inline VkFence VulkanFencePool::Acquire(VkDevice device, VkResult *result)
 {
     auto finish = [&](VkResult r) { if (result) *result = r; };
-    VkFence fence = VK_NULL_HANDLE;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!idle_.empty()) {
-            fence = idle_.back();
-            idle_.pop_back();
-        }
-    }
-    if (fence != VK_NULL_HANDLE) {
-        // Reset outside the lock: an idle fence resets without blocking.
+    for (auto &slot : idle_) {
+        if (slot.load(std::memory_order_relaxed) == VK_NULL_HANDLE) continue;
+        VkFence fence = slot.exchange(VK_NULL_HANDLE, std::memory_order_acquire);
+        if (fence == VK_NULL_HANDLE) continue;
+        // An idle fence resets without blocking.
         if (vkResetFences(device, 1, &fence) == VK_SUCCESS) {
             finish(VK_SUCCESS);
             return fence;
         }
         vkDestroyFence(device, fence, nullptr);
-        fence = VK_NULL_HANDLE;
+        break;
     }
+    VkFence fence = VK_NULL_HANDLE;
     VkFenceCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     VkResult r = vkCreateFence(device, &info, nullptr, &fence);
@@ -78,24 +78,20 @@ inline VkFence VulkanFencePool::Acquire(VkDevice device, VkResult *result)
 inline void VulkanFencePool::Release(VkDevice device, VkFence fence) noexcept
 {
     if (fence == VK_NULL_HANDLE) return;
-    try {
-        std::lock_guard<std::mutex> lock(mutex_);
-        idle_.push_back(fence);
-    } catch (...) {
-        vkDestroyFence(device, fence, nullptr);
+    for (auto &slot : idle_) {
+        VkFence empty = VK_NULL_HANDLE;
+        if (slot.compare_exchange_strong(empty, fence, std::memory_order_release,
+                                         std::memory_order_relaxed))
+            return;
     }
+    vkDestroyFence(device, fence, nullptr);
 }
 
 inline void VulkanFencePool::Clear(VkDevice device) noexcept
 {
-    std::vector<VkFence> fences;
-    try {
-        std::lock_guard<std::mutex> lock(mutex_);
-        fences.swap(idle_);
-    } catch (...) {
-        return;
-    }
-    for (VkFence fence : fences) vkDestroyFence(device, fence, nullptr);
+    for (auto &slot : idle_)
+        if (VkFence fence = slot.exchange(VK_NULL_HANDLE, std::memory_order_acquire))
+            vkDestroyFence(device, fence, nullptr);
 }
 
 }  // namespace usdGen::vulkan

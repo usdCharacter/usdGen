@@ -43,12 +43,16 @@ bool ValidateVulkanGrow(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node,
     if (!output || !node.mode.IsEmpty() || node.inputs.size() != 1 || !node.references.empty() ||
         !node.curves.empty() || !node.expressionBindings.empty() || !node.ramps.empty())
         return Fail(diag, "unsupported inputs, expressions, ramps or mode");
-    static std::set<TfToken> const allowed{TfToken("segments"),TfToken("length"),TfToken("lengthRandom"),
-        TfToken("lift"),TfToken("azimuth"),TfToken("azimuthRandom"),TfToken("direction"),TfToken("directionVector")};
+    static constexpr char const* kAllowed[] = {"segments", "length", "lengthRandom", "lift",
+        "azimuth", "azimuthRandom", "direction", "directionVector"};
+    auto const allowed = [](TfToken const& name) {
+        for (char const* a : kAllowed) if (name.GetString() == a) return true;
+        return false;
+    };
     std::set<TfToken> seen;
     for (auto const& param : node.params) {
         auto const& name = param.name; auto const& v = param.value;
-        bool valid = !param.animated && seen.insert(name).second && allowed.count(name);
+        bool valid = !param.animated && seen.insert(name).second && allowed(name);
         if (name == TfToken("segments")) valid &= v.IsHolding<int>();
         else if (name == TfToken("lengthRandom")) valid &= v.IsHolding<GfVec2f>();
         else if (name == TfToken("directionVector")) valid &= v.IsHolding<GfVec3f>();
