@@ -3,6 +3,7 @@
 #include "usdGen/gpu/cudaCompat.h"
 #include "usdGen/gpu/cudaCompletionLane.h"
 #include "usdGen/expressions/frontend.h"
+#include "usdGen/registries/opRegistry.h"
 #include "pxr/base/gf/half.h"
 #include "pxr/base/gf/vec2d.h"
 #include "pxr/base/gf/vec3d.h"
@@ -22,6 +23,7 @@
 #include <cstring>
 #include <limits>
 #include <set>
+#include <string_view>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
@@ -35,10 +37,19 @@ using Domain = expr::Domain;
 void Error(std::vector<std::string>* diagnostics, std::string const& message) {
     if (diagnostics) diagnostics->push_back(message);
 }
-TfToken CanonicalName(TfToken const& name) {
-    auto value = name.GetString();
-    if (value.compare(0, 7, "usdGen:") == 0) value.erase(0, 7);
-    return TfToken(value);
+// The name without "usdGen:"; a view of the token's text, never interned.
+std::string_view CanonicalName(TfToken const& name) {
+    std::string_view value = name.GetString();
+    if (value.compare(0, 7, "usdGen:") == 0) value.remove_prefix(7);
+    return value;
+}
+// The first slot of the node's op whose canonical name is destination's.
+UsdGenParamSlot DestinationSlot(UsdGenOpRecord const* record, TfToken const& destination) {
+    if (!record) return kUsdGenNoParam;
+    std::string_view const canonical = CanonicalName(destination);
+    for (UsdGenParamSlot s = 0; s != record->ParamCount(); ++s)
+        if (CanonicalName(record->ParamName(s)) == canonical) return s;
+    return kUsdGenNoParam;
 }
 size_t ScalarBytes(Type type) {
     switch (type) {
@@ -133,6 +144,13 @@ CudaParameterField const* CudaParameterEvaluator::Find(TfToken const& destinatio
     return nullptr;
 }
 
+CudaParameterField const* CudaParameterEvaluator::Find(UsdGenParamSlot slot) const {
+    if (slot == kUsdGenNoParam) return nullptr;
+    for (auto const& field : fields_)
+        if (field.slot == slot) return &field;
+    return nullptr;
+}
+
 struct CudaParameterEvaluator::FreshCandidate {
     std::shared_ptr<const CudaParameterProgram> program;
     std::array<std::unique_ptr<gpu::CudaExpressionContext>, 3> contexts;
@@ -157,7 +175,10 @@ CudaParameterStatus CudaParameterProgram::Compile(
     }
     std::vector<UsdGenExpressionBinding> bindings;
     std::vector<Item> items;
-    std::set<TfToken> destinations;
+    std::set<std::string_view> destinations;
+    UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
+    UsdGenOpId const opId = ops.Find(node.type);
+    UsdGenOpRecord const* record = opId != UsdGenOpId::Invalid ? &ops.Record(opId) : nullptr;
     for (auto const& binding : node.expressionBindings) {
         auto fail = [&](CudaParameterStatus status, std::string message) {
             Error(diagnostics, binding.destination.GetString() + ": " + message);
@@ -189,6 +210,7 @@ CudaParameterStatus CudaParameterProgram::Compile(
             return fail(CudaParameterStatus::InvalidArgument, "output native type/shape mismatch");
         Item item;
         item.binding = binding;
+        item.slot = DestinationSlot(record, binding.destination);
         if (!Literal(binding.literal, binding.destinationShape, &item.literal))
             return fail(CudaParameterStatus::UnsupportedType,
                 "literal must have the exact finite native type; int64/uint64 currently limited to 2^53");
@@ -349,7 +371,8 @@ CudaParameterStatus CudaParameterEvaluator::Evaluate(
         if (runtimeProgram.Finish(stream) != gpu::ExpressionStatus::Ok)
             return fail(CudaParameterStatus::InvalidValue, "CUDA expression value validation failed");
         candidate.push_back({binding.destination, outputs_[i].data(), inputs.count,
-            binding.destinationShape.scalar, static_cast<uint32_t>(components), binding.domain});
+            binding.destinationShape.scalar, static_cast<uint32_t>(components), binding.domain,
+            item.slot});
     }
     fields_ = std::move(candidate);
     return CudaParameterStatus::Ok;
@@ -581,7 +604,8 @@ CudaParameterStatus CudaParameterEvaluator::BeginFreshPrograms(
                 return CudaParameterStatus::CudaError;
             }
             fresh_->fields.push_back({item.binding.destination, fresh_->outputs[i].data(), inputs.count,
-                item.binding.destinationShape.scalar, static_cast<uint32_t>(components), item.binding.domain});
+                item.binding.destinationShape.scalar, static_cast<uint32_t>(components), item.binding.domain,
+                item.slot});
         }
         freshPhase_ = FreshPhase::ProgramsBuilt;
         return CudaParameterStatus::Ok;
@@ -685,7 +709,7 @@ CudaParameterStatus CudaGroomScalarReadback::BeginFresh(
         (deviceIndex_ >= 0 && deviceIndex_ != current))
         return CudaParameterStatus::InvalidArgument;
 
-    std::array<TfToken, Capacity> requestNames{};
+    std::array<std::string_view, Capacity> requestNames{};
     std::array<void const*, Capacity> sources{};
     std::array<size_t, Capacity> bytes{};
     // Validate all request identities independently of field presence. A
@@ -696,9 +720,10 @@ CudaParameterStatus CudaGroomScalarReadback::BeginFresh(
         const size_t byteCount = ScalarBytes(request.type);
         if (request.destination.IsEmpty() || !byteCount || byteCount > pending_[0].bytes.size())
             return CudaParameterStatus::InvalidArgument;
-        const TfToken destination = CanonicalName(request.destination);
+        std::string_view const destination = CanonicalName(request.destination);
         for (size_t i = 0; i != requestIndex; ++i)
-            if (requestNames[i] == destination)
+            if (requestNames[i] == destination ||
+                (request.slot != kUsdGenNoParam && requests[i].slot == request.slot))
                 return CudaParameterStatus::InvalidArgument;
         requestNames[requestIndex] = destination;
     }
@@ -706,11 +731,13 @@ CudaParameterStatus CudaGroomScalarReadback::BeginFresh(
     size_t pendingCount = 0;
     for (size_t requestIndex = 0; requestIndex != requests.size(); ++requestIndex) {
         auto const& request = requests[requestIndex];
-        const TfToken& destination = requestNames[requestIndex];
+        std::string_view const destination = requestNames[requestIndex];
         const size_t byteCount = ScalarBytes(request.type);
         CudaParameterField const* field = nullptr;
         for (auto const& candidate : fields) {
-            if (CanonicalName(candidate.destination) != destination) continue;
+            if (request.slot != kUsdGenNoParam ? candidate.slot != request.slot
+                                               : CanonicalName(candidate.destination) != destination)
+                continue;
             // Published evaluator fields must be unique. Do not select an
             // arbitrary duplicate if a malformed caller bypasses that layer.
             if (field) return CudaParameterStatus::InvalidArgument;
@@ -726,8 +753,9 @@ CudaParameterStatus CudaGroomScalarReadback::BeginFresh(
         if (cudaPointerGetAttributes(&attributes, field->data) != cudaSuccess ||
             attributes.type != cudaMemoryTypeDevice || attributes.device != current)
             return CudaParameterStatus::InvalidArgument;
-        pending_[pendingCount].destination = destination;
+        pending_[pendingCount].destination = request.destination;
         pending_[pendingCount].type = request.type;
+        pending_[pendingCount].slot = request.slot;
         pending_[pendingCount].bytes.fill(0);
         sources[pendingCount] = field->data;
         bytes[pendingCount] = byteCount;
@@ -802,9 +830,16 @@ void failNextCudaGroomScalarReadbackCopyAfterOneForTesting() {
 }
 
 CudaGroomScalarValue const* CudaGroomScalarReadback::Find(TfToken const& destination) const {
-    const TfToken canonical = CanonicalName(destination);
+    std::string_view const canonical = CanonicalName(destination);
     for (size_t i = 0; i != committedCount_; ++i)
-        if (committed_[i].destination == canonical) return &committed_[i];
+        if (CanonicalName(committed_[i].destination) == canonical) return &committed_[i];
+    return nullptr;
+}
+
+CudaGroomScalarValue const* CudaGroomScalarReadback::Find(UsdGenParamSlot slot) const {
+    if (slot == kUsdGenNoParam) return nullptr;
+    for (size_t i = 0; i != committedCount_; ++i)
+        if (committed_[i].slot == slot) return &committed_[i];
     return nullptr;
 }
 
