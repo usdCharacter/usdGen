@@ -19,7 +19,7 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
     if (!ctx.params || !ctx.params->node || !ctx.desc) return true;
     auto const &node=*ctx.params->node;
     SdfPath target;
-    for (auto const &binding:node.mapBindings) if (binding.relationship==TfToken("usdGen:regionMap")) {
+    for (auto const &binding:node.mapBindings) if (binding.relationship.GetString()=="usdGen:regionMap") {
         if (!target.IsEmpty()) { *error="regionMap requires exactly one target"; return false; }
         target=binding.map;
     }
@@ -28,18 +28,19 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
     auto fail=[&](std::string const &s) { *error="regionMap: "+s;return false; };
     auto map=std::find_if(ctx.desc->maps.begin(),ctx.desc->maps.end(),
         [&](UsdGenMapDesc const &m) { return m.path==target; });
-    if (map==ctx.desc->maps.end() || map->type!=TfToken("UsdGenPtexMap") || map->resolvedAssetPath.empty())
+    if (map==ctx.desc->maps.end() || !UsdGenMapHas(*map,kUsdGenTypeMapPtex) || map->resolvedAssetPath.empty())
         return fail("target must be a resolved UsdGenPtexMap");
     UsdGenPtexMapOptions options;options.filter="nearest";options.channelCount=1;
     for (auto const &param:map->params) {
-        if (param.name==TfToken("map:firstChannel")) {
+        std::string const &name=param.name.GetString();
+        if (name=="map:firstChannel") {
             if (!param.value.IsHolding<int>()) return fail("firstChannel must be an integer");
             options.firstChannel=param.value.UncheckedGet<int>();
         }
-        if (param.name==TfToken("map:filter") &&
-            (!param.value.IsHolding<TfToken>() || param.value.UncheckedGet<TfToken>()!=TfToken("nearest")))
+        if (name=="map:filter" &&
+            (!param.value.IsHolding<TfToken>() || param.value.UncheckedGet<TfToken>().GetString()!="nearest"))
             return fail("categorical maps require filter=nearest");
-        if (param.name==TfToken("map:blur") &&
+        if (name=="map:blur" &&
             ((param.value.IsHolding<float>() && param.value.UncheckedGet<float>()!=0) ||
              (param.value.IsHolding<double>() && param.value.UncheckedGet<double>()!=0)))
             return fail("categorical maps require blur=0");
@@ -59,9 +60,8 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
     auto ids=UsdGenPtexFirstFaceIds(surface.faceVertexCounts.cdata(),count);
     if (ids.size()!=count) return fail("invalid Ptex face topology");
     bool limitUV=false;
-    for (auto const &n:ctx.desc->nodes) if (n.type==TfToken("UsdGenScatter"))
-        for (auto const &p:n.params) if (p.name==TfToken("subdivisionLevel") && p.value.IsHolding<int>())
-            limitUV=limitUV || p.value.UncheckedGet<int>()>0;
+    for (auto const &n:ctx.desc->nodes)
+        limitUV=limitUV || UsdGenNodeEmitsLimitSurfaceUv(*ctx.desc,n);
     limitUV=limitUV && geometry.rootUV.size()==geometry.totalCurves;
     std::vector<uint32_t> spans;
     if (!opUtil::CurveSpans(geometry,&spans,error)) return false;

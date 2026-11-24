@@ -57,8 +57,8 @@ int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlane const *p = FindPlane(upstream->extraCurve, name);
-    if (!p || p->type != TfToken("int") || p->arity != 1 ||
-        p->interpolation != TfToken("uniform") || p->i.size() != upstream->totalCurves)
+    if (!p || p->type != UsdGenTokens().int_ || p->arity != 1 ||
+        p->interpolation != UsdGenTokens().uniform || p->i.size() != upstream->totalCurves)
         return nullptr;
     return p->i.cdata();
 }
@@ -67,8 +67,8 @@ float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlane const *p = FindPlane(upstream->extraCurve, name);
-    if (!p || p->type != TfToken("float") || p->arity != 1 ||
-        p->interpolation != TfToken("uniform") || p->f.size() != upstream->totalCurves)
+    if (!p || p->type != UsdGenTokens().float_ || p->arity != 1 ||
+        p->interpolation != UsdGenTokens().uniform || p->f.size() != upstream->totalCurves)
         return nullptr;
     return p->f.cdata();
 }
@@ -77,7 +77,7 @@ float const *UsdGenStrandSet::CvFloat(TfToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlane const *p = FindPlane(upstream->extraCv, name);
-    if (!p || p->type != TfToken("float") || p->arity != 1 || p->f.size() != upstream->totalCvs)
+    if (!p || p->type != UsdGenTokens().float_ || p->arity != 1 || p->f.size() != upstream->totalCvs)
         return nullptr;
     return p->f.cdata();
 }

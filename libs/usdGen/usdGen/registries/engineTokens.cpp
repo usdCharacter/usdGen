@@ -52,6 +52,15 @@ UsdGenEngineTokens *MakeEngineTokens()
     t->cuda = i("cuda");
     t->metal = i("metal");
     t->vulkan = i("vulkan");
+    t->varying = i("varying");
+    t->rightHanded = i("rightHanded");
+    t->edgeAndCorner = i("edgeAndCorner");
+    t->cornersPlus1 = i("cornersPlus1");
+    t->catmullClark = i("catmullClark");
+    t->perCurve = i("perCurve");
+    t->heat = i("heat");
+    t->primitive = i("primitive");
+    t->lit = i("lit");
     return t;
 }
 

@@ -2,6 +2,7 @@
 
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGen/surfaceRootFrames.h"
+#include "usdGen/registries/token.h"
 
 #include <cmath>
 #include <cstddef>
@@ -12,6 +13,11 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
+
+// usdGen:rebind values, interned at load.
+TfToken const kNever = UsdGenInternToken("never");
+TfToken const kOnError = UsdGenInternToken("onError");
+TfToken const kAlways = UsdGenInternToken("always");
 
 bool Fail(std::string const &message, std::string *error)
 {
@@ -122,8 +128,7 @@ bool UsdGenCaptureCurveRoots(
 {
     if (error) error->clear();
     if (!out) return Fail("curve root capture output is null", error);
-    if (rebind != TfToken("never") && rebind != TfToken("onError") &&
-        rebind != TfToken("always"))
+    if (rebind != kNever && rebind != kOnError && rebind != kAlways)
         return Fail("curve root capture rebind policy is invalid", error);
     if (!MatrixAffine(source.worldMatrix))
         return Fail("curve source worldMatrix is non-finite or non-affine", error);
@@ -146,7 +151,7 @@ bool UsdGenCaptureCurveRoots(
         if (!Finite(point)) return Fail("curve rest contains non-finite values", error);
     bool const bindingCardinalityMismatch =
         source.skinPrim.size() != source.skinPrimUv.size();
-    if (bindingCardinalityMismatch && rebind == TfToken("never"))
+    if (bindingCardinalityMismatch && rebind == kNever)
         return Fail("curve rootPrim/rootUV cardinalities differ", error);
     if (!source.rootFrame.empty() && source.rootFrame.size() != curves)
         return Fail("curve authored rootFrame cardinality disagrees with curves", error);
@@ -187,7 +192,7 @@ bool UsdGenCaptureCurveRoots(
     // root channels at all.  Preserve that optional-channel absence for
     // topology-preserving operators; consumers such as Noise must impose
     // their own stronger frame requirement before use.
-    if (rebind == TfToken("never") && curves && !surface &&
+    if (rebind == kNever && curves && !surface &&
         source.skinPrim.empty() && source.skinPrimUv.empty() &&
         source.rootFrame.empty()) {
         candidate.rootPrim.clear();
@@ -205,14 +210,14 @@ bool UsdGenCaptureCurveRoots(
     bool anyRepair = !authoredBindings;
     for (uint8_t valid : bindingValid) anyRepair = anyRepair || !valid;
     bool const needsBindingRepair = curves &&
-        (rebind == TfToken("always") ||
-        (rebind == TfToken("onError") && anyRepair));
+        (rebind == kAlways ||
+        (rebind == kOnError && anyRepair));
     if (!surface && curves && (!authoredFrames || needsBindingRepair))
         return Fail("curve root capture requires a rest surface for missing or invalid bindings/frames", error);
 
     std::vector<GfVec3f> sourceRoots;
     std::vector<size_t> repairIndices;
-    if (authoredBindings && rebind != TfToken("always")) {
+    if (authoredBindings && rebind != kAlways) {
         for (size_t curve = 0; curve != curves; ++curve) {
             if (!bindingValid[curve]) continue;
             candidate.rootPrim[curve] = source.skinPrim[curve];
@@ -227,7 +232,7 @@ bool UsdGenCaptureCurveRoots(
                 sourceRoots.push_back((source.rest.empty() ? source.points : source.rest)[point]);
                 point += size_t(source.curveVertexCounts[curve]);
             }
-            if (rebind == TfToken("always")) {
+            if (rebind == kAlways) {
                 repairIndices.resize(curves);
                 for (size_t curve = 0; curve != curves; ++curve) {
                     repairIndices[curve] = curve;

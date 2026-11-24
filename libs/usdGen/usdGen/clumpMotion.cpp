@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/clumpMotion.h"
+#include "usdGen/registries/engineTokens.h"
 
 #include <algorithm>
 #include <cmath>
@@ -42,7 +43,7 @@ UsdGenPlane const *Find(std::vector<UsdGenPlane> const &planes,
                         std::string const &name)
 {
     auto const it = std::find_if(planes.begin(), planes.end(),
-        [&](UsdGenPlane const &p) { return p.name == TfToken(name); });
+        [&](UsdGenPlane const &p) { return p.name.GetString() == name; });
     return it == planes.end() ? nullptr : &*it;
 }
 
@@ -96,8 +97,8 @@ bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
         if (std::find(seenLevels.begin(), seenLevels.end(), level) != seenLevels.end())
             return Fail("duplicate clump level " + std::to_string(level), error);
         seenLevels.push_back(level);
-        if (ids.interpolation != TfToken("uniform") ||
-            ids.type != TfToken("int") || ids.arity != 1 ||
+        if (ids.interpolation != UsdGenTokens().uniform ||
+            ids.type != UsdGenTokens().int_ || ids.arity != 1 ||
             ids.i.size() != buffer.totalCurves)
             return Fail("invalid clumpId plane " + ids.name.GetString(), error);
 
@@ -111,14 +112,14 @@ bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
         if (present != 0 && present != 3)
             return Fail("incomplete clump motion planes for level " + suffix, error);
         if (present == 3) {
-            if (anchor->interpolation != TfToken("uniform") ||
-                anchor->type != TfToken("float") || anchor->arity != 3 ||
+            if (anchor->interpolation != UsdGenTokens().uniform ||
+                anchor->type != UsdGenTokens().float_ || anchor->arity != 3 ||
                 anchor->f.size() != size_t(buffer.totalCurves) * 3 ||
-                centerId->interpolation != TfToken("uniform") ||
-                centerId->type != TfToken("int") || centerId->arity != 2 ||
+                centerId->interpolation != UsdGenTokens().uniform ||
+                centerId->type != UsdGenTokens().int_ || centerId->arity != 2 ||
                 centerId->i.size() != size_t(buffer.totalCurves) * 2 ||
-                weight->interpolation != TfToken("vertex") ||
-                weight->type != TfToken("float") || weight->arity != 1 ||
+                weight->interpolation != UsdGenTokens().vertex ||
+                weight->type != UsdGenTokens().float_ || weight->arity != 1 ||
                 weight->f.size() != buffer.totalCvs)
                 return Fail("invalid clump motion layout for level " + suffix, error);
             for (float w : weight->f)
