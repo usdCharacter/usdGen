@@ -13,7 +13,7 @@ struct UsdGenCudaExecutionQueue::Impl {
     // Declaration order is intentional: the pipeline drains before the
     // workspace is destroyed, and the workspace owns all mutable CUDA state.
     std::unique_ptr<UsdGenCudaExecutionWorkspace> workspace;
-    std::shared_ptr<const UsdGenCudaQueueSnapshot> snapshot;
+    UsdGenAtomicRef<const UsdGenCudaQueueSnapshot> snapshot;
     std::shared_ptr<UsdGenExecutionTaskGraph> dispatcher;
     std::unique_ptr<Pipeline> pipeline;
 
@@ -86,8 +86,7 @@ uint64_t UsdGenCudaExecutionQueue::Submit(
         // device work starts, execute it to completion so workspace buffers
         // and CUDA events remain valid; a superseding epoch discards the
         // resulting publication action in the owner node.
-        auto previousSnapshot = std::atomic_load_explicit(
-            &impl->snapshot, std::memory_order_acquire);
+        auto previousSnapshot = impl->snapshot.Load();
         auto previous = previousSnapshot ? previousSnapshot->generation
                                          : std::shared_ptr<const UsdGenDeviceGeneration>{};
         auto completion = std::make_shared<Pipeline::AsyncCompletion>(std::move(done));
@@ -202,15 +201,15 @@ uint64_t UsdGenCudaExecutionQueue::Submit(
                                 std::runtime_error("CUDA execution failed")));
                             return;
                         }
-                        auto next = std::make_shared<UsdGenCudaQueueSnapshot>();
+                        auto next = UsdGenMakeRef<UsdGenCudaQueueSnapshot>();
                         next->epoch = epoch;
                         next->frame = frame;
                         next->generation = std::move(generation);
                         next->bindings = GetCudaBindingStats(*impl->workspace);
                         (*completion)([impl, next = std::move(next)] {
-                            std::atomic_store_explicit(&impl->snapshot,
-                                std::shared_ptr<const UsdGenCudaQueueSnapshot>(next),
-                                std::memory_order_release);
+                            impl->snapshot.Store(next);
+                            // Free the displaced snapshot now when no reader is pinned.
+                            UsdGenEpochDrain();
                         }, {});
                     } catch (...) { (*completion)({}, std::current_exception()); }
                 })) {
@@ -245,11 +244,10 @@ uint64_t UsdGenCudaExecutionQueue::CancelPending() {
     return Valid() ? impl_->pipeline->CancelPending() : 0;
 }
 
-std::shared_ptr<const UsdGenCudaQueueSnapshot>
+UsdGenRef<const UsdGenCudaQueueSnapshot>
 UsdGenCudaExecutionQueue::Snapshot() const noexcept {
     if (!impl_) return {};
-    return std::atomic_load_explicit(&impl_->snapshot,
-                                     std::memory_order_acquire);
+    return impl_->snapshot.Load();
 }
 
 void UsdGenCudaExecutionQueue::Drain() {
