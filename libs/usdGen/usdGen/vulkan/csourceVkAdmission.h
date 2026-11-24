@@ -11,6 +11,7 @@
 #define USDGEN_VULKAN_CSOURCE_VK_ADMISSION_H
 
 #include "usdGen/authoredNamedChannels.h"
+#include "usdGen/vulkan/vkStages.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -110,8 +111,9 @@ inline bool CsourceVkSurfaceFreeRebindAdmitted(TfToken const& rebind,
                                               size_t curveCount,
                                               size_t rootFrameCount) {
     if (curveCount == 0) return true;
-    if (rebind == TfToken("never")) return true;
-    if (rebind == TfToken("onError")) return rootFrameCount == curveCount;
+    UsdGenVulkanTokens const &t = UsdGenVkTokens();
+    if (rebind == t.never) return true;
+    if (rebind == t.onError) return rootFrameCount == curveCount;
     return false;
 }
 

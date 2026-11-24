@@ -17,6 +17,9 @@
 #include "usdGen/op.h"
 #include "usdGen/ops/rbfField.h"
 #include "usdGen/vulkan/rbfVkPlan.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/token.h"
+#include "usdGen/vulkan/vkStages.h"
 
 #include <algorithm>
 #include <cmath>
@@ -86,12 +89,16 @@ bool ReadFloat(UsdGenParamValue const &param, float *value) {
 // Vulkan admits only the neutral value; a muted operator would alias its
 // input, which the shader lanes express as their own envelope path instead.
 bool IsIdentityMask(UsdGenParamValue const &param) {
-    return param.name == TfToken("mask") && param.value == VtValue(1.0f);
+    return param.name == UsdGenTokens().mask && param.value == VtValue(1.0f);
 }
 
 bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                     UsdGenCurveSetDesc const **source, VulkanSourceControls *controls,
                     UsdGenDiagnostics *diagnostics) {
+    using namespace vulkanP;
+    UsdGenEngineTokens const &et = UsdGenTokens();
+    UsdGenVulkanTokens const &vk = UsdGenVkTokens();
+    UsdGenVulkanKernel const cs = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
     if (IsVulkanSurfaceCage(node)) {
         if (node.curves.size() != 1)
             return Fail(diagnostics, "surfaceCage requires one sparse cage");
@@ -105,9 +112,9 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         controls->surfaceCage = true;
         controls->hasAuthoredRest = !found->rest.empty();
         for (auto const &param : node.params) {
-            if (param.name == TfToken("useRest"))
+            if (param.name == cs.Param(kCsUseRest))
                 controls->useRest = param.value.UncheckedGet<bool>();
-            else if (param.name == TfToken("resampleTo")) {
+            else if (param.name == cs.Param(kCsResampleTo)) {
                 int target = 0;
                 if (CsourceVkValidateResampleTarget(param.value, controls->maxCurves, &target,
                                                     nullptr) != CsourceVkResampleStatus::Ok)
@@ -132,7 +139,7 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     auto found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
                               [&](auto const &item) { return item.path == node.curves.front(); });
     if (found == desc.curveSets.end() || found->role != UsdGenRole::Curves ||
-        found->curveRole != TfToken("hair"))
+        found->curveRole != et.hair)
         return Fail(diagnostics, "CurveSource target must be one resolved C3 hair curve set");
     // Current/rest points stay source-local. Only constructing absent root
     // frames from a surface requires this matrix's inverse; authored frames
@@ -162,14 +169,14 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     }
     controls->hasAuthoredRest = !found->rest.empty();
     controls->restFromCurrentPoints = found->restFromCurrentPoints;
-    if (found->type != TfToken("cubic") ||
-        (found->basis != TfToken("bspline") && found->basis != TfToken("catmullRom")) ||
-        (found->wrap != TfToken("pinned") && found->wrap != TfToken("nonperiodic")) ||
-        (found->widthsInterpolation != TfToken("vertex") &&
-         found->widthsInterpolation != TfToken("constant")))
+    if (found->type != et.cubic ||
+        (found->basis != et.bspline && found->basis != et.catmullRom) ||
+        (found->wrap != et.pinned && found->wrap != et.nonperiodic) ||
+        (found->widthsInterpolation != et.vertex &&
+         found->widthsInterpolation != et.constant))
         return Fail(diagnostics, "C3 source requires cubic bspline/catmullRom, "
                                  "pinned/nonperiodic and vertex/constant widths");
-    size_t const widthCount = found->widthsInterpolation == TfToken("constant")
+    size_t const widthCount = found->widthsInterpolation == et.constant
                                  ? 1 : found->points.size();
     if ((found->curveVertexCounts.empty() != found->points.empty()) ||
         (!found->rest.empty() && found->rest.size() != found->points.size()) ||
@@ -213,10 +220,10 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
             if (valid)
                 controls->useRest = param.value.UncheckedGet<bool>();
         } else if (name == "lane")
-            valid = param.value == VtValue(TfToken("hair"));
+            valid = param.value == VtValue(et.hair);
         else if (name == "idSource") {
-            valid = param.value == VtValue(TfToken("primvar")) ||
-                    param.value == VtValue(TfToken("index"));
+            valid = param.value == VtValue(vk.primvar) ||
+                    param.value == VtValue(vk.index);
             if (valid)
                 controls->idSource = param.value.UncheckedGet<TfToken>();
         } else if (name == "resampleTo") {
@@ -244,21 +251,21 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
             if (valid)
                 controls->expectEpoch = param.value.UncheckedGet<std::string>();
         } else if (name == "staleAction") {
-            valid = param.value == VtValue(TfToken("warn")) ||
-                    param.value == VtValue(TfToken("ignore")) ||
-                    param.value == VtValue(TfToken("block"));
+            valid = param.value == VtValue(vk.warn) ||
+                    param.value == VtValue(vk.ignore) ||
+                    param.value == VtValue(vk.block);
             if (valid)
                 controls->staleAction = param.value.UncheckedGet<TfToken>();
         } else if (name == "rebind") {
-            valid = param.value == VtValue(TfToken("never")) ||
-                    param.value == VtValue(TfToken("onError")) ||
-                    param.value == VtValue(TfToken("always"));
+            valid = param.value == VtValue(vk.never) ||
+                    param.value == VtValue(vk.onError) ||
+                    param.value == VtValue(vk.always);
             if (valid)
                 controls->rebind = param.value.UncheckedGet<TfToken>();
         } else if (name == "label")
             valid = param.value.IsHolding<std::string>();
         else if (name == "interpolationMode")
-            valid = param.value == VtValue(TfToken("none"));
+            valid = param.value == VtValue(et.none);
         else if (name == "densityMultiplier")
             valid = param.value.IsHolding<float>() &&
                     IsFinite(param.value.UncheckedGet<float>()) &&
@@ -270,18 +277,18 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         if (!valid)
             return Fail(diagnostics, "unsupported or malformed CurveSource parameter " + name);
     }
-    if (controls->idSource == TfToken("primvar") && found->curveId.empty()) {
+    if (controls->idSource == vk.primvar && found->curveId.empty()) {
         controls->stableIdsSynthesized = true;
         if (diagnostics)
             diagnostics->Warn("Vulkan source-width plan: CurveSource "
                               "idSource=primvar synthesizes index stable IDs");
     }
-    if (controls->idSource == TfToken("primvar") && !found->curveId.empty() &&
+    if (controls->idSource == vk.primvar && !found->curveId.empty() &&
         found->curveId.size() != found->curveVertexCounts.size())
         return Fail(diagnostics, "CurveSource idSource=primvar has incomplete stable IDs");
     // Index mode deliberately ignores the authored ID array, including its
     // shape and duplicate values, just as the CPU source capture does.
-    if (controls->idSource == TfToken("primvar"))
+    if (controls->idSource == vk.primvar)
         for (uint64_t id : found->curveId)
             if (!ids.insert(id).second)
                 return Fail(diagnostics, "C3 source stable IDs must be unique");
@@ -290,7 +297,7 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         return Fail(diagnostics, "CurveSource useRest=true requires an authored "
                                  "non-current rest sample");
     bool const preservesAbsentRoots = node.surfaces.empty() &&
-        controls->rebind == TfToken("never") && found->skinPrim.empty() &&
+        controls->rebind == vk.never && found->skinPrim.empty() &&
         found->skinPrimUv.empty() && found->rootFrame.empty();
     if (!found->curveVertexCounts.empty() && found->rootFrame.empty() &&
         !preservesAbsentRoots && !IsFiniteInvertibleAffine(found->worldMatrix))
@@ -300,10 +307,10 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                                             found->rootFrame.size()))
         return Fail(diagnostics, "surface-free CurveSource requires rebind=never");
     if (!controls->expectEpoch.empty() && controls->expectEpoch != found->frozenEpoch) {
-        if (controls->staleAction == TfToken("block"))
+        if (controls->staleAction == vk.block)
             return Fail(diagnostics, "CurveSource expectEpoch mismatches frozenEpoch "
                                      "with staleAction=block");
-        if (controls->staleAction == TfToken("warn") && diagnostics)
+        if (controls->staleAction == vk.warn && diagnostics)
             diagnostics->Warn("Vulkan source-width plan: CurveSource expectEpoch "
                               "mismatches frozenEpoch");
     }
@@ -311,7 +318,7 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     // exact authored-frame contract in the shared helper; validity of an
     // individual face/UV is intentionally left to CurveLoader root capture,
     // where never drops and onError/always can rebind it.
-    if (found->skinPrim.size() != found->skinPrimUv.size() && controls->rebind == TfToken("never"))
+    if (found->skinPrim.size() != found->skinPrimUv.size() && controls->rebind == vk.never)
         return Fail(diagnostics, "C3 rootPrim/rootUV cardinalities differ for rebind=never");
     if (!found->rootFrame.empty() && found->rootFrame.size() != found->curveVertexCounts.size())
         return Fail(diagnostics, "C3 authored rootFrame cardinality disagrees with curves");
@@ -332,11 +339,14 @@ bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
         !node.ramps.empty())
         return Fail(diagnostics, "Length requires literal identity-envelope scale, "
                                  "set or cull configuration");
+    UsdGenVulkanTokens const &vk = UsdGenVkTokens();
+    TfToken const &modeName =
+        UsdGenVulkanKernelFor(UsdGenVulkanStage::Length).Param(vulkanP::kLenMode);
     bool cull = false, set = false;
     for (auto const &param : node.params)
-        if (param.name == TfToken("length:mode") && param.value == VtValue(TfToken("cull")))
+        if (param.name == modeName && param.value == VtValue(vk.cull))
             cull = true;
-        else if (param.name == TfToken("length:mode") && param.value == VtValue(TfToken("set")))
+        else if (param.name == modeName && param.value == VtValue(vk.set))
             set = true;
     stage->kind =
         cull ? VulkanSourceWidthStage::Kind::LengthCull : VulkanSourceWidthStage::Kind::LengthScale;
@@ -362,8 +372,8 @@ bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
                 return Fail(diagnostics, "Length factor must be finite, nonnegative "
                                          "and float-representable");
         } else if (name == "length:mode") {
-            if (param.value != VtValue(TfToken("scale")) &&
-                param.value != VtValue(TfToken("set")) && param.value != VtValue(TfToken("cull")))
+            if (param.value != VtValue(vk.scale) &&
+                param.value != VtValue(vk.set) && param.value != VtValue(vk.cull))
                 return Fail(diagnostics, "only literal Length scale, set or cull modes supported");
         } else if (name == "length:min" || name == "length:max" ||
                    name == "length:randomize") {
@@ -375,9 +385,9 @@ bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
             if (!param.value.IsHolding<bool>())
                 return Fail(diagnostics, "Length range toggles must be bool literals");
         } else if (name == "length:method") {
-            if (param.value == VtValue(TfToken("scale")))
+            if (param.value == VtValue(vk.scale))
                 stage->lengthMethod = VulkanSourceWidthStage::LengthMethod::Scale;
-            else if (param.value == VtValue(TfToken("cutExtend")))
+            else if (param.value == VtValue(vk.cutExtend))
                 stage->lengthMethod = VulkanSourceWidthStage::LengthMethod::CutExtend;
             else
                 return Fail(diagnostics, "Length method must be scale or cutExtend");
@@ -420,9 +430,9 @@ bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
             if (!std::isfinite(minimum) || minimum < 0 || !std::isfinite(stage->minRemainingLength))
                 return Fail(diagnostics, "Length minimum must be a finite nonnegative literal");
         } else if (name == "rebuild") {
-            if (param.value == VtValue(TfToken("keepParam")))
+            if (param.value == VtValue(vk.keepParam))
                 stage->lengthRebuild = VulkanSourceWidthStage::LengthRebuild::KeepParam;
-            else if (param.value == VtValue(TfToken("reparam")))
+            else if (param.value == VtValue(vk.reparam))
                 stage->lengthRebuild = VulkanSourceWidthStage::LengthRebuild::Reparam;
             else
                 return Fail(diagnostics, "Length rebuild must be keepParam or reparam");
@@ -446,7 +456,7 @@ bool ValidateNoise(UsdGenNodeDesc const &node, VulkanLiteralNoiseControls *out,
         return Fail(diagnostics, "Noise requires literal configuration");
     std::set<TfToken> seen;
     VtVec2fArray knots;
-    TfToken interpolation("catmullRom");
+    TfToken interpolation = UsdGenTokens().catmullRom;
     for (auto const &param : node.params) {
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate Noise parameter");
@@ -675,7 +685,7 @@ bool ValidateResample(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
                 return Fail(diagnostics, "Resample cvCount must be an int literal");
             cvCount = param.value.UncheckedGet<int>();
         } else if (name == "distribution" || name == "usdGen:distribution") {
-            if (param.value != VtValue(TfToken("keepParam")))
+            if (param.value != VtValue(UsdGenVkTokens().keepParam))
                 return Fail(diagnostics, "Resample distribution must be keepParam");
             keepParamSeen = true;
         } else if (name == "mask" || name == "usdGen:mask") {
@@ -812,6 +822,8 @@ VulkanSourceWidthPlan::VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphDe
 
 std::shared_ptr<const UsdGenExecutionPlanHandle>
 CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics *diagnostics) {
+    // Plan building is compile phase (synthetic path names intern).
+    UsdGenCompileTokenScope tokenScope;
     UsdGenGraphDesc normalized;
     if (!NormalizeVulkanGeneratorGraph(original, &normalized, diagnostics))
         return {};
@@ -822,6 +834,12 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         Fail(diagnostics, "requires a single-source Vulkan graph within the native index domain");
         return {};
     }
+    using Stage = UsdGenVulkanStage;
+    UsdGenVulkanTokens const &vk = UsdGenVkTokens();
+    // Each node's Vulkan kernel row; the lane branches on its stage.
+    std::vector<UsdGenVulkanKernel> kernels(desc.nodes.size());
+    for (size_t i = 0; i < desc.nodes.size(); ++i)
+        kernels[i] = UsdGenVulkanKernelOf(desc.nodes[i].type);
     size_t sourceIndex = desc.nodes.size(), terminalIndex = desc.nodes.size();
     std::set<SdfPath> paths;
     for (size_t i = 0; i < desc.nodes.size(); ++i) {
@@ -888,7 +906,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         if (!reachable[i])
             continue;
         ++reachableCount;
-        if (desc.nodes[i].type == TfToken("UsdGenCurveSource")) {
+        if (kernels[i].Is(Stage::CurveSource)) {
             if (sourceIndex != desc.nodes.size()) {
                 Fail(diagnostics, "selected terminal requires one source");
                 return {};
@@ -917,7 +935,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     bool reachableNoise = false;
     for (size_t i = 0; i < desc.nodes.size(); ++i)
         reachableNoise = reachableNoise ||
-            (reachable[i] && desc.nodes[i].type == TfToken("UsdGenNoise"));
+            (reachable[i] && kernels[i].Is(Stage::Noise));
     if (weightedClump && reachableNoise) {
         Fail(diagnostics, "Noise does not support imported clump motion planes");
         return {};
@@ -931,9 +949,10 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             }
             return {};
         }
+        UsdGenVulkanKernel const &cs = kernels[sourceIndex];
         for (auto const &b : bindings)
-            if (b.destination == TfToken("resampleTo") ||
-                b.destination == TfToken("usdGen:resampleTo"))
+            if (cs.Names(vulkanP::kCsResampleTo, b.destination) ||
+                cs.Names(vulkanP::kCsUsdGenResampleTo, b.destination))
                 if (!sourceControls.resampleTo)
                     sourceControls.resampleTo = 2;
     }
@@ -942,7 +961,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         (!sourceNode.surfaces.empty() || !source->skinPrim.empty() || !source->skinPrimUv.empty() ||
          !source->rootFrame.empty() || [&] {
              for (size_t i = 0; i < desc.nodes.size(); ++i)
-                 if (reachable[i] && desc.nodes[i].type == TfToken("UsdGenGrow"))
+                 if (reachable[i] && kernels[i].Is(Stage::Grow))
                      return true;
              return false;
          }());
@@ -979,7 +998,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         SdfPath path;
         do {
             path = anchor.AppendChild(
-                TfToken(std::string(stem) + std::to_string(syntheticPathOrdinal++)));
+                UsdGenInternToken(std::string(stem) + std::to_string(syntheticPathOrdinal++)));
         } while (!paths.insert(path).second);
         return path;
     };
@@ -1028,12 +1047,13 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             return {};
         }
         auto const &node = desc.nodes[ready];
+        UsdGenVulkanKernel const &kernel = kernels[ready];
         nodeIsDeform[ready] = nodeIsDeform[inputs[ready][0]];
         VulkanSourceWidthStage stage;
         stage.enabledLiteral = node.enabled;
         stage.path = node.path;
         stage.input = nodeValue[inputs[ready][0]];
-        if (node.type == TfToken("UsdGenWidth")) {
+        if (kernel.Is(Stage::Width)) {
             ExprVkWidthData widthData;
             std::vector<std::string> errors;
             if (inputs[ready].size() != 1 ||
@@ -1053,18 +1073,18 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
                 return {};
             }
             stage.expressionControls = ExprVkPlanControls(desc, node.seed, expr::Domain::Groom);
-        } else if (node.type == TfToken("UsdGenLength")) {
+        } else if (kernel.Is(Stage::Length)) {
             stage.kind = VulkanSourceWidthStage::Kind::LengthScale;
             stage.randomSeed = node.seed;
             if (inputs[ready].size() != 1 || !ValidateLength(node, &stage, diagnostics))
                 return {};
             stage.disabled = !node.enabled;
-        } else if (node.type == TfToken("UsdGenWidthBlend")) {
+        } else if (kernel.Is(Stage::WidthBlend)) {
             stage.kind = VulkanSourceWidthStage::Kind::WidthBlend;
             bool paramsOk = true;
             float weight = 1.0f;
             for (auto const &param : node.params) {
-                bool const ok = param.name == TfToken("widthBlend:weight") && !param.animated &&
+                bool const ok = param.name == kernel.Param(vulkanP::kBlendWeight) && !param.animated &&
                                 param.value.IsHolding<float>() &&
                                 std::isfinite(param.value.UncheckedGet<float>()) &&
                                 param.value.UncheckedGet<float>() >= 0.0f &&
@@ -1084,7 +1104,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             stage.rightInput = nodeValue[inputs[ready][1]];
             stage.blend = weight;
             hasBlend = true;
-        } else if (node.type == TfToken("UsdGenNoise")) {
+        } else if (kernel.Is(Stage::Noise)) {
             stage.kind = VulkanSourceWidthStage::Kind::Noise;
             stage.noise.seed = node.seed;
             stage.noise.enabled = node.enabled;
@@ -1095,7 +1115,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
                 return {};
             }
             stage.disabled = !node.enabled;
-        } else if (node.type == TfToken("UsdGenDeform")) {
+        } else if (kernel.Is(Stage::Deform)) {
             // CUDA currently requires identity description transforms only
             // for rest-to-pose Deform. Other graphs retain the description
             // transform for Session publication and shared source capture.
@@ -1103,11 +1123,12 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
                 Fail(diagnostics, "RBF currently requires an identity Description transform");
                 return {};
             }
+            UsdGenVulkanKernel const &cs = kernels[sourceIndex];
             if (!sourceControls.useRest &&
                 !std::any_of(sourceNode.expressionBindings.begin(),
-                             sourceNode.expressionBindings.end(), [](auto const &b) {
-                                 return b.destination == TfToken("useRest") ||
-                                        b.destination == TfToken("usdGen:useRest");
+                             sourceNode.expressionBindings.end(), [&](auto const &b) {
+                                 return cs.Names(vulkanP::kCsUseRest, b.destination) ||
+                                        cs.Names(vulkanP::kCsUsdGenUseRest, b.destination);
                              })) {
                 Fail(diagnostics, "already-deformed CurveSource cannot feed "
                                   "rest-to-animated RBF Deform");
@@ -1136,12 +1157,12 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
                 sourceControls.surfaceCage ? 0 : source->curveVertexCounts.size());
             for (size_t c = 0; c < stage.deform.rootStableIds.size(); ++c)
                 stage.deform.rootStableIds[c] =
-                    sourceControls.idSource == TfToken("primvar") && !source->curveId.empty()
+                    sourceControls.idSource == vk.primvar && !source->curveId.empty()
                         ? source->curveId[c]
                         : uint64_t(c);
             stage.disabled = !node.enabled;
             nodeIsDeform[ready] = true;
-        } else if (node.type == TfToken("UsdGenGrow")) {
+        } else if (kernel.Is(Stage::Grow)) {
             stage.kind = VulkanSourceWidthStage::Kind::Grow;
             if (inputs[ready].size() != 1 ||
                 !ValidateVulkanGrow(desc, node, &stage.grow, diagnostics))
@@ -1151,7 +1172,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             // executes the native controls independently of node.enabled.
             stage.emptyGenerator = !node.enabled && IsVulkanCapturedScatter(*source);
             stage.disabled = false;
-        } else if (node.type == TfToken("UsdGenResample")) {
+        } else if (kernel.Is(Stage::Resample)) {
             stage.kind = VulkanSourceWidthStage::Kind::Resample;
             if (inputs[ready].size() != 1 || !ValidateResample(node, &stage, diagnostics))
                 return {};
@@ -1174,8 +1195,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             stage.expressionControls = ExprVkPlanControls(desc, node.seed, expr::Domain::Groom);
         }
         for (auto const &binding : stage.expressionBindings)
-            if (binding.binding.destination == TfToken("enabled") ||
-                binding.binding.destination == TfToken("usdGen:enabled"))
+            if (kernel.NamesEnabled(binding.binding.destination))
                 stage.disabled = false;
         if ((stage.kind == VulkanSourceWidthStage::Kind::LengthScale ||
              stage.kind == VulkanSourceWidthStage::Kind::LengthCull) &&
@@ -1401,10 +1421,10 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         task.path = stage.path;
         task.type = !internalStages[i] ? authored.type
                     : stage.kind == VulkanSourceWidthStage::Kind::Resample
-                        ? TfToken("VulkanResampleTransform")
+                        ? vk.resampleTransform
                     : stage.kind == VulkanSourceWidthStage::Kind::Width
-                        ? TfToken("VulkanSourceAlias")
-                        : TfToken("VulkanLengthTransform");
+                        ? vk.sourceAlias
+                        : vk.lengthTransform;
         task.exclusiveWorkspace = false;
         bool const cull = stage.kind == VulkanSourceWidthStage::Kind::LengthCull;
         bool const resample = stage.kind == VulkanSourceWidthStage::Kind::Resample ||
@@ -1520,7 +1540,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     UsdGenExecutionTaskMetadata publication;
     publication.id = finalTask + 1;
     publication.kind = UsdGenExecutionTaskKind::Publication;
-    publication.type = TfToken("VulkanPublication");
+    publication.type = vk.publication;
     publication.exclusiveWorkspace = false;
     auto terminal = bundles.back();
     publication.resources = {

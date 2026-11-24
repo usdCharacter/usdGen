@@ -5,6 +5,5 @@ libs/usdGen/usdGen/cudaExecution.cpp 1
 libs/usdGen/usdGen/rbfAnimation.h 1
 libs/usdGen/usdGen/sessionCooker.cpp 2
 libs/usdGen/usdGen/vulkan/executionPlan.cpp 1
-libs/usdGen/usdGen/vulkan/exprVkPlan.cpp 1
 libs/usdGen/usdGen/vulkan/rbfVkPlan.h 1
 libs/usdGen/usdGen/vulkan/surfaceVk.cpp 1

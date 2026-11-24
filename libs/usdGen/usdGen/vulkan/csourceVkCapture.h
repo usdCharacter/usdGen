@@ -6,6 +6,7 @@
 #include "usdGen/curveLoader.h"
 #include "usdGen/op.h"
 #include "usdGen/surfaceCageSource.h"
+#include "usdGen/vulkan/vkStages.h"
 #include "pxr/base/gf/vec3d.h"
 
 #include <algorithm>
@@ -16,9 +17,10 @@
 namespace usdGen::vulkan {
 
 inline bool IsVulkanSurfaceCage(UsdGenNodeDesc const& node) {
+    UsdGenVulkanKernel const cs = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
     for (auto const& p : node.params)
-        if (p.name == TfToken("interpolationMode"))
-            return p.value == VtValue(TfToken("surfaceCage"));
+        if (p.name == cs.Param(vulkanP::kCsInterpolationMode))
+            return p.value == VtValue(UsdGenVkTokens().surfaceCage);
     return false;
 }
 
@@ -38,7 +40,7 @@ inline bool ValidateVulkanSurfaceCage(
         node.curves.size() != 1 || node.curves.front() != sparse.path ||
         node.surfaces.size() != 1 || node.maps.size() != 1 ||
         node.mapBindings.size() != 1 || node.maps.front() != node.mapBindings.front().map ||
-        node.mapBindings.front().relationship != TfToken("usdGen:regionMap"))
+        node.mapBindings.front().relationship != UsdGenVkTokens().regionMapRel)
         return fail("requires one captured cage, one surface and one usdGen:regionMap");
     std::set<TfToken> seen;
     for (auto const& p : node.params) {
@@ -92,8 +94,10 @@ inline bool CaptureVulkanSurfaceCage(
         return false;
     }
     auto captureNode = node;
+    TfToken const &resampleTo =
+        UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource).Param(vulkanP::kCsResampleTo);
     for (auto& p : captureNode.params)
-        if (p.name == TfToken("resampleTo")) p.value = VtValue(0);
+        if (p.name == resampleTo) p.value = VtValue(0);
     UsdGenParamView params{&desc, &captureNode};
     UsdGenCaptureContext context;
     context.desc = &desc;
