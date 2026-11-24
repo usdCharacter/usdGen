@@ -1,6 +1,7 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "cudaParameters.h"
 #include "usdGen/gpu/cudaCompat.h"
+#include "usdGen/gpu/cudaCompletionLane.h"
 #include "usdGen/expressions/frontend.h"
 #include "pxr/base/gf/half.h"
 #include "pxr/base/gf/vec2d.h"
@@ -326,7 +327,7 @@ CudaParameterStatus CudaParameterEvaluator::Evaluate(
         auto fail = [&](CudaParameterStatus status, char const* message) {
             // Error exits must not leave queued readers using context/literal
             // allocations that the next invocation will replace.
-            cudaStreamSynchronize(stream);
+            gpu::CudaFenceStream(stream);
             Error(diagnostics, binding.destination.GetString() + ": " + message);
             return status;
         };

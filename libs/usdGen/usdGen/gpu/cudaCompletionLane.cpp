@@ -3,7 +3,6 @@
 #include "usdGen/gpu/cudaCompletionLane.h"
 
 #include "usdGen/epoch.h"
-#include "usdGen/parkingWord.h"
 
 #include <atomic>
 
@@ -25,7 +24,6 @@ struct Lane {
     std::atomic<uint64_t> passes{0};
     std::atomic<size_t> count{0};
     UsdGenTask task{&Lane::Run};
-
 
     void Kick() noexcept
     {
@@ -61,10 +59,10 @@ struct Lane {
     {
         (void)t;
         Lane &lane = g_lane;
-        uint32_t s = lane.state.fetch_and(~kDirty, std::memory_order_acq_rel);
+        lane.state.fetch_and(~kDirty, std::memory_order_acq_rel);
         for (;;) {
             lane.Pass();
-            s = kScheduled;
+            uint32_t s = kScheduled;
             if (lane.state.compare_exchange_strong(s, 0, std::memory_order_acq_rel,
                                                    std::memory_order_acquire))
                 return;
@@ -78,21 +76,6 @@ struct Lane {
 Lane g_lane;
 
 void CUDART_CB LaneKick(cudaStream_t, cudaError_t, void *) noexcept { g_lane.Kick(); }
-
-struct Fence {
-    std::atomic<uint32_t> done{0};
-    cudaError_t status = cudaErrorUnknown;
-};
-
-void CUDART_CB FenceDone(cudaStream_t, cudaError_t status, void *data) noexcept
-{
-    auto *fence = static_cast<Fence *>(data);
-    fence->status = status;
-    // The store is the last touch of *fence; the wake is keyed by address.
-    std::atomic<uint32_t> *word = &fence->done;
-    word->store(1, std::memory_order_release);
-    UsdGenUnparkAll(*word);
-}
 
 }  // namespace
 
@@ -114,19 +97,6 @@ bool CudaCompletionSubmit(CudaCompletion *c, cudaStream_t stream) noexcept
     }
     g_lane.Kick();
     return true;
-}
-
-cudaError_t CudaFenceStream(cudaStream_t stream) noexcept
-{
-    Fence fence;
-    cudaError_t const added = cudaStreamAddCallback(stream, FenceDone, &fence, 0);
-    if (added != cudaSuccess) {
-        // Device loss or an invalid stream: report what the stream reports.
-        cudaError_t const e = cudaStreamSynchronize(stream);
-        return e != cudaSuccess ? e : added;
-    }
-    while (!fence.done.load(std::memory_order_acquire)) UsdGenParkWhileEqual(fence.done, 0);
-    return fence.status;
 }
 
 uint64_t CudaCompletionLanePassesForTesting() noexcept

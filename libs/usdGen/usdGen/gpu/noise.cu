@@ -1,4 +1,5 @@
 #include "noise.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include "seexprNoise.cuh"
@@ -557,7 +558,7 @@ StyleStatus CudaNoise::begin(DeviceCurveGeometryView geometry,
         // A failed asynchronous clear may follow work on this stream.  Fence
         // before releasing, and abandon allocations if completion is not
         // provable; Apply has not yet borrowed caller output at this point.
-        if (cudaStreamSynchronize(stream) != cudaSuccess) {
+        if (CudaFenceStream(stream) != cudaSuccess) {
             staging_.quarantine();
             error_.quarantine();
             unprovenWork_ = true;
@@ -647,7 +648,7 @@ StyleStatus CudaNoise::Apply(DeviceCurveGeometryView geometry,
     status = begin(geometry, output, stream, reservation);
     if (status != StyleStatus::Ok) return status;
     auto abortSubmission = [&] {
-        if (cudaStreamSynchronize(stream) != cudaSuccess) {
+        if (CudaFenceStream(stream) != cudaSuccess) {
             staging_.quarantine();
             error_.quarantine();
             unprovenWork_ = true;
@@ -678,7 +679,7 @@ StyleStatus CudaNoise::finishPublication(cudaStream_t stream) {
         : cudaSuccess;
     // Fence unconditionally, including after a copy-submission error: work
     // before the failed call is still queued on this stream.
-    const cudaError_t fenceStatus = cudaStreamSynchronize(stream);
+    const cudaError_t fenceStatus = CudaFenceStream(stream);
     if (copyStatus != cudaSuccess || fenceStatus != cudaSuccess) {
         // Do not leave a pending object holding borrowed caller output after
         // a failed publication fence.  An unprovable stream is quarantined.
@@ -706,8 +707,8 @@ StyleStatus CudaNoise::Finish(cudaStream_t stream) {
         (stream && streamDevice != deviceIndex_)) return StyleStatus::InvalidArgument;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) {
-        if (cudaStreamSynchronize(stream) != cudaSuccess) {
+        CudaFenceStream(stream) != cudaSuccess) {
+        if (CudaFenceStream(stream) != cudaSuccess) {
             staging_.quarantine();
             error_.quarantine();
             unprovenWork_ = true;

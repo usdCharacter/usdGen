@@ -1,4 +1,5 @@
 #include "styleOps.h"
+#include "cudaCompletionLane.h"
 
 #include <cmath>
 #include <cstdint>
@@ -367,7 +368,7 @@ StyleStatus CudaStyleOps::Noise(DeviceCurveGeometryView, float, uint32_t,
 
 StyleStatus CudaStyleOps::finishPublication(cudaStream_t stream) {
     if (pointCount_ == 0) {
-        if (cudaStreamSynchronize(stream) != cudaSuccess) return StyleStatus::CudaError;
+        if (CudaFenceStream(stream) != cudaSuccess) return StyleStatus::CudaError;
         pending_ = false;
         scalarOutput_ = {};
         vectorOutput_ = {};
@@ -383,7 +384,7 @@ StyleStatus CudaStyleOps::finishPublication(cudaStream_t stream) {
                                  pointCount_ * sizeof(float), cudaMemcpyDeviceToDevice,
                                  stream);
     }
-    if (result != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess)
+    if (result != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
         return StyleStatus::CudaError;
     pending_ = false;
     scalarOutput_ = {};
@@ -398,7 +399,7 @@ StyleStatus CudaStyleOps::Finish(cudaStream_t stream) {
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost,
                         stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess)
+        CudaFenceStream(stream) != cudaSuccess)
         return StyleStatus::CudaError;
     if (code != 0) {
         pending_ = false;

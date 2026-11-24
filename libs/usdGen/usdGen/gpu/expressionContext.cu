@@ -1,4 +1,5 @@
 #include "expressionContext.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <algorithm>
@@ -455,9 +456,10 @@ ExpressionContextStatus CudaExpressionContext::Finish(cudaStream_t stream) {
     // lifetime proof.
     if (freshPending_ || unprovenWork_ || freshFailed_)
         return ExpressionContextStatus::InvalidArgument;
-    if (!pending_ || !ready_ || cudaEventSynchronize(ready_) != cudaSuccess) return ExpressionContextStatus::CudaError;
+    // The stream waits on ready_; the fence below proves both.
+    if (!pending_ || !ready_ || cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess) return ExpressionContextStatus::CudaError;
     int error = 0;
-    if (cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess) return ExpressionContextStatus::CudaError;
+    if (cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess) return ExpressionContextStatus::CudaError;
     pending_ = false;
     if (error != 0) {
         ExpressionInputs cleared;

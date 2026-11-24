@@ -1,4 +1,5 @@
 #include "pointOverride.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <cub/device/device_radix_sort.cuh>
@@ -189,7 +190,7 @@ PointOverrideStatus CudaPointOverride::Apply(
     int error = 0;
     if (cudaMemcpyAsync(&error, error_.data(), sizeof(error),
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess)
+        CudaFenceStream(stream) != cudaSuccess)
         return PointOverrideStatus::CudaError;
     if (error) return DeviceErrorStatus(error);
 
@@ -214,7 +215,7 @@ PointOverrideStatus CudaPointOverride::Apply(
         if (cudaGetLastError() != cudaSuccess ||
             cudaMemcpyAsync(&error, error_.data(), sizeof(error),
                             cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-            cudaStreamSynchronize(stream) != cudaSuccess)
+            CudaFenceStream(stream) != cudaSuccess)
             return PointOverrideStatus::CudaError;
         if (error) return DeviceErrorStatus(error);
     }
@@ -244,9 +245,9 @@ PointOverrideStatus CudaPointOverride::Finish(cudaStream_t stream) {
     if (streamError != cudaSuccess) return PointerStatus(streamError);
     if (!pending_) return PointOverrideStatus::NoPendingUpdate;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess)
+        CudaFenceStream(stream) != cudaSuccess)
         return PointOverrideStatus::CudaError;
-    if (active_.waitOn(stream) != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess)
+    if (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
         return PointOverrideStatus::CudaError;
     using std::swap;
     swap(active_, pendingStorage_);

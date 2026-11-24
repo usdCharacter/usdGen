@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGen/gpu/tools.h"
+#include "usdGen/gpu/cudaCompletionLane.h"
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -103,14 +104,14 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
     if (launch != cudaSuccess) {
         // The helper can have queued work before reporting a later launch
         // error. Retire the same-stream H2D span copy before hostSpans dies.
-        cudaStreamSynchronize(stream_);
+        gpu::CudaFenceStream(stream_);
         return Fail("point-edit bounds launch failed");
     }
     uint32_t status = 0;
     cudaError_t const statusCopy = cudaMemcpyAsync(&status, boundsStatus_.data(),
         sizeof(status), cudaMemcpyDeviceToHost, stream_);
     // Always retire every queued launch even if status-copy enqueue failed.
-    cudaError_t const statusFence = cudaStreamSynchronize(stream_);
+    cudaError_t const statusFence = gpu::CudaFenceStream(stream_);
     if (statusCopy != cudaSuccess || statusFence != cudaSuccess || status != 0)
         return Fail("point-edit bounds validation failed");
 
@@ -122,7 +123,7 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
         maximumCopy = cudaMemcpyAsync(maximums.data(), boundsMaximums_.data(),
             count * sizeof(float3), cudaMemcpyDeviceToHost, stream_);
     }
-    cudaError_t const boundsFence = cudaStreamSynchronize(stream_);
+    cudaError_t const boundsFence = gpu::CudaFenceStream(stream_);
     if (minimumCopy != cudaSuccess || maximumCopy != cudaSuccess ||
         boundsFence != cudaSuccess)
         return Fail("point-edit bounds readback failed");

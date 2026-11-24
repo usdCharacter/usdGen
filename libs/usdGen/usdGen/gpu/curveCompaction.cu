@@ -1,4 +1,5 @@
 #include "curveCompaction.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <cub/device/device_scan.cuh>
@@ -387,7 +388,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
         // A successful terminal synchronize proves every submission made by
         // this legacy phase before its candidate storage is released.  If it
         // cannot prove completion, destruction must quarantine instead.
-        if (cudaStreamSynchronize(stream) == cudaSuccess) {
+        if (CudaFenceStream(stream) == cudaSuccess) {
             pendingStorage_.clear();
             pending_ = false;
             unprovenWork_ = false;
@@ -415,7 +416,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
     if (cudaGetLastError() != cudaSuccess) return resolveFailedSubmit();
     int error = 0;
     if (cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess)
+        CudaFenceStream(stream) != cudaSuccess)
         return resolveFailedSubmit();
     unprovenWork_ = false;
     if (error) return finishError(error);
@@ -443,7 +444,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
         if (cudaGetLastError() != cudaSuccess ||
             cudaMemcpyAsync(&outputCurves, counts_.data(), sizeof(uint32_t), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
             cudaMemcpyAsync(&outputPoints, counts_.data() + 1, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-            cudaStreamSynchronize(stream) != cudaSuccess)
+            CudaFenceStream(stream) != cudaSuccess)
             return resolveFailedSubmit();
         unprovenWork_ = false;
     }
@@ -496,8 +497,8 @@ CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
         // The producer event proves pending output; the caller's stream can
         // additionally contain the error readback. Both must complete before
         // this candidate is released.
-        if (ready_ && cudaEventSynchronize(ready_) == cudaSuccess &&
-            cudaStreamSynchronize(stream) == cudaSuccess) {
+        if (ready_ && cudaStreamWaitEvent(stream, ready_, 0) == cudaSuccess &&
+            CudaFenceStream(stream) == cudaSuccess) {
             pendingStorage_.clear();
             pending_ = false;
             unprovenWork_ = false;
@@ -509,7 +510,7 @@ CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess)
+        CudaFenceStream(stream) != cudaSuccess)
         return resolveFailedFinish();
     if (error) {
         pending_ = false;
@@ -518,7 +519,7 @@ CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
         return finishError(error);
     }
     if (active_.curveCount || active_.pointCount || active_.curveOffsets.size()) {
-        if (active_.waitOn(stream) != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess)
+        if (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
             return resolveFailedFinish();
     }
     active_.swap(pendingStorage_);

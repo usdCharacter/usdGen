@@ -965,7 +965,9 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
             libs/usdGen/usdGen/gpu/rootFrameGather.cu
             libs/usdGen/usdGen/gpu/cudaRetirement.cu
             libs/usdGen/usdGen/gpu/noise.cu
-            libs/usdGen/usdGen/gpu/expression.cu)
+            libs/usdGen/usdGen/gpu/expression.cu
+            libs/usdGen/usdGen/gpu/cudaFence.cpp
+            libs/usdGen/usdGen/parkingWord.cpp)
         target_include_directories(usdGenGpu PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen>
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>)

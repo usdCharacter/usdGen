@@ -1,4 +1,5 @@
 #include "expression.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 // The interpreter itself lives in expressions/irExec.h and is compiled for the
 // device here and for the host by expressions/cpuEvaluator.cpp. Do not add a
@@ -128,7 +129,7 @@ ExpressionStatus CudaExpressionProgram::Upload(expr::IRProgram const& program, c
     if (cudaMemcpyAsync(code_.data(), program.instructions.data(), code_.size(),
                         cudaMemcpyHostToDevice, stream) != cudaSuccess ||
         cudaEventRecord(ready_, stream) != cudaSuccess ||
-        cudaEventSynchronize(ready_) != cudaSuccess) return ExpressionStatus::CudaError;
+        CudaFenceStream(stream) != cudaSuccess) return ExpressionStatus::CudaError;
     // The caller's host IR need not outlive Upload.
     instructionCount_ = program.instructions.size(); result_ = program.result;
     outputCount_ = program.outputCount ? program.outputCount : 1;
@@ -172,7 +173,7 @@ ExpressionStatus CudaExpressionProgram::Finish(cudaStream_t stream) {
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) return ExpressionStatus::CudaError;
+        CudaFenceStream(stream) != cudaSuccess) return ExpressionStatus::CudaError;
     pending_ = false;
     return error ? ExpressionStatus::InvalidValue : ExpressionStatus::Ok;
 }

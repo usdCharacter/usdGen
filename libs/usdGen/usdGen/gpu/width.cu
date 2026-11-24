@@ -1,4 +1,5 @@
 #include "width.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <cmath>
@@ -498,14 +499,14 @@ StyleStatus CudaWidth::CommitFreshFinish() {
 
 StyleStatus CudaWidth::finishPublication(cudaStream_t stream) {
     if (pointCount_ == 0) {
-        if (cudaStreamSynchronize(stream) != cudaSuccess) {
+        if (CudaFenceStream(stream) != cudaSuccess) {
             unprovenWork_ = true;
             return StyleStatus::CudaError;
         }
     } else if (cudaMemcpyAsync(output_.data, staging_.data(),
                                pointCount_ * sizeof(float),
                                cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
-               cudaStreamSynchronize(stream) != cudaSuccess) {
+               CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         return StyleStatus::CudaError;
     }
@@ -537,7 +538,7 @@ StyleStatus CudaWidth::Finish(cudaStream_t stream) {
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code),
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) {
+        CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         return StyleStatus::CudaError;
     }
