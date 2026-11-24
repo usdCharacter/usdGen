@@ -932,7 +932,8 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
         target_compile_definitions(usdGen PRIVATE USDGEN_USE_GPU_NOISE)
     endif()
     if(USDGEN_ENABLE_CUDA)
-        target_sources(usdGen PRIVATE libs/usdGen/usdGen/cudaScatterInput.cpp)
+        target_sources(usdGen PRIVATE libs/usdGen/usdGen/cudaScatterInput.cpp
+            libs/usdGen/usdGen/gpu/cudaCompletionLane.cpp)
         add_library(usdGenGpu STATIC
             libs/usdGen/usdGen/gpu/deviceBuffer.cu
             libs/usdGen/usdGen/gpu/deviceResources.cu
@@ -2517,6 +2518,18 @@ if(USDGEN_ENABLE_CUDA)
     add_test(NAME testUsdGenCudaImageSampler COMMAND testUsdGenCudaImageSampler)
     set_tests_properties(testUsdGenCudaImageSampler PROPERTIES
         LABELS "T0;cuda;image;sampler" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    add_executable(benchUsdGenCudaCook tests/perf/benchUsdGenCudaCook.cpp)
+    target_link_libraries(benchUsdGenCudaCook PRIVATE usdGen usdGenGpu)
+    add_test(NAME benchUsdGenCudaCook COMMAND benchUsdGenCudaCook --runs 30)
+    set_tests_properties(benchUsdGenCudaCook PROPERTIES
+        LABELS "perf;cuda" TIMEOUT 300 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    add_executable(testUsdGenCudaCompletionLane tests/testUsdGenCudaCompletionLane.cpp)
+    target_link_libraries(testUsdGenCudaCompletionLane PRIVATE usdGen usdGenGpu)
+    add_test(NAME testUsdGenCudaCompletionLane COMMAND testUsdGenCudaCompletionLane)
+    set_tests_properties(testUsdGenCudaCompletionLane PROPERTIES
+        LABELS "T1;cuda;threading" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaExecutionResources tests/testUsdGenCudaExecutionResources.cpp)
     target_link_libraries(testUsdGenCudaExecutionResources PRIVATE usdGenGpu)
