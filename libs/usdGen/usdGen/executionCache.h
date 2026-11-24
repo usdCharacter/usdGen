@@ -159,9 +159,11 @@ class UsdGenExecutionCacheDomain;
 /// The entry index is an immutable State published by atomic pointer; an
 /// insert or clear builds the next State and publishes it with one CAS,
 /// retrying on contention. Lookups never wait: they read the State under an
-/// epoch guard, lock the entry's weak snapshot and set its CLOCK reference
-/// bit. Eviction is CLOCK over insertion order, skipping referenced and
-/// leased entries; the inserter that needs room advances the hand. The
+/// epoch guard, lock the entry's weak snapshot, take a lease and set its CLOCK
+/// reference bit. Eviction is CLOCK over insertion order, skipping referenced
+/// and leased entries; the inserter that needs room advances the hand. A lease
+/// and an eviction claim exclude each other on the snapshot's lease word, so
+/// a leased entry is never evicted and its bytes stay charged. The
 /// publisher that removes an entry drops the store's reference before it
 /// returns, so an unleased payload dies there; entry and State shells retire
 /// through epochs and own nothing.
@@ -180,8 +182,33 @@ public:
         UsdGenExecutionCacheKey key;
         std::shared_ptr<const Payload> payload;
         size_t bytes = 0;
-        // Caller leases only: the store's own references do not count.
-        mutable std::atomic<size_t> activeLeases{0};
+        // Low bits: inserters claiming the entry for eviction; above them,
+        // caller leases (the store's own references do not count). A lease
+        // is taken only with no claim, a claim only with no lease; the
+        // inserter whose State CAS removes the entry keeps its claim.
+        mutable std::atomic<uint64_t> leaseWord{0};
+        static constexpr uint64_t kClaimMask = 0xffff;
+        static constexpr uint64_t kLease = kClaimMask + 1;
+
+        bool TryLease() const noexcept {
+            uint64_t word = leaseWord.load(std::memory_order_relaxed);
+            do {
+                if (word & kClaimMask) return false;
+            } while (!leaseWord.compare_exchange_weak(word, word + kLease,
+                         std::memory_order_acquire, std::memory_order_relaxed));
+            return true;
+        }
+        bool TryClaim() const noexcept {
+            uint64_t word = leaseWord.load(std::memory_order_relaxed);
+            do {
+                if (word >= kLease) return false;
+            } while (!leaseWord.compare_exchange_weak(word, word + 1,
+                         std::memory_order_acq_rel, std::memory_order_relaxed));
+            return true;
+        }
+        void Unclaim() const noexcept {
+            leaseWord.fetch_sub(1, std::memory_order_release);
+        }
     };
 
     class Lease {
@@ -224,13 +251,14 @@ public:
         // Takes over a lease count the caller already added.
         Lease(std::shared_ptr<const Snapshot> snapshot, Adopt) noexcept
             : snapshot_(std::move(snapshot)) {}
+        // A copy comes from a held lease, so no claim can be present.
         void _Acquire() noexcept {
             if (snapshot_)
-                snapshot_->activeLeases.fetch_add(1, std::memory_order_relaxed);
+                snapshot_->leaseWord.fetch_add(Snapshot::kLease, std::memory_order_relaxed);
         }
         void _Release() noexcept {
             if (snapshot_) {
-                snapshot_->activeLeases.fetch_sub(1, std::memory_order_release);
+                snapshot_->leaseWord.fetch_sub(Snapshot::kLease, std::memory_order_release);
                 snapshot_.reset();
             }
         }
@@ -259,7 +287,8 @@ public:
     bool Insert(UsdGenExecutionCacheKey key,
                 std::shared_ptr<const Payload> payload,
                 size_t bytes, std::string* reason = nullptr) {
-        return _Insert(std::move(key), std::move(payload), bytes, reason, nullptr);
+        return _Insert(std::move(key), std::move(payload), bytes, reason, nullptr,
+                       nullptr);
     }
 
     /// Drops all resident entries as one State publication. Existing caller
@@ -296,9 +325,12 @@ private:
     // A null epoch means "any"; otherwise the published State must carry it.
     std::optional<Lease> _Lookup(UsdGenExecutionCacheKey const& key,
                                  uint64_t const* epoch);
+    // A non-null lease receives a lease on the admitted (or resident
+    // duplicate) snapshot, taken before it is published.
     bool _Insert(UsdGenExecutionCacheKey key,
                  std::shared_ptr<const Payload> payload, size_t bytes,
-                 std::string* reason, uint64_t const* epoch);
+                 std::string* reason, uint64_t const* epoch,
+                 std::optional<Lease>* lease);
     // Publish an empty State carrying *epoch (or the current epoch). With an
     // epoch, a State already at or past it counts as done (a helper won).
     bool _Clear(uint64_t const* epoch) noexcept;
@@ -407,10 +439,11 @@ public:
 
     // A publication fence proves that a caller's exact cache context was
     // current when it asked to publish. It carries no native resource.
-    // PublishIfCurrent checks the epoch and then runs the tiny local
-    // publication action: the check is the linearization point, so an action
-    // that passed it before an Invalidate completes as if it ran first (as a
-    // cancel read at a safe point), and no action starts after the bump.
+    // PublishIfCurrent announces itself, checks the epoch and runs the tiny
+    // local publication action; Invalidate bumps the epoch and then parks
+    // until every announced action has finished. So an action either sees
+    // the bump and does nothing, or completes before Invalidate returns: no
+    // old-epoch publication becomes visible after Invalidate.
     class PublicationFence {
     public:
         PublicationFence() = default;
@@ -545,13 +578,16 @@ public:
         using Retirement = std::invoke_result_t<Publish>;
         static_assert(!std::is_void_v<Retirement>,
             "publication must return displaced ownership for retirement");
-        if (fence._domain != this ||
-            _clearFailed.load(std::memory_order_acquire) ||
-            fence._epoch != epoch_.load(std::memory_order_acquire))
-            return false;
-        Retirement retirement = std::invoke(std::forward<Publish>(publish));
-        (void)retirement;
-        return true;
+        if (fence._domain != this) return false;
+        struct Call {
+            std::remove_reference_t<Publish>* publish;
+            std::optional<Retirement> retirement;
+        } call{&publish, std::nullopt};
+        // The displaced owner dies with "call", after the window has closed.
+        return _PublishIfCurrent(fence._epoch, [](void* context) {
+            Call& c = *static_cast<Call*>(context);
+            c.retirement.emplace(std::invoke(std::forward<Publish>(*c.publish)));
+        }, &call);
     }
 
     std::optional<Lease> Lookup(UsdGenExecutionCacheKey const& key) {
@@ -568,6 +604,16 @@ public:
     /// clears the store. A failed clear (allocation) leaves the domain
     /// fail-closed until a later Invalidate retry succeeds.
     bool Invalidate() noexcept;
+
+    /// Test seam: points inside the domain where a stress test may inject a
+    /// delay. Null disables; never set outside tests.
+    enum class TestPoint {
+        InvalidateTookFlights,       // Invalidate, before it walks the list
+        BeginCoalescedBeforePublish, // BeginCoalesced, before its guard
+        SettleWonFlight              // a leader's _Settle, before _Unlist
+    };
+    using TestHook = void (*)(TestPoint, void*);
+    static void SetTestHook(TestHook hook, void* context) noexcept;
 
     /// Obtain a process-local shared domain for an explicitly identical
     /// backend/device/context and byte budget. Weak registry entries allow the
@@ -624,6 +670,11 @@ private:
     // Close a settled flight and notify every unclaimed waiter.
     static void _Notify(Flight* flight, CoalescedStatus status,
                         std::optional<Lease> const& lease) noexcept;
+    // Announce, check the epoch, run(context), withdraw. False: not current.
+    bool _PublishIfCurrent(uint64_t epoch, void (*run)(void*), void* context);
+    void _EndPublish() noexcept;
+    // Park until every publication announced before the epoch bump ended.
+    void _AwaitPublications() noexcept;
 
     UsdGenExecutionCacheDomainKey key_;
     std::atomic<uint64_t> epoch_{0};
@@ -633,6 +684,9 @@ private:
     std::atomic<uint64_t> _nextWaiter{0};
     std::atomic<uint64_t> _coalesced{0};
     std::atomic<FlightList*> _flights{nullptr};
+    // Publications in flight; kPublishWaiter is set by a parked Invalidate.
+    static constexpr uint32_t kPublishWaiter = 0x80000000u;
+    std::atomic<uint32_t> _publishing{0};
     Store store_;
 };
 
@@ -659,19 +713,20 @@ UsdGenExecutionCacheStore<Payload, Hasher>::_Lookup(
         if (epoch && state->epoch != *epoch) return std::nullopt;
         Entry* entry = _Find(state, key, hash);
         if (!entry) return std::nullopt;
-        // Fails only when a remover already dropped the last reference.
+        // Fails when a remover already dropped the last reference, or when
+        // an inserter has claimed the entry for eviction.
         snapshot = entry->weak.lock();
-        if (!snapshot) return std::nullopt;
+        if (!snapshot || !snapshot->TryLease()) return std::nullopt;
         entry->referenced.store(1, std::memory_order_relaxed);
     }
-    snapshot->activeLeases.fetch_add(1, std::memory_order_relaxed);
     return Lease(std::move(snapshot), typename Lease::Adopt{});
 }
 
 template<class Payload, class Hasher>
 bool UsdGenExecutionCacheStore<Payload, Hasher>::_Insert(
     UsdGenExecutionCacheKey key, std::shared_ptr<const Payload> payload,
-    size_t bytes, std::string* reason, uint64_t const* epoch)
+    size_t bytes, std::string* reason, uint64_t const* epoch,
+    std::optional<Lease>* lease)
 {
     auto fail = [reason](char const* message) {
         if (reason) *reason = message;
@@ -683,12 +738,32 @@ bool UsdGenExecutionCacheStore<Payload, Hasher>::_Insert(
     if (maxBytes_ == 0 || bytes > maxBytes_)
         return fail("execution cache entry exceeds its byte budget");
 
+    // Victims hold a claim and a pin on their snapshot until the State CAS
+    // settles; a claim keeps lookups from leasing the entry meanwhile.
+    struct Victim {
+        Entry* entry;
+        std::shared_ptr<const Snapshot> pin;
+    };
+    std::vector<Victim> victims;
     std::vector<std::shared_ptr<const Snapshot>> dropped;  // after the guard
+    auto unclaim = [&victims]() noexcept {
+        for (Victim& victim : victims) victim.pin->Unclaim();
+        victims.clear();
+    };
+    auto chosen = [&victims](Entry const* entry) noexcept {
+        for (Victim const& victim : victims)
+            if (victim.entry == entry) return true;
+        return false;
+    };
     try {
         size_t const hash = hasher_(key);
-        std::unique_ptr<Entry> entry(new Entry(std::make_shared<const Snapshot>(
-            std::move(key), std::move(payload), bytes), hash));
-        std::vector<Entry*> victims;
+        auto snapshot = std::make_shared<const Snapshot>(
+            std::move(key), std::move(payload), bytes);
+        // The caller's lease is taken before publication, so no inserter can
+        // claim the new entry before the caller holds it.
+        if (lease) snapshot->leaseWord.store(Snapshot::kLease, std::memory_order_relaxed);
+        std::shared_ptr<const Snapshot> mine = lease ? snapshot : nullptr;
+        std::unique_ptr<Entry> entry(new Entry(std::move(snapshot), hash));
         std::unique_ptr<State> next;
         for (;;) {
             UsdGenEpochGuard guard;
@@ -699,52 +774,64 @@ bool UsdGenExecutionCacheStore<Payload, Hasher>::_Insert(
                 if (existing->bytes != bytes)
                     return fail("execution cache duplicate key has a conflicting byte charge");
                 existing->referenced.store(1, std::memory_order_relaxed);
+                if (lease) {
+                    auto resident = existing->weak.lock();
+                    if (resident && resident->TryLease())
+                        lease->emplace(Lease(std::move(resident), typename Lease::Adopt{}));
+                }
                 return true;
             }
-            // CLOCK: a referenced entry gets a second chance, a leased one
-            // is skipped. Two turns of the ring bound the sweep.
-            victims.clear();
+            // CLOCK: a referenced entry gets a second chance, a leased or
+            // claimed one is skipped. Two turns of the ring bound the sweep.
             size_t total = current->bytes;
             size_t const n = current->order.size();
+            victims.reserve(n);  // a claim is never left behind by a throw
             for (size_t step = 0; total > maxBytes_ - bytes && step < 2 * n; ++step) {
                 Entry* candidate =
                     current->order[hand_.fetch_add(1, std::memory_order_relaxed) % n];
-                if (std::find(victims.begin(), victims.end(), candidate) != victims.end())
-                    continue;
+                if (chosen(candidate)) continue;
                 if (candidate->referenced.exchange(0, std::memory_order_relaxed)) continue;
-                // Any reference beyond the store's own (a lease, a reader
-                // mid-lookup) pins the entry. The weak count is safe to read
-                // even if a racing remover already dropped the strong one.
-                if (candidate->weak.use_count() != 1) continue;
-                victims.push_back(candidate);
+                // The weak reference keeps the control block alive, so the
+                // lock is safe even if a racing remover dropped the strong one.
+                auto pin = candidate->weak.lock();
+                if (!pin || !pin->TryClaim()) continue;
+                victims.push_back(Victim{candidate, std::move(pin)});
                 total -= candidate->bytes;
             }
-            if (total > maxBytes_ - bytes)
+            if (total > maxBytes_ - bytes) {
+                unclaim();
                 return fail("execution cache admission blocked by active lease");
+            }
             if (!next) next.reset(new State);
             next->order.clear();
             next->order.reserve(n + 1 - victims.size());
             for (Entry* resident : current->order)
-                if (std::find(victims.begin(), victims.end(), resident) == victims.end())
-                    next->order.push_back(resident);
+                if (!chosen(resident)) next->order.push_back(resident);
             next->order.push_back(entry.get());
             next->bytes = total + bytes;
             next->epoch = current->epoch;
             _Index(next.get());
+            dropped.reserve(2 * victims.size());  // nothing throws after the CAS
             if (!state_.compare_exchange_strong(current, next.get(),
-                                                std::memory_order_seq_cst))
+                                                std::memory_order_seq_cst)) {
+                unclaim();
                 continue;
+            }
             next.release();
             entry.release();
             _Retire(current);
-            dropped.reserve(victims.size());
-            for (Entry* victim : victims) {
-                dropped.push_back(std::move(victim->strong));
-                _Retire(victim);
+            for (Victim& victim : victims) {
+                // The claim stays: the removed entry can never be leased.
+                dropped.push_back(std::move(victim.entry->strong));
+                dropped.push_back(std::move(victim.pin));
+                _Retire(victim.entry);
             }
+            victims.clear();
+            if (lease) lease->emplace(Lease(std::move(mine), typename Lease::Adopt{}));
             break;
         }
     } catch (...) {
+        unclaim();
         return fail("execution cache transaction allocation failed");
     }
     // Evicted payloads die here, outside any guard: a destructor may re-enter.
