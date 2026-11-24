@@ -11,10 +11,13 @@
 //   cook.paramEdit      Recompile with one value edit, then Run
 //   hydra.publish       stage edit -> scene index Synchronize (cooked, published)
 //   hydra.pull          GetPrim + every tile's points/widths/topology GetValue
-//   allocs.*            global operator new calls during the measured region
+//   allocs.*            heap allocations during the measured region, from the
+//                       usdGen counter (allocCounter.h): CRT heap calls of every
+//                       module on Windows, operator new calls on ELF
 //
 // Usage: benchUsdGenRestructure [--threads N] [--runs N] [--no-hydra]
 
+#include "usdGen/allocCounter.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
@@ -41,44 +44,31 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#ifdef _WIN32
-#include <malloc.h>
-#endif
 #include <new>
 #include <string>
 #include <thread>
 #include <vector>
 
 // ---- allocation counter ----------------------------------------------------
-namespace {
-std::atomic<uint64_t> g_allocs{0};
-}
+// The count lives in usdGen (allocCounter.h). On ELF this replacement
+// interposes on every module and feeds it; on Windows usdGen wraps every
+// module's CRT heap imports instead.
+#ifndef _WIN32
 void *operator new(std::size_t n)
 {
-    g_allocs.fetch_add(1, std::memory_order_relaxed);
+    usdGen::UsdGenEngineAllocNote(n);
     if (void *p = std::malloc(n ? n : 1)) return p;
     throw std::bad_alloc();
 }
 void *operator new[](std::size_t n) { return operator new(n); }
 void *operator new(std::size_t n, std::align_val_t a)
 {
-    g_allocs.fetch_add(1, std::memory_order_relaxed);
+    usdGen::UsdGenEngineAllocNote(n);
     size_t const al = static_cast<size_t>(a);
-#ifdef _WIN32
-    if (void *p = _aligned_malloc(n ? n : 1, al)) return p;   // MSVC has no aligned_alloc
-#else
     if (void *p = std::aligned_alloc(al, (n + al - 1) / al * al)) return p;
-#endif
     throw std::bad_alloc();
 }
-inline void AlignedFree(void *p) noexcept
-{
-#ifdef _WIN32
-    _aligned_free(p);
-#else
-    std::free(p);
-#endif
-}
+inline void AlignedFree(void *p) noexcept { std::free(p); }
 void *operator new[](std::size_t n, std::align_val_t a) { return operator new(n, a); }
 void operator delete(void *p) noexcept { std::free(p); }
 void operator delete[](void *p) noexcept { std::free(p); }
@@ -88,6 +78,7 @@ void operator delete(void *p, std::align_val_t) noexcept { AlignedFree(p); }
 void operator delete[](void *p, std::align_val_t) noexcept { AlignedFree(p); }
 void operator delete(void *p, std::size_t, std::align_val_t) noexcept { AlignedFree(p); }
 void operator delete[](void *p, std::size_t, std::align_val_t) noexcept { AlignedFree(p); }
+#endif
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -95,6 +86,10 @@ using namespace usdGen;
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+// Counting stays on for the whole run; regions read deltas. Restarting picks
+// up modules loaded since (Windows) and resets the count.
+uint64_t Allocs() { return UsdGenEngineAllocCount(); }
 double Ms(Clock::time_point a, Clock::time_point b)
 {
     return std::chrono::duration<double, std::milli>(b - a).count();
@@ -192,6 +187,7 @@ void EngineBench(int threads, int runs)
     Stat compile, coldCook, warm, edit, warmAllocs, editAllocs;
     UsdGenGraphDesc const a = MakeG3(0.05), b = MakeG3(0.06);
     UsdGenScheduler sched(threads);
+    UsdGenEngineAllocCounting(true);
     uint64_t gen = 0;
     size_t curves = 0, cvs = 0;
     for (int r = 0; r < runs; ++r) {
@@ -220,23 +216,23 @@ void EngineBench(int threads, int runs)
         // Warm: same topology, every chunk dirty.
         for (int i = 0; i < 3; ++i) {
             ForceFullDirty(g);
-            uint64_t const a0 = g_allocs.load();
+            uint64_t const a0 = Allocs();
             t0 = Clock::now();
             sched.Run(g, ctx, ++gen);
             t1 = Clock::now();
-            warmAllocs.v.push_back(double(g_allocs.load() - a0));
+            warmAllocs.v.push_back(double(Allocs() - a0));
             warm.v.push_back(Ms(t0, t1));
         }
         // Parameter edit: one value-class change, incremental recompile + run.
         for (int i = 0; i < 3; ++i) {
             UsdGenGraphDesc const &next = (i % 2 == 0) ? b : a;
-            uint64_t const a0 = g_allocs.load();
+            uint64_t const a0 = Allocs();
             t0 = Clock::now();
             UsdGenCompileResult const rr = c.Recompile(next, &g);
             ctx.desc = &g.Desc();
             if (rr.ok) sched.Run(g, ctx, ++gen);
             t1 = Clock::now();
-            editAllocs.v.push_back(double(g_allocs.load() - a0));
+            editAllocs.v.push_back(double(Allocs() - a0));
             edit.v.push_back(Ms(t0, t1));
         }
     }
@@ -370,22 +366,23 @@ void HydraBench(int runs)
     if (!first.curves) { std::printf("hydra: groom published nothing\n"); return; }
 
     Stat publish, pull, pullAllocs, publishAllocs;
+    UsdGenEngineAllocCounting(true);
     UsdAttribute length = stage->GetPrimAtPath(SdfPath("/Groom/Description/Ops/grow"))
                               .GetAttribute(TfToken("usdGen:length"));
     for (int r = 0; r < runs * 3; ++r) {
-        uint64_t a0 = g_allocs.load();
+        uint64_t a0 = Allocs();
         t0 = Clock::now();
         length.Set(r % 2 ? 1.0f : 1.1f);
         indices.stageSceneIndex->ApplyPendingUpdates();
         owner->Synchronize();
         t1 = Clock::now();
-        publishAllocs.v.push_back(double(g_allocs.load() - a0));
+        publishAllocs.v.push_back(double(Allocs() - a0));
         publish.v.push_back(Ms(t0, t1));
-        a0 = g_allocs.load();
+        a0 = Allocs();
         t0 = Clock::now();
         PullCounts const c = Pull(groom);
         t1 = Clock::now();
-        pullAllocs.v.push_back(double(g_allocs.load() - a0));
+        pullAllocs.v.push_back(double(Allocs() - a0));
         pull.v.push_back(Ms(t0, t1));
         if (c.curves != first.curves) std::printf("hydra: curve count moved %zu -> %zu\n", first.curves, c.curves);
     }

@@ -216,7 +216,7 @@ UsdGenEpoch UsdGenGrowOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // through ValidForTopology() at commit time (03 §3.4).
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
-    auto feed = [&](std::string const &k, uint64_t v) {
+    auto feed = [&](std::string_view k, uint64_t v) {
         h ^= v; h *= 0x100000001b3ULL;
         h ^= k.size(); h *= 0x100000001b3ULL;
     };
@@ -351,7 +351,7 @@ bool UsdGenGrowOp::Capture(
                                   "does not match its CV topology");
             return false;
         }
-        std::vector<uint32_t> sourceSpans;
+        UsdGenPoolVector<uint32_t> sourceSpans;   // recycled storage, no heap once warm
         if (upstream.cvOffsets.empty()) {
             if (R && upstream.totalCvs % R != 0) {
                 if (diag) diag->Error("UsdGenGrow: upstream width plane has "
@@ -428,7 +428,7 @@ bool UsdGenGrowOp::Capture(
         if (diag) diag->Error("UsdGenGrow: upstream point plane cardinality does not match its CV topology");
         return false;
     }
-    std::vector<uint32_t> rootSpans(size_t(R) + 1, 0);
+    UsdGenPoolVector<uint32_t> rootSpans(size_t(R) + 1, 0);
     if (upstream.cvOffsets.empty()) {
         if (R && upstream.totalCvs % R != 0) {
             if (diag) diag->Error("UsdGenGrow: upstream CV topology is non-uniform without offsets");

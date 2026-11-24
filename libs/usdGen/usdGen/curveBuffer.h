@@ -5,6 +5,7 @@
 #ifndef USDGEN_CURVE_BUFFER_H
 #define USDGEN_CURVE_BUFFER_H
 
+#include "usdGen/pool.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"
@@ -121,9 +122,10 @@ _UsdGenExtraPlaneFail(std::string const &message, std::string *error)
     return false;
 }
 
+template <class SpanVector>
 inline bool
 _UsdGenCurveSpans(UsdGenCurveBuffer const &buffer,
-                  std::vector<uint32_t> *spans, std::string *error)
+                  SpanVector *spans, std::string *error)
 {
     if (!spans)
         return _UsdGenExtraPlaneFail("extra-plane transform has no span output", error);
@@ -266,7 +268,7 @@ UsdGenResampleExtraPlanes(UsdGenCurveBuffer const &source,
 {
     if (!target)
         return detail::_UsdGenExtraPlaneFail("extra-plane resample has no target", error);
-    std::vector<uint32_t> sourceSpans, targetSpans;
+    UsdGenPoolVector<uint32_t> sourceSpans, targetSpans;   // no heap once warm
     if (!detail::_UsdGenCurveSpans(source, &sourceSpans, error) ||
         !detail::_UsdGenCurveSpans(*target, &targetSpans, error) ||
         !detail::_UsdGenValidateExtraPlanes(source, error))
@@ -337,7 +339,7 @@ UsdGenCompactExtraPlanes(UsdGenCurveBuffer const &source,
 {
     if (!target)
         return detail::_UsdGenExtraPlaneFail("extra-plane compaction has no target", error);
-    std::vector<uint32_t> sourceSpans, targetSpans;
+    UsdGenPoolVector<uint32_t> sourceSpans, targetSpans;   // no heap once warm
     if (!detail::_UsdGenCurveSpans(source, &sourceSpans, error) ||
         !detail::_UsdGenCurveSpans(*target, &targetSpans, error) ||
         !detail::_UsdGenValidateExtraPlanes(source, error))

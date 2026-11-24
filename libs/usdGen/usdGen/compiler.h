@@ -11,6 +11,7 @@
 
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
+#include "usdGen/pool.h"
 #include "usdGen/types.h"
 
 #include <string>
@@ -29,8 +30,8 @@ struct UsdGenCompileResult
 {
     bool                      ok = false;
     UsdGenEpoch               structuralDigest {};  // graph-level digest (03 §3.2)
-    std::vector<UsdGenNodeId> rebuilt;       // nodes whose UsdGenOp was recreated
-    std::vector<UsdGenNodeId> reordered;     // nodes whose topological index moved
+    UsdGenPoolVector<UsdGenNodeId> rebuilt;    // nodes whose UsdGenOp was recreated
+    UsdGenPoolVector<UsdGenNodeId> reordered;  // nodes whose topological index moved
     std::vector<std::string>  errors;        // cycle, terminal ambiguity, unknown op, ...
     std::vector<std::string>  warnings;      // non-fatal authoring diagnostics
     /// False only when a failed Recompile had already moved state out of

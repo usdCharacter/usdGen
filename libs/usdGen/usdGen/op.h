@@ -18,6 +18,7 @@
 #include "usdGen/cpuParameters.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
+#include "usdGen/pool.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -191,7 +192,7 @@ struct UsdGenParamView
 /// Opaque per-node capture payload; M1 operators derive their own concrete
 /// payload types. Lifetime: owned by the compiled node, keyed by the node's
 /// capture epoch (03 §3.4).
-struct UsdGenCapture
+struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptures
 {
     virtual ~UsdGenCapture() = default;
     /// True when this capture is usable for the given upstream topology
@@ -305,7 +306,7 @@ struct UsdGenEvalContext
 
 /// The operator kernel interface. Five M1 types: UsdGenScatterOp,
 /// UsdGenGrowOp, UsdGenNoiseOp, UsdGenLengthOp, UsdGenWidthOp (02 §2.6/§2.7.1).
-class UsdGenOp
+class UsdGenOp : public UsdGenPooled
 {
 public:
     virtual ~UsdGenOp() = default;

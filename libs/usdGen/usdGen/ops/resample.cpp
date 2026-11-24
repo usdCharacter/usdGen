@@ -14,6 +14,7 @@
 // follow the strands. Distribution and restoreSegmentLengths apply per
 // strand exactly as with a fixed count.
 #include "usdGen/ops/resample.h"
+#include "usdGen/scratch.h"
 
 #include "usdGen/curveBuffer.h"
 #include "usdGen/opParams.h"
@@ -313,8 +314,6 @@ void UsdGenResampleOp::Evaluate(
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     float *hairT = view->hairT;
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;
-    thread_local std::vector<float> tCum;
-    thread_local std::vector<float> tScratch;
 
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         uint32_t const nIn = view->inCvOffsets
@@ -336,7 +335,8 @@ void UsdGenResampleOp::Evaluate(
         size_t const absInBase = view->inCvOffsets
             ? size_t(view->inCvOffsets[c])
             : curve * size_t(view->inCvCount);
-        tCum.assign(nIn, 0.0f);
+        UsdGenScratchScope scratch;   // per curve; rewinds each iteration
+        float *tCum = scratch.Filled<float>(nIn, 0.0f);
         for (uint32_t i = 1; i < nIn; ++i) {
             float const dx = inPx[gIn + i] - inPx[gIn + i - 1];
             float const dy = inPy[gIn + i] - inPy[gIn + i - 1];
@@ -346,7 +346,7 @@ void UsdGenResampleOp::Evaluate(
         float const inLen = tCum[nIn - 1];
         // Pass one: resampled positions into scratch (restore needs the
         // output length before placing anything).
-        if (tScratch.size() < size_t(N) * 3) tScratch.resize(size_t(N) * 3);
+        float *tScratch = scratch.Filled<float>(size_t(N) * 3, 0.0f);
         for (int j = 0; j < N; ++j) {
             float const u = N > 1 ? float(j) / float(N - 1) : 0.0f;
             uint32_t lo = 0, hi = 0;
