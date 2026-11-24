@@ -6,8 +6,10 @@
 // (a)/(b)/(c). GetPrim paths never commit — they atomic_load the latest
 // generation (I7). Superseded commits leave the session dirty (03 §5.6).
 #include "usdGenImaging/usdGenImagingSession.h"
+#include "usdGenImaging/atomicShared.h"
 #include "usdGenImaging/imageMapCache.h"
 
+#include "usdGen/epoch.h"
 #include "usdGen/generationStore.h"
 #include "usdGen/maps/ptexMap.h"
 #include "usdGen/session.h"
@@ -18,7 +20,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <limits>
@@ -41,9 +42,10 @@ using Pipeline = usdGen::UsdGenExecutionPipeline;
 // destructors ran during exit() with the workers alive, so the leak changes
 // nothing that was observable there beyond the mapping's release, which the OS
 // performs anyway.
+std::atomic<usdGen::UsdGenExecutionRuntime*> g_imagingRuntime{nullptr};
 usdGen::UsdGenExecutionRuntime& ImagingRuntime() {
-    static auto* runtime = new usdGen::UsdGenExecutionRuntime(8);
-    return *runtime;
+    return UsdGenLazyLeaked(g_imagingRuntime,
+        [] { return new usdGen::UsdGenExecutionRuntime(8); });
 }
 
 // Public TfRefPtr handles may disappear during a notice callback. Retirement
@@ -62,7 +64,8 @@ public:
         graph.wait_for_all();
     }
 };
-Retirements& RetirementQueue() { static auto* queue = new Retirements; return *queue; }
+std::atomic<Retirements*> g_retirementQueue{nullptr};
+Retirements& RetirementQueue() { return UsdGenLazyLeaked(g_retirementQueue); }
 }
 
 struct UsdGenImagingSession::State {
@@ -138,8 +141,20 @@ struct UsdGenImagingSession::State {
     }
 
     struct ProgressRelay {
-        std::mutex mutex;
-        std::vector<TileProgressPtr> waiting;
+        // Producers push tiles from cook threads; the owner takes them all at
+        // once (newest first). The mailbox coalesces the drain requests.
+        struct Waiting {
+            TileProgressPtr tile;
+            Waiting* next = nullptr;
+        };
+        usdGen::UsdGenTreiberStack<Waiting, &Waiting::next> waiting;
+        ~ProgressRelay() {
+            for (Waiting* w = waiting.PopAll(); w;) {
+                Waiting* next = w->next;
+                delete w;
+                w = next;
+            }
+        }
         std::vector<TileProgressPtr> cumulative;
         uint64_t epoch = 0;
         uint64_t sequence = 0;
@@ -153,10 +168,13 @@ struct UsdGenImagingSession::State {
         if (!relay || !accepting.load(std::memory_order_acquire) ||
             relay->cookToken != cookToken.load(std::memory_order_acquire)) return;
         std::vector<TileProgressPtr> waiting;
-        {
-            std::lock_guard<std::mutex> lock(relay->mutex);
-            waiting.swap(relay->waiting);
+        for (ProgressRelay::Waiting* w = relay->waiting.PopAll(); w;) {
+            ProgressRelay::Waiting* next = w->next;
+            waiting.push_back(std::move(w->tile));
+            delete w;
+            w = next;
         }
+        std::reverse(waiting.begin(), waiting.end());  // newest first -> arrival order
         if (waiting.empty()) return;
         for (auto const& tile : waiting) {
             if (!tile) continue;
@@ -295,10 +313,7 @@ struct UsdGenImagingSession::State {
             if (relay) progressFromCore = [this, relay](TileProgressPtr tile) {
                 if (!tile || relay->cookToken !=
                     cookToken.load(std::memory_order_acquire)) return;
-                {
-                    std::lock_guard<std::mutex> lock(relay->mutex);
-                    relay->waiting.push_back(std::move(tile));
-                }
+                relay->waiting.Push(new ProgressRelay::Waiting{std::move(tile)});
                 (void)owner.PostLatestCommand(relay->mailbox, [this, relay] {
                     DrainProgress(relay);
                 });
@@ -563,7 +578,7 @@ void StartCommitBatch(std::vector<UsdGenSessionHandle> sessions,
 struct UsdGenSessionStore::State {
     using Members = std::unordered_map<UsdGenSessionKey, UsdGenSessionHandle,
                                        UsdGenSessionKeyHash>;
-    std::shared_ptr<const Members> published = std::make_shared<const Members>();
+    UsdGenAtomicShared<const Members> published{std::make_shared<const Members>()};
     std::optional<double> frame;
     std::optional<usdGen::UsdGenContext> context;
     std::atomic<bool> accepting{true};
@@ -615,7 +630,7 @@ struct UsdGenSessionStore::State {
             throw; // preparation failed before accepting session work
         }
     }
-    std::shared_ptr<const Members> Snapshot() const { return std::atomic_load(&published); }
+    std::shared_ptr<const Members> Snapshot() const { return published.Load(); }
     UsdGenSessionHandle Attach(UsdGenSessionKey const& key) {
         auto current = Snapshot();
         auto found = current->find(key);
@@ -630,7 +645,7 @@ struct UsdGenSessionStore::State {
         if (frame) session->MarkAppDriver();
         next->emplace(key, session);
         session->NoteAttach();
-        std::atomic_store(&published, std::shared_ptr<const Members>(std::move(next)));
+        published.Store(std::move(next));
         return session;
     }
     void Detach(UsdGenSessionKey const& key, UsdGenSessionHandle const& expected) {
@@ -649,12 +664,16 @@ struct UsdGenSessionStore::State {
         auto next = std::make_shared<Members>(*current);
         next->erase(key);
         expected->NoteDetach();
-        std::atomic_store(&published, std::shared_ptr<const Members>(std::move(next)));
+        published.Store(std::move(next));
     }
 };
 
 UsdGenSessionStore::UsdGenSessionStore() : _state(new State) {}
 UsdGenSessionStore::~UsdGenSessionStore() = default;
+
+namespace {
+std::atomic<UsdGenSessionStore*> s_storeInstance{nullptr};
+}
 
 UsdGenSessionStore &UsdGenSessionStore::GetInstance()
 {
@@ -663,8 +682,7 @@ UsdGenSessionStore &UsdGenSessionStore::GetInstance()
     // leaked (see ImagingRuntime): the store destructor's close Await cannot
     // complete during DLL_PROCESS_DETACH, where no worker thread remains.
     (void)RetirementQueue();
-    static auto* instance = new UsdGenSessionStore;
-    return *instance;
+    return UsdGenLazyLeaked(s_storeInstance, [] { return new UsdGenSessionStore; });
 }
 
 UsdGenSessionHandle UsdGenSessionStore::Attach(UsdGenSessionKey const &key)
