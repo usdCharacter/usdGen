@@ -5,7 +5,7 @@
 
 #include "sourceGeneration.h"
 #include "completionService.h"
-#include "epochCell.h"
+#include "usdGen/sharedCell.h"
 #include "usdGen/deviceGeneration.h"
 
 #include <atomic>
@@ -81,8 +81,8 @@ private:
     void RetireConsumer() noexcept;
     void ScheduleRetirement() noexcept;
     // Published at Create, cleared once by Close; readers copy under epochs.
-    VulkanEpochCell<UsdGenExecutionPipeline> queueOwner_;
-    VulkanEpochCell<VulkanCompletionService> completionService_;
+    UsdGenSharedCell<UsdGenExecutionPipeline> queueOwner_;
+    UsdGenSharedCell<VulkanCompletionService> completionService_;
     // Written at Create and by the one Close that wins draining_.
     std::shared_ptr<VulkanGenerationAdapterDomain> selfRetention_;
     // Owned by whoever exchanges it out; never read in place.

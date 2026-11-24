@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 //
-// VulkanEpochCell: shared_ptr publication without atomic shared_ptr. Readers
+// UsdGenSharedCell as the Vulkan backend uses it: shared_ptr publication without atomic shared_ptr. Readers
 // on many threads race writers that Store, CompareExchange, Take and Reset;
 // every value a reader sees must be alive and intact, and every value must be
 // destroyed exactly once.
-#include "usdGen/vulkan/epochCell.h"
+#include "usdGen/sharedCell.h"
 
 #include <atomic>
 #include <cstdio>
@@ -14,7 +14,8 @@
 #include <thread>
 #include <vector>
 
-using usdGen::vulkan::VulkanEpochCell;
+template <class T>
+using VulkanEpochCell = usdGen::UsdGenSharedCell<T>;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "epoch cell check: %s (%d)\n", #x, __LINE__); std::abort(); } } while (false)
 
 namespace {

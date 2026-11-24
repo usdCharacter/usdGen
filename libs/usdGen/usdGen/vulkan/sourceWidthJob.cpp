@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <vector>
 namespace usdGen::vulkan {
-struct VulkanSourceWidthJob::Control final : UsdGenRefCounted {
+struct VulkanSourceWidthJob::Control final {
     UsdGenExecutionPipeline::CommandMailbox mailbox;
     UsdGenExecutionPipeline::CommandTicket terminalTicket;
     UsdGenExecutionPipeline::CommandTicket prepareTicket;
@@ -44,10 +44,8 @@ struct VulkanSourceWidthJob::Relay : std::enable_shared_from_this<Relay> {
         if (settled.exchange(true, std::memory_order_acq_rel))
             return;
         auto self = shared_from_this();
-        // Released now (tickets included) when no reader is pinned, as the
-        // shared_ptr store this replaced did.
-        jobLifetime->control_.Store({});
-        UsdGenEpochDrain();
+        // Released here (tickets included) unless a reader still holds it.
+        jobLifetime->control_.Reset();
         if (retain) {
             *quarantine = self;
             (void)quarantine.release(); // Preallocated retention: no native reads.
@@ -432,7 +430,7 @@ bool VulkanSourceWidthJob::Start(UsdGenExecutionPipeline &owner,
             if (!prepare)
                 return false;
         }
-        auto control = UsdGenMakeRef<Control>();
+        auto control = std::make_shared<Control>();
         control->mailbox = std::move(mailbox);
         control->terminalTicket = std::move(terminal);
         control->prepareTicket = std::move(prepare);
@@ -445,7 +443,6 @@ bool VulkanSourceWidthJob::Start(UsdGenExecutionPipeline &owner,
         cancellation_ = std::move(cancel);
         relay_ = std::move(relay);
         control_.Store(std::move(control));
-        UsdGenEpochDrain();
     } catch (...) {
         return false;
     }
@@ -479,7 +476,7 @@ void VulkanSourceWidthJob::RouteFailure(VkResult status) noexcept {
         return;
     bool posted = false;
     try {
-        auto control = control_.Exchange({});
+        auto control = control_.Take();
         if (!control) {
             relay->Fallback();
             return;
