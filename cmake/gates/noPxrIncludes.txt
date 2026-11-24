@@ -68,7 +68,6 @@ libs/usdGen/usdGen/sessionCooker.cpp 3
 libs/usdGen/usdGen/stats.h 3
 libs/usdGen/usdGen/surfaceCageInterpolate.cpp 2
 libs/usdGen/usdGen/surfaceCageSource.cpp 1
-libs/usdGen/usdGen/tbbFastCores.cpp 2
 libs/usdGen/usdGen/types.h 4
 libs/usdGen/usdGen/valuePreview.cpp 12
 libs/usdGen/usdGen/valuePreview.h 4

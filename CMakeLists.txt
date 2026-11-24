@@ -469,9 +469,6 @@ target_include_directories(usdGen PUBLIC
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
     PUBLIC tf gf vt sdf usdGenExecutionResources
-    # TBB only for the GPU backends' arenas (cudaExecution, cudaScatterInput,
-    # gpu/scatterGrow.cu) and tbbFastCores.cpp.
-    PRIVATE TBB::tbb
     PRIVATE usdGenMath arch js plug ts ar work trace hio pxOsd
             usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 if(WIN32)
@@ -975,9 +972,9 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
         # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
         # on toolkits older than 12.8.
         target_link_libraries(usdGenGpu PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver usdGenExecutionResources)
-        # gpu/scatterGrow.cu still runs TBB (and reaches pxr/ headers through
-        # TBB's include path, as it did through usdGenExecutionResources).
-        target_link_libraries(usdGenGpu PUBLIC TBB::tbb)
+        # The kernels still include pxr/ headers (step 8 removes them).
+        target_include_directories(usdGenGpu SYSTEM PUBLIC
+            $<TARGET_PROPERTY:tf,INTERFACE_INCLUDE_DIRECTORIES>)
         target_compile_definitions(usdGen PRIVATE USDGEN_ENABLE_CUDA)
         target_link_libraries(usdGen PRIVATE usdGenGpu)
         target_compile_definitions(usdGenImaging PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
