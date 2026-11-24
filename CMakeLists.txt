@@ -1513,6 +1513,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
                 LABELS "T1;vulkan;cuda;session;cuda-vulkan-parity" RESOURCE_LOCK usdgen_gpu
                 TIMEOUT 300 SKIP_RETURN_CODE 77
                 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+            # Every Vulkan buffer, fresh or reused from the memory pool, starts
+            # as 0xFF bytes: no output may depend on zero-filled allocations.
+            add_test(NAME testUsdGenCudaVulkanSessionParityPoisoned COMMAND testUsdGenCudaVulkanSessionParity
+                "${CMAKE_CURRENT_BINARY_DIR}/vulkan")
+            set_tests_properties(testUsdGenCudaVulkanSessionParityPoisoned PROPERTIES
+                LABELS "T1;vulkan;cuda;session;cuda-vulkan-parity" RESOURCE_LOCK usdgen_gpu
+                TIMEOUT 300 SKIP_RETURN_CODE 77 ENVIRONMENT "USDGEN_VULKAN_POISON_MEMORY=1"
+                FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
         endif()
     endif()
     add_executable(testUsdGenVulkanLifecycle tests/testUsdGenVulkanLifecycle.cpp)

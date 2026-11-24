@@ -3,6 +3,9 @@
 
 #include "chargedBuffer.h"
 
+#include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace usdGen::vulkan {
@@ -14,6 +17,22 @@ uint32_t FindMemoryType(VkPhysicalDevice physical, uint32_t bits, VkMemoryProper
         if ((bits & (uint32_t(1) << i)) && (properties.memoryTypes[i].propertyFlags & flags) == flags)
             return i;
     return UINT32_MAX;
+}
+
+// Verification mode (USDGEN_VULKAN_POISON_MEMORY=1): every buffer is placed
+// in host-visible memory where the device offers it and filled with 0xFF
+// bytes (NaN floats, all-ones words) before its first use, fresh or reused
+// from the pool, so a consumer that reads memory it never wrote (relying on
+// the zeroes a fresh driver allocation happens to hold) fails visibly.
+std::atomic<int> gPoison{-1};  // -1 unread, 0 off, 1 on
+bool PoisonMemory() noexcept {
+    int p = gPoison.load(std::memory_order_relaxed);
+    if (p < 0) {
+        char const* v = std::getenv("USDGEN_VULKAN_POISON_MEMORY");
+        p = v && *v && *v != '0' ? 1 : 0;
+        gPoison.store(p, std::memory_order_relaxed);
+    }
+    return p == 1;
 }
 }
 
@@ -40,7 +59,13 @@ std::shared_ptr<ChargedBuffer> ChargedBuffer::Create(std::shared_ptr<DeviceConte
     auto permit = context->resources()->TryReserve(static_cast<size_t>(requirements.size), kind);
     if (!permit) { if (result) *result = VK_ERROR_OUT_OF_DEVICE_MEMORY; return {}; }
     owner->permit_ = std::move(*permit);
-    uint32_t memoryType = FindMemoryType(context->physicalDevice(), requirements.memoryTypeBits, properties);
+    bool const poison = PoisonMemory();
+    uint32_t memoryType = UINT32_MAX;
+    if (poison)
+        memoryType = FindMemoryType(context->physicalDevice(), requirements.memoryTypeBits,
+            properties | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    if (memoryType == UINT32_MAX)
+        memoryType = FindMemoryType(context->physicalDevice(), requirements.memoryTypeBits, properties);
     if (memoryType == UINT32_MAX) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
     {
         VkPhysicalDeviceMemoryProperties memProps{};
@@ -53,6 +78,13 @@ std::shared_ptr<ChargedBuffer> ChargedBuffer::Create(std::shared_ptr<DeviceConte
     owner->block_ = context->memoryPool()->Acquire(memoryType, requirements.size, &status);
     if (!owner->block_) { if (result) *result = status; return {}; }
     owner->memory_ = owner->block_->memory;
+    if (poison && (owner->memoryPropertyFlags_ & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+        void* mapped = nullptr;
+        if (vkMapMemory(context->device(), owner->memory_, 0, VK_WHOLE_SIZE, 0, &mapped) == VK_SUCCESS) {
+            std::memset(mapped, 0xFF, size_t(owner->block_->bytes));
+            vkUnmapMemory(context->device(), owner->memory_);
+        }
+    }
     status = vkBindBufferMemory(context->device(), owner->buffer_, owner->memory_, 0);
     if (status != VK_SUCCESS) { if (result) *result = status; return {}; }
     owner->allocationBytes_ = requirements.size;
