@@ -125,7 +125,7 @@ enum : UsdGenParamSlot {
     kInput, kSurface, kSeed, kRbfSamples, kMode, kRegionMap, kGuideRegions, kEnabled,
     kLockRoots, kMask, kCount
 };
-enum Tok : uint16_t { kTokCurveWrap, kTokRegionMapRel, kTokPeriodic };
+enum Tok : uint16_t { kTokCurveWrap, kTokRegionMapRel, kTokPeriodic, kTokRbf };
 }  // namespace deformP
 
 class UsdGenRegistrar;
