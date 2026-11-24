@@ -3,9 +3,14 @@
 #include "usdGen/sharedCell.h"
 #include "usdGen/taskScheduler.h"
 
+#include "usdGen/cudaStages.h"
 #include "usdGen/expressionTargets.h"
 #include "usdGen/op.h"
+#include "usdGen/registries/backendRegistry.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/token.h"
+#include "usdGen/registries/typeRegistry.h"
 #include "usdGen/surfaceCageSource.h"
 
 #include <algorithm>
@@ -49,7 +54,6 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 #include "usdGen/gpu/topology.h"
 #include "usdGen/gpu/curveTiles.h"
 #include "usdGen/gpu/curveTileBounds.h"
-#include "usdGen/ops/width.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 #endif
 
@@ -68,14 +72,66 @@ bool Fail(UsdGenDiagnostics* diagnostics, std::string message) {
     if (value.compare(0, 7, "usdGen:") == 0) value.erase(0, 7);
     return value;
 }
-bool IsCudaWidthValueNode(TfToken const& type) {
-    return type == TfToken("UsdGenWidth") || type == TfToken("UsdGenWidthBlend");
+bool CudaIs(UsdGenNodeDesc const& node, UsdGenCudaStage stage) noexcept {
+    return UsdGenIsCudaStage(node, stage);
 }
+[[maybe_unused]] bool IsCudaWidthValueNode(UsdGenCudaStage stage) noexcept {
+    return stage == UsdGenCudaStage::Width || stage == UsdGenCudaStage::WidthBlend;
+}
+[[maybe_unused]] bool IsCudaWidthValueNode(UsdGenNodeDesc const& node) noexcept {
+    UsdGenKernelDef const* kernel = UsdGenCudaKernel(node);
+    return kernel && IsCudaWidthValueNode(UsdGenCudaStage(kernel->stage));
+}
+// usdGen:rebind's default (curveRootCapture.cpp), interned at load.
+[[maybe_unused]] TfToken const kCudaRebindOnError = UsdGenInternToken("onError");
+// Plan task types that name no op (asserted by the CUDA plan tests).
+[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken("UsdGenScatterGrow");
+TfToken const kCudaPublicationTask = UsdGenInternToken("UsdGenPublication");
+// A token-valued literal with exactly this text (VtValue(TfToken(text)) ==).
+[[maybe_unused]] bool HoldsTokenText(VtValue const& value, char const* text) {
+    return value.IsHolding<TfToken>() && value.UncheckedGet<TfToken>().GetString() == text;
+}
+// The authored token text of a slot, or fallback (GetToken(slot).GetText()).
+[[maybe_unused]] char const* TokenText(UsdGenParamView const& view, UsdGenParamSlot slot, char const* fallback) noexcept {
+    UsdGenResolvedParam const* r = view.Slot(slot);
+    if (!r || !r->authored) return fallback;
+    VtValue const& value = r->authored->value;
+    if (!value.IsHolding<TfToken>() && !value.IsHolding<std::string>()) return fallback;
+    return r->token.GetText();
+}
+[[maybe_unused]] bool TokenIs(UsdGenParamView const& view, UsdGenParamSlot slot, char const* fallback,
+             char const* value) noexcept {
+    return std::strcmp(TokenText(view, slot, fallback), value) == 0;
+}
+// A desc node's literals by slot, for compile-time checks (allocates).
+class CudaNodeParams {
+public:
+    CudaNodeParams(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node) {
+        UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
+        UsdGenOpId const id = ops.Find(node.type);
+        _view.desc = &desc;
+        _view.node = &node;
+        if (id == UsdGenOpId::Invalid) return;
+        _kernel = UsdGenCudaKernel(id);
+        _view.op = &ops.Record(id);
+        _params.resize(_view.op->ParamCount());
+        UsdGenResolveParams(*_view.op, node, _params.data());
+        _view.slots = _params.data();
+    }
+    CudaNodeParams(CudaNodeParams const&) = delete;
+    CudaNodeParams& operator=(CudaNodeParams const&) = delete;
+    UsdGenParamView const& View() const noexcept { return _view; }
+    template <class E>
+    UsdGenParamSlot Slot(E index) const noexcept { return UsdGenCudaStageSlot(_kernel, index); }
+private:
+    UsdGenKernelDef const* _kernel = nullptr;
+    std::vector<UsdGenResolvedParam> _params;
+    UsdGenParamView _view;
+};
 // UsdGenWidthBlend carries its own interpolation weight as an operator
 // parameter; it is clamped to exact endpoints exactly as the CPU kernel does.
-float CudaWidthBlendWeight(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node) {
-    UsdGenParamView const view{&desc, &node};
-    double const weight = view.GetDouble(TfToken("widthBlend:weight"), 1.0);
+[[maybe_unused]] float CudaWidthBlendWeight(UsdGenParamView const& view, UsdGenKernelDef const* kernel) {
+    double const weight = view.GetDouble(UsdGenCudaStageSlot(kernel, cudaP::kBlendWeight), 1.0);
     if (!(weight > 0.0)) return 0.0f;
     return weight >= 1.0 ? 1.0f : static_cast<float>(weight);
 }
@@ -85,7 +141,7 @@ bool ValidateCudaClumpMotionInputs(UsdGenGraphDesc const& desc,
     // imported CurveSource may already carry clump motion planes; Noise's
     // device kernel cannot consume them, even though no Clump node appears.
     for (auto const& node : desc.nodes) {
-        if (node.type != TfToken("UsdGenNoise")) continue;
+        if (!CudaIs(node, UsdGenCudaStage::Noise)) continue;
         std::vector<SdfPath> pending(node.inputs.begin(), node.inputs.end());
         std::set<SdfPath> visited;
         while (!pending.empty()) {
@@ -95,7 +151,7 @@ bool ValidateCudaClumpMotionInputs(UsdGenGraphDesc const& desc,
             auto const predecessor = std::find_if(desc.nodes.begin(), desc.nodes.end(),
                 [&](auto const& candidate) { return candidate.path == path; });
             if (predecessor == desc.nodes.end()) continue;
-            if (predecessor->type != TfToken("UsdGenCurveSource")) {
+            if (!CudaIs(*predecessor, UsdGenCudaStage::CurveSource)) {
                 pending.insert(pending.end(), predecessor->inputs.begin(),
                                predecessor->inputs.end());
                 continue;
@@ -145,12 +201,12 @@ bool ValidateLength(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) 
                 valid &= std::isfinite(value) && value >= 0;
             }
         } else if (name == "length:mode")
-            valid = param.value == VtValue(TfToken("scale")) || param.value == VtValue(TfToken("set")) ||
-                param.value == VtValue(TfToken("cull"));
+            valid = HoldsTokenText(param.value, "scale") || HoldsTokenText(param.value, "set") ||
+                HoldsTokenText(param.value, "cull");
         else if (name == "length:method")
-            valid = param.value == VtValue(TfToken("scale")) || param.value == VtValue(TfToken("cutExtend"));
+            valid = HoldsTokenText(param.value, "scale") || HoldsTokenText(param.value, "cutExtend");
         else if (name == "rebuild")
-            valid = param.value == VtValue(TfToken("keepParam")) || param.value == VtValue(TfToken("reparam"));
+            valid = HoldsTokenText(param.value, "keepParam") || HoldsTokenText(param.value, "reparam");
         // randomRange controls are inert here (that mode itself is refused
         // above); accept their schema defaults so ordinary Length nodes plan.
         else if (name == "length:min" || name == "length:max" || name == "length:randomize")
@@ -165,7 +221,7 @@ bool ValidateLength(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) 
     return ValidateExpressionTargets(node, diagnostics);
 }
 bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
-    if (node.type != TfToken("UsdGenWidth"))
+    if (!CudaIs(node, UsdGenCudaStage::Width))
         return Fail(diagnostics, "only Width operators may follow CurveSource in this CUDA executor");
     // Surface inheritance is metadata on Width; this operator does not sample
     // it. Do not reject the Description's ordinary inherited scalp target.
@@ -184,7 +240,7 @@ bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         else if (name == "replace") valid = param.value.IsHolding<bool>();
         else if (name == "width:interpolation") valid = param.value.IsHolding<TfToken>();
         else if (name == "width:profile:mode")
-            valid = param.value == VtValue(TfToken("ramp")) || param.value == VtValue(TfToken("bezier"));
+            valid = HoldsTokenText(param.value, "ramp") || HoldsTokenText(param.value, "bezier");
         else if (name == "width:knots") {
             valid = param.value.IsHolding<VtVec2fArray>();
             float previous = -1;
@@ -212,12 +268,12 @@ bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
 bool ValidateWidthBlend(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
     bool paramsOk = true;
     for (UsdGenParamValue const& param : node.params)
-        paramsOk = paramsOk && param.name == TfToken("widthBlend:weight") &&
+        paramsOk = paramsOk && param.name.GetString() == "widthBlend:weight" &&
             param.value.IsHolding<float>() &&
             std::isfinite(param.value.UncheckedGet<float>()) &&
             param.value.UncheckedGet<float>() >= 0.0f &&
             param.value.UncheckedGet<float>() <= 1.0f;
-    if (node.type != TfToken("UsdGenWidthBlend") ||
+    if (!CudaIs(node, UsdGenCudaStage::WidthBlend) ||
         !paramsOk || !node.ramps.empty() ||
         !node.expressionBindings.empty() || !node.references.empty() ||
         !node.curves.empty() || !node.surfaces.empty() || !node.maps.empty() ||
@@ -232,7 +288,7 @@ bool ValidateNoise(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
     // node, so a stage-authored Noise always carries the scalp target. Noise
     // does not sample it; rejecting it would make Noise unusable from a stage
     // (the same reason ValidateWidth accepts the inherited target).
-    if (node.type != TfToken("UsdGenNoise") || !node.references.empty() ||
+    if (!CudaIs(node, UsdGenCudaStage::Noise) || !node.references.empty() ||
         !node.curves.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.mode.IsEmpty())
         return Fail(diagnostics, "Noise does not accept references, curves, maps, or mode");
@@ -326,16 +382,14 @@ bool ValidateScatterGrow(UsdGenGraphDesc const& desc, uint32_t source, uint32_t 
     if (!c3 && !scatter.expressionBindings.empty())
         return Fail(diagnostics, "CUDA Scatter does not support connected expression controls");
     for(auto const& param:scatter.params)
-        if(param.name==TfToken("subdivisionLevel") &&
+        if(param.name.GetString() == "subdivisionLevel" &&
            (!param.value.IsHolding<int>() || param.value.UncheckedGet<int>()!=0))
             return Fail(diagnostics,"OpenSubdiv limit Scatter requires the CPU reference backend");
     // Distribution, surface counting, proximity and density maps are CPU
     // reference behaviours; refuse them instead of running random scatter.
     for (auto const& param : scatter.params) {
         auto nonDefault = [&](char const* name, char const* fallback) {
-            return param.name == TfToken(name) &&
-                !(param.value.IsHolding<TfToken>() &&
-                  param.value.UncheckedGet<TfToken>() == TfToken(fallback));
+            return param.name.GetString() == name && !HoldsTokenText(param.value, fallback);
         };
         if (nonDefault("distribution", "random") || nonDefault("countMode", "perFace") ||
             nonDefault("proximity:mode", "none"))
@@ -374,41 +428,44 @@ bool ValidateScatterGrow(UsdGenGraphDesc const& desc, uint32_t source, uint32_t 
             return Fail(diagnostics, "Scatter->Grow has unsupported Grow control " +
                 value.name.GetString());
         bool valid = false;
-        if (value.name == TfToken("segments")) valid = value.value.IsHolding<int>();
-        else if (value.name == TfToken("length") || value.name == TfToken("lift") ||
-                 value.name == TfToken("azimuth") || value.name == TfToken("azimuthRandom"))
+        if (value.name.GetString() == "segments") valid = value.value.IsHolding<int>();
+        else if (value.name.GetString() == "length" || value.name.GetString() == "lift" ||
+                 value.name.GetString() == "azimuth" || value.name.GetString() == "azimuthRandom")
             valid = value.value.IsHolding<float>() || value.value.IsHolding<double>();
-        else if (value.name == TfToken("lengthRandom")) valid = value.value.IsHolding<GfVec2f>();
-        else if (value.name == TfToken("direction"))
+        else if (value.name.GetString() == "lengthRandom") valid = value.value.IsHolding<GfVec2f>();
+        else if (value.name.GetString() == "direction")
             valid = value.value.IsHolding<TfToken>() || value.value.IsHolding<std::string>();
-        else if (value.name == TfToken("directionVector")) valid = value.value.IsHolding<GfVec3f>();
+        else if (value.name.GetString() == "directionVector") valid = value.value.IsHolding<GfVec3f>();
         if (!valid)
             return Fail(diagnostics, "Scatter->Grow has wrong native type for " + value.name.GetString());
     }
-    UsdGenParamView p{&desc, &grow};
-    int const segments=p.GetInt(TfToken("segments"),8);
-    double const length=p.GetDouble(TfToken("length"),1.0);
+    CudaNodeParams const growParams(desc, grow);
+    UsdGenParamView const& p = growParams.View();
+    int const segments=p.GetInt(growParams.Slot(cudaP::kGrowSegments),8);
+    double const length=p.GetDouble(growParams.Slot(cudaP::kGrowLength),1.0);
     if (segments<2 || segments>64 || !std::isfinite(length) || length<0)
         return Fail(diagnostics, "Scatter->Grow requires segments in [2,64] and finite non-negative length");
     if (!std::isfinite(float(length)))
         return Fail(diagnostics, "Scatter->Grow length is not float-representable");
-    auto random=p.GetVtValue(TfToken("lengthRandom"),VtValue(GfVec2f(1,1)));
+    VtValue const lengthRandomFallback(GfVec2f(1,1));
+    VtValue const& random=p.GetValue(growParams.Slot(cudaP::kGrowLengthRandom),lengthRandomFallback);
     if (!random.IsHolding<GfVec2f>()) return Fail(diagnostics,"Scatter->Grow lengthRandom must be float2");
     auto const r=random.UncheckedGet<GfVec2f>();
     if (!std::isfinite(r[0])||!std::isfinite(r[1])||r[0]<0||r[1]<0)
         return Fail(diagnostics,"Scatter->Grow lengthRandom must be finite and non-negative");
-    double const lift=p.GetDouble(TfToken("lift"),0.0);
+    double const lift=p.GetDouble(growParams.Slot(cudaP::kGrowLift),0.0);
     if (!std::isfinite(lift) || lift < -90.0 || lift > 90.0)
         return Fail(diagnostics,"Grow requires lift in [-90,90] degrees");
-    double const azimuth=p.GetDouble(TfToken("azimuth"),0.0);
-    double const azimuthRandom=p.GetDouble(TfToken("azimuthRandom"),0.0);
+    double const azimuth=p.GetDouble(growParams.Slot(cudaP::kGrowAzimuth),0.0);
+    double const azimuthRandom=p.GetDouble(growParams.Slot(cudaP::kGrowAzimuthRandom),0.0);
     if (!std::isfinite(azimuth) || azimuth < -360.0 || azimuth > 360.0 ||
         !std::isfinite(azimuthRandom) || azimuthRandom < 0.0 || azimuthRandom > 1.0)
         return Fail(diagnostics,"Grow requires azimuth in [-360,360] degrees and azimuthRandom in [0,1]");
-    TfToken direction=p.GetToken(TfToken("direction"),TfToken("surfaceNormal"));
-    if (direction!=TfToken("surfaceNormal") && direction!=TfToken("vector"))
+    char const* direction=TokenText(p,growParams.Slot(cudaP::kGrowDirection),"surfaceNormal");
+    if (std::strcmp(direction,"surfaceNormal")!=0 && std::strcmp(direction,"vector")!=0)
         return Fail(diagnostics,"Grow requires surfaceNormal or literal vector direction");
-    auto v=p.GetVtValue(TfToken("directionVector"),VtValue(GfVec3f(0,1,0)));
+    VtValue const directionFallback(GfVec3f(0,1,0));
+    VtValue const& v=p.GetValue(growParams.Slot(cudaP::kGrowDirectionVector),directionFallback);
     if (!v.IsHolding<GfVec3f>()) return Fail(diagnostics,"Scatter->Grow directionVector must be float3");
     auto const d=v.UncheckedGet<GfVec3f>();
     if (!std::isfinite(d[0])||!std::isfinite(d[1])||!std::isfinite(d[2]))
@@ -426,23 +483,23 @@ bool ValidateCudaResolvedInputs(UsdGenGraphDesc const& desc,
     for (auto const& node : desc.nodes) {
         // Width and Grow declare no map inputs of their own; every other
         // unresolved map remains a hard failure.
-        if ((node.type == TfToken("UsdGenWidth") || node.type == TfToken("UsdGenGrow")) &&
+        if ((CudaIs(node, UsdGenCudaStage::Width) || CudaIs(node, UsdGenCudaStage::Grow)) &&
             node.references.empty()) continue;
         auto const references = node.references.size();
         auto const maps = node.mapBindings.empty() ? node.maps.size()
                                                    : node.mapBindings.size();
         if (references == 0 && maps == 0) continue;
-        if (node.type == TfToken("UsdGenCurveSource") &&
+        if (CudaIs(node, UsdGenCudaStage::CurveSource) &&
             references == 0 && maps == 1 && node.curves.size() == 1 &&
             node.surfaces.size() == 1 && node.inputs.empty() &&
             node.mapBindings.size() == 1 &&
-            node.mapBindings.front().relationship == TfToken("usdGen:regionMap")) {
+            node.mapBindings.front().relationship.GetString() == "usdGen:regionMap") {
             // surfaceCage expands on the CPU source-preparation boundary
             // before ordinary C3 upload; detailed cage/map validation occurs
             // in the same shared bridge used by the CPU CurveSource lane.
             continue;
         }
-        if (node.type == TfToken("UsdGenReferenceSource") &&
+        if (CudaIs(node, UsdGenCudaStage::ReferenceSource) &&
             references == 1 && maps == 0 && node.curves.empty() &&
             node.surfaces.empty() && node.inputs.empty()) {
             auto const found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
@@ -510,6 +567,11 @@ public:
     struct Step {
         SdfPath path;
         TfToken type;
+        // Resolved once at compile against plan.desc (ResolveCudaStep).
+        UsdGenCudaStage stage = UsdGenCudaStage::Scatter;
+        UsdGenKernelDef const* kernel = nullptr;
+        UsdGenOpRecord const* record = nullptr;
+        std::vector<UsdGenResolvedParam> params;
         uint32_t semanticNode = 0;
         uint32_t inputNode = 0;
         // Ordered second predecessor for the narrow binary WidthBlend only.
@@ -522,8 +584,113 @@ public:
         gpu::CurveGrowControls grow;
     };
     std::vector<std::unique_ptr<const Step>> steps;
+    // Per desc node: its CUDA stage, or kNoCudaStage.
+    static constexpr uint16_t kNoCudaStage = 0xFFFFu;
+    std::vector<uint16_t> nodeStages;
+    // The source node's kernel and resolved parameters.
+    UsdGenKernelDef const* sourceKernel = nullptr;
+    UsdGenOpRecord const* sourceRecord = nullptr;
+    std::vector<UsdGenResolvedParam> sourceParams;
 #endif
 };
+
+#ifdef USDGEN_ENABLE_CUDA
+namespace {
+// Resolves a node's parameters against plan.desc. Compile phase.
+void ResolveCudaNode(UsdGenCudaExecutionPlan const& plan, uint32_t nodeIndex,
+                     UsdGenKernelDef const** kernel, UsdGenOpRecord const** record,
+                     std::vector<UsdGenResolvedParam>* params) {
+    *kernel = nullptr; *record = nullptr; params->clear();
+    if (nodeIndex >= plan.desc.nodes.size()) return;
+    UsdGenNodeDesc const& node = plan.desc.nodes[nodeIndex];
+    UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
+    UsdGenOpId const id = ops.Find(node.type);
+    if (id == UsdGenOpId::Invalid) return;
+    *record = &ops.Record(id);
+    *kernel = UsdGenCudaKernel(id);
+    params->resize((*record)->ParamCount());
+    UsdGenResolveParams(**record, node, params->data());
+}
+bool ResolveCudaStep(UsdGenCudaExecutionPlan const& plan, UsdGenCudaExecutionPlan::Step* step) {
+    ResolveCudaNode(plan, step->semanticNode, &step->kernel, &step->record, &step->params);
+    if (!step->kernel) return false;
+    step->stage = UsdGenCudaStage(step->kernel->stage);
+    return true;
+}
+// Node stages and the source's parameters. Compile phase, after sourceNode.
+void ResolveCudaPlanNodes(UsdGenCudaExecutionPlan* plan) {
+    plan->nodeStages.assign(plan->desc.nodes.size(), UsdGenCudaExecutionPlan::kNoCudaStage);
+    for (size_t i = 0; i != plan->desc.nodes.size(); ++i)
+        if (UsdGenKernelDef const* kernel = UsdGenCudaKernel(plan->desc.nodes[i]))
+            plan->nodeStages[i] = kernel->stage;
+    ResolveCudaNode(*plan, plan->sourceNode, &plan->sourceKernel, &plan->sourceRecord,
+                    &plan->sourceParams);
+}
+bool PlanNodeIs(UsdGenCudaExecutionPlan const& plan, size_t node, UsdGenCudaStage stage) noexcept {
+    return node < plan.nodeStages.size() && plan.nodeStages[node] == uint16_t(stage);
+}
+// A view over a node's resolved slots; no expressions (literals only).
+UsdGenParamView ResolvedView(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node,
+                             UsdGenOpRecord const* record,
+                             std::vector<UsdGenResolvedParam> const& params) noexcept {
+    UsdGenParamView view;
+    view.desc = &desc;
+    view.node = &node;
+    view.op = record;
+    view.slots = params.empty() ? nullptr : params.data();
+    return view;
+}
+UsdGenParamView StepValues(UsdGenCudaExecutionPlan const& plan,
+                           UsdGenCudaExecutionPlan::Step const& step) noexcept {
+    return ResolvedView(plan.desc, plan.desc.nodes[step.semanticNode], step.record, step.params);
+}
+UsdGenParamView SourceValues(UsdGenCudaExecutionPlan const& plan) noexcept {
+    return ResolvedView(plan.desc, plan.desc.nodes[plan.sourceNode], plan.sourceRecord,
+                        plan.sourceParams);
+}
+template <class E>
+UsdGenParamSlot StepSlot(UsdGenCudaExecutionPlan::Step const& step, E index) noexcept {
+    return UsdGenCudaStageSlot(step.kernel, index);
+}
+UsdGenParamSlot SourceSlot(UsdGenCudaExecutionPlan const& plan, cudaP::CurveSource index) noexcept {
+    return UsdGenCudaStageSlot(plan.sourceKernel, index);
+}
+// Length's token controls: the text compares GetToken(name) == TfToken(x) made.
+void SetLengthModes(UsdGenParamView const& values, UsdGenCudaExecutionPlan::Step const& step,
+                    gpu::LengthParameters* p) {
+    char const* mode = TokenText(values, StepSlot(step, cudaP::kLenMode), "scale");
+    p->mode = std::strcmp(mode, "set") == 0 ? gpu::LengthMode::Set :
+        std::strcmp(mode, "cull") == 0 ? gpu::LengthMode::Cull : gpu::LengthMode::Scale;
+    p->method = TokenIs(values, StepSlot(step, cudaP::kLenMethod), "scale", "cutExtend")
+        ? gpu::LengthMethod::CutExtend : gpu::LengthMethod::Scale;
+    p->rebuild = TokenIs(values, StepSlot(step, cudaP::kLenRebuild), "keepParam", "reparam")
+        ? gpu::LengthRebuild::Reparam : gpu::LengthRebuild::KeepParam;
+}
+// A groom-scalar readback request for a source control the source declares.
+void AddSourceRequest(UsdGenCudaExecutionPlan const& plan, cudaP::CurveSource index,
+                      expr::ScalarType type, std::vector<CudaGroomScalarRequest>* requests) {
+    UsdGenParamSlot const slot = SourceSlot(plan, index);
+    if (slot != kUsdGenNoParam) requests->push_back({plan.sourceRecord->ParamName(slot), type, slot});
+}
+// Width: knot ramp then the kernel's Bezier profile; Noise: magnitude ramp.
+void BuildCudaStepProfile(UsdGenParamView const& params, UsdGenCudaExecutionPlan::Step const& step,
+                          std::array<float, kUsdGenRampLutSize>* output) {
+    auto lut = [&](auto knots, auto interpolation) {
+        VtValue const empty(VtVec2fArray{});
+        VtValue const& value = params.GetValue(StepSlot(step, knots), empty);
+        UsdGenBuildRampLut(value.UncheckedGet<VtVec2fArray>(),
+            params.GetToken(StepSlot(step, interpolation), UsdGenTokens().catmullRom),
+            output->data(), output->size());
+    };
+    if (step.stage == UsdGenCudaStage::Width) {
+        lut(cudaP::kWidthKnots, cudaP::kWidthInterpolation);
+        if (step.kernel->profileLut) step.kernel->profileLut(params, output->data(), output->size());
+    } else if (step.stage == UsdGenCudaStage::Noise) {
+        lut(cudaP::kNoiseMagKnots, cudaP::kNoiseMagInterpolation);
+    }
+}
+}  // namespace
+#endif
 
 #ifdef USDGEN_ENABLE_CUDA
 struct CudaRbfCache {
@@ -841,7 +1008,7 @@ CudaWidthBlendGraphCache::Key MakeWidthBlendGraphKey(
     key.left = node.inputs.empty() ? SdfPath{} : node.inputs.front();
     key.right = node.inputs.size() < 2 ? SdfPath{} : node.inputs[1];
     key.count = count;
-    float const weight = CudaWidthBlendWeight(plan.desc, node);
+    float const weight = CudaWidthBlendWeight(StepValues(plan, step), step.kernel);
     std::memcpy(&key.blendBits, &weight, sizeof(key.blendBits));
     key.gridBlocks = count ? 1 + (count - 1) / key.blockThreads : 0;
     return key;
@@ -1290,7 +1457,7 @@ bool ExecutionState::PrepareScatterGrowWorkspace(UsdGenCudaExecutionPlan const& 
         live.insert(step->path);
         auto& runtime = execution.steps[step->path];
         if (!runtime) runtime = std::make_unique<UsdGenCudaExecutionWorkspace::Impl::Step>();
-        if (step->type != TfToken("UsdGenDeform")) runtime->rbf.reset();
+        if (step->stage != UsdGenCudaStage::Deform) runtime->rbf.reset();
         else if (!runtime->rbf) runtime->rbf = std::make_unique<CudaRbfCache>();
     }
     for (auto it = execution.steps.begin(); it != execution.steps.end(); )
@@ -1325,9 +1492,9 @@ bool ValidateCudaNamedPlaneBindings(UsdGenGraphDesc const& desc,
                 node.path.GetString());
         }
         if (op->TopologyEffect() == UsdGenTopoFx::None) continue;
-        if (!hasAuthoredPlanes || node.type == TfToken("UsdGenLength") ||
-            node.type == TfToken("UsdGenGrow")) continue;
-        if (node.type == TfToken("UsdGenCurveSource")) continue;
+        if (!hasAuthoredPlanes || CudaIs(node, UsdGenCudaStage::Length) ||
+            CudaIs(node, UsdGenCudaStage::Grow)) continue;
+        if (CudaIs(node, UsdGenCudaStage::CurveSource)) continue;
         return Fail(diagnostics,
             "authored named planes require asynchronous CUDA topology transport at " +
             node.path.GetString());
@@ -1615,42 +1782,25 @@ void failNextCudaWidthBlendGraphCaptureForTesting() {
 UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexcept {
     // Bump the matrix version whenever a row or its executor contract changes;
     // compiled-plan/cache keys can then reject stale backend assumptions.
+    // Rows are the registered CUDA kernels (ops/registerCurvesCuda.cpp).
     static std::atomic<UsdGenExecutionCapabilityMatrix const*> cell{nullptr};
-    return UsdGenLazyLeaked(cell, [] { return new UsdGenExecutionCapabilityMatrix const{
+    return UsdGenLazyLeaked(cell, [] {
+        UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
+        UsdGenBackendRegistry const& kernels = UsdGenBackendRegistry::Get();
+        std::vector<UsdGenExecutionCapability> rows;
+        for (UsdGenOpId id : kernels.Ops(kUsdGenCudaBackend)) {
+            UsdGenKernelDef const* k = kernels.Find(id, kUsdGenCudaBackend);
+            rows.push_back({ops.Record(id).Name(), k->capabilityVersion,
+                            k->minimumAlgorithmVersion, k->maximumAlgorithmVersion, k->flags});
+        }
+        return new UsdGenExecutionCapabilityMatrix const{
         "cuda", 35,
 #ifdef USDGEN_ENABLE_CUDA
         true,
 #else
         false,
 #endif
-        {
-            {TfToken("UsdGenScatter"), 1, 0, 0,
-                UsdGenCapabilityChangesTopology | UsdGenCapabilityTopologyBarrier |
-                UsdGenCapabilityExclusiveWorkspace},
-            {TfToken("UsdGenGrow"), 13, 0, 0,
-                UsdGenCapabilityChangesTopology | UsdGenCapabilityTopologyBarrier |
-                UsdGenCapabilityExclusiveWorkspace},
-            {TfToken("UsdGenCurveSource"), 2, 0, 1,
-                UsdGenCapabilityExpressions | UsdGenCapabilityChangesTopology |
-                UsdGenCapabilityTopologyBarrier | UsdGenCapabilityExclusiveWorkspace},
-            {TfToken("UsdGenWidth"), 6, 0, 1,
-                UsdGenCapabilityExpressions |
-                UsdGenCapabilityCopyOnWriteWrites},
-            {TfToken("UsdGenLength"), 7, 0, 1,
-                UsdGenCapabilityExpressions | UsdGenCapabilityChangesTopology |
-                UsdGenCapabilityTopologyBarrier | UsdGenCapabilityExclusiveWorkspace},
-            {TfToken("UsdGenNoise"), 7, 0, 1,
-                UsdGenCapabilityExpressions | UsdGenCapabilityCopyOnWriteWrites},
-            {TfToken("UsdGenDeform"), 1, 0, 1,
-                UsdGenCapabilityExpressions | UsdGenCapabilityExclusiveWorkspace |
-                UsdGenCapabilitySurfaceInput |
-                UsdGenCapabilityTransactionalPublication},
-            {TfToken("UsdGenReferenceSource"), 2, 0, 1,
-                UsdGenCapabilityChangesTopology | UsdGenCapabilityTopologyBarrier |
-                UsdGenCapabilityExclusiveWorkspace},
-            {TfToken("UsdGenWidthBlend"), 6, 0, 0,
-                UsdGenCapabilityCopyOnWriteWrites}
-        }}; });
+        std::move(rows)}; });
 }
 
 std::shared_ptr<const UsdGenExecutionPlanMetadata> GetCudaExecutionPlanMetadata(
@@ -1688,9 +1838,9 @@ bool NoiseNeedsAuthoredSourceRest(UsdGenGraphDesc const& desc, uint32_t source,
         if (node >= desc.nodes.size() || node >= input.size() || input[node] >= desc.nodes.size())
             return true;
         bool const inherited = generatedRest[input[node]];
-        auto const& type = desc.nodes[node].type;
-        if (type == TfToken("UsdGenNoise") && !inherited) return true;
-        generatedRest[node] = type == TfToken("UsdGenGrow") ? true : inherited;
+        auto const& next = desc.nodes[node];
+        if (CudaIs(next, UsdGenCudaStage::Noise) && !inherited) return true;
+        generatedRest[node] = CudaIs(next, UsdGenCudaStage::Grow) ? true : inherited;
     }
     return false;
 }
@@ -1811,7 +1961,7 @@ LiteralRbfAdmission ReserveLiteralRbfExecution(
         return LiteralRbfAdmission::NotEligible;
     auto const& sourceNode = plan.desc.nodes[plan.sourceNode];
     auto const& step = *plan.steps.front();
-    if (step.type != TfToken("UsdGenDeform") ||
+    if (step.stage != UsdGenCudaStage::Deform ||
         !SourceExpressionCardinalityKnown(sourceNode) ||
         step.semanticNode >= plan.desc.nodes.size() ||
         HasExpressionBinding(plan.desc.nodes[step.semanticNode], "rbfSamples") ||
@@ -1820,12 +1970,11 @@ LiteralRbfAdmission ReserveLiteralRbfExecution(
     auto source = std::find_if(plan.desc.curveSets.begin(), plan.desc.curveSets.end(),
         [&](auto const& curves) { return curves.path == sourceNode.curves.front(); });
     if (source == plan.desc.curveSets.end()) return LiteralRbfAdmission::NotEligible;
-    UsdGenParamView sourceParams{&plan.desc, &sourceNode};
     // The formula below is for the literal cold Source->Deform producer; a
     // resampled input has an additional retained geometry owner.
-    if (sourceParams.GetInt(TfToken("resampleTo"), 0) != 0) return LiteralRbfAdmission::NotEligible;
-    UsdGenParamView deformParams{&plan.desc, &plan.desc.nodes[step.semanticNode]};
-    int const budget = deformParams.GetInt(TfToken("rbfSamples"), 100);
+    if (SourceValues(plan).GetInt(SourceSlot(plan, cudaP::kSrcResampleTo), 0) != 0)
+        return LiteralRbfAdmission::NotEligible;
+    int const budget = StepValues(plan, step).GetInt(StepSlot(step, cudaP::kDeformRbfSamples), 100);
     if (budget < 4 || budget > 46336 || step.surface.restPoints.empty() ||
         step.surface.currentPoints.size() != step.surface.restPoints.size() ||
         step.surface.faceOffsets.empty())
@@ -1926,18 +2075,18 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
     size_t lengthCount = 0, growCount = 0, widthCount = 0, noiseCount = 0;
     for (auto const& step : plan.steps) {
         if (step->semanticNode >= plan.desc.nodes.size() ||
-            (!IsCudaWidthValueNode(step->type) &&
-             step->type != TfToken("UsdGenLength") &&
-             step->type != TfToken("UsdGenGrow") &&
-             step->type != TfToken("UsdGenNoise")))
+            (!IsCudaWidthValueNode(step->stage) &&
+             step->stage != UsdGenCudaStage::Length &&
+             step->stage != UsdGenCudaStage::Grow &&
+             step->stage != UsdGenCudaStage::Noise))
             return LiteralLengthAdmission::NotEligible;
-        if (step->type == TfToken("UsdGenLength")) {
+        if (step->stage == UsdGenCudaStage::Length) {
             hasLength = true;
             ++lengthCount;
-        } else if (step->type == TfToken("UsdGenGrow")) {
+        } else if (step->stage == UsdGenCudaStage::Grow) {
             hasGrow = true;
             ++growCount;
-        } else if (step->type == TfToken("UsdGenNoise")) {
+        } else if (step->stage == UsdGenCudaStage::Noise) {
             hasNoise = true;
             ++noiseCount;
         } else {
@@ -1948,7 +2097,7 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
     if (!hasLength || plan.sourceNode >= plan.desc.nodes.size())
         return LiteralLengthAdmission::NotEligible;
     auto const& sourceNode = plan.desc.nodes[plan.sourceNode];
-    bool const referenceSource = sourceNode.type == TfToken("UsdGenReferenceSource");
+    bool const referenceSource = CudaIs(sourceNode, UsdGenCudaStage::ReferenceSource);
     if ((!referenceSource && sourceNode.curves.empty()) ||
         (referenceSource && sourceNode.references.size() != 1) ||
         !SourceExpressionCardinalityKnown(sourceNode))
@@ -1959,8 +2108,7 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
         [&](auto const& curves) { return curves.path == sourcePath; });
     if (source == plan.desc.curveSets.end())
         return LiteralLengthAdmission::NotEligible;
-    UsdGenParamView params{&plan.desc, &sourceNode};
-    int const resample = params.GetInt(TfToken("resampleTo"), 0);
+    int const resample = SourceValues(plan).GetInt(SourceSlot(plan, cudaP::kSrcResampleTo), 0);
     if (resample < 0 || resample == 1)
         return LiteralLengthAdmission::NotEligible;
     uint64_t const curves = static_cast<uint64_t>(source->curveVertexCounts.size());
@@ -1972,10 +2120,10 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
         return LiteralLengthAdmission::Failed;
     }
     if (hasGrow) {
-        for (auto const& step : plan.steps) if (step->type == TfToken("UsdGenGrow")) {
-            UsdGenParamView grow{&plan.desc, &plan.desc.nodes[step->semanticNode]};
+        for (auto const& step : plan.steps) if (step->stage == UsdGenCudaStage::Grow) {
             uint64_t grown = 0;
-            if (!EstimateMultiply(curves, static_cast<uint64_t>(grow.GetInt(TfToken("segments"), 8)), &grown)) {
+            int const segments = StepValues(plan, *step).GetInt(StepSlot(*step, cudaP::kGrowSegments), 8);
+            if (!EstimateMultiply(curves, static_cast<uint64_t>(segments), &grown)) {
                 Fail(diagnostics, "CUDA literal-Length memory estimate overflows while growing");
                 return LiteralLengthAdmission::Failed;
             }
@@ -2185,11 +2333,11 @@ LiteralLengthAdmission ReserveScatterGrowExecution(
     // jobs, as for generic C3 RBF DAGs, rather than precharging an incomplete
     // balance that could reject valid later solver allocations.
     if (std::any_of(plan.steps.begin(), plan.steps.end(), [](auto const& step) {
-            return step->type == TfToken("UsdGenDeform"); }))
+            return step->stage == UsdGenCudaStage::Deform; }))
         return LiteralLengthAdmission::NotEligible;
     uint64_t lengthCount = 0;
     for (auto const& step : plan.steps)
-        if (step->type == TfToken("UsdGenLength")) ++lengthCount;
+        if (step->stage == UsdGenCudaStage::Length) ++lengthCount;
     if (!lengthCount) return LiteralLengthAdmission::NotEligible;
     CudaDeviceScope selected(device);
     if (!selected.selected) {
@@ -2255,27 +2403,27 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
         if (!byPath.emplace(node.path, i).second)
             return Fail(diagnostics, "invalid authoring: duplicate CUDA node path " +
                 node.path.GetString());
-        if (node.type == TfToken("UsdGenCurveSource") ||
-            node.type == TfToken("UsdGenReferenceSource")) sources.push_back(i);
-        else if (node.type != TfToken("UsdGenWidth") &&
-                 node.type != TfToken("UsdGenWidthBlend")) {
+        if (CudaIs(node, UsdGenCudaStage::CurveSource) ||
+            CudaIs(node, UsdGenCudaStage::ReferenceSource)) sources.push_back(i);
+        else if (!CudaIs(node, UsdGenCudaStage::Width) &&
+                 !CudaIs(node, UsdGenCudaStage::WidthBlend)) {
             widthsOnly = false;
-            if (node.type == TfToken("UsdGenLength") || node.type == TfToken("UsdGenGrow")) {
+            if (CudaIs(node, UsdGenCudaStage::Length) || CudaIs(node, UsdGenCudaStage::Grow)) {
                 lengthNode = i;
                 ++lengthCount;
-                if (node.type == TfToken("UsdGenLength")) ++actualLengthCount;
+                if (CudaIs(node, UsdGenCudaStage::Length)) ++actualLengthCount;
                 else ++growCount;
             } else {
                 widthOrLengthOnly = false;
             }
         }
-        if (node.type != TfToken("UsdGenCurveSource") &&
-            node.type != TfToken("UsdGenReferenceSource") &&
-            node.type != TfToken("UsdGenWidth") &&
-            node.type != TfToken("UsdGenWidthBlend") &&
-            node.type != TfToken("UsdGenNoise")) sameTopologyOnly = false;
-        if (node.type == TfToken("UsdGenNoise")) hasNoise = true;
-        if (node.type == TfToken("UsdGenDeform")) hasDeform = true;
+        if (!CudaIs(node, UsdGenCudaStage::CurveSource) &&
+            !CudaIs(node, UsdGenCudaStage::ReferenceSource) &&
+            !CudaIs(node, UsdGenCudaStage::Width) &&
+            !CudaIs(node, UsdGenCudaStage::WidthBlend) &&
+            !CudaIs(node, UsdGenCudaStage::Noise)) sameTopologyOnly = false;
+        if (CudaIs(node, UsdGenCudaStage::Noise)) hasNoise = true;
+        if (CudaIs(node, UsdGenCudaStage::Deform)) hasDeform = true;
     }
 
     // Scatter is a captured topology source and Grow is its one fused native
@@ -2285,12 +2433,12 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
     uint32_t scatter = UINT32_MAX, grow = UINT32_MAX;
     uint32_t scatterGrowCount = 0;
     for (uint32_t i = 0; i != desc.nodes.size(); ++i) {
-        if (desc.nodes[i].type == TfToken("UsdGenScatter")) {
+        if (CudaIs(desc.nodes[i], UsdGenCudaStage::Scatter)) {
             if (scatter != UINT32_MAX) return Fail(diagnostics,
                 "Scatter->Grow CUDA lowering requires exactly one Scatter");
             scatter = i;
         }
-        if (desc.nodes[i].type == TfToken("UsdGenGrow")) {
+        if (CudaIs(desc.nodes[i], UsdGenCudaStage::Grow)) {
             ++scatterGrowCount;
             grow = i;
         }
@@ -2315,16 +2463,16 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
         for (uint32_t i = 0; i != desc.nodes.size(); ++i) {
             if (i == scatter || i == grow) continue;
             auto const& node = desc.nodes[i];
-            if (node.type != TfToken("UsdGenWidth") &&
-                node.type != TfToken("UsdGenWidthBlend") &&
-                node.type != TfToken("UsdGenLength") &&
-                node.type != TfToken("UsdGenNoise") &&
-                node.type != TfToken("UsdGenDeform"))
+            if (!CudaIs(node, UsdGenCudaStage::Width) &&
+                !CudaIs(node, UsdGenCudaStage::WidthBlend) &&
+                !CudaIs(node, UsdGenCudaStage::Length) &&
+                !CudaIs(node, UsdGenCudaStage::Noise) &&
+                !CudaIs(node, UsdGenCudaStage::Deform))
                 return Fail(diagnostics,
                     "Scatter->Grow CUDA lowering supports only Width/Length/Noise/Deform descendants");
-            size_t const expected = node.type == TfToken("UsdGenWidthBlend") ? 2u : 1u;
+            size_t const expected = CudaIs(node, UsdGenCudaStage::WidthBlend) ? 2u : 1u;
             if (node.inputs.size() != expected)
-                return Fail(diagnostics, node.type == TfToken("UsdGenWidthBlend")
+                return Fail(diagnostics, CudaIs(node, UsdGenCudaStage::WidthBlend)
                     ? "Scatter->Grow WidthBlend requires exactly two ordered inputs"
                     : "Scatter->Grow Width requires exactly one input");
             auto left = byPath.find(node.inputs.front());
@@ -2363,8 +2511,8 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
         for (uint32_t nodeIndex : result->operators) {
             auto const& node = desc.nodes[nodeIndex];
             hasGeometryDescendant = hasGeometryDescendant ||
-                node.type == TfToken("UsdGenLength") || node.type == TfToken("UsdGenNoise") ||
-                node.type == TfToken("UsdGenDeform");
+                CudaIs(node, UsdGenCudaStage::Length) || CudaIs(node, UsdGenCudaStage::Noise) ||
+                CudaIs(node, UsdGenCudaStage::Deform);
         }
         result->widthDag = !hasGeometryDescendant;
         result->geometryValueDag = hasGeometryDescendant;
@@ -2379,16 +2527,16 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
                 topologyOrigin[left] == UINT32_MAX)
                 return Fail(diagnostics, "Scatter->Grow descendant origin is unavailable");
             auto const& node = desc.nodes[nodeIndex];
-            if (node.type == TfToken("UsdGenDeform") && deformed[left])
+            if (CudaIs(node, UsdGenCudaStage::Deform) && deformed[left])
                 return Fail(diagnostics,
                     "unsupported composition: a second rest-to-animated deformation would apply surface motion twice");
-            deformed[nodeIndex] = deformed[left] || node.type == TfToken("UsdGenDeform");
-            if (node.type == TfToken("UsdGenLength")) {
+            deformed[nodeIndex] = deformed[left] || CudaIs(node, UsdGenCudaStage::Deform);
+            if (CudaIs(node, UsdGenCudaStage::Length)) {
                 pointOrigin[nodeIndex] = topologyOrigin[nodeIndex] = nodeIndex;
-            } else if (node.type == TfToken("UsdGenNoise") || node.type == TfToken("UsdGenDeform")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Noise) || CudaIs(node, UsdGenCudaStage::Deform)) {
                 pointOrigin[nodeIndex] = nodeIndex;
                 topologyOrigin[nodeIndex] = topologyOrigin[left];
-            } else if (node.type == TfToken("UsdGenWidth")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Width)) {
                 pointOrigin[nodeIndex] = pointOrigin[left];
                 topologyOrigin[nodeIndex] = topologyOrigin[left];
             } else {
@@ -2434,16 +2582,16 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
     // topology/named snapshot.
     bool topologyValueOnly = true;
     for (auto const& node : desc.nodes) {
-        if (node.type == TfToken("UsdGenCurveSource") ||
-            node.type == TfToken("UsdGenReferenceSource") ||
-            node.type == TfToken("UsdGenGrow") ||
-            node.type == TfToken("UsdGenLength") ||
-            node.type == TfToken("UsdGenNoise") ||
+        if (CudaIs(node, UsdGenCudaStage::CurveSource) ||
+            CudaIs(node, UsdGenCudaStage::ReferenceSource) ||
+            CudaIs(node, UsdGenCudaStage::Grow) ||
+            CudaIs(node, UsdGenCudaStage::Length) ||
+            CudaIs(node, UsdGenCudaStage::Noise) ||
             // Deform writes a point COW value.  Its predecessor's topology,
             // named planes, and source-frame domain remain immutable.
-            node.type == TfToken("UsdGenDeform") ||
-            node.type == TfToken("UsdGenWidth") ||
-            node.type == TfToken("UsdGenWidthBlend")) continue;
+            CudaIs(node, UsdGenCudaStage::Deform) ||
+            CudaIs(node, UsdGenCudaStage::Width) ||
+            CudaIs(node, UsdGenCudaStage::WidthBlend)) continue;
         topologyValueOnly = false;
         break;
     }
@@ -2494,7 +2642,7 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
             if (node.inputs.size() != 1 || node.inputs.front() != desc.nodes[i - 1].path)
                 return Fail(diagnostics,
                     "unsupported composition: branched Length/Deform CUDA graphs are not supported");
-            if (node.type == TfToken("UsdGenDeform")) {
+            if (CudaIs(node, UsdGenCudaStage::Deform)) {
                 if (lineageDeformed)
                     return Fail(diagnostics,
                         "unsupported composition: a second rest-to-animated deformation would apply surface motion twice");
@@ -2523,9 +2671,9 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
     for (uint32_t i = 0; i != desc.nodes.size(); ++i) {
         if (i == result->source) continue;
         auto const& node = desc.nodes[i];
-        size_t const expected = node.type == TfToken("UsdGenWidthBlend") ? 2u : 1u;
+        size_t const expected = CudaIs(node, UsdGenCudaStage::WidthBlend) ? 2u : 1u;
         if (node.inputs.size() != expected)
-            return Fail(diagnostics, node.type == TfToken("UsdGenWidthBlend")
+            return Fail(diagnostics, CudaIs(node, UsdGenCudaStage::WidthBlend)
                 ? "unsupported composition: CUDA WidthBlend requires exactly two ordered geometry inputs"
                 : "unsupported composition: CUDA unary Width requires exactly one geometry input");
         auto left = byPath.find(node.inputs.front());
@@ -2590,27 +2738,27 @@ bool BuildCudaGraphLayout(UsdGenGraphDesc const& desc, CudaGraphLayout* result,
                 topologyOrigin[left] == UINT32_MAX)
                 return Fail(diagnostics,
                     "CUDA geometry-value DAG predecessor origin is unavailable");
-            if (node.type == TfToken("UsdGenDeform") && deformed[left])
+            if (CudaIs(node, UsdGenCudaStage::Deform) && deformed[left])
                 return Fail(diagnostics,
                     "unsupported composition: a second rest-to-animated deformation would apply surface motion twice");
-            if (node.type == TfToken("UsdGenNoise")) {
+            if (CudaIs(node, UsdGenCudaStage::Noise)) {
                 pointOrigin[nodeIndex] = nodeIndex;
                 topologyOrigin[nodeIndex] = topologyOrigin[left];
                 deformed[nodeIndex] = deformed[left];
-            } else if (node.type == TfToken("UsdGenDeform")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Deform)) {
                 pointOrigin[nodeIndex] = nodeIndex;
                 topologyOrigin[nodeIndex] = topologyOrigin[left];
                 deformed[nodeIndex] = true;
-            } else if (node.type == TfToken("UsdGenGrow") ||
-                       node.type == TfToken("UsdGenLength")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Grow) ||
+                       CudaIs(node, UsdGenCudaStage::Length)) {
                 pointOrigin[nodeIndex] = nodeIndex;
                 topologyOrigin[nodeIndex] = nodeIndex;
                 deformed[nodeIndex] = deformed[left];
-            } else if (node.type == TfToken("UsdGenWidth")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Width)) {
                 pointOrigin[nodeIndex] = pointOrigin[left];
                 topologyOrigin[nodeIndex] = topologyOrigin[left];
                 deformed[nodeIndex] = deformed[left];
-            } else if (node.type == TfToken("UsdGenWidthBlend")) {
+            } else if (CudaIs(node, UsdGenCudaStage::WidthBlend)) {
                 auto const right = result->rightInput[nodeIndex];
                 if (right == UINT32_MAX)
                     return Fail(diagnostics,
@@ -2656,7 +2804,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
     if (!ValidateCudaResolvedInputs(desc, diagnostics) ||
         !ValidateCudaNamedPlaneBindings(desc, diagnostics)) return false;
     for (auto const& node : desc.nodes) {
-        if (node.type != TfToken("UsdGenCurveSource") &&
+        if (!CudaIs(node, UsdGenCudaStage::CurveSource) &&
             !GetCudaExecutionCapabilityMatrix().Find(node.type))
             return Fail(diagnostics,
                 "unsupported operator: CUDA capability matrix has no implementation for " +
@@ -2669,15 +2817,15 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
             return false;
         for (uint32_t nodeIndex : layout.operators) {
             auto const& node = desc.nodes[nodeIndex];
-            if (node.type == TfToken("UsdGenWidth")) {
+            if (CudaIs(node, UsdGenCudaStage::Width)) {
                 if (!ValidateWidth(node, diagnostics)) return false;
-            } else if (node.type == TfToken("UsdGenWidthBlend")) {
+            } else if (CudaIs(node, UsdGenCudaStage::WidthBlend)) {
                 if (!ValidateWidthBlend(node, diagnostics)) return false;
-            } else if (node.type == TfToken("UsdGenLength")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Length)) {
                 if (!ValidateLength(node, diagnostics)) return false;
-            } else if (node.type == TfToken("UsdGenNoise")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Noise)) {
                 if (!ValidateNoise(node, diagnostics)) return false;
-            } else if (node.type == TfToken("UsdGenDeform")) {
+            } else if (CudaIs(node, UsdGenCudaStage::Deform)) {
                 if (!ValidateDeform(node, diagnostics)) return false;
             } else {
                 return Fail(diagnostics,
@@ -2686,7 +2834,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         }
         return true;
     }
-    if (desc.nodes[layout.source].type == TfToken("UsdGenReferenceSource")) {
+    if (CudaIs(desc.nodes[layout.source], UsdGenCudaStage::ReferenceSource)) {
         // ReferenceSource has two deliberately narrow lowering shapes:
         // source -> Width DAG, or source -> exactly one direct Length -> one
         // or more Width branches. BuildCudaGraphLayout proves the latter's
@@ -2695,7 +2843,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         // or source->Length graph cannot publish a reference generation.
         bool const hasWidth = std::any_of(layout.operators.begin(),
             layout.operators.end(), [&](uint32_t index) {
-                return desc.nodes[index].type == TfToken("UsdGenWidth");
+                return CudaIs(desc.nodes[index], UsdGenCudaStage::Width);
             });
         if ((!layout.widthDag && !layout.topologyDag) ||
             layout.operators.empty() || !hasWidth)
@@ -2710,25 +2858,25 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         if (!GetCudaExecutionCapabilityMatrix().Find(next.type))
             return Fail(diagnostics, "unsupported operator: CUDA capability matrix has no implementation for " +
                 next.type.GetString());
-        if (next.type == TfToken("UsdGenDeform")) {
+        if (CudaIs(next, UsdGenCudaStage::Deform)) {
             sawDeform = true;
             if (!ValidateDeform(next, diagnostics)) return false;
             if (desc.nodes[layout.source].surfaces.size() != 1 ||
                 desc.nodes[layout.source].surfaces.front() != next.surfaces.front())
                 return Fail(diagnostics, "RBF target must match the CurveSource root-binding surface");
-        } else if (next.type == TfToken("UsdGenGrow")) {
+        } else if (CudaIs(next, UsdGenCudaStage::Grow)) {
             if ((layout.taskDag && !layout.topologyDag) ||
-                desc.nodes[layout.source].type != TfToken("UsdGenCurveSource") ||
+                !CudaIs(desc.nodes[layout.source], UsdGenCudaStage::CurveSource) ||
                 !ValidateScatterGrow(desc, layout.source, nodeIndex, diagnostics, true))
                 return Fail(diagnostics, "CUDA C3 Grow requires a supported CurveSource value predecessor");
             sawC3Grow = true;
-        } else if (next.type == TfToken("UsdGenLength")) {
+        } else if (CudaIs(next, UsdGenCudaStage::Length)) {
             if (!ValidateLength(next, diagnostics)) return false;
-        } else if (next.type == TfToken("UsdGenNoise")) {
+        } else if (CudaIs(next, UsdGenCudaStage::Noise)) {
             if (!ValidateNoise(next, diagnostics)) return false;
-        } else if (next.type == TfToken("UsdGenWidth")) {
+        } else if (CudaIs(next, UsdGenCudaStage::Width)) {
             if (!ValidateWidth(next, diagnostics)) return false;
-        } else if (next.type == TfToken("UsdGenWidthBlend")) {
+        } else if (CudaIs(next, UsdGenCudaStage::WidthBlend)) {
             if (!ValidateWidthBlend(next, diagnostics)) return false;
         } else {
             return Fail(diagnostics,
@@ -2739,23 +2887,23 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         bool seenGrow = false;
         for (uint32_t index : layout.operators) {
             auto const& candidate = desc.nodes[index];
-            if (candidate.type == TfToken("UsdGenGrow")) {
+            if (CudaIs(candidate, UsdGenCudaStage::Grow)) {
                 if (seenGrow || candidate.inputs.size() != 1 ||
                     candidate.inputs.front() != desc.nodes[layout.source].path)
                     return Fail(diagnostics,
                         "CUDA linear Grow requires one direct CurveSource input");
                 seenGrow = true;
             } else if (!seenGrow ||
-                       (candidate.type != TfToken("UsdGenNoise") &&
-                        candidate.type != TfToken("UsdGenLength") &&
-                        candidate.type != TfToken("UsdGenWidth"))) {
+                       (!CudaIs(candidate, UsdGenCudaStage::Noise) &&
+                        !CudaIs(candidate, UsdGenCudaStage::Length) &&
+                        !CudaIs(candidate, UsdGenCudaStage::Width))) {
                 return Fail(diagnostics,
                     "CUDA linear Grow supports sequential Noise/Length/Width suffixes");
             }
         }
     }
     auto const& node = desc.nodes[layout.source];
-    bool const referenceSource = node.type == TfToken("UsdGenReferenceSource");
+    bool const referenceSource = CudaIs(node, UsdGenCudaStage::ReferenceSource);
     if (referenceSource) {
         if (node.references.size() != 1 || !node.curves.empty() ||
             !node.surfaces.empty() || !node.maps.empty() ||
@@ -2781,17 +2929,19 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         return true;
     }
     if (!ValidateExpressionTargets(node, diagnostics)) return false;
-    TfToken const interpolationMode = UsdGenParamView{&desc, &node}.GetToken(
-        TfToken("interpolationMode"), TfToken("none"));
-    if (interpolationMode != TfToken("none") && interpolationMode != TfToken("surfaceCage"))
+    CudaNodeParams const sourceParams(desc, node);
+    UsdGenParamView const& params = sourceParams.View();
+    char const* interpolationMode =
+        TokenText(params, sourceParams.Slot(cudaP::kSrcInterpolationMode), "none");
+    if (std::strcmp(interpolationMode, "none") != 0 && std::strcmp(interpolationMode, "surfaceCage") != 0)
         return Fail(diagnostics, "CurveSource interpolationMode must be none or surfaceCage");
-    bool const surfaceCage = interpolationMode == TfToken("surfaceCage");
+    bool const surfaceCage = std::strcmp(interpolationMode, "surfaceCage") == 0;
     if (!referenceSource && (!node.inputs.empty() || !node.references.empty() ||
         (!surfaceCage && (!node.maps.empty() || !node.mapBindings.empty()))))
         return Fail(diagnostics, "CurveSource cannot consume an upstream/reference/map in the current executor");
     if (surfaceCage && (node.maps.size() != 1 || node.mapBindings.size() != 1 ||
         node.maps.front() != node.mapBindings.front().map ||
-        node.mapBindings.front().relationship != TfToken("usdGen:regionMap") ||
+        node.mapBindings.front().relationship.GetString() != "usdGen:regionMap" ||
         node.surfaces.size() != 1))
         return Fail(diagnostics, "surfaceCage CurveSource requires one bound surface and one usdGen:regionMap");
     for (auto const& ramp : node.ramps) {
@@ -2806,10 +2956,9 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
     if (!std::isfinite(desc.defaultWidth) || desc.defaultWidth < 0)
         return Fail(diagnostics, "description default width must be finite and non-negative");
     if (!node.mode.IsEmpty()) return Fail(diagnostics, "CurveSource has no mode property");
-    UsdGenParamView params; params.desc = &desc; params.node = &node;
     const bool connectedUseRest = std::any_of(node.expressionBindings.begin(), node.expressionBindings.end(),
         [](UsdGenExpressionBinding const& binding) { return LocalName(binding.destination) == "useRest"; });
-    if (sawDeform && !connectedUseRest && !params.GetBool(TfToken("useRest"), true))
+    if (sawDeform && !connectedUseRest && !params.GetBool(sourceParams.Slot(cudaP::kSrcUseRest), true))
         return Fail(diagnostics, "already-deformed CurveSource cannot feed rest-to-animated RBF Deform");
     if (sawDeform) {
         auto source = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
@@ -2841,15 +2990,16 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
             return Fail(diagnostics, "wrong native type for source parameter " + name);
     }
     if (surfaceCage) {
-        UsdGenParamView const cageParams{&desc, &node};
-        if (cageParams.GetInt(TfToken("regionMapChannel"), 0) != 0)
+        if (params.GetInt(sourceParams.Slot(cudaP::kSrcRegionMapChannel), 0) != 0)
             return Fail(diagnostics, "surfaceCage CurveSource requires categorical regionMapChannel zero");
         auto const source = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
             [&](auto const& curves) { return curves.path == node.curves.front(); });
         auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
             [&](auto const& value) { return value.path == node.maps.front(); });
         if (source == desc.curveSets.end() || !source->surfaceCage ||
-            map == desc.maps.end() || map->type != TfToken("UsdGenPtexMap") ||
+            map == desc.maps.end() ||
+            !UsdGenTypeRegistry::Get().Has(UsdGenTypeRegistry::Get().Find(map->type),
+                                           kUsdGenTypeMapPtex) ||
             map->resolvedAssetPath.empty())
             return Fail(diagnostics, "surfaceCage CurveSource requires a captured cage and resolved UsdGenPtexMap");
     }
@@ -2884,7 +3034,8 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
             UsdGenCurveRootCaptureResult roots;
             std::string error;
             if (!UsdGenCaptureCurveRoots(*source, surface,
-                    params.GetToken(TfToken("rebind"),TfToken("onError")), &roots,&error))
+                    params.GetToken(sourceParams.Slot(cudaP::kSrcRebind), kCudaRebindOnError),
+                    &roots,&error))
                 return Fail(diagnostics, "CUDA Noise root admission failed: " + error);
             if (roots.frames.size() != source->curveVertexCounts.size())
                 return Fail(diagnostics, "CUDA Noise cannot consume an unbound source without rest root frames");
@@ -2912,6 +3063,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     plan->geometryValueDag = layout.geometryValueDag;
     plan->scatterGrow = layout.scatterGrow;
     plan->scatterGrowOutputNode = layout.scatterGrowOutput;
+    ResolveCudaPlanNodes(plan.get());
     if (layout.scatterGrow) {
         std::string reason;
         if (PrepareCudaScatterInput(desc, desc.nodes[layout.source].path,
@@ -2919,23 +3071,26 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             Fail(diagnostics, "Scatter capture preparation failed: " + reason);
             return {};
         }
-        UsdGenParamView grow{&desc, &desc.nodes[layout.scatterGrowOutput]};
-        plan->scatterGrowControls.cvCount = uint32_t(grow.GetInt(TfToken("segments"), 8));
+        CudaNodeParams const growParams(desc, desc.nodes[layout.scatterGrowOutput]);
+        UsdGenParamView const& grow = growParams.View();
+        plan->scatterGrowControls.cvCount = uint32_t(grow.GetInt(growParams.Slot(cudaP::kGrowSegments), 8));
         plan->scatterGrowControls.seed = desc.nodes[layout.scatterGrowOutput].seed;
-        plan->scatterGrowControls.length = grow.GetDouble(TfToken("length"), 1.0);
-        plan->scatterGrowControls.lift = float(grow.GetDouble(TfToken("lift"), 0.0));
-        plan->scatterGrowControls.azimuth = float(grow.GetDouble(TfToken("azimuth"), 0.0));
-        plan->scatterGrowControls.azimuthRandom = float(grow.GetDouble(TfToken("azimuthRandom"), 0.0));
+        plan->scatterGrowControls.length = grow.GetDouble(growParams.Slot(cudaP::kGrowLength), 1.0);
+        plan->scatterGrowControls.lift = float(grow.GetDouble(growParams.Slot(cudaP::kGrowLift), 0.0));
+        plan->scatterGrowControls.azimuth = float(grow.GetDouble(growParams.Slot(cudaP::kGrowAzimuth), 0.0));
+        plan->scatterGrowControls.azimuthRandom = float(grow.GetDouble(growParams.Slot(cudaP::kGrowAzimuthRandom), 0.0));
         plan->scatterGrowControls.fallbackWidth = desc.defaultWidth;
-        auto random = grow.GetVtValue(TfToken("lengthRandom"), VtValue(GfVec2f(1,1))).UncheckedGet<GfVec2f>();
+        VtValue const randomFallback(GfVec2f(1,1));
+        auto random = grow.GetValue(growParams.Slot(cudaP::kGrowLengthRandom), randomFallback).UncheckedGet<GfVec2f>();
         plan->scatterGrowControls.randomLo = random[0];
         plan->scatterGrowControls.randomHi = random[1];
-        TfToken direction = grow.GetToken(TfToken("direction"), TfToken("surfaceNormal"));
-        plan->scatterGrowControls.direction = direction == TfToken("vector")
-            ? gpu::ScatterGrowDirection::Literal : direction == TfToken("attribute")
+        char const* direction = TokenText(grow, growParams.Slot(cudaP::kGrowDirection), "surfaceNormal");
+        plan->scatterGrowControls.direction = std::strcmp(direction, "vector") == 0
+            ? gpu::ScatterGrowDirection::Literal : std::strcmp(direction, "attribute") == 0
             ? gpu::ScatterGrowDirection::RootTangent : gpu::ScatterGrowDirection::RootNormal;
-        if (direction == TfToken("vector")) {
-            auto value = grow.GetVtValue(TfToken("directionVector"), VtValue(GfVec3f(0,1,0)));
+        if (std::strcmp(direction, "vector") == 0) {
+            VtValue const vectorFallback(GfVec3f(0,1,0));
+            VtValue const& value = grow.GetValue(growParams.Slot(cudaP::kGrowDirectionVector), vectorFallback);
             if (!value.IsHolding<GfVec3f>()) { Fail(diagnostics,"Scatter->Grow directionVector must be float3"); return {}; }
             auto const v=value.UncheckedGet<GfVec3f>();
             plan->scatterGrowControls.literalDirection=make_float3(v[0],v[1],v[2]);
@@ -2954,6 +3109,9 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             step->path = desc.nodes[nodeIndex].path;
             step->type = desc.nodes[nodeIndex].type;
             step->semanticNode = nodeIndex;
+            if (!ResolveCudaStep(*plan, step.get())) {
+                Fail(diagnostics, "no CUDA kernel for " + step->type.GetString()); return {};
+            }
             step->inputNode = layout.input[nodeIndex];
             step->rightInputNode = layout.rightInput[nodeIndex];
             auto const leftOrigin = proofOrigins.find(step->inputNode);
@@ -2961,9 +3119,9 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 Fail(diagnostics, "Scatter->Grow predecessor proof origin is unavailable"); return {};
             }
             auto origin = leftOrigin->second;
-            if (step->type == TfToken("UsdGenLength")) origin = {nodeIndex, nodeIndex};
-            else if (step->type == TfToken("UsdGenNoise") ||
-                     step->type == TfToken("UsdGenDeform")) origin.first = nodeIndex;
+            if (step->stage == UsdGenCudaStage::Length) origin = {nodeIndex, nodeIndex};
+            else if (step->stage == UsdGenCudaStage::Noise ||
+                     step->stage == UsdGenCudaStage::Deform) origin.first = nodeIndex;
             if (step->rightInputNode != UINT32_MAX) {
                 auto const rightOrigin = proofOrigins.find(step->rightInputNode);
                 if (rightOrigin == proofOrigins.end()) {
@@ -2978,27 +3136,17 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 for (auto const& error : errors) Fail(diagnostics, error);
                 return {};
             }
-            UsdGenParamView params{&desc, &desc.nodes[nodeIndex]};
-            auto lut = [&](char const* knots, char const* interpolation, auto& output) {
-                auto value = params.GetVtValue(TfToken(knots), VtValue(VtVec2fArray{}));
-                UsdGenBuildRampLut(value.UncheckedGet<VtVec2fArray>(),
-                    params.GetToken(TfToken(interpolation), TfToken("catmullRom")),
-                    output.data(), output.size());
-            };
-            if (step->type == TfToken("UsdGenWidth")) {
-                lut("width:knots", "width:interpolation", step->profile);
-                UsdGenWidthBezierLut(params, step->profile.data(), step->profile.size());
-            } else if (step->type == TfToken("UsdGenNoise")) {
-                lut("noise:magnitude:knots", "noise:magnitude:interpolation", step->profile);
-            }
-            if (step->type == TfToken("UsdGenDeform")) {
+            UsdGenParamView const params = StepValues(*plan, *step);
+            BuildCudaStepProfile(params, *step, &step->profile);
+            if (step->stage == UsdGenCudaStage::Deform) {
                 auto const& node = desc.nodes[nodeIndex];
                 auto surface = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
                     [&](auto const& value) { return value.path == node.surfaces.front(); });
                 if (surface == desc.surfaces.end()) {
                     Fail(diagnostics, "Scatter->Grow Deform surface is unavailable"); return {};
                 }
-                if (PrepareCudaSurface(*surface, params.GetInt(TfToken("rbfSamples"), 100),
+                if (PrepareCudaSurface(*surface,
+                        params.GetInt(StepSlot(*step, cudaP::kDeformRbfSamples), 100),
                         &step->surface, &errors) != CudaSurfacePreparationStatus::Ok) {
                     for (auto const& error : errors) Fail(diagnostics, error);
                     return {};
@@ -3032,7 +3180,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         producer.id=0; producer.semanticNode=layout.scatterGrowOutput;
         producer.authoredOrderKey=layout.scatterGrowOutput;
         producer.path=desc.nodes[layout.scatterGrowOutput].path;
-        producer.type=TfToken("UsdGenScatterGrow");
+        producer.type=kCudaScatterGrowTask;
         producer.kind=UsdGenExecutionTaskKind::Source;
         producer.topologyBarrier=true;
         producer.exclusiveWorkspace=true;
@@ -3060,12 +3208,12 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         std::map<uint32_t, std::array<uint32_t, 6>> nodeValues;
         nodeValues[layout.scatterGrowOutput] = sourceValues;
         bool const hasGeometryDescendants = std::any_of(plan->steps.begin(), plan->steps.end(),
-            [](auto const& step) { return step->type == TfToken("UsdGenLength") ||
-                step->type == TfToken("UsdGenNoise") || step->type == TfToken("UsdGenDeform"); });
+            [](auto const& step) { return step->stage == UsdGenCudaStage::Length ||
+                step->stage == UsdGenCudaStage::Noise || step->stage == UsdGenCudaStage::Deform; });
         bool const hasDeformDescendants = std::any_of(plan->steps.begin(), plan->steps.end(),
-            [](auto const& step) { return step->type == TfToken("UsdGenDeform"); });
+            [](auto const& step) { return step->stage == UsdGenCudaStage::Deform; });
         bool const hasLengthDescendants = std::any_of(plan->steps.begin(), plan->steps.end(),
-            [](auto const& step) { return step->type == TfToken("UsdGenLength"); });
+            [](auto const& step) { return step->stage == UsdGenCudaStage::Length; });
         uint64_t pointWidthBytes=0, widthOutputs=0, widthScratch=0, widthSteady=0;
         if (!EstimateMultiply(plan->scatterGrowRequirements.pointCount,sizeof(float),&pointWidthBytes)) {
             Fail(diagnostics,"Scatter->Grow Width memory estimate overflow"); return {};
@@ -3088,9 +3236,9 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             task.id=static_cast<uint32_t>(tasks.size()); task.semanticNode=step.semanticNode;
             task.authoredOrderKey=step.semanticNode; task.path=step.path; task.type=step.type;
             task.kind=UsdGenExecutionTaskKind::Operator;
-            bool const length = step.type == TfToken("UsdGenLength");
-            bool const noise = step.type == TfToken("UsdGenNoise");
-            bool const deform = step.type == TfToken("UsdGenDeform");
+            bool const length = step.stage == UsdGenCudaStage::Length;
+            bool const noise = step.stage == UsdGenCudaStage::Noise;
+            bool const deform = step.stage == UsdGenCudaStage::Deform;
             if (deform) task.resources.push_back({UsdGenExecutionDataKind::SurfaceGeometry,
                 UsdGenExecutionResourceAccess::Read, UINT32_MAX, surfaceExternal, UINT32_MAX});
             task.exclusiveWorkspace = length || noise || deform;
@@ -3167,7 +3315,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         }
         UsdGenExecutionTaskMetadata publication; publication.id=static_cast<uint32_t>(tasks.size()); publication.kind=UsdGenExecutionTaskKind::Publication;
         publication.authoredOrderKey=desc.nodes.size();
-        publication.path=desc.nodes[layout.terminal].path; publication.type=TfToken("UsdGenPublication");
+        publication.path=desc.nodes[layout.terminal].path; publication.type=kCudaPublicationTask;
         publication.topologyBarrier=true;
         publication.resourceHazards.push_back({UsdGenExecutionDataKind::ExecutionWorkspace,
             0, UsdGenExecutionResourceHazardAccess::ReadWrite});
@@ -3210,7 +3358,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         }
         plan->metadata=std::make_shared<const UsdGenExecutionPlanMetadata>("cuda",GetCudaExecutionCapabilityMatrix().Version(),
             plan->steps.empty() ? UsdGenExecutionPlanShape::LinearAuthoredChain :
-                std::any_of(plan->steps.begin(),plan->steps.end(),[](auto const& s){return s->type==TfToken("UsdGenWidthBlend");})
+                std::any_of(plan->steps.begin(),plan->steps.end(),[](auto const& s){return s->stage == UsdGenCudaStage::WidthBlend;})
                     ? UsdGenExecutionPlanShape::SourceRootedValueDag : UsdGenExecutionPlanShape::SourceRootedUnaryDag,
             std::move(caps),std::move(tasks),std::move(values),
             static_cast<uint32_t>(plan->steps.size()+1),memory);
@@ -3232,10 +3380,10 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         auto const left = layout.input[nodeIndex];
         if (left == UINT32_MAX) { Fail(diagnostics, "CUDA proof origin is unavailable"); return {}; }
         auto const& node = desc.nodes[nodeIndex];
-        if (node.type == TfToken("UsdGenNoise") ||
-            node.type == TfToken("UsdGenDeform")) {
+        if (CudaIs(node, UsdGenCudaStage::Noise) ||
+            CudaIs(node, UsdGenCudaStage::Deform)) {
             proofPointOrigin[nodeIndex] = nodeIndex; proofTopologyOrigin[nodeIndex] = proofTopologyOrigin[left];
-        } else if (node.type == TfToken("UsdGenGrow") || node.type == TfToken("UsdGenLength")) {
+        } else if (CudaIs(node, UsdGenCudaStage::Grow) || CudaIs(node, UsdGenCudaStage::Length)) {
             proofPointOrigin[nodeIndex] = proofTopologyOrigin[nodeIndex] = nodeIndex;
         } else {
             proofPointOrigin[nodeIndex] = proofPointOrigin[left]; proofTopologyOrigin[nodeIndex] = proofTopologyOrigin[left];
@@ -3244,9 +3392,12 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         width->path = desc.nodes[nodeIndex].path;
         width->type = desc.nodes[nodeIndex].type;
         width->semanticNode = nodeIndex;
+        if (!ResolveCudaStep(*plan, width.get())) {
+            Fail(diagnostics, "no CUDA kernel for " + width->type.GetString()); return {};
+        }
         width->inputNode = layout.input[nodeIndex];
         width->rightInputNode = layout.rightInput[nodeIndex];
-        if (width->type == TfToken("UsdGenWidthBlend")) {
+        if (width->stage == UsdGenCudaStage::WidthBlend) {
             auto const right = width->rightInputNode;
             width->requiresNonWidthProof = right != UINT32_MAX &&
                 (proofPointOrigin[left] != proofPointOrigin[right] ||
@@ -3258,39 +3409,33 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             if (errors.empty()) Fail(diagnostics, "operator parameter compilation failed");
             return {};
         }
-        UsdGenParamView params; params.desc = &desc; params.node = &desc.nodes[nodeIndex];
-        if (width->type == TfToken("UsdGenGrow")) {
+        UsdGenParamView const params = StepValues(*plan, *width);
+        if (width->stage == UsdGenCudaStage::Grow) {
             auto& controls = width->grow;
-            controls.cvCount = uint32_t(params.GetInt(TfToken("segments"), 8));
+            UsdGenCudaExecutionPlan::Step const& grow = *width;
+            controls.cvCount = uint32_t(params.GetInt(StepSlot(grow, cudaP::kGrowSegments), 8));
             controls.seed = desc.nodes[nodeIndex].seed;
-            controls.length = params.GetDouble(TfToken("length"), 1.0);
-            auto const random = params.GetVtValue(TfToken("lengthRandom"), VtValue(GfVec2f(1,1))).UncheckedGet<GfVec2f>();
+            controls.length = params.GetDouble(StepSlot(grow, cudaP::kGrowLength), 1.0);
+            VtValue const randomFallback(GfVec2f(1,1));
+            auto const random = params.GetValue(StepSlot(grow, cudaP::kGrowLengthRandom), randomFallback).UncheckedGet<GfVec2f>();
             controls.randomLo = random[0]; controls.randomHi = random[1];
-            controls.lift = float(params.GetDouble(TfToken("lift"), 0.0));
-            controls.azimuth = float(params.GetDouble(TfToken("azimuth"), 0.0));
-            controls.azimuthRandom = float(params.GetDouble(TfToken("azimuthRandom"), 0.0));
+            controls.lift = float(params.GetDouble(StepSlot(grow, cudaP::kGrowLift), 0.0));
+            controls.azimuth = float(params.GetDouble(StepSlot(grow, cudaP::kGrowAzimuth), 0.0));
+            controls.azimuthRandom = float(params.GetDouble(StepSlot(grow, cudaP::kGrowAzimuthRandom), 0.0));
             controls.fallbackWidth = desc.defaultWidth;
-            auto const direction = params.GetToken(TfToken("direction"), TfToken("surfaceNormal"));
-            controls.direction = direction == TfToken("vector") ? gpu::CurveGrowDirection::Literal :
-                direction == TfToken("attribute") ? gpu::CurveGrowDirection::RootTangent : gpu::CurveGrowDirection::RootNormal;
-            auto const vector = params.GetVtValue(TfToken("directionVector"), VtValue(GfVec3f(0,1,0))).UncheckedGet<GfVec3f>();
+            char const* direction = TokenText(params, StepSlot(grow, cudaP::kGrowDirection), "surfaceNormal");
+            controls.direction = std::strcmp(direction, "vector") == 0 ? gpu::CurveGrowDirection::Literal :
+                std::strcmp(direction, "attribute") == 0 ? gpu::CurveGrowDirection::RootTangent : gpu::CurveGrowDirection::RootNormal;
+            VtValue const vectorFallback(GfVec3f(0,1,0));
+            auto const vector = params.GetValue(StepSlot(grow, cudaP::kGrowDirectionVector), vectorFallback).UncheckedGet<GfVec3f>();
             controls.literalDirection = make_float3(vector[0], vector[1], vector[2]);
         }
-        auto lut = [&](char const* knotsName, char const* interpolationName, auto& output) {
-            auto value = params.GetVtValue(TfToken(knotsName), VtValue(VtVec2fArray{}));
-            UsdGenBuildRampLut(value.UncheckedGet<VtVec2fArray>(),
-                params.GetToken(TfToken(interpolationName), TfToken("catmullRom")), output.data(), output.size());
-        };
-        if (width->type == TfToken("UsdGenWidth")) {
-            lut("width:knots", "width:interpolation", width->profile);
-            UsdGenWidthBezierLut(params, width->profile.data(), width->profile.size());
-        } else if (width->type == TfToken("UsdGenNoise"))
-            lut("noise:magnitude:knots", "noise:magnitude:interpolation", width->profile);
-        if (width->type == TfToken("UsdGenDeform")) {
+        BuildCudaStepProfile(params, *width, &width->profile);
+        if (width->stage == UsdGenCudaStage::Deform) {
             auto found = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
                 [&](auto const& surface) { return surface.path == desc.nodes[nodeIndex].surfaces.front(); });
             if (found == desc.surfaces.end()) { Fail(diagnostics, "missing RBF surface"); return {}; }
-            if (PrepareCudaSurface(*found, params.GetInt(TfToken("rbfSamples"), 100),
+            if (PrepareCudaSurface(*found, params.GetInt(StepSlot(*width, cudaP::kDeformRbfSamples), 100),
                     &width->surface, &errors) != CudaSurfacePreparationStatus::Ok) {
                 for (auto const& error : errors) Fail(diagnostics, error);
                 return {};
@@ -3309,7 +3454,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     // accounting independent of CUDA objects so plan consumers can inspect it
     // before a device/context exists.
     auto const& sourceNodeDesc = desc.nodes[layout.source];
-    SdfPath const sourcePath = sourceNodeDesc.type == TfToken("UsdGenReferenceSource")
+    SdfPath const sourcePath = CudaIs(sourceNodeDesc, UsdGenCudaStage::ReferenceSource)
         ? sourceNodeDesc.references.front()
         : sourceNodeDesc.curves.front();
     auto sourceIt = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
@@ -3318,12 +3463,11 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         Fail(diagnostics, "CUDA memory estimate requires the source curve set");
         return {};
     }
-    UsdGenParamView sourceParams;
-    sourceParams.desc = &desc;
-    sourceParams.node = &desc.nodes[layout.source];
-    bool const sourceSurfaceCage = sourceNodeDesc.type == TfToken("UsdGenCurveSource") &&
-        sourceParams.GetToken(TfToken("interpolationMode"), TfToken("none")) ==
-            TfToken("surfaceCage");
+    CudaNodeParams const sourceResolved(desc, desc.nodes[layout.source]);
+    UsdGenParamView const& sourceParams = sourceResolved.View();
+    bool const sourceSurfaceCage = CudaIs(sourceNodeDesc, UsdGenCudaStage::CurveSource) &&
+        TokenIs(sourceParams, sourceResolved.Slot(cudaP::kSrcInterpolationMode), "none",
+                "surfaceCage");
     uint64_t sourcePoints = static_cast<uint64_t>(sourceIt->points.size());
     uint64_t sourceCurves =
         static_cast<uint64_t>(sourceIt->curveVertexCounts.size());
@@ -3383,7 +3527,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             break;
         }
     }
-    int const literalResample = sourceParams.GetInt(TfToken("resampleTo"), 0);
+    int const literalResample = sourceParams.GetInt(sourceResolved.Slot(cudaP::kSrcResampleTo), 0);
     uint64_t finalPoints = sourcePoints;
     bool finalCardinalityKnown = !sourceHasDynamicResample;
     if (finalCardinalityKnown && literalResample > 0 &&
@@ -3393,15 +3537,16 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         return {};
     }
     bool const hasC3Grow = std::any_of(layout.operators.begin(), layout.operators.end(),
-        [&](uint32_t index) { return desc.nodes[index].type == TfToken("UsdGenGrow"); });
+        [&](uint32_t index) { return CudaIs(desc.nodes[index], UsdGenCudaStage::Grow); });
     // C3 and Grow outputs coexist through publication. A common upper-bound
     // cardinality keeps all evaluator/Width estimates conservative even when
     // Grow increases or reduces the per-curve CV count.
     if (hasC3Grow && finalCardinalityKnown) {
-        for (auto index : layout.operators) if (desc.nodes[index].type == TfToken("UsdGenGrow")) {
-            UsdGenParamView controls{&desc, &desc.nodes[index]};
+        for (auto index : layout.operators) if (CudaIs(desc.nodes[index], UsdGenCudaStage::Grow)) {
+            CudaNodeParams const controls(desc, desc.nodes[index]);
             uint64_t grownPoints = 0;
-            if (!EstimateMultiply(sourceCurves, uint64_t(controls.GetInt(TfToken("segments"), 8)), &grownPoints)) {
+            int const segments = controls.View().GetInt(controls.Slot(cudaP::kGrowSegments), 8);
+            if (!EstimateMultiply(sourceCurves, uint64_t(segments), &grownPoints)) {
                 Fail(diagnostics, "CUDA Grow memory estimate overflow"); return {};
             }
             finalPoints = std::max(finalPoints, grownPoints);
@@ -3565,7 +3710,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             uint64_t output = finalCardinalityKnown ? finalGeometryBytes : 0;
             uint64_t retention = 0;
             if (hasC3Grow || std::any_of(layout.operators.begin(), layout.operators.end(),
-                    [&](uint32_t index) { return desc.nodes[index].type == TfToken("UsdGenNoise"); })) {
+                    [&](uint32_t index) { return CudaIs(desc.nodes[index], UsdGenCudaStage::Noise); })) {
                 uint64_t frames = 0;
                 if (!EstimateMultiply(sourceCurves, 9 * sizeof(float), &frames) ||
                     !EstimateAdd(&steady, frames))
@@ -3594,7 +3739,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 finalCardinalityKnown);
             return true;
         }
-        if (node.type == TfToken("UsdGenWidth")) {
+        if (CudaIs(node, UsdGenCudaStage::Width)) {
             uint64_t scratch = 0;
             uint64_t retention = finalCardinalityKnown ? finalGeometryBytes : 0;
             // A descendant width consumes its immediate predecessor's unique
@@ -3613,7 +3758,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 retention, scratch, finalCardinalityKnown);
             return true;
         }
-        if (node.type == TfToken("UsdGenWidthBlend")) {
+        if (CudaIs(node, UsdGenCudaStage::WidthBlend)) {
             uint64_t retention = finalCardinalityKnown ? finalGeometryBytes : 0;
             // Both predecessor Width values remain immutable and live until
             // the blend terminal joins the job.  Count both explicitly here;
@@ -3634,7 +3779,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 proof ? compareStatusBytes : 0, finalCardinalityKnown);
             return true;
         }
-        if (node.type == TfToken("UsdGenNoise")) {
+        if (CudaIs(node, UsdGenCudaStage::Noise)) {
             uint64_t frameBytes = 0, scratch = 0, retention =
                 finalCardinalityKnown ? finalGeometryBytes : 0;
             // Frames remain an immutable source-order COW input. Noise uses
@@ -3652,7 +3797,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 retention, scratch, finalCardinalityKnown);
             return true;
         }
-        if (node.type == TfToken("UsdGenGrow")) {
+        if (CudaIs(node, UsdGenCudaStage::Grow)) {
             uint64_t frames = 0, output = finalGeometryBytes, steady = evaluatorBytes;
             uint64_t scratch = sourceIt->authoredPlanes.empty() ? 0 : 2 * sizeof(int);
             if (!EstimateMultiply(sourceCurves, 9 * sizeof(float), &frames) ||
@@ -3662,7 +3807,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 scratch, finalCardinalityKnown);
             return true;
         }
-        if (node.type == TfToken("UsdGenLength")) {
+        if (CudaIs(node, UsdGenCudaStage::Length)) {
             uint64_t changedPoints = 0, curveScratch = 0, scratch = 0;
             if (!EstimateMultiply(finalPoints, 6 * sizeof(float), &changedPoints) ||
                 !EstimateMultiply(sourceCurves, 18, &curveScratch) ||
@@ -3714,11 +3859,11 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             (capability->flags & UsdGenCapabilityTopologyBarrier) != 0;
         task.exclusiveWorkspace =
             (capability->flags & UsdGenCapabilityExclusiveWorkspace) != 0;
-        if (!layout.taskDag && node.type == TfToken("UsdGenWidth"))
+        if (!layout.taskDag && CudaIs(node, UsdGenCudaStage::Width))
             task.exclusiveWorkspace = true;
-        if (layout.taskDag && IsCudaWidthValueNode(node.type))
+        if (layout.taskDag && IsCudaWidthValueNode(node))
             task.exclusiveWorkspace = false;
-        if (layout.geometryValueDag && node.type == TfToken("UsdGenNoise"))
+        if (layout.geometryValueDag && CudaIs(node, UsdGenCudaStage::Noise))
             task.exclusiveWorkspace = true;
         if (task.kind == UsdGenExecutionTaskKind::Source) {
             task.resources = {
@@ -3729,7 +3874,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Write},
                 {UsdGenExecutionDataKind::NamedChannels, UsdGenExecutionResourceAccess::Write},
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
-        } else if (node.type == TfToken("UsdGenWidth")) {
+        } else if (CudaIs(node, UsdGenCudaStage::Width)) {
             task.resources = {
                 {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
@@ -3742,7 +3887,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 UsdGenExecutionResourceAccess::Read});
             task.resources.push_back({UsdGenExecutionDataKind::RootBindings,
                 UsdGenExecutionResourceAccess::Read});
-        } else if (node.type == TfToken("UsdGenWidthBlend")) {
+        } else if (CudaIs(node, UsdGenCudaStage::WidthBlend)) {
             task.resources = {
                 {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
@@ -3753,7 +3898,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 // A second Widths read models ordered right-hand fan-in as a
                 // real logical value/dependency, never an undocumented wait.
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Read}};
-        } else if (node.type == TfToken("UsdGenLength") || node.type == TfToken("UsdGenGrow")) {
+        } else if (CudaIs(node, UsdGenCudaStage::Length) || CudaIs(node, UsdGenCudaStage::Grow)) {
             task.resources = {
                 {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::ReadWrite},
@@ -3762,7 +3907,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::NamedChannels, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
-        } else if (node.type == TfToken("UsdGenNoise")) {
+        } else if (CudaIs(node, UsdGenCudaStage::Noise)) {
             task.resources = {
                 {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
@@ -3771,7 +3916,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::NamedChannels, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
-        } else if (node.type == TfToken("UsdGenDeform")) {
+        } else if (CudaIs(node, UsdGenCudaStage::Deform)) {
             // Deform establishes only a new point owner. Its exact authored
             // predecessor continues to own topology, IDs, root bindings,
             // widths, and named channels, all of which are immutable inputs
@@ -3792,11 +3937,11 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::SurfaceGeometry, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
         }
-        if (node.type == TfToken("UsdGenGrow") && !node.mapBindings.empty())
+        if (CudaIs(node, UsdGenCudaStage::Grow) && !node.mapBindings.empty())
             task.resources.push_back({UsdGenExecutionDataKind::ImageMaps,
                 UsdGenExecutionResourceAccess::Read});
         bindResourceValues(task, semanticNode);
-        if (node.type == TfToken("UsdGenWidthBlend")) {
+        if (CudaIs(node, UsdGenCudaStage::WidthBlend)) {
             uint32_t const right = layout.rightInput[semanticNode];
             auto found = right < nodeValues.size()
                 ? nodeValues[right].find(UsdGenExecutionDataKind::Widths)
@@ -3866,7 +4011,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     terminal.authoredOrderKey = static_cast<uint64_t>(desc.nodes.size());
     terminal.kind = UsdGenExecutionTaskKind::Publication;
     terminal.path = desc.nodes[layout.terminal].path;
-    terminal.type = TfToken("UsdGenPublication");
+    terminal.type = kCudaPublicationTask;
     // Publication consumes the declared terminal value, while this explicit
     // lifetime join proves every launched relay has completed before any
     // job-owned stream/value can be moved or released.  It is not a hidden
@@ -3919,22 +4064,22 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     UsdGenExecutionGraphMemoryEstimate graphMemory;
     bool const hasLiteralLength = std::any_of(layout.operators.begin(),
         layout.operators.end(), [&](uint32_t semanticNode) {
-            return desc.nodes[semanticNode].type == TfToken("UsdGenLength");
+            return CudaIs(desc.nodes[semanticNode], UsdGenCudaStage::Length);
         });
     bool const literalLengthOperators = std::all_of(layout.operators.begin(),
         layout.operators.end(), [&](uint32_t semanticNode) {
             auto const& operatorNode = desc.nodes[semanticNode];
-            return (IsCudaWidthValueNode(operatorNode.type) ||
-                    operatorNode.type == TfToken("UsdGenLength") ||
-                    operatorNode.type == TfToken("UsdGenGrow") ||
-                    operatorNode.type == TfToken("UsdGenNoise"));
+            return (IsCudaWidthValueNode(operatorNode) ||
+                    CudaIs(operatorNode, UsdGenCudaStage::Length) ||
+                    CudaIs(operatorNode, UsdGenCudaStage::Grow) ||
+                    CudaIs(operatorNode, UsdGenCudaStage::Noise));
         });
     bool literalRbf = false;
 #ifdef USDGEN_ENABLE_CUDA
     literalRbf = !layout.widthDag && finalCardinalityKnown &&
         sourceHasCompleteRoots &&
         literalResample == 0 && layout.operators.size() == 1 &&
-        desc.nodes[layout.operators.front()].type == TfToken("UsdGenDeform") &&
+        CudaIs(desc.nodes[layout.operators.front()], UsdGenCudaStage::Deform) &&
         !HasExpressionBinding(desc.nodes[layout.operators.front()], "rbfSamples") &&
         plan->steps.size() == 1 && !plan->steps.front()->surface.restPoints.empty() &&
         plan->steps.front()->surface.currentPoints.size() ==
@@ -4007,7 +4152,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     }
     bool const hasValueFanIn = std::any_of(
         desc.nodes.begin(), desc.nodes.end(), [](UsdGenNodeDesc const& node) {
-            return node.type == TfToken("UsdGenWidthBlend");
+            return CudaIs(node, UsdGenCudaStage::WidthBlend);
         });
     plan->metadata = std::make_shared<const UsdGenExecutionPlanMetadata>(
         "cuda", matrix.Version(), hasValueFanIn
@@ -4379,8 +4524,9 @@ struct SourceRelayService {
                     phaseOk = relay->controls && relay->controls->CommitFreshPrograms() == CudaParameterStatus::Ok;
                     if (phaseOk) {
                         relay->scalarPacket = std::make_unique<CudaGroomScalarReadback>();
-                        std::vector<CudaGroomScalarRequest> requests{{TfToken("useRest"),expr::ScalarType::Bool},
-                                                                      {TfToken("resampleTo"),expr::ScalarType::Int32}};
+                        std::vector<CudaGroomScalarRequest> requests;
+                        AddSourceRequest(*job->plan, cudaP::kSrcUseRest, expr::ScalarType::Bool, &requests);
+                        AddSourceRequest(*job->plan, cudaP::kSrcResampleTo, expr::ScalarType::Int32, &requests);
                         phaseOk = relay->scalarPacket->BeginFresh(
                             relay->controls->Fields(), requests, stream,
                             job->memoryReservation.get()) == CudaParameterStatus::Ok;
@@ -4388,14 +4534,16 @@ struct SourceRelayService {
                 } else if (phaseOk && phase == SourceScalars) {
                     phaseOk = relay->scalarPacket && relay->scalarPacket->CommitFreshFinish() == CudaParameterStatus::Ok;
                     if (phaseOk) {
-                        auto const& node=job->plan->desc.nodes[job->plan->sourceNode]; UsdGenParamView params; params.desc=&job->plan->desc; params.node=&node;
-                        relay->provenOptions.useRest=params.GetBool(TfToken("useRest"),true);
-                        relay->provenOptions.resampleTo=params.GetInt(TfToken("resampleTo"),0);
-                        if (auto const* value=relay->scalarPacket->Find(TfToken("useRest"))) {
+                        UsdGenParamView const params = SourceValues(*job->plan);
+                        UsdGenParamSlot const useRest = SourceSlot(*job->plan, cudaP::kSrcUseRest);
+                        UsdGenParamSlot const resampleTo = SourceSlot(*job->plan, cudaP::kSrcResampleTo);
+                        relay->provenOptions.useRest=params.GetBool(useRest,true);
+                        relay->provenOptions.resampleTo=params.GetInt(resampleTo,0);
+                        if (auto const* value=relay->scalarPacket->Find(useRest)) {
                             uint8_t raw=0; std::memcpy(&raw,value->bytes.data(),sizeof(raw));
                             phaseOk = raw <= 1; relay->provenOptions.useRest = raw != 0;
                         }
-                        if (phaseOk) if (auto const* value=relay->scalarPacket->Find(TfToken("resampleTo"))) {
+                        if (phaseOk) if (auto const* value=relay->scalarPacket->Find(resampleTo)) {
                             int raw=0; std::memcpy(&raw,value->bytes.data(),sizeof(raw));
                             phaseOk = raw >= 0 && raw != 1; relay->provenOptions.resampleTo = raw;
                         }
@@ -5391,7 +5539,7 @@ struct OperatorRelayService {
         }
         bool const geometryGuard = relay->geometryGuard;
         bool const noiseGuard = job && job->plan && relay->index < job->plan->steps.size() &&
-            job->plan->steps[relay->index]->type == TfToken("UsdGenNoise");
+            job->plan->steps[relay->index]->stage == UsdGenCudaStage::Noise;
         if (!ok && job) job->CloseMemoryReservation();
         relay->candidate.reset(); relay->length.reset(); relay->grow.reset(); relay->noise.reset(); relay->rbf.reset(); relay->job.reset();
         slots[index].relay.reset(); slots[index].occupied.store(false, std::memory_order_release);
@@ -5485,7 +5633,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
         if (!Install(slots[slotIndex], 1, stream, OperatorCallback)) { selected.Restore(); Finish(slotIndex, false, true); return; }
         selected.Restore(); slots[slotIndex].Return(1); return;
     }
-    if (phase == 6 && job->plan->steps[relay->index]->type == TfToken("UsdGenWidthBlend")) {
+    if (phase == 6 && job->plan->steps[relay->index]->stage == UsdGenCudaStage::WidthBlend) {
         if (!relay->candidate || !relay->candidate->nonWidthCompare) {
             selected.Restore(); Finish(slotIndex, false, false); return;
         }
@@ -5521,7 +5669,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
         if (runtime.parameters.CommitFreshPrograms() != CudaParameterStatus::Ok) {
             selected.Restore(); Finish(slotIndex, false, runtime.parameters.HasUnprovenWork()); return;
         }
-        if (step.type == TfToken("UsdGenGrow")) {
+        if (step.stage == UsdGenCudaStage::Grow) {
             if (job->plan->geometryValueDag) {
                 auto const inputNode = step.inputNode;
                 if (inputNode >= job->state.geometryValues.size()) {
@@ -5551,7 +5699,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             }
             selected.Restore(); slots[slotIndex].Return(2); return;
         }
-        if (step.type == TfToken("UsdGenDeform")) {
+        if (step.stage == UsdGenCudaStage::Deform) {
             if (job->plan->geometryValueDag &&
                 (step.inputNode >= job->state.geometryValues.size() ||
                  job->state.geometryValues[step.inputNode].deformed)) {
@@ -5562,12 +5710,12 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             auto candidate = std::make_unique<OperatorRbfCandidate>();
             candidate->cache = runtime.rbf.get();
             candidate->budgetPacket = std::make_unique<CudaGroomScalarReadback>();
-            UsdGenParamView values; values.desc = &job->plan->desc;
-            values.node = &job->plan->desc.nodes[step.semanticNode];
-            candidate->budget = static_cast<uint32_t>(values.GetInt(TfToken("rbfSamples"), 100));
+            UsdGenParamView const values = StepValues(*job->plan, step);
+            UsdGenParamSlot const rbfSamples = StepSlot(step, cudaP::kDeformRbfSamples);
+            candidate->budget = static_cast<uint32_t>(values.GetInt(rbfSamples, 100));
             if (!candidate->cache || candidate->budget < 4 || candidate->budget > 46336 ||
                 candidate->budgetPacket->BeginFresh(runtime.parameters.Fields(),
-                    {{TfToken("rbfSamples"), expr::ScalarType::Int32}}, stream,
+                    {{step.record->ParamName(rbfSamples), expr::ScalarType::Int32, rbfSamples}}, stream,
                     job->memoryReservation.get()) != CudaParameterStatus::Ok) {
                 selected.Restore(); Finish(slotIndex, false,
                     candidate->budgetPacket && candidate->budgetPacket->HasUnprovenWork()); return;
@@ -5578,7 +5726,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             }
             selected.Restore(); slots[slotIndex].Return(2); return;
         }
-        if (step.type == TfToken("UsdGenLength")) {
+        if (step.stage == UsdGenCudaStage::Length) {
             auto candidate = std::make_unique<OperatorLengthCandidate>();
             candidate->changedPoints = std::make_unique<gpu::DeviceBuffer<float3>>();
             candidate->keep = std::make_unique<gpu::DeviceBuffer<uint8_t>>();
@@ -5592,15 +5740,13 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                     reservation, UsdGenExecutionResourceKind::Scratch) != cudaSuccess) {
                 selected.Restore(); Finish(slotIndex, false, false); return;
             }
-            UsdGenParamView values; values.desc = &job->plan->desc; values.node = &job->plan->desc.nodes[step.semanticNode];
-            auto field = [&](char const* name, float fallback) { if (auto const* e = runtime.parameters.Find(TfToken(name))) return gpu::ScalarField::Device({static_cast<float const*>(e->data), e->count}, e->domain); return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(TfToken(name), fallback))); };
-            auto boolean = [&](char const* name, bool fallback) { if (auto const* e = runtime.parameters.Find(TfToken(name))) return gpu::BoolField::Device({static_cast<uint8_t const*>(e->data), e->count}, e->domain); return gpu::BoolField::Literal(values.GetBool(TfToken(name), fallback)); };
-            gpu::LengthParameters p; auto mode = values.GetToken(TfToken("length:mode"), TfToken("scale"));
-            p.mode = mode == TfToken("set") ? gpu::LengthMode::Set : mode == TfToken("cull") ? gpu::LengthMode::Cull : gpu::LengthMode::Scale;
-            p.method = values.GetToken(TfToken("length:method"), TfToken("scale")) == TfToken("cutExtend") ? gpu::LengthMethod::CutExtend : gpu::LengthMethod::Scale;
-            p.rebuild = values.GetToken(TfToken("rebuild"), TfToken("keepParam")) == TfToken("reparam") ? gpu::LengthRebuild::Reparam : gpu::LengthRebuild::KeepParam;
-            p.value = field("length:value", 1); p.mask = field("mask", 1); p.minRemainingLength = field("minRemainingLength", 0); p.cullThreshold = field("cullThreshold", 0); p.enabled = boolean("enabled", values.node->enabled); p.seed = values.node->seed;
-            if (auto e = runtime.parameters.Find(TfToken("length:random"))) p.random = gpu::Vec2Field::Device({static_cast<float2 const*>(e->data), e->count}, e->domain); else { auto v = values.GetVtValue(TfToken("length:random"), VtValue(GfVec2f(1,1))).UncheckedGet<GfVec2f>(); p.random = gpu::Vec2Field::Literal(make_float2(v[0],v[1])); }
+            UsdGenParamView const values = StepValues(*job->plan, step);
+            auto field = [&](auto index, float fallback) { if (auto const* e = runtime.parameters.Find(StepSlot(step, index))) return gpu::ScalarField::Device({static_cast<float const*>(e->data), e->count}, e->domain); return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(StepSlot(step, index), fallback))); };
+            auto boolean = [&](auto index, bool fallback) { if (auto const* e = runtime.parameters.Find(StepSlot(step, index))) return gpu::BoolField::Device({static_cast<uint8_t const*>(e->data), e->count}, e->domain); return gpu::BoolField::Literal(values.GetBool(StepSlot(step, index), fallback)); };
+            gpu::LengthParameters p; SetLengthModes(values, step, &p);
+            p.value = field(cudaP::kLenValue, 1); p.mask = field(cudaP::kLenMask, 1); p.minRemainingLength = field(cudaP::kLenMinRemaining, 0); p.cullThreshold = field(cudaP::kLenCull, 0); p.enabled = boolean(cudaP::kLenEnabled, values.node->enabled); p.seed = values.node->seed;
+            UsdGenParamSlot const random = StepSlot(step, cudaP::kLenRandom);
+            if (auto e = runtime.parameters.Find(random)) p.random = gpu::Vec2Field::Device({static_cast<float2 const*>(e->data), e->count}, e->domain); else { VtValue const one(GfVec2f(1,1)); auto v = values.GetValue(random, one).UncheckedGet<GfVec2f>(); p.random = gpu::Vec2Field::Literal(make_float2(v[0],v[1])); }
             relay->length->submitted = true;
             if (relay->length->length->ApplyFresh(relay->geometry, relay->hairT, p, relay->length->changedPoints->view(), relay->length->keep->view(), stream, reservation) != gpu::StyleStatus::Ok) {
                 if (relay->length->length->HasUnprovenWork() || !InstallGate(slots[slotIndex], 2, stream) || failInstall[2].exchange(false, std::memory_order_acq_rel) || cudaStreamAddCallback(stream, OperatorCallback, &slots[slotIndex].callback[2], 0) != cudaSuccess) { selected.Restore(); Finish(slotIndex, false, true); return; }
@@ -5609,11 +5755,10 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             if (!InstallGate(slots[slotIndex], 2, stream) || failInstall[2].exchange(false, std::memory_order_acq_rel) || relay->length->length->FinishFreshAsync(stream, OperatorCallback, &slots[slotIndex].callback[2]) != gpu::StyleStatus::Ok) { selected.Restore(); Finish(slotIndex, false, true); return; }
             selected.Restore(); slots[slotIndex].Return(2); return;
         }
-        if (step.type == TfToken("UsdGenWidthBlend")) {
+        if (step.stage == UsdGenCudaStage::WidthBlend) {
             auto candidate = std::make_unique<OperatorWidthCandidate>();
             candidate->widthBlend = true;
-            candidate->blend = CudaWidthBlendWeight(job->plan->desc,
-                job->plan->desc.nodes[step.semanticNode]);
+            candidate->blend = CudaWidthBlendWeight(StepValues(*job->plan, step), step.kernel);
             candidate->widths = std::make_unique<gpu::DeviceBuffer<float>>();
             relay->candidate = std::move(candidate);
             auto* const reservation = job->memoryReservation.get();
@@ -5675,7 +5820,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             }
             selected.Restore(); slots[slotIndex].Return(2); return;
         }
-        if (step.type == TfToken("UsdGenNoise")) {
+        if (step.stage == UsdGenCudaStage::Noise) {
             auto candidate = std::make_unique<OperatorNoiseCandidate>();
             candidate->profile = std::make_unique<gpu::DeviceBuffer<float>>();
             candidate->points = std::make_unique<gpu::DeviceBuffer<float3>>();
@@ -5702,39 +5847,38 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                 bool const unsafe = uploaded && gpu::CudaFenceStream(stream) != cudaSuccess;
                 selected.Restore(); Finish(slotIndex, false, unsafe); return;
             }
-            UsdGenParamView values; values.desc = &job->plan->desc;
-            values.node = &job->plan->desc.nodes[step.semanticNode];
-            auto field = [&](char const* name, float fallback) {
-                if (auto const* e = runtime.parameters.Find(TfToken(name)))
+            UsdGenParamView const values = StepValues(*job->plan, step);
+            auto field = [&](auto index, float fallback) {
+                if (auto const* e = runtime.parameters.Find(StepSlot(step, index)))
                     return gpu::ScalarField::Device(
                         {static_cast<float const*>(e->data), e->count}, e->domain);
                 return gpu::ScalarField::Literal(
-                    static_cast<float>(values.GetDouble(TfToken(name), fallback)));
+                    static_cast<float>(values.GetDouble(StepSlot(step, index), fallback)));
             };
-            auto boolean = [&](char const* name, bool fallback) {
-                if (auto const* e = runtime.parameters.Find(TfToken(name)))
+            auto boolean = [&](auto index, bool fallback) {
+                if (auto const* e = runtime.parameters.Find(StepSlot(step, index)))
                     return gpu::BoolField::Device(
                         {static_cast<uint8_t const*>(e->data), e->count}, e->domain);
-                return gpu::BoolField::Literal(values.GetBool(TfToken(name), fallback));
+                return gpu::BoolField::Literal(values.GetBool(StepSlot(step, index), fallback));
             };
-            auto integer = [&](char const* name, int fallback) {
-                if (auto const* e = runtime.parameters.Find(TfToken(name)))
+            auto integer = [&](auto index, int fallback) {
+                if (auto const* e = runtime.parameters.Find(StepSlot(step, index)))
                     return gpu::IntField::Device(
                         {static_cast<int32_t const*>(e->data), e->count}, e->domain);
-                return gpu::IntField::Literal(values.GetInt(TfToken(name), fallback));
+                return gpu::IntField::Literal(values.GetInt(StepSlot(step, index), fallback));
             };
             gpu::NoiseParameters parameters;
-            parameters.magnitude = field("noise:magnitude", .05f);
-            parameters.frequency = field("noise:frequency", 3.0f);
-            parameters.correlation = field("noise:correlation", .5f);
-            parameters.octaves = integer("noise:octaves", 1);
-            parameters.lacunarity = field("noise:lacunarity", 2.0f);
-            parameters.gain = field("noise:gain", .5f);
-            parameters.preserveLength = field("preserveLength", 1.0f);
-            parameters.mask = field("mask", 1.0f);
-            parameters.enabled = boolean("enabled", values.node->enabled);
-            parameters.cumulative = boolean("cumulative", false);
-            parameters.seed = integer("noise:seed", values.node->seed);
+            parameters.magnitude = field(cudaP::kNoiseMagnitude, .05f);
+            parameters.frequency = field(cudaP::kNoiseFrequency, 3.0f);
+            parameters.correlation = field(cudaP::kNoiseCorrelation, .5f);
+            parameters.octaves = integer(cudaP::kNoiseOctaves, 1);
+            parameters.lacunarity = field(cudaP::kNoiseLacunarity, 2.0f);
+            parameters.gain = field(cudaP::kNoiseGain, .5f);
+            parameters.preserveLength = field(cudaP::kNoisePreserveLength, 1.0f);
+            parameters.mask = field(cudaP::kNoiseMask, 1.0f);
+            parameters.enabled = boolean(cudaP::kNoiseEnabled, values.node->enabled);
+            parameters.cumulative = boolean(cudaP::kNoiseCumulative, false);
+            parameters.seed = integer(cudaP::kNoiseSeed, values.node->seed);
             parameters.magnitudeProfile = {
                 noise.profile->data(), noise.profile->size()};
             noise.submitted = true;
@@ -5773,21 +5917,21 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
         candidate->profile = std::make_unique<gpu::DeviceBuffer<float>>();
         candidate->widths = std::make_unique<gpu::DeviceBuffer<float>>();
         candidate->width = std::make_unique<gpu::CudaWidth>();
-        UsdGenParamView values; values.desc = &job->plan->desc; values.node = &job->plan->desc.nodes[step.semanticNode];
-        auto field = [&](char const* name, float fallback) {
-            if (auto const* expression = runtime.parameters.Find(TfToken(name)))
+        UsdGenParamView const values = StepValues(*job->plan, step);
+        auto field = [&](auto index, float fallback) {
+            if (auto const* expression = runtime.parameters.Find(StepSlot(step, index)))
                 return gpu::ScalarField::Device({static_cast<float const*>(expression->data), expression->count}, expression->domain);
-            return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(TfToken(name), fallback)));
+            return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(StepSlot(step, index), fallback)));
         };
-        auto boolean = [&](char const* name, bool fallback) {
-            if (auto const* expression = runtime.parameters.Find(TfToken(name)))
+        auto boolean = [&](auto index, bool fallback) {
+            if (auto const* expression = runtime.parameters.Find(StepSlot(step, index)))
                 return gpu::BoolField::Device({static_cast<uint8_t const*>(expression->data), expression->count}, expression->domain);
-            return gpu::BoolField::Literal(values.GetBool(TfToken(name), fallback));
+            return gpu::BoolField::Literal(values.GetBool(StepSlot(step, index), fallback));
         };
         gpu::WidthParameters parameters;
-        parameters.width = field("width", .01f);
-        parameters.mask = field("mask", 1); parameters.enabled = boolean("enabled", values.node->enabled);
-        parameters.replace = boolean("replace", true);
+        parameters.width = field(cudaP::kWidthWidth, .01f);
+        parameters.mask = field(cudaP::kWidthMask, 1); parameters.enabled = boolean(cudaP::kWidthEnabled, values.node->enabled);
+        parameters.replace = boolean(cudaP::kWidthReplace, true);
         relay->candidate = std::move(candidate);
         auto* const reservation = job->memoryReservation.get();
         if (relay->candidate->profile->reset(step.profile.size(), reservation,
@@ -5865,7 +6009,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             if (candidate.budgetPacket->CommitFreshFinish() != CudaParameterStatus::Ok) {
                 failRbf(candidate.budgetPacket->HasUnprovenWork()); return;
             }
-            if (auto const* value = candidate.budgetPacket->Find(TfToken("rbfSamples"))) {
+            if (auto const* value = candidate.budgetPacket->Find(StepSlot(step, cudaP::kDeformRbfSamples))) {
                 int raw = 0; std::memcpy(&raw, value->bytes.data(), sizeof(raw));
                 if (raw < 4 || raw > 46336) { failRbf(false); return; }
                 candidate.budget = static_cast<uint32_t>(raw);
@@ -5918,21 +6062,20 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                 candidate.points->reset(relay->geometry.pointCount, reservation) != cudaSuccess) {
                 failRbf(false); return;
             }
-            UsdGenParamView values; values.desc = &job->plan->desc;
-            values.node = &job->plan->desc.nodes[step.semanticNode];
-            auto field = [&](char const* name, float fallback) {
-                if (auto const* e = runtime.parameters.Find(TfToken(name)))
+            UsdGenParamView const values = StepValues(*job->plan, step);
+            auto field = [&](auto index, float fallback) {
+                if (auto const* e = runtime.parameters.Find(StepSlot(step, index)))
                     return gpu::ScalarField::Device({static_cast<float const*>(e->data), e->count}, e->domain);
-                return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(TfToken(name), fallback)));
+                return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(StepSlot(step, index), fallback)));
             };
-            auto boolean = [&](char const* name, bool fallback) {
-                if (auto const* e = runtime.parameters.Find(TfToken(name)))
+            auto boolean = [&](auto index, bool fallback) {
+                if (auto const* e = runtime.parameters.Find(StepSlot(step, index)))
                     return gpu::BoolField::Device({static_cast<uint8_t const*>(e->data), e->count}, e->domain);
-                return gpu::BoolField::Literal(values.GetBool(TfToken(name), fallback));
+                return gpu::BoolField::Literal(values.GetBool(StepSlot(step, index), fallback));
             };
-            candidate.parameters.mask = field("mask", 1);
-            candidate.parameters.enabled = boolean("enabled", values.node->enabled);
-            candidate.parameters.lockRoots = boolean("lockRoots", true);
+            candidate.parameters.mask = field(cudaP::kDeformMask, 1);
+            candidate.parameters.enabled = boolean(cudaP::kDeformEnabled, values.node->enabled);
+            candidate.parameters.lockRoots = boolean(cudaP::kDeformLockRoots, true);
             if (candidate.rebind) {
                 candidate.freshState = std::make_unique<CudaRbfCache::State>();
                 candidate.freshState->device = execution.device;
@@ -6166,7 +6309,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             selected.Restore(); slots[slotIndex].Return(5); return;
         }
     }
-    if ((phase == 2 || phase == 3) && step.type == TfToken("UsdGenGrow")) {
+    if ((phase == 2 || phase == 3) && step.stage == UsdGenCudaStage::Grow) {
         if (job->plan->geometryValueDag) {
             if (!relay->grow || !relay->grow->grow) {
                 selected.Restore(); Finish(slotIndex, false, false); return;
@@ -6414,12 +6557,12 @@ bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob> job, si
     if ((!taskDag && (job->operatorAsyncInFlight.load(std::memory_order_acquire) ||
                        index != job->nextOperator)) ||
         (taskDag && job->operatorStarted[index])) return false;
-    if (job->plan->steps[index]->type != TfToken("UsdGenWidth") &&
-        job->plan->steps[index]->type != TfToken("UsdGenWidthBlend") &&
-        job->plan->steps[index]->type != TfToken("UsdGenLength") &&
-        job->plan->steps[index]->type != TfToken("UsdGenGrow") &&
-        job->plan->steps[index]->type != TfToken("UsdGenDeform") &&
-        job->plan->steps[index]->type != TfToken("UsdGenNoise")) {
+    if (job->plan->steps[index]->stage != UsdGenCudaStage::Width &&
+        job->plan->steps[index]->stage != UsdGenCudaStage::WidthBlend &&
+        job->plan->steps[index]->stage != UsdGenCudaStage::Length &&
+        job->plan->steps[index]->stage != UsdGenCudaStage::Grow &&
+        job->plan->steps[index]->stage != UsdGenCudaStage::Deform &&
+        job->plan->steps[index]->stage != UsdGenCudaStage::Noise) {
         bool ok = ExecuteCudaJobOperator(*job, index);
         try { completion(ok); } catch (...) {}
         return true;
@@ -6427,7 +6570,7 @@ bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob> job, si
     auto& execution = *job->workspace->impl_;
     if (execution.poisoned.load(std::memory_order_acquire)) return false;
     bool const widthBranch = taskDag &&
-        IsCudaWidthValueNode(job->plan->steps[index]->type);
+        IsCudaWidthValueNode(job->plan->steps[index]->stage);
     auto const stream = widthBranch
         ? execution.widthStreams[index % execution.widthStreams.size()]
         : execution.stream;
@@ -6443,13 +6586,13 @@ bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob> job, si
     gpu::DeviceView<const float> rightWidths;
     if (!job->state.GetOperatorInput(*job->plan, index, stream, &geometry,
                                      &rightWidths, job->diagnostics)) return false;
-    bool const noiseStage = job->plan->steps[index]->type == TfToken("UsdGenNoise");
+    bool const noiseStage = job->plan->steps[index]->stage == UsdGenCudaStage::Noise;
     if (noiseStage && job->noiseAsyncInFlight.exchange(true, std::memory_order_acq_rel))
         return false;
     bool const geometryStage = job->plan->geometryValueDag &&
-        (noiseStage || job->plan->steps[index]->type == TfToken("UsdGenLength") ||
-         job->plan->steps[index]->type == TfToken("UsdGenGrow") ||
-         job->plan->steps[index]->type == TfToken("UsdGenDeform"));
+        (noiseStage || job->plan->steps[index]->stage == UsdGenCudaStage::Length ||
+         job->plan->steps[index]->stage == UsdGenCudaStage::Grow ||
+         job->plan->steps[index]->stage == UsdGenCudaStage::Deform);
     if (geometryStage && job->geometryAsyncInFlight.exchange(true,
             std::memory_order_acq_rel)) {
         if (noiseStage) job->noiseAsyncInFlight.store(false, std::memory_order_release);
@@ -8306,7 +8449,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
         live.insert(step->path);
         auto& runtime = execution.steps[step->path];
         if (!runtime) runtime = std::make_unique<UsdGenCudaExecutionWorkspace::Impl::Step>();
-        if (step->type != TfToken("UsdGenDeform")) runtime->rbf.reset();
+        if (step->stage != UsdGenCudaStage::Deform) runtime->rbf.reset();
         // A rest-key change is itself an asynchronous candidate.  Do not
         // discard this description's accepted cache before that candidate
         // survives bind, solve, deformation, and final publication.
@@ -8315,7 +8458,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     for (auto it = execution.steps.begin(); it != execution.steps.end(); )
         if (!live.count(it->first)) it = execution.steps.erase(it); else ++it;
     auto const& node = desc.nodes[plan.sourceNode];
-    bool const referenceSource = node.type == TfToken("UsdGenReferenceSource");
+    bool const referenceSource = CudaIs(node, UsdGenCudaStage::ReferenceSource);
     SdfPath const sourcePath = referenceSource
         ? node.references.front() : node.curves.front();
     auto found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
@@ -8328,9 +8471,9 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     // no worker consults a stage or a map relationship.
     UsdGenCurveSetDesc surfaceCageSource;
     UsdGenCurveSetDesc const* preparedInput = &*found;
-    TfToken const sourceInterpolationMode = UsdGenParamView{&desc, &node}.GetToken(
-        TfToken("interpolationMode"), TfToken("none"));
-    if (node.enabled && sourceInterpolationMode == TfToken("surfaceCage")) {
+    UsdGenParamView const params = SourceValues(plan);
+    if (node.enabled && TokenIs(params, SourceSlot(plan, cudaP::kSrcInterpolationMode), "none",
+                                "surfaceCage")) {
         std::string error;
         if (!UsdGenBuildSurfaceCageCurveSet(desc, node, *found,
                                              &surfaceCageSource, &error)) {
@@ -8365,32 +8508,32 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
         emptySource.curveGeneration = found->curveGeneration;
     }
     auto const& curves = node.enabled ? *preparedInput : emptySource;
-    if (curves.type != TfToken("cubic") ||
-        (curves.basis != TfToken("bspline") && curves.basis != TfToken("catmullRom")) ||
-        (curves.wrap != TfToken("pinned") && curves.wrap != TfToken("nonperiodic"))) {
+    UsdGenEngineTokens const& tokens = UsdGenTokens();
+    if (curves.type != tokens.cubic ||
+        (curves.basis != tokens.bspline && curves.basis != tokens.catmullRom) ||
+        (curves.wrap != tokens.pinned && curves.wrap != tokens.nonperiodic)) {
         Fail(diagnostics, "C3 requires cubic bspline/catmullRom curves with pinned/nonperiodic wrap"); this->failed = true; return false;
     }
-    if (curves.wrap == TfToken("nonperiodic") && diagnostics)
+    if (curves.wrap == tokens.nonperiodic && diagnostics)
         diagnostics->Warn("CUDA CurveSource promotes nonperiodic wrap to pinned; endpoints now reach the first/last CV");
     this->curveTopology = {
         UsdGenDeviceCurveType::Cubic,
-        curves.basis == TfToken("catmullRom")
+        curves.basis == tokens.catmullRom
             ? UsdGenDeviceCurveBasis::CatmullRom
             : UsdGenDeviceCurveBasis::BSpline,
         UsdGenDeviceCurveWrap::Pinned};
     if (!curves.widths.empty() &&
-        curves.widthsInterpolation != TfToken("vertex") && curves.widthsInterpolation != TfToken("constant")) {
+        curves.widthsInterpolation != tokens.vertex && curves.widthsInterpolation != tokens.constant) {
         Fail(diagnostics, "C3 widths must use vertex or constant interpolation"); this->failed = true; return false;
     }
     if (!curves.widths.empty() &&
-        ((curves.widthsInterpolation == TfToken("constant") && curves.widths.size() != 1) ||
-         (curves.widthsInterpolation == TfToken("vertex") && curves.widths.size() != curves.points.size()))) {
+        ((curves.widthsInterpolation == tokens.constant && curves.widths.size() != 1) ||
+         (curves.widthsInterpolation == tokens.vertex && curves.widths.size() != curves.points.size()))) {
         Fail(diagnostics, "C3 widths cardinality does not match interpolation"); this->failed = true; return false;
     }
-    if (!referenceSource && curves.curveRole != TfToken("hair")) {
+    if (!referenceSource && curves.curveRole != tokens.hair) {
         Fail(diagnostics, "CurveSource requires the C3 hair role"); this->failed = true; return false;
     }
-    UsdGenParamView params; params.desc = &desc; params.node = &node;
     std::vector<uint32_t> restOrder;
     std::vector<uint32_t> restInput(desc.nodes.size(), UINT32_MAX);
     restOrder.reserve(plan.steps.size());
@@ -8460,8 +8603,10 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     }
     CudaSourcePreparationOptions options;
     options.defaultWidth = desc.defaultWidth;
-    options.useRest = params.GetBool(TfToken("useRest"), true);
-    options.resampleTo = params.GetInt(TfToken("resampleTo"), 0);
+    UsdGenParamSlot const useRestSlot = SourceSlot(plan, cudaP::kSrcUseRest);
+    UsdGenParamSlot const resampleSlot = SourceSlot(plan, cudaP::kSrcResampleTo);
+    options.useRest = params.GetBool(useRestSlot, true);
+    options.resampleTo = params.GetInt(resampleSlot, 0);
     if (provenOptions) {
         // Async source controls have already completed their own native proof
         // and compact scalar readback.  Never evaluate/read back stale
@@ -8480,7 +8625,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             for (auto const& error : errors) Fail(diagnostics, error);
             Fail(diagnostics, "source expression evaluation failed; previous generation retained"); this->failed = true; return false;
         }
-        if (auto const* field = execution.sourceParameters->Find(TfToken("useRest"))) {
+        if (auto const* field = execution.sourceParameters->Find(useRestSlot)) {
             uint8_t value = 0;
             if (field->type != expr::ScalarType::Bool || field->count != 1 ||
                 cudaMemcpyAsync(&value, field->data, sizeof(value), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
@@ -8490,7 +8635,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             if (value > 1) { Fail(diagnostics, "invalid useRest expression value; previous generation retained"); this->failed = true; return false; }
             options.useRest = value != 0;
         }
-        if (auto const* field = execution.sourceParameters->Find(TfToken("resampleTo"))) {
+        if (auto const* field = execution.sourceParameters->Find(resampleSlot)) {
             int value = 0;
             if (field->type != expr::ScalarType::Int32 || field->count != 1 ||
                 cudaMemcpyAsync(&value, field->data, sizeof(value), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
@@ -8501,7 +8646,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
         }
     }
     const bool hasRbfDeform = std::any_of(plan.steps.begin(), plan.steps.end(),
-        [](auto const& step) { return step->type == TfToken("UsdGenDeform"); });
+        [](auto const& step) { return step->stage == UsdGenCudaStage::Deform; });
     if (!options.useRest && hasRbfDeform) {
         Fail(diagnostics, "effective useRest=false cannot feed CUDA RBF Deform; previous generation retained");
         this->failed = true; return false;
@@ -8517,25 +8662,28 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             "CUDA Noise requires an authored/default-time C3 rest snapshot when source useRest=false");
         this->failed = true; return false;
     }
-    auto idSource = params.GetToken(TfToken("idSource"), TfToken("primvar"));
-    if (idSource != TfToken("primvar") && idSource != TfToken("index")) {
+    char const* idSource = TokenText(params, SourceSlot(plan, cudaP::kSrcIdSource), "primvar");
+    if (std::strcmp(idSource, "primvar") != 0 && std::strcmp(idSource, "index") != 0) {
         Fail(diagnostics, "invalid idSource"); this->failed = true; return false;
     }
-    options.idSource = idSource == TfToken("index") ? CudaSourceIdSource::Index : CudaSourceIdSource::Primvar;
-    auto staleAction = params.GetToken(TfToken("staleAction"), TfToken("warn"));
-    if (staleAction != TfToken("warn") && staleAction != TfToken("ignore") && staleAction != TfToken("block")) {
+    options.idSource = std::strcmp(idSource, "index") == 0 ? CudaSourceIdSource::Index : CudaSourceIdSource::Primvar;
+    char const* staleAction = TokenText(params, SourceSlot(plan, cudaP::kSrcStaleAction), "warn");
+    if (std::strcmp(staleAction, "warn") != 0 && std::strcmp(staleAction, "ignore") != 0 &&
+        std::strcmp(staleAction, "block") != 0) {
         Fail(diagnostics, "invalid staleAction"); this->failed = true; return false;
     }
-    options.staleAction = staleAction == TfToken("block") ? CudaSourceStaleAction::Block :
-        staleAction == TfToken("ignore") ? CudaSourceStaleAction::Ignore : CudaSourceStaleAction::Warn;
-    auto epoch = params.GetVtValue(TfToken("expectEpoch"), VtValue(std::string{}));
+    options.staleAction = std::strcmp(staleAction, "block") == 0 ? CudaSourceStaleAction::Block :
+        std::strcmp(staleAction, "ignore") == 0 ? CudaSourceStaleAction::Ignore : CudaSourceStaleAction::Warn;
+    VtValue const noEpoch{std::string{}};
+    VtValue const& epoch = params.GetValue(SourceSlot(plan, cudaP::kSrcExpectEpoch), noEpoch);
     if (!epoch.IsHolding<std::string>()) { Fail(diagnostics, "expectEpoch must be a string"); this->failed = true; return false; }
     options.expectedEpoch = epoch.UncheckedGet<std::string>();
     options.actualEpoch = curves.frozenEpoch;
     // A connected groom scalar is the effective value. Do not reject its
     // authored literal fallback before the evaluator has had a chance to
     // override it; source preparation itself never host-resamples.
-    options.rebind = params.GetToken(TfToken("rebind"), TfToken("onError")).GetString();
+    TfToken const& rebind = params.GetToken(SourceSlot(plan, cudaP::kSrcRebind), kCudaRebindOnError);
+    options.rebind = rebind.GetString();
     const UsdGenSurfaceDesc* surface = nullptr;
     if (!node.surfaces.empty()) {
         auto s = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
@@ -8547,7 +8695,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     std::string rootError;
     std::shared_ptr<const UsdGenRestSurfaceBindingCache> bindingCache =
         execution.sourceBindingCache;
-    if (!UsdGenCaptureCurveRoots(curves, surface, TfToken(options.rebind),
+    if (!UsdGenCaptureCurveRoots(curves, surface, rebind,
                                   &capturedRoots, &rootError, &bindingCache)) {
         this->failed = true;
         return Fail(diagnostics, "CUDA C3 root capture failed: " + rootError);
@@ -8619,8 +8767,8 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
         return false;
     }
     if (std::any_of(plan.steps.begin(), plan.steps.end(),
-            [](auto const& step) { return step->type == TfToken("UsdGenNoise") ||
-                                        step->type == TfToken("UsdGenGrow"); }) &&
+            [](auto const& step) { return step->stage == UsdGenCudaStage::Noise ||
+                                        step->stage == UsdGenCudaStage::Grow; }) &&
         !PrepareNoiseFrames(preparedSource, workspace, stream, diagnostics)) {
         this->failed = true;
         return false;
@@ -9266,12 +9414,12 @@ bool ExecutionState::GetOperatorInput(UsdGenCudaExecutionPlan const& plan,
                     (selectedResampler && selectedResampler->waitOn(stream) != cudaSuccess)) ? false : true;
             }
             if (owner < plan.desc.nodes.size() &&
-                plan.desc.nodes[owner].type == TfToken("UsdGenGrow"))
+                PlanNodeIs(plan, owner, UsdGenCudaStage::Grow))
                 return owner < geometryValues.size() && geometryValues[owner].topologyOwners &&
                     geometryValues[owner].topologyOwners->grow &&
                     geometryValues[owner].topologyOwners->grow->waitOn(stream) == gpu::CurveGrowStatus::Ok;
             if (owner < plan.desc.nodes.size() &&
-                plan.desc.nodes[owner].type == TfToken("UsdGenLength"))
+                PlanNodeIs(plan, owner, UsdGenCudaStage::Length))
                 return owner < geometryValues.size() && geometryValues[owner].topologyOwners &&
                     geometryValues[owner].topologyOwners->compaction &&
                     geometryValues[owner].topologyOwners->compaction->waitOn(stream) == cudaSuccess;
@@ -9399,23 +9547,22 @@ bool ExecutionState::SelectTerminal(UsdGenCudaExecutionPlan const& plan,
         if (terminal.topologyOwnerNode >= plan.desc.nodes.size() ||
             terminal.namedOwnerNode != terminal.topologyOwnerNode)
             return Fail(diagnostics, "CUDA geometry-value DAG terminal snapshot ownership is unavailable");
-        auto const& topologyNode = plan.desc.nodes[terminal.topologyOwnerNode];
-        if (topologyNode.type == TfToken("UsdGenCurveSource") ||
-            topologyNode.type == TfToken("UsdGenReferenceSource")) {
+        if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::CurveSource) ||
+            PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::ReferenceSource)) {
             if ((!terminal.topologyOwners || !terminal.topologyOwners->source) &&
                 !(selectedTopologyOwner == terminal.topologyOwnerNode && source))
                 return Fail(diagnostics, "CUDA geometry-value DAG source terminal factory is unavailable");
-        } else if (topologyNode.type == TfToken("UsdGenGrow") && plan.scatterGrow) {
+        } else if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::Grow) && plan.scatterGrow) {
             if ((!terminal.topologyOwners || !terminal.topologyOwners->scatterGrow ||
                 terminal.topologyOwners->scatterGrow->waitOn(stream) != gpu::ScatterGrowStatus::Ok) &&
                 !(selectedTopologyOwner == terminal.topologyOwnerNode && scatterGrow))
                 return Fail(diagnostics, "CUDA geometry-value DAG ScatterGrow terminal factory is unavailable");
-        } else if (topologyNode.type == TfToken("UsdGenGrow")) {
+        } else if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::Grow)) {
             if ((!terminal.topologyOwners || !terminal.topologyOwners->grow ||
                 terminal.topologyOwners->grow->waitOn(stream) != gpu::CurveGrowStatus::Ok) &&
                 !(selectedTopologyOwner == terminal.topologyOwnerNode && curveGrow))
                 return Fail(diagnostics, "CUDA geometry-value DAG Grow terminal factory is unavailable");
-        } else if (topologyNode.type == TfToken("UsdGenLength")) {
+        } else if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::Length)) {
             if ((!terminal.topologyOwners || !terminal.topologyOwners->compaction ||
                 terminal.topologyOwners->compaction->waitOn(stream) != cudaSuccess) &&
                 !(selectedTopologyOwner == terminal.topologyOwnerNode && compacted))
@@ -9451,17 +9598,17 @@ bool ExecutionState::SelectTerminal(UsdGenCudaExecutionPlan const& plan,
         // Publication factories retain unique native owners. Transfer only
         // the selected topology at the all-task join; retries see the normal
         // legacy state owner and never move a sibling's source bundle.
-        if ((topologyNode.type == TfToken("UsdGenCurveSource") ||
-             topologyNode.type == TfToken("UsdGenReferenceSource")) && !source &&
+        if ((PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::CurveSource) ||
+             PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::ReferenceSource)) && !source &&
             terminal.topologyOwners) {
             source = std::move(terminal.topologyOwners->source);
             resampled = std::move(terminal.topologyOwners->resampled);
         }
-        if (topologyNode.type == TfToken("UsdGenGrow") && plan.scatterGrow && !scatterGrow)
+        if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::Grow) && plan.scatterGrow && !scatterGrow)
             scatterGrow = std::move(terminal.topologyOwners->scatterGrow);
-        else if (topologyNode.type == TfToken("UsdGenGrow") && !plan.scatterGrow && !curveGrow)
+        else if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::Grow) && !plan.scatterGrow && !curveGrow)
             curveGrow = std::move(terminal.topologyOwners->grow);
-        if (topologyNode.type == TfToken("UsdGenLength") && !compacted)
+        if (PlanNodeIs(plan, terminal.topologyOwnerNode, UsdGenCudaStage::Length) && !compacted)
             compacted = std::move(terminal.topologyOwners->compaction);
         if (terminal.namedOwners && namedChannels.empty())
             namedChannels = std::move(terminal.namedOwners->planes);
@@ -9726,13 +9873,13 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         rootUVRef = inputSnapshot.rootUV;
         curveTopology = inputSnapshot.curveTopology;
         deformedRef = inputSnapshot.deformed;
-        if (width.type == TfToken("UsdGenDeform") && deformedRef) {
+        if (width.stage == UsdGenCudaStage::Deform && deformedRef) {
             Fail(diagnostics,
                 "unsupported composition: a second rest-to-animated deformation would apply surface motion twice");
             return false;
         }
     }
-    if (width.type == TfToken("UsdGenGrow")) {
+    if (width.stage == UsdGenCudaStage::Grow) {
         if (plan.geometryValueDag) {
             auto candidate = std::make_unique<OperatorGrowCandidate>();
             auto const& inputValue = geometryValues[width.inputNode];
@@ -9828,7 +9975,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         }
         return AcceptCurveGrow(plan, width.semanticNode, cudaSuccess, inputNames, diagnostics);
     }
-    if (width.type == TfToken("UsdGenWidthBlend")) {
+    if (width.stage == UsdGenCudaStage::WidthBlend) {
         if (!plan.geometryValueDag && width.rightInputNode >= widthValues.size())
             return Fail(diagnostics, "CUDA WidthBlend right predecessor value is unavailable");
         auto const right = plan.geometryValueDag ? rightInput : widthValues[width.rightInputNode].view;
@@ -9914,7 +10061,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                 geometryRef.widths, right, next->view(), stream);
         } else {
             launched = gpu::LaunchWidthBlend(geometryRef.widths, right,
-                CudaWidthBlendWeight(desc, desc.nodes[width.semanticNode]),
+                CudaWidthBlendWeight(StepValues(plan, width), width.kernel),
                 next->view(), stream);
         }
         if (!launched) {
@@ -10013,27 +10160,27 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         if (errors.empty()) Fail(diagnostics, "expression evaluation failed at " + op.path.GetString());
         return false;
     }
-    UsdGenParamView values; values.desc = &desc; values.node = &op;
-    auto field = [&](char const* name, float fallback) {
-        if (auto const* expression = runtime.parameters.Find(TfToken(name)))
+    UsdGenParamView const values = StepValues(plan, width);
+    auto field = [&](auto index, float fallback) {
+        if (auto const* expression = runtime.parameters.Find(StepSlot(width, index)))
             return gpu::ScalarField::Device(
                 {static_cast<float const*>(expression->data), expression->count}, expression->domain);
-        return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(TfToken(name), fallback)));
+        return gpu::ScalarField::Literal(static_cast<float>(values.GetDouble(StepSlot(width, index), fallback)));
     };
-    auto boolean = [&](char const* name, bool fallback) {
-        if (auto const* expression = runtime.parameters.Find(TfToken(name)))
+    auto boolean = [&](auto index, bool fallback) {
+        if (auto const* expression = runtime.parameters.Find(StepSlot(width, index)))
             return gpu::BoolField::Device(
                 {static_cast<uint8_t const*>(expression->data), expression->count}, expression->domain);
-        return gpu::BoolField::Literal(values.GetBool(TfToken(name), fallback));
+        return gpu::BoolField::Literal(values.GetBool(StepSlot(width, index), fallback));
     };
-    auto integer = [&](char const* name, int fallback) {
-        if (auto const* expression = runtime.parameters.Find(TfToken(name)))
+    auto integer = [&](auto index, int fallback) {
+        if (auto const* expression = runtime.parameters.Find(StepSlot(width, index)))
             return gpu::IntField::Device(
                 {static_cast<int32_t const*>(expression->data), expression->count},
                 expression->domain);
-        return gpu::IntField::Literal(values.GetInt(TfToken(name), fallback));
+        return gpu::IntField::Literal(values.GetInt(StepSlot(width, index), fallback));
     };
-    if (width.type == TfToken("UsdGenNoise")) {
+    if (width.stage == UsdGenCudaStage::Noise) {
         gpu::DeviceBuffer<float3> *tangent = nullptr, *binormal = nullptr,
                                   *normal = nullptr;
         gpu::DeviceView<const uint64_t> frameIds;
@@ -10086,17 +10233,17 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             return Fail(diagnostics, "CUDA Noise profile upload failed");
         }
         gpu::NoiseParameters parameters;
-        parameters.magnitude = field("noise:magnitude", .05f);
-        parameters.frequency = field("noise:frequency", 3.0f);
-        parameters.correlation = field("noise:correlation", .5f);
-        parameters.octaves = integer("noise:octaves", 1);
-        parameters.lacunarity = field("noise:lacunarity", 2.0f);
-        parameters.gain = field("noise:gain", .5f);
-        parameters.preserveLength = field("preserveLength", 1.0f);
-        parameters.mask = field("mask", 1.0f);
-        parameters.enabled = boolean("enabled", values.node->enabled);
-        parameters.cumulative = boolean("cumulative", false);
-        parameters.seed = integer("noise:seed", values.node->seed);
+        parameters.magnitude = field(cudaP::kNoiseMagnitude, .05f);
+        parameters.frequency = field(cudaP::kNoiseFrequency, 3.0f);
+        parameters.correlation = field(cudaP::kNoiseCorrelation, .5f);
+        parameters.octaves = integer(cudaP::kNoiseOctaves, 1);
+        parameters.lacunarity = field(cudaP::kNoiseLacunarity, 2.0f);
+        parameters.gain = field(cudaP::kNoiseGain, .5f);
+        parameters.preserveLength = field(cudaP::kNoisePreserveLength, 1.0f);
+        parameters.mask = field(cudaP::kNoiseMask, 1.0f);
+        parameters.enabled = boolean(cudaP::kNoiseEnabled, values.node->enabled);
+        parameters.cumulative = boolean(cudaP::kNoiseCumulative, false);
+        parameters.seed = integer(cudaP::kNoiseSeed, values.node->seed);
         parameters.magnitudeProfile = {profile->data(), profile->size()};
         auto noise = std::make_unique<gpu::CudaNoise>();
         gpu::RestRootFrames const frames = geometryRef.curveCount ? gpu::RestRootFrames{
@@ -10179,23 +10326,18 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         }
         return true;
     }
-    if (width.type == TfToken("UsdGenLength")) {
+    if (width.stage == UsdGenCudaStage::Length) {
         gpu::LengthParameters parameters;
-        auto mode = values.GetToken(TfToken("length:mode"), TfToken("scale"));
-        parameters.mode = mode == TfToken("set") ? gpu::LengthMode::Set :
-            mode == TfToken("cull") ? gpu::LengthMode::Cull : gpu::LengthMode::Scale;
-        parameters.method = values.GetToken(TfToken("length:method"), TfToken("scale")) ==
-            TfToken("cutExtend") ? gpu::LengthMethod::CutExtend : gpu::LengthMethod::Scale;
-        parameters.rebuild = values.GetToken(TfToken("rebuild"), TfToken("keepParam")) ==
-            TfToken("reparam") ? gpu::LengthRebuild::Reparam : gpu::LengthRebuild::KeepParam;
-        parameters.value = field("length:value", 1);
-        parameters.mask = field("mask", 1);
-        parameters.minRemainingLength = field("minRemainingLength", 0);
-        parameters.cullThreshold = field("cullThreshold", 0);
-        parameters.enabled = boolean("enabled", op.enabled);
+        SetLengthModes(values, width, &parameters);
+        parameters.value = field(cudaP::kLenValue, 1);
+        parameters.mask = field(cudaP::kLenMask, 1);
+        parameters.minRemainingLength = field(cudaP::kLenMinRemaining, 0);
+        parameters.cullThreshold = field(cudaP::kLenCull, 0);
+        parameters.enabled = boolean(cudaP::kLenEnabled, op.enabled);
         parameters.seed = op.seed;
-        if (auto expression = runtime.parameters.Find(TfToken("length:random"))) parameters.random = gpu::Vec2Field::Device({static_cast<float2 const*>(expression->data), expression->count}, expression->domain);
-        else { auto random = values.GetVtValue(TfToken("length:random"), VtValue(GfVec2f(1,1))).UncheckedGet<GfVec2f>(); parameters.random = gpu::Vec2Field::Literal(make_float2(random[0], random[1])); }
+        UsdGenParamSlot const randomSlot = StepSlot(width, cudaP::kLenRandom);
+        if (auto expression = runtime.parameters.Find(randomSlot)) parameters.random = gpu::Vec2Field::Device({static_cast<float2 const*>(expression->data), expression->count}, expression->domain);
+        else { VtValue const one(GfVec2f(1,1)); auto random = values.GetValue(randomSlot, one).UncheckedGet<GfVec2f>(); parameters.random = gpu::Vec2Field::Literal(make_float2(random[0], random[1])); }
         gpu::DeviceBuffer<float3> changedPoints; gpu::DeviceBuffer<uint8_t> keep;
         // These two buffers are borrowed by Length and then by the
         // compaction pass.  A failed asynchronous upload/operator launch must
@@ -10424,9 +10566,10 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         }
         return true;
     }
-    if (width.type == TfToken("UsdGenDeform")) {
-        int budget = values.GetInt(TfToken("rbfSamples"), 100);
-        if (auto const* expression = runtime.parameters.Find(TfToken("rbfSamples"))) if (cudaMemcpyAsync(&budget, expression->data, sizeof(budget), cudaMemcpyDeviceToHost, stream) != cudaSuccess || gpu::CudaFenceStream(stream) != cudaSuccess) { gpu::CudaFenceStream(stream); Fail(diagnostics, "cannot read expression-driven RBF sample count"); return false; }
+    if (width.stage == UsdGenCudaStage::Deform) {
+        UsdGenParamSlot const rbfSamples = StepSlot(width, cudaP::kDeformRbfSamples);
+        int budget = values.GetInt(rbfSamples, 100);
+        if (auto const* expression = runtime.parameters.Find(rbfSamples)) if (cudaMemcpyAsync(&budget, expression->data, sizeof(budget), cudaMemcpyDeviceToHost, stream) != cudaSuccess || gpu::CudaFenceStream(stream) != cudaSuccess) { gpu::CudaFenceStream(stream); Fail(diagnostics, "cannot read expression-driven RBF sample count"); return false; }
         if (budget < 4 || budget > 46336) { Fail(diagnostics, "RBF sample count exceeds the supported solver range [4,46336]"); return false; }
         auto nextPoints = std::make_unique<gpu::DeviceBuffer<float3>>();
         if (nextPoints->reset(geometryRef.pointCount, memoryReservation) != cudaSuccess) { Fail(diagnostics, "RBF point allocation failed"); return false; }
@@ -10588,7 +10731,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                 !synchronizeProof() || rbfState->resources->field.CommitFreshSolve() != gpu::RbfStatus::Ok)
                 return failFresh("RBF fresh solve failed; previous generation retained");
             solveCommitted = true;
-            gpu::DeformParameters parameters; parameters.mask = field("mask", 1); parameters.enabled = boolean("enabled", op.enabled); parameters.lockRoots = boolean("lockRoots", true);
+            gpu::DeformParameters parameters; parameters.mask = field(cudaP::kDeformMask, 1); parameters.enabled = boolean(cudaP::kDeformEnabled, op.enabled); parameters.lockRoots = boolean(cudaP::kDeformLockRoots, true);
             if (deformer->BeginFreshShape(geometryRef, rbfState->resources->surface.rootTargets(), parameters, nextPoints->view(), stream,
                     memoryReservation) != gpu::RbfStatus::Ok ||
                 !synchronizeProof() || deformer->CommitFreshShape() != gpu::RbfStatus::Ok ||
@@ -10652,7 +10795,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         }
         return true;
     }
-    gpu::WidthParameters parameters; parameters.width = field("width", .01f); parameters.mask = field("mask", 1); parameters.enabled = boolean("enabled", op.enabled); parameters.replace = boolean("replace", true);
+    gpu::WidthParameters parameters; parameters.width = field(cudaP::kWidthWidth, .01f); parameters.mask = field(cudaP::kWidthMask, 1); parameters.enabled = boolean(cudaP::kWidthEnabled, op.enabled); parameters.replace = boolean(cudaP::kWidthReplace, true);
     gpu::DeviceBuffer<float> profile;
     auto nextWidths = std::make_unique<gpu::DeviceBuffer<float>>();
     // The profile upload and the Width kernels share the primary stream.
