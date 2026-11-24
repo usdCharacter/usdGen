@@ -15,6 +15,15 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace bendP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kAxisMode,
+    kEnabled, kAngle, kAngleKnots, kAngleInterp, kAngleRandom, kAxis, kMask,
+    kCount
+};
+enum AxisMode : int { kAxisRootDirection, kAxisUniform, kAxisAttribute };
+}  // namespace bendP
+
 class UsdGenBendOp final : public UsdGenOp
 {
 public:
@@ -22,10 +31,6 @@ public:
     ~UsdGenBendOp() override = default;
 
     TfToken Type() const override { return TfToken("UsdGenBend"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -38,16 +43,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sAngle{"angle"}, sAngleKnots{"angle:knots"};
-    const TfToken sAngleInterp{"angle:interpolation"}, sCatmullRom{"catmullRom"};
-    const TfToken sAngleRandom{"angleRandom"}, sAxis{"axis"};
-    const TfToken sAxisMode{"axisMode"}, sRootDirection{"rootDirection"};
-    const TfToken sUniform{"uniform"}, sAttribute{"attribute"}, sMask{"mask"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterBendOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

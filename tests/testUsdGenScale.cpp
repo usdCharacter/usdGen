@@ -178,8 +178,12 @@ static void CheckRegistryContracts()
           "Scale touches the points and widths planes");
     Check(op->ReferenceInputs().empty(), "Scale declares no reference inputs");
     Check(op->OutputPrimvars().empty(), "Scale emits no output primvars");
-    TfSpan<const TfToken> const topo = op->TopologyParameters();
-    TfSpan<const TfToken> const value = op->ValueParameters();
+    UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
+    std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
+    for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
+        (rec.ParamClass(s) == UsdGenParamClass::Value ? valueV : topoV).push_back(rec.ParamName(s));
+    TfSpan<const TfToken> const topo(topoV.data(), topoV.size());
+    TfSpan<const TfToken> const value(valueV.data(), valueV.size());
     Check(HasParam(topo, "widthToo"), "Scale routes widthToo structurally");
     Check(HasParam(value, "scale") && HasParam(value, "scale:knots") &&
               HasParam(value, "scale:interpolation") &&

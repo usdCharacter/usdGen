@@ -166,7 +166,7 @@ void Snapshot(TfToken const &type, std::ostringstream &os)
        << " samplesFrameInputs=" << op->SamplesFrameInputs()
        << " captureDigestComplete=" << op->CaptureDigestComplete()
        << " remapsVertexPlanes=" << op->RemapsVertexPlanes() << '\n';
-    os << T << " referenceInputs " << Join(Names(op->ReferenceInputs())) << '\n';
+    os << T << " referenceInputs " << Join(Names(UsdGenOpRegistry::Get().Record(UsdGenOpRegistry::Get().Find(type)).ReferenceInputs())) << '\n';
     os << T << " inputPlanes " << Join(Names(op->InputPrimvars())) << '\n';
 
     UsdGenGraphDesc const base = usdGenGolden::MakeOpGraph(type, false);

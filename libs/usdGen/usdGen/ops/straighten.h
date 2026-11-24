@@ -18,6 +18,14 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace straightenP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed,
+    kEnabled, kTangentStraightness, kNormalStraightness, kMask,
+    kCount
+};
+}  // namespace straightenP
+
 class UsdGenStraightenOp final : public UsdGenOp
 {
 public:
@@ -25,10 +33,6 @@ public:
     ~UsdGenStraightenOp() override = default;
 
     TfToken Type() const override { return TfToken("UsdGenStraighten"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -41,14 +45,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sTangentStraightness{"tangentStraightness"};
-    const TfToken sNormalStraightness{"normalStraightness"};
-    const TfToken sMask{"mask"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterStraightenOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

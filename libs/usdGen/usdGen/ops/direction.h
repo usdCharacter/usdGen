@@ -45,6 +45,17 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace directionP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kMode, kSource,
+    kEnabled, kDirection, kAmount, kLift, kTiltU, kTiltV, kTiltN, kAroundN, kFollow, kKnots,
+    kInterp, kMask,
+    kCount
+};
+enum Mode : int { kModeRigid, kModePerSegment };
+enum Interp : int { kInterpLinear, kInterpCatmullRom, kInterpBspline, kInterpConstant };
+}  // namespace directionP
+
 class UsdGenDirectionOp final : public UsdGenOp
 {
 public:
@@ -52,11 +63,6 @@ public:
     ~UsdGenDirectionOp() override = default;
 
     TfToken Type() const override { return TfToken("UsdGenDirection"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -69,20 +75,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sDirection{"direction"}, sAmount{"amount"}, sLift{"lift"};
-    const TfToken sTiltU{"tiltU"}, sTiltV{"tiltV"}, sTiltN{"tiltN"};
-    const TfToken sAroundN{"aroundN"}, sFollow{"followSkinContour"};
-    const TfToken sSource{"direction:source"}, sKnots{"direction:knots"};
-    const TfToken sInterp{"direction:interpolation"};
-    const TfToken sLinear{"linear"}, sCatmullRom{"catmullRom"};
-    const TfToken sBspline{"bspline"}, sConstant{"constant"};
-    const TfToken sMode{"mode"}, sRigid{"rigid"}, sPerSegment{"perSegment"};
-    const TfToken sMask{"mask"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterDirectionOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
