@@ -106,6 +106,7 @@ private:
     VkSemaphore control_ = VK_NULL_HANDLE;
     std::thread waiter_;
     std::unique_ptr<std::shared_ptr<VulkanCompletionService>> quarantine_;
+    std::atomic<bool> quarantined_{false};  // elects the one quarantine writer
     std::atomic<bool> closing_{false}, lost_{false};
     bool waiterJoined_ = false; // Serialized external lifecycle calls only.
     uint64_t nextGpuEpoch_ = 0;

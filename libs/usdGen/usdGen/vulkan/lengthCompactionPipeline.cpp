@@ -211,9 +211,9 @@ std::shared_ptr<DeviceContext> LengthCompactionPipeline::Candidate::context()con
 uint32_t LengthCompactionPipeline::Candidate::curveCount()const noexcept{return state_->curves;}
 uint32_t LengthCompactionPipeline::Candidate::pointCount()const noexcept{return state_->points;}
 bool LengthCompactionPipeline::Candidate::succeeded()const noexcept{return state_->scatterProved&&!state_->lost&&!state_->semantic;}
+namespace { std::vector<LengthCompactionPipeline::Candidate::OutputPlane> const kNoCompactionOutputs; }
 std::vector<LengthCompactionPipeline::Candidate::OutputPlane> const& LengthCompactionPipeline::Candidate::outputs()const noexcept{
-    static std::vector<OutputPlane> const empty;
-    return succeeded()?state_->outputs:empty;
+    return succeeded()?state_->outputs:kNoCompactionOutputs;
 }
 std::vector<UsdGenChunkDesc> const& LengthCompactionPipeline::Candidate::chunks()const noexcept{return state_->chunks;}
 std::vector<UsdGenDeviceTileMetadata> const& LengthCompactionPipeline::Candidate::tiles()const noexcept{return state_->tiles;}

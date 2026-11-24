@@ -45,9 +45,16 @@ bool SameConfig(UsdGenExecutionResourceConfig const& a,
 // This authority intentionally leaks at process exit: a quarantined Vulkan
 // allocation must never lose its canonical accounting state during static
 // teardown while native callbacks/lifetimes can still exist.
+// Published by CAS on first use (no guarded static); a racing loser's
+// authority is discarded before anyone saw it.
+std::atomic<RegistryAuthority*> gAuthority{nullptr};
 RegistryAuthority& Registry() {
-    static auto* authority = new RegistryAuthority;
-    return *authority;
+    if (auto* authority = gAuthority.load(std::memory_order_acquire)) return *authority;
+    auto* fresh = new RegistryAuthority;
+    RegistryAuthority* expected = nullptr;
+    if (gAuthority.compare_exchange_strong(expected, fresh, std::memory_order_acq_rel)) return *fresh;
+    delete fresh;
+    return *expected;
 }
 
 } // namespace

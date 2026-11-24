@@ -22,6 +22,7 @@ struct VulkanCompletionService::Slot {
     Failure failure;
     UsdGenExecutionPipeline::CommandTicket ticket;
     std::unique_ptr<std::shared_ptr<VulkanCompletionService>> quarantine;
+    std::atomic<bool> quarantined{false};  // elects the one quarantine writer
 };
 
 VulkanCompletionService::Watch::Watch(std::shared_ptr<VulkanCompletionService> service,
@@ -219,22 +220,15 @@ bool VulkanCompletionService::CancelBeforeSubmit(Watch& watch) noexcept {
 
 void VulkanCompletionService::Quarantine(uint32_t index) noexcept {
     lost_.store(true, std::memory_order_release);
-    if (quarantine_) {
-        try {
-            std::shared_ptr<VulkanCompletionService> empty;
-            (void)std::atomic_compare_exchange_strong_explicit(quarantine_.get(), &empty, shared_from_this(),
-                std::memory_order_acq_rel, std::memory_order_acquire);
-        } catch (...) {}
+    if (quarantine_ && !quarantined_.exchange(true, std::memory_order_acq_rel)) {
+        try { *quarantine_ = shared_from_this(); } catch (...) {}
     }
     if (index < slots_.size()) {
         auto& slot = *slots_[index];
         auto prior = slot.state.exchange(SlotState::Quarantined, std::memory_order_acq_rel);
-        if (prior != SlotState::Free && slot.quarantine) {
-            try {
-                std::shared_ptr<VulkanCompletionService> empty;
-                (void)std::atomic_compare_exchange_strong_explicit(slot.quarantine.get(), &empty, shared_from_this(),
-                    std::memory_order_acq_rel, std::memory_order_acquire);
-            } catch (...) {}
+        if (prior != SlotState::Free && slot.quarantine &&
+            !slot.quarantined.exchange(true, std::memory_order_acq_rel)) {
+            try { *slot.quarantine = shared_from_this(); } catch (...) {}
         }
     }
     // Do not host-signal here: this path is also used by the waiter and by
