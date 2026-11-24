@@ -100,11 +100,16 @@ GfVec3f FaceColor(usdGen::UsdGenAttributeMap const &map, int face, int channel,
     return usdGen::UsdGenPreviewColor(colorMap, range, &mean, 1);
 }
 
+// Built at library load, not on first use (no guarded function statics).
+TfToken const s_uniform("uniform");
+TfToken const s_faceVarying("faceVarying");
+HdDataSourceLocator const s_structuralLocator(TfToken("primvars"), TfToken("displayColor"));
+HdDataSourceLocator const s_valueLocator(TfToken("primvars"), TfToken("displayColor"),
+                                         TfToken("primvarValue"));
+
 HdContainerDataSourceHandle DisplayColorOverlay(VtVec3fArray const &colors,
                                                 bool faceVarying)
 {
-    static TfToken const uniform("uniform");
-    static TfToken const fv("faceVarying");
     // HdOverlayContainerDataSource merges nested containers, so an upstream
     // INDEXED displayColor would keep its indexedPrimvarValue + indices, and
     // HdPrimvarSchema::IsIndexed (both present) makes the scene-delegate
@@ -118,7 +123,7 @@ HdContainerDataSourceHandle DisplayColorOverlay(VtVec3fArray const &colors,
     };
     HdDataSourceBaseHandle const values[] = {
         HdRetainedTypedSampledDataSource<VtVec3fArray>::New(colors),
-        HdRetainedTypedSampledDataSource<TfToken>::New(faceVarying ? fv : uniform),
+        HdRetainedTypedSampledDataSource<TfToken>::New(faceVarying ? s_faceVarying : s_uniform),
         HdRetainedTypedSampledDataSource<TfToken>::New(TfToken("color")),
         HdBlockDataSource::New(),
         HdBlockDataSource::New(),
@@ -143,17 +148,8 @@ int64_t FaceVertexCount(HdContainerDataSourceHandle const &prim)
     return int64_t(indices->GetTypedValue(0.0f).size());
 }
 
-HdDataSourceLocator const &StructuralLocator()
-{
-    static HdDataSourceLocator const l(TfToken("primvars"), TfToken("displayColor"));
-    return l;
-}
-HdDataSourceLocator const &ValueLocator()
-{
-    static HdDataSourceLocator const l(TfToken("primvars"), TfToken("displayColor"),
-                                       TfToken("primvarValue"));
-    return l;
-}
+HdDataSourceLocator const &StructuralLocator() { return s_structuralLocator; }
+HdDataSourceLocator const &ValueLocator() { return s_valueLocator; }
 
 }  // namespace
 
@@ -161,98 +157,112 @@ HdDataSourceLocator const &ValueLocator()
 // UsdGenAttributePreviewRegistry
 // ---------------------------------------------------------------------------
 
+namespace {
+std::atomic<UsdGenAttributePreviewRegistry *> s_previewRegistry{nullptr};
+}
+
 UsdGenAttributePreviewRegistry &UsdGenAttributePreviewRegistry::Get()
 {
-    static UsdGenAttributePreviewRegistry *registry = new UsdGenAttributePreviewRegistry();
-    return *registry;
+    return UsdGenLazyLeaked(s_previewRegistry,
+                            [] { return new UsdGenAttributePreviewRegistry(); });
 }
 
 bool UsdGenAttributePreviewRegistry::Set(SdfPath const &target, VtVec3fArray const &colors)
 {
     if (target.IsEmpty() || colors.empty()) return false;
     bool structural = false;
-    {
-        std::lock_guard<std::mutex> lock(_entriesMutex);
-        auto found = _entries.find(target);
-        if (found == _entries.end()) {
+    UsdGenCowUpdate(_entries, [&](Entries &entries) {
+        auto found = entries.find(target);
+        if (found == entries.end()) {
             structural = true;
-            _entries.emplace(target, colors);
+            entries.emplace(target, colors);
         } else {
             // A size change is an interpolation-level change for Hydra's
             // primvar descriptors: republish structurally.
             structural = found->second.size() != colors.size();
             found->second = colors;
         }
-    }
+    });
     _Notify(target, structural);
     return true;
 }
 
 bool UsdGenAttributePreviewRegistry::Clear(SdfPath const &target)
 {
-    {
-        std::lock_guard<std::mutex> lock(_entriesMutex);
-        if (_entries.erase(target) == 0) return false;
-    }
+    if (!UsdGenCowUpdateIf(_entries, [&](Entries &entries) {
+            return entries.erase(target) != 0;
+        }))
+        return false;
     _Notify(target, true);
     return true;
 }
 
 size_t UsdGenAttributePreviewRegistry::ClearAll()
 {
-    std::vector<SdfPath> cleared;
-    {
-        std::lock_guard<std::mutex> lock(_entriesMutex);
-        cleared.reserve(_entries.size());
-        for (auto const &entry : _entries) cleared.push_back(entry.first);
-        _entries.clear();
-    }
-    for (SdfPath const &path : cleared) _Notify(path, true);
-    return cleared.size();
+    std::shared_ptr<Entries const> const cleared = _entries.Exchange(nullptr);
+    if (!cleared) return 0;
+    for (auto const &entry : *cleared) _Notify(entry.first, true);
+    return cleared->size();
 }
 
 bool UsdGenAttributePreviewRegistry::Lookup(SdfPath const &target, VtVec3fArray *colors) const
 {
-    std::lock_guard<std::mutex> lock(_entriesMutex);
-    auto found = _entries.find(target);
-    if (found == _entries.end()) return false;
+    std::shared_ptr<Entries const> const entries = _entries.Load();
+    if (!entries) return false;
+    auto found = entries->find(target);
+    if (found == entries->end()) return false;
     if (colors) *colors = found->second;
     return true;
 }
 
 size_t UsdGenAttributePreviewRegistry::EntryCount() const
 {
-    std::lock_guard<std::mutex> lock(_entriesMutex);
-    return _entries.size();
+    std::shared_ptr<Entries const> const entries = _entries.Load();
+    return entries ? entries->size() : 0;
 }
 
 void UsdGenAttributePreviewRegistry::Attach(UsdGenAttributePreviewSceneIndex *index)
 {
-    std::lock_guard<std::recursive_mutex> lock(_indicesMutex);
-    if (std::find(_indices.begin(), _indices.end(), index) == _indices.end())
-        _indices.push_back(index);
+    // Called from the index constructor: weak, not strong, so the count the
+    // TfCreateRefPtr in New() takes stays the first.
+    TfWeakPtr<UsdGenAttributePreviewSceneIndex> weak(index);
+    UsdGenCowUpdateIf(_indices, [&](Indices &indices) {
+        for (Attached const &a : indices)
+            if (a.index == index) return false;
+        indices.push_back({index, weak});
+        return true;
+    });
 }
 
 void UsdGenAttributePreviewRegistry::Detach(UsdGenAttributePreviewSceneIndex *index)
 {
-    std::lock_guard<std::recursive_mutex> lock(_indicesMutex);
-    _indices.erase(std::remove(_indices.begin(), _indices.end(), index), _indices.end());
+    UsdGenCowUpdateIf(_indices, [&](Indices &indices) {
+        auto const end = std::remove_if(indices.begin(), indices.end(),
+            [&](Attached const &a) { return a.index == index; });
+        if (end == indices.end()) return false;
+        indices.erase(end, indices.end());
+        return true;
+    });
 }
 
 size_t UsdGenAttributePreviewRegistry::IndexCount() const
 {
-    std::lock_guard<std::recursive_mutex> lock(_indicesMutex);
-    return _indices.size();
+    std::shared_ptr<Indices const> const indices = _indices.Load();
+    return indices ? indices->size() : 0;
 }
 
 void UsdGenAttributePreviewRegistry::_Notify(SdfPath const &target, bool structural)
 {
-    std::lock_guard<std::recursive_mutex> lock(_indicesMutex);
-    // Copy: an observer could construct or destroy an index while notified.
-    std::vector<UsdGenAttributePreviewSceneIndex *> const indices = _indices;
-    for (UsdGenAttributePreviewSceneIndex *index : indices) {
-        if (std::find(_indices.begin(), _indices.end(), index) == _indices.end()) continue;
-        index->_NotifyRegistryChange(target, structural);
+    // The snapshot is immutable; an observer that attaches or destroys an
+    // index while notified changes only later snapshots. A destroyed index
+    // has an expired weak pointer and is skipped; a live one is held for the
+    // call.
+    std::shared_ptr<Indices const> const indices = _indices.Load();
+    if (!indices) return;
+    for (Attached const &a : *indices) {
+        TfRefPtr<UsdGenAttributePreviewSceneIndex> const live =
+            TfCreateRefPtrFromProtectedWeakPtr(a.weak);
+        if (live) live->_NotifyRegistryChange(target, structural);
     }
 }
 
@@ -286,14 +296,13 @@ void UsdGenAttributePreviewSceneIndex::_NotifyRegistryChange(SdfPath const &targ
 bool UsdGenAttributePreviewSceneIndex::_Store(SdfPath const &target, Entry entry)
 {
     bool structural = false;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto found = _previews.find(target);
-        structural = found == _previews.end() ||
+    UsdGenCowUpdate(_previews, [&](Previews &previews) {
+        auto found = previews.find(target);
+        structural = found == previews.end() ||
                      found->second.faceVarying != entry.faceVarying ||
                      found->second.colors.size() != entry.colors.size();
-        _previews[target] = std::move(entry);
-    }
+        previews[target] = entry;  // copy: the edit may run again
+    });
     // Structural the first time (the primvar appears), values-only after.
     _SendPrimsDirtied({{target, HdDataSourceLocatorSet{
                                     structural ? StructuralLocator() : ValueLocator()}}});
@@ -346,10 +355,10 @@ bool UsdGenAttributePreviewSceneIndex::SetGroomPreview(
 
 bool UsdGenAttributePreviewSceneIndex::ClearPreview(SdfPath const &target)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_previews.erase(target) == 0) return false;
-    }
+    if (!UsdGenCowUpdateIf(_previews, [&](Previews &previews) {
+            return previews.erase(target) != 0;
+        }))
+        return false;
     _SendPrimsDirtied({{target, HdDataSourceLocatorSet{HdDataSourceLocator(
                                     TfToken("primvars"), TfToken("displayColor"))}}});
     return true;
@@ -357,14 +366,11 @@ bool UsdGenAttributePreviewSceneIndex::ClearPreview(SdfPath const &target)
 
 void UsdGenAttributePreviewSceneIndex::ClearAllPreviews()
 {
-    std::vector<SdfPath> targets;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        for (auto const &kv : _previews) targets.push_back(kv.first);
-        _previews.clear();
-    }
+    std::shared_ptr<Previews const> const cleared = _previews.Exchange(nullptr);
+    if (!cleared) return;
     HdSceneIndexObserver::DirtiedPrimEntries entries;
-    for (SdfPath const &target : targets) {
+    for (auto const &kv : *cleared) {
+        SdfPath const &target = kv.first;
         entries.push_back({target, HdDataSourceLocatorSet{HdDataSourceLocator(
                                         TfToken("primvars"), TfToken("displayColor"))}});
     }
@@ -373,8 +379,8 @@ void UsdGenAttributePreviewSceneIndex::ClearAllPreviews()
 
 bool UsdGenAttributePreviewSceneIndex::HasPreview(SdfPath const &target) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _previews.find(target) != _previews.end();
+    std::shared_ptr<Previews const> const previews = _previews.Load();
+    return previews && previews->find(target) != previews->end();
 }
 
 HdSceneIndexPrim UsdGenAttributePreviewSceneIndex::GetPrim(SdfPath const &path) const
@@ -384,10 +390,9 @@ HdSceneIndexPrim UsdGenAttributePreviewSceneIndex::GetPrim(SdfPath const &path) 
     VtVec3fArray colors;
     bool faceVarying = false;
     bool found = false;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto const local = _previews.find(path);
-        if (local != _previews.end()) {
+    if (std::shared_ptr<Previews const> const previews = _previews.Load()) {
+        auto const local = previews->find(path);
+        if (local != previews->end()) {
             colors = local->second.colors;
             faceVarying = local->second.faceVarying;
             found = true;
