@@ -11,6 +11,16 @@
 // contract is unchanged: a bounded rendezvous, never an unbounded gate. A
 // concurrent peer releases both probes promptly; a serial queue exhausts
 // the budget and observes maxActive of one without deadlock.
+//
+// An iteration is one step of a register hash; the arrival counter is polled
+// every kPollStride iterations. The counter lives in host-visible memory, so
+// a poll is a PCIe round trip (about a microsecond): polling every iteration
+// made a 1<<26 budget dwell for minutes, and on a device that runs the two
+// queues one after the other the first probe held the GPU past the Windows
+// 2 s TDR limit and the device was lost. With the stride the same budget
+// dwells a fraction of a second, and a peer's arrival is still seen within
+// kPollStride iterations (microseconds), so overlap and serial outcomes are
+// unchanged.
 layout(local_size_x = 1) in;
 layout(set = 0, binding = 0, std430) coherent buffer Counters {
     uint values[];
@@ -20,18 +30,25 @@ layout(push_constant) uniform Controls {
     uint dwellIterations;
 } controls;
 
+const uint kPollStride = 1024u;
+
 void main() {
     if (gl_GlobalInvocationID.x != 0u) return;
     uint live = atomicAdd(counters.values[0], 1u) + 1u;
     atomicMax(counters.values[1], live);
     atomicAdd(counters.values[2], 1u);
-    // Each iteration performs an atomic read with a visible side effect, so
-    // the compiler must emit every poll; the loop cannot be hoisted into a
-    // single load. Coherent atomics make a peer's arrival visible in
-    // practice on one device, mirroring the CUDA probe's reliance on
-    // device-scope atomic visibility across streams.
+    // Every poll is an atomic read with a visible side effect, so the
+    // compiler must emit each one; the hash is consumed after the loop, so
+    // the loop itself cannot be dropped. Coherent atomics make a peer's
+    // arrival visible in practice on one device, mirroring the CUDA probe's
+    // reliance on device-scope atomic visibility across streams.
+    uint spin = gl_GlobalInvocationID.x + 1u;
     for (uint i = 0u; i < controls.dwellIterations; ++i) {
-        if (atomicAdd(counters.values[2], 0u) >= controls.expected) break;
+        if ((i & (kPollStride - 1u)) == 0u &&
+            atomicAdd(counters.values[2], 0u) >= controls.expected) break;
+        spin = spin * 1664525u + 1013904223u;
     }
+    // Adding zero changes nothing; it only keeps the hash (and the loop) live.
+    if (spin == 0u) atomicAdd(counters.values[2], 0u);
     atomicAdd(counters.values[0], 0xFFFFFFFFu);
 }
