@@ -26,7 +26,13 @@ add_executable(usdGenCollideFarOracle collide_far_oracle.cpp)
 target_compile_features(usdGenCollideFarOracle PRIVATE cxx_std_17)
 target_compile_definitions(usdGenCollideFarOracle PRIVATE NOMINMAX)
 target_include_directories(usdGenCollideFarOracle PRIVATE
-    "${USDGEN_SOURCE_DIR}/libs/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenCurves"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenSurface"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenExpr"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
+    "${USDGEN_BUILD_DIR}/shim"
     "${USD_INSTALL_DIR}/include")
 target_link_directories(usdGenCollideFarOracle PRIVATE
     "${USDGEN_BUILD_DIR}"
@@ -43,7 +49,13 @@ endif()
 target_compile_features(usdGenBakeGroom PRIVATE cxx_std_17)
 target_compile_definitions(usdGenBakeGroom PRIVATE NOMINMAX)
 target_include_directories(usdGenBakeGroom PRIVATE
-    "${USDGEN_SOURCE_DIR}/libs/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenCurves"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenSurface"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenExpr"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
+    "${USDGEN_BUILD_DIR}/shim"
     "${USDGEN_SOURCE_DIR}/libs/usdGenImaging"
     "${USD_INSTALL_DIR}/include")
 file(STRINGS "${USDGEN_BUILD_DIR}/CMakeCache.txt" _python_include_line
@@ -63,7 +75,13 @@ add_executable(usdGenUtilityFixtures utility_fixtures.cpp)
 target_compile_features(usdGenUtilityFixtures PRIVATE cxx_std_17)
 target_compile_definitions(usdGenUtilityFixtures PRIVATE NOMINMAX)
 target_include_directories(usdGenUtilityFixtures PRIVATE
-    "${USDGEN_SOURCE_DIR}/libs/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenCurves"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenSurface"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenExpr"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
+    "${USDGEN_BUILD_DIR}/shim"
     "${USDGEN_SOURCE_DIR}/libs/usdGenImaging"
     "${USD_INSTALL_DIR}/include")
 if(_python_include_line)

@@ -3,7 +3,7 @@
 #ifndef USDGEN_IMAGE_PAYLOAD_H
 #define USDGEN_IMAGE_PAYLOAD_H
 
-#include "export.h"
+#include "usdGen/api/export.h"
 
 #include <cstddef>
 #include <cstdint>

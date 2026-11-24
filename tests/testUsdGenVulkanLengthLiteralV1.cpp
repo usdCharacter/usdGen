@@ -5,7 +5,7 @@
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
 #include "floatUlpFixture.h"
-#include "../libs/usdGenMath/usdGenMath/hash.h"
+#include "../libs/base/usdGenMath/usdGenMath/hash.h"
 
 #include <cstdio>
 #include <cstdlib>

@@ -26,7 +26,7 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
-#include "../libs/usdGenMath/usdGenMath/hash.h"
+#include "../libs/base/usdGenMath/usdGenMath/hash.h"
 #include "vulkanNativeFixture.h"
 #include "floatUlpFixture.h"
 #include "usdGen/vulkan/chargedBuffer.h"

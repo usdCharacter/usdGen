@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <cmath>
 #include <cstdint>
-#include "../ops/noise_tables_gen.cuh"
+#include "usdGenCurves/ops/noise_tables_gen.cuh"
 
 // Shared device implementation of SeExpr's float noise path. Compile with
 // --fmad=false to preserve the CPU oracle's float accumulation order.

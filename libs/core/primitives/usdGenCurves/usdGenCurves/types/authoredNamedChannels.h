@@ -2,7 +2,7 @@
 #define USDGEN_AUTHORED_NAMED_CHANNELS_H
 
 #include "curveBuffer.h"
-#include "graphDesc.h"
+#include "usdGen/compile/graphDesc.h"
 
 #include <algorithm>
 #include <cmath>

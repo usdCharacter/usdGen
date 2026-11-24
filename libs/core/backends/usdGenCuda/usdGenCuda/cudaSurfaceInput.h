@@ -2,7 +2,7 @@
 #define USDGEN_CUDA_SURFACE_INPUT_H
 
 #include "gpu/curveGeometry.h"
-#include "graphDesc.h"
+#include "usdGen/compile/graphDesc.h"
 #include <cstdint>
 #include <string>
 #include <vector>
