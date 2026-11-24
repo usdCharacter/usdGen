@@ -6,6 +6,7 @@
 #include "gpu/expression.h"
 #include "usdGen/executionPlan.h"
 #include "usdGen/graphDesc.h"
+#include "usdGen/registries/handles.h"
 
 #include <memory>
 #include <array>
@@ -22,6 +23,7 @@ struct CudaParameterField {
     expr::ScalarType type = expr::ScalarType::Invalid;
     uint32_t components = 1;
     expr::Domain domain = expr::Domain::Groom;
+    UsdGenParamSlot slot = kUsdGenNoParam;   // the node op's slot for destination
 };
 
 struct CudaParameterGeometryMemoryShape {
@@ -54,6 +56,7 @@ public:
 private:
     struct Item {
         UsdGenExpressionBinding binding;
+        UsdGenParamSlot slot = kUsdGenNoParam;
         expr::IRProgram ir;
         std::vector<double> literal;
     };
@@ -105,7 +108,10 @@ public:
     bool DiscardFreshProven() noexcept;
 
     std::vector<CudaParameterField> const& Fields() const { return fields_; }
+    /// By name, with or without "usdGen:"; compares text, never interns.
     CudaParameterField const* Find(TfToken const& destination) const;
+    /// By the node op's slot; null for kUsdGenNoParam.
+    CudaParameterField const* Find(UsdGenParamSlot slot) const;
 
 private:
     enum class FreshPhase { Idle, ContextBuilt, ContextStatus, ContextCommitted,
@@ -132,15 +138,18 @@ private:
     bool freshSubmitted_ = false;
 };
 
+// slot set: matched against field slots; otherwise by destination name.
 struct CudaGroomScalarRequest {
     TfToken destination;
     expr::ScalarType type = expr::ScalarType::Invalid;
+    UsdGenParamSlot slot = kUsdGenNoParam;
 };
 
 struct CudaGroomScalarValue {
     TfToken destination;
     expr::ScalarType type = expr::ScalarType::Invalid;
     std::array<unsigned char, 8> bytes{};
+    UsdGenParamSlot slot = kUsdGenNoParam;
 };
 
 // Bounded parent-driven D2H readback for already-proven groom scalar fields.
@@ -163,6 +172,7 @@ public:
                                    UsdGenExecutionMemoryReservation* reservation = nullptr);
     CudaParameterStatus CommitFreshFinish();
     CudaGroomScalarValue const* Find(TfToken const&) const;
+    CudaGroomScalarValue const* Find(UsdGenParamSlot) const;
     bool HasUnprovenWork() const noexcept { return unprovenWork_; }
 
 private:
