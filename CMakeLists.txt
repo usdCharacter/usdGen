@@ -1739,6 +1739,25 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanDeform PROPERTIES
         LABELS "T1;vulkan;operators;deform" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+    # Many threads on one cached deform pipeline and one queue timeline.
+    add_executable(testUsdGenVulkanDeformStress tests/testUsdGenVulkanDeformStress.cpp
+        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
+        "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
+        "${_usdgen_vulkan_deform_evaluate_cached_spv}")
+    target_link_libraries(testUsdGenVulkanDeformStress PRIVATE usdGenVulkanNative usdGenMath)
+    add_test(NAME testUsdGenVulkanDeformStress COMMAND testUsdGenVulkanDeformStress
+        "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
+        "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
+        "${_usdgen_vulkan_deform_evaluate_cached_spv}")
+    set_tests_properties(testUsdGenVulkanDeformStress PROPERTIES
+        LABELS "T1;vulkan;deform;stress;scheduling" RESOURCE_LOCK usdgen_gpu
+        TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+    add_executable(testUsdGenVulkanQueueTimeline tests/testUsdGenVulkanQueueTimeline.cpp)
+    target_link_libraries(testUsdGenVulkanQueueTimeline PRIVATE usdGenVulkanNative)
+    add_test(NAME testUsdGenVulkanQueueTimeline COMMAND testUsdGenVulkanQueueTimeline)
+    set_tests_properties(testUsdGenVulkanQueueTimeline PROPERTIES
+        LABELS "T1;vulkan;stress;scheduling" RESOURCE_LOCK usdgen_gpu
+        TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
     add_executable(testUsdGenVulkanSurfaceVk tests/testUsdGenVulkanSurfaceVk.cpp
         "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
     target_link_libraries(testUsdGenVulkanSurfaceVk PRIVATE usdGenVulkanNative usdGenMath)

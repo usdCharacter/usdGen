@@ -36,7 +36,7 @@
 
 #include "usdGen/vulkan/chargedBuffer.h"
 #include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/epochCell.h"
+#include "usdGen/epoch.h"
 
 #include <cstdint>
 #include <functional>
@@ -81,7 +81,7 @@ public:
     RbfVkFactorCache(RbfVkFactorCache const&) = delete;
     RbfVkFactorCache& operator=(RbfVkFactorCache const&) = delete;
 
-    struct Entry {
+    struct Entry final : UsdGenRefCounted {
         DeviceContext* context = nullptr;
         int n = 0, m = 0;
         uint64_t smoothingBits = 0;
@@ -92,12 +92,12 @@ public:
 
 private:
     friend class RbfVkBinding;
-    std::shared_ptr<Entry const> Lookup(DeviceContext* context, int n,
+    UsdGenRef<Entry> Lookup(DeviceContext* context, int n,
                                         double smoothing, float const* rest);
     void Store(DeviceContext* context, int n, double smoothing,
                std::vector<float> const& rest, std::vector<double> const& lu,
                std::vector<int> const& perm, int m);
-    VulkanEpochCell<Entry const> entry_;
+    UsdGenAtomicRef<Entry> entry_;
 };
 
 struct RbfVkBindingSpirv {

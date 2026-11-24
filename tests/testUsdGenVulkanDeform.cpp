@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64 = {};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable) return 77;
     CHECK(native);
 
@@ -123,6 +123,7 @@ int main(int argc, char** argv) {
     ci.nativeLifetime = native;
     ci.resources = {size_t{32} << 20, 0};
     ci.shaderFloat64Enabled = true;
+    ci.timelineSemaphoreEnabled = true;
     auto context = DeviceContext::Create(ci);
     CHECK(context);
 
@@ -861,6 +862,7 @@ int main(int argc, char** argv) {
         bigCi.nativeLifetime = native;
         bigCi.resources = {size_t{1024} << 20, 0};
         bigCi.shaderFloat64Enabled = true;
+        bigCi.timelineSemaphoreEnabled = true;
         auto bigContext = DeviceContext::Create(bigCi);
         CHECK(bigContext);
         VkResult cstatus = VK_SUCCESS;
@@ -1175,6 +1177,7 @@ int main(int argc, char** argv) {
             suffixCi.nativeLifetime = native;
             suffixCi.resources = {size_t{48} << 20, 0};
             suffixCi.shaderFloat64Enabled = true;
+            suffixCi.timelineSemaphoreEnabled = true;
             auto suffixContext = DeviceContext::Create(suffixCi);
             CHECK(suffixContext);
             VkResult sstatus = VK_SUCCESS;
@@ -1285,6 +1288,7 @@ int main(int argc, char** argv) {
             tinyCi.nativeLifetime = native;
             tinyCi.resources = {size_t{1} << 20, 0};
             tinyCi.shaderFloat64Enabled = true;
+            tinyCi.timelineSemaphoreEnabled = true;
             auto tinyContext = DeviceContext::Create(tinyCi);
             CHECK(tinyContext);
             VkResult st2 = VK_SUCCESS;
@@ -1370,6 +1374,7 @@ int main(int argc, char** argv) {
             evictCi.nativeLifetime = native;
             evictCi.resources = {size_t{20} << 20, 0};
             evictCi.shaderFloat64Enabled = true;
+            evictCi.timelineSemaphoreEnabled = true;
             auto evictContext = DeviceContext::Create(evictCi);
             CHECK(evictContext);
             VkResult estatus = VK_SUCCESS;
@@ -1495,6 +1500,7 @@ int main(int argc, char** argv) {
             hetCi.nativeLifetime = native;
             hetCi.resources = {size_t{48} << 20, 0};
             hetCi.shaderFloat64Enabled = true;
+            hetCi.timelineSemaphoreEnabled = true;
             auto hetContext = DeviceContext::Create(hetCi);
             CHECK(hetContext);
             VkResult hstatus = VK_SUCCESS;
@@ -1596,6 +1602,7 @@ int main(int argc, char** argv) {
             dlCi.nativeLifetime = native;
             dlCi.resources = {size_t{48} << 20, 0};
             dlCi.shaderFloat64Enabled = true;
+            dlCi.timelineSemaphoreEnabled = true;
             auto dlContext = DeviceContext::Create(dlCi);
             CHECK(dlContext);
             VkResult dlstatus = VK_SUCCESS;
@@ -1715,6 +1722,7 @@ int main(int argc, char** argv) {
             advCi.nativeLifetime = native;
             advCi.resources = {size_t{32} << 20, 0};
             advCi.shaderFloat64Enabled = true;
+            advCi.timelineSemaphoreEnabled = true;
             auto advContext = DeviceContext::Create(advCi);
             CHECK(advContext);
             VkResult astatus = VK_SUCCESS;
@@ -1883,6 +1891,7 @@ int main(int argc, char** argv) {
             nanCi.nativeLifetime = native;
             nanCi.resources = {size_t{8} << 20, 0};
             nanCi.shaderFloat64Enabled = true;
+            nanCi.timelineSemaphoreEnabled = true;
             auto nanContext = DeviceContext::Create(nanCi);
             CHECK(nanContext);
             VkResult nstatus = VK_SUCCESS;
@@ -2000,6 +2009,7 @@ int main(int argc, char** argv) {
             tinyCi.nativeLifetime = native;
             tinyCi.resources = {size_t{1} << 20, 0};
             tinyCi.shaderFloat64Enabled = true;
+            tinyCi.timelineSemaphoreEnabled = true;
             auto tinyContext = DeviceContext::Create(tinyCi);
             CHECK(tinyContext);
             VkResult st2 = VK_SUCCESS;
@@ -2079,6 +2089,7 @@ int main(int argc, char** argv) {
             autoCi.nativeLifetime = native;
             autoCi.resources = {size_t{48} << 20, 0};
             autoCi.shaderFloat64Enabled = true;
+            autoCi.timelineSemaphoreEnabled = true;
             auto autoContext = DeviceContext::Create(autoCi);
             CHECK(autoContext);
             VkResult st3 = VK_SUCCESS;
@@ -2173,6 +2184,7 @@ int main(int argc, char** argv) {
             capCi.nativeLifetime = native;
             capCi.resources = {size_t{128} << 20, 0};
             capCi.shaderFloat64Enabled = true;
+            capCi.timelineSemaphoreEnabled = true;
             auto capContext = DeviceContext::Create(capCi);
             CHECK(capContext);
             VkResult cstatus = VK_SUCCESS;
@@ -2269,6 +2281,7 @@ int main(int argc, char** argv) {
             smallCi.nativeLifetime = native;
             smallCi.resources = {size_t{6} << 20, 0};
             smallCi.shaderFloat64Enabled = true;
+            smallCi.timelineSemaphoreEnabled = true;
             auto smallContext = DeviceContext::Create(smallCi);
             CHECK(smallContext);
             VkResult sstatus = VK_SUCCESS;

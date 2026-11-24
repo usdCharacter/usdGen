@@ -281,7 +281,7 @@ int VulkanDeformLeg(std::string const &spvDir, size_t budgetBytes)
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64 = {};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable || !native) {
         std::printf("Vulkan deform leg: no fp64 device\n");
         return 77;
@@ -303,6 +303,7 @@ int VulkanDeformLeg(std::string const &spvDir, size_t budgetBytes)
     ci.nativeLifetime = native;
     ci.resources = {budgetBytes, 0};
     ci.shaderFloat64Enabled = true;
+    ci.timelineSemaphoreEnabled = true;
     auto context = vulkan::DeviceContext::Create(ci);
     if (!context) {
         std::printf("Vulkan deform leg: context creation failed\n");
@@ -416,7 +417,7 @@ int VulkanBindLeg(std::string const &spvDir)
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64{};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable || !native) {
         std::printf("Vulkan bind leg: no fp64 device\n");
         return 77;
@@ -436,6 +437,7 @@ int VulkanBindLeg(std::string const &spvDir)
     // engagement production takes.
     ci.resources = {size_t{4} << 30, 0};
     ci.shaderFloat64Enabled = true;
+    ci.timelineSemaphoreEnabled = true;
     auto context = vulkan::DeviceContext::Create(ci);
     if (!context) {
         std::printf("Vulkan bind leg: context creation failed\n");

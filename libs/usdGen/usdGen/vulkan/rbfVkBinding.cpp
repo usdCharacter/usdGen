@@ -3,7 +3,7 @@
 
 #include "rbfVkBinding.h"
 #include "deformRbfHost.h"
-#include "fencePool.h"
+#include "queueTimeline.h"
 
 #include <algorithm>
 #include <atomic>
@@ -40,33 +40,13 @@ constexpr uint32_t kLocalSize = 256;
 // the deformEvaluate shader); the bind-path kernels keep 256.
 constexpr uint32_t kEvalLocalSize = 128;
 constexpr uint32_t kMaxEvalStack = 16;
-constexpr uint64_t kFenceTimeoutNs = 10000000000ull;
-
-// Fence wait without the wakeup lottery (see deformPipeline.cpp's
-// SpinWaitForFence): the synchronous proof-phase wait observes the
-// signal within one vkGetFenceStatus instead of paying the futex
-// wakeup lottery, with the same timeout and error propagation as the
-// blocking wait it replaces.
-VkResult SpinWaitForFence(VkDevice device, VkFence fence)
-{
-    auto const deadline =
-        std::chrono::steady_clock::now() + std::chrono::nanoseconds(kFenceTimeoutNs);
-    for (unsigned spin = 0;; ++spin) {
-        VkResult const r = vkGetFenceStatus(device, fence);
-        if (r != VK_NOT_READY) return r;
-        // The clock is sampled sparingly (a vDSO read per poll would
-        // double the spin's cost against a contested driver lock).
-        if ((spin & 255) == 0 && std::chrono::steady_clock::now() >= deadline)
-            return VK_TIMEOUT;
-#if defined(_MSC_VER) && defined(_M_X64)
-        _mm_pause();
-#elif defined(__aarch64__)
-        __asm__ volatile("yield" ::: "memory");
-#elif defined(__x86_64__)
-        __asm__ volatile("pause" ::: "memory");
-#endif
-    }
-}
+constexpr uint64_t kTimelineTimeoutNs = 10000000000ull;
+// LU work per submitted batch, in trailing-update element writes (see
+// LuChunks): a few tens of milliseconds on a slow-fp64 desktop GPU, so no
+// batch of a large bind nears the Windows 2 s TDR limit.
+constexpr uint64_t kLuBatchWork = uint64_t(1) << 24;
+// Batches per timeline submit call (VulkanQueueTimeline's per-call cap).
+constexpr uint32_t kLuBatchesPerSubmit = VulkanQueueTimeline::kMaxBatches;
 
 // Total device bytes (R words plus the CV proof copy) below which a
 // cached evaluation engages. 1M CVs at n=400 need 3.2GB of R plus a
@@ -267,13 +247,12 @@ struct RbfVkBinding::Native {
         buildMatrixSet = VK_NULL_HANDLE, luSet = VK_NULL_HANDLE,
         rhsSet = VK_NULL_HANDLE, triSolveSet = VK_NULL_HANDLE;
     VkCommandPool solveCommands = VK_NULL_HANDLE, evalCommands = VK_NULL_HANDLE;
-    VkFence solveFence = VK_NULL_HANDLE;
-    std::vector<VkFence> evalFences;
+    // Queue-timeline values: the last solve submit, and the newest stacked
+    // evaluation (the timeline is monotonic, so one value proves them all).
+    uint64_t solveValue = 0;
+    uint64_t evalValue = 0;
+    VkResult evalSubmitFailure = VK_SUCCESS;  // a stacked submit that never ran
     std::vector<std::shared_ptr<const ChargedBuffer>> evalOwners;
-    // Idle eval-submit fences: fence create/destroy costs ~0.7ms each on
-    // the qualified driver, so per-evaluation submits check out of this
-    // pool instead of creating.
-    VulkanFencePool fencePool;
     bool solvePending = false;
     enum class Phase { Idle, Extent, FactorReady, Factor, Pose };
     Phase phase = Phase::Idle;
@@ -293,7 +272,7 @@ struct RbfVkBinding::Native {
     // pose solve reads bitwise the same doubles with no copy and the
     // entry stays alive while the binding references it. Null except
     // between an adopted BeginBind and the next bind or reset.
-    std::shared_ptr<RbfVkFactorCache::Entry const> adoptedLu;
+    UsdGenRef<RbfVkFactorCache::Entry const> adoptedLu;
     int cachedM = 0;
     bool cachedLuValid = false;
     // A staged host pose: BeginSolve stashes the posed samples and the
@@ -316,7 +295,7 @@ struct RbfVkBinding::Native {
     // carries bitwise the same bytes as fresh buffers; a failed call
     // drops the pair (its submit may still be pending) while a
     // count-mismatched call leaves the pool untouched. Bind-independent:
-    // rebinds keep the pool, like the fence pool above.
+    // rebinds keep the pool.
     std::shared_ptr<ChargedBuffer> hostStageCvs, hostStageOut;
     uint32_t hostStageCount = 0;
     // A staged host extent: BeginBind stashes nothing beyond the rest
@@ -340,7 +319,7 @@ struct RbfVkBinding::Native {
         infoBuf.reset(); permBuf.reset(); uboBuf.reset(); normBuf.reset();
         coefStagingBuf.reset(); bufferSamples = 0;
         cachedLu.clear(); cachedPerm.clear(); cachedRest.clear();
-        adoptedLu.reset();
+        adoptedLu.Reset();
         cachedM = 0; cachedLuValid = false;
         hostPosed.clear(); hostPosePending = false;
         hostRhs.clear(); hostCoef.clear();
@@ -453,9 +432,6 @@ struct RbfVkBinding::Native {
     ~Native() {
         if (!context) return;
         auto d = context->device();
-        for (VkFence f : evalFences) if (f) vkDestroyFence(d, f, nullptr);
-        fencePool.Clear(d);
-        if (solveFence) vkDestroyFence(d, solveFence, nullptr);
         if (solveCommands) vkDestroyCommandPool(d, solveCommands, nullptr);
         if (evalCommands) vkDestroyCommandPool(d, evalCommands, nullptr);
         if (solvePool) vkDestroyDescriptorPool(d, solvePool, nullptr);
@@ -485,8 +461,8 @@ RbfVkBinding::~RbfVkBinding() {
     // A failed or unavailable completion proof never authorizes destruction.
     bool pending = native_ && native_->solvePending;
     if (native_ && evalPending_)
-        for (VkFence fence : native_->evalFences)
-            pending |= vkGetFenceStatus(native_->context->device(), fence) != VK_SUCCESS;
+        pending |= native_->evalSubmitFailure != VK_SUCCESS ||
+            native_->context->computeTimeline()->Check(native_->evalValue) != VK_SUCCESS;
     if (pending) {
         *native_->quarantine = native_;
         (void)native_->quarantine.release();
@@ -524,7 +500,7 @@ std::shared_ptr<RbfVkBinding> RbfVkBinding::Create(
         !valid(spirv.buildMatrix) || !valid(spirv.lu) || !valid(spirv.rhs) ||
         !valid(spirv.triSolve) || !valid(spirv.evaluate))
         return {};
-    if (!context->shaderFloat64Enabled()) return {};
+    if (!context->shaderFloat64Enabled() || !context->computeTimeline()) return {};
     VkPhysicalDeviceProperties physical{};
     vkGetPhysicalDeviceProperties(context->physicalDevice(), &physical);
     if (physical.limits.maxComputeWorkGroupInvocations < kLocalSize ||
@@ -595,7 +571,18 @@ std::shared_ptr<RbfVkBinding> RbfVkBinding::Create(
         r = mkPipelineLayout(n->extentLayout, &n->extentPipelineLayout);
         if (r == VK_SUCCESS) r = mkPipelineLayout(n->gramLayout, &n->gramPipelineLayout);
         if (r == VK_SUCCESS) r = mkPipelineLayout(n->buildMatrixLayout, &n->buildMatrixPipelineLayout);
-        if (r == VK_SUCCESS) r = mkPipelineLayout(n->luLayout, &n->luPipelineLayout);
+        if (r == VK_SUCCESS) {
+            // The LU takes its column range [first, last) as push constants
+            // (chunked binds, see LuChunks).
+            VkPushConstantRange range{VK_SHADER_STAGE_COMPUTE_BIT, 0, 8};
+            VkPipelineLayoutCreateInfo pl{};
+            pl.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            pl.setLayoutCount = 1;
+            pl.pSetLayouts = &n->luLayout;
+            pl.pushConstantRangeCount = 1;
+            pl.pPushConstantRanges = &range;
+            r = vkCreatePipelineLayout(d, &pl, nullptr, &n->luPipelineLayout);
+        }
         if (r == VK_SUCCESS) r = mkPipelineLayout(n->rhsLayout, &n->rhsPipelineLayout);
         if (r == VK_SUCCESS) r = mkPipelineLayout(n->triSolveLayout, &n->triSolvePipelineLayout);
         if (r == VK_SUCCESS) r = mkPipelineLayout(n->evaluateLayout, &n->evaluatePipelineLayout);
@@ -728,10 +715,6 @@ std::shared_ptr<RbfVkBinding> RbfVkBinding::Create(
         r = vkCreateCommandPool(d, &pc, nullptr, &n->solveCommands);
         if (r == VK_SUCCESS) r = vkCreateCommandPool(d, &pc, nullptr, &n->evalCommands);
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &n->solveFence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
         auto binding = std::shared_ptr<RbfVkBinding>(new RbfVkBinding(std::move(n)));
         finish(VK_SUCCESS);
         return binding;
@@ -741,45 +724,79 @@ std::shared_ptr<RbfVkBinding> RbfVkBinding::Create(
 namespace {
 
 // Submit without waiting. Pending owners remain retained until Poll proves
-// this exact fence; rejected submits never authorize speculative teardown.
+// this exact timeline value; rejected submits never authorize speculative
+// teardown. `batches` command buffers are recorded by record(cmd, batch)
+// and queued in order (kLuBatchesPerSubmit per timeline call); *value is
+// the last batch's value. A failure after some batches went out leaves a
+// value that never signals, so the phase stays pending (never consumed
+// half-done) and the owner quarantines.
 VkResult Submit(std::shared_ptr<DeviceContext> const& context,
-                VkCommandPool pool, VkFence fence, bool& pending,
-                std::function<VkResult(VkCommandBuffer)> const& record,
+                VkCommandPool pool, uint64_t* value, bool& pending, uint32_t batches,
+                std::function<VkResult(VkCommandBuffer, uint32_t)> const& record,
                 std::function<bool()> const& beforeSubmit) {
     auto d = context->device();
+    std::vector<VkCommandBuffer> cmds;
+    try { cmds.resize(batches, VK_NULL_HANDLE); }
+    catch (std::bad_alloc const&) { return VK_ERROR_OUT_OF_HOST_MEMORY; }
     VkCommandBufferAllocateInfo ca{};
     ca.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     ca.commandPool = pool;
     ca.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    ca.commandBufferCount = 1;
-    VkCommandBuffer cmd = VK_NULL_HANDLE;
-    VkResult r = vkAllocateCommandBuffers(d, &ca, &cmd);
+    ca.commandBufferCount = batches;
+    VkResult r = vkAllocateCommandBuffers(d, &ca, cmds.data());
     if (r != VK_SUCCESS) return r;
     VkCommandBufferBeginInfo begin{};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    r = vkBeginCommandBuffer(cmd, &begin);
-    if (r == VK_SUCCESS) r = record(cmd);
-    if (r == VK_SUCCESS) r = vkEndCommandBuffer(cmd);
-    if (r == VK_SUCCESS) r = vkResetFences(d, 1, &fence);
+    for (uint32_t i = 0; i < batches && r == VK_SUCCESS; ++i) {
+        r = vkBeginCommandBuffer(cmds[i], &begin);
+        if (r == VK_SUCCESS) r = record(cmds[i], i);
+        if (r == VK_SUCCESS) r = vkEndCommandBuffer(cmds[i]);
+    }
     if (r == VK_SUCCESS && beforeSubmit) {
         try { if (!beforeSubmit()) r = VK_ERROR_OUT_OF_DEVICE_MEMORY; }
         catch (...) { r = VK_ERROR_UNKNOWN; }
     }
     if (r == VK_SUCCESS) {
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd;
-        pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, fence);
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        for (uint32_t i = 0; i < batches; i += kLuBatchesPerSubmit) {
+            uint32_t const k = std::min(kLuBatchesPerSubmit, batches - i);
+            uint64_t const last = timeline->Submit(cmds.data() + i, k, &r);
+            if (!last) {
+                if (pending) *value = UINT64_MAX;
+                break;
+            }
+            pending = true;
+            *value = last;
+        }
     }
     if (!pending) (void)vkResetCommandPool(d, pool, 0);
     return r;
 }
 
+// Column ranges for the chunked LU: each range's estimated work (trailing
+// update writes plus the serial pivot search and swap) stays near
+// kLuBatchWork, so one submitted batch never holds the GPU for long. The
+// split changes only where the dispatches break; every column runs the
+// same code in the same order, so the factors are bitwise unchanged.
+void LuChunks(int m, std::vector<std::pair<int, int>>* chunks) {
+    chunks->clear();
+    int c0 = 0;
+    uint64_t work = 0;
+    for (int c = 0; c < m; ++c) {
+        uint64_t const rows = uint64_t(m - c - 1);
+        work += rows * uint64_t(m - c) + 2u * uint64_t(m);
+        if (work >= kLuBatchWork || c == m - 1) {
+            chunks->emplace_back(c0, c + 1);
+            c0 = c + 1;
+            work = 0;
+        }
+    }
+    if (chunks->empty()) chunks->emplace_back(0, m);
+}
+
 } // namespace
 
-std::shared_ptr<RbfVkFactorCache::Entry const> RbfVkFactorCache::Lookup(
+UsdGenRef<RbfVkFactorCache::Entry> RbfVkFactorCache::Lookup(
     DeviceContext* context, int n, double smoothing, float const* rest) {
     uint64_t smoothingBits = 0;
     static_assert(sizeof(smoothingBits) == sizeof(smoothing), "");
@@ -789,7 +806,7 @@ std::shared_ptr<RbfVkFactorCache::Entry const> RbfVkFactorCache::Lookup(
         entry->smoothingBits != smoothingBits ||
         entry->rest.size() != size_t(n) * 3 ||
         std::memcmp(entry->rest.data(), rest, size_t(n) * 3 * sizeof(float)) != 0)
-        return nullptr;
+        return {};
     return entry;
 }
 
@@ -799,7 +816,7 @@ void RbfVkFactorCache::Store(DeviceContext* context, int n, double smoothing,
                              std::vector<int> const& perm, int m) {
     uint64_t smoothingBits = 0;
     std::memcpy(&smoothingBits, &smoothing, sizeof(smoothing));
-    auto entry = std::make_shared<Entry>();
+    auto entry = UsdGenMakeRef<Entry>();
     entry->context = context;
     entry->n = n;
     entry->m = m;
@@ -846,7 +863,7 @@ RbfVkStatus RbfVkBinding::BeginBind(float const* rest, int n, double smoothing,
     native_->lastResult = VK_SUCCESS;
     native_->phase = Native::Phase::Idle;
     native_->cachedLuValid = false;
-    native_->adoptedLu.reset();
+    native_->adoptedLu.Reset();
     native_->hostPosePending = false;
     native_->hostBindStaged = false;
     if (!rest || n < 4 || n > kRbfVkMaxSamples || !std::isfinite(smoothing) || smoothing < 0.0)
@@ -989,26 +1006,41 @@ RbfVkStatus RbfVkBinding::AdvanceBind(BeforeSubmit beforeSubmit) {
     uint32_t matrixGroups = Groups(uint32_t(m) * uint32_t(m));
     uint32_t matrixX = std::min(matrixGroups, physical.limits.maxComputeWorkGroupCount[0]);
     uint32_t matrixY = (matrixGroups + matrixX - 1) / matrixX;
-    // G2: gram + matrix build + LU + identity-state zeroing.
-    VkResult r = Submit(native.context, native.solveCommands, native.solveFence, native.solvePending,
-                [&](VkCommandBuffer cmd) {
+    // G2: gram + matrix build + LU + identity-state zeroing. The LU's
+    // column loop is split into batches of bounded work (LuChunks), each its
+    // own command buffer, so a large bind never runs one multi-second
+    // submission into the Windows TDR; batch k+1 orders after batch k by
+    // queue submission order and its leading barrier.
+    std::vector<std::pair<int, int>> chunks;
+    try { LuChunks(m, &chunks); }
+    catch (std::bad_alloc const&) { return fail(RbfVkStatus::DeviceError, "RBF rank diagnostic query failed"); }
+    uint32_t const batches = uint32_t(chunks.size());
+    VkResult r = Submit(native.context, native.solveCommands, &native.solveValue, native.solvePending,
+                batches, [&](VkCommandBuffer cmd, uint32_t batch) {
         BeforeBarrier(cmd);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.gramPipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-            native.gramPipelineLayout, 0, 1, &native.gramSet, 0, nullptr);
-        vkCmdDispatch(cmd, 1, 1, 1);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.buildMatrixPipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-            native.buildMatrixPipelineLayout, 0, 1, &native.buildMatrixSet, 0, nullptr);
-        vkCmdDispatch(cmd, matrixX, matrixY, 1);
-        BeforeBarrier(cmd); // buildMatrix writes -> LU reads
+        if (batch == 0) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.gramPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                native.gramPipelineLayout, 0, 1, &native.gramSet, 0, nullptr);
+            vkCmdDispatch(cmd, 1, 1, 1);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.buildMatrixPipeline);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                native.buildMatrixPipelineLayout, 0, 1, &native.buildMatrixSet, 0, nullptr);
+            vkCmdDispatch(cmd, matrixX, matrixY, 1);
+            BeforeBarrier(cmd); // buildMatrix writes -> LU reads
+        }
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, native.luPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
             native.luPipelineLayout, 0, 1, &native.luSet, 0, nullptr);
+        int32_t const range[2] = {chunks[batch].first, chunks[batch].second};
+        vkCmdPushConstants(cmd, native.luPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                           sizeof(range), range);
         vkCmdDispatch(cmd, 1, 1, 1);
-        // Identity solved state (rbf.cu:472): a newly bound field is rest.
-        vkCmdFillBuffer(cmd, native.coefBuf->buffer(), 0, VK_WHOLE_SIZE, 0u);
-        AfterBarrier(cmd);
+        if (batch + 1 == batches) {
+            // Identity solved state (rbf.cu:472): a newly bound field is rest.
+            vkCmdFillBuffer(cmd, native.coefBuf->buffer(), 0, VK_WHOLE_SIZE, 0u);
+            AfterBarrier(cmd);
+        }
         return VK_SUCCESS;
     }, beforeSubmit);
     native.lastResult = r;
@@ -1118,7 +1150,7 @@ VkResult RbfVkBinding::PollSolve(RbfVkStatus* status) {
         native.solvePending = false;
         native.hostBindStaged = false;
     } else {
-        VkResult r = vkGetFenceStatus(d, native.solveFence);
+        VkResult r = native.context->computeTimeline()->Check(native.solveValue);
         if (r != VK_SUCCESS) { native.lastResult = r; return r; }
         native.solvePending = false;
         r = vkResetCommandPool(d, native.solveCommands, 0);
@@ -1268,8 +1300,18 @@ RbfVkStatus RbfVkBinding::Bind(float const* rest, int n, double smoothing) {
         // A host-staged bind phase was never submitted, so there is no
         // fence to wait on (like the host pose in Solve).
         if (!native_->hostBindStaged) {
-            auto w = vkWaitForFences(native_->context->device(), 1, &native_->solveFence,
-                                     VK_TRUE, kFenceTimeoutNs);
+            // A chunked LU signals batch by batch: the timeout bounds a
+            // stall (no batch completing), not the whole factorization.
+            auto* timeline = native_->context->computeTimeline();
+            uint64_t seen = timeline->Completed();
+            auto w = timeline->Wait(native_->solveValue, kTimelineTimeoutNs);
+            while (w == VK_TIMEOUT && native_->solveValue != UINT64_MAX) {
+                (void)timeline->Check(native_->solveValue);
+                uint64_t const now = timeline->Completed();
+                if (now <= seen) break;
+                seen = now;
+                w = timeline->Wait(native_->solveValue, kTimelineTimeoutNs);
+            }
             if (w != VK_SUCCESS)
                 return fail(RbfVkStatus::DeviceError, "RBF bind completion query failed");
         }
@@ -1617,19 +1659,11 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
         releaseSets();
         return false;
     }
-    VkFence fence = native.fencePool.Acquire(d, &r);
-    if (!fence) {
-        vkFreeCommandBuffers(d, native.evalCommands, 1, &cmd);
-        releaseSets();
-        return false;
-    }
     // Allocate retention records before submission; no host allocation can
     // fail after work becomes pending and leave its owners untracked.
     try {
-        native.evalFences.reserve(native.evalFences.size() + 1);
         native.evalOwners.reserve(native.evalOwners.size() + 7);
     } catch (std::bad_alloc const&) {
-        native.fencePool.Release(d, fence);
         vkFreeCommandBuffers(d, native.evalCommands, 1, &cmd);
         releaseSets();
         return false;
@@ -1639,14 +1673,12 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
         catch (...) { r = VK_ERROR_UNKNOWN; }
         if (r != VK_SUCCESS) {
             native.lastResult = r;
-            native.fencePool.Release(d, fence);
             vkFreeCommandBuffers(d, native.evalCommands, 1, &cmd);
             releaseSets();
             *status = fail(RbfVkStatus::DeviceError, "RBF evaluation submission rejected");
             return true;
         }
     }
-    native.evalFences.push_back(fence);
     native.evalOwners.push_back(std::move(cvs));
     native.evalOwners.push_back(std::move(out));
     // The entry buffers join the submit lifetime: the cache may be
@@ -1657,22 +1689,21 @@ bool RbfVkBinding::EvaluateCached(std::shared_ptr<const ChargedBuffer> cvs,
     native.evalOwners.push_back(st->cachedArgs_);
     native.evalOwners.push_back(st->verifyUbo_);
     evalPending_ = true;
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    r = vkQueueSubmit(native.context->computeQueue(), 1, &submit, fence);
+    VulkanQueueTimeline* const timeline = native.context->computeTimeline();
+    uint64_t const value = timeline->Submit(&cmd, 1u, &r);
     native.lastResult = r;
-    if (r != VK_SUCCESS) {
+    if (!value) {
+        native.evalSubmitFailure = r;
         releaseSets();
         *status = fail(RbfVkStatus::DeviceError, "RBF evaluation launch failed");
         return true;
     }
-    // Synchronous proof phase (the deform discipline): the fence proves
-    // the submit while this phase owns the entry. The
-    // pending protocol is unchanged — the fence is simply already
-    // signaled when Finish/PollEvaluate consume it.
-    r = SpinWaitForFence(d, fence);
+    native.evalValue = value;
+    // Synchronous proof phase (the deform discipline): the timeline value
+    // proves the submit while this phase owns the entry. The pending
+    // protocol is unchanged — the value has simply already signaled when
+    // Finish/PollEvaluate consume it.
+    r = timeline->Wait(value, kTimelineTimeoutNs);
     releaseSets();
     if (r != VK_SUCCESS) {
         native.lastResult = r;
@@ -1731,9 +1762,9 @@ RbfVkStatus RbfVkBinding::Evaluate(std::shared_ptr<const ChargedBuffer> cvs,
     // so a pending evaluation must complete before its count is
     // overwritten. Observable semantics match CUDA (one shared completion
     // diagnostic consumed by a single Finish).
-    if (evalPending_ && !native.evalFences.empty()) {
-        VkResult r = vkWaitForFences(d, uint32_t(native.evalFences.size()),
-            native.evalFences.data(), VK_TRUE, kFenceTimeoutNs);
+    if (evalPending_ && native.evalValue) {
+        VkResult r = native.evalSubmitFailure != VK_SUCCESS ? native.evalSubmitFailure
+            : native.context->computeTimeline()->Wait(native.evalValue, kTimelineTimeoutNs);
         if (r != VK_SUCCESS)
             return fail(RbfVkStatus::DeviceError, "RBF evaluation state setup failed");
     }
@@ -1838,21 +1869,11 @@ RbfVkStatus RbfVkBinding::Evaluate(std::shared_ptr<const ChargedBuffer> cvs,
         releaseSet();
         return fail(RbfVkStatus::DeviceError, "RBF evaluation launch failed");
     }
-    VkFence fence = native.fencePool.Acquire(d, &r);
-    if (!fence) {
-        vkFreeCommandBuffers(d, native.evalCommands, 1, &cmd);
-        releaseSet();
-        return fail(RbfVkStatus::DeviceError, "RBF evaluation launch failed");
-    }
     // Allocate retention records before submission; no host allocation can
     // fail after work becomes pending and leave its owners untracked.
-    // The fence was never submitted on these paths, so it is idle and
-    // rejoins the pool.
     try {
-        native.evalFences.reserve(native.evalFences.size() + 1);
         native.evalOwners.reserve(native.evalOwners.size() + 2);
     } catch (std::bad_alloc const&) {
-        native.fencePool.Release(d, fence);
         vkFreeCommandBuffers(d, native.evalCommands, 1, &cmd);
         releaseSet();
         return fail(RbfVkStatus::DeviceError, "RBF evaluation launch failed");
@@ -1862,24 +1883,21 @@ RbfVkStatus RbfVkBinding::Evaluate(std::shared_ptr<const ChargedBuffer> cvs,
         catch (...) { r = VK_ERROR_UNKNOWN; }
         if (r != VK_SUCCESS) {
             native.lastResult = r;
-            native.fencePool.Release(d, fence);
             vkFreeCommandBuffers(d, native.evalCommands, 1, &cmd);
             releaseSet();
             return fail(RbfVkStatus::DeviceError, "RBF evaluation submission rejected");
         }
     }
-    native.evalFences.push_back(fence);
     native.evalOwners.push_back(std::move(cvs));
     native.evalOwners.push_back(std::move(out));
     evalPending_ = true;
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    r = vkQueueSubmit(native.context->computeQueue(), 1, &submit, fence);
+    uint64_t const value = native.context->computeTimeline()->Submit(&cmd, 1u, &r);
     native.lastResult = r;
-    if (r != VK_SUCCESS)
+    if (!value) {
+        native.evalSubmitFailure = r;
         return fail(RbfVkStatus::DeviceError, "RBF evaluation launch failed");
+    }
+    native.evalValue = value;
     return RbfVkStatus::Ok;
 }
 
@@ -1888,18 +1906,15 @@ VkResult RbfVkBinding::PollEvaluate(RbfVkStatus* status) {
     if (!evalPending_) return VK_SUCCESS;
     auto& native = *native_;
     auto d = native.context->device();
-    VkResult r = VK_SUCCESS;
-    for (auto fence : native.evalFences) {
-        r = vkGetFenceStatus(d, fence);
-        if (r != VK_SUCCESS) return r;
-    }
+    // A stacked submit that never ran keeps the evaluation pending (its
+    // outputs were never written), as an unsignaled proof would.
+    if (native.evalSubmitFailure != VK_SUCCESS) return native.evalSubmitFailure;
+    VkResult r = native.context->computeTimeline()->Check(native.evalValue);
+    if (r != VK_SUCCESS) return r;
     int flag = 0;
     if (r == VK_SUCCESS) r = ReadBytes(d, *native.flagBuf, 4, &flag) == VK_SUCCESS
         ? VK_SUCCESS : VK_ERROR_DEVICE_LOST;
-    // Every fence above polled VK_SUCCESS, so each is idle and rejoins the
-    // pool even when the flag readback fails.
-    for (VkFence f : native.evalFences) if (f) native.fencePool.Release(d, f);
-    native.evalFences.clear();
+    native.evalValue = 0;
     native.evalOwners.clear();
     (void)vkResetCommandPool(d, native.evalCommands, 0);
     (void)vkResetDescriptorPool(d, native.evalPool, 0);
@@ -1917,8 +1932,8 @@ VkResult RbfVkBinding::PollEvaluate(RbfVkStatus* status) {
 
 RbfVkStatus RbfVkBinding::Finish() {
     if (!evalPending_) return RbfVkStatus::Ok;
-    auto r = vkWaitForFences(native_->context->device(), uint32_t(native_->evalFences.size()),
-                            native_->evalFences.data(), VK_TRUE, kFenceTimeoutNs);
+    auto r = native_->evalSubmitFailure != VK_SUCCESS ? native_->evalSubmitFailure
+        : native_->context->computeTimeline()->Wait(native_->evalValue, kTimelineTimeoutNs);
     if (r != VK_SUCCESS) return fail(RbfVkStatus::DeviceError, "RBF evaluation completion query failed");
     RbfVkStatus status = RbfVkStatus::Ok;
     r = PollEvaluate(&status);

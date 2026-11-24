@@ -5,7 +5,12 @@
 // CudaRbfBinding::Bind (rbf.cu:468): in-place Doolittle LU with partial
 // pivoting of the row-major bordered matrix, plus the row permutation.
 //
-// Exactly one workgroup of 256 runs the column loop. Thread 0 performs
+// Exactly one workgroup of 256 runs the column loop over the push-constant
+// range [first, last): a bind splits the loop into several dispatches, each
+// in its own submitted batch, so no single submission runs long enough to
+// trip the Windows TDR. Every column runs the same code in the same order
+// whatever the split, so the factors are bitwise those of one dispatch; a
+// failure recorded by an earlier range (info != 0) ends the later ones. Thread 0 performs
 // the pivot search and row/perm swap serially (SolveRbf order in
 // deformRbfHost.h); all threads then apply the trailing update to
 // strided rows. barrier() between phases is both the control and the
@@ -20,7 +25,9 @@
 //   2 perm   int[m]      W (row permutation: solved rows read rhs[perm[i]])
 //   3 UBO    RbfVkSolveUbo (64 bytes; uses m)
 //
-// Dispatch: local_size_x=256, groups=(1,1,1).
+// Push constants: ivec2 (first, last) column range; the first range starts at
+// 0 (it initializes perm and info).
+// Dispatch: local_size_x=256, groups=(1,1,1), once per range in order.
 
 #version 460
 layout(local_size_x = 256) in;
@@ -39,16 +46,26 @@ layout(std140, binding = 3) uniform Params {
     double lambda;    // smoothing (buildMatrix diagonal only)
 } params;
 
+layout(push_constant) uniform Range {
+    int first;
+    int last;
+} range;
+
 shared int failed;
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
     int m = params.nmc.y;
-    for (int i = int(tid); i < m; i += 256) perm[i] = i;
-    if (tid == 0u) failed = 0;
+    if (range.first == 0) {
+        for (int i = int(tid); i < m; i += 256) perm[i] = i;
+        if (tid == 0u) info = 0;
+    }
+    if (tid == 0u) failed = range.first == 0 ? 0 : info;
     memoryBarrierBuffer();
     barrier();
-    for (int c = 0; c < m; ++c) {
+    if (failed != 0) return;
+    int last = min(range.last, m);
+    for (int c = range.first; c < last; ++c) {
         if (tid == 0u) {
             int p = c;
             for (int r = c + 1; r < m; ++r)
@@ -80,5 +97,4 @@ void main() {
         memoryBarrierBuffer();
         barrier();
     }
-    if (tid == 0u && failed == 0) info = 0;
 }

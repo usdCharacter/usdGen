@@ -784,7 +784,7 @@ bool FrameOracle(UsdGenCurveSetDesc const& curves,
 std::shared_ptr<NativeOwner> CreateNativeRetry(bool* unavailable) {
     VkPhysicalDeviceFeatures fp64{};
     fp64.shaderFloat64 = VK_TRUE;
-    return CreateNative(unavailable, {}, nullptr, &fp64);
+    return CreateTimelineNative(unavailable, &fp64);
 }
 
 struct VulkanDevice {
@@ -812,6 +812,7 @@ bool InitVulkan(VulkanDevice* dev, bool* unavailable) {
     ci.nativeLifetime = dev->native;
     ci.resources = {size_t{8} << 20, 0};
     ci.shaderFloat64Enabled = dev->shaderFloat64;
+    ci.timelineSemaphoreEnabled = true;
     VkResult status = VK_ERROR_UNKNOWN;
     dev->context = DeviceContext::Create(ci, &status);
     if (!dev->context || status != VK_SUCCESS) {
