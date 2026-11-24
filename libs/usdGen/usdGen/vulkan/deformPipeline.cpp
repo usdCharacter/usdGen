@@ -3,12 +3,9 @@
 
 #include "deformPipeline.h"
 #include "deformEvaluateCpu.h"
+#include "epochCell.h"
 #include "fencePool.h"
-#include "usdGen/tbbFastCores.h"
 #include "usdGen/workerPool.h"
-
-#include <tbb/blocked_range.h>
-#include <tbb/parallel_for.h>
 
 #include <algorithm>
 #include <atomic>
@@ -19,7 +16,6 @@
 #include <cmath>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <new>
 #include <vector>
 
@@ -279,15 +275,16 @@ struct DeformPipeline::Native {
     VkPipeline cachedPipeline = VK_NULL_HANDLE;
     // The rest-only factorization survives poses that keep the same rest
     // samples and smoothing; a pose then pays only the right-hand side and
-    // the triangular solves. Guarded: Begin may run on several threads.
-    std::mutex factorMutex;
-    struct FactorCache {
+    // the triangular solves. Begin may run on several threads: the entry
+    // is immutable and published by atomic pointer; a miss builds a fresh
+    // one and publishes it (concurrent misses each build the same bytes).
+    struct FactorEntry {
         std::vector<float> rest;
         double smoothing = 0.0;
         int n = 0;
-        bool valid = false;
         RbfFactorization factor;
-    } factorCache;
+    };
+    VulkanEpochCell<FactorEntry const> factorCache;
     // Pose-invariant R cache. R[j*P+i] is the radius-cubed kernel value
     // for CV i and sample j: it depends only on the CVs, the rest
     // samples, and the rest-derived center/scale, so poses that keep
@@ -295,11 +292,9 @@ struct DeformPipeline::Native {
     // only the past-prefix suffix through the sqrt loop. The verify
     // shader checks the prefix CV bytes on the device (and snapshots
     // them into `proof`), self-scheduling the fill through the indirect
-    // args; the rest and n are host BeginInfo, compared under the mutex
-    // (a mismatch forces the refill instead of speculating). Guarded:
-    // the whole cached proof phase (decide, submit, wait, bookkeeping)
-    // runs under cacheMutex so a force commit is atomic with its fill.
-    std::mutex cacheMutex;
+    // args; the rest and n are host BeginInfo, compared by the owner of
+    // the proof state (a mismatch forces the refill instead of
+    // speculating). The cache lives in ProofState below.
     struct EvalCache {
         std::shared_ptr<ChargedBuffer> r;     // R rows, rowsFunded*rowsAlloc doubles
         std::shared_ptr<ChargedBuffer> proof; // prefix CV snapshot, rowsFunded float3s
@@ -313,30 +308,19 @@ struct DeformPipeline::Native {
         int missStreak = 0;                   // consecutive refills
         int bypassLeft = 0;                   // direct poses left in backoff
         bool everFilled = false;
-    } evalCache;
+    };
     // Heterogeneous suffix execution: the worker pool (one thread per
     // fast CPU, no per-region wakeup) plus the adaptive policy. The device
     // copies the suffix CVs into the idle warped suffix (byte staging, no
     // extra buffer) while the host evaluates the suffix (bitwise the
     // direct shader) during the prefix proof; host-visible coherent
-    // inputs map directly instead (no staging copy). Guarded: Begin may
-    // run on
-    // several threads, and one pool serves one dispatch at a time, so a
-    // contended pose falls back to the pinned TBB arena (same partition
-    // contract, same bits). Lock order is cacheMutex -> heteroMutex (the
-    // policy updates inside the cached proof phase); heteroMutex never
-    // nests the other way. heteroPoolMutex is a leaf try-lock, never held
-    // across the policy. The pool is born lazily at its first suffix:
-    // pipeline creation precedes the first pose by longer than the spin
-    // budget, so an eager pool would sleep through setup and make the
-    // first suffix pay the full wake stagger (and talk the policy out of
-    // arming).
-    std::once_flag heteroPoolOnce;
-    std::unique_ptr<UsdGenWorkerPool> heteroPool;
-    std::mutex heteroPoolMutex;
-    tbb::task_arena heteroArena{kHeteroWorkers};
-    std::unique_ptr<tbb::task_scheduler_observer> heteroPinning;
-    std::mutex heteroMutex;
+    // inputs map directly instead (no staging copy). The policy and the
+    // pool live in ProofState below, so only its owner dispatches: one
+    // pool serves one dispatch at a time without any lock. The pool is
+    // born lazily at its first suffix: pipeline creation precedes the
+    // first pose by longer than the spin budget, so an eager pool would
+    // sleep through setup and make the first suffix pay the full wake
+    // stagger (and talk the policy out of arming).
     struct HeteroPolicy {
         double cpuNsPerCv = 0.0;   // host suffix throughput (EMA), 0 = uncalibrated
         double gpuNsPerCv = 0.0;   // device suffix throughput, 0 = seed
@@ -346,14 +330,45 @@ struct DeformPipeline::Native {
         bool everProbed = false;   // a hetero pose has run (estimates are live)
         int probeIn = 0;           // eligible GPU poses until the next probe
         int probeInterval = kHeteroProbeBase;
-    } hetero;
-    // The hetero arming decision (see the definition below). Caller holds
-    // heteroMutex.
+    };
+    // Everything the cached proof phase reads and writes. Begin may run on
+    // several threads: a pose takes the state by atomic exchange for its
+    // decision and proof phase and puts it back after; a pose that finds
+    // it taken runs direct (bitwise the same) instead of waiting.
+    struct ProofState {
+        EvalCache evalCache;
+        HeteroPolicy hetero;
+        std::unique_ptr<UsdGenWorkerPool> heteroPool;
+    };
+    std::atomic<ProofState*> proofState{new ProofState};
+    // Owns the proof state from Take until Put (or scope exit).
+    class ProofHold {
+    public:
+        explicit ProofHold(Native* native) noexcept : native_(native) {}
+        ~ProofHold() { Put(); }
+        ProofHold(ProofHold const&) = delete;
+        ProofHold& operator=(ProofHold const&) = delete;
+        ProofState* Take() noexcept {
+            if (!state_) state_ = native_->proofState.exchange(nullptr, std::memory_order_acq_rel);
+            return state_;
+        }
+        void Put() noexcept {
+            if (state_) native_->proofState.store(state_, std::memory_order_release);
+            state_ = nullptr;
+        }
+        ProofState* operator->() const noexcept { return state_; }
+        explicit operator bool() const noexcept { return state_ != nullptr; }
+    private:
+        Native* native_;
+        ProofState* state_ = nullptr;
+    };
+    // The hetero arming decision (see the definition below). Caller owns
+    // the proof state.
     static bool HeteroWants(HeteroPolicy& hp, uint32_t suffixCvs,
                             uint32_t prefixCvs);
     // The hetero balance cap (see the definition below): the active prefix
     // past which the host idles while the device runs, or UINT32_MAX for
-    // no cap. Caller holds heteroMutex.
+    // no cap. Caller owns the proof state.
     static uint32_t HeteroBalanceCap(HeteroPolicy& hp, uint32_t points);
     // Idle submit fences: fence create/destroy costs ~0.7ms each on the
     // qualified driver, so per-pose submits check out of this pool instead
@@ -366,6 +381,8 @@ struct DeformPipeline::Native {
     // may run on several threads. At most kMaxIdleScratchSets are kept;
     // surplus sets are destroyed on release. Members destroy after the body
     // with context (declared first) still alive, so no explicit clear.
+    // Lock-free: each pool slot has a state word; checkout and return claim
+    // a slot by CAS and skip a busy one, so nobody ever waits.
     struct ScratchSet {
         std::shared_ptr<ChargedBuffer> warped;
         // The warped memory type the set was allocated with: hetero poses
@@ -387,16 +404,38 @@ struct DeformPipeline::Native {
         std::shared_ptr<ChargedBuffer> cachedUbo;
         std::shared_ptr<ChargedBuffer> fillArgs;
     };
-    std::mutex scratchMutex;
-    std::vector<ScratchSet> scratchIdle;
+    enum : uint32_t { kSlotEmpty = 0, kSlotFull = 1, kSlotBusy = 2 };
+    template <class T>
+    struct IdleSlot {
+        std::atomic<uint32_t> state{kSlotEmpty};
+        T value;
+        bool Claim(uint32_t from) noexcept {
+            return state.compare_exchange_strong(from, kSlotBusy, std::memory_order_acquire,
+                                                 std::memory_order_relaxed);
+        }
+        void Release(uint32_t to) noexcept { state.store(to, std::memory_order_release); }
+    };
+    // Parks a value in an empty slot; false when every slot is taken.
+    template <class T, size_t N>
+    static bool ParkIdle(IdleSlot<T> (&slots)[N], T&& value) noexcept {
+        for (auto& slot : slots) {
+            if (!slot.Claim(kSlotEmpty)) continue;
+            slot.value = std::move(value);
+            slot.Release(kSlotFull);
+            return true;
+        }
+        return false;
+    }
+    IdleSlot<ScratchSet> scratchIdle[kMaxIdleScratchSets];
     // Idle outPoints buffers, exact-size matched at checkout: allocation
     // lifecycle costs ~150us per pose, and the buffer is provably idle at
     // State destruction (see ReturnOutPoints). The caller may hold
     // Output::points past the Candidate's death, so a pooled buffer is
     // reused only while the pool is its sole owner; anything still shared
-    // stays idle and the pose allocates fresh. Capped; scratchMutex-held.
-    std::vector<std::shared_ptr<ChargedBuffer>> outPointsIdle;
+    // stays idle and the pose allocates fresh. Capped.
+    IdleSlot<std::shared_ptr<ChargedBuffer>> outPointsIdle[kMaxIdleOutPoints];
     ~Native() {
+        delete proofState.load(std::memory_order_acquire);
         if (!context) return;
         auto d = context->device();
         fencePool.Clear(d);
@@ -492,12 +531,8 @@ struct DeformPipeline::Candidate::State {
              set.cachedUbo->sizeBytes() < kCachedUboBytes ||
              set.fillArgs->sizeBytes() < kFillArgsBytes))
             return;
-        try {
-            std::lock_guard<std::mutex> lock(native->scratchMutex);
-            if (native->scratchIdle.size() < kMaxIdleScratchSets)
-                native->scratchIdle.push_back(std::move(set));
-        } catch (...) {
-        }
+        // A full pool destroys the surplus set here.
+        (void)Native::ParkIdle(native->scratchIdle, std::move(set));
     }
     // Returns outPoints to the idle pool. Only the destructor calls this:
     // between Poll and destruction the caller may still read output(), so
@@ -508,12 +543,7 @@ struct DeformPipeline::Candidate::State {
     // only reuses sole-owned buffers. Never throws.
     void ReturnOutPoints() noexcept {
         if (!outPoints) return;
-        try {
-            std::lock_guard<std::mutex> lock(native->scratchMutex);
-            if (native->outPointsIdle.size() < kMaxIdleOutPoints)
-                native->outPointsIdle.push_back(std::move(outPoints));
-        } catch (...) {
-        }
+        (void)Native::ParkIdle(native->outPointsIdle, std::move(outPoints));
     }
     ~State() {
         auto d = native->context->device();
@@ -690,7 +720,6 @@ std::shared_ptr<DeformPipeline> DeformPipeline::Create(
         if (wantCache && r == VK_SUCCESS)
             r = mkPipeline(n->cachedShader, n->evalPipelineLayout, &n->cachedPipeline);
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        n->heteroPinning = ObserveFastCores(n->heteroArena, kHeteroWorkers);
         auto pipeline = std::shared_ptr<DeformPipeline>(new DeformPipeline(std::move(n)));
         finish(VK_SUCCESS);
         return pipeline;
@@ -837,30 +866,6 @@ bool RunHeteroSuffixPool(UsdGenWorkerPool& pool, DeformEvalCpuParams const& p,
                          if (f) pl->bad->fetch_or(f, std::memory_order_relaxed);
                      },
                      &payload);
-    if (bad.load(std::memory_order_relaxed)) *flag |= 1u;
-    return ok.load(std::memory_order_relaxed);
-}
-
-// Contended-pose fallback: the same suffix on the pinned hetero arena.
-// Bitwise RunHeteroSuffixPool (partition-independent queries, same flag).
-bool RunHeteroSuffixTbb(tbb::task_arena& arena, DeformEvalCpuParams const& p,
-                        float const* cvs, float* warped,
-                        uint32_t begin, uint32_t end, uint32_t* flag)
-{
-    if (begin >= end) return true;
-    std::atomic<uint32_t> bad{0};
-    std::atomic<bool> ok{true};
-    arena.execute([&] {
-        tbb::parallel_for(
-            tbb::blocked_range<uint32_t>(begin, end, kHeteroGrainsize),
-            [&](tbb::blocked_range<uint32_t> const& r) {
-                uint32_t f = 0;
-                if (!DeformEvaluateCpu(p, cvs + size_t(r.begin()) * 3,
-                            warped + size_t(r.begin()) * 3, r.size(), &f))
-                    ok.store(false, std::memory_order_relaxed);
-                if (f) bad.fetch_or(f, std::memory_order_relaxed);
-            });
-    });
     if (bad.load(std::memory_order_relaxed)) *flag |= 1u;
     return ok.load(std::memory_order_relaxed);
 }
@@ -1062,24 +1067,25 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
     {
         float3 const* rest = reinterpret_cast<float3 const*>(info.restSamples.data());
         float3 const* posed = reinterpret_cast<float3 const*>(info.posedSamples.data());
-        std::lock_guard<std::mutex> lock(native_->factorMutex);
-        auto& cache = native_->factorCache;
+        auto cache = native_->factorCache.Load();
         size_t const restBytes = info.restSamples.size() * sizeof(float);
-        bool const hit = cache.valid && cache.n == n &&
-            cache.smoothing == info.smoothing &&
-            cache.rest.size() == info.restSamples.size() &&
-            std::memcmp(cache.rest.data(), info.restSamples.data(), restBytes) == 0;
+        bool const hit = cache && cache->n == n &&
+            cache->smoothing == info.smoothing &&
+            cache->rest.size() == info.restSamples.size() &&
+            std::memcmp(cache->rest.data(), info.restSamples.data(), restBytes) == 0;
         if (!hit) {
-            cache.rest = info.restSamples;
-            cache.n = n;
-            cache.smoothing = info.smoothing;
-            BindRbf(rest, n, info.smoothing, cache.factor);
-            cache.valid = true;
+            auto fresh = std::make_shared<Native::FactorEntry>();
+            fresh->rest = info.restSamples;
+            fresh->n = n;
+            fresh->smoothing = info.smoothing;
+            BindRbf(rest, n, info.smoothing, fresh->factor);
+            cache = fresh;
+            native_->factorCache.Store(std::move(fresh));
         }
-        if (cache.factor.status != RbfStatus::Code::Ok)
-            rstate.status = cache.factor.status;
+        if (cache->factor.status != RbfStatus::Code::Ok)
+            rstate.status = cache->factor.status;
         else
-            SolveRbfPosed(cache.factor, rest, posed, rstate);
+            SolveRbfPosed(cache->factor, rest, posed, rstate);
     }
     double const invScale = 1.0 / rstate.scale;
     if (rstate.status != RbfStatus::Code::Ok) {
@@ -1111,21 +1117,21 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
     // warped memory type funds with the scratch, so the policy answers
     // from the funded-prefix estimate. Steady poses estimate exactly
     // (cacheActive equals min(points, rowsFunded) absent regrow and the
-    // balance cap below); pose 0 has no prefix. Lock order cache ->
-    // hetero, never nested otherwise.
+    // balance cap below); pose 0 has no prefix. The proof state is taken
+    // here and kept through the proof phase (or put back once the pose
+    // runs direct); a pose that finds it taken runs direct.
     bool const heteroStatic = native_->cachedPipeline != VK_NULL_HANDLE &&
         !disableEvalCache.load(std::memory_order_relaxed) &&
         info.points &&
         (info.points->usage() & VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     bool wantHeteroTent = false;
-    {
-        uint32_t tentPrefix = 0;
-        {
-            std::lock_guard<std::mutex> clock(native_->cacheMutex);
-            tentPrefix = native_->evalCache.rowsFunded;
-        }
-        std::lock_guard<std::mutex> hlock(native_->heteroMutex);
-        auto& hp = native_->hetero;
+    Native::ProofHold proof(native_.get());
+    if (native_->cachedPipeline != VK_NULL_HANDLE &&
+        !disableEvalCache.load(std::memory_order_relaxed))
+        (void)proof.Take();
+    if (proof) {
+        uint32_t tentPrefix = proof->evalCache.rowsFunded;
+        auto& hp = proof->hetero;
         // Balance-aware estimate: the final decision caps a past-balance
         // prefix, so the suffix here — and the warped typing plus the
         // calibration below — must see the capped split, not the funded
@@ -1153,15 +1159,15 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         auto d = context->device();
         VkResult r;
         VkDeviceSize const outBytes = points ? VkDeviceSize(points) * 12u : 4u;
-        // Evicts a funded R cache to make room for pose scratch. Under
-        // cacheMutex, so no in-flight evaluate references the buffers
-        // (every pose's evaluate completes under the same lock before it
-        // releases it), and the cache buffers are never MarkSubmitted, so
+        // Evicts a funded R cache to make room for pose scratch. Only the
+        // proof state's owner evicts, so no in-flight evaluate references
+        // the buffers (every pose's evaluate completes before it puts the
+        // state back), and the cache buffers are never MarkSubmitted, so
         // dropping them frees the storage and returns the charge. False
-        // when nothing was funded. Called only while no lock is held.
+        // when nothing was funded or another pose owns the state.
         auto evictCacheForRoom = [&]() -> bool {
-            std::lock_guard<std::mutex> lock(native_->cacheMutex);
-            auto& cache = native_->evalCache;
+            if (!proof) return false;
+            auto& cache = proof->evalCache;
             if (!cache.r && !cache.proof) return false;
             cache.r.reset();
             cache.proof.reset();
@@ -1196,38 +1202,42 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         // empty-topology pose needs no scratch and skips the checkout.
         s->warpedHostVisible = wantHeteroTent;
         if (curves != 0) {
-            std::lock_guard<std::mutex> lock(native_->scratchMutex);
-            for (auto it = native_->scratchIdle.begin();
-                 it != native_->scratchIdle.end(); ++it) {
-                if (it->warped && it->warped->sizeBytes() == outBytes &&
-                    it->warpedHostVisible == wantHeteroTent) {
-                    s->warped = std::move(it->warped);
-                    s->status = std::move(it->status);
-                    s->evalStatus = std::move(it->evalStatus);
-                    s->coefBuf = std::move(it->coefBuf);
-                    s->samplesBuf = std::move(it->samplesBuf);
-                    s->evalUbo = std::move(it->evalUbo);
-                    s->applyUbo = std::move(it->applyUbo);
-                    s->verifyUbo = std::move(it->verifyUbo);
-                    s->fillUbo = std::move(it->fillUbo);
-                    s->cachedUbo = std::move(it->cachedUbo);
-                    s->fillArgs = std::move(it->fillArgs);
-                    native_->scratchIdle.erase(it);
-                    break;
+            for (auto& slot : native_->scratchIdle) {
+                if (!slot.Claim(Native::kSlotFull)) continue;  // empty or busy: skip
+                auto& set = slot.value;
+                if (!(set.warped && set.warped->sizeBytes() == outBytes &&
+                      set.warpedHostVisible == wantHeteroTent)) {
+                    slot.Release(Native::kSlotFull);
+                    continue;
                 }
+                s->warped = std::move(set.warped);
+                s->status = std::move(set.status);
+                s->evalStatus = std::move(set.evalStatus);
+                s->coefBuf = std::move(set.coefBuf);
+                s->samplesBuf = std::move(set.samplesBuf);
+                s->evalUbo = std::move(set.evalUbo);
+                s->applyUbo = std::move(set.applyUbo);
+                s->verifyUbo = std::move(set.verifyUbo);
+                s->fillUbo = std::move(set.fillUbo);
+                s->cachedUbo = std::move(set.cachedUbo);
+                s->fillArgs = std::move(set.fillArgs);
+                set = Native::ScratchSet{};
+                slot.Release(Native::kSlotEmpty);
+                break;
             }
             // outPoints: exact-size reuse, but only while the pool is the
             // sole owner — a caller-held Output keeps its buffer shared,
             // and then the pose allocates fresh below. A buffer the pool
             // owns alone has no caller reader: new Outputs only come from
             // live states, never from the pool.
-            for (auto it = native_->outPointsIdle.begin();
-                 it != native_->outPointsIdle.end(); ++it) {
-                if ((*it)->sizeBytes() == outBytes && (*it).use_count() == 1) {
-                    s->outPoints = std::move(*it);
-                    native_->outPointsIdle.erase(it);
+            for (auto& slot : native_->outPointsIdle) {
+                if (!slot.Claim(Native::kSlotFull)) continue;
+                if (slot.value->sizeBytes() == outBytes && slot.value.use_count() == 1) {
+                    s->outPoints = std::move(slot.value);
+                    slot.Release(Native::kSlotEmpty);
                     break;
                 }
+                slot.Release(Native::kSlotFull);
             }
         }
 
@@ -1443,23 +1453,20 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         }
 
         // Cached-R decision. The whole cached proof phase below (uploads,
-        // descriptors, recording, submit, wait, bookkeeping) runs under
-        // cacheMutex so a force commit is atomic with its fill; early
-        // returns unlock via the guard's destructor. The direct path only
-        // borrows the mutex for the bypass countdown.
+        // descriptors, recording, submit, wait, bookkeeping) owns the proof
+        // state, so a force commit is atomic with its fill; early returns
+        // put it back via the hold's destructor. The direct path only
+        // uses it for the bypass countdown.
         bool useCache = false;
         bool forceFill = false;
         uint32_t cacheActive = 0;
         uint32_t fundedPrefix = 0;
-        std::unique_lock<std::mutex> cacheLock(native_->cacheMutex, std::defer_lock);
-        if (native_->cachedPipeline != VK_NULL_HANDLE &&
-            !disableEvalCache.load(std::memory_order_relaxed)) {
-            cacheLock.lock();
-            auto& cache = native_->evalCache;
+        if (proof) {
+            auto& cache = proof->evalCache;
             if (cache.bypassLeft > 0) {
                 cache.bypassLeft--;
                 evalCacheBypassed.fetch_add(1, std::memory_order_relaxed);
-                cacheLock.unlock();
+                proof.Put();
             } else {
                 // Single-descriptor range cap for the whole-bound R rows
                 // (and proof snapshot): queried per funding decision, so
@@ -1613,8 +1620,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                     // model rejection clears it only once hetero agrees the
                     // GPU wins, so margin noise never flickers the split.
                     if (heteroStatic) {
-                        std::lock_guard<std::mutex> hlock(native_->heteroMutex);
-                        auto& hp = native_->hetero;
+                        auto& hp = proof->hetero;
                         uint32_t const freshCap =
                             Native::HeteroBalanceCap(hp, points);
                         bool const keysChanged = !restMatch || n != cache.n ||
@@ -1639,10 +1645,10 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                     forceFill = !cache.everFilled || !restMatch ||
                         n != cache.n || cacheActive > cache.filled;
                     useCache = true;
-                    // Stays locked through the proof phase below.
+                    // Stays owned through the proof phase below.
                 } else {
                     evalCacheUnfunded.fetch_add(1, std::memory_order_relaxed);
-                    cacheLock.unlock();
+                    proof.Put();
                 }
             }
         }
@@ -1654,11 +1660,9 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         bool const heteroEligible =
             heteroStatic && useCache && points > cacheActive;
         bool useHetero = heteroEligible && wantHeteroTent;
-        if (useHetero) {
-            std::lock_guard<std::mutex> hlock(native_->heteroMutex);
-            useHetero = Native::HeteroWants(native_->hetero,
+        if (useHetero)
+            useHetero = Native::HeteroWants(proof->hetero,
                 points - cacheActive, cacheActive);
-        }
         if (useHetero)
             heteroRuns.fetch_add(1, std::memory_order_relaxed);
         // Suffix input staging: the host suffix needs the suffix CV bytes.
@@ -1832,7 +1836,7 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
             vkUpdateDescriptorSets(d, kVerifyFillStorage + 1, writes, 0, nullptr);
         };
         if (useCache) {
-            auto const& cache = native_->evalCache;
+            auto const& cache = proof->evalCache;
             // Verify set: b0=cvs, b1=proof, b2=fillArgs, b3=verifyUbo.
             writeVerifyFillSet(verifySet, applyPlane(info.points, pointsBytes),
                                {cache.proof->buffer(), 0, cache.proof->sizeBytes()},
@@ -2136,31 +2140,24 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                     float const* suffixCvs = stageCopy
                         ? static_cast<float const*>(warpMap)
                         : static_cast<float const*>(pointsMap);
-                    // One pool serves one dispatch: the winning pose takes
-                    // it, a concurrent pose falls back to the arena (same
-                    // bits either way). The pool is born here, at its first
-                    // suffix, so its workers are fresh and spinning; the
-                    // warm dispatch parks them before the timed region, so
-                    // creation never pollutes the policy's throughput EMA
-                    // (an unstable first sample moves the balance split).
-                    std::call_once(native_->heteroPoolOnce, [&] {
-                        native_->heteroPool =
+                    // One pool serves one dispatch: only the proof state's
+                    // owner gets here, so it has the pool to itself. The
+                    // pool is born here, at its first suffix, so its
+                    // workers are fresh and spinning; the warm dispatch
+                    // parks them before the timed region, so creation
+                    // never pollutes the policy's throughput EMA (an
+                    // unstable first sample moves the balance split).
+                    if (!proof->heteroPool) {
+                        proof->heteroPool =
                             std::make_unique<UsdGenWorkerPool>(kHeteroWorkers);
-                        native_->heteroPool->ParallelFor(
+                        proof->heteroPool->ParallelFor(
                             1, [](size_t, void *) {}, nullptr);
-                    });
-                    std::unique_lock<std::mutex> poolLock(
-                        native_->heteroPoolMutex, std::try_to_lock);
+                    }
                     auto tCpu0 = std::chrono::steady_clock::now();
-                    bool suffixOk = poolLock.owns_lock()
-                        ? RunHeteroSuffixPool(*native_->heteroPool, xp,
+                    bool suffixOk = RunHeteroSuffixPool(*proof->heteroPool, xp,
                                               suffixCvs,
                                               static_cast<float*>(warpMap),
-                                              cacheActive, points, &heteroFlag)
-                        : RunHeteroSuffixTbb(native_->heteroArena, xp,
-                                             suffixCvs,
-                                             static_cast<float*>(warpMap),
-                                             cacheActive, points, &heteroFlag);
+                                              cacheActive, points, &heteroFlag);
                     heteroCpuNs = std::chrono::duration<double, std::nano>(
                         std::chrono::steady_clock::now() - tCpu0).count();
                     vkUnmapMemory(d, s->warped->memory());
@@ -2205,11 +2202,11 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
         s->proofFence = VK_NULL_HANDLE;
         if (r != VK_SUCCESS) { finish(r); return {}; }
         if (useCache) {
-            // Still under cacheMutex: commit the force (R/proof now hold
-            // this pose's fill) and account the hit/miss. The commit is
+            // Still owning the proof state: commit the force (R/proof now
+            // hold this pose's fill) and account the hit/miss. The commit is
             // correct even for a NonFinite pose (the fill ran regardless;
             // NaN inputs fill NaN words the cached evaluator flags on).
-            auto& cache = native_->evalCache;
+            auto& cache = proof->evalCache;
             if (forceFill) {
                 cache.rest = info.restSamples;
                 cache.n = n;
@@ -2227,14 +2224,13 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                 cache.missStreak = 0;
             }
             if (heteroEligible) {
-                // Hetero policy, still under cacheMutex (heteroMutex nests
-                // inside by the lock order). Hit-only proof EMAs: fills
+                // Hetero policy, still owning the proof state. Hit-only
+                // proof EMAs: fills
                 // pollute the proof wait, while the CPU suffix measures
                 // clean every hetero pose. A GPU hit against a known prefix
                 // derives the device suffix rate; until then the seed
                 // decides, and the first hetero pose corrects it.
-                std::lock_guard<std::mutex> hlock(native_->heteroMutex);
-                auto& hp = native_->hetero;
+                auto& hp = proof->hetero;
                 bool const hit = (argsX == 0);
                 uint32_t const suffixCvs = points - cacheActive;
                 auto ema = [](double oldV, double newV) {
@@ -2276,8 +2272,8 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Begin(
                 }
             }
             // End of the cached proof phase; the apply submit below (and
-            // its beforeSubmit hook) runs unlocked, as before.
-            cacheLock.unlock();
+            // its beforeSubmit hook) runs without the proof state, as before.
+            proof.Put();
         }
         if (st != 0) return reject(DeformSemantic::NonFinite);
 
