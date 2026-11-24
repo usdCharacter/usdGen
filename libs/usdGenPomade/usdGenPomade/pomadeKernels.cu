@@ -6,6 +6,8 @@
 // rule; transcendentals take tolerance, and these kernels use none).
 #include "usdGenPomade/pomadeKernels.h"
 
+#include "usdGen/sharedCell.h"
+
 #include <cfloat>
 #include <cstdio>
 #include <atomic>
@@ -3287,8 +3289,8 @@ struct PomadeHArena {
 // One kernel context per device: the arena plus an ownership word. A call
 // claims its device's context with one CAS and never waits for it; a call
 // that finds it claimed fails like an allocation failure, and the model's
-// lanes take their bit-exact CPU twin. Contexts are published by CAS on
-// first use and deliberately leaked (see above).
+// lanes take their bit-exact CPU twin. Contexts are built once on first use
+// (UsdGenLazyLeaked) and deliberately leaked (see above).
 struct PomadeKernelContext {
     std::atomic<uint32_t> owned{0};
     PomadeHArena arena;
@@ -3304,18 +3306,8 @@ PomadeKernelContext *_ClaimKernelContext()
         device >= kPomadeKernelDevices) {
         return nullptr;
     }
-    std::atomic<PomadeKernelContext *> &cell = g_kernelContexts[device];
-    PomadeKernelContext *ctx = cell.load(std::memory_order_acquire);
-    if (!ctx) {
-        PomadeKernelContext *fresh = new PomadeKernelContext();
-        if (cell.compare_exchange_strong(ctx, fresh,
-                                         std::memory_order_acq_rel,
-                                         std::memory_order_acquire)) {
-            ctx = fresh;
-        } else {
-            delete fresh;
-        }
-    }
+    PomadeKernelContext *const ctx =
+        &usdGen::UsdGenLazyLeaked(g_kernelContexts[device]);
     uint32_t idle = 0;
     if (!ctx->owned.compare_exchange_strong(idle, 1u,
                                             std::memory_order_acquire,

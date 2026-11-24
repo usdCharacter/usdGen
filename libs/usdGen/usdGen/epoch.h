@@ -205,6 +205,21 @@ private:
     std::atomic<T *> p_{nullptr};
 };
 
+/// Copy-on-write edit of an atomically published value: `edit(T&)` runs on a
+/// copy of the current value (or a default one) until the CAS lands, and
+/// returns false to leave the cell unchanged. `edit` may run more than once
+/// and must only touch the copy. Returns whether an edited copy was installed.
+template <class T, class Edit>
+bool UsdGenCowUpdateIf(UsdGenAtomicRef<T> &cell, Edit &&edit)
+{
+    for (;;) {
+        UsdGenRef<T> const current = cell.Load();
+        UsdGenRef<T> next = current ? UsdGenMakeRef<T>(*current) : UsdGenMakeRef<T>();
+        if (!edit(*next)) return false;
+        if (cell.CompareExchange(current, std::move(next))) return true;
+    }
+}
+
 /// Newest-wins handoff: producers publish, one consumer takes the latest.
 /// Values never read in place, so displaced ones are released directly.
 template <class T>

@@ -2,10 +2,11 @@
 #include "usdGenPomade/pomadeBake.h"
 
 #include "usdGenPomade/pomadeHierarchy.h"
-#include "usdGenPomade/pomadeLane.h"
 #include "usdGenPomade/pomadeModel.h"
 
+#include "usdGen/epoch.h"
 #include "usdGen/maps/ptexMap.h"
+#include "usdGen/parkingWord.h"
 
 #ifdef USDGEN_POMADE_HAS_CUDA
 #include "usdGenPomade/pomadeKernels.h"
@@ -793,23 +794,35 @@ bool PomadeBakePtex(PomadeBakeInput const &input, std::string const &outPath,
 }
 
 // The lane's shared state. Requests, completions, swap notes and
-// diagnostics are newest-wins mailboxes; the worker parks on `wake`, and
-// WaitCompleted parks on `completed`.
+// diagnostics are newest-wins handoffs (usdGen::UsdGenNewestWins); the
+// worker parks on `wake`, and WaitCompleted parks on `completedWord`. A
+// waiter reads its word BEFORE it checks for work and parks against that
+// value, so a notify that lands in between changes the word and the park
+// returns at once.
 struct PomadeBakeWorker::_Lane {
-    struct Request {
+    struct Request : usdGen::UsdGenRefCounted {
         uint64_t version = 0;
         PomadeBakeInput input;
     };
-    struct Completion {
+    struct Completion : usdGen::UsdGenRefCounted {
         uint64_t version = 0;
         std::string path;
     };
-    PomadeMailbox<Request> pending;
-    PomadeMailbox<Completion> completed;
-    PomadeMailbox<Completion> swapped;  // NoteSwapped, consumed by sweeps
-    PomadeMailbox<std::string> diagnostic;
-    PomadeWakeWord wake;
-    PomadeWakeWord completedWord;
+    struct Diagnostic : usdGen::UsdGenRefCounted {
+        std::string text;
+    };
+    usdGen::UsdGenNewestWins<Request> pending;
+    usdGen::UsdGenNewestWins<Completion> completed;
+    usdGen::UsdGenNewestWins<Completion> swapped;  // NoteSwapped, for sweeps
+    usdGen::UsdGenNewestWins<Diagnostic> diagnostic;
+    std::atomic<uint32_t> wake{0};
+    std::atomic<uint32_t> completedWord{0};
+
+    static void Notify(std::atomic<uint32_t> &word)
+    {
+        word.fetch_add(1u, std::memory_order_seq_cst);
+        usdGen::UsdGenUnparkAll(word);
+    }
 };
 
 PomadeBakeWorker::PomadeBakeWorker()
@@ -821,8 +834,8 @@ PomadeBakeWorker::PomadeBakeWorker()
 
 PomadeBakeWorker::~PomadeBakeWorker()
 {
-    _stop.store(true, std::memory_order_release);
-    _lane->wake.Notify();
+    _stop.store(true, std::memory_order_seq_cst);
+    _Lane::Notify(_lane->wake);
     if (_worker.joinable()) {
         _worker.join();
     }
@@ -830,17 +843,17 @@ PomadeBakeWorker::~PomadeBakeWorker()
 
 void PomadeBakeWorker::Enqueue(uint64_t mapVersion, PomadeBakeInput input)
 {
-    std::unique_ptr<_Lane::Request> request(new _Lane::Request());
+    auto request = usdGen::UsdGenMakeRef<_Lane::Request>();
     request->version = mapVersion;
     request->input = std::move(input);
     _pendingVersionAtomic.store(mapVersion);
     _lane->pending.Publish(std::move(request));
-    _lane->wake.Notify();
+    _Lane::Notify(_lane->wake);
 }
 
 bool PomadeBakeWorker::TakeCompleted(uint64_t *mapVersion, std::string *path)
 {
-    std::unique_ptr<_Lane::Completion> done = _lane->completed.Take();
+    usdGen::UsdGenRef<_Lane::Completion> done = _lane->completed.Take();
     if (!done) {
         return false;
     }
@@ -858,17 +871,17 @@ void PomadeBakeWorker::NoteSwapped(uint64_t mapVersion, std::string const &path)
     // Its own wake reason: with no pending bake the worker would otherwise
     // go straight back to sleep and the file the previous swap pinned
     // would survive forever.
-    std::unique_ptr<_Lane::Completion> note(new _Lane::Completion());
+    auto note = usdGen::UsdGenMakeRef<_Lane::Completion>();
     note->version = mapVersion;
     note->path = path;
     _lane->swapped.Publish(std::move(note));
-    _lane->wake.Notify();
+    _Lane::Notify(_lane->wake);
 }
 
 void PomadeBakeWorker::PauseWorker(bool pause)
 {
-    _paused.store(pause, std::memory_order_release);
-    _lane->wake.Notify();
+    _paused.store(pause, std::memory_order_seq_cst);
+    _Lane::Notify(_lane->wake);
 }
 
 bool PomadeBakeWorker::WaitCompleted(uint64_t mapVersion, int timeoutMs)
@@ -876,20 +889,27 @@ bool PomadeBakeWorker::WaitCompleted(uint64_t mapVersion, int timeoutMs)
     auto const deadline = std::chrono::steady_clock::now() +
                           std::chrono::milliseconds(timeoutMs);
     for (;;) {
-        uint32_t const seen = _lane->completedWord.Sequence();
+        uint32_t const seen =
+            _lane->completedWord.load(std::memory_order_seq_cst);
         if (_completedVersionAtomic.load() >= mapVersion) {
             return true;
         }
-        if (!_lane->completedWord.ParkUntil(seen, deadline)) {
-            return _completedVersionAtomic.load() >= mapVersion;
+        auto const now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return false;
         }
+        auto const left = std::chrono::ceil<std::chrono::milliseconds>(
+                              deadline - now).count();
+        usdGen::UsdGenParkWhileEqualFor(
+            _lane->completedWord, seen,
+            uint32_t(left > 0x7fffffff ? 0x7fffffff : left));
     }
 }
 
 std::string PomadeBakeWorker::TakeDiagnostic()
 {
-    std::unique_ptr<std::string> d = _lane->diagnostic.Take();
-    return d ? std::move(*d) : std::string();
+    usdGen::UsdGenRef<_Lane::Diagnostic> d = _lane->diagnostic.Take();
+    return d ? std::move(d->text) : std::string();
 }
 
 void PomadeBakeWorker::_WorkerLoop()
@@ -900,19 +920,20 @@ void PomadeBakeWorker::_WorkerLoop()
     void *bakeStream = nullptr;
 #endif
     auto takeSwapNote = [&] {
-        if (std::unique_ptr<_Lane::Completion> note = _lane->swapped.Take()) {
+        if (usdGen::UsdGenRef<_Lane::Completion> note = _lane->swapped.Take()) {
+            _swappedVersion = note->version;
             _swappedPath = std::move(note->path);
             return true;
         }
         return false;
     };
     for (;;) {
-        uint32_t const seen = _lane->wake.Sequence();
-        if (_stop.load(std::memory_order_acquire)) {
+        uint32_t const seen = _lane->wake.load(std::memory_order_seq_cst);
+        if (_stop.load(std::memory_order_seq_cst)) {
             break;
         }
-        std::unique_ptr<_Lane::Request> request;
-        if (!_paused.load(std::memory_order_acquire)) {
+        usdGen::UsdGenRef<_Lane::Request> request;
+        if (!_paused.load(std::memory_order_seq_cst)) {
             request = _lane->pending.Take();
             if (!request) {
                 if (takeSwapNote()) {
@@ -926,7 +947,7 @@ void PomadeBakeWorker::_WorkerLoop()
             }
         }
         if (!request) {
-            _lane->wake.Park(seen);
+            usdGen::UsdGenParkWhileEqual(_lane->wake, seen);
             continue;
         }
         // Coalescing: the mailbox holds only the latest enqueue. A swap
@@ -968,19 +989,29 @@ void PomadeBakeWorker::_WorkerLoop()
                 // Cancelled at a tile boundary: no file, no completion.
                 _cancelCount.fetch_add(1);
             } else {
-                _lane->diagnostic.Publish(
-                    std::unique_ptr<std::string>(new std::string(err)));
+                auto d = usdGen::UsdGenMakeRef<_Lane::Diagnostic>();
+                d->text = std::move(err);
+                _lane->diagnostic.Publish(std::move(d));
             }
             continue;  // a newer version may be waiting in the mailbox
         }
         _bakeCount.fetch_add(1);
+        // The previous completion is still in the mailbox (never handed
+        // out; this publish would displace it) or the UI took it and may
+        // not have swapped to it yet: then the sweep must keep its file.
+        // The exchange decides which, so the UI cannot take it after this.
+        if (!_lane->completed.Take()) {
+            _takenVersion = _completedVersion;
+            _takenPath = std::move(_completedPath);
+        }
+        _completedVersion = version;
         _completedPath = outPath;
-        std::unique_ptr<_Lane::Completion> done(new _Lane::Completion());
+        auto done = usdGen::UsdGenMakeRef<_Lane::Completion>();
         done->version = version;
         done->path = outPath;
         _lane->completed.Publish(std::move(done));
         _completedVersionAtomic.store(version);
-        _lane->completedWord.Notify();
+        _Lane::Notify(_lane->completedWord);
         takeSwapNote();
         _SweepStale(input.outDir, input.baseName);
     }
@@ -996,13 +1027,16 @@ void PomadeBakeWorker::_WorkerLoop()
 void PomadeBakeWorker::_SweepStale(std::string const &outDir,
                                   std::string const &baseName)
 {
-    // Keep the file the live layer references and the latest completion;
-    // delete older versioned files. Runs on the worker only, so the two
-    // kept paths are the worker's own copies.
+    // Keep the file the live layer references, the latest completion, and
+    // the completion before it when the UI took it after that swap (it may
+    // be swapping to it right now); delete older versioned files. Runs on
+    // the worker only, so the kept paths are the worker's own copies.
     std::error_code ec;
     if (outDir.empty() || !fs::is_directory(outDir, ec)) {
         return;
     }
+    bool const keepTaken =
+        !_takenPath.empty() && _takenVersion > _swappedVersion;
     std::string const prefix = baseName + ".v";
     for (auto const &entry : fs::directory_iterator(outDir, ec)) {
         if (!entry.is_regular_file(ec)) {
@@ -1015,7 +1049,8 @@ void PomadeBakeWorker::_SweepStale(std::string const &outDir,
             continue;
         }
         std::string const full = entry.path().string();
-        if (full == _swappedPath || full == _completedPath) {
+        if (full == _swappedPath || full == _completedPath ||
+            (keepTaken && full == _takenPath)) {
             continue;
         }
         unsigned long long v = 0;
@@ -1046,7 +1081,7 @@ bool PomadeBakeWorker::_Bake(uint64_t mapVersion, PomadeBakeInput const &input,
     // counts them as cancellations, not failures).
     auto cancelled = [&] {
         return _stop.load(std::memory_order_acquire) ||
-               (!_lane->pending.Empty() &&
+               (_lane->pending.HasValue() &&
                 _pendingVersionAtomic.load() > mapVersion);
     };
     if (!input.scalp || !input.scalp->finalized) {
