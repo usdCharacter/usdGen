@@ -9,22 +9,28 @@
 #define USDGEN_OP_CURL_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace curlP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kAxisMode,
+    kEnabled, kRadius, kRadiusKnots, kRadiusInterp, kFrequency, kPhase, kPhaseRandom, kTaper,
+    kClockwise, kMask,
+    kCount
+};
+enum AxisMode : int { kAxisCurveTangent, kAxisGuide };
+}  // namespace curlP
+
 class UsdGenCurlOp final : public UsdGenOp
 {
 public:
-    UsdGenCurlOp() = default;
+    explicit UsdGenCurlOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenCurlOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenCurl"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -37,14 +43,10 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sRadius{"radius"}, sRadiusKnots{"radius:knots"};
-    const TfToken sRadiusInterp{"radius:interpolation"}, sCatmullRom{"catmullRom"};
-    const TfToken sFrequency{"frequency"}, sPhase{"phase"};
-    const TfToken sPhaseRandom{"phaseRandom"}, sTaper{"taper"};
-    const TfToken sAxisMode{"axisMode"}, sCurveTangent{"curveTangent"};
-    const TfToken sGuide{"guide"}, sClockwise{"clockwise"}, sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterCurlOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

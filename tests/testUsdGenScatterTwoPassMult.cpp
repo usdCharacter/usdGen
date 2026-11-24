@@ -11,8 +11,10 @@
 // exactly 1.0) with a {2.0, 0.5, 1.0, 0.0} mult cycle pin per-face counts
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"
 
 #include "tbb/task_arena.h"
@@ -73,8 +75,9 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
                       std::string *error = nullptr)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenParamView params{&d, &node};
-    UsdGenScatterOp op;
+    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    UsdGenParamView const &params = stackParams.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag))
         return false;
@@ -124,7 +127,6 @@ static uint64_t TestNfMult(int seed, int f, double density, double area,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     UsdGenSurfaceDesc s = Surface();
     size_t const nFaces = s.faceVertexCounts.size();
     CHECK(nFaces > 4096);  // premise: this capture takes the two-pass path

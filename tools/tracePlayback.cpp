@@ -18,7 +18,8 @@
 //             per-frame tally of the notices sent to Hydra
 //
 // bin/trace_playback.ps1 sets up the plugin environment and runs this.
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 
 #include "pxr/base/tf/debug.h"
@@ -176,7 +177,6 @@ int main(int argc, char **argv)
     if (scene.empty()) { Usage(); return 2; }
 
     if (!quiet) TfDebug::SetDebugSymbolsByName("USDGEN_*", true);
-    usdGen::usdGenRegisterM1Operators();
 
     auto const openStart = Clock::now();
     UsdStageRefPtr const stage = UsdStage::Open(scene, UsdStage::LoadAll);

@@ -13,10 +13,12 @@
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/limitSurface.h"
 #include "pxr/base/gf/rotation.h"
@@ -1709,23 +1711,24 @@ static void CheckCutProjectedCurve1870()
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenCollide");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenCollide)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenCollide)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenCollide)");
     if (!op) return;
-    Check(op->Type() == type, "Collide reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(registry.Record(registry.Find(type)).Name() == type, "Collide reports its own type");
+    UsdGenOpRecord const &rec = op->Record();
+    Check(rec.Def().topoFx == UsdGenTopoFx::None,
           "Collide has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(rec.ReferenceInputs().empty(),
           "Collide declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "Collide emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(rec).empty(), "Collide emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Collide touches the points plane only");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(rec, false)) topo.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(rec, true)) value.insert(t.GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed",
                                         "colliders", "resolveType",
                                         "deepPenetrationMode"},
@@ -2594,7 +2597,6 @@ static void CheckCoincidentStrandOffsets()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     if (std::getenv("USDGEN_TEST_GRAZING_ONLY")) {
         CheckCutGrazingEntry(); return failures ? 1 : 0;
     }

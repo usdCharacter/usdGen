@@ -2,6 +2,7 @@
 #define USDGEN_OP_CURVESOURCE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -14,18 +15,9 @@ class UsdGenRestSurfaceBindingCache;
 class UsdGenCurveSourceOp final : public UsdGenOp
 {
 public:
-   UsdGenCurveSourceOp();
+   explicit UsdGenCurveSourceOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
    ~UsdGenCurveSourceOp() override = default;
 
-   TfToken Type() const override { return TfToken("UsdGenCurveSource"); }
-   UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-   UsdGenRole Role() const override { return UsdGenRole::Curves; }
-   bool IsGenerator() const override { return true; }
-   size_t GeometryInputArity() const override { return 0; }
-
-   TfSpan<const TfToken> TopologyParameters() const override;
-   TfSpan<const TfToken> ValueParameters() const override;
-   TfSpan<const TfToken> ReferenceInputs() const override { return {}; }
    bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
    UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
    bool Capture(UsdGenCaptureContext const &ctx,
@@ -39,12 +31,25 @@ public:
    uint32_t PlanesTouched() const override;
 
 private:
-   TfTokenVector topologyParameters_;
-   TfTokenVector valueParameters_;
    // Capture is serialized by the graph owner; consumers only see immutable
    // indices, never a process-global mutable cache shared between sessions.
    std::shared_ptr<const UsdGenRestSurfaceBindingCache> bindingCache_;
 };
+
+/// Parameter slots: the order of UsdGenRegisterCurveSourceOp's decl table.
+namespace curveSourceP {
+enum : UsdGenParamSlot {
+   kInput, kSurface, kSeed, kEnabled, kMode, kUseRest, kUsdGenUseRest, kInterpolationMode,
+   kDensityMultiplier, kRegionMapChannel, kExpectMapGeneration, kResampleTo, kIdSource,
+   kStaleAction, kExpectEpoch, kRebind,
+   kUsdGenResampleTo,    // read, not routed
+   kCount
+};
+enum Tok : uint16_t { kTokLoad, kTokNone, kTokSurfaceCage };
+}  // namespace curveSourceP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterCurveSourceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

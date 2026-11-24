@@ -9,6 +9,7 @@
 #include "pxr/base/gf/vec3f.h"
 
 #include <vector>
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -33,17 +34,9 @@ namespace usdGen {
 class UsdGenDeformOp final : public UsdGenOp
 {
 public:
-   UsdGenDeformOp();
+   explicit UsdGenDeformOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
    ~UsdGenDeformOp() override = default;
 
-   TfToken Type() const override { return TfToken("UsdGenDeform"); }
-   UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-   UsdGenRole Role() const override { return UsdGenRole::Curves; }
-   bool IsGenerator() const override { return false; }
-
-   TfSpan<const TfToken> TopologyParameters() const override;
-   TfSpan<const TfToken> ValueParameters() const override;
-   TfSpan<const TfToken> ReferenceInputs() const override;
    bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
    UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
    bool Capture(UsdGenCaptureContext const &ctx,
@@ -67,8 +60,6 @@ public:
    uint64_t ChosenDigestHitsForTesting() const { return chosenDigestHits_; }
 
 private:
-   TfTokenVector topologyParameters_;
-   TfTokenVector valueParameters_;
    // The factored system survives poses that keep the same rest samples.
    rbf::CubicField field_;
    std::vector<GfVec3d> boundRest_;
@@ -117,6 +108,18 @@ private:
                        UsdGenSurfaceDesc const &surface) const;
    mutable uint64_t chosenDigestHits_ = 0;
 };
+
+namespace deformP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kRbfSamples, kMode, kRegionMap, kGuideRegions, kEnabled,
+    kLockRoots, kMask, kCount
+};
+enum Tok : uint16_t { kTokCurveWrap, kTokRegionMapRel, kTokPeriodic, kTokRbf };
+}  // namespace deformP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

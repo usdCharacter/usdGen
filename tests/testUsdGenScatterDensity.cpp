@@ -6,8 +6,10 @@
 // reading back cached pre-stroke roots.
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/sessionCooker.h"
 
@@ -95,7 +97,6 @@ static bool ReRun(UsdGenGraphDesc const& d0, UsdGenGraphDesc const& d1,
 }
 
 int main() {
-    usdGenRegisterM1Operators();
 
     {
         // Production cook loop: sequential novel density recooks
@@ -161,7 +162,7 @@ int main() {
         CHECK(!Run(d, &out));
     }
     {
-        UsdGenScatterOp op;
+        UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
         auto a = Desc(), b = Desc();
         b.surfaces[0].densityMultiplier = {1.0f, 0.5f};
         UsdGenCaptureContext ctxA, ctxB;

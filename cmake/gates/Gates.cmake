@@ -80,6 +80,57 @@ foreach(_t usdGen usdGenMath)
     set_tests_properties(testUsdGenNoPxrLink_${_t} PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 endforeach()
 
+# Step 4 registry gates (design-step4 section 6). Today's counts as ceilings;
+# each step-4 commit lowers its own files' rows.
+#
+#   testUsdGenNoOpNameLiterals    no op type name literal in the engine
+#                                 outside an op's registration line
+#   testUsdGenNoTokenIntern       no TfToken built from text or a string:
+#                                 the interner is the one door
+#   testUsdGenEngineNoOpCoupling  no op header and no cast to an op class
+#                                 outside ops/
+#
+# Gate 1's exclude omits the registration line's trailing ';' (a ';' would
+# split the ctest argument).
+set(USDGEN_OP_NAME_LITERAL_PATTERN
+    "TfToken[ ]*[({][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
+set(USDGEN_OP_NAME_LITERAL_EXCLUDE
+    "^[ ]*//|^[ ]*[A-Za-z_][A-Za-z0-9_]*[.]name[ ]*=[ ]*\"UsdGen[A-Z][A-Za-z]*\"")
+set(USDGEN_TOKEN_INTERN_PATTERN
+    "TfToken[ ]*[({][ ]*[^ )}]|TfToken[ ]+[A-Za-z_][A-Za-z0-9_]*[ ]*[({][ ]*\"")
+set(USDGEN_OP_COUPLING_PATTERN
+    "#[ ]*include[ ]*\"usdGen/ops/|(dynamic|static)_cast<[ ]*(const[ ]+)?UsdGen[A-Za-z]*Op[ ]*(const[ ]*)?[*&]")
+
+add_test(NAME testUsdGenNoOpNameLiterals
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-op-name-literals
+        -DDIRS=libs/usdGen
+        "-DPATTERN=${USDGEN_OP_NAME_LITERAL_PATTERN}"
+        "-DEXCLUDE=${USDGEN_OP_NAME_LITERAL_EXCLUDE}"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noOpNameLiterals.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+add_test(NAME testUsdGenNoTokenIntern
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-token-intern
+        -DDIRS=libs/usdGen
+        "-DPATTERN=${USDGEN_TOKEN_INTERN_PATTERN}"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noTokenIntern.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+add_test(NAME testUsdGenEngineNoOpCoupling
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=engine-no-op-coupling
+        -DDIRS=libs/usdGen
+        "-DEXCLUDE_PATHS=^libs/usdGen/usdGen/ops/"
+        "-DPATTERN=${USDGEN_OP_COUPLING_PATTERN}"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/engineNoOpCoupling.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenNoTokenIntern
+    testUsdGenEngineNoOpCoupling PROPERTIES LABELS "T0;build;gate;gate:registries")
+
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
 target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)

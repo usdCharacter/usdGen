@@ -34,8 +34,10 @@
 #include "usdGen/graphDesc.h"
 #include "usdGen/maps/attributeInstance.h"
 #include "usdGen/maps/attributeMap.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "../usdGenOpFixture.h"
 #include "usdGen/sessionCooker.h"
 #include "usdGen/types.h"
 #include "usdGenImaging/usdGenInstancer.h"
@@ -239,10 +241,10 @@ uint64_t HashCurves(UsdGenCurveBuffer const &b)
 bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
                     std::string *error)
 {
-    usdGenRegisterM1Operators();
     UsdGenNodeDesc const &node = desc.nodes[0];
-    UsdGenParamView params{&desc, &node};
-    UsdGenScatterOp op;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag)) {
         *error = diag.errors.empty() ? "scatter Bind failed" : diag.errors[0];
@@ -267,8 +269,9 @@ bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
 int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
 {
     UsdGenNodeDesc const &node = desc.nodes[0];
-    UsdGenParamView params{&desc, &node};
-    UsdGenScatterOp op;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag)) {
         std::printf("scatter_capture error: bind failed\n");
@@ -309,8 +312,9 @@ int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
 int RunScatterDigest(Options const &opts, UsdGenGraphDesc const &desc)
 {
     UsdGenNodeDesc const &node = desc.nodes[0];
-    UsdGenParamView params{&desc, &node};
-    UsdGenScatterOp op;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.params = &params;
@@ -1320,7 +1324,6 @@ int main(int argc, char **argv)
     if (opts.csv)
         std::printf("stage,median_ms,best_ms,worst_ms,checksum,extra\n");
 
-    usdGenRegisterM1Operators();
     UsdGenGraphDesc const desc = MakeDesc(opts.grid, opts.grid);
     size_t const faceCount = desc.surfaces[0].faceVertexCounts.size();
 

@@ -12,22 +12,26 @@
 #define USDGEN_OP_STRAIGHTEN_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace straightenP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed,
+    kEnabled, kTangentStraightness, kNormalStraightness, kMask,
+    kCount
+};
+}  // namespace straightenP
+
 class UsdGenStraightenOp final : public UsdGenOp
 {
 public:
-    UsdGenStraightenOp() = default;
+    explicit UsdGenStraightenOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenStraightenOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenStraighten"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -40,11 +44,10 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sTangentStraightness{"tangentStraightness"};
-    const TfToken sNormalStraightness{"normalStraightness"};
-    const TfToken sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterStraightenOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

@@ -1,6 +1,8 @@
 #include "usdGen/cudaScatterInput.h"
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/cudaStages.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "usdGen/taskScheduler.h"
 
@@ -38,16 +40,18 @@ bool Finite(GfVec2f const& v) { return std::isfinite(v[0]) && std::isfinite(v[1]
 
 // Scatter is a generator: it declares only density and flip.
 bool AllowedScatterParam(TfToken const& name) {
-    return name == TfToken("density") || name == TfToken("flip") || name == TfToken("subdivisionLevel");
+    std::string const& text = name.GetString();
+    return text == "density" || text == "flip" || text == "subdivisionLevel";
 }
 
 bool IsFloat(VtValue const& v) { return v.IsHolding<float>() || v.IsHolding<double>(); }
 
 bool ValidScatterParam(UsdGenParamValue const& param) {
-    if(param.name==TfToken("subdivisionLevel"))
+    std::string const& name = param.name.GetString();
+    if (name == "subdivisionLevel")
         return param.value.IsHolding<int>() && param.value.UncheckedGet<int>()==0;
-    if (param.name == TfToken("density")) return IsFloat(param.value);
-    return param.name == TfToken("flip") && param.value.IsHolding<bool>();
+    if (name == "density") return IsFloat(param.value);
+    return name == "flip" && param.value.IsHolding<bool>();
 }
 
 // Threaded validation scans (verdict-identical): every ValidateSurface
@@ -289,7 +293,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                     "Scatter input needs an output owner and node path", reason);
     auto nodeIt = std::find_if(desc.nodes.begin(), desc.nodes.end(),
         [&](UsdGenNodeDesc const& node) { return node.path == scatterPath; });
-    if (nodeIt == desc.nodes.end() || nodeIt->type != TfToken("UsdGenScatter"))
+    if (nodeIt == desc.nodes.end() || !UsdGenIsCudaStage(*nodeIt, UsdGenCudaStage::Scatter))
         return Fail(CudaScatterInputStatus::InvalidArgument,
                     "Scatter input path does not resolve to a Scatter node", reason);
     UsdGenNodeDesc const& node = *nodeIt;
@@ -299,14 +303,14 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     // disabled generator in the description empties this root set: Grow and
     // CurveSource are fused into the same native slice and have no separate
     // producer to empty.
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     {
-        usdGenRegisterM1Operators();
         bool generatorDisabled = false;
         for (UsdGenNodeDesc const& candidate : desc.nodes) {
             if (candidate.enabled) continue;
-            std::unique_ptr<UsdGenOp> probe =
-                UsdGenOpRegistry::Get().Create(candidate.type);
-            generatorDisabled = generatorDisabled || (probe && probe->IsGenerator());
+            UsdGenOpId const id = registry.Find(candidate.type);
+            generatorDisabled = generatorDisabled || (id != UsdGenOpId::Invalid &&
+                registry.Record(id).Has(kUsdGenOpGenerator));
         }
         if (generatorDisabled) {
             *out = std::make_shared<gpu::ScatterGrowRoots>();
@@ -343,16 +347,19 @@ CudaScatterInputStatus PrepareCudaScatterInput(
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input requires authored rest points, not current points", reason);
 
-    UsdGenParamView params{&desc, &node};
-    if (params.GetBool(TfToken("flip"), false))
+    UsdGenOpId const scatterId = registry.Find(node.type);
+    // Slot-resolved view: the kernel reads its parameters by slot.
+    UsdGenStackParams const resolved(desc, node, registry.Record(scatterId));
+    if (resolved.View().GetBool(UsdGenCudaStageSlot(UsdGenCudaKernel(scatterId), cudaP::kScatterFlip),
+                                false))
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input does not yet support flip frame handedness", reason);
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenScatter"));
-    if (!op || op->GeometryInputArity() != 0)
+    std::unique_ptr<UsdGenOp> op = registry.Create(scatterId);
+    if (!op || registry.Record(scatterId).Def().geometryInputArity != 0)
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input cannot resolve the authoritative random Scatter kernel", reason);
     UsdGenDiagnostics diagnostics;
-    if (!op->Bind(params, &diagnostics))
+    if (!op->Bind(resolved.View(), &diagnostics))
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     diagnostics.errors.empty() ? "Scatter Bind failed" : diagnostics.errors.front(), reason);
     // Pooled shell (see above): checkout the thread's idle capture or
@@ -366,7 +373,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenCurveBuffer emptyUpstream;
     UsdGenCaptureContext context;
     context.desc = &desc;
-    context.params = &params;
+    context.params = &resolved.View();
     context.surface = static_cast<UsdGenSurfaceId>(surfaceIt - desc.surfaces.begin());
     context.seed = static_cast<uint32_t>(node.seed);
     context.diag = &diagnostics;

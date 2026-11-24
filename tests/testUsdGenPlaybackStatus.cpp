@@ -3,7 +3,9 @@
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenBrushApi.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "pxr/base/js/json.h"
 #include "pxr/imaging/hd/retainedSceneIndex.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
@@ -37,14 +39,7 @@ std::atomic<uint64_t> captureEpoch{0};
 std::atomic<bool> holdTile{false}, tileEntered{false}, releaseTile{true};
 class TemporalOp final : public usdGen::UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenPlaybackTestTemporal"); }
-    bool ReadsTime() const override { return true; }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> ReferenceInputs() const override {
-        static TfToken const guides("guides");
-        return {&guides, 1};
-    }
+    explicit TemporalOp(usdGen::UsdGenOpRecord const &r) : usdGen::UsdGenOp(r) {}
     bool Bind(usdGen::UsdGenParamView const&, usdGen::UsdGenDiagnostics*) override { return true; }
     usdGen::UsdGenEpoch CaptureDigest(usdGen::UsdGenCaptureContext const&) const override { return {1, captureEpoch.load()}; }
     bool Capture(usdGen::UsdGenCaptureContext const&, usdGen::UsdGenCurveBuffer const&,
@@ -66,6 +61,19 @@ public:
         }
     }
 };
+void RegisterTemporalOp(usdGen::UsdGenRegistrar &r)
+{
+    static char const *const kReferences[] = {"guides"};
+    usdGen::UsdGenOpDef d;
+    d.name = "UsdGenPlaybackTestTemporal";
+    d.displayName = "PlaybackTestTemporal";
+    d.create = [](usdGen::UsdGenOpRecord const &rec, void *) -> std::unique_ptr<usdGen::UsdGenOp> {
+        return std::make_unique<TemporalOp>(rec);
+    };
+    d.traits = usdGen::kUsdGenOpReadsTime;
+    d.referenceInputs = usdGen::UsdGenSpan(kReferences);
+    r.RegisterOp(d);
+}
 HdContainerDataSourceHandle EmptyGraph(bool temporal = false) {
     TfToken names[] = {TfToken("operatorOrder"), TfToken("surface"), TfToken("tileTarget")};
     HdDataSourceBaseHandle values[] = {
@@ -141,7 +149,7 @@ HdContainerDataSourceHandle Guide() {
 }
 }
 int main() {
-    usdGen::UsdGenOpRegistry::Get().Register(TfToken("UsdGenPlaybackTestTemporal"), [] { return std::make_unique<TemporalOp>(); });
+    usdGen::UsdGenRegisterStatic(&RegisterTemporalOp);
     Check(State("unavailable"), "missing viewer index fails closed");
     auto input = HdRetainedSceneIndex::New();
     auto sceneTime = FrameValue::New();

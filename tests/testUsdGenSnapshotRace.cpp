@@ -16,7 +16,8 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
 
@@ -143,7 +144,6 @@ UsdGenGraphDesc MakeG3(int NX = 250, int NY = 10)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     constexpr int kReaders = 8;
     constexpr int kGenerations = 100;

@@ -9,9 +9,11 @@
 //   (5) the neighbours contract (in-radius averaging, far strands unchanged,
 //       the iterations closed form).
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>
@@ -138,18 +140,18 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenSmooth");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenSmooth)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenSmooth)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenSmooth)");
     if (!op) return;
-    Check(op->Type() == type, "UsdGenSmooth reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenSmooth reports its own type");
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "UsdGenSmooth has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "UsdGenSmooth declares no reference inputs");
-    Check(op->OutputPrimvars().empty(),
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(),
           "UsdGenSmooth emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "UsdGenSmooth touches the points plane only");
@@ -570,7 +572,6 @@ static void CheckNeighboursIterationsCook()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckAlongCurveCook();
     CheckLockRootOffCook();

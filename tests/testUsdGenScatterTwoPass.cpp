@@ -4,8 +4,10 @@
 // family, stable curve ids, morton order with face-major ties, and
 // bit-exact positions/uv/frames, including the overflow-fan recompute
 // (ntri > 2), restricted capture, flip, and error parity.
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -109,8 +111,9 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
                       std::string *error = nullptr)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenParamView params{&d, &node};
-    UsdGenScatterOp op;
+    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    UsdGenParamView const &params = stackParams.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag))
         return false;
@@ -263,7 +266,6 @@ static bool TestRoot(GfVec3f const *rest, GfVec2f const *uv, int const *fvi,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     UsdGenSurfaceDesc const s = Surface();
     CHECK(s.faceVertexCounts.size() == 5047);
     int const seed = 7;

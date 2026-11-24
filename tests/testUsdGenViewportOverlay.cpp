@@ -45,7 +45,8 @@
 
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/dataSourceLocator.h"
@@ -302,7 +303,6 @@ HdContainerDataSourceHandle SelectionsOverlay()
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
 
     UsdStageRefPtr stage = UsdStage::CreateInMemory("viewport-overlay");
     stage->GetRootLayer()->ImportFromString(kFixture);

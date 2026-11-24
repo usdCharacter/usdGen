@@ -20,9 +20,10 @@
 //   includes self), for k = 1 .. n-2; both endpoints are always fixed (no
 //   lockRoot), and there is no length preservation.
 #include "usdGen/ops/smooth.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include <nanoflann.hpp>
@@ -37,10 +38,13 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+using namespace smoothP;
 
 namespace {
 
@@ -85,33 +89,30 @@ bool Finite(double v) { return std::isfinite(v); }
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("mode"));            // structural: the kernel branch (02 §6.1)
-    v.push_back(TfToken("searchRadius"));    // capture: rebuilds the neighbour lists
-    v.push_back(TfToken("numNeighbors"));    // capture: rebuilds the neighbour lists
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("strength"));
-    v.push_back(TfToken("iterations"));
-    v.push_back(TfToken("lockRoot"));
-    v.push_back(TfToken("mask"));
-    v.push_back(TfToken("window"));          // box half-width (pure evaluate)
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenSmoothOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenSmoothOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kIntRoot{expr::ScalarType::Int32, 1, "int", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kIntGroom{expr::ScalarType::Int32, 1, "int", D::Groom};
+constexpr char const *kModes[] = {"alongCurve", "neighbours", "box"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"mode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kModes)},
+    {"searchRadius", UsdGenParamClass::Capture, true, kFloatRoot},
+    {"numNeighbors", UsdGenParamClass::Capture, true, kIntRoot},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"strength", UsdGenParamClass::Value, true, kFloatRoot},
+    {"iterations", UsdGenParamClass::Value, true, kIntGroom},
+    {"lockRoot", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+    {"window", UsdGenParamClass::Value},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenSmoothOp>(r); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenSmoothOp::CreateCapture() const
 {
     return std::make_unique<UsdGenSmoothCapture>();
@@ -123,37 +124,37 @@ uint32_t UsdGenSmoothOp::PlanesTouched() const
 
 bool UsdGenSmoothOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sMode, sAlongCurve);
-    if (mode != sAlongCurve && mode != sNeighbours && mode != sBox) {
-        if (diag) diag->Error("UsdGenSmooth: unknown usdGen:mode '" + mode.GetString() + "'");
+    TfToken const *unknown = nullptr;
+    if (UsdGenStylerEnum(params, kMode, kModeAlongCurve, &unknown) < 0) {
+        if (diag) diag->Error("UsdGenSmooth: unknown usdGen:mode '" + unknown->GetString() + "'");
         return false;
     }
-    int const window = params.GetInt(sWindow, 2);
+    int const window = params.GetInt(kWindow, 2);
     if (window < 1 || window > int(kUsdGenMaxCvsPerCurve)) {
         if (diag) diag->Error("UsdGenSmooth: usdGen:window must be in [1, 4096]");
         return false;
     }
-    double const strength = params.GetDoubleLiteral(sStrength, 0.5);
+    double const strength = params.GetDoubleLiteral(kStrength, 0.5);
     if (!Finite(strength) || strength < -1.0 || strength > 1.0) {
         if (diag) diag->Error("UsdGenSmooth: usdGen:strength must be finite and in [-1, 1]");
         return false;
     }
-    int const iterations = params.GetInt(sIterations, 1);
+    int const iterations = params.GetInt(kIterations, 1);
     if (iterations < 1 || iterations > 16) {
         if (diag) diag->Error("UsdGenSmooth: usdGen:iterations must be in [1, 16]");
         return false;
     }
-    double const radius = params.GetDoubleLiteral(sSearchRadius, 0.0);
+    double const radius = params.GetDoubleLiteral(kSearchRadius, 0.0);
     if (!Finite(radius) || radius < 0.0) {
         if (diag) diag->Error("UsdGenSmooth: usdGen:searchRadius must be finite and >= 0");
         return false;
     }
-    int const neighbors = params.GetInt(sNumNeighbors, 4);
+    int const neighbors = params.GetInt(kNumNeighbors, 4);
     if (neighbors < 1 || neighbors > 32) {
         if (diag) diag->Error("UsdGenSmooth: usdGen:numNeighbors must be in [1, 32]");
         return false;
     }
-    if (!Finite(params.GetDoubleLiteral(sMask, 1.0))) {
+    if (!Finite(params.GetDoubleLiteral(kMask, 1.0))) {
         if (diag) diag->Error("UsdGenSmooth: usdGen:mask must be finite");
         return false;
     }
@@ -170,7 +171,7 @@ UsdGenEpoch UsdGenSmoothOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
     auto feed = [&](uint64_t v) { h ^= v; h *= 0x100000001b3ULL; };
-    feed(p ? uint64_t(p->GetToken(sMode, sAlongCurve).Hash()) : 0u);
+    feed(p ? uint64_t(UsdGenStylerEnum(*p, kMode, kModeAlongCurve) + 2) : 0u);
     feed(ctx.upstreamGeneration);
     feed(uint64_t(ctx.seed));
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -200,21 +201,21 @@ bool UsdGenSmoothOp::Capture(
     cap.upstreamCurves = upstream.totalCurves;
     cap.upstreamCvs = upstream.totalCvs;
 
-    TfToken const mode = p ? p->GetToken(sMode, sAlongCurve) : sAlongCurve;
-    cap.neighbours = mode == sNeighbours;
+    int const mode = p ? UsdGenStylerEnum(*p, kMode, kModeAlongCurve) : kModeAlongCurve;
+    cap.neighbours = mode == kModeNeighbours;
     if (!cap.neighbours) {
         cap.spans.clear();
         cap.positions.clear();
         cap.neighborLists.clear();
     }
     UsdGenParamField const strengthField =
-        p ? p->GetScalarField(sStrength, 0.5) : UsdGenParamField{0.5};
+        p ? p->GetScalarField(kStrength, 0.5) : UsdGenParamField{0.5};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const radiusField =
-        p ? p->GetScalarField(sSearchRadius, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kSearchRadius, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const neighborsField =
-        p ? p->GetScalarField(sNumNeighbors, 4.0) : UsdGenParamField{4.0};
+        p ? p->GetScalarField(kNumNeighbors, 4.0) : UsdGenParamField{4.0};
     if (strengthField.connected && strengthField.components != 1)
         return fail("connected strength must be float");
     if (maskField.connected && maskField.components != 1)
@@ -244,7 +245,7 @@ bool UsdGenSmoothOp::Capture(
         }
     }
     if (p) {
-        int const iterations = p->GetInt(sIterations, 1);
+        int const iterations = p->GetInt(kIterations, 1);
         if (iterations < 1 || iterations > 16)
             return fail("usdGen:iterations must be in [1, 16]");
     }
@@ -307,12 +308,12 @@ void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenChunkView *
     size_t const cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const strengthField =
-        p ? p->GetScalarField(sStrength, 0.5) : UsdGenParamField{0.5};
+        p ? p->GetScalarField(kStrength, 0.5) : UsdGenParamField{0.5};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
-    int const iterations = std::clamp(p ? p->GetInt(sIterations, 1) : 1, 1, 16);
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
+    int const iterations = std::clamp(p ? p->GetInt(kIterations, 1) : 1, 1, 16);
     size_t const window =
-        size_t(std::clamp(p ? p->GetInt(sWindow, 2) : 2, 1, int(kUsdGenMaxCvsPerCurve)));
+        size_t(std::clamp(p ? p->GetInt(kWindow, 2) : 2, 1, int(kUsdGenMaxCvsPerCurve)));
     thread_local std::vector<float> tOld;
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
@@ -369,13 +370,13 @@ void UsdGenSmoothOp::Evaluate(
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;
     size_t const cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
-    TfToken const mode = p ? p->GetToken(sMode, sAlongCurve) : sAlongCurve;
+    int const mode = p ? UsdGenStylerEnum(*p, kMode, kModeAlongCurve) : kModeAlongCurve;
     auto const &cap = static_cast<UsdGenSmoothCapture const &>(captureIn);
-    if (mode == sBox) {
+    if (mode == kModeBox) {
         EvaluateBox(ctx, view);
         return;
     }
-    if (mode != sAlongCurve && mode != sNeighbours) {
+    if (mode != kModeAlongCurve && mode != kModeNeighbours) {
         // Defensive pass-through; Capture already failed closed.
         for (uint32_t c = 0; c < view->curveCount; ++c) {
             size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
@@ -387,14 +388,14 @@ void UsdGenSmoothOp::Evaluate(
         return;
     }
     UsdGenParamField const strengthField =
-        p ? p->GetScalarField(sStrength, 0.5) : UsdGenParamField{0.5};
+        p ? p->GetScalarField(kStrength, 0.5) : UsdGenParamField{0.5};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
-    int iterations = p ? p->GetInt(sIterations, 1) : 1;
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
+    int iterations = p ? p->GetInt(kIterations, 1) : 1;
     iterations = std::clamp(iterations, 1, 16);
-    bool const lockRoot = p ? p->GetBool(sLockRoot, true) : true;
+    bool const lockRoot = p ? p->GetBool(kLockRoot, true) : true;
 
-    if (mode == sNeighbours && !cap.neighbours) {
+    if (mode == kModeNeighbours && !cap.neighbours) {
         // No capture payload (a mode switch always recaptures, so this is
         // only reachable defensively): pass through, never read stale lists.
         for (uint32_t c = 0; c < view->curveCount; ++c) {
@@ -406,7 +407,7 @@ void UsdGenSmoothOp::Evaluate(
         }
         return;
     }
-    bool const neighbours = mode == sNeighbours;
+    bool const neighbours = mode == kModeNeighbours;
 
     if (!neighbours) {
         // alongCurve: Jacobi passes ping-ponging between the scratch buffer
@@ -523,6 +524,17 @@ void UsdGenSmoothOp::Evaluate(
             pz[o] = inPz[o] + alpha * (nz - inPz[o]);
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterSmoothOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenSmooth";
+    d.displayName = "Smooth";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

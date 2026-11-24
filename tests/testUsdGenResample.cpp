@@ -1,9 +1,11 @@
 // UsdGenResample contracts, expression targets, and CPU cooks: uniform and
 // keepParam resampling, mask hold, length restore, and cvCount validation.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>
@@ -129,18 +131,18 @@ static float TotalLength(UsdGenCurveBuffer const &buf, size_t base, size_t n)
 
 static void CheckRegistry()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenResample");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenResample)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenResample)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenResample)");
     if (!op) return;
-    Check(op->Type() == type, "UsdGenResample reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::CvCount,
+    Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenResample reports its own type");
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::CvCount,
           "UsdGenResample has TopologyEffect CvCount");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "UsdGenResample declares no reference inputs");
-    Check(op->OutputPrimvars().empty(),
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(),
           "UsdGenResample emits no output primvars");
 }
 
@@ -304,7 +306,6 @@ static void CheckValidation()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistry();
     CheckExpressionTargets();
     CheckUniformCook();

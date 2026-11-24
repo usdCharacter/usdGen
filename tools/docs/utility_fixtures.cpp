@@ -7,7 +7,8 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/usd/usd/stage.h"
@@ -303,7 +304,6 @@ int main(int argc, char **argv) try {
                      "usage: usdGenUtilityFixtures width-blend|part|freeze output.usda\n");
         return 2;
     }
-    usdGenRegisterM1Operators();
     UsdStageRefPtr const stage = UsdStage::CreateNew(argv[2]);
     Require(bool(stage), "cannot create output stage");
     UsdGeomXform::Define(stage, SdfPath("/World"));

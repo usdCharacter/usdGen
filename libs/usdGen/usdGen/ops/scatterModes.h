@@ -54,6 +54,12 @@ struct ModeConfig
     /// still distributed over the cage, then moved with their frames onto the
     /// limit surface (any polygon topology; this is the patch isolation level).
     int subdivisionLevel = 0;
+    /// Names the capture compares or emits, pre-interned by the op record
+    /// (ReadModeConfig fills them from the view's op; Scatter sets them too).
+    struct Names
+    {
+        TfToken leftHanded, densityMap, strandIndex, strandSeed;
+    } names;
 
     /// True when the roots come from the generation-order generator below
     /// (every mode except the default random + perFace).
@@ -66,6 +72,9 @@ struct ModeConfig
 /// Parses and validates the mode parameters. False (with `error`) on an
 /// unknown token or a non-finite value.
 bool ReadModeConfig(UsdGenParamView const *params, ModeConfig *out, std::string *error);
+
+/// Fills `names` from a Scatter record's tokens (scatterP::Tok).
+void FillModeNames(UsdGenOpRecord const &record, ModeConfig *config);
 
 /// Per-capture numbers of the generator, mirroring the reference log lines
 /// (`base-setup`, `scatter-even`). For tests and diagnostics only.
@@ -129,7 +138,8 @@ private:
 };
 
 /// Inserts the uniform int planes strandIndex / strandSeed (sorted by name).
-void SetStrandPlanes(UsdGenCurveBuffer *buf, VtIntArray index, VtIntArray seed);
+void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
+                     VtIntArray index, VtIntArray seed);
 
 }  // namespace scatter
 }  // namespace usdGen

@@ -35,26 +35,37 @@
 #define USDGEN_OP_BRAID_H
 
 #include "usdGen/ops/wholeStrand.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace braidP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kFrequency, kWidth, kFlatness, kKnotTightness, kFadeIn,
+    kFadeOut, kRootSpread, kTipSpread, kTailLength, kTailRelax, kTailCinch,
+    kReferenceLength, kRoot, kMid, kMidShift, kTip, kAmount, kFlyFraction, kFlyAmount,
+    kKnotMask, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokNearestGuide };
+}  // namespace braidP
+
 class UsdGenBraidOp final : public UsdGenWholeStrandOp
 {
 public:
-    UsdGenBraidOp() = default;
+    explicit UsdGenBraidOp(UsdGenOpRecord const &record) : UsdGenWholeStrandOp(record) {}
     ~UsdGenBraidOp() override = default;
-    TfToken Type() const override { return TfToken("UsdGenBraid"); }
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
 protected:
-    TfTokenVector StructuralParameters() const override;
-    std::vector<UsdGenStrandPlaneSpec> OutputPlaneSpecs() const override;
     bool Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                  std::vector<UsdGenStrandPlaneData> &planes,
                  UsdGenDiagnostics *diag) override;
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterBraidOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

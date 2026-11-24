@@ -11,8 +11,9 @@
 // payload — the draws are pure functions of seed, curveId and salt, so a
 // scaleRandom edit re-rolls by re-evaluating); Capture only validates.
 #include "usdGen/ops/scale.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/opParams.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
@@ -25,10 +26,13 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+using namespace scaleP;
 
 namespace {
 
@@ -42,21 +46,21 @@ struct UsdGenScaleCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetVtValue(name, VtValue());
+    if (VtValue const v = p->GetValue(name, VtValue());
         v.IsHolding<VtVec2fArray>()) {
         return v.UncheckedGet<VtVec2fArray>();
     }
     return {};
 }
 
-inline void ReadVec2Prop(UsdGenParamView const &p, TfToken const &name,
+inline void ReadVec2Prop(UsdGenParamView const &p, UsdGenParamSlot name,
                          double &lo, double &hi)
 {
     lo = 1.0; hi = 1.0;
-    if (VtValue const v = p.GetVtValue(name, VtValue()); v.IsHolding<VtFloatArray>()) {
+    if (VtValue const v = p.GetValue(name, VtValue()); v.IsHolding<VtFloatArray>()) {
         VtFloatArray const a = v.UncheckedGet<VtFloatArray>();
         if (a.size() >= 2) { lo = a[0]; hi = a[1]; }
     } else if (v.IsHolding<GfVec2f>()) {
@@ -67,31 +71,26 @@ inline void ReadVec2Prop(UsdGenParamView const &p, TfToken const &name,
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("widthToo"));  // structural: changes the published primvar set (02 §2.7.1)
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("scale"));
-    v.push_back(TfToken("scale:knots"));
-    v.push_back(TfToken("scale:interpolation"));
-    v.push_back(TfToken("scaleRandom"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenScaleOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenScaleOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kFloat2Root{expr::ScalarType::Float32, 2, "float2", D::Groom | D::Primitive};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"widthToo", UsdGenParamClass::Capture, true, kBoolGroom},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"scale", UsdGenParamClass::Value, true, kFloatRoot},
+    {"scale:knots", UsdGenParamClass::Value},
+    {"scale:interpolation", UsdGenParamClass::Value},
+    {"scaleRandom", UsdGenParamClass::Value, true, kFloat2Root},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenScaleOp>(r); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenScaleOp::CreateCapture() const
 {
     return std::make_unique<UsdGenScaleCapture>();
@@ -103,13 +102,13 @@ uint32_t UsdGenScaleOp::PlanesTouched() const
 
 bool UsdGenScaleOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    double const scale = params.GetDoubleLiteral(sScale, 1.0);
+    double const scale = params.GetDoubleLiteral(kScale, 1.0);
     if (!Finite(scale) || scale < 0.0) {
         if (diag) diag->Error("UsdGenScale: usdGen:scale must be finite and >= 0");
         return false;
     }
     double lo = 1.0, hi = 1.0;
-    ReadVec2Prop(params, sScaleRandom, lo, hi);
+    ReadVec2Prop(params, kScaleRandom, lo, hi);
     if (!Finite(lo) || !Finite(hi) || lo < 0.0 || hi < 0.0) {
         if (diag) diag->Error("UsdGenScale: usdGen:scaleRandom must be finite and >= 0");
         return false;
@@ -132,7 +131,7 @@ UsdGenEpoch UsdGenScaleOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
     auto feed = [&](uint64_t v) { h ^= v; h *= 0x100000001b3ULL; };
-    feed(p && p->GetBool(sWidthToo, false) ? 1u : 0u);
+    feed(p && p->GetBool(kWidthToo, false) ? 1u : 0u);
     feed(ctx.upstreamGeneration);
     feed(uint64_t(ctx.seed));
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -172,8 +171,8 @@ bool UsdGenScaleOp::Capture(
         uint32_t const perCurve = R ? nCvs / R : 0;
         for (uint32_t c = 0; c != R; ++c) spans[c + 1] = spans[c] + perCurve;
     }
-    UsdGenParamField const scale = p->GetScalarField(sScale, 1.0);
-    UsdGenParamField const random = p->GetScalarField(sScaleRandom, 1.0);
+    UsdGenParamField const scale = p->GetScalarField(kScale, 1.0);
+    UsdGenParamField const random = p->GetScalarField(kScaleRandom, 1.0);
     if ((scale.connected && scale.components != 1) ||
         (random.connected && random.components != 2)) {
         if (diag) diag->Error("UsdGenScale: connected scale must be float and "
@@ -209,25 +208,25 @@ void UsdGenScaleOp::Evaluate(
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const scaleField =
-        p ? p->GetScalarField(sScale, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kScale, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const randomField =
-        p ? p->GetScalarField(sScaleRandom, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kScaleRandom, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     double litLo = 1.0, litHi = 1.0;
-    bool const widthToo = p ? p->GetBool(sWidthToo, false) : false;
+    bool const widthToo = p ? p->GetBool(kWidthToo, false) : false;
     if (p) {
-        ReadVec2Prop(*p, sScaleRandom, litLo, litHi);
+        ReadVec2Prop(*p, kScaleRandom, litLo, litHi);
         if (litLo > litHi) std::swap(litLo, litHi);
     }
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, sScaleKnots);
+    VtVec2fArray const knots = ReadRampKnots(p, kScaleKnots);
     bool const rampFlat = knots.empty();
     thread_local std::vector<float> tLut;
     if (!rampFlat) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(sScaleInterp, sCatmullRom) : sCatmullRom,
+            p ? p->GetToken(kScaleInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
             tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
@@ -296,6 +295,17 @@ void UsdGenScaleOp::Evaluate(
             if (width) width[o] = widthToo ? std::max(0.0f, inW * L) : inW;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterScaleOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenScale";
+    d.displayName = "Scale";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

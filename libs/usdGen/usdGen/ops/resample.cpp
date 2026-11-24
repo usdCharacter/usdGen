@@ -17,7 +17,6 @@
 #include "usdGen/scratch.h"
 
 #include "usdGen/curveBuffer.h"
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -29,6 +28,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -70,32 +70,31 @@ inline uint32_t HoldIndex(uint32_t j, uint32_t nOut, uint32_t nIn)
     return idx >= nIn ? nIn - 1 : idx;
 }
 
+using namespace resampleP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kIntGroom{expr::ScalarType::Int32, 1, "int", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// Decl order is the legacy topology list, then the value list.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"cvCount", UsdGenParamClass::Capture, true, kIntGroom},                // output topology
+    {"distribution", UsdGenParamClass::Structural},                          // kernel branch
+    {"restoreSegmentLengths", UsdGenParamClass::Capture, true, kBoolGroom},  // output values
+    {"spacing", UsdGenParamClass::Capture},                                  // per-strand topology
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+constexpr char const *kTokens[] = {"uniform", "keepParam"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenResampleOp>(r);
+}
+
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("cvCount"));               // capture: output topology
-    v.push_back(TfToken("distribution"));          // structural: kernel branch
-    v.push_back(TfToken("restoreSegmentLengths")); // capture: output values
-    v.push_back(TfToken("spacing"));               // capture: per-strand topology
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenResampleOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenResampleOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenResampleOp::CreateCapture() const
 {
     return std::make_unique<UsdGenResampleCapture>();
@@ -107,18 +106,18 @@ uint32_t UsdGenResampleOp::PlanesTouched() const
 
 bool UsdGenResampleOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    int const cvCount = params.GetInt(sCvCount, 8);
+    int const cvCount = params.GetInt(kCvCount, 8);
     if (cvCount < 1 || cvCount > int(kUsdGenMaxCvsPerCurve)) {
         if (diag) diag->Error("UsdGenResample: usdGen:cvCount must be in [1, 4096]");
         return false;
     }
-    TfToken const distribution = params.GetToken(sDistribution, sUniform);
-    if (distribution != sUniform && distribution != sKeepParam) {
+    TfToken const distribution = params.GetToken(kDistribution, Record().Token(kTokUniform));
+    if (distribution != Record().Token(kTokUniform) && distribution != Record().Token(kTokKeepParam)) {
         if (diag) diag->Error("UsdGenResample: unknown usdGen:distribution '" +
                               distribution.GetString() + "'");
         return false;
     }
-    double const spacing = params.GetDouble(sSpacing, 0.0);
+    double const spacing = params.GetDouble(kSpacing, 0.0);
     if (!std::isfinite(spacing) || spacing < 0.0) {
         if (diag) diag->Error("UsdGenResample: usdGen:spacing must be finite and >= 0");
         return false;
@@ -130,10 +129,10 @@ UsdGenEpoch UsdGenResampleOp::CaptureDigest(UsdGenCaptureContext const &ctx) con
 {
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     opUtil::Digest d;
-    d.Mix(p ? uint64_t(p->GetInt(sCvCount, 8)) : 8u);
-    d.Mix(p ? uint64_t(p->GetToken(sDistribution, sUniform).Hash()) : 0u);
-    d.Mix(p && p->GetBool(sRestore, false) ? uint64_t(1) : uint64_t(0));
-    d.Mix(p ? p->GetDouble(sSpacing, 0.0) : 0.0);
+    d.Mix(p ? uint64_t(p->GetInt(kCvCount, 8)) : 8u);
+    d.Mix(p ? uint64_t(p->GetToken(kDistribution, Record().Token(kTokUniform)).Hash()) : 0u);
+    d.Mix(p && p->GetBool(kRestore, false) ? uint64_t(1) : uint64_t(0));
+    d.Mix(p ? p->GetDouble(kSpacing, 0.0) : 0.0);
     d.Mix(uint64_t(ctx.seed));
     d.Mix(ctx.upstreamGeneration);
     return d.Epoch(0x5265736D50ULL);
@@ -154,15 +153,15 @@ bool UsdGenResampleOp::Capture(
     int cvCount = 8;
     bool keepParam = false, restore = false;
     if (p) {
-        cvCount = p->GetInt(sCvCount, 8);
+        cvCount = p->GetInt(kCvCount, 8);
         if (cvCount < 1 || cvCount > int(kUsdGenMaxCvsPerCurve))
             return fail("usdGen:cvCount must be in [1, 4096]");
-        TfToken const distribution = p->GetToken(sDistribution, sUniform);
-        if (distribution != sUniform && distribution != sKeepParam)
+        TfToken const distribution = p->GetToken(kDistribution, Record().Token(kTokUniform));
+        if (distribution != Record().Token(kTokUniform) && distribution != Record().Token(kTokKeepParam))
             return fail("unknown usdGen:distribution '" + distribution.GetString() + "'");
-        keepParam = distribution == sKeepParam;
-        restore = p->GetBool(sRestore, false);
-        double const spacing = p->GetDouble(sSpacing, 0.0);
+        keepParam = distribution == Record().Token(kTokKeepParam);
+        restore = p->GetBool(kRestore, false);
+        double const spacing = p->GetDouble(kSpacing, 0.0);
         if (!std::isfinite(spacing) || spacing < 0.0)
             return fail("usdGen:spacing must be finite and >= 0");
         cap.spacing = float(spacing);
@@ -309,7 +308,7 @@ void UsdGenResampleOp::Evaluate(
     auto const &cap = static_cast<UsdGenResampleCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     float *hairT = view->hairT;
@@ -398,6 +397,19 @@ void UsdGenResampleOp::Evaluate(
             if (hairT) hairT[o] = u;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterResampleOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenResample";
+    d.displayName = "Resample";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CvCount;
+    d.traits = kUsdGenOpCaptureOwnsRestAndPlanes;   // scheduler: rest and planes follow Capture
+    d.params = UsdGenSpan(kParams);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

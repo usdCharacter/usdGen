@@ -22,7 +22,6 @@
 #include "usdGen/ops/length.h"
 
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/lengthRange.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
@@ -36,10 +35,13 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+using namespace lengthP;
 
 namespace {
 
@@ -53,11 +55,14 @@ inline uint64_t doubleAsBits(double d)
 // Reads a `float2` property — GfVec2f or 2-element VtFloatArray; lo/hi swapped
 // when hi < lo. Returns false when absent/unparseable. (`length:random`,
 // 02 §2.6 float2 — plan/04:1033.)
-bool ReadVec2Prop(UsdGenParamView const *p, char const *name, double* lo, double* hi)
+VtValue const kNoValue;
+TfToken const kNoToken;
+
+bool ReadVec2Prop(UsdGenParamView const *p, UsdGenParamSlot slot, double* lo, double* hi)
 {
     if (!p)
         return false;
-    VtValue v = p->GetVtValue(TfToken(name), VtValue());
+    VtValue const &v = p->GetValue(slot, kNoValue);
     float x = 0.0f, y = 0.0f;
     if (v.IsHolding<GfVec2f>()) {
         const GfVec2f vec = v.UncheckedGet<GfVec2f>();
@@ -77,10 +82,6 @@ bool ReadVec2Prop(UsdGenParamView const *p, char const *name, double* lo, double
     return true;
 }
 
-// The capture's default mode, interned at load (Recycle must not look a
-// token up).
-TfToken const sDefaultLengthMode{"scale"};
-
 struct UsdGenLengthCapture final : public UsdGenCapturePayload
 {
     // perCurve[c] = lerp(length:random, draw01(seed, curveId, kSaltLength)) —
@@ -88,7 +89,7 @@ struct UsdGenLengthCapture final : public UsdGenCapturePayload
     // NOT sampled here: capture sees lazily-evaluated upstream buffers whose
     // chunk cvCount is not yet populated, so any restLen/target/restLen ratio
     // must be computed at Evaluate time from the chunk's real input planes.
-    TfToken mode = TfToken("scale");
+    int mode = kModeScale;
     double value = 1.0;
     double cullThreshold = 0.0;
     double minRemaining = 0.0;
@@ -114,7 +115,7 @@ struct UsdGenLengthCapture final : public UsdGenCapturePayload
         perCurve.clear();
         perCv.clear();
         rampLut.clear();
-        mode = sDefaultLengthMode;
+        mode = kModeScale;
         value = 1.0;
         cullThreshold = minRemaining = 0.0;
         upstreamTopologyVersion = upstreamValueVersion = 0;
@@ -135,51 +136,67 @@ struct UsdGenLengthCapture final : public UsdGenCapturePayload
     }
 };
 
-const TfToken kRandomRange{"randomRange"};
-const TfToken kLengthMap{"usdGen:lengthMap"};
-const TfToken kRestLength{"restLength"};
-
-bool FiniteParam(UsdGenParamView const &p, char const *name, double fallback)
+bool FiniteParam(UsdGenParamView const &p, UsdGenParamSlot slot, double fallback)
 {
-    return std::isfinite(p.GetDouble(TfToken(name), fallback));
+    return std::isfinite(p.GetDouble(slot, fallback));
+}
+
+// An authored token value that is none of the slot's enumerants.
+bool UnknownEnum(UsdGenParamView const &p, UsdGenParamSlot slot)
+{
+    VtValue const &v = p.GetValue(slot, kNoValue);
+    return (v.IsHolding<TfToken>() || v.IsHolding<std::string>()) && p.GetEnum(slot, -1) < 0;
+}
+
+constexpr char const *kModes[] = {"scale", "set", "cull", "randomRange"};
+constexpr char const *kMethods[] = {"scale", "cutExtend"};
+constexpr char const *kRebuilds[] = {"keepParam", "reparam"};
+constexpr char const *kTokens[] = {"clumpId_0", "usdGen:lengthMap", "restLength"};
+constexpr UsdGenMapSlotDecl kMaps[] = {{"usdGen:lengthMap"}};
+
+using D = expr::Domain;
+UsdGenExprAdmission const kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+UsdGenExprAdmission const kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+UsdGenExprAdmission const kFloat2Root{expr::ScalarType::Float32, 2, "float2", D::Groom | D::Primitive};
+UsdGenExprAdmission const kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Capture, true, kBoolGroom},     // §6.2: Length is unconditionally topology
+    {"length:mode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kModes)},
+    {"length:method", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kMethods)},
+    {"rebuild", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kRebuilds)},
+    {"length:value", UsdGenParamClass::Capture, true, kFloatAll},
+    {"length:random", UsdGenParamClass::Capture, true, kFloat2Root},
+    {"minRemainingLength", UsdGenParamClass::Capture, true, kFloatAll},
+    {"cullThreshold", UsdGenParamClass::Topology, true, kFloatRoot},
+    // randomRange (capture-class): the whole-strand result is recaptured.
+    {"length:min", UsdGenParamClass::Capture},
+    {"length:max", UsdGenParamClass::Capture},
+    {"length:randomize", UsdGenParamClass::Capture},
+    {"length:shareByClump", UsdGenParamClass::Capture},
+    {"length:followClumpMean", UsdGenParamClass::Capture},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},           // operator envelope (02 §2.13)
+};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenLengthOp>(r);
+}
+
+/// randomRange writes the uniform float restLength plane.
+void EmittedPlanes(UsdGenParamView const &p, int, UsdGenPlaneSink &sink)
+{
+    if (p.GetEnum(kMode, kModeScale) == kModeRandomRange)
+        sink.Add(p.op->Token(kTokRestLength).GetString(), UsdGenPlaneRate::Uniform,
+                 UsdGenPlaneScalar::Float, 1);
 }
 
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("enabled"));      // §6.2: Length is unconditionally topology
-    v.push_back(TfToken("length:mode"));
-    v.push_back(TfToken("length:method"));
-    v.push_back(TfToken("rebuild"));
-    v.push_back(TfToken("length:value"));
-    v.push_back(TfToken("length:random"));
-    v.push_back(TfToken("minRemainingLength"));
-    v.push_back(TfToken("cullThreshold"));
-    // randomRange (capture-class): the whole-strand result is recaptured.
-    v.push_back(TfToken("length:min"));
-    v.push_back(TfToken("length:max"));
-    v.push_back(TfToken("length:randomize"));
-    v.push_back(TfToken("length:shareByClump"));
-    v.push_back(TfToken("length:followClumpMean"));
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("mask"));        // operator envelope (02 §2.13)
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenLengthOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenLengthOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenLengthOp::CreateCapture() const
 {
     return std::make_unique<UsdGenLengthCapture>();
@@ -188,34 +205,23 @@ uint32_t UsdGenLengthOp::PlanesTouched() const
 {
     return kPlanePoints;
 }
-TfSpan<const TfToken> UsdGenLengthOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
-}
-void UsdGenLengthOp::Configure(UsdGenParamView const &params)
-{
-    _outputs.clear();
-    if (params.GetToken(TfToken("length:mode"), TfToken("scale")) == kRandomRange)
-        _outputs.push_back(kRestLength);
-}
 
 bool UsdGenLengthOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken mode = params.GetToken(TfToken("length:mode"), TfToken("scale"));
-    TfToken method = params.GetToken(TfToken("length:method"), TfToken("scale"));
-    if (mode != TfToken("set") && mode != TfToken("scale") && mode != TfToken("cull") &&
-        mode != kRandomRange) {
+    if (UnknownEnum(params, kMode)) {
         if (diag)
-            diag->Error("UsdGenLength: unknown usdGen:length:mode '" + mode.GetString() + "'");
+            diag->Error("UsdGenLength: unknown usdGen:length:mode '" +
+                        params.GetToken(kMode, kNoToken).GetString() + "'");
         return false;
     }
-    if (method != TfToken("scale") && method != TfToken("cutExtend")) {
+    if (UnknownEnum(params, kMethod)) {
         if (diag)
-            diag->Error("UsdGenLength: unknown usdGen:length:method '" + method.GetString() + "'");
+            diag->Error("UsdGenLength: unknown usdGen:length:method '" +
+                        params.GetToken(kMethod, kNoToken).GetString() + "'");
         return false;
     }
-    if (!FiniteParam(params, "length:min", 0.01) || !FiniteParam(params, "length:max", 1.0) ||
-        !FiniteParam(params, "length:randomize", 0.0)) {
+    if (!FiniteParam(params, kMin, 0.01) || !FiniteParam(params, kMax, 1.0) ||
+        !FiniteParam(params, kRandomize, 0.0)) {
         if (diag)
             diag->Error("UsdGenLength: usdGen:length:min/max/randomize must be finite");
         return false;
@@ -232,26 +238,27 @@ UsdGenEpoch UsdGenLengthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
         h ^= k.size(); h *= 0x100000001b3ULL;
     };
     if (p) {
-        feed("mode", p->GetToken(TfToken("length:mode"), TfToken("scale")).Hash());
-        feed("method", p->GetToken(TfToken("length:method"), TfToken("scale")).Hash());
-        feed("value", doubleAsBits(p->GetDouble(TfToken("length:value"), 1.0)));
-        feed("cull", doubleAsBits(p->GetDouble(TfToken("cullThreshold"), 0.0)));
-        feed("minRemaining", doubleAsBits(p->GetDouble(TfToken("minRemainingLength"), 0.0)));
+        feed("mode", uint64_t(p->GetEnum(kMode, kModeScale)));
+        feed("method", uint64_t(p->GetEnum(kMethod, kMethodScale)));
+        feed("value", doubleAsBits(p->GetDouble(kValue, 1.0)));
+        feed("cull", doubleAsBits(p->GetDouble(kCull, 0.0)));
+        feed("minRemaining", doubleAsBits(p->GetDouble(kMinRemaining, 0.0)));
         double lo = 1.0, hi = 1.0;
-        ReadVec2Prop(p, "length:random", &lo, &hi);   // M-5: the range is a capture input
+        ReadVec2Prop(p, kRandom, &lo, &hi);   // M-5: the range is a capture input
         feed("lenRandomLo", doubleAsBits(lo));
         feed("lenRandomHi", doubleAsBits(hi));
         feed("seed", ctx.seed);
-        feed("rangeMin", doubleAsBits(p->GetDouble(TfToken("length:min"), 0.01)));
-        feed("rangeMax", doubleAsBits(p->GetDouble(TfToken("length:max"), 1.0)));
-        feed("rangeRandomize", doubleAsBits(p->GetDouble(TfToken("length:randomize"), 0.0)));
-        feed("rangeShare", p->GetBool(TfToken("length:shareByClump"), false) ? 1u : 0u);
-        feed("rangeFollow", p->GetBool(TfToken("length:followClumpMean"), false) ? 1u : 0u);
+        feed("rangeMin", doubleAsBits(p->GetDouble(kMin, 0.01)));
+        feed("rangeMax", doubleAsBits(p->GetDouble(kMax, 1.0)));
+        feed("rangeRandomize", doubleAsBits(p->GetDouble(kRandomize, 0.0)));
+        feed("rangeShare", p->GetBool(kShareByClump, false) ? 1u : 0u);
+        feed("rangeFollow", p->GetBool(kFollowClumpMean, false) ? 1u : 0u);
     }
     // A bound length map is sampled on the surface: its geometry is a
     // capture input (the map identity itself is mixed by the scheduler).
     if (ctx.desc && ctx.surface < ctx.desc->surfaces.size() &&
-        !strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount, kLengthMap).empty())
+        !strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount,
+                          Record().Token(kTokLengthMap)).empty())
         feed("surface", ctx.desc->surfaces[ctx.surface].surfaceGeneration);
     feed("upstream", ctx.upstreamGeneration);
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -262,7 +269,7 @@ namespace {
 // randomRange: the whole-strand length stage over every upstream strand.
 // The upstream node has completed its sweep (dependency frontier), so its
 // point planes hold this run's positions.
-bool CaptureRandomRange(UsdGenCaptureContext const &ctx,
+bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &ctx,
                         UsdGenCurveBuffer const &upstream,
                         UsdGenLengthCapture *cap, UsdGenDiagnostics *diag)
 {
@@ -282,11 +289,11 @@ bool CaptureRandomRange(UsdGenCaptureContext const &ctx,
 
     lengthRange::Settings settings;
     if (p) {
-        settings.min = float(p->GetDouble(TfToken("length:min"), 0.01));
-        settings.max = float(p->GetDouble(TfToken("length:max"), 1.0));
-        settings.randomize = float(p->GetDouble(TfToken("length:randomize"), 0.0));
-        settings.shareByClump = p->GetBool(TfToken("length:shareByClump"), false);
-        settings.followClumpMean = p->GetBool(TfToken("length:followClumpMean"), false);
+        settings.min = float(p->GetDouble(kMin, 0.01));
+        settings.max = float(p->GetDouble(kMax, 1.0));
+        settings.randomize = float(p->GetDouble(kRandomize, 0.0));
+        settings.shareByClump = p->GetBool(kShareByClump, false);
+        settings.followClumpMean = p->GetBool(kFollowClumpMean, false);
     }
     if (!std::isfinite(settings.min) || !std::isfinite(settings.max) ||
         !std::isfinite(settings.randomize))
@@ -298,7 +305,7 @@ bool CaptureRandomRange(UsdGenCaptureContext const &ctx,
     ids.upstream = &upstream;
     lengthRange::Strands strands;
     strands.spans = &spans;
-    if (int const *clump = ids.CurveInt(TfToken("clumpId_0")))
+    if (int const *clump = ids.CurveInt(rec.Token(kTokClumpId0)))
         strands.clumpId.assign(clump, clump + R);
     strands.seed.resize(R);
     strands.order.resize(R);
@@ -314,7 +321,8 @@ bool CaptureRandomRange(UsdGenCaptureContext const &ctx,
     // usdGen:lengthMap: the product of every bound mask, sampled at the root
     // (closest point on the rest surface to the strand's rest root).
     std::vector<UsdGenMapDesc const *> const maps =
-        strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount, kLengthMap);
+        strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount,
+                          rec.Token(kTokLengthMap));
     if (!maps.empty()) {
         strands.mask.assign(R, 1.0f);
         strand::TriangleBvh bvh;
@@ -361,25 +369,25 @@ bool UsdGenLengthOp::Capture(
     auto &cap = *static_cast<UsdGenLengthCapture *>(out);
     cap.upstreamTopologyVersion = upstream.topologyVersion;
     cap.upstreamCurves = upstream.totalCurves;
-    cap.mode = p ? p->GetToken(TfToken("length:mode"), TfToken("scale")) : TfToken("scale");
-    double value = p ? p->GetDouble(TfToken("length:value"), 1.0) : 1.0;
+    cap.mode = p ? p->GetEnum(kMode, kModeScale) : int(kModeScale);
+    double value = p ? p->GetDouble(kValue, 1.0) : 1.0;
     double lo = 1.0, hi = 1.0;
-    ReadVec2Prop(p, "length:random", &lo, &hi);
-    double cullThreshold = p ? p->GetDouble(TfToken("cullThreshold"), 0.0) : 0.0;
-    double minRemaining = p ? p->GetDouble(TfToken("minRemainingLength"), 0.0) : 0.0;
+    ReadVec2Prop(p, kRandom, &lo, &hi);
+    double cullThreshold = p ? p->GetDouble(kCull, 0.0) : 0.0;
+    double minRemaining = p ? p->GetDouble(kMinRemaining, 0.0) : 0.0;
 
     cap.value = value;
     cap.cullThreshold = cullThreshold;
     cap.minRemaining = minRemaining;
     cap.upstreamValueVersion = upstream.valueVersion;
     cap.upstreamCvs = upstream.totalCvs;
-    cap.range = cap.mode == kRandomRange;
+    cap.range = cap.mode == kModeRandomRange;
     cap.rangeReady = false;
     cap.rangeResult.clear();
     cap.restLength.clear();
     if (cap.range) {
         cap.perCurve.clear();
-        return CaptureRandomRange(ctx, upstream, &cap, diag);
+        return CaptureRandomRange(Record(), ctx, upstream, &cap, diag);
     }
 
     // Capture draws only the seed-sensitive multiplier; lengths are a runtime
@@ -412,14 +420,14 @@ void UsdGenLengthOp::Evaluate(
     // per-CV envelope. Nothing connected leaves these as uniform literals and
     // the arithmetic below bit-identical to the pre-expression kernel.
     UsdGenParamField const valueField =
-        p ? p->GetScalarField(sValue, cap.value) : UsdGenParamField{cap.value};
+        p ? p->GetScalarField(kValue, cap.value) : UsdGenParamField{cap.value};
     UsdGenParamField const cullField =
-        p ? p->GetScalarField(sCull, cap.cullThreshold) : UsdGenParamField{cap.cullThreshold};
+        p ? p->GetScalarField(kCull, cap.cullThreshold) : UsdGenParamField{cap.cullThreshold};
     UsdGenParamField const minField =
-        p ? p->GetScalarField(sMinRemaining, cap.minRemaining)
+        p ? p->GetScalarField(kMinRemaining, cap.minRemaining)
           : UsdGenParamField{cap.minRemaining};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     // perCurve is a whole-buffer capture payload (the scheduler pre-offsets
@@ -427,8 +435,6 @@ void UsdGenLengthOp::Evaluate(
     auto const *mult = cap.perCurve.empty() ? nullptr : cap.perCurve.cdata();
     const size_t curveBase = view->desc ? view->desc->firstCurve : 0;
     const size_t cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
-    // sSet is operator-owned: no per-curve token interning and no lazy
-    // static destruction while an asynchronous evaluation is still running.
     // restLength slot: bound only on a node configured for randomRange.
     float *restOut = (view->outCount > 0 && view->outF) ? view->outF[0] : nullptr;
 
@@ -486,7 +492,7 @@ void UsdGenLengthOp::Evaluate(
         const double cullThreshold = cullField.Value(curve, root);
         const double minRemaining = minField.Value(curve, root);
         float f;
-        if (cap.mode == sSet) {
+        if (cap.mode == kModeSet) {
             // target = value * mult, absolute; scale it in over the runtime
             // rest length of THIS (possibly deformed) curve — plan/04 §2.10.
             const float restLen = UsdGenPolylineRestLength(inPx, inPy, inPz, base, cv);
@@ -496,7 +502,7 @@ void UsdGenLengthOp::Evaluate(
         }
         if (cullThreshold > 0.0 || minRemaining > 0.0) {
             const float restLen = UsdGenPolylineRestLength(inPx, inPy, inPz, base, cv);
-            const double target = cap.mode == sSet
+            const double target = cap.mode == kModeSet
                                     ? value * m
                                     : double(restLen) * value * m;
             if (target < cullThreshold || target < minRemaining) f = 0.0f;
@@ -517,6 +523,21 @@ void UsdGenLengthOp::Evaluate(
             pz[o] = rz + (inPz[o] - rz) * fe;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterLengthOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenLength";
+    d.displayName = "Length";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CurveCount;               // cull mode exists (ADR §9 R14)
+    d.traits = kUsdGenOpFollowsInputUntilOwning;
+    d.params = UsdGenSpan(kParams);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    d.hooks.emittedPlanes = &EmittedPlanes;
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

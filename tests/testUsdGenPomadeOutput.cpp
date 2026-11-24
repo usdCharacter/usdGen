@@ -7,7 +7,8 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/surfaceRootFrames.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
@@ -811,7 +812,6 @@ void CheckSubsetOutput(Grid const &grid, int n)
 
 int main()
 {
-    usdGenRegisterM1Operators();
     int const n = 4;
     Grid const grid = MakeGrid(n);
     PomadeModel model;

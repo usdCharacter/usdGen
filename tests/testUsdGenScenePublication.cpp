@@ -2,7 +2,9 @@
 // registered by the integration owner.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
@@ -320,9 +322,7 @@ std::atomic<bool> ProgressiveTileHold::timedOut{false};
 
 class ProgressiveTileHoldOp final : public usdGen::UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenImagingTileHold"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit ProgressiveTileHoldOp(usdGen::UsdGenOpRecord const &r) : usdGen::UsdGenOp(r) {}
     bool Bind(usdGen::UsdGenParamView const&, usdGen::UsdGenDiagnostics*) override {
         return true;
     }
@@ -345,6 +345,19 @@ public:
             ProgressiveTileHold::timedOut.store(true, std::memory_order_release);
     }
 };
+
+void RegisterTileHoldOp(usdGen::UsdGenRegistrar &r)
+{
+    {
+        usdGen::UsdGenOpDef d;
+        d.name = "UsdGenImagingTileHold";
+        d.displayName = "ImagingTileHold";
+        d.create = [](usdGen::UsdGenOpRecord const &rec, void *) -> std::unique_ptr<usdGen::UsdGenOp> {
+            return std::make_unique<ProgressiveTileHoldOp>(rec);
+        };
+        r.RegisterOp(d);
+    }
+}
 
 class ProgressiveTypeOverlay final : public HdSingleInputFilteringSceneIndexBase {
 public:
@@ -443,8 +456,6 @@ public:
 
 void TestProgressiveStormPublication()
 {
-    usdGen::UsdGenOpRegistry::Get().Register(TfToken("UsdGenImagingTileHold"),
-        [] { return std::make_unique<ProgressiveTileHoldOp>(); });
     ProgressiveTileHold::entered.store(false, std::memory_order_release);
     ProgressiveTileHold::release.store(false, std::memory_order_release);
     ProgressiveTileHold::timedOut.store(false, std::memory_order_release);
@@ -597,7 +608,7 @@ def Scope "Groom"
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
+    usdGen::UsdGenRegisterStatic(&RegisterTileHoldOp);
     TestProgressiveStormPublication();
     {
         // Scatter over an area: the one-line publication fixture above has

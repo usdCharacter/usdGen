@@ -1,5 +1,7 @@
 #include "usdGen/cudaExecution.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 
 #include <algorithm>
 #include <array>
@@ -16,36 +18,50 @@ using namespace usdGen;
 namespace {
 class TopologyNamedPlaneProbe final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestTopologyNamedPlane"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> InputPrimvars() const override { return _planes; }
+    explicit TopologyNamedPlaneProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 2}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
                   UsdGenChunkView*) const override {}
-private:
-    std::array<TfToken, 1> const _planes{{TfToken("guideIndex")}};
 };
 
 class ValueNamedPlaneProbe final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestValueNamedPlane"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _planes; }
+    explicit ValueNamedPlaneProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 3}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
                   UsdGenChunkView*) const override {}
-private:
-    std::array<TfToken, 1> const _planes{{TfToken("guideWeight")}};
 };
+
+void RegisterNamedPlaneProbes(UsdGenRegistrar &r)
+{
+    static UsdGenPlaneDecl const kIn[] = {
+        {"guideIndex", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 3}};
+    static UsdGenPlaneDecl const kOut[] = {
+        {"guideWeight", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Float, 3}};
+    UsdGenOpDef d;
+    d.name = "UsdGenTestTopologyNamedPlane";
+    d.displayName = "TestTopologyNamedPlane";
+    d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<TopologyNamedPlaneProbe>(rec);
+    };
+    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.inputPlanes = UsdGenSpan(kIn);
+    r.RegisterOp(d);
+    UsdGenOpDef v;
+    v.name = "UsdGenTestValueNamedPlane";
+    v.displayName = "TestValueNamedPlane";
+    v.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<ValueNamedPlaneProbe>(rec);
+    };
+    v.outputPlanes = UsdGenSpan(kOut);
+    r.RegisterOp(v);
+}
 }
 
 static UsdGenGraphDesc MakeDesc() {
@@ -237,6 +253,10 @@ static bool ValueFlowIsConsistent(UsdGenExecutionPlanMetadata const& metadata,
 }
 
 int main() {
+    // Before the first compile: registries freeze there.
+    CHECK(UsdGenRegisterStatic(&RegisterNamedPlaneProbes));
+    CHECK(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTestTopologyNamedPlane")) != UsdGenOpId::Invalid);
+    CHECK(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTestValueNamedPlane")) != UsdGenOpId::Invalid);
     {
         auto sourceNoise = MakeDesc();
         sourceNoise.nodes.resize(1);
@@ -320,12 +340,6 @@ int main() {
               noiseTask.estimate.scratchPeakBytes == expectedFloat3Bytes +
                   257 * sizeof(float) + 2 * sizeof(int) + sizeof(int));
     }
-    CHECK(UsdGenOpRegistry::Get().Register(
-        TfToken("UsdGenTestTopologyNamedPlane"),
-        [] { return std::make_unique<TopologyNamedPlaneProbe>(); }));
-    CHECK(UsdGenOpRegistry::Get().Register(
-        TfToken("UsdGenTestValueNamedPlane"),
-        [] { return std::make_unique<ValueNamedPlaneProbe>(); }));
     auto const& matrix = GetCudaExecutionCapabilityMatrix();
     CHECK(matrix.Backend() == "cuda" && matrix.Version() == 35 && matrix.Available());
     CHECK(matrix.Capabilities().size() == 9);

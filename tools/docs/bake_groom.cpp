@@ -6,7 +6,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 
@@ -102,7 +103,6 @@ int main(int argc, char **argv) try {
         std::fprintf(stderr, "usage: usdGenBakeGroom input.usd description-path output.usd [material-path|-] [time-code]\n");
         return 2;
     }
-    usdGen::usdGenRegisterM1Operators();
     UsdStageRefPtr stage = UsdStage::Open(argv[1], UsdStage::LoadAll);
     if (!stage) throw std::runtime_error("cannot open input stage");
     SdfPath const description(argv[2]);

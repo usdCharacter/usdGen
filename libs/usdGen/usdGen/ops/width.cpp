@@ -9,7 +9,6 @@
 // TopologyEffect = None.
 #include "usdGen/ops/width.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/strandUtil.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
@@ -20,23 +19,58 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+using namespace widthP;
+
 namespace {
+
+VtValue const kNoValue;
 
 /// Read a float2[] ramp-knots property (02 §2.17). Missing or empty -> {}
 /// (UsdGenBuildRampLut maps {} to the flat constant ramp).
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetVtValue(name, VtValue());
+    if (VtValue const &v = p->GetValue(slot, kNoValue);
         v.IsHolding<VtVec2fArray>()) {
         return v.UncheckedGet<VtVec2fArray>();
     }
     return {};
+}
+
+// Views built outside the compiler (the GPU plan builders, until S4-6/7)
+// carry no slots; read the node's params by spelling, as before.
+VtValue const &RawParam(UsdGenParamView const &p, UsdGenParamSlot slot, char const *name)
+{
+    if (p.op) return p.GetValue(slot, kNoValue);
+    if (p.node)
+        for (UsdGenParamValue const &q : p.node->params)
+            if (q.name.GetString() == name) return q.value;
+    return kNoValue;
+}
+
+double RawDouble(UsdGenParamView const &p, UsdGenParamSlot slot, char const *name,
+                 double fallback)
+{
+    if (p.op) return p.GetDouble(slot, fallback);
+    VtValue const &v = RawParam(p, slot, name);
+    if (v.IsHolding<double>()) return v.UncheckedGet<double>();
+    if (v.IsHolding<float>()) return v.UncheckedGet<float>();
+    return fallback;
+}
+
+bool IsBezierMode(UsdGenParamView const &p)
+{
+    if (p.op) return p.GetEnum(kProfileMode, kProfileRamp) == kProfileBezier;
+    VtValue const &v = RawParam(p, kProfileMode, "width:profile:mode");
+    if (v.IsHolding<TfToken>()) return v.UncheckedGet<TfToken>().GetString() == "bezier";
+    if (v.IsHolding<std::string>()) return v.UncheckedGet<std::string>() == "bezier";
+    return false;
 }
 
 /// The thickness profile of usdGen:width:profile:mode = "bezier", read once
@@ -58,17 +92,17 @@ struct BezierWidth
 BezierWidth ReadBezierWidth(UsdGenParamView const *p)
 {
     BezierWidth b;
-    if (!p || p->GetToken(TfToken("width:profile:mode"), TfToken("ramp")) != TfToken("bezier"))
+    if (!p || !IsBezierMode(*p))
         return b;
     b.on = true;
-    auto read = [&](char const *name, float fallback) {
-        float const v = float(p->GetDouble(TfToken(name), fallback));
+    auto read = [&](UsdGenParamSlot slot, char const *name, float fallback) {
+        float const v = float(RawDouble(*p, slot, name, fallback));
         return std::isfinite(v) ? v : fallback;
     };
-    b.root = strand::Clamp01(read("width:root", 1.0f));
-    b.mid = strand::Clamp01(read("width:mid", 1.0f));
-    b.midShift = read("width:midShift", 0.5f);
-    b.tip = strand::Clamp01(read("width:tip", 1.0f));
+    b.root = strand::Clamp01(read(kRoot, "width:root", 1.0f));
+    b.mid = strand::Clamp01(read(kMid, "width:mid", 1.0f));
+    b.midShift = read(kMidShift, "width:midShift", 0.5f);
+    b.tip = strand::Clamp01(read(kTip, "width:tip", 1.0f));
     if (b.root + b.mid + b.tip <= 1e-6f) b.mid = 1.0f;
     return b;
 }
@@ -96,39 +130,49 @@ bool UsdGenWidthBezierLut(UsdGenParamView const &params, float *lut, size_t size
     return true;
 }
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("replace"));       // §6.1 structural: set vs multiply changes
-                                          // nothing about topology, but it is a
-                                          // capture-class authoring choice
-    return v;
-}();
+namespace {
 
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));       // toggle: value-class (02 §6.3)
-    v.push_back(TfToken("width"));
-    v.push_back(TfToken("width:knots"));
-    // C1 property is usdGen:width:interpolation (schema.usda:369, 02 §2.7.1);
-    // the param name is the prefix-stripped form. Value-class: the 257-entry
-    // LUT is rebuilt from the live parameters every evaluate (see below).
-    v.push_back(TfToken("width:interpolation"));
+constexpr char const *kProfileModes[] = {"ramp", "bezier"};
+constexpr char const *kTokens[] = {"catmullRom"};
+// Width reads no map; descriptors that bind a plain usdGen:map to it (the
+// imaging and CUDA session fixtures) were accepted before and stay so.
+constexpr UsdGenMapSlotDecl kMaps[] = {{"usdGen:map"}};
+
+using D = expr::Domain;
+UsdGenExprAdmission const kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+UsdGenExprAdmission const kBoolAll{expr::ScalarType::Bool, 1, "bool", D::All};
+UsdGenExprAdmission const kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    // §6.1 structural: set vs multiply changes nothing about topology, but it
+    // is a capture-class authoring choice.
+    {"replace", UsdGenParamClass::Structural, true, kBoolAll},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},        // toggle: value-class (02 §6.3)
+    {"width", UsdGenParamClass::Value, true, kFloatAll},
+    {"width:knots", UsdGenParamClass::Value},
+    // C1 property is usdGen:width:interpolation (schema.usda:369, 02 §2.7.1).
+    // Value-class: the 257-entry LUT is rebuilt from the live parameters every
+    // evaluate (see below).
+    {"width:interpolation", UsdGenParamClass::Value},
     // Bezier thickness profile (value-class like the knots ramp).
-    for (char const *name : {"width:profile:mode", "width:root", "width:mid",
-                             "width:midShift", "width:tip"})
-        v.push_back(TfToken(name));
-    v.push_back(TfToken("mask"));        // operator envelope (02 §2.13)
-    return v;
-}();
+    {"width:profile:mode", UsdGenParamClass::Value, true, {}, UsdGenSpan(kProfileModes)},
+    {"width:root", UsdGenParamClass::Value},
+    {"width:mid", UsdGenParamClass::Value},
+    {"width:midShift", UsdGenParamClass::Value},
+    {"width:tip", UsdGenParamClass::Value},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},           // operator envelope (02 §2.13)
+};
 
-TfSpan<const TfToken> UsdGenWidthOp::TopologyParameters() const
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
+    return std::make_unique<UsdGenWidthOp>(r);
 }
-TfSpan<const TfToken> UsdGenWidthOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+
+}  // namespace
+
 std::unique_ptr<UsdGenCapture> UsdGenWidthOp::CreateCapture() const
 {
     return std::make_unique<UsdGenWidthCapture>();
@@ -157,7 +201,7 @@ UsdGenEpoch UsdGenWidthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
         h ^= k.size(); h *= 0x100000001b3ULL;
     };
     if (p) {
-        feed("replace", p->GetBool(TfToken("replace"), true) ? 1 : 0);
+        feed("replace", p->GetBool(kReplace, true) ? 1 : 0);
     }
     feed("upstream", ctx.upstreamGeneration);
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -188,16 +232,14 @@ void UsdGenWidthOp::Evaluate(
 {
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
-    // Parameter tokens are operator-owned: no per-chunk interning and no
-    // function-static destruction racing an asynchronous cook at exit.
     // usdGen:width and usdGen:mask are CONNECTABLE: an authored literal is a
     // uniform field, a connected expression is a groom/primitive/point field
     // indexed by the shared rule in UsdGenParamField::Value.
     UsdGenParamField const widthField =
-        p ? p->GetScalarField(sWidth, 0.01) : UsdGenParamField{0.01};
+        p ? p->GetScalarField(kWidth, 0.01) : UsdGenParamField{0.01};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
-    const bool replace = p ? p->GetBool(sReplace, true) : true;
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
+    const bool replace = p ? p->GetBool(kReplace, true) : true;
     auto const *hairT = view->hairT;
     auto const *inWidth = view->inWidth;
     // Chunk-local plane indices are rebased to the whole-buffer indices the
@@ -211,12 +253,13 @@ void UsdGenWidthOp::Evaluate(
     // exact scalar 1.0 below and require no allocated table.
     float const *lutPtr = nullptr;
     BezierWidth const bezier = ReadBezierWidth(p);
-    VtVec2fArray const widthKnots = bezier.on ? VtVec2fArray() : ReadRampKnots(p, sKnots);
+    VtVec2fArray const widthKnots = bezier.on ? VtVec2fArray() : ReadRampKnots(p, kKnots);
     bool const magFlat = widthKnots.empty() && !bezier.on;
     thread_local std::vector<float> tLut;
     if (!widthKnots.empty()) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(widthKnots, p ? p->GetToken(sKnotsInterp, sCatmullRom) : sCatmullRom, tLut.data(), kUsdGenRampLutSize);
+        UsdGenBuildRampLut(widthKnots, p ? p->GetToken(kKnotsInterp, Record().Token(kTokCatmullRom))
+                : Record().Token(kTokCatmullRom), tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
     // Uniform fast path: a flat ramp with uniform width/mask fields makes
@@ -294,6 +337,19 @@ void UsdGenWidthOp::Evaluate(
             view->width[o] = std::max(0.0f, w);
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenWidth";
+    d.displayName = "Width";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

@@ -151,6 +151,30 @@ int main() {
               vulkanContext.deviceIndex == 5,
           "Vulkan cache context preserves backend/device identity");
 
+    // The registry is exercised only after the built-in unavailable checks:
+    // this probe advertises no executable implementation and must not be
+    // mistaken for production Metal support. It registers before the first
+    // compile, which freezes the registries.
+    std::string reason;
+    Check(!RegisterUsdGenExecutionBackendAdapter({}, &reason) &&
+              reason == "cannot register a null execution backend adapter",
+          "null backend adapter registration is rejected");
+    Check(!RegisterUsdGenExecutionBackendAdapter(
+              std::make_shared<InvalidProbeAdapter>(), &reason) &&
+              reason == "execution backend adapter contract is invalid",
+          "invalid backend adapter contract is rejected");
+    auto disabled = std::make_shared<DisabledProbeAdapter>();
+    Check(RegisterUsdGenExecutionBackendAdapter(disabled, &reason),
+          "unavailable backend adapter can register explicitly");
+    auto found = FindUsdGenExecutionBackendAdapter(
+        UsdGenExecutionBackend::Metal);
+    Check(found && found == disabled && !GetUsdGenExecutionBackendContract(
+              UsdGenExecutionBackend::Metal).Available(),
+          "registered unavailable adapter remains fail-closed");
+    Check(!RegisterUsdGenExecutionBackendAdapter(disabled, &reason) &&
+              reason == "execution backend adapter is already registered",
+          "duplicate backend adapter registration is rejected");
+
     // Compiler-level proof: an unavailable portable backend fails before a
     // candidate graph is committed. In particular, it must not quietly
     // produce a CpuReference graph from the same descriptor.
@@ -208,29 +232,6 @@ int main() {
               "Vulkan rejection does not produce a CPU graph");
     }
 #endif
-
-    // The registry is exercised only after the built-in unavailable checks:
-    // this probe advertises no executable implementation and must not be
-    // mistaken for production Metal support.
-    std::string reason;
-    Check(!RegisterUsdGenExecutionBackendAdapter({}, &reason) &&
-              reason == "cannot register a null execution backend adapter",
-          "null backend adapter registration is rejected");
-    Check(!RegisterUsdGenExecutionBackendAdapter(
-              std::make_shared<InvalidProbeAdapter>(), &reason) &&
-              reason == "execution backend adapter contract is invalid",
-          "invalid backend adapter contract is rejected");
-    auto disabled = std::make_shared<DisabledProbeAdapter>();
-    Check(RegisterUsdGenExecutionBackendAdapter(disabled, &reason),
-          "unavailable backend adapter can register explicitly");
-    auto found = FindUsdGenExecutionBackendAdapter(
-        UsdGenExecutionBackend::Metal);
-    Check(found && found == disabled && !GetUsdGenExecutionBackendContract(
-              UsdGenExecutionBackend::Metal).Available(),
-          "registered unavailable adapter remains fail-closed");
-    Check(!RegisterUsdGenExecutionBackendAdapter(disabled, &reason) &&
-              reason == "execution backend adapter is already registered",
-          "duplicate backend adapter registration is rejected");
 
     auto metadata = std::make_shared<const UsdGenExecutionPlanMetadata>(
         "metal", 77, UsdGenExecutionPlanShape::SourceRootedValueDag,

@@ -49,15 +49,15 @@ struct ExprVkExprOpData {
     std::vector<ExprVkStageBinding> bindings;
 };
 
-// Compiles node.expressionBindings after the operator's allowlist
-// (UsdGenValidateExpressionTargets, the one table for both lanes).
+// Compiles node.expressionBindings after the op record's admission
+// (UsdGenValidateExpressionBindings, the one rule for every lane).
 bool ExprVkCompileStageBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                                 std::vector<ExprVkStageBinding> *out,
                                 std::vector<std::string> *diagnostics);
 
 // Width with optional expression bindings: literal controls validate exactly
 // as the literal lane, and width/mask floats plus replace/enabled bools may
-// be connected (expressionTargets allowlist; enabled is groom-only).
+// be connected (the op record's admission; enabled is groom-only).
 bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                              ExprVkWidthData *out, std::vector<std::string> *diagnostics);
 

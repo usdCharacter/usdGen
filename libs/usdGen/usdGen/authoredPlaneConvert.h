@@ -110,12 +110,12 @@ inline bool ConvertAuthoredPlane(TfToken const &planeName, VtValue const &value,
         return false;
     }
     if (count == 0) return false;
-    bool const vertexLike = interpolation == TfToken("vertex") || interpolation == TfToken("varying");
-    if (interpolation == TfToken("uniform") && count == curves) {
+    bool const vertexLike = interpolation == UsdGenTokens().vertex || interpolation == UsdGenTokens().varying;
+    if (interpolation == UsdGenTokens().uniform && count == curves) {
         plane.domain = UsdGenAuthoredPlaneDomain::Primitive;
     } else if (vertexLike && count == points) {
         plane.domain = UsdGenAuthoredPlaneDomain::Point;
-    } else if (count == 1 && (interpolation == TfToken("constant") || interpolation.IsEmpty())) {
+    } else if (count == 1 && (interpolation == UsdGenTokens().constant || interpolation.IsEmpty())) {
         plane.domain = UsdGenAuthoredPlaneDomain::Groom;
     } else {
         return false;

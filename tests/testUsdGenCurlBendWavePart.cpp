@@ -7,10 +7,12 @@
 //       compiles, one wrong-destination and one wrong-domain binding fail);
 //   (3) deterministic CPU cooks over small hand-built topologies (fixed seeds).
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>
@@ -152,7 +154,7 @@ static UsdGenPlane const *FindCurvePlane(UsdGenCurveBuffer const &buffer,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     struct Expect {
         char const *type;
         char const *reference;
@@ -167,15 +169,16 @@ static void CheckRegistryContracts()
     for (Expect const &expect : kOps) {
         TfToken const type(expect.type);
         std::string const name = type.GetString();
-        Check(registry.HasKernel(type), "HasKernel(" + name + ")");
-        std::unique_ptr<UsdGenOp> op = registry.Create(type);
+        Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(" + name + ")");
+        std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
         Check(op != nullptr, "Create(" + name + ")");
         if (!op) continue;
-        Check(op->Type() == type, name + " reports its own type");
-        Check(op->TopologyEffect() == UsdGenTopoFx::None,
+        Check(registry.Record(registry.Find(type)).Name() == type, name + " reports its own type");
+        UsdGenOpRecord const &rec = op->Record();
+        Check(rec.Def().topoFx == UsdGenTopoFx::None,
               name + " has TopologyEffect None");
-        TfSpan<const TfToken> const refs = op->ReferenceInputs();
-        TfSpan<const TfToken> const primvars = op->OutputPrimvars();
+        TfSpan<const TfToken> const refs = rec.ReferenceInputs();
+        std::vector<TfToken> const primvars = usdGenTest::OutputPlaneNames(rec);
         if (expect.reference) {
             Check(refs.size() == 1 && refs[0] == TfToken(expect.reference),
                   name + " declares the part:curves reference input");
@@ -260,7 +263,7 @@ static void CheckExpressionTargets()
                    BoolShape(), TfToken("taper"), expr::Domain::Primitive,
                    VtValue(true));
         ExpectFail(groomToggle, "a primitive-domain Curl taper fails closed",
-                   "Curl enabled/taper/clockwise require groom evaluation");
+                   "Curl taper requires groom evaluation");
     }
     // Bend: the angle is per CV; angleRandom/axis are per strand root.
     {
@@ -780,7 +783,6 @@ static void CheckGrowLiftCook()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckExpressionTargets();
     CheckWaveCook();

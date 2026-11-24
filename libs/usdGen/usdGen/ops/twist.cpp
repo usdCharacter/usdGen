@@ -33,6 +33,7 @@
 #include <numeric>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -40,18 +41,31 @@ namespace usdGen {
 
 namespace {
 
-TfToken const kAmount("twist:amount");
-TfToken const kRoot("twist:root");
-TfToken const kMid("twist:mid");
-TfToken const kMidShift("twist:midShift");
-TfToken const kTip("twist:tip");
-TfToken const kNoise("twist:noise");
-TfToken const kUseClumpIds("twist:useClumpIds");
-TfToken const kResnapRoot("twist:resnapRoot");
-
-TfToken const kClumpPlane("clumpId_0");
-TfToken const kGuidePlane("primaryGuide");
-TfToken const kMirrorPlane("mirrorSign");
+using namespace twistP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// input, surface, seed, the structural parameters, then enabled and mask.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"twist:amount", UsdGenParamClass::Capture},
+    {"twist:root", UsdGenParamClass::Capture},
+    {"twist:mid", UsdGenParamClass::Capture},
+    {"twist:midShift", UsdGenParamClass::Capture},
+    {"twist:tip", UsdGenParamClass::Capture},
+    {"twist:noise", UsdGenParamClass::Capture},
+    {"twist:useClumpIds", UsdGenParamClass::Capture},
+    {"twist:resnapRoot", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+constexpr char const *kTokens[] = {"clumpId_0", "primaryGuide", "mirrorSign"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenTwistOp>(r);
+}
 
 constexpr float kDegToRad = 0.017453292f;
 constexpr uint64_t kGolden = 0x9E3779B97F4A7C15ull;
@@ -213,16 +227,6 @@ void ApplyNoise(float *P, TwistGroup const &g, float noise, uint32_t seed)
 
 }  // namespace
 
-TfTokenVector UsdGenTwistOp::StructuralParameters() const
-{
-    return {kAmount, kRoot, kMid, kMidShift, kTip, kNoise, kUseClumpIds, kResnapRoot};
-}
-
-std::vector<UsdGenStrandPlaneSpec> UsdGenTwistOp::OutputPlaneSpecs() const
-{
-    return {};
-}
-
 bool UsdGenTwistOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                             std::vector<UsdGenStrandPlaneData> &, UsdGenDiagnostics *diag)
 {
@@ -230,9 +234,9 @@ bool UsdGenTwistOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
     if (!(s.amount > 0.0f) || (s.root == 0.0f && s.mid == 0.0f && s.tip == 0.0f)) return true;
 
     uint32_t const R = strands.Count();
-    int const *clump = strands.CurveInt(kClumpPlane);
-    int const *guide = strands.CurveInt(kGuidePlane);
-    int const *mirror = strands.CurveInt(kMirrorPlane);
+    int const *clump = strands.CurveInt(Record().Token(kTokClumpId0));
+    int const *guide = strands.CurveInt(Record().Token(kTokPrimaryGuide));
+    int const *mirror = strands.CurveInt(Record().Token(kTokMirrorSign));
     if (!guide && !(s.useClumpIds && clump)) {
         if (diag)
             diag->Warn(Label() + ": upstream has no primaryGuide plane" +
@@ -329,6 +333,17 @@ bool UsdGenTwistOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         if (hit.hit) strand::ResnapRoot(P, g.n, hit.point - p0);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterTwistOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenTwist";
+    d.displayName = "Twist";
+    d.create = &Create;
+    d.params = UsdGenSpan(kParams);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

@@ -16,8 +16,9 @@
 // map type reaches the kernel. All work is per curve/CV in Evaluate (no
 // capture payload); Capture only validates literals and connected values.
 #include "usdGen/ops/displace.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -28,10 +29,13 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+using namespace displaceP;
 
 namespace {
 
@@ -47,32 +51,27 @@ bool Finite(double v) { return std::isfinite(v); }
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("mode"));          // structural kernel branch (02 §6)
-    v.push_back(TfToken("displace:map"));  // rel retarget recompiles (02 §6)
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("mask"));
-    v.push_back(TfToken("displace:amount"));
-    v.push_back(TfToken("displace:base"));
-    v.push_back(TfToken("displace:scale"));
-    v.push_back(TfToken("displace:offset"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenDisplaceOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenDisplaceOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+constexpr char const *kModes[] = {"height", "vector"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"mode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kModes)},
+    {"displace:map", UsdGenParamClass::Structural, true, kFloatRoot},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+    {"displace:amount", UsdGenParamClass::Value, true, kFloatAll},
+    {"displace:base", UsdGenParamClass::Value, true, kFloatAll},
+    {"displace:scale", UsdGenParamClass::Value, true, kFloatAll},
+    {"displace:offset", UsdGenParamClass::Value, true, kFloatAll},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenDisplaceOp>(r); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenDisplaceOp::CreateCapture() const
 {
     return std::make_unique<UsdGenDisplaceCapture>();
@@ -84,21 +83,23 @@ uint32_t UsdGenDisplaceOp::PlanesTouched() const
 
 bool UsdGenDisplaceOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sMode, sHeight);
-    if (mode != sHeight && mode != sVector) {
-        if (diag) diag->Error("UsdGenDisplace: unknown usdGen:mode '" + mode.GetString() + "'");
+    TfToken const *unknown = nullptr;
+    int const mode = UsdGenStylerEnum(params, kMode, kModeHeight, &unknown);
+    if (mode < 0) {
+        if (diag) diag->Error("UsdGenDisplace: unknown usdGen:mode '" + unknown->GetString() + "'");
         return false;
     }
-    if (mode == sVector) {
+    if (mode == kModeVector) {
         if (diag) diag->Error("UsdGenDisplace: usdGen:mode 'vector' is not supported: "
                               "only UsdGenPtexMap height maps are consumable, through "
                               "single scalar channels");
         return false;
     }
-    for (TfToken const *name : {&sAmount, &sBase, &sScale, &sOffset}) {
-        double const v = params.GetDoubleLiteral(*name, 0.0);
+    for (UsdGenParamSlot s : {kAmount, kBase, kScale, kOffset}) {
+        char const *const name = kParams[s].name;
+        double const v = params.GetDoubleLiteral(s, 0.0);
         if (!Finite(v)) {
-            if (diag) diag->Error("UsdGenDisplace: usdGen:" + name->GetString() +
+            if (diag) diag->Error(std::string("UsdGenDisplace: usdGen:") + name +
                                   " must be finite");
             return false;
         }
@@ -115,7 +116,7 @@ UsdGenEpoch UsdGenDisplaceOp::CaptureDigest(UsdGenCaptureContext const &ctx) con
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
     auto feed = [&](uint64_t v) { h ^= v; h *= 0x100000001b3ULL; };
-    feed(p ? uint64_t(p->GetToken(sMode, sHeight).Hash()) : 0u);
+    feed(p ? uint64_t(UsdGenStylerEnum(*p, kMode, kModeHeight) + 2) : 0u);
     feed(ctx.upstreamGeneration);
     feed(uint64_t(ctx.seed));
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -141,12 +142,12 @@ bool UsdGenDisplaceOp::Capture(
         return false;
     }
     uint32_t const R = upstream.totalCurves;
-    UsdGenParamField const map = p->GetScalarField(sMap, 0.0);
-    UsdGenParamField const amount = p->GetScalarField(sAmount, 0.0);
-    UsdGenParamField const base = p->GetScalarField(sBase, 0.5);
-    UsdGenParamField const scale = p->GetScalarField(sScale, 1.0);
-    UsdGenParamField const offset = p->GetScalarField(sOffset, 0.0);
-    UsdGenParamField const mask = p->GetScalarField(sMask, 1.0);
+    UsdGenParamField const map = p->GetScalarField(kMap, 0.0);
+    UsdGenParamField const amount = p->GetScalarField(kAmount, 0.0);
+    UsdGenParamField const base = p->GetScalarField(kBase, 0.5);
+    UsdGenParamField const scale = p->GetScalarField(kScale, 1.0);
+    UsdGenParamField const offset = p->GetScalarField(kOffset, 0.0);
+    UsdGenParamField const mask = p->GetScalarField(kMask, 1.0);
     for (UsdGenParamField const *field : {&map, &amount, &base, &scale, &offset, &mask}) {
         if (field->connected && field->components != 1) {
             if (diag) diag->Error("UsdGenDisplace: connected height controls must be "
@@ -180,17 +181,17 @@ void UsdGenDisplaceOp::Evaluate(
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const mapField =
-        p ? p->GetScalarField(sMap, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kMap, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const amountField =
-        p ? p->GetScalarField(sAmount, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAmount, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const baseField =
-        p ? p->GetScalarField(sBase, 0.5) : UsdGenParamField{0.5};
+        p ? p->GetScalarField(kBase, 0.5) : UsdGenParamField{0.5};
     UsdGenParamField const scaleField =
-        p ? p->GetScalarField(sScale, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kScale, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const offsetField =
-        p ? p->GetScalarField(sOffset, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kOffset, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     auto const *rootN = view->rootN;
@@ -227,6 +228,17 @@ void UsdGenDisplaceOp::Evaluate(
             pz[o] = inPz[o] + N[2] * d;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterDisplaceOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenDisplace";
+    d.displayName = "Displace";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

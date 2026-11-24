@@ -8,10 +8,11 @@
 //       scale:knots ramp, the per-curve scaleRandom draw, identity at zero
 //       effect, one connected-expression cook, and fail-closed validation.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -164,22 +165,26 @@ static bool HasParam(TfSpan<const TfToken> const &span, char const *name)
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenScale");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenScale)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenScale)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenScale)");
     if (!op) return;
-    Check(op->Type() == type, "Scale reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(registry.Record(registry.Find(type)).Name() == type, "Scale reports its own type");
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "Scale has TopologyEffect None");
     Check(op->PlanesTouched() ==
               (UsdGenOp::kPlanePoints | UsdGenOp::kPlaneWidths),
           "Scale touches the points and widths planes");
-    Check(op->ReferenceInputs().empty(), "Scale declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "Scale emits no output primvars");
-    TfSpan<const TfToken> const topo = op->TopologyParameters();
-    TfSpan<const TfToken> const value = op->ValueParameters();
+    Check(op->Record().ReferenceInputs().empty(), "Scale declares no reference inputs");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "Scale emits no output primvars");
+    UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
+    std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
+    for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
+        (rec.ParamClass(s) == UsdGenParamClass::Value ? valueV : topoV).push_back(rec.ParamName(s));
+    TfSpan<const TfToken> const topo(topoV.data(), topoV.size());
+    TfSpan<const TfToken> const value(valueV.data(), valueV.size());
     Check(HasParam(topo, "widthToo"), "Scale routes widthToo structurally");
     Check(HasParam(value, "scale") && HasParam(value, "scale:knots") &&
               HasParam(value, "scale:interpolation") &&
@@ -496,7 +501,6 @@ static void CheckFailClosed()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckScaleCook();
     CheckWidthTooCook();

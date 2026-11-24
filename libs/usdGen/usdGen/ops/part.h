@@ -8,24 +8,28 @@
 #define USDGEN_OP_PART_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
+
+#include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace partP {
+// Declaration order of ops/part.cpp kParams (topology list, then value list).
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kCurves, kRadius,
+    kEnabled, kStrength, kMask,
+    kCount
+};
+}  // namespace partP
+
 class UsdGenPartOp final : public UsdGenOp
 {
 public:
-    UsdGenPartOp() = default;
+    explicit UsdGenPartOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenPartOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenPart"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
-    TfSpan<const TfToken> OutputPrimvars() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -38,10 +42,10 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sRadius{"part:radius"}, sStrength{"part:strength"};
-    const TfToken sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterPartOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

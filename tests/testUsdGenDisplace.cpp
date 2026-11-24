@@ -9,9 +9,11 @@
 //       (per strand root) and the amount (per CV);
 //   (3) mode=vector and unknown modes fail closed.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>
@@ -149,23 +151,24 @@ static bool CookSourceOnly(UsdGenGraphDesc const &desc, SdfPath const &source,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenDisplace");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenDisplace)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenDisplace)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenDisplace)");
     if (!op) return;
-    Check(op->Type() == type, "Displace reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(registry.Record(registry.Find(type)).Name() == type, "Displace reports its own type");
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "Displace has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "Displace declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "Displace emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "Displace emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Displace touches the points plane only");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
+    for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)   // routed decls, as the routing snapshot splits them
+        (rec.ParamClass(s) == UsdGenParamClass::Value ? value : topo).insert(rec.ParamName(s).GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed", "mode",
                                         "displace:map"},
           "Displace topology parameters are input/surface/seed/mode/map");
@@ -339,7 +342,6 @@ static void CheckBadModeFailsClosed()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckIdentityCook();
     CheckHeightCook();

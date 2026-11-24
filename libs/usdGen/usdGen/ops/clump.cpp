@@ -58,10 +58,10 @@
 // the bound surface).
 #include "usdGen/ops/clump.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/clumpModes.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/scheduler.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -82,6 +82,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -89,24 +90,7 @@ namespace usdGen {
 
 namespace {
 
-const TfToken sAmount{"clump:amount"}, sMap{"clump:map"}, sDensity{"clump:density"},
-    sSize{"clump:size"}, sLevels{"clump:levels"}, sLevel{"clump:level"},
-    sSizeReduction{"clump:sizeReduction"}, sTightness{"clump:tightnessReduction"},
-    sMethod{"clump:method"}, sProfileKnots{"clump:profile:knots"},
-    sProfileInterp{"clump:profile:interpolation"}, sStrayAmount{"clump:stray:amount"},
-    sStrayRate{"clump:stray:rate"}, sStrayFalloff{"clump:stray:falloff"},
-    sPreserveLength{"preserveLength"}, sExtrude{"extrudeAndBlend"},
-    sLinear{"linearBlend"}, sCatmullRom{"catmullRom"},
-    // Reference clump modes.
-    sCenters{"clump:centers"}, sCount{"clump:count"}, sProfileMode{"clump:profile:mode"},
-    sRoot{"clump:root"}, sMid{"clump:mid"}, sMidShift{"clump:midShift"}, sTip{"clump:tip"},
-    sFlyFraction{"clump:flyaway:fraction"}, sFlyAmount{"clump:flyaway:amount"},
-    sSubEnabled{"clump:sub:enabled"}, sSubCount{"clump:sub:count"},
-    sSubSpread{"clump:sub:spread"}, sSubAmount{"clump:sub:amount"}, sSubIds{"clump:sub:ids"},
-    sOverrides{"clump:overrides"}, sOverrideCount{"clump:overrideCount"},
-    sModeDensity{"density"}, sModeCount{"count"}, sModeGuides{"guides"},
-    sModeGuideSeeded{"guideSeeded"}, sRamp{"ramp"}, sBezier{"bezier"},
-    sStrandIndex{"strandIndex"}, sPartId{"partId"}, sNearestGuide{"nearestGuide"};
+using namespace clumpP;
 
 constexpr uint32_t kSaltClumpStray = kSaltClump + 64u;
 
@@ -157,14 +141,25 @@ void ParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const &body)
     }, &payload);
 }
 
-VtVec2fArray ReadKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
     if (!p) return {};
-    VtValue const v = p->GetVtValue(name, VtValue());
+    VtValue const v = p->GetValue(slot, VtValue());
     return v.IsHolding<VtVec2fArray>() ? v.UncheckedGet<VtVec2fArray>() : VtVec2fArray();
 }
 
 enum class Centers { Density, Count, Guides, GuideSeeded };
+
+/// The decl enumerant index of an authored token value; -1 when authored but
+/// not an enumerant; fallback when unauthored or not a token (GetEnum alone
+/// cannot tell the last two apart, and an unknown value must fail the cook).
+int AuthoredEnum(UsdGenParamView const &p, UsdGenParamSlot slot, int fallback)
+{
+    UsdGenResolvedParam const *r = p.Slot(slot);
+    if (!r || !r->authored) return fallback;
+    VtValue const &v = r->authored->value;
+    return v.IsHolding<TfToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
+}
 
 struct Settings {
     int levels = 1;
@@ -190,18 +185,18 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
         return false;
     };
     if (!p) return true;
-    s->levels = p->GetInt(sLevels, 1);
-    s->density = p->GetDouble(sDensity, 4.0);
-    s->size = p->GetDouble(sSize, 1.0);
-    s->sizeReduction = p->GetDouble(sSizeReduction, 0.5);
-    s->tightness = p->GetDouble(sTightness, 0.8);
-    s->strayAmount = p->GetDouble(sStrayAmount, 0.0);
-    s->strayRate = p->GetDouble(sStrayRate, 0.0);
-    s->strayFalloff = p->GetDouble(sStrayFalloff, 1.0);
-    TfToken const method = p->GetToken(sMethod, sLinear);
-    if (method != sLinear && method != sExtrude)
+    s->levels = p->GetInt(kLevels, 1);
+    s->density = p->GetDouble(kDensity, 4.0);
+    s->size = p->GetDouble(kSize, 1.0);
+    s->sizeReduction = p->GetDouble(kSizeReduction, 0.5);
+    s->tightness = p->GetDouble(kTightnessReduction, 0.8);
+    s->strayAmount = p->GetDouble(kStrayAmount, 0.0);
+    s->strayRate = p->GetDouble(kStrayRate, 0.0);
+    s->strayFalloff = p->GetDouble(kStrayFalloff, 1.0);
+    int const method = AuthoredEnum(*p, kMethod, kLinearBlend);
+    if (method != kLinearBlend && method != kExtrudeAndBlend)
         return fail("usdGen:clump:method must be linearBlend or extrudeAndBlend");
-    s->extrude = method == sExtrude;
+    s->extrude = method == kExtrudeAndBlend;
     if (s->levels < 1 || s->levels > 4) return fail("usdGen:clump:levels must be in [1, 4]");
     if (!std::isfinite(s->density) || s->density < 0.0)
         return fail("usdGen:clump:density must be finite and >= 0");
@@ -216,37 +211,38 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
         !(std::isfinite(s->strayFalloff) && s->strayFalloff >= 0.0))
         return fail("usdGen:clump:stray amount/rate must be in [0, 1] and falloff >= 0");
 
-    TfToken const centers = p->GetToken(sCenters, sModeDensity);
-    if (centers == sModeDensity) s->centers = Centers::Density;
-    else if (centers == sModeCount) s->centers = Centers::Count;
-    else if (centers == sModeGuides) s->centers = Centers::Guides;
-    else if (centers == sModeGuideSeeded) s->centers = Centers::GuideSeeded;
-    else return fail("usdGen:clump:centers must be density, count, guides or guideSeeded");
-    s->count = p->GetInt(sCount, 10);
+    switch (AuthoredEnum(*p, kCenters, kCentersDensity)) {
+    case kCentersDensity: s->centers = Centers::Density; break;
+    case kCentersCount: s->centers = Centers::Count; break;
+    case kCentersGuides: s->centers = Centers::Guides; break;
+    case kCentersGuideSeeded: s->centers = Centers::GuideSeeded; break;
+    default: return fail("usdGen:clump:centers must be density, count, guides or guideSeeded");
+    }
+    s->count = p->GetInt(kClumpCount, 10);
     if (s->count < 0) return fail("usdGen:clump:count must be >= 0");
-    TfToken const profileMode = p->GetToken(sProfileMode, sRamp);
-    if (profileMode != sRamp && profileMode != sBezier)
+    int const profileMode = AuthoredEnum(*p, kProfileMode, kProfileRamp);
+    if (profileMode != kProfileRamp && profileMode != kProfileBezier)
         return fail("usdGen:clump:profile:mode must be ramp or bezier");
-    s->bezier = profileMode == sBezier;
-    s->controls.root = float(p->GetDouble(sRoot, 0.0));
-    s->controls.mid = float(p->GetDouble(sMid, 0.5));
-    s->controls.midShift = float(p->GetDouble(sMidShift, 0.5));
-    s->controls.tip = float(p->GetDouble(sTip, 1.0));
-    s->flyFraction = float(p->GetDouble(sFlyFraction, 0.0));
-    s->flyAmount = float(p->GetDouble(sFlyAmount, 0.0));
-    s->subEnabled = p->GetBool(sSubEnabled, false);
-    s->sub.count = p->GetInt(sSubCount, 2);
-    s->sub.spread = float(p->GetDouble(sSubSpread, 0.5));
-    s->sub.amount = float(p->GetDouble(sSubAmount, 1.0));
-    s->sub.ids = p->GetBool(sSubIds, false);
+    s->bezier = profileMode == kProfileBezier;
+    s->controls.root = float(p->GetDouble(kRoot, 0.0));
+    s->controls.mid = float(p->GetDouble(kMid, 0.5));
+    s->controls.midShift = float(p->GetDouble(kMidShift, 0.5));
+    s->controls.tip = float(p->GetDouble(kTip, 1.0));
+    s->flyFraction = float(p->GetDouble(kFlyawayFraction, 0.0));
+    s->flyAmount = float(p->GetDouble(kFlyawayAmount, 0.0));
+    s->subEnabled = p->GetBool(kSubEnabled, false);
+    s->sub.count = p->GetInt(kSubCount, 2);
+    s->sub.spread = float(p->GetDouble(kSubSpread, 0.5));
+    s->sub.amount = float(p->GetDouble(kSubAmount, 1.0));
+    s->sub.ids = p->GetBool(kSubIds, false);
     for (float v : {s->controls.root, s->controls.mid, s->controls.midShift, s->controls.tip,
                     s->flyFraction, s->flyAmount, s->sub.spread, s->sub.amount})
         if (!std::isfinite(v))
             return fail("usdGen:clump profile, flyaway and sub-clump controls must be finite");
-    VtValue const overrides = p->GetVtValue(sOverrides, VtValue());
+    VtValue const overrides = p->GetValue(kOverrides, VtValue());
     if (overrides.IsHolding<VtIntArray>()) s->overrides = overrides.UncheckedGet<VtIntArray>();
     else if (!overrides.IsEmpty()) return fail("usdGen:clump:overrides must be an int[]");
-    s->overrideCount = p->GetInt(sOverrideCount, 0);
+    s->overrideCount = p->GetInt(kOverrideCount, 0);
     return true;
 }
 
@@ -254,8 +250,8 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
 int const *IntCurvePlane(UsdGenCurveBuffer const &buffer, TfToken const &name)
 {
     for (UsdGenPlane const &plane : buffer.extraCurve)
-        if (plane.name == name && plane.type == TfToken("int") && plane.arity == 1 &&
-            plane.interpolation == TfToken("uniform") && plane.i.size() == buffer.totalCurves)
+        if (plane.name == name && plane.type == UsdGenTokens().int_ && plane.arity == 1 &&
+            plane.interpolation == UsdGenTokens().uniform && plane.i.size() == buffer.totalCurves)
             return plane.i.cdata();
     return nullptr;
 }
@@ -314,52 +310,98 @@ std::vector<uint32_t> PickCentres(std::vector<uint32_t> const &members,
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    // Clump resolves its whole result at capture (see the file comment), so
-    // every control except the envelope is capture-class.
-    for (char const *name : {"clump:amount", "clump:map", "clump:density", "clump:size",
-                             "clump:levels", "clump:level", "clump:sizeReduction",
-                             "clump:tightnessReduction", "clump:method",
-                             "clump:profile:knots", "clump:profile:interpolation",
-                             "clump:stray:amount", "clump:stray:rate",
-                             "clump:stray:falloff", "preserveLength",
-                             // Reference modes and the guide relationship.
-                             "guides", "clump:centers", "clump:count",
-                             "clump:profile:mode", "clump:root", "clump:mid",
-                             "clump:midShift", "clump:tip", "clump:flyaway:fraction",
-                             "clump:flyaway:amount", "clump:sub:enabled",
-                             "clump:sub:count", "clump:sub:spread", "clump:sub:amount",
-                             "clump:sub:ids", "clump:overrides", "clump:overrideCount"})
-        v.push_back(TfToken(name));
-    return v;
-}();
+namespace {
 
-static TfTokenVector const _referenceInputs{TfToken("guides")};
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
 
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
+constexpr char const *kMethods[] = {"linearBlend", "extrudeAndBlend"};
+constexpr char const *kCenterModes[] = {"density", "count", "guides", "guideSeeded"};
+constexpr char const *kProfileModes[] = {"ramp", "bezier"};
 
-TfSpan<const TfToken> UsdGenClumpOp::TopologyParameters() const
+// Clump resolves its whole result at capture (see the file comment), so
+// every control except the envelope is capture-class; clump:level(s) name
+// the emitted planes, so they are structural.
+UsdGenParamDecl const kParams[kParamCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"clump:amount", UsdGenParamClass::Capture, true, kFloatAll},
+    {"clump:map", UsdGenParamClass::Capture, true, kFloatRoot},
+    {"clump:density", UsdGenParamClass::Capture},
+    {"clump:size", UsdGenParamClass::Capture},
+    {"clump:levels", UsdGenParamClass::Structural},
+    {"clump:level", UsdGenParamClass::Structural},
+    {"clump:sizeReduction", UsdGenParamClass::Capture},
+    {"clump:tightnessReduction", UsdGenParamClass::Capture},
+    {"clump:method", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kMethods)},
+    {"clump:profile:knots", UsdGenParamClass::Capture},
+    {"clump:profile:interpolation", UsdGenParamClass::Capture},
+    {"clump:stray:amount", UsdGenParamClass::Capture},
+    {"clump:stray:rate", UsdGenParamClass::Capture},
+    {"clump:stray:falloff", UsdGenParamClass::Capture},
+    {"preserveLength", UsdGenParamClass::Capture, true, kFloatAll},
+    {"guides", UsdGenParamClass::Capture},
+    {"clump:centers", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kCenterModes)},
+    {"clump:count", UsdGenParamClass::Capture},
+    {"clump:profile:mode", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kProfileModes)},
+    {"clump:root", UsdGenParamClass::Capture},
+    {"clump:mid", UsdGenParamClass::Capture},
+    {"clump:midShift", UsdGenParamClass::Capture},
+    {"clump:tip", UsdGenParamClass::Capture},
+    {"clump:flyaway:fraction", UsdGenParamClass::Capture},
+    {"clump:flyaway:amount", UsdGenParamClass::Capture},
+    {"clump:sub:enabled", UsdGenParamClass::Capture},
+    {"clump:sub:count", UsdGenParamClass::Capture},
+    {"clump:sub:spread", UsdGenParamClass::Capture},
+    {"clump:sub:amount", UsdGenParamClass::Capture},
+    {"clump:sub:ids", UsdGenParamClass::Capture},
+    {"clump:overrides", UsdGenParamClass::Capture},
+    {"clump:overrideCount", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+char const *const kReferences[] = {"guides"};
+// Order is clumpP::Tok.
+char const *const kTokens[] = {"clumpId_0", "clumpCenter_0", "clumpCenterId_0", "clumpWeight_0",
+                               "strandIndex", "partId", "nearestGuide"};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
+    return std::make_unique<UsdGenClumpOp>(r);
 }
-TfSpan<const TfToken> UsdGenClumpOp::ValueParameters() const
+
+/// clump:levels (1..4) consecutive clumpId_ indices; clump:level pins the
+/// first. count -1: levels out of range (the compiler rejects the node).
+UsdGenIndexedPlaneRequest IndexedPlanes(UsdGenParamView const &p)
 {
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
+    UsdGenIndexedPlaneRequest request;
+    int const levels = p.GetInt(kLevels, 1);
+    request.count = levels >= 1 && levels <= 4 ? levels : -1;
+    request.pinnedBase = p.GetInt(kLevel, -1);
+    return request;
 }
-TfSpan<const TfToken> UsdGenClumpOp::OutputPrimvars() const
+
+/// Four native motion planes per level, numbered from the allocated base.
+void EmittedPlanes(UsdGenParamView const &p, int base, UsdGenPlaneSink &sink)
 {
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
+    if (base < 0) base = std::max(p.GetInt(kLevel, -1), 0);
+    int const levels = std::clamp(p.GetInt(kLevels, 1), 1, 4);
+    using R = UsdGenPlaneRate;
+    using S = UsdGenPlaneScalar;
+    for (int l = 0; l < levels; ++l) {
+        std::string const suffix = std::to_string(base + l);
+        sink.Add("clumpId_" + suffix, R::Uniform, S::Int, 1);
+        sink.Add("clumpCenter_" + suffix, R::Uniform, S::Float, 3);
+        sink.Add("clumpCenterId_" + suffix, R::Uniform, S::Int, 2);
+        sink.Add("clumpWeight_" + suffix, R::Vertex, S::Float, 1);
+    }
 }
-TfSpan<const TfToken> UsdGenClumpOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
-}
+
+}  // namespace
+
 std::unique_ptr<UsdGenCapture> UsdGenClumpOp::CreateCapture() const
 {
     return std::make_unique<UsdGenClumpCapture>();
@@ -367,38 +409,6 @@ std::unique_ptr<UsdGenCapture> UsdGenClumpOp::CreateCapture() const
 uint32_t UsdGenClumpOp::PlanesTouched() const
 {
     return kPlanePoints;
-}
-
-void UsdGenClumpOp::Configure(UsdGenParamView const &params)
-{
-    // usdGen:clump:level = -1 numbers this node by its ordinal among every
-    // UsdGenClump of the description, disabled ones included, so toggling a
-    // node never renumbers another's published planes (04 §2.8).
-    int base = params.GetInt(sLevel, -1);
-    if (base < 0 && _levelBaseOverride >= 0) base = _levelBaseOverride;
-    if (base < 0) {
-        base = 0;
-        if (params.desc && params.node) {
-            for (UsdGenNodeDesc const &node : params.desc->nodes) {
-                if (&node == params.node || node.path == params.node->path) break;
-                if (node.type == TfToken("UsdGenClump")) {
-                    UsdGenParamView prior;
-                    prior.desc = params.desc;
-                    prior.node = &node;
-                    base += std::clamp(prior.GetInt(sLevels, 1), 1, 4);
-                }
-            }
-        }
-    }
-    int const levels = std::clamp(params.GetInt(sLevels, 1), 1, 4);
-    _outputs.clear();
-    for (int l = 0; l < levels; ++l) {
-        std::string const suffix = std::to_string(base + l);
-        _outputs.push_back(TfToken("clumpId_" + suffix));
-        _outputs.push_back(TfToken("clumpCenter_" + suffix));
-        _outputs.push_back(TfToken("clumpCenterId_" + suffix));
-        _outputs.push_back(TfToken("clumpWeight_" + suffix));
-    }
 }
 
 bool UsdGenClumpOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
@@ -411,9 +421,9 @@ UsdGenEpoch UsdGenClumpOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 {
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
-        for (TfToken const &name : _topoParams) {
-            d.Mix(name);
-            d.Mix(p->GetVtValue(name, VtValue()));
+        for (UsdGenParamSlot s = 0; s < kEnabled; ++s) {   // the topology list
+            d.Mix(Record().ParamName(s));
+            d.Mix(p->GetValue(s, VtValue()));
         }
     }
     d.Mix(uint64_t(ctx.seed));
@@ -487,18 +497,19 @@ bool UsdGenClumpOp::Capture(
             ? upstream.hairT[cv]
             : (n > 1 ? float(i) / float(n - 1) : 0.0f);
     };
-    UsdGenParamField const amountField = p ? p->GetScalarField(sAmount, 0.5) : UsdGenParamField{0.5};
-    UsdGenParamField const mapField = p ? p->GetScalarField(sMap, 0.0) : UsdGenParamField{};
+    UsdGenParamField const amountField = p ? p->GetScalarField(kAmount, 0.5) : UsdGenParamField{0.5};
+    UsdGenParamField const mapField = p ? p->GetScalarField(kMap, 0.0) : UsdGenParamField{};
     UsdGenParamField const preserveField =
-        p ? p->GetScalarField(sPreserveLength, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kPreserveLength, 1.0) : UsdGenParamField{1.0};
     bool const mapMode = mapField.connected;
 
     // Knots ramp, unless the Bezier root/mid/tip profile replaces it.
     std::vector<float> profile;
-    VtVec2fArray const knots = s.bezier ? VtVec2fArray() : ReadKnots(p, sProfileKnots);
+    VtVec2fArray const knots = s.bezier ? VtVec2fArray() : ReadKnots(p, kProfileKnots);
     if (!knots.empty()) {
         profile.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(knots, p ? p->GetToken(sProfileInterp, sCatmullRom) : sCatmullRom,
+        UsdGenBuildRampLut(knots, p ? p->GetToken(kProfileInterpolation, UsdGenTokens().catmullRom)
+                                : UsdGenTokens().catmullRom,
                            profile.data(), kUsdGenRampLutSize);
     }
 
@@ -513,7 +524,7 @@ bool UsdGenClumpOp::Capture(
     // overrides and sub-clumps.
     bool const referenceMode = !mapMode && s.centers != Centers::Density;
     std::vector<int> strandIndex(R);
-    if (int const *plane = IntCurvePlane(upstream, sStrandIndex))
+    if (int const *plane = IntCurvePlane(upstream, Record().Token(kTokStrandIndex)))
         std::copy(plane, plane + R, strandIndex.begin());
     else
         std::iota(strandIndex.begin(), strandIndex.end(), 0);
@@ -593,12 +604,12 @@ bool UsdGenClumpOp::Capture(
                 for (int d = 0; d < 3; ++d) guideRoots[g * 3 + d] = r[d];
             }
         }
-        int const *partKey = IntCurvePlane(upstream, sPartId);
+        int const *partKey = IntCurvePlane(upstream, Record().Token(kTokPartId));
         // The strand's guide: the upstream nearestGuide plane (parting-aware,
         // from guide interpolation) when valid, else the guide rooted nearest.
         std::vector<int> nearest;
         if (G > 0) {
-            int const *plane = IntCurvePlane(upstream, sNearestGuide);
+            int const *plane = IntCurvePlane(upstream, Record().Token(kTokNearestGuide));
             clumpRef::NearestFinder finder;
             finder.Build(guideRoots);
             nearest.assign(R, -1);
@@ -985,7 +996,7 @@ void UsdGenClumpOp::Evaluate(
 {
     auto const &cap = static_cast<UsdGenClumpCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
-    UsdGenParamField const maskField = p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+    UsdGenParamField const maskField = p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;
     size_t const firstCv = view->desc ? size_t(view->desc->firstCv) : 0;
     auto const *cvOff = view->cvOffsets;
@@ -1048,6 +1059,23 @@ void UsdGenClumpOp::Evaluate(
             }
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterClumpOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenClump";
+    d.displayName = "Clump";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.traits = kUsdGenOpFixedOutputPlaneLayout;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    d.tokens = UsdGenSpan(kTokens);
+    d.indexedPlaneFamily = "clumpId_";
+    d.hooks.indexedPlanes = &IndexedPlanes;
+    d.hooks.emittedPlanes = &EmittedPlanes;
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

@@ -4,7 +4,8 @@
 // Native time-driven scene-index publication regressions.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
@@ -468,7 +469,6 @@ void CheckNativeCollidePlayback()
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
     CheckNativeWindPlayback();
     CheckNativeCollidePlayback();
     CheckCanonicalAsyncPlayback();

@@ -42,6 +42,7 @@
 #define USDGEN_OP_FREEZE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -50,15 +51,8 @@ namespace usdGen {
 class UsdGenFreezeOp final : public UsdGenOp
 {
 public:
-    UsdGenFreezeOp() = default;
+    explicit UsdGenFreezeOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenFreezeOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenFreeze"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -71,12 +65,18 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sCurves{"frozen:curves"}, sMode{"frozen:mode"};
-    const TfToken sEpoch{"frozen:epoch"}, sTier{"frozen:tier"};
-    const TfToken sFrozen{"frozen"}, sLive{"live"};
-    const TfToken sSession{"session"}, sSublayer{"sublayer"}, sPayload{"payload"};
 };
+
+namespace freezeP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kCurves, kMode, kEpoch, kTier, kCount
+};
+enum Tok : uint16_t { kTokFrozen, kTokLive, kTokSession, kTokSublayer, kTokPayload };
+}  // namespace freezeP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterFreezeOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

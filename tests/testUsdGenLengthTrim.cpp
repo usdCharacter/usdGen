@@ -14,7 +14,8 @@
 //     uniformity, hairT, carried planes, a ragged downstream sweep.
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>
@@ -543,10 +544,10 @@ static bool CutAt(UsdGenCurveBuffer const &out, uint32_t c, float s, float tol =
 static void TestTrim()
 {
     // Registry contract.
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenTrim"));
-    Check(op && op->ReferenceInputs().size() == 1 &&
-          op->ReferenceInputs()[0] == TfToken("trim:curves") &&
-          op->TopologyEffect() == UsdGenTopoFx::None, "UsdGenTrim declares trim:curves");
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTrim")));
+    Check(op && op->Record().ReferenceInputs().size() == 1 &&
+          op->Record().ReferenceInputs()[0] == TfToken("trim:curves") &&
+          op->Record().Def().topoFx == UsdGenTopoFx::None, "UsdGenTrim declares trim:curves");
 
     UsdGenCurveBuffer input, out;
     {
@@ -749,7 +750,6 @@ static void TestResampleSpacing()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     TestLengthDefaultMax();
     TestLengthRandomRange();
     TestLengthShareByClump();

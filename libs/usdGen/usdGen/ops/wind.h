@@ -41,24 +41,28 @@
 #ifndef USDGEN_OP_WIND_H
 #define USDGEN_OP_WIND_H
 
-#include "usdGen/op.h"
+#include "usdGen/ops/recordedOp.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace windP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kDirection, kConst, kGust, kLowStrength,
+    kLowFrequency, kLowRate, kHighStrength, kHighFrequency, kHighRate, kStiffness,
+    kKnots, kInterp, kMask, kCount
+};
+enum Tok : uint16_t { kTokLinear, kTokCatmullRom, kTokBspline, kTokConstant };
+}  // namespace windP
+
 class UsdGenWindOp final : public UsdGenOp
 {
 public:
-    UsdGenWindOp() = default;
+    explicit UsdGenWindOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenWindOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenWind"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-    bool ReadsTime() const override { return true; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -72,20 +76,13 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
     bool ReadsTime(UsdGenParamView const &params) const override {
-        auto const gust = params.GetScalarField(sGust, 0.0);
+        auto const gust = params.GetScalarField(windP::kGust, 0.0);
         return gust.connected || gust.literal != 0.0;
     }
-private:
-    const TfToken sDirection{"direction"}, sConst{"constStrength"};
-    const TfToken sGust{"gustStrength"}, sStiffness{"stiffness"};
-    const TfToken sLowStrength{"billowLowStrength"}, sHighStrength{"billowHighStrength"};
-    const TfToken sLowFrequency{"billowLowFrequency"}, sHighFrequency{"billowHighFrequency"};
-    const TfToken sLowRate{"billowLowRate"}, sHighRate{"billowHighRate"};
-    const TfToken sKnots{"stiffness:knots"}, sInterp{"stiffness:interpolation"};
-    const TfToken sLinear{"linear"}, sCatmullRom{"catmullRom"};
-    const TfToken sBspline{"bspline"}, sConstant{"constant"};
-    const TfToken sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterWindOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

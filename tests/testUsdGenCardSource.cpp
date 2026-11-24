@@ -23,7 +23,8 @@
 #include "usdGen/authoredPlaneConvert.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/cardGeometry.h"
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
@@ -850,7 +851,6 @@ int main(int argc, char **argv)
         if (!std::strcmp(argv[i], "--usda")) usda = argv[++i];
         else if (!std::strcmp(argv[i], "--dump")) dumpPath = argv[++i];
     }
-    usdGenRegisterM1Operators();
     if (!usda.empty()) return Harness(usda, dumpPath);
     TestGeometry();
     TestGenerator();

@@ -21,7 +21,8 @@
 // globals' frame alone cooks nothing (the example reads no $frame).
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/deform.h"
 #include "usdGen/ops/rbfField.h"
 #include "usdGen/ops/curveWrap.h"
@@ -673,7 +674,8 @@ void CheckNonFiniteCapture()
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.surface = 0;
-    UsdGenDeformOp op;
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    UsdGenDeformOp op(registry.Record(registry.Find(TfToken("UsdGenDeform"))));
     auto capture = op.CreateCapture();
     UsdGenDiagnostics diagnostics;
     bool const ok = op.Capture(ctx, upstream, capture.get(), &diagnostics);
@@ -1061,8 +1063,11 @@ void CheckDeformEvaluateViewShapes()
     // Partial uniform mask: ragged and uniform agree on the blend path too.
     UsdGenNodeDesc maskNode;
     maskNode.params.push_back(UsdGenParamValue{TfToken("mask"), VtValue(0.5), false});
-    UsdGenParamView maskView;
-    maskView.node = &maskNode;
+    UsdGenGraphDesc const maskGraph;
+    UsdGenOpRegistry const &maskRegistry = UsdGenOpRegistry::Get();
+    UsdGenStackParams maskStack(maskGraph, maskNode,
+        maskRegistry.Record(maskRegistry.Find(TfToken("UsdGenDeform"))));
+    UsdGenParamView const &maskView = maskStack.View();
     UsdGenEvalContext maskCtx;
     maskCtx.params = &maskView;
     std::vector<float> blendUniPx(term.totalCvs), blendUniPy(term.totalCvs),
@@ -1669,7 +1674,7 @@ void CheckFusedTileExtents()
     }
     bool swept = false;
     for (auto const &st : run.nodeStats)
-        if (graph.Node(st.id).type == TfToken("UsdGenDeform") && st.chunksEvaluated > 0)
+        if (graph.Node(st.id).record->Name() == TfToken("UsdGenDeform") && st.chunksEvaluated > 0)
             swept = true;
     Check(swept, "fused extents: the pose produces the deform outputs");
     if (!swept) return;
@@ -1680,7 +1685,7 @@ void CheckFusedTileExtents()
     bool direct = true, recorded = true;
     for (size_t i = 0; i < size_t(graph.NodeCount()); ++i) {
         UsdGenCompiledNode const &n = graph.Node(UsdGenNodeId(i));
-        if (n.type != TfToken("UsdGenDeform") || !n.capture) continue;
+        if (n.record->Name() != TfToken("UsdGenDeform") || !n.capture) continue;
         ++deforms;
         direct = direct && n.capture->WroteDirectOutput();
         recorded = recorded && n.capture->RecordedChunkExtents();
@@ -1993,7 +1998,6 @@ void CheckResidentAnimation()
 
 int main(int argc, char** argv)
 {
-    usdGenRegisterM1Operators();
     if (argc == 2 && std::strcmp(argv[1], "--gpu-pose") == 0) {
         CheckImmediateAnimationPublication();
         UsdGenGroomSceneIndex::DrainRetired();

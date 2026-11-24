@@ -6,6 +6,7 @@
 #define USDGEN_CURVE_BUFFER_H
 
 #include "usdGen/pool.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"
@@ -195,7 +196,7 @@ _UsdGenValidatePlaneList(std::vector<UsdGenPlane> const &planes,
                          bool vertex, uint32_t elements,
                          std::string *error)
 {
-    TfToken const expected = vertex ? TfToken("vertex") : TfToken("uniform");
+    TfToken const expected = vertex ? UsdGenTokens().vertex : UsdGenTokens().uniform;
     TfToken previous;
     for (UsdGenPlane const &plane : planes) {
         if (plane.name.IsEmpty() || plane.arity == 0 ||
@@ -203,7 +204,7 @@ _UsdGenValidatePlaneList(std::vector<UsdGenPlane> const &planes,
             return _UsdGenExtraPlaneFail(
                 "extra-plane names must be nonempty and strictly sorted", error);
         previous = plane.name;
-        bool const constant = !vertex && plane.interpolation == TfToken("constant");
+        bool const constant = !vertex && plane.interpolation == UsdGenTokens().constant;
         if (plane.interpolation != expected && !constant)
             return _UsdGenExtraPlaneFail("extra-plane has unsupported interpolation '" +
                                          plane.interpolation.GetString() + "'", error);
@@ -211,10 +212,10 @@ _UsdGenValidatePlaneList(std::vector<UsdGenPlane> const &planes,
         if (!_UsdGenPlaneValueCount(constant ? 1 : elements, plane.arity,
                                     &values, error))
             return false;
-        if (plane.type == TfToken("float")) {
+        if (plane.type == UsdGenTokens().float_) {
             if (!plane.i.empty() || plane.f.size() != values)
                 return _UsdGenExtraPlaneFail("float extra-plane has invalid payload size", error);
-        } else if (plane.type == TfToken("int")) {
+        } else if (plane.type == UsdGenTokens().int_) {
             if (!plane.f.empty() || plane.i.size() != values)
                 return _UsdGenExtraPlaneFail("int extra-plane has invalid payload size", error);
         } else {
@@ -253,14 +254,14 @@ _UsdGenPrivatePlane(UsdGenPlane const &source, uint32_t elements,
         return _UsdGenExtraPlaneFail("extra-plane transform has no plane output", error);
     size_t values = 0;
     if (!_UsdGenPlaneValueCount(
-            source.interpolation == TfToken("constant") ? 1 : elements,
+            source.interpolation == UsdGenTokens().constant ? 1 : elements,
             source.arity, &values, error))
         return false;
     result->name = source.name;
     result->interpolation = source.interpolation;
     result->type = source.type;
     result->arity = source.arity;
-    if (source.type == TfToken("int")) result->i = VtIntArray(values, 0);
+    if (source.type == UsdGenTokens().int_) result->i = VtIntArray(values, 0);
     else result->f = VtFloatArray(values, 0.0f);
     return true;
 }
@@ -270,7 +271,7 @@ _UsdGenCopyElements(UsdGenPlane const &source, size_t sourceElement,
                     UsdGenPlane *target, size_t targetElement)
 {
     size_t const arity = source.arity;
-    if (source.type == TfToken("int"))
+    if (source.type == UsdGenTokens().int_)
         std::copy_n(source.i.cdata() + sourceElement * arity, arity,
                     target->i.begin() + targetElement * arity);
     else
@@ -317,7 +318,7 @@ UsdGenResampleExtraPlanes(UsdGenCurveBuffer const &source,
                 uint32_t const upper = std::min(lower + 1, inputCount - 1);
                 size_t const inBase = sourceSpans[curve];
                 size_t const outIndex = size_t(targetSpans[curve]) + output;
-                if (plane.type == TfToken("int")) {
+                if (plane.type == UsdGenTokens().int_) {
                     uint32_t const nearest = static_cast<uint32_t>(std::floor(t + 0.5));
                     detail::_UsdGenCopyElements(plane, inBase + nearest, &transformed, outIndex);
                 } else {
@@ -336,7 +337,7 @@ UsdGenResampleExtraPlanes(UsdGenCurveBuffer const &source,
         UsdGenPlane transformed;
         if (!detail::_UsdGenPrivatePlane(
                 plane, target->totalCurves, &transformed, error)) return false;
-        size_t const elements = plane.interpolation == TfToken("constant") ? 1 : source.totalCurves;
+        size_t const elements = plane.interpolation == UsdGenTokens().constant ? 1 : source.totalCurves;
         for (size_t element = 0; element != elements; ++element)
             detail::_UsdGenCopyElements(plane, element, &transformed, element);
         extraCurve.push_back(std::move(transformed));
@@ -400,7 +401,7 @@ UsdGenCompactExtraPlanes(UsdGenCurveBuffer const &source,
         UsdGenPlane transformed;
         if (!detail::_UsdGenPrivatePlane(
                 plane, target->totalCurves, &transformed, error)) return false;
-        if (plane.interpolation == TfToken("constant")) {
+        if (plane.interpolation == UsdGenTokens().constant) {
             detail::_UsdGenCopyElements(plane, 0, &transformed, 0);
         } else {
             for (size_t output = 0; output != survivors.size(); ++output)
@@ -561,7 +562,7 @@ struct UsdGenTilePublication
     TfToken       purpose;                    // inherited by hand from the description
     TfToken       visibility;                 // inherited by hand from the description
     SdfPath       materialPath;               // description's Material
-    TfToken       materialPurpose = TfToken("allPurpose"); // the empty-token container child
+    TfToken       materialPurpose = UsdGenTokens().allPurpose; // the empty-token container child
     SdfPath       primOrigin;                 // the description prim; absolute outside prototypes
     SdfPath       dependencySurface;          // __dependencies: dependedOnPrimPath
 };

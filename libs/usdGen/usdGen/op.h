@@ -6,8 +6,7 @@
 //  * Capture may allocate into its own node's capture and buffer under the
 //    graph's scheduled work owner; it runs there or inside a parallel region
 //    over independent nodes in the private arena (R22).
-//  * TopologyParameters() ∪ ValueParameters() == the node's mapped property set
-//    (S14); asserted in debug builds (USDGEN_OP_CHECKS=1).
+//  * The record's parameter decls are the node's mapped property set (S14).
 //  * Cross-curve reads come from capture data plus reference buffers, never
 //    from another chunk (I3).
 //  * Kernels live in usdGenMath as free functions over raw pointers, compiled
@@ -19,6 +18,8 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/pool.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/token.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -45,6 +46,21 @@ struct UsdGenDiagnostics
     void Error(std::string msg)    { errors.push_back(std::move(msg)); }
     void Warn(std::string msg)     { warnings.push_back(std::move(msg)); }
 };
+
+/// The exec-phase token rule: true (and an error on diag) when the phase
+/// `check` brackets interned a token; with USDGEN_TOKEN_CHECKS=0 a warning
+/// on diag and false.
+inline bool UsdGenCookInternFails(UsdGenCookTokenCheck const &check, UsdGenDiagnostics *diag)
+{
+    if (!check.Violated()) return false;
+    char const *const message = "usdGen: a token was interned during the cook";
+    bool const fail = UsdGenTokenChecksEnabled();
+    if (diag) {
+        if (fail) diag->Error(message);
+        else diag->Warn(message);
+    }
+    return fail;
+}
 
 /// This node's resolved parameters and ramps, handed in by the scheduler at
 /// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the
@@ -81,49 +97,107 @@ struct UsdGenParamField
     bool Uniform() const { return !connected || domain == expr::Domain::Groom; }
 };
 
+/// One declared parameter resolved at compile (UsdGenResolveParams).
+struct UsdGenResolvedParam
+{
+    UsdGenParamValue const *authored = nullptr;   // first param with exactly the decl name
+    TfToken token;                                // token value; a std::string is interned at compile
+    int32_t enumIndex = -1;                       // decl enumerant index; -1 none/unmatched
+};
+
 struct UsdGenParamView
 {
     UsdGenGraphDesc const *desc = nullptr;
     UsdGenNodeDesc const  *node = nullptr;
+    /// The node's op record and its resolved slots (op->ParamCount()
+    /// entries); null for views built outside the compiler.
+    UsdGenOpRecord const *op = nullptr;
+    UsdGenResolvedParam const *slots = nullptr;
     /// This node's evaluated connected parameters, or null when the node has
     /// none (or when the caller is a validator that never evaluates them).
     UsdGenCpuParameters const *expressions = nullptr;
 
-    /// nullptr when the property is not authored and carries no C1 default in
-    /// the node description (the builder materializes C1 defaults).
-    UsdGenParamValue const *FindParam(TfToken const &name) const
+    // ---- by slot ---------------------------------------------------------------
+    UsdGenResolvedParam const *Slot(UsdGenParamSlot s) const noexcept
     {
-        if (!node) return nullptr;
-        for (auto const &p : node->params) if (p.name == name) return &p;
-        return nullptr;
+        return slots && op && s < op->ParamCount() ? &slots[s] : nullptr;
+    }
+    bool IsAuthored(UsdGenParamSlot s) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && r->authored;
+    }
+    UsdGenExpressionValue const *Expression(UsdGenParamSlot s) const noexcept
+    {
+        return expressions && Slot(s) ? expressions->FindSlot(s) : nullptr;
+    }
+    bool GroomExpressionValue(UsdGenParamSlot s, double *out) const
+    {
+        return GroomValue(Expression(s), out);
+    }
+    double GetDoubleLiteral(UsdGenParamSlot s, double fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return DoubleLiteral(r ? r->authored : nullptr, fallback);
+    }
+    double GetDouble(UsdGenParamSlot s, double fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(s, &expression)) return expression;
+        return GetDoubleLiteral(s, fallback);
+    }
+    int GetInt(UsdGenParamSlot s, int fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(s, &expression)) return static_cast<int>(expression);
+        UsdGenResolvedParam const *r = Slot(s);
+        return IntLiteral(r ? r->authored : nullptr, fallback);
+    }
+    bool GetBool(UsdGenParamSlot s, bool fallback) const
+    {
+        double expression = 0.0;
+        if (GroomExpressionValue(s, &expression)) return expression != 0.0;
+        UsdGenResolvedParam const *r = Slot(s);
+        return BoolLiteral(r ? r->authored : nullptr, fallback);
+    }
+    /// The decl enumerant index of an authored token value; fallback when
+    /// unauthored or not one of the decl's enumerants.
+    int GetEnum(UsdGenParamSlot s, int fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && r->enumIndex >= 0 ? r->enumIndex : fallback;
+    }
+    TfToken const &GetToken(UsdGenParamSlot s, TfToken const &fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && HoldsToken(r->authored) ? r->token : fallback;
+    }
+    VtValue const &GetValue(UsdGenParamSlot s, VtValue const &fallback) const noexcept
+    {
+        UsdGenResolvedParam const *r = Slot(s);
+        return r && r->authored ? r->authored->value : fallback;
+    }
+    UsdGenParamField GetScalarField(UsdGenParamSlot s, double fallback) const
+    {
+        return Field(GetDoubleLiteral(s, fallback), Expression(s));
     }
 
-    /// The evaluated connected values for `name`, or nullptr.
-    UsdGenExpressionValue const *FindExpression(TfToken const &name) const
+private:
+    static bool HoldsToken(UsdGenParamValue const *p) noexcept
     {
-        return expressions ? expressions->Find(name) : nullptr;
+        return p && (p->value.IsHolding<TfToken>() || p->value.IsHolding<std::string>());
     }
-
-    /// The groom-domain (single-value) result of a connected parameter, when
-    /// it has one. Scalars read through GetDouble/GetInt/GetBool pick this up
-    /// automatically, so a groom-granularity expression drives every operator
-    /// control without the operator knowing that expressions exist.
-    bool GroomExpressionValue(TfToken const &name, double *out) const
+    static bool GroomValue(UsdGenExpressionValue const *value, double *out) noexcept
     {
-        UsdGenExpressionValue const *value = FindExpression(name);
         if (!value || value->domain != expr::Domain::Groom || value->values.empty())
             return false;
         *out = value->values.front();
         return true;
     }
-
-    /// A connectable scalar parameter as a field. Falls back to the authored
-    /// literal at every element when nothing is connected.
-    UsdGenParamField GetScalarField(TfToken const &name, double fallback) const
+    static UsdGenParamField Field(double literal, UsdGenExpressionValue const *value) noexcept
     {
         UsdGenParamField field;
-        field.literal = GetDoubleLiteral(name, fallback);
-        UsdGenExpressionValue const *value = FindExpression(name);
+        field.literal = literal;
         if (!value || value->values.empty()) return field;
         field.connected = true;
         field.values = value->values.data();
@@ -132,38 +206,17 @@ struct UsdGenParamView
         field.domain = value->domain;
         return field;
     }
-    TfToken GetToken(TfToken const &name, TfToken fallback) const
+    static double DoubleLiteral(UsdGenParamValue const *p, double fallback) noexcept
     {
-        if (UsdGenParamValue const *p = FindParam(name)) {
-            if (p->value.IsHolding<TfToken>())
-                return p->value.UncheckedGet<TfToken>();
-            if (p->value.IsHolding<std::string>())
-                return TfToken(p->value.UncheckedGet<std::string>().c_str());
-        }
-        return fallback;
-    }
-    /// The authored value only, never an expression result. Kernels that read
-    /// a connectable parameter per element use GetScalarField instead; this is
-    /// the literal that expression gets as $value.
-    double GetDoubleLiteral(TfToken const &name, double fallback) const
-    {
-        if (UsdGenParamValue const *p = FindParam(name)) {
+        if (p) {
             if (p->value.IsHolding<double>()) return p->value.UncheckedGet<double>();
             if (p->value.IsHolding<float>())  return p->value.UncheckedGet<float>();
         }
         return fallback;
     }
-    double GetDouble(TfToken const &name, double fallback) const
+    static int IntLiteral(UsdGenParamValue const *p, int fallback) noexcept
     {
-        double expression = 0.0;
-        if (GroomExpressionValue(name, &expression)) return expression;
-        return GetDoubleLiteral(name, fallback);
-    }
-    int GetInt(TfToken const &name, int fallback) const
-    {
-        double expression = 0.0;
-        if (GroomExpressionValue(name, &expression)) return static_cast<int>(expression);
-        if (UsdGenParamValue const *p = FindParam(name)) {
+        if (p) {
             if (p->value.IsHolding<int>()) return p->value.UncheckedGet<int>();
             // Integer-valued authored VtValues are tolerated (schema declares
             // e.g. usdGen:seed as `uniform int`; callers may author the
@@ -173,20 +226,38 @@ struct UsdGenParamView
         }
         return fallback;
     }
-    bool GetBool(TfToken const &name, bool fallback) const
+    static bool BoolLiteral(UsdGenParamValue const *p, bool fallback) noexcept
     {
-        double expression = 0.0;
-        if (GroomExpressionValue(name, &expression)) return expression != 0.0;
-        if (UsdGenParamValue const *p = FindParam(name)) {
-            if (p->value.IsHolding<bool>()) return p->value.UncheckedGet<bool>();
-        }
+        if (p && p->value.IsHolding<bool>()) return p->value.UncheckedGet<bool>();
         return fallback;
     }
-    VtValue GetVtValue(TfToken const &name, VtValue const &fallback) const
+};
+
+/// Compile phase: resolve node.params into out[0, rec.ParamCount()). A param
+/// binds the slot declared with exactly its name; the first one wins.
+USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDesc const &node,
+                                         UsdGenResolvedParam *out);
+
+/// Stack resolution for validators that have no compiled node. Compile
+/// phase only (about 3 KB of stack).
+class UsdGenStackParams
+{
+public:
+    UsdGenStackParams(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+                      UsdGenOpRecord const &rec)
     {
-        if (UsdGenParamValue const *p = FindParam(name)) return p->value;
-        return fallback;
+        UsdGenResolveParams(rec, node, _slots);
+        _view.desc = &desc;
+        _view.node = &node;
+        _view.op = &rec;
+        _view.slots = _slots;
     }
+    UsdGenStackParams(UsdGenStackParams const &) = delete;
+    UsdGenStackParams &operator=(UsdGenStackParams const &) = delete;
+    UsdGenParamView const &View() const noexcept { return _view; }
+private:
+    UsdGenResolvedParam _slots[kUsdGenMaxParamsPerOp];
+    UsdGenParamView _view;
 };
 
 /// Opaque per-node capture payload; M1 operators derive their own concrete
@@ -253,7 +324,7 @@ struct UsdGenCaptureContext
     // remains owned by the node until Capture succeeds and commits.
     UsdGenCapture const *previousCapture = nullptr;
     UsdGenParamView const *params = nullptr; // this node's resolved parameters and ramps
-    UsdGenReferenceSet const **references = nullptr; // resolved ReferenceInputs(), evaluated
+    UsdGenReferenceSet const **references = nullptr; // resolved record ReferenceInputs(), evaluated
     UsdGenResolvedReferenceValue const **resolvedReferences = nullptr;
     uint32_t              referenceCount = 0;
     UsdGenResolvedMapValue const **maps = nullptr;
@@ -268,7 +339,7 @@ struct UsdGenCaptureContext
     uint64_t               upstreamGeneration = 0; // upstream buffer topologyVersion
     // Complete ordered input list for a multi-input operator.  Unary kernels
     // continue to use the legacy Capture() argument and upstreamGeneration;
-    // fan-in kernels opt in by declaring GeometryInputArity() > 1.
+    // fan-in kernels opt in by declaring geometryInputArity > 1.
     UsdGenCurveBuffer const **upstreams = nullptr;
     uint32_t               upstreamCount = 0;
     UsdGenWorkDispatcher  *dispatcher = nullptr;  // capture may parallelise in the arena
@@ -313,70 +384,34 @@ struct UsdGenEvalContext
     std::atomic<uint32_t> *failureCode = nullptr;
 };
 
-/// The operator kernel interface. Five M1 types: UsdGenScatterOp,
-/// UsdGenGrowOp, UsdGenNoiseOp, UsdGenLengthOp, UsdGenWidthOp (02 §2.6/§2.7.1).
+/// What Configure sees: the node's parameters and the compiler's indexed
+/// plane allocation (4a).
+struct UsdGenConfigureContext
+{
+    UsdGenParamView const &params;
+    int indexedPlaneBase = -1;
+};
+
+/// The operator kernel interface. Everything static about an op (type,
+/// topology effect, role, arity, traits, parameters, planes) lives in its
+/// registered record (registries/opDef.h); the instance holds only state.
 class UsdGenOp : public UsdGenPooled
 {
 public:
+    explicit UsdGenOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
     virtual ~UsdGenOp() = default;
+    UsdGenOpRecord const &Record() const noexcept { return *_record; }
 
-    // ---- static description, read at compile -------------------------------
-    /// C1 type name, e.g. "UsdGenScatter".
-    virtual TfToken Type() const = 0;
-    /// Static TopologyEffect (R14): e.g. UsdGenLengthOp is always CurveCount
-    /// because cull mode exists.
-    virtual UsdGenTopoFx TopologyEffect() const { return UsdGenTopoFx::None; }
-    virtual UsdGenRole Role() const { return UsdGenRole::Curves; }
-    /// Evaluate reads the live cook time (and potentially seconds via the
-    /// description's timeCodesPerSecond), independent of authored samples.
-    virtual bool ReadsTime() const { return false; }
-    /// Capture reads scene inputs sampled at the current frame. The imaging
-    /// owner must refresh the description on frame-only scene-global dirties.
-    virtual bool SamplesFrameInputs() const { return false; }
-    /// C1-frozen parameter partition (02 §6 rows; docs/freezes/C1.md):
-    /// TopologyParameters = capture/topology-class edits, ValueParameters =
-    /// per-frame edits. The union must equal the node's mapped property set
-    /// (S14); usdGen:enabled joins whichever set its dirty class implies
-    /// (02 §6.2 topology for generators/Length, §6.3 value-toggle for the rest).
-    virtual TfSpan<const TfToken> TopologyParameters() const = 0;
-    virtual TfSpan<const TfToken> ValueParameters() const = 0;
-    /// Named reference inputs (guide sets, clump centres, card roots).
-    virtual TfSpan<const TfToken> ReferenceInputs() const { return {}; }
-    /// Extra planes this operator writes, in slot order (R24 fixed types/arity).
-    virtual TfSpan<const TfToken> OutputPrimvars() const { return {}; }
-    /// Upstream planes this operator reads, in slot order.
-    virtual TfSpan<const TfToken> InputPrimvars() const { return {}; }
-    /// True when Evaluate remaps every inherited vertex-domain extra plane.
-    /// The scheduler then materializes private outputs and exposes matching
-    /// input/output descriptors through UsdGenChunkView.
-    virtual bool RemapsVertexPlanes() const { return false; }
-    /// Exact number of geometry-producing usdGen:input edges consumed by
-    /// this kernel. This is deliberately separate from IsGenerator(): Grow
-    /// owns its generated strand topology, but still consumes one upstream
-    /// root geometry. Current kernels are either source operators (0) or
-    /// unary operators (1); a future multi-input kernel must declare and
-    /// implement its merge semantics before increasing this value.
-    virtual size_t GeometryInputArity() const { return 1; }
-    /// Whether the authored order of geometry inputs is semantic.  Unary
-    /// operators retain the historical canonicalized digest behavior.
-    virtual bool GeometryInputsOrdered() const { return false; }
-    /// Called by the compiler once per fresh node, before OutputPrimvars() is
-    /// read, for an operator whose emitted plane NAMES depend on authored
-    /// values (UsdGenClump's clumpId_<level>). The parameters that feed it must
-    /// be structural (digest) parameters, so an edit rebuilds the node.
-    virtual void Configure(UsdGenParamView const &) {}
-    /// True when CaptureDigest() covers every parameter Capture() reads.
-    /// A value-class edit then keeps the compiled node and its capture, and
-    /// the digest decides whether to re-capture; otherwise the kept node is
-    /// re-captured.
-    virtual bool CaptureDigestComplete() const { return false; }
+    /// Instance state from structural params, once per fresh node and on a
+    /// value-only reuse. Plane names come from the record's hooks.
+    virtual void Configure(UsdGenConfigureContext const &) {}
 
     // ---- binding -------------------------------------------------------------
     virtual bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) = 0;
 
     // ---- capture: topology-dependent, cached by epoch (03 §3.4) --------------
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
-    /// Fill *out (derive the concrete payload). A generator (TopologyEffect != None)
+    /// Fill *out (derive the concrete payload). A generator (topoFx != None)
     /// must also populate its output topology (chunks, cvCount, totalCurves)
     /// into *out->buffer when it creates curves.
     virtual bool Capture(UsdGenCaptureContext const &ctx,
@@ -388,11 +423,6 @@ public:
     virtual void Evaluate(UsdGenEvalContext const &ctx,
                           UsdGenCapture const &capture,
                           UsdGenChunkView *view) const = 0;
-
-    // ---- generators only ------------------------------------------------------
-    /// When true, Capture produces the node's topology from scratch (no
-    /// upstream buffer). False for all stylers/deformers.
-    virtual bool IsGenerator() const { return false; }
 
     /// Allocate the concrete capture payload for this operator. The payload
     /// owns its per-curve results; generators additionally fill
@@ -412,6 +442,9 @@ public:
     // descendants. Animated parameters and external inputs have their own
     // value/capture identities and do not need this flag.
     virtual bool ReadsTime(UsdGenParamView const &) const { return false; }
+
+private:
+    UsdGenOpRecord const *_record;
 };
 
 

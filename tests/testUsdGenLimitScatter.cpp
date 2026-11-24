@@ -1,8 +1,10 @@
 #include "usdGen/limitSurface.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/scheduler.h"
 #include <cmath>
 #include <cstdio>
@@ -43,8 +45,9 @@ static UsdGenGraphDesc BigDesc(UsdGenSurfaceDesc const& s) {
 }
 static bool RunDirect(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out) {
     UsdGenNodeDesc const& node=d.nodes[0];
-    UsdGenParamView params{&d,&node};
-    UsdGenScatterOp op;UsdGenDiagnostics diag;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"),&node,&d);
+    UsdGenParamView const &params=paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));UsdGenDiagnostics diag;
     if(!op.Bind(params,&diag))return false;
     auto cap=op.CreateCapture();if(!cap)return false;
     UsdGenCaptureContext ctx;ctx.desc=&d;ctx.params=&params;ctx.surface=0;
@@ -233,7 +236,7 @@ static bool SameRoots(UsdGenCurveBuffer const& a,UsdGenCurveBuffer const& b) {
         a.rootN==b.rootN && a.rootB==b.rootB && a.hairT==b.hairT;
 }
 int main() {
-    usdGenRegisterM1Operators();auto s=Surface();std::string error;
+    auto s=Surface();std::string error;
     UsdGenLimitSurface limit;CHECK(limit.Build(s,3,&error));
     GfVec3f p,du,dv;CHECK(limit.Evaluate(4,.3f,.4f,&p,&du,&dv));
     CHECK(std::abs(p[0]-.3)<1e-5 && std::abs(p[1]-.4)<1e-5);
@@ -301,7 +304,7 @@ int main() {
         t = s; t.faceVertexCounts[0] = 3; CHECK(!tmoved(t));
         t = s; t.faceVertexIndices[0] = 7; CHECK(!tmoved(t));
     }
-    UsdGenScatterOp op;auto d0=Desc(s,3),d1=Desc(tags,3);UsdGenCaptureContext c0,c1;c0.desc=&d0;c1.desc=&d1;
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));auto d0=Desc(s,3),d1=Desc(tags,3);UsdGenCaptureContext c0,c1;c0.desc=&d0;c1.desc=&d1;
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     // Pose and parent motion are downstream deformation inputs, not rest
     // scatter inputs. Rest/topology/UV/paint edits must still invalidate.

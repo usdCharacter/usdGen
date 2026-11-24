@@ -169,10 +169,10 @@ static_assert(static_cast<unsigned>(Type::Float64) == 8);
 void Error(std::vector<std::string>* diagnostics, std::string const& message) {
     if (diagnostics) diagnostics->push_back(message);
 }
-TfToken CanonicalName(TfToken const& name) {
+std::string CanonicalName(TfToken const& name) {
     auto value = name.GetString();
     if (value.compare(0, 7, "usdGen:") == 0) value.erase(0, 7);
-    return TfToken(value);
+    return value;
 }
 size_t ScalarBytes(Type type) {
     switch (type) {
@@ -331,7 +331,7 @@ ExprVkCompileStatus ExprVkCompileNodeBindings(
         return ExprVkCompileStatus::InvalidArgument;
     }
     std::vector<ExprVkCompiledBinding> items;
-    std::set<TfToken> destinations;
+    std::set<std::string> destinations;
     for (auto const& binding : node.expressionBindings) {
         if (!destinations.insert(CanonicalName(binding.destination)).second) {
             Error(diagnostics, binding.destination.GetString() + ": duplicate expression destination");

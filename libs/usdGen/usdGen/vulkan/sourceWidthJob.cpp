@@ -2420,7 +2420,7 @@ void VulkanSourceWidthJob::BeginExpressionWidth() {
     controls.replaceLiteral = stage.width.replace ? 1 : 0;
     controls.enabledLiteral = stage.enabledLiteral ? 1u : 0u;
     auto bind = [&](char const *name, uint32_t &dom) {
-        auto f = expressions_->Find(TfToken(name));
+        auto f = expressions_->Find(std::string_view(name));
         if (!f)
             return std::shared_ptr<const ChargedBuffer>{};
         dom = uint32_t(f->domain);

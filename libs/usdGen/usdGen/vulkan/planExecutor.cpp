@@ -7,6 +7,9 @@
 #include "exprVkStructural.h"
 #include "growVkPlan.h"
 #include "usdGen/curveLoader.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/token.h"
+#include "usdGen/vulkan/vkStages.h"
 #include <cstring>
 
 #include <algorithm>
@@ -18,6 +21,21 @@
 
 namespace usdGen::vulkan {
 namespace {
+
+// The parameter token for an evaluated destination: the destination itself
+// without "usdGen:", else the op's declared spelling of local.
+TfToken ParamToken(UsdGenNodeDesc const &node, TfToken const &destination,
+                   std::string const &local) {
+    if (destination.GetString() == local)
+        return destination;
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    UsdGenOpId const id = ops.Find(node.type);
+    if (id != UsdGenOpId::Invalid)
+        for (TfToken const &name : ops.Record(id).ParamNames())
+            if (name.GetString() == local)
+                return name;
+    return UsdGenInternToken(local);
+}
 
 std::exception_ptr Failure(char const *message) noexcept {
     try {
@@ -53,8 +71,10 @@ bool Capture(VulkanSourceWidthPlan const &plan, uint64_t topologyVersion,
         // CurveLoader handles immutable source decoding only. The compiler
         // lowered source resampling to a native topology stage.
         auto captureNode = *node;
+        TfToken const &resampleTo =
+            UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource).Param(vulkanP::kCsResampleTo);
         for (auto &param : captureNode.params)
-            if (param.name == TfToken("resampleTo"))
+            if (param.name == resampleTo)
                 param.value = VtValue(0);
         UsdGenParamView params{plan.Descriptor().get(), &captureNode};
         UsdGenCaptureContext context;
@@ -230,7 +250,8 @@ struct Relay final : std::enable_shared_from_this<Relay> {
         };
         for (auto const &b : node.expressionBindings) {
             auto name = local(b.destination);
-            if (node.type == TfToken("UsdGenCurveSource") || name == "rbfSamples")
+            if (UsdGenVulkanKernelOf(node.type).Is(UsdGenVulkanStage::CurveSource) ||
+                name == "rbfSamples")
                 structural.expressionBindings.push_back(b);
         }
         std::vector<ExprVkCompiledBinding> compiled;
@@ -284,7 +305,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                             std::find_if(node.params.begin(), node.params.end(),
                                          [&](auto const &p) { return local(p.name) == name; });
                         if (found == node.params.end())
-                            node.params.push_back({TfToken(name), value});
+                            node.params.push_back({ParamToken(node, item.first, name), value});
                         else
                             found->value = value;
                     }
@@ -363,7 +384,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
             capture.geometry.alreadyDeformed = !plan->SourceControls().useRest;
             capture.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic,
                                               !plan->SourceControls().surfaceCage &&
-                                                      plan->Source().basis == TfToken("catmullRom")
+                                                      plan->Source().basis == UsdGenTokens().catmullRom
                                                   ? UsdGenDeviceCurveBasis::CatmullRom
                                                   : UsdGenDeviceCurveBasis::BSpline,
                                               UsdGenDeviceCurveWrap::Pinned};
@@ -700,15 +721,15 @@ bool VulkanPlanExecutor::Submit(std::shared_ptr<const VulkanSourceWidthPlan> pla
         relay->owner = owner.get();
         relay->ownerAnchor = relay;
         relay->structuralDescriptor = *relay->plan->Descriptor();
+        UsdGenVulkanKernel const deform = UsdGenVulkanKernelFor(UsdGenVulkanStage::Deform);
         if (relay->request.evaluationFrame)
             relay->structuralDescriptor.time = *relay->request.evaluationFrame;
         for (size_t i = 0; i < relay->structuralDescriptor.nodes.size(); ++i) {
             auto const &node = relay->structuralDescriptor.nodes[i];
-            bool structural =
-                node.type == TfToken("UsdGenCurveSource") && !node.expressionBindings.empty();
+            bool structural = UsdGenVulkanKernelOf(node.type).Is(UsdGenVulkanStage::CurveSource) &&
+                              !node.expressionBindings.empty();
             for (auto const &b : node.expressionBindings)
-                structural = structural || b.destination == TfToken("rbfSamples") ||
-                             b.destination == TfToken("usdGen:rbfSamples");
+                structural = structural || deform.Names(vulkanP::kDeformRbfSamples, b.destination);
             if (structural)
                 relay->structuralNodes.push_back(i);
         }

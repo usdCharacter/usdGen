@@ -1,7 +1,9 @@
 // testUsdGenAsyncImagingSession -- imaging-owner request pairing, callback
 // re-entry, retirement, and terminal shutdown behavior.
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGenImaging/imageMapCache.h"
@@ -183,9 +185,7 @@ std::atomic<unsigned> batchEntered{0};
 std::atomic<bool> batchRelease{false}, batchTimedOut{false};
 class BatchHoldOp final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenImagingBatchHold"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit BatchHoldOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 1}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
@@ -198,6 +198,19 @@ public:
     }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
 };
+
+void RegisterBatchHoldOp(UsdGenRegistrar &r)
+{
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenImagingBatchHold";
+        d.displayName = "ImagingBatchHold";
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<BatchHoldOp>(rec);
+        };
+        r.RegisterOp(d);
+    }
+}
 
 void TestPairedConcurrentRequests()
 {
@@ -225,7 +238,6 @@ void TestPairedConcurrentRequests()
             accepted.fetch_add(1, std::memory_order_relaxed);
     };
 
-    usdGenRegisterM1Operators();
     std::thread a(submit, descA, 10.0, .031f);
     std::thread b(submit, descB, 11.0, .047f);
     a.join();
@@ -745,8 +757,7 @@ void TestImageMapReloadStagesNewCowGeneration()
 
 int main()
 {
-    UsdGenOpRegistry::Get().Register(TfToken("UsdGenImagingBatchHold"),
-        [] { return std::make_unique<BatchHoldOp>(); });
+    UsdGenRegisterStatic(&RegisterBatchHoldOp);
     TestPairedConcurrentRequests();
     TestDevicePublicationRequestRelay();
     TestCallbackUnregisterAndReentry();

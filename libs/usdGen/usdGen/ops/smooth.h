@@ -12,22 +12,27 @@
 #define USDGEN_OP_SMOOTH_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace smoothP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kMode, kSearchRadius, kNumNeighbors,
+    kEnabled, kStrength, kIterations, kLockRoot, kMask, kWindow,
+    kCount
+};
+enum Mode : int { kModeAlongCurve, kModeNeighbours, kModeBox };
+}  // namespace smoothP
+
 class UsdGenSmoothOp final : public UsdGenOp
 {
 public:
-    UsdGenSmoothOp() = default;
+    explicit UsdGenSmoothOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenSmoothOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenSmooth"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -40,15 +45,11 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sStrength{"strength"}, sIterations{"iterations"};
-    const TfToken sMode{"mode"}, sLockRoot{"lockRoot"};
-    const TfToken sSearchRadius{"searchRadius"}, sNumNeighbors{"numNeighbors"};
-    const TfToken sAlongCurve{"alongCurve"}, sNeighbours{"neighbours"};
-    const TfToken sBox{"box"}, sWindow{"window"};
-    const TfToken sMask{"mask"};
     void EvaluateBox(UsdGenEvalContext const &ctx, UsdGenChunkView *view) const;
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterSmoothOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

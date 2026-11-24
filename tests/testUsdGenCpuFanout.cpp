@@ -8,8 +8,11 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/ops/grow.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/pxr.h"
@@ -38,11 +41,7 @@ int g_failures = 0;
 class ExtraCvWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestExtraCvWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _slots; }
-    TfSpan<const TfToken> InputPrimvars() const override { return _slots; }
+    explicit ExtraCvWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {7, 1}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -56,18 +55,12 @@ public:
             count = uint32_t(view->cvOffsets[view->curveCount] - view->cvOffsets[0]);
         for (uint32_t i = 0; i < count; ++i) view->outF[0][i] = view->inF[0][i] + 10.0f;
     }
-private:
-    std::array<TfToken, 1> const _slots{{TfToken("cvPayload")}};
 };
 
 class ExtraCurveWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestExtraCurveWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _slots; }
-    TfSpan<const TfToken> InputPrimvars() const override { return _slots; }
+    explicit ExtraCurveWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {7, 2}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -79,8 +72,6 @@ public:
         for (uint32_t i = 0; i < view->curveCount; ++i)
             view->outI[0][i] = view->inI[0][i] + 20;
     }
-private:
-    std::array<TfToken, 1> const _slots{{TfToken("curvePayload")}};
 };
 
 struct HeldEvalGate
@@ -94,9 +85,7 @@ HeldEvalGate *g_heldEvalGate = nullptr;
 class HeldWidthWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestHeldWidthWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit HeldWidthWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {9, 1}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -176,6 +165,54 @@ UsdGenGraphDesc MakeFanout(std::string const &terminalName,
     nodes.push_back(WidthNode(siblingName, 0.75f));
     for (int i : authoredOrder) desc.nodes.push_back(nodes.at(size_t(i)));
     return desc;
+}
+
+bool GeometryArity(char const *type, size_t *out)
+{
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    UsdGenOpId const id = registry.Find(TfToken(type));
+    if (id == UsdGenOpId::Invalid) return false;
+    *out = registry.Record(id).Def().geometryInputArity;
+    return true;
+}
+
+void RegisterFanoutTestOps(UsdGenRegistrar &r)
+{
+    static UsdGenPlaneDecl const kCv[] = {
+        {"cvPayload", UsdGenPlaneRate::Vertex, UsdGenPlaneScalar::Float, 1}};
+    static UsdGenPlaneDecl const kCurve[] = {
+        {"curvePayload", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1}};
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestExtraCvWriter";
+        d.displayName = "TestExtraCvWriter";
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<ExtraCvWriter>(rec);
+        };
+        d.inputPlanes = UsdGenSpan(kCv);
+        d.outputPlanes = UsdGenSpan(kCv);
+        r.RegisterOp(d);
+    }
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestExtraCurveWriter";
+        d.displayName = "TestExtraCurveWriter";
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<ExtraCurveWriter>(rec);
+        };
+        d.inputPlanes = UsdGenSpan(kCurve);
+        d.outputPlanes = UsdGenSpan(kCurve);
+        r.RegisterOp(d);
+    }
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenTestHeldWidthWriter";
+        d.displayName = "TestHeldWidthWriter";
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<HeldWidthWriter>(rec);
+        };
+        r.RegisterOp(d);
+    }
 }
 
 struct FanoutResult
@@ -495,9 +532,9 @@ void TestGrowWidthFallbackCapture()
     node.params = {
         {TfToken("segments"), VtValue(3), false},
         {TfToken("length"), VtValue(1.0), false}};
-    UsdGenParamView params;
-    params.node = &node;
-    UsdGenGrowOp grow;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenGrow"), &node);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenGrowOp grow(usdGenTest::OpRecord("UsdGenGrow"));
     UsdGenDiagnostics diagnostics;
     Check(grow.Bind(params, &diagnostics),
           "Grow width fallback fixture binds");
@@ -535,7 +572,7 @@ void TestGrowWidthFallbackCapture()
 
 void TestGrowAngularLift()
 {
-    UsdGenGrowOp grow;
+    UsdGenGrowOp grow(usdGenTest::OpRecord("UsdGenGrow"));
     UsdGenNodeDesc node;
     node.path = SdfPath("/growLift/grow");
     node.type = TfToken("UsdGenGrow");
@@ -544,8 +581,8 @@ void TestGrowAngularLift()
         {TfToken("length"), VtValue(1.0), false},
         {TfToken("direction"), VtValue(TfToken("surfaceNormal")), false},
         {TfToken("lift"), VtValue(90.0), false}};
-    UsdGenParamView params;
-    params.node = &node;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenGrow"), &node);
+    UsdGenParamView const &params = paramsView.View();
     UsdGenDiagnostics diagnostics;
     Check(grow.Bind(params, &diagnostics),
           "Grow accepts lift in degrees in the documented range");
@@ -579,8 +616,8 @@ void TestGrowAngularLift()
           "Grow rotates surfaceNormal about root-frame B");
 
     node.params.back().value = VtValue(-90.0);
-    UsdGenParamView negativeParams;
-    negativeParams.node = &node;
+    usdGenTest::OpView negativeView(usdGenTest::OpRecord("UsdGenGrow"), &node);
+    UsdGenParamView const &negativeParams = negativeView.View();
     context.params = &negativeParams;
     auto negativeCapture = grow.CreateCapture();
     Check(grow.Capture(context, roots, negativeCapture.get(), &diagnostics),
@@ -595,8 +632,8 @@ void TestGrowAngularLift()
     // Exercise the value phase separately: posed roots are read from the
     // current input planes, while the capture above used immutable rest roots.
     node.params.back().value = VtValue(90.0);
-    UsdGenParamView evaluateParams;
-    evaluateParams.node = &node;
+    usdGenTest::OpView evaluateView(usdGenTest::OpRecord("UsdGenGrow"), &node);
+    UsdGenParamView const &evaluateParams = evaluateView.View();
     context.params = &evaluateParams;
     auto evaluateCapture = grow.CreateCapture();
     Check(grow.Capture(context, roots, evaluateCapture.get(), &diagnostics),
@@ -631,14 +668,15 @@ void TestGrowAngularLift()
     auto changed = node;
     changed.params.back().value = VtValue(-90.0);
     digestContext.params = nullptr;
-    UsdGenParamView changedParams;
-    changedParams.node = &changed;
+    usdGenTest::OpView changedView(usdGenTest::OpRecord("UsdGenGrow"), &changed);
+    UsdGenParamView const &changedParams = changedView.View();
     digestContext.params = &changedParams;
     Check(liftedDigest[1] != grow.CaptureDigest(digestContext)[1],
           "Grow capture digest includes angular lift");
     changed.params.back().value = VtValue(90.0);
     changed.params.push_back({TfToken("directionVector"),
                               VtValue(GfVec3f(1, 0, 0)), false});
+    changedView.Set(&changed);   // the parameter vector reallocated
     digestContext.params = &changedParams;
     auto const vectorDigest = grow.CaptureDigest(digestContext);
     Check(vectorDigest[1] != liftedDigest[1],
@@ -646,8 +684,8 @@ void TestGrowAngularLift()
 
     auto invalid = node;
     invalid.params.back().value = VtValue(90.1);
-    UsdGenParamView invalidParams;
-    invalidParams.node = &invalid;
+    usdGenTest::OpView invalidView(usdGenTest::OpRecord("UsdGenGrow"), &invalid);
+    UsdGenParamView const &invalidParams = invalidView.View();
     diagnostics = {};
     Check(!grow.Bind(invalidParams, &diagnostics) && diagnostics.HasErrors(),
           "Grow rejects lift outside [-90,90] before capture");
@@ -683,14 +721,15 @@ UsdGenGraphDesc MakeScatterValidationDesc(double density)
 
 void TestGrowAzimuth()
 {
-    UsdGenGrowOp grow;
+    UsdGenGrowOp grow(usdGenTest::OpRecord("UsdGenGrow"));
     UsdGenNodeDesc node;
     node.params = {{TfToken("segments"), VtValue(2), false},
                    {TfToken("length"), VtValue(1.0f), false},
                    {TfToken("lift"), VtValue(42.0f), false},
                    {TfToken("azimuth"), VtValue(0.0f), false},
                    {TfToken("azimuthRandom"), VtValue(0.0f), false}};
-    UsdGenParamView params; params.node = &node;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenGrow"), &node);
+    UsdGenParamView &params = paramsView.View();
     UsdGenCaptureContext context; context.params = &params; context.seed = 21;
     UsdGenDiagnostics diag;
     UsdGenCurveBuffer roots;
@@ -703,6 +742,7 @@ void TestGrowAzimuth()
     roots.rootN.assign(count, GfVec3f(0,0,1));
     for (uint32_t c=0;c<count;++c) roots.curveId[c] = c+100;
     auto capture = [&]() {
+        paramsView.Set(&node);   // the node's parameters change between captures
         auto cap = grow.CreateCapture();
         Check(grow.Capture(context, roots, cap.get(), &diag), "Grow azimuth capture succeeds");
         return cap;
@@ -1431,8 +1471,7 @@ void TestOrderedWidthBlend()
     desc.nodes = {merge, right, source, left};
 
     size_t arity = 0;
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenWidthBlend"), &arity) && arity == 2,
+    Check(GeometryArity("UsdGenWidthBlend", &arity) && arity == 2,
           "registry exposes WidthBlend ordered binary contract");
 
     UsdGenCompiler compiler;
@@ -1591,29 +1630,21 @@ void TestDependencyReadyHeldFanout()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     size_t arity = 99;
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenCurveSource"), &arity) && arity == 0,
+    Check(GeometryArity("UsdGenCurveSource", &arity) && arity == 0,
           "registry exposes CurveSource zero-input contract");
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenWidth"), &arity) && arity == 1,
+    Check(GeometryArity("UsdGenWidth", &arity) && arity == 1,
           "registry exposes Width unary contract");
-    Check(UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenGrow"), &arity) && arity == 1,
+    Check(GeometryArity("UsdGenGrow", &arity) && arity == 1,
           "topology-owning Grow remains a unary geometry consumer");
-    Check(!UsdGenOpRegistry::Get().GetGeometryInputArity(
-              TfToken("UsdGenMissingInputContract"), &arity),
+    Check(!GeometryArity("UsdGenMissingInputContract", &arity),
           "registry rejects an unknown input contract");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestExtraCvWriter"),
-          [] { return std::make_unique<ExtraCvWriter>(); }),
-          "registers the extra-CV slot writer");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestExtraCurveWriter"),
-          [] { return std::make_unique<ExtraCurveWriter>(); }),
-          "registers the extra-curve slot writer");
-    Check(UsdGenOpRegistry::Get().Register(TfToken("UsdGenTestHeldWidthWriter"),
-          [] { return std::make_unique<HeldWidthWriter>(); }),
-          "registers the held-width scheduler test writer");
+    Check(UsdGenRegisterStatic(&RegisterFanoutTestOps),
+          "registers the fan-out test writers");
+    for (char const *name : {"UsdGenTestExtraCvWriter", "UsdGenTestExtraCurveWriter",
+                             "UsdGenTestHeldWidthWriter"})
+        Check(UsdGenOpRegistry::Get().Find(TfToken(name)) != UsdGenOpId::Invalid,
+              std::string("registered ") + name);
     TestFanoutDeterminism();
     TestCowAliasesRefreshAfterTopologyRevision();
     TestExtraPlaneCowAndTopologyRefresh();

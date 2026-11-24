@@ -2,10 +2,11 @@
 
 #include "usdGen/curveLoader.h"
 #include "usdGen/surfaceCageSource.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGenMath/usdGenMath/kernels.h"
-#include "usdGen/opParams.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/diagnostic.h"
@@ -16,6 +17,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
@@ -87,12 +89,12 @@ bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
          std::vector<UsdGenPlane> *destination = extraCv;
          switch (authored.domain) {
          case UsdGenAuthoredPlaneDomain::Point:
-            elements = *authoredCvs; interpolation = TfToken("vertex"); break;
+            elements = *authoredCvs; interpolation = UsdGenTokens().vertex; break;
          case UsdGenAuthoredPlaneDomain::Primitive:
-            elements = *authoredCurves; interpolation = TfToken("uniform");
+            elements = *authoredCurves; interpolation = UsdGenTokens().uniform;
             destination = extraCurve; break;
          case UsdGenAuthoredPlaneDomain::Groom:
-            elements = 1; interpolation = TfToken("constant");
+            elements = 1; interpolation = UsdGenTokens().constant;
             destination = extraCurve; break;
          default:
             if (diag) diag->Error("UsdGenCurveSource::Capture: authored plane has invalid domain");
@@ -112,10 +114,10 @@ bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
          plane.interpolation = interpolation;
          plane.arity = authored.arity;
          if (authored.type == UsdGenAuthoredPlaneType::Float32) {
-            plane.type = TfToken("float");
+            plane.type = UsdGenTokens().float_;
             plane.f = authored.floatValues; // immutable descriptor-backed CoW
          } else if (authored.type == UsdGenAuthoredPlaneType::Int32) {
-            plane.type = TfToken("int");
+            plane.type = UsdGenTokens().int_;
             plane.i = authored.intValues; // immutable descriptor-backed CoW
          } else {
             if (diag) diag->Error("UsdGenCurveSource::Capture: authored plane '" +
@@ -138,25 +140,44 @@ bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
 
 }  // namespace
 
-UsdGenCurveSourceOp::UsdGenCurveSourceOp()
-   : topologyParameters_(UsdGenBaseTopologyParams()),
-     valueParameters_(UsdGenBaseValueParams())
+namespace {
+using namespace curveSourceP;
+using D = expr::Domain;
+
+// Only native groom resampleTo/useRest accept an expression (the "usdGen:"
+// spellings canonicalize to them).
+constexpr UsdGenExprAdmission kIntGroom{expr::ScalarType::Int32, 1, "int", D::Groom};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+
+// A generator: no upstream curves to leave untouched, no mask. Order is the
+// old TopologyParameters() list.
+UsdGenParamDecl const kParams[kCount] = {
+   {"input", UsdGenParamClass::Capture},
+   {"surface", UsdGenParamClass::Capture},
+   {"seed", UsdGenParamClass::Capture},
+   {"enabled", UsdGenParamClass::Capture},
+   {"mode", UsdGenParamClass::Capture},
+   {"useRest", UsdGenParamClass::Capture, true, kBoolGroom},
+   {"usdGen:useRest", UsdGenParamClass::Capture, true, kBoolGroom},
+   {"interpolationMode", UsdGenParamClass::Capture},
+   {"densityMultiplier", UsdGenParamClass::Capture},
+   {"regionMapChannel", UsdGenParamClass::Capture},
+   {"expectMapGeneration", UsdGenParamClass::Capture},
+   {"resampleTo", UsdGenParamClass::Capture, true, kIntGroom},
+   {"idSource", UsdGenParamClass::Capture},
+   {"staleAction", UsdGenParamClass::Capture},
+   {"expectEpoch", UsdGenParamClass::Capture},
+   {"rebind", UsdGenParamClass::Capture},
+   {"usdGen:resampleTo", UsdGenParamClass::Capture, false, kIntGroom},
+};
+constexpr char const *kTokens[] = {"load", "none", "surfaceCage"};
+constexpr UsdGenMapSlotDecl kMaps[] = {{"usdGen:regionMap"}};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &record, void *)
 {
-   topologyParameters_.push_back(TfToken("enabled"));
-   topologyParameters_.push_back(TfToken("mode"));
-   topologyParameters_.push_back(TfToken("useRest"));
-   topologyParameters_.push_back(TfToken("usdGen:useRest"));
-   topologyParameters_.push_back(TfToken("interpolationMode"));
-   topologyParameters_.push_back(TfToken("densityMultiplier"));
-   topologyParameters_.push_back(TfToken("regionMapChannel"));
-   topologyParameters_.push_back(TfToken("expectMapGeneration"));
-   topologyParameters_.push_back(TfToken("resampleTo"));
-   topologyParameters_.push_back(TfToken("idSource"));
-   topologyParameters_.push_back(TfToken("staleAction"));
-   topologyParameters_.push_back(TfToken("expectEpoch"));
-   topologyParameters_.push_back(TfToken("rebind"));
-   // CurveSource is a generator: no upstream curves to leave untouched, no mask.
+   return std::make_unique<UsdGenCurveSourceOp>(record);
 }
+}  // namespace
 
 UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 {
@@ -172,7 +193,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
       bytes(k.data(), k.size());
       bytes(&v, sizeof(v));
    };
-   feed("mode", p ? static_cast<uint64_t>(p->GetToken(TfToken("mode"), TfToken("load")).Hash()) : 0);
+   feed("mode", p ? static_cast<uint64_t>(p->GetToken(kMode, Record().Token(kTokLoad)).Hash()) : 0);
    feed("seed", ctx.seed);
    // The surface-source fallback width is descriptor-wide rather than a node
    // parameter.  It still changes the captured buffer, so it must participate
@@ -274,7 +295,8 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          bytes(found->frozenEpoch.data(), found->frozenEpoch.size());
          // Ordinary C3 points stay source-local. Root binding consumes only
          // the surface-to-source transform, not shared ancestor motion.
-         bool const cageMode = p->GetToken(TfToken("interpolationMode"), TfToken("none")) != TfToken("none");
+         TfToken const &none = Record().Token(kTokNone);
+         bool const cageMode = p->GetToken(kInterpolationMode, none) != none;
          auto const bound = p->node->surfaces.size() == 1
              ? std::find_if(ctx.desc->surfaces.begin(), ctx.desc->surfaces.end(),
                  [&](UsdGenSurfaceDesc const &s) { return s.path == p->node->surfaces.front(); })
@@ -364,7 +386,8 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          // even on a static rest snapshot. Root capture reads the rest data
          // below, so playback must not regenerate a rest-bound source.
          // Surface-cage interpolation has additional surface dependencies.
-         if (p->GetToken(TfToken("interpolationMode"), TfToken("none")) != TfToken("none"))
+         TfToken const &none = Record().Token(kTokNone);
+         if (p->GetToken(kInterpolationMode, none) != none)
             feed("surfaceGeneration", found->surfaceGeneration);
          feed("restFromCurrentPoints", found->restFromCurrentPoints);
          feed("restNormalDomain", static_cast<uint64_t>(found->restNormalDomain));
@@ -381,7 +404,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          for (GfVec3f const &normal : found->restNormals)
             bytes(&normal[0], 3 * sizeof(float));
          // Ordinary C3 already hashes the relative binding transform above.
-         if (p->GetToken(TfToken("interpolationMode"), TfToken("none")) != TfToken("none") ||
+         if (p->GetToken(kInterpolationMode, none) != none ||
              p->node->curves.size() != 1)
             bytes(found->worldMatrix.GetArray(), 16 * sizeof(double));
       }
@@ -403,16 +426,6 @@ std::unique_ptr<UsdGenCapture> UsdGenCurveSourceOp::CreateCapture() const
 uint32_t UsdGenCurveSourceOp::PlanesTouched() const
 {
    return kPlanePoints | kPlaneWidths | kPlaneHairT;
-}
-
-TfSpan<const TfToken> UsdGenCurveSourceOp::TopologyParameters() const
-{
-   return TfSpan<const TfToken>(topologyParameters_.data(), topologyParameters_.size());
-}
-
-TfSpan<const TfToken> UsdGenCurveSourceOp::ValueParameters() const
-{
-   return TfSpan<const TfToken>(valueParameters_.data(), valueParameters_.size());
 }
 
 bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
@@ -453,17 +466,18 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
                                "' was not found");
          return false;
       }
-      TfToken const interpolationMode = ctx.params
-          ? ctx.params->GetToken(TfToken("interpolationMode"), TfToken("none"))
-          : TfToken("none");
-      if (interpolationMode != TfToken("none") &&
-          interpolationMode != TfToken("surfaceCage")) {
+      TfToken const &none = Record().Token(kTokNone);
+      TfToken const &interpolationMode = ctx.params
+          ? ctx.params->GetToken(kInterpolationMode, none)
+          : none;
+      if (interpolationMode != none &&
+          interpolationMode != Record().Token(kTokSurfaceCage)) {
          if (diag) diag->Error("UsdGenCurveSource::Capture: interpolationMode must be none or surfaceCage");
          return false;
       }
       UsdGenCurveSetDesc transient;
       UsdGenCurveSetDesc const *source = &*found;
-      if (interpolationMode == TfToken("surfaceCage")) {
+      if (interpolationMode == Record().Token(kTokSurfaceCage)) {
          std::string error;
          if (!UsdGenBuildSurfaceCageCurveSet(*ctx.desc, *ctx.params->node,
                                              *found, &transient, &error)) {
@@ -512,8 +526,8 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
       return true;
    }
    int const resampleTo = ctx.params
-       ? std::max(ctx.params->GetInt(TfToken("resampleTo"),
-                                    ctx.params->GetInt(TfToken("usdGen:resampleTo"), 0)), 0)
+       ? std::max(ctx.params->GetInt(kResampleTo,
+                                    ctx.params->GetInt(kUsdGenResampleTo, 0)), 0)
        : 0;
    int totalCurves = static_cast<int>(surf.faceVertexCounts.size());
    int totalCvs = 0;
@@ -639,6 +653,22 @@ void UsdGenCurveSourceOp::Evaluate(UsdGenEvalContext const &ctx,
                                    UsdGenChunkView *view) const
 {
    (void)ctx; (void)capture; (void)view;
+}
+
+UsdGenOpId UsdGenRegisterCurveSourceOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenCurveSource";
+    d.displayName = "CurveSource";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.role = UsdGenRole::Curves;
+    d.geometryInputArity = 0;
+    d.traits = kUsdGenOpGenerator;
+    d.params = UsdGenSpan(kParams);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

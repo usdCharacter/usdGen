@@ -48,6 +48,7 @@
 #define USDGEN_OP_EXPROP_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -56,14 +57,8 @@ namespace usdGen {
 class UsdGenExprOp final : public UsdGenOp
 {
 public:
-    UsdGenExprOp() = default;
+    explicit UsdGenExprOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenExprOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenExprOp"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -76,13 +71,18 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-
-private:
-    const TfToken sSource{"expr:source"}, sMaps{"expr:maps"};
-    const TfToken sReturnType{"expr:returnType"}, sMode{"mode"};
-    const TfToken sDisplacement{"displacement"}, sWidth{"width"}, sColor{"color"};
-    const TfToken sCv{"cv"}, sCurve{"curve"}, sMask{"mask"};
 };
+
+namespace exprOpP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kMode, kReturnType, kSource, kMaps, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokCv, kTokCurve, kTokDisplacement, kTokWidth, kTokColor };
+}  // namespace exprOpP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterExprOpOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

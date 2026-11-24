@@ -19,7 +19,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/types.h"
 
@@ -144,7 +145,6 @@ struct Harness {
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     // ---- mode 1: resampleTo == 0 (default) — ragged through the pipeline --
     {

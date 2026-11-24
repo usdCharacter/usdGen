@@ -99,18 +99,18 @@ int main()
                        "topology/control expression must evaluate at groom domain");
         }
     }
-    // The per-operator allowlist is one shared table (expressionTargets.cpp)
+    // The per-operator allowlist is one shared table (the op record's decls)
     // that the compiler applies on every backend and the CUDA admission calls
     // instead of keeping a copy, so these rejections are lane-independent.
     auto foreignTarget = valid;
     foreignTarget.nodes[0].expressionBindings[0].destination = TfToken("noise:magnitude");
     expectFail(foreignTarget, "a destination another operator owns fails closed",
-               "unsupported/incorrectly typed Width expression target");
+               "unsupported or incorrectly typed Width expression");
     auto wrongType = valid;
     wrongType.nodes[0].expressionBindings[0].nativeType = TfToken("double");
     wrongType.expressions[0].outputs[0].nativeType = TfToken("double");
     expectFail(wrongType, "a non-native destination type fails closed",
-               "unsupported/incorrectly typed Width expression target");
+               "unsupported or incorrectly typed Width expression");
     auto generator = valid;
     generator.nodes[0].type = TfToken("UsdGenScatter");
     expectFail(generator, "a source generator refuses connected parameters",

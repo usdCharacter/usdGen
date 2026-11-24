@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <numeric>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -38,22 +39,35 @@ namespace usdGen {
 
 namespace {
 
-TfToken const kAmplitude("frizz:amplitude");
-TfToken const kWavesX("frizz:wavesX");
-TfToken const kWavesZ("frizz:wavesZ");
-TfToken const kNoise("frizz:noise");
-TfToken const kNoiseSize("frizz:noiseSize");
-TfToken const kSharpness("frizz:sharpness");
-TfToken const kRoot("frizz:root");
-TfToken const kMid("frizz:mid");
-TfToken const kMidShift("frizz:midShift");
-TfToken const kTip("frizz:tip");
-TfToken const kUseClumpIds("frizz:useClumpIds");
-TfToken const kPreserveKnots("frizz:preserveKnots");
-
-TfToken const kClumpPlane("clumpId_0");
-TfToken const kRestLengthPlane("restLength");
-TfToken const kKnotMaskPlane("braidKnotMask");
+using namespace frizzP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// input, surface, seed, the structural parameters, then enabled and mask.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"frizz:amplitude", UsdGenParamClass::Capture},
+    {"frizz:wavesX", UsdGenParamClass::Capture},
+    {"frizz:wavesZ", UsdGenParamClass::Capture},
+    {"frizz:noise", UsdGenParamClass::Capture},
+    {"frizz:noiseSize", UsdGenParamClass::Capture},
+    {"frizz:sharpness", UsdGenParamClass::Capture},
+    {"frizz:root", UsdGenParamClass::Capture},
+    {"frizz:mid", UsdGenParamClass::Capture},
+    {"frizz:midShift", UsdGenParamClass::Capture},
+    {"frizz:tip", UsdGenParamClass::Capture},
+    {"frizz:useClumpIds", UsdGenParamClass::Capture},
+    {"frizz:preserveKnots", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+constexpr char const *kTokens[] = {"clumpId_0", "restLength", "braidKnotMask"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenFrizzOp>(r);
+}
 
 constexpr float kTwoPi = 6.2831855f;
 constexpr float kHalfPi = 1.5707964f;
@@ -218,17 +232,6 @@ void FrizzStrand(float *P, size_t n, int32_t seed, FrizzSettings const &s, bool 
 
 }  // namespace
 
-TfTokenVector UsdGenFrizzOp::StructuralParameters() const
-{
-    return {kAmplitude, kWavesX, kWavesZ, kNoise, kNoiseSize, kSharpness,
-            kRoot, kMid, kMidShift, kTip, kUseClumpIds, kPreserveKnots};
-}
-
-std::vector<UsdGenStrandPlaneSpec> UsdGenFrizzOp::OutputPlaneSpecs() const
-{
-    return {};
-}
-
 bool UsdGenFrizzOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                             std::vector<UsdGenStrandPlaneData> &, UsdGenDiagnostics *)
 {
@@ -239,9 +242,9 @@ bool UsdGenFrizzOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
     if (s.wavesX <= 1e-6f && s.wavesZ <= 1e-6f && s.noise <= 1e-4f) return true;
 
     uint32_t const R = strands.Count();
-    int const *clump = strands.CurveInt(kClumpPlane);
-    float const *restLength = strands.CurveFloat(kRestLengthPlane);
-    float const *knotMask = s.preserveKnots ? strands.CvFloat(kKnotMaskPlane) : nullptr;
+    int const *clump = strands.CurveInt(Record().Token(kTokClumpId0));
+    float const *restLength = strands.CurveFloat(Record().Token(kTokRestLength));
+    float const *knotMask = s.preserveKnots ? strands.CvFloat(Record().Token(kTokKnotMask)) : nullptr;
 
     // Reference length per strand: pre-length-scale length when known.
     std::vector<float> L0(R, 0.0f);
@@ -300,6 +303,17 @@ bool UsdGenFrizzOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         FrizzStrand(strands.P(c), strands.Size(c), seed, s, shared, refL, mask);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterFrizzOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenFrizz";
+    d.displayName = "Frizz";
+    d.create = &Create;
+    d.params = UsdGenSpan(kParams);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

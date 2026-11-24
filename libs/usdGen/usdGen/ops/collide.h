@@ -60,6 +60,7 @@
 #include "usdGen/op.h"
 #include <array>
 #include <atomic>
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -68,19 +69,10 @@ namespace usdGen {
 class UsdGenCollideOp final : public UsdGenOp
 {
 public:
-    UsdGenCollideOp() = default;
+    explicit UsdGenCollideOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenCollideOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenCollide"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-    bool SamplesFrameInputs() const override { return true; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    void Configure(UsdGenParamView const &params) override;
-    bool RemapsVertexPlanes() const override { return _cutThenCollide; }
-    /// `collideUnresolved` when Configure() saw resolveType = relax, else none.
-    TfSpan<const TfToken> OutputPrimvars() const override;
+    void Configure(UsdGenConfigureContext const &ctx) override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -95,7 +87,6 @@ public:
     uint32_t PlanesTouched() const override;
 private:
     bool _cutThenCollide = false;
-    TfTokenVector _outputs;
     // Warning identity is topology-based, so posed animation and transforms
     // cannot flood Play with the same polygon fallback diagnostic.
     mutable std::array<std::atomic<uint64_t>, 256> _warned{};
@@ -103,6 +94,21 @@ private:
                   UsdGenSurfaceDesc const &, std::vector<int> const &,
                   std::string const &) const;
 };
+
+namespace collideP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kColliders, kResolveType, kDeepMode, kEnabled, kMask, kOffset,
+    kPushAmount, kIterations, kCutThreshold, kCutBlendDepth, kClearanceRoot, kClearanceTip,
+    kRelaxIterations, kCount
+};
+enum Tok : uint16_t { kTokFlexible, kTokStiff, kTokRelax, kTokCollide, kTokCutThenCollide,
+                      kTokUnresolved, kTokLeftHanded, kTokNone, kTokCatmullClark, kTokLoop,
+                      kTokBilinear };
+}  // namespace collideP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

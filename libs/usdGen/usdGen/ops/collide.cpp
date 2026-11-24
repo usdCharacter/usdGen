@@ -24,7 +24,6 @@
 #include "usdGen/ops/collide.h"
 #include "usdGen/limitSurface.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
 
@@ -44,6 +43,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -51,17 +51,69 @@ namespace usdGen {
 
 namespace {
 
-const TfToken sOffset{"offset"}, sPushAmount{"pushAmount"};
-const TfToken sIterations{"iterations"}, sResolveType{"resolveType"};
-const TfToken sFlexible{"flexible"}, sStiff{"stiff"}, sMask{"mask"};
-const TfToken sDeepMode{"deepPenetrationMode"};
-const TfToken sCollide{"collide"}, sCutThenCollide{"cutThenCollide"};
-const TfToken sCutThreshold{"cutDepthThreshold"};
-const TfToken sCutBlendDepth{"cutBlendDepth"};
-const TfToken sRelax{"relax"};
-const TfToken sClearanceRoot{"clearance:root"}, sClearanceTip{"clearance:tip"};
-const TfToken sRelaxIterations{"relax:iterations"};
-const TfToken sUnresolved{"collideUnresolved"};
+using namespace collideP;
+using D = expr::Domain;
+constexpr char const *kResolveTypes[] = {"flexible", "stiff", "relax"};
+constexpr char const *kDeepModes[] = {"collide", "cutThenCollide"};
+constexpr char const *kTokens[] = {"flexible", "stiff", "relax", "collide", "cutThenCollide",
+                                   "collideUnresolved", "leftHanded", "none", "catmullClark",
+                                   "loop", "bilinear"};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kIntGroom{expr::ScalarType::Int32, 1, "int", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float",
+                                         D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kFloatGroom{expr::ScalarType::Float32, 1, "float", D::Groom};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"colliders", UsdGenParamClass::Capture},       // rel retarget recompiles (02 §6)
+    {"resolveType", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kResolveTypes)},
+    {"deepPenetrationMode", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kDeepModes)},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+    {"offset", UsdGenParamClass::Value, true, kFloatRoot},
+    {"pushAmount", UsdGenParamClass::Value, true, kFloatRoot},
+    {"iterations", UsdGenParamClass::Value, true, kIntGroom},
+    {"cutDepthThreshold", UsdGenParamClass::Value, true, kFloatRoot},
+    {"cutBlendDepth", UsdGenParamClass::Value, true, kFloatRoot},
+    {"clearance:root", UsdGenParamClass::Value, true, kFloatGroom},   // relax only
+    {"clearance:tip", UsdGenParamClass::Value, true, kFloatGroom},    // relax only
+    {"relax:iterations", UsdGenParamClass::Value, true, kIntGroom},   // relax only
+};
+constexpr UsdGenMapSlotDecl kMaps[] = {    // compiler.cpp:428-431, all four as today
+    {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenCollideOp>(r);
+}
+
+TfToken const &ResolveType(UsdGenParamView const &p)
+{
+    return p.GetToken(kResolveType, p.op->Token(kTokFlexible));
+}
+/// relax reports unresolved strands in the uniform float collideUnresolved plane.
+bool EmitsUnresolved(UsdGenParamView const &p)
+{
+    return ResolveType(p) == p.op->Token(kTokRelax);
+}
+void EmittedPlanes(UsdGenParamView const &p, int, UsdGenPlaneSink &sink)
+{
+    if (EmitsUnresolved(p))
+        sink.Add(p.op->Token(kTokUnresolved).GetString(), UsdGenPlaneRate::Uniform,
+                 UsdGenPlaneScalar::Float, 1);
+}
+TfToken const &DeepMode(UsdGenParamView const &p)
+{
+    return p.GetToken(kDeepMode, p.op->Token(kTokCollide));
+}
+/// Mix a name's text (what Mix(TfToken) did) without interning it.
+void MixText(opUtil::Digest *d, char const *text)
+{
+    for (; *text; ++text) d->Mix(uint64_t(uint8_t(*text)));
+}
 
 // Relax (imported-groom push-out) constants, reference values.
 constexpr float kRelaxMinClearance = 1e-4f;   // clearance floor, scene units
@@ -1499,41 +1551,6 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("colliders"));    // rel retarget recompiles (02 §6)
-    v.push_back(TfToken("resolveType"));  // structural kernel branch (C1)
-    v.push_back(sDeepMode);               // structural plane-routing branch
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("mask"));
-    v.push_back(TfToken("offset"));
-    v.push_back(TfToken("pushAmount"));
-    v.push_back(TfToken("iterations"));
-    v.push_back(sCutThreshold);
-    v.push_back(sCutBlendDepth);
-    v.push_back(sClearanceRoot);               // relax only
-    v.push_back(sClearanceTip);                 // relax only
-    v.push_back(sRelaxIterations);              // relax only
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenCollideOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenCollideOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
-TfSpan<const TfToken> UsdGenCollideOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenCollideOp::CreateCapture() const
 {
     return std::make_unique<UsdGenCollideCapture>();
@@ -1691,13 +1708,9 @@ bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
     return false;
 }
 
-void UsdGenCollideOp::Configure(UsdGenParamView const &params)
+void UsdGenCollideOp::Configure(UsdGenConfigureContext const &ctx)
 {
-    _cutThenCollide =
-        params.GetToken(sDeepMode, sCollide) == sCutThenCollide;
-    _outputs.clear();
-    if (params.GetToken(sResolveType, sFlexible) == sRelax)
-        _outputs.push_back(sUnresolved);
+    _cutThenCollide = DeepMode(ctx.params) == ctx.params.op->Token(kTokCutThenCollide);
 }
 uint32_t UsdGenCollideOp::PlanesTouched() const
 {
@@ -1707,20 +1720,22 @@ uint32_t UsdGenCollideOp::PlanesTouched() const
 bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
                            UsdGenDiagnostics *diag)
 {
-    TfToken const resolveType = params.GetToken(sResolveType, sFlexible);
-    if (resolveType != sFlexible && resolveType != sStiff && resolveType != sRelax) {
+    UsdGenOpRecord const &rec = *params.op;
+    TfToken const &resolveType = ResolveType(params);
+    if (resolveType != rec.Token(kTokFlexible) && resolveType != rec.Token(kTokStiff) &&
+        resolveType != rec.Token(kTokRelax)) {
         if (diag) diag->Error("UsdGenCollide: unknown usdGen:resolveType '" +
                               resolveType.GetString() + "'");
         return false;
     }
-    TfToken const deepMode = params.GetToken(sDeepMode, sCollide);
-    if (deepMode != sCollide && deepMode != sCutThenCollide) {
+    TfToken const &deepMode = DeepMode(params);
+    if (deepMode != rec.Token(kTokCollide) && deepMode != rec.Token(kTokCutThenCollide)) {
         if (diag) diag->Error("UsdGenCollide: unknown usdGen:deepPenetrationMode '" +
                               deepMode.GetString() + "'");
         return false;
     }
-    double const cutThreshold = params.GetDoubleLiteral(sCutThreshold, 0.0);
-    double const cutBlendDepth = params.GetDoubleLiteral(sCutBlendDepth, 0.02);
+    double const cutThreshold = params.GetDoubleLiteral(kCutThreshold, 0.0);
+    double const cutBlendDepth = params.GetDoubleLiteral(kCutBlendDepth, 0.02);
     if (!Finite(cutThreshold) || cutThreshold < 0.0) {
         if (diag) diag->Error(
             "UsdGenCollide: usdGen:cutDepthThreshold must be finite and >= 0");
@@ -1731,19 +1746,19 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
             "UsdGenCollide: usdGen:cutBlendDepth must be finite and > 0");
         return false;
     }
-    for (TfToken const *name : {&sOffset, &sPushAmount, &sClearanceRoot, &sClearanceTip}) {
-        double const v = params.GetDoubleLiteral(*name, 0.0);
+    for (UsdGenParamSlot slot : {kOffset, kPushAmount, kClearanceRoot, kClearanceTip}) {
+        double const v = params.GetDoubleLiteral(slot, 0.0);
         if (!Finite(v)) {
-            if (diag) diag->Error("UsdGenCollide: usdGen:" + name->GetString() +
+            if (diag) diag->Error("UsdGenCollide: usdGen:" + rec.ParamName(slot).GetString() +
                                   " must be finite");
             return false;
         }
     }
-    if (params.GetInt(sIterations, 1) < 1) {
+    if (params.GetInt(kIterations, 1) < 1) {
         if (diag) diag->Error("UsdGenCollide: usdGen:iterations must be at least 1");
         return false;
     }
-    if (params.GetInt(sRelaxIterations, kRelaxDefaultIterations) < 1) {
+    if (params.GetInt(kRelaxIterations, kRelaxDefaultIterations) < 1) {
         if (diag) diag->Error("UsdGenCollide: usdGen:relax:iterations must be at least 1");
         return false;
     }
@@ -1758,8 +1773,13 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     // values folded in separately by the scheduler) sweep without recapture.
     opUtil::Digest d;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
-    d.Mix(p ? p->GetToken(sResolveType, sFlexible) : sFlexible);
-    d.Mix(p ? p->GetToken(sDeepMode,sCollide) : sCollide);
+    if (p) {
+        d.Mix(ResolveType(*p));
+        d.Mix(DeepMode(*p));
+    } else {
+        MixText(&d, "flexible");
+        MixText(&d, "collide");
+    }
     d.Mix(ctx.upstreamGeneration);
     d.Mix(uint64_t(ctx.seed));
     auto mixSurface = [&](UsdGenSurfaceDesc const &s) {
@@ -1969,7 +1989,7 @@ bool UsdGenCollideOp::Capture(
             collider.points.push_back(point);
         }
         collider.localToGroom = colliderToGroom;
-        collider.normalSign = mesh.orientation == TfToken("leftHanded")
+        collider.normalSign = mesh.orientation == p->op->Token(kTokLeftHanded)
             ? -1.0 : 1.0;
         if (collider.closed) {
             // Polygon entry normals need the same geometric winding contract
@@ -1997,14 +2017,15 @@ bool UsdGenCollideOp::Capture(
             collider.outwardSign = volume6 < 0.0 ? -1.0 : 1.0;
         }
         TfToken const scheme = mesh.subdivisionScheme;
-        if (scheme == TfToken("none")) {
+        UsdGenOpRecord const &rec = *p->op;
+        if (scheme == rec.Token(kTokNone)) {
             WarnOnce(diag, path, mesh, collider.faces,
                 "UsdGenCollide: collider '" + path.GetString() +
                 "' subdivisionScheme=none: authored polygon surface; "
                 "using polygon collision");
-        } else if (scheme == TfToken("catmullClark") ||
-                   scheme == TfToken("loop") ||
-                   scheme == TfToken("bilinear")) {
+        } else if (scheme == rec.Token(kTokCatmullClark) ||
+                   scheme == rec.Token(kTokLoop) ||
+                   scheme == rec.Token(kTokBilinear)) {
             std::string reason;
             if (!BuildLimitProxy(&collider, mesh, &reason)) {
                 bool const fallback =
@@ -2067,7 +2088,7 @@ bool UsdGenCollideOp::Capture(
         }
         cap.colliders.push_back(std::move(collider));
     }
-    cap.relax = p->GetToken(sResolveType, sFlexible) == sRelax;
+    cap.relax = ResolveType(*p) == p->op->Token(kTokRelax);
     cap.relaxBvhs.clear();
     if (cap.relax) {
         cap.relaxBvhs.resize(cap.colliders.size());
@@ -2077,11 +2098,11 @@ bool UsdGenCollideOp::Capture(
     }
     // Every connected value is scanned, so a non-finite expression fails
     // closed at capture instead of writing NaN points (displace precedent).
-    UsdGenParamField const offset = p->GetScalarField(sOffset, 0.0);
-    UsdGenParamField const pushAmount = p->GetScalarField(sPushAmount, 0.0);
-    UsdGenParamField const mask = p->GetScalarField(sMask, 1.0);
-    UsdGenParamField const cutThreshold = p->GetScalarField(sCutThreshold, 0.0);
-    UsdGenParamField const cutBlendDepth = p->GetScalarField(sCutBlendDepth, 0.02);
+    UsdGenParamField const offset = p->GetScalarField(kOffset, 0.0);
+    UsdGenParamField const pushAmount = p->GetScalarField(kPushAmount, 0.0);
+    UsdGenParamField const mask = p->GetScalarField(kMask, 1.0);
+    UsdGenParamField const cutThreshold = p->GetScalarField(kCutThreshold, 0.0);
+    UsdGenParamField const cutBlendDepth = p->GetScalarField(kCutBlendDepth, 0.02);
     for (UsdGenParamField const *field : {&offset, &pushAmount, &mask,
                                           &cutThreshold, &cutBlendDepth}) {
         if (field->connected && field->components != 1) {
@@ -2116,21 +2137,21 @@ void UsdGenCollideOp::Evaluate(
     auto const &cap = static_cast<UsdGenCollideCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const offsetField =
-        p ? p->GetScalarField(sOffset, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kOffset, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const pushField =
-        p ? p->GetScalarField(sPushAmount, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kPushAmount, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const cutThresholdField = p
-        ? p->GetScalarField(sCutThreshold,0.0) : UsdGenParamField{0.0};
+        ? p->GetScalarField(kCutThreshold,0.0) : UsdGenParamField{0.0};
     UsdGenParamField const cutBlendDepthField = p
-        ? p->GetScalarField(sCutBlendDepth,0.02) : UsdGenParamField{0.02};
+        ? p->GetScalarField(kCutBlendDepth,0.02) : UsdGenParamField{0.02};
     bool const cutMode = _cutThenCollide;
     // Value-class fallbacks for literals edited after capture (Capture owns
     // the diagnostics; Evaluate degrades to identity and never writes NaN).
-    int const iterations = p ? p->GetInt(sIterations, 1) : 1;
+    int const iterations = p ? p->GetInt(kIterations, 1) : 1;
     bool const stiff =
-        p && p->GetToken(sResolveType, sFlexible) == sStiff;
+        p && ResolveType(*p) == p->op->Token(kTokStiff);
     bool const hasClosed = std::any_of(
         cap.colliders.begin(), cap.colliders.end(),
         [](UsdGenCollideCollider const &c) { return c.closed; });
@@ -2162,12 +2183,12 @@ void UsdGenCollideOp::Evaluate(
     // The optional per-curve unresolved flag (relax nodes only).
     float *flags = (view->outCount > 0 && view->outF) ? view->outF[0] : nullptr;
     if (cap.relax) {
-        double const rootClear = p ? Sanitize(p->GetDouble(sClearanceRoot, 0.0)) : 0.0;
-        double const tipClear = p ? Sanitize(p->GetDouble(sClearanceTip, 0.0)) : 0.0;
+        double const rootClear = p ? Sanitize(p->GetDouble(kClearanceRoot, 0.0)) : 0.0;
+        double const tipClear = p ? Sanitize(p->GetDouble(kClearanceTip, 0.0)) : 0.0;
         float const cR = std::max(kRelaxMinClearance, float(rootClear));
         float const cT = std::max(kRelaxMinClearance, float(tipClear));
         int const relaxIterations =
-            p ? p->GetInt(sRelaxIterations, kRelaxDefaultIterations) : kRelaxDefaultIterations;
+            p ? p->GetInt(kRelaxIterations, kRelaxDefaultIterations) : kRelaxDefaultIterations;
         for (uint32_t c = 0; c < view->curveCount; ++c) {
             size_t const n =
                 ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
@@ -2213,7 +2234,7 @@ void UsdGenCollideOp::Evaluate(
                     size_t const first=(cvBase+local)*arity;
                     for (uint8_t component=0;component<arity;++component) {
                         size_t const value=first+component;
-                        if (out.type==TfToken("int"))
+                        if (out.type==UsdGenTokens().int_)
                             view->extraCvI[plane][value]=in.i[value];
                         else
                             view->extraCvF[plane][value]=in.f[value];
@@ -2264,7 +2285,7 @@ void UsdGenCollideOp::Evaluate(
                     size_t const first=(cvBase+cv)*arity;
                     for (uint8_t component=0;component<arity;++component) {
                         size_t const value=first+component;
-                        if (out.type==TfToken("int"))
+                        if (out.type==UsdGenTokens().int_)
                             view->extraCvI[plane][value]=in.i[value];
                         else
                             view->extraCvF[plane][value]=in.f[value];
@@ -2442,7 +2463,7 @@ void UsdGenCollideOp::Evaluate(
                             size_t const d=(cvBase+dst)*arity+component;
                             size_t const x=(cvBase+src0)*arity+component;
                             size_t const y=(cvBase+src1)*arity+component;
-                            if (out.type==TfToken("int"))
+                            if (out.type==UsdGenTokens().int_)
                                 view->extraCvI[plane][d]=
                                     alpha<0.5 ? in.i[x] : in.i[y];
                             else
@@ -2901,6 +2922,30 @@ void UsdGenCollideOp::Evaluate(
             }
         }
     }
+}
+
+namespace {
+/// cutThenCollide remaps every inherited vertex plane (and so may fail).
+bool RemapsVertexPlanes(UsdGenParamView const &params)
+{
+    return params.op && DeepMode(params) == params.op->Token(kTokCutThenCollide);
+}
+}  // namespace
+
+UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenCollide";
+    d.displayName = "Collide";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.traits = kUsdGenOpSamplesFrameInputs;
+    d.params = UsdGenSpan(kParams);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    d.hooks.emittedPlanes = &EmittedPlanes;
+    d.hooks.remapsVertexPlanes = &RemapsVertexPlanes;
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

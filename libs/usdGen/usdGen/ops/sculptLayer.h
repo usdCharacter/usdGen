@@ -15,23 +15,27 @@
 #ifndef USDGEN_OP_SCULPT_LAYER_H
 #define USDGEN_OP_SCULPT_LAYER_H
 
-#include "usdGen/op.h"
+#include "usdGen/ops/recordedOp.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace sculptP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kSpace, kCurveIds, kCvOffsets, kEpoch, kLocked,
+    kRootPrims, kRootUVs, kEnabled, kMask, kWeight, kDeltas, kCount
+};
+enum Tok : uint16_t { kTokRootFrame, kTokObject };
+}  // namespace sculptP
+
 class UsdGenSculptLayerOp final : public UsdGenOp
 {
 public:
-    UsdGenSculptLayerOp() = default;
+    explicit UsdGenSculptLayerOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenSculptLayerOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenSculptLayer"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -44,14 +48,10 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sWeight{"sculpt:weight"}, sSpace{"sculpt:space"};
-    const TfToken sCurveIds{"sculpt:curveIds"}, sCvOffsets{"sculpt:cvOffsets"};
-    const TfToken sDeltas{"sculpt:deltas"}, sEpoch{"sculpt:epoch"};
-    const TfToken sLocked{"sculpt:lockedCurves"}, sRootPrims{"sculpt:rootPrims"};
-    const TfToken sRootUVs{"sculpt:rootUVs"};
-    const TfToken sRootFrame{"rootFrame"}, sObject{"object"}, sMask{"mask"};
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterSculptLayerOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

@@ -8,6 +8,7 @@
 
 #include "usdGen/op.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -16,19 +17,8 @@ namespace usdGen {
 class UsdGenScatterOp final : public UsdGenOp
 {
 public:
-    UsdGenScatterOp() = default;
+    explicit UsdGenScatterOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenScatterOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenScatter"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-    UsdGenRole Role() const override { return UsdGenRole::Curves; }
-    bool IsGenerator() const override { return true; }
-    size_t GeometryInputArity() const override { return 0; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    /// usdGen:guides (guide proximity, distribution "perGuide").
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -69,6 +59,24 @@ private:
     };
     mutable SubdivisionDigestCache subdivisionDigest_;
 };
+
+/// Parameter slots, enumerants and tokens: the order of UsdGenRegisterScatterOp's tables.
+namespace scatterP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kDensity, kFlip, kSubdivisionLevel, kDistribution,
+    kCountMode, kProximityMode, kProximityDistance, kProximityCoverage, kGuides, kDensityMap,
+    kCount
+};
+// Order matches scatter::Distribution / CountMode / ProximityMode.
+enum Distribution : int { kDistRandom, kDistUvGrid, kDistVertex, kDistEven, kDistPerGuide };
+enum CountMode : int { kCountPerFace, kCountSurface };
+enum Proximity : int { kProxNone, kProxDistance, kProxCoverage };
+enum Tok : uint16_t { kTokRandom, kTokPerFace, kTokNone, kTokLeftHanded, kTokDensityMap,
+                      kTokStrandIndex, kTokStrandSeed };
+}  // namespace scatterP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

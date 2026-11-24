@@ -14,24 +14,41 @@
 #define USDGEN_OP_GUIDE_INTERPOLATE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
+
+#include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace guideP {
+// Declaration order of ops/guideInterpolate.cpp kParams (all capture-class).
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kGuides, kRegionMap,
+    kCvCount, kMaxGuides, kInfluenceRadius, kInfluenceDecay, kMaxGuideAngle,
+    kBlendMethod, kBlendInSkinSpace, kUseUniqueGuide, kRandomizeGuide,
+    kRegionCrossover, kRegion, kWeighting, kTightness, kBendFollow, kDefaultLength,
+    kPartPoints, kPartCounts, kPartNormals, kPartAmount, kPartAngle, kPartRadius,
+    kPartDistance,
+    kCount
+};
+enum BlendMethod : int { kBlendLinear, kBlendExtrude };
+enum Weighting : int { kWeightFalloff, kWeightNearest, kWeightInverseDistance, kWeightGaussian };
+// Record().Token(i): output plane names, then clump plane names for the
+// first kClumpLevels levels, four families per level.
+enum Tok : uint16_t {
+    kTokGuideIndex, kTokGuideWeight, kTokPrimaryGuide, kTokNearestGuide, kTokPartId,
+    kTokMirrorSign, kTokClump0
+};
+constexpr int kClumpLevels = 6;
+}  // namespace guideP
+
 class UsdGenGuideInterpolateOp final : public UsdGenOp
 {
 public:
-    UsdGenGuideInterpolateOp() = default;
+    explicit UsdGenGuideInterpolateOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenGuideInterpolateOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenGuideInterpolate"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CvCount; }
-    bool IsGenerator() const override { return true; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -45,6 +62,9 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

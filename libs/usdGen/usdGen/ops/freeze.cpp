@@ -9,7 +9,6 @@
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
 #include "usdGen/ops/freeze.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include "pxr/base/tf/diagnostic.h"
@@ -19,6 +18,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -104,12 +104,12 @@ namespace {
 
 // Schema: uniform string usdGen:frozen:epoch = "". Missing/empty is the
 // default; TfToken is tolerated exactly as GetToken tolerates std::string.
-bool ReadEpoch(UsdGenParamView const *p, TfToken const &name,
+bool ReadEpoch(UsdGenParamView const *p, UsdGenParamSlot slot,
                std::string *epoch, UsdGenDiagnostics *diag, char const *what)
 {
     epoch->clear();
     if (!p) return true;
-    VtValue const v = p->GetVtValue(name, VtValue());
+    VtValue const v = p->GetValue(slot, VtValue());
     if (v.IsEmpty()) return true;
     if (v.IsHolding<std::string>()) {
         *epoch = v.UncheckedGet<std::string>();
@@ -125,37 +125,38 @@ bool ReadEpoch(UsdGenParamView const *p, TfToken const &name,
     return false;
 }
 
+using namespace freezeP;
+
+constexpr char const *kModes[] = {"frozen", "live"};
+constexpr char const *kTiers[] = {"session", "sublayer", "payload"};
+constexpr char const *kTokens[] = {"frozen", "live", "session", "sublayer", "payload"};
+constexpr char const *kRefs[] = {"frozen:curves"};
+constexpr UsdGenMapSlotDecl kMaps[] = {    // compiler.cpp:428-431, all four as today
+    {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Capture},     // 02 §6.2: topology (CurveCount)
+    {"frozen:curves", UsdGenParamClass::Structural},  // the snapshot edge
+    {"frozen:mode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kModes)},
+    {"frozen:epoch", UsdGenParamClass::Capture},      // the recapture trigger
+    {"frozen:tier", UsdGenParamClass::Value, true, {}, UsdGenSpan(kTiers)},  // cosmetic
+};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenFreezeOp>(r);
+}
+
+/// Mix a name's text (what Mix(TfToken) did) without interning it.
+void MixText(opUtil::Digest *d, char const *text)
+{
+    for (; *text; ++text) d->Mix(uint64_t(uint8_t(*text)));
+}
+
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("enabled"));        // 02 §6.2: topology (CurveCount)
-    v.push_back(TfToken("frozen:curves"));  // structural: the snapshot edge
-    v.push_back(TfToken("frozen:mode"));    // structural: the unfreeze gesture
-    v.push_back(TfToken("frozen:epoch"));   // capture: the recapture trigger
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("frozen:tier"));    // cosmetic/advisory: never recaptures
-    return v;
-}();
-
-static TfTokenVector const _referenceInputs{TfToken("frozen:curves")};
-
-TfSpan<const TfToken> UsdGenFreezeOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenFreezeOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
-TfSpan<const TfToken> UsdGenFreezeOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenFreezeOp::CreateCapture() const
 {
     return std::make_unique<UsdGenFreezeCapture>();
@@ -167,20 +168,23 @@ uint32_t UsdGenFreezeOp::PlanesTouched() const
 
 bool UsdGenFreezeOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sMode, sFrozen);
-    if (mode != sFrozen && mode != sLive) {
+    UsdGenOpRecord const &rec = *params.op;
+    TfToken const &frozen = rec.Token(kTokFrozen);
+    TfToken const mode = params.GetToken(kMode, frozen);
+    if (mode != frozen && mode != rec.Token(kTokLive)) {
         if (diag) diag->Error("UsdGenFreeze: unknown usdGen:frozen:mode '" +
                               mode.GetString() + "'");
         return false;
     }
-    TfToken const tier = params.GetToken(sTier, sSession);
-    if (tier != sSession && tier != sSublayer && tier != sPayload) {
+    TfToken const tier = params.GetToken(kTier, rec.Token(kTokSession));
+    if (tier != rec.Token(kTokSession) && tier != rec.Token(kTokSublayer) &&
+        tier != rec.Token(kTokPayload)) {
         if (diag) diag->Error("UsdGenFreeze: unknown usdGen:frozen:tier '" +
                               tier.GetString() + "'");
         return false;
     }
     std::string epoch;
-    return ReadEpoch(&params, sEpoch, &epoch, diag, "UsdGenFreeze");
+    return ReadEpoch(&params, kEpoch, &epoch, diag, Record().Name().GetText());
 }
 
 UsdGenEpoch UsdGenFreezeOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
@@ -190,17 +194,18 @@ UsdGenEpoch UsdGenFreezeOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // the unfreeze/re-freeze gestures re-snapshot explicitly. Tier is cosmetic
     // (02 §2.9: the evaluator never reads it) and stays out of the digest.
     opUtil::Digest d;
-    TfToken mode = sFrozen;
+    char const *mode = "frozen";
     std::string epoch;
     if (ctx.params) {
-        mode = ctx.params->GetToken(sMode, sFrozen);
+        TfToken const &t = ctx.params->GetToken(kMode, ctx.params->op->Token(kTokFrozen));
+        mode = t.GetText();
         std::string validated;
-        if (ReadEpoch(ctx.params, sEpoch, &validated, nullptr, ""))
+        if (ReadEpoch(ctx.params, kEpoch, &validated, nullptr, ""))
             epoch = validated;
     }
-    d.Mix(TfToken("frozen:mode"));
-    d.Mix(mode);
-    d.Mix(TfToken("frozen:epoch"));
+    MixText(&d, "frozen:mode");
+    MixText(&d, mode);
+    MixText(&d, "frozen:epoch");
     for (char c : epoch) d.Mix(uint64_t(uint8_t(c)));
     d.Mix(uint64_t(epoch.size()));
     d.Mix(uint64_t(ctx.seed));
@@ -221,14 +226,17 @@ bool UsdGenFreezeOp::Capture(
     };
     if (p && !Bind(*p, diag)) return false;
 
-    TfToken const mode = p ? p->GetToken(sMode, sFrozen) : sFrozen;
-    TfToken const tier = p ? p->GetToken(sTier, sSession) : sSession;
+    // p is non-null from here on in every real cook; keep the null guard.
+    TfToken const frozen = p ? p->op->Token(kTokFrozen) : TfToken();
+    TfToken const session = p ? p->op->Token(kTokSession) : TfToken();
+    TfToken const mode = p ? p->GetToken(kMode, frozen) : frozen;
+    TfToken const tier = p ? p->GetToken(kTier, session) : session;
     std::string epoch;
-    if (!ReadEpoch(p, sEpoch, &epoch, diag, "UsdGenFreeze")) return false;
+    if (!ReadEpoch(p, kEpoch, &epoch, diag, Record().Name().GetText())) return false;
     // SESSION TIER ONLY: sublayer/payload have no in-engine landing place;
     // lower them to session loudly (warning, comment, test, report) rather
     // than failing an asset the tool is free to relocate.
-    if (tier == sSublayer || tier == sPayload) {
+    if (p && (tier == p->op->Token(kTokSublayer) || tier == p->op->Token(kTokPayload))) {
         if (diag) diag->Warn("UsdGenFreeze: usdGen:frozen:tier '" +
                              tier.GetString() +
                              "' is not implemented; lowering to 'session'");
@@ -249,7 +257,7 @@ bool UsdGenFreezeOp::Capture(
         return true;
     };
 
-    if (mode == sLive) {
+    if (p && mode == p->op->Token(kTokLive)) {
         // Passthrough owns nothing; the snapshot (if any) is retained-but-
         // stale per 02 §2.9. Upstream planes are still validated so a
         // malformed input fails here with a message instead of mis-copying
@@ -369,6 +377,21 @@ void UsdGenFreezeOp::Evaluate(
     // this node's buffer at capture and prepare keeps it (sizes match, and it
     // aliases neither upstream nor any older generation). Rewriting it here
     // would write through const-cast pointers into capture-shared planes.
+}
+
+UsdGenOpId UsdGenRegisterFreezeOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenFreeze";
+    d.displayName = "Freeze";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CurveCount;                // static worst case (freeze.h)
+    d.traits = kUsdGenOpCaptureOwnsRestAndPlanes;       // scheduler.cpp:386-392, 440-446
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kRefs);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

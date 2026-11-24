@@ -14,8 +14,10 @@
 //          reference length, clump-shared seeds and lengths, knot-mask
 //          attenuation; the root never moves; cooks are deterministic.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>
@@ -201,13 +203,13 @@ static VtValue B(bool v) { return VtValue(v); }
 
 static void TestRegistry()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     for (char const *name : {"UsdGenTwist", "UsdGenFrizz"}) {
         TfToken const type(name);
-        std::unique_ptr<UsdGenOp> op = registry.Create(type);
-        Check(registry.HasKernel(type) && op && op->Type() == type, std::string(name) + " registered");
+        std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
+        Check(registry.Find(type) != UsdGenOpId::Invalid && op && registry.Record(registry.Find(type)).Name() == type, std::string(name) + " registered");
         if (!op) continue;
-        Check(op->TopologyEffect() == UsdGenTopoFx::None && op->OutputPrimvars().empty(),
+        Check(op->Record().Def().topoFx == UsdGenTopoFx::None && usdGenTest::OutputPlaneNames(op->Record()).empty(),
               std::string(name) + " keeps topology and emits no planes");
     }
 }

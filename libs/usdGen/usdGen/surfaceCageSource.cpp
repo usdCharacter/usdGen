@@ -1,4 +1,6 @@
 #include "usdGen/surfaceCageSource.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/token.h"
 
 #include "usdGen/maps/ptexMap.h"
 #include "usdGen/surfaceCageInterpolate.h"
@@ -17,6 +19,11 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
+
+// Ownership plane names of the dense curve set, interned at load.
+TfToken const kTubeId = UsdGenInternToken("tubeId");
+TfToken const kRegionId = UsdGenInternToken("regionId");
+TfToken const kHierarchyLevel = UsdGenInternToken("hierarchyLevel");
 
 bool Fail(std::string const &message, std::string *error)
 {
@@ -90,7 +97,7 @@ bool GetUniformIntPlane(UsdGenCurveSetDesc const &sparse, char const *name,
 {
     UsdGenAuthoredPlaneDesc const *found = nullptr;
     for (UsdGenAuthoredPlaneDesc const &plane : sparse.authoredPlanes) {
-        if (plane.name != TfToken(name)) continue;
+        if (plane.name.GetString() != name) continue;
         if (found)
             return Fail(std::string("surface-cage sparse curves have duplicate ") + name +
                         " planes", error);
@@ -144,14 +151,14 @@ bool Prepare(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         return Fail("surface-cage source or surface transform is non-finite", error);
 
     std::vector<UsdGenMapBindingDesc> const &bindings = node.mapBindings;
-    if (bindings.size() != 1 || bindings.front().relationship != TfToken("usdGen:regionMap") ||
+    if (bindings.size() != 1 || bindings.front().relationship.GetString() != "usdGen:regionMap" ||
         bindings.front().map.IsEmpty())
         return Fail("surface-cage requires exactly one usdGen:regionMap binding", error);
     if (!node.maps.empty() && (node.maps.size() != 1 || node.maps.front() != bindings.front().map))
         return Fail("surface-cage regionMap and legacy map paths disagree", error);
     auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
         [&](UsdGenMapDesc const &candidate) { return candidate.path == bindings.front().map; });
-    if (map == desc.maps.end() || map->type != TfToken("UsdGenPtexMap") ||
+    if (map == desc.maps.end() || !UsdGenMapHas(*map, kUsdGenTypeMapPtex) ||
         map->resolvedAssetPath.empty())
         return Fail("surface-cage regionMap must resolve to a UsdGenPtexMap asset", error);
     UsdGenParamValue const *expect = FindParam(node.params, "expectMapGeneration");
@@ -415,29 +422,29 @@ bool UsdGenBuildSurfaceCageCurveSet(
     UsdGenCurveSetDesc candidate;
     candidate.path = sparse.path;
     candidate.role = UsdGenRole::Curves;
-    candidate.curveRole = TfToken("hair");
+    candidate.curveRole = UsdGenTokens().hair;
     candidate.curveVertexCounts = std::move(dense.curveVertexCounts);
     candidate.points = std::move(dense.points);
     candidate.rest = std::move(dense.rest);
     candidate.restFromCurrentPoints = false;
     candidate.widths = std::move(dense.widths);
-    candidate.type = TfToken("cubic"); candidate.basis = TfToken("bspline");
-    candidate.wrap = TfToken("pinned"); candidate.widthsInterpolation = TfToken("vertex");
+    candidate.type = UsdGenTokens().cubic; candidate.basis = UsdGenTokens().bspline;
+    candidate.wrap = UsdGenTokens().pinned; candidate.widthsInterpolation = UsdGenTokens().vertex;
     candidate.skinPrim = std::move(dense.rootPrim);
     candidate.skinPrimUv = std::move(dense.rootUV);
     candidate.curveId = std::move(dense.curveId);
     candidate.worldMatrix = GfMatrix4d(1.0);
     candidate.curveGeneration = sparse.curveGeneration;
-    auto appendOwnerPlane = [&](char const *name, std::map<int, int> const &perOwner) -> bool {
+    auto appendOwnerPlane = [&](TfToken const &name, std::map<int, int> const &perOwner) -> bool {
         if (perOwner.empty()) return true;
         UsdGenAuthoredPlaneDesc plane;
-        plane.name = TfToken(name); plane.type = UsdGenAuthoredPlaneType::Int32;
+        plane.name = name; plane.type = UsdGenAuthoredPlaneType::Int32;
         plane.domain = UsdGenAuthoredPlaneDomain::Primitive; plane.arity = 1;
         plane.intValues.reserve(dense.ownerTubeId.size());
         for (int ownerTubeId : dense.ownerTubeId) {
             auto const value = perOwner.find(ownerTubeId);
             if (value == perOwner.end())
-                return Fail(std::string("surface-cage generated owner lacks ") + name +
+                return Fail(std::string("surface-cage generated owner lacks ") + name.GetString() +
                             " metadata", error);
             plane.intValues.push_back(value->second);
         }
@@ -445,12 +452,12 @@ bool UsdGenBuildSurfaceCageCurveSet(
         return true;
     };
     UsdGenAuthoredPlaneDesc ownership;
-    ownership.name = TfToken("tubeId"); ownership.type = UsdGenAuthoredPlaneType::Int32;
+    ownership.name = kTubeId; ownership.type = UsdGenAuthoredPlaneType::Int32;
     ownership.domain = UsdGenAuthoredPlaneDomain::Primitive; ownership.arity = 1;
     ownership.intValues = dense.ownerTubeId;
     candidate.authoredPlanes.push_back(std::move(ownership));
-    if (!appendOwnerPlane("regionId", prepared.ownerRegion) ||
-        !appendOwnerPlane("hierarchyLevel", prepared.ownerHierarchy))
+    if (!appendOwnerPlane(kRegionId, prepared.ownerRegion) ||
+        !appendOwnerPlane(kHierarchyLevel, prepared.ownerHierarchy))
         return false;
     *out = std::move(candidate);
     return true;

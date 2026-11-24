@@ -25,8 +25,8 @@
 #include "usdGen/ops/curveWrap.h"
 #include "usdGen/ops/regionMap.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/rbfAnimation.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/base/gf/matrix4d.h"
@@ -41,6 +41,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include "usdGen/registries/registrar.h"
 
 namespace usdGen {
 
@@ -49,8 +50,33 @@ static_assert(sizeof(GfVec3d) == 3 * sizeof(double),
 
 namespace {
 
-const TfToken sRbfSamples{"rbfSamples"}, sLockRoots{"lockRoots"}, sMask{"mask"},
-    sGuides{"guides"};
+using namespace deformP;
+using D = expr::Domain;
+constexpr char const *kRefs[] = {"guides"};
+constexpr char const *kTokens[] = {"curveWrap", "usdGen:regionMap", "periodic", "rbf"};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kBoolRoot{expr::ScalarType::Bool, 1, "bool", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kIntGroom{expr::ScalarType::Int32, 1, "int", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"rbfSamples", UsdGenParamClass::Capture, true, kIntGroom},
+    {"mode", UsdGenParamClass::Capture},
+    {"regionMap", UsdGenParamClass::Capture},
+    {"guideRegions", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"lockRoots", UsdGenParamClass::Value, true, kBoolRoot},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},     // operator envelope (02 §2.13)
+};
+constexpr UsdGenMapSlotDecl kMaps[] = {    // compiler.cpp:428-431, all four as today
+    {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenDeformOp>(r);
+}
 
 // The strands loop overwrites every element, so the result buffer must not
 // pay for zero-fill: std::vector::resize memsets 3 floats per CV (measured
@@ -217,34 +243,22 @@ GfMatrix4d DriverToGroom(UsdGenGraphDesc const *desc, SdfPath const &path)
 
 }  // namespace
 
-UsdGenDeformOp::UsdGenDeformOp()
-    : topologyParameters_(UsdGenBaseTopologyParams()),
-      valueParameters_(UsdGenBaseValueParams())
-{
-    topologyParameters_.push_back(sRbfSamples);
-    topologyParameters_.push_back(TfToken("mode"));
-    topologyParameters_.push_back(TfToken("regionMap"));
-    topologyParameters_.push_back(TfToken("guideRegions"));
-    valueParameters_.push_back(TfToken("enabled"));
-    valueParameters_.push_back(sLockRoots);
-    valueParameters_.push_back(sMask);   // operator envelope (02 §2.13)
-}
-
 bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diagnostics) {
     auto fail = [&](char const *message) {
         if (diagnostics) diagnostics->Error(message);
         return false;
     };
-    if (!params.node || (!params.node->mode.IsEmpty() && params.node->mode != TfToken("curveWrap")))
+    UsdGenOpRecord const &rec = *params.op;
+    if (!params.node || (!params.node->mode.IsEmpty() && params.node->mode != rec.Token(kTokCurveWrap)))
         return fail("UsdGenDeform mode must be empty (RBF) or curveWrap");
     bool const cuda = params.desc &&
         params.desc->executionBackend == UsdGenExecutionBackend::Cuda;
     bool const guided = !params.node->curves.empty() || !params.node->references.empty();
-    if (params.node->mode == TfToken("curveWrap") && (cuda || !guided))
+    if (params.node->mode == rec.Token(kTokCurveWrap) && (cuda || !guided))
         return fail("UsdGenDeform curveWrap requires guide curves on the CPU lane");
     if (params.node->mode.IsEmpty()) {
         for (auto const &binding:params.node->mapBindings)
-            if (binding.relationship==TfToken("usdGen:regionMap"))
+            if (binding.relationship==rec.Token(kTokRegionMapRel))
                 return fail("UsdGenDeform regionMap is supported only in curveWrap mode");
     }
     if (cuda && guided)
@@ -255,26 +269,16 @@ bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diag
     return true;
 }
 
-TfSpan<const TfToken> UsdGenDeformOp::TopologyParameters() const {
-    return TfSpan<const TfToken>(topologyParameters_.data(), topologyParameters_.size());
-}
-TfSpan<const TfToken> UsdGenDeformOp::ValueParameters() const {
-    return TfSpan<const TfToken>(valueParameters_.data(), valueParameters_.size());
-}
-TfSpan<const TfToken> UsdGenDeformOp::ReferenceInputs() const {
-    return TfSpan<const TfToken>(&sGuides, 1);
-}
-
 UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const {
     // The CUDA rest cache is keyed by its own surface identity; on the CPU
     // lane the capture follows the drivers' content, which moves every frame
     // they are animated.
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
-        d.Mix(uint64_t(p->GetInt(sRbfSamples, 100)));
-        d.Mix(uint64_t(p->GetBool(sLockRoots, true)));
+        d.Mix(uint64_t(p->GetInt(kRbfSamples, 100)));
+        d.Mix(uint64_t(p->GetBool(kLockRoots, true)));
         d.Mix(uint64_t(p->node ? p->node->mode.Hash() : 0));
-        d.Mix(p->GetVtValue(TfToken("guideRegions"),VtValue()));
+        d.Mix(p->GetValue(kGuideRegions, VtValue()));
     }
     d.Mix(ctx.upstreamGeneration);
     if (ctx.referenceCount == 0 && ctx.desc && ctx.surface < ctx.desc->surfaces.size()) {
@@ -310,12 +314,12 @@ bool UsdGenDeformOp::MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext cons
                                      UsdGenSurfaceDesc const &surface) const
 {
     UsdGenParamView const *p = ctx.params;
-    if (p && p->node && p->node->mode == TfToken("curveWrap")) return false;
+    if (p && p->node && p->node->mode == p->op->Token(kTokCurveWrap)) return false;
     // An unbound field (the last bind failed) or a degenerate selection
     // (fewer than four drivers) means Capture fails: the full hash keeps
     // the failure cadence what it was instead of skipping silently.
     if (!field_.Bound()) return false;
-    int const budget = p ? p->GetInt(sRbfSamples, 100) : 100;
+    int const budget = p ? p->GetInt(kRbfSamples, 100) : 100;
     // The capture's key, verbatim: a hit there reads posed[chosen] alone,
     // so the same hit here hashes exactly what the capture will read.
     auto const &rp = surface.restPoints;
@@ -361,7 +365,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
     cap.result.clear();
     cap.samples = 0;
 
-    bool const wrap = p && p->node && p->node->mode == TfToken("curveWrap");
+    bool const wrap = p && p->node && p->node->mode == p->op->Token(kTokCurveWrap);
     std::vector<curveWrap::Field> wrapFields;
     std::vector<int> rootRegions;
     bool regionMapped=false;
@@ -369,12 +373,12 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
     std::string regionError;
     if (wrap) {
         if (!UsdGenReadRootRegions(ctx,upstream,&rootRegions,&regionMapped,&regionError)) return fail(regionError);
-        auto const value=p->GetVtValue(TfToken("guideRegions"),VtValue(VtIntArray{}));
+        auto const value=p->GetValue(kGuideRegions,VtValue(VtIntArray{}));
         if (!value.IsHolding<VtIntArray>()) return fail("guideRegions must be an int array");
         guideRegions=value.UncheckedGet<VtIntArray>();
     }
     std::vector<uint32_t> driverSpans;
-    int const budget = p ? p->GetInt(sRbfSamples, 100) : 100;
+    int const budget = p ? p->GetInt(kRbfSamples, 100) : 100;
     if (!wrap && budget < 4) return fail("usdGen:rbfSamples must be at least 4");
 
     // --- driver samples, in the description's space --------------------------
@@ -462,7 +466,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
                             return fail("guideRegions must contain unique nonnegative region IDs");
                 }
                 auto const *curves = FindCurves(ctx.desc, reference.path);
-                if (curves && curves->wrap == TfToken("periodic"))
+                if (curves && curves->wrap == p->op->Token(kTokPeriodic))
                     return fail("curveWrap requires an open, non-periodic center curve");
             }
             if (UsdGenCurveSetDesc const *curves = FindCurves(ctx.desc, reference.path);
@@ -600,7 +604,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
         driverForCurve[c]=size_t(found-guideRegions.begin());
     }
     UsdGenParamField const lock = p
-        ? p->GetScalarField(sLockRoots, p->GetBool(sLockRoots, true) ? 1.0 : 0.0)
+        ? p->GetScalarField(kLockRoots, p->GetBool(kLockRoots, true) ? 1.0 : 0.0)
         : UsdGenParamField{1.0};
 
     // Capture-direct output: with a uniform-1 mask the sweep would store
@@ -612,7 +616,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
     // Anything unexpected keeps the result path below. Recording needs the
     // chunk partition and the armed writer's slots on top of that.
     UsdGenParamField const maskField = p
-        ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     bool const maskUniformOne =
         maskField.Uniform() && maskField.Value(0, 0) == 1.0;
     bool const direct = !wrap && maskUniformOne && R > 0 && totalCvs > 0 &&
@@ -879,7 +883,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
                               UsdGenChunkView* view) const {
     auto const &cap = static_cast<UsdGenDeformCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
-    UsdGenParamField const maskField = p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+    UsdGenParamField const maskField = p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;
     size_t const firstCv = view->desc ? size_t(view->desc->firstCv) : 0;
     auto const *cvOff = view->cvOffsets;
@@ -942,6 +946,49 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
         extSlot->firstCv = view->desc->firstCv;
         extSlot->cvCount = view->desc->cvCount;
     }
+}
+
+namespace {
+
+// Only a static styling stack followed by one surface-driven RBF can retain
+// its upstream geometry while the surface poses (the tail-deform binding).
+bool MakeAnimationBinding(UsdGenAnimationBindingQuery const &q, UsdGenOp const &op,
+                          UsdGenRbfAnimationBinding *out)
+{
+    UsdGenNodeDesc const *n = q.terminalDesc;
+    UsdGenParamView const *p = q.terminalParams;
+    if (!n || !p || !p->op || !out || !n->enabled) return false;
+    if (!n->mode.IsEmpty() && n->mode != p->op->Token(kTokRbf)) return false;
+    if (q.terminalInputCount != 1 || !n->curves.empty() || !n->references.empty() ||
+        !n->expressionBindings.empty() || !n->maps.empty() || !n->mapBindings.empty() ||
+        !q.surface || p->GetBool(kLockRoots, true) || p->GetDouble(kMask, 1.0) != 1.0 ||
+        q.terminalHasOutputPlanes)
+        return false;
+    // The hook is registered on Deform only, so the terminal op is one.
+    auto const &deform = static_cast<UsdGenDeformOp const &>(op);
+    if (deform.AnimationSamples().empty() || !q.graphStatic || q.nodesWithTerminalOp != 1)
+        return false;
+    out->sampleIndices = deform.AnimationSamples();
+    out->field = deform.AnimationField();
+    return true;
+}
+
+}  // namespace
+
+UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenDeform";
+    d.displayName = "Deform";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.traits = kUsdGenOpRecordsChunkExtents | kUsdGenOpPosesSpace;   // scheduler.cpp:1031, 1076
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kRefs);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    d.hooks.makeAnimationBinding = &MakeAnimationBinding;
+    return r.RegisterOp(d);
 }
 
 } // namespace usdGen

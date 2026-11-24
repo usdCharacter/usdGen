@@ -1,4 +1,5 @@
 #include "usdGen/executionBackend.h"
+#include "usdGen/registries/engineTokens.h"
 
 #include "usdGen/op.h"
 
@@ -139,11 +140,11 @@ const char *UsdGenExecutionBackendName(UsdGenExecutionBackend backend) noexcept 
 }
 
 UsdGenExecutionBackend ParseUsdGenExecutionBackend(TfToken const &token) noexcept {
-    if (token == TfToken("cpu") || token == TfToken("cpuReference"))
+    if (token == UsdGenTokens().cpu || token == UsdGenTokens().cpuReference)
         return UsdGenExecutionBackend::CpuReference;
-    if (token == TfToken("cuda")) return UsdGenExecutionBackend::Cuda;
-    if (token == TfToken("metal")) return UsdGenExecutionBackend::Metal;
-    if (token == TfToken("vulkan")) return UsdGenExecutionBackend::Vulkan;
+    if (token == UsdGenTokens().cuda) return UsdGenExecutionBackend::Cuda;
+    if (token == UsdGenTokens().metal) return UsdGenExecutionBackend::Metal;
+    if (token == UsdGenTokens().vulkan) return UsdGenExecutionBackend::Vulkan;
     return UsdGenExecutionBackend::Invalid;
 }
 

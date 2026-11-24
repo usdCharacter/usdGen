@@ -35,7 +35,7 @@ struct UsdGenDevicePresentationMetadata
     TfToken purpose;
     TfToken visibility;
     SdfPath materialPath;
-    TfToken materialPurpose = TfToken("allPurpose");
+    TfToken materialPurpose = UsdGenTokens().allPurpose;
     int refineLevel = 2;
     SdfPath primOrigin;
     SdfPath dependencySurface;

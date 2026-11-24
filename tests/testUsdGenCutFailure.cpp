@@ -6,7 +6,9 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/pxr.h"
@@ -41,10 +43,7 @@ void Check(bool condition, char const *message)
 class FallibleRemap final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestFallibleRemap"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    bool RemapsVertexPlanes() const override { return true; }
+    explicit FallibleRemap(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     uint32_t PlanesTouched() const override { return kPlanePoints | kPlaneWidths; }
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override
@@ -299,15 +298,26 @@ void TestTransactionalFailure(bool unequalDepth)
     std::printf("completed %s transactional case\n", shape);
 }
 
+bool gRegisteredFallible = false;
+
+void RegisterFallibleRemap(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenTestFallibleRemap";
+    d.displayName = "TestFallibleRemap";
+    d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<FallibleRemap>(rec);
+    };
+    d.traits = kUsdGenOpRemapsVertexPlanes;
+    gRegisteredFallible = r.RegisterOp(d) != UsdGenOpId::Invalid;
+}
+
 } // namespace
 
 int main()
 {
-    usdGenRegisterM1Operators();
-    Check(UsdGenOpRegistry::Get().Register(
-              TfToken("UsdGenTestFallibleRemap"),
-              [] { return std::make_unique<FallibleRemap>(); }),
-          "registers fallible remapper");
+    UsdGenRegisterStatic(&RegisterFallibleRemap);
+    Check(gRegisteredFallible, "registers fallible remapper");
     TestTransactionalFailure(false);
     TestTransactionalFailure(true);
     std::printf(g_failures ? "testUsdGenCutFailure: FAILED (%d)\n"

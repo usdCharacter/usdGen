@@ -31,6 +31,7 @@
 #define USDGEN_OP_CARDSOURCE_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -39,19 +40,8 @@ namespace usdGen {
 class UsdGenCardSourceOp final : public UsdGenOp
 {
 public:
-    UsdGenCardSourceOp() = default;
+    explicit UsdGenCardSourceOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenCardSourceOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenCardSource"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-    UsdGenRole Role() const override { return UsdGenRole::Curves; }
-    bool IsGenerator() const override { return true; }
-    size_t GeometryInputArity() const override { return 0; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
-    TfSpan<const TfToken> OutputPrimvars() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -63,6 +53,20 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
 };
+
+/// Parameter slots: the order of UsdGenRegisterCardSourceOp's decl table.
+namespace cardSourceP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kCards, kCardStrands,
+    kLayer, kUvId, kTile, kBraid, kAmount, kRootFlatten, kSmooth, kMaxStrands,
+    kBraidWidth, kBraidFlatness, kCvCount,
+    kCount
+};
+enum Plane : uint32_t { kPlaneCardIndex, kPlaneStrandIndex, kPlaneStrandSeed };
+}  // namespace cardSourceP
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterCardSourceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

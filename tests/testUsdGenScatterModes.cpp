@@ -11,9 +11,11 @@
 // stable strand identity, determinism).
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/scatterModes.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
 
@@ -175,9 +177,8 @@ UsdGenReferenceSet ReferenceOf(UsdGenCurveSetDesc const &g)
 // internal statistics.
 bool Direct(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, scatter::ModeStats *st)
 {
-    UsdGenParamView view;
-    view.desc = &d;
-    view.node = &d.nodes[0];
+    usdGenTest::OpView viewHolder(usdGenTest::OpRecord("UsdGenScatter"), &d.nodes[0], &d);
+    UsdGenParamView const &view = viewHolder.View();
     scatter::ModeConfig cfg;
     std::string error;
     if (!scatter::ReadModeConfig(&view, &cfg, &error)) {
@@ -775,7 +776,6 @@ void TestDeterminism()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     TestUvGrid();
     TestCountMode();
     TestEven();

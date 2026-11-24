@@ -9,9 +9,11 @@
 //       zero effect, direction:source tangents, connected-expression and mask
 //       cooks, and fail-closed validation.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>
@@ -158,27 +160,31 @@ static bool CookSourceOnly(UsdGenGraphDesc desc, SdfPath const &source,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenDirection");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenDirection)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenDirection)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenDirection)");
     if (!op) return;
-    Check(op->Type() == type, "Direction reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(registry.Record(registry.Find(type)).Name() == type, "Direction reports its own type");
+    UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
+    Check(rec.Def().topoFx == UsdGenTopoFx::None,
           "Direction has TopologyEffect None");
-    TfSpan<const TfToken> const refs = op->ReferenceInputs();
+    std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
+    for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
+        (rec.ParamClass(s) == UsdGenParamClass::Value ? valueV : topoV).push_back(rec.ParamName(s));
+    TfSpan<const TfToken> const refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("direction:source"),
           "Direction declares the direction:source reference input");
-    Check(op->OutputPrimvars().empty(), "Direction emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(rec).empty(), "Direction emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Direction touches the points plane only");
-    TfSpan<const TfToken> const topo = op->TopologyParameters();
+    TfSpan<const TfToken> const topo(topoV.data(), topoV.size());
     Check(HasParam(topo, "input") && HasParam(topo, "surface") &&
               HasParam(topo, "seed") && HasParam(topo, "mode") &&
               HasParam(topo, "direction:source"),
           "Direction routes input/surface/seed/mode/direction:source structurally");
-    TfSpan<const TfToken> const value = op->ValueParameters();
+    TfSpan<const TfToken> const value(valueV.data(), valueV.size());
     Check(HasParam(value, "enabled") && HasParam(value, "direction") &&
               HasParam(value, "amount") && HasParam(value, "lift") &&
               HasParam(value, "tiltU") && HasParam(value, "tiltV") &&
@@ -615,7 +621,6 @@ static void CheckFailClosed()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckRigidCook();
     CheckPerSegmentCooks();

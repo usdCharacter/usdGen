@@ -18,11 +18,13 @@
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>
@@ -176,24 +178,24 @@ static bool CookSourceOnly(UsdGenGraphDesc const &desc, SdfPath const &source,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenExprOp");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenExprOp)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenExprOp)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenExprOp)");
     if (!op) return;
-    Check(op->Type() == type, "ExprOp reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(registry.Record(registry.Find(type)).Name() == type, "ExprOp reports its own type");
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "ExprOp has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "ExprOp declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "ExprOp emits no output primvars");
-    Check(op->InputPrimvars().empty(), "ExprOp reads no input primvars");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "ExprOp emits no output primvars");
+    Check(op->Record().InputPlanes().empty(), "ExprOp reads no input primvars");
     Check(op->PlanesTouched() == (UsdGenOp::kPlanePoints | UsdGenOp::kPlaneWidths),
           "ExprOp touches the points and widths planes");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), false)) topo.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), true)) value.insert(t.GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed", "mode",
                                         "expr:returnType", "expr:source",
                                         "expr:maps"},
@@ -545,7 +547,6 @@ static void CheckCudaRejection()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckDisplacementCvCook();
     CheckDisplacementCurveCook();

@@ -32,7 +32,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/rbfField.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/types.h"
@@ -541,7 +542,6 @@ int main(int argc, char **argv)
             vulkanBudgetMb = size_t(std::atoll(argv[++i]));
     }
     if (vulkanBudgetMb < 1) vulkanBudgetMb = 1;
-    usdGenRegisterM1Operators();
 
     // ---- field microbench: Bind / Solve / Displacement ----------------------
     {
@@ -655,7 +655,7 @@ int main(int argc, char **argv)
             return 1;
         }
         for (UsdGenNodeRunStats const &st : run.nodeStats)
-            if (graph.Node(st.id).type == TfToken("UsdGenDeform")) {
+            if (graph.Node(st.id).record->Name() == TfToken("UsdGenDeform")) {
                 tDeformCapture.push_back(st.captureMs);
                 tDeformEval.push_back(st.evalMs);
             }

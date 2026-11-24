@@ -8,8 +8,10 @@
 // fallback (0,1,0) while still emitting roots. Both emission paths (the
 // one-pass emitRange fan and the two-pass fanFace+spill fan) must publish
 // the fallback on every rootN.
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -62,8 +64,9 @@ static UsdGenGraphDesc Desc(UsdGenSurfaceDesc const &s, double density,
 static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenParamView params{&d, &node};
-    UsdGenScatterOp op;
+    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    UsdGenParamView const &params = stackParams.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag))
         return false;
@@ -145,7 +148,6 @@ static bool CheckBowties(UsdGenSurfaceDesc const &s, int seed,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     int const seed = 42;
 
     // One-pass path (faceCount <= 4096): one bowtie, one root, fallback N.

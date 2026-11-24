@@ -22,25 +22,34 @@
 #define USDGEN_OP_TWIST_H
 
 #include "usdGen/ops/wholeStrand.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace twistP {
+/// Slots, in decl order.
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kAmount, kRoot, kMid, kMidShift, kTip, kNoise, kUseClumpIds, kResnapRoot, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokClumpId0, kTokPrimaryGuide, kTokMirrorSign };
+}  // namespace twistP
+
 class UsdGenTwistOp final : public UsdGenWholeStrandOp
 {
 public:
-    UsdGenTwistOp() = default;
+    explicit UsdGenTwistOp(UsdGenOpRecord const &record) : UsdGenWholeStrandOp(record) {}
     ~UsdGenTwistOp() override = default;
-    TfToken Type() const override { return TfToken("UsdGenTwist"); }
 
 protected:
-    TfTokenVector StructuralParameters() const override;
-    std::vector<UsdGenStrandPlaneSpec> OutputPlaneSpecs() const override;
     bool Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                  std::vector<UsdGenStrandPlaneData> &planes,
                  UsdGenDiagnostics *diag) override;
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterTwistOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

@@ -32,6 +32,7 @@
 // when its backend is available; the test fails only on a run check, and the
 // summary banner states explicitly which parity legs were proven.
 #include "usdGen/vulkan/deviceContext.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/vulkan/chargedBuffer.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/vulkan/deformPipeline.h"
@@ -1033,7 +1034,7 @@ struct CudaSourceLeg {
         if (cudaSetDevice(0) != cudaSuccess) return false;
         auto const& node = d.nodes[0];
         auto const& curves = d.curveSets[0];
-        UsdGenParamView params{const_cast<UsdGenGraphDesc*>(&d), &node};
+        usdGenTest::NodeParams params(node);
         TfToken const rebind =
             params.GetToken(TfToken("rebind"), TfToken("onError"));
         resampleTo = params.GetInt(TfToken("resampleTo"), 0);

@@ -8,8 +8,10 @@
 // all-varying sort. The sort must return the stable key order in every shape:
 // each case pins its shape premise from the reference morton keys plus the
 // full sort contract (sorted, stable, exact permutation).
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -71,8 +73,9 @@ static UsdGenGraphDesc Desc(UsdGenSurfaceDesc const &s, double density,
 static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenParamView params{&d, &node};
-    UsdGenScatterOp op;
+    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    UsdGenParamView const &params = stackParams.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag))
         return false;
@@ -197,7 +200,6 @@ static bool CheckSort(UsdGenGraphDesc const &d, int seed,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     int const seed = 42;
 
     // N == 1: no pass runs; the lone root passes through. Quad area 0.25,

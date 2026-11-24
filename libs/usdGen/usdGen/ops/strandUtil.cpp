@@ -404,7 +404,7 @@ float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triang
 {
     if (triangle < 0 || size_t(triangle) >= bvh.Triangles().size()) return fallback;
     FanTriangle const &t = bvh.Triangles()[size_t(triangle)];
-    if (map.type == TfToken("UsdGenPaintMap")) {
+    if (UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) {
         VtFloatArray const &v = map.paintValues;
         for (int k = 0; k < 3; ++k)
             if (t.corner[k] < 0 || size_t(t.corner[k]) >= v.size()) return fallback;
@@ -412,7 +412,7 @@ float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triang
                             v[size_t(t.corner[2])] * bary[2];
         return Clamp01(std::isfinite(value) ? value : 0.0f);
     }
-    if (map.type == TfToken("UsdGenImageMap") && map.imagePayload &&
+    if (UsdGenMapHas(map, kUsdGenTypeMapImage) && map.imagePayload &&
         map.imagePayload->IsValid()) {
         GfVec2f const uv = bvh.Uv(triangle, bary);
         UsdGenImageSampleOptions options;

@@ -9,6 +9,7 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 #include "usdGen/types.h"
 
 #include <array>
@@ -25,6 +26,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 class UsdGenCudaExecutionPlan;
+class UsdGenOpRecord;
 
 /// Extra-plane pointer tables are stack-local in the chunk evaluator.  The
 /// current R24 contract has only a handful of named outputs; keep an explicit
@@ -81,7 +83,8 @@ struct UsdGenCompiledNode : UsdGenPooled
     int                  descIdx = -1;            // index of that desc in graph Desc().nodes
 
     UsdGenNodeId           id = kUsdGenInvalidNode;
-    TfToken                type;
+    UsdGenOpId             opId = UsdGenOpId::Invalid;
+    UsdGenOpRecord const  *record = nullptr;         // immutable, process lifetime
     std::unique_ptr<UsdGenOp> op;
 
     UsdGenNodeId           input = kUsdGenInvalidNode;   // primary usdGen:input (dense range test)
@@ -110,6 +113,16 @@ struct UsdGenCompiledNode : UsdGenPooled
 
     // --- compile-time routing data (03 §5.1; filled by UsdGenCompiler) ----
     UsdGenParamView        paramView;            // points into the graph's desc copy
+    // record->ParamCount() resolved slots, re-resolved on every compile;
+    // paramView.slots points here.
+    UsdGenPoolVector<UsdGenResolvedParam> params;
+    int                    indexedPlaneBase = -1;  // first indexed plane (clumpId_<base>)
+    uint8_t                indexedPlaneCount = 0;
+    bool                   limitSurfaceUv = false; // hooks.emitsLimitSurfaceUv at compile
+    // kUsdGenOpRemapsVertexPlanes or hooks.remapsVertexPlanes, at compile.
+    bool                   remapsVertexPlanes = false;
+    // Plane slots resolved per run by the scheduler; negative: curve rate.
+    std::array<int16_t, kUsdGenMaxExtraPlaneSlots> outPlaneIndex{}, inPlaneIndex{};
     // Connected (expression) parameters evaluated for this node, once per
     // cook, over its INPUT geometry. paramView.expressions points here.
     UsdGenCpuParameters    expressions;
@@ -164,6 +177,8 @@ public:
 
     // --- dirty routing targets (03 §5.2 hops 2-3; the imaging router feeds these) ---
     void DirtyParameter(NodeId id, TfToken const &param);
+    /// One-shot value dirty with no parameter name (a time reader's clock moved).
+    void DirtyValue(NodeId id);
     void DirtyCapture(NodeId id);
     void DirtyTopology(NodeId id);
     void DirtySurface(UsdGenSurfaceId surface, uint32_t bits,

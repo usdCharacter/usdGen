@@ -17,8 +17,10 @@
 //   (3) Collide flexible over a bumpy many-triangle mesh is bit-identical to
 //       the brute-force first-win closest-point scan it replaced.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 
 #include <algorithm>
@@ -281,18 +283,18 @@ static bool MatchesRef(Polyline const &got, std::vector<GfVec3d> const &want, do
 
 static void CheckTieRegistry()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenTieClump");
-    Check(registry.HasKernel(type), "HasKernel(UsdGenTieClump)");
-    std::unique_ptr<UsdGenOp> op = registry.Create(type);
+    Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenTieClump)");
+    std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenTieClump)");
     if (!op) return;
-    Check(op->TopologyEffect() == UsdGenTopoFx::None, "TieClump has TopologyEffect None");
-    Check(op->ReferenceInputs().size() == 1 && op->ReferenceInputs()[0] == TfToken("guides"),
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None, "TieClump has TopologyEffect None");
+    Check(op->Record().ReferenceInputs().size() == 1 && op->Record().ReferenceInputs()[0] == TfToken("guides"),
           "TieClump reads the single reference slot 'guides'");
-    Check(op->OutputPrimvars().empty(), "TieClump emits no planes");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "TieClump emits no planes");
     std::set<std::string> topo;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), false)) topo.insert(t.GetString());
     bool all = true;
     for (char const *name : {"guides", "tie:amount", "tie:spread", "tie:positions",
                              "tie:entryCounts", "tie:guideIndices", "tie:vertexIndices"})
@@ -551,25 +553,23 @@ static Polyline DivingStrand(GfVec3f root, int cvs, float step)
 
 static void CheckRelaxContract()
 {
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenCollide"));
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenCollide")));
     if (!op) { Check(false, "Create(UsdGenCollide)"); return; }
     std::set<std::string> value;
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), true)) value.insert(t.GetString());
     Check(value.count("clearance:root") && value.count("clearance:tip") &&
               value.count("relax:iterations"),
           "Collide declares clearance:root/tip and relax:iterations as value parameters");
-    Check(op->OutputPrimvars().empty(), "Collide emits no plane until configured for relax");
-    UsdGenNodeDesc node;
-    node.params = {{TfToken("resolveType"), VtValue(TfToken("relax")), false}};
-    UsdGenParamView view;
-    view.node = &node;
-    op->Configure(view);
-    Check(op->OutputPrimvars().size() == 1 &&
-              op->OutputPrimvars()[0] == TfToken("collideUnresolved"),
+    UsdGenOpRecord const &record = op->Record();
+    Check(usdGenTest::OutputPlaneNames(record).empty(),
+          "Collide emits no plane until configured for relax");
+    std::vector<TfToken> const relax = usdGenTest::OutputPlaneNames(
+        record, {{TfToken("resolveType"), VtValue(TfToken("relax")), false}});
+    Check(relax.size() == 1 && relax[0] == TfToken("collideUnresolved"),
           "Collide configured for relax emits collideUnresolved");
-    node.params = {{TfToken("resolveType"), VtValue(TfToken("stiff")), false}};
-    op->Configure(view);
-    Check(op->OutputPrimvars().empty(), "Collide configured for stiff emits no plane");
+    Check(usdGenTest::OutputPlaneNames(
+              record, {{TfToken("resolveType"), VtValue(TfToken("stiff")), false}}).empty(),
+          "Collide configured for stiff emits no plane");
 }
 
 static void CheckRelaxPushOut()
@@ -921,7 +921,6 @@ static void CheckFlexibleMatchesScan()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckTieRegistry();
     CheckTiePull();
     CheckTieAmountSpread();

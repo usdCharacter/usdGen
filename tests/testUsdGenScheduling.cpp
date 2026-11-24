@@ -16,7 +16,8 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
 
@@ -123,7 +124,6 @@ bool SameFloatPlane(VtFloatArray const &a, VtFloatArray const &b)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     UsdGenSession session(8);
     UsdGenGraphDesc const desc = MakeG3();

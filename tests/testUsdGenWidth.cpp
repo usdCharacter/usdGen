@@ -12,7 +12,8 @@
 // combiner they bake into.
 
 #include "usdGen/op.h"
-#include "usdGen/opRegistry.h"
+#include "usdGenOpFixture.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 
@@ -53,14 +54,17 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
                             float const *inWidth,
                             bool ragged = false)
 {
-    std::unique_ptr<UsdGenOp> op = CreateWidthOp();
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenWidth")));
 
     UsdGenNodeDesc node;
     node.path = SdfPath("/groom/width");
     node.type = TfToken("UsdGenWidth");
     node.params = params;
-    UsdGenParamView view;
-    view.node = &node;
+    // A direct-kernel fixture: slots resolved as the compiler does.
+    UsdGenGraphDesc desc;
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    UsdGenStackParams const stack(desc, node, ops.Record(ops.Find(node.type)));
+    UsdGenParamView const &view = stack.View();
 
     UsdGenDiagnostics diag;
     if (!op->Bind(view, &diag)) {

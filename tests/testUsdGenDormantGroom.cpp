@@ -5,7 +5,8 @@
 // and waking it cooks the edits it slept through before its tiles reappear.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
@@ -204,7 +205,6 @@ public:
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
 
     // --- Hiding the Description -------------------------------------------
     Scene scene = MakeScene("dormant-hidden", Fixture());

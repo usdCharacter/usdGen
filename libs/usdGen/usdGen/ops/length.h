@@ -7,30 +7,35 @@
 // length stage: a whole-strand capture (ops/lengthRange.h) that rescales
 // every strand to a random multiple of its own (or its clump mean's) length,
 // resampled uniformly in arc length, and emits the `restLength` plane (the
-// pre-scale reference length). The plane is declared only by a node
-// configured in randomRange mode.
+// pre-scale reference length). The emittedPlanes hook declares the plane
+// only for a node in randomRange mode.
 #ifndef USDGEN_OP_LENGTH_H
 #define USDGEN_OP_LENGTH_H
 
 #include "usdGen/op.h"
+#include "usdGen/registries/handles.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace lengthP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kMode, kMethod, kRebuild, kValue, kRandom,
+    kMinRemaining, kCull, kMin, kMax, kRandomize, kShareByClump, kFollowClumpMean,
+    kMask,
+    kCount
+};
+enum Mode : int { kModeScale, kModeSet, kModeCull, kModeRandomRange };
+enum Method : int { kMethodScale, kMethodCutExtend };
+enum Tok : uint16_t { kTokClumpId0, kTokLengthMap, kTokRestLength };
+}  // namespace lengthP
+
 class UsdGenLengthOp final : public UsdGenOp
 {
 public:
-    UsdGenLengthOp() = default;
+    explicit UsdGenLengthOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenLengthOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenLength"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> OutputPrimvars() const override;
-    void Configure(UsdGenParamView const &params) override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -43,13 +48,10 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sSet{"set"}, sMask{"mask"};
-    const TfToken sValue{"length:value"}, sCull{"cullThreshold"};
-    const TfToken sMinRemaining{"minRemainingLength"};
-    // {"restLength"} once Configure() saw randomRange, else empty.
-    TfTokenVector _outputs;
 };
+
+class UsdGenRegistrar;
+UsdGenOpId UsdGenRegisterLengthOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
 

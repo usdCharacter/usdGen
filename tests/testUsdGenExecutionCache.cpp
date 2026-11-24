@@ -1,7 +1,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/sessionCooker.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -130,7 +131,6 @@ std::shared_ptr<const UsdGenGeneration> DevicePayload(
 
 int main()
 {
-    usdGenRegisterM1Operators();
     UsdGenGraphDesc desc = Description();
     UsdGenExecutionInputVersions versions =
         UsdGenExecutionInputVersions::FromDescription(desc);

@@ -8,6 +8,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <string_view>
 
 namespace usdGen::vulkan {
 namespace {
@@ -16,10 +17,11 @@ constexpr uint64_t kWaitNs = 30000000000ull;
 void Error(std::vector<std::string>* diagnostics, std::string const& message) {
     if (diagnostics) diagnostics->push_back(message);
 }
-TfToken CanonicalName(TfToken const& name) {
-    auto value = name.GetString();
-    if (value.compare(0, 7, "usdGen:") == 0) value.erase(0, 7);
-    return TfToken(value);
+// A destination's name without "usdGen:"; compares text, never interns.
+std::string_view CanonicalName(TfToken const& name) {
+    std::string_view value = name.GetString();
+    if (value.compare(0, 7, "usdGen:") == 0) value.remove_prefix(7);
+    return value;
 }
 bool MapWhole(DeviceContext const& context, ChargedBuffer const& buffer, void** mapped) {
     return vkMapMemory(context.device(), buffer.memory(), 0, buffer.sizeBytes(), 0, mapped) ==

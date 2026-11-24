@@ -11,8 +11,9 @@
 // Clump motion metadata therefore does not alter this deterministic styler;
 // changing its frequency or root frame would override authored wave shape.
 #include "usdGen/ops/wave.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/opParams.h"
 
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/tf/diagnostic.h"
@@ -23,10 +24,13 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+using namespace waveP;
 
 namespace {
 
@@ -42,29 +46,23 @@ bool Finite(double v) { return std::isfinite(v); }
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    return UsdGenBaseTopologyParams();
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("frequencyU"));
-    v.push_back(TfToken("frequencyN"));
-    v.push_back(TfToken("amplitudeU"));
-    v.push_back(TfToken("amplitudeN"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenWaveOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenWaveOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"frequencyU", UsdGenParamClass::Value, true, kFloatAll},
+    {"frequencyN", UsdGenParamClass::Value, true, kFloatAll},
+    {"amplitudeU", UsdGenParamClass::Value, true, kFloatAll},
+    {"amplitudeN", UsdGenParamClass::Value, true, kFloatAll},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenWaveOp>(r); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenWaveOp::CreateCapture() const
 {
     return std::make_unique<UsdGenWaveCapture>();
@@ -76,8 +74,9 @@ uint32_t UsdGenWaveOp::PlanesTouched() const
 
 bool UsdGenWaveOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    for (char const *name : {"frequencyU", "frequencyN", "amplitudeU", "amplitudeN"}) {
-        double const v = params.GetDoubleLiteral(TfToken(name), 0.0);
+    for (UsdGenParamSlot s : {kFrequencyU, kFrequencyN, kAmplitudeU, kAmplitudeN}) {
+        char const *const name = kParams[s].name;
+        double const v = params.GetDoubleLiteral(s, 0.0);
         if (!Finite(v)) {
             if (diag) diag->Error(std::string("UsdGenWave: usdGen:") + name + " must be finite");
             return false;
@@ -110,8 +109,9 @@ bool UsdGenWaveOp::Capture(
     // Literals are validated here (the CPU lane never calls Bind) and every
     // connected value is scanned, so a non-finite expression fails closed at
     // capture instead of writing NaN points per frame.
-    for (char const *name : {"frequencyU", "frequencyN", "amplitudeU", "amplitudeN"}) {
-        if (!Finite(p->GetDoubleLiteral(TfToken(name), 0.0))) {
+    for (UsdGenParamSlot s : {kFrequencyU, kFrequencyN, kAmplitudeU, kAmplitudeN}) {
+        char const *const name = kParams[s].name;
+        if (!Finite(p->GetDoubleLiteral(s, 0.0))) {
             if (diag) diag->Error(std::string("UsdGenWave: usdGen:") + name + " must be finite");
             return false;
         }
@@ -140,10 +140,10 @@ bool UsdGenWaveOp::Capture(
         uint32_t const perCurve = R ? nCvs / R : 0;
         for (uint32_t c = 0; c != R; ++c) spans[c + 1] = spans[c] + perCurve;
     }
-    UsdGenParamField const freqU = p->GetScalarField(sFrequencyU, 1.0);
-    UsdGenParamField const freqN = p->GetScalarField(sFrequencyN, 1.0);
-    UsdGenParamField const ampU = p->GetScalarField(sAmplitudeU, 0.0);
-    UsdGenParamField const ampN = p->GetScalarField(sAmplitudeN, 0.0);
+    UsdGenParamField const freqU = p->GetScalarField(kFrequencyU, 1.0);
+    UsdGenParamField const freqN = p->GetScalarField(kFrequencyN, 1.0);
+    UsdGenParamField const ampU = p->GetScalarField(kAmplitudeU, 0.0);
+    UsdGenParamField const ampN = p->GetScalarField(kAmplitudeN, 0.0);
     for (uint32_t c = 0; c != R; ++c) {
         uint32_t const root = spans[c];
         if (!Finite(freqU.Value(c, root)) || !Finite(freqN.Value(c, root))) {
@@ -168,15 +168,15 @@ void UsdGenWaveOp::Evaluate(
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const freqUField =
-        p ? p->GetScalarField(sFrequencyU, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kFrequencyU, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const freqNField =
-        p ? p->GetScalarField(sFrequencyN, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kFrequencyN, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const ampUField =
-        p ? p->GetScalarField(sAmplitudeU, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAmplitudeU, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const ampNField =
-        p ? p->GetScalarField(sAmplitudeN, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAmplitudeN, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     auto const *rootT = view->rootT, *rootN = view->rootN;
@@ -219,6 +219,17 @@ void UsdGenWaveOp::Evaluate(
             pz[o] = inPz[o] + T[2] * dT + N[2] * dN;
         }
     }
+}
+
+UsdGenOpId UsdGenRegisterWaveOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenWave";
+    d.displayName = "Wave";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

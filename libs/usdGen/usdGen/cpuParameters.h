@@ -10,8 +10,8 @@
 //
 // Parity with the CUDA lane: the IR interpreter and the geometry fields are
 // shared code (expressions/irExec.h, expressions/cpuEvaluator.{h,cpp}), the
-// admissible destinations/domains per operator are shared code
-// (expressionTargets.{h,cpp}), and the per-element index rule below is the
+// admissible destinations/domains per operator are the op record's
+// parameter decls (UsdGenValidateExpressionBindings), and the per-element index rule below is the
 // one gpu::ReadScalar/ReadBool/ReadInt implement: groom broadcasts, primitive
 // indexes by curve, point indexes by CV.
 #ifndef USDGEN_CPU_PARAMETERS_H
@@ -21,8 +21,9 @@
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/ir.h"
 #include "usdGen/expressions/samplers.h"
-#include "usdGen/expressionTargets.h"
 #include "usdGen/graphDesc.h"
+#include "usdGen/registries/handles.h"
+#include "usdGen/registries/typeRegistry.h"
 
 #include "pxr/base/tf/token.h"
 
@@ -36,6 +37,21 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenPtexTexture;
+class UsdGenOpRecord;
+
+/// The node's op record: the intake-resolved id, else a registry probe by
+/// type (descs built outside the compiler). Null for an unregistered type.
+/// Never interns.
+UsdGenOpRecord const *UsdGenNodeRecord(UsdGenNodeDesc const &node) noexcept;
+
+/// True when the node's op has the emitsLimitSurfaceUv hook and it fires
+/// for the node's authored params.
+bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node);
+
+/// Parses a map prim's usdGen:map:* params once (the map types'
+/// parseOptions). Unauthored or mistyped params keep their defaults.
+bool UsdGenParseMapOptions(UsdGenMapDesc const &map, UsdGenMapOptions *out,
+                           std::string *error);
 
 /// One connected destination's evaluated values, decoded from the typed
 /// destination buffer into doubles. `count` is 1 for the groom domain, the
@@ -43,6 +59,7 @@ class UsdGenPtexTexture;
 struct UsdGenExpressionValue
 {
     TfToken destination;                 // canonical: the `usdGen:` prefix stripped
+    UsdGenParamSlot slot = kUsdGenNoParam;   // the op's param slot; none for undeclared names
     expr::Domain domain = expr::Domain::Groom;
     expr::ScalarType type = expr::ScalarType::Invalid;
     uint32_t components = 1;
@@ -72,7 +89,14 @@ public:
     /// one). Reports whether anything was published before.
     bool Clear() noexcept;
 
+    /// By name, with or without `usdGen:`. Never interns.
     UsdGenExpressionValue const *Find(TfToken const &destination) const;
+    /// By the op's param slot, O(1).
+    UsdGenExpressionValue const *FindSlot(UsdGenParamSlot slot) const noexcept
+    {
+        uint16_t const v = slot < kUsdGenMaxParamsPerOp ? slotToValue_[slot] : 0;
+        return v && v <= values_.size() ? &values_[v - 1u] : nullptr;
+    }
     bool Empty() const noexcept { return values_.empty(); }
     /// Identity of the currently published values; folded into the node's
     /// capture identity so a source edit re-captures.
@@ -105,7 +129,8 @@ private:
     };
     struct Item {
         UsdGenExpressionBinding binding;
-        TfToken canonical;
+        UsdGenParamSlot slot = kUsdGenNoParam;
+        TfToken canonical;               // the destination without `usdGen:`
         expr::IRProgram ir;
         std::vector<double> literal;
         std::vector<std::unique_ptr<SamplerState>> samplers;
@@ -123,6 +148,9 @@ private:
     bool compiled_ = false;
     std::vector<Item> items_;
     std::vector<UsdGenExpressionValue> values_;
+    UsdGenOpRecord const *record_ = nullptr;   // resolves names to slots
+    uint16_t slotToValue_[kUsdGenMaxParamsPerOp] = {};   // values_ index + 1; 0 none
+    void IndexSlots() noexcept;
     // Scratch that the borrowed geometry view points into; reused per frame so
     // evaluation allocates nothing after the first cook of a given topology.
     std::vector<uint32_t> offsets_;

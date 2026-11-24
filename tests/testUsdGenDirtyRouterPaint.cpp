@@ -9,7 +9,8 @@
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
 
@@ -121,7 +122,6 @@ HdDataSourceLocator Loc(std::initializer_list<TfToken> tokens)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     // 1. The compiled snapshot resolves paint maps from both ref lists.
     UsdGenCompiler compiler;

@@ -28,7 +28,6 @@
 // are untouched.
 #include "usdGen/ops/trim.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/lengthRange.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
@@ -39,6 +38,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -46,11 +46,28 @@ namespace usdGen {
 
 namespace {
 
-TfTokenVector const kTrimReferences{TfToken("trim:curves")};
-TfToken const kAngle("trim:angle"), kInvert("trim:invert"), kDistance("trim:distance"),
-    kNormalSearch("trim:normalSearch");
-TfToken const kPlaneAngle("trimAngle"), kPlaneInvert("trimInvert"),
-    kPlaneDistance("trimDistance"), kPlaneNormal("normal");
+using namespace trimP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+// input, surface, seed, the structural parameters, then enabled and mask.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"trim:angle", UsdGenParamClass::Capture},
+    {"trim:invert", UsdGenParamClass::Capture},
+    {"trim:distance", UsdGenParamClass::Capture},
+    {"trim:normalSearch", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+constexpr char const *kReferences[] = {"trim:curves"};
+constexpr char const *kTokens[] = {"trimAngle", "trimInvert", "trimDistance", "normal"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenTrimOp>(r);
+}
 
 template <class F>
 void ParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const &body)
@@ -176,13 +193,13 @@ UsdGenPlane const *FindPlane(std::vector<UsdGenPlane> const &planes, TfToken con
 bool CurveValue(UsdGenPlane const *plane, size_t curve, size_t curves, double *out)
 {
     if (!plane || plane->arity < 1) return false;
-    bool const constant = plane->interpolation == TfToken("constant");
-    if (!constant && plane->interpolation != TfToken("uniform")) return false;
+    bool const constant = plane->interpolation == UsdGenTokens().constant;
+    if (!constant && plane->interpolation != UsdGenTokens().uniform) return false;
     size_t const element = constant ? 0 : curve;
     if (!constant && curve >= curves) return false;
     size_t const index = element * plane->arity;
     double v;
-    if (plane->type == TfToken("int")) {
+    if (plane->type == UsdGenTokens().int_) {
         if (index >= plane->i.size()) return false;
         v = double(plane->i[index]);
     } else {
@@ -219,21 +236,6 @@ bool SegmentHitsTriangle(GfVec3f const &p0, GfVec3f const &p1, Triangle const &t
 
 }  // namespace
 
-TfSpan<const TfToken> UsdGenTrimOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(kTrimReferences.data(), kTrimReferences.size());
-}
-
-TfTokenVector UsdGenTrimOp::StructuralParameters() const
-{
-    return {kAngle, kInvert, kDistance, kNormalSearch};
-}
-
-std::vector<UsdGenStrandPlaneSpec> UsdGenTrimOp::OutputPlaneSpecs() const
-{
-    return {};
-}
-
 bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &strands,
                            std::vector<UsdGenStrandPlaneData> &, UsdGenDiagnostics *diag)
 {
@@ -264,11 +266,11 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
         return fail("trim curve point planes do not match their CV count");
     size_t const curveCount = curves.totalCurves;
 
-    UsdGenPlane const *anglePlane = FindPlane(curves.extraCurve, kPlaneAngle);
-    UsdGenPlane const *invertPlane = FindPlane(curves.extraCurve, kPlaneInvert);
-    UsdGenPlane const *distancePlane = FindPlane(curves.extraCurve, kPlaneDistance);
-    UsdGenPlane const *normalPlane = FindPlane(curves.extraCv, kPlaneNormal);
-    bool const storedNormals = normalPlane && normalPlane->type == TfToken("float") &&
+    UsdGenPlane const *anglePlane = FindPlane(curves.extraCurve, Record().Token(kTokAngle));
+    UsdGenPlane const *invertPlane = FindPlane(curves.extraCurve, Record().Token(kTokInvert));
+    UsdGenPlane const *distancePlane = FindPlane(curves.extraCurve, Record().Token(kTokDistance));
+    UsdGenPlane const *normalPlane = FindPlane(curves.extraCv, Record().Token(kTokNormal));
+    bool const storedNormals = normalPlane && normalPlane->type == UsdGenTokens().float_ &&
         normalPlane->arity == 3 && normalPlane->f.size() == size_t(curves.totalCvs) * 3;
 
     // Closest-point normals come from the bound surface (rest pose, where the
@@ -373,6 +375,18 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
                                 lengthRange::TipDirection(original.data(), n), sCut, n, pts);
     });
     return true;
+}
+
+UsdGenOpId UsdGenRegisterTrimOp(UsdGenRegistrar &r)
+{
+    UsdGenOpDef d;
+    d.name = "UsdGenTrim";
+    d.displayName = "Trim";
+    d.create = &Create;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

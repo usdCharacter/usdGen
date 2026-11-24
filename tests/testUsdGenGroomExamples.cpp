@@ -16,7 +16,8 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/maps/ptexMap.h"
-#include "usdGen/opRegistry.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
@@ -534,7 +535,6 @@ void CheckClumpMapDirtyPropagation()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     {
         UsdStageRefPtr const guideStage = UsdStage::Open(kGuideScene);
         if (!guideStage) { std::printf("FAIL: cannot open %s\n", kGuideScene); return 1; }
