@@ -11,10 +11,11 @@
 // zero-length axis bends nothing. All work is per curve/CV in Evaluate;
 // Capture only validates.
 #include "usdGen/ops/bend.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
 #include "usdGen/clumpMotion.h"
 
-#include "usdGen/opParams.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
@@ -33,6 +34,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+using namespace bendP;
+
 namespace {
 
 struct UsdGenBendCapture final : public UsdGenCapturePayload
@@ -47,21 +50,21 @@ struct UsdGenBendCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetVtValue(name, VtValue());
+    if (VtValue const v = p->GetValue(name, VtValue());
         v.IsHolding<VtVec2fArray>()) {
         return v.UncheckedGet<VtVec2fArray>();
     }
     return {};
 }
 
-inline void ReadVec2Prop(UsdGenParamView const &p, TfToken const &name,
+inline void ReadVec2Prop(UsdGenParamView const &p, UsdGenParamSlot name,
                          double &lo, double &hi)
 {
     lo = 1.0; hi = 1.0;
-    if (VtValue const v = p.GetVtValue(name, VtValue()); v.IsHolding<VtFloatArray>()) {
+    if (VtValue const v = p.GetValue(name, VtValue()); v.IsHolding<VtFloatArray>()) {
         VtFloatArray const a = v.UncheckedGet<VtFloatArray>();
         if (a.size() >= 2) { lo = a[0]; hi = a[1]; }
     } else if (v.IsHolding<GfVec2f>()) {
@@ -72,32 +75,28 @@ inline void ReadVec2Prop(UsdGenParamView const &p, TfToken const &name,
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("axisMode"));   // structural: selects the axis frame (02 §2.7.2)
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("angle"));
-    v.push_back(TfToken("angle:knots"));
-    v.push_back(TfToken("angle:interpolation"));
-    v.push_back(TfToken("angleRandom"));
-    v.push_back(TfToken("axis"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenBendOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenBendOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloat2Root{expr::ScalarType::Float32, 2, "float2", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kVec3Root{expr::ScalarType::Float32, 3, "vector3f", D::Groom | D::Primitive};
+constexpr char const *kAxisModes[] = {"rootDirection", "uniform", "attribute"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"axisMode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kAxisModes)},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"angle", UsdGenParamClass::Value, true, kFloatAll},
+    {"angle:knots", UsdGenParamClass::Value},
+    {"angle:interpolation", UsdGenParamClass::Value},
+    {"angleRandom", UsdGenParamClass::Value, true, kFloat2Root},
+    {"axis", UsdGenParamClass::Value, true, kVec3Root},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenBendOp>(); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenBendOp::CreateCapture() const
 {
     return std::make_unique<UsdGenBendCapture>();
@@ -109,22 +108,22 @@ uint32_t UsdGenBendOp::PlanesTouched() const
 
 bool UsdGenBendOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sAxisMode, sRootDirection);
-    if (mode != sRootDirection && mode != sUniform && mode != sAttribute) {
-        if (diag) diag->Error("UsdGenBend: unknown usdGen:axisMode '" + mode.GetString() + "'");
+    TfToken const *unknown = nullptr;
+    if (UsdGenStylerEnum(params, kAxisMode, kAxisRootDirection, &unknown) < 0) {
+        if (diag) diag->Error("UsdGenBend: unknown usdGen:axisMode '" + unknown->GetString() + "'");
         return false;
     }
-    if (!Finite(params.GetDoubleLiteral(sAngle, 0.0))) {
+    if (!Finite(params.GetDoubleLiteral(kAngle, 0.0))) {
         if (diag) diag->Error("UsdGenBend: usdGen:angle must be finite");
         return false;
     }
     double lo = 1.0, hi = 1.0;
-    ReadVec2Prop(params, sAngleRandom, lo, hi);
+    ReadVec2Prop(params, kAngleRandom, lo, hi);
     if (!Finite(lo) || !Finite(hi)) {
         if (diag) diag->Error("UsdGenBend: usdGen:angleRandom must be finite");
         return false;
     }
-    VtValue const axis = params.GetVtValue(sAxis, VtValue());
+    VtValue const axis = params.GetValue(kAxis, VtValue());
     if (!axis.IsEmpty() && !axis.IsHolding<GfVec3f>()) {
         if (diag) diag->Error("UsdGenBend: usdGen:axis must be vector3f");
         return false;
@@ -144,7 +143,7 @@ UsdGenEpoch UsdGenBendOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
     auto feed = [&](uint64_t v) { h ^= v; h *= 0x100000001b3ULL; };
-    feed(p ? uint64_t(p->GetToken(sAxisMode, sRootDirection).Hash()) : 0u);
+    feed(p ? uint64_t(UsdGenStylerEnum(*p, kAxisMode, kAxisRootDirection) + 2) : 0u);
     feed(ctx.upstreamGeneration);
     feed(uint64_t(ctx.seed));
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -200,9 +199,9 @@ bool UsdGenBendOp::Capture(
         uint32_t const perCurve = R ? nCvs / R : 0;
         for (uint32_t c = 0; c != R; ++c) spans[c + 1] = spans[c] + perCurve;
     }
-    UsdGenParamField const angle = p->GetScalarField(sAngle, 0.0);
-    UsdGenParamField const random = p->GetScalarField(sAngleRandom, 1.0);
-    UsdGenParamField const axis = p->GetScalarField(sAxis, 0.0);
+    UsdGenParamField const angle = p->GetScalarField(kAngle, 0.0);
+    UsdGenParamField const random = p->GetScalarField(kAngleRandom, 1.0);
+    UsdGenParamField const axis = p->GetScalarField(kAxis, 0.0);
     if ((random.connected && random.components != 2) ||
         (axis.connected && axis.components != 3)) {
         if (diag) diag->Error("UsdGenBend: connected angleRandom must be float2 and "
@@ -240,33 +239,33 @@ void UsdGenBendOp::Evaluate(
     auto const &cap = static_cast<UsdGenBendCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const angleField =
-        p ? p->GetScalarField(sAngle, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAngle, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const randomField =
-        p ? p->GetScalarField(sAngleRandom, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kAngleRandom, 1.0) : UsdGenParamField{1.0};
     UsdGenParamField const axisField =
-        p ? p->GetScalarField(sAxis, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAxis, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     double litLo = 1.0, litHi = 1.0;
     GfVec3f litAxis(1.0f, 0.0f, 0.0f);
-    TfToken mode = sRootDirection;
+    int mode = kAxisRootDirection;
     if (p) {
-        ReadVec2Prop(*p, sAngleRandom, litLo, litHi);
+        ReadVec2Prop(*p, kAngleRandom, litLo, litHi);
         if (litLo > litHi) std::swap(litLo, litHi);
-        VtValue const v = p->GetVtValue(sAxis, VtValue());
+        VtValue const v = p->GetValue(kAxis, VtValue());
         if (v.IsHolding<GfVec3f>()) litAxis = v.UncheckedGet<GfVec3f>();
-        mode = p->GetToken(sAxisMode, sRootDirection);
+        mode = UsdGenStylerEnum(*p, kAxisMode, kAxisRootDirection);
     }
-    bool const uniformMode = mode == sUniform;
-    bool const attributeMode = mode == sAttribute;
+    bool const uniformMode = mode == kAxisUniform;
+    bool const attributeMode = mode == kAxisAttribute;
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, sAngleKnots);
+    VtVec2fArray const knots = ReadRampKnots(p, kAngleKnots);
     bool const rampFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(sAngleInterp, sCatmullRom) : sCatmullRom,
+            p ? p->GetToken(kAngleInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }
@@ -374,7 +373,13 @@ void UsdGenBendOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterBendOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenBendOp().Type(), [] { return std::make_unique<UsdGenBendOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenBend";
+    d.displayName = "Bend";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

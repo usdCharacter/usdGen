@@ -480,8 +480,8 @@ public:
     /// per-frame edits. The union must equal the node's mapped property set
     /// (S14); usdGen:enabled joins whichever set its dirty class implies
     /// (02 §6.2 topology for generators/Length, §6.3 value-toggle for the rest).
-    virtual TfSpan<const TfToken> TopologyParameters() const = 0;
-    virtual TfSpan<const TfToken> ValueParameters() const = 0;
+    virtual TfSpan<const TfToken> TopologyParameters() const { return {}; }
+    virtual TfSpan<const TfToken> ValueParameters() const { return {}; }
     /// Named reference inputs (guide sets, clump centres, card roots).
     virtual TfSpan<const TfToken> ReferenceInputs() const { return {}; }
     /// Extra planes this operator writes, in slot order (R24 fixed types/arity).

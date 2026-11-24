@@ -5,9 +5,10 @@
 // nearest-sample tangent per strand root; Evaluate shapes the target in the
 // root frame and rotates rigidly or per segment. Roots never move.
 #include "usdGen/ops/direction.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include <nanoflann.hpp>
@@ -28,6 +29,8 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+using namespace directionP;
 
 namespace {
 
@@ -61,10 +64,10 @@ using CloudIndex = nanoflann::KDTreeSingleIndexAdaptor<
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetVtValue(name, VtValue());
+    if (VtValue const v = p->GetValue(name, VtValue());
         v.IsHolding<VtVec2fArray>()) {
         return v.UncheckedGet<VtVec2fArray>();
     }
@@ -201,44 +204,37 @@ inline GfVec3f ShapeTarget(GfVec3f d, GfVec3f const &T, GfVec3f const &B,
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("mode"));              // structural: kernel branch (02 §6.1)
-    v.push_back(TfToken("direction:source"));  // structural: graph edge (02 §6.1)
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("direction"));
-    v.push_back(TfToken("amount"));
-    v.push_back(TfToken("lift"));
-    v.push_back(TfToken("tiltU"));
-    v.push_back(TfToken("tiltV"));
-    v.push_back(TfToken("tiltN"));
-    v.push_back(TfToken("aroundN"));
-    v.push_back(TfToken("followSkinContour"));
-    v.push_back(TfToken("direction:knots"));
-    v.push_back(TfToken("direction:interpolation"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
-
-static TfTokenVector const _referenceInputs{TfToken("direction:source")};
-
-TfSpan<const TfToken> UsdGenDirectionOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenDirectionOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
-TfSpan<const TfToken> UsdGenDirectionOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kVec3Root{expr::ScalarType::Float32, 3, "vector3f", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kFloatRoot{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kFloatGroom{expr::ScalarType::Float32, 1, "float", D::Groom};
+constexpr char const *kModes[] = {"rigid", "perSegment"};
+constexpr char const *kInterps[] = {"linear", "catmullRom", "bspline", "constant"};
+constexpr char const *kReferences[] = {"direction:source"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"mode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kModes)},
+    {"direction:source", UsdGenParamClass::Structural},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"direction", UsdGenParamClass::Value, true, kVec3Root},
+    {"amount", UsdGenParamClass::Value, true, kFloatRoot},
+    {"lift", UsdGenParamClass::Value, true, kFloatRoot},
+    {"tiltU", UsdGenParamClass::Value, true, kFloatGroom},
+    {"tiltV", UsdGenParamClass::Value, true, kFloatGroom},
+    {"tiltN", UsdGenParamClass::Value, true, kFloatGroom},
+    {"aroundN", UsdGenParamClass::Value, true, kFloatGroom},
+    {"followSkinContour", UsdGenParamClass::Value, true, kFloatGroom},
+    {"direction:knots", UsdGenParamClass::Value},
+    {"direction:interpolation", UsdGenParamClass::Value, true, {}, UsdGenSpan(kInterps)},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenDirectionOp>(); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenDirectionOp::CreateCapture() const
 {
     return std::make_unique<UsdGenDirectionCapture>();
@@ -250,44 +246,43 @@ uint32_t UsdGenDirectionOp::PlanesTouched() const
 
 bool UsdGenDirectionOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sMode, sRigid);
-    if (mode != sRigid && mode != sPerSegment) {
-        if (diag) diag->Error("UsdGenDirection: unknown usdGen:mode '" + mode.GetString() + "'");
+    TfToken const *unknown = nullptr;
+    if (UsdGenStylerEnum(params, kMode, kModeRigid, &unknown) < 0) {
+        if (diag) diag->Error("UsdGenDirection: unknown usdGen:mode '" + unknown->GetString() + "'");
         return false;
     }
-    TfToken const interp = params.GetToken(sInterp, sCatmullRom);
-    if (interp != sLinear && interp != sCatmullRom && interp != sBspline &&
-        interp != sConstant) {
+    if (UsdGenStylerEnum(params, kInterp, kInterpCatmullRom, &unknown) < 0) {
         if (diag)
             diag->Error("UsdGenDirection: unknown usdGen:direction:interpolation '" +
-                        interp.GetString() + "'");
+                        unknown->GetString() + "'");
         return false;
     }
-    double const amount = params.GetDoubleLiteral(sAmount, 0.0);
+    double const amount = params.GetDoubleLiteral(kAmount, 0.0);
     if (!Finite(amount) || amount < 0.0 || amount > 1.0) {
         if (diag) diag->Error("UsdGenDirection: usdGen:amount must be finite and in [0, 1]");
         return false;
     }
-    double const lift = params.GetDoubleLiteral(sLift, 0.0);
+    double const lift = params.GetDoubleLiteral(kLift, 0.0);
     if (!Finite(lift) || lift < -90.0 || lift > 90.0) {
         if (diag)
             diag->Error("UsdGenDirection: usdGen:lift must be finite and in [-90, 90] degrees");
         return false;
     }
-    for (char const *name : {"tiltU", "tiltV", "tiltN", "aroundN"}) {
-        if (!Finite(params.GetDoubleLiteral(TfToken(name), 0.0))) {
+    for (UsdGenParamSlot s : {kTiltU, kTiltV, kTiltN, kAroundN}) {
+        char const *const name = kParams[s].name;
+        if (!Finite(params.GetDoubleLiteral(s, 0.0))) {
             if (diag)
                 diag->Error(std::string("UsdGenDirection: usdGen:") + name + " must be finite");
             return false;
         }
     }
-    double const follow = params.GetDoubleLiteral(sFollow, 0.0);
+    double const follow = params.GetDoubleLiteral(kFollow, 0.0);
     if (!Finite(follow) || follow < 0.0 || follow > 1.0) {
         if (diag)
             diag->Error("UsdGenDirection: usdGen:followSkinContour must be finite and in [0, 1]");
         return false;
     }
-    VtValue const direction = params.GetVtValue(sDirection, VtValue());
+    VtValue const direction = params.GetValue(kDirection, VtValue());
     if (!direction.IsEmpty() && !direction.IsHolding<GfVec3f>()) {
         if (diag) diag->Error("UsdGenDirection: usdGen:direction must be vector3f");
         return false;
@@ -299,7 +294,7 @@ bool UsdGenDirectionOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *d
             return false;
         }
     }
-    VtValue const knots = params.GetVtValue(sKnots, VtValue());
+    VtValue const knots = params.GetValue(kKnots, VtValue());
     if (!knots.IsEmpty() && !knots.IsHolding<VtVec2fArray>()) {
         if (diag) diag->Error("UsdGenDirection: usdGen:direction:knots must be float2[]");
         return false;
@@ -325,7 +320,7 @@ UsdGenEpoch UsdGenDirectionOp::CaptureDigest(UsdGenCaptureContext const &ctx) co
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
     auto feed = [&](uint64_t v) { h ^= v; h *= 0x100000001b3ULL; };
-    feed(p ? uint64_t(p->GetToken(sMode, sRigid).Hash()) : 0u);
+    feed(p ? uint64_t(UsdGenStylerEnum(*p, kMode, kModeRigid) + 2) : 0u);
     feed(ctx.upstreamGeneration);
     feed(uint64_t(ctx.seed));
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -345,7 +340,7 @@ bool UsdGenDirectionOp::Capture(
     };
     if (p && !Bind(*p, diag)) return false;
     for (uint32_t i = 0; i < ctx.mapBindingCount; ++i) {
-        if (ctx.mapBindings && ctx.mapBindings[i].relationship == sSource)
+        if (ctx.mapBindings && p && p->op && ctx.mapBindings[i].relationship == p->op->ParamName(kSource))
             return fail("map-driven direction:source is not implemented by this kernel "
                         "revision; target a curve set or an operator instead");
     }
@@ -363,21 +358,22 @@ bool UsdGenDirectionOp::Capture(
     // same granularity Evaluate samples them: direction/amount/lift per curve
     // root, the mask per CV, the groom-wide tilts through their groom fold.
     UsdGenParamField const directionField =
-        p ? p->GetScalarField(sDirection, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kDirection, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const amountField =
-        p ? p->GetScalarField(sAmount, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAmount, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const liftField =
-        p ? p->GetScalarField(sLift, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kLift, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     if (directionField.connected && directionField.components != 3)
         return fail("connected direction must be vector3f");
     if (p) {
-        for (char const *name : {"tiltU", "tiltV", "tiltN", "aroundN"}) {
-            if (!Finite(p->GetDouble(TfToken(name), 0.0)))
+        for (UsdGenParamSlot s : {kTiltU, kTiltV, kTiltN, kAroundN}) {
+            char const *const name = kParams[s].name;
+            if (!Finite(p->GetDouble(s, 0.0)))
                 return fail(std::string("groom usdGen:") + name + " must be finite");
         }
-        if (!Finite(p->GetDouble(sFollow, 0.0)))
+        if (!Finite(p->GetDouble(kFollow, 0.0)))
             return fail("groom usdGen:followSkinContour must be finite");
     }
     for (size_t c = 0; c < R; ++c) {
@@ -457,35 +453,35 @@ void UsdGenDirectionOp::Evaluate(
     auto const &cap = static_cast<UsdGenDirectionCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const directionField =
-        p ? p->GetScalarField(sDirection, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kDirection, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const amountField =
-        p ? p->GetScalarField(sAmount, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kAmount, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const liftField =
-        p ? p->GetScalarField(sLift, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kLift, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     GfVec3f litDirection(0.0f, 1.0f, 0.0f);
     double tiltU = 0.0, tiltV = 0.0, tiltN = 0.0, aroundN = 0.0, follow = 0.0;
     bool perSegment = false;
     if (p) {
-        VtValue const v = p->GetVtValue(sDirection, VtValue());
+        VtValue const v = p->GetValue(kDirection, VtValue());
         if (v.IsHolding<GfVec3f>()) litDirection = v.UncheckedGet<GfVec3f>();
-        tiltU = p->GetDouble(sTiltU, 0.0);
-        tiltV = p->GetDouble(sTiltV, 0.0);
-        tiltN = p->GetDouble(sTiltN, 0.0);
-        aroundN = p->GetDouble(sAroundN, 0.0);
-        follow = std::clamp(p->GetDouble(sFollow, 0.0), 0.0, 1.0);
-        perSegment = p->GetToken(sMode, sRigid) == sPerSegment;
+        tiltU = p->GetDouble(kTiltU, 0.0);
+        tiltV = p->GetDouble(kTiltV, 0.0);
+        tiltN = p->GetDouble(kTiltN, 0.0);
+        aroundN = p->GetDouble(kAroundN, 0.0);
+        follow = std::clamp(p->GetDouble(kFollow, 0.0), 0.0, 1.0);
+        perSegment = UsdGenStylerEnum(*p, kMode, kModeRigid) == kModePerSegment;
     }
     bool const sourceBound = !cap.sourceDir.empty();
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, sKnots);
+    VtVec2fArray const knots = ReadRampKnots(p, kKnots);
     bool const rampFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(sInterp, sCatmullRom) : sCatmullRom,
+            p ? p->GetToken(kInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }
@@ -622,7 +618,14 @@ void UsdGenDirectionOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterDirectionOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenDirectionOp().Type(), [] { return std::make_unique<UsdGenDirectionOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenDirection";
+    d.displayName = "Direction";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferences);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

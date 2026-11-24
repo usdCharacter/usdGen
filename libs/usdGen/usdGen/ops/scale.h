@@ -15,6 +15,14 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace scaleP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kWidthToo,
+    kEnabled, kScale, kScaleKnots, kScaleInterp, kScaleRandom, kMask,
+    kCount
+};
+}  // namespace scaleP
+
 class UsdGenScaleOp final : public UsdGenOp
 {
 public:
@@ -22,10 +30,6 @@ public:
     ~UsdGenScaleOp() override = default;
 
     TfToken Type() const override { return TfToken("UsdGenScale"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -38,15 +42,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sScale{"scale"}, sScaleKnots{"scale:knots"};
-    const TfToken sScaleInterp{"scale:interpolation"}, sCatmullRom{"catmullRom"};
-    const TfToken sScaleRandom{"scaleRandom"}, sWidthToo{"widthToo"};
-    const TfToken sMask{"mask"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterScaleOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

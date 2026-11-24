@@ -11,10 +11,11 @@
 // offsets by r(0). All work is per curve/CV in Evaluate; Capture only
 // validates.
 #include "usdGen/ops/curl.h"
+#include "usdGen/ops/stylerParams.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
 #include "usdGen/clumpMotion.h"
 
-#include "usdGen/opParams.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
@@ -33,6 +34,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+using namespace curlP;
+
 namespace {
 
 struct UsdGenCurlCapture final : public UsdGenCapturePayload
@@ -47,10 +50,10 @@ struct UsdGenCurlCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetVtValue(name, VtValue());
+    if (VtValue const v = p->GetValue(name, VtValue());
         v.IsHolding<VtVec2fArray>()) {
         return v.UncheckedGet<VtVec2fArray>();
     }
@@ -65,35 +68,29 @@ inline GfVec3f Normalized(GfVec3f v, GfVec3f const &fallback)
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("axisMode"));   // structural: selects the frame (02 §2.7.2)
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));
-    v.push_back(TfToken("radius"));
-    v.push_back(TfToken("radius:knots"));
-    v.push_back(TfToken("radius:interpolation"));
-    v.push_back(TfToken("frequency"));
-    v.push_back(TfToken("phase"));
-    v.push_back(TfToken("phaseRandom"));
-    v.push_back(TfToken("taper"));
-    v.push_back(TfToken("clockwise"));
-    v.push_back(TfToken("mask"));
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenCurlOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenCurlOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
+namespace {
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr char const *kAxisModes[] = {"curveTangent", "guide"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"axisMode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kAxisModes)},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},
+    {"radius", UsdGenParamClass::Value, true, kFloatAll},
+    {"radius:knots", UsdGenParamClass::Value},
+    {"radius:interpolation", UsdGenParamClass::Value},
+    {"frequency", UsdGenParamClass::Value, true, kFloatAll},
+    {"phase", UsdGenParamClass::Value, true, kFloatAll},
+    {"phaseRandom", UsdGenParamClass::Value, true, kFloatAll},
+    {"taper", UsdGenParamClass::Value, true, kBoolGroom},
+    {"clockwise", UsdGenParamClass::Value, true, kBoolGroom},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},
+};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenCurlOp>(); }
+}  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenCurlOp::CreateCapture() const
 {
     return std::make_unique<UsdGenCurlCapture>();
@@ -105,13 +102,14 @@ uint32_t UsdGenCurlOp::PlanesTouched() const
 
 bool UsdGenCurlOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sAxisMode, sCurveTangent);
-    if (mode != sCurveTangent && mode != sGuide) {
-        if (diag) diag->Error("UsdGenCurl: unknown usdGen:axisMode '" + mode.GetString() + "'");
+    TfToken const *unknown = nullptr;
+    if (UsdGenStylerEnum(params, kAxisMode, kAxisCurveTangent, &unknown) < 0) {
+        if (diag) diag->Error("UsdGenCurl: unknown usdGen:axisMode '" + unknown->GetString() + "'");
         return false;
     }
-    for (char const *name : {"radius", "frequency", "phase", "phaseRandom"}) {
-        if (!Finite(params.GetDoubleLiteral(TfToken(name), 0.0))) {
+    for (UsdGenParamSlot s : {kRadius, kFrequency, kPhase, kPhaseRandom}) {
+        char const *const name = kParams[s].name;
+        if (!Finite(params.GetDoubleLiteral(s, 0.0))) {
             if (diag) diag->Error(std::string("UsdGenCurl: usdGen:") + name + " must be finite");
             return false;
         }
@@ -124,7 +122,7 @@ UsdGenEpoch UsdGenCurlOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     uint64_t h = 1469598103934665603ULL;
     auto feed = [&](uint64_t v) { h ^= v; h *= 0x100000001b3ULL; };
-    feed(p ? uint64_t(p->GetToken(sAxisMode, sCurveTangent).Hash()) : 0u);
+    feed(p ? uint64_t(UsdGenStylerEnum(*p, kAxisMode, kAxisCurveTangent) + 2) : 0u);
     feed(ctx.upstreamGeneration);
     feed(uint64_t(ctx.seed));
     return {h, h ^ 0x9E3779B97F4A7C15ull};
@@ -155,13 +153,14 @@ bool UsdGenCurlOp::Capture(
     }
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
-    TfToken const mode = p->GetToken(sAxisMode, sCurveTangent);
-    if (mode != sCurveTangent && mode != sGuide) {
-        if (diag) diag->Error("UsdGenCurl: unknown usdGen:axisMode '" + mode.GetString() + "'");
+    TfToken const *unknown = nullptr;
+    if (UsdGenStylerEnum(*p, kAxisMode, kAxisCurveTangent, &unknown) < 0) {
+        if (diag) diag->Error("UsdGenCurl: unknown usdGen:axisMode '" + unknown->GetString() + "'");
         return false;
     }
-    for (char const *name : {"radius", "frequency", "phase", "phaseRandom"}) {
-        if (!Finite(p->GetDoubleLiteral(TfToken(name), 0.0))) {
+    for (UsdGenParamSlot s : {kRadius, kFrequency, kPhase, kPhaseRandom}) {
+        char const *const name = kParams[s].name;
+        if (!Finite(p->GetDoubleLiteral(s, 0.0))) {
             if (diag) diag->Error(std::string("UsdGenCurl: usdGen:") + name + " must be finite");
             return false;
         }
@@ -190,10 +189,10 @@ bool UsdGenCurlOp::Capture(
         uint32_t const perCurve = R ? nCvs / R : 0;
         for (uint32_t c = 0; c != R; ++c) spans[c + 1] = spans[c] + perCurve;
     }
-    UsdGenParamField const radius = p->GetScalarField(sRadius, 0.02);
-    UsdGenParamField const frequency = p->GetScalarField(sFrequency, 2.0);
-    UsdGenParamField const phase = p->GetScalarField(sPhase, 0.0);
-    UsdGenParamField const phaseRandom = p->GetScalarField(sPhaseRandom, 0.0);
+    UsdGenParamField const radius = p->GetScalarField(kRadius, 0.02);
+    UsdGenParamField const frequency = p->GetScalarField(kFrequency, 2.0);
+    UsdGenParamField const phase = p->GetScalarField(kPhase, 0.0);
+    UsdGenParamField const phaseRandom = p->GetScalarField(kPhaseRandom, 0.0);
     for (uint32_t c = 0; c != R; ++c) {
         uint32_t const root = spans[c];
         if (!Finite(frequency.Value(c, root)) || !Finite(phase.Value(c, root)) ||
@@ -219,26 +218,26 @@ void UsdGenCurlOp::Evaluate(
     auto const &cap = static_cast<UsdGenCurlCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const radiusField =
-        p ? p->GetScalarField(sRadius, 0.02) : UsdGenParamField{0.02};
+        p ? p->GetScalarField(kRadius, 0.02) : UsdGenParamField{0.02};
     UsdGenParamField const frequencyField =
-        p ? p->GetScalarField(sFrequency, 2.0) : UsdGenParamField{2.0};
+        p ? p->GetScalarField(kFrequency, 2.0) : UsdGenParamField{2.0};
     UsdGenParamField const phaseField =
-        p ? p->GetScalarField(sPhase, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kPhase, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const phaseRandomField =
-        p ? p->GetScalarField(sPhaseRandom, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kPhaseRandom, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
-    bool const taper = p ? p->GetBool(sTaper, true) : true;
-    bool const clockwise = p ? p->GetBool(sClockwise, true) : true;
-    bool const guideMode = p && p->GetToken(sAxisMode, sCurveTangent) == sGuide;
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
+    bool const taper = p ? p->GetBool(kTaper, true) : true;
+    bool const clockwise = p ? p->GetBool(kClockwise, true) : true;
+    bool const guideMode = p && UsdGenStylerEnum(*p, kAxisMode, kAxisCurveTangent) == kAxisGuide;
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, sRadiusKnots);
+    VtVec2fArray const knots = ReadRampKnots(p, kRadiusKnots);
     bool const rampFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(sRadiusInterp, sCatmullRom) : sCatmullRom,
+            p ? p->GetToken(kRadiusInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }
@@ -348,7 +347,13 @@ void UsdGenCurlOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterCurlOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenCurlOp().Type(), [] { return std::make_unique<UsdGenCurlOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenCurl";
+    d.displayName = "Curl";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

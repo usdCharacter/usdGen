@@ -13,6 +13,14 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace waveP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed,
+    kEnabled, kFrequencyU, kFrequencyN, kAmplitudeU, kAmplitudeN, kMask,
+    kCount
+};
+}  // namespace waveP
+
 class UsdGenWaveOp final : public UsdGenOp
 {
 public:
@@ -20,10 +28,6 @@ public:
     ~UsdGenWaveOp() override = default;
 
     TfToken Type() const override { return TfToken("UsdGenWave"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -36,14 +40,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sFrequencyU{"frequencyU"}, sFrequencyN{"frequencyN"};
-    const TfToken sAmplitudeU{"amplitudeU"}, sAmplitudeN{"amplitudeN"};
-    const TfToken sMask{"mask"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterWaveOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

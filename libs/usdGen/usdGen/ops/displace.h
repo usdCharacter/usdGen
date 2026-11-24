@@ -18,6 +18,15 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace displaceP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kMode, kMap,
+    kEnabled, kMask, kAmount, kBase, kScale, kOffset,
+    kCount
+};
+enum Mode : int { kModeHeight, kModeVector };
+}  // namespace displaceP
+
 class UsdGenDisplaceOp final : public UsdGenOp
 {
 public:
@@ -25,10 +34,6 @@ public:
     ~UsdGenDisplaceOp() override = default;
 
     TfToken Type() const override { return TfToken("UsdGenDisplace"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -41,15 +46,9 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    const TfToken sAmount{"displace:amount"}, sMap{"displace:map"};
-    const TfToken sBase{"displace:base"}, sScale{"displace:scale"};
-    const TfToken sOffset{"displace:offset"}, sMode{"mode"};
-    const TfToken sHeight{"height"}, sVector{"vector"}, sMask{"mask"};
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterDisplaceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
