@@ -17,7 +17,6 @@
 #include "usdGen/scratch.h"
 
 #include "usdGen/clumpMotion.h"
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -88,11 +87,11 @@ bool FiniteVec3(GfVec3f const &v)
 
 /// Read a float2[] ramp-knots property (02 §2.17 scalar ramp). Missing or
 /// differently typed values fall back to the caller's default.
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, TfToken const &name)
+VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
     VtVec2fArray knots;
     if (p) {
-        if (VtValue const v = p->GetVtValue(name, VtValue());
+        if (VtValue const v = UsdGenAuthoredValue(*p, slot);
             v.IsHolding<VtVec2fArray>()) {
             knots = v.UncheckedGet<VtVec2fArray>();
         }
@@ -122,39 +121,42 @@ float SampleGust(uint32_t seed, uint64_t id, GfVec3f const &root, float drift)
     return 2.0f * out1 - 1.0f;
 }
 
+
+using namespace windP;
+using D = expr::Domain;
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatGP{expr::ScalarType::Float32, 1, "float", D::Groom | D::Primitive};
+constexpr UsdGenExprAdmission kFloatGroom{expr::ScalarType::Float32, 1, "float", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+constexpr UsdGenExprAdmission kVec3GP{expr::ScalarType::Float32, 3, "vector3f", D::Groom | D::Primitive};
+// Decl order is the legacy topology list, then the value list.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},   // toggle: value-class (02 §6.3)
+    {"direction", UsdGenParamClass::Value, true, kVec3GP},
+    {"constStrength", UsdGenParamClass::Value, true, kFloatGP},
+    {"gustStrength", UsdGenParamClass::Value, true, kFloatGP},
+    {"billowLowStrength", UsdGenParamClass::Value, true, kFloatGP},
+    {"billowLowFrequency", UsdGenParamClass::Value, true, kFloatGroom},
+    {"billowLowRate", UsdGenParamClass::Value, true, kFloatGroom},
+    {"billowHighStrength", UsdGenParamClass::Value, true, kFloatGP},
+    {"billowHighFrequency", UsdGenParamClass::Value, true, kFloatGroom},
+    {"billowHighRate", UsdGenParamClass::Value, true, kFloatGroom},
+    {"stiffness", UsdGenParamClass::Value, true, kFloatGroom},
+    {"stiffness:knots", UsdGenParamClass::Value},
+    {"stiffness:interpolation", UsdGenParamClass::Value},
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},       // operator envelope (02 §2.13)
+};
+constexpr char const *kTokens[] = {"linear", "catmullRom", "bspline", "constant"};
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
+{
+    return std::make_unique<UsdGenWindOp>(r);
+}
+
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    return UsdGenBaseTopologyParams();
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));      // toggle: value-class (02 §6.3)
-    v.push_back(TfToken("direction"));
-    v.push_back(TfToken("constStrength"));
-    v.push_back(TfToken("gustStrength"));
-    v.push_back(TfToken("billowLowStrength"));
-    v.push_back(TfToken("billowLowFrequency"));
-    v.push_back(TfToken("billowLowRate"));
-    v.push_back(TfToken("billowHighStrength"));
-    v.push_back(TfToken("billowHighFrequency"));
-    v.push_back(TfToken("billowHighRate"));
-    v.push_back(TfToken("stiffness"));
-    v.push_back(TfToken("stiffness:knots"));
-    v.push_back(TfToken("stiffness:interpolation"));
-    v.push_back(TfToken("mask"));         // operator envelope (02 §2.13)
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenWindOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenWindOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenWindOp::CreateCapture() const
 {
     return std::make_unique<UsdGenWindCapture>();
@@ -166,7 +168,7 @@ uint32_t UsdGenWindOp::PlanesTouched() const
 
 bool UsdGenWindOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    VtValue const direction = params.GetVtValue(sDirection, VtValue());
+    VtValue const direction = UsdGenAuthoredValue(params, kDirection);
     if (!direction.IsEmpty() && !direction.IsHolding<GfVec3f>()) {
         if (diag) diag->Error("UsdGenWind: usdGen:direction must be vector3f");
         return false;
@@ -182,24 +184,24 @@ bool UsdGenWindOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
             return false;
         }
     }
-    for (TfToken const *name : {&sConst, &sGust, &sStiffness,
-                                &sLowStrength, &sLowFrequency, &sLowRate,
-                                &sHighStrength, &sHighFrequency, &sHighRate}) {
-        double const v = params.GetDoubleLiteral(*name, 0.0);
+    for (UsdGenParamSlot slot : {kConst, kGust, kStiffness,
+                                 kLowStrength, kLowFrequency, kLowRate,
+                                 kHighStrength, kHighFrequency, kHighRate}) {
+        double const v = params.GetDoubleLiteral(slot, 0.0);
         if (!Finite(v)) {
-            if (diag) diag->Error("UsdGenWind: usdGen:" + name->GetString() +
+            if (diag) diag->Error("UsdGenWind: usdGen:" + Record().ParamName(slot).GetString() +
                                   " must be finite");
             return false;
         }
     }
-    for (TfToken const *name : {&sLowFrequency, &sHighFrequency}) {
-        if (params.GetDoubleLiteral(*name, 0.0) < 0.0) {
-            if (diag) diag->Error("UsdGenWind: usdGen:" + name->GetString() +
+    for (UsdGenParamSlot slot : {kLowFrequency, kHighFrequency}) {
+        if (params.GetDoubleLiteral(slot, 0.0) < 0.0) {
+            if (diag) diag->Error("UsdGenWind: usdGen:" + Record().ParamName(slot).GetString() +
                                   " must be nonnegative");
             return false;
         }
     }
-    VtValue const knots = params.GetVtValue(sKnots, VtValue());
+    VtValue const knots = UsdGenAuthoredValue(params, kKnots);
     if (!knots.IsEmpty() && !knots.IsHolding<VtVec2fArray>()) {
         if (diag) diag->Error("UsdGenWind: usdGen:stiffness:knots must be float2[]");
         return false;
@@ -212,9 +214,9 @@ bool UsdGenWindOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
             }
         }
     }
-    TfToken const interp = params.GetToken(sInterp, sCatmullRom);
-    if (interp != sLinear && interp != sCatmullRom && interp != sBspline &&
-        interp != sConstant) {
+    TfToken const interp = params.GetToken(kInterp, Record().Token(kTokCatmullRom));
+    if (interp != Record().Token(kTokLinear) && interp != Record().Token(kTokCatmullRom) &&
+        interp != Record().Token(kTokBspline) && interp != Record().Token(kTokConstant)) {
         if (diag)
             diag->Error("UsdGenWind: unknown usdGen:stiffness:interpolation '" +
                         interp.GetString() + "'");
@@ -292,22 +294,22 @@ bool UsdGenWindOp::Capture(
     }
     // direction/constStrength/gustStrength sample per curve root (primitive);
     // stiffness is groom-wide; the mask envelopes per CV.
-    UsdGenParamField const directionField = p->GetScalarField(sDirection, 0.0);
-    UsdGenParamField const constField = p->GetScalarField(sConst, 0.0);
-    UsdGenParamField const gustField = p->GetScalarField(sGust, 0.0);
-    UsdGenParamField const lowStrengthField = p->GetScalarField(sLowStrength, 0.0);
-    UsdGenParamField const highStrengthField = p->GetScalarField(sHighStrength, 0.0);
-    UsdGenParamField const maskField = p->GetScalarField(sMask, 1.0);
+    UsdGenParamField const directionField = p->GetScalarField(kDirection, 0.0);
+    UsdGenParamField const constField = p->GetScalarField(kConst, 0.0);
+    UsdGenParamField const gustField = p->GetScalarField(kGust, 0.0);
+    UsdGenParamField const lowStrengthField = p->GetScalarField(kLowStrength, 0.0);
+    UsdGenParamField const highStrengthField = p->GetScalarField(kHighStrength, 0.0);
+    UsdGenParamField const maskField = p->GetScalarField(kMask, 1.0);
     if (directionField.connected && directionField.components != 3)
         return fail("connected direction must be vector3f");
-    for (TfToken const *name : {&sStiffness, &sLowFrequency, &sLowRate,
-                                &sHighFrequency, &sHighRate}) {
-        if (!Finite(p->GetDouble(*name, 0.0)))
-            return fail("groom usdGen:" + name->GetString() + " must be finite");
+    for (UsdGenParamSlot slot : {kStiffness, kLowFrequency, kLowRate,
+                                 kHighFrequency, kHighRate}) {
+        if (!Finite(p->GetDouble(slot, 0.0)))
+            return fail("groom usdGen:" + Record().ParamName(slot).GetString() + " must be finite");
     }
-    for (TfToken const *name : {&sLowFrequency, &sHighFrequency})
-        if (p->GetDouble(*name, 0.0) < 0.0)
-            return fail("groom usdGen:" + name->GetString() + " must be nonnegative");
+    for (UsdGenParamSlot slot : {kLowFrequency, kHighFrequency})
+        if (p->GetDouble(slot, 0.0) < 0.0)
+            return fail("groom usdGen:" + Record().ParamName(slot).GetString() + " must be nonnegative");
     uint32_t const R = upstream.totalCurves;
     for (uint32_t c = 0; c != R; ++c) {
         uint32_t const root = spans[c];
@@ -345,29 +347,29 @@ void UsdGenWindOp::Evaluate(
     auto const &cap = static_cast<UsdGenWindCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const directionField =
-        p ? p->GetScalarField(sDirection, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kDirection, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const constField =
-        p ? p->GetScalarField(sConst, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kConst, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const gustField =
-        p ? p->GetScalarField(sGust, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kGust, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const lowStrengthField =
-        p ? p->GetScalarField(sLowStrength, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kLowStrength, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const highStrengthField =
-        p ? p->GetScalarField(sHighStrength, 0.0) : UsdGenParamField{0.0};
+        p ? p->GetScalarField(kHighStrength, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     GfVec3f litDirection(0.0f, 0.0f, 1.0f);
     double stiffness = 0.0;
     double lowFrequency = 0.25, highFrequency = 1.25;
     double lowRate = 0.2, highRate = 0.8;
     if (p) {
-        VtValue const v = p->GetVtValue(sDirection, VtValue());
+        VtValue const v = UsdGenAuthoredValue(*p, kDirection);
         if (v.IsHolding<GfVec3f>()) litDirection = v.UncheckedGet<GfVec3f>();
-        stiffness = p->GetDouble(sStiffness, 0.0);
-        lowFrequency = p->GetDouble(sLowFrequency, lowFrequency);
-        highFrequency = p->GetDouble(sHighFrequency, highFrequency);
-        lowRate = p->GetDouble(sLowRate, lowRate);
-        highRate = p->GetDouble(sHighRate, highRate);
+        stiffness = p->GetDouble(kStiffness, 0.0);
+        lowFrequency = p->GetDouble(kLowFrequency, lowFrequency);
+        highFrequency = p->GetDouble(kHighFrequency, highFrequency);
+        lowRate = p->GetDouble(kLowRate, lowRate);
+        highRate = p->GetDouble(kHighRate, highRate);
     }
     // The cook time in seconds, with the scheduler's own conversion guard
     // (scheduler.cpp): timecodes divided by a finite positive rate, else raw.
@@ -380,13 +382,13 @@ void UsdGenWindOp::Evaluate(
     double const highPhase = kTau * UsdGenDraw01(ctx.seed, 0, kSaltWind + 4u);
     float const drift = float(tSec) * kGustTimeRate;
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, sKnots);
+    VtVec2fArray const knots = ReadRampKnots(p, kKnots);
     bool const stiffFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!stiffFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(sInterp, sCatmullRom) : sCatmullRom,
+            p ? p->GetToken(kInterp, Record().Token(kTokCatmullRom)) : Record().Token(kTokCatmullRom),
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }
@@ -569,7 +571,14 @@ void UsdGenWindOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterWindOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenWindOp().Type(), [] { return std::make_unique<UsdGenWindOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenWind";
+    d.displayName = "Wind";
+    d.create = &Create;
+    d.traits = kUsdGenOpReadsTime;
+    d.params = UsdGenSpan(kParams);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

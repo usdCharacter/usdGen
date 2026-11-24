@@ -101,10 +101,12 @@ int main(int argc,char** argv) {
         {TfToken("gustStrength"),VtValue(.3),false},
         {TfToken("billowLowStrength"),VtValue(.1),false},
         {TfToken("billowHighStrength"),VtValue(.05),false}};
-    UsdGenParamView params; params.desc=&desc; params.node=&node;
+    UsdGenOpRegistry const& registry=UsdGenOpRegistry::Get();
+    UsdGenOpRecord const& windRecord=registry.Record(registry.Find(TfToken("UsdGenWind")));
+    UsdGenStackParams stack(desc,node,windRecord); UsdGenParamView const& params=stack.View();
     UsdGenCaptureContext cc; cc.desc=&desc; cc.params=&params; cc.seed=42;
     UsdGenEvalContext ec; ec.desc=&desc; ec.params=&params; ec.seed=42; ec.time=17;
-    UsdGenWindOp op; UsdGenCurveBuffer legacy;
+    UsdGenWindOp op(windRecord); UsdGenCurveBuffer legacy;
     int failures=0;
     struct Case { char const* name; int levels; float weight; };
     for(auto const& test:std::vector<Case>{{"none",0,0},{"zero",2,0},{"one",1,1},{"two",2,.7f}}) {
