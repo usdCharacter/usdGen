@@ -46,23 +46,25 @@ void Canonicalize(std::vector<UsdGenExecutionInputGeneration>* values)
 void Coalesce(std::vector<UsdGenExecutionInputGeneration>* values, bool* valid)
 {
     Canonicalize(values);
-    std::vector<UsdGenExecutionInputGeneration> unique;
-    unique.reserve(values->size());
-    for (auto const& value : *values) {
-        if (unique.empty() || unique.back().identity != value.identity) {
-            unique.push_back(value);
+    // In place: the sorted run of each identity folds into its first entry.
+    size_t kept = 0;
+    for (size_t i = 0; i != values->size(); ++i) {
+        UsdGenExecutionInputGeneration const& value = (*values)[i];
+        if (kept == 0 || (*values)[kept - 1].identity != value.identity) {
+            if (kept != i) (*values)[kept] = value;
+            ++kept;
             continue;
         }
-        if (unique.back().generation != 0 && value.generation != 0 &&
-            unique.back().generation != value.generation)
+        UsdGenExecutionInputGeneration& unique = (*values)[kept - 1];
+        if (unique.generation != 0 && value.generation != 0 &&
+            unique.generation != value.generation)
             *valid = false;
         // A resolved payload generation is stronger than a relationship-only
         // zero. On contradictory nonzero records, retain the newest value so
         // an accidental stale alias cannot be treated as current.
-        unique.back().generation = std::max(unique.back().generation,
-                                            value.generation);
+        unique.generation = std::max(unique.generation, value.generation);
     }
-    *values = std::move(unique);
+    values->erase(values->begin() + std::ptrdiff_t(kept), values->end());
 }
 
 uint64_t HashValues(uint64_t hash,
@@ -97,6 +99,20 @@ UsdGenExecutionInputVersions UsdGenExecutionInputVersions::FromDescription(
     UsdGenGraphDesc const& desc)
 {
     UsdGenExecutionInputVersions result;
+    FromDescription(desc, &result);
+    return result;
+}
+
+void UsdGenExecutionInputVersions::FromDescription(
+    UsdGenGraphDesc const& desc, UsdGenExecutionInputVersions* out)
+{
+    // Refilled in place: a recompile keeps the vectors' capacity.
+    UsdGenExecutionInputVersions& result = *out;
+    result.sources.clear();
+    result.references.clear();
+    result.maps.clear();
+    result.surfaces.clear();
+    result.valid = true;
     for (auto const& curve : desc.curveSets) {
         auto& bucket = curve.role == UsdGenRole::Reference
             ? result.references : result.sources;
@@ -113,7 +129,6 @@ UsdGenExecutionInputVersions UsdGenExecutionInputVersions::FromDescription(
     Coalesce(&result.references, &result.valid);
     Coalesce(&result.maps, &result.valid);
     Coalesce(&result.surfaces, &result.valid);
-    return result;
 }
 
 uint64_t UsdGenExecutionInputVersions::Hash() const noexcept

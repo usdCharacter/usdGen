@@ -289,6 +289,45 @@ void PrepareExtraPlanes(UsdGenCompiledNode &node,
     }
 }
 
+/// Installs an owning capture's buffer as the node's output. Planes the op
+/// writes that the capture leaves empty take the storage retired by the
+/// previous install, cleared (still empty, as before; preparation refills
+/// it); the planes this install replaces retire in turn. Downstream aliases
+/// of the replaced planes are refreshed by this cook, so by the next install
+/// they are unique again.
+void InstallCaptureBuffer(UsdGenCompiledNode &node, UsdGenOp const &op,
+                          UsdGenCapture const &cap,
+                          UsdGenCurveBuffer const &upBuf, bool hasUp)
+{
+    UsdGenCurveBuffer &buf = node.buffer;
+    uint32_t const touched = op.PlanesTouched();
+    bool const points = (touched & UsdGenOp::kPlanePoints) != 0;
+    bool const hairT = (touched & UsdGenOp::kPlaneHairT) != 0;
+    VtFloatArray px, py, pz, ht;
+    if (points) { px.swap(buf.px); py.swap(buf.py); pz.swap(buf.pz); }
+    if (hairT) ht.swap(buf.hairT);
+    // valueVersion is monotone per node: the capture's own buffer counts
+    // from zero, and adopting that stamp would let a downstream capture
+    // keyed on the old stamp match.
+    uint64_t const priorValueVersion = buf.valueVersion;
+    buf = cap.Buffer();
+    buf.valueVersion = std::max(buf.valueVersion, priorValueVersion);
+    buf.topologyVersion = ++node.topologySeq;
+    if (hasUp) InheritPerCurve(buf, upBuf);
+    auto recycle = [](VtFloatArray &plane, VtFloatArray &retired, VtFloatArray &replaced) {
+        if (!plane.empty()) return;   // the capture owns this plane
+        plane.swap(retired);
+        plane.clear();                // keeps the storage only when unique
+        retired.swap(replaced);
+    };
+    if (points) {
+        recycle(buf.px, node.retiredPx, px);
+        recycle(buf.py, node.retiredPy, py);
+        recycle(buf.pz, node.retiredPz, pz);
+    }
+    if (hairT) recycle(buf.hairT, node.retiredHairT, ht);
+}
+
 /// Commit-thread preparation of one node's output buffer before its
 /// evaluate sweep: topology fields and per-curve arrays are inherited from
 /// the upstream node; CV planes the operator does NOT touch are CoW-aliased
@@ -373,8 +412,10 @@ void PrepareNodeForEval(
     uint32_t const planes = op.PlanesTouched();
     auto prep = [&](bool write, VtFloatArray &a, VtFloatArray const &up) {
         if (write) {
+            // assign(): refills storage this node owns alone, and makes
+            // fresh private storage when it is shared (an upstream alias).
             if (a.size() != nCvs || (hasUp && a.cdata() == up.cdata()))
-                a = VtFloatArray(nCvs, 0.0f);   // fresh private storage
+                a.assign(nCvs, 0.0f);
         } else if (hasUp && up.size() == nCvs) {
             if (a.cdata() != up.cdata()) a = up;  // CoW share; read-only
         } else if (!hasUp && op.IsGenerator()) {
@@ -384,7 +425,7 @@ void PrepareNodeForEval(
             // resample an invented authored width instead of its description
             // fallback.  Capture-created Source planes remain untouched.
         } else if (a.size() != nCvs) {
-            a = VtFloatArray(nCvs, 0.0f);
+            a.assign(nCvs, 0.0f);
         }
     };
     prep(planes & UsdGenOp::kPlanePoints, buf.px, upBuf.px);
@@ -1203,20 +1244,23 @@ UsdGenRunResult UsdGenScheduler::_Run(
             TRACE_SCOPE("usdGen capture");
             TRACE_COUNTER_DELTA("usdGen nodes captured", 1);
             cctx.previousCapture = node.capture.get();
-            auto cap = op.CreateCapture();
+            // Recycled through retirement: the spare is the capture replaced
+            // one re-capture ago, so the newer generation no longer shares
+            // its arrays and Recycle() keeps their storage.
+            std::unique_ptr<UsdGenCapture> cap;
+            if (node.spareCapture && node.spareCapture->Recycle())
+                cap = std::move(node.spareCapture);
+            else {
+                node.spareCapture.reset();
+                cap = op.CreateCapture();
+            }
             if (cap && op.Capture(cctx, upBuf, cap.get(), &nodeDiag)) {
-                if (cap->OwnsBuffer()) {
-                    // valueVersion is monotone per node: the capture's own
-                    // buffer counts from zero, and adopting that stamp would
-                    // let a downstream capture keyed on the old stamp match.
-                    uint64_t const priorValueVersion = node.buffer.valueVersion;
-                    node.buffer = cap->Buffer();
-                    node.buffer.valueVersion =
-                        std::max(node.buffer.valueVersion, priorValueVersion);
-                    node.buffer.topologyVersion = ++node.topologySeq;
-                    if (hasUp) InheritPerCurve(node.buffer, upBuf);
-                }
+                if (cap->OwnsBuffer())
+                    InstallCaptureBuffer(node, op, *cap, upBuf, hasUp);
+                std::unique_ptr<UsdGenCapture> replaced = std::move(node.capture);
                 node.capture = std::move(cap);
+                if (replaced && replaced->Recyclable())
+                    node.spareCapture = std::move(replaced);
             } else if (cap) {
                 nodeDiag.Error(std::string("UsdGen: capture failed on '") +
                                node.desc->path.GetText() + "'");

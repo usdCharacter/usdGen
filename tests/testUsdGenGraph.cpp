@@ -214,7 +214,8 @@ int main()
     // particular, the shortcut retains the prior paramValueDigest only after
     // sameNodeDesc() has proved every value input equal; this regression keeps
     // that proof honest while checking that an edited node gets a fresh value
-    // digest without incorrectly forcing a structural rebuild.
+    // digest without forcing a structural rebuild: the compiled node (op,
+    // capture, buffer) is kept and only re-evaluates.
     {
         UsdGenGraphDesc digestDesc = MakeChain(5);
         UsdGenGraph digestGraph;
@@ -226,18 +227,23 @@ int main()
             uint64_t const oldWidthDigest = digestGraph.Node(4).paramValueDigest;
             UsdGenEpoch const oldWidthStructuralDigest =
                 digestGraph.Node(4).structuralDigest;
+            UsdGenOp const *const oldWidthOp = digestGraph.Node(4).op.get();
             digestDesc.nodes[4].params[0].value = VtValue(0.04);
             UsdGenCompileResult const changed =
                 digestCompiler.Recompile(digestDesc, &digestGraph);
-            Check(changed.ok && changed.rebuilt.size() == 1 && changed.rebuilt[0] == 4,
-                  "value-class edit rebuilds the edited node transactionally");
+            Check(changed.ok && changed.rebuilt.empty() &&
+                      changed.valueEdited.size() == 1 && changed.valueEdited[0] == 4 &&
+                      digestGraph.Node(4).op.get() == oldWidthOp,
+                  "value-class edit keeps the edited node instead of rebuilding it");
             Check(digestGraph.Node(0).paramValueDigest == stableSourceDigest,
                   "unchanged node retains its value digest");
             Check(digestGraph.Node(4).paramValueDigest != oldWidthDigest,
                   "edited node receives a new value digest");
             Check(digestGraph.Node(4).structuralDigest == oldWidthStructuralDigest &&
-                      digestGraph.Node(4).captureNeeded &&
-                      digestGraph.Node(4).lastParamDigest == 0,
+                      (digestGraph.Node(4).captureNeeded ||
+                       digestGraph.Node(4).op->CaptureDigestComplete()) &&
+                      digestGraph.Node(4).lastParamDigest !=
+                          digestGraph.Node(4).paramValueDigest,
                   "value edit preserves structure while requiring fresh evaluation");
         }
     }

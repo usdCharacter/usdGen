@@ -77,6 +77,10 @@ bool ReadVec2Prop(UsdGenParamView const *p, char const *name, double* lo, double
     return true;
 }
 
+// The capture's default mode, interned at load (Recycle must not look a
+// token up).
+TfToken const sDefaultLengthMode{"scale"};
+
 struct UsdGenLengthCapture final : public UsdGenCapturePayload
 {
     // perCurve[c] = lerp(length:random, draw01(seed, curveId, kSaltLength)) —
@@ -102,6 +106,23 @@ struct UsdGenLengthCapture final : public UsdGenCapturePayload
     std::unique_ptr<UsdGenCapture> Clone() const override
     {
         return std::make_unique<UsdGenLengthCapture>(*this);
+    }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        perCurve.clear();
+        perCv.clear();
+        rampLut.clear();
+        mode = sDefaultLengthMode;
+        value = 1.0;
+        cullThreshold = minRemaining = 0.0;
+        upstreamTopologyVersion = upstreamValueVersion = 0;
+        upstreamCurves = upstreamCvs = 0;
+        range = rangeReady = false;
+        rangeResult.clear();
+        restLength.clear();
+        return true;
     }
     bool OwnsBuffer() const override { return false; }
     bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override

@@ -217,6 +217,15 @@ struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptu
     /// Type-erased copy for the incremental recompile path (E-6);
     /// concrete payloads override.
     virtual std::unique_ptr<UsdGenCapture> Clone() const { return nullptr; }
+    /// Recycling (arenas through retirement): a capture that returns true
+    /// here is kept as its node's spare when a newer capture replaces it,
+    /// and the next re-capture fills the spare instead of a fresh payload.
+    virtual bool Recyclable() const { return false; }
+    /// Back to the default-constructed state, keeping array storage that
+    /// this capture owns alone (VtArray::clear). Called on the commit thread
+    /// right before Capture refills it, so every array a newer generation
+    /// still shares has been released by then. False: make a fresh one.
+    virtual bool Recycle() { return false; }
 protected:
     UsdGenCurveBuffer _buffer;
 };
@@ -356,6 +365,11 @@ public:
     /// values (UsdGenClump's clumpId_<level>). The parameters that feed it must
     /// be structural (digest) parameters, so an edit rebuilds the node.
     virtual void Configure(UsdGenParamView const &) {}
+    /// True when CaptureDigest() covers every parameter Capture() reads.
+    /// A value-class edit then keeps the compiled node and its capture, and
+    /// the digest decides whether to re-capture; otherwise the kept node is
+    /// re-captured.
+    virtual bool CaptureDigestComplete() const { return false; }
 
     // ---- binding -------------------------------------------------------------
     virtual bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) = 0;

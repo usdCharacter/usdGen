@@ -32,6 +32,7 @@ struct UsdGenCompileResult
     UsdGenEpoch               structuralDigest {};  // graph-level digest (03 §3.2)
     UsdGenPoolVector<UsdGenNodeId> rebuilt;    // nodes whose UsdGenOp was recreated
     UsdGenPoolVector<UsdGenNodeId> reordered;  // nodes whose topological index moved
+    UsdGenPoolVector<UsdGenNodeId> valueEdited; // kept nodes whose value-class params moved
     std::vector<std::string>  errors;        // cycle, terminal ambiguity, unknown op, ...
     std::vector<std::string>  warnings;      // non-fatal authoring diagnostics
     /// False only when a failed Recompile had already moved state out of

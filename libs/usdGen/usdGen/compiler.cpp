@@ -844,6 +844,57 @@ TypeClassTable const &TypeClassification(UsdGenOp const &op)
     return cache.emplace(type.GetString(), std::move(tbl)).first->second;
 }
 
+/// True when `b` differs from `a` only in the values of value-class
+/// parameters of `op` (listed in ValueParameters() and not in
+/// TopologyParameters()). Such an edit keeps the compiled node: its
+/// structure, slots and capture inputs are unchanged. Expression-bound
+/// nodes never qualify (their program identity is not digested yet).
+bool ValueOnlyEdit(UsdGenNodeDesc const &a, UsdGenNodeDesc const &b,
+                   UsdGenOp const &op)
+{
+    if (!a.expressionBindings.empty() || !b.expressionBindings.empty()) return false;
+    if (a.path != b.path || a.type != b.type || a.mode != b.mode ||
+        a.enabled != b.enabled || a.seed != b.seed || a.inputs != b.inputs ||
+        a.references != b.references || a.curves != b.curves ||
+        a.surfaces != b.surfaces || a.maps != b.maps ||
+        a.mapBindings.size() != b.mapBindings.size() ||
+        a.params.size() != b.params.size() || a.ramps.size() != b.ramps.size())
+        return false;
+    for (size_t i = 0; i < a.mapBindings.size(); ++i) {
+        if (a.mapBindings[i].map != b.mapBindings[i].map ||
+            a.mapBindings[i].relationship != b.mapBindings[i].relationship)
+            return false;
+    }
+    for (size_t i = 0; i < a.ramps.size(); ++i) {
+        if (a.ramps[i].knots != b.ramps[i].knots ||
+            a.ramps[i].positions != b.ramps[i].positions ||
+            a.ramps[i].colors != b.ramps[i].colors ||
+            a.ramps[i].interpolation != b.ramps[i].interpolation)
+            return false;
+    }
+    bool changed = false;
+    for (size_t i = 0; i < a.params.size(); ++i) {
+        UsdGenParamValue const &pa = a.params[i], &pb = b.params[i];
+        if (pa.name != pb.name || pa.animated != pb.animated) return false;
+        if (pa.value == pb.value) continue;
+        bool value = false, topology = false;
+        for (TfToken const &t : op.ValueParameters()) value = value || t == pa.name;
+        for (TfToken const &t : op.TopologyParameters()) topology = topology || t == pa.name;
+        if (!value || topology) return false;
+        changed = true;
+    }
+    return changed;
+}
+
+/// Same slot names in the same order, without allocating.
+bool SameSlots(TfSpan<const TfToken> names, std::vector<TfToken> const &slots)
+{
+    if (names.size() != slots.size()) return false;
+    for (size_t i = 0; i < slots.size(); ++i)
+        if (names[i] != slots[i]) return false;
+    return true;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -927,8 +978,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, Us
     if (result.errors.empty()) {
         result.ok = true;
         result.graphIntact = true;
-        out->_inputVersions =
-            UsdGenExecutionInputVersions::FromDescription(out->Desc());
+        UsdGenExecutionInputVersions::FromDescription(out->Desc(), &out->_inputVersions);
         // Rebuilt nodes re-capture; digest-stable nodes keep their runtime
         // state (capture, buffer, chunk + dirty bytes) moved over by
         // _Build. The runtime partition is re-established by the first
@@ -938,6 +988,14 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, Us
         // chunk/dirty state and capture flags).
         for (auto &np : out->_nodes) np->captureNeeded = false;
         for (UsdGenNodeId id : result.rebuilt) out->Node(id).captureNeeded = true;
+        // A kept value-edited node evaluates again, and so does everything
+        // downstream of it. Its capture stays unless the op cannot prove
+        // (CaptureDigestComplete) that the digest sees every parameter.
+        for (UsdGenNodeId id : result.valueEdited) {
+            UsdGenCompiledNode &node = out->Node(id);
+            if (!node.op->CaptureDigestComplete()) node.captureNeeded = true;
+            out->MarkNode(id, UsdGenDirtyParameter);
+        }
     }
     return result;
 }
@@ -1636,6 +1694,66 @@ void UsdGenCompiler::_Build(
                 out->_nodeByPath[nd.path] = moved->id;
                 out->_nodes[pos] = std::move(moved);
                 continue;
+            }
+        }
+        // Value-only edit: the path-matched old node's entry changed only in
+        // value-class parameter values, so its structure, slots, chunks,
+        // capture and buffer all stay valid. Keep it whole (no new op, no
+        // re-capture unless its capture digest moves); Recompile marks its
+        // chunks and descendants value-dirty. The op is re-configured from
+        // the new entry and must bind the same slots and planes.
+        if (!oldNodes.empty() && descChanged[di] && !inputChanged &&
+            oldNodeForNewDesc[di] < 0 && oldNodeAtPath[di] >= 0 &&
+            size_t(oldNodeAtPath[di]) < oldNodes.size() &&
+            oldNodes[size_t(oldNodeAtPath[di])]) {
+            UsdGenCompiledNode &old = *oldNodes[size_t(oldNodeAtPath[di])];
+            if (old.op && old.desc && old.type == nd.type &&
+                old.topoFx == old.op->TopologyEffect() &&
+                old.role == old.op->Role() &&
+                ValueOnlyEdit(*old.desc, nd, *old.op)) {
+                UsdGenParamView view;
+                view.desc = out->_desc.get();
+                view.node = &out->_desc->nodes[di];
+                view.expressions = &old.expressions;
+                uint32_t const planes = old.op->PlanesTouched();
+                if (nd.type == tok::Clump())
+                    static_cast<UsdGenClumpOp *>(old.op.get())->SetLevelBase(clumpBase[size_t(di)]);
+                old.op->Configure(view);
+                if (planes == old.op->PlanesTouched() &&
+                    SameSlots(old.op->OutputPrimvars(), old.outputPrimvars) &&
+                    SameSlots(old.op->InputPrimvars(), old.inputPrimvars)) {
+                    auto moved = std::move(oldNodes[size_t(oldNodeAtPath[di])]);
+                    moved->id = static_cast<UsdGenNodeId>(pos);
+                    moved->desc = &out->_desc->nodes[di];
+                    moved->descIdx = di;
+                    moved->enabled = nd.enabled;
+                    moved->paramView = view;
+                    moved->inputs.clear();
+                    for (int k = e0; k < e1; ++k)
+                        moved->inputs.push_back(static_cast<UsdGenNodeId>(topoOfDesc[edgeIds[size_t(k)]]));
+                    moved->input = moved->inputs.empty() ? kUsdGenInvalidNode : moved->inputs.front();
+                    fillDescendants(pos, &moved->descendants);
+                    {   // the value digest moves with the edited values
+                        uint64_t vh = 1469598103934665603ULL;
+                        auto feed = [&vh](uint64_t v) { vh ^= v; vh *= 0x100000001b3ULL; };
+                        feed(static_cast<uint64_t>(nd.enabled));
+                        for (auto const &param : nd.params) {
+                            bool inValue = false, inTopo = false;
+                            for (TfToken const &t : moved->op->ValueParameters())
+                                inValue = inValue || (t == param.name);
+                            for (TfToken const &t : moved->op->TopologyParameters())
+                                inTopo = inTopo || (t == param.name);
+                            if (inValue || (!inTopo && param.name != tok::Seed())) feed(param.value.GetHash());
+                        }
+                        moved->paramValueDigest = vh;
+                    }
+                    digests[pos] = moved->structuralDigest;
+                    digestChanged[pos] = 0;
+                    result.valueEdited.push_back(moved->id);
+                    out->_nodeByPath[nd.path] = moved->id;
+                    out->_nodes[pos] = std::move(moved);
+                    continue;
+                }
             }
         }
         // E-6 fast path: a path-matched old node of the same type and

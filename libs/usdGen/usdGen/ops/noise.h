@@ -34,6 +34,7 @@ public:
                   UsdGenCapture const &capture,
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
+    bool CaptureDigestComplete() const override { return true; }
     uint32_t PlanesTouched() const override;
 private:
     const TfToken sMagnitude{"noise:magnitude"}, sCumulative{"cumulative"};
