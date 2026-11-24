@@ -168,6 +168,8 @@ public:
 
     // --- dirty routing targets (03 §5.2 hops 2-3; the imaging router feeds these) ---
     void DirtyParameter(NodeId id, TfToken const &param);
+    /// One-shot value dirty with no parameter name (a time reader's clock moved).
+    void DirtyValue(NodeId id);
     void DirtyCapture(NodeId id);
     void DirtyTopology(NodeId id);
     void DirtySurface(UsdGenSurfaceId surface, uint32_t bits,

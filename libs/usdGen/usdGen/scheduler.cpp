@@ -17,10 +17,12 @@
 //
 // I8: every parallel region runs over the worker pool, never pxr work::.
 #include "usdGen/scheduler.h"
+#include "usdGen/registries/engineTokens.h"
 
 #include "usdGen/debugCodes.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/fastCores.h"
 #include "usdGen/types.h"
 
@@ -47,10 +49,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 namespace {
-
-// The one op whose Evaluate records per-chunk extents (see the gate in
-// Run): a file static, interned at load, compared by pointer below.
-TfToken const sDeformType{"UsdGenDeform"};
 
 int ResolveThreadLimit(int requested)
 {
@@ -144,45 +142,68 @@ bool SamePlaneLayout(UsdGenPlane const &a, UsdGenPlane const &b)
         a.type == b.type && a.arity == b.arity;
 }
 
-UsdGenPlane DefaultOutputPlane(TfToken const &name)
+bool HasPrefix(std::string const &s, char const *prefix)
 {
-    // R24's fixed declarations cover first producers.  A later writer takes
-    // its layout from the upstream plane instead, which also supports vertex
-    // planes created by a generator/capture without teaching the scheduler a
-    // second metadata vocabulary.
+    return s.rfind(prefix, 0) == 0;
+}
+
+/// Legacy first-producer layouts by name, for ops still registered through
+/// the legacy adapter (no declared output planes). Text compares only; S4-4
+/// (outputPlanes) and 4a-1 (emittedPlanes) delete it.
+UsdGenPlane LegacyOutputPlane(TfToken const &name)
+{
+    std::string const &s = name.GetString();
+    auto const &tk = UsdGenTokens();
     UsdGenPlane plane;
     plane.name = name;
-    plane.interpolation = TfToken("uniform");
-    plane.type = TfToken("float");
-    if (name == TfToken("guideIndex") || name == TfToken("partId") ||
-        name.GetString().rfind("clumpId_", 0) == 0 ||
-        name.GetString().rfind("clumpCenterId_", 0) == 0)
-        plane.type = TfToken("int");
-    if (name.GetString().rfind("clumpCenter_", 0) == 0)
-        plane.arity = 3;
-    if (name.GetString().rfind("clumpCenterId_", 0) == 0)
-        plane.arity = 2;
-    // Shared whole-strand vocabulary (ops/wholeStrand.h): per-strand guide
-    // and seed identities are ints; the braid knot mask is a per-CV float.
-    if (name == TfToken("primaryGuide") || name == TfToken("nearestGuide") ||
-        name == TfToken("strandSeed") || name == TfToken("strandIndex") ||
-        name == TfToken("mirrorSign"))
-        plane.type = TfToken("int");
-    if (name.GetString().rfind("clumpWeight_", 0) == 0 ||
-        name == TfToken("braidKnotMask"))
-        plane.interpolation = TfToken("vertex");
-    if (name == TfToken("guideIndex") || name == TfToken("guideWeight"))
-        plane.arity = 3;
+    plane.interpolation = tk.uniform;
+    plane.type = tk.float_;
+    if (s == "guideIndex" || s == "partId" || HasPrefix(s, "clumpId_") ||
+        HasPrefix(s, "clumpCenterId_"))
+        plane.type = tk.int_;
+    if (HasPrefix(s, "clumpCenter_")) plane.arity = 3;
+    if (HasPrefix(s, "clumpCenterId_")) plane.arity = 2;
+    // Whole-strand identities are ints; the braid knot mask is per CV.
+    if (s == "primaryGuide" || s == "nearestGuide" || s == "strandSeed" ||
+        s == "strandIndex" || s == "mirrorSign")
+        plane.type = tk.int_;
+    if (HasPrefix(s, "clumpWeight_") || s == "braidKnotMask") plane.interpolation = tk.vertex;
+    if (s == "guideIndex" || s == "guideWeight") plane.arity = 3;
     return plane;
 }
 
-bool IsNativeClumpPlane(TfToken const &name)
+/// The emitting op's declared layout for `name`, if it declares one.
+UsdGenPlane const *DeclaredOutputPlane(UsdGenOpRecord const *record, TfToken const &name)
 {
-    std::string const &s = name.GetString();
-    return s.rfind("clumpId_", 0) == 0 ||
-           s.rfind("clumpCenter_", 0) == 0 ||
-           s.rfind("clumpCenterId_", 0) == 0 ||
-           s.rfind("clumpWeight_", 0) == 0;
+    if (!record) return nullptr;
+    for (UsdGenPlane const &plane : record->OutputPlanes())
+        if (plane.name == name) return &plane;
+    return nullptr;
+}
+
+/// A first producer's layout (R24): the op's declaration, else the legacy
+/// table. A later writer takes the upstream plane's layout instead.
+UsdGenPlane DefaultOutputPlane(UsdGenOpRecord const *record, TfToken const &name)
+{
+    if (UsdGenPlane const *declared = DeclaredOutputPlane(record, name)) {
+        UsdGenPlane plane;
+        plane.name = name;
+        plane.interpolation = declared->interpolation;
+        plane.type = declared->type;
+        plane.arity = declared->arity;
+        return plane;
+    }
+    return LegacyOutputPlane(name);
+}
+
+/// A plane whose layout the emitting op fixes regardless of upstream.
+bool IsFixedLayoutPlane(UsdGenOpRecord const *record, TfToken const &name)
+{
+    if (!record || !record->Has(kUsdGenOpFixedOutputPlaneLayout)) return false;
+    if (DeclaredOutputPlane(record, name)) return true;
+    std::string const &s = name.GetString();   // legacy clump families
+    return HasPrefix(s, "clumpId_") || HasPrefix(s, "clumpCenter_") ||
+           HasPrefix(s, "clumpCenterId_") || HasPrefix(s, "clumpWeight_");
 }
 
 void InsertOrAssignPlane(std::vector<UsdGenPlane> *planes, UsdGenPlane plane)
@@ -200,7 +221,7 @@ void InsertOrAssignPlane(std::vector<UsdGenPlane> *planes, UsdGenPlane plane)
 bool PlaneAliases(UsdGenPlane const &a, UsdGenPlane const *b)
 {
     if (!b) return false;
-    return a.type == TfToken("int") ? a.i.cdata() == b->i.cdata()
+    return a.type == UsdGenTokens().int_ ? a.i.cdata() == b->i.cdata()
                                     : a.f.cdata() == b->f.cdata();
 }
 
@@ -225,15 +246,14 @@ void PrepareExtraPlanes(UsdGenCompiledNode &node,
         else if (UsdGenPlane const *curvePlane = FindPlane(oldCurve, name)) old = {curvePlane, false};
 
         PlaneLookup const layout = source.plane ? source : old;
-        bool const nativeClump = node.type == TfToken("UsdGenClump") &&
-                                 IsNativeClumpPlane(name);
-        UsdGenPlane plane = nativeClump ? DefaultOutputPlane(name) :
-            (layout.plane ? *layout.plane : DefaultOutputPlane(name));
+        bool const nativeClump = IsFixedLayoutPlane(node.record, name);
+        UsdGenPlane plane = nativeClump ? DefaultOutputPlane(node.record, name) :
+            (layout.plane ? *layout.plane : DefaultOutputPlane(node.record, name));
         // A first producer's domain comes from its default layout (vertex
         // planes such as braidKnotMask are sized per CV).
-        bool const cv = nativeClump ? plane.interpolation == TfToken("vertex") :
+        bool const cv = nativeClump ? plane.interpolation == UsdGenTokens().vertex :
             (layout.plane ? layout.cv
-                          : plane.interpolation == TfToken("vertex"));
+                          : plane.interpolation == UsdGenTokens().vertex);
         size_t const values = size_t(cv ? buffer.totalCvs : buffer.totalCurves) *
             std::max<uint8_t>(plane.arity, 1);
 
@@ -243,10 +263,10 @@ void PrepareExtraPlanes(UsdGenCompiledNode &node,
         // writable pointer.
         bool const keepOld = old.plane && old.cv == cv &&
             SamePlaneLayout(*old.plane, plane) && !PlaneAliases(*old.plane, source.plane) &&
-            (plane.type == TfToken("int") ? old.plane->i.size() == values
+            (plane.type == UsdGenTokens().int_ ? old.plane->i.size() == values
                                           : old.plane->f.size() == values);
         if (keepOld) plane = *old.plane;
-        else if (plane.type == TfToken("int")) {
+        else if (plane.type == UsdGenTokens().int_) {
             plane.i = VtIntArray(values, 0);
             plane.f.clear();
         } else {
@@ -270,16 +290,16 @@ void PrepareExtraPlanes(UsdGenCompiledNode &node,
                 std::max<uint8_t>(source.arity, 1);
             bool const reusable = prior && SamePlaneLayout(*prior, source) &&
                 !PlaneAliases(*prior, &source) &&
-                (source.type == TfToken("int") ? prior->i.size() == values
+                (source.type == UsdGenTokens().int_ ? prior->i.size() == values
                                                 : prior->f.size() == values);
             if (reusable) {
                 plane = *prior;
                 // Detach on the commit thread while the retained descriptor
                 // is still a second owner. Workers only receive raw pointers.
-                if (source.type == TfToken("int")) (void)plane.i.data();
+                if (source.type == UsdGenTokens().int_) (void)plane.i.data();
                 else (void)plane.f.data();
             }
-            else if (source.type == TfToken("int")) {
+            else if (source.type == UsdGenTokens().int_) {
                 plane.i = VtIntArray(values, 0); plane.f.clear();
             } else {
                 plane.f = VtFloatArray(values, 0.0f); plane.i.clear();
@@ -383,13 +403,10 @@ void PrepareNodeForEval(
         // owner.  Topology producers that repartition CVs (Grow, Resample,
         // GuideInterpolate)
         // explicitly materialize a new rest layout during Capture instead.
-        bool const captureAuthorsRest = ownsBuffer &&
-            (op.Type() == TfToken("UsdGenGrow") ||
-             op.Type() == TfToken("UsdGenResample") ||
-             op.Type() == TfToken("UsdGenGuideInterpolate") ||
-             // Frozen Freeze owns its buffer (OwnsBuffer()==!live) and keeps
-             // the snapshotted rest; live Freeze re-aliases like a styler.
-             op.Type() == TfToken("UsdGenFreeze"));
+        // Frozen Freeze owns its buffer (OwnsBuffer()==!live) and keeps the
+        // snapshotted rest; live Freeze re-aliases like a styler.
+        bool const captureAuthorsRest = ownsBuffer && node.record &&
+            node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
         if (!captureAuthorsRest)
             buf.rest = upBuf.rest;
     }
@@ -437,13 +454,10 @@ void PrepareNodeForEval(
     // planes or authored guide-derived replacements for its new CV layout.
     // Do not replace those private owners with the old upstream descriptors
     // during generic pass-through preparation.
-    bool const captureOwnsTransformedPlanes = hasUp && ownsBuffer &&
-        (op.Type() == TfToken("UsdGenGrow") ||
-         op.Type() == TfToken("UsdGenResample") ||
-         op.Type() == TfToken("UsdGenGuideInterpolate") ||
-         // Frozen Freeze: the snapshot owns the transformed extras (same
-         // ownsBuffer gate as above); live Freeze prepares pass-through.
-         op.Type() == TfToken("UsdGenFreeze"));
+    // Frozen Freeze: the snapshot owns the transformed extras (same ownsBuffer
+    // gate as above); live Freeze prepares pass-through.
+    bool const captureOwnsTransformedPlanes = hasUp && ownsBuffer && node.record &&
+        node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
     if (!captureOwnsTransformedPlanes)
         PrepareExtraPlanes(node, upBuf, hasUp);
 }
@@ -525,7 +539,35 @@ struct NodeSweepPayload
     // (node, chunk), so concurrent sweeps never share one.
     UsdGenChunkExtent *extentBase = nullptr;
     size_t extentCap = 0;
+    // Extra-plane slots resolved once per run, after preparation, so the
+    // chunk sweep does no name lookup: output, its upstream predecessor of
+    // the same layout (null otherwise), input.
+    std::array<PlaneLookup, kUsdGenMaxExtraPlaneSlots> outPlanes{}, outPredecessors{}, inPlanes{};
 };
+
+/// Resolves the node's extra-plane slots against the prepared buffers.
+void ResolvePlaneSlots(NodeSweepPayload &pl, UsdGenCompiledNode const &node,
+                       UsdGenCurveBuffer const &upBuf)
+{
+    size_t const outs = std::min<size_t>(node.outputPrimvars.size(), kUsdGenMaxExtraPlaneSlots);
+    size_t const ins = std::min<size_t>(node.inputPrimvars.size(), kUsdGenMaxExtraPlaneSlots);
+    for (size_t slot = 0; slot < kUsdGenMaxExtraPlaneSlots; ++slot) {
+        pl.outPlanes[slot] = {};
+        pl.outPredecessors[slot] = {};
+        pl.inPlanes[slot] = {};
+    }
+    for (size_t slot = 0; slot < outs; ++slot) {
+        PlaneLookup const output = FindExtraPlane(node.buffer, node.outputPrimvars[slot]);
+        pl.outPlanes[slot] = output;
+        if (!output.plane) continue;
+        PlaneLookup const predecessor = FindExtraPlane(upBuf, node.outputPrimvars[slot]);
+        if (predecessor.plane && predecessor.cv == output.cv &&
+            SamePlaneLayout(*predecessor.plane, *output.plane))
+            pl.outPredecessors[slot] = predecessor;
+    }
+    for (size_t slot = 0; slot < ins; ++slot)
+        pl.inPlanes[slot] = FindExtraPlane(upBuf, node.inputPrimvars[slot]);
+}
 
 // A prepared node job owns the small vectors whose addresses are published in
 // its EvalContext.  Preparation happens on the commit thread; arena workers
@@ -742,13 +784,14 @@ void SweepChunk(size_t index, void *payload)
             : (upstreamPlane && upC ? upC->firstCurve : cd.firstCurve);
         return element * std::max<uint8_t>(arity, 1);
     };
+    auto const &tk = UsdGenTokens();
     for (uint32_t slot = 0; slot < view.outCount; ++slot) {
-        PlaneLookup const output = FindExtraPlane(buf, node.outputPrimvars[slot]);
+        PlaneLookup const output = pl.outPlanes[slot];
         if (!output.plane) continue;  // compiler/preparation is fail-closed to a null port
         size_t const offset = offsetFor(output.cv, false, output.plane->arity);
         outputValues[slot] = size_t(output.cv ? nCvs : cd.curveCount) *
             std::max<uint8_t>(output.plane->arity, 1);
-        if (output.plane->type == TfToken("int")) {
+        if (output.plane->type == tk.int_) {
             outI[slot] = output.plane->i.empty() ? nullptr
                 : const_cast<int *>(output.plane->i.cdata()) + offset;
         } else {
@@ -758,11 +801,10 @@ void SweepChunk(size_t index, void *payload)
         // Envelope endpoints operate on the logical predecessor of the same
         // output name, not on InputPrimvars slot position (the two lists may
         // legitimately differ).
-        PlaneLookup const predecessor = FindExtraPlane(upBuf, node.outputPrimvars[slot]);
-        if (!predecessor.plane || predecessor.cv != output.cv ||
-            !SamePlaneLayout(*predecessor.plane, *output.plane)) continue;
+        PlaneLookup const predecessor = pl.outPredecessors[slot];
+        if (!predecessor.plane) continue;
         size_t const inOffset = offsetFor(predecessor.cv, true, predecessor.plane->arity);
-        if (predecessor.plane->type == TfToken("int"))
+        if (predecessor.plane->type == tk.int_)
             outputInI[slot] = predecessor.plane->i.empty() ? nullptr
                 : predecessor.plane->i.cdata() + inOffset;
         else
@@ -770,10 +812,10 @@ void SweepChunk(size_t index, void *payload)
                 : predecessor.plane->f.cdata() + inOffset;
     }
     for (uint32_t slot = 0; slot < view.inCount; ++slot) {
-        PlaneLookup const input = FindExtraPlane(upBuf, node.inputPrimvars[slot]);
+        PlaneLookup const input = pl.inPlanes[slot];
         if (!input.plane) continue;
         size_t const offset = offsetFor(input.cv, true, input.plane->arity);
-        if (input.plane->type == TfToken("int"))
+        if (input.plane->type == tk.int_)
             inI[slot] = input.plane->i.empty() ? nullptr : input.plane->i.cdata() + offset;
         else
             inF[slot] = input.plane->f.empty() ? nullptr : input.plane->f.cdata() + offset;
@@ -1028,7 +1070,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             if (!writerSeen && n.op &&
                 (n.op->PlanesTouched() & UsdGenOp::kPlanePoints) != 0) {
                 writerSeen = true;
-                if (n.op->Type() == sDeformType) extentWriter = int(id);
+                if (n.record && n.record->Has(kUsdGenOpRecordsChunkExtents))
+                    extentWriter = int(id);
             }
             id = n.input;
         }
@@ -1073,7 +1116,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (int pos = 0; pos < graph.NodeCount(); ++pos) {
             if (poseSpace[size_t(pos)]) continue;
             UsdGenCompiledNode const &node = graph.Node(pos);
-            bool posed = node.op && node.op->Type() == sDeformType;
+            bool posed = node.op && node.record && node.record->Has(kUsdGenOpPosesSpace);
             for (UsdGenNodeId input : node.inputs)
                 posed = posed || (input < UsdGenNodeId(graph.NodeCount()) && poseSpace[input]);
             if (posed) { poseSpace[size_t(pos)] = 1; changed = true; }
@@ -1197,7 +1240,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             // A groom-domain usdGen:enabled drives the node's own gate. With
             // nothing connected the authored value stands.
             double enabled = 0.0;
-            node.enabled = node.paramView.GroomExpressionValue(TfToken("enabled"), &enabled)
+            node.enabled = node.paramView.GroomExpressionValue(UsdGenTokens().enabled, &enabled)
                 ? enabled != 0.0 : node.desc->enabled;
         }
 
@@ -1314,7 +1357,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         if (node.enabled && op.ReadsTime() &&
             (node.lastEvalTime != evalCtx.time ||
              node.lastEvalRate != graph.Desc().timeCodesPerSecond))
-            graph.DirtyParameter(node.id, TfToken("__usdGenCookTime"));
+            graph.DirtyValue(node.id);
         job->evalAll = node.paramValueDigest != node.lastParamDigest ||
                        job->expressionsChanged;
         node.lastParamDigest = node.paramValueDigest;
@@ -1400,12 +1443,13 @@ UsdGenRunResult UsdGenScheduler::_Run(
             pl.extraCvF.reserve(node.buffer.extraCv.size());
             pl.extraCvI.reserve(node.buffer.extraCv.size());
             for (UsdGenPlane &plane : node.buffer.extraCv) {
-                bool const isInt = plane.type == TfToken("int");
+                bool const isInt = plane.type == UsdGenTokens().int_;
                 pl.extraCvI.push_back(isInt && !plane.i.empty() ? plane.i.data() : nullptr);
                 pl.extraCvF.push_back(!isInt && !plane.f.empty() ? plane.f.data() : nullptr);
             }
         }
         pl.didEval.assign(node.chunks.size(), 0);
+        ResolvePlaneSlots(pl, node, pl.up ? pl.up->buffer : EmptyBuffer());
         if (pos == extentWriter && extentWriter >= 0) {
             pl.extentBase = extentScratch.data();
             pl.extentCap = extentChunks;

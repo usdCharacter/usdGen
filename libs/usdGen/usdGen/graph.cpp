@@ -6,6 +6,7 @@
 // (I7), never this structure.
 #include "usdGen/graph.h"
 
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/types.h"
 
 #include <algorithm>
@@ -196,7 +197,7 @@ UsdGenGraph::RoutingSnapshot() const
             for (SdfPath const &mapRef : paintCandidates) {
                 for (auto const &map : _desc->maps) {
                     if (map.path != mapRef) continue;
-                    if (map.type != TfToken("UsdGenPaintMap")) break;
+                    if (!UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) break;
                     if (map.paintPrimvar.IsEmpty()) break;
                     for (size_t s = 0;
                          s < snapshot->meshPaths.size(); ++s) {
@@ -313,6 +314,12 @@ void UsdGenGraph::DirtyParameter(UsdGenNodeId id, TfToken const &param)
         bits = UsdGenDirtyParameter;
     }
     MarkNode(id, bits);
+}
+
+void UsdGenGraph::DirtyValue(UsdGenNodeId id)
+{
+    if (id >= _nodes.size() || !_nodes[id]) return;
+    MarkNode(id, UsdGenDirtyParameter);   // DirtyParameter's unrouted-name bits
 }
 
 void UsdGenGraph::DirtyCapture(UsdGenNodeId id)
@@ -435,7 +442,8 @@ static UsdGenCurveBuffer const &_EffBuffer(UsdGenGraph const &g,
     // Follow its input before capture too: its initially empty output must
     // not turn a ragged source into the partition's uniform fallback.
     // An actual owning capture remains an authoritative topology boundary.
-    bool const nonOwningLength = n.op && n.op->Type().GetString() == "UsdGenLength" &&
+    bool const nonOwningLength = n.op && n.record &&
+        n.record->Has(kUsdGenOpFollowsInputUntilOwning) &&
         (!n.capture || !n.capture->OwnsBuffer());
     if ((n.topoFx != UsdGenTopoFx::None && !nonOwningLength) ||
         n.input == kUsdGenInvalidNode || depth > 64)
