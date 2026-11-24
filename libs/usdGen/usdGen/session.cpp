@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
-#include <mutex>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
@@ -19,8 +18,16 @@ namespace {
 // this library runs at DLL_PROCESS_DETACH on Windows, after ExitProcess has
 // terminated every worker thread. Arena teardown waits for workers that can
 // never answer. The OS releases the mapping at process death regardless.
+// Published once by CAS; a losing candidate is destroyed by its creator.
+std::atomic<UsdGenExecutionRuntime*> gDefaultRuntime{nullptr};
 UsdGenExecutionRuntime& DefaultRuntime() {
-    static auto* runtime = new UsdGenExecutionRuntime(8);
+    UsdGenExecutionRuntime* runtime = gDefaultRuntime.load(std::memory_order_acquire);
+    if (runtime) return *runtime;
+    auto candidate = std::make_unique<UsdGenExecutionRuntime>(8);
+    if (gDefaultRuntime.compare_exchange_strong(runtime, candidate.get(),
+                                                std::memory_order_acq_rel,
+                                                std::memory_order_acquire))
+        return *candidate.release();
     return *runtime;
 }
 
@@ -58,33 +65,44 @@ struct CommitReply {
 // A parked cache follower has no worker callback to observe supersession.
 // Keep its registration in a tiny cross-thread control object; cancellation
 // only touches the shared domain and the pipeline AsyncCompletion, never the
-// owner-confined cooker.
+// owner-confined cooker. One atomic slot holds the registration or CLOSED:
+// whoever takes a registration out of the slot owns it, and a Register that
+// finds CLOSED cancels its own token.
 struct CoalescedControl {
-    std::mutex mutex;
-    bool cancelled = false;
-    std::shared_ptr<UsdGenExecutionCacheDomain> domain;
-    std::optional<UsdGenExecutionCacheDomain::CoalescedRegistration> registration;
+    struct Registered {
+        std::shared_ptr<UsdGenExecutionCacheDomain> domain;
+        UsdGenExecutionCacheDomain::CoalescedRegistration token;
+    };
+    static Registered* Closed() noexcept {
+        return reinterpret_cast<Registered*>(uintptr_t(1));
+    }
+    std::atomic<Registered*> slot{nullptr};
 
+    ~CoalescedControl() {
+        Registered* left = slot.load(std::memory_order_acquire);
+        if (left != Closed()) delete left;
+    }
     void Register(std::shared_ptr<UsdGenExecutionCacheDomain> value,
                   UsdGenExecutionCacheDomain::CoalescedRegistration token) {
-        bool cancel = false;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            if (cancelled) cancel = true;
-            else { domain = std::move(value); registration = token; }
+        Registered* current = slot.load(std::memory_order_acquire);
+        if (current != Closed()) {
+            auto* next = new Registered{value, token};
+            while (current != Closed()) {
+                if (slot.compare_exchange_weak(current, next, std::memory_order_acq_rel,
+                                               std::memory_order_acquire)) {
+                    delete current;  // a displaced earlier registration
+                    return;
+                }
+            }
+            delete next;
         }
-        if (cancel && value) value->CancelCoalescedAndNotify(token);
+        if (value) value->CancelCoalescedAndNotify(token);
     }
     void Cancel() {
-        std::shared_ptr<UsdGenExecutionCacheDomain> value;
-        std::optional<UsdGenExecutionCacheDomain::CoalescedRegistration> token;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            cancelled = true;
-            value = std::move(domain);
-            token = std::move(registration);
-        }
-        if (value && token) value->CancelCoalescedAndNotify(*token);
+        Registered* taken = slot.exchange(Closed(), std::memory_order_acq_rel);
+        if (!taken || taken == Closed()) return;
+        std::unique_ptr<Registered> owned(taken);
+        if (owned->domain) owned->domain->CancelCoalescedAndNotify(owned->token);
     }
 };
 
@@ -357,7 +375,7 @@ UsdGenSession::~UsdGenSession() {
     _state.reset();
 }
 UsdGenSession::SnapshotPtr UsdGenSession::Snapshot() const noexcept {
-    return std::atomic_load(&_snapshot);
+    return _snapshot.Load();
 }
 int UsdGenSession::CaptureCallerDevice() noexcept {
     int device = -2;
@@ -528,7 +546,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 snapshot->report = UsdGenDirtyReport{};
                 snapshot->diagnostics = UsdGenDiagnostics{};
                 ++snapshot->stats.commits;
-                std::atomic_store(&_snapshot, SnapshotPtr(snapshot));
+                _snapshot.Store(SnapshotPtr(snapshot));
                 state.stagedBase.reset();
                 state.dirty.store(false, std::memory_order_release);
                 reply->Finish(snapshot, UsdGenExecutionPipeline::Outcome::Published);
@@ -608,18 +626,19 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                             // expose its result in the same immutable snapshot.
                             snapshot->stats = executor->Cooker().Stats();
                         }
+                        // Allocate the holder before the fence; publishing
+                        // inside it is one exchange.
+                        auto prepared = decltype(_snapshot)::Prepare(SnapshotPtr(snapshot));
                         if (!failed && !executor->Cooker().PublishIfCurrent(
-                                *publicationFence, [this, snapshot] {
-                                    SnapshotPtr retired = std::atomic_exchange(
-                                        &_snapshot, SnapshotPtr(snapshot));
+                                *publicationFence, [this, &prepared] {
                                     return std::shared_ptr<const void>(
-                                        std::move(retired));
+                                        _snapshot.Exchange(std::move(prepared)));
                                 })) {
                             throw std::runtime_error(
                                 "execution domain was invalidated before session publication");
                         }
                         if (failed)
-                            std::atomic_store(&_snapshot, SnapshotPtr(snapshot));
+                            _snapshot.Exchange(std::move(prepared));
                         if (failed) {
                             if (workError) std::rethrow_exception(workError);
                             throw std::runtime_error(
@@ -710,7 +729,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                             } catch (...) {
                                 failed->diagnostics.Error("unknown session execution failure");
                             }
-                            std::atomic_store(&_snapshot, SnapshotPtr(failed));
+                            _snapshot.Store(SnapshotPtr(failed));
                         }
                     } catch (...) {
                         // Keep the existing snapshot when recovery diagnostics

@@ -1,8 +1,8 @@
 // usdGen engine — generation store and publication diff (03 §6.1/§6.2).
 //
-// A generation is immutable once published. The publish/read pair is
-// std::atomic_store/std::atomic_load over std::shared_ptr — NOT TfRefPtr
-// (no atomic overloads in 26.08; verified grep of pxr/base/tf/refPtr.h).
+// A generation is immutable once published. The publish/read pair is a
+// UsdGenSharedCell (atomic holder pointer, epoch-protected weak lock): no
+// lock, and the displaced generation dies when its last reference drops.
 // "Did this tile change" is VtArray::IsIdentical() (data-pointer comparison,
 // pxr/base/vt/array.h:945-950), not memcmp.
 #ifndef USDGEN_GENERATION_STORE_H
@@ -11,6 +11,7 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/rbfAnimation.h"
+#include "usdGen/sharedCell.h"
 
 #include <cstdint>
 #include <memory>
@@ -67,11 +68,14 @@ using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;
 class UsdGenGenerationStore
 {
 public:
-    using PreparedPublication = UsdGenGenerationConstPtr;
+    using PreparedPublication = UsdGenSharedCell<UsdGenGeneration>::Prepared;
     /// Private worker candidate stores start from the last published immutable
     /// generation. Discarded candidates consume no public generation ids;
     /// only the accepted publication advances the public sequence.
     explicit UsdGenGenerationStore(UsdGenGenerationConstPtr baseline = {});
+    /// Owner-lane only: no concurrent reader of either store.
+    UsdGenGenerationStore(UsdGenGenerationStore &&other);
+    UsdGenGenerationStore &operator=(UsdGenGenerationStore &&other);
     /// Compatibility convenience for an unfenced publication.  Fenced
     /// callers must use PreparePublication/PublishPrepared so allocation and
     /// displaced-owner destruction occur outside the enclosing domain lock.
@@ -88,8 +92,7 @@ public:
     UsdGenGenerationConstPtr PublishPrepared(
         PreparedPublication prepared) noexcept;
 
-    /// Atomic snapshot read without an application-owned guard. The standard
-    /// library does not promise lock-free shared_ptr atomic operations.
+    /// Lock-free snapshot read from any thread.
     UsdGenGenerationConstPtr Get() const noexcept;
 
     /// Cheap structural diff of two generations (03 §6.1): payload changes via
@@ -100,7 +103,7 @@ public:
 
     int64_t NextId() const noexcept;
 private:
-    UsdGenGenerationConstPtr _current;
+    UsdGenSharedCell<UsdGenGeneration> _current;
     int64_t _nextId = 0;
 };
 
