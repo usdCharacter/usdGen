@@ -165,8 +165,9 @@ static void CheckRegistryContracts()
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Displace touches the points plane only");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
+    for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)   // routed decls, as the routing snapshot splits them
+        (rec.ParamClass(s) == UsdGenParamClass::Value ? value : topo).insert(rec.ParamName(s).GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed", "mode",
                                         "displace:map"},
           "Displace topology parameters are input/surface/seed/mode/map");
