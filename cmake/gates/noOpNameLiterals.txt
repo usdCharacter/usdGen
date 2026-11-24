@@ -3,7 +3,6 @@
 libs/usdGen/usdGen/compiler.cpp 1
 libs/usdGen/usdGen/cudaExecution.cpp 194
 libs/usdGen/usdGen/cudaScatterInput.cpp 2
-libs/usdGen/usdGen/expressionTargets.cpp 25
 libs/usdGen/usdGen/ops/bend.h 1
 libs/usdGen/usdGen/ops/collide.h 1
 libs/usdGen/usdGen/ops/curl.h 1

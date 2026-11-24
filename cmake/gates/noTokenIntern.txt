@@ -4,7 +4,6 @@ libs/usdGen/usdGen/cudaExecution.cpp 334
 libs/usdGen/usdGen/cudaParameters.cpp 1
 libs/usdGen/usdGen/cudaScatterInput.cpp 7
 libs/usdGen/usdGen/curveLoader.cpp 44
-libs/usdGen/usdGen/expressionTargets.cpp 27
 libs/usdGen/usdGen/furOcclusion.cpp 15
 libs/usdGen/usdGen/limitSurface.cpp 6
 libs/usdGen/usdGen/opParams.h 1
