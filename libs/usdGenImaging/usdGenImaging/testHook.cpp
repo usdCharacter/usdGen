@@ -5,16 +5,16 @@
 // testUsdGenStormSurgery can assert the P0 race contract from the render
 // thread: every observation corresponds to one complete generation
 // snapshot, never a torn map. Both entry points perform no owner wait (an
-// immutable registry snapshot and the per-groom published map are
-// atomic_load'ed, exactly like GetPrim).
+// immutable registry snapshot and the per-groom published map are loaded
+// through epoch-protected cells, exactly like GetPrim).
 //
 // Lives in its own translation unit (NOT the plugin registration TU) so the
 // symbols link into libusdGenImaging for testUsdGenStormSurgery
 // (usdGenTestUtilsHd -> usdGenImaging). No new public plugin API.
 #include "usdGenImaging/testHook.h"
 
+#include "usdGenImaging/atomicShared.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGen/executionPipeline.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/dataSourceLocator.h"
@@ -32,56 +32,30 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {
 
+using ::usdGenImaging::UsdGenAtomicShared;
+using ::usdGenImaging::UsdGenCowUpdate;
+
 struct RegistryEntry {
     HdSceneIndexBasePtr weak;
     // TfWeakPtr<void> compares the remnant/control identity, rather than a
     // raw address which may be reused after a scene-index destructor runs.
     TfWeakPtr<void> identity;
 };
-using RegistrySnapshot = std::shared_ptr<std::vector<RegistryEntry> const>;
+using RegistryVector = std::vector<RegistryEntry>;
+using RegistrySnapshot = std::shared_ptr<RegistryVector const>;
 
-// All membership mutation belongs to this serial framework owner. Readers
-// load a completed immutable vector; weak promotion then keeps an index alive
-// for a probe without an owner command or scene-index mutation.
-struct HookRegistry {
-    usdGen::UsdGenExecutionRuntime runtime{8};
-    RegistrySnapshot published = std::make_shared<std::vector<RegistryEntry>>();
-    usdGen::UsdGenExecutionPipeline owner{runtime};
-};
+// Membership is a copy-on-write vector installed by CAS: a mutation is
+// visible when it returns, from any thread, and never waits. Readers load a
+// completed immutable vector; weak promotion then keeps an index alive for a
+// probe. Constant-initialized; never destroyed in a way that waits.
+UsdGenAtomicShared<RegistryVector const> g_hookRegistry;
 
-HookRegistry &_HookRegistry()
-{
-    // Leaked on purpose, like every process-lifetime arena owner in this
-    // library (see ImagingRuntime in usdGenImagingSession.cpp): a static
-    // destructor here runs at DLL_PROCESS_DETACH on Windows, after ExitProcess
-    // has killed the TBB workers, so the pipeline shutdown wait and the arena
-    // teardown could never complete. External shutdown must quiesce callback
-    // producers/readers before returning from main; Drain is the explicit
-    // test/shutdown boundary.
-    static auto* registry = new HookRegistry;
-    return *registry;
-}
+RegistrySnapshot _HookSnapshot() { return g_hookRegistry.Load(); }
 
 template <class Mutation>
 void _MutateRegistry(Mutation mutation)
 {
-    HookRegistry &registry = _HookRegistry();
-    auto command = [&registry, mutation=std::move(mutation)]() mutable {
-        RegistrySnapshot before = std::atomic_load(&registry.published);
-        auto next = std::make_shared<std::vector<RegistryEntry>>(
-            before ? *before : std::vector<RegistryEntry>{});
-        mutation(*next);
-        std::atomic_store(&registry.published,
-            std::static_pointer_cast<std::vector<RegistryEntry> const>(next));
-    };
-    // Construction/destruction may happen from a framework callback.  Such a
-    // callback must never wait behind its own owner.  External construction
-    // retains the old immediate-visibility contract needed by test probes.
-    if (usdGen::UsdGenExecutionPipeline::IsExecuting()) {
-        registry.owner.PostCommand(std::move(command));
-    } else {
-        registry.owner.InvokeOwner(std::move(command));
-    }
+    UsdGenCowUpdate(g_hookRegistry, mutation);
 }
 
 }  // namespace
@@ -91,8 +65,9 @@ UsdGenImagingTestHook::_RegisterIndex(HdSceneIndexBase *index)
 {
     HdSceneIndexBasePtr weak = TfCreateWeakPtr(index);
     TfWeakPtr<void> identity(weak);
+    // The edit may run again when its CAS loses: copy, never move, captures.
     _MutateRegistry([weak=std::move(weak), identity=std::move(identity)](
-                        std::vector<RegistryEntry> &registry) mutable {
+                        std::vector<RegistryEntry> &registry) {
         for (auto const &candidate : registry) {
             if (candidate.identity == identity) return;
         }
@@ -100,7 +75,7 @@ UsdGenImagingTestHook::_RegisterIndex(HdSceneIndexBase *index)
             [](RegistryEntry const &candidate) {
                 return candidate.weak.IsExpired();
             }), registry.end());
-        registry.push_back({std::move(weak), std::move(identity)});
+        registry.push_back({weak, identity});
     });
 }
 
@@ -122,7 +97,7 @@ UsdGenImagingTestHook::_UnregisterIndex(HdSceneIndexBase *index)
 // Snapshot one index's published-tile generation stamps for `groom`:
 // max `generation` int across the adopted groom's published map, or -1
 // when the groom is unknown / unpublished. Lock-free past the registry
-// copy: the map itself is atomic_load'ed.
+// copy: the map itself is loaded through an epoch-protected cell.
 int64_t
 UsdGenImagingTestHook::_PublishedGenerationOn(
     HdSceneIndexBase const &index, SdfPath const &groom)
@@ -146,7 +121,7 @@ UsdGenImagingTestHook::_PublishedTileCountOn(
 int64_t
 UsdGenImagingTestHook::publishedGeneration(SdfPath const &groom)
 {
-    RegistrySnapshot weaks = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot weaks = _HookSnapshot();
     int64_t best = -1;
     if (!weaks) return 0;
     for (auto const &entry : *weaks) {
@@ -161,7 +136,7 @@ UsdGenImagingTestHook::publishedGeneration(SdfPath const &groom)
 uint64_t
 UsdGenImagingTestHook::issuedIngresses()
 {
-    RegistrySnapshot snapshot = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot snapshot = _HookSnapshot();
     uint64_t greatest = 0;
     if (!snapshot) return greatest;
     for (auto const &entry : *snapshot) {
@@ -177,7 +152,7 @@ UsdGenImagingTestHook::issuedIngresses()
 size_t
 UsdGenImagingTestHook::publishedTileCount(SdfPath const &groom)
 {
-    RegistrySnapshot weaks = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot weaks = _HookSnapshot();
     size_t total = 0;
     if (!weaks) return 0;
     for (auto const &entry : *weaks) {
@@ -197,7 +172,7 @@ UsdGenImagingTestHook::publishedCurveStats(SdfPath const &groom,
     uint64_t count = 0;
     double length = 0.0;
     bool found = false;
-    RegistrySnapshot weaks = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot weaks = _HookSnapshot();
     if (weaks && groom.IsAbsolutePath() && groom.IsPrimPath()) {
         SdfPath const render = groom.AppendChild(TfToken("__usdGenRender"));
         static HdDataSourceLocator const countsLoc(
@@ -243,14 +218,14 @@ UsdGenImagingTestHook::publishedCurveStats(SdfPath const &groom,
 size_t
 UsdGenImagingTestHook::registeredIndexCount()
 {
-    RegistrySnapshot snapshot = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot snapshot = _HookSnapshot();
     return snapshot ? snapshot->size() : 0;
 }
 
 bool
 UsdGenImagingTestHook::holdOneGroomOwnerCredit()
 {
-    RegistrySnapshot snapshot = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot snapshot = _HookSnapshot();
     if (!snapshot) return false;
     for (auto const &entry : *snapshot) {
         HdSceneIndexBaseRefPtr live =
@@ -264,7 +239,7 @@ UsdGenImagingTestHook::holdOneGroomOwnerCredit()
 void
 UsdGenImagingTestHook::releaseGroomOwnerCredits()
 {
-    RegistrySnapshot snapshot = std::atomic_load(&_HookRegistry().published);
+    RegistrySnapshot snapshot = _HookSnapshot();
     if (!snapshot) return;
     for (auto const &entry : *snapshot) {
         HdSceneIndexBaseRefPtr live =
@@ -429,7 +404,8 @@ void UsdGenImagingTestHook::releaseGroomDrainWaitForTesting() {
 void
 UsdGenImagingTestHook::Drain()
 {
-    _HookRegistry().owner.Drain();
+    // Membership changes land when they return; only retired snapshots remain.
+    usdGen::UsdGenEpochDrain();
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

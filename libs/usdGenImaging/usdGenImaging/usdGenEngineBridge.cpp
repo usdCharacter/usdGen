@@ -1,4 +1,5 @@
 #include "usdGenImaging/usdGenEngineBridge.h"
+#include "usdGenImaging/atomicShared.h"
 
 #include "usdGen/executionPipeline.h"
 #include "pxr/base/tf/diagnostic.h"
@@ -10,12 +11,17 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace usdGenImaging {
 
+using ::usdGenImaging::UsdGenAtomicShared;
+using ::usdGenImaging::UsdGenLazyLeaked;
+
 namespace {
 
 struct BridgeOwner {
     usdGen::UsdGenExecutionRuntime runtime{8};
     usdGen::UsdGenExecutionPipeline pipeline{runtime};
 };
+
+std::atomic<BridgeOwner *> g_bridgeOwner{nullptr};
 
 BridgeOwner &_BridgeOwner()
 {
@@ -28,8 +34,7 @@ BridgeOwner &_BridgeOwner()
     // destructor here runs at DLL_PROCESS_DETACH on Windows, after ExitProcess
     // has killed the TBB workers, so its drain could never complete. Callers
     // that need queued commands delivered before exit call Drain explicitly.
-    static auto* owner = new BridgeOwner;
-    return *owner;
+    return UsdGenLazyLeaked(g_bridgeOwner);
 }
 
 } // namespace
@@ -42,7 +47,7 @@ struct UsdGenEngineBridge::State {
         size_t seenEntries = 0;
         bool firstDrain = true;
     };
-    std::shared_ptr<Snapshot const> published = std::make_shared<Snapshot>();
+    UsdGenAtomicShared<Snapshot const> published{std::make_shared<Snapshot const>()};
 };
 
 namespace {
@@ -52,14 +57,13 @@ using Snapshot = UsdGenEngineBridge::State::Snapshot;
 std::shared_ptr<Snapshot const> _Snapshot(
     std::shared_ptr<UsdGenEngineBridge::State> const &state)
 {
-    return std::atomic_load(&state->published);
+    return state->published.Load();
 }
 
 void _Publish(std::shared_ptr<UsdGenEngineBridge::State> const &state,
               std::shared_ptr<Snapshot> next)
 {
-    std::atomic_store(&state->published,
-        std::static_pointer_cast<Snapshot const>(std::move(next)));
+    state->published.Store(std::move(next));
 }
 
 void _Post(std::function<void()> command)
