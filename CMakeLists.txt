@@ -2497,6 +2497,12 @@ if(USDGEN_ENABLE_CUDA)
     set_tests_properties(testUsdGenCudaExecutionResources PROPERTIES
         LABELS "T0;cuda;resources" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    add_executable(testUsdGenCudaDeviceBufferPoolStress tests/testUsdGenCudaDeviceBufferPoolStress.cpp)
+    target_link_libraries(testUsdGenCudaDeviceBufferPoolStress PRIVATE usdGenGpu)
+    add_test(NAME testUsdGenCudaDeviceBufferPoolStress COMMAND testUsdGenCudaDeviceBufferPoolStress)
+    set_tests_properties(testUsdGenCudaDeviceBufferPoolStress PROPERTIES
+        LABELS "T0;cuda;resources" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaRetirement tests/testUsdGenCudaRetirement.cpp)
     target_link_libraries(testUsdGenCudaRetirement PRIVATE usdGen usdGenGpu)
     add_test(NAME testUsdGenCudaRetirement COMMAND testUsdGenCudaRetirement)
