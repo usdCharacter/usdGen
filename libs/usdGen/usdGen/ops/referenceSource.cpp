@@ -17,14 +17,14 @@ struct UsdGenReferenceSourceCapture final : public UsdGenCapture
     }
 };
 
-TfTokenVector const kReferenceInputs{TfToken("reference")};
+constexpr char const *kReferenceInputs[] = {"reference"};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &record, void *)
+{
+    return std::make_unique<UsdGenReferenceSourceOp>(record);
+}
 
 }  // namespace
-
-TfSpan<const TfToken> UsdGenReferenceSourceOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(kReferenceInputs.data(), kReferenceInputs.size());
-}
 
 UsdGenEpoch UsdGenReferenceSourceOp::CaptureDigest(
     UsdGenCaptureContext const &ctx) const
@@ -62,7 +62,16 @@ bool UsdGenReferenceSourceOp::Capture(
 
 UsdGenOpId UsdGenRegisterReferenceSourceOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenReferenceSourceOp().Type(), [] { return std::make_unique<UsdGenReferenceSourceOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenReferenceSource";
+    d.displayName = "ReferenceSource";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.role = UsdGenRole::Reference;
+    d.geometryInputArity = 0;
+    d.traits = kUsdGenOpGenerator;
+    d.referenceInputs = UsdGenSpan(kReferenceInputs);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen
