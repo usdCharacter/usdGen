@@ -1073,6 +1073,8 @@ set(_usdgen_vulkan_sources
     libs/usdGen/usdGen/vulkan/deviceFactory.cpp
     libs/usdGen/usdGen/vulkan/deviceContext.cpp
     libs/usdGen/usdGen/vulkan/chargedBuffer.cpp
+    libs/usdGen/usdGen/vulkan/memoryPool.cpp
+    libs/usdGen/usdGen/vulkan/queueTimeline.cpp
     libs/usdGen/usdGen/vulkan/completionService.cpp
     libs/usdGen/usdGen/vulkan/externalRetirement.cpp
     libs/usdGen/usdGen/vulkan/sourceGeneration.cpp

@@ -48,11 +48,12 @@ std::shared_ptr<ChargedBuffer> ChargedBuffer::Create(std::shared_ptr<DeviceConte
         if (memoryType < memProps.memoryTypeCount)
             owner->memoryPropertyFlags_ = memProps.memoryTypes[memoryType].propertyFlags;
     }
-    VkMemoryAllocateInfo allocation{};
-    allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocation.allocationSize = requirements.size; allocation.memoryTypeIndex = memoryType;
-    status = vkAllocateMemory(context->device(), &allocation, nullptr, &owner->memory_);
-    if (status == VK_SUCCESS) status = vkBindBufferMemory(context->device(), owner->buffer_, owner->memory_, 0);
+    // Size-class pooled memory: a steady-state create reuses an idle block
+    // of the same class instead of calling vkAllocateMemory.
+    owner->block_ = context->memoryPool()->Acquire(memoryType, requirements.size, &status);
+    if (!owner->block_) { if (result) *result = status; return {}; }
+    owner->memory_ = owner->block_->memory;
+    status = vkBindBufferMemory(context->device(), owner->buffer_, owner->memory_, 0);
     if (status != VK_SUCCESS) { if (result) *result = status; return {}; }
     owner->allocationBytes_ = requirements.size;
     owner->sizeBytes_ = createInfo.size;
@@ -65,7 +66,7 @@ ChargedBuffer::~ChargedBuffer() {
     if (unproven_) { Quarantine(); return; }
     if (submitted_) { Quarantine(); return; }
     if (buffer_) vkDestroyBuffer(context_->device(), buffer_, nullptr);
-    if (memory_) vkFreeMemory(context_->device(), memory_, nullptr);
+    if (block_) context_->memoryPool()->Release(block_);
 }
 
 VkResult ChargedBuffer::MarkSubmitted(VkFence fence, std::shared_ptr<const void> submissionLifetime) {
@@ -85,7 +86,7 @@ VkResult ChargedBuffer::PollComplete() {
     return VK_SUCCESS;
 }
 void ChargedBuffer::Quarantine() noexcept {
-    unproven_ = true; buffer_ = VK_NULL_HANDLE; memory_ = VK_NULL_HANDLE; fence_ = VK_NULL_HANDLE;
+    unproven_ = true; buffer_ = VK_NULL_HANDLE; memory_ = VK_NULL_HANDLE; block_ = nullptr; fence_ = VK_NULL_HANDLE;
     // Permanently retain context/submission lifetimes and the allocation
     // charge when proof is lost. This helper has no reclamation path; it
     // never destroys the device or waits for queue idleness to infer safety.

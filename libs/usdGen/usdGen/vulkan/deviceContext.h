@@ -4,6 +4,8 @@
 #define USDGEN_VULKAN_DEVICE_CONTEXT_H
 
 #include "usdGen/executionResources.h"
+#include "memoryPool.h"
+#include "queueTimeline.h"
 
 #include <vulkan/vulkan.h>
 
@@ -63,6 +65,11 @@ public:
     bool timelineSemaphoreEnabled() const noexcept { return timelineSemaphoreEnabled_; }
     bool shaderFloat64Enabled() const noexcept { return shaderFloat64Enabled_; }
     bool shaderInt64Enabled() const noexcept { return shaderInt64Enabled_; }
+    // The compute queue's timeline: every submission through it signals the
+    // next value. Null unless timelineSemaphoreEnabled.
+    VulkanQueueTimeline* computeTimeline() const noexcept { return timeline_.get(); }
+    // Size-class device memory behind every ChargedBuffer of this context.
+    VulkanDeviceMemoryPool* memoryPool() const noexcept { return memoryPool_.get(); }
 
 private:
     explicit DeviceContext(CreateInfo const&, std::shared_ptr<UsdGenExecutionResourcePool>);
@@ -80,6 +87,9 @@ private:
     bool timelineSemaphoreEnabled_ = false;
     bool shaderFloat64Enabled_ = false;
     bool shaderInt64Enabled_ = false;
+    // Destroyed before nativeLifetime_ (declared after it).
+    std::unique_ptr<VulkanDeviceMemoryPool> memoryPool_;
+    std::unique_ptr<VulkanQueueTimeline> timeline_;
 };
 } // namespace usdGen::vulkan
 #endif

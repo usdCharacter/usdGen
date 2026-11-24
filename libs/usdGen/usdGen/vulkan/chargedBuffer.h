@@ -42,6 +42,8 @@ private:
     std::shared_ptr<DeviceContext> context_;
     VkBuffer buffer_ = VK_NULL_HANDLE;
     VkDeviceMemory memory_ = VK_NULL_HANDLE;
+    // The pooled block behind memory_ (offset 0), returned on destruction.
+    VulkanDeviceMemoryPool::Block* block_ = nullptr;
     VkDeviceSize allocationBytes_ = 0;
     VkDeviceSize sizeBytes_ = 0;
     VkBufferUsageFlags usage_ = 0;
