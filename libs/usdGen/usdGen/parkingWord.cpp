@@ -7,6 +7,8 @@
 #  include <windows.h>
 #  pragma comment(lib, "Synchronization.lib")
 #elif defined(__linux__)
+#  include <cerrno>
+#  include <ctime>
 #  include <linux/futex.h>
 #  include <sys/syscall.h>
 #  include <unistd.h>
@@ -31,6 +33,26 @@ void UsdGenParkWhileEqual(std::atomic<uint32_t> &word, uint32_t expected)
     // No public address-wait here: poll. Only idle workers reach this.
     if (word.load(std::memory_order_acquire) == expected)
         std::this_thread::sleep_for(std::chrono::microseconds(100));
+#endif
+}
+
+bool UsdGenParkWhileEqualFor(std::atomic<uint32_t> &word, uint32_t expected,
+                             uint32_t timeoutMs)
+{
+#if defined(_WIN32)
+    if (WaitOnAddress(&word, &expected, sizeof(expected), DWORD(timeoutMs))) return true;
+    return GetLastError() != ERROR_TIMEOUT;
+#elif defined(__linux__)
+    timespec rel{time_t(timeoutMs / 1000), long(timeoutMs % 1000) * 1000000L};
+    long const r = syscall(SYS_futex, reinterpret_cast<uint32_t *>(&word),
+                           FUTEX_WAIT_PRIVATE, expected, &rel, nullptr, 0);
+    return !(r != 0 && errno == ETIMEDOUT);
+#else
+    // Poll as above; the caller's deadline bounds the loop.
+    (void)timeoutMs;
+    if (word.load(std::memory_order_acquire) == expected)
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    return true;
 #endif
 }
 

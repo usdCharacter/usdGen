@@ -68,7 +68,10 @@ constexpr size_t kVarCount = sizeof(kVars) / sizeof(kVars[0]);
 uint32_t Bytes(ScalarType t) { switch(t) { case ScalarType::Bool: return 1; case ScalarType::Int32: case ScalarType::UInt32: case ScalarType::Float32: return 4; case ScalarType::Int64: case ScalarType::UInt64: case ScalarType::Float64: return 8; case ScalarType::Float16: return 2; default: return 0; } }
 }
 
-const Registry &Registry::Get() { static Registry r; return r; }
+namespace {
+constexpr Registry kRegistry{};  // stateless: the tables above are constant
+}
+const Registry &Registry::Get() { return kRegistry; }
 const VariableInfo *Registry::Find(const char *name) const noexcept {
     if (!name) return nullptr; for (auto const &v : kVars) if (std::strcmp(v.name,name)==0) return &v; return nullptr;
 }

@@ -10,6 +10,15 @@ namespace {
 using Type = expr::ScalarType;
 using Domain = expr::Domain;
 
+/// Membership in a constant name list (lists are a handful of names).
+template <size_t N>
+bool Has(char const *const (&names)[N], std::string const &name)
+{
+    for (char const *n : names)
+        if (name == n) return true;
+    return false;
+}
+
 bool Reject(std::vector<std::string> *errors, std::string const &message)
 {
     if (errors) errors->push_back(message);
@@ -29,14 +38,14 @@ bool ShapeOk(UsdGenExpressionBinding const &binding, Type scalar, char const *na
 
 bool ValidateLength(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "length:value", "minRemainingLength", "cullThreshold", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled", vector = name == "length:random";
-        if ((!boolean && !vector && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !vector && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : vector ? "float2" : "float", vector ? 2u : 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Length expression " + name);
@@ -51,13 +60,13 @@ bool ValidateLength(UsdGenNodeDesc const &node, std::vector<std::string> *errors
 
 bool ValidateWidth(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{"width", "mask"};
+    static constexpr char const *floats[] = {"width", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "replace" || name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported/incorrectly typed Width expression target " + name);
@@ -71,7 +80,7 @@ bool ValidateWidth(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 
 bool ValidateNoise(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "noise:magnitude", "noise:frequency", "noise:correlation",
         "noise:lacunarity", "noise:gain", "preserveLength", "mask"};
     std::set<std::string> seen;
@@ -80,7 +89,7 @@ bool ValidateNoise(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled" || name == "cumulative";
         const bool integer = name == "noise:octaves" || name == "noise:seed";
-        if ((!boolean && !integer && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !integer && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : integer ? Type::Int32 : Type::Float32,
                      boolean ? "bool" : integer ? "int" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Noise expression " + name);
@@ -119,14 +128,14 @@ bool ValidateDeform(UsdGenNodeDesc const &node, std::vector<std::string> *errors
 /// is per strand.
 bool ValidateClump(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "clump:amount", "clump:map", "preserveLength", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Clump expression " + name);
@@ -183,7 +192,7 @@ bool ValidateCurveSource(UsdGenNodeDesc const &node, std::vector<std::string> *e
 /// so the authoring fails closed instead of partially applying.
 bool ValidateGrow(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{"length", "lift", "azimuth", "azimuthRandom"};
+    static constexpr char const *floats[] = {"length", "lift", "azimuth", "azimuthRandom"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
@@ -197,7 +206,7 @@ bool ValidateGrow(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
         else if (integer) shape = ShapeOk(binding, Type::Int32, "int", 1u);
         else if (vec2) shape = ShapeOk(binding, Type::Float32, "float2", 2u);
         else if (vec3) shape = ShapeOk(binding, Type::Float32, "vector3f", 3u);
-        else if (floats.count(name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
+        else if (Has(floats, name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
         if (!shape || !seen.insert(name).second) {
             ok = Reject(errors, "unsupported or incorrectly typed Grow expression " + name);
             continue;
@@ -215,14 +224,14 @@ bool ValidateGrow(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 /// root. The branch toggles (taper, clockwise) are groom-wide.
 bool ValidateCurl(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "radius", "frequency", "phase", "phaseRandom", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled" || name == "taper" || name == "clockwise";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Curl expression " + name);
@@ -239,7 +248,7 @@ bool ValidateCurl(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 /// sampled per curve root.
 bool ValidateBend(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{"angle", "mask"};
+    static constexpr char const *floats[] = {"angle", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
@@ -251,7 +260,7 @@ bool ValidateBend(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
         if (boolean) shape = ShapeOk(binding, Type::Bool, "bool", 1u);
         else if (vec2) shape = ShapeOk(binding, Type::Float32, "float2", 2u);
         else if (vec3) shape = ShapeOk(binding, Type::Float32, "vector3f", 3u);
-        else if (floats.count(name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
+        else if (Has(floats, name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
         if (!shape || !seen.insert(name).second) {
             ok = Reject(errors, "unsupported or incorrectly typed Bend expression " + name);
             continue;
@@ -291,14 +300,14 @@ bool ValidateWholeStrand(UsdGenNodeDesc const &node, std::vector<std::string> *e
 
 bool ValidateWave(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "frequencyU", "frequencyN", "amplitudeU", "amplitudeN", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Wave expression " + name);
@@ -314,14 +323,14 @@ bool ValidateWave(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 /// per curve root; the mask envelopes the separating displacement per CV.
 bool ValidatePart(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "part:radius", "part:strength", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Part expression " + name);
@@ -340,9 +349,9 @@ bool ValidatePart(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 /// and enabled are groom-wide.
 bool ValidateDirection(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> groomFloats{
+    static constexpr char const *groomFloats[] = {
         "tiltU", "tiltV", "tiltN", "aroundN", "followSkinContour"};
-    static const std::set<std::string> rootFloats{"amount", "lift", "mask"};
+    static constexpr char const *rootFloats[] = {"amount", "lift", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
@@ -352,13 +361,13 @@ bool ValidateDirection(UsdGenNodeDesc const &node, std::vector<std::string> *err
         bool shape = false;
         if (boolean) shape = ShapeOk(binding, Type::Bool, "bool", 1u);
         else if (vec3) shape = ShapeOk(binding, Type::Float32, "vector3f", 3u);
-        else if (groomFloats.count(name) || rootFloats.count(name))
+        else if (Has(groomFloats, name) || Has(rootFloats, name))
             shape = ShapeOk(binding, Type::Float32, "float", 1u);
         if (!shape || !seen.insert(name).second) {
             ok = Reject(errors, "unsupported or incorrectly typed Direction expression " + name);
             continue;
         }
-        if ((boolean || groomFloats.count(name)) && binding.domain != Domain::Groom)
+        if ((boolean || Has(groomFloats, name)) && binding.domain != Domain::Groom)
             ok = Reject(errors, "Direction " + name + " requires groom evaluation");
         else if ((vec3 || name == "amount" || name == "lift") &&
                  binding.domain == Domain::Point)
@@ -372,7 +381,7 @@ bool ValidateDirection(UsdGenNodeDesc const &node, std::vector<std::string> *err
 /// and enabled are groom-wide.
 bool ValidateSmooth(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> rootFloats{"strength", "searchRadius", "mask"};
+    static constexpr char const *rootFloats[] = {"strength", "searchRadius", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
@@ -382,7 +391,7 @@ bool ValidateSmooth(UsdGenNodeDesc const &node, std::vector<std::string> *errors
         bool shape = false;
         if (boolean) shape = ShapeOk(binding, Type::Bool, "bool", 1u);
         else if (integer) shape = ShapeOk(binding, Type::Int32, "int", 1u);
-        else if (rootFloats.count(name))
+        else if (Has(rootFloats, name))
             shape = ShapeOk(binding, Type::Float32, "float", 1u);
         if (!shape || !seen.insert(name).second) {
             ok = Reject(errors, "unsupported or incorrectly typed Smooth expression " + name);
@@ -453,14 +462,14 @@ bool ValidateScale(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 /// and the mask are sampled per CV; enabled is groom-wide.
 bool ValidateStraighten(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "tangentStraightness", "normalStraightness", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Straighten expression " + name);
@@ -477,7 +486,7 @@ bool ValidateStraighten(UsdGenNodeDesc const &node, std::vector<std::string> *er
 /// clump:map); enabled is groom-wide.
 bool ValidateDisplace(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "displace:amount", "displace:base", "displace:scale",
         "displace:offset", "displace:map", "mask"};
     std::set<std::string> seen;
@@ -485,7 +494,7 @@ bool ValidateDisplace(UsdGenNodeDesc const &node, std::vector<std::string> *erro
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed Displace expression " + name);
@@ -503,13 +512,13 @@ bool ValidateDisplace(UsdGenNodeDesc const &node, std::vector<std::string> *erro
 /// mask scale the deltas; weight is groom-wide, the mask is sampled per CV.
 bool ValidateSculptLayer(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{"sculpt:weight", "mask"};
+    static constexpr char const *floats[] = {"sculpt:weight", "mask"};
     std::set<std::string> seen;
     bool ok = true;
     for (auto const &binding : node.expressionBindings) {
         const auto name = UsdGenCanonicalParamName(binding.destination).GetString();
         const bool boolean = name == "enabled";
-        if ((!boolean && !floats.count(name)) || !seen.insert(name).second ||
+        if ((!boolean && !Has(floats, name)) || !seen.insert(name).second ||
             !ShapeOk(binding, boolean ? Type::Bool : Type::Float32,
                      boolean ? "bool" : "float", 1u)) {
             ok = Reject(errors, "unsupported or incorrectly typed SculptLayer expression " + name);
@@ -528,7 +537,7 @@ bool ValidateSculptLayer(UsdGenNodeDesc const &node, std::vector<std::string> *e
 /// curve root; the stiffness baseline is groom-wide; the mask per CV.
 bool ValidateWind(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "constStrength", "gustStrength", "stiffness", "mask",
         "billowLowStrength", "billowLowFrequency", "billowLowRate",
         "billowHighStrength", "billowHighFrequency", "billowHighRate"};
@@ -541,7 +550,7 @@ bool ValidateWind(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
         bool shape = false;
         if (boolean) shape = ShapeOk(binding, Type::Bool, "bool", 1u);
         else if (vec3) shape = ShapeOk(binding, Type::Float32, "vector3f", 3u);
-        else if (floats.count(name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
+        else if (Has(floats, name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
         if (!shape || !seen.insert(name).second) {
             ok = Reject(errors, "unsupported or incorrectly typed Wind expression " + name);
             continue;
@@ -584,7 +593,7 @@ bool ValidateExprOp(UsdGenNodeDesc const &node, std::vector<std::string> *errors
 /// groom-wide; the mask is sampled per CV.
 bool ValidateCollide(UsdGenNodeDesc const &node, std::vector<std::string> *errors)
 {
-    static const std::set<std::string> floats{
+    static constexpr char const *floats[] = {
         "offset", "pushAmount", "mask", "cutDepthThreshold", "cutBlendDepth",
         "clearance:root", "clearance:tip"};
     std::set<std::string> seen;
@@ -597,7 +606,7 @@ bool ValidateCollide(UsdGenNodeDesc const &node, std::vector<std::string> *error
         bool shape = false;
         if (boolean) shape = ShapeOk(binding, Type::Bool, "bool", 1u);
         else if (integer) shape = ShapeOk(binding, Type::Int32, "int", 1u);
-        else if (floats.count(name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
+        else if (Has(floats, name)) shape = ShapeOk(binding, Type::Float32, "float", 1u);
         if (!shape || !seen.insert(name).second) {
             ok = Reject(errors, "unsupported or incorrectly typed Collide expression " + name);
             continue;

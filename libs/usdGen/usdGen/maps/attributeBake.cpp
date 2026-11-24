@@ -1,6 +1,7 @@
-// usdGen — painted attribute maps: the .ptx bake and its worker.
+// usdGen — painted attribute maps: the .ptx bake and its I/O lane.
 // See attributeBake.h for the handoff contract.
 #include "usdGen/maps/attributeBake.h"
+#include "usdGen/parkingWord.h"
 
 // Ptexture.h comes from the private usdGen_ptex archive (PTEX_STATIC,
 // PTEX_VENDOR=usdGen); only this translation unit (and ptexMap.cpp) sees it.
@@ -200,158 +201,184 @@ bool UsdGenAttributeBakePtex(UsdGenAttributeBakeInput const &input,
 
 UsdGenAttributeBakeWorker::UsdGenAttributeBakeWorker()
 {
-    // _worker is the first data member, so starting it from the initializer
-    // list runs _WorkerLoop before _mutex and _wake exist. Under ctest -j
-    // that race throws std::system_error "Invalid argument" from the worker
-    // thread and std::terminate takes the process down. Default-construct
-    // the thread with the other members, then start it once they are live.
-    // Same pattern as PomadeBakeWorker.
+    // Start the lane once every member is live: _worker is declared before
+    // the words and mailboxes it reads.
     _worker = std::thread(&UsdGenAttributeBakeWorker::_WorkerLoop, this);
 }
 
 UsdGenAttributeBakeWorker::~UsdGenAttributeBakeWorker()
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _stop = true;
-    }
-    _wake.notify_all();
+    _stop.store(true, std::memory_order_release);
+    _Signal();
     if (_worker.joinable()) _worker.join();
+    // The lane is gone: whatever is left in the mailboxes is ours.
+    delete _pending.exchange(nullptr, std::memory_order_acquire);
+    delete _spareRequest.exchange(nullptr, std::memory_order_acquire);
+    delete _completed.exchange(nullptr, std::memory_order_acquire);
+    delete _spareCompletion.exchange(nullptr, std::memory_order_acquire);
+    for (Diagnostic *d = _diagnostics.exchange(nullptr, std::memory_order_acquire); d;) {
+        Diagnostic *next = d->next;
+        delete d;
+        d = next;
+    }
+}
+
+void UsdGenAttributeBakeWorker::_Signal()
+{
+    // After the state change: the lane reads the word before the state, so a
+    // bump it has not seen makes its park return at once.
+    _wakeWord.fetch_add(1, std::memory_order_acq_rel);
+    UsdGenUnparkAll(_wakeWord);
 }
 
 void UsdGenAttributeBakeWorker::Enqueue(uint64_t version, UsdGenAttributeBakeInput input)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_hasPending) _dropCount.fetch_add(1);  // coalesced, never baked
-        _pendingVersion = version;
-        _pendingInput = std::move(input);
-        _hasPending = true;
-        _pendingVersionAtomic.store(version);
+    Request *request = _spareRequest.exchange(nullptr, std::memory_order_acq_rel);
+    if (!request) request = new Request;
+    request->version = version;
+    request->input = std::move(input);
+    _pendingVersionAtomic.store(version);
+    if (Request *dropped = _pending.exchange(request, std::memory_order_acq_rel)) {
+        _dropCount.fetch_add(1);  // coalesced, never baked
+        dropped->input = UsdGenAttributeBakeInput();
+        delete _spareRequest.exchange(dropped, std::memory_order_acq_rel);
     }
-    _wake.notify_one();
+    _Signal();
 }
 
 bool UsdGenAttributeBakeWorker::TakeCompleted(uint64_t *version, std::string *path)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    if (!_hasCompleted) return false;
-    if (version) *version = _completedVersion;
-    if (path) *path = _completedPath;
-    _hasCompleted = false;
+    Completion *done = _completed.exchange(nullptr, std::memory_order_acq_rel);
+    if (!done) return false;
+    if (version) *version = done->version;
+    if (path) *path = done->path;
+    delete _spareCompletion.exchange(done, std::memory_order_acq_rel);
     return true;
 }
 
 void UsdGenAttributeBakeWorker::NoteSwapped(uint64_t version)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (version > _swappedVersion) _swappedVersion = version;
-        _sweepRequested = true;
+    uint64_t seen = _swappedVersion.load(std::memory_order_relaxed);
+    while (version > seen &&
+           !_swappedVersion.compare_exchange_weak(seen, version, std::memory_order_acq_rel)) {
     }
-    _wake.notify_one();
+    _sweepRequested.store(true, std::memory_order_release);
+    _Signal();
+}
+
+void UsdGenAttributeBakeWorker::_Diagnose(std::string text)
+{
+    Diagnostic *d = new Diagnostic;
+    d->text = std::move(text);
+    d->next = _diagnostics.load(std::memory_order_relaxed);
+    while (!_diagnostics.compare_exchange_weak(d->next, d, std::memory_order_release,
+                                               std::memory_order_relaxed)) {
+    }
 }
 
 std::string UsdGenAttributeBakeWorker::TakeDiagnostic()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    std::string out = _diagnostic;
-    _diagnostic.clear();
+    // Newest first on the stack; reverse to report in the order seen.
+    Diagnostic *d = _diagnostics.exchange(nullptr, std::memory_order_acquire);
+    Diagnostic *ordered = nullptr;
+    while (d) {
+        Diagnostic *next = d->next;
+        d->next = ordered;
+        ordered = d;
+        d = next;
+    }
+    std::string out;
+    while (ordered) {
+        if (!out.empty()) out += "; ";
+        out += ordered->text;
+        Diagnostic *next = ordered->next;
+        delete ordered;
+        ordered = next;
+    }
     return out;
 }
 
 void UsdGenAttributeBakeWorker::PauseWorker(bool pause)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _paused = pause;
-    }
-    _wake.notify_all();
+    _paused.store(pause, std::memory_order_release);
+    _Signal();
 }
 
 bool UsdGenAttributeBakeWorker::WaitCompleted(uint64_t version, int timeoutMs)
 {
-    auto const start = std::chrono::steady_clock::now();
+    auto const deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
     for (;;) {
+        uint32_t const seen = _completedWord.load(std::memory_order_acquire);
         if (_completedVersionAtomic.load() >= version) return true;
-        if (std::chrono::steady_clock::now() - start >
-            std::chrono::milliseconds(timeoutMs))
-            return _completedVersionAtomic.load() >= version;
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        auto const now = std::chrono::steady_clock::now();
+        if (now >= deadline) return false;
+        auto const left =
+            std::chrono::ceil<std::chrono::milliseconds>(deadline - now).count();
+        UsdGenParkWhileEqualFor(_completedWord, seen, uint32_t(left));
     }
 }
 
 void UsdGenAttributeBakeWorker::_WorkerLoop()
 {
     for (;;) {
-        UsdGenAttributeBakeInput input;
-        uint64_t version = 0;
-        bool haveBake = false;
-        bool sweep = false;
-        {
-            std::unique_lock<std::mutex> lock(_mutex);
-            _wake.wait(lock, [&] {
-                return _stop || (!_paused && (_hasPending || _sweepRequested));
-            });
-            if (_stop) return;
-            if (_hasPending) {
-                version = _pendingVersion;
-                input = std::move(_pendingInput);
-                _hasPending = false;
-                haveBake = true;
-            } else if (_sweepRequested) {
-                sweep = true;
-                _sweepRequested = false;
+        // Read the word before the state (see _Signal).
+        uint32_t const seen = _wakeWord.load(std::memory_order_acquire);
+        if (_stop.load(std::memory_order_acquire)) return;
+        if (!_paused.load(std::memory_order_acquire)) {
+            if (Request *request = _pending.exchange(nullptr, std::memory_order_acq_rel)) {
+                _Bake(request);
+                request->input = UsdGenAttributeBakeInput();
+                delete _spareRequest.exchange(request, std::memory_order_acq_rel);
+                continue;
+            }
+            if (_sweepRequested.exchange(false, std::memory_order_acq_rel)) {
+                uint64_t const keepFrom = _swappedVersion.load(std::memory_order_acquire);
+                if (!_lastOutDir.empty()) _SweepStale(_lastOutDir, _lastBaseName, keepFrom);
+                _sweepCount.fetch_add(1);
+                continue;
             }
         }
-        if (sweep) {
-            std::string outDir, baseName;
-            uint64_t keepFrom = 0;
-            {
-                std::lock_guard<std::mutex> lock(_mutex);
-                outDir = _lastOutDir;
-                baseName = _lastBaseName;
-                keepFrom = _swappedVersion;
-            }
-            if (!outDir.empty()) _SweepStale(outDir, baseName, keepFrom);
-            _sweepCount.fetch_add(1);
-            continue;
-        }
-        if (!haveBake) continue;
-        if (input.outDir.empty()) {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (!_diagnostic.empty()) _diagnostic += "; ";
-            _diagnostic += "attribute bake needs an out directory";
-            continue;
-        }
-        std::string const outPath =
-            (fs::path(input.outDir) / UsdGenAttributeBakeFileName(input.baseName, version))
-                .string();
-        UsdGenAttributeBakeStats stats;
-        std::string err;
-        bool ok = false;
-        try {
-            ok = UsdGenAttributeBakePtex(input, outPath, &stats, &err);
-        } catch (std::exception const &e) {
-            err = std::string("attribute bake threw: ") + e.what();
-        } catch (...) {
-            err = "attribute bake threw";
-        }
-        std::lock_guard<std::mutex> lock(_mutex);
-        _lastOutDir = input.outDir;
-        _lastBaseName = input.baseName;
-        if (ok) {
-            _completedVersion = version;
-            _completedPath = outPath;
-            _hasCompleted = true;
-            _completedVersionAtomic.store(version);
-            _bakeCount.fetch_add(1);
-        } else if (!_diagnostic.empty()) {
-            _diagnostic += "; " + err;
-        } else {
-            _diagnostic = err;
-        }
+        UsdGenParkWhileEqual(_wakeWord, seen);
     }
+}
+
+void UsdGenAttributeBakeWorker::_Bake(Request *request)
+{
+    UsdGenAttributeBakeInput const &input = request->input;
+    uint64_t const version = request->version;
+    if (input.outDir.empty()) {
+        _Diagnose("attribute bake needs an out directory");
+        return;
+    }
+    std::string const outPath =
+        (fs::path(input.outDir) / UsdGenAttributeBakeFileName(input.baseName, version))
+            .string();
+    UsdGenAttributeBakeStats stats;
+    std::string err;
+    bool ok = false;
+    try {
+        ok = UsdGenAttributeBakePtex(input, outPath, &stats, &err);
+    } catch (std::exception const &e) {
+        err = std::string("attribute bake threw: ") + e.what();
+    } catch (...) {
+        err = "attribute bake threw";
+    }
+    _lastOutDir = input.outDir;
+    _lastBaseName = input.baseName;
+    if (!ok) {
+        _Diagnose(std::move(err));
+        return;
+    }
+    Completion *done = _spareCompletion.exchange(nullptr, std::memory_order_acq_rel);
+    if (!done) done = new Completion;
+    done->version = version;
+    done->path = outPath;
+    delete _completed.exchange(done, std::memory_order_acq_rel);  // only the latest
+    _bakeCount.fetch_add(1);
+    _completedVersionAtomic.store(version);
+    _completedWord.fetch_add(1, std::memory_order_acq_rel);
+    UsdGenUnparkAll(_completedWord);
 }
 
 void UsdGenAttributeBakeWorker::_SweepStale(std::string const &outDir,

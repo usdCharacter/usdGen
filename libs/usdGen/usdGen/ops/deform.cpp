@@ -262,8 +262,7 @@ TfSpan<const TfToken> UsdGenDeformOp::ValueParameters() const {
     return TfSpan<const TfToken>(valueParameters_.data(), valueParameters_.size());
 }
 TfSpan<const TfToken> UsdGenDeformOp::ReferenceInputs() const {
-    static TfToken const slots[] = {sGuides};
-    return TfSpan<const TfToken>(slots, 1);
+    return TfSpan<const TfToken>(&sGuides, 1);
 }
 
 UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const {

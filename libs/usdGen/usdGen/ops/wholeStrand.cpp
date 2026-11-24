@@ -48,6 +48,8 @@ UsdGenPlane const *FindPlane(std::vector<UsdGenPlane> const &planes, TfToken con
 }
 
 const TfToken sMask{"mask"};
+const TfToken sStrandSeed{"strandSeed"};
+const TfToken sStrandIndex{"strandIndex"};
 
 }  // namespace
 
@@ -82,15 +84,13 @@ float const *UsdGenStrandSet::CvFloat(TfToken const &name) const
 
 uint32_t UsdGenStrandSet::Seed(uint32_t c) const
 {
-    static TfToken const sSeed("strandSeed");
-    if (int const *s = CurveInt(sSeed)) return uint32_t(s[c]);
+    if (int const *s = CurveInt(sStrandSeed)) return uint32_t(s[c]);
     return Index(c);
 }
 
 uint32_t UsdGenStrandSet::Index(uint32_t c) const
 {
-    static TfToken const sIndex("strandIndex");
-    if (int const *s = CurveInt(sIndex)) return uint32_t(s[c]);
+    if (int const *s = CurveInt(sStrandIndex)) return uint32_t(s[c]);
     return c;
 }
 

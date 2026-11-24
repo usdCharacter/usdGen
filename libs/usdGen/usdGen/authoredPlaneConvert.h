@@ -33,11 +33,15 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace detail {
+// Namespace scope, made at load: no function-local static to guard.
+inline std::string const kAuthoredPlanePrefix("usdGen:plane:");
+}  // namespace detail
+
 /// "usdGen:plane:" — the primvar namespace (without "primvars:").
 inline std::string const &UsdGenAuthoredPlanePrefix()
 {
-    static std::string const prefix("usdGen:plane:");
-    return prefix;
+    return detail::kAuthoredPlanePrefix;
 }
 
 /// Converts one flattened primvar value into an authored plane. Returns false

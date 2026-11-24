@@ -42,10 +42,14 @@ namespace {
 
 using Domain = expr::Domain;
 
+// Made at load, not on first use: no function-local static to guard.
+TfToken const kPreviewDestination("usdGenPreview");
+TfToken const kColorRgb("rgb"), kColorIds("ids"), kColorGray("gray"), kColorViridis("viridis");
+TfToken const kMaterialLit("material_preview"), kMaterialFlat("material_preview_flat");
+
 TfToken const &PreviewDestination()
 {
-    static TfToken const token("usdGenPreview");
-    return token;
+    return kPreviewDestination;
 }
 
 uint64_t Mix(uint64_t h, uint64_t value)
@@ -241,7 +245,7 @@ std::string Join(std::vector<std::string> const &messages)
 GfVec3f UsdGenPreviewColor(TfToken const &colorMap, GfVec2f const &range,
                            double const *values, unsigned components)
 {
-    static TfToken const rgb("rgb"), ids("ids"), gray("gray"), viridis("viridis");
+    TfToken const &rgb = kColorRgb, &ids = kColorIds, &gray = kColorGray, &viridis = kColorViridis;
     if (!values || components == 0) return UsdGenPreviewMissingColor();
     for (unsigned k = 0; k < components; ++k)
         if (!std::isfinite(values[k])) return GfVec3f(1.0f, 0.0f, 1.0f);
@@ -276,7 +280,7 @@ GfVec3f UsdGenPreviewMissingColor()
 
 SdfPath UsdGenPreviewMaterialPath(SdfPath const &description, TfToken const &shading)
 {
-    static TfToken const lit("material_preview"), flat("material_preview_flat");
+    TfToken const &lit = kMaterialLit, &flat = kMaterialFlat;
     return description.AppendChild(TfToken("__usdGenRender"))
         .AppendChild(shading == TfToken("flat") ? flat : lit);
 }
@@ -357,7 +361,7 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
                                  UsdGenCurveBuffer const &terminal, double frame,
                                  Values *values, std::string *warning)
 {
-    static char const *const kChannels[] = {"previewR", "previewG", "previewB"};
+    static constexpr char const *kChannels[] = {"previewR", "previewG", "previewB"};
     UsdGenPreviewDesc const &preview = desc.preview;
     auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
         [&](UsdGenMapDesc const &m) { return m.path == preview.source; });

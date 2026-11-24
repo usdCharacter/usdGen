@@ -8,6 +8,7 @@
 #include <cmath>
 #include <climits>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <string>
@@ -21,10 +22,12 @@ inline bool AuthoredNamedChannelFail(std::string const& message, std::string* re
 }
 
 inline bool IsReservedAuthoredNamedChannel(TfToken const& name) {
-    static std::set<std::string> const names{"points", "curveOffsets", "stableIds", "rest",
+    static constexpr char const *names[] = {"points", "curveOffsets", "stableIds", "rest",
         "width", "widths", "restPoints", "hairT", "rootPrim", "rootUV",
         "sourceRootT", "sourceRootB", "sourceRootN", "sourceChunks"};
-    return names.count(name.GetString()) != 0;
+    std::string const &s = name.GetString();
+    return std::any_of(std::begin(names), std::end(names),
+                       [&](char const *n) { return s == n; });
 }
 inline bool AuthoredNamedChannelElements(UsdGenAuthoredPlaneDesc const& plane,
     size_t curves, size_t points, size_t* elements, std::string* reason) {

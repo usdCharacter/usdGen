@@ -6,13 +6,13 @@
 // UsdGenPtexMap prim read .ptx files through UsdGenPtexTexture (maps/ptexMap.h).
 // This module is the bridge between the two: UsdGenAttributeBakePtex writes
 // one map to one .ptx file, and UsdGenAttributeBakeWorker runs those bakes on
-// a worker thread so a stroke never blocks on file I/O.
+// its own I/O lane so a stroke never blocks on file I/O.
 //
 // The handoff contract, per stroke:
 //
 //   press/move (interaction thread): stroke.Preview() -> live Hydra overlay
 //       (UsdGenAttributePreviewSceneIndex); Enqueue() the preview at release
-//   bake worker:   write <base>.v<n>.ptx (tmp -> rename)
+//   I/O lane:      write <base>.v<n>.ptx (tmp -> rename)
 //   UI idle:       TakeCompleted() -> author usdGen:map:file on the stage prim
 //       -> NoteSwapped() so older versioned files are swept
 //
@@ -27,6 +27,11 @@
 //   - The worker coalesces: only the latest enqueued input bakes. A stroke
 //     that releases twice before the worker wakes pays for one bake.
 //
+// Threading: no locks. Requests and completions are newest-wins mailboxes
+// (one atomic pointer each), diagnostics a lock-free stack. The lane parks on
+// a word (parkingWord.h) and every producer bumps it after publishing, so no
+// wake is lost and nothing polls.
+//
 // This header has no USD dependency, like attributeMap.h and ptexMap.h. Only
 // attributeBake.cpp includes <Ptexture.h>.
 #ifndef USDGEN_MAPS_ATTRIBUTE_BAKE_H
@@ -36,11 +41,9 @@
 #include "usdGen/maps/attributeMap.h"
 
 #include <atomic>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -114,32 +117,48 @@ public:
     // Test hook: hold the worker between bakes so coalescing is
     // deterministic (enqueue N versions, resume, expect one bake).
     void PauseWorker(bool pause);
-    // Test hook: wait for a version to complete (polling).
+    // Test hook: wait for a version to complete (parks; no polling).
     bool WaitCompleted(uint64_t version, int timeoutMs = 10000);
 
 private:
+    // Mailbox payloads. Whoever exchanges one out of its slot owns it.
+    struct Request {
+        uint64_t version = 0;
+        UsdGenAttributeBakeInput input;
+    };
+    struct Completion {
+        uint64_t version = 0;
+        std::string path;
+    };
+    struct Diagnostic {
+        Diagnostic *next = nullptr;
+        std::string text;
+    };
+
     void _WorkerLoop();
+    void _Bake(Request *request);
     void _SweepStale(std::string const &outDir, std::string const &baseName,
                      uint64_t keepFrom);
+    void _Diagnose(std::string text);
+    void _Signal();
 
-    std::thread _worker;
-    mutable std::mutex _mutex;
-    std::condition_variable _wake;
-    bool _stop = false;
-    bool _paused = false;
-    uint64_t _pendingVersion = 0;
-    UsdGenAttributeBakeInput _pendingInput;
-    bool _hasPending = false;
-    // Latest completion (version + final path), consumed by TakeCompleted.
-    // Only the latest is kept: the UI swaps the newest file, never a queue.
-    uint64_t _completedVersion = 0;
-    std::string _completedPath;
-    bool _hasCompleted = false;
-    bool _sweepRequested = false;
-    uint64_t _swappedVersion = 0;
+    std::thread _worker;  // the I/O lane
+    std::atomic<uint32_t> _wakeWord{0};       // bumped after every request
+    std::atomic<uint32_t> _completedWord{0};  // bumped after every bake
+    std::atomic<bool> _stop{false};
+    std::atomic<bool> _paused{false};
+    std::atomic<bool> _sweepRequested{false};
+    std::atomic<uint64_t> _swappedVersion{0};
+    // Newest wins: an unconsumed request is dropped (counted) when replaced.
+    std::atomic<Request *> _pending{nullptr};
+    std::atomic<Request *> _spareRequest{nullptr};
+    // Only the latest completion is kept: the UI swaps the newest file.
+    std::atomic<Completion *> _completed{nullptr};
+    std::atomic<Completion *> _spareCompletion{nullptr};
+    std::atomic<Diagnostic *> _diagnostics{nullptr};  // newest first
+    // Lane-owned: the last bake's directory and base name, for the sweep.
     std::string _lastOutDir;
     std::string _lastBaseName;
-    std::string _diagnostic;
 
     std::atomic<uint64_t> _pendingVersionAtomic{0};
     std::atomic<uint64_t> _completedVersionAtomic{0};
