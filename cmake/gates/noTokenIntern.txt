@@ -3,7 +3,6 @@
 libs/usdGen/usdGen/authoredNamedChannels.h 6
 libs/usdGen/usdGen/authoredPlaneConvert.h 3
 libs/usdGen/usdGen/clumpMotion.cpp 9
-libs/usdGen/usdGen/compiler.cpp 29
 libs/usdGen/usdGen/cpuParameters.cpp 4
 libs/usdGen/usdGen/cudaExecution.cpp 334
 libs/usdGen/usdGen/cudaParameters.cpp 1
@@ -19,7 +18,6 @@ libs/usdGen/usdGen/generationStore.h 1
 libs/usdGen/usdGen/graph.cpp 1
 libs/usdGen/usdGen/graphDesc.h 18
 libs/usdGen/usdGen/limitSurface.cpp 6
-libs/usdGen/usdGen/op.h 1
 libs/usdGen/usdGen/opParams.h 1
 libs/usdGen/usdGen/ops/bend.cpp 8
 libs/usdGen/usdGen/ops/bend.h 6

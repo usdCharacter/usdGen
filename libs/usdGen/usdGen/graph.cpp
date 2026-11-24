@@ -168,7 +168,7 @@ UsdGenGraph::RoutingSnapshot() const
         UsdGenCompiledNode const &node = *nodePtr;
         UsdGenGraphRoutingNode copy;
         copy.id = node.id;
-        copy.type = node.type;
+        copy.type = node.record ? node.record->Name() : node.type;
         copy.hasSurface = node.hasSurface;
         copy.surface = node.surface;
         copy.paramRouting = node.paramRouting;
@@ -223,11 +223,16 @@ UsdGenGraph::RoutingSnapshot() const
         if (node.desc) {
             copy.path = node.desc->path;
         }
-        if (node.op) {
-            auto topology = node.op->TopologyParameters();
-            copy.topologyParameters.assign(topology.begin(), topology.end());
-            auto values = node.op->ValueParameters();
-            copy.valueParameters.assign(values.begin(), values.end());
+        if (node.record) {
+            // Routed decls: Value class vs the rest, in declaration order.
+            UsdGenOpRecord const &rec = *node.record;
+            for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s) {
+                UsdGenParamDecl const &decl = rec.Def().params[s];
+                if (!decl.routed) continue;
+                (decl.cls == UsdGenParamClass::Value ? copy.valueParameters
+                                                     : copy.topologyParameters)
+                    .push_back(rec.ParamName(s));
+            }
         }
         snapshot->nodes.push_back(std::move(copy));
     }
