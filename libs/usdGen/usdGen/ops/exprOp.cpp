@@ -29,6 +29,32 @@ namespace usdGen {
 
 namespace {
 
+using namespace exprOpP;
+using D = expr::Domain;
+constexpr char const *kModes[] = {"cv", "curve"};
+constexpr char const *kReturnTypes[] = {"displacement", "width", "color"};
+constexpr char const *kTokens[] = {"cv", "curve", "displacement", "width", "color"};
+constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
+constexpr UsdGenExprAdmission kFloatAll{expr::ScalarType::Float32, 1, "float", D::All};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"mode", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kModes)},               // kernel branch (02 §6.1)
+    {"expr:returnType", UsdGenParamClass::Structural, true, {}, UsdGenSpan(kReturnTypes)},
+    {"expr:source", UsdGenParamClass::Capture},                // recompiled at Capture
+    {"expr:maps", UsdGenParamClass::Structural},               // rel retarget recompiles
+    {"enabled", UsdGenParamClass::Value, true, kBoolGroom},    // value-toggle styler (02 §6.3)
+    {"mask", UsdGenParamClass::Value, true, kFloatAll},        // operator envelope
+};
+constexpr UsdGenMapSlotDecl kMapSlots[] = {    // compiler.cpp:428-431, all four as today
+    {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *)
+{
+    return std::make_unique<UsdGenExprOp>();
+}
+
 struct UsdGenExprOpCapture final : public UsdGenCapturePayload
 {
     uint8_t components = 0;  // 3 = displacement, 1 = width
@@ -104,24 +130,27 @@ uint32_t UsdGenExprOp::PlanesTouched() const
 
 bool UsdGenExprOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const mode = params.GetToken(sMode, sCv);
-    if (mode != sCv && mode != sCurve) {
+    UsdGenOpRecord const &rec = *params.op;
+    TfToken const mode = params.GetToken(kMode, rec.Token(kTokCv));
+    if (mode != rec.Token(kTokCv) && mode != rec.Token(kTokCurve)) {
         if (diag) diag->Error("UsdGenExprOp: unknown usdGen:mode '" + mode.GetString() + "'");
         return false;
     }
-    TfToken const returnType = params.GetToken(sReturnType, sDisplacement);
-    if (returnType != sDisplacement && returnType != sWidth && returnType != sColor) {
+    TfToken const returnType = params.GetToken(kReturnType, rec.Token(kTokDisplacement));
+    if (returnType != rec.Token(kTokDisplacement) && returnType != rec.Token(kTokWidth) &&
+        returnType != rec.Token(kTokColor)) {
         if (diag) diag->Error("UsdGenExprOp: unknown usdGen:expr:returnType '" +
                               returnType.GetString() + "'");
         return false;
     }
-    if (returnType == sColor) {
+    if (returnType == rec.Token(kTokColor)) {
         if (diag) diag->Error("UsdGenExprOp: usdGen:expr:returnType 'color' is not supported: "
                               "the operator-emitted primvar transport carries no vec3 color "
                               "plane, so a color field has nowhere to publish");
         return false;
     }
-    UsdGenParamValue const *source = params.FindParam(sSource);
+    UsdGenResolvedParam const *sourceSlot = params.Slot(kSource);
+    UsdGenParamValue const *source = sourceSlot ? sourceSlot->authored : nullptr;
     std::string text;
     if (source && !source->value.IsEmpty()) {
         if (source->value.IsHolding<std::string>())
@@ -149,9 +178,9 @@ UsdGenEpoch UsdGenExprOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // callers too (the scheduler folds them in separately as well).
     opUtil::Digest digest;
     if (UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr) {
-        digest.Mix(p->GetVtValue(sSource, VtValue(std::string())));
-        digest.Mix(p->GetToken(sMode, sCv));
-        digest.Mix(p->GetToken(sReturnType, sDisplacement));
+        digest.Mix(p->GetValue(kSource, VtValue(std::string())));
+        digest.Mix(p->GetToken(kMode, p->op->Token(kTokCv)));
+        digest.Mix(p->GetToken(kReturnType, p->op->Token(kTokDisplacement)));
     }
     digest.Mix(uint64_t(ctx.upstreamGeneration));
     digest.Mix(uint64_t(ctx.seed));
@@ -186,14 +215,17 @@ bool UsdGenExprOp::Capture(
         if (diag) diag->Error("UsdGenExprOp: upstream CV topology " + spansError);
         return false;
     }
-    bool const modeCv = p->GetToken(sMode, sCv) == sCv;
-    bool const displacement = p->GetToken(sReturnType, sDisplacement) == sDisplacement;
+    UsdGenOpRecord const &rec = *p->op;
+    bool const modeCv = p->GetToken(kMode, rec.Token(kTokCv)) == rec.Token(kTokCv);
+    bool const displacement = p->GetToken(kReturnType, rec.Token(kTokDisplacement)) ==
+        rec.Token(kTokDisplacement);
     expr::Domain const domain =
         modeCv ? expr::Domain::Point : expr::Domain::Primitive;
     uint32_t const components = displacement ? 3u : 1u;
 
     std::string source;
-    if (UsdGenParamValue const *authored = p->FindParam(sSource)) {
+    UsdGenResolvedParam const *sourceSlot = p->Slot(kSource);
+    if (UsdGenParamValue const *authored = sourceSlot ? sourceSlot->authored : nullptr) {
         if (authored->value.IsHolding<std::string>())
             source = authored->value.UncheckedGet<std::string>();
         else if (authored->value.IsHolding<TfToken>())
@@ -348,7 +380,7 @@ void UsdGenExprOp::Evaluate(
     auto const &cap = static_cast<UsdGenExprOpCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const maskField =
-        p ? p->GetScalarField(sMask, 1.0) : UsdGenParamField{1.0};
+        p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     float defaultInputWidth = ctx.desc ? ctx.desc->defaultWidth : 0.01f;
     if (!std::isfinite(defaultInputWidth) || defaultInputWidth < 0.0f)
         defaultInputWidth = 0.01f;
@@ -423,7 +455,15 @@ void UsdGenExprOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterExprOpOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenExprOp().Type(), [] { return std::make_unique<UsdGenExprOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenExprOp";
+    d.displayName = "ExprOp";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::None;
+    d.params = UsdGenSpan(kParams);
+    d.mapSlots = UsdGenSpan(kMapSlots);
+    d.tokens = UsdGenSpan(kTokens);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

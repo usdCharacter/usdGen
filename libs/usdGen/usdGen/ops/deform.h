@@ -119,8 +119,16 @@ private:
    mutable uint64_t chosenDigestHits_ = 0;
 };
 
+namespace deformP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kRbfSamples, kMode, kRegionMap, kGuideRegions, kEnabled,
+    kLockRoots, kMask, kCount
+};
+enum Tok : uint16_t { kTokCurveWrap, kTokRegionMapRel, kTokPeriodic };
+}  // namespace deformP
+
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

@@ -78,15 +78,17 @@ public:
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
 
-private:
-    const TfToken sSource{"expr:source"}, sMaps{"expr:maps"};
-    const TfToken sReturnType{"expr:returnType"}, sMode{"mode"};
-    const TfToken sDisplacement{"displacement"}, sWidth{"width"}, sColor{"color"};
-    const TfToken sCv{"cv"}, sCurve{"curve"}, sMask{"mask"};
 };
 
+namespace exprOpP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kMode, kReturnType, kSource, kMaps, kEnabled, kMask, kCount
+};
+enum Tok : uint16_t { kTokCv, kTokCurve, kTokDisplacement, kTokWidth, kTokColor };
+}  // namespace exprOpP
+
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterExprOpOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

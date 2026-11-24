@@ -562,14 +562,21 @@ static void CheckRelaxContract()
     Check(op->OutputPrimvars().empty(), "Collide emits no plane until configured for relax");
     UsdGenNodeDesc node;
     node.params = {{TfToken("resolveType"), VtValue(TfToken("relax")), false}};
-    UsdGenParamView view;
-    view.node = &node;
-    op->Configure(view);
+    UsdGenGraphDesc const graph;
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRecord const &record = registry.Record(registry.Find(TfToken("UsdGenCollide")));
+    {
+        UsdGenStackParams stack(graph, node, record);
+        op->Configure(stack.View());
+    }
     Check(op->OutputPrimvars().size() == 1 &&
               op->OutputPrimvars()[0] == TfToken("collideUnresolved"),
           "Collide configured for relax emits collideUnresolved");
     node.params = {{TfToken("resolveType"), VtValue(TfToken("stiff")), false}};
-    op->Configure(view);
+    {
+        UsdGenStackParams stack(graph, node, record);
+        op->Configure(stack.View());
+    }
     Check(op->OutputPrimvars().empty(), "Collide configured for stiff emits no plane");
 }
 

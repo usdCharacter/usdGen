@@ -46,6 +46,13 @@ static void Check(bool v, char const *s)
     else std::printf("ok: %s\n", s);
 }
 static void Check(bool v, std::string const &s) { Check(v, s.c_str()); }
+
+// Views the kernel can read slots from, as the compiler resolves them.
+static UsdGenOpRecord const &FreezeRecord()
+{
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    return registry.Record(registry.Find(TfToken("UsdGenFreeze")));
+}
 static expr::ValueShape FloatShape(uint32_t n = 1)
 {
     return {expr::ScalarType::Float32, 1, n, 1, 1, false};
@@ -465,7 +472,8 @@ static UsdGenEpoch DigestFor(UsdGenFreezeOp &op, UsdGenGraphDesc const &desc,
                              size_t nodeIndex, uint32_t seed,
                              uint64_t upstreamGeneration)
 {
-    UsdGenParamView view{&desc, &desc.nodes[nodeIndex], nullptr};
+    UsdGenStackParams stack(desc, desc.nodes[nodeIndex], FreezeRecord());
+    UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.params = &view;
@@ -504,7 +512,8 @@ static void CheckDigestImmunity()
 
     // ValidForTopology never invalidates on upstream revisions.
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
-    UsdGenParamView view{&desc, &desc.nodes[1], nullptr};
+    UsdGenStackParams stack(desc, desc.nodes[1], FreezeRecord());
+    UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.params = &view;
@@ -534,7 +543,8 @@ static void CheckAliasingKernel()
     UsdGenFreezeOp op;
     UsdGenGraphDesc desc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
-    UsdGenParamView view{&desc, &desc.nodes[1], nullptr};
+    UsdGenStackParams stack(desc, desc.nodes[1], FreezeRecord());
+    UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.params = &view;
@@ -607,7 +617,8 @@ static void CheckAliasingKernel()
     // Live captures own nothing.
     UsdGenGraphDesc liveDesc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("live")), false}}, false);
-    UsdGenParamView liveView{&liveDesc, &liveDesc.nodes[1], nullptr};
+    UsdGenStackParams liveStack(liveDesc, liveDesc.nodes[1], FreezeRecord());
+    UsdGenParamView const &liveView = liveStack.View();
     ctx.desc = &liveDesc;
     ctx.params = &liveView;
     std::unique_ptr<UsdGenCapture> liveCap = op.CreateCapture();
@@ -768,7 +779,8 @@ static void CheckBadDefaultWidthFailsClosed()
     UsdGenGraphDesc kernelDesc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     kernelDesc.defaultWidth = std::numeric_limits<float>::quiet_NaN();
-    UsdGenParamView view{&kernelDesc, &kernelDesc.nodes[1], nullptr};
+    UsdGenStackParams stack(kernelDesc, kernelDesc.nodes[1], FreezeRecord());
+    UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
     ctx.desc = &kernelDesc;
     ctx.params = &view;

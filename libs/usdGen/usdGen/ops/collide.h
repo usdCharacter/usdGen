@@ -105,8 +105,19 @@ private:
                   std::string const &) const;
 };
 
+namespace collideP {
+/// Declaration order == today's TopologyParameters() then ValueParameters().
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kColliders, kResolveType, kDeepMode, kEnabled, kMask, kOffset,
+    kPushAmount, kIterations, kCutThreshold, kCutBlendDepth, kClearanceRoot, kClearanceTip,
+    kRelaxIterations, kCount
+};
+enum Tok : uint16_t { kTokFlexible, kTokStiff, kTokRelax, kTokCollide, kTokCutThenCollide,
+                      kTokUnresolved, kTokLeftHanded, kTokNone, kTokCatmullClark, kTokLoop,
+                      kTokBilinear };
+}  // namespace collideP
+
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
