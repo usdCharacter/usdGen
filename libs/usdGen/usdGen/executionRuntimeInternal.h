@@ -2,6 +2,7 @@
 #define USDGEN_EXECUTION_RUNTIME_INTERNAL_H
 
 #include "usdGen/executionPipeline.h"
+#include "usdGen/taskScheduler.h"
 #include <algorithm>
 #include <tbb/task_arena.h>
 #include <thread>
@@ -53,18 +54,11 @@ inline bool UsdGenProcessShutdownInProgress() noexcept {
 #endif
 }
 
-// Private shared definition: both pipeline and task dispatchers must attach
-// their flow graphs to the same arena and retain it past wrapper destruction.
+// Private shared definition: pipelines run their serial lanes on this
+// runtime's scheduler and retain it past wrapper destruction.
 struct UsdGenExecutionRuntime::Impl {
-    // The runtime is fully asynchronous: all advertised slots must be usable
-    // by TBB workers.  Reserving the default master slot would leave a
-    // concurrency-one arena with no worker to service enqueued flow-graph
-    // work unless a caller later enters it through Drain().
-    explicit Impl(int concurrency) : arena(concurrency, 0) {
-        EnsureUsdGenTbbMarket();
-        arena.initialize();
-    }
-    tbb::task_arena arena;
+    explicit Impl(int concurrency) : scheduler(concurrency) {}
+    UsdGenTaskScheduler scheduler;
 };
 }
 #endif

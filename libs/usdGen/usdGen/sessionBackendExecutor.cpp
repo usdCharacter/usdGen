@@ -4,8 +4,10 @@
 #include "usdGen/vulkan/defaultProvider.h"
 #endif
 
+#include "usdGen/taskScheduler.h"
+
+#include <memory>
 #include <stdexcept>
-#include <thread>
 #include <string>
 #include <utility>
 
@@ -109,23 +111,15 @@ public:
                         return;
                     }
                     if (!_defaultProvider) {
-                        auto self = shared_from_this();
+                        // Device creation blocks, so it runs as a process
+                        // scheduler task, off this lane; the task resubmits.
                         auto completion = request.completion;
                         auto previous = request.previous;
                         try {
-                            std::thread([self, request=std::move(request)]() mutable {
-                                std::string reason;
-                                auto created = vulkan::CreateDefaultVulkanSessionProvider(&reason);
-                                if (!created) {
-                                    if (request.completion) request.completion(request.previous,
-                                        std::make_exception_ptr(std::runtime_error(
-                                            "Vulkan execution backend factory is unavailable: " + reason)));
-                                    return;
-                                }
-                                self->_defaultProvider = std::move(created);
-                                self->_cooker.SetDeviceProvider(self->_defaultProvider);
-                                self->Submit(std::move(request));
-                            }).detach();
+                            auto* task = new ProviderTask;
+                            task->self = shared_from_this();
+                            task->request = std::move(request);
+                            UsdGenTaskScheduler::Process().Post(task);
                         } catch (...) {
                             if (completion) completion(std::move(previous), std::current_exception());
                         }
@@ -202,6 +196,32 @@ public:
     UsdGenSessionCooker const &Cooker() const noexcept override { return _cooker; }
 
 private:
+#ifdef USDGEN_ENABLE_VULKAN_RUNTIME
+    struct ProviderTask : UsdGenTask {
+        ProviderTask() noexcept : UsdGenTask(&Run) {}
+        std::shared_ptr<SessionBackendExecutor> self;
+        UsdGenSessionBackendRequest request;
+        static void Run(UsdGenTask* task) noexcept {
+            std::unique_ptr<ProviderTask> own(static_cast<ProviderTask*>(task));
+            auto& request = own->request;
+            try {
+                std::string reason;
+                auto created = vulkan::CreateDefaultVulkanSessionProvider(&reason);
+                if (!created) {
+                    if (request.completion) request.completion(request.previous,
+                        std::make_exception_ptr(std::runtime_error(
+                            "Vulkan execution backend factory is unavailable: " + reason)));
+                    return;
+                }
+                own->self->_defaultProvider = std::move(created);
+                own->self->_cooker.SetDeviceProvider(own->self->_defaultProvider);
+                own->self->Submit(std::move(request));
+            } catch (...) {
+                if (request.completion) request.completion(request.previous, std::current_exception());
+            }
+        }
+    };
+#endif
     UsdGenSessionCooker _cooker;
     std::shared_ptr<UsdGenSessionDeviceProvider> _provider;
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME

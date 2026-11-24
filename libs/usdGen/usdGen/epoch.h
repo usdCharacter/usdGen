@@ -220,6 +220,7 @@ public:
         if (T *old = p_.exchange(v.Detach(), std::memory_order_acq_rel)) old->Release();
     }
     UsdGenRef<T> Take() noexcept { return UsdGenRef<T>::Adopt(p_.exchange(nullptr, std::memory_order_acq_rel)); }
+    bool HasValue() const noexcept { return p_.load(std::memory_order_acquire) != nullptr; }
 
 private:
     std::atomic<T *> p_{nullptr};

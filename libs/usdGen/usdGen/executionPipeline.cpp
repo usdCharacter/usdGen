@@ -1,8 +1,10 @@
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionRuntimeInternal.h"
 
-#include <tbb/flow_graph.h>
-#include <tbb/task_arena.h>
+#include "usdGen/epoch.h"
+#include "usdGen/parkingWord.h"
+#include "usdGen/taskScheduler.h"
+
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -10,6 +12,8 @@
 namespace usdGen {
 thread_local bool usdGenExecutionGraphActive = false;
 namespace {
+// Pins TBB's worker market before any one-slot arena exists; retirement and
+// the CUDA relays still run TBB arenas. Pipelines themselves no longer do.
 [[maybe_unused]] const bool kUsdGenTbbMarket = (EnsureUsdGenTbbMarket(), true);
 
 thread_local bool executingPipeline = false;
@@ -24,16 +28,21 @@ struct ExecutionScope {
     ~ExecutionScope() { executingPipeline = previous; usdGenExecutionGraphActive = previousActive; executingOwner = previousOwner; }
 };
 
-// A distinct graph per external reply: reserve/release_wait is TBB's supported
-// external-completion protocol, while wait_for_all steals runnable work. No
-// graph here has concurrent waiters or inherits another request's exceptions.
+// One latch per external reply, parked on its own word. The signalling
+// closure owns the state, so a late signal never touches a returned waiter.
 struct AwaitState {
-    tbb::flow::graph graph;
-    std::atomic<bool> signalled{false};
-    AwaitState() { graph.reserve_wait(); }
+    std::atomic<uint32_t> signalled{0};
     void Signal() {
-        if (!signalled.exchange(true, std::memory_order_acq_rel)) graph.release_wait();
+        if (!signalled.exchange(1, std::memory_order_acq_rel)) UsdGenUnparkAll(signalled);
     }
+    void Wait() {
+        while (!signalled.load(std::memory_order_acquire)) UsdGenParkWhileEqual(signalled, 0);
+    }
+};
+
+struct LatestCommand : UsdGenRefCounted {
+    explicit LatestCommand(std::function<void()> f) : fn(std::move(f)) {}
+    std::function<void()> fn;
 };
 }
 
@@ -59,7 +68,7 @@ struct UsdGenExecutionPipeline::CommandMailbox::State {
     std::shared_ptr<void> identity;
     std::atomic<bool> scheduled{false};
     std::atomic<bool> broken{false};
-    std::shared_ptr<std::function<void()>> latest;
+    UsdGenNewestWins<LatestCommand> latest;
     ~State() { outstanding->fetch_sub(1, std::memory_order_acq_rel); }
 };
 
@@ -100,7 +109,19 @@ struct UsdGenExecutionPipeline::Impl {
         std::shared_ptr<CommandTicket::State> commandTicket;
         std::shared_ptr<CommandMailbox::State> mailbox;
     };
-    using Node = tbb::flow::function_node<Message, tbb::flow::continue_msg>;
+    // A serial lane: producers push on a Treiber stack and the one that sets
+    // `scheduled` posts the lane to the runtime scheduler. A run handles the
+    // whole batch in FIFO order, so one lane never runs on two threads.
+    struct MessageNode {
+        MessageNode* next = nullptr;
+        Message message;
+    };
+    struct Lane : UsdGenTask {
+        Impl* impl = nullptr;
+        bool isOwner = false;
+        UsdGenTreiberStack<MessageNode, &MessageNode::next> inbox;
+        std::atomic<bool> scheduled{false};
+    };
     std::shared_ptr<UsdGenExecutionRuntime::Impl> runtime;
     std::shared_ptr<std::atomic<uint64_t>> accepted =
         std::make_shared<std::atomic<uint64_t>>(0);
@@ -112,88 +133,127 @@ struct UsdGenExecutionPipeline::Impl {
     const uint64_t commandCapacity;
     std::shared_ptr<void> commandIdentity = std::make_shared<char>();
     std::shared_ptr<std::atomic<bool>> closing = std::make_shared<std::atomic<bool>>(false);
-    // External producers can post a completion while Drain observes an idle
-    // graph. TBB's default wait temporarily drops its root guard to zero and
-    // then resets it to one; admission in that gap can free the graph root.
-    // concurrent_wait preserves that guard through wait completion. Public
-    // Drain/Shutdown still require one external waiter, and user exceptions
-    // remain caught by the owner/worker bodies rather than cancelling TBB.
-    tbb::task_group_context graphContext{
-        tbb::task_group_context::isolated,
-        tbb::task_group_context::default_traits | tbb::task_group_context::concurrent_wait};
-    tbb::flow::graph graph{graphContext};
-    Node owner;
-    Node worker;
-    // Owner-only state. The worker itself has an unbounded TBB input queue, so
-    // never put a second request there while workRunning is true.
+    // Queued lane messages plus external replies still held by async work.
+    // Drain and Shutdown park until it reaches zero.
+    UsdGenPendingCount pending;
+    Lane owner;
+    Lane worker;
+    // Owner-only state. Never put a second request on the worker lane while
+    // workRunning is true.
     bool workRunning = false;
     std::optional<Message> pendingWork;
 
     explicit Impl(std::shared_ptr<UsdGenExecutionRuntime::Impl> runtime_,
                   uint64_t requestCapacity_, uint64_t commandCapacity_)
         : runtime(std::move(runtime_)), requestCapacity(requestCapacity_),
-          commandCapacity(commandCapacity_),
-          owner(graph, tbb::flow::serial, [this](Message message) {
-              ExecutionScope scope(this);
-              Accept(std::move(message));
-              return tbb::flow::continue_msg{};
-          }),
-          worker(graph, tbb::flow::serial, [this](Message message) {
-              ExecutionScope scope;
-              Cancellation cancel;
-              cancel.epoch = message.epoch;
-              cancel.accepted = accepted;
-              cancel.closing = closing;
-              if (message.asyncWork && !cancel.Superseded()) {
-                  // The graph wait reservation is held until an external
-                  // backend reply has made the terminal owner message.
-                  // `settled` lives in the callback, so a duplicate/late
-                  // reply never dereferences this Impl after its first call.
-                  struct Reply {
-                      std::atomic<bool> settled{false};
-                      std::atomic<unsigned> flags{0}; // callback=1, Run returned=2
-                      Publish publish; std::exception_ptr error;
-                      Message message;
-                      explicit Reply(Message&& value) : message(std::move(value)) {}
-                  };
-                  // Move the callable out before moving the message into the
-                  // reply closure.  The reply owns retained request state;
-                  // invoking a moved-from std::function would throw.
-                  auto reply = std::make_shared<Reply>(std::move(message));
-                  auto asyncWork = std::move(reply->message.asyncWork);
-                  graph.reserve_wait();
-                  auto relay = [this, reply]() mutable {
-                      reply->message.publish = std::move(reply->publish);
-                      reply->message.error = std::move(reply->error);
-                      reply->message.asyncWork = {}; reply->message.work = {}; reply->message.kind = Message::Kind::Finished;
-                      // flow::receiver::try_put accepts const&, so explicitly
-                      // empty the late-callback Reply before delivering a
-                      // terminal copy; otherwise it retains user captures.
-                      Message terminal=std::move(reply->message);
-                      reply->message = {};
-                      try { if (!owner.try_put(terminal)) std::terminate(); }
-                      catch (...) { std::terminate(); }
-                      graph.release_wait();
-                  };
-                  auto done = [reply, relay](Publish publish, std::exception_ptr error) mutable {
-                      if (reply->settled.exchange(true, std::memory_order_acq_rel)) return;
-                      reply->publish=std::move(publish); reply->error=std::move(error);
-                      if (reply->flags.fetch_or(1, std::memory_order_acq_rel) & 2) relay();
-                  };
-                  try { asyncWork(cancel, done); }
-                  catch (...) { done({}, std::current_exception()); }
-                  if (reply->flags.fetch_or(2, std::memory_order_acq_rel) & 1) relay();
-                  return tbb::flow::continue_msg{};
-              }
-              if (!cancel.Superseded()) {
-                  try { message.publish = message.work(cancel); }
-                  catch (...) { message.error = std::current_exception(); }
-              }
-              message.work = {};
-              message.kind = Message::Kind::Finished;
-              owner.try_put(std::move(message));
-              return tbb::flow::continue_msg{};
-          }) {}
+          commandCapacity(commandCapacity_) {
+        owner.taskRun = &RunLane;
+        owner.impl = this;
+        owner.isOwner = true;
+        worker.taskRun = &RunLane;
+        worker.impl = this;
+    }
+
+    // Allocates before moving, so a throw leaves `message` intact.
+    void Put(Lane& lane, Message& message) {
+        auto* node = new MessageNode;
+        node->message = std::move(message);
+        pending.Add();
+        lane.inbox.Push(node);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+        if (!lane.scheduled.exchange(true, std::memory_order_acq_rel))
+            runtime->scheduler.Post(&lane);
+    }
+    void PutOwner(Message message) { Put(owner, message); }
+
+    static void RunLane(UsdGenTask* task) noexcept {
+        auto& lane = *static_cast<Lane*>(task);
+        Impl& impl = *lane.impl;
+        MessageNode* batch = nullptr;
+        for (MessageNode* n = lane.inbox.PopAll(); n;) {
+            MessageNode* next = n->next;
+            n->next = batch;
+            batch = n;
+            n = next;
+        }
+        uint32_t handled = 0;
+        while (batch) {
+            std::unique_ptr<MessageNode> node(batch);
+            batch = batch->next;
+            ++handled;
+            try {
+                if (lane.isOwner) {
+                    ExecutionScope scope(&impl);
+                    impl.Accept(std::move(node->message));
+                } else {
+                    ExecutionScope scope;
+                    impl.RunWork(std::move(node->message));
+                }
+            } catch (...) {
+                impl.callbackFailures.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+        lane.scheduled.store(false, std::memory_order_seq_cst);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+        if (!lane.inbox.Empty() && !lane.scheduled.exchange(true, std::memory_order_acq_rel))
+            impl.runtime->scheduler.Post(&lane);
+        // Last touch: a drained waiter may free `impl` once this lands.
+        impl.pending.Release(handled);
+    }
+
+    void RunWork(Message message) {
+        Cancellation cancel;
+        cancel.epoch = message.epoch;
+        cancel.accepted = accepted;
+        cancel.closing = closing;
+        if (message.asyncWork && !cancel.Superseded()) {
+            // The pending hold lasts until an external backend reply has
+            // made the terminal owner message. `settled` lives in the
+            // callback, so a duplicate/late reply never dereferences this
+            // Impl after its first call.
+            struct Reply {
+                std::atomic<bool> settled{false};
+                std::atomic<unsigned> flags{0}; // callback=1, Run returned=2
+                Publish publish; std::exception_ptr error;
+                Message message;
+                explicit Reply(Message&& value) : message(std::move(value)) {}
+            };
+            // Move the callable out before moving the message into the
+            // reply closure.  The reply owns retained request state;
+            // invoking a moved-from std::function would throw.
+            auto reply = std::make_shared<Reply>(std::move(message));
+            auto asyncWork = std::move(reply->message.asyncWork);
+            pending.Add();
+            auto relay = [this, reply]() mutable {
+                reply->message.publish = std::move(reply->publish);
+                reply->message.error = std::move(reply->error);
+                reply->message.asyncWork = {}; reply->message.work = {}; reply->message.kind = Message::Kind::Finished;
+                // Empty the late-callback Reply before delivering the
+                // terminal; otherwise it retains user captures.
+                Message terminal=std::move(reply->message);
+                reply->message = {};
+                try { PutOwner(std::move(terminal)); }
+                catch (...) { std::terminate(); }
+                pending.Release();
+            };
+            auto done = [reply, relay](Publish publish, std::exception_ptr error) mutable {
+                if (reply->settled.exchange(true, std::memory_order_acq_rel)) return;
+                reply->publish=std::move(publish); reply->error=std::move(error);
+                if (reply->flags.fetch_or(1, std::memory_order_acq_rel) & 2) relay();
+            };
+            try { asyncWork(cancel, done); }
+            catch (...) { done({}, std::current_exception()); }
+            if (reply->flags.fetch_or(2, std::memory_order_acq_rel) & 1) relay();
+            return;
+        }
+        if (!cancel.Superseded()) {
+            try { message.publish = message.work(cancel); }
+            catch (...) { message.error = std::current_exception(); }
+        }
+        message.work = {};
+        message.kind = Message::Kind::Finished;
+        PutOwner(std::move(message));
+    }
 
     uint64_t Reserve() {
         auto value = requested.load(std::memory_order_relaxed);
@@ -266,9 +326,9 @@ struct UsdGenExecutionPipeline::Impl {
     }
     void Start(Message message) {
         workRunning = true;
-        // function_node copies input before accepting it. This route is used
-        // only with no other worker item queued by this owner.
-        if (worker.try_put(message)) return;
+        // Used only with no other worker item queued by this owner.
+        try { Put(worker, message); return; }
+        catch (...) {}
         workRunning = false;
         Retire(std::move(message), Outcome::Superseded);
     }
@@ -300,8 +360,7 @@ struct UsdGenExecutionPipeline::Impl {
                 }
             }
             if (message.kind == Message::Kind::Mailbox && message.mailbox) {
-                std::atomic_store_explicit(&message.mailbox->latest,
-                                           std::shared_ptr<std::function<void()>>{}, std::memory_order_release);
+                message.mailbox->latest.Take();
                 message.mailbox->scheduled.store(false, std::memory_order_release);
             }
             Retire(std::move(message), Outcome::Superseded);
@@ -319,32 +378,25 @@ struct UsdGenExecutionPipeline::Impl {
         }
         if (message.kind == Message::Kind::Mailbox) {
             auto mailbox = std::move(message.mailbox);
-            auto command = std::atomic_exchange_explicit(
-                &mailbox->latest, std::shared_ptr<std::function<void()>>{}, std::memory_order_acq_rel);
+            auto command = mailbox->latest.Take();
             mailbox->scheduled.store(false, std::memory_order_release);
             if (command) {
-                try { (*command)(); }
+                try { command->fn(); }
                 catch (...) { callbackFailures.fetch_add(1, std::memory_order_relaxed); }
             }
             // A producer may have replaced latest while this owner frame ran.
             // Schedule one successor, never poll or retry in a loop.
-            if (std::atomic_load_explicit(&mailbox->latest, std::memory_order_acquire)) {
+            if (mailbox->latest.HasValue()) {
                 bool expected = false;
                 if (mailbox->scheduled.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
                     Message successor;
                     successor.kind = Message::Kind::Mailbox;
                     successor.mailbox = mailbox;
                     try {
-                        if (!owner.try_put(successor)) {
-                            mailbox->broken.store(true, std::memory_order_release);
-                            std::atomic_store_explicit(&mailbox->latest,
-                                std::shared_ptr<std::function<void()>>{}, std::memory_order_release);
-                            mailbox->scheduled.store(false, std::memory_order_release);
-                        }
+                        PutOwner(std::move(successor));
                     } catch (...) {
                         mailbox->broken.store(true, std::memory_order_release);
-                        std::atomic_store_explicit(&mailbox->latest,
-                            std::shared_ptr<std::function<void()>>{}, std::memory_order_release);
+                        mailbox->latest.Take();
                         mailbox->scheduled.store(false, std::memory_order_release);
                         throw;
                     }
@@ -409,11 +461,7 @@ UsdGenExecutionPipeline::UsdGenExecutionPipeline(UsdGenExecutionRuntime& runtime
                                                    uint64_t commandCapacity) {
     if (!requestCapacity || !commandCapacity)
         throw std::invalid_argument("execution request and command capacities must be positive");
-    // The graph attaches to the arena in which it is constructed, as required
-    // by the installed TBB flow-graph implementation.
-    runtime.impl_->arena.execute([&] {
-        impl_ = std::make_unique<Impl>(runtime.impl_, requestCapacity, commandCapacity);
-    });
+    impl_ = std::make_unique<Impl>(runtime.impl_, requestCapacity, commandCapacity);
 }
 UsdGenExecutionPipeline::~UsdGenExecutionPipeline() {
     if (usdGenExecutionGraphActive) std::terminate();
@@ -434,13 +482,12 @@ uint64_t UsdGenExecutionPipeline::Submit(Work work, Completion completion) {
         return epoch;
     }
     try {
-        if (impl_->owner.try_put(std::move(message))) return epoch;
+        impl_->PutOwner(std::move(message));
     } catch (...) {
         impl_->outstandingRequests.fetch_sub(1, std::memory_order_acq_rel);
         throw;
     }
-    impl_->outstandingRequests.fetch_sub(1, std::memory_order_acq_rel);
-    return 0;
+    return epoch;
 }
 uint64_t UsdGenExecutionPipeline::SubmitAsync(AsyncWork work, Completion completion) {
     if (!work) return 0;
@@ -453,13 +500,12 @@ uint64_t UsdGenExecutionPipeline::SubmitAsync(AsyncWork work, Completion complet
     message.requestCredit = true;
     if (executingOwner == impl_.get()) { impl_->Accept(std::move(message)); return epoch; }
     try {
-        if (impl_->owner.try_put(std::move(message))) return epoch;
+        impl_->PutOwner(std::move(message));
     } catch (...) {
         impl_->outstandingRequests.fetch_sub(1, std::memory_order_acq_rel);
         throw;
     }
-    impl_->outstandingRequests.fetch_sub(1, std::memory_order_acq_rel);
-    return 0;
+    return epoch;
 }
 uint64_t UsdGenExecutionPipeline::CancelPending() {
     auto epoch = impl_->Reserve();
@@ -474,10 +520,8 @@ uint64_t UsdGenExecutionPipeline::CancelPending() {
     auto ticket = impl_->ReserveCommandTicket();
     if (!ticket) return 0;
     message.commandTicket = std::move(ticket);
-    try {
-        if (impl_->owner.try_put(message)) return epoch;
-    } catch (...) { throw; }
-    return 0;
+    impl_->PutOwner(std::move(message));
+    return epoch;
 }
 bool UsdGenExecutionPipeline::PostCommand(std::function<void()> command,
                                          std::function<void()> onCancel) {
@@ -501,8 +545,8 @@ bool UsdGenExecutionPipeline::PostCommand(CommandTicket&& ticket,
         uint64_t, Outcome outcome, std::exception_ptr) {
         if (outcome == Outcome::Superseded) onCancel();
     };
-    try { return impl_->owner.try_put(std::move(message)); }
-    catch (...) { throw; }
+    impl_->PutOwner(std::move(message));
+    return true;
 }
 UsdGenExecutionPipeline::CommandMailbox UsdGenExecutionPipeline::ReserveCommandMailbox() {
     return CommandMailbox(impl_->ReserveCommandMailbox());
@@ -513,12 +557,9 @@ bool UsdGenExecutionPipeline::PostLatestCommand(CommandMailbox const& mailbox,
         mailbox.state_->identity != impl_->commandIdentity ||
         impl_->closing->load(std::memory_order_acquire) ||
         mailbox.state_->broken.load(std::memory_order_acquire)) return false;
-    auto latest = std::make_shared<std::function<void()>>(std::move(command));
-    std::atomic_store_explicit(&mailbox.state_->latest, latest, std::memory_order_release);
+    mailbox.state_->latest.Publish(UsdGenMakeRef<LatestCommand>(std::move(command)));
     if (mailbox.state_->broken.load(std::memory_order_acquire)) {
-        std::shared_ptr<std::function<void()>> expected = latest;
-        std::atomic_compare_exchange_strong_explicit(&mailbox.state_->latest, &expected,
-            std::shared_ptr<std::function<void()>>{}, std::memory_order_acq_rel, std::memory_order_acquire);
+        mailbox.state_->latest.Take();
         return false;
     }
     bool expected = false;
@@ -528,19 +569,14 @@ bool UsdGenExecutionPipeline::PostLatestCommand(CommandMailbox const& mailbox,
     message.kind = Impl::Message::Kind::Mailbox;
     message.mailbox = mailbox.state_;
     try {
-        if (impl_->owner.try_put(message)) return true;
+        impl_->PutOwner(std::move(message));
     } catch (...) {
         mailbox.state_->broken.store(true, std::memory_order_release);
-        std::atomic_store_explicit(&mailbox.state_->latest,
-            std::shared_ptr<std::function<void()>>{}, std::memory_order_release);
+        mailbox.state_->latest.Take();
         mailbox.state_->scheduled.store(false, std::memory_order_release);
         throw;
     }
-    mailbox.state_->broken.store(true, std::memory_order_release);
-    std::atomic_store_explicit(&mailbox.state_->latest,
-        std::shared_ptr<std::function<void()>>{}, std::memory_order_release);
-    mailbox.state_->scheduled.store(false, std::memory_order_release);
-    return false;
+    return true;
 }
 bool UsdGenExecutionPipeline::CommandMailboxBroken(CommandMailbox const& mailbox) const noexcept {
     return !mailbox.state_ || mailbox.state_->identity != impl_->commandIdentity ||
@@ -552,22 +588,13 @@ bool UsdGenExecutionPipeline::IsExecutingOwner() const noexcept { return executi
 void UsdGenExecutionPipeline::Await(std::function<void(std::function<void()>)> dispatch) {
     if (usdGenExecutionGraphActive) throw std::logic_error("graph work must not synchronously await a reply");
     if (!dispatch) throw std::invalid_argument("missing reply dispatcher");
-    // The reply graph is a pure reserve_wait/release_wait latch: no task is
-    // ever spawned into it, so it does not need the runtime arena, and binding
-    // it there is harmful. wait_for_all runs inside task_arena::execute on the
-    // graph's arena, and the runtime arena reserves no master slot (see
-    // executionRuntimeInternal.h), so this external thread could only enter
-    // when a worker slot happened to be free -- otherwise it spun forever, with
-    // the dispatched work long finished and every worker idle (observed on
-    // Windows in _State::Synchronize). The calling thread's own arena always
-    // has a slot for it, and release_wait from a worker in any arena still
-    // completes the latch.
+    // The calling thread parks on its own latch; the runtime's workers make
+    // progress independently, so no worker slot is needed for the waiter.
     auto state = std::make_shared<AwaitState>();
     std::exception_ptr dispatchError;
     try { dispatch([state] { state->Signal(); }); }
     catch (...) { dispatchError = std::current_exception(); state->Signal(); }
-    state->graph.wait_for_all();
-    (void)state->signalled.load(std::memory_order_acquire);
+    state->Wait();
     if (dispatchError) std::rethrow_exception(dispatchError);
 }
 
@@ -602,7 +629,7 @@ uint64_t UsdGenExecutionPipeline::CommandCapacity() const noexcept {
 void UsdGenExecutionPipeline::Drain() {
     if (usdGenExecutionGraphActive) throw std::logic_error("graph work must not synchronously drain a pipeline");
     if (UsdGenProcessShutdownInProgress()) return;
-    impl_->graph.wait_for_all();
+    impl_->pending.Wait();
 }
 
 void UsdGenExecutionPipeline::Shutdown() {
@@ -617,7 +644,7 @@ void UsdGenExecutionPipeline::Shutdown(std::function<void()> const& admissionClo
         catch (...) { impl_->callbackFailures.fetch_add(1, std::memory_order_relaxed); }
     }
     if (UsdGenProcessShutdownInProgress()) return;
-    impl_->graph.wait_for_all();
+    impl_->pending.Wait();
 }
 
 } // namespace usdGen

@@ -11,6 +11,7 @@
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/executionTaskGraph.h"
+#include "usdGen/taskScheduler.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 
@@ -28,13 +29,9 @@
 #include <memory>
 #include <limits>
 #include <map>
-#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
-
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -61,6 +58,17 @@ TF_DEFINE_ENV_SETTING(USDGEN_FUR_DENSITY, _furDensityDefault,
 namespace usdGen {
 
 namespace {
+
+// Schema-default look, made at load rather than behind a static's guard.
+UsdGenLookDesc const _lookFallbackDesc;
+
+// A streamed tile past the cook's slot count.
+struct _StreamedTile
+{
+    _StreamedTile *next = nullptr;
+    UsdGenTileId tile{};
+    UsdGenTilePublication publication;
+};
 
 // USDGEN_COMMIT: where one cook's time went, printed as a single line.
 class _CommitPhases
@@ -232,10 +240,10 @@ void _CacheDigestTerms(_CacheArrayTerms const &terms)
             ++job;
         }
     }
-    // Threaded over jobs for big keys (plain TBB like tile publication:
-    // Cook owns no scheduler context here); chunks cap at 8. Small keys
-    // keep the serial driver, computing the identical function.
-    int const keyWorkers = tbb::this_task_arena::max_concurrency();
+    // Threaded over jobs for big keys (on the process scheduler: the key
+    // owns no scheduler context here); chunks cap at 8. Small keys keep the
+    // serial driver, computing the identical function.
+    int const keyWorkers = UsdGenParallelForConcurrency();
     size_t const keyChunks =
         (keyWorkers > 1 && terms.totalBytes > 1048576)
             ? std::min({size_t(keyWorkers), size_t(8), jobs.size()})
@@ -243,17 +251,16 @@ void _CacheDigestTerms(_CacheArrayTerms const &terms)
     if (keyChunks > 1) {
         size_t const n = jobs.size();
         _CacheDigestJob const *jobData = jobs.data();
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, keyChunks),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t c = range.begin(); c != range.end(); ++c) {
-                    size_t const i0 = (c * n) / keyChunks;
-                    size_t const i1 = ((c + 1) * n) / keyChunks;
-                    for (size_t i = i0; i < i1; ++i)
-                        *jobData[i].out = UsdGenDigestBytes(
-                            jobData[i].data, jobData[i].bytes,
-                            jobData[i].seed);
-                }
-            });
+        struct Payload { _CacheDigestJob const *jobs; size_t n, chunks; }
+            payload{jobData, n, keyChunks};
+        UsdGenParallelFor(keyChunks, [](size_t c, void *p) {
+            auto const &pl = *static_cast<Payload const *>(p);
+            size_t const i0 = (c * pl.n) / pl.chunks;
+            size_t const i1 = ((c + 1) * pl.n) / pl.chunks;
+            for (size_t i = i0; i < i1; ++i)
+                *pl.jobs[i].out = UsdGenDigestBytes(
+                    pl.jobs[i].data, pl.jobs[i].bytes, pl.jobs[i].seed);
+        }, &payload);
     } else {
         for (_CacheDigestJob const &j : jobs)
             *j.out = UsdGenDigestBytes(j.data, j.bytes, j.seed);
@@ -916,6 +923,13 @@ bool _BuildTilePublicationBulk(
 
 }  // namespace
 
+struct UsdGenSessionCooker::_ProgressSlot
+{
+    UsdGenTileId tile{};
+    UsdGenTilePublication publication;
+    std::atomic<bool> ready{false};
+};
+
 UsdGenSessionCooker::UsdGenSessionCooker(
     int threadLimit, size_t executionCacheBytes)
     : UsdGenSessionCooker(threadLimit, executionCacheBytes, {}) {}
@@ -934,13 +948,21 @@ UsdGenSessionCooker::UsdGenSessionCooker(int threadLimit,
             executionCacheBytes);
 }
 
+void UsdGenSessionCooker::_PublishCudaBindingStats(
+    std::vector<UsdGenCudaBindingStats> stats)
+{
+    auto ref = UsdGenMakeRef<_BindingStats>();
+    ref->stats = std::move(stats);
+    _cudaBindingStats.Store(std::move(ref));
+}
+
 UsdGenSessionCooker::~UsdGenSessionCooker() = default;
 
 bool UsdGenSessionCooker::_SelectExecutionCacheDomain(
     UsdGenDeviceBackend backend, int32_t deviceIndex, uint64_t contextIdentity)
 {
     UsdGenExecutionCacheDomainKey key{backend, deviceIndex, contextIdentity};
-    auto selectedDomain = std::atomic_load(&_executionCacheDomain);
+    auto selectedDomain = _executionCacheDomain;
     if (selectedDomain) {
         auto const& selected = selectedDomain->Key();
         // contextIdentity is the adapter-owned stable identity of this
@@ -957,7 +979,7 @@ bool UsdGenSessionCooker::_SelectExecutionCacheDomain(
     auto replacement = std::make_shared<UsdGenExecutionCacheDomain>(
         key, _executionCacheBytes);
     _observedCacheDomainEpoch = replacement->Epoch();
-    std::atomic_store(&_executionCacheDomain, std::move(replacement));
+    _executionCacheDomain = std::move(replacement);
     return true;
 }
 
@@ -1461,8 +1483,8 @@ void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
                     }
                     // Allocate native diagnostic snapshots before advancing
                     // the shared private publication state.
-                    auto bindingStats = std::make_shared<const std::vector<UsdGenCudaBindingStats>>(
-                        GetCudaBindingStats(*_cudaWorkspace));
+                    auto bindingStats = UsdGenMakeRef<_BindingStats>();
+                    bindingStats->stats = GetCudaBindingStats(*_cudaWorkspace);
                     if (!_FinalizeDevicePublication(std::move(device),
                             stages->cacheDomain, stages->cacheKey, stages->frame)) {
                         (*completion)({}, std::make_exception_ptr(std::runtime_error(
@@ -1472,7 +1494,7 @@ void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
                     // This is private cooker state for the sole in-flight
                     // Session work lane.  Public snapshot/pending acceptance
                     // remains the pipeline publication produced by session.cpp.
-                    std::atomic_store(&_cudaBindingStats, std::move(bindingStats));
+                    _cudaBindingStats.Store(std::move(bindingStats));
                     (*completion)([] {}, {});
                 } catch (...) { (*completion)({}, std::current_exception()); }
             })) {
@@ -1669,7 +1691,7 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
 }
 
 std::vector<UsdGenCudaBindingStats> UsdGenSessionCooker::CudaBindingStats() const {
-    return *std::atomic_load(&_cudaBindingStats);
+    return _cudaBindingStats.Load()->stats;
 }
 
 std::optional<UsdGenSessionCooker::ExecutionCacheCandidate>
@@ -2058,9 +2080,7 @@ UsdGenStats publishedStats, bool invalidateValues,
             _InvalidatePoisonedCudaWorkspace();
             return reject();
         }
-        std::atomic_store(&_cudaBindingStats,
-            std::make_shared<const std::vector<UsdGenCudaBindingStats>>(
-                GetCudaBindingStats(*_cudaWorkspace)));
+        _PublishCudaBindingStats(GetCudaBindingStats(*_cudaWorkspace));
         UsdGenGeneration gen;
         gen.frame = frame;
         gen.device = std::move(device);
@@ -2097,20 +2117,72 @@ UsdGenStats publishedStats, bool invalidateValues,
     // preview colors must never be visible there; active preview is deferred
     // until its whole-output color pass below has completed.
     _previewColors = UsdGenPreviewColors{};
-    std::mutex progressMutex;
-    uint64_t progressSequence = 0;
-    std::map<UsdGenTileId, UsdGenTilePublication> streamedTiles;
-    auto emitProgress = [&](UsdGenTilePublication tile) {
+    // Streamed tiles, without a lock: each completed tile claims a slot by
+    // fetch_add and publishes it with a release store (tiles past the slot
+    // count go on an overflow stack). Whoever holds `delivering` emits the
+    // ready slot prefix and the overflow in order, so progress stays serial.
+    size_t const slotCount = progress && !_desc.preview.Active()
+        ? size_t(std::max(0, _graph.NumTiles())) : 0;
+    if (slotCount > _progressSlotCapacity) {
+        _progressSlots.reset(new _ProgressSlot[slotCount]);
+        _progressSlotCapacity = slotCount;
+    }
+    _ProgressSlot *const progressSlots = _progressSlots.get();
+    std::atomic<size_t> slotsClaimed{0};
+    std::atomic<size_t> slotsDelivered{0};
+    std::atomic<bool> delivering{false};
+    UsdGenTreiberStack<_StreamedTile, &_StreamedTile::next> overflowReady;
+    _StreamedTile *overflowDelivered = nullptr;  // guarded by `delivering`
+    uint64_t progressSequence = 0;               // guarded by `delivering`
+    struct StreamReset {
+        _ProgressSlot *slots;
+        size_t count;
+        std::atomic<size_t> const &claimed;
+        _StreamedTile *&overflow;
+        ~StreamReset() {
+            size_t const used = std::min(count, claimed.load(std::memory_order_acquire));
+            for (size_t i = 0; i < used; ++i) {
+                slots[i].publication = UsdGenTilePublication{};
+                slots[i].ready.store(false, std::memory_order_relaxed);
+            }
+            while (_StreamedTile *n = overflow) {
+                overflow = n->next;
+                delete n;
+            }
+        }
+    } streamReset{progressSlots, slotCount, slotsClaimed, overflowDelivered};
+    auto emitProgress = [&](UsdGenTilePublication const &tile) {
         if (!progress || (superseded && superseded())) return;
         auto update = std::make_shared<UsdGenSession::TileProgress>();
         update->epoch = workEpoch;
         update->frame = frame;
-        update->tile = std::move(tile);
-        std::lock_guard<std::mutex> lock(progressMutex);
+        update->tile = tile;
         if (superseded && superseded()) return;
         update->sequence = ++progressSequence;
         try { progress(std::move(update)); } catch (...) {
             // A provisional render consumer cannot invalidate the cook.
+        }
+    };
+    auto deliverStreamed = [&] {
+        for (;;) {
+            if (delivering.exchange(true, std::memory_order_acquire)) return;
+            size_t d = slotsDelivered.load(std::memory_order_relaxed);
+            while (d < slotCount && progressSlots[d].ready.load(std::memory_order_acquire)) {
+                try { emitProgress(progressSlots[d].publication); } catch (...) {}
+                slotsDelivered.store(++d, std::memory_order_relaxed);
+            }
+            for (_StreamedTile *n = overflowReady.PopAll(); n;) {
+                _StreamedTile *next = n->next;
+                try { emitProgress(n->publication); } catch (...) {}
+                n->next = overflowDelivered;
+                overflowDelivered = n;
+                n = next;
+            }
+            delivering.store(false, std::memory_order_seq_cst);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            if (!(d < slotCount && progressSlots[d].ready.load(std::memory_order_acquire)) &&
+                overflowReady.Empty())
+                return;
         }
     };
     auto tileCompleted = progress && !_desc.preview.Active()
@@ -2120,14 +2192,22 @@ UsdGenStats publishedStats, bool invalidateValues,
             UsdGenRunResult partial;
             partial.terminalOutput = &output;
             UsdGenTilePublication publication = _BuildTilePublication(tile, partial, {});
-            {
-                std::lock_guard<std::mutex> lock(progressMutex);
-                // VtArray copies share their immutable storage. Reuse this
-                // exact geometry in the final generation instead of gathering
-                // the tile's points a second time.
-                streamedTiles.emplace(tile.tile, publication);
+            // VtArray copies share their immutable storage. Reuse this exact
+            // geometry in the final generation instead of gathering the
+            // tile's points a second time.
+            size_t const i = slotsClaimed.fetch_add(1, std::memory_order_relaxed);
+            if (i < slotCount) {
+                progressSlots[i].tile = tile.tile;
+                progressSlots[i].publication = std::move(publication);
+                progressSlots[i].ready.store(true, std::memory_order_release);
+            } else {
+                auto *n = new _StreamedTile;
+                n->tile = tile.tile;
+                n->publication = std::move(publication);
+                overflowReady.Push(n);
             }
-            emitProgress(std::move(publication));
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            deliverStreamed();
         }) : UsdGenScheduler::TileCompleted{};
     UsdGenRunResult result = _scheduler.Run(_graph, evalCtx, myReq,
                                              std::move(tileCompleted), superseded);
@@ -2230,6 +2310,23 @@ UsdGenStats publishedStats, bool invalidateValues,
     // edge difference: on a layout-corruption throw with a progress
     // callback set, no partial progress emits (serial interleaved them);
     // success paths -- the only contracted case -- are identical.
+    // Run has joined every tile callback: the streamed set is final.
+    std::vector<std::pair<UsdGenTileId, UsdGenTilePublication const *>> streamedIndex;
+    if (size_t const claimed = slotsClaimed.load(std::memory_order_acquire)) {
+        streamedIndex.reserve(claimed);
+        for (size_t i = 0, n = std::min(claimed, slotCount); i < n; ++i)
+            streamedIndex.emplace_back(progressSlots[i].tile, &progressSlots[i].publication);
+        for (_StreamedTile const *n = overflowDelivered; n; n = n->next)
+            streamedIndex.emplace_back(n->tile, &n->publication);
+        // First completion wins, as with map::emplace.
+        std::stable_sort(streamedIndex.begin(), streamedIndex.end(),
+            [](auto const &a, auto const &b) { return a.first < b.first; });
+    }
+    auto findStreamed = [&streamedIndex](UsdGenTileId id) -> UsdGenTilePublication const * {
+        auto it = std::lower_bound(streamedIndex.begin(), streamedIndex.end(), id,
+            [](auto const &e, UsdGenTileId t) { return e.first < t; });
+        return it != streamedIndex.end() && it->first == id ? it->second : nullptr;
+    };
     size_t rebuiltTiles = 0;
     size_t rebuildCvs = 0;
     std::vector<UsdGenTileView const *> buildViews;
@@ -2266,22 +2363,22 @@ UsdGenStats publishedStats, bool invalidateValues,
                 continue;
             }
         }
-        auto streamed = streamedTiles.find(tv.tile);
-        if (streamed != streamedTiles.end()) {
-            gen.tiles.push_back(streamed->second);
+        if (UsdGenTilePublication const *streamed = findStreamed(tv.tile)) {
+            gen.tiles.push_back(*streamed);
             continue;
         }
         rebuildCvs += tv.totalLiveCvs;
         buildViews.push_back(&tv);
     }
     std::vector<UsdGenTilePublication> built(buildViews.size());
-    // Threaded over tiles for big rebuilds (plain TBB: Cook owns no
-    // scheduler context here): each worker builds whole tiles into
+    // Threaded over tiles for big rebuilds on this cooker's worker pool
+    // (idle here: Run has returned): each worker builds whole tiles into
     // indexed slots. Small rebuilds keep the serial driver below. Chunks
     // cap at 8 like every other site: uncapped auto-partitioning over the
     // 20-thread arena regressed this loop 5x (oversubscription on the
     // pinned cores plus co-tenant contention).
-    int const tileWorkers = tbb::this_task_arena::max_concurrency();
+    UsdGenWorkDispatcher tileDispatcher = _scheduler.MakeWorkDispatcher();
+    int const tileWorkers = tileDispatcher.MaxConcurrency();
     size_t const tileChunks =
         (tileWorkers > 1 && rebuildCvs > 32768)
             ? std::min({size_t(tileWorkers), size_t(8), buildViews.size()})
@@ -2293,21 +2390,28 @@ UsdGenStats publishedStats, bool invalidateValues,
         UsdGenTilePublication *slots = built.data();
         std::exception_ptr *errors = buildError.data();
         size_t const jobs = buildViews.size();
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, tileChunks),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t c = range.begin(); c != range.end(); ++c) {
-                    size_t const i0 = (c * jobs) / tileChunks;
-                    size_t const i1 = ((c + 1) * jobs) / tileChunks;
-                    for (size_t i = i0; i < i1; ++i) {
-                        try {
-                            slots[i] = _BuildTilePublication(
-                                *views[i], buildResult, prev);
-                        } catch (...) {
-                            errors[i] = std::current_exception();
-                        }
-                    }
+        struct Build {
+            UsdGenSessionCooker *cooker;
+            UsdGenRunResult const *result;
+            UsdGenGenerationConstPtr const *prev;
+            UsdGenTileView const *const *views;
+            UsdGenTilePublication *slots;
+            std::exception_ptr *errors;
+            size_t jobs, chunks;
+        } build{this, &buildResult, &prev, views, slots, errors, jobs, tileChunks};
+        tileDispatcher.ParallelFor(tileChunks, [](size_t c, void *p) {
+            auto const &b = *static_cast<Build const *>(p);
+            size_t const i0 = (c * b.jobs) / b.chunks;
+            size_t const i1 = ((c + 1) * b.jobs) / b.chunks;
+            for (size_t i = i0; i < i1; ++i) {
+                try {
+                    b.slots[i] = b.cooker->_BuildTilePublication(
+                        *b.views[i], *b.result, *b.prev);
+                } catch (...) {
+                    b.errors[i] = std::current_exception();
                 }
-            });
+            }
+        }, &build, 1);
         for (std::exception_ptr const &e : buildError)
             if (e)
                 std::rethrow_exception(e);
@@ -2552,7 +2656,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     // fallback -- a description that merely applies UsdGenLookAPI has a full
     // set of schema-default look values, and treating those as authored would
     // silently discard every asset's own colour.
-    static UsdGenLookDesc const lookFallback;
+    UsdGenLookDesc const &lookFallback = _lookFallbackDesc;
     bool const authoredLook =
         _desc.look.rootColor != lookFallback.rootColor ||
         _desc.look.tipColor != lookFallback.tipColor ||

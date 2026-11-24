@@ -31,8 +31,6 @@
 #include "pxr/base/trace/trace.h"
 #include "pxr/base/vt/array.h"
 
-#include "tbb/task_arena.h"
-
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -894,11 +892,9 @@ void InterleaveTile(size_t index, void *payload)
 }  // namespace
 
 UsdGenScheduler::UsdGenScheduler(int threadLimit)
-    : _arena(ResolveThreadLimit(threadLimit)),
-      _threadLimit(ResolveThreadLimit(threadLimit)),
+    : _threadLimit(ResolveThreadLimit(threadLimit)),
       _pool(_threadLimit)
 {
-    _affinityObserver = ObserveFastCores(_arena, _threadLimit);
 }
 
 UsdGenScheduler::~UsdGenScheduler() = default;

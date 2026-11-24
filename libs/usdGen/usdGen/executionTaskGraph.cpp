@@ -1,14 +1,12 @@
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/executionRuntimeInternal.h"
+#include "usdGen/epoch.h"
+#include "usdGen/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
-#include <mutex>
 #include <optional>
 #include <stdexcept>
-#include <thread>
-#include <unordered_map>
 #include <utility>
 
 namespace usdGen {
@@ -33,14 +31,13 @@ struct RegistryKey {
         return device == other.device && backend == other.backend;
     }
 };
-struct RegistryHash {
-    size_t operator()(RegistryKey const& key) const {
-        return std::hash<std::string>{}(key.backend) ^
-            (std::hash<int>{}(key.device) << 1);
-    }
-};
 }
 
+// Dispatcher state has one writer at a time: a lane. Producers push messages
+// on a Treiber stack; whoever wins `laneBusy` handles every queued message,
+// releases the lane and rechecks, so no message is stranded and nobody waits.
+// Ready tasks and completion callbacks run on this graph's own scheduler
+// (maxActiveTasks workers). Drain parks on the pending job count.
 struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
     struct State {
         Job job;
@@ -56,62 +53,57 @@ struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
         std::exception_ptr error;
         Publish publish;
     };
-    struct Run {
+    struct Message {
+        enum class Kind { Add, Finish, Shutdown } kind = Kind::Add;
+        Message* next = nullptr;
         std::shared_ptr<State> state;
         uint32_t task = 0;
-    };
-    struct DeferredCompletion {
-        Completion callback;
         Publish publish;
         std::exception_ptr error;
     };
+    struct RunTask : UsdGenTask {
+        std::shared_ptr<Impl> self;
+        std::shared_ptr<State> state;
+        uint32_t task = 0;
+    };
+    struct CallbackTask : UsdGenTask {
+        std::shared_ptr<Impl> self;
+        Completion callback;
+        Publish publish;
+        std::exception_ptr error;
+        CallbackTask* nextCallback = nullptr;
+    };
 
-    explicit Impl(Limits value) : limits(value) {
+    explicit Impl(Limits value)
+        : limits(value),
+          scheduler(std::make_unique<UsdGenTaskScheduler>(int(value.maxActiveTasks))) {
         jobs.reserve(limits.maxJobs);
-        runQueue.resize(limits.maxActiveTasks);
-        workers.reserve(limits.maxActiveTasks);
-        try {
-            for (uint32_t i = 0; i != limits.maxActiveTasks; ++i)
-                workers.emplace_back([this] { WorkerLoop(); });
-        } catch (...) {
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                stopWorkers = true;
-            }
-            workerReady.notify_all();
-            for (auto& worker : workers) if (worker.joinable()) worker.join();
-            throw;
-        }
+        shutdownMessage.kind = Message::Kind::Shutdown;
     }
     ~Impl() = default;
 
     Limits limits;
-    mutable std::mutex mutex;
-    std::condition_variable workerReady;
-    std::condition_variable drained;
-    std::vector<std::thread> workers;
-    std::vector<Run> runQueue;
-    uint32_t runHead = 0;
-    uint32_t runSize = 0;
+    std::unique_ptr<UsdGenTaskScheduler> scheduler;
+    // Lane-owned.
     std::vector<std::shared_ptr<State>> jobs;
     uint32_t cursor = 0;
     uint32_t active = 0;
-    uint32_t callbacksActive = 0;
     uint64_t dispatchTick = 0;
     uint32_t interactiveStreak = 0;
-    bool stopWorkers = false;
+    bool shutdownSeen = false;
+    CallbackTask* deferred = nullptr;
+    Message shutdownMessage;  // preallocated, never deleted
+    // Shared.
+    UsdGenTreiberStack<Message, &Message::next> inbox;
+    std::atomic<bool> laneBusy{false};
+    UsdGenPendingCount pending;  // admitted jobs until their callback returned
     std::atomic<bool> closing{false};
     std::atomic<bool> shutdownStarted{false};
     std::atomic<uint32_t> admittedJobs{0};
     std::atomic<uint32_t> admittedTasks{0};
     std::atomic<uint32_t> admittedEdges{0};
 
-    bool IdleLocked() const noexcept {
-        return jobs.empty() && runSize == 0 && active == 0 &&
-            callbacksActive == 0;
-    }
-
-    void DispatchLocked() {
+    void Dispatch() {
         while (active < limits.maxActiveTasks && !jobs.empty()) {
             bool launched = false;
             auto const count = static_cast<uint32_t>(jobs.size());
@@ -153,10 +145,11 @@ struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
                     state->started[i] = true;
                     ++state->running;
                     ++active;
-                    uint32_t const tail =
-                        (runHead + runSize) % limits.maxActiveTasks;
-                    runQueue[tail] = {state, i};
-                    ++runSize;
+                    auto* run = new RunTask;
+                    run->taskRun = &RunReady;
+                    run->self = shared_from_this();
+                    run->state = state;
+                    run->task = i;
                     ++dispatchTick;
                     state->lastServed = dispatchTick;
                     if (state->job.requestClass == RequestClass::Interactive) {
@@ -164,7 +157,7 @@ struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
                             ++interactiveStreak;
                     } else interactiveStreak = 0;
                     launched = true;
-                    workerReady.notify_one();
+                    scheduler->Post(run);
                     break;
                 }
                 if (launched) break;
@@ -173,16 +166,15 @@ struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
         }
     }
 
-    void CompleteLocked(std::shared_ptr<State> const& state,
-                        std::optional<DeferredCompletion>* callback) {
+    void Complete(std::shared_ptr<State> const& state) {
         if (state->completed || state->running != 0) return;
         state->completed = true;
         if (!state->error && !state->publish)
             state->error = std::make_exception_ptr(
                 std::runtime_error("final task returned no publication"));
-        DeferredCompletion deferred{
-            std::move(state->job.completion), std::move(state->publish),
-            state->error};
+        Completion callback = std::move(state->job.completion);
+        Publish publish = std::move(state->publish);
+        std::exception_ptr error = state->error;
         uint32_t const taskCount =
             static_cast<uint32_t>(state->job.tasks.size());
         jobs.erase(std::remove(jobs.begin(), jobs.end(), state), jobs.end());
@@ -195,45 +187,72 @@ struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
         admittedEdges.fetch_sub(state->edgeCount, std::memory_order_acq_rel);
         admittedTasks.fetch_sub(taskCount, std::memory_order_acq_rel);
         admittedJobs.fetch_sub(1, std::memory_order_acq_rel);
-        if (deferred.callback) {
-            ++callbacksActive;
-            callback->emplace(std::move(deferred));
+        if (!callback) {
+            pending.Release();
+            return;
+        }
+        auto* task = new CallbackTask;
+        task->taskRun = &RunCallback;
+        task->self = shared_from_this();
+        task->callback = std::move(callback);
+        task->publish = std::move(publish);
+        task->error = std::move(error);
+        task->nextCallback = deferred;
+        deferred = task;
+    }
+
+    // Cancels every admitted job: queued tasks settle now, running ones
+    // report through their own Finish.
+    void CancelAll() {
+        for (auto const& state : jobs) {
+            state->cancelled = true;
+            if (!state->error)
+                state->error = std::make_exception_ptr(
+                    std::runtime_error("task graph shutdown"));
+            for (uint32_t i = 0; i != state->started.size(); ++i)
+                if (!state->started[i]) {
+                    state->started[i] = true;
+                    ++state->settled;
+                }
+        }
+        for (;;) {
+            auto found = std::find_if(jobs.begin(), jobs.end(),
+                [](auto const& state) {
+                    return state->cancelled && !state->completed &&
+                        state->running == 0 &&
+                        state->settled == state->started.size();
+                });
+            if (found == jobs.end()) break;
+            Complete(*found);
         }
     }
 
-    void Invoke(std::optional<DeferredCompletion> deferred) noexcept {
-        if (!deferred) return;
-        {
-            TaskGraphScope scope;
-            try {
-                deferred->callback(std::move(deferred->publish),
-                                   deferred->error);
-            } catch (...) {}
-        }
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            --callbacksActive;
-            if (IdleLocked()) drained.notify_all();
-        }
-    }
-
-    void Finish(std::shared_ptr<State> state, uint32_t task,
-                Publish publish, std::exception_ptr error) noexcept {
-        std::optional<DeferredCompletion> callback;
-        try {
-            std::lock_guard<std::mutex> lock(mutex);
+    void Handle(Message& message) {
+        auto& state = message.state;
+        switch (message.kind) {
+        case Message::Kind::Add:
+            state->lastServed = dispatchTick;
+            jobs.push_back(state);
+            if (shutdownSeen) CancelAll();
+            else Dispatch();
+            return;
+        case Message::Kind::Shutdown:
+            shutdownSeen = true;
+            CancelAll();
+            return;
+        case Message::Kind::Finish:
             if (!state || state->completed) return;
             --state->running;
             --active;
             ++state->settled;
-            if (error) {
+            if (message.error) {
                 state->cancelled = true;
-                if (!state->error) state->error = std::move(error);
-            } else if (task == state->job.finalTask && publish) {
-                state->publish = std::move(publish);
+                if (!state->error) state->error = std::move(message.error);
+            } else if (message.task == state->job.finalTask && message.publish) {
+                state->publish = std::move(message.publish);
             }
             if (!state->cancelled)
-                for (auto child : state->children[task])
+                for (auto child : state->children[message.task])
                     --state->remaining[child];
             if (state->cancelled)
                 for (uint32_t i = 0; i != state->started.size(); ++i)
@@ -242,142 +261,176 @@ struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {
                         ++state->settled;
                     }
             if (state->settled == state->started.size())
-                CompleteLocked(state, &callback);
-            DispatchLocked();
-            if (IdleLocked()) drained.notify_all();
-        } catch (...) { std::terminate(); }
-        Invoke(std::move(callback));
+                Complete(state);
+            Dispatch();
+            return;
+        }
     }
 
-    void WorkerLoop() noexcept {
+    // Queues `message` and handles the lane if free. Completion callbacks
+    // made here run inline on graph threads (task finishes, as before);
+    // producers outside the graph hand them to the workers instead.
+    void Post(Message* message, bool inlineCallbacks) noexcept {
+        inbox.Push(message);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         for (;;) {
-            Run run;
-            {
-                std::unique_lock<std::mutex> lock(mutex);
-                workerReady.wait(lock, [this] {
-                    return stopWorkers || runSize != 0;
-                });
-                if (stopWorkers && runSize == 0) return;
-                run = std::move(runQueue[runHead]);
-                runQueue[runHead] = {};
-                runHead = (runHead + 1) % limits.maxActiveTasks;
-                --runSize;
-            }
-            TaskGraphScope scope;
-            struct Once {
-                std::atomic<bool> done{false};
-                std::atomic<unsigned> flags{0};
-                Publish publish;
-                std::exception_ptr error;
-            };
+            if (laneBusy.exchange(true, std::memory_order_acquire)) return;
             try {
-                auto once = std::make_shared<Once>();
-                auto self = shared_from_this();
-                auto relay = [self, state = run.state, task = run.task,
-                              once]() mutable {
-                    self->Finish(std::move(state), task,
-                                 std::move(once->publish), once->error);
-                };
-                auto finish = [once, relay](Publish publish,
-                                            std::exception_ptr error) mutable {
-                    if (once->done.exchange(true, std::memory_order_acq_rel)) return;
-                    once->publish = std::move(publish);
-                    once->error = std::move(error);
-                    if (once->flags.fetch_or(1, std::memory_order_acq_rel) & 2)
-                        relay();
-                };
-                if (closing.load(std::memory_order_acquire) ||
-                    (run.state->job.cancellation.epoch &&
-                     run.state->job.cancellation.Superseded()))
-                    finish({}, std::make_exception_ptr(
-                        std::runtime_error("task graph cancelled")));
-                else
-                    run.state->job.tasks[run.task].run(
-                        run.state->job.cancellation, finish);
-                if (once->flags.fetch_or(2, std::memory_order_acq_rel) & 1)
-                    relay();
-            } catch (...) {
-                Finish(std::move(run.state), run.task, {},
-                       std::current_exception());
+                while (Message* batch = inbox.PopAll()) {
+                    Message* fifo = nullptr;
+                    while (batch) {
+                        Message* next = batch->next;
+                        batch->next = fifo;
+                        fifo = batch;
+                        batch = next;
+                    }
+                    while (fifo) {
+                        Message* m = fifo;
+                        fifo = fifo->next;
+                        Handle(*m);
+                        if (m == &shutdownMessage) shutdownMessage.state.reset();
+                        else delete m;
+                    }
+                }
+            } catch (...) { std::terminate(); }
+            CallbackTask* callbacks = deferred;
+            deferred = nullptr;
+            laneBusy.store(false, std::memory_order_seq_cst);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
+            CallbackTask* order = nullptr;  // completion order
+            while (callbacks) {
+                CallbackTask* next = callbacks->nextCallback;
+                callbacks->nextCallback = order;
+                order = callbacks;
+                callbacks = next;
             }
+            while (order) {
+                CallbackTask* next = order->nextCallback;
+                if (inlineCallbacks) RunCallback(order);
+                else scheduler->Post(order);
+                order = next;
+            }
+            if (inbox.Empty()) return;
+        }
+    }
+
+    static void RunCallback(UsdGenTask* task) noexcept {
+        std::unique_ptr<CallbackTask> own(static_cast<CallbackTask*>(task));
+        {
+            TaskGraphScope scope;
+            try { own->callback(std::move(own->publish), own->error); }
+            catch (...) {}
+        }
+        own->callback = {};
+        own->error = {};
+        own->self->pending.Release();
+    }
+
+    void Finish(std::shared_ptr<State> state, uint32_t task,
+                Publish publish, std::exception_ptr error) noexcept {
+        Message* message = nullptr;
+        try {
+            message = new Message;
+        } catch (...) { std::terminate(); }
+        message->kind = Message::Kind::Finish;
+        message->state = std::move(state);
+        message->task = task;
+        message->publish = std::move(publish);
+        message->error = std::move(error);
+        Post(message, true);
+    }
+
+    static void RunReady(UsdGenTask* task) noexcept {
+        std::shared_ptr<Impl> self;
+        std::shared_ptr<State> state;
+        uint32_t index = 0;
+        {
+            std::unique_ptr<RunTask> own(static_cast<RunTask*>(task));
+            self = std::move(own->self);
+            state = std::move(own->state);
+            index = own->task;
+        }
+        TaskGraphScope scope;
+        struct Once {
+            std::atomic<bool> done{false};
+            std::atomic<unsigned> flags{0};
+            Publish publish;
+            std::exception_ptr error;
+        };
+        try {
+            auto once = std::make_shared<Once>();
+            auto relay = [self, state, task = index, once]() mutable {
+                self->Finish(std::move(state), task,
+                             std::move(once->publish), once->error);
+            };
+            auto finish = [once, relay](Publish publish,
+                                        std::exception_ptr error) mutable {
+                if (once->done.exchange(true, std::memory_order_acq_rel)) return;
+                once->publish = std::move(publish);
+                once->error = std::move(error);
+                if (once->flags.fetch_or(1, std::memory_order_acq_rel) & 2)
+                    relay();
+            };
+            if (self->closing.load(std::memory_order_acquire) ||
+                (state->job.cancellation.epoch &&
+                 state->job.cancellation.Superseded()))
+                finish({}, std::make_exception_ptr(
+                    std::runtime_error("task graph cancelled")));
+            else
+                state->job.tasks[index].run(state->job.cancellation, finish);
+            if (once->flags.fetch_or(2, std::memory_order_acq_rel) & 1)
+                relay();
+        } catch (...) {
+            self->Finish(std::move(state), index, {}, std::current_exception());
         }
     }
 
     bool Add(std::shared_ptr<State> state) {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (closing.load(std::memory_order_acquire)) return false;
-        state->lastServed = dispatchTick;
-        jobs.push_back(std::move(state));
-        DispatchLocked();
+        // Paired with Shutdown: either this sees closing, or Shutdown's
+        // Drain sees the job.
+        pending.Add();
+        if (closing.load(std::memory_order_seq_cst)) {
+            pending.Release();
+            return false;
+        }
+        Message* message = nullptr;
+        try {
+            message = new Message;
+        } catch (...) {
+            pending.Release();
+            throw;
+        }
+        message->kind = Message::Kind::Add;
+        message->state = std::move(state);
+        Post(message, false);
         return true;
     }
 
-    void Drain() {
-        std::unique_lock<std::mutex> lock(mutex);
-        drained.wait(lock, [this] { return IdleLocked(); });
-    }
+    void Drain() noexcept { pending.Wait(); }
 
     void Shutdown() noexcept {
         if (shutdownStarted.exchange(true, std::memory_order_acq_rel)) return;
-        closing.store(true, std::memory_order_release);
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            for (auto const& state : jobs) {
-                state->cancelled = true;
-                if (!state->error)
-                    state->error = std::make_exception_ptr(
-                        std::runtime_error("task graph shutdown"));
-                for (uint32_t i = 0; i != state->started.size(); ++i)
-                    if (!state->started[i]) {
-                        state->started[i] = true;
-                        ++state->settled;
-                    }
-            }
-        }
-        // Retire queued-only jobs one at a time.  This keeps teardown bounded
-        // by the admitted job storage and invokes user callbacks without the
-        // dispatcher lock or a separately allocated callback batch.
-        for (;;) {
-            std::optional<DeferredCompletion> callback;
-            bool retired = false;
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                auto found = std::find_if(jobs.begin(), jobs.end(),
-                    [](auto const& state) {
-                        return state->cancelled && !state->completed &&
-                            state->running == 0 &&
-                            state->settled == state->started.size();
-                    });
-                if (found != jobs.end()) {
-                    CompleteLocked(*found, &callback);
-                    retired = true;
-                }
-                if (IdleLocked()) drained.notify_all();
-            }
-            Invoke(std::move(callback));
-            if (!retired) break;
-        }
+        closing.store(true, std::memory_order_seq_cst);
+        Post(&shutdownMessage, false);
         Drain();
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            stopWorkers = true;
-        }
-        workerReady.notify_all();
-        for (auto& worker : workers)
-            if (worker.joinable()) worker.join();
+        scheduler.reset();
     }
 };
 
 namespace {
-using Registry = std::unordered_map<RegistryKey,
-    std::shared_ptr<UsdGenExecutionTaskGraph>, RegistryHash>;
-Registry& GetRegistry() {
-    static auto* registry = new Registry;
-    return *registry;
-}
-std::mutex& GetRegistryMutex() {
-    static auto* mutex = new std::mutex;
-    return *mutex;
+// Append-only: graphs are process-lifetime, so nodes are never removed.
+struct RegistryNode {
+    RegistryKey key;
+    std::shared_ptr<UsdGenExecutionTaskGraph> graph;
+    RegistryNode* next = nullptr;
+};
+std::atomic<RegistryNode*> registryHead{nullptr};
+
+RegistryNode* FindNode(RegistryNode* from, RegistryNode* until,
+                       RegistryKey const& key) {
+    for (RegistryNode* node = from; node != until; node = node->next)
+        if (node->key == key) return node;
+    return nullptr;
 }
 bool SameLimits(UsdGenExecutionTaskGraph::Limits const& a,
                 UsdGenExecutionTaskGraph::Limits const& b) {
@@ -392,6 +445,7 @@ bool SameLimits(UsdGenExecutionTaskGraph::Limits const& a,
 UsdGenExecutionTaskGraph::UsdGenExecutionTaskGraph(std::shared_ptr<Impl> impl)
     : impl_(std::move(impl)) {}
 UsdGenExecutionTaskGraph::~UsdGenExecutionTaskGraph() {
+    if (!impl_) return;
     if (executingTaskGraph) std::terminate();
     Shutdown();
 }
@@ -405,17 +459,29 @@ UsdGenExecutionTaskGraph::GetOrCreate(
         !limits.maxTasks || !limits.maxActiveTasks ||
         !limits.interactiveBurst) return {};
     RegistryKey key{std::move(backend), device};
-    std::lock_guard<std::mutex> lock(GetRegistryMutex());
-    auto& registry = GetRegistry();
-    if (auto found = registry.find(key); found != registry.end()) {
-        auto const& graph = found->second;
-        return SameLimits(graph->impl_->limits, limits) ? graph :
+    auto matching = [&limits](RegistryNode const* node) {
+        return SameLimits(node->graph->impl_->limits, limits) ? node->graph :
             std::shared_ptr<UsdGenExecutionTaskGraph>{};
-    }
-    auto graph = std::shared_ptr<UsdGenExecutionTaskGraph>(
+    };
+    RegistryNode* head = registryHead.load(std::memory_order_acquire);
+    if (RegistryNode* found = FindNode(head, nullptr, key)) return matching(found);
+    auto node = std::make_unique<RegistryNode>();
+    node->key = key;
+    node->graph = std::shared_ptr<UsdGenExecutionTaskGraph>(
         new UsdGenExecutionTaskGraph(std::make_shared<Impl>(limits)));
-    registry.emplace(std::move(key), graph);
-    return graph;
+    for (;;) {
+        node->next = head;
+        if (registryHead.compare_exchange_weak(head, node.get(),
+                std::memory_order_acq_rel, std::memory_order_acquire))
+            return node.release()->graph;
+        // Only nodes pushed since our scan can match.
+        if (RegistryNode* found = FindNode(head, node->next, key)) {
+            // Lost the race: retire the unused candidate's idle workers.
+            node->graph->impl_->Shutdown();
+            node->graph->impl_.reset();
+            return matching(found);
+        }
+    }
 }
 
 bool UsdGenExecutionTaskGraph::Submit(Job job) {

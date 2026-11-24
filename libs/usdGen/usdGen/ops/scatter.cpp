@@ -18,6 +18,7 @@
 #include "usdGen/digest.h"
 #include "usdGen/limitSurface.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/taskScheduler.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/scatterModes.h"
 #include "usdGenMath/usdGenMath/hash.h"
@@ -26,9 +27,6 @@
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/tf/diagnostic.h"
-
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
 
 #include <algorithm>
 #include <cmath>
@@ -204,9 +202,9 @@ static_assert(std::is_trivially_copyable<GfVec2f>::value,
 static_assert(std::is_trivially_copyable<GfVec3f>::value,
               "raw vec3 assignment is a plain store");
 
-// Parallel-for over N slots: the scheduler-bound arena when Capture runs
-// under a graph (ctx.dispatcher), plain TBB when Capture is called
-// directly (bench, CUDA scatter input). Each slot runs exactly once and no
+// Parallel-for over N slots: the scheduler's pool when Capture runs
+// under a graph (ctx.dispatcher), the process scheduler when Capture is
+// called directly (bench, CUDA scatter input). Each slot runs exactly once and no
 // slot's contents depend on scheduling, so results are identical under any
 // worker count (or serially).
 template <class F>
@@ -219,11 +217,10 @@ void ScatterParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const 
         }, &payload);
         return;
     }
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, count),
-        [&](tbb::blocked_range<size_t> const &range) {
-            for (size_t i = range.begin(); i != range.end(); ++i)
-                body(i);
-        });
+    struct Payload { F const *body; } payload{&body};
+    UsdGenParallelFor(count, [](size_t i, void *p) {
+        (*static_cast<Payload *>(p)->body)(i);
+    }, &payload);
 }
 
 // Merge one plane's segments into the concatenated emission: size the plane
@@ -612,7 +609,7 @@ bool UsdGenScatterOp::Capture(
     // One worker means one range: partitions would only add concat traffic
     // for a lone worker to copy back.
     int const workers = ctx.dispatcher ? ctx.dispatcher->MaxConcurrency()
-                                       : tbb::this_task_arena::max_concurrency();
+                                       : UsdGenParallelForConcurrency();
     size_t partitions = 1;
     if (level == 0 && faceCount > 4096 && workers > 1)
         partitions = std::min({size_t(workers), size_t(8),
