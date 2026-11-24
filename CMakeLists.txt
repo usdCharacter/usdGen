@@ -3339,6 +3339,13 @@ endforeach()
 # The output golden belongs to one toolchain; another skips with 77.
 set_tests_properties(testUsdGenOutputGoldens PROPERTIES SKIP_RETURN_CODE 77)
 
+# Step 4 registries: handles, lookups, freeze, interner counters.
+add_executable(testUsdGenRegistries tests/testUsdGenRegistries.cpp tests/golden/goldenGraphs.cpp)
+target_link_libraries(testUsdGenRegistries PRIVATE usdGenTestUtils)
+target_include_directories(testUsdGenRegistries PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+add_test(NAME testUsdGenRegistries COMMAND testUsdGenRegistries)
+set_tests_properties(testUsdGenRegistries PROPERTIES LABELS "T0;registries")
+
 # UsdGenDeform on the CPU lane: hair deformed by animated curves (RBF).
 add_executable(testUsdGenRbfDeform tests/testUsdGenRbfDeform.cpp)
 target_link_libraries(testUsdGenRbfDeform PRIVATE usdGenTestUtilsHd)
