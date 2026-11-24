@@ -232,7 +232,7 @@ private:
                   UsdGenSessionDeviceObservers const&);
     struct State;
     std::unique_ptr<State> _state;
-    std::shared_ptr<const UsdGenSessionSnapshot> _snapshot;
+    UsdGenSharedCell<UsdGenSessionSnapshot> _snapshot;
 };
 
 } // namespace usdGen

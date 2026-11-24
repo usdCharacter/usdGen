@@ -135,6 +135,10 @@ bool RegisterUsdGenExecutionBackendAdapter(
     std::shared_ptr<const UsdGenExecutionBackendAdapter>,
     std::string *reason = nullptr) noexcept;
 
+/// Close registration. Called by UsdGenFreezeRegistries; later
+/// RegisterUsdGenExecutionBackendAdapter calls fail.
+void UsdGenFreezeExecutionBackendRegistry() noexcept;
+
 /// Look up the registered adapter without loading a native runtime.  A null
 /// result means the backend has no linked factory; callers must fail closed.
 std::shared_ptr<const UsdGenExecutionBackendAdapter>

@@ -1,9 +1,8 @@
 // usdGen engine — generation store implementation.
 //
-// Publish/Get use std::atomic_load/std::atomic_store on the shared_ptr (I7,
-// 03 §6.1): NOT TfRefPtr, which has no atomic overloads in 26.08. This is
-// exactly the pattern usdRig ships (snapshotStore.h:330, 369-377) and the one
-// validated by gate SI-4 (8 readers x 100 publishes, 0 torn reads).
+// Publish/Get go through a UsdGenSharedCell (I7, 03 §6.1): an atomic holder
+// pointer with epoch-protected weak locks, validated by gate SI-4 (8 readers
+// x 100 publishes, 0 torn reads) and testUsdGenSharedCell.
 #include "usdGen/generationStore.h"
 
 #include "pxr/pxr.h"
@@ -11,16 +10,31 @@
 #include "pxr/base/vt/array.h"
 #include <algorithm>
 
-#include <atomic>
-
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
 UsdGenGenerationStore::UsdGenGenerationStore(UsdGenGenerationConstPtr baseline)
-    : _current(std::move(baseline))
 {
-    if (_current) _nextId = _current->id + 1;
+    if (baseline) _nextId = baseline->id + 1;
+    _current.Store(std::move(baseline));
+}
+
+UsdGenGenerationStore::UsdGenGenerationStore(UsdGenGenerationStore &&other)
+    : _nextId(other._nextId)
+{
+    _current.Store(other._current.Exchange(UsdGenGenerationConstPtr{}));
+}
+
+UsdGenGenerationStore &UsdGenGenerationStore::operator=(UsdGenGenerationStore &&other)
+{
+    if (this != &other) {
+        // Keep the displaced value alive until both cells are consistent.
+        UsdGenGenerationConstPtr displaced =
+            _current.Exchange(other._current.Exchange(UsdGenGenerationConstPtr{}));
+        _nextId = other._nextId;
+    }
+    return *this;
 }
 
 void UsdGenGenerationStore::Publish(UsdGenGeneration gen)
@@ -38,20 +52,21 @@ UsdGenGenerationStore::PreparePublication(UsdGenGeneration gen) const
     // published history `id == Stats().commits - 1` (03 §9: exactly one publish
     // per committed request; superseded or aborted commits allocate no id).
     gen.id = _nextId;
-    return std::make_shared<const UsdGenGeneration>(std::move(gen));
+    return UsdGenSharedCell<UsdGenGeneration>::Prepare(
+        std::make_shared<const UsdGenGeneration>(std::move(gen)));
 }
 
 UsdGenGenerationConstPtr UsdGenGenerationStore::PublishPrepared(
     PreparedPublication prepared) noexcept
 {
-    if (!prepared || prepared->id != _nextId) return prepared;
+    if (!prepared || prepared->id != _nextId) return prepared.Value();
     ++_nextId;
-    return std::atomic_exchange(&_current, std::move(prepared));
+    return _current.Exchange(std::move(prepared));
 }
 
 UsdGenGenerationConstPtr UsdGenGenerationStore::Get() const noexcept
 {
-    return std::atomic_load(&_current);
+    return _current.Load();
 }
 
 int64_t UsdGenGenerationStore::NextId() const noexcept { return _nextId; }
@@ -68,15 +83,14 @@ bool UsdGenPrimSetSignature::operator==(
 
 namespace {
 
-// Per-prim primvar-name list from a signature; empty when the path is new.
-std::vector<std::string> const &
+// Per-prim primvar-name list from a signature; null when the path is new.
+std::vector<std::string> const *
 _namesFor(UsdGenPrimSetSignature const &sig, std::string const &path)
 {
     for (size_t i = 0; i < sig.primPaths.size(); ++i)
         if (sig.primPaths[i] == path)
-            return sig.primvarNames[i];
-    static const std::vector<std::string> kEmpty;
-    return kEmpty;
+            return &sig.primvarNames[i];
+    return nullptr;
 }
 
 // next-names minus prev-names, both kept sorted by the builder.
@@ -84,16 +98,17 @@ std::vector<TfToken>
 _newPrimvars(UsdGenPrimSetSignature const &prev, std::string const &prevPath,
              UsdGenPrimSetSignature const &next, std::string const &nextPath)
 {
-    std::vector<std::string> const &a = _namesFor(prev, prevPath);
-    std::vector<std::string> const &b = _namesFor(next, nextPath);
+    std::vector<std::string> const *a = _namesFor(prev, prevPath);
+    std::vector<std::string> const *b = _namesFor(next, nextPath);
     std::vector<TfToken> out;
+    size_t const na = a ? a->size() : 0, nb = b ? b->size() : 0;
     size_t i = 0, j = 0;
-    while (i < a.size() && j < b.size()) {
-        if (a[i] < b[j])                ++i;
-        else if (b[j] < a[i])           out.emplace_back(b[j++]);
+    while (i < na && j < nb) {
+        if ((*a)[i] < (*b)[j])          ++i;
+        else if ((*b)[j] < (*a)[i])     out.emplace_back((*b)[j++]);
         else                            { ++i; ++j; }
     }
-    while (j < b.size()) out.emplace_back(b[j++]);
+    while (j < nb) out.emplace_back((*b)[j++]);
     return out;
 }
 

@@ -41,9 +41,12 @@ bool UsdGenLoadExtension(std::string const &path, std::string *error)
     return UsdGenRegisterStatic(fn);
 }
 
+void UsdGenFreezeExecutionBackendRegistry() noexcept;  // executionBackend.h
+
 void UsdGenFreezeRegistries()
 {
     UsdGenOpRegistry::Get().Freeze();
+    UsdGenFreezeExecutionBackendRegistry();
 }
 
 }  // namespace usdGen

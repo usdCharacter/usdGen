@@ -1,14 +1,13 @@
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionRuntimeInternal.h"
+#include "usdGen/parkingWord.h"
 
 #include <atomic>
 #include <array>
 #include <chrono>
 #include <exception>
 #include <limits>
-#include <tbb/concurrent_unordered_map.h>
-#include <tbb/flow_graph.h>
-#include <tbb/task_arena.h>
+#include <new>
 #include <utility>
 #include <vector>
 #include <thread>
@@ -47,63 +46,60 @@ constexpr size_t _BackendIndex(UsdGenExecutionResourceBackend backend) noexcept 
     }
     return 3;
 }
-std::array<std::atomic<bool>, 3>& _BackendOpen() {
-    static auto* open = [] {
-        auto* result = new std::array<std::atomic<bool>, 3>;
-        for (auto& value : *result) value.store(true, std::memory_order_relaxed);
-        return result;
-    }();
-    return *open;
-}
+// Constant-initialized: false means open.
+std::atomic<bool> _backendClosed[3] = {};
 bool _BackendIsOpen(UsdGenExecutionResourceBackend backend) noexcept {
     size_t const index = _BackendIndex(backend);
-    return index < _BackendOpen().size() &&
-        _BackendOpen()[index].load(std::memory_order_acquire);
+    return index < 3 && !_backendClosed[index].load(std::memory_order_acquire);
 }
 
 // A single guard covers every service: invoking Drain from a cleanup worker,
 // including a different device service, would wait on work that cannot make
 // progress until the current task returns.
 thread_local bool _retirementCleanupActive = false;
-std::shared_ptr<UsdGenExecutionRetirementInstallTestGate>& _InstallTestGate() {
-    static auto* gate = new std::shared_ptr<UsdGenExecutionRetirementInstallTestGate>;
-    return *gate;
-}
 
-struct DeviceHash {
-    size_t operator()(UsdGenExecutionResourceDevice const& key) const noexcept {
-        return std::hash<int>{}(key.device) ^
-            (std::hash<unsigned>{}(unsigned(key.backend)) + size_t{0x9e3779b9} +
-             (std::hash<int>{}(key.device) << 6) +
-             (std::hash<int>{}(key.device) >> 2));
-    }
+// Test-only gate. Each Set publishes an immutable holder that is never freed
+// (a handful per test process), so readers copy it without reclamation.
+struct _GateHolder {
+    std::shared_ptr<UsdGenExecutionRetirementInstallTestGate> gate;
 };
-struct DeviceEqual {
-    bool operator()(UsdGenExecutionResourceDevice const& a,
-                    UsdGenExecutionResourceDevice const& b) const noexcept {
-        return a.backend == b.backend && a.device == b.device;
+std::atomic<_GateHolder const*> _installTestGate{nullptr};
+
+// Drain credit: a count of admitted cleanups. Drain parks on it until zero.
+struct _DrainCount {
+    std::atomic<uint32_t> pending{0};
+    void Reserve() noexcept { pending.fetch_add(1, std::memory_order_acq_rel); }
+    void Release() noexcept {
+        if (pending.fetch_sub(1, std::memory_order_acq_rel) == 1) UsdGenUnparkAll(pending);
+    }
+    void WaitForAll() noexcept {
+        for (uint32_t v; (v = pending.load(std::memory_order_acquire)) != 0;)
+            UsdGenParkWhileEqual(pending, v);
     }
 };
 } // namespace
 
-struct UsdGenExecutionRetirementSignal::State
-    : std::enable_shared_from_this<UsdGenExecutionRetirementSignal::State> {
+struct UsdGenExecutionRetirementSignal::State {
     struct Slot {
         // One CAS value prevents a late callback from validating generation N
         // then mutating flags for generation N+1.
         std::atomic<uint64_t> state{0};
         std::atomic<UsdGenExecutionRetirementPayload*> payload{nullptr};
+        // Retirement-lane queue link, written by the one Scheduled claimant.
+        State* owner = nullptr;
+        size_t index = 0;
+        uint32_t laneGeneration = 0;
+        Slot* laneNext = nullptr;
     };
 
     explicit State(size_t capacity, UsdGenExecutionResourceBackend backend_)
-        : backend(backend_), arena(1, 0) {
-        EnsureUsdGenTbbMarket();
+        : backend(backend_) {
         slots.reserve(capacity);
-        for (size_t i = 0; i != capacity; ++i) slots.emplace_back(new Slot);
-        arena.initialize();
-        // flow::graph captures the current arena at construction. It must be
-        // created while entered into the dedicated cleanup arena.
-        arena.execute([this] { drainGraph.reset(new tbb::flow::graph); });
+        for (size_t i = 0; i != capacity; ++i) {
+            slots.emplace_back(new Slot);
+            slots.back()->owner = this;
+            slots.back()->index = i;
+        }
     }
 
     bool ClaimDrain(Slot& slot, uint32_t generation) noexcept {
@@ -118,7 +114,7 @@ struct UsdGenExecutionRetirementSignal::State
         }
     }
     void ReleaseDrain(Slot& slot, uint32_t generation) noexcept {
-        if (ClaimDrain(slot, generation)) drainGraph->release_wait();
+        if (ClaimDrain(slot, generation)) drain.Release();
     }
 
     // Exactly one caller makes a terminal claim. The object is deliberately
@@ -198,7 +194,7 @@ struct UsdGenExecutionRetirementSignal::State
             slot.state.store(_Pack(generation + 1, 0), std::memory_order_release);
         }
         // Capacity is visible before a Drain waiter is released.
-        if (releaseDrain) drainGraph->release_wait();
+        if (releaseDrain) drain.Release();
     }
 
     bool ClaimAndDispatch(size_t index, uint32_t generation) noexcept {
@@ -221,16 +217,15 @@ struct UsdGenExecutionRetirementSignal::State
                     std::memory_order_acq_rel, std::memory_order_acquire))
                 break;
         }
-        try {
-            auto self = shared_from_this();
-            arena.enqueue([self, index, generation] { self->Process(index, generation); });
-            return true;
-        } catch (...) {
-            // TBB dispatch failure is terminal but is never an inline backend
+        // Services are process-lifetime (the registry never drops one), so
+        // the lane holds the slot by raw pointer.
+        if (!_LaneDispatch(&slot, generation)) {
+            // Lane start failure is terminal but is never an inline backend
             // cleanup path. The payload and all permits remain retained.
             Quarantine(slot, generation, false);
             return false;
         }
+        return true;
     }
 
     void Signal(size_t index, uint32_t generation, bool success) noexcept {
@@ -255,13 +250,86 @@ struct UsdGenExecutionRetirementSignal::State
         }
     }
 
-    tbb::task_arena arena;
-    std::unique_ptr<tbb::flow::graph> drainGraph;
+    // The retirement lane (see _LaneRun).
+    struct Lane {
+        std::atomic<Slot*> head{nullptr};
+        std::atomic<uint32_t> wake{0};
+        std::atomic<uint32_t> sleeping{0};
+        std::atomic<uint32_t> started{0};  // 0 none, 1 starting, 2 running
+    };
+    static Lane lane;
+    static bool _LaneDispatch(Slot*, uint32_t) noexcept;
+    static void _LaneRun() noexcept;
+
+    _DrainCount drain;
     std::vector<std::unique_ptr<Slot>> slots;
     std::atomic<bool> accepting{true};
     std::atomic<bool> backendQuiesced{false};
     UsdGenExecutionResourceBackend const backend;
 };
+
+// The retirement lane: one process-wide thread that runs backend cleanup off
+// the signalling thread (native completion callbacks must not free native
+// storage inline). Producers push slots on a Treiber stack and wake the lane
+// only when it sleeps; the lane parks on a word, never polls. It is started
+// on first use, detached and never joined: process exit ends it, and nothing
+// waits for it in a static destructor. Zero-initialized, trivially
+// destructible.
+UsdGenExecutionRetirementSignal::State::Lane UsdGenExecutionRetirementSignal::State::lane;
+
+void UsdGenExecutionRetirementSignal::State::_LaneRun() noexcept {
+    auto& _lane = lane;
+    using _Slot = Slot;
+    for (;;) {
+        _Slot* list = _lane.head.exchange(nullptr, std::memory_order_seq_cst);
+        if (!list) {
+            uint32_t const seq = _lane.wake.load(std::memory_order_seq_cst);
+            _lane.sleeping.store(1, std::memory_order_seq_cst);
+            if (!_lane.head.load(std::memory_order_seq_cst))
+                UsdGenParkWhileEqual(_lane.wake, seq);
+            _lane.sleeping.store(0, std::memory_order_relaxed);
+            continue;
+        }
+        _Slot* fifo = nullptr;  // pushed LIFO; run in dispatch order
+        while (list) {
+            _Slot* next = list->laneNext;
+            list->laneNext = fifo;
+            fifo = list;
+            list = next;
+        }
+        while (fifo) {
+            _Slot* next = fifo->laneNext;  // Process may requeue the slot
+            fifo->owner->Process(fifo->index, fifo->laneGeneration);
+            fifo = next;
+        }
+    }
+}
+
+bool UsdGenExecutionRetirementSignal::State::_LaneDispatch(Slot* slot, uint32_t generation) noexcept {
+    auto& _lane = lane;
+    if (_lane.started.load(std::memory_order_acquire) == 0) {
+        uint32_t expected = 0;
+        if (_lane.started.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+            try {
+                std::thread(&_LaneRun).detach();
+            } catch (...) {
+                _lane.started.store(0, std::memory_order_release);
+                return false;
+            }
+            _lane.started.store(2, std::memory_order_release);
+        }
+    }
+    slot->laneGeneration = generation;
+    Slot* h = _lane.head.load(std::memory_order_relaxed);
+    do { slot->laneNext = h; }
+    while (!_lane.head.compare_exchange_weak(h, slot, std::memory_order_seq_cst,
+                                             std::memory_order_relaxed));
+    if (_lane.sleeping.load(std::memory_order_seq_cst)) {
+        _lane.wake.fetch_add(1, std::memory_order_seq_cst);
+        UsdGenUnparkAll(_lane.wake);
+    }
+    return true;
+}
 
 struct UsdGenExecutionRetirementService::Impl
     : UsdGenExecutionRetirementSignal::State {
@@ -321,8 +389,9 @@ bool UsdGenExecutionRetirementTicket::Retire(
     // Reserve before exposing the installing state. A concurrent backend
     // quiesce can then safely wait for this installation gap without a
     // polling protocol; losing the claim releases the unused credit below.
-    state->drainGraph->reserve_wait();
-    if (auto gate = std::atomic_load_explicit(&_InstallTestGate(), std::memory_order_acquire);
+    state->drain.Reserve();
+    _GateHolder const* holder = _installTestGate.load(std::memory_order_acquire);
+    if (auto gate = holder ? holder->gate : nullptr;
         gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
         gate->entered.store(true, std::memory_order_release);
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -341,7 +410,7 @@ bool UsdGenExecutionRetirementTicket::Retire(
     for (;;) {
         if (_Generation(old) != generation || !(_Flags(old) & Reserved) ||
             (_Flags(old) & (Installing | Retired))) {
-            state->drainGraph->release_wait();
+            state->drain.Release();
             return false;
         }
         if (slot.state.compare_exchange_weak(old, _Pack(generation, _Flags(old) | Installing),
@@ -423,7 +492,7 @@ void UsdGenExecutionRetirementService::QuiesceBackend() {
         uint64_t const observed = slot.state.load(std::memory_order_acquire);
         state->QuarantineUnscheduled(slot, _Generation(observed));
     }
-    if (!UsdGenProcessShutdownInProgress()) state->drainGraph->wait_for_all();
+    if (!UsdGenProcessShutdownInProgress()) state->drain.WaitForAll();
 }
 bool UsdGenExecutionRetirementService::BackendQuiesced() const noexcept {
     auto state = impl_;
@@ -431,51 +500,82 @@ bool UsdGenExecutionRetirementService::BackendQuiesced() const noexcept {
 }
 void UsdGenExecutionRetirementService::Drain() {
     if (_retirementCleanupActive) std::terminate();
-    if (impl_ && impl_->drainGraph && !UsdGenProcessShutdownInProgress())
-        impl_->drainGraph->wait_for_all();
+    if (impl_ && !UsdGenProcessShutdownInProgress()) impl_->drain.WaitForAll();
 }
 
 namespace {
-using Services = tbb::concurrent_unordered_map<UsdGenExecutionResourceDevice,
-    std::shared_ptr<UsdGenExecutionRetirementService>, DeviceHash, DeviceEqual,
-    // This process-lifetime registry intentionally survives shutdown so late
-    // backend callbacks retain their payload state. Use std::allocator here
-    // to make per-device registry metadata visible to leak instrumentation;
-    // it does not alter service, slot, or payload ownership.
-    std::allocator<std::pair<UsdGenExecutionResourceDevice const,
-        std::shared_ptr<UsdGenExecutionRetirementService>>>>;
-Services& _Services() { static auto* services = new Services; return *services; }
+// Process-lifetime registry: late backend callbacks retain their payload state
+// through it. A fixed open-addressing table, slots claimed by CAS, entries
+// never freed; constant-initialized and trivially destructible.
+struct _ServiceEntry {
+    UsdGenExecutionResourceDevice key;
+    std::shared_ptr<UsdGenExecutionRetirementService> service;
+};
+constexpr size_t _kServiceSlots = 256;
+std::atomic<_ServiceEntry*> _services[_kServiceSlots] = {};
+
+size_t _ServiceSlot(UsdGenExecutionResourceDevice const& key) noexcept {
+    uint64_t h = (uint64_t(uint32_t(key.device)) << 8) ^ uint64_t(key.backend);
+    h *= 0x9e3779b97f4a7c15ull;
+    return size_t(h >> 56) % _kServiceSlots;
+}
+bool _SameDevice(UsdGenExecutionResourceDevice const& a,
+                 UsdGenExecutionResourceDevice const& b) noexcept {
+    return a.backend == b.backend && a.device == b.device;
+}
+_ServiceEntry* _FindService(UsdGenExecutionResourceDevice const& key) noexcept {
+    for (size_t i = 0, s = _ServiceSlot(key); i != _kServiceSlots;
+         ++i, s = (s + 1) % _kServiceSlots) {
+        _ServiceEntry* entry = _services[s].load(std::memory_order_acquire);
+        if (!entry) return nullptr;
+        if (_SameDevice(entry->key, key)) return entry;
+    }
+    return nullptr;
+}
+// The resident entry for the candidate's key (the candidate if it won), or
+// null when the table is full.
+_ServiceEntry* _InsertService(_ServiceEntry* candidate) noexcept {
+    for (size_t i = 0, s = _ServiceSlot(candidate->key); i != _kServiceSlots;
+         ++i, s = (s + 1) % _kServiceSlots) {
+        _ServiceEntry* entry = _services[s].load(std::memory_order_acquire);
+        if (!entry && _services[s].compare_exchange_strong(
+                entry, candidate, std::memory_order_acq_rel, std::memory_order_acquire))
+            return candidate;
+        if (_SameDevice(entry->key, candidate->key)) return entry;
+    }
+    return nullptr;
+}
 }
 std::shared_ptr<UsdGenExecutionRetirementService> GetOrCreateUsdGenExecutionRetirementService(
     UsdGenExecutionResourceDevice key, UsdGenExecutionRetirementConfig config,
     bool requireMatchingConfig) noexcept {
     try {
         if (key.device < 0 || config.capacity == 0 || !_BackendIsOpen(key.backend)) return {};
-        auto& services = _Services();
-        auto found = services.find(key);
-        if (found != services.end()) {
-            if (requireMatchingConfig && found->second->impl_->slots.size() != config.capacity) return {};
-            return _BackendIsOpen(key.backend) ? found->second : std::shared_ptr<UsdGenExecutionRetirementService>{};
+        if (_ServiceEntry const* found = _FindService(key)) {
+            if (requireMatchingConfig && found->service->impl_->slots.size() != config.capacity) return {};
+            return _BackendIsOpen(key.backend) ? found->service : std::shared_ptr<UsdGenExecutionRetirementService>{};
         }
-        auto candidate = std::shared_ptr<UsdGenExecutionRetirementService>(
-            new UsdGenExecutionRetirementService(config.capacity, key.backend));
-        auto inserted = services.insert({key, candidate});
-        if (!inserted.second && requireMatchingConfig &&
-            inserted.first->second->impl_->slots.size() != config.capacity) return {};
+        auto* candidate = new _ServiceEntry{key, std::shared_ptr<UsdGenExecutionRetirementService>(
+            new UsdGenExecutionRetirementService(config.capacity, key.backend))};
+        _ServiceEntry* resident = _InsertService(candidate);
+        if (resident != candidate) delete candidate;  // lost the race, or full
+        if (!resident) return {};
+        if (resident != candidate && requireMatchingConfig &&
+            resident->service->impl_->slots.size() != config.capacity) return {};
         if (!_BackendIsOpen(key.backend)) {
             // This raced a backend-wide close. No ticket escaped this call,
             // and the shared backend flag prevents Process dispatch; do not
-            // add a second concurrent graph wait to the lifecycle closer.
-            inserted.first->second->Shutdown();
+            // add a second concurrent drain wait to the lifecycle closer.
+            resident->service->Shutdown();
             return {};
         }
-        return inserted.first->second;
+        return resident->service;
     } catch (...) { return {}; }
 }
 std::shared_ptr<UsdGenExecutionRetirementService> FindUsdGenExecutionRetirementService(
     UsdGenExecutionResourceDevice key) noexcept {
-    try { auto it = _Services().find(key); return it == _Services().end() ? std::shared_ptr<UsdGenExecutionRetirementService>{} : it->second; }
-    catch (...) { return {}; }
+    _ServiceEntry const* found = _FindService(key);
+    return found ? found->service : nullptr;
 }
 bool IsUsdGenExecutionRetirementBackendOpen(
     UsdGenExecutionResourceBackend backend) noexcept {
@@ -484,18 +584,20 @@ bool IsUsdGenExecutionRetirementBackendOpen(
 void QuiesceUsdGenExecutionRetirementBackend(
     UsdGenExecutionResourceBackend backend) noexcept {
     size_t const index = _BackendIndex(backend);
-    if (index >= _BackendOpen().size()) return;
-    _BackendOpen()[index].store(false, std::memory_order_release);
+    if (index >= 3) return;
+    _backendClosed[index].store(true, std::memory_order_release);
     // The registry is process-lifetime, so its service identities remain
     // stable while late static owners transfer payloads into fixed slots.
     try {
-        for (auto const& entry : _Services())
-            if (entry.first.backend == backend) entry.second->QuiesceBackend();
+        for (auto const& slot : _services)
+            if (_ServiceEntry const* entry = slot.load(std::memory_order_acquire))
+                if (entry->key.backend == backend) entry->service->QuiesceBackend();
     } catch (...) { std::terminate(); }
 }
 void SetUsdGenExecutionRetirementInstallTestGate(
     std::shared_ptr<UsdGenExecutionRetirementInstallTestGate> gate) noexcept {
-    std::atomic_store_explicit(&_InstallTestGate(), std::move(gate),
-                               std::memory_order_release);
+    // Leaked by design (see _GateHolder); clearing publishes null.
+    _GateHolder const* holder = gate ? new (std::nothrow) _GateHolder{std::move(gate)} : nullptr;
+    _installTestGate.store(holder, std::memory_order_release);
 }
 } // namespace usdGen

@@ -9,6 +9,7 @@
 
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/graphDesc.h"
+#include "usdGen/epoch.h"
 #include "usdGen/generationStore.h"
 
 #include <cstdint>
@@ -16,9 +17,8 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
-#include <list>
 #include <limits>
-#include <mutex>
+#include <memory>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -148,21 +148,24 @@ struct UsdGenExecutionCacheKeyHasher {
     }
 };
 
+
 class UsdGenExecutionCacheDomain;
 
-/// Thread-safe immutable-snapshot cache for backend execution artifacts.
+/// Lock-free immutable-snapshot cache for backend execution artifacts.
 ///
-/// The current state is copy-on-write: every mutation builds a complete next
-/// state and publishes it only after admission and all allocations succeed.
-/// A Lease retains its immutable snapshot independently of the store, while
-/// LRU eviction skips actively leased entries. Hasher is injectable so tests
-/// and adapters can exercise hash collisions; key equality is always the
-/// authoritative match after hashing.
+/// The entry index is an immutable State published by atomic pointer; an
+/// insert or clear builds the next State and publishes it with one CAS,
+/// retrying on contention. Lookups never wait: they read the State under an
+/// epoch guard, lock the entry's weak snapshot and set its CLOCK reference
+/// bit. Eviction is CLOCK over insertion order, skipping referenced and
+/// leased entries; the inserter that needs room advances the hand. The
+/// publisher that removes an entry drops the store's reference before it
+/// returns, so an unleased payload dies there; entry and State shells retire
+/// through epochs and own nothing.
+/// Hasher is injectable so tests and adapters can exercise hash collisions;
+/// key equality is always the authoritative match after hashing.
 template<class Payload, class Hasher = UsdGenExecutionCacheKeyHasher>
 class UsdGenExecutionCacheStore {
-private:
-    struct State;
-
 public:
     struct Snapshot {
         Snapshot(UsdGenExecutionCacheKey cacheKey,
@@ -174,28 +177,8 @@ public:
         UsdGenExecutionCacheKey key;
         std::shared_ptr<const Payload> payload;
         size_t bytes = 0;
-        // State generations also share Snapshot objects, so shared_ptr's
-        // reference count cannot distinguish a caller lease from a retired
-        // COW state. Track only externally-visible leases explicitly.
+        // Caller leases only: the store's own references do not count.
         mutable std::atomic<size_t> activeLeases{0};
-    };
-
-    /// Holds references displaced by one store transaction. Domain wrappers
-    /// use this to extend their destruction beyond an enclosing serialization
-    /// lock; native payload destructors may perform backend work or re-enter
-    /// cache inspection. The type is intentionally opaque to callers.
-    class DeferredRetirement {
-    private:
-        DeferredRetirement() = default;
-        DeferredRetirement(DeferredRetirement const&) = delete;
-        DeferredRetirement& operator=(DeferredRetirement const&) = delete;
-        DeferredRetirement(DeferredRetirement&&) noexcept = default;
-        DeferredRetirement& operator=(DeferredRetirement&&) noexcept = default;
-
-        std::shared_ptr<const State> state_;
-        std::shared_ptr<const Snapshot> candidate_;
-        friend class UsdGenExecutionCacheStore;
-        friend class UsdGenExecutionCacheDomain;
     };
 
     class Lease {
@@ -234,15 +217,19 @@ public:
         }
 
     private:
-        explicit Lease(std::shared_ptr<const Snapshot> snapshot)
-            : snapshot_(std::move(snapshot)) { _Acquire(); }
+        struct Adopt {};
+        // Takes over a lease count the caller already added.
+        Lease(std::shared_ptr<const Snapshot> snapshot, Adopt) noexcept
+            : snapshot_(std::move(snapshot)) {}
         void _Acquire() noexcept {
             if (snapshot_)
                 snapshot_->activeLeases.fetch_add(1, std::memory_order_relaxed);
         }
         void _Release() noexcept {
-            if (snapshot_)
-                snapshot_->activeLeases.fetch_sub(1, std::memory_order_relaxed);
+            if (snapshot_) {
+                snapshot_->activeLeases.fetch_sub(1, std::memory_order_release);
+                snapshot_.reset();
+            }
         }
         void swap(Lease& rhs) noexcept { snapshot_.swap(rhs.snapshot_); }
         std::shared_ptr<const Snapshot> snapshot_;
@@ -250,60 +237,110 @@ public:
     };
 
     explicit UsdGenExecutionCacheStore(size_t maxBytes, Hasher hasher = {})
-        : maxBytes_(maxBytes), state_(std::make_shared<const State>(hasher)) {}
+        : maxBytes_(maxBytes), hasher_(std::move(hasher)), state_(new State) {}
+    ~UsdGenExecutionCacheStore();
 
     UsdGenExecutionCacheStore(UsdGenExecutionCacheStore const&) = delete;
     UsdGenExecutionCacheStore& operator=(UsdGenExecutionCacheStore const&) = delete;
 
-    /// Returns a lease and promotes the key to MRU. A missing key is a normal
-    /// miss. Failure to allocate the MRU copy leaves the old state intact but
-    /// still returns the valid snapshot lease.
-    std::optional<Lease> Lookup(
-        UsdGenExecutionCacheKey const& key,
-        DeferredRetirement* retirement = nullptr);
+    /// Returns a lease and sets the key's reference bit. A missing key is a
+    /// normal miss.
+    std::optional<Lease> Lookup(UsdGenExecutionCacheKey const& key) {
+        return _Lookup(key, nullptr);
+    }
 
-    /// Atomically inserts a new key. An exact duplicate with the same byte
-    /// charge coalesces to the already-published immutable snapshot; a byte
+    /// Inserts a new key. An exact duplicate with the same byte charge
+    /// coalesces to the already-published immutable snapshot; a byte
     /// mismatch is rejected as an identity/accounting contradiction. If
     /// admission fails, published state and accounting remain unchanged.
     bool Insert(UsdGenExecutionCacheKey key,
                 std::shared_ptr<const Payload> payload,
-                size_t bytes, std::string* reason = nullptr,
-                DeferredRetirement* retirement = nullptr);
+                size_t bytes, std::string* reason = nullptr) {
+        return _Insert(std::move(key), std::move(payload), bytes, reason, nullptr);
+    }
 
-    /// Drops all resident entries as one immutable-state publication. Existing
-    /// caller leases remain valid, and payload destruction occurs after the
-    /// cache lock is released. Used when a backend context epoch is replaced.
-    bool Clear(DeferredRetirement* retirement = nullptr) noexcept;
+    /// Drops all resident entries as one State publication. Existing caller
+    /// leases remain valid; unleased payloads are destroyed before return.
+    bool Clear() noexcept { return _Clear(nullptr); }
 
     size_t Size() const noexcept;
     size_t Bytes() const noexcept;
     size_t MaxBytes() const noexcept { return maxBytes_; }
 
 private:
-    struct Record {
-        std::shared_ptr<const Snapshot> snapshot;
-    };
-    struct State {
-        explicit State(Hasher const& hasher) : entries(0, hasher) {}
-        std::unordered_map<UsdGenExecutionCacheKey, Record, Hasher> entries;
-        std::list<UsdGenExecutionCacheKey> lru; // front = most recently used
+    friend class UsdGenExecutionCacheDomain;
+
+    // Readers touch only key, hash, weak and referenced; "strong" belongs
+    // to the State that lists the entry and is moved out by its remover.
+    struct Entry : UsdGenEpochNode {
+        Entry(std::shared_ptr<const Snapshot> value, size_t keyHash)
+            : key(value->key), hash(keyHash), bytes(value->bytes), weak(value),
+              strong(std::move(value)) {}
+        UsdGenExecutionCacheKey key;
+        size_t hash = 0;
         size_t bytes = 0;
+        std::weak_ptr<const Snapshot> weak;
+        std::shared_ptr<const Snapshot> strong;
+        mutable std::atomic<uint8_t> referenced{0};
+    };
+    struct State : UsdGenEpochNode {
+        std::vector<Entry*> order;  // insertion order: the CLOCK ring
+        std::vector<Entry*> table;  // open addressing, power of two or empty
+        size_t bytes = 0;
+        uint64_t epoch = 0;         // owning domain epoch; 0 standalone
     };
 
-    static void Touch(State* state, UsdGenExecutionCacheKey const& key);
-    static bool EvictOne(State* state);
+    // A null epoch means "any"; otherwise the published State must carry it.
+    std::optional<Lease> _Lookup(UsdGenExecutionCacheKey const& key,
+                                 uint64_t const* epoch);
+    bool _Insert(UsdGenExecutionCacheKey key,
+                 std::shared_ptr<const Payload> payload, size_t bytes,
+                 std::string* reason, uint64_t const* epoch);
+    // Publish an empty State carrying *epoch (or the current epoch). With an
+    // epoch, a State already at or past it counts as done (a helper won).
+    bool _Clear(uint64_t const* epoch) noexcept;
+    uint64_t _StateEpoch() const noexcept {
+        UsdGenEpochGuard guard;
+        return state_.load(std::memory_order_seq_cst)->epoch;
+    }
+
+    static Entry* _Find(State const* state, UsdGenExecutionCacheKey const& key,
+                        size_t hash) noexcept {
+        size_t const n = state->table.size();
+        if (!n) return nullptr;
+        for (size_t i = hash & (n - 1);; i = (i + 1) & (n - 1)) {
+            Entry* entry = state->table[i];
+            if (!entry) return nullptr;
+            if (entry->hash == hash && entry->key == key) return entry;
+        }
+    }
+    static void _Index(State* state) {
+        size_t n = 0;
+        if (!state->order.empty()) {
+            n = 4;
+            while (n < state->order.size() * 2) n <<= 1;
+        }
+        state->table.assign(n, nullptr);
+        for (Entry* entry : state->order) {
+            size_t i = entry->hash & (n - 1);
+            while (state->table[i]) i = (i + 1) & (n - 1);
+            state->table[i] = entry;
+        }
+    }
+    static void _Retire(Entry* entry) noexcept { UsdGenEpochRetireDelete(entry); }
+    static void _Retire(State* state) noexcept { UsdGenEpochRetireDelete(state); }
 
     size_t maxBytes_ = 0;
-    mutable std::mutex mutex_;
-    std::shared_ptr<const State> state_;
+    Hasher hasher_;
+    std::atomic<size_t> hand_{0};
+    std::atomic<State*> state_;
 };
 
 /// Shared completed-result cache domain.  The domain is the only state that
 /// may cross SessionCooker ownership boundaries: graph/compiler/workspace
 /// state remains private to each cooker.  A context epoch makes an external
-/// backend reset a logical miss immediately; Clear() then retires the old COW
-/// state without destroying active leases.
+/// backend reset a logical miss immediately; the store's State carries the
+/// epoch, so a stale insert can never land after the clear.
 struct UsdGenExecutionCacheDomainKey {
     UsdGenDeviceBackend backend = UsdGenDeviceBackend::Unknown;
     int32_t deviceIndex = -1;
@@ -365,13 +402,12 @@ public:
         bool IsLeader() const noexcept { return leader; }
     };
 
-    // A publication fence is a linearization point shared by cache lookup,
-    // execution completion, and context/domain invalidation.  It intentionally
-    // carries no native resource: it only proves that a caller's exact cache
-    // context was current when it asked to publish.  PublishIfCurrent holds
-    // the domain serialization lock while it validates and runs the tiny
-    // local-publication action, so Invalidate cannot make that action become
-    // visible after the invalidation's epoch bump.
+    // A publication fence proves that a caller's exact cache context was
+    // current when it asked to publish. It carries no native resource.
+    // PublishIfCurrent checks the epoch and then runs the tiny local
+    // publication action: the check is the linearization point, so an action
+    // that passed it before an Invalidate completes as if it ran first (as a
+    // cancel read at a safe point), and no action starts after the bump.
     class PublicationFence {
     public:
         PublicationFence() = default;
@@ -390,6 +426,7 @@ public:
     UsdGenExecutionCacheDomain(UsdGenExecutionCacheDomainKey key,
                                size_t maxBytes)
         : key_(key), store_(maxBytes) {}
+    ~UsdGenExecutionCacheDomain();
 
     UsdGenExecutionCacheDomain(UsdGenExecutionCacheDomain const&) = delete;
     UsdGenExecutionCacheDomain& operator=(UsdGenExecutionCacheDomain const&) = delete;
@@ -402,137 +439,41 @@ public:
     /// previously admitted to this shared domain. Zero means the uint64
     /// identity space is exhausted.
     uint64_t AllocatePublicationGeneration(uint64_t minimum) noexcept {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_publicationWatermark == std::numeric_limits<uint64_t>::max())
-            return 0;
-        uint64_t const afterWatermark = _publicationWatermark + 1;
-        _publicationWatermark = std::max(afterWatermark, minimum);
-        // Device publication zero is valid for an executed first generation,
-        // but this allocator is used only for a cache republish and must
-        // return a strictly newer identity.
-        if (_publicationWatermark == 0) _publicationWatermark = 1;
-        return _publicationWatermark;
+        uint64_t value = _publicationWatermark.load(std::memory_order_acquire);
+        for (;;) {
+            if (value == std::numeric_limits<uint64_t>::max()) return 0;
+            // Device publication zero is valid for an executed first
+            // generation, but this allocator is used only for a cache
+            // republish and must return a strictly newer identity.
+            uint64_t next = std::max(value + 1, minimum);
+            if (next == 0) next = 1;
+            if (_publicationWatermark.compare_exchange_weak(
+                    value, next, std::memory_order_acq_rel, std::memory_order_acquire))
+                return next;
+        }
     }
     size_t Size() const noexcept { return store_.Size(); }
     size_t Bytes() const noexcept { return store_.Bytes(); }
 
     /// Register a nonblocking exact-key execution flight. Callers should do
     /// their ordinary Lookup first. A racing resident result is delivered to
-    /// `callback` as Resident and returns no registration. Otherwise the
-    /// first registration is leader and later registrations become followers.
-    /// The callback is always invoked outside the domain mutex.
+    /// "callback" as Resident and returns no registration. Otherwise the
+    /// first registration is leader and later registrations become followers
+    /// on the flight's continuation stack. Callbacks never run under a guard.
     std::optional<CoalescedRegistration> BeginCoalesced(
         UsdGenExecutionCacheKey const& key, CoalescedCallback callback,
-        bool notifyLeader = true) {
-        if (!callback || !key.IsValid()) return std::nullopt;
-        std::optional<Lease> resident;
-        std::optional<CoalescedRegistration> registration;
-        CoalescedCallback immediate;
-        Store::DeferredRetirement retirement;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (_clearFailed.load(std::memory_order_acquire) ||
-                key.context.backend != key_.backend ||
-                key.context.deviceIndex != key_.deviceIndex ||
-                key.context.deviceGeneration !=
-                    epoch_.load(std::memory_order_acquire))
-                return std::nullopt;
-            resident = store_.Lookup(key, &retirement);
-            if (resident) {
-                immediate = std::move(callback);
-            } else {
-                auto found = _inFlight.find(key);
-                try {
-                    if (found == _inFlight.end()) {
-                        if (_nextFlight == std::numeric_limits<uint64_t>::max() ||
-                            _nextWaiter == std::numeric_limits<uint64_t>::max())
-                            return std::nullopt;
-                        uint64_t const flight = ++_nextFlight;
-                        uint64_t const waiter = ++_nextWaiter;
-                        InFlight state;
-                        state.epoch = epoch_.load(std::memory_order_relaxed);
-                        state.leaderWaiter = waiter;
-                        state.notifyLeader = notifyLeader;
-                        state.waiters.emplace(waiter, std::move(callback));
-                        auto inserted = _inFlight.emplace(key, std::move(state));
-                        if (!inserted.second) return std::nullopt;
-                        registration = CoalescedRegistration{
-                            key, flight, waiter, true};
-                        inserted.first->second.flight = flight;
-                    } else {
-                        if (found->second.epoch !=
-                            epoch_.load(std::memory_order_relaxed) ||
-                            _nextWaiter == std::numeric_limits<uint64_t>::max())
-                            return std::nullopt;
-                        uint64_t const waiter = ++_nextWaiter;
-                        found->second.waiters.emplace(waiter, std::move(callback));
-                        ++_coalesced;
-                        registration = CoalescedRegistration{
-                            key, found->second.flight, waiter, false};
-                    }
-                } catch (...) {
-                    return std::nullopt;
-                }
-            }
-        }
-        if (resident && immediate) {
-            try { immediate(CoalescedStatus::Resident, std::move(resident)); }
-            catch (...) {}
-        }
-        return registration;
-    }
+        bool notifyLeader = true);
 
     /// Resolve the leader's exact-key flight. The payload is inserted into
-    /// the immutable COW store once, then every waiter receives its own Lease
-    /// over that one immutable Snapshot/payload. No callback runs under the
-    /// domain mutex. A false result means stale/invalid registration or failed
-    /// cache admission; callbacks still receive the corresponding terminal
-    /// status.
+    /// the store once, then every waiter receives its own Lease over that one
+    /// immutable Snapshot/payload. A false result means stale/invalid
+    /// registration or failed cache admission; callbacks still receive the
+    /// corresponding terminal status.
     bool ResolveCoalesced(CoalescedRegistration const& registration,
                           std::shared_ptr<const UsdGenGeneration> payload,
                           size_t bytes, std::string* reason = nullptr) {
-        std::vector<std::pair<CoalescedCallback, std::optional<Lease>>> notify;
-        CoalescedStatus status = CoalescedStatus::Failed;
-        bool resolved = false;
-        Store::DeferredRetirement retirement;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            auto found = _FindFlight(registration);
-            if (found == _inFlight.end() || !registration.leader) return false;
-            auto state = std::move(found->second);
-            _inFlight.erase(found);
-            if (state.epoch != epoch_.load(std::memory_order_acquire) ||
-                _clearFailed.load(std::memory_order_acquire)) {
-                status = CoalescedStatus::Stale;
-                if (reason) *reason = "execution cache coalesced flight is stale";
-            } else {
-                bool const inserted = store_.Insert(
-                    registration.key, std::move(payload), bytes, reason,
-                    &retirement);
-                if (inserted) {
-                    auto lease = store_.Lookup(registration.key, &retirement);
-                    if (lease) {
-                        status = CoalescedStatus::Success;
-                        resolved = true;
-                        for (auto& waiter : state.waiters) {
-                            if (waiter.first == state.leaderWaiter &&
-                                !state.notifyLeader) continue;
-                            notify.emplace_back(waiter.second, *lease);
-                        }
-                    } else if (reason && reason->empty()) {
-                        *reason = "execution cache coalesced result lookup failed";
-                    }
-                }
-            }
-            if (notify.empty())
-                for (auto& waiter : state.waiters) {
-                    if (waiter.first == state.leaderWaiter &&
-                        !state.notifyLeader) continue;
-                    notify.emplace_back(waiter.second, std::nullopt);
-                }
-        }
-        _Notify(std::move(notify), status);
-        return resolved;
+        return _Settle(registration, std::move(payload), bytes,
+                       CoalescedStatus::Success, reason);
     }
 
     /// Complete a leader's flight without inserting a result. Failure and
@@ -544,27 +485,7 @@ public:
         if (status == CoalescedStatus::Success ||
             status == CoalescedStatus::Resident)
             return false;
-        std::vector<std::pair<CoalescedCallback, std::optional<Lease>>> notify;
-        bool accepted = false;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            auto found = _FindFlight(registration);
-            if (found == _inFlight.end() || !registration.leader) return false;
-            auto state = std::move(found->second);
-            _inFlight.erase(found);
-            accepted = state.epoch == epoch_.load(std::memory_order_acquire) &&
-                !_clearFailed.load(std::memory_order_acquire);
-            if (!accepted) status = CoalescedStatus::Stale;
-            if (reason && !accepted)
-                *reason = "execution cache coalesced flight is stale";
-            for (auto& waiter : state.waiters) {
-                if (waiter.first == state.leaderWaiter &&
-                    !state.notifyLeader) continue;
-                notify.emplace_back(waiter.second, std::nullopt);
-            }
-        }
-        _Notify(std::move(notify), status);
-        return accepted;
+        return _Settle(registration, nullptr, 0, status, reason);
     }
 
     bool CancelCoalesced(CoalescedRegistration const& registration,
@@ -572,13 +493,8 @@ public:
         if (registration.leader)
             return RejectCoalesced(registration, CoalescedStatus::Cancelled,
                                    reason);
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto found = _FindFlight(registration);
-        if (found == _inFlight.end()) return false;
-        auto waiter = found->second.waiters.find(registration.waiter);
-        if (waiter == found->second.waiters.end()) return false;
-        found->second.waiters.erase(waiter);
-        return true;
+        CoalescedCallback callback;
+        return _Withdraw(registration, &callback);
     }
 
     /// Withdraw a follower while still settling an owner-bound asynchronous
@@ -591,15 +507,7 @@ public:
             return RejectCoalesced(registration, CoalescedStatus::Cancelled,
                                    reason);
         CoalescedCallback callback;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            auto found = _FindFlight(registration);
-            if (found == _inFlight.end()) return false;
-            auto waiter = found->second.waiters.find(registration.waiter);
-            if (waiter == found->second.waiters.end()) return false;
-            callback = std::move(waiter->second);
-            found->second.waiters.erase(waiter);
-        }
+        if (!_Withdraw(registration, &callback)) return false;
         if (callback) {
             try { callback(CoalescedStatus::Cancelled, std::nullopt); }
             catch (...) {}
@@ -611,261 +519,156 @@ public:
     /// a deterministic neutral seam for Session statistics; it does not count
     /// resident hits or duplicate completed-cache insertions.
     uint64_t CoalescedCount() const noexcept {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _coalesced;
+        return _coalesced.load(std::memory_order_acquire);
     }
 
-    /// Capture a fence for `key` only if its exact backend/device/epoch is
+    /// Capture a fence for "key" only if its exact backend/device/epoch is
     /// current.  A caller keeps normal shared ownership of the domain while
     /// retaining the fence; the fence itself deliberately does not extend the
     /// domain lifetime.
     std::optional<PublicationFence> CapturePublicationFence(
         UsdGenExecutionCacheKey const& key) const noexcept {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_clearFailed.load(std::memory_order_acquire) ||
-            key.context.backend != key_.backend ||
-            key.context.deviceIndex != key_.deviceIndex ||
-            key.context.deviceGeneration != epoch_.load(std::memory_order_acquire))
-            return std::nullopt;
+        if (!_Current(key)) return std::nullopt;
         return PublicationFence(this, key.context.deviceGeneration);
     }
 
     /// Run an allocation-free, non-blocking local publication exchange iff
-    /// `fence` still names this domain's epoch. The action must return its
+    /// "fence" still names this domain's epoch. The action must return its
     /// displaced owner (or another retirement token); that value is destroyed
-    /// only after the domain mutex is released. Do not run GPU work, allocate,
-    /// wait, or re-enter this domain from `publish`.
+    /// after the action returns. Do not run GPU work, allocate or wait in
+    /// "publish".
     template<class Publish>
     bool PublishIfCurrent(PublicationFence const& fence, Publish&& publish) {
         using Retirement = std::invoke_result_t<Publish>;
         static_assert(!std::is_void_v<Retirement>,
             "publication must return displaced ownership for retirement");
-        std::optional<Retirement> retirement;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (fence._domain != this ||
-                _clearFailed.load(std::memory_order_acquire) ||
-                fence._epoch != epoch_.load(std::memory_order_acquire))
-                return false;
-            retirement.emplace(std::invoke(std::forward<Publish>(publish)));
-        }
+        if (fence._domain != this ||
+            _clearFailed.load(std::memory_order_acquire) ||
+            fence._epoch != epoch_.load(std::memory_order_acquire))
+            return false;
+        Retirement retirement = std::invoke(std::forward<Publish>(publish));
+        (void)retirement;
         return true;
     }
 
     std::optional<Lease> Lookup(UsdGenExecutionCacheKey const& key) {
-        Store::DeferredRetirement retirement;
-        std::optional<Lease> result;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (_clearFailed.load(std::memory_order_acquire)) return std::nullopt;
-            if (key.context.backend != key_.backend ||
-                key.context.deviceIndex != key_.deviceIndex ||
-                key.context.deviceGeneration != Epoch()) return std::nullopt;
-            result = store_.Lookup(key, &retirement);
-        }
-        return result;
+        if (!_Current(key)) return std::nullopt;
+        uint64_t const epoch = key.context.deviceGeneration;
+        return store_._Lookup(key, &epoch);
     }
 
     bool Insert(UsdGenExecutionCacheKey key,
                 std::shared_ptr<const UsdGenGeneration> payload,
-                size_t bytes, std::string* reason = nullptr) {
-        Store::DeferredRetirement retirement;
-        bool inserted = false;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (_clearFailed.load(std::memory_order_acquire)) {
-                if (reason) *reason = "execution cache domain cleanup is pending";
-                return false;
-            }
-            if (key.context.backend != key_.backend ||
-                key.context.deviceIndex != key_.deviceIndex ||
-                key.context.deviceGeneration != Epoch()) {
-                if (reason) *reason = "execution cache domain epoch or identity is stale";
-                return false;
-            }
-            uint64_t const generation = payload && payload->device
-                ? payload->device->Identity().generation : 0;
-            inserted = store_.Insert(std::move(key), std::move(payload), bytes,
-                                     reason, &retirement);
-            if (inserted && generation > _publicationWatermark)
-                _publicationWatermark = generation;
-        }
-        return inserted;
-    }
+                size_t bytes, std::string* reason = nullptr);
 
-    /// Bumps the logical epoch before clearing. Domain serialization prevents
-    /// stale insertion from racing the clear; a failed clear leaves the
-    /// domain fail-closed until a later Invalidate retry succeeds.
-    bool Invalidate() noexcept {
-        std::unordered_map<UsdGenExecutionCacheKey, InFlight,
-            UsdGenExecutionCacheKeyHasher> stale;
-        Store::DeferredRetirement retirement;
-        bool cleared = false;
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            if (_clearFailed.load(std::memory_order_acquire)) {
-                cleared = store_.Clear(&retirement);
-                if (cleared)
-                    _clearFailed.store(false, std::memory_order_release);
-            } else {
-                uint64_t value = epoch_.load(std::memory_order_relaxed);
-                for (;;) {
-                    if (value == std::numeric_limits<uint64_t>::max()) return false;
-                    if (epoch_.compare_exchange_weak(value, value + 1,
-                            std::memory_order_acq_rel, std::memory_order_relaxed)) break;
-                }
-                stale.swap(_inFlight);
-                cleared = store_.Clear(&retirement);
-                if (!cleared) _clearFailed.store(true, std::memory_order_release);
-            }
-        }
-        for (auto& flight : stale)
-            for (auto& waiter : flight.second.waiters) {
-                if (waiter.first == flight.second.leaderWaiter &&
-                    !flight.second.notifyLeader) continue;
-                try { waiter.second(CoalescedStatus::Stale, std::nullopt); }
-                catch (...) {}
-            }
-        return cleared;
-    }
+    /// Bumps the logical epoch, fails every outstanding flight as Stale and
+    /// clears the store. A failed clear (allocation) leaves the domain
+    /// fail-closed until a later Invalidate retry succeeds.
+    bool Invalidate() noexcept;
 
     /// Obtain a process-local shared domain for an explicitly identical
     /// backend/device/context and byte budget. Weak registry entries allow the
     /// domain (and its native owners) to retire when the last Session goes
     /// away; no process-global cache payload is leaked by the registry.
     static std::shared_ptr<UsdGenExecutionCacheDomain> AcquireShared(
-        UsdGenExecutionCacheDomainKey key, size_t maxBytes) {
-        if (key.backend == UsdGenDeviceBackend::Unknown || maxBytes == 0)
-            return {};
-        struct Registry {
-            std::mutex mutex;
-            std::unordered_map<UsdGenExecutionCacheDomainKey,
-                std::weak_ptr<UsdGenExecutionCacheDomain>,
-                UsdGenExecutionCacheDomainKeyHasher> domains;
-        };
-        static Registry* registry = new Registry;
-        std::lock_guard<std::mutex> lock(registry->mutex);
-        auto found = registry->domains.find(key);
-        if (found != registry->domains.end()) {
-            if (auto domain = found->second.lock())
-                return domain->MaxBytes() == maxBytes ? domain : nullptr;
-            registry->domains.erase(found);
-        }
-        auto domain = std::make_shared<UsdGenExecutionCacheDomain>(key, maxBytes);
-        registry->domains.emplace(key, domain);
-        return domain;
-    }
+        UsdGenExecutionCacheDomainKey key, size_t maxBytes);
 
 private:
-    struct InFlight {
-        uint64_t flight = 0;
+    struct Waiter : UsdGenEpochNode {
+        CoalescedCallback callback;
+        uint64_t id = 0;
+        std::atomic<uint32_t> claimed{0};  // 1: notified or withdrawn
+        Waiter* next = nullptr;
+    };
+    using WaiterStack = UsdGenContinuationStack<Waiter, &Waiter::next>;
+    // A flight is settled exactly once: by its leader or by Invalidate,
+    // whichever wins the state CAS. The winner closes the waiter stack.
+    struct Flight : UsdGenEpochNode {
+        UsdGenExecutionCacheKey key;
+        uint64_t id = 0;
         uint64_t epoch = 0;
         uint64_t leaderWaiter = 0;
         bool notifyLeader = true;
-        std::unordered_map<uint64_t, CoalescedCallback> waiters;
+        std::atomic<uint32_t> settled{0};
+        WaiterStack waiters;
+        Flight* settleNext = nullptr;
+    };
+    // Copy-on-write flight list published by atomic pointer.
+    struct FlightList : UsdGenEpochNode {
+        std::vector<Flight*> flights;
     };
 
-    using InFlightMap = std::unordered_map<UsdGenExecutionCacheKey, InFlight,
-        UsdGenExecutionCacheKeyHasher>;
-
-    InFlightMap::iterator _FindFlight(
-        CoalescedRegistration const& registration) {
-        if (!registration || (!registration.leader && registration.flight == 0))
-            return _inFlight.end();
-        auto found = _inFlight.find(registration.key);
-        if (found == _inFlight.end() || found->second.flight != registration.flight)
-            return _inFlight.end();
-        return found;
+    bool _Current(UsdGenExecutionCacheKey const& key) const noexcept {
+        return !_clearFailed.load(std::memory_order_acquire) &&
+            key.context.backend == key_.backend &&
+            key.context.deviceIndex == key_.deviceIndex &&
+            key.context.deviceGeneration == epoch_.load(std::memory_order_acquire);
     }
-
-    static void _Notify(
-        std::vector<std::pair<CoalescedCallback, std::optional<Lease>>> notify,
-        CoalescedStatus status) noexcept {
-        for (auto& item : notify) {
-            try { item.first(status, std::move(item.second)); }
-            catch (...) {}
-        }
+    static Flight* _FindFlight(FlightList const* list,
+                               UsdGenExecutionCacheKey const& key) noexcept {
+        if (list)
+            for (Flight* flight : list->flights)
+                if (flight->key == key) return flight;
+        return nullptr;
     }
+    bool _Settle(CoalescedRegistration const& registration,
+                 std::shared_ptr<const UsdGenGeneration> payload, size_t bytes,
+                 CoalescedStatus status, std::string* reason);
+    bool _Withdraw(CoalescedRegistration const& registration,
+                   CoalescedCallback* callback) noexcept;
+    // True once the flight is off the current list (false: allocation failed).
+    bool _Unlist(Flight* flight) noexcept;
+    // Close a settled flight and notify every unclaimed waiter.
+    static void _Notify(Flight* flight, CoalescedStatus status,
+                        std::optional<Lease> const& lease) noexcept;
 
     UsdGenExecutionCacheDomainKey key_;
-    mutable std::mutex _mutex;
     std::atomic<uint64_t> epoch_{0};
     std::atomic<bool> _clearFailed{false};
-    uint64_t _publicationWatermark = 0;
-    uint64_t _nextFlight = 0;
-    uint64_t _nextWaiter = 0;
-    uint64_t _coalesced = 0;
-    InFlightMap _inFlight;
+    std::atomic<uint64_t> _publicationWatermark{0};
+    std::atomic<uint64_t> _nextFlight{0};
+    std::atomic<uint64_t> _nextWaiter{0};
+    std::atomic<uint64_t> _coalesced{0};
+    std::atomic<FlightList*> _flights{nullptr};
     Store store_;
 };
 
 template<class Payload, class Hasher>
-void UsdGenExecutionCacheStore<Payload, Hasher>::Touch(
-    State* state, UsdGenExecutionCacheKey const& key)
+UsdGenExecutionCacheStore<Payload, Hasher>::~UsdGenExecutionCacheStore()
 {
-    auto found = std::find(state->lru.begin(), state->lru.end(), key);
-    if (found != state->lru.end())
-        state->lru.splice(state->lru.begin(), state->lru, found);
-}
-
-template<class Payload, class Hasher>
-bool UsdGenExecutionCacheStore<Payload, Hasher>::EvictOne(State* state)
-{
-    // Retired COW states may outlive the cache lock while payload destructors
-    // run. Their shared ownership is not a caller lease and must not pin an
-    // entry, so eviction consults the explicit external-lease count.
-    for (auto reverse = state->lru.rbegin(); reverse != state->lru.rend();
-         ++reverse) {
-        auto found = state->entries.find(*reverse);
-        if (found == state->entries.end()) continue;
-        if (found->second.snapshot->activeLeases.load(
-                std::memory_order_relaxed) != 0) continue;
-        size_t const bytes = found->second.snapshot->bytes;
-        auto listIt = std::prev(reverse.base());
-        state->entries.erase(found);
-        state->lru.erase(listIt);
-        state->bytes -= bytes;
-        return true;
-    }
-    return false;
+    // No reader can remain: the owner is destroying the store.
+    State* state = state_.load(std::memory_order_acquire);
+    for (Entry* entry : state->order) delete entry;
+    delete state;
 }
 
 template<class Payload, class Hasher>
 std::optional<typename UsdGenExecutionCacheStore<Payload, Hasher>::Lease>
-UsdGenExecutionCacheStore<Payload, Hasher>::Lookup(
-    UsdGenExecutionCacheKey const& key,
-    DeferredRetirement* retirement)
+UsdGenExecutionCacheStore<Payload, Hasher>::_Lookup(
+    UsdGenExecutionCacheKey const& key, uint64_t const* epoch)
 {
     if (!key.IsValid()) return std::nullopt;
-    Lease lease;
-    // Keep the retired immutable state alive until after unlocking. A payload
-    // destructor is user code and may re-enter cache inspection.
-    std::shared_ptr<const State> retired;
-    try {
-        std::lock_guard<std::mutex> lock(mutex_);
-        std::shared_ptr<const State> current = state_;
-        auto found = current->entries.find(key);
-        if (found == current->entries.end()) return std::nullopt;
-        lease = Lease(found->second.snapshot);
-        State candidate(*current);
-        Touch(&candidate, key);
-        auto next = std::make_shared<const State>(std::move(candidate));
-        retired = std::move(state_);
-        state_ = std::move(next);
-    } catch (...) {
-        // LRU promotion is an optimization. The immutable hit remains valid
-        // even when a transient allocation failure prevents promotion.
+    size_t const hash = hasher_(key);
+    std::shared_ptr<const Snapshot> snapshot;
+    {
+        UsdGenEpochGuard guard;
+        State const* state = state_.load(std::memory_order_seq_cst);
+        if (epoch && state->epoch != *epoch) return std::nullopt;
+        Entry* entry = _Find(state, key, hash);
+        if (!entry) return std::nullopt;
+        // Fails only when a remover already dropped the last reference.
+        snapshot = entry->weak.lock();
+        if (!snapshot) return std::nullopt;
+        entry->referenced.store(1, std::memory_order_relaxed);
     }
-    if (retirement) retirement->state_ = std::move(retired);
-    else retired.reset();
-    if (!lease) return std::nullopt;
-    return lease;
+    snapshot->activeLeases.fetch_add(1, std::memory_order_relaxed);
+    return Lease(std::move(snapshot), typename Lease::Adopt{});
 }
 
 template<class Payload, class Hasher>
-bool UsdGenExecutionCacheStore<Payload, Hasher>::Insert(
+bool UsdGenExecutionCacheStore<Payload, Hasher>::_Insert(
     UsdGenExecutionCacheKey key, std::shared_ptr<const Payload> payload,
-    size_t bytes, std::string* reason, DeferredRetirement* retirement)
+    size_t bytes, std::string* reason, uint64_t const* epoch)
 {
     auto fail = [reason](char const* message) {
         if (reason) *reason = message;
@@ -877,83 +680,114 @@ bool UsdGenExecutionCacheStore<Payload, Hasher>::Insert(
     if (maxBytes_ == 0 || bytes > maxBytes_)
         return fail("execution cache entry exceeds its byte budget");
 
-    std::shared_ptr<const State> retired;
+    std::vector<std::shared_ptr<const Snapshot>> dropped;  // after the guard
     try {
-        auto snapshot = std::make_shared<const Snapshot>(
-            std::move(key), std::move(payload), bytes);
-        // Keep a transaction-local candidate alive until the caller-selected
-        // retirement boundary. This covers duplicate/rejected candidates and
-        // allocation unwinds as well as successfully published snapshots.
-        if (retirement) retirement->candidate_ = snapshot;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::shared_ptr<const State> current = state_;
-            State candidate(*current);
-            auto existing = candidate.entries.find(snapshot->key);
-            if (existing != candidate.entries.end()) {
-                if (existing->second.snapshot->bytes != bytes)
+        size_t const hash = hasher_(key);
+        std::unique_ptr<Entry> entry(new Entry(std::make_shared<const Snapshot>(
+            std::move(key), std::move(payload), bytes), hash));
+        std::vector<Entry*> victims;
+        std::unique_ptr<State> next;
+        for (;;) {
+            UsdGenEpochGuard guard;
+            State* current = state_.load(std::memory_order_seq_cst);
+            if (epoch && current->epoch != *epoch)
+                return fail("execution cache domain epoch or identity is stale");
+            if (Entry* existing = _Find(current, entry->key, hash)) {
+                if (existing->bytes != bytes)
                     return fail("execution cache duplicate key has a conflicting byte charge");
-                Touch(&candidate, snapshot->key);
-            } else {
-                while (candidate.bytes > maxBytes_ - bytes) {
-                    if (!EvictOne(&candidate))
-                        return fail("execution cache admission blocked by active lease");
-                }
-                candidate.lru.push_front(snapshot->key);
-                auto inserted = candidate.entries.emplace(
-                    snapshot->key, Record{snapshot});
-                if (!inserted.second)
-                    return fail("execution cache duplicate insertion failed");
-                candidate.bytes += bytes;
+                existing->referenced.store(1, std::memory_order_relaxed);
+                return true;
             }
-            // Only this final publication changes the live store. Retain the
-            // former state across unlock so evicted payload destruction can
-            // safely re-enter this cache.
-            auto next = std::make_shared<const State>(std::move(candidate));
-            retired = std::move(state_);
-            state_ = std::move(next);
+            // CLOCK: a referenced entry gets a second chance, a leased one
+            // is skipped. Two turns of the ring bound the sweep.
+            victims.clear();
+            size_t total = current->bytes;
+            size_t const n = current->order.size();
+            for (size_t step = 0; total > maxBytes_ - bytes && step < 2 * n; ++step) {
+                Entry* candidate =
+                    current->order[hand_.fetch_add(1, std::memory_order_relaxed) % n];
+                if (std::find(victims.begin(), victims.end(), candidate) != victims.end())
+                    continue;
+                if (candidate->referenced.exchange(0, std::memory_order_relaxed)) continue;
+                // Any reference beyond the store's own (a lease, a reader
+                // mid-lookup) pins the entry. The weak count is safe to read
+                // even if a racing remover already dropped the strong one.
+                if (candidate->weak.use_count() != 1) continue;
+                victims.push_back(candidate);
+                total -= candidate->bytes;
+            }
+            if (total > maxBytes_ - bytes)
+                return fail("execution cache admission blocked by active lease");
+            if (!next) next.reset(new State);
+            next->order.clear();
+            next->order.reserve(n + 1 - victims.size());
+            for (Entry* resident : current->order)
+                if (std::find(victims.begin(), victims.end(), resident) == victims.end())
+                    next->order.push_back(resident);
+            next->order.push_back(entry.get());
+            next->bytes = total + bytes;
+            next->epoch = current->epoch;
+            _Index(next.get());
+            if (!state_.compare_exchange_strong(current, next.get(),
+                                                std::memory_order_seq_cst))
+                continue;
+            next.release();
+            entry.release();
+            _Retire(current);
+            dropped.reserve(victims.size());
+            for (Entry* victim : victims) {
+                dropped.push_back(std::move(victim->strong));
+                _Retire(victim);
+            }
+            break;
         }
-        if (retirement) retirement->state_ = std::move(retired);
-        else retired.reset();
-        return true;
     } catch (...) {
         return fail("execution cache transaction allocation failed");
     }
+    // Evicted payloads die here, outside any guard: a destructor may re-enter.
+    return true;
 }
 
 template<class Payload, class Hasher>
-bool UsdGenExecutionCacheStore<Payload, Hasher>::Clear(
-    DeferredRetirement* retirement) noexcept
+bool UsdGenExecutionCacheStore<Payload, Hasher>::_Clear(uint64_t const* epoch) noexcept
 {
-    std::shared_ptr<const State> retired;
+    std::vector<std::shared_ptr<const Snapshot>> dropped;  // after the guard
     try {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto next = std::make_shared<const State>(
-                state_->entries.hash_function());
-            retired = std::move(state_);
-            state_ = std::move(next);
+        std::unique_ptr<State> next(new State);
+        UsdGenEpochGuard guard;
+        State* current = state_.load(std::memory_order_seq_cst);
+        for (;;) {
+            if (epoch && current->epoch >= *epoch) return true;  // a helper won
+            next->epoch = epoch ? *epoch : current->epoch;
+            if (state_.compare_exchange_weak(current, next.get(),
+                                             std::memory_order_seq_cst))
+                break;
         }
-        if (retirement) retirement->state_ = std::move(retired);
-        else retired.reset();
-        return true;
+        next.release();
+        dropped.reserve(current->order.size());
+        for (Entry* entry : current->order) {
+            dropped.push_back(std::move(entry->strong));
+            _Retire(entry);
+        }
+        _Retire(current);
     } catch (...) {
         return false;
     }
+    return true;
 }
 
 template<class Payload, class Hasher>
 size_t UsdGenExecutionCacheStore<Payload, Hasher>::Size() const noexcept
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return state_->entries.size();
+    UsdGenEpochGuard guard;
+    return state_.load(std::memory_order_seq_cst)->order.size();
 }
 
 template<class Payload, class Hasher>
 size_t UsdGenExecutionCacheStore<Payload, Hasher>::Bytes() const noexcept
 {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return state_->bytes;
+    UsdGenEpochGuard guard;
+    return state_.load(std::memory_order_seq_cst)->bytes;
 }
 
 } // namespace usdGen

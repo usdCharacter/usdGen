@@ -2,8 +2,6 @@
 
 #include <atomic>
 #include <limits>
-#include <mutex>
-#include <tbb/concurrent_unordered_map.h>
 #include <utility>
 
 namespace usdGen {
@@ -15,25 +13,48 @@ constexpr size_t KindCount = KindIndex(UsdGenExecutionResourceKind::Count);
 constexpr bool IsAllocationKind(UsdGenExecutionResourceKind kind) noexcept {
     return KindIndex(kind) < KindIndex(UsdGenExecutionResourceKind::Pending);
 }
-struct DeviceHash {
-    size_t operator()(UsdGenExecutionResourceDevice const& key) const noexcept {
-        return std::hash<int>{}(key.device) ^
-            (std::hash<unsigned>{}(static_cast<unsigned>(key.backend)) +
-             size_t{0x9e3779b9} + (std::hash<int>{}(key.device) << 6) +
-             (std::hash<int>{}(key.device) >> 2));
-    }
+// Process-lifetime device registry: a fixed open-addressing table whose slots
+// are claimed by CAS and never freed. CUDA allocations can outlive shutdown
+// while their contexts are being torn down, and a quarantined charge must not
+// vanish. Constant-initialized and trivially destructible: nothing runs at
+// DLL detach.
+struct PoolEntry {
+    UsdGenExecutionResourceDevice key;
+    std::shared_ptr<UsdGenExecutionResourcePool> pool;
 };
-struct DeviceEqual {
-    bool operator()(UsdGenExecutionResourceDevice const& a,
-                    UsdGenExecutionResourceDevice const& b) const noexcept {
-        return a.backend == b.backend && a.device == b.device;
+constexpr size_t kPoolSlots = 256;
+std::atomic<PoolEntry*> gPools[kPoolSlots] = {};
+
+size_t DeviceSlot(UsdGenExecutionResourceDevice const& key) noexcept {
+    uint64_t h = (uint64_t(uint32_t(key.device)) << 8) ^ uint64_t(key.backend);
+    h *= 0x9e3779b97f4a7c15ull;
+    return size_t(h >> 56) % kPoolSlots;
+}
+bool SameDevice(UsdGenExecutionResourceDevice const& a,
+                UsdGenExecutionResourceDevice const& b) noexcept {
+    return a.backend == b.backend && a.device == b.device;
+}
+PoolEntry* FindPool(UsdGenExecutionResourceDevice const& key) noexcept {
+    for (size_t i = 0, s = DeviceSlot(key); i != kPoolSlots; ++i, s = (s + 1) % kPoolSlots) {
+        PoolEntry* entry = gPools[s].load(std::memory_order_acquire);
+        if (!entry) return nullptr;
+        if (SameDevice(entry->key, key)) return entry;
     }
-};
-using DevicePools = tbb::concurrent_unordered_map<UsdGenExecutionResourceDevice,
-    std::shared_ptr<UsdGenExecutionResourcePool>, DeviceHash, DeviceEqual>;
-// Deliberately process-lifetime: CUDA allocations can outlive shutdown while
-// their contexts are being torn down, and a quarantined charge must not vanish.
-DevicePools& Pools() { static auto* pools = new DevicePools; return *pools; }
+    return nullptr;
+}
+// Returns the resident entry for the candidate's key: the candidate if it
+// won, else the winner. Null when the table is full.
+PoolEntry* InsertPool(PoolEntry* candidate) noexcept {
+    for (size_t i = 0, s = DeviceSlot(candidate->key); i != kPoolSlots;
+         ++i, s = (s + 1) % kPoolSlots) {
+        PoolEntry* entry = gPools[s].load(std::memory_order_acquire);
+        if (!entry && gPools[s].compare_exchange_strong(
+                entry, candidate, std::memory_order_acq_rel, std::memory_order_acquire))
+            return candidate;
+        if (SameDevice(entry->key, candidate->key)) return entry;
+    }
+    return nullptr;
+}
 }
 
 struct UsdGenExecutionResourcePermit::State {
@@ -49,15 +70,15 @@ struct UsdGenExecutionMemoryReservationState {
     UsdGenExecutionMemoryReservationState(
         std::shared_ptr<UsdGenExecutionResourcePermit::State> pool,
         size_t initialBytes) noexcept
-        : poolState(std::move(pool)), remainingBytes(initialBytes) {}
+        : poolState(std::move(pool)), word(initialBytes) {}
 
-    // This lock makes Consume and Release one conservation transaction:
+    // One word makes Consume and Release one conservation transaction:
     // remaining pending bytes plus transferred permits always equal the
     // original pool charge until a permit or the reservation is released.
-    std::mutex mutex;
+    // The top bit marks the reservation released; the rest is the balance.
+    static constexpr size_t kReleased = size_t(1) << (sizeof(size_t) * 8 - 1);
     std::shared_ptr<UsdGenExecutionResourcePermit::State> poolState;
-    size_t remainingBytes = 0;
-    bool released = false;
+    std::atomic<size_t> word{0};
 };
 
 UsdGenExecutionResourcePermit::UsdGenExecutionResourcePermit(
@@ -95,22 +116,28 @@ void UsdGenExecutionResourcePermit::Reclassify(UsdGenExecutionResourceKind kind)
 }
 void UsdGenExecutionResourcePermit::Release() noexcept {
     if (!state_) return;
-    // One reservation mutex linearizes child release against reservation
+    // The reservation word linearizes child release against reservation
     // closure. A live reservation recovers the credit; a closed one lets the
-    // child release its still-exact global charge normally.
+    // child release its still-exact global charge normally. Pending is
+    // credited before the balance so Pending never drops below the balance.
     if (auto const& credit = reservationCredit_) {
-        std::lock_guard<std::mutex> lock(credit->mutex);
-        if (!credit->released) {
-            state_->byKind[KindIndex(kind_)].fetch_sub(
-                bytes_, std::memory_order_relaxed);
-            state_->byKind[KindIndex(UsdGenExecutionResourceKind::Pending)].fetch_add(
-                bytes_, std::memory_order_relaxed);
-            credit->remainingBytes += bytes_;
-            reservationCredit_.reset();
-            state_.reset();
-            bytes_ = 0;
-            return;
+        using R = UsdGenExecutionMemoryReservationState;
+        auto& pending = state_->byKind[KindIndex(UsdGenExecutionResourceKind::Pending)];
+        state_->byKind[KindIndex(kind_)].fetch_sub(bytes_, std::memory_order_relaxed);
+        pending.fetch_add(bytes_, std::memory_order_relaxed);
+        size_t word = credit->word.load(std::memory_order_acquire);
+        while (!(word & R::kReleased)) {
+            if (credit->word.compare_exchange_weak(word, word + bytes_,
+                                                   std::memory_order_acq_rel,
+                                                   std::memory_order_acquire)) {
+                reservationCredit_.reset();
+                state_.reset();
+                bytes_ = 0;
+                return;
+            }
         }
+        pending.fetch_sub(bytes_, std::memory_order_relaxed);
+        state_->byKind[KindIndex(kind_)].fetch_add(bytes_, std::memory_order_relaxed);
     }
     state_->byKind[KindIndex(kind_)].fetch_sub(bytes_, std::memory_order_relaxed);
     state_->usedBytes.fetch_sub(bytes_, std::memory_order_release);
@@ -144,15 +171,14 @@ UsdGenExecutionMemoryReservation& UsdGenExecutionMemoryReservation::operator=(
 }
 UsdGenExecutionMemoryReservation::operator bool() const noexcept {
     auto const& state = state_;
-    if (!state) return false;
-    std::lock_guard<std::mutex> lock(state->mutex);
-    return !state->released;
+    return state && !(state->word.load(std::memory_order_acquire) &
+                      UsdGenExecutionMemoryReservationState::kReleased);
 }
 size_t UsdGenExecutionMemoryReservation::RemainingBytes() const noexcept {
     auto const& state = state_;
     if (!state) return 0;
-    std::lock_guard<std::mutex> lock(state->mutex);
-    return state->released ? 0 : state->remainingBytes;
+    size_t const word = state->word.load(std::memory_order_acquire);
+    return (word & UsdGenExecutionMemoryReservationState::kReleased) ? 0 : word;
 }
 UsdGenExecutionResourceKind UsdGenExecutionMemoryReservation::PendingKind() const noexcept {
     return UsdGenExecutionResourceKind::Pending;
@@ -162,11 +188,18 @@ UsdGenExecutionMemoryReservation::Consume(
     size_t bytes, UsdGenExecutionResourceKind targetKind) noexcept {
     auto const& state = state_;
     if (!state || !IsAllocationKind(targetKind)) return std::nullopt;
-    std::lock_guard<std::mutex> lock(state->mutex);
-    if (state->released || bytes > state->remainingBytes) return std::nullopt;
     auto const& pool = state->poolState;
     if (!pool) return std::nullopt;
-    state->remainingBytes -= bytes;
+    // A CAS loop that never takes the balance below zero.
+    size_t word = state->word.load(std::memory_order_acquire);
+    for (;;) {
+        if ((word & UsdGenExecutionMemoryReservationState::kReleased) || bytes > word)
+            return std::nullopt;
+        if (state->word.compare_exchange_weak(word, word - bytes,
+                                              std::memory_order_acq_rel,
+                                              std::memory_order_acquire))
+            break;
+    }
     // Snapshot category totals may transiently observe one side of this
     // transfer, but usedBytes is intentionally untouched throughout.
     pool->byKind[KindIndex(UsdGenExecutionResourceKind::Pending)].fetch_sub(
@@ -178,11 +211,9 @@ UsdGenExecutionMemoryReservation::Consume(
 void UsdGenExecutionMemoryReservation::Release() noexcept {
     auto const& state = state_;
     if (!state) return;
-    std::lock_guard<std::mutex> lock(state->mutex);
-    if (state->released) return;
-    state->released = true;
-    size_t const remaining = state->remainingBytes;
-    state->remainingBytes = 0;
+    size_t const remaining = state->word.exchange(
+        UsdGenExecutionMemoryReservationState::kReleased, std::memory_order_acq_rel);
+    if (remaining & UsdGenExecutionMemoryReservationState::kReleased) return;
     auto const& pool = state->poolState;
     if (!pool) return;
     pool->byKind[KindIndex(UsdGenExecutionResourceKind::Pending)].fetch_sub(
@@ -257,37 +288,29 @@ std::shared_ptr<UsdGenExecutionResourcePool> GetOrCreateUsdGenExecutionResourceP
     bool requireMatchingConfig) noexcept {
     try {
         if (key.device < 0) return {};
-        auto& pools = Pools();
-        auto found = pools.find(key);
-        if (found != pools.end()) {
-            auto const snapshot = found->second->Snapshot();
-            if (requireMatchingConfig &&
-                (snapshot.limitBytes != config.limitBytes ||
-                 snapshot.headroomBytes != (config.headroomBytes > config.limitBytes ? config.limitBytes : config.headroomBytes)))
-                return {};
-            return found->second;
-        }
-        auto candidate = std::make_shared<UsdGenExecutionResourcePool>(
-            config.limitBytes, config.headroomBytes);
-        auto inserted = pools.insert({key, candidate});
-        if (!inserted.second && requireMatchingConfig) {
-            auto const snapshot = inserted.first->second->Snapshot();
-            if (snapshot.limitBytes != config.limitBytes ||
-                snapshot.headroomBytes != (config.headroomBytes > config.limitBytes ? config.limitBytes : config.headroomBytes))
-                return {};
-        }
-        return inserted.first->second;
+        auto matches = [&](PoolEntry const* entry) {
+            if (!requireMatchingConfig) return true;
+            auto const snapshot = entry->pool->Snapshot();
+            return snapshot.limitBytes == config.limitBytes &&
+                snapshot.headroomBytes == (config.headroomBytes > config.limitBytes ?
+                                           config.limitBytes : config.headroomBytes);
+        };
+        if (PoolEntry const* found = FindPool(key))
+            return matches(found) ? found->pool : nullptr;
+        auto* candidate = new PoolEntry{key, std::make_shared<UsdGenExecutionResourcePool>(
+            config.limitBytes, config.headroomBytes)};
+        PoolEntry* resident = InsertPool(candidate);
+        if (resident != candidate) delete candidate;  // lost the race, or full
+        if (!resident || !matches(resident)) return {};
+        return resident->pool;
     } catch (...) {
         return {};
     }
 }
 std::shared_ptr<UsdGenExecutionResourcePool> FindUsdGenExecutionResourcePool(
     UsdGenExecutionResourceDevice key) noexcept {
-    try {
-        auto& pools = Pools();
-        auto found = pools.find(key);
-        return found == pools.end() ? std::shared_ptr<UsdGenExecutionResourcePool>{} : found->second;
-    } catch (...) { return {}; }
+    PoolEntry const* found = FindPool(key);
+    return found ? found->pool : nullptr;
 }
 
 } // namespace usdGen

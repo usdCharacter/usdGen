@@ -265,6 +265,13 @@ public:
         return h == _Closed() ? nullptr : h;
     }
     bool IsClosed() const noexcept { return head_.load(std::memory_order_acquire) == _Closed(); }
+    /// The newest pushed node, or null once closed. Links below it never
+    /// change until Close; walk them under a UsdGenEpochGuard.
+    T *Peek() const noexcept
+    {
+        T *h = head_.load(std::memory_order_acquire);
+        return h == _Closed() ? nullptr : h;
+    }
     /// Owner only, after Close: accept pushes again.
     void Reopen() noexcept { head_.store(nullptr, std::memory_order_release); }
 

@@ -430,7 +430,9 @@ list(REMOVE_ITEM USDGEN_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/cudaScatterInput.cpp")
 add_library(usdGenExecutionResources SHARED
     libs/usdGen/usdGen/executionResources.cpp
-    libs/usdGen/usdGen/executionRetirement.cpp)
+    libs/usdGen/usdGen/executionRetirement.cpp
+    # Private copy of the parking primitive for the retirement drain.
+    libs/usdGen/usdGen/parkingWord.cpp)
 target_include_directories(usdGenExecutionResources PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>
     $<INSTALL_INTERFACE:include>)
@@ -1367,6 +1369,10 @@ add_executable(testUsdGenEpoch tests/testUsdGenEpoch.cpp)
 target_link_libraries(testUsdGenEpoch PRIVATE usdGen)
 add_test(NAME testUsdGenEpoch COMMAND testUsdGenEpoch)
 set_tests_properties(testUsdGenEpoch PROPERTIES LABELS "T0;scheduling;epoch" RUN_SERIAL ON TIMEOUT 120)
+add_executable(testUsdGenLockFreeStress tests/testUsdGenLockFreeStress.cpp)
+target_link_libraries(testUsdGenLockFreeStress PRIVATE usdGen)
+add_test(NAME testUsdGenLockFreeStress COMMAND testUsdGenLockFreeStress)
+set_tests_properties(testUsdGenLockFreeStress PROPERTIES LABELS "T1;scheduling;stress" RUN_SERIAL ON TIMEOUT 300)
 add_executable(testUsdGenExecutionTaskGraph tests/testUsdGenExecutionTaskGraph.cpp)
 target_link_libraries(testUsdGenExecutionTaskGraph PRIVATE usdGen)
 add_test(NAME testUsdGenExecutionTaskGraph COMMAND testUsdGenExecutionTaskGraph)
