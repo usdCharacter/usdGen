@@ -280,8 +280,14 @@ bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &record,
             continue;
         }
         seen.set(slot);
-        if ((uint8_t(binding.domain) & uint8_t(admission->domains)) == 0 ||
-            binding.domain == expr::Domain::None)
+        // A single-bit domain outside the admission fails; a groom-only
+        // parameter also fails any other value (None, combined). Other
+        // combined domains are left to the compiler's domain check.
+        uint8_t const d = uint8_t(binding.domain), allowed = uint8_t(admission->domains);
+        bool const single = d != 0 && (d & (d - 1)) == 0;
+        bool const groomOnly = admission->domains == expr::Domain::Groom;
+        if ((single && (d & allowed) == 0) ||
+            (groomOnly && binding.domain != expr::Domain::Groom))
             ok = reject(std::string(display) + " " + name + " requires " +
                         DomainList(admission->domains) + " evaluation");
     }

@@ -262,7 +262,7 @@ int main() {
     {
         auto desc = MakeDesc();
         desc.nodes[1].expressionBindings.push_back(UsdGenExpressionBinding{});
-        ExpectReject(desc, "Width expression target",
+        ExpectReject(desc, "incorrectly typed Width expression",
                      "expression: malformed width expression target rejects");
     }
     {

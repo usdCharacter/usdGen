@@ -261,7 +261,7 @@ static void CheckExpressionTargets()
                    BoolShape(), TfToken("taper"), expr::Domain::Primitive,
                    VtValue(true));
         ExpectFail(groomToggle, "a primitive-domain Curl taper fails closed",
-                   "Curl enabled/taper/clockwise require groom evaluation");
+                   "Curl taper requires groom evaluation");
     }
     // Bend: the angle is per CV; angleRandom/axis are per strand root.
     {
