@@ -95,14 +95,14 @@ inline bool GatherAuthoredNamedChannels(UsdGenCurveSetDesc const& source,
             plane.name = authored.name; plane.arity = authored.arity;
             bool const point = authored.domain == UsdGenAuthoredPlaneDomain::Point;
             bool const groom = authored.domain == UsdGenAuthoredPlaneDomain::Groom;
-            plane.interpolation = point ? TfToken("vertex") : groom ? TfToken("constant") : TfToken("uniform");
-            plane.type = authored.type == UsdGenAuthoredPlaneType::Float32 ? TfToken("float") : TfToken("int");
+            plane.interpolation = point ? UsdGenTokens().vertex : groom ? UsdGenTokens().constant : UsdGenTokens().uniform;
+            plane.type = authored.type == UsdGenAuthoredPlaneType::Float32 ? UsdGenTokens().float_ : UsdGenTokens().int_;
             size_t const elements = point ? out->totalCvs : groom ? 1 : out->totalCurves;
             size_t const values = elements * plane.arity;
-            if (plane.type == TfToken("float")) plane.f = VtFloatArray(values, 0.0f);
+            if (plane.type == UsdGenTokens().float_) plane.f = VtFloatArray(values, 0.0f);
             else plane.i = VtIntArray(values, 0);
             if (groom) {
-                if (plane.type == TfToken("float")) plane.f = authored.floatValues; else plane.i = authored.intValues;
+                if (plane.type == UsdGenTokens().float_) plane.f = authored.floatValues; else plane.i = authored.intValues;
             } else for (size_t destinationCurve = 0; destinationCurve != canonicalCurveOrder.size(); ++destinationCurve) {
                 size_t const sourceCurve = canonicalCurveOrder[destinationCurve];
                 if (sourceCurve >= sourceOffsets.size() - 1 || sourceOffsets[sourceCurve] > sourceOffsets[sourceCurve + 1])
@@ -113,12 +113,12 @@ inline bool GatherAuthoredNamedChannels(UsdGenCurveSetDesc const& source,
                     size_t const destinationBegin = size_t(out->cvOffsets[destinationCurve]);
                     if (destinationBegin + count > out->totalCvs || count > std::numeric_limits<size_t>::max() / plane.arity)
                         return detail::AuthoredNamedChannelFail("authored point named channel permutation is invalid", reason);
-                    if (plane.type == TfToken("float"))
+                    if (plane.type == UsdGenTokens().float_)
                         std::copy_n(authored.floatValues.cdata() + sourceBegin * plane.arity, count * plane.arity,
                             plane.f.begin() + destinationBegin * plane.arity);
                     else std::copy_n(authored.intValues.cdata() + sourceBegin * plane.arity, count * plane.arity,
                         plane.i.begin() + destinationBegin * plane.arity);
-                } else if (plane.type == TfToken("float"))
+                } else if (plane.type == UsdGenTokens().float_)
                     std::copy_n(authored.floatValues.cdata() + sourceCurve * plane.arity, plane.arity,
                         plane.f.begin() + destinationCurve * plane.arity);
                 else std::copy_n(authored.intValues.cdata() + sourceCurve * plane.arity, plane.arity,

@@ -4,6 +4,7 @@
 // pointer with epoch-protected weak locks, validated by gate SI-4 (8 readers
 // x 100 publishes, 0 torn reads) and testUsdGenSharedCell.
 #include "usdGen/generationStore.h"
+#include "usdGen/registries/engineTokens.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/trace/trace.h"
@@ -160,9 +161,9 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
             auto mark = [&td](TfToken const &name, bool dirty) {
                 if (dirty) td.dirtyPrimvars.push_back(name);
             };
-            mark(TfToken("hairT"),  _changed(a.hairT,  b.hairT));
-            mark(TfToken("hairId"), _changed(a.hairId, b.hairId));
-            mark(TfToken("st"),     _changed(a.st,     b.st));
+            mark(UsdGenTokens().hairT,  _changed(a.hairT,  b.hairT));
+            mark(UsdGenTokens().hairId, _changed(a.hairId, b.hairId));
+            mark(UsdGenTokens().st,     _changed(a.st,     b.st));
             // A colour that moves between one-per-curve and one-per-CV (the
             // look's bakeMode, or a usdGen:preview) changes the primvar's
             // interpolation. Hydra keeps its primvar descriptors across a
@@ -173,11 +174,11 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
                 return t.displayColor.size() == t.points.size() ? 2 : 3;
             };
             if (colorRate(a) != colorRate(b))
-                td.newPrimvars.push_back(TfToken("displayColor"));
+                td.newPrimvars.push_back(UsdGenTokens().displayColor);
             else
-                mark(TfToken("displayColor"), _changed(a.displayColor, b.displayColor));
-            mark(TfToken("bakeColor"),    _changed(a.bakeColor,    b.bakeColor));
-            mark(TfToken("velocities"),   _changed(a.velocities,   b.velocities));
+                mark(UsdGenTokens().displayColor, _changed(a.displayColor, b.displayColor));
+            mark(UsdGenTokens().bakeColor,    _changed(a.bakeColor,    b.bakeColor));
+            mark(UsdGenTokens().velocities,   _changed(a.velocities,   b.velocities));
             // Named uniform planes (both vectors sorted by name): common names
             // compared by BUFFER IDENTITY like every other payload above,
             // next-only names are new primvars. Content comparison here

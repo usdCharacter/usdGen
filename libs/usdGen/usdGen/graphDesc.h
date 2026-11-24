@@ -5,7 +5,9 @@
 #define USDGEN_GRAPH_DESC_H
 
 #include "usdGen/types.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/handles.h"
+#include "usdGen/registries/typeRegistry.h"
 #include "usdGen/expressions/context.h"
 
 #include "pxr/pxr.h"
@@ -51,7 +53,7 @@ enum class UsdGenExecutionBackend : uint8_t {
     Vulkan = 4
 };
 
-struct UsdGenExpressionOutputDesc { TfToken name{"result"}; TfToken nativeType{"float"}; expr::ValueShape shape; };
+struct UsdGenExpressionOutputDesc { TfToken name = UsdGenTokens().result; TfToken nativeType = UsdGenTokens().float_; expr::ValueShape shape; };
 
 /// One `input:<name>` relationship of a UsdGenExpression prim: the external
 /// data geoSampler("<name>", ...) and ptex("<name>") read. `targets` is the
@@ -102,7 +104,7 @@ struct UsdGenGeometryDesc
 struct UsdGenExpressionBinding {
     // `output` empty means the connection named the expression PRIM rather
     // than one of its outputs; UsdGenFindExpressionOutput resolves it.
-    SdfPath expression; TfToken output{"result"}; TfToken nativeType{"float"}; TfToken destination;
+    SdfPath expression; TfToken output = UsdGenTokens().result; TfToken nativeType = UsdGenTokens().float_; TfToken destination;
     expr::ValueShape destinationShape; expr::Domain domain = expr::Domain::Groom;
     VtValue literal;
 };
@@ -122,7 +124,7 @@ UsdGenFindExpressionOutput(UsdGenExpressionDesc const &expression,
         return nullptr;
     }
     for (UsdGenExpressionOutputDesc const &o : expression.outputs)
-        if (o.name == TfToken("result")) return &o;
+        if (o.name == UsdGenTokens().result) return &o;
     return expression.outputs.size() == 1 ? &expression.outputs.front() : nullptr;
 }
 
@@ -198,7 +200,7 @@ inline TfToken const &UsdGenSourceColorPlane()
 struct UsdGenNodeDesc
 {
     SdfPath                      path;         // the operator prim's scene path (identity + Kahn tie-break)
-    TfToken                      type;         // "UsdGenClump", "UsdGenScatter", ...
+    TfToken                      type;         // the operator's schema type name
     TfToken                      mode;         // usdGen:mode, when the type has one
     bool                         enabled = true;
     int                          seed = 0;
@@ -231,10 +233,10 @@ struct UsdGenCurveSetDesc
     bool            restFromCurrentPoints = false;
     GfMatrix4d      worldMatrix{1.0}; // source object space must be explicit for deformation
     VtFloatArray    widths;
-    TfToken         type{"cubic"};
-    TfToken         basis{"bspline"};
-    TfToken         wrap{"pinned"};
-    TfToken         widthsInterpolation{"vertex"};
+    TfToken         type = UsdGenTokens().cubic;
+    TfToken         basis = UsdGenTokens().bspline;
+    TfToken         wrap = UsdGenTokens().pinned;
+    TfToken         widthsInterpolation = UsdGenTokens().vertexWidths;
     VtIntArray      skinPrim;          // primvars:skinprim (uniform int)
     VtArray<uint64_t> curveId;         // primvars:usdGen:curveId (uniform uint64[], R12)
     VtVec2fArray    skinPrimUv;        // primvars:skinprimuv (uniform texCoord2f, not "st")
@@ -266,9 +268,11 @@ struct UsdGenSurfaceDesc
     UsdGenSurfaceId id = 0;
     VtIntArray     faceVertexCounts, faceVertexIndices;
     // USD subdivision opinions, captured identically by stage/Hydra builders.
-    TfToken subdivisionScheme{"none"}, orientation{"rightHanded"};
-    TfToken interpolateBoundary{"edgeAndCorner"}, faceVaryingLinearInterpolation{"cornersPlus1"};
-    TfToken triangleSubdivisionRule{"catmullClark"}, creaseMethod{"uniform"};
+    TfToken subdivisionScheme = UsdGenTokens().none, orientation = UsdGenTokens().rightHanded;
+    TfToken interpolateBoundary = UsdGenTokens().edgeAndCorner,
+        faceVaryingLinearInterpolation = UsdGenTokens().cornersPlus1;
+    TfToken triangleSubdivisionRule = UsdGenTokens().catmullClark,
+        creaseMethod = UsdGenTokens().uniform;
     VtIntArray holeIndices, creaseIndices, creaseLengths, cornerIndices;
     VtFloatArray creaseSharpnesses, cornerSharpnesses;
     VtVec3fArray   restPoints;        // usdGen/rest/points (S12), UsdTimeCode::Default()
@@ -344,7 +348,23 @@ struct UsdGenResolvedMapValue
     std::string resolvedAssetPath;
     uint64_t    textureGeneration = 0;
     uint64_t    identity = 0;
+    UsdGenTypeId typeId = UsdGenTypeId::Invalid;
+    UsdGenMapOptions options;            // the map type's parseOptions, run once at compile
 };
+
+/// The map's type id: the intake-resolved one, else a registry probe (descs
+/// built outside the compiler). Never interns.
+inline UsdGenTypeId UsdGenMapTypeId(UsdGenMapDesc const &map) noexcept
+{
+    return map.typeId != UsdGenTypeId::Invalid ? map.typeId
+                                               : UsdGenTypeRegistry::Get().Find(map.type);
+}
+
+/// True when the map's registered type carries \p trait (kUsdGenTypeMap*).
+inline bool UsdGenMapHas(UsdGenMapDesc const &map, uint32_t trait) noexcept
+{
+    return UsdGenTypeRegistry::Get().Has(UsdGenMapTypeId(map), trait);
+}
 
 /// The description's look block (02-schema.md §2.12 defaults; 07 §1.2 bake
 /// order). M1 bakes the CPU half of the displayColor contract: base colour
@@ -355,11 +375,11 @@ struct UsdGenLookDesc
     GfVec3f  tipColor{0.210f, 0.115f, 0.045f};
     VtVec3fArray rampColors;          // usdGen:look:colorRamp:colors (empty == two-colour mix)
     VtFloatArray rampPositions;       // usdGen:look:colorRamp:positions
-    TfToken  rampInterpolation{"catmullRom"};
+    TfToken  rampInterpolation = UsdGenTokens().catmullRom;
     float    rampExponent = 1.0f;     // usdGen:look:rampExponent
-    TfToken  bakeMode{"perCurve"};    // perCurve | perCV
-    TfToken  bakeTarget{"displayColor"};  // displayColor | primvar | none
-    TfToken  bakePrimvar{"displayColor"};
+    TfToken  bakeMode = UsdGenTokens().perCurve;           // perCurve | perCV
+    TfToken  bakeTarget = UsdGenTokens().displayColor;     // displayColor | primvar | none
+    TfToken  bakePrimvar = UsdGenTokens().displayColor;
     float    hueJitter = 0.0f;
     float    valueJitter = 0.0f;
     int      jitterSeed = 0;
@@ -373,10 +393,10 @@ struct UsdGenLookDesc
 struct UsdGenPreviewDesc
 {
     SdfPath  source;                    // empty == no preview
-    TfToken  colorMap{"heat"};          // heat | viridis | gray | ids | rgb
+    TfToken  colorMap = UsdGenTokens().heat;          // heat | viridis | gray | ids | rgb
     GfVec2f  range{0.0f, 1.0f};
-    TfToken  evaluation{"primitive"};   // for an expression prim source
-    TfToken  shading{"lit"};            // lit | flat
+    TfToken  evaluation = UsdGenTokens().primitive;   // for an expression prim source
+    TfToken  shading = UsdGenTokens().lit;            // lit | flat
 
     bool Active() const { return !source.IsEmpty(); }
 };
@@ -399,7 +419,7 @@ struct UsdGenGraphDesc
     SdfPath                        materialPath;   // the description's bound Material (C2)
     float    defaultWidth = 0.01f;                 // usdGen:width:default
     int      tileTarget = 64;                      // uniform int usdGen:tileTarget
-    TfToken  curveBasis{"bspline"};                // usdGen:curve:basis (C2)
+    TfToken  curveBasis = UsdGenTokens().bspline;      // usdGen:curve:basis (C2)
     double   time = 0.0;
     double   timeCodesPerSecond = 24.0; // USD default; expressions expose seconds
     UsdGenExecutionBackend executionBackend = UsdGenExecutionBackend::CpuReference;
