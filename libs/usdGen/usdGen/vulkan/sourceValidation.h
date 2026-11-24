@@ -5,6 +5,7 @@
 #define USDGEN_VULKAN_SOURCE_VALIDATION_H
 
 #include "sourceGeneration.h"
+#include "usdGen/registries/engineTokens.h"
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -123,17 +124,18 @@ inline bool PackSource(VulkanSourcePrepareInfo const& in,
         packed.push_back({channel.metadata, channel.bytes, channel.privateStructural}); return true;
     };
     auto extra = [&](UsdGenPlane const& plane, bool cv) {
-        if ((plane.type != TfToken("float") && plane.type != TfToken("int")) ||
-            (plane.interpolation != TfToken("vertex") && plane.interpolation != TfToken("uniform") && plane.interpolation != TfToken("constant")) ||
-            (cv && plane.interpolation != TfToken("vertex")) || (!cv && plane.interpolation == TfToken("vertex")) ||
-            (plane.type == TfToken("float") ? !plane.i.empty() : !plane.f.empty())) return fail("invalid CPU named plane schema");
-        D domain = plane.interpolation == TfToken("vertex") ? D::Point : plane.interpolation == TfToken("uniform") ? D::Primitive : D::Groom;
+        UsdGenEngineTokens const& t = UsdGenTokens();
+        if ((plane.type != t.float_ && plane.type != t.int_) ||
+            (plane.interpolation != t.vertex && plane.interpolation != t.uniform && plane.interpolation != t.constant) ||
+            (cv && plane.interpolation != t.vertex) || (!cv && plane.interpolation == t.vertex) ||
+            (plane.type == t.float_ ? !plane.i.empty() : !plane.f.empty())) return fail("invalid CPU named plane schema");
+        D domain = plane.interpolation == t.vertex ? D::Point : plane.interpolation == t.uniform ? D::Primitive : D::Groom;
         VulkanSourceNamedChannel channel;
-        channel.metadata = {plane.name.GetString(), plane.type == TfToken("float") ? T::Float32 : T::Int32,
+        channel.metadata = {plane.name.GetString(), plane.type == t.float_ ? T::Float32 : T::Int32,
             domain, domain == D::Point ? p : domain == D::Primitive ? c : 1, plane.arity, uint32_t(4*plane.arity), true, S::Generic};
-        size_t count = plane.type == TfToken("float") ? plane.f.size()*4 : plane.i.size()*4;
+        size_t count = plane.type == t.float_ ? plane.f.size()*4 : plane.i.size()*4;
         channel.bytes.resize(count);
-        if (count) std::memcpy(channel.bytes.data(), plane.type == TfToken("float") ? static_cast<void const*>(plane.f.cdata()) : static_cast<void const*>(plane.i.cdata()), count);
+        if (count) std::memcpy(channel.bytes.data(), plane.type == t.float_ ? static_cast<void const*>(plane.f.cdata()) : static_cast<void const*>(plane.i.cdata()), count);
         return named(channel);
     };
     for (auto const& plane : b.extraCv) if (!extra(plane, true)) return false;

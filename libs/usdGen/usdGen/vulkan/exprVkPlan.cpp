@@ -6,7 +6,9 @@
 #include "usdGen/expressionTargets.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
-#include "usdGen/ops/width.h"
+#include "usdGen/op.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/vulkan/vkStages.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
 #include <cctype>
@@ -82,7 +84,9 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
     ExprVkWidthData data;
     std::set<TfToken> seen;
     VtVec2fArray knots;
-    TfToken interpolation("catmullRom");
+    TfToken interpolation = UsdGenTokens().catmullRom;
+    UsdGenVulkanKernel const widthKernel = UsdGenVulkanKernelFor(UsdGenVulkanStage::Width);
+    UsdGenParamSlot const profileMode = widthKernel.Slot(vulkanP::kWidthProfileMode);
     for (auto const &param : node.params) {
         if (!seen.insert(param.name).second) {
             Error(diagnostics, "duplicate Width parameter");
@@ -127,7 +131,9 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
             }
             interpolation = param.value.UncheckedGet<TfToken>();
         } else if (name == "width:profile:mode") {
-            if (param.value != VtValue(TfToken("ramp")) && param.value != VtValue(TfToken("bezier"))) {
+            // ramp or bezier, held as a token
+            if (!param.value.IsHolding<TfToken>() ||
+                widthKernel.record->EnumIndex(profileMode, param.value.UncheckedGet<TfToken>()) < 0) {
                 Error(diagnostics, "Width profile mode must be ramp or bezier");
                 return false;
             }
@@ -150,8 +156,9 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
     if (!knots.empty())
         UsdGenBuildRampLut(knots, interpolation, data.literal.profile.data(), 257);
     // Bezier profile mode replaces the ramp LUT with the profile factor.
-    UsdGenParamView const params{&desc, &node};
-    bool const bezier = UsdGenWidthBezierLut(params, data.literal.profile.data(), 257);
+    UsdGenStackParams const params(desc, node, *widthKernel.record);
+    bool const bezier = widthKernel.kernel->profileLut &&
+        widthKernel.kernel->profileLut(params.View(), data.literal.profile.data(), 257);
     if (!ExprVkCompileStageBindings(desc, node, &data.bindings, diagnostics))
         return false;
     data.literal.extended = !knots.empty() || bezier || data.literal.mask != 1.0f ||
@@ -306,7 +313,7 @@ bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const 
         }
     }
     ExprVkStageBinding source;
-    source.destination = TfToken("expr:source");
+    source.destination = UsdGenVkTokens().exprSource;
     source.domain = domain;
     source.type = expr::ScalarType::Float32;
     source.components = components;

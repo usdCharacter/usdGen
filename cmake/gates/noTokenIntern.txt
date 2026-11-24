@@ -22,16 +22,7 @@ libs/usdGen/usdGen/ops/straighten.h 1
 libs/usdGen/usdGen/ops/wave.h 1
 libs/usdGen/usdGen/registries/token.cpp 1
 libs/usdGen/usdGen/sessionCooker.cpp 4
-libs/usdGen/usdGen/vulkan/csourceVkAdmission.h 2
-libs/usdGen/usdGen/vulkan/csourceVkCapture.h 4
-libs/usdGen/usdGen/vulkan/executionPlan.cpp 60
-libs/usdGen/usdGen/vulkan/executionPlan.h 3
 libs/usdGen/usdGen/vulkan/exprVkParameters.cpp 1
-libs/usdGen/usdGen/vulkan/exprVkPlan.cpp 3
 libs/usdGen/usdGen/vulkan/exprVkProgram.cpp 1
-libs/usdGen/usdGen/vulkan/exprVkRun.cpp 2
-libs/usdGen/usdGen/vulkan/growVkPlan.cpp 28
-libs/usdGen/usdGen/vulkan/planExecutor.cpp 7
-libs/usdGen/usdGen/vulkan/sourceValidation.h 8
 libs/usdGen/usdGen/vulkan/sourceWidthJob.cpp 1
 libs/usdGen/version.cpp 1

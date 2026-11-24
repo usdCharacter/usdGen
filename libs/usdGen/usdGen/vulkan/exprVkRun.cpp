@@ -6,13 +6,16 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <string_view>
+#include "usdGen/vulkan/vkStages.h"
 namespace usdGen::vulkan {
 namespace {
-TfToken Canonical(TfToken const &t) {
-    auto s = t.GetString();
+// A destination's name without "usdGen:"; compares text, never interns.
+std::string_view Local(TfToken const &t) {
+    std::string_view s = t.GetString();
     if (s.compare(0, 7, "usdGen:") == 0)
-        s.erase(0, 7);
-    return TfToken(s);
+        s.remove_prefix(7);
+    return s;
 }
 } // namespace
 struct ExprVkRun::State {
@@ -58,7 +61,7 @@ ExprVkRun::ExprVkRun(std::shared_ptr<ExprVkContextPipeline> c,
     s.controls = ctl;
 
     ExprVkCompiledBinding owners;
-    owners.binding.destination = TfToken("__vulkanOwners");
+    owners.binding.destination = UsdGenVkTokens().owners;
     owners.binding.domain = expr::Domain::Point;
     owners.binding.destinationShape.scalar = expr::ScalarType::Float32;
     owners.binding.destinationShape.components = 1;
@@ -88,7 +91,7 @@ void ExprVkRun::Quarantine() noexcept {
 std::shared_ptr<const ChargedBuffer> ExprVkRun::owners() const noexcept { return state_->ownerMap; }
 ExprVkParameterField const *ExprVkRun::Find(TfToken const &t) const {
     for (auto const &f : state_->fields)
-        if (Canonical(f.destination) == Canonical(t))
+        if (Local(f.destination) == Local(t))
             return &f;
     return nullptr;
 }

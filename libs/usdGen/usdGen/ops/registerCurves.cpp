@@ -37,6 +37,7 @@
 #include "usdGen/ops/frizz.h"
 #include "usdGen/ops/tieClump.h"
 #include "usdGen/ops/cardSource.h"
+#include "usdGen/vulkan/vkStages.h"
 
 using namespace usdGen;
 
@@ -63,16 +64,16 @@ void RegisterMapTypes(UsdGenRegistrar &r)
 
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
-    UsdGenCudaKernelOps cuda;
-    cuda.scatter = UsdGenRegisterScatterOp(r);
-    cuda.grow = UsdGenRegisterGrowOp(r);
-    cuda.noise = UsdGenRegisterNoiseOp(r);
-    cuda.length = UsdGenRegisterLengthOp(r);
-    cuda.width = UsdGenRegisterWidthOp(r);
-    cuda.widthBlend = UsdGenRegisterWidthBlendOp(r);
-    cuda.curveSource = UsdGenRegisterCurveSourceOp(r);
-    cuda.deform = UsdGenRegisterDeformOp(r);
-    cuda.referenceSource = UsdGenRegisterReferenceSourceOp(r);
+    UsdGenVulkanKernelOps k;
+    k.scatter = UsdGenRegisterScatterOp(r);
+    k.grow = UsdGenRegisterGrowOp(r);
+    k.noise = UsdGenRegisterNoiseOp(r);
+    k.length = UsdGenRegisterLengthOp(r);
+    k.width = UsdGenRegisterWidthOp(r);
+    k.widthBlend = UsdGenRegisterWidthBlendOp(r);
+    k.curveSource = UsdGenRegisterCurveSourceOp(r);
+    k.deform = UsdGenRegisterDeformOp(r);
+    k.referenceSource = UsdGenRegisterReferenceSourceOp(r);
     UsdGenRegisterClumpOp(r);
     UsdGenRegisterGuideInterpolateOp(r);
     UsdGenRegisterCurlOp(r);
@@ -81,7 +82,7 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterPartOp(r);
     UsdGenRegisterDirectionOp(r);
     UsdGenRegisterSmoothOp(r);
-    UsdGenRegisterResampleOp(r);
+    k.resample = UsdGenRegisterResampleOp(r);
     UsdGenRegisterScaleOp(r);
     UsdGenRegisterStraightenOp(r);
     UsdGenRegisterDisplaceOp(r);
@@ -97,5 +98,16 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterTieClumpOp(r);
     UsdGenRegisterCardSourceOp(r);
     RegisterMapTypes(r);
+    UsdGenCudaKernelOps cuda;
+    cuda.scatter = k.scatter;
+    cuda.grow = k.grow;
+    cuda.noise = k.noise;
+    cuda.length = k.length;
+    cuda.width = k.width;
+    cuda.widthBlend = k.widthBlend;
+    cuda.curveSource = k.curveSource;
+    cuda.deform = k.deform;
+    cuda.referenceSource = k.referenceSource;
     UsdGenRegisterCurvesCuda(r, cuda);
+    UsdGenRegisterVulkanKernels(r, k);
 }
