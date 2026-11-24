@@ -3354,6 +3354,20 @@ endforeach()
 # The output golden belongs to one toolchain; another skips with 77.
 set_tests_properties(testUsdGenOutputGoldens PROPERTIES SKIP_RETURN_CODE 77)
 
+# Restructure 5.0: published geometry of record over frames 0/1/12 and a
+# value and topology edit (tests/golden/cookDigests.<os>-<cc>.txt; a
+# toolchain without its own file skips with 77).
+add_executable(testUsdGenCookGoldens tests/testUsdGenCookGoldens.cpp tests/golden/goldenGraphs.cpp)
+target_link_libraries(testUsdGenCookGoldens PRIVATE usdGenTestUtilsHd)
+target_include_directories(testUsdGenCookGoldens PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_compile_definitions(testUsdGenCookGoldens PRIVATE
+    USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    USDGEN_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden")
+add_test(NAME testUsdGenCookGoldens COMMAND testUsdGenCookGoldens)
+set_tests_properties(testUsdGenCookGoldens PROPERTIES
+    ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T0;gate;gate:golden"
+    SKIP_RETURN_CODE 77 TIMEOUT 1800)
+
 # Step 4 registries: handles, lookups, freeze, interner counters.
 add_executable(testUsdGenRegistries tests/testUsdGenRegistries.cpp tests/golden/goldenGraphs.cpp)
 target_link_libraries(testUsdGenRegistries PRIVATE usdGenTestUtils)
