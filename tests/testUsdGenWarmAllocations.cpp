@@ -5,7 +5,10 @@
 // After two warm-up cooks, a steady-state cook (same topology, every chunk
 // dirty) and a value-only parameter edit must not allocate more than their
 // budgets. The budgets ratchet down to zero; lower them when a change frees
-// allocations, never raise them.
+// allocations, never raise them. The graph is the bench's G3 chain
+// (scatter -> grow -> noise -> length -> width) at 10k curves. Every
+// measured cook must also reproduce a fresh compile's output bit for bit,
+// and recycling must never write into a buffer something still holds.
 
 #include "usdGen/allocCounter.h"
 #include "usdGen/compiler.h"
@@ -34,6 +37,7 @@
 #endif
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <new>
 #include <string>
 
@@ -74,11 +78,10 @@ namespace {
 
 // Budgets measured on the restructure branch; ratchet only downward.
 // Target: 0 for both (plan: zero heap allocation per steady-state cook).
-// What is left is VtArray storage for re-captured buffers and freshly owned
-// output planes (until arenas recycle through retirement), plus the input
-// version table rebuilt by Recompile (2 in the edit).
-constexpr uint64_t kWarmCookBudget = 10;   // BUDGET_WARM
-constexpr uint64_t kParamEditBudget = 7;   // BUDGET_EDIT
+// Re-captures refill the node's spare capture and retired planes, and a
+// value-only edit keeps the compiled node, so both reach zero.
+constexpr uint64_t kWarmCookBudget = 0;   // BUDGET_WARM
+constexpr uint64_t kParamEditBudget = 0;  // BUDGET_EDIT
 
 UsdGenGraphDesc MakeDesc(double magnitude)
 {
@@ -119,12 +122,17 @@ UsdGenGraphDesc MakeDesc(double magnitude)
     add("scatter", "UsdGenScatter", "");
     add("grow", "UsdGenGrow", "scatter");
     add("noise", "UsdGenNoise", "grow");
-    add("width", "UsdGenWidth", "noise");
+    add("length", "UsdGenLength", "noise");
+    add("width", "UsdGenWidth", "length");
     for (auto &n : d.nodes) {
         if (n.type == TfToken("UsdGenGrow"))
             n.params.push_back({TfToken("segments"), VtValue(8), false});
         if (n.type == TfToken("UsdGenNoise"))
             n.params.push_back({TfToken("noise:magnitude"), VtValue(magnitude), false});
+        if (n.type == TfToken("UsdGenLength")) {
+            n.params.push_back({TfToken("length:mode"), VtValue(TfToken("scale")), false});
+            n.params.push_back({TfToken("length:value"), VtValue(1.2), false});
+        }
         if (n.type == TfToken("UsdGenWidth"))
             n.params.push_back({TfToken("width"), VtValue(0.02), false});
     }
@@ -165,6 +173,35 @@ void PrintTrace(char const *what, uint64_t count)
                         (unsigned long long)(reinterpret_cast<uintptr_t>(frames[i]) - base));
         }
     }
+}
+
+// The terminal output of a fresh compile and cook of `desc`: what the
+// recycled graph must reproduce bit for bit.
+UsdGenCurveBuffer FreshCook(UsdGenGraphDesc const &desc)
+{
+    UsdGenCompiler compiler;
+    UsdGenGraph graph;
+    if (!compiler.Compile(desc, &graph).ok) return {};
+    UsdGenScheduler scheduler(4);
+    UsdGenEvalContext ctx;
+    ctx.desc = &graph.Desc();
+    scheduler.Run(graph, ctx, 1);
+    return graph.Node(graph.TerminalNodeId()).buffer;
+}
+
+template <class T>
+bool SameBits(VtArray<T> const &a, VtArray<T> const &b)
+{
+    return a.size() == b.size() &&
+        (a.empty() || std::memcmp(a.cdata(), b.cdata(), a.size() * sizeof(T)) == 0);
+}
+
+bool SameOutput(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
+{
+    return a.totalCurves == b.totalCurves && a.totalCvs == b.totalCvs &&
+        SameBits(a.px, b.px) && SameBits(a.py, b.py) && SameBits(a.pz, b.pz) &&
+        SameBits(a.width, b.width) && SameBits(a.hairT, b.hairT) &&
+        SameBits(a.rest, b.rest) && SameBits(a.curveId, b.curveId);
 }
 
 template <class Fn>
@@ -227,6 +264,46 @@ int main()
         scheduler.Run(graph, ctx, ++gen);
     });
     int failures = 0;
+    // Recycled storage must not change a single bit of the output.
+    UsdGenCurveBuffer const &out = graph.Node(graph.TerminalNodeId()).buffer;
+    if (out.totalCurves == 0 || !SameOutput(out, FreshCook(b))) {
+        std::printf("FAIL: param edit output differs from a fresh cook\n");
+        ++failures;
+    }
+    fullDirty();
+    scheduler.Run(graph, ctx, ++gen);
+    if (!SameOutput(graph.Node(graph.TerminalNodeId()).buffer, FreshCook(b))) {
+        std::printf("FAIL: warm cook output differs from a fresh cook\n");
+        ++failures;
+    }
+    // A buffer something still holds (a published generation) is never a
+    // recycling candidate: two more re-captures of Grow must leave it intact.
+    {
+        UsdGenCurveBuffer const held = graph.Node(1).buffer;
+        UsdGenCurveBuffer copy = held;
+        copy.px = VtFloatArray(held.px.begin(), held.px.end());
+        copy.py = VtFloatArray(held.py.begin(), held.py.end());
+        copy.pz = VtFloatArray(held.pz.begin(), held.pz.end());
+        copy.width = VtFloatArray(held.width.begin(), held.width.end());
+        copy.hairT = VtFloatArray(held.hairT.begin(), held.hairT.end());
+        copy.rest = VtVec3fArray(held.rest.begin(), held.rest.end());
+        for (int i = 0; i < 2; ++i) {
+            fullDirty();
+            scheduler.Run(graph, ctx, ++gen);
+        }
+        if (held.px.empty() || !SameOutput(held, copy)) {
+            std::printf("FAIL: recycling wrote into a held buffer\n");
+            ++failures;
+        }
+    }
+    compiler.Recompile(a, &graph);
+    ctx.desc = &graph.Desc();
+    scheduler.Run(graph, ctx, ++gen);
+    if (!SameOutput(graph.Node(graph.TerminalNodeId()).buffer, FreshCook(a)) ||
+        SameOutput(FreshCook(a), FreshCook(b))) {
+        std::printf("FAIL: edit back output differs from a fresh cook\n");
+        ++failures;
+    }
     std::printf("warm cook allocations: %llu (budget %llu, target 0)\n",
                 (unsigned long long)warm, (unsigned long long)kWarmCookBudget);
     std::printf("param edit allocations: %llu (budget %llu, target 0)\n",
