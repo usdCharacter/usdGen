@@ -8,6 +8,7 @@
 //     (so most frees are cross-thread and move through the depots) and
 //     verify that no block is ever handed to two owners
 //   - scratch: nesting, rewind, growth, one arena per thread
+//   - heap fallback (growth denied) keeps the 64-byte alignment above 256
 
 #include "usdGen/allocCounter.h"
 #include "usdGen/pool.h"
@@ -165,6 +166,33 @@ void TestStress(int threads, int iterations)
     Check(bad.load() == 0, "no block is ever owned twice under contention");
 }
 
+// With growth denied, a class whose depot runs dry falls back to the heap;
+// the fallback keeps the documented alignment (64 above 256 bytes) and
+// frees through the matching path.
+void TestFallbackAlignment()
+{
+    std::thread([] {
+        UsdGenPoolTestDenyGrowth(true);
+        uint64_t const f0 = UsdGenPoolGetStats().heapFallbacks;
+        constexpr std::size_t kBytes = 300;  // the 320-byte class
+        std::vector<void *> held;
+        int misaligned = 0;
+        while (UsdGenPoolGetStats().heapFallbacks - f0 < 256 && held.size() < 400000) {
+            void *p = UsdGenPoolAlloc(kBytes);
+            if (reinterpret_cast<uintptr_t>(p) & 63) ++misaligned;
+            std::memset(p, 0x5a, kBytes);
+            held.push_back(p);
+        }
+        uint64_t const fallbacks = UsdGenPoolGetStats().heapFallbacks - f0;
+        UsdGenPoolTestDenyGrowth(false);
+        for (void *p : held) UsdGenPoolFree(p, kBytes);
+        std::printf("fallback: %zu blocks, %llu from the heap\n", held.size(),
+                    (unsigned long long)fallbacks);
+        Check(fallbacks >= 256, "denied growth reaches the heap fallback");
+        Check(misaligned == 0, "heap fallback above 256 bytes is 64-byte aligned");
+    }).join();
+}
+
 void TestScratch()
 {
     UsdGenScratchArena &arena = UsdGenScratchArena::ForThread();
@@ -242,6 +270,7 @@ int main()
                 (unsigned long long)s.refills, (unsigned long long)s.heapFallbacks,
                 (unsigned long long)s.reservedBytes);
     Check(s.heapFallbacks == 1, "only the deliberate oversize request reached the heap");
+    TestFallbackAlignment();
     if (g_failures) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

@@ -71,6 +71,12 @@ alignas(64) std::atomic<std::size_t> g_frontier{0};
 Depot g_depot[kClasses];
 std::atomic<uint64_t> g_refills{0};
 std::atomic<uint64_t> g_heapFallbacks{0};
+std::atomic<bool> g_denyGrowth{false};  // tests: force the heap fallback
+
+// Requests above 256 bytes are 64-byte aligned (pool.h), from the heap too;
+// the matching free uses the same rule, keyed by the request size.
+constexpr std::size_t kSmallMax = 256;
+constexpr std::align_val_t kLargeAlign{64};
 
 char *Reserve()
 {
@@ -190,6 +196,7 @@ struct Magazine
 // depot in magazine-sized chains. False when the region is exhausted.
 bool Refill(int c, Magazine *out)
 {
+    if (g_denyGrowth.load(std::memory_order_relaxed)) return false;
     char *base = Base();
     if (!base) return false;
     std::size_t const cb = ClassBytes(c);
@@ -248,7 +255,13 @@ thread_local ThreadCache t_cache;
 void *HeapFallback(std::size_t bytes)
 {
     g_heapFallbacks.fetch_add(1, std::memory_order_relaxed);
-    return ::operator new(bytes);
+    return bytes > kSmallMax ? ::operator new(bytes, kLargeAlign) : ::operator new(bytes);
+}
+
+void HeapFree(void *p, std::size_t bytes) noexcept
+{
+    if (bytes > kSmallMax) ::operator delete(p, kLargeAlign);
+    else ::operator delete(p);
 }
 
 }  // namespace
@@ -301,7 +314,7 @@ void UsdGenPoolFree(void *p, std::size_t bytes) noexcept
 {
     if (!p) return;
     if (bytes > kUsdGenPoolMaxBytes || !InRegion(p)) {
-        ::operator delete(p);
+        HeapFree(p, bytes);
         return;
     }
     int const c = ClassOf(bytes);
@@ -321,6 +334,11 @@ void UsdGenPoolFree(void *p, std::size_t bytes) noexcept
     Next(p) = m.head;
     m.head = p;
     ++m.count;
+}
+
+void UsdGenPoolTestDenyGrowth(bool deny) noexcept
+{
+    g_denyGrowth.store(deny, std::memory_order_relaxed);
 }
 
 UsdGenPoolStats UsdGenPoolGetStats() noexcept
