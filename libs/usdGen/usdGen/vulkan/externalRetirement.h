@@ -59,5 +59,9 @@ bool EnqueueVulkanExternalRetirement(std::function<void()> callback) noexcept;
 // Never call this from a retirement callback.
 void CloseVulkanExternalRetirement() noexcept;
 
+// Test-only: called on the thread that claims the lane start, before the lane
+// thread exists; returning false fails that start. Null restores the default.
+void SetVulkanExternalRetirementLaneStartHookForTesting(bool (*hook)()) noexcept;
+
 } // namespace usdGen::vulkan
 #endif

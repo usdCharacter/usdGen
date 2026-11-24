@@ -3,6 +3,7 @@
 #include "externalRetirement.h"
 #include "completionService.h"
 #include "usdGen/parkingWord.h"
+#include "usdGen/sharedCell.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -16,6 +17,10 @@
 
 namespace usdGen::vulkan {
 namespace {
+
+// Test-only: runs between claiming the lane start and creating the thread;
+// false fails the start.
+std::atomic<bool (*)()> gLaneStartHook{nullptr};
 
 // Process exit hook. A DLL's atexit runs at DLL detach, after ExitProcess has
 // killed the lane and after every exe hook; the CRT's process table runs in
@@ -117,11 +122,21 @@ private:
         UsdGenUnparkAll(wake_);
     }
 
+    // Admission waits out a start in flight: a producer that claimed a slot
+    // while another thread's start was about to fail would leave an accepted
+    // callback with no lane to run it (Close takes Idle straight to Joined).
+    // The wait covers one thread creation, once per process.
     bool StartLane() noexcept {
         for (uint32_t s = lane_.load(std::memory_order_acquire);;) {
-            if (s != kLaneIdle) return true;  // started, starting, or closed (Push rejects)
+            if (s == kLaneStarting) {
+                UsdGenParkWhileEqual(lane_, s);
+                s = lane_.load(std::memory_order_acquire);
+                continue;
+            }
+            if (s != kLaneIdle) return true;  // running, or closing (Push rejects)
             if (!lane_.compare_exchange_weak(s, kLaneStarting, std::memory_order_acq_rel)) continue;
-            bool started = RegisterProcessExit(CloseVulkanExternalRetirement);
+            auto const hook = gLaneStartHook.load(std::memory_order_acquire);
+            bool started = (!hook || hook()) && RegisterProcessExit(CloseVulkanExternalRetirement);
             if (started) {
                 try { worker_ = std::thread([this] { Run(); }); }
                 catch (...) { started = false; }
@@ -184,12 +199,9 @@ std::atomic<ExternalRetirementQueue*> gQueue{nullptr};
 
 ExternalRetirementQueue* Queue() noexcept {
     if (auto* q = gQueue.load(std::memory_order_acquire)) return q;
-    ExternalRetirementQueue* fresh = nullptr;
-    try { fresh = new ExternalRetirementQueue; } catch (...) { return nullptr; }
-    ExternalRetirementQueue* expected = nullptr;
-    if (gQueue.compare_exchange_strong(expected, fresh, std::memory_order_acq_rel)) return fresh;
-    delete fresh;
-    return expected;
+    try {
+        return &UsdGenLazyLeaked(gQueue);
+    } catch (...) { return nullptr; }
 }
 } // namespace
 
@@ -263,6 +275,10 @@ bool RegisterVulkanExternalRetirementAtExit() noexcept {
 bool EnqueueVulkanExternalRetirement(std::function<void()> callback) noexcept {
     auto* queue = Queue();
     return queue && queue->Enqueue(std::move(callback));
+}
+
+void SetVulkanExternalRetirementLaneStartHookForTesting(bool (*hook)()) noexcept {
+    gLaneStartHook.store(hook, std::memory_order_release);
 }
 
 void CloseVulkanExternalRetirement() noexcept {

@@ -1438,7 +1438,9 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     add_executable(testUsdGenVulkanRetirementStress tests/testUsdGenVulkanRetirementStress.cpp)
     target_link_libraries(testUsdGenVulkanRetirementStress PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanRetirementStress COMMAND testUsdGenVulkanRetirementStress)
-    set_tests_properties(testUsdGenVulkanRetirementStress PROPERTIES LABELS "T0;retirement;vulkan" TIMEOUT 120)
+    add_test(NAME testUsdGenVulkanRetirementStartFail COMMAND testUsdGenVulkanRetirementStress --start-fail)
+    set_tests_properties(testUsdGenVulkanRetirementStress testUsdGenVulkanRetirementStartFail PROPERTIES
+        LABELS "T0;retirement;vulkan" TIMEOUT 120)
     add_executable(testUsdGenVulkanExternalRetirement tests/testUsdGenVulkanExternalRetirement.cpp)
     target_link_libraries(testUsdGenVulkanExternalRetirement PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanExternalRetirement COMMAND testUsdGenVulkanExternalRetirement)
@@ -1510,6 +1512,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             set_tests_properties(testUsdGenCudaVulkanSessionParity PROPERTIES
                 LABELS "T1;vulkan;cuda;session;cuda-vulkan-parity" RESOURCE_LOCK usdgen_gpu
                 TIMEOUT 300 SKIP_RETURN_CODE 77
+                FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+            # Every Vulkan buffer, fresh or reused from the memory pool, starts
+            # as 0xFF bytes: no output may depend on zero-filled allocations.
+            add_test(NAME testUsdGenCudaVulkanSessionParityPoisoned COMMAND testUsdGenCudaVulkanSessionParity
+                "${CMAKE_CURRENT_BINARY_DIR}/vulkan")
+            set_tests_properties(testUsdGenCudaVulkanSessionParityPoisoned PROPERTIES
+                LABELS "T1;vulkan;cuda;session;cuda-vulkan-parity" RESOURCE_LOCK usdgen_gpu
+                TIMEOUT 300 SKIP_RETURN_CODE 77 ENVIRONMENT "USDGEN_VULKAN_POISON_MEMORY=1"
                 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
         endif()
     endif()
@@ -2483,6 +2493,12 @@ if(USDGEN_ENABLE_CUDA)
     target_link_libraries(testUsdGenCudaScatterGrowOverlap PRIVATE usdGen usdGenGpu)
     add_test(NAME testUsdGenCudaScatterGrowOverlap COMMAND testUsdGenCudaScatterGrowOverlap)
     set_tests_properties(testUsdGenCudaScatterGrowOverlap PROPERTIES
+        LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
+        SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
+    add_executable(testUsdGenCudaScatterGrowOverlapFault tests/testUsdGenCudaScatterGrowOverlapFault.cpp)
+    target_link_libraries(testUsdGenCudaScatterGrowOverlapFault PRIVATE usdGen usdGenGpu)
+    add_test(NAME testUsdGenCudaScatterGrowOverlapFault COMMAND testUsdGenCudaScatterGrowOverlapFault)
+    set_tests_properties(testUsdGenCudaScatterGrowOverlapFault PROPERTIES
         LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaScatterInput tests/testUsdGenCudaScatterInput.cpp)

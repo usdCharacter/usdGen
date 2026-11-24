@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <atomic>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -748,6 +749,9 @@ template <class T> cudaError_t Copy(DeviceBuffer<T>& dst, T const* src, size_t n
 // reads exactly as if freed. Deliberately leaked: entries must never
 // run cudaFreeHost during process teardown.
 // Fixed slots, claimed by exchange and filled by CAS: no lock, no ABA.
+// Test-only overlap faults (SetScatterGrowOverlapFaultsForTesting).
+std::atomic<bool> g_overlapFaultCopy{false}, g_overlapFaultThrow{false};
+
 constexpr size_t kPinnedRelayCap = 64;
 std::atomic<int*> g_pinnedRelays[kPinnedRelayCap] = {};
 int* PopPinnedRelay() {
@@ -893,6 +897,10 @@ ScatterGrowStatus CudaScatterGrow::validateStream(cudaStream_t stream) const {
     // cudaStreamGetDevice is not capture-safe on every supported runtime.
     if(stream) { int d=-1; if(cudaStreamGetDevice(stream,&d)!=cudaSuccess)return ScatterGrowStatus::CudaError; if(d!=current || (deviceIndex_>=0 && d!=deviceIndex_))return ScatterGrowStatus::InvalidArgument; }
     return ScatterGrowStatus::Ok;
+}
+void SetScatterGrowOverlapFaultsForTesting(bool failCopy, bool throwInValidate) noexcept {
+    g_overlapFaultCopy.store(failCopy, std::memory_order_release);
+    g_overlapFaultThrow.store(throwInValidate, std::memory_order_release);
 }
 ScatterGrowStatus CudaScatterGrow::validate(
     std::shared_ptr<const ScatterGrowRoots> const& r, ScatterGrowControls const& c,
@@ -1295,6 +1303,8 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         }
         if (ce == cudaSuccess) ce=Copy(pendingInput_.points,rootsOwner_->positions.data(),rootsOwner_->positions.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.stableIds,rootsOwner_->stableIds.data(),rootsOwner_->stableIds.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootPrim,rootsOwner_->rootPrim.data(),rootsOwner_->rootPrim.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootUV,rootsOwner_->rootUV.data(),rootsOwner_->rootUV.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootT,rootsOwner_->rootT.data(),rootsOwner_->rootT.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootB,rootsOwner_->rootB.data(),rootsOwner_->rootB.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootN,rootsOwner_->rootN.data(),rootsOwner_->rootN.size(),copy);
         if (copy != stream) {
+            if (ce == cudaSuccess && g_overlapFaultCopy.exchange(false, std::memory_order_acq_rel))
+                ce = cudaErrorInvalidValue;  // test: the last copy fails to issue
             if (ce == cudaSuccess) ce = cudaEventRecord(copied_, copy);
             if (ce == cudaSuccess) ce = cudaStreamWaitEvent(stream, copied_, 0);
         }
@@ -1357,6 +1367,8 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
                 return;
             }
             try {
+                if (g_overlapFaultThrow.exchange(false, std::memory_order_acq_rel))
+                    throw std::runtime_error("scatter-grow validation fault (test)");
                 s = validate(rootsOwner_, controls, &total);
             } catch (...) {
                 validateError = std::current_exception();
@@ -1364,9 +1376,13 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         });
         if (validateError) {
             // Both parts joined. Leave the object as clean as the pre-alloc
-            // validation throw: proving the stream idle covers the memset,
-            // copies and kernel, so discarding is safe. The throw propagates.
-            if (CudaFenceStream(stream) == cudaSuccess) {
+            // validation throw: once the copies issued, `stream` waits on
+            // copied_, so proving it idle covers the memset, copies and
+            // kernel and discarding is safe. A failed copy issue never
+            // recorded copied_: earlier copies may still run on copyStream_,
+            // so the work stays unproven (as on the copy-error return
+            // below). The throw propagates.
+            if (copyError == cudaSuccess && CudaFenceStream(stream) == cudaSuccess) {
                 unprovenWork_ = false;
                 discardPending();
             }

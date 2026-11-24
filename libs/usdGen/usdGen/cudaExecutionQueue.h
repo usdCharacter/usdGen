@@ -2,7 +2,7 @@
 #define USDGEN_CUDA_EXECUTION_QUEUE_H
 
 #include "usdGen/cudaExecution.h"
-#include "usdGen/epoch.h"
+#include "usdGen/sharedCell.h"
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionTaskGraph.h"
 
@@ -13,8 +13,8 @@
 
 namespace usdGen {
 
-// Immutable once published; readers hold it by intrusive reference.
-struct UsdGenCudaQueueSnapshot : UsdGenRefCounted {
+// Immutable once published; readers hold it by shared reference.
+struct UsdGenCudaQueueSnapshot {
     uint64_t epoch = 0;
     double frame = 0.0;
     std::shared_ptr<const UsdGenDeviceGeneration> generation;
@@ -48,7 +48,7 @@ public:
                     double frame, Completion,
                     UsdGenExecutionTaskGraph::RequestClass);
     uint64_t CancelPending();
-    UsdGenRef<const UsdGenCudaQueueSnapshot> Snapshot() const noexcept;
+    std::shared_ptr<const UsdGenCudaQueueSnapshot> Snapshot() const noexcept;
     void Drain();
 
 private:

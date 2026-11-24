@@ -1190,9 +1190,8 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Launch(
         // state back), and the cache buffers are never MarkSubmitted, so
         // dropping them frees the storage and returns the charge. False
         // when nothing was funded or another pose owns the state.
-        auto evictCacheForRoom = [&]() -> bool {
-            if (!proof) return false;
-            auto& cache = proof->evalCache;
+        auto evictCache = [&](Native::ProofState& state) -> bool {
+            auto& cache = state.evalCache;
             if (!cache.r && !cache.proof) return false;
             cache.r.reset();
             cache.proof.reset();
@@ -1207,6 +1206,16 @@ std::unique_ptr<DeformPipeline::Candidate> DeformPipeline::Launch(
             evalCacheUnfunded.fetch_add(1, std::memory_order_relaxed);
             evalCacheFundedPrefix.store(0, std::memory_order_relaxed);
             return true;
+        };
+        // A pose that runs direct because another pose held the state takes
+        // it now if that pose has put it back meanwhile, evicts, and returns
+        // it at once (it still runs direct). While the state is held, the
+        // holder's evaluate may read the cache, so nothing is evicted and the
+        // pose fails on the budget: it never waits for the holder's proof.
+        auto evictCacheForRoom = [&]() -> bool {
+            if (proof) return evictCache(*proof.operator->());
+            Native::ProofHold late(native_.get());
+            return late.Take() && evictCache(*late.operator->());
         };
         // Pose-scratch funding with one eviction retry: a failed charge
         // first drops the R cache (if any) and retries, so a pose the
