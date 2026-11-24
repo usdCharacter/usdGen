@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "usdGen/epoch.h"
 
 #include "usdGen/expressionTargets.h"
 #include "usdGen/opRegistry.h"
@@ -11,11 +12,12 @@
 #include <numeric>
 #include <array>
 #include <atomic>
-#include <mutex>
 #include <limits>
 #include <initializer_list>
 #include <chrono>
 #include <cstring>
+#include <iterator>
+#include <string_view>
 #include <thread>
 #include <stdexcept>
 
@@ -51,6 +53,24 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 
 namespace usdGen {
 namespace {
+template <size_t N>
+bool Contains(std::string_view const (&names)[N], std::string_view name) noexcept {
+    return std::find(std::begin(names), std::end(names), name) != std::end(names);
+}
+// Lazily built process-lifetime singleton, published by CAS: no
+// function-local static (MSVC guards those with a lock). A racing builder
+// that loses frees its candidate.
+template <class T, class Make>
+T& LazyPublish(std::atomic<T*>& cell, Make make) {
+    T* p = cell.load(std::memory_order_acquire);
+    if (p) return *p;
+    T* fresh = make();
+    if (cell.compare_exchange_strong(p, fresh, std::memory_order_acq_rel,
+                                     std::memory_order_acquire))
+        return *fresh;
+    delete fresh;
+    return *p;
+}
 bool Fail(UsdGenDiagnostics* diagnostics, std::string message) {
     if (diagnostics) diagnostics->Error("CUDA: " + std::move(message));
     return false;
@@ -119,14 +139,14 @@ bool ValidateLength(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) 
         !node.references.empty() || !node.curves.empty() || !node.maps.empty() ||
         !node.mapBindings.empty())
         return Fail(diagnostics, "unsupported Length mode/reference/map configuration");
-    static const std::set<std::string> floats{
+    static constexpr std::string_view floats[] = {
         "length:value", "minRemainingLength", "cullThreshold", "mask"};
     std::set<std::string> seen;
     for (auto const& param : node.params) {
         auto name = param.name.GetString();
         if (!seen.insert(name).second) return Fail(diagnostics, "duplicate Length parameter " + name);
         bool valid = false;
-        if (floats.count(name))
+        if (Contains(floats, name))
             valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>()) &&
                 param.value.UncheckedGet<float>() >= 0 &&
                 (name != "mask" || param.value.UncheckedGet<float>() <= 1);
@@ -165,14 +185,14 @@ bool ValidateWidth(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         return Fail(diagnostics, "Width references/curves/mode are not supported");
     // The Bezier profile controls are literal floats; the profile itself is
     // folded into the per-node LUT (UsdGenWidthBezierLut) below.
-    static const std::set<std::string> floats{
+    static constexpr std::string_view floats[] = {
         "width", "mask", "width:root", "width:mid", "width:midShift", "width:tip"};
     std::set<std::string> seen;
     for (auto const& param : node.params) {
         auto const& name = param.name.GetString();
         if (!seen.insert(name).second) return Fail(diagnostics, "duplicate Width parameter " + name);
         bool valid = false;
-        if (floats.count(name)) valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
+        if (Contains(floats, name)) valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
         else if (name == "replace") valid = param.value.IsHolding<bool>();
         else if (name == "width:interpolation") valid = param.value.IsHolding<TfToken>();
         else if (name == "width:profile:mode")
@@ -228,7 +248,7 @@ bool ValidateNoise(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         !node.curves.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.mode.IsEmpty())
         return Fail(diagnostics, "Noise does not accept references, curves, maps, or mode");
-    static const std::set<std::string> floats{
+    static constexpr std::string_view floats[] = {
         "noise:magnitude", "noise:frequency", "noise:correlation",
         "noise:lacunarity", "noise:gain", "preserveLength", "mask"};
     std::set<std::string> seen;
@@ -236,7 +256,7 @@ bool ValidateNoise(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
         auto const name = LocalName(param.name);
         if (!seen.insert(name).second) return Fail(diagnostics, "duplicate Noise parameter " + name);
         bool valid = false;
-        if (floats.count(name)) {
+        if (Contains(floats, name)) {
             valid = param.value.IsHolding<float>() &&
                 std::isfinite(param.value.UncheckedGet<float>());
             if (valid && (name == "noise:magnitude" || name == "noise:frequency" ||
@@ -354,16 +374,15 @@ bool ValidateScatterGrow(UsdGenGraphDesc const& desc, uint32_t source, uint32_t 
     // deliberately substitute defaults for malformed native values.  This
     // compact GPU slice has no alternate interpretation for an authored
     // control, so every authored value must be both unique and native-typed.
-    static std::set<TfToken> const allowed{
-        TfToken("segments"), TfToken("length"), TfToken("lengthRandom"),
-        TfToken("lift"), TfToken("azimuth"), TfToken("azimuthRandom"),
-        TfToken("direction"), TfToken("directionVector")};
+    static constexpr std::string_view allowed[] = {
+        "segments", "length", "lengthRandom", "lift", "azimuth", "azimuthRandom",
+        "direction", "directionVector"};
     std::set<TfToken> seen;
     for (auto const& value : grow.params) {
         if (value.animated || !seen.insert(value.name).second)
             return Fail(diagnostics, "Scatter->Grow has animated or duplicate Grow control " +
                 value.name.GetString());
-        if (!allowed.count(value.name))
+        if (!Contains(allowed, value.name.GetString()))
             return Fail(diagnostics, "Scatter->Grow has unsupported Grow control " +
                 value.name.GetString());
         bool valid = false;
@@ -663,21 +682,27 @@ struct CudaWidthBlendGraphCache {
     CudaWidthBlendGraphCache(CudaWidthBlendGraphCache const&) = delete;
     CudaWidthBlendGraphCache& operator=(CudaWidthBlendGraphCache const&) = delete;
 
+    // inFlight_ is the entry's ownership token: whoever wins it (a lease,
+    // a capture, eviction, the destructor) is the only writer of the entry.
+    // Stats() reads atomics only. A lost claim is a clean miss.
     bool Acquire(Key const& key, Lease* result) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!result || quarantined_.load(std::memory_order_acquire) || !key.count ||
-            !EnsureCaptureStream()) return false;
+        if (!result || quarantined_.load(std::memory_order_acquire) || !key.count) return false;
         bool expected = false;
-        if (valid_ && key_ == key && inFlight_.compare_exchange_strong(
-                expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
+        if (!inFlight_.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
+                                               std::memory_order_acquire)) {
+            misses_.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        if (quarantined_.load(std::memory_order_acquire) || !EnsureCaptureStream()) {
+            Unclaim(); return false;
+        }
+        if (valid_ && key_ == key) {
             replays_.fetch_add(1, std::memory_order_relaxed);
             *result = Lease(this);
             return true;
         }
         misses_.fetch_add(1, std::memory_order_relaxed);
-        if (valid_) {
-            if (inFlight_.load(std::memory_order_acquire) || !EvictIdle()) return false;
-        }
+        if (valid_ && !EvictIdleOwned()) { Unclaim(); return false; }
         // A failed cache creation is a clean miss.  It must not consume the
         // job reservation because this storage survives the job.
         auto charge = gpu::TryReserveCudaExecutionBytes(kConservativeGraphChargeBytes,
@@ -686,10 +711,10 @@ struct CudaWidthBlendGraphCache {
             right_.reset(key.count, nullptr, UsdGenExecutionResourceKind::Cache) != cudaSuccess ||
             output_.reset(key.count, nullptr, UsdGenExecutionResourceKind::Cache) != cudaSuccess) {
             left_.release(); right_.release(); output_.release();
-            return false;
+            Unclaim(); return false;
         }
         if (s_failNextCudaWidthBlendGraphCapture.exchange(false, std::memory_order_acq_rel)) {
-            left_.release(); right_.release(); output_.release(); return false;
+            left_.release(); right_.release(); output_.release(); Unclaim(); return false;
         }
         cudaGraph_t graph = nullptr;
         // This capture touches only this cache's preallocated private slot on
@@ -697,7 +722,7 @@ struct CudaWidthBlendGraphCache {
         // unsafe-call protection without rejecting unrelated relay cleanup
         // (including DeviceBuffer release) on worker threads.
         if (cudaStreamBeginCapture(captureStream_, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
-            left_.release(); right_.release(); output_.release(); return false;
+            left_.release(); right_.release(); output_.release(); Unclaim(); return false;
         }
         auto const left = static_cast<gpu::DeviceBuffer<float> const&>(left_).view();
         auto const right = static_cast<gpu::DeviceBuffer<float> const&>(right_).view();
@@ -709,35 +734,27 @@ struct CudaWidthBlendGraphCache {
             cudaGraphInstantiate(&executable, graph, 0) != cudaSuccess) {
             if (executable) cudaGraphExecDestroy(executable);
             if (graph) cudaGraphDestroy(graph);
-            left_.release(); right_.release(); output_.release(); return false;
+            left_.release(); right_.release(); output_.release(); Unclaim(); return false;
         }
         try { key_ = key; }
         catch (...) {
             cudaGraphExecDestroy(executable); cudaGraphDestroy(graph);
-            left_.release(); right_.release(); output_.release(); return false;
+            left_.release(); right_.release(); output_.release(); Unclaim(); return false;
         }
         graphCharge_ = std::move(*charge); graph_ = graph; executable_ = executable;
         retainedCacheBytes_.store(3 * key.count * sizeof(float) +
                                       kConservativeGraphChargeBytes,
                                   std::memory_order_release);
         valid_ = true; captures_.fetch_add(1, std::memory_order_relaxed);
-        expected = false;
-        if (!inFlight_.compare_exchange_strong(expected, true, std::memory_order_acq_rel,
-                                                std::memory_order_acquire)) {
-            // This cache is workspace-private and construction occurs on its
-            // owner lane. A concurrent claim here is still safe: keep the
-            // freshly built entry resident and take the ordinary fallback.
-            return false;
-        }
         *result = Lease(this);
         return true;
     }
 
+    // Lease holder only.
     bool CopyLaunchCopy(gpu::DeviceView<const float> left,
                         gpu::DeviceView<const float> right,
                         gpu::DeviceView<float> freshOutput,
                         cudaStream_t stream) noexcept {
-        std::lock_guard<std::mutex> lock(mutex_);
         if (!valid_ || !stream || left.size != key_.count || right.size != key_.count ||
             freshOutput.size != key_.count || !left.data || !right.data || !freshOutput.data)
             return false;
@@ -754,32 +771,16 @@ struct CudaWidthBlendGraphCache {
         return true;
     }
 
-    bool EvictIdle() noexcept {
-        if (!valid_) return true;
-        if (inFlight_.load(std::memory_order_acquire)) return false;
-        auto const left = left_.queryUse(), right = right_.queryUse(), output = output_.queryUse();
-        if (left == cudaErrorNotReady || right == cudaErrorNotReady || output == cudaErrorNotReady)
-            return false;
-        if (left != cudaSuccess || right != cudaSuccess || output != cudaSuccess) {
-            QuarantineLocked(); return false;
-        }
-        if (cudaGraphExecDestroy(executable_) != cudaSuccess || cudaGraphDestroy(graph_) != cudaSuccess) {
-            executable_ = nullptr; graph_ = nullptr; QuarantineLocked(); return false;
-        }
-        executable_ = nullptr; graph_ = nullptr; valid_ = false;
-        left_.release(); right_.release(); output_.release(); graphCharge_.Release();
-        retainedCacheBytes_.store(0, std::memory_order_release);
-        evictions_.fetch_add(1, std::memory_order_relaxed);
-        return true;
-    }
-
+    // Lease holder or destructor only.
     void Quarantine() noexcept {
-        std::lock_guard<std::mutex> lock(mutex_);
-        QuarantineLocked();
+        if (quarantined_.exchange(true, std::memory_order_acq_rel)) return;
+        // Do not issue CUDA destroys when completion/context proof was lost.
+        executable_ = nullptr; graph_ = nullptr; valid_ = false;
+        left_.quarantine(); right_.quarantine(); output_.quarantine(); graphCharge_.Abandon();
+        quarantines_.fetch_add(1, std::memory_order_relaxed);
     }
 
     UsdGenCudaWidthBlendGraphStats Stats() const noexcept {
-        std::lock_guard<std::mutex> lock(mutex_);
         UsdGenCudaWidthBlendGraphStats result;
         result.captures = captures_.load(std::memory_order_relaxed);
         result.replays = replays_.load(std::memory_order_relaxed);
@@ -796,21 +797,34 @@ struct CudaWidthBlendGraphCache {
     }
 
 private:
-    void QuarantineLocked() noexcept {
-        if (quarantined_.exchange(true, std::memory_order_acq_rel)) return;
-        // Do not issue CUDA destroys when completion/context proof was lost.
+    void Unclaim() noexcept { inFlight_.store(false, std::memory_order_release); }
+    // Token holder only.
+    bool EvictIdleOwned() noexcept {
+        if (!valid_) return true;
+        auto const left = left_.queryUse(), right = right_.queryUse(), output = output_.queryUse();
+        if (left == cudaErrorNotReady || right == cudaErrorNotReady || output == cudaErrorNotReady)
+            return false;
+        if (left != cudaSuccess || right != cudaSuccess || output != cudaSuccess) {
+            Quarantine(); return false;
+        }
+        if (cudaGraphExecDestroy(executable_) != cudaSuccess || cudaGraphDestroy(graph_) != cudaSuccess) {
+            executable_ = nullptr; graph_ = nullptr; Quarantine(); return false;
+        }
         executable_ = nullptr; graph_ = nullptr; valid_ = false;
-        left_.quarantine(); right_.quarantine(); output_.quarantine(); graphCharge_.Abandon();
-        quarantines_.fetch_add(1, std::memory_order_relaxed);
+        left_.release(); right_.release(); output_.release(); graphCharge_.Release();
+        retainedCacheBytes_.store(0, std::memory_order_release);
+        evictions_.fetch_add(1, std::memory_order_relaxed);
+        return true;
     }
     bool EnsureCaptureStream() noexcept {
         return captureStream_ ||
             cudaStreamCreateWithFlags(&captureStream_, cudaStreamNonBlocking) == cudaSuccess;
     }
     void Destroy() noexcept {
-        std::lock_guard<std::mutex> lock(mutex_);
         if (quarantined_.load(std::memory_order_acquire)) return;
-        if (!EvictIdle()) QuarantineLocked();
+        bool expected = false;
+        if (!inFlight_.compare_exchange_strong(expected, true, std::memory_order_acq_rel) ||
+            !EvictIdleOwned()) Quarantine();
     }
     int device_ = -1;
     cudaStream_t captureStream_ = nullptr;
@@ -824,7 +838,6 @@ private:
     std::atomic<uint64_t> captures_{0}, replays_{0}, misses_{0}, evictions_{0}, quarantines_{0};
     std::atomic<size_t> retainedCacheBytes_{0};
     bool valid_ = false;
-    mutable std::mutex mutex_;
 };
 
 CudaWidthBlendGraphCache::Key MakeWidthBlendGraphKey(
@@ -852,11 +865,15 @@ void CudaInlineCompletionCallback(cudaStream_t, cudaError_t status,
 }
 #endif
 
+// Accepted RBF binding stats, published by atomic pointer.
+struct CudaBindingStatsSet : UsdGenRefCounted {
+    std::vector<UsdGenCudaBindingStats> values;
+};
+
 struct UsdGenCudaExecutionWorkspace::Impl {
     int device = -1;
     SdfPath description;
-    std::shared_ptr<const std::vector<UsdGenCudaBindingStats>> stats =
-        std::make_shared<const std::vector<UsdGenCudaBindingStats>>();
+    UsdGenAtomicRef<CudaBindingStatsSet> stats{UsdGenMakeRef<CudaBindingStatsSet>()};
 #ifdef USDGEN_ENABLE_CUDA
     cudaStream_t stream = nullptr;
     // Width-only fan-out uses this fixed, workspace-owned pool.  Handles are
@@ -1571,7 +1588,7 @@ static_assert(sizeof(float3) == 3 * sizeof(float));
 #endif
 
 std::vector<UsdGenCudaBindingStats> GetCudaBindingStats(UsdGenCudaExecutionWorkspace const& workspace) {
-    return *std::atomic_load(&workspace.impl_->stats);
+    return workspace.impl_->stats.Load()->values;
 }
 
 UsdGenCudaWidthBlendGraphStats GetCudaWidthBlendGraphStats(
@@ -1606,7 +1623,8 @@ void failNextCudaWidthBlendGraphCaptureForTesting() {
 UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexcept {
     // Bump the matrix version whenever a row or its executor contract changes;
     // compiled-plan/cache keys can then reject stale backend assumptions.
-    static const UsdGenExecutionCapabilityMatrix matrix{
+    static std::atomic<UsdGenExecutionCapabilityMatrix const*> cell{nullptr};
+    return LazyPublish(cell, [] { return new UsdGenExecutionCapabilityMatrix const{
         "cuda", 35,
 #ifdef USDGEN_ENABLE_CUDA
         true,
@@ -1640,8 +1658,7 @@ UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexce
                 UsdGenCapabilityExclusiveWorkspace},
             {TfToken("UsdGenWidthBlend"), 6, 0, 0,
                 UsdGenCapabilityCopyOnWriteWrites}
-        }};
-    return matrix;
+        }}; });
 }
 
 std::shared_ptr<const UsdGenExecutionPlanMetadata> GetCudaExecutionPlanMetadata(
@@ -2810,7 +2827,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
             return Fail(diagnostics, "RBF currently requires identity Description and CurveSource transforms");
     }
     // Never silently ignore an authored effect just because this is a source.
-    static const std::set<std::string> supported{
+    static constexpr std::string_view supported[] = {
         "useRest", "idSource", "expectEpoch", "staleAction",
         "resampleTo", "rebind", "interpolationMode", "densityMultiplier",
         "regionMapChannel", "expectMapGeneration"};
@@ -2819,7 +2836,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate source parameter " + param.name.GetString());
         auto const& name = param.name.GetString();
-        if (!supported.count(name))
+        if (!Contains(supported, name))
             return Fail(diagnostics, "unsupported CurveSource parameter " + param.name.GetString());
         const bool validType = name == "useRest" ? param.value.IsHolding<bool>() :
             name == "resampleTo" || name == "regionMapChannel" ? param.value.IsHolding<int>() :
@@ -4180,15 +4197,15 @@ bool ExecuteCudaJobSource(UsdGenCudaExecutionJob& job) {
 
 #ifdef USDGEN_ENABLE_CUDA
 struct FinalizationReturnGate;
-struct SourceAsyncTestGate {
+struct SourceAsyncTestGate : UsdGenRefCounted {
     std::atomic<bool> claimed{false};
     std::atomic<bool> entered{false}, released{false}, timedOut{false}, terminal{false};
     std::atomic<std::atomic<unsigned>*> terminalState{nullptr};
 };
-std::shared_ptr<SourceAsyncTestGate> s_sourceAsyncTestGate;
-std::shared_ptr<SourceAsyncTestGate> s_sourceAsyncResampleTestGate;
-std::shared_ptr<SourceAsyncTestGate> s_sourceAsyncResampleReturnTestGate;
-struct SourceScalarReturnGate {
+UsdGenAtomicRef<SourceAsyncTestGate> s_sourceAsyncTestGate;
+UsdGenAtomicRef<SourceAsyncTestGate> s_sourceAsyncResampleTestGate;
+UsdGenAtomicRef<SourceAsyncTestGate> s_sourceAsyncResampleReturnTestGate;
+struct SourceScalarReturnGate : UsdGenRefCounted {
     enum Handoff : unsigned { Ready = 1u, Released = 2u, Returned = 4u };
     std::atomic<bool> claimed{false};
     std::atomic<unsigned> handoff{0};
@@ -4196,8 +4213,8 @@ struct SourceScalarReturnGate {
     std::atomic<std::atomic<unsigned>*> terminalState{nullptr};
     std::atomic<void*> slot{nullptr};
 };
-std::shared_ptr<SourceScalarReturnGate> s_sourceAsyncScalarReturnTestGate;
-std::array<std::shared_ptr<SourceAsyncTestGate>, 3> s_sourceAsyncControlGates;
+UsdGenAtomicRef<SourceScalarReturnGate> s_sourceAsyncScalarReturnTestGate;
+std::array<UsdGenAtomicRef<SourceAsyncTestGate>, 3> s_sourceAsyncControlGates;
 void SourceAsyncGateCallback(cudaStream_t, cudaError_t, void* data) noexcept {
     auto* gate = static_cast<SourceAsyncTestGate*>(data);
     gate->entered.store(true, std::memory_order_release);
@@ -4227,13 +4244,13 @@ void ReturnSourceScalarWhenReleased(SourceScalarReturnGate&) noexcept;
 struct SourceRelay {
     std::shared_ptr<UsdGenCudaExecutionJob> job;
     std::function<void(bool)> done;
-    std::shared_ptr<SourceAsyncTestGate> gate;
+    UsdGenRef<SourceAsyncTestGate> gate;
     // Control gates are independently retained.  Keeping one relay-wide gate
     // is insufficient if more than one test seam is armed before this slot
     // reaches terminal proof.
-    std::array<std::shared_ptr<SourceAsyncTestGate>, 3> controlGates;
-    std::shared_ptr<SourceAsyncTestGate> resampleReturnGate;
-    std::shared_ptr<SourceScalarReturnGate> scalarReturnGate;
+    std::array<UsdGenRef<SourceAsyncTestGate>, 3> controlGates;
+    UsdGenRef<SourceAsyncTestGate> resampleReturnGate;
+    UsdGenRef<SourceScalarReturnGate> scalarReturnGate;
     std::unique_ptr<CudaParameterEvaluator> controls;
     std::unique_ptr<CudaGroomScalarReadback> scalarPacket;
     CudaSourcePreparationOptions provenOptions;
@@ -4398,30 +4415,30 @@ struct SourceRelayService {
                 } else {
                 unsigned const next=phase+1;
                 auto const stream=job->workspace->impl_->stream;
-                if (next == SourceUpload) if (auto gate=std::atomic_load(&s_sourceAsyncTestGate);
+                if (next == SourceUpload) if (auto gate=s_sourceAsyncTestGate.Load();
                     gate && !gate->claimed.exchange(true)) {
                     relay->gate=gate;
-                    if (cudaStreamAddCallback(stream,SourceAsyncGateCallback,gate.get(),0)!=cudaSuccess) {
+                    if (cudaStreamAddCallback(stream,SourceAsyncGateCallback,gate.Get(),0)!=cudaSuccess) {
                         relay->quarantine.store(true,std::memory_order_release);
                         slots[index].Signal(next,cudaErrorUnknown);
                         slots[index].ReturnFromLauncher(next);
                         return;
                     }
                 }
-                if (next <= SourceScalars) if (auto gate=std::atomic_load(&s_sourceAsyncControlGates[next]);
+                if (next <= SourceScalars) if (auto gate=s_sourceAsyncControlGates[next].Load();
                     gate && !gate->claimed.exchange(true)) {
                     // FreshAsync has already queued its compact proof D2H.
                     // Keep the test hold in the terminal callback, immediately
                     // before Signal, so callback installation itself never
                     // blocks behind the held predecessor callback.
                     relay->controlGates[next]=gate;
-                    slots[index].controlGate[next].store(gate.get(), std::memory_order_release);
+                    slots[index].controlGate[next].store(gate.Get(), std::memory_order_release);
                 }
-                if (next == SourceScalars) if (auto gate = std::atomic_load(&s_sourceAsyncScalarReturnTestGate);
+                if (next == SourceScalars) if (auto gate = s_sourceAsyncScalarReturnTestGate.Load();
                     gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
                     relay->scalarReturnGate = gate;
                     gate->slot.store(&slots[index], std::memory_order_release);
-                    slots[index].scalarReturnGate.store(gate.get(), std::memory_order_release);
+                    slots[index].scalarReturnGate.store(gate.Get(), std::memory_order_release);
                 }
                 bool installFailed=failInstall[next].exchange(false,std::memory_order_acq_rel);
                 if (!installFailed && next == SourceUpload) {
@@ -4476,7 +4493,7 @@ struct SourceRelayService {
                  cudaError_t(slots[index].status[phase].load(std::memory_order_acquire)),
                  *job->workspace, job->diagnostics) : true);
         if (ok && phase == SourceUpload && job->state.sourceOptions.resampleTo) {
-            auto gate = std::atomic_load(&s_sourceAsyncResampleTestGate);
+            auto gate = s_sourceAsyncResampleTestGate.Load();
             bool useGate = gate && !gate->claimed.exchange(true);
             if (useGate) {
                 // The callback identity is permanent and relay ownership
@@ -4484,17 +4501,17 @@ struct SourceRelayService {
                 // Holding it in SourceResampleCallback places the test seam
                 // after FreshAsync's status D2H, not before its protocol.
                 relay->gate = gate;
-                slots[index].resampleGate.store(gate.get(), std::memory_order_release);
+                slots[index].resampleGate.store(gate.Get(), std::memory_order_release);
             }
             // ApplyFresh and callback install are one worker-owned sequence;
             // the phase return below is its final payload-visible operation.
             bool const injectInstall = failInstall[SourceResample].exchange(false, std::memory_order_acq_rel);
             bool resampleSubmitted = false;
-            auto returnGate = std::atomic_load(&s_sourceAsyncResampleReturnTestGate);
+            auto returnGate = s_sourceAsyncResampleReturnTestGate.Load();
             if (returnGate && !returnGate->claimed.exchange(true)) {
                 relay->resampleReturnGate = returnGate;
                 returnGate->terminalState.store(&slots[index].state[SourceResample], std::memory_order_release);
-                slots[index].resampleReturnGate.store(returnGate.get(), std::memory_order_release);
+                slots[index].resampleReturnGate.store(returnGate.Get(), std::memory_order_release);
             }
             if (!job->state.StartSourceResampleAsync(*job->workspace,
                     nullptr, nullptr,
@@ -4674,7 +4691,10 @@ struct SourceRelayService {
 };
 // The service is intentionally process-lifetime.  CUDA may invoke a native
 // callback while static session/scene teardown is under way.
-SourceRelayService& SourceRelays() { static auto* service = new SourceRelayService; return *service; }
+std::atomic<SourceRelayService*> s_sourceRelays{nullptr};
+SourceRelayService& SourceRelays() {
+    return LazyPublish(s_sourceRelays, [] { return new SourceRelayService; });
+}
 void SourceRelayService::Slot::Signal(unsigned phase, cudaError_t value) noexcept {
     // Publish status before terminal.  The arrival that observes both gates
     // owns posting; no relay is touched by the CUDA callback.
@@ -4820,14 +4840,14 @@ bool ExecuteCudaJobSourceAsync(std::shared_ptr<UsdGenCudaExecutionJob> job,
             }
             submitted = true;
             if (status == gpu::ScatterGrowStatus::Ok) {
-                if (auto gate=std::atomic_load(&s_sourceAsyncTestGate);
+                if (auto gate=s_sourceAsyncTestGate.Load();
                     gate && !gate->claimed.exchange(true)) {
                     relay->gate=gate;
                     // Hold the terminal callback after the status D2H. A
                     // predecessor hold can block that copy's submission
                     // under instrumentation before this launcher returns.
                     SourceRelays().slots[relaySlot].uploadGate.store(
-                        gate.get(), std::memory_order_release);
+                        gate.Get(), std::memory_order_release);
                 }
                 bool const injectInstall = SourceRelays().failInstall[SourceUpload].exchange(
                     false, std::memory_order_acq_rel);
@@ -4875,11 +4895,11 @@ bool ExecuteCudaJobSourceAsync(std::shared_ptr<UsdGenCudaExecutionJob> job,
                     job->memoryReservation.get(),
                     UsdGenExecutionResourceKind::Scratch) == CudaParameterStatus::Ok &&
                 relay->controls->EnqueueFreshContextStatus(stream) == CudaParameterStatus::Ok;
-            if (controlsReady) if (auto gate=std::atomic_load(&s_sourceAsyncControlGates[SourceContexts]);
+            if (controlsReady) if (auto gate=s_sourceAsyncControlGates[SourceContexts].Load();
                 gate && !gate->claimed.exchange(true)) {
                 relay->controlGates[SourceContexts]=gate;
                 SourceRelays().slots[relaySlot].controlGate[SourceContexts].store(
-                    gate.get(), std::memory_order_release);
+                    gate.Get(), std::memory_order_release);
             }
             bool const terminalInstallFailed = controlsReady &&
                 (SourceRelays().failInstall[SourceContexts].exchange(false,std::memory_order_acq_rel) ||
@@ -4940,12 +4960,12 @@ bool ExecuteCudaJobSourceAsync(std::shared_ptr<UsdGenCudaExecutionJob> job,
     // state before installing any native callback.
     job->failed = false;
     auto stream = job->workspace->impl_->stream;
-    if (auto gate = std::atomic_load(&s_sourceAsyncTestGate);
+    if (auto gate = s_sourceAsyncTestGate.Load();
         gate && !gate->claimed.exchange(true)) {
         // This stream-ordered test callback is intentionally after Set's H2D
         // submissions and before the real terminal callback; launcher returns.
         relay->gate = gate;
-        if (cudaStreamAddCallback(stream, SourceAsyncGateCallback, gate.get(), 0) != cudaSuccess) {
+        if (cudaStreamAddCallback(stream, SourceAsyncGateCallback, gate.Get(), 0) != cudaSuccess) {
             relay->quarantine.store(true, std::memory_order_release); SourceRelays().slots[relaySlot].Signal(SourceUpload, cudaErrorUnknown);
             SourceRelays().slots[relaySlot].ReturnFromLauncher(SourceUpload); return true;
         }
@@ -4976,8 +4996,8 @@ constexpr int kOperatorRelayWorkers = 8;
 // four deformation phases.  Keep all of them in the same permanent callback
 // slot: callbacks only signal a phase; relay workers own every CUDA call.
 constexpr unsigned kOperatorRelayPhases = 14;
-std::array<std::shared_ptr<SourceAsyncTestGate>, kOperatorRelayPhases> s_operatorAsyncGates;
-std::shared_ptr<SourceAsyncTestGate> s_operatorAsyncReturnGate;
+std::array<UsdGenAtomicRef<SourceAsyncTestGate>, kOperatorRelayPhases> s_operatorAsyncGates;
+UsdGenAtomicRef<SourceAsyncTestGate> s_operatorAsyncReturnGate;
 struct WidthBranchTestGate : SourceAsyncTestGate {
     explicit WidthBranchTestGate(size_t count) : expected(count) {}
     size_t const expected;
@@ -4993,7 +5013,7 @@ struct WidthBranchTestGate : SourceAsyncTestGate {
         return false;
     }
 };
-std::shared_ptr<WidthBranchTestGate> s_operatorAsyncWidthBranchGate;
+UsdGenAtomicRef<WidthBranchTestGate> s_operatorAsyncWidthBranchGate;
 std::atomic<uint64_t> s_operatorAsyncWidthBranchStreamMask{0};
 constexpr size_t kWidthOverlapWitnessMaxTasks =
     UsdGenExecutionOverlapWitnessSnapshot::kMaxTasks;
@@ -5002,7 +5022,7 @@ constexpr size_t kWidthOverlapWitnessCounters = 3;
 // Retained by every submitted branch candidate as well as the test control.
 // Consequently a re-arm cannot destroy state still referenced by queued CUDA
 // work, and an unproven terminal keeps it through the normal relay quarantine.
-struct WidthOverlapWitness {
+struct WidthOverlapWitness : UsdGenRefCounted {
     gpu::DeviceBuffer<uint32_t> counters;
     cudaStream_t initializeStream = nullptr;
     cudaEvent_t initialized = nullptr;
@@ -5107,7 +5127,7 @@ struct WidthOverlapWitness {
         return result;
     }
 };
-std::shared_ptr<WidthOverlapWitness> s_operatorAsyncWidthOverlapWitness;
+UsdGenAtomicRef<WidthOverlapWitness> s_operatorAsyncWidthOverlapWitness;
 struct OperatorWidthCandidate {
     std::unique_ptr<gpu::DeviceBuffer<float>> profile, widths;
     std::unique_ptr<gpu::DeviceBuffer<float>> priorWidths;
@@ -5168,10 +5188,10 @@ struct OperatorRelay {
     std::unique_ptr<OperatorNoiseCandidate> noise;
     std::unique_ptr<OperatorRbfCandidate> rbf;
     std::function<void()> poison;
-    std::array<std::shared_ptr<SourceAsyncTestGate>, kOperatorRelayPhases> gates;
-    std::shared_ptr<WidthBranchTestGate> widthBranchGate;
-    std::shared_ptr<WidthOverlapWitness> overlapWitness;
-    std::shared_ptr<SourceAsyncTestGate> returnGate;
+    std::array<UsdGenRef<SourceAsyncTestGate>, kOperatorRelayPhases> gates;
+    UsdGenRef<WidthBranchTestGate> widthBranchGate;
+    UsdGenRef<WidthOverlapWitness> overlapWitness;
+    UsdGenRef<SourceAsyncTestGate> returnGate;
     std::atomic<bool> failed{false}, quarantine{false};
     bool geometryGuard = false;
     size_t slot = std::numeric_limits<size_t>::max(), index = 0;
@@ -5263,10 +5283,10 @@ struct OperatorRelayService {
                  void (*callback)(cudaStream_t, cudaError_t, void*) noexcept) noexcept {
         auto relay = slot.relay;
         if (relay) {
-            auto gate = std::atomic_load(&s_operatorAsyncGates[phase]);
+            auto gate = s_operatorAsyncGates[phase].Load();
             if (gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
                 relay->gates[phase] = gate;
-                slot.gate[phase].store(gate.get(), std::memory_order_release);
+                slot.gate[phase].store(gate.Get(), std::memory_order_release);
             }
         }
         return !failInstall[phase].exchange(false, std::memory_order_acq_rel) &&
@@ -5276,10 +5296,10 @@ struct OperatorRelayService {
         (void)stream;
         auto relay = slot.relay;
         if (!relay) return false;
-        auto gate = std::atomic_load(&s_operatorAsyncGates[phase]);
+        auto gate = s_operatorAsyncGates[phase].Load();
         if (!gate || gate->claimed.exchange(true, std::memory_order_acq_rel)) return true;
         relay->gates[phase] = gate;
-        slot.gate[phase].store(gate.get(), std::memory_order_release);
+        slot.gate[phase].store(gate.Get(), std::memory_order_release);
         return true;
     }
     void Finish(size_t index, bool ok, bool unsafe) noexcept {
@@ -5394,7 +5414,10 @@ struct OperatorRelayService {
 };
 
 namespace {
-OperatorRelayService& OperatorRelays() { static auto* service = new OperatorRelayService; return *service; }
+std::atomic<OperatorRelayService*> s_operatorRelays{nullptr};
+OperatorRelayService& OperatorRelays() {
+    return LazyPublish(s_operatorRelays, [] { return new OperatorRelayService; });
+}
 void OperatorCallback(cudaStream_t, cudaError_t status, void* data) noexcept {
     auto* identity = static_cast<OperatorRelayService::Slot::CallbackIdentity*>(data);
     auto* slot = identity->slot;
@@ -5798,15 +5821,15 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             }
             selected.Restore(); slots[slotIndex].Return(2); return;
         }
-        if (auto gate = std::atomic_load(&s_operatorAsyncGates[2]);
+        if (auto gate = s_operatorAsyncGates[2].Load();
             gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
             relay->gates[2] = gate;
-            slots[slotIndex].gate[2].store(gate.get(), std::memory_order_release);
+            slots[slotIndex].gate[2].store(gate.Get(), std::memory_order_release);
         }
-        if (auto gate = std::atomic_load(&s_operatorAsyncReturnGate);
+        if (auto gate = s_operatorAsyncReturnGate.Load();
             gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
             relay->returnGate = gate;
-            slots[slotIndex].widthReturnGate.store(gate.get(), std::memory_order_release);
+            slots[slotIndex].widthReturnGate.store(gate.Get(), std::memory_order_release);
             gate->terminalState.store(&slots[slotIndex].state[2], std::memory_order_release);
         }
         if (failInstall[2].exchange(false, std::memory_order_acq_rel) ||
@@ -6471,7 +6494,7 @@ bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob> job, si
     relay->stream = stream;
     job->operatorAsyncInFlight.fetch_add(1, std::memory_order_acq_rel);
     if (widthBranch) {
-        if (auto gate = std::atomic_load(&s_operatorAsyncWidthBranchGate);
+        if (auto gate = s_operatorAsyncWidthBranchGate.Load();
             gate && gate->Claim()) {
             // This is intentionally a launcher-side rendezvous. CUDA may
             // serialize host callbacks from distinct streams, so blocking a
@@ -6495,7 +6518,7 @@ bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob> job, si
     relay->poison = [workspace = job->workspace] { workspace->impl_->poisoned.store(true, std::memory_order_release); };
     auto const& step = *job->plan->steps[index];
     if (widthBranch) {
-        if (auto witness = std::atomic_load(&s_operatorAsyncWidthOverlapWitness)) {
+        if (auto witness = s_operatorAsyncWidthOverlapWitness.Load()) {
             // First device command admitted after the launcher rendezvous on
             // each legal Width branch. It is separate from every COW output.
             relay->overlapWitness = witness;
@@ -6599,13 +6622,13 @@ struct FinalizationRelay {
     // instead of letting a local result destructor issue backend work.
     std::shared_ptr<const UsdGenDeviceGeneration> published;
     std::function<void()> poison;
-    std::array<std::shared_ptr<SourceAsyncTestGate>, kFinalizationRelayPhases> gates;
-    std::shared_ptr<FinalizationReturnGate> returnGate;
+    std::array<UsdGenRef<SourceAsyncTestGate>, kFinalizationRelayPhases> gates;
+    UsdGenRef<FinalizationReturnGate> returnGate;
     std::atomic<bool> quarantine{false};
     size_t slot = std::numeric_limits<size_t>::max();
 };
-std::array<std::shared_ptr<SourceAsyncTestGate>, kFinalizationRelayPhases> s_finalizationGates;
-std::shared_ptr<FinalizationReturnGate> s_finalizationReturnGate;
+std::array<UsdGenAtomicRef<SourceAsyncTestGate>, kFinalizationRelayPhases> s_finalizationGates;
+UsdGenAtomicRef<FinalizationReturnGate> s_finalizationReturnGate;
 }
 
 struct FinalizationRelayService {
@@ -6650,7 +6673,7 @@ struct FinalizationRelayService {
 // This test-only gate defers only the phase-return signal.  It never parks a
 // relay worker: native terminal and launcher-return remain independently
 // observable, while release later emits the one causal Return(2).
-struct FinalizationReturnGate {
+struct FinalizationReturnGate : UsdGenRefCounted {
     enum Handoff : unsigned { Ready = 1u, Released = 2u, Returned = 4u };
     std::atomic<bool> claimed{false};
     std::atomic<unsigned> handoff{0};
@@ -6661,7 +6684,10 @@ struct FinalizationReturnGate {
 };
 
 namespace {
-FinalizationRelayService& FinalizationRelays() { static auto* service = new FinalizationRelayService; return *service; }
+std::atomic<FinalizationRelayService*> s_finalizationRelays{nullptr};
+FinalizationRelayService& FinalizationRelays() {
+    return LazyPublish(s_finalizationRelays, [] { return new FinalizationRelayService; });
+}
 void FinalizationCallback(cudaStream_t, cudaError_t status, void* data) noexcept {
     auto* identity = static_cast<FinalizationRelayService::Slot::CallbackIdentity*>(data);
     auto* slot = identity->slot;
@@ -6715,9 +6741,9 @@ void ReturnFinalizationMetadataWhenReleased(FinalizationReturnGate& gate) noexce
 
 bool FinalizationRelayService::Install(Slot& slot, unsigned phase, cudaStream_t stream) noexcept {
     auto relay = slot.relay; if (!relay) return false;
-    if (auto gate = std::atomic_load(&s_finalizationGates[phase]); gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
+    if (auto gate = s_finalizationGates[phase].Load(); gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
         relay->gates[phase] = gate;
-        if (cudaStreamAddCallback(stream, SourceAsyncGateCallback, gate.get(), 0) != cudaSuccess) return false;
+        if (cudaStreamAddCallback(stream, SourceAsyncGateCallback, gate.Get(), 0) != cudaSuccess) return false;
     }
     return !failInstall[phase].exchange(false, std::memory_order_acq_rel) &&
         cudaStreamAddCallback(stream, FinalizationCallback, &slot.callback[phase], 0) == cudaSuccess;
@@ -6797,10 +6823,10 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::PublishFinal(
     }
     // Allocate/cache stats before ownership transfer so a throwing host
     // allocation cannot leave a half-published terminal state.
-    std::shared_ptr<std::vector<UsdGenCudaBindingStats>> stats;
-    try { stats = std::make_shared<std::vector<UsdGenCudaBindingStats>>();
+    UsdGenRef<CudaBindingStatsSet> stats;
+    try { stats = UsdGenMakeRef<CudaBindingStatsSet>();
         for (auto const& step : plan.steps) { auto const& runtime = *execution.steps.at(step->path); if (!runtime.rbf) continue; auto const& cache = *runtime.rbf;
-            stats->push_back({step->path, cache.state ? cache.state->identity : 0, cache.bindCount, cache.solveCount, cache.state ? AcceptedRbfSampleCount(cache.state->resources->field) : 0}); }
+            stats->values.push_back({step->path, cache.state ? cache.state->identity : 0, cache.bindCount, cache.solveCount, cache.state ? AcceptedRbfSampleCount(cache.state->resources->field) : 0}); }
     } catch (...) { Fail(diagnostics, "CUDA final binding statistics allocation failed; previous generation retained"); return {}; }
     std::string reason;
     auto result = sourceTerminalSelected
@@ -6827,7 +6853,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::PublishFinal(
     if (!result) { Fail(diagnostics, reason); return {}; }
     result = gpu::WithTileMetadata(result, std::move(tiles), &reason, curveTopology);
     if (!result) { Fail(diagnostics, reason); return {}; }
-    std::atomic_store(&execution.stats, std::shared_ptr<const std::vector<UsdGenCudaBindingStats>>(std::move(stats)));
+    execution.stats.Store(std::move(stats));
     finalized = true; return result;
 }
 
@@ -6871,11 +6897,11 @@ void FinalizationRelayService::Complete(size_t index, unsigned phase) {
             cudaMemcpyAsync(candidate.maximums.data, candidate.tileMaximums.data(), candidate.requirements.tileCount * sizeof(float3), cudaMemcpyDeviceToHost, stream) == cudaSuccess;
         if (!copiesOK ||
             (candidate.topologyActive && candidate.topology->EnqueueFreshStatus(stream) != cudaSuccess)) { selected.Restore(); Finish(index, {}, true); return; }
-        if (auto gate = std::atomic_load(&s_finalizationReturnGate);
+        if (auto gate = s_finalizationReturnGate.Load();
             gate && !gate->claimed.exchange(true, std::memory_order_acq_rel)) {
             relay->returnGate = gate;
             gate->terminalState.store(&slots[index].state[2], std::memory_order_release);
-            slots[index].metadataReturnGate.store(gate.get(), std::memory_order_release);
+            slots[index].metadataReturnGate.store(gate.Get(), std::memory_order_release);
         }
         if (!Install(slots[index], 2, stream)) { selected.Restore(); Finish(index, {}, true); return; }
         if (auto gate = relay->returnGate) {
@@ -6900,13 +6926,13 @@ void FinalizationRelayService::Complete(size_t index, unsigned phase) {
         // describes the previously accepted cache.  Allocate the replacement
         // snapshot before accepting the RBF transaction so allocation failure
         // can still restore the old surface pose and coefficients.
-        std::shared_ptr<std::vector<UsdGenCudaBindingStats>> acceptedStats;
+        UsdGenRef<CudaBindingStatsSet> acceptedStats;
         if (result && job->state.HasPendingRbf()) {
             try {
-                acceptedStats = std::make_shared<std::vector<UsdGenCudaBindingStats>>();
+                acceptedStats = UsdGenMakeRef<CudaBindingStatsSet>();
                 for (auto const& step : job->plan->steps) {
                     auto const& runtime = *workspace.impl_->steps.at(step->path);
-                    if (runtime.rbf) acceptedStats->push_back({step->path, 0, 0, 0, 0});
+                    if (runtime.rbf) acceptedStats->values.push_back({step->path, 0, 0, 0, 0});
                 }
             } catch (...) {
                 Fail(job->diagnostics,
@@ -6924,14 +6950,13 @@ void FinalizationRelayService::Complete(size_t index, unsigned phase) {
                 auto const& runtime = *workspace.impl_->steps.at(step->path);
                 if (!runtime.rbf) continue;
                 auto const& cache = *runtime.rbf;
-                auto& value = (*acceptedStats)[output++];
+                auto& value = acceptedStats->values[output++];
                 value.identity = cache.state ? cache.state->identity : 0;
                 value.bindCount = cache.bindCount;
                 value.solveCount = cache.solveCount;
                 value.sampleCount = cache.state ? AcceptedRbfSampleCount(cache.state->resources->field) : 0;
             }
-            std::atomic_store(&workspace.impl_->stats,
-                std::shared_ptr<const std::vector<UsdGenCudaBindingStats>>(std::move(acceptedStats)));
+            workspace.impl_->stats.Store(std::move(acceptedStats));
         }
         selected.Restore(); Finish(index, std::move(result), false);
     } catch (...) { selected.Restore(); Finish(index, {}, false); }
@@ -7058,12 +7083,12 @@ std::shared_ptr<const UsdGenDeviceGeneration> FinalizeCudaExecutionJob(
         job.failed = true; return {};
     }
     if (job.state.HasPendingRbf()) {
-        std::shared_ptr<std::vector<UsdGenCudaBindingStats>> acceptedStats;
+        UsdGenRef<CudaBindingStatsSet> acceptedStats;
         try {
-            acceptedStats = std::make_shared<std::vector<UsdGenCudaBindingStats>>();
+            acceptedStats = UsdGenMakeRef<CudaBindingStatsSet>();
             for (auto const& step : job.plan->steps) {
                 auto const& runtime = *job.workspace->impl_->steps.at(step->path);
-                if (runtime.rbf) acceptedStats->push_back({step->path, 0, 0, 0, 0});
+                if (runtime.rbf) acceptedStats->values.push_back({step->path, 0, 0, 0, 0});
             }
         } catch (...) {
             if (!job.state.ResolvePendingRbf(false))
@@ -7079,15 +7104,14 @@ std::shared_ptr<const UsdGenDeviceGeneration> FinalizeCudaExecutionJob(
             auto const& runtime = *job.workspace->impl_->steps.at(step->path);
             if (!runtime.rbf) continue;
             auto const& cache = *runtime.rbf;
-            auto& value = (*acceptedStats)[output++];
+            auto& value = acceptedStats->values[output++];
             value.path = step->path;
             value.identity = cache.state ? cache.state->identity : 0;
             value.bindCount = cache.bindCount;
             value.solveCount = cache.solveCount;
             value.sampleCount = cache.state ? AcceptedRbfSampleCount(cache.state->resources->field) : 0;
         }
-        std::atomic_store(&job.workspace->impl_->stats,
-            std::shared_ptr<const std::vector<UsdGenCudaBindingStats>>(std::move(acceptedStats)));
+        job.workspace->impl_->stats.Store(std::move(acceptedStats));
     }
     job.failed = false;
     job.finalDone = true; return result;
@@ -7247,10 +7271,10 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecuteCudaGraph(
     if (state.HasPendingRbf()) {
         // Publish stats from the accepted cache, not the provisional state
         // observed by Finalize while it was constructing the generation.
-        std::shared_ptr<std::vector<UsdGenCudaBindingStats>> acceptedStats;
+        UsdGenRef<CudaBindingStatsSet> acceptedStats;
         try {
-            acceptedStats = std::make_shared<std::vector<UsdGenCudaBindingStats>>();
-            acceptedStats->reserve(plan.steps.size());
+            acceptedStats = UsdGenMakeRef<CudaBindingStatsSet>();
+            acceptedStats->values.reserve(plan.steps.size());
         } catch (...) {
             if (!state.ResolvePendingRbf(false)) {
                 workspace.impl_->poisoned.store(true, std::memory_order_release);
@@ -7268,12 +7292,11 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecuteCudaGraph(
             auto const& runtime = *workspace.impl_->steps.at(step->path);
             if (!runtime.rbf) continue;
             auto const& cache = *runtime.rbf;
-            acceptedStats->push_back({step->path, cache.state ? cache.state->identity : 0,
+            acceptedStats->values.push_back({step->path, cache.state ? cache.state->identity : 0,
                 cache.bindCount, cache.solveCount,
                 cache.state ? AcceptedRbfSampleCount(cache.state->resources->field) : 0});
         }
-        std::atomic_store(&workspace.impl_->stats,
-            std::shared_ptr<const std::vector<UsdGenCudaBindingStats>>(std::move(acceptedStats)));
+        workspace.impl_->stats.Store(std::move(acceptedStats));
     }
     return result;
 #endif
@@ -7433,12 +7456,12 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::Finalize(
 
 void armCudaSourceAsyncCallbackGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_sourceAsyncTestGate, std::make_shared<SourceAsyncTestGate>());
+    s_sourceAsyncTestGate.Store(UsdGenMakeRef<SourceAsyncTestGate>());
 #endif
 }
 void waitCudaSourceAsyncCallbackGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_sourceAsyncTestGate)) {
+    if (auto gate = s_sourceAsyncTestGate.Load()) {
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (!gate->entered.load(std::memory_order_acquire) &&
                std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
@@ -7449,22 +7472,22 @@ void waitCudaSourceAsyncCallbackGateForTesting() {
 }
 void releaseCudaSourceAsyncCallbackGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_sourceAsyncTestGate))
+    if (auto gate = s_sourceAsyncTestGate.Load())
         gate->released.store(true, std::memory_order_release);
-    std::atomic_store(&s_sourceAsyncTestGate, std::shared_ptr<SourceAsyncTestGate>());
+    s_sourceAsyncTestGate.Store(nullptr);
 #endif
 }
 namespace {
 void ArmSourceControlGate(unsigned phase) {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_sourceAsyncControlGates[phase],std::make_shared<SourceAsyncTestGate>());
+    s_sourceAsyncControlGates[phase].Store(UsdGenMakeRef<SourceAsyncTestGate>());
 #else
     (void)phase;
 #endif
 }
 void WaitSourceControlGate(unsigned phase) {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate=std::atomic_load(&s_sourceAsyncControlGates[phase])) {
+    if (auto gate=s_sourceAsyncControlGates[phase].Load()) {
         auto const deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
         while (!gate->entered.load(std::memory_order_acquire) && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
         if (!gate->entered.load(std::memory_order_acquire)) throw std::runtime_error("CUDA source control callback gate timed out");
@@ -7475,8 +7498,8 @@ void WaitSourceControlGate(unsigned phase) {
 }
 void ReleaseSourceControlGate(unsigned phase) {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate=std::atomic_load(&s_sourceAsyncControlGates[phase])) gate->released.store(true,std::memory_order_release);
-    std::atomic_store(&s_sourceAsyncControlGates[phase],std::shared_ptr<SourceAsyncTestGate>());
+    if (auto gate=s_sourceAsyncControlGates[phase].Load()) gate->released.store(true,std::memory_order_release);
+    s_sourceAsyncControlGates[phase].Store(nullptr);
 #else
     (void)phase;
 #endif
@@ -7493,12 +7516,12 @@ void waitCudaSourceAsyncScalarCallbackGateForTesting() { WaitSourceControlGate(2
 void releaseCudaSourceAsyncScalarCallbackGateForTesting() { ReleaseSourceControlGate(2); }
 void armCudaSourceAsyncScalarLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_sourceAsyncScalarReturnTestGate,std::make_shared<SourceScalarReturnGate>());
+    s_sourceAsyncScalarReturnTestGate.Store(UsdGenMakeRef<SourceScalarReturnGate>());
 #endif
 }
 void waitCudaSourceAsyncScalarLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate=std::atomic_load(&s_sourceAsyncScalarReturnTestGate)) {
+    if (auto gate=s_sourceAsyncScalarReturnTestGate.Load()) {
         auto const deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
         while ((!gate->entered.load(std::memory_order_acquire) || !gate->terminal.load(std::memory_order_acquire) ||
                 !(gate->terminalState.load(std::memory_order_acquire) &&
@@ -7513,21 +7536,21 @@ void waitCudaSourceAsyncScalarLauncherReturnGateForTesting() {
 }
 void releaseCudaSourceAsyncScalarLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate=std::atomic_load(&s_sourceAsyncScalarReturnTestGate)) {
+    if (auto gate=s_sourceAsyncScalarReturnTestGate.Load()) {
         gate->handoff.fetch_or(SourceScalarReturnGate::Released, std::memory_order_acq_rel);
         ReturnSourceScalarWhenReleased(*gate);
     }
-    std::atomic_store(&s_sourceAsyncScalarReturnTestGate,std::shared_ptr<SourceScalarReturnGate>());
+    s_sourceAsyncScalarReturnTestGate.Store(nullptr);
 #endif
 }
 void armCudaSourceAsyncResampleCallbackGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_sourceAsyncResampleTestGate, std::make_shared<SourceAsyncTestGate>());
+    s_sourceAsyncResampleTestGate.Store(UsdGenMakeRef<SourceAsyncTestGate>());
 #endif
 }
 void waitCudaSourceAsyncResampleCallbackGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_sourceAsyncResampleTestGate)) {
+    if (auto gate = s_sourceAsyncResampleTestGate.Load()) {
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (!gate->entered.load(std::memory_order_acquire) &&
                std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
@@ -7538,19 +7561,19 @@ void waitCudaSourceAsyncResampleCallbackGateForTesting() {
 }
 void releaseCudaSourceAsyncResampleCallbackGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_sourceAsyncResampleTestGate))
+    if (auto gate = s_sourceAsyncResampleTestGate.Load())
         gate->released.store(true, std::memory_order_release);
-    std::atomic_store(&s_sourceAsyncResampleTestGate, std::shared_ptr<SourceAsyncTestGate>());
+    s_sourceAsyncResampleTestGate.Store(nullptr);
 #endif
 }
 void armCudaSourceAsyncResampleLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_sourceAsyncResampleReturnTestGate, std::make_shared<SourceAsyncTestGate>());
+    s_sourceAsyncResampleReturnTestGate.Store(UsdGenMakeRef<SourceAsyncTestGate>());
 #endif
 }
 void waitCudaSourceAsyncResampleLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_sourceAsyncResampleReturnTestGate)) {
+    if (auto gate = s_sourceAsyncResampleReturnTestGate.Load()) {
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while ((!gate->entered.load(std::memory_order_acquire) ||
                 !gate->terminal.load(std::memory_order_acquire) ||
@@ -7567,16 +7590,16 @@ void waitCudaSourceAsyncResampleLauncherReturnGateForTesting() {
 }
 void releaseCudaSourceAsyncResampleLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_sourceAsyncResampleReturnTestGate))
+    if (auto gate = s_sourceAsyncResampleReturnTestGate.Load())
         gate->released.store(true, std::memory_order_release);
-    std::atomic_store(&s_sourceAsyncResampleReturnTestGate, std::shared_ptr<SourceAsyncTestGate>());
+    s_sourceAsyncResampleReturnTestGate.Store(nullptr);
 #endif
 }
 #ifdef USDGEN_ENABLE_CUDA
 namespace {
-void ArmOperatorGate(unsigned phase) { std::atomic_store(&s_operatorAsyncGates[phase], std::make_shared<SourceAsyncTestGate>()); }
-void WaitOperatorGate(unsigned phase) { auto gate = std::atomic_load(&s_operatorAsyncGates[phase]); if (!gate) return; auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10); while (!gate->entered.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield(); if (!gate->entered.load(std::memory_order_acquire)) throw std::runtime_error("CUDA operator async gate timed out"); }
-void ReleaseOperatorGate(unsigned phase) { if (auto gate = std::atomic_load(&s_operatorAsyncGates[phase])) gate->released.store(true, std::memory_order_release); std::atomic_store(&s_operatorAsyncGates[phase], std::shared_ptr<SourceAsyncTestGate>()); }
+void ArmOperatorGate(unsigned phase) { s_operatorAsyncGates[phase].Store(UsdGenMakeRef<SourceAsyncTestGate>()); }
+void WaitOperatorGate(unsigned phase) { auto gate = s_operatorAsyncGates[phase].Load(); if (!gate) return; auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10); while (!gate->entered.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield(); if (!gate->entered.load(std::memory_order_acquire)) throw std::runtime_error("CUDA operator async gate timed out"); }
+void ReleaseOperatorGate(unsigned phase) { if (auto gate = s_operatorAsyncGates[phase].Load()) gate->released.store(true, std::memory_order_release); s_operatorAsyncGates[phase].Store(nullptr); }
 size_t BranchStreamCount(uint64_t mask) noexcept {
     size_t result = 0;
     while (mask) { result += size_t(mask & 1u); mask >>= 1; }
@@ -7632,8 +7655,7 @@ void releaseCudaOperatorAsyncWidthCallbackGateForTesting() {
 void armCudaOperatorAsyncWidthBranchGateForTesting(size_t expected) {
 #ifdef USDGEN_ENABLE_CUDA
     if (!expected) expected = 1;
-    std::atomic_store(&s_operatorAsyncWidthBranchGate,
-        std::make_shared<WidthBranchTestGate>(expected));
+    s_operatorAsyncWidthBranchGate.Store(UsdGenMakeRef<WidthBranchTestGate>(expected));
     s_operatorAsyncWidthBranchStreamMask.store(0, std::memory_order_release);
 #else
     (void)expected;
@@ -7641,7 +7663,7 @@ void armCudaOperatorAsyncWidthBranchGateForTesting(size_t expected) {
 }
 void waitCudaOperatorAsyncWidthBranchGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_operatorAsyncWidthBranchGate)) {
+    if (auto gate = s_operatorAsyncWidthBranchGate.Load()) {
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (gate->arrivals.load(std::memory_order_acquire) < gate->expected &&
                std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
@@ -7652,10 +7674,9 @@ void waitCudaOperatorAsyncWidthBranchGateForTesting() {
 }
 void releaseCudaOperatorAsyncWidthBranchGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_operatorAsyncWidthBranchGate))
+    if (auto gate = s_operatorAsyncWidthBranchGate.Load())
         gate->released.store(true, std::memory_order_release);
-    std::atomic_store(&s_operatorAsyncWidthBranchGate,
-        std::shared_ptr<WidthBranchTestGate>());
+    s_operatorAsyncWidthBranchGate.Store(nullptr);
 #endif
 }
 size_t cudaOperatorAsyncWidthDistinctBranchStreamCountForTesting() {
@@ -7669,7 +7690,7 @@ size_t cudaOperatorAsyncWidthDistinctBranchStreamCountForTesting() {
 void armCudaOperatorAsyncWidthDeviceOverlapWitnessForTesting(
     size_t expected, uint64_t dwellCycles) {
 #ifdef USDGEN_ENABLE_CUDA
-    auto witness = std::make_shared<WidthOverlapWitness>();
+    auto witness = UsdGenMakeRef<WidthOverlapWitness>();
     // A probe only establishes an overlap claim for two or more branches;
     // cap both dimensions so a test control cannot create an unbounded device
     // dwell or request more task identities than the CUDA-free snapshot holds.
@@ -7684,7 +7705,7 @@ void armCudaOperatorAsyncWidthDeviceOverlapWitnessForTesting(
             !witness->Initialize(device, static_cast<uint32_t>(expected), cycles))
             witness->error.store(true, std::memory_order_release);
     }
-    std::atomic_store(&s_operatorAsyncWidthOverlapWitness, std::move(witness));
+    s_operatorAsyncWidthOverlapWitness.Store(std::move(witness));
 #else
     (void)expected; (void)dwellCycles;
 #endif
@@ -7692,7 +7713,7 @@ void armCudaOperatorAsyncWidthDeviceOverlapWitnessForTesting(
 UsdGenExecutionOverlapWitnessSnapshot
 cudaOperatorAsyncWidthDeviceOverlapWitnessSnapshotForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto witness = std::atomic_load(&s_operatorAsyncWidthOverlapWitness))
+    if (auto witness = s_operatorAsyncWidthOverlapWitness.Load())
         return witness->Snapshot();
 #endif
     return {};
@@ -7759,12 +7780,12 @@ void releaseCudaOperatorAsyncNamedTopologyCallbackGateForTesting() {
 }
 void armCudaOperatorAsyncWidthLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_operatorAsyncReturnGate, std::make_shared<SourceAsyncTestGate>());
+    s_operatorAsyncReturnGate.Store(UsdGenMakeRef<SourceAsyncTestGate>());
 #endif
 }
 void waitCudaOperatorAsyncWidthLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    auto gate = std::atomic_load(&s_operatorAsyncReturnGate); if (!gate) return;
+    auto gate = s_operatorAsyncReturnGate.Load(); if (!gate) return;
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while ((!gate->entered.load(std::memory_order_acquire) || !gate->terminal.load(std::memory_order_acquire) ||
             !(gate->terminalState.load(std::memory_order_acquire) &&
@@ -7778,8 +7799,8 @@ void waitCudaOperatorAsyncWidthLauncherReturnGateForTesting() {
 }
 void releaseCudaOperatorAsyncWidthLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_operatorAsyncReturnGate)) gate->released.store(true, std::memory_order_release);
-    std::atomic_store(&s_operatorAsyncReturnGate, std::shared_ptr<SourceAsyncTestGate>());
+    if (auto gate = s_operatorAsyncReturnGate.Load()) gate->released.store(true, std::memory_order_release);
+    s_operatorAsyncReturnGate.Store(nullptr);
 #endif
 }
 void setCudaOperatorRelayCapacityForTesting(size_t value) {
@@ -9613,14 +9634,14 @@ void failNextCudaFinalizationRelayMetadataNativeCallbackForTesting() {
 namespace {
 void ArmFinalGate(unsigned phase) {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_finalizationGates[phase], std::make_shared<SourceAsyncTestGate>());
+    s_finalizationGates[phase].Store(UsdGenMakeRef<SourceAsyncTestGate>());
 #else
     (void)phase;
 #endif
 }
 void WaitFinalGate(unsigned phase) {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_finalizationGates[phase])) {
+    if (auto gate = s_finalizationGates[phase].Load()) {
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         while (!gate->entered.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
         if (!gate->entered.load(std::memory_order_acquire)) throw std::runtime_error("CUDA finalization callback gate timed out");
@@ -9631,8 +9652,8 @@ void WaitFinalGate(unsigned phase) {
 }
 void ReleaseFinalGate(unsigned phase) {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_finalizationGates[phase])) gate->released.store(true, std::memory_order_release);
-    std::atomic_store(&s_finalizationGates[phase], std::shared_ptr<SourceAsyncTestGate>());
+    if (auto gate = s_finalizationGates[phase].Load()) gate->released.store(true, std::memory_order_release);
+    s_finalizationGates[phase].Store(nullptr);
 #else
     (void)phase;
 #endif
@@ -9649,12 +9670,12 @@ void waitCudaFinalizationAsyncMetadataCallbackGateForTesting() { WaitFinalGate(2
 void releaseCudaFinalizationAsyncMetadataCallbackGateForTesting() { ReleaseFinalGate(2); }
 void armCudaFinalizationAsyncMetadataLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    std::atomic_store(&s_finalizationReturnGate, std::make_shared<FinalizationReturnGate>());
+    s_finalizationReturnGate.Store(UsdGenMakeRef<FinalizationReturnGate>());
 #endif
 }
 void waitCudaFinalizationAsyncMetadataLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_finalizationReturnGate)) {
+    if (auto gate = s_finalizationReturnGate.Load()) {
         auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
         auto ready = [&] { auto* state = gate->terminalState.load(std::memory_order_acquire); return gate->entered.load(std::memory_order_acquire) && gate->terminal.load(std::memory_order_acquire) && state && (state->load(std::memory_order_acquire) & 1u); };
         while (!ready() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
@@ -9664,12 +9685,12 @@ void waitCudaFinalizationAsyncMetadataLauncherReturnGateForTesting() {
 }
 void releaseCudaFinalizationAsyncMetadataLauncherReturnGateForTesting() {
 #ifdef USDGEN_ENABLE_CUDA
-    if (auto gate = std::atomic_load(&s_finalizationReturnGate)) {
+    if (auto gate = s_finalizationReturnGate.Load()) {
         gate->handoff.fetch_or(FinalizationReturnGate::Released,
                                std::memory_order_acq_rel);
         ReturnFinalizationMetadataWhenReleased(*gate);
     }
-    std::atomic_store(&s_finalizationReturnGate, std::shared_ptr<FinalizationReturnGate>());
+    s_finalizationReturnGate.Store(nullptr);
 #endif
 }
 

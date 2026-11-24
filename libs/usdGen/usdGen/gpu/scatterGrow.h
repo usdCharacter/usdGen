@@ -284,6 +284,9 @@ private:
     int* hostError_ = nullptr;
     UsdGenExecutionResourcePermit hostErrorPermit_;
     cudaEvent_t ready_ = nullptr;
+    // Big-grow H2D copies: their own stream, fenced by issued_ and copied_.
+    cudaStream_t copyStream_ = nullptr;
+    cudaEvent_t issued_ = nullptr, copied_ = nullptr;
     // A completion callback proves this producer's uploads/kernel only when
     // it is ordered on the exact stream that submitted them.
     cudaStream_t producerStream_ = nullptr;

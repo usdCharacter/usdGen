@@ -211,15 +211,20 @@ CudaExpressionContext::~CudaExpressionContext() {
     if (selected && previous >= 0 && previous != deviceIndex_) cudaSetDevice(previous);
 }
 
+namespace {
+ExpressionInputs MakeEmptyInputs() noexcept {
+    ExpressionInputs result;
+    result.count = 0;
+    result.context.domain = Domain::None;
+    result.context.count = 0;
+    return result;
+}
+// Namespace scope: initialized at load, no function-local static guard.
+ExpressionInputs const g_emptyInputs = MakeEmptyInputs();
+}  // namespace
+
 ExpressionInputs const& CudaExpressionContext::Inputs() const {
-    static ExpressionInputs const empty = [] {
-        ExpressionInputs result;
-        result.count = 0;
-        result.context.domain = Domain::None;
-        result.context.count = 0;
-        return result;
-    }();
-    return usable_ ? inputs_ : empty;
+    return usable_ ? inputs_ : g_emptyInputs;
 }
 
 ExpressionContextStatus CudaExpressionContext::Build(

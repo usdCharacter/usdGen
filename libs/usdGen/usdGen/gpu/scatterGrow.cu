@@ -3,14 +3,14 @@
 
 #include "tbb/parallel_for.h"
 #include "tbb/task_arena.h"
+#include "tbb/task_group.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <memory>
-#include <mutex>
-#include <thread>
+#include <atomic>
 #include <utility>
 #include <vector>
 
@@ -748,31 +748,23 @@ template <class T> cudaError_t Copy(DeviceBuffer<T>& dst, T const* src, size_t n
 // checkout re-reserves through the normal permit path, so accounting
 // reads exactly as if freed. Deliberately leaked: entries must never
 // run cudaFreeHost during process teardown.
-std::mutex& PinnedRelayMutex() {
-    static auto* m = new std::mutex;
-    return *m;
-}
-std::vector<int*>& PinnedRelays() {
-    static auto* v = new std::vector<int*>;
-    return *v;
-}
+// Fixed slots, claimed by exchange and filled by CAS: no lock, no ABA.
 constexpr size_t kPinnedRelayCap = 64;
+std::atomic<int*> g_pinnedRelays[kPinnedRelayCap] = {};
 int* PopPinnedRelay() {
-    std::lock_guard<std::mutex> lock(PinnedRelayMutex());
-    auto& v = PinnedRelays();
-    if (v.empty()) return nullptr;
-    int* relay = v.back();
-    v.pop_back();
-    return relay;
+    for (auto& slot : g_pinnedRelays) {
+        if (!slot.load(std::memory_order_relaxed)) continue;
+        if (int* relay = slot.exchange(nullptr, std::memory_order_acquire)) return relay;
+    }
+    return nullptr;
 }
 void PushPinnedRelay(int* relay) {
-    {
-        std::lock_guard<std::mutex> lock(PinnedRelayMutex());
-        auto& v = PinnedRelays();
-        if (v.size() < kPinnedRelayCap) {
-            v.push_back(relay);
+    for (auto& slot : g_pinnedRelays) {
+        int* empty = nullptr;
+        if (!slot.load(std::memory_order_relaxed) &&
+            slot.compare_exchange_strong(empty, relay, std::memory_order_release,
+                                         std::memory_order_relaxed))
             return;
-        }
     }
     cudaFreeHost(relay);
 }
@@ -861,21 +853,25 @@ CudaScatterGrow::~CudaScatterGrow() {
         (void)rootsQuarantineOwner_.release();
         hostError_ = nullptr;
         hostErrorPermit_.Abandon();
-        ready_ = nullptr; return;
+        ready_ = nullptr; copyStream_ = nullptr; issued_ = copied_ = nullptr; return;
     }
     int prior=-1; bool owns=active_.points.size()||pending_.points.size()||error_.size()||
-        ready_||hostError_;
+        ready_||hostError_||copyStream_;
     bool selected=!owns || (cudaGetDevice(&prior)==cudaSuccess && deviceIndex_>=0 && cudaSetDevice(deviceIndex_)==cudaSuccess);
     bool proved=!owns || (selected && (!ready_ || cudaEventSynchronize(ready_)==cudaSuccess) &&
+        (!copyStream_ || cudaStreamSynchronize(copyStream_)==cudaSuccess) &&
         active_.synchronizeUse()==ScatterGrowStatus::Ok && error_.synchronizeUse()==cudaSuccess);
     if (!proved) {
         active_.quarantine(); pending_.quarantine(); pendingInput_.quarantine(); error_.quarantine();
         (void)rootsQuarantineOwner_.release();
         hostError_ = nullptr;
         hostErrorPermit_.Abandon();
-        ready_=nullptr;
+        ready_=nullptr; copyStream_=nullptr; issued_=copied_=nullptr;
     } else {
         if (ready_) cudaEventDestroy(ready_);
+        if (issued_) cudaEventDestroy(issued_);
+        if (copied_) cudaEventDestroy(copied_);
+        if (copyStream_) cudaStreamDestroy(copyStream_);
         if (hostError_) {
             // Proven complete (see above): the relay is quiescent, so it
             // rejoins the pool and the permit releases as on a free.
@@ -1290,12 +1286,20 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
     // failure has no completion proof and must quarantine rather than free.
     pendingInput_=std::move(in); unprovenWork_=true;
     *hostError_ = kPendingStatus;
-    // One spelling for the memset + seven H2D copies, issued serially on
-    // the small path or on the overlap worker below. Stream order is
-    // unchanged either way (memset, copies, kernel).
-    auto issueCopies = [&]() -> cudaError_t {
+    // One spelling for the memset + seven H2D copies. The small path issues
+    // them on `stream`; the overlap path on copyStream_, fenced by events so
+    // the copies follow prior `stream` work and the kernel follows the copies.
+    auto issueCopies = [&](cudaStream_t copy) -> cudaError_t {
         cudaError_t ce = cudaMemsetAsync(error_.data(), 0, sizeof(int), stream);
-        if (ce == cudaSuccess) ce=Copy(pendingInput_.points,rootsOwner_->positions.data(),rootsOwner_->positions.size(),stream); if(ce==cudaSuccess)ce=Copy(pending_.stableIds,rootsOwner_->stableIds.data(),rootsOwner_->stableIds.size(),stream); if(ce==cudaSuccess)ce=Copy(pending_.rootPrim,rootsOwner_->rootPrim.data(),rootsOwner_->rootPrim.size(),stream); if(ce==cudaSuccess)ce=Copy(pending_.rootUV,rootsOwner_->rootUV.data(),rootsOwner_->rootUV.size(),stream); if(ce==cudaSuccess)ce=Copy(pending_.rootT,rootsOwner_->rootT.data(),rootsOwner_->rootT.size(),stream); if(ce==cudaSuccess)ce=Copy(pending_.rootB,rootsOwner_->rootB.data(),rootsOwner_->rootB.size(),stream); if(ce==cudaSuccess)ce=Copy(pending_.rootN,rootsOwner_->rootN.data(),rootsOwner_->rootN.size(),stream);
+        if (copy != stream) {
+            if (ce == cudaSuccess) ce = cudaEventRecord(issued_, stream);
+            if (ce == cudaSuccess) ce = cudaStreamWaitEvent(copy, issued_, 0);
+        }
+        if (ce == cudaSuccess) ce=Copy(pendingInput_.points,rootsOwner_->positions.data(),rootsOwner_->positions.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.stableIds,rootsOwner_->stableIds.data(),rootsOwner_->stableIds.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootPrim,rootsOwner_->rootPrim.data(),rootsOwner_->rootPrim.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootUV,rootsOwner_->rootUV.data(),rootsOwner_->rootUV.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootT,rootsOwner_->rootT.data(),rootsOwner_->rootT.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootB,rootsOwner_->rootB.data(),rootsOwner_->rootB.size(),copy); if(ce==cudaSuccess)ce=Copy(pending_.rootN,rootsOwner_->rootN.data(),rootsOwner_->rootN.size(),copy);
+        if (copy != stream) {
+            if (ce == cudaSuccess) ce = cudaEventRecord(copied_, copy);
+            if (ce == cudaSuccess) ce = cudaStreamWaitEvent(stream, copied_, 0);
+        }
         return ce;
     };
     // One spelling for the grow launch: the overlap worker fires it right
@@ -1307,67 +1311,75 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         return cudaGetLastError();
     };
     if (overlapCopies) {
-        // The worker issues the synchronous staging copies and fires the
-        // grow kernel while this thread runs the validation scans; the
-        // join proves both done. The kernel launch is speculative but
-        // sound: stream order (memset, copies, kernel) and kernel
-        // arguments match today's serial spelling exactly, so the
-        // success path is bit-identical and the device-side error flag
-        // reads the same in CommitFreshFinish. A failed validation
-        // verdict still returns before anything is published: the sync
-        // below proves the whole stream (copies and kernel) idle and
-        // the object discards clean and reusable, exactly like today's
-        // pre-alloc validation failure. The API stays synchronous:
-        // BeginFresh returns only after the validation verdict. Both
-        // threads read rootsOwner_ without mutating it, and the
-        // buffers are untouched on this thread until the join, so no
-        // lock is needed. Device errors keep today's unproven
+        // A task on the arena the scans run in issues the staging copies on
+        // copyStream_ (pageable sources stage synchronously on the CPU) and
+        // fires the grow kernel while this thread runs the validation scans;
+        // the task join proves both issued. The kernel launch is speculative
+        // but sound: stream order (memset, copies, kernel) is kept by the
+        // issued_/copied_ events and the kernel arguments match the serial
+        // spelling, so the success path is bit-identical and the device-side
+        // error flag reads the same in CommitFreshFinish. A failed
+        // validation verdict still returns before anything is published:
+        // syncing `stream` (which waits on copied_) proves copies and kernel
+        // idle, so the object discards clean and reusable. The API stays
+        // synchronous: BeginFresh returns only after the validation verdict.
+        // Both sides read rootsOwner_ without mutating it, and the buffers
+        // are untouched here until the join. Device errors keep the unproven
         // discipline (a double fault reports the copy error, then the
-        // launch error, not the scan verdict). The overlap path always
-        // has curves (peekN > 65536), so the worker always launches.
+        // launch error, not the scan verdict). The overlap path always has
+        // curves (peekN > 65536), so the task always launches.
+        if (!copyStream_ &&
+            cudaStreamCreateWithFlags(&copyStream_, cudaStreamNonBlocking) != cudaSuccess)
+            copyStream_ = nullptr;
+        if (copyStream_ && !issued_ &&
+            cudaEventCreateWithFlags(&issued_, cudaEventDisableTiming) != cudaSuccess)
+            issued_ = nullptr;
+        if (copyStream_ && !copied_ &&
+            cudaEventCreateWithFlags(&copied_, cudaEventDisableTiming) != cudaSuccess)
+            copied_ = nullptr;
+        if (!copyStream_ || !issued_ || !copied_) {
+            // Nothing issued yet: discard like the pre-issue failures.
+            discardPending();
+            return ScatterGrowStatus::CudaError;
+        }
         cudaError_t copyError = cudaSuccess;
         cudaError_t launchError = cudaSuccess;
-        std::thread copyThread;
+        tbb::task_group copies;
         try {
-            copyThread = std::thread(
-                [this, &issueCopies, &launchGrow, &copyError, &launchError]() {
-                cudaError_t ce = cudaSetDevice(deviceIndex_);
-                if (ce == cudaSuccess)
-                    ce = issueCopies();
+            copies.run([this, &issueCopies, &launchGrow, &copyError, &launchError]() {
+                int prior = -1;
+                cudaError_t ce = cudaGetDevice(&prior);
+                if (ce == cudaSuccess) ce = cudaSetDevice(deviceIndex_);
+                if (ce == cudaSuccess) ce = issueCopies(copyStream_);
                 copyError = ce;
-                if (ce == cudaSuccess)
-                    launchError = launchGrow();
+                if (ce == cudaSuccess) launchError = launchGrow();
+                if (prior >= 0 && prior != deviceIndex_) cudaSetDevice(prior);
             });
         } catch (...) {
-            // Nothing issued yet: discard like the pre-issue failures.
             discardPending();
             return ScatterGrowStatus::CudaError;
         }
         try {
             s = validate(rootsOwner_, controls, &total);
         } catch (...) {
-            // Join first (a joinable thread must never unwind past),
-            // then leave the object as clean as today's pre-alloc
-            // validation throw: the join proves the synchronous copies
-            // complete and the sync proves the memset and the kernel,
-            // so discarding is safe. The throw itself propagates
-            // unchanged.
-            copyThread.join();
+            // Join first, then leave the object as clean as the pre-alloc
+            // validation throw: the stream sync proves the memset, copies
+            // and kernel, so discarding is safe. The throw propagates.
+            copies.wait();
             if (cudaStreamSynchronize(stream) == cudaSuccess) {
                 unprovenWork_ = false;
                 discardPending();
             }
             throw;
         }
-        copyThread.join();
+        copies.wait();
         if (copyError != cudaSuccess) return Status(copyError);
         if (launchError != cudaSuccess) return Status(launchError);
         if (s != ScatterGrowStatus::Ok) {
-            // The join proves the synchronous copies complete, but the
-            // memset and the kernel may still be in flight: prove the
-            // stream idle before discarding, so the object stays clean
-            // and reusable exactly like today's pre-alloc validation
-            // failure. Failure path only.
+            // Copies and kernel may still be in flight: prove the stream
+            // idle before discarding, so the object stays clean and
+            // reusable like the pre-alloc validation failure. Failure path
+            // only.
             cudaError_t const syncE = cudaStreamSynchronize(stream);
             if (syncE != cudaSuccess) return Status(syncE);
             unprovenWork_ = false;
@@ -1385,7 +1397,7 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
                 return s;
             }
         }
-        e = issueCopies();
+        e = issueCopies(stream);
         if (e != cudaSuccess) return Status(e);
     }
     if (!pendingCurves_) {

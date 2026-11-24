@@ -4,8 +4,7 @@
 #include "curveTiles.h"
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
-#include <vector>
+#include <atomic>
 
 namespace usdGen { namespace gpu {
 namespace {
@@ -35,77 +34,149 @@ struct CachedBlock {
     size_t bytes = 0;
     int device = -1;
 };
+// Lock-free and allocation-free: blocks hang off fixed nodes in per-(device,
+// bytes) buckets. A bucket is a Treiber stack whose head packs a 32-bit ABA
+// tag with a 1-based node index; bucket keys are CAS-inserted and never
+// removed, so the table only grows with new sizes (topology changes). A full
+// table or node array frees the block instead of caching it.
 // Deliberately leaked: entries must never run cudaFree during process
 // teardown (the CUDA context may already be gone); the driver reclaims
-// device memory with the context.
-std::mutex& CacheMutex() {
-    static auto* m = new std::mutex;
-    return *m;
-}
-std::vector<CachedBlock>& Cache() {
-    static auto* c = new std::vector<CachedBlock>;
-    return *c;
-}
-size_t& CacheBytes() {
-    static auto* b = new size_t(0);
-    return *b;
-}
+// device memory with the context. All state is constant-initialized.
+constexpr uint32_t kCacheNodes = 8192;
+constexpr uint32_t kCacheBuckets = 1024;  // power of two
+struct CacheNode {
+    void* ptr = nullptr;
+    cudaEvent_t ready = nullptr;
+    std::atomic<uint32_t> next{0};
+};
+struct CacheBucket {
+    std::atomic<uint64_t> key{0};   // 0 = empty
+    std::atomic<uint64_t> head{0};  // tag << 32 | node index + 1
+};
+CacheNode g_nodes[kCacheNodes];
+std::atomic<uint32_t> g_nodesUsed{0};
+std::atomic<uint64_t> g_freeNodes{0};
+CacheBucket g_buckets[kCacheBuckets];
+std::atomic<size_t> g_cacheBytes{0};
 // Idle physical retention bound. Covers one scatter-grow peak (~380MB)
 // with headroom; drain-on-reserve-failure keeps tight budgets correct
 // regardless of this value.
 constexpr size_t kCacheCapBytes = size_t{1} << 30;
+
+uint64_t Pack(uint64_t head, uint32_t index) noexcept {
+    return (((head >> 32) + 1) << 32) | index;
+}
+uint32_t PopIndex(std::atomic<uint64_t>& head) noexcept {
+    uint64_t h = head.load(std::memory_order_acquire);
+    for (;;) {
+        uint32_t const i = uint32_t(h);
+        if (!i) return 0;
+        uint32_t const next = g_nodes[i - 1].next.load(std::memory_order_relaxed);
+        if (head.compare_exchange_weak(h, Pack(h, next), std::memory_order_acq_rel,
+                                       std::memory_order_acquire))
+            return i;
+    }
+}
+void PushIndex(std::atomic<uint64_t>& head, uint32_t i) noexcept {
+    uint64_t h = head.load(std::memory_order_relaxed);
+    do {
+        g_nodes[i - 1].next.store(uint32_t(h), std::memory_order_relaxed);
+    } while (!head.compare_exchange_weak(h, Pack(h, i), std::memory_order_release,
+                                         std::memory_order_relaxed));
+}
+uint32_t AllocNode() noexcept {
+    if (uint32_t i = PopIndex(g_freeNodes)) return i;
+    uint32_t used = g_nodesUsed.load(std::memory_order_relaxed);
+    while (used < kCacheNodes) {
+        if (g_nodesUsed.compare_exchange_weak(used, used + 1, std::memory_order_relaxed))
+            return used + 1;
+    }
+    return 0;
+}
+void FreeNode(uint32_t i) noexcept {
+    g_nodes[i - 1].ptr = nullptr; g_nodes[i - 1].ready = nullptr;
+    PushIndex(g_freeNodes, i);
+}
+uint64_t Key(int device, size_t bytes) noexcept {
+    if (device < 0 || device >= 0xFFFE || bytes == 0 || bytes >= (uint64_t{1} << 48)) return 0;
+    return (uint64_t(device + 1) << 48) | uint64_t(bytes);
+}
+int KeyDevice(uint64_t key) noexcept { return int(key >> 48) - 1; }
+size_t KeyBytes(uint64_t key) noexcept { return size_t(key & ((uint64_t{1} << 48) - 1)); }
+CacheBucket* FindBucket(uint64_t key, bool insert) noexcept {
+    if (!key) return nullptr;
+    uint64_t h = key * 0x9E3779B97F4A7C15ull;
+    h ^= h >> 29;
+    for (uint32_t probe = 0; probe != kCacheBuckets; ++probe) {
+        CacheBucket& b = g_buckets[(h + probe) & (kCacheBuckets - 1)];
+        uint64_t k = b.key.load(std::memory_order_acquire);
+        if (k == key) return &b;
+        if (k) continue;
+        if (!insert) return nullptr;  // keys are never removed
+        if (b.key.compare_exchange_strong(k, key, std::memory_order_acq_rel,
+                                          std::memory_order_acquire) || k == key)
+            return &b;
+    }
+    return nullptr;
+}
+bool PopBucket(CacheBucket& b, CachedBlock* out) noexcept {
+    uint32_t const i = PopIndex(b.head);
+    if (!i) return false;
+    uint64_t const key = b.key.load(std::memory_order_relaxed);
+    *out = CachedBlock{g_nodes[i - 1].ptr, g_nodes[i - 1].ready, KeyBytes(key), KeyDevice(key)};
+    FreeNode(i);
+    g_cacheBytes.fetch_sub(out->bytes, std::memory_order_acq_rel);
+    return true;
+}
+// Pops any block, preferring `device` (or only `device` when `only`).
+bool PopAny(int device, bool only, CachedBlock* out) noexcept {
+    for (int pass = 0; pass != (only ? 1 : 2); ++pass) {
+        for (auto& b : g_buckets) {
+            uint64_t const key = b.key.load(std::memory_order_acquire);
+            if (!key || (KeyDevice(key) == device) != (pass == 0)) continue;
+            if (PopBucket(b, out)) return true;
+        }
+    }
+    return false;
+}
 
 void FreeBlock(CachedBlock const& b) noexcept {
     if (b.ready) cudaEventDestroy(b.ready);
     if (b.ptr) cudaFree(b.ptr);
 }
 
-// Exact (device, bytes) match, most-recently-freed first. On hit *out
-// takes the entry out of the cache.
+// Exact (device, bytes) match, most-recently-freed first.
 bool PopCache(int device, size_t bytes, CachedBlock* out) {
-    std::lock_guard<std::mutex> lock(CacheMutex());
-    auto& c = Cache();
-    for (size_t i = c.size(); i-- > 0;) {
-        if (c[i].device == device && c[i].bytes == bytes) {
-            *out = c[i];
-            c.erase(c.begin() + std::ptrdiff_t(i));
-            CacheBytes() -= bytes;
-            return true;
-        }
-    }
-    return false;
+    CacheBucket* b = FindBucket(Key(device, bytes), false);
+    return b && PopBucket(*b, out);
 }
 
-// Insert a freed block, evicting oldest-first while over the cap. The
-// caller has `device` selected: same-device evictions issue directly,
-// foreign ones save/set/restore around the free. A failed set keeps the
-// entry and stops eviction (soft cap) rather than leaking or spinning.
+// Insert a freed block, then evict while over the cap. The caller has
+// `device` selected: same-device evictions issue directly, foreign ones
+// save/set/restore around the free. A failed set keeps the entry and stops
+// eviction (soft cap) rather than leaking or spinning.
+bool PushBlock(int device, size_t bytes, void* ptr, cudaEvent_t ready) noexcept {
+    CacheBucket* b = FindBucket(Key(device, bytes), true);
+    uint32_t const i = b ? AllocNode() : 0;
+    if (!i) return false;
+    g_nodes[i - 1].ptr = ptr; g_nodes[i - 1].ready = ready;
+    g_cacheBytes.fetch_add(bytes, std::memory_order_acq_rel);
+    PushIndex(b->head, i);
+    return true;
+}
 void PushCache(int device, size_t bytes, void* ptr, cudaEvent_t ready) {
-    {
-        std::lock_guard<std::mutex> lock(CacheMutex());
-        Cache().push_back(CachedBlock{ptr, ready, bytes, device});
-        CacheBytes() += bytes;
+    if (!PushBlock(device, bytes, ptr, ready)) {
+        FreeBlock(CachedBlock{ptr, ready, bytes, device});
+        return;
     }
-    for (;;) {
+    while (g_cacheBytes.load(std::memory_order_acquire) > kCacheCapBytes) {
         CachedBlock victim;
-        bool sameDevice = true;
-        {
-            std::lock_guard<std::mutex> lock(CacheMutex());
-            auto& c = Cache();
-            if (CacheBytes() <= kCacheCapBytes || c.empty()) return;
-            size_t pick = c.size();
-            for (size_t i = 0; i < c.size(); ++i) {
-                if (c[i].device == device) { pick = i; break; }
-            }
-            if (pick == c.size()) { pick = 0; sameDevice = false; }
-            victim = c[pick];
-            c.erase(c.begin() + std::ptrdiff_t(pick));
-            CacheBytes() -= victim.bytes;
-        }
+        if (!PopAny(device, false, &victim)) return;
+        bool const sameDevice = victim.device == device;
         if (!sameDevice && cudaSetDevice(victim.device) != cudaSuccess) {
-            std::lock_guard<std::mutex> lock(CacheMutex());
-            Cache().insert(Cache().begin(), victim);
-            CacheBytes() += victim.bytes;
+            // Keep it (soft cap); with no slot left, leak rather than free
+            // in a foreign context.
+            (void)PushBlock(victim.device, victim.bytes, victim.ptr, victim.ready);
             return;
         }
         FreeBlock(victim);
@@ -116,27 +187,13 @@ void PushCache(int device, size_t bytes, void* ptr, cudaEvent_t ready) {
 // Free every cached block for `device`, already selected by the caller.
 // Best-effort: a backend failure just drops the handles.
 void DrainCacheForDevice(int device) noexcept {
-    std::vector<CachedBlock> doomed;
-    {
-        std::lock_guard<std::mutex> lock(CacheMutex());
-        auto& c = Cache();
-        for (size_t i = 0; i < c.size();) {
-            if (c[i].device == device) {
-                doomed.push_back(c[i]);
-                CacheBytes() -= c[i].bytes;
-                c.erase(c.begin() + std::ptrdiff_t(i));
-            } else {
-                ++i;
-            }
-        }
-    }
-    for (auto const& b : doomed) FreeBlock(b);
+    CachedBlock b;
+    while (PopAny(device, true, &b)) FreeBlock(b);
 }
 }  // namespace
 
 size_t UsdGenGpuDeviceBufferCacheBytes() noexcept {
-    std::lock_guard<std::mutex> lock(CacheMutex());
-    return CacheBytes();
+    return g_cacheBytes.load(std::memory_order_acquire);
 }
 
 template <class T> cudaError_t DeviceBuffer<T>::reset(

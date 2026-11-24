@@ -868,7 +868,7 @@ int main() {
         CHECK(exerciseResampleFault(false)==0);
         CHECK(exerciseResampleFault(true)==0);
     }
-    std::shared_ptr<const UsdGenCudaQueueSnapshot> retained;
+    UsdGenRef<const UsdGenCudaQueueSnapshot> retained;
     {
         UsdGenCudaExecutionQueue a(runtime,-1,&diagnostics), b(runtime,-1,&diagnostics);
         CHECK(a.Valid() && b.Valid() && !a.Snapshot() && !b.Snapshot());
@@ -1064,7 +1064,7 @@ int main() {
     CHECK(retired == 32);
     plan.reset();
     CHECK(Root(retained->generation,.45f,reader)); // queue/workspace/plan gone
-    retained.reset();
+    retained.Reset();
     CHECK(cudaStreamDestroy(reader) == cudaSuccess);
     return 0;
 }

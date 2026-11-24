@@ -200,18 +200,19 @@ public:
         UsdGenExecutionResourceKind kind = UsdGenExecutionResourceKind::Cache);
 
     std::vector<UsdGenExpressionBinding> const& Bindings() const {
-        static std::vector<UsdGenExpressionBinding> const empty;
-        return program_ ? program_->Bindings() : empty;
+        return program_ ? program_->Bindings() : emptyBindings_;
     }
     std::vector<CudaParameterField> const& Fields() const {
-        static std::vector<CudaParameterField> const empty;
-        return evaluator_ ? evaluator_->Fields() : empty;
+        return evaluator_ ? evaluator_->Fields() : emptyFields_;
     }
     CudaParameterField const* Find(TfToken const& destination) const;
 
 private:
     std::shared_ptr<const CudaParameterProgram> program_;
     std::unique_ptr<CudaParameterEvaluator> evaluator_;
+    // Always empty: the answer for an unbound plan, without a function-local static.
+    std::vector<UsdGenExpressionBinding> emptyBindings_;
+    std::vector<CudaParameterField> emptyFields_;
 };
 } // namespace usdGen
 #endif // USDGEN_ENABLE_CUDA
