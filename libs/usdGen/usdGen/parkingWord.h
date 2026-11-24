@@ -16,6 +16,11 @@ namespace usdGen {
 /// re-check in a loop.
 void UsdGenParkWhileEqual(std::atomic<uint32_t> &word, uint32_t expected);
 
+/// As UsdGenParkWhileEqual, giving up after about `timeoutMs`. False when it
+/// timed out; true on a wake or a changed word (or spuriously).
+bool UsdGenParkWhileEqualFor(std::atomic<uint32_t> &word, uint32_t expected,
+                             uint32_t timeoutMs);
+
 /// Wake every thread parked on `word`. Call after changing it.
 void UsdGenUnparkAll(std::atomic<uint32_t> &word);
 

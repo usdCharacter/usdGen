@@ -11,10 +11,14 @@
 //     and release-when-resumed bakes only the latest version (coalescing).
 //   * TakeCompleted/NoteSwapped retire older versioned files; no .tmp files
 //     survive a bake; a failed bake reports a diagnostic, not a completion.
+//   * Stress: producers on many threads, a UI thread taking completions and
+//     diagnostics, and a pausing thread race the lock-free lane; every
+//     request is baked, dropped or diagnosed exactly once.
 #include "usdGen/maps/attributeBake.h"
 #include "usdGen/maps/attributeMap.h"
 #include "usdGen/maps/ptexMap.h"
 
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -343,6 +347,89 @@ void CheckWorker()
     fs::remove_all(dir, ec);
 }
 
+void CheckWorkerStress()
+{
+    fs::path const dir = TestDir();
+    constexpr int kProducers = 8;
+    constexpr int kPerProducer = 40;
+    std::atomic<uint64_t> nextVersion{1};
+    std::atomic<int> noDirSent{0};
+    std::atomic<bool> producing{true};
+    std::atomic<int> badCompletion{0};
+    std::atomic<int> diagnosed{0};
+    {
+        UsdGenAttributeBakeWorker worker;
+        std::thread ui([&] {
+            uint64_t last = 0;
+            auto drain = [&] {
+                uint64_t version = 0;
+                std::string path;
+                while (worker.TakeCompleted(&version, &path)) {
+                    if (path != (dir / UsdGenAttributeBakeFileName("paintMap", version)).string())
+                        badCompletion.fetch_add(1);
+                    if (version > last) last = version;
+                    worker.NoteSwapped(last);
+                }
+                std::string const diag = worker.TakeDiagnostic();
+                for (size_t at = diag.find("needs an out directory"); at != std::string::npos;
+                     at = diag.find("needs an out directory", at + 1))
+                    diagnosed.fetch_add(1);
+            };
+            while (producing.load()) {
+                drain();
+                std::this_thread::yield();
+            }
+            drain();
+        });
+        std::thread pauser([&] {
+            for (int i = 0; i < 50 && producing.load(); ++i) {
+                worker.PauseWorker(true);
+                std::this_thread::yield();
+                worker.PauseWorker(false);
+            }
+        });
+        std::vector<std::thread> producers;
+        for (int p = 0; p < kProducers; ++p) {
+            producers.emplace_back([&, p] {
+                for (int i = 0; i < kPerProducer; ++i) {
+                    auto map = TwoFaceMap(4, 1);
+                    map->Fill(float(p) * 0.1f);
+                    UsdGenAttributeBakeInput input = BakeInput(map, dir);
+                    if ((i + p) % 8 == 0) {
+                        input.outDir.clear();
+                        noDirSent.fetch_add(1);
+                    }
+                    worker.Enqueue(nextVersion.fetch_add(1), std::move(input));
+                }
+            });
+        }
+        for (std::thread &t : producers) t.join();
+        pauser.join();
+        worker.PauseWorker(false);
+        // A last request newer than all of them: once it completes, the lane
+        // has consumed everything before it.
+        uint64_t const sentinel = nextVersion.fetch_add(1);
+        auto map = TwoFaceMap(4, 1);
+        worker.Enqueue(sentinel, BakeInput(map, dir));
+        CHECK(worker.WaitCompleted(sentinel, 60000), "stress: the sentinel completes");
+        producing.store(false);
+        ui.join();
+        size_t const requests = size_t(kProducers * kPerProducer + 1);
+        size_t const bakes = worker.BakeCount(), drops = worker.DropCount();
+        // An empty-directory request is either dropped or diagnosed.
+        CHECK(bakes + drops + size_t(diagnosed.load()) == requests,
+              "stress: every request is baked, dropped or diagnosed once (" +
+                  std::to_string(bakes) + " + " + std::to_string(drops) + " + " +
+                  std::to_string(diagnosed.load()) + " of " + std::to_string(requests) + ")");
+        CHECK(diagnosed.load() <= noDirSent.load(), "stress: no diagnostic without a cause");
+        CHECK(badCompletion.load() == 0, "stress: completions name their versioned file");
+        CHECK(worker.CompletedVersion() == sentinel, "stress: the newest request completes last");
+    }
+    UsdGenPtexTexture::PurgeCache();
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+}
+
 }  // namespace
 
 int main()
@@ -353,6 +440,7 @@ int main()
     CheckRoundTrip(3);
     CheckAdjacencyBlends();
     CheckWorker();
+    CheckWorkerStress();
 
     // The round-trip opens share the process Ptex cache by path; a bake the
     // worker overwrote under an observed path would read stale without this.
