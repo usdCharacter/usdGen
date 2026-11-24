@@ -365,6 +365,11 @@ public:
     /// values (UsdGenClump's clumpId_<level>). The parameters that feed it must
     /// be structural (digest) parameters, so an edit rebuilds the node.
     virtual void Configure(UsdGenParamView const &) {}
+    /// True when CaptureDigest() covers every parameter Capture() reads.
+    /// A value-class edit then keeps the compiled node and its capture, and
+    /// the digest decides whether to re-capture; otherwise the kept node is
+    /// re-captured.
+    virtual bool CaptureDigestComplete() const { return false; }
 
     // ---- binding -------------------------------------------------------------
     virtual bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) = 0;

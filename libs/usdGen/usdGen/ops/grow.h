@@ -35,6 +35,7 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
+    bool CaptureDigestComplete() const override { return true; }
 private:
     const TfToken sVector{"vector"};
 };
