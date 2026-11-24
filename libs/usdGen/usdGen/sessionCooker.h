@@ -3,6 +3,7 @@
 
 #include "usdGen/session.h"
 #include "usdGen/compiler.h"
+#include "usdGen/epoch.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/sessionDeviceProvider.h"
 #include "usdGen/scheduler.h"
@@ -122,13 +123,12 @@ public:
     // Installed at Session construction, before the serial loss queue is
     // replayed, so a first context-loss fence cannot race provider attachment.
     void SetDeviceProvider(std::shared_ptr<UsdGenSessionDeviceProvider>);
+    // Work-lane (owner) reads: the lane is the only writer of the domain.
     size_t ExecutionCacheBytes() const noexcept {
-        auto domain = std::atomic_load(&_executionCacheDomain);
-        return domain ? domain->Bytes() : 0;
+        return _executionCacheDomain ? _executionCacheDomain->Bytes() : 0;
     }
     size_t ExecutionCacheSize() const noexcept {
-        auto domain = std::atomic_load(&_executionCacheDomain);
-        return domain ? domain->Size() : 0;
+        return _executionCacheDomain ? _executionCacheDomain->Size() : 0;
     }
     int NodeCount() const noexcept { return _graph.NodeCount(); }
     UsdGenNodeId NodeIdForPath(SdfPath const& path) const { return _graph.NodeIdForPath(path); }
@@ -167,8 +167,12 @@ private:
     std::optional<UsdGenSessionDeviceIdentity> _activeDeviceIdentity;
     SdfPath _cudaWorkspaceDescription;
     uint64_t _lastDeviceContextLossSerial = 0;
-    std::shared_ptr<const std::vector<UsdGenCudaBindingStats>> _cudaBindingStats =
-        std::make_shared<const std::vector<UsdGenCudaBindingStats>>();
+    // Written on the work lane, read from any thread.
+    struct _BindingStats : UsdGenRefCounted {
+        std::vector<UsdGenCudaBindingStats> stats;
+    };
+    UsdGenAtomicRef<_BindingStats> _cudaBindingStats{UsdGenMakeRef<_BindingStats>()};
+    void _PublishCudaBindingStats(std::vector<UsdGenCudaBindingStats> stats);
     UsdGenScheduler _scheduler;
     // usdGen:preview:* colours of the cook in progress (CPU lane only).
     UsdGenValuePreview _preview;
@@ -194,8 +198,14 @@ private:
     UsdGenGenerationStore _store;
     size_t _executionCacheBytes = kDefaultExecutionCacheBytes;
     bool _cacheDomainExplicit = false;
+    // Owned by the work lane: written and read only there.
     std::shared_ptr<UsdGenExecutionCacheDomain> _executionCacheDomain;
     uint64_t _observedCacheDomainEpoch = 0;
+    // Streamed tile publications of the cook in progress, one slot per
+    // completed tile (claimed by fetch_add); kept across cooks.
+    struct _ProgressSlot;
+    std::unique_ptr<_ProgressSlot[]> _progressSlots;
+    size_t _progressSlotCapacity = 0;
     std::optional<ExecutionCacheCandidate> _cacheCandidate;
     std::optional<ExecutionPublicationFence> _publicationFence;
     CoalescedRole _coalescedRole = CoalescedRole::None;
