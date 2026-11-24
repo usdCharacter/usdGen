@@ -1,4 +1,5 @@
 #include "surfaceBinding.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <algorithm>
@@ -623,7 +624,7 @@ SurfaceBindingStatus CudaSurfaceBinding::Bind(
             freshUnproven_ = true;
             return fail(status, message);
         }
-        cudaStreamSynchronize(stream);
+        CudaFenceStream(stream);
         discardPending();
         return fail(status, message);
     };
@@ -714,7 +715,7 @@ SurfaceBindingStatus CudaSurfaceBinding::Update(
             freshUnproven_ = true;
             return fail(status, message);
         }
-        cudaStreamSynchronize(stream);
+        CudaFenceStream(stream);
         discardPending();
         return fail(status, message);
     };
@@ -839,7 +840,7 @@ SurfaceBindingStatus CudaSurfaceBinding::Finish(cudaStream_t stream) {
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
         (pendingBind_ && cudaMemcpyAsync(&actual, pendingActualSampleCount_.data(),
                          sizeof(actual), cudaMemcpyDeviceToHost, stream) != cudaSuccess) ||
-        cudaStreamSynchronize(stream) != cudaSuccess) {
+        CudaFenceStream(stream) != cudaSuccess) {
         discardPending();
         return fail(SurfaceBindingStatus::CudaError, "surface binding completion failed");
     }

@@ -1,4 +1,5 @@
 #include "curveResample.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <algorithm>
@@ -271,7 +272,7 @@ CurveResampleStatus CudaCurveResample::finishError(int error) const {
     return error == kNonFinite ? CurveResampleStatus::NonFiniteInput : CurveResampleStatus::InvalidArgument;
 }
 void CudaCurveResample::discardStaging(cudaStream_t stream) noexcept {
-    if (cudaStreamSynchronize(stream) == cudaSuccess) staging_.clear(); else staging_.quarantine();
+    if (CudaFenceStream(stream) == cudaSuccess) staging_.clear(); else staging_.quarantine();
 }
 
 CurveResampleStatus CudaCurveResample::Apply(DeviceCurveGeometryView geometry,
@@ -316,7 +317,7 @@ CurveResampleStatus CudaCurveResample::Apply(DeviceCurveGeometryView geometry,
     int error = 0;
     if (cudaGetLastError() != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) return CurveResampleStatus::CudaError;
+        CudaFenceStream(stream) != cudaSuccess) return CurveResampleStatus::CudaError;
     if (error) return finishError(error);
 
     const size_t outputPointCount = targetPointCount ? geometry.curveCount * size_t(targetPointCount) : geometry.pointCount;
@@ -355,10 +356,10 @@ CurveResampleStatus CudaCurveResample::Finish(cudaStream_t stream) {
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) return CurveResampleStatus::CudaError;
+        CudaFenceStream(stream) != cudaSuccess) return CurveResampleStatus::CudaError;
     if (error) { pending_ = false; staging_.clear(); return finishError(error); }
     if (active_.curveOffsets.size() &&
-        (active_.waitOn(stream) != cudaSuccess || cudaStreamSynchronize(stream) != cudaSuccess))
+        (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess))
         return CurveResampleStatus::CudaError;
     active_.swap(staging_); staging_.clear(); pending_ = false;
     return CurveResampleStatus::Ok;

@@ -1,4 +1,5 @@
 #include "curveSource.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <cmath>
@@ -334,7 +335,7 @@ CurveSourceStatus CudaCurveSource::copyPending(
     if (error != cudaSuccess) {
         // Some earlier copies can already be queued.  A failed cleanup fence
         // is not permission to destroy their device buffers or host staging.
-        if (cudaStreamSynchronize(stream) != cudaSuccess)
+        if (CudaFenceStream(stream) != cudaSuccess)
             MarkUnprovenUpload();
         else
             DiscardPendingCandidate();
@@ -343,7 +344,7 @@ CurveSourceStatus CudaCurveSource::copyPending(
     if (cudaEventRecord(ready_, stream) != cudaSuccess) {
         // The copies preceding a failed event record still need a terminal
         // proof before ordinary source destruction is safe.
-        if (cudaStreamSynchronize(stream) != cudaSuccess)
+        if (CudaFenceStream(stream) != cudaSuccess)
             MarkUnprovenUpload();
         else
             DiscardPendingCandidate();
@@ -428,12 +429,12 @@ CurveSourceStatus CudaCurveSource::Finish(cudaStream_t stream) {
         return streamStatus;
     }
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) {
+        CudaFenceStream(stream) != cudaSuccess) {
         MarkUnprovenUpload();
         return CurveSourceStatus::CudaError;
     }
     CurveSourceStatus status = active_.waitOn(stream);
-    if (status != CurveSourceStatus::Ok || cudaStreamSynchronize(stream) != cudaSuccess) {
+    if (status != CurveSourceStatus::Ok || CudaFenceStream(stream) != cudaSuccess) {
         MarkUnprovenUpload();
         return CurveSourceStatus::CudaError;
     }

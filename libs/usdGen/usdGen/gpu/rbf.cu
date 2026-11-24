@@ -1,4 +1,5 @@
 #include "rbf.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 #include "deviceResources.h"
 
@@ -946,7 +947,7 @@ RbfStatus CudaRbfBinding::Bind(DeviceView<const float3> samples, double smoothin
             // allocation failure lands here too, and the slice below runs
             // without it (the tail re-tries the staging, and a second
             // failure just leaves the memo disarmed).
-        } else if (!ok(cudaStreamSynchronize(stream))) {
+        } else if (!ok(CudaFenceStream(stream))) {
             // Catastrophe, like the slice sync below: the stream is
             // broken, so the slice could not run either. The graph was
             // never launched here, but mirror the leak-and-disable
@@ -1009,7 +1010,7 @@ RbfStatus CudaRbfBinding::Bind(DeviceView<const float3> samples, double smoothin
             digestStaged = (stageErr == cudaSuccess);
         }
     }
-    if(!ok(cudaStreamSynchronize(stream))) {
+    if(!ok(CudaFenceStream(stream))) {
         // Catastrophe (not a normal error path): the slice may be
         // in-flight, so leak the exec and disable replay rather than
         // destroying a possibly-executing graph.
@@ -1177,7 +1178,7 @@ RbfStatus CudaRbfBinding::Solve(DeviceView<const float3> posed, cudaStream_t str
     armFactorL2Window(stream, matrix_.data(), matrix_.size() * sizeof(double));
     RbfStatus slice = submitSolveSliceGraphed(stream, posed, n, m, 1.0/scale_);
     if (slice != RbfStatus::Ok) return slice;
-    if(!ok(cudaStreamSynchronize(stream))) {
+    if(!ok(CudaFenceStream(stream))) {
         // Catastrophe (not a normal error path): the slice may be
         // in-flight, so leak the exec and disable replay rather than
         // destroying a possibly-executing graph.
@@ -1216,7 +1217,7 @@ RbfStatus CudaRbfBinding::Evaluate(DeviceView<const float3> cvs, DeviceView<floa
             verifyKernel<<<(size_t(3) * size_t(n) + 255) / 256, 256, 0, stream>>>(
                 reinterpret_cast<int const*>(rest_.data()), reinterpret_cast<int const*>(rRest_.data()),
                 size_t(3) * size_t(n), &proofDev_->flag);
-            if(cudaGetLastError()!=cudaSuccess || !ok(cudaStreamSynchronize(stream))) return fail(RbfStatus::CudaError,"RBF evaluation cache verification failed");
+            if(cudaGetLastError()!=cudaSuccess || !ok(CudaFenceStream(stream))) return fail(RbfStatus::CudaError,"RBF evaluation cache verification failed");
             hit = (proofHost_->flag == 0);
         }
         if (!shapeOk) {
@@ -1246,7 +1247,7 @@ RbfStatus CudaRbfBinding::Evaluate(DeviceView<const float3> cvs, DeviceView<floa
 RbfStatus CudaRbfBinding::Finish(cudaStream_t stream) {
     if (HasUnprovenWork()) return fail(RbfStatus::InvalidArgument,"fresh RBF proof is pending");
     if(!evalPending_) return RbfStatus::Ok;
-    int bad=0; if(!ok(cudaStreamWaitEvent(stream,evalReady_,0)) || !ok(cudaMemcpyAsync(&bad,evalFlags_.data(),sizeof(bad),cudaMemcpyDeviceToHost,stream)) || !ok(cudaStreamSynchronize(stream))) return fail(RbfStatus::CudaError,"RBF evaluation completion query failed");
+    int bad=0; if(!ok(cudaStreamWaitEvent(stream,evalReady_,0)) || !ok(cudaMemcpyAsync(&bad,evalFlags_.data(),sizeof(bad),cudaMemcpyDeviceToHost,stream)) || !ok(CudaFenceStream(stream))) return fail(RbfStatus::CudaError,"RBF evaluation completion query failed");
     evalPending_=false; if(bad) { solved_=false; return fail(RbfStatus::NonFiniteInput,"RBF evaluation CVs contain non-finite values; generation rejected"); } return RbfStatus::Ok;
 }
 }}

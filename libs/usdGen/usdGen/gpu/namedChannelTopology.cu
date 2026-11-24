@@ -1,4 +1,5 @@
 #include "namedChannelTopology.h"
+#include "cudaCompletionLane.h"
 
 #include <cuda_runtime.h>
 
@@ -777,7 +778,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> Transform(
         Fail("CUDA named topology transform callback installation failed", reason);
         return {};
     }
-    if (cudaStreamSynchronize(stream) != cudaSuccess) {
+    if (CudaFenceStream(stream) != cudaSuccess) {
         candidate.Quarantine();
         // CUDA may still deliver an already-armed callback after a failed
         // synchronization. Preserve its userdata for exactly the same reason

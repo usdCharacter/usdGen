@@ -8,13 +8,17 @@
 
 namespace usdGen { namespace gpu {
 namespace {
-// Process-wide cache of freed device blocks, keyed by exact (device, byte
-// size). Flows such as CudaScatterGrow::BeginFresh allocate ~19 buffers and
-// free them per operation while a cold cudaMalloc costs ~1ms (~17ms per
-// grow), so proven-complete blocks are retained and reissued on exact-size
-// match, eliding the malloc/free/event round-trip.
+// Process-wide size-class pool of freed device blocks, keyed by (device,
+// class). Classes are 256 bytes, then four per power of two, so a block
+// serves any request within 25% below its class: a curve or CV count that
+// moves within its class reuses storage, and only a topology change that
+// crosses a class allocates. Flows such as CudaScatterGrow::BeginFresh
+// allocate ~19 buffers and free them per operation while a cold cudaMalloc
+// costs ~1ms (~17ms per grow), so proven-complete blocks are retained and
+// reissued, eliding the malloc/free/event round-trip.
 //
-// Accounting: the cached block's permit is RELEASED on insert, so pool
+// Accounting: permits and the cache gauge charge the bytes requested, not
+// the class. The cached block's permit is RELEASED on insert, so pool
 // usedBytes/byKind read exactly as if the storage had been freed —
 // teardown baselines and tight-budget admission are unchanged. Reuse
 // re-reserves through the normal TryReserve path (charging the reusing
@@ -31,7 +35,8 @@ namespace {
 struct CachedBlock {
     void* ptr = nullptr;
     cudaEvent_t ready = nullptr;
-    size_t bytes = 0;
+    size_t bytes = 0;     // requested by the last owner (the gauge)
+    size_t capacity = 0;  // the class allocated
     int device = -1;
 };
 // Lock-free and allocation-free: blocks hang off fixed nodes in per-(device,
@@ -47,6 +52,7 @@ constexpr uint32_t kCacheBuckets = 1024;  // power of two
 struct CacheNode {
     void* ptr = nullptr;
     cudaEvent_t ready = nullptr;
+    size_t bytes = 0;
     std::atomic<uint32_t> next{0};
 };
 struct CacheBucket {
@@ -57,11 +63,22 @@ CacheNode g_nodes[kCacheNodes];
 std::atomic<uint32_t> g_nodesUsed{0};
 std::atomic<uint64_t> g_freeNodes{0};
 CacheBucket g_buckets[kCacheBuckets];
-std::atomic<size_t> g_cacheBytes{0};
+std::atomic<size_t> g_cacheBytes{0};     // requested bytes (gauge)
+std::atomic<size_t> g_cachePhysical{0};  // class bytes (cap)
 // Idle physical retention bound. Covers one scatter-grow peak (~380MB)
 // with headroom; drain-on-reserve-failure keeps tight budgets correct
 // regardless of this value.
 constexpr size_t kCacheCapBytes = size_t{1} << 30;
+
+// 256 bytes, then four classes per power of two (at most 25% slack).
+size_t ClassBytes(size_t bytes) noexcept {
+    if (bytes <= 256) return 256;
+    unsigned top = 0;
+    for (size_t v = bytes - 1; v >>= 1;) ++top;  // floor(log2(bytes - 1))
+    size_t const step = size_t{1} << (top - 2);
+    size_t const rounded = (bytes + step - 1) & ~(step - 1);
+    return rounded < bytes ? bytes : rounded;
+}
 
 uint64_t Pack(uint64_t head, uint32_t index) noexcept {
     return (((head >> 32) + 1) << 32) | index;
@@ -94,7 +111,7 @@ uint32_t AllocNode() noexcept {
     return 0;
 }
 void FreeNode(uint32_t i) noexcept {
-    g_nodes[i - 1].ptr = nullptr; g_nodes[i - 1].ready = nullptr;
+    g_nodes[i - 1].ptr = nullptr; g_nodes[i - 1].ready = nullptr; g_nodes[i - 1].bytes = 0;
     PushIndex(g_freeNodes, i);
 }
 uint64_t Key(int device, size_t bytes) noexcept {
@@ -123,9 +140,11 @@ bool PopBucket(CacheBucket& b, CachedBlock* out) noexcept {
     uint32_t const i = PopIndex(b.head);
     if (!i) return false;
     uint64_t const key = b.key.load(std::memory_order_relaxed);
-    *out = CachedBlock{g_nodes[i - 1].ptr, g_nodes[i - 1].ready, KeyBytes(key), KeyDevice(key)};
+    *out = CachedBlock{g_nodes[i - 1].ptr, g_nodes[i - 1].ready, g_nodes[i - 1].bytes,
+                       KeyBytes(key), KeyDevice(key)};
     FreeNode(i);
     g_cacheBytes.fetch_sub(out->bytes, std::memory_order_acq_rel);
+    g_cachePhysical.fetch_sub(out->capacity, std::memory_order_acq_rel);
     return true;
 }
 // Pops any block, preferring `device` (or only `device` when `only`).
@@ -145,9 +164,9 @@ void FreeBlock(CachedBlock const& b) noexcept {
     if (b.ptr) cudaFree(b.ptr);
 }
 
-// Exact (device, bytes) match, most-recently-freed first.
-bool PopCache(int device, size_t bytes, CachedBlock* out) {
-    CacheBucket* b = FindBucket(Key(device, bytes), false);
+// Same (device, class), most-recently-freed first.
+bool PopCache(int device, size_t capacity, CachedBlock* out) {
+    CacheBucket* b = FindBucket(Key(device, capacity), false);
     return b && PopBucket(*b, out);
 }
 
@@ -155,28 +174,31 @@ bool PopCache(int device, size_t bytes, CachedBlock* out) {
 // `device` selected: same-device evictions issue directly, foreign ones
 // save/set/restore around the free. A failed set keeps the entry and stops
 // eviction (soft cap) rather than leaking or spinning.
-bool PushBlock(int device, size_t bytes, void* ptr, cudaEvent_t ready) noexcept {
-    CacheBucket* b = FindBucket(Key(device, bytes), true);
+bool PushBlock(CachedBlock const& block) noexcept {
+    CacheBucket* b = FindBucket(Key(block.device, block.capacity), true);
     uint32_t const i = b ? AllocNode() : 0;
     if (!i) return false;
-    g_nodes[i - 1].ptr = ptr; g_nodes[i - 1].ready = ready;
-    g_cacheBytes.fetch_add(bytes, std::memory_order_acq_rel);
+    g_nodes[i - 1].ptr = block.ptr; g_nodes[i - 1].ready = block.ready;
+    g_nodes[i - 1].bytes = block.bytes;
+    g_cacheBytes.fetch_add(block.bytes, std::memory_order_acq_rel);
+    g_cachePhysical.fetch_add(block.capacity, std::memory_order_acq_rel);
     PushIndex(b->head, i);
     return true;
 }
-void PushCache(int device, size_t bytes, void* ptr, cudaEvent_t ready) {
-    if (!PushBlock(device, bytes, ptr, ready)) {
-        FreeBlock(CachedBlock{ptr, ready, bytes, device});
+void PushCache(CachedBlock const& block) {
+    int const device = block.device;
+    if (!PushBlock(block)) {
+        FreeBlock(block);
         return;
     }
-    while (g_cacheBytes.load(std::memory_order_acquire) > kCacheCapBytes) {
+    while (g_cachePhysical.load(std::memory_order_acquire) > kCacheCapBytes) {
         CachedBlock victim;
         if (!PopAny(device, false, &victim)) return;
         bool const sameDevice = victim.device == device;
         if (!sameDevice && cudaSetDevice(victim.device) != cudaSuccess) {
             // Keep it (soft cap); with no slot left, leak rather than free
             // in a foreign context.
-            (void)PushBlock(victim.device, victim.bytes, victim.ptr, victim.ready);
+            (void)PushBlock(victim);
             return;
         }
         FreeBlock(victim);
@@ -205,8 +227,22 @@ template <class T> cudaError_t DeviceBuffer<T>::reset(
     if (count == size_ && data_) return device == device_ ? cudaSuccess : cudaErrorInvalidDevice;
     if (!count) { release(); return cudaSuccess; }
     size_t const bytes = count * sizeof(T);
+    size_t const capacity = ClassBytes(bytes);
+    if (data_ && device == device_ && capacity == capacity_) {
+        // Same class: keep the block and its event, recharge the new size.
+        auto permit = TryReserveCudaExecutionBytes(bytes, kind, reservation);
+        if (!permit) {
+            DrainCacheForDevice(device);
+            permit = TryReserveCudaExecutionBytes(bytes, kind, reservation);
+            if (!permit) return cudaErrorMemoryAllocation;
+        }
+        permit_.Release();
+        permit_ = std::move(*permit);
+        size_ = count;
+        return cudaSuccess;
+    }
     CachedBlock hit;
-    bool const haveHit = PopCache(device, bytes, &hit);
+    bool const haveHit = PopCache(device, capacity, &hit);
     auto permit = TryReserveCudaExecutionBytes(bytes, kind, reservation);
     if (!permit) {
         // Admission failed: the cache may hold physical memory the budget
@@ -220,12 +256,13 @@ template <class T> cudaError_t DeviceBuffer<T>::reset(
     } else if (haveHit) {
         release();
         data_ = static_cast<T*>(hit.ptr); size_ = count; ready_ = hit.ready; device_ = device;
+        capacity_ = hit.capacity;
         permit_ = std::move(*permit);
         return cudaSuccess;
     }
     T* next = nullptr;
     cudaEvent_t nextReady = nullptr;
-    cudaError_t e = cudaMalloc(reinterpret_cast<void**>(&next), bytes);
+    cudaError_t e = cudaMalloc(reinterpret_cast<void**>(&next), capacity);
     if (e != cudaSuccess) return e;
     e = cudaEventCreateWithFlags(&nextReady, cudaEventDisableTiming);
     if (e != cudaSuccess) {
@@ -233,12 +270,12 @@ template <class T> cudaError_t DeviceBuffer<T>::reset(
         return e;
     }
     release();
-    data_ = next; size_ = count; ready_ = nextReady; device_ = device;
+    data_ = next; size_ = count; ready_ = nextReady; device_ = device; capacity_ = capacity;
     permit_ = std::move(*permit);
     return cudaSuccess;
 }
 template <class T> void DeviceBuffer<T>::release() noexcept {
-    if (!data_) { ready_ = nullptr; size_ = 0; device_ = -1; return; }
+    if (!data_) { ready_ = nullptr; size_ = 0; device_ = -1; capacity_ = 0; return; }
     int previous = -1;
     bool const selected = cudaGetDevice(&previous) == cudaSuccess &&
         device_ >= 0 && cudaSetDevice(device_) == cudaSuccess;
@@ -246,19 +283,17 @@ template <class T> void DeviceBuffer<T>::release() noexcept {
     // possibly foreign context, and retain the resource charge conservatively.
     if (!selected) {
         permit_.Abandon();
-        ready_ = nullptr; data_ = nullptr; size_ = 0; device_ = -1;
+        ready_ = nullptr; data_ = nullptr; size_ = 0; device_ = -1; capacity_ = 0;
         return;
     }
     // Proven-complete storage joins the reuse cache instead of freeing: the
     // permit releases now (accounting reads as freed) while the raw block
-    // waits for an exact-size reuser. See the cache note above.
-    T* const ptr = data_;
-    cudaEvent_t const ready = ready_;
-    size_t const bytes = size_ * sizeof(T);
+    // waits for a reuser of its class. See the cache note above.
+    CachedBlock const block{data_, ready_, size_ * sizeof(T), capacity_, device_};
     int const dev = device_;
-    data_ = nullptr; size_ = 0; ready_ = nullptr; device_ = -1;
+    data_ = nullptr; size_ = 0; ready_ = nullptr; device_ = -1; capacity_ = 0;
     permit_.Release();
-    PushCache(dev, bytes, ptr, ready);
+    PushCache(block);
     if (previous != dev) cudaSetDevice(previous);
 }
 template <class T> cudaError_t DeviceBuffer<T>::recordUse(cudaStream_t stream) {
@@ -302,8 +337,9 @@ template <class T> cudaError_t DeviceBuffer<T>::synchronizeUse() const {
 }
 template <class T> void DeviceBuffer<T>::moveFrom(DeviceBuffer& o) noexcept {
     data_ = o.data_; size_ = o.size_; ready_ = o.ready_; device_ = o.device_;
+    capacity_ = o.capacity_;
     permit_ = std::move(o.permit_);
-    o.data_ = nullptr; o.size_ = 0; o.ready_ = nullptr; o.device_ = -1;
+    o.data_ = nullptr; o.size_ = 0; o.ready_ = nullptr; o.device_ = -1; o.capacity_ = 0;
 }
 template class DeviceBuffer<float>;
 template class DeviceBuffer<double>;

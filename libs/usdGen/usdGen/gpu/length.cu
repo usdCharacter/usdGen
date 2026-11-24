@@ -1,4 +1,5 @@
 #include "length.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 
 #include <algorithm>
@@ -517,7 +518,7 @@ StyleStatus CudaLength::Finish(cudaStream_t stream) {
     int code = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
-        cudaStreamSynchronize(stream) != cudaSuccess) {
+        CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         pending_ = false;
         return fail(StyleStatus::CudaError, "Length diagnostic readback failed");
@@ -530,7 +531,7 @@ StyleStatus CudaLength::Finish(cudaStream_t stream) {
                                     cudaMemcpyDeviceToDevice, stream) != cudaSuccess) ||
         (curves_ && cudaMemcpyAsync(keep_.data, keepStaging_.data(), curves_*sizeof(uint8_t),
                                      cudaMemcpyDeviceToDevice, stream) != cudaSuccess) ||
-        cudaStreamSynchronize(stream) != cudaSuccess) {
+        CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         pending_ = false;
         return fail(StyleStatus::CudaError, "Length publication failed");

@@ -1,4 +1,5 @@
 #include "gpu/topology.h"
+#include "cudaCompletionLane.h"
 #include "cudaCompat.h"
 #include "gpu/deviceBuffer.h"
 
@@ -128,7 +129,7 @@ cudaError_t CompareCurveTopology(DeviceCurveGeometryView a,
         status = cudaMemcpyAsync(&host, deviceResult, sizeof(host),
                                  cudaMemcpyDeviceToHost, stream);
     cudaError_t syncStatus = cudaSuccess;
-    if (workEnqueued) syncStatus = cudaStreamSynchronize(stream);
+    if (workEnqueued) syncStatus = CudaFenceStream(stream);
     if (status == cudaSuccess && syncStatus != cudaSuccess) status = syncStatus;
     // Do not free or refund an allocation after an unproven stream failure.
     if (workEnqueued && syncStatus != cudaSuccess) resultStorage.quarantine();
