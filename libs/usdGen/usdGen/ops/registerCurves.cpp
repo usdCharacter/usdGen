@@ -3,6 +3,7 @@
 // Built-in curve ops and map types (the future usdGenCurves, step 6). The op
 // registry's constructor calls this; registration order is id order.
 #include "usdGen/registries/registrar.h"
+#include "usdGen/cudaStages.h"
 
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/grow.h"
@@ -62,15 +63,16 @@ void RegisterMapTypes(UsdGenRegistrar &r)
 
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
-    UsdGenRegisterScatterOp(r);
-    UsdGenRegisterGrowOp(r);
-    UsdGenRegisterNoiseOp(r);
-    UsdGenRegisterLengthOp(r);
-    UsdGenRegisterWidthOp(r);
-    UsdGenRegisterWidthBlendOp(r);
-    UsdGenRegisterCurveSourceOp(r);
-    UsdGenRegisterDeformOp(r);
-    UsdGenRegisterReferenceSourceOp(r);
+    UsdGenCudaKernelOps cuda;
+    cuda.scatter = UsdGenRegisterScatterOp(r);
+    cuda.grow = UsdGenRegisterGrowOp(r);
+    cuda.noise = UsdGenRegisterNoiseOp(r);
+    cuda.length = UsdGenRegisterLengthOp(r);
+    cuda.width = UsdGenRegisterWidthOp(r);
+    cuda.widthBlend = UsdGenRegisterWidthBlendOp(r);
+    cuda.curveSource = UsdGenRegisterCurveSourceOp(r);
+    cuda.deform = UsdGenRegisterDeformOp(r);
+    cuda.referenceSource = UsdGenRegisterReferenceSourceOp(r);
     UsdGenRegisterClumpOp(r);
     UsdGenRegisterGuideInterpolateOp(r);
     UsdGenRegisterCurlOp(r);
@@ -95,4 +97,5 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterTieClumpOp(r);
     UsdGenRegisterCardSourceOp(r);
     RegisterMapTypes(r);
+    UsdGenRegisterCurvesCuda(r, cuda);
 }
