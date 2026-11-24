@@ -355,7 +355,13 @@ UsdGenImagingSession::UsdGenImagingSession(UsdGenSessionKey const& key,
 UsdGenImagingSession::~UsdGenImagingSession() {
     State* state = _state.release();
     state->accepting.store(false, std::memory_order_release);
-    RetirementQueue().Post([state] { state->Close(); delete state; });
+    // The engine reference leaves with the state. Released here it could be
+    // the last one (the retirement task may already have deleted the state),
+    // and ~UsdGenSession must never run inline, on an owner lane.
+    RetirementQueue().Post([state, engine = std::move(_engine)] {
+        state->Close();
+        delete state;
+    });
 }
 void UsdGenImagingSession::Shutdown() { _state->Close(); }
 void UsdGenImagingSession::DrainRetired() { RetirementQueue().Drain(); }
