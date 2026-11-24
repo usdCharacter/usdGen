@@ -426,7 +426,11 @@ list(REMOVE_ITEM USDGEN_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/executionBackendVulkanProvider.cpp"
     # CUDA-only helper exposes CUDA vector types; do not compile it in the
     # CPU-only core build selected by ordinary consumers.
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/cudaScatterInput.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/cudaScatterInput.cpp"
+    # CUDA completion lane and stream fence include cuda_runtime.h; the CUDA
+    # block below adds them to usdGen and usdGenGpu.
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/gpu/cudaCompletionLane.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/gpu/cudaFence.cpp")
 add_library(usdGenExecutionResources SHARED
     libs/usdGen/usdGen/executionResources.cpp
     libs/usdGen/usdGen/executionRetirement.cpp
