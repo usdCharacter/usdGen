@@ -5,6 +5,7 @@
 #include "usdGenImaging/testHook.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "pxr/base/js/json.h"
 #include "pxr/imaging/hd/retainedSceneIndex.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
@@ -67,6 +68,19 @@ public:
         }
     }
 };
+void RegisterTemporalOp(usdGen::UsdGenRegistrar &r)
+{
+    static char const *const kReferences[] = {"guides"};
+    usdGen::UsdGenOpDef d;
+    d.name = "UsdGenPlaybackTestTemporal";
+    d.displayName = "PlaybackTestTemporal";
+    d.create = [](usdGen::UsdGenOpRecord const&, void*) -> std::unique_ptr<usdGen::UsdGenOp> {
+        return std::make_unique<TemporalOp>();
+    };
+    d.traits = usdGen::kUsdGenOpReadsTime;
+    d.referenceInputs = usdGen::UsdGenSpan(kReferences);
+    r.RegisterOp(d);
+}
 HdContainerDataSourceHandle EmptyGraph(bool temporal = false) {
     TfToken names[] = {TfToken("operatorOrder"), TfToken("surface"), TfToken("tileTarget")};
     HdDataSourceBaseHandle values[] = {
@@ -142,7 +156,7 @@ HdContainerDataSourceHandle Guide() {
 }
 }
 int main() {
-    usdGen::UsdGenOpRegistry::Get().Register(TfToken("UsdGenPlaybackTestTemporal"), [] { return std::make_unique<TemporalOp>(); });
+    usdGen::UsdGenRegisterStatic(&RegisterTemporalOp);
     Check(State("unavailable"), "missing viewer index fails closed");
     auto input = HdRetainedSceneIndex::New();
     auto sceneTime = FrameValue::New();

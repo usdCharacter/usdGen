@@ -4,6 +4,7 @@
 
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/registrar.h"
 #include "usdGen/session.h"
 
 #include "pxr/pxr.h"
@@ -115,6 +116,28 @@ public:
     }
 };
 
+void RegisterAsyncTestOps(UsdGenRegistrar &r)
+{
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenAsyncHold";
+        d.displayName = "AsyncHold";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<HoldCaptureOp>();
+        };
+        r.RegisterOp(d);
+    }
+    {
+        UsdGenOpDef d;
+        d.name = "UsdGenAsyncTileHold";
+        d.displayName = "AsyncTileHold";
+        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<HoldTileOp>();
+        };
+        r.RegisterOp(d);
+    }
+}
+
 bool WaitFor(std::atomic<bool> const &value, int milliseconds = 10000)
 {
     auto const deadline = std::chrono::steady_clock::now() +
@@ -212,11 +235,7 @@ int main()
     }
     for (auto& thread : coldStarts) thread.join();
     Check(coldSuccess.load() == 8, "simultaneous cold sessions read complete built-in registry");
-    usdGenRegisterM1Operators();
-    UsdGenOpRegistry::Get().Register(TfToken("UsdGenAsyncHold"),
-                                      [] { return std::make_unique<HoldCaptureOp>(); });
-    UsdGenOpRegistry::Get().Register(TfToken("UsdGenAsyncTileHold"),
-                                      [] { return std::make_unique<HoldTileOp>(); });
+    UsdGenRegisterStatic(&RegisterAsyncTestOps);
 
     // A terminal tile publishes before a later tile finishes evaluation.
     // The public full-generation snapshot remains untouched until the cook
