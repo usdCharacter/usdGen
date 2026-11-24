@@ -91,6 +91,10 @@ inline GfVec3f RotateGrowDirection(GfVec3f direction, GfVec3f axis,
 }
 
 // Azimuth is captured once per stable strand, independently of length draws.
+// The capture's default direction, interned at load (Recycle must not
+// look a token up).
+TfToken const sDefaultDirection{"surfaceNormal"};
+
 struct UsdGenGrowCapture final : public UsdGenCapturePayload
 {
     // perCurve[c] = target length of curve c (kSaltGrow draw applied).
@@ -113,6 +117,24 @@ struct UsdGenGrowCapture final : public UsdGenCapturePayload
         return std::make_unique<UsdGenGrowCapture>(*this);
     }
     bool OwnsBuffer() const override { return true; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        perCurve.clear();
+        perCv.clear();
+        rampLut.clear();
+        cvCount = 0;
+        lift = 0.0f;
+        direction = sDefaultDirection;
+        directionVector = GfVec3f(0.0f, 1.0f, 0.0f);
+        liftPerCurve.clear();
+        azimuthPerCurve.clear();
+        dirPerCurve.clear();
+        upstreamTopologyVersion = upstreamValueVersion = 0;
+        upstreamCurves = 0;
+        return true;
+    }
     bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
     {
         return upstream.topologyVersion == upstreamTopologyVersion &&
@@ -344,7 +366,10 @@ bool UsdGenGrowOp::Capture(
     // resamples a valid vertex-width plane to the new span or creates the
     // description fallback.  This happens during capture, before workers
     // receive raw output pointers, and is deliberately private storage.
-    VtFloatArray grownWidths(buf.totalCvs, fallbackWidth);
+    // Refills a recycled capture's width storage (fresh when shared).
+    VtFloatArray grownWidths;
+    grownWidths.swap(buf.width);
+    grownWidths.assign(buf.totalCvs, fallbackWidth);
     if (!upstream.width.empty()) {
         if (upstream.width.size() != upstream.totalCvs) {
             if (diag) diag->Error("UsdGenGrow: upstream width plane cardinality "
@@ -574,7 +599,9 @@ bool UsdGenGrowOp::Capture(
     }
     // Point cardinality and rootSpans were established before the per-curve
     // loop so connected controls sample each curve's root.
-    VtVec3fArray grownRest(buf.totalCvs);
+    VtVec3fArray grownRest;
+    grownRest.swap(buf.rest);   // a recycled capture's storage
+    grownRest.assign(buf.totalCvs, GfVec3f(0.0f));
     for (uint32_t c = 0; c != R; ++c) {
         uint32_t const rootIndex = rootSpans[c];
         GfVec3f root = upstream.rest.empty() ? GfVec3f(upstream.px[rootIndex], upstream.py[rootIndex], upstream.pz[rootIndex])

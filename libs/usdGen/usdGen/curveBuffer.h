@@ -93,6 +93,24 @@ struct UsdGenCurveBuffer
     uint64_t valueVersion    = 0;        // bumped by every write to this buffer
 };
 
+/// Back to a default-constructed buffer, keeping storage: every array is
+/// cleared, which keeps its capacity when this buffer is its only owner and
+/// drops the reference otherwise (a shared array is never written). Used by
+/// recycled captures so a warm re-capture refills the storage it had.
+inline void UsdGenRecycleBuffer(UsdGenCurveBuffer &b)
+{
+    b.px.clear(); b.py.clear(); b.pz.clear();
+    b.rest.clear(); b.width.clear(); b.hairT.clear();
+    b.extraCv.clear();
+    b.curveId.clear(); b.rootPrim.clear(); b.rootUV.clear();
+    b.rootT.clear(); b.rootN.clear(); b.rootB.clear();
+    b.cvOffsets.clear();
+    b.extraCurve.clear();
+    b.chunks.clear();
+    b.totalCurves = b.totalCvs = 0;
+    b.topologyVersion = b.valueVersion = 0;
+}
+
 /// Rebuilds named planes for a topology-preserving curve-count resample.
 /// `target` must already contain the new CV topology. Vertex float payloads
 /// use the same linear index parameter as CurveSource/Resample; integer

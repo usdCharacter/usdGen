@@ -98,6 +98,12 @@ struct UsdGenCompiledNode : UsdGenPooled
 
     UsdGenCurveBuffer      buffer;               // this node's output (S24)
     std::unique_ptr<UsdGenCapture> capture;       // epoch-keyed payload
+    // The capture `capture` replaced, kept when Recyclable(): the next
+    // re-capture refills it (by then nothing downstream shares its arrays).
+    std::unique_ptr<UsdGenCapture> spareCapture;
+    // Written planes an owning capture's buffer replaced, kept for the next
+    // install (same retirement lag as spareCapture).
+    VtFloatArray retiredPx, retiredPy, retiredPz, retiredHairT;
     std::vector<UsdGenChunkDesc> chunks;          // this node's chunk partition
     std::vector<UsdGenChunkDirtyBits> chunkDirty; // one dirty word per chunk
     std::vector<uint8_t>      chunkCaptured;      // capture-validity byte per chunk (reference lane: single flag)

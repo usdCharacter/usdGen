@@ -64,6 +64,18 @@ struct UsdGenNoiseCapture final : public UsdGenCapturePayload
     {
         return std::make_unique<UsdGenNoiseCapture>(*this);
     }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        perCurve.clear();
+        perCv.clear();
+        rampLut.clear();
+        clumpMotion.levels.clear();
+        upstreamTopologyVersion = 0;
+        upstreamCvs = 0;
+        return true;
+    }
     bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
     {
         return upstream.topologyVersion == upstreamTopologyVersion &&
