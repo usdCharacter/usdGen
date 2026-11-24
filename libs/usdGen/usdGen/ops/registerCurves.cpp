@@ -36,6 +36,7 @@
 #include "usdGen/ops/frizz.h"
 #include "usdGen/ops/tieClump.h"
 #include "usdGen/ops/cardSource.h"
+#include "usdGen/vulkan/vkStages.h"
 
 using namespace usdGen;
 
@@ -62,15 +63,16 @@ void RegisterMapTypes(UsdGenRegistrar &r)
 
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
-    UsdGenRegisterScatterOp(r);
-    UsdGenRegisterGrowOp(r);
-    UsdGenRegisterNoiseOp(r);
-    UsdGenRegisterLengthOp(r);
-    UsdGenRegisterWidthOp(r);
-    UsdGenRegisterWidthBlendOp(r);
-    UsdGenRegisterCurveSourceOp(r);
-    UsdGenRegisterDeformOp(r);
-    UsdGenRegisterReferenceSourceOp(r);
+    UsdGenVulkanKernelOps k;
+    k.scatter = UsdGenRegisterScatterOp(r);
+    k.grow = UsdGenRegisterGrowOp(r);
+    k.noise = UsdGenRegisterNoiseOp(r);
+    k.length = UsdGenRegisterLengthOp(r);
+    k.width = UsdGenRegisterWidthOp(r);
+    k.widthBlend = UsdGenRegisterWidthBlendOp(r);
+    k.curveSource = UsdGenRegisterCurveSourceOp(r);
+    k.deform = UsdGenRegisterDeformOp(r);
+    k.referenceSource = UsdGenRegisterReferenceSourceOp(r);
     UsdGenRegisterClumpOp(r);
     UsdGenRegisterGuideInterpolateOp(r);
     UsdGenRegisterCurlOp(r);
@@ -79,7 +81,7 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterPartOp(r);
     UsdGenRegisterDirectionOp(r);
     UsdGenRegisterSmoothOp(r);
-    UsdGenRegisterResampleOp(r);
+    k.resample = UsdGenRegisterResampleOp(r);
     UsdGenRegisterScaleOp(r);
     UsdGenRegisterStraightenOp(r);
     UsdGenRegisterDisplaceOp(r);
@@ -95,4 +97,5 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterTieClumpOp(r);
     UsdGenRegisterCardSourceOp(r);
     RegisterMapTypes(r);
+    UsdGenRegisterVulkanKernels(r, k);
 }
