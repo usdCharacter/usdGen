@@ -25,6 +25,8 @@
 #include "usdGen/ops/scatterModes.h"
 
 #include "usdGen/limitSurface.h"
+#include "usdGen/ops/scatter.h"
+#include "usdGen/registries/engineTokens.h"
 
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
@@ -51,14 +53,6 @@ constexpr uint32_t kSaltScatterModes = 0x53634D64u;  // "ScMd": generation-order
 constexpr uint32_t kSaltScatterThin = 0x5363546Eu;   // "ScTn": random-path thinning
 constexpr uint32_t kMaxTarget = 2000000u;
 constexpr size_t kSamplerBatch = 16384;
-
-// Interned once at load, not behind a function-local static's guard.
-TfToken const kDensityMapRelationship("usdGen:densityMap");
-
-TfToken const &DensityMapRelationship()
-{
-    return kDensityMapRelationship;
-}
 
 inline uint32_t FloatBits(float f)
 {
@@ -895,41 +889,62 @@ float RootHash01(uint64_t index, int tri, int vertex, GfVec3f const &pos, GfVec3
     return float(r) * (1.0f / 16777216.0f);
 }
 
+namespace {
+
+/// The decl enumerant index of an authored token (-1: matches none), or
+/// `fallback` when the parameter is unauthored or not token-valued.
+int AuthoredEnum(UsdGenParamView const &p, UsdGenParamSlot slot, int fallback)
+{
+    UsdGenResolvedParam const *r = p.Slot(slot);
+    if (!r || !r->authored) return fallback;
+    VtValue const &v = r->authored->value;
+    return v.IsHolding<TfToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
+}
+
+}  // namespace
+
+void FillModeNames(UsdGenOpRecord const &record, ModeConfig *config)
+{
+    config->names.leftHanded = record.Token(scatterP::kTokLeftHanded);
+    config->names.densityMap = record.Token(scatterP::kTokDensityMap);
+    config->names.strandIndex = record.Token(scatterP::kTokStrandIndex);
+    config->names.strandSeed = record.Token(scatterP::kTokStrandSeed);
+}
+
 bool ReadModeConfig(UsdGenParamView const *p, ModeConfig *out, std::string *error)
 {
+    using namespace scatterP;
     ModeConfig c;
     auto fail = [error](std::string const &m) {
         if (error) *error = m;
         return false;
     };
     if (p) {
-        TfToken const dist = p->GetToken(TfToken("distribution"), TfToken("random"));
-        if (dist == TfToken("random")) c.distribution = Distribution::Random;
-        else if (dist == TfToken("uvGrid")) c.distribution = Distribution::UvGrid;
-        else if (dist == TfToken("vertex")) c.distribution = Distribution::Vertex;
-        else if (dist == TfToken("even")) c.distribution = Distribution::Even;
-        else if (dist == TfToken("perGuide")) c.distribution = Distribution::PerGuide;
-        else return fail("unknown distribution '" + dist.GetString() + "'");
-        TfToken const count = p->GetToken(TfToken("countMode"), TfToken("perFace"));
-        if (count == TfToken("perFace")) c.countMode = CountMode::PerFace;
-        else if (count == TfToken("surface")) c.countMode = CountMode::Surface;
-        else return fail("unknown countMode '" + count.GetString() + "'");
-        TfToken const prox = p->GetToken(TfToken("proximity:mode"), TfToken("none"));
-        if (prox == TfToken("none")) c.proximity = ProximityMode::None;
-        else if (prox == TfToken("distance")) c.proximity = ProximityMode::Distance;
-        else if (prox == TfToken("coverage")) c.proximity = ProximityMode::Coverage;
-        else return fail("unknown proximity:mode '" + prox.GetString() + "'");
-        double const dist2 = p->GetDouble(TfToken("proximity:distance"), 0.01);
-        double const cov = p->GetDouble(TfToken("proximity:coverage"), 1.0);
-        double const density = p->GetDouble(TfToken("density"), 100.0);
+        if (p->op) FillModeNames(*p->op, &c);
+        // Enumerant order is Distribution / CountMode / ProximityMode order.
+        int const dist = AuthoredEnum(*p, kDistribution, kDistRandom);
+        if (dist < 0)
+            return fail("unknown distribution '" + p->Slot(kDistribution)->token.GetString() + "'");
+        c.distribution = Distribution(dist);
+        int const count = AuthoredEnum(*p, kCountMode, kCountPerFace);
+        if (count < 0)
+            return fail("unknown countMode '" + p->Slot(kCountMode)->token.GetString() + "'");
+        c.countMode = CountMode(count);
+        int const prox = AuthoredEnum(*p, kProximityMode, kProxNone);
+        if (prox < 0)
+            return fail("unknown proximity:mode '" + p->Slot(kProximityMode)->token.GetString() + "'");
+        c.proximity = ProximityMode(prox);
+        double const dist2 = p->GetDouble(kProximityDistance, 0.01);
+        double const cov = p->GetDouble(kProximityCoverage, 1.0);
+        double const density = p->GetDouble(kDensity, 100.0);
         if (!std::isfinite(dist2)) return fail("proximity:distance must be finite");
         if (!std::isfinite(cov)) return fail("proximity:coverage must be finite");
         if (!std::isfinite(density) || density < 0.0) return fail("density must be finite and >= 0");
         c.proximityDistance = float(dist2);
         c.proximityCoverage = float(cov);
         c.density = float(density);
-        c.flip = p->GetBool(TfToken("flip"), false);
-        c.subdivisionLevel = p->GetInt(TfToken("subdivisionLevel"), 0);
+        c.flip = p->GetBool(kFlip, false);
+        c.subdivisionLevel = p->GetInt(kSubdivisionLevel, 0);
         if (c.subdivisionLevel < 0 || c.subdivisionLevel > 6)
             return fail("subdivisionLevel must be in [0,6]");
     }
@@ -939,13 +954,14 @@ bool ReadModeConfig(UsdGenParamView const *p, ModeConfig *out, std::string *erro
     return true;
 }
 
-void SetStrandPlanes(UsdGenCurveBuffer *buf, VtIntArray index, VtIntArray seed)
+void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
+                     VtIntArray index, VtIntArray seed)
 {
     auto insert = [buf](TfToken const &name, VtIntArray values) {
         UsdGenPlane plane;
         plane.name = name;
-        plane.interpolation = TfToken("uniform");
-        plane.type = TfToken("int");
+        plane.interpolation = UsdGenTokens().uniform;
+        plane.type = UsdGenTokens().int_;
         plane.arity = 1;
         plane.i = std::move(values);
         auto &planes = buf->extraCurve;
@@ -954,8 +970,8 @@ void SetStrandPlanes(UsdGenCurveBuffer *buf, VtIntArray index, VtIntArray seed)
         if (it != planes.end() && it->name == name) *it = std::move(plane);
         else planes.insert(it, std::move(plane));
     };
-    insert(TfToken("strandIndex"), std::move(index));
-    insert(TfToken("strandSeed"), std::move(seed));
+    insert(names.strandIndex, std::move(index));
+    insert(names.strandSeed, std::move(seed));
 }
 
 bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
@@ -1049,7 +1065,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
 
     // Density-map thinning (emit filter): never renumbers strands.
     std::vector<UsdGenMapDesc const *> const maps = strand::BoundMaps(
-        ctx.desc, ctx.mapBindings, ctx.mapBindingCount, DensityMapRelationship());
+        ctx.desc, ctx.mapBindings, ctx.mapBindingCount, config.names.densityMap);
     std::vector<uint32_t> survivors;
     survivors.reserve(roots.size());
     if (!maps.empty() && !s.tris.empty()) s.EnsureBvh();
@@ -1079,7 +1095,8 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
         std::vector<int> faceStart(surface.faceVertexCounts.size() + 1, 0);
         for (size_t f = 0; f < surface.faceVertexCounts.size(); ++f)
             faceStart[f + 1] = faceStart[f] + surface.faceVertexCounts[f];
-        bool const leftHanded = surface.orientation == TfToken("leftHanded");
+        bool const leftHanded = !config.names.leftHanded.IsEmpty() &&
+            surface.orientation == config.names.leftHanded;
         std::vector<uint32_t> onLimit;
         onLimit.reserve(survivors.size());
         for (uint32_t i : survivors) {
@@ -1151,7 +1168,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
     }
     buf->totalCurves = uint32_t(N);
     buf->totalCvs = uint32_t(N);
-    SetStrandPlanes(buf, std::move(strandIndex), std::move(strandSeed));
+    SetStrandPlanes(buf, config.names, std::move(strandIndex), std::move(strandSeed));
     return true;
 }
 
@@ -1174,7 +1191,7 @@ bool RandomPathFilter::Init(UsdGenCaptureContext const &ctx, ModeConfig const &c
     Impl &im = *_impl;
     im = Impl();
     im.maps = strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount,
-                                DensityMapRelationship());
+                                config.names.densityMap);
     Guides guides;
     if (config.proximity != ProximityMode::None) {
         std::string error;

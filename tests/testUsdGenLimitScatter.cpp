@@ -4,6 +4,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/scheduler.h"
 #include <cmath>
 #include <cstdio>
@@ -44,8 +45,9 @@ static UsdGenGraphDesc BigDesc(UsdGenSurfaceDesc const& s) {
 }
 static bool RunDirect(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out) {
     UsdGenNodeDesc const& node=d.nodes[0];
-    UsdGenParamView params{&d,&node};
-    UsdGenScatterOp op;UsdGenDiagnostics diag;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"),&node,&d);
+    UsdGenParamView const &params=paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));UsdGenDiagnostics diag;
     if(!op.Bind(params,&diag))return false;
     auto cap=op.CreateCapture();if(!cap)return false;
     UsdGenCaptureContext ctx;ctx.desc=&d;ctx.params=&params;ctx.surface=0;
@@ -302,7 +304,7 @@ int main() {
         t = s; t.faceVertexCounts[0] = 3; CHECK(!tmoved(t));
         t = s; t.faceVertexIndices[0] = 7; CHECK(!tmoved(t));
     }
-    UsdGenScatterOp op;auto d0=Desc(s,3),d1=Desc(tags,3);UsdGenCaptureContext c0,c1;c0.desc=&d0;c1.desc=&d1;
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));auto d0=Desc(s,3),d1=Desc(tags,3);UsdGenCaptureContext c0,c1;c0.desc=&d0;c1.desc=&d1;
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     // Pose and parent motion are downstream deformation inputs, not rest
     // scatter inputs. Rest/topology/UV/paint edits must still invalidate.

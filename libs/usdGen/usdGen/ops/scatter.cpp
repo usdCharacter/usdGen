@@ -14,7 +14,6 @@
 // chunk placement is surface-major (plan/04 :641).
 #include "usdGen/ops/scatter.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/digest.h"
 #include "usdGen/limitSurface.h"
 #include "usdGen/scheduler.h"
@@ -281,40 +280,55 @@ inline uint64_t ScatterMortonKey3(float x, float y, float z, float cellScale)
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("enabled"));      // generator: topology-class (02 §6.2)
-    v.push_back(TfToken("density"));     // capture (02 §6.4)
-    v.push_back(TfToken("flip"));
-    v.push_back(TfToken("subdivisionLevel"));
-    // Generation-order modes (ops/scatterModes.h).
-    for (char const *name : {"distribution", "countMode", "proximity:mode",
-                             "proximity:distance", "proximity:coverage", "guides",
-                             "densityMap"})
-        v.push_back(TfToken(name));
-    return v;
-}();
-
-static TfTokenVector const _referenceInputs{TfToken("guides")};
+namespace {
+using namespace scatterP;
 
 // Scatter is a generator: it has no upstream curves to leave untouched, so it
-// declares no usdGen:mask.
-static TfTokenVector _valueParams = [] {
-    return UsdGenBaseValueParams();
-}();
+// declares no usdGen:mask and no expression-connectable parameter. Order is the
+// old TopologyParameters() list (02 §6.2 topology-class "enabled", 02 §6.4
+// capture class for the rest).
+constexpr char const *kDistributions[] = {"random", "uvGrid", "vertex", "even", "perGuide"};
+constexpr char const *kCountModes[] = {"perFace", "surface"};
+constexpr char const *kProximityModes[] = {"none", "distance", "coverage"};
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Capture},
+    {"density", UsdGenParamClass::Capture},
+    {"flip", UsdGenParamClass::Capture},
+    {"subdivisionLevel", UsdGenParamClass::Capture},
+    {"distribution", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kDistributions)},
+    {"countMode", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kCountModes)},
+    {"proximity:mode", UsdGenParamClass::Capture, true, {}, UsdGenSpan(kProximityModes)},
+    {"proximity:distance", UsdGenParamClass::Capture},
+    {"proximity:coverage", UsdGenParamClass::Capture},
+    {"guides", UsdGenParamClass::Capture},
+    {"densityMap", UsdGenParamClass::Capture},
+};
+constexpr char const *kReferenceInputs[] = {"guides"};
+constexpr UsdGenMapSlotDecl kMaps[] = {{"usdGen:densityMap"}};
+constexpr char const *kTokens[] = {"random", "perFace", "none", "leftHanded", "usdGen:densityMap",
+                                   "strandIndex", "strandSeed"};
 
-TfSpan<const TfToken> UsdGenScatterOp::TopologyParameters() const
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &record, void *)
 {
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
+    return std::make_unique<UsdGenScatterOp>(record);
 }
-TfSpan<const TfToken> UsdGenScatterOp::ValueParameters() const
+
+/// Roots carry limit-surface UVs when usdGen:subdivisionLevel is an authored int above 0.
+/// Reads the node, not the slots: UsdGenNodeEmitsLimitSurfaceUv (cpuParameters.cpp) hands
+/// this hook a view with no resolved slots.
+bool EmitsLimitSurfaceUv(UsdGenParamView const &view)
 {
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
+    if (!view.node) return false;
+    for (UsdGenParamValue const &p : view.node->params)
+        if (p.name.GetString() == "subdivisionLevel" && p.value.IsHolding<int>())
+            return p.value.UncheckedGet<int>() > 0;
+    return false;
 }
-TfSpan<const TfToken> UsdGenScatterOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
-}
+}  // namespace
+
 std::unique_ptr<UsdGenCapture> UsdGenScatterOp::CreateCapture() const
 {
     return std::make_unique<UsdGenScatterCapture>();
@@ -368,12 +382,12 @@ uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
 
 bool UsdGenScatterOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    int const level=params.GetInt(TfToken("subdivisionLevel"),0);
+    int const level=params.GetInt(kSubdivisionLevel,0);
     if(level<0 || level>6) {
         if(diag)diag->Error("UsdGenScatter: subdivisionLevel must be in [0,6]");
         return false;
     }
-    double const density = params.GetDouble(TfToken("density"), 100.0);
+    double const density = params.GetDouble(kDensity, 100.0);
     if (!std::isfinite(density) || density < 0.0) {
         if (diag) diag->Error("UsdGenScatter: density must be finite and >= 0");
         return false;
@@ -398,10 +412,10 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
         h ^= v; h *= 0x100000001b3ULL;
         h ^= k.size(); h *= 0x100000001b3ULL;
     };
-    feed("density", p ? double_as_bits(p->GetDouble(TfToken("density"), 100.0)) : 0);
-    feed("flip", p && p->GetBool(TfToken("flip"), false) ? 1u : 0u);
+    feed("density", p ? double_as_bits(p->GetDouble(kDensity, 100.0)) : 0);
+    feed("flip", p && p->GetBool(kFlip, false) ? 1u : 0u);
     feed("seed", ctx.seed);
-    feed("subdivisionLevel", p ? p->GetInt(TfToken("subdivisionLevel"),0) : 0);
+    feed("subdivisionLevel", p ? p->GetInt(kSubdivisionLevel,0) : 0);
     // Generation-order modes: their parameters, the guide set and the
     // density maps (identity folds the painted values) are capture inputs.
     auto tokenBits = [](TfToken const &t) {
@@ -409,13 +423,13 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
         d.Mix(t);
         return d.h;
     };
-    feed("distribution", p ? tokenBits(p->GetToken(TfToken("distribution"), TfToken("random"))) : 0);
-    feed("countMode", p ? tokenBits(p->GetToken(TfToken("countMode"), TfToken("perFace"))) : 0);
-    feed("proximity:mode", p ? tokenBits(p->GetToken(TfToken("proximity:mode"), TfToken("none"))) : 0);
+    feed("distribution", p ? tokenBits(p->GetToken(kDistribution, Record().Token(kTokRandom))) : 0);
+    feed("countMode", p ? tokenBits(p->GetToken(kCountMode, Record().Token(kTokPerFace))) : 0);
+    feed("proximity:mode", p ? tokenBits(p->GetToken(kProximityMode, Record().Token(kTokNone))) : 0);
     feed("proximity:distance",
-         p ? double_as_bits(p->GetDouble(TfToken("proximity:distance"), 0.01)) : 0);
+         p ? double_as_bits(p->GetDouble(kProximityDistance, 0.01)) : 0);
     feed("proximity:coverage",
-         p ? double_as_bits(p->GetDouble(TfToken("proximity:coverage"), 1.0)) : 0);
+         p ? double_as_bits(p->GetDouble(kProximityCoverage, 1.0)) : 0);
     feed("references", uint64_t(ctx.referenceCount));
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
@@ -491,6 +505,7 @@ bool UsdGenScatterOp::Capture(
             if (diag) diag->Error("UsdGenScatter::Capture: " + modeError);
             return false;
         }
+        scatter::FillModeNames(Record(), &modes);
     }
     if (modes.GenerationPath()) {
         // uvGrid / vertex / even / perGuide, or random with a surface-wide
@@ -505,7 +520,8 @@ bool UsdGenScatterOp::Capture(
                        surf.path.GetText() + "' has no topology");
         return scatter::CaptureModes(ctx, modes, surf, &modeBuf, diag);
     }
-    int const level=p ? p->GetInt(TfToken("subdivisionLevel"),0) : 0;
+    int const level=p ? p->GetInt(kSubdivisionLevel,0) : 0;
+    bool const leftHanded = surf.orientation == Record().Token(kTokLeftHanded);
     UsdGenLimitSurface limit;
     if(level) {
         // The random per-face path quadratures each coarse face on a 2^level
@@ -565,7 +581,7 @@ bool UsdGenScatterOp::Capture(
             cornerOff[f + 1] = cornerOff[f] + size_t(fvc[f]);
     }
 
-    const double density = p ? p->GetDouble(TfToken("density"), 100.0) : 100.0;
+    const double density = p ? p->GetDouble(kDensity, 100.0) : 100.0;
     if (!std::isfinite(density) || density < 0.0) {
         if (diag) diag->Error("UsdGenScatter::Capture: density must be finite and >= 0");
         return false;
@@ -579,7 +595,7 @@ bool UsdGenScatterOp::Capture(
                               "has the wrong face count");
         return false;
     }
-    const bool flip = p ? p->GetBool(TfToken("flip"), false) : false;
+    const bool flip = p ? p->GetBool(kFlip, false) : false;
 
     // Hoisted SplitMix seed hashes (bit-identical CSE): every per-face and
     // per-root hash below folds ctx.seed through UsdGenHash64(seed32, salt)
@@ -841,7 +857,7 @@ bool UsdGenScatterOp::Capture(
                     break;
                 }
                 N=Normalize3(GfCross(du,dv));
-                if(surf.orientation==TfToken("leftHanded")) N=-N;
+                if(leftHanded) N=-N;
                 T=Normalize3(du-N*GfDot(du,N));
             } else {
             size_t const ib = cbase + ti + 1;
@@ -1558,7 +1574,7 @@ bool UsdGenScatterOp::Capture(
             index[i] = v;
             seed[i] = v;
         }
-        scatter::SetStrandPlanes(&buf, std::move(index), std::move(seed));
+        scatter::SetStrandPlanes(&buf, modes.names, std::move(index), std::move(seed));
     };
     // Per-plane gather (bit-identical): the permuted read stream jumps over
     // the whole emission range, so gathering every plane in one loop keeps
@@ -1681,7 +1697,20 @@ void UsdGenScatterOp::Evaluate(
 
 UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenScatterOp().Type(), [] { return std::make_unique<UsdGenScatterOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenScatter";
+    d.displayName = "Scatter";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.role = UsdGenRole::Curves;
+    d.geometryInputArity = 0;
+    d.traits = kUsdGenOpGenerator;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferenceInputs);
+    d.mapSlots = UsdGenSpan(kMaps);
+    d.tokens = UsdGenSpan(kTokens);
+    d.hooks.emitsLimitSurfaceUv = &EmitsLimitSurfaceUv;
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

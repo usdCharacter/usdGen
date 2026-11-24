@@ -121,9 +121,14 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
             auto surface = std::find_if(desc.surfaces.begin(),desc.surfaces.end(),
                 [&](auto const& value){return value.path == node.surfaces.front();});
             if (surface == desc.surfaces.end() || !SurfaceValid(*surface)) return Fail(diag,"invalid rest surface");
-            auto op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenScatter"));
-            UsdGenParamView params{&desc,&node};
-            if (!op || !op->Bind(params,diag)) return Fail(diag,"Scatter bind failed");
+            UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+            UsdGenOpId const scatterId = registry.Find(TfToken("UsdGenScatter"));
+            auto op = registry.Create(scatterId);
+            if (!op) return Fail(diag,"Scatter bind failed");
+            // Slot-resolved view: the kernel reads its parameters by slot.
+            UsdGenStackParams const resolved(desc, node, registry.Record(scatterId));
+            UsdGenParamView const &params = resolved.View();
+            if (!op->Bind(params,diag)) return Fail(diag,"Scatter bind failed");
             auto capture = op->CreateCapture();
             UsdGenCaptureContext ctx; ctx.desc = &desc; ctx.params = &params; ctx.diag = diag;
             ctx.surface = static_cast<UsdGenSurfaceId>(surface - desc.surfaces.begin()); ctx.seed = uint32_t(node.seed);

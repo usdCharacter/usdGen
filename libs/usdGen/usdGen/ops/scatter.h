@@ -17,19 +17,21 @@ namespace usdGen {
 class UsdGenScatterOp final : public UsdGenOp
 {
 public:
-    UsdGenScatterOp() = default;
+    explicit UsdGenScatterOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
     ~UsdGenScatterOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenScatter"); }
+    UsdGenOpRecord const &Record() const noexcept { return *_record; }
+    // Registered values served from the record; removed with the legacy virtuals (S4-8).
+    TfToken Type() const override { return _record->Name(); }
     UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
     UsdGenRole Role() const override { return UsdGenRole::Curves; }
     bool IsGenerator() const override { return true; }
     size_t GeometryInputArity() const override { return 0; }
 
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
+    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
+    TfSpan<const TfToken> ValueParameters() const override { return {}; }
     /// usdGen:guides (guide proximity, distribution "perGuide").
-    TfSpan<const TfToken> ReferenceInputs() const override;
+    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -44,6 +46,7 @@ public:
     uint32_t PlanesTouched() const override;
 
 private:
+    UsdGenOpRecord const *_record;
     // Static rest/topology array digests, memoized across poses (the steady
     // state rehashes megabytes of unchanged rest data every frame).
     mutable opUtil::ContentDigestCache<VtVec3fArray> restPointsDigest_;
@@ -71,8 +74,22 @@ private:
     mutable SubdivisionDigestCache subdivisionDigest_;
 };
 
+/// Parameter slots, enumerants and tokens: the order of UsdGenRegisterScatterOp's tables.
+namespace scatterP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kDensity, kFlip, kSubdivisionLevel, kDistribution,
+    kCountMode, kProximityMode, kProximityDistance, kProximityCoverage, kGuides, kDensityMap,
+    kCount
+};
+// Order matches scatter::Distribution / CountMode / ProximityMode.
+enum Distribution : int { kDistRandom, kDistUvGrid, kDistVertex, kDistEven, kDistPerGuide };
+enum CountMode : int { kCountPerFace, kCountSurface };
+enum Proximity : int { kProxNone, kProxDistance, kProxCoverage };
+enum Tok : uint16_t { kTokRandom, kTokPerFace, kTokNone, kTokLeftHanded, kTokDensityMap,
+                      kTokStrandIndex, kTokStrandSeed };
+}  // namespace scatterP
+
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

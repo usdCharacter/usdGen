@@ -12,10 +12,12 @@ namespace usdGen {
 class UsdGenReferenceSourceOp final : public UsdGenOp
 {
 public:
-    UsdGenReferenceSourceOp() = default;
+    explicit UsdGenReferenceSourceOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
     ~UsdGenReferenceSourceOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenReferenceSource"); }
+    UsdGenOpRecord const &Record() const noexcept { return *_record; }
+    // Registered values served from the record; removed with the legacy virtuals (S4-8).
+    TfToken Type() const override { return _record->Name(); }
     UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
     UsdGenRole Role() const override { return UsdGenRole::Reference; }
     bool IsGenerator() const override { return true; }
@@ -23,7 +25,7 @@ public:
 
     TfSpan<const TfToken> TopologyParameters() const override { return {}; }
     TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> ReferenceInputs() const override;
+    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
 
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override;
@@ -33,10 +35,11 @@ public:
                   UsdGenChunkView *) const override {}
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
+private:
+    UsdGenOpRecord const *_record;
 };
 
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterReferenceSourceOp(UsdGenRegistrar &);
 
 }  // namespace usdGen

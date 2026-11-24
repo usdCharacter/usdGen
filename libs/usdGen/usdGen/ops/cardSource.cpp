@@ -5,10 +5,10 @@
 // behaviour and ops/cardGeometry.h for the card grids.
 #include "usdGen/ops/cardSource.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/cardGeometry.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/scheduler.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -36,26 +36,41 @@ struct UsdGenCardSourceCapture final : public UsdGenCapture
     }
 };
 
-const TfToken sCvCount{"cvCount"}, sLayer{"cardSource:layer"}, sUvId{"cardSource:uvId"},
-    sTile{"cardSource:tile"}, sBraid{"cardSource:braid"}, sAmount{"cardSource:amount"},
-    sRootFlatten{"cardSource:rootFlatten"}, sSmooth{"cardSource:smooth"},
-    sMaxStrands{"cardSource:maxStrands"}, sBraidWidth{"cardSource:braidWidth"},
-    sBraidFlatness{"cardSource:braidFlatness"};
-const TfToken sStrandIndex{"strandIndex"}, sStrandSeed{"strandSeed"}, sCardIndex{"cardIndex"};
+using namespace cardSourceP;
 
-TfTokenVector const kReferenceInputs{TfToken("cards"), TfToken("cardStrands")};
-TfTokenVector const kOutputs{sCardIndex, sStrandIndex, sStrandSeed};
-TfTokenVector const kTopo = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("enabled"));   // generator: topology-class (02 §6.2)
-    v.push_back(TfToken("cards"));
-    v.push_back(TfToken("cardStrands"));
-    for (TfToken const &t : {sLayer, sUvId, sTile, sBraid, sAmount, sRootFlatten, sSmooth,
-                             sMaxStrands, sBraidWidth, sBraidFlatness, sCvCount})
-        v.push_back(t);
-    return v;
-}();
-TfTokenVector const kValue = UsdGenBaseValueParams();
+// Generator: topology-class "enabled" (02 §6.2), no mask. Order is the old
+// TopologyParameters() list.
+UsdGenParamDecl const kParams[kCount] = {
+    {"input", UsdGenParamClass::Capture},
+    {"surface", UsdGenParamClass::Capture},
+    {"seed", UsdGenParamClass::Capture},
+    {"enabled", UsdGenParamClass::Capture},
+    {"cards", UsdGenParamClass::Capture},
+    {"cardStrands", UsdGenParamClass::Capture},
+    {"cardSource:layer", UsdGenParamClass::Capture},
+    {"cardSource:uvId", UsdGenParamClass::Capture},
+    {"cardSource:tile", UsdGenParamClass::Capture},
+    {"cardSource:braid", UsdGenParamClass::Capture},
+    {"cardSource:amount", UsdGenParamClass::Capture},
+    {"cardSource:rootFlatten", UsdGenParamClass::Capture},
+    {"cardSource:smooth", UsdGenParamClass::Capture},
+    {"cardSource:maxStrands", UsdGenParamClass::Capture},
+    {"cardSource:braidWidth", UsdGenParamClass::Capture},
+    {"cardSource:braidFlatness", UsdGenParamClass::Capture},
+    {"cvCount", UsdGenParamClass::Capture},
+};
+constexpr char const *kReferenceInputs[] = {"cards", "cardStrands"};
+constexpr UsdGenPlaneDecl kOutputs[] = {
+    {"cardIndex", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1},
+    {"strandIndex", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1},
+    {"strandSeed", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1},
+};
+VtValue const kNoValue;
+
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &record, void *)
+{
+    return std::make_unique<UsdGenCardSourceOp>(record);
+}
 
 struct Settings
 {
@@ -68,17 +83,17 @@ struct Settings
 bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag)
 {
     if (p) {
-        s->layer = p->GetInt(sLayer, -1);
-        s->uvId = p->GetInt(sUvId, -1);
-        s->tile = p->GetInt(sTile, -1);
-        s->braid = p->GetBool(sBraid, false);
-        s->amount = float(p->GetDouble(sAmount, 1.0));
-        s->rootFlatten = float(p->GetDouble(sRootFlatten, 0.0));
-        s->smooth = p->GetBool(sSmooth, true);
-        s->cvCount = p->GetInt(sCvCount, 8);
-        s->maxStrands = p->GetInt(sMaxStrands, 2000000);
-        s->braidWidth = float(p->GetDouble(sBraidWidth, 1.0));
-        s->braidFlatness = float(p->GetDouble(sBraidFlatness, 0.55));
+        s->layer = p->GetInt(kLayer, -1);
+        s->uvId = p->GetInt(kUvId, -1);
+        s->tile = p->GetInt(kTile, -1);
+        s->braid = p->GetBool(kBraid, false);
+        s->amount = float(p->GetDouble(kAmount, 1.0));
+        s->rootFlatten = float(p->GetDouble(kRootFlatten, 0.0));
+        s->smooth = p->GetBool(kSmooth, true);
+        s->cvCount = p->GetInt(kCvCount, 8);
+        s->maxStrands = p->GetInt(kMaxStrands, 2000000);
+        s->braidWidth = float(p->GetDouble(kBraidWidth, 1.0));
+        s->braidFlatness = float(p->GetDouble(kBraidFlatness, 0.55));
     }
     auto fail = [&](std::string const &message) {
         if (diag) diag->Error("UsdGenCardSource: " + message);
@@ -207,23 +222,6 @@ void RootFrameAt(Scalp const &scalp, strand::ClosestHit const &hit, GfVec3f cons
 
 }  // namespace
 
-TfSpan<const TfToken> UsdGenCardSourceOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(kTopo.data(), kTopo.size());
-}
-TfSpan<const TfToken> UsdGenCardSourceOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(kValue.data(), kValue.size());
-}
-TfSpan<const TfToken> UsdGenCardSourceOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(kReferenceInputs.data(), kReferenceInputs.size());
-}
-TfSpan<const TfToken> UsdGenCardSourceOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(kOutputs.data(), kOutputs.size());
-}
-
 bool UsdGenCardSourceOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
     Settings s;
@@ -233,11 +231,11 @@ bool UsdGenCardSourceOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *
 UsdGenEpoch UsdGenCardSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 {
     opUtil::Digest d;
-    d.Mix(Type());
+    d.Mix(Record().Name());
     if (UsdGenParamView const *p = ctx.params) {
-        for (TfToken const &name : kTopo) {
-            d.Mix(name);
-            d.Mix(p->GetVtValue(name, VtValue()));
+        for (UsdGenParamSlot s = 0; s < Record().ParamCount(); ++s) {
+            d.Mix(Record().ParamName(s));
+            d.Mix(p->GetValue(s, kNoValue));
         }
     }
     d.Mix(uint64_t(ctx.seed));
@@ -513,15 +511,17 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuf
     buf.rootN = VtVec3fArray(R);
     buf.rootB = VtVec3fArray(R);
     UsdGenPlane cardIndex, strandIndex, strandSeed;
+    UsdGenEngineTokens const &tokens = UsdGenTokens();
     for (auto *plane : {&cardIndex, &strandIndex, &strandSeed}) {
-        plane->interpolation = TfToken("uniform");
-        plane->type = TfToken("int");
+        plane->interpolation = tokens.uniform;
+        plane->type = tokens.int_;
         plane->arity = 1;
         plane->i = VtIntArray(R);
     }
-    cardIndex.name = sCardIndex;
-    strandIndex.name = sStrandIndex;
-    strandSeed.name = sStrandSeed;
+    TfSpan<const UsdGenPlane> const declared = Record().OutputPlanes();
+    cardIndex.name = declared[kPlaneCardIndex].name;
+    strandIndex.name = declared[kPlaneStrandIndex].name;
+    strandSeed.name = declared[kPlaneStrandSeed].name;
     for (size_t c = 0; c < R; ++c) {
         uint32_t const k = perm[c];
         for (size_t i = 0; i < n; ++i) {
@@ -551,7 +551,18 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuf
 
 UsdGenOpId UsdGenRegisterCardSourceOp(UsdGenRegistrar &r)
 {
-    return r.RegisterLegacyOp(UsdGenCardSourceOp().Type(), [] { return std::make_unique<UsdGenCardSourceOp>(); });
+    UsdGenOpDef d;
+    d.name = "UsdGenCardSource";
+    d.displayName = "CardSource";
+    d.create = &Create;
+    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.role = UsdGenRole::Curves;
+    d.geometryInputArity = 0;
+    d.traits = kUsdGenOpGenerator;
+    d.params = UsdGenSpan(kParams);
+    d.referenceInputs = UsdGenSpan(kReferenceInputs);
+    d.outputPlanes = UsdGenSpan(kOutputs);
+    return r.RegisterOp(d);
 }
 
 }  // namespace usdGen

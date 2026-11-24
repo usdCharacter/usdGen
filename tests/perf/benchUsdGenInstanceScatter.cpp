@@ -37,6 +37,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
+#include "../usdGenOpFixture.h"
 #include "usdGen/sessionCooker.h"
 #include "usdGen/types.h"
 #include "usdGenImaging/usdGenInstancer.h"
@@ -242,8 +243,9 @@ bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
 {
     usdGenRegisterM1Operators();
     UsdGenNodeDesc const &node = desc.nodes[0];
-    UsdGenParamView params{&desc, &node};
-    UsdGenScatterOp op;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag)) {
         *error = diag.errors.empty() ? "scatter Bind failed" : diag.errors[0];
@@ -268,8 +270,9 @@ bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
 int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
 {
     UsdGenNodeDesc const &node = desc.nodes[0];
-    UsdGenParamView params{&desc, &node};
-    UsdGenScatterOp op;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
     if (!op.Bind(params, &diag)) {
         std::printf("scatter_capture error: bind failed\n");
@@ -310,8 +313,9 @@ int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
 int RunScatterDigest(Options const &opts, UsdGenGraphDesc const &desc)
 {
     UsdGenNodeDesc const &node = desc.nodes[0];
-    UsdGenParamView params{&desc, &node};
-    UsdGenScatterOp op;
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
+    UsdGenParamView const &params = paramsView.View();
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.params = &params;

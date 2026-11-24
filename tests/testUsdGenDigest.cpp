@@ -13,6 +13,7 @@
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
 #include "usdGen/ops/scatter.h"
+#include "usdGenOpFixture.h"
 
 #include <cstdio>
 #include <string>
@@ -111,8 +112,9 @@ UsdGenGraphDesc SmallDesc(double density)
 
 UsdGenEpoch ScatterDigest(UsdGenGraphDesc const &desc)
 {
-    UsdGenScatterOp op;
-    UsdGenParamView params{&desc, &desc.nodes[0]};
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
+    usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &desc.nodes[0], &desc);
+    UsdGenParamView const &params = paramsView.View();
     UsdGenCaptureContext ctx;
     ctx.desc = &desc;
     ctx.params = &params;
