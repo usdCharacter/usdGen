@@ -102,6 +102,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
     // complete request/domain/packet graph self-retained after issuing its
     // one thread-neutral terminal failure.
     std::shared_ptr<Relay> quarantine;
+    std::atomic<bool> quarantined{false};
     // The worker dispatcher may release its last callback reference after it
     // has returned to the owner. Keep normal teardown owner-confined too.
     std::shared_ptr<Relay> ownerAnchor;
@@ -301,13 +302,9 @@ struct Relay final : std::enable_shared_from_this<Relay> {
     }
 
     void RetainForLostTransport() noexcept {
-        try {
-            std::shared_ptr<Relay> empty;
-            (void)std::atomic_compare_exchange_strong_explicit(
-                &quarantine, &empty, shared_from_this(), std::memory_order_acq_rel,
-                std::memory_order_acquire);
-        } catch (...) {
-        }
+        // The flag elects the one writer; nothing reads the cycle.
+        if (quarantined.exchange(true, std::memory_order_acq_rel)) return;
+        try { quarantine = shared_from_this(); } catch (...) {}
     }
 
     void FailThreadNeutral(std::exception_ptr error) noexcept {

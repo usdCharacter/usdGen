@@ -5,6 +5,7 @@
 #define USDGEN_VULKAN_SOURCE_WIDTH_JOB_H
 #include "completionService.h"
 #include "deformPipeline.h"
+#include "epochCell.h"
 #include "executionPlan.h"
 #include "exprVkApply.h"
 #include "exprVkPack.h"
@@ -196,7 +197,7 @@ class VulkanSourceWidthJob final : public std::enable_shared_from_this<VulkanSou
     std::shared_ptr<const ChargedBuffer> nextLengthKeep_;
     State stageFrom_ = State::UploadPending;
     UsdGenExecutionPipeline *owner_ = nullptr;
-    std::shared_ptr<Control> control_;
+    VulkanEpochCell<Control> control_;  // Start publishes; Settle/RouteFailure clear
     std::unique_ptr<VulkanCompletionService::Watch> watch_;
     bool watchProofReady_ = false;
     UsdGenExecutionPipeline::Cancellation cancellation_;

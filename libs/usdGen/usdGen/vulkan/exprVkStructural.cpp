@@ -12,6 +12,7 @@ struct Packet : std::enable_shared_from_this<Packet> {
     std::unique_ptr<VulkanCompletionService::Watch> watch;
     std::function<void(ExprVkStructuralValues, VkResult)> completion;
     std::shared_ptr<Packet> quarantine;
+    std::atomic<bool> quarantined{false};
     std::atomic<bool> settled{false};
     bool phaseMarked = false;
     void Finish(VkResult status) {
@@ -42,8 +43,7 @@ struct Packet : std::enable_shared_from_this<Packet> {
         }
     }
     void Lost(VkResult status) {
-        std::shared_ptr<Packet> empty;
-        std::atomic_compare_exchange_strong(&quarantine, &empty, shared_from_this());
+        if (!quarantined.exchange(true, std::memory_order_acq_rel)) quarantine = shared_from_this();
         if (service->queueOwner()->IsExecutingOwner())
             run->Quarantine();
         Finish(status);

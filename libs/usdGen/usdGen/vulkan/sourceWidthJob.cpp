@@ -44,8 +44,7 @@ struct VulkanSourceWidthJob::Relay : std::enable_shared_from_this<Relay> {
         if (settled.exchange(true, std::memory_order_acq_rel))
             return;
         auto self = shared_from_this();
-        std::atomic_exchange_explicit(&jobLifetime->control_, std::shared_ptr<Control>{},
-                                      std::memory_order_acq_rel);
+        jobLifetime->control_.Reset();
         if (retain) {
             *quarantine = self;
             (void)quarantine.release(); // Preallocated retention: no native reads.
@@ -442,7 +441,7 @@ bool VulkanSourceWidthJob::Start(UsdGenExecutionPipeline &owner,
         owner_ = &owner;
         cancellation_ = std::move(cancel);
         relay_ = std::move(relay);
-        std::atomic_store_explicit(&control_, std::move(control), std::memory_order_release);
+        control_.Store(std::move(control));
     } catch (...) {
         return false;
     }
@@ -454,7 +453,7 @@ bool VulkanSourceWidthJob::NotifyCompletion() {
         return false;
     if (state() == State::Preparing)
         return true; // CPU task owns the next owner handoff.
-    auto control = std::atomic_load_explicit(&control_, std::memory_order_acquire);
+    auto control = control_.Load();
     if (!control)
         return false;
     bool posted = false;
@@ -476,8 +475,7 @@ void VulkanSourceWidthJob::RouteFailure(VkResult status) noexcept {
         return;
     bool posted = false;
     try {
-        auto control = std::atomic_exchange_explicit(&control_, std::shared_ptr<Control>{},
-                                                     std::memory_order_acq_rel);
+        auto control = control_.Take();
         if (!control) {
             relay->Fallback();
             return;
@@ -546,7 +544,7 @@ void VulkanSourceWidthJob::BeginPreparation() {
         Terminal({}, State::Superseded, VK_SUCCESS);
         return;
     }
-    auto control = std::atomic_load_explicit(&control_, std::memory_order_acquire);
+    auto control = control_.Load();
     if (!control || !control->prepareTicket) {
         Terminal({}, State::Failed, VK_ERROR_OUT_OF_HOST_MEMORY);
         return;

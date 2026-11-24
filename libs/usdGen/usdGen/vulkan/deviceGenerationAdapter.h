@@ -5,6 +5,7 @@
 
 #include "sourceGeneration.h"
 #include "completionService.h"
+#include "epochCell.h"
 #include "usdGen/deviceGeneration.h"
 
 #include <atomic>
@@ -71,15 +72,21 @@ public:
     bool IsClosing() const noexcept;
     bool IsClosed() const noexcept;
 private:
-    explicit VulkanGenerationAdapterDomain(CreateInfo) noexcept;
+    VulkanGenerationAdapterDomain() noexcept = default;
+public:
+    ~VulkanGenerationAdapterDomain() { delete deferredRetirement_.load(std::memory_order_acquire); }
+private:
     bool BeginConsumer(std::shared_ptr<UsdGenExecutionPipeline>* owner,
                        std::shared_ptr<VulkanCompletionService>* service) noexcept;
     void RetireConsumer() noexcept;
     void ScheduleRetirement() noexcept;
-    std::shared_ptr<UsdGenExecutionPipeline> queueOwner_;
-    std::shared_ptr<VulkanCompletionService> completionService_;
+    // Published at Create, cleared once by Close; readers copy under epochs.
+    VulkanEpochCell<UsdGenExecutionPipeline> queueOwner_;
+    VulkanEpochCell<VulkanCompletionService> completionService_;
+    // Written at Create and by the one Close that wins draining_.
     std::shared_ptr<VulkanGenerationAdapterDomain> selfRetention_;
-    std::shared_ptr<std::function<void()>> deferredRetirement_;
+    // Owned by whoever exchanges it out; never read in place.
+    std::atomic<std::function<void()>*> deferredRetirement_{nullptr};
     std::atomic<uint64_t> activeConsumers_{0};
     std::atomic<bool> closing_{false}, closed_{false}, draining_{false};
     friend class VulkanDeviceGenerationAdapter;

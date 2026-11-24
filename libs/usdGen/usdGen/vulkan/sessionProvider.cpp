@@ -62,16 +62,16 @@ UsdGenSessionDevicePlanHandle VulkanSessionProvider::Compile(
         mutableRecord->handle = handle;
         record = std::move(mutableRecord);
     } catch (...) { return {}; }
-    // Each atomic shared-record snapshot protects the slot while Submit
+    // Each record snapshot (epoch-published) protects the slot while Submit
     // verifies it. Replacing only an empty/expired record cannot invalidate a
-    // concurrently live handle and has no raw-pointer reclamation race.
-    for (uint32_t i = 0; i != maxRegisteredPlans_; ++i) {
-        auto prior = std::atomic_load_explicit(&plans_[i], std::memory_order_acquire);
-        if (prior && !prior->handle.expired()) continue;
-        if (std::atomic_compare_exchange_strong_explicit(
-                &plans_[i], &prior, record, std::memory_order_acq_rel,
-                std::memory_order_acquire)) return handle;
-    }
+    // concurrently live handle; displaced records retire through the epochs.
+    try {
+        for (uint32_t i = 0; i != maxRegisteredPlans_; ++i) {
+            auto prior = plans_[i].Load();
+            if (prior && !prior->handle.expired()) continue;
+            if (plans_[i].CompareExchange(prior, record)) return handle;
+        }
+    } catch (...) {}
     return {};
 }
 
@@ -109,13 +109,11 @@ struct VulkanSessionProvider::Pending final : std::enable_shared_from_this<Vulka
     // Deliberate cycle: a rejected return transport must not make native
     // ownership last-drop on its caller/transport thread.
     std::shared_ptr<Pending> quarantine;
+    std::atomic<bool> quarantined{false};
     void Quarantine() noexcept {
-        try {
-            std::shared_ptr<Pending> empty;
-            (void)std::atomic_compare_exchange_strong_explicit(
-                &quarantine, &empty, shared_from_this(),
-                std::memory_order_acq_rel, std::memory_order_acquire);
-        } catch (...) {}
+        // The flag elects the one writer; nothing reads the cycle.
+        if (quarantined.exchange(true, std::memory_order_acq_rel)) return;
+        try { quarantine = shared_from_this(); } catch (...) {}
     }
 };
 
@@ -141,7 +139,7 @@ bool VulkanSessionProvider::Submit(UsdGenSessionDeviceRequest request) {
         request.cancellation.Superseded()) return false;
     std::shared_ptr<const VulkanSourceWidthPlan> typed;
     for (uint32_t i = 0; i != maxRegisteredPlans_; ++i) {
-        auto record = std::atomic_load_explicit(&plans_[i], std::memory_order_acquire);
+        auto record = plans_[i].Load();
         if (!record) continue;
         auto known = record->handle.lock();
         if (known && known.get() == request.plan.get()) {

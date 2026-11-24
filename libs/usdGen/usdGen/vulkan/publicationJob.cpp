@@ -21,15 +21,13 @@ struct VulkanPublicationJob::Relay final
     std::exception_ptr superseded;
     std::exception_ptr lostProof;
     std::shared_ptr<Relay> quarantine;
+    std::atomic<bool> quarantined{false};
     std::atomic<bool> settled{false};
 
     void RetainForLostProof() noexcept {
-        try {
-            std::shared_ptr<Relay> empty;
-            (void)std::atomic_compare_exchange_strong_explicit(
-                &quarantine, &empty, shared_from_this(),
-                std::memory_order_acq_rel, std::memory_order_acquire);
-        } catch (...) {}
+        // The flag elects the one writer; nothing reads the cycle.
+        if (quarantined.exchange(true, std::memory_order_acq_rel)) return;
+        try { quarantine = shared_from_this(); } catch (...) {}
     }
 };
 

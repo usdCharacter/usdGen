@@ -8,6 +8,7 @@
 #include "usdGen/sessionDeviceProvider.h"
 #include "deviceContext.h"
 #include "planExecutor.h"
+#include "epochCell.h"
 
 #include <atomic>
 #include <array>
@@ -56,7 +57,7 @@ private:
     std::atomic<bool> closing_{false};
     struct PlanRecord;
     static constexpr uint32_t kPlanSlots = 256;
-    mutable std::array<std::shared_ptr<const PlanRecord>, kPlanSlots> plans_{};
+    mutable std::array<VulkanEpochCell<const PlanRecord>, kPlanSlots> plans_;
     uint32_t maxRegisteredPlans_ = 0;
 };
 

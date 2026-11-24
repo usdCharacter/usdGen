@@ -10,10 +10,6 @@
 
 namespace usdGen::vulkan {
 
-VulkanGenerationAdapterDomain::VulkanGenerationAdapterDomain(CreateInfo info) noexcept
-    : queueOwner_(std::move(info.queueOwner)),
-      completionService_(std::move(info.completionService)) {}
-
 std::shared_ptr<VulkanGenerationAdapterDomain>
 VulkanGenerationAdapterDomain::Create(CreateInfo info, std::string* reason)
 {
@@ -24,7 +20,9 @@ VulkanGenerationAdapterDomain::Create(CreateInfo info, std::string* reason)
     }
     try {
         auto domain = std::shared_ptr<VulkanGenerationAdapterDomain>(
-            new VulkanGenerationAdapterDomain(std::move(info)));
+            new VulkanGenerationAdapterDomain());
+        domain->queueOwner_.Store(std::move(info.queueOwner));
+        domain->completionService_.Store(std::move(info.completionService));
         // This intentional cycle makes a premature external last drop safe.
         // Close is the sole explicit release boundary after an external drain.
         domain->selfRetention_ = domain;
@@ -79,7 +77,7 @@ VulkanGenerationAdapterDomain::AcquireOperation() noexcept
 std::shared_ptr<UsdGenExecutionPipeline>
 VulkanGenerationAdapterDomain::QueueOwnerForIngress() const noexcept
 {
-    return std::atomic_load_explicit(&queueOwner_, std::memory_order_acquire);
+    return queueOwner_.Load();
 }
 
 bool VulkanGenerationAdapterDomain::BeginConsumer(
@@ -92,8 +90,8 @@ bool VulkanGenerationAdapterDomain::BeginConsumer(
         RetireConsumer();
         return false;
     }
-    *owner = std::atomic_load_explicit(&queueOwner_, std::memory_order_acquire);
-    *service = std::atomic_load_explicit(&completionService_, std::memory_order_acquire);
+    *owner = queueOwner_.Load();
+    *service = completionService_.Load();
     if (!*owner || !*service || (*service)->queueOwner() != owner->get()) {
         owner->reset(); service->reset();
         RetireConsumer();
@@ -115,10 +113,13 @@ bool VulkanGenerationAdapterDomain::RetireWhenIdle(
 {
     if (!externalRetirement || !IsClosing() || IsClosed()) return false;
     try {
-        auto callback = std::make_shared<std::function<void()>>(std::move(externalRetirement));
-        std::shared_ptr<std::function<void()>> empty;
-        if (!std::atomic_compare_exchange_strong_explicit(&deferredRetirement_, &empty,
-                callback, std::memory_order_acq_rel, std::memory_order_acquire)) return false;
+        auto* callback = new std::function<void()>(std::move(externalRetirement));
+        std::function<void()>* empty = nullptr;
+        if (!deferredRetirement_.compare_exchange_strong(empty, callback,
+                std::memory_order_acq_rel, std::memory_order_acquire)) {
+            delete callback;
+            return false;
+        }
         ScheduleRetirement();
         return true;
     } catch (...) { return false; }
@@ -127,17 +128,19 @@ bool VulkanGenerationAdapterDomain::RetireWhenIdle(
 void VulkanGenerationAdapterDomain::ScheduleRetirement() noexcept
 {
     if (!IsClosing() || activeConsumers_.load(std::memory_order_seq_cst)) return;
-    auto callback = std::atomic_exchange_explicit(&deferredRetirement_,
-        std::shared_ptr<std::function<void()>>{}, std::memory_order_acq_rel);
-    if (!callback) return;
+    std::function<void()>* taken = deferredRetirement_.exchange(nullptr, std::memory_order_acq_rel);
+    if (!taken) return;
     try {
-        if (EnqueueVulkanExternalRetirement([callback] { (*callback)(); })) return;
+        // An accepted callback always runs, and then owns the callback.
+        if (EnqueueVulkanExternalRetirement([taken] {
+                std::unique_ptr<std::function<void()>> own(taken);
+                (*own)();
+            })) return;
     } catch (...) {
     }
     // A full/closed queue cannot justify dropping native ownership. Pending
     // consumers and late proofs never prolong process shutdown.
-    std::atomic_store_explicit(&deferredRetirement_, std::move(callback),
-                               std::memory_order_release);
+    if (taken) deferredRetirement_.store(taken, std::memory_order_release);
 }
 
 void VulkanGenerationAdapterDomain::StopAdmission() noexcept
@@ -155,20 +158,18 @@ bool VulkanGenerationAdapterDomain::Close() noexcept
         return closed_.load(std::memory_order_seq_cst);
     // Close is deliberately an external boundary.  It does not invoke service
     // shutdown because service users outside this domain may still be alive.
-    auto owner = std::atomic_load_explicit(&queueOwner_, std::memory_order_acquire);
+    auto owner = queueOwner_.Load();
     if (!owner) { draining_.store(false, std::memory_order_release); return false; }
     try { owner->Drain(); } catch (...) { draining_.store(false, std::memory_order_release); return false; }
     if (activeConsumers_.load(std::memory_order_seq_cst) != 0) {
         draining_.store(false, std::memory_order_release); return false;
     }
-    std::atomic_store_explicit(&completionService_, std::shared_ptr<VulkanCompletionService>{},
-                               std::memory_order_release);
-    std::atomic_store_explicit(&queueOwner_, std::shared_ptr<UsdGenExecutionPipeline>{},
-                               std::memory_order_release);
+    completionService_.Reset();
+    queueOwner_.Reset();
+    owner.reset();
     closed_.store(true, std::memory_order_seq_cst);
     draining_.store(false, std::memory_order_release);
-    (void)std::atomic_exchange_explicit(&selfRetention_,
-        std::shared_ptr<VulkanGenerationAdapterDomain>{}, std::memory_order_acq_rel);
+    auto const released = std::move(selfRetention_);
     return true;
 }
 
@@ -212,12 +213,9 @@ public:
 
     void Quarantine() noexcept {
         phase.store(LeasePhase::Quarantined, std::memory_order_release);
-        try {
-            std::shared_ptr<VulkanLeaseControl> empty;
-            (void)std::atomic_compare_exchange_strong_explicit(
-                &quarantine, &empty, shared_from_this(),
-                std::memory_order_acq_rel, std::memory_order_acquire);
-        } catch (...) {}
+        // The flag elects the one writer; nothing reads the cycle.
+        if (quarantined.exchange(true, std::memory_order_acq_rel)) return;
+        try { quarantine = shared_from_this(); } catch (...) {}
     }
 
     void ArmOnOwner() noexcept {
@@ -259,6 +257,7 @@ public:
     // Allocated as part of the control object, avoiding allocation on a loss
     // path. Its cycle is intentional quarantine ownership.
     std::shared_ptr<VulkanLeaseControl> quarantine;
+    std::atomic<bool> quarantined{false};
 };
 
 class VulkanGenerationConsumer final : public UsdGenDeviceConsumer {
