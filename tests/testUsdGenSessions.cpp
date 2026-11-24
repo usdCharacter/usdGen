@@ -34,9 +34,7 @@ int g_failures = 0;
 
 class FailingCaptureOp final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenFailingCaptureTest"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit FailingCaptureOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1,1}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
@@ -53,8 +51,8 @@ void RegisterFailingCaptureOp(UsdGenRegistrar &r)
         UsdGenOpDef d;
         d.name = "UsdGenFailingCaptureTest";
         d.displayName = "FailingCaptureTest";
-        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-            return std::make_unique<FailingCaptureOp>();
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<FailingCaptureOp>(rec);
         };
         r.RegisterOp(d);
     }

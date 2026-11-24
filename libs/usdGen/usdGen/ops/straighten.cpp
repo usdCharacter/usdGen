@@ -61,7 +61,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"normalStraightness", UsdGenParamClass::Value, true, kFloatAll},
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenStraightenOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenStraightenOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenStraightenOp::CreateCapture() const
 {

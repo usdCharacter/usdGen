@@ -200,7 +200,6 @@ static bool CheckSort(UsdGenGraphDesc const &d, int seed,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     int const seed = 42;
 
     // N == 1: no pass runs; the lone root passes through. Quad area 0.25,

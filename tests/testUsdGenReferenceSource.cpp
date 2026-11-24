@@ -318,7 +318,6 @@ void CheckCook(UsdGenGraphDesc const &desc, bool checkNative = false)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     UsdStageRefPtr stage = MakeStage(/*withTarget=*/true);
     UsdGenGraphDesc const fromStage = BuildFromStage(stage);

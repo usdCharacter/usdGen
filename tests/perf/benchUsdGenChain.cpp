@@ -181,7 +181,6 @@ int main(int argc, char **argv)
     if (argc > 1 && std::string(argv[1]) == "--perop") {
         // Per-node capture/eval split of one full-dirty G3 commit @8 threads
         // (reads UsdGenRunResult::nodeStats; feeds the E-1 breakdown).
-        usdGenRegisterM1Operators();
         UsdGenCompiler c;
         UsdGenGraph g;
         if (!c.Compile(MakeG3(), &g).ok) {
@@ -198,13 +197,12 @@ int main(int argc, char **argv)
             UsdGenRunResult const r = s8.Run(g, ctx, ++gen);
             for (UsdGenNodeRunStats const &st : r.nodeStats)
                 std::printf("perop run=%d node=%u type=%s captureMs=%.3f evalMs=%.3f chunks=%llu\n",
-                            i, st.id, g.Node(st.id).type.GetText(),
+                            i, st.id, g.Node(st.id).record->Name().GetText(),
                             st.captureMs, st.evalMs,
                             (unsigned long long)st.chunksEvaluated);
         }
         return 0;
     }
-    usdGenRegisterM1Operators();
 
     UsdGenEvalContext ctx;
 

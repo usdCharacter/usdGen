@@ -3,7 +3,7 @@
 
 #include "exprVkPlan.h"
 
-#include "usdGen/expressionTargets.h"
+#include "usdGen/registries/opRegistry.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
 #include "usdGen/op.h"
@@ -65,7 +65,7 @@ bool ExprVkCompileStageBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc cons
         return false;
     }
     std::vector<std::string> errors;
-    if (!UsdGenValidateExpressionTargets(node, &errors)) {
+    if (!UsdGenValidateExpressionBindings(node, &errors)) {
         for (auto const &message : errors)
             Error(diagnostics, message);
         return false;
@@ -322,7 +322,7 @@ bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const 
     data.bindings.push_back(std::move(source));
     if (!node.expressionBindings.empty()) {
         std::vector<std::string> errors;
-        if (!UsdGenValidateExpressionTargets(node, &errors)) {
+        if (!UsdGenValidateExpressionBindings(node, &errors)) {
             for (auto const &message : errors)
                 Error(diagnostics, message);
             return false;

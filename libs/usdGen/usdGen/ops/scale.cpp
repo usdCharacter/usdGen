@@ -89,7 +89,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"scaleRandom", UsdGenParamClass::Value, true, kFloat2Root},
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenScaleOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenScaleOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenScaleOp::CreateCapture() const
 {

@@ -267,7 +267,6 @@ std::map<uint64_t, std::pair<int, GfVec3f>> Roots(UsdGenCurveBuffer const &b)
 
 int main()
 {
-    usdGenRegisterM1Operators();
     SdfLayerRefPtr layer = SdfLayer::CreateAnonymous(".usda");
     if (!layer->ImportFromString(Stage())) {
         std::printf("FAIL: the fixture stage does not parse\n");

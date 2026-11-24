@@ -12,8 +12,6 @@
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/typeRegistry.h"
-#include <functional>
-#include <memory>
 #include <string>
 
 namespace usdGen {
@@ -28,11 +26,6 @@ public:
     UsdGenOpId RegisterOp(UsdGenOpDef const &);
     UsdGenTypeId RegisterType(UsdGenTypeDef const &);
     bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
-
-    /// Temporary (S4-1 to S4-8): registers an op that still describes itself
-    /// through UsdGenOp's static virtuals; see legacyOpTraits.cpp.
-    UsdGenOpId RegisterLegacyOp(TfToken const &type,
-                                std::function<std::unique_ptr<UsdGenOp>()> factory);
 private:
     friend bool UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
     friend class UsdGenOpRegistry;

@@ -9,7 +9,6 @@
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
 #include "usdGen/ops/freeze.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include "pxr/base/tf/diagnostic.h"
@@ -145,9 +144,9 @@ UsdGenParamDecl const kParams[kCount] = {
     {"frozen:tier", UsdGenParamClass::Value, true, {}, UsdGenSpan(kTiers)},  // cosmetic
 };
 
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *)
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return std::make_unique<UsdGenFreezeOp>();
+    return std::make_unique<UsdGenFreezeOp>(r);
 }
 
 /// Mix a name's text (what Mix(TfToken) did) without interning it.
@@ -158,35 +157,6 @@ void MixText(opUtil::Digest *d, char const *text)
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("enabled"));        // 02 §6.2: topology (CurveCount)
-    v.push_back(TfToken("frozen:curves"));  // structural: the snapshot edge
-    v.push_back(TfToken("frozen:mode"));    // structural: the unfreeze gesture
-    v.push_back(TfToken("frozen:epoch"));   // capture: the recapture trigger
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("frozen:tier"));    // cosmetic/advisory: never recaptures
-    return v;
-}();
-
-static TfTokenVector const _referenceInputs{TfToken("frozen:curves")};
-
-TfSpan<const TfToken> UsdGenFreezeOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenFreezeOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
-TfSpan<const TfToken> UsdGenFreezeOp::ReferenceInputs() const
-{
-    return TfSpan<const TfToken>(_referenceInputs.data(), _referenceInputs.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenFreezeOp::CreateCapture() const
 {
     return std::make_unique<UsdGenFreezeCapture>();
@@ -214,7 +184,7 @@ bool UsdGenFreezeOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag
         return false;
     }
     std::string epoch;
-    return ReadEpoch(&params, kEpoch, &epoch, diag, "UsdGenFreeze");
+    return ReadEpoch(&params, kEpoch, &epoch, diag, Record().Name().GetText());
 }
 
 UsdGenEpoch UsdGenFreezeOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
@@ -262,7 +232,7 @@ bool UsdGenFreezeOp::Capture(
     TfToken const mode = p ? p->GetToken(kMode, frozen) : frozen;
     TfToken const tier = p ? p->GetToken(kTier, session) : session;
     std::string epoch;
-    if (!ReadEpoch(p, kEpoch, &epoch, diag, "UsdGenFreeze")) return false;
+    if (!ReadEpoch(p, kEpoch, &epoch, diag, Record().Name().GetText())) return false;
     // SESSION TIER ONLY: sublayer/payload have no in-engine landing place;
     // lower them to session loudly (warning, comment, test, report) rather
     // than failing an asset the tool is free to relocate.

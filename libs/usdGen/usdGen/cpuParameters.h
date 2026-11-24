@@ -10,8 +10,8 @@
 //
 // Parity with the CUDA lane: the IR interpreter and the geometry fields are
 // shared code (expressions/irExec.h, expressions/cpuEvaluator.{h,cpp}), the
-// admissible destinations/domains per operator are shared code
-// (expressionTargets.{h,cpp}), and the per-element index rule below is the
+// admissible destinations/domains per operator are the op record's
+// parameter decls (UsdGenValidateExpressionBindings), and the per-element index rule below is the
 // one gpu::ReadScalar/ReadBool/ReadInt implement: groom broadcasts, primitive
 // indexes by curve, point indexes by CV.
 #ifndef USDGEN_CPU_PARAMETERS_H
@@ -21,7 +21,6 @@
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/ir.h"
 #include "usdGen/expressions/samplers.h"
-#include "usdGen/expressionTargets.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/registries/typeRegistry.h"

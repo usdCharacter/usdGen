@@ -97,7 +97,6 @@ static bool ReRun(UsdGenGraphDesc const& d0, UsdGenGraphDesc const& d1,
 }
 
 int main() {
-    usdGenRegisterM1Operators();
 
     {
         // Production cook loop: sequential novel density recooks

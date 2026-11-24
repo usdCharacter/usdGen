@@ -6,6 +6,7 @@
 //       seeds): the per-plane blend toward the root->tip line, exact roots and
 //       tips, identity at zero effect, and one connected-expression cook.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -181,18 +182,18 @@ static UsdGenGraphDesc StraightenDesc(float tangent, float normal)
 
 static void CheckRegistryContract()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenStraighten");
     Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenStraighten)");
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenStraighten)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenStraighten reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "UsdGenStraighten has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "UsdGenStraighten declares no reference inputs");
-    Check(op->OutputPrimvars().empty(),
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(),
           "UsdGenStraighten emits no output primvars");
 }
 
@@ -332,7 +333,6 @@ static void CheckExpressionCook()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContract();
     CheckFullTangentCook();
     CheckFullBothCook();

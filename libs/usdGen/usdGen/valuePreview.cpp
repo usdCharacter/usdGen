@@ -2,7 +2,6 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 
-#include "usdGen/expressionTargets.h"
 #include "usdGen/expressions/valueShape.h"
 #include "usdGen/graph.h"
 

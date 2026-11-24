@@ -139,7 +139,6 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "cannot open %s\n", scene.c_str());
         return 2;
     }
-    usdGenRegisterM1Operators();
 
     UsdStageRefPtr out;
     if (!bake.empty()) {

@@ -236,7 +236,7 @@ static bool SameRoots(UsdGenCurveBuffer const& a,UsdGenCurveBuffer const& b) {
         a.rootN==b.rootN && a.rootB==b.rootB && a.hairT==b.hairT;
 }
 int main() {
-    usdGenRegisterM1Operators();auto s=Surface();std::string error;
+    auto s=Surface();std::string error;
     UsdGenLimitSurface limit;CHECK(limit.Build(s,3,&error));
     GfVec3f p,du,dv;CHECK(limit.Evaluate(4,.3f,.4f,&p,&du,&dv));
     CHECK(std::abs(p[0]-.3)<1e-5 && std::abs(p[1]-.4)<1e-5);

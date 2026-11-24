@@ -12,6 +12,7 @@
 //   (4) run-twice determinism;
 //   (5) the CUDA backend explicitly rejects a sculpt graph.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -137,23 +138,23 @@ static bool CookSourceOnly(UsdGenGraphDesc const &desc, SdfPath const &source,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenSculptLayer");
     Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenSculptLayer)");
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenSculptLayer)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "SculptLayer reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "SculptLayer has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "SculptLayer declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "SculptLayer emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "SculptLayer emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "SculptLayer touches the points plane only");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), false)) topo.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), true)) value.insert(t.GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed",
                                         "sculpt:space", "sculpt:curveIds",
                                         "sculpt:cvOffsets", "sculpt:epoch",
@@ -533,7 +534,6 @@ static void CheckCudaRejection()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckRootFrameCook();
     CheckObjectSpaceCook();

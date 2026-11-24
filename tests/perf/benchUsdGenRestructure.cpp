@@ -406,7 +406,6 @@ int main(int argc, char **argv)
         else if (a == "--no-hydra") hydra = false;
     }
     if (threads <= 0) threads = int(std::max(1u, std::thread::hardware_concurrency()));
-    usdGenRegisterM1Operators();
     EngineBench(threads, runs);
     if (hydra) HydraBench(runs);
     return 0;

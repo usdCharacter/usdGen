@@ -29,10 +29,9 @@ enum : UsdGenParamSlot {
 class UsdGenStraightenOp final : public UsdGenOp
 {
 public:
-    UsdGenStraightenOp() = default;
+    explicit UsdGenStraightenOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenStraightenOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenStraighten"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

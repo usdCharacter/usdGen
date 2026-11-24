@@ -375,12 +375,15 @@ void RunGraphs(Table *table)
         // parameter of its op: a typo would silently cook the fallback.
         for (UsdGenNodeDesc const &n : g.desc.nodes) {
             UsdPrimDefinition const *def = Definition(n.type);
-            std::unique_ptr<UsdGenOp> const op = UsdGenOpRegistry::Get().Create(n.type);
+            UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+            UsdGenOpId const id = registry.Find(n.type);
             for (UsdGenParamValue const &p : n.params) {
                 bool known = def && def->GetAttributeDefinition(TfToken("usdGen:" + p.name.GetString()));
-                if (op) {
-                    for (TfToken const &t : op->TopologyParameters()) known = known || t == p.name;
-                    for (TfToken const &t : op->ValueParameters()) known = known || t == p.name;
+                // A routed decl of the op, exactly as spelled.
+                if (id != UsdGenOpId::Invalid) {
+                    UsdGenOpRecord const &rec = registry.Record(id);
+                    for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
+                        known = known || (rec.Def().params[s].routed && rec.ParamName(s) == p.name);
                 }
                 if (!known)
                     Fail(g.name + ": " + n.type.GetString() + " has no parameter " +
@@ -398,8 +401,9 @@ void RunGraphs(Table *table)
         }
         table->Put(g.name, std::move(rows));
     }
-    for (TfToken const &type : UsdGenOpRegistry::Get().KnownTypes())
-        if (!covered.count(type.GetString()))
+    for (uint32_t i = 0; i < UsdGenOpRegistry::Get().Count(); ++i)
+        if (TfToken const &type = UsdGenOpRegistry::Get().Record(UsdGenOpId(i)).Name();
+            !covered.count(type.GetString()))
             Fail("registered op " + type.GetString() + " is not covered by a cooking in-code graph");
 }
 
@@ -576,7 +580,6 @@ int main()
 {
     g_verbose = std::getenv("USDGEN_GOLDEN_VERBOSE") != nullptr;
     char const *write = std::getenv("USDGEN_GOLDEN_WRITE");
-    usdGenRegisterM1Operators();
     if (!Definition(TfToken("UsdGenLength"))) {
         std::printf("FAIL: the usdGen schema is not loaded (PXR_PLUGINPATH_NAME)\n");
         return 1;

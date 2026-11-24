@@ -26,10 +26,9 @@ enum : UsdGenParamSlot {
 class UsdGenScaleOp final : public UsdGenOp
 {
 public:
-    UsdGenScaleOp() = default;
+    explicit UsdGenScaleOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenScaleOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenScale"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

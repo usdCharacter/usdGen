@@ -28,19 +28,8 @@ enum : UsdGenParamSlot {
 class UsdGenPartOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenPartOp(UsdGenOpRecord const &record);
+    explicit UsdGenPartOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenPartOp() override = default;
-
-    UsdGenOpRecord const &Record() const noexcept { return *_record; }
-
-    // Static description, answered from the record until S4-8 removes the
-    // virtuals (tests and the engine still ask the instance).
-    TfToken Type() const override { return _record->Name(); }
-    UsdGenTopoFx TopologyEffect() const override { return _record->Def().topoFx; }
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
-    TfSpan<const TfToken> OutputPrimvars() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -53,9 +42,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    UsdGenOpRecord const *_record;
-    std::vector<TfToken> _topology, _value, _outputs;
 };
 
 class UsdGenRegistrar;

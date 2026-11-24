@@ -43,10 +43,7 @@ void Check(bool condition, char const *message)
 class FallibleRemap final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestFallibleRemap"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    bool RemapsVertexPlanes() const override { return true; }
+    explicit FallibleRemap(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     uint32_t PlanesTouched() const override { return kPlanePoints | kPlaneWidths; }
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override
@@ -308,8 +305,8 @@ void RegisterFallibleRemap(UsdGenRegistrar &r)
     UsdGenOpDef d;
     d.name = "UsdGenTestFallibleRemap";
     d.displayName = "TestFallibleRemap";
-    d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-        return std::make_unique<FallibleRemap>();
+    d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<FallibleRemap>(rec);
     };
     d.traits = kUsdGenOpRemapsVertexPlanes;
     gRegisteredFallible = r.RegisterOp(d) != UsdGenOpId::Invalid;

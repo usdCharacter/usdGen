@@ -469,7 +469,6 @@ void CheckNativeCollidePlayback()
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
     CheckNativeWindPlayback();
     CheckNativeCollidePlayback();
     CheckCanonicalAsyncPlayback();

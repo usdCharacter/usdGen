@@ -334,10 +334,14 @@ HdContainerDataSourceHandle const& HiddenOverlay() { return s_hiddenOverlay; }
 // Whether an expression or native operator reads the live frame/time.
 bool DescReadsTime(Desc const& desc) {
     auto const& registry = usdGen::UsdGenOpRegistry::Get();
-    for (auto const& node : desc.nodes)
-        if ((node.enabled || !node.expressionBindings.empty()) &&
-            (registry.ReadsTime(node.type) ||
-            registry.SamplesFrameInputs(node.type))) return true;
+    for (auto const& node : desc.nodes) {
+        if (!node.enabled && node.expressionBindings.empty()) continue;
+        usdGen::UsdGenOpId const id = registry.Find(node.type);
+        if (id != usdGen::UsdGenOpId::Invalid &&
+            registry.Record(id).Has(usdGen::kUsdGenOpReadsTime |
+                                    usdGen::kUsdGenOpSamplesFrameInputs))
+            return true;
+    }
     for (auto const& expression : desc.expressions)
         if (expression.source.find("$frame") != std::string::npos ||
             expression.source.find("$time") != std::string::npos)

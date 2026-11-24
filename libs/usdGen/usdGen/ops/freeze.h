@@ -51,15 +51,8 @@ namespace usdGen {
 class UsdGenFreezeOp final : public UsdGenOp
 {
 public:
-    UsdGenFreezeOp() = default;
+    explicit UsdGenFreezeOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenFreezeOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenFreeze"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

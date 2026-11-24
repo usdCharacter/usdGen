@@ -322,9 +322,7 @@ std::atomic<bool> ProgressiveTileHold::timedOut{false};
 
 class ProgressiveTileHoldOp final : public usdGen::UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenImagingTileHold"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit ProgressiveTileHoldOp(usdGen::UsdGenOpRecord const &r) : usdGen::UsdGenOp(r) {}
     bool Bind(usdGen::UsdGenParamView const&, usdGen::UsdGenDiagnostics*) override {
         return true;
     }
@@ -354,8 +352,8 @@ void RegisterTileHoldOp(usdGen::UsdGenRegistrar &r)
         usdGen::UsdGenOpDef d;
         d.name = "UsdGenImagingTileHold";
         d.displayName = "ImagingTileHold";
-        d.create = [](usdGen::UsdGenOpRecord const&, void*) -> std::unique_ptr<usdGen::UsdGenOp> {
-            return std::make_unique<ProgressiveTileHoldOp>();
+        d.create = [](usdGen::UsdGenOpRecord const &rec, void *) -> std::unique_ptr<usdGen::UsdGenOp> {
+            return std::make_unique<ProgressiveTileHoldOp>(rec);
         };
         r.RegisterOp(d);
     }

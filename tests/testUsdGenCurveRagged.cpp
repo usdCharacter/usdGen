@@ -145,7 +145,6 @@ struct Harness {
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     // ---- mode 1: resampleTo == 0 (default) — ragged through the pipeline --
     {

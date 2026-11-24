@@ -41,11 +41,7 @@ int g_failures = 0;
 class ExtraCvWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestExtraCvWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _slots; }
-    TfSpan<const TfToken> InputPrimvars() const override { return _slots; }
+    explicit ExtraCvWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {7, 1}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -59,18 +55,12 @@ public:
             count = uint32_t(view->cvOffsets[view->curveCount] - view->cvOffsets[0]);
         for (uint32_t i = 0; i < count; ++i) view->outF[0][i] = view->inF[0][i] + 10.0f;
     }
-private:
-    std::array<TfToken, 1> const _slots{{TfToken("cvPayload")}};
 };
 
 class ExtraCurveWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestExtraCurveWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _slots; }
-    TfSpan<const TfToken> InputPrimvars() const override { return _slots; }
+    explicit ExtraCurveWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {7, 2}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -82,8 +72,6 @@ public:
         for (uint32_t i = 0; i < view->curveCount; ++i)
             view->outI[0][i] = view->inI[0][i] + 20;
     }
-private:
-    std::array<TfToken, 1> const _slots{{TfToken("curvePayload")}};
 };
 
 struct HeldEvalGate
@@ -97,9 +85,7 @@ HeldEvalGate *g_heldEvalGate = nullptr;
 class HeldWidthWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestHeldWidthWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit HeldWidthWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {9, 1}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -200,8 +186,8 @@ void RegisterFanoutTestOps(UsdGenRegistrar &r)
         UsdGenOpDef d;
         d.name = "UsdGenTestExtraCvWriter";
         d.displayName = "TestExtraCvWriter";
-        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-            return std::make_unique<ExtraCvWriter>();
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<ExtraCvWriter>(rec);
         };
         d.inputPlanes = UsdGenSpan(kCv);
         d.outputPlanes = UsdGenSpan(kCv);
@@ -211,8 +197,8 @@ void RegisterFanoutTestOps(UsdGenRegistrar &r)
         UsdGenOpDef d;
         d.name = "UsdGenTestExtraCurveWriter";
         d.displayName = "TestExtraCurveWriter";
-        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-            return std::make_unique<ExtraCurveWriter>();
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<ExtraCurveWriter>(rec);
         };
         d.inputPlanes = UsdGenSpan(kCurve);
         d.outputPlanes = UsdGenSpan(kCurve);
@@ -222,8 +208,8 @@ void RegisterFanoutTestOps(UsdGenRegistrar &r)
         UsdGenOpDef d;
         d.name = "UsdGenTestHeldWidthWriter";
         d.displayName = "TestHeldWidthWriter";
-        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-            return std::make_unique<HeldWidthWriter>();
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<HeldWidthWriter>(rec);
         };
         r.RegisterOp(d);
     }

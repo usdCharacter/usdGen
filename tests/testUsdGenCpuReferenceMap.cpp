@@ -59,12 +59,7 @@ bool RestFallbackMatchesPoints(UsdGenCurveBuffer const &buffer)
 class ReferenceProbe final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestReferenceProbe"); }
-    UsdGenRole Role() const override { return UsdGenRole::Reference; }
-    size_t GeometryInputArity() const override { return 0; }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> ReferenceInputs() const override { return _references; }
+    explicit ReferenceProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {31, 7}; }
     bool Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuffer const &,
@@ -95,17 +90,12 @@ public:
             ctx.mapBindings[1].relationship == TfToken("usdGen:map");
     }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenChunkView *) const override {}
-private:
-    std::array<TfToken, 2> const _references{{TfToken("guides"), TfToken("centers")}};
 };
 
 class CurveProbe final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestCurveProbe"); }
-    size_t GeometryInputArity() const override { return 0; }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit CurveProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {41, 9}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
@@ -121,23 +111,14 @@ public:
 class ContractProbe final : public UsdGenOp
 {
 public:
-    explicit ContractProbe(bool reference) : _reference(reference) {}
-    TfToken Type() const override { return TfToken("UsdGenTestVersionedContract"); }
-    UsdGenRole Role() const override { return _reference ? UsdGenRole::Reference : UsdGenRole::Curves; }
-    size_t GeometryInputArity() const override { return _reference ? 1 : 0; }
-    TfSpan<const TfToken> ReferenceInputs() const override {
-        return {_slots.data(), _reference ? _slots.size() : size_t(0)};
-    }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    ContractProbe(UsdGenOpRecord const &r, bool reference) : UsdGenOp(r), _reference(reference) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1,2}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
 private:
-    bool _reference;
-    std::array<TfToken,2> _slots{{TfToken("first"),TfToken("second")}};
+    [[maybe_unused]] bool _reference;
 };
 
 int gContractConstructions = 0;
@@ -152,7 +133,7 @@ void RegisterProbes(UsdGenRegistrar &r)
     UsdGenOpDef ref;
     ref.name="UsdGenTestReferenceProbe";
     ref.displayName="TestReferenceProbe";
-    ref.create=[](UsdGenOpRecord const&,void*)->std::unique_ptr<UsdGenOp>{return std::make_unique<ReferenceProbe>();};
+    ref.create=[](UsdGenOpRecord const &rec, void *)->std::unique_ptr<UsdGenOp>{return std::make_unique<ReferenceProbe>(rec);};
     ref.role=UsdGenRole::Reference;
     ref.geometryInputArity=0;
     ref.referenceInputs=UsdGenSpan(kProbeReferences);
@@ -161,7 +142,7 @@ void RegisterProbes(UsdGenRegistrar &r)
     UsdGenOpDef curve;
     curve.name="UsdGenTestCurveProbe";
     curve.displayName="TestCurveProbe";
-    curve.create=[](UsdGenOpRecord const&,void*)->std::unique_ptr<UsdGenOp>{return std::make_unique<CurveProbe>();};
+    curve.create=[](UsdGenOpRecord const &rec, void *)->std::unique_ptr<UsdGenOp>{return std::make_unique<CurveProbe>(rec);};
     curve.geometryInputArity=0;
     r.RegisterOp(curve);
 }
@@ -172,9 +153,9 @@ char const *const kContractReferences[]={"first","second"};
 void RegisterContractProbes(UsdGenRegistrar &r)
 {
     // The contract lives in the def, so registration constructs no operator.
-    auto create=[](UsdGenOpRecord const&,void *context)->std::unique_ptr<UsdGenOp>{
+    auto create=[](UsdGenOpRecord const &rec, void *context)->std::unique_ptr<UsdGenOp>{
         ++gContractConstructions;
-        return std::make_unique<ContractProbe>(context!=nullptr);
+        return std::make_unique<ContractProbe>(rec, context!=nullptr);
     };
     static int reference=0;
     UsdGenOpDef source;
@@ -358,7 +339,7 @@ void RunReferenceMapLowering()
           "compiler exposes immutable resolved reference and map values");
     UsdGenCompiledNode const *referenceNode = nullptr;
     for (size_t i = 0; i < static_cast<size_t>(graph.NodeCount()); ++i) {
-        if (graph.Node(static_cast<UsdGenNodeId>(i)).type ==
+        if (graph.Node(static_cast<UsdGenNodeId>(i)).record->Name() ==
             TfToken("UsdGenTestReferenceProbe")) {
             referenceNode = &graph.Node(static_cast<UsdGenNodeId>(i));
             break;
@@ -376,7 +357,7 @@ void RunReferenceMapLowering()
     UsdGenCompiledNode const *legacyReferenceNode = nullptr;
     if (compiler.Compile(legacy, &legacyGraph).ok) {
         for (size_t i = 0; i < static_cast<size_t>(legacyGraph.NodeCount()); ++i) {
-            if (legacyGraph.Node(static_cast<UsdGenNodeId>(i)).type ==
+            if (legacyGraph.Node(static_cast<UsdGenNodeId>(i)).record->Name() ==
                 TfToken("UsdGenTestReferenceProbe")) {
                 legacyReferenceNode =
                     &legacyGraph.Node(static_cast<UsdGenNodeId>(i));

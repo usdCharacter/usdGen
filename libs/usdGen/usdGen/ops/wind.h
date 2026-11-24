@@ -58,13 +58,12 @@ enum : UsdGenParamSlot {
 enum Tok : uint16_t { kTokLinear, kTokCatmullRom, kTokBspline, kTokConstant };
 }  // namespace windP
 
-class UsdGenWindOp final : public UsdGenRecordedOp
+class UsdGenWindOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenWindOp(UsdGenOpRecord const &record) : UsdGenRecordedOp(record) {}
+    explicit UsdGenWindOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenWindOp() override = default;
 
-    using UsdGenRecordedOp::ReadsTime;
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
     bool Capture(UsdGenCaptureContext const &ctx,

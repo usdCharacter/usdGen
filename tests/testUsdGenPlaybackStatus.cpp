@@ -39,14 +39,7 @@ std::atomic<uint64_t> captureEpoch{0};
 std::atomic<bool> holdTile{false}, tileEntered{false}, releaseTile{true};
 class TemporalOp final : public usdGen::UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenPlaybackTestTemporal"); }
-    bool ReadsTime() const override { return true; }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> ReferenceInputs() const override {
-        static TfToken const guides("guides");
-        return {&guides, 1};
-    }
+    explicit TemporalOp(usdGen::UsdGenOpRecord const &r) : usdGen::UsdGenOp(r) {}
     bool Bind(usdGen::UsdGenParamView const&, usdGen::UsdGenDiagnostics*) override { return true; }
     usdGen::UsdGenEpoch CaptureDigest(usdGen::UsdGenCaptureContext const&) const override { return {1, captureEpoch.load()}; }
     bool Capture(usdGen::UsdGenCaptureContext const&, usdGen::UsdGenCurveBuffer const&,
@@ -74,8 +67,8 @@ void RegisterTemporalOp(usdGen::UsdGenRegistrar &r)
     usdGen::UsdGenOpDef d;
     d.name = "UsdGenPlaybackTestTemporal";
     d.displayName = "PlaybackTestTemporal";
-    d.create = [](usdGen::UsdGenOpRecord const&, void*) -> std::unique_ptr<usdGen::UsdGenOp> {
-        return std::make_unique<TemporalOp>();
+    d.create = [](usdGen::UsdGenOpRecord const &rec, void *) -> std::unique_ptr<usdGen::UsdGenOp> {
+        return std::make_unique<TemporalOp>(rec);
     };
     d.traits = usdGen::kUsdGenOpReadsTime;
     d.referenceInputs = usdGen::UsdGenSpan(kReferences);

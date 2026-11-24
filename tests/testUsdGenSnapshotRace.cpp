@@ -144,7 +144,6 @@ UsdGenGraphDesc MakeG3(int NX = 250, int NY = 10)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     constexpr int kReaders = 8;
     constexpr int kGenerations = 100;

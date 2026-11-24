@@ -59,11 +59,21 @@ bool Finite(GfMatrix4d const &m)
     return true;
 }
 
+/// The first authored param with exactly this name (op.h's slot rule), or
+/// empty.
+VtValue Authored(UsdGenParamView const *params, TfToken const &name)
+{
+    if (params && params->node)
+        for (UsdGenParamValue const &p : params->node->params)
+            if (p.name == name) return p.value;
+    return VtValue();
+}
+
 bool ReadBool(UsdGenParamView const *params, TfToken const &name,
               bool fallback, bool *out, UsdGenDiagnostics *diag)
 {
     if (!params) { *out = fallback; return true; }
-    VtValue const value = params->GetVtValue(name, VtValue());
+    VtValue const value = Authored(params, name);
     if (value.IsEmpty()) { *out = fallback; return true; }
     if (!value.IsHolding<bool>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be bool");
@@ -75,7 +85,7 @@ bool ReadInt(UsdGenParamView const *params, TfToken const &name,
              int fallback, int *out, UsdGenDiagnostics *diag)
 {
     if (!params) { *out = fallback; return true; }
-    VtValue const value = params->GetVtValue(name, VtValue());
+    VtValue const value = Authored(params, name);
     if (value.IsEmpty()) { *out = fallback; return true; }
     if (!value.IsHolding<int>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be int");
@@ -87,7 +97,7 @@ bool ReadToken(UsdGenParamView const *params, TfToken const &name,
                TfToken const &fallback, TfToken *out, UsdGenDiagnostics *diag)
 {
     if (!params) { *out = fallback; return true; }
-    VtValue const value = params->GetVtValue(name, VtValue());
+    VtValue const value = Authored(params, name);
     if (value.IsEmpty()) { *out = fallback; return true; }
     if (!value.IsHolding<TfToken>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be token");
@@ -100,7 +110,7 @@ bool ReadString(UsdGenParamView const *params, TfToken const &name,
 {
     out->clear();
     if (!params) return true;
-    VtValue const value = params->GetVtValue(name, VtValue());
+    VtValue const value = Authored(params, name);
     if (value.IsEmpty()) return true;
     if (!value.IsHolding<std::string>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be string");
@@ -131,7 +141,7 @@ bool ReadOptions(UsdGenCaptureContext const &ctx, Options *out,
     // Pure-value builders normally map usdGen:useRest to `useRest`, but
     // preserve the legacy direct descriptor spelling when the canonical
     // locator is absent.  Both remain type-checked rather than defaulted.
-    if (params && params->GetVtValue(TfToken("useRest"), VtValue()).IsEmpty() &&
+    if (params && Authored(params, TfToken("useRest")).IsEmpty() &&
         !ReadBool(params, TfToken("usdGen:useRest"), out->useRest, &out->useRest, diag))
         return false;
     if (out->resampleTo < 0 || out->resampleTo == 1)

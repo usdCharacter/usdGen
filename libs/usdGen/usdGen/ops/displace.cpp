@@ -70,7 +70,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"displace:scale", UsdGenParamClass::Value, true, kFloatAll},
     {"displace:offset", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenDisplaceOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenDisplaceOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenDisplaceOp::CreateCapture() const
 {

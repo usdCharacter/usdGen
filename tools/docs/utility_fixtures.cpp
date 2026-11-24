@@ -304,7 +304,6 @@ int main(int argc, char **argv) try {
                      "usage: usdGenUtilityFixtures width-blend|part|freeze output.usda\n");
         return 2;
     }
-    usdGenRegisterM1Operators();
     UsdStageRefPtr const stage = UsdStage::CreateNew(argv[2]);
     Require(bool(stage), "cannot create output stage");
     UsdGeomXform::Define(stage, SdfPath("/World"));

@@ -57,14 +57,8 @@ namespace usdGen {
 class UsdGenExprOp final : public UsdGenOp
 {
 public:
-    UsdGenExprOp() = default;
+    explicit UsdGenExprOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenExprOp() override = default;
-
-    TfToken Type() const override { return TfToken("UsdGenExprOp"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::None; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -77,7 +71,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-
 };
 
 namespace exprOpP {

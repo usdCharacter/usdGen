@@ -127,7 +127,6 @@ static uint64_t TestNfMult(int seed, int f, double density, double area,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     UsdGenSurfaceDesc s = Surface();
     size_t const nFaces = s.faceVertexCounts.size();
     CHECK(nFaces > 4096);  // premise: this capture takes the two-pass path

@@ -95,7 +95,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"axis", UsdGenParamClass::Value, true, kVec3Root},
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenBendOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenBendOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenBendOp::CreateCapture() const
 {

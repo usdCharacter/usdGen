@@ -4,6 +4,7 @@
 #define USDGEN_VULKAN_EXPR_VK_RUN_H
 #include "exprVkParameters.h"
 #include <functional>
+#include <string_view>
 namespace usdGen::vulkan {
 // Queue-owner state machine. Each Advance submits at most one dispatch;
 // Poll only consumes a proved dispatch. No native completion wait occurs here.
@@ -23,6 +24,8 @@ class ExprVkRun {
     VkResult CommitHostStep();
     void Quarantine() noexcept;
     ExprVkParameterField const *Find(TfToken const &) const;
+    /// By destination text, with or without "usdGen:". Never interns.
+    ExprVkParameterField const *Find(std::string_view) const;
     std::shared_ptr<const ChargedBuffer> owners() const noexcept;
 
   private:

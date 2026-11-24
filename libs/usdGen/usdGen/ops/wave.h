@@ -24,10 +24,9 @@ enum : UsdGenParamSlot {
 class UsdGenWaveOp final : public UsdGenOp
 {
 public:
-    UsdGenWaveOp() = default;
+    explicit UsdGenWaveOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenWaveOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenWave"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

@@ -125,7 +125,6 @@ int main(int argc, char **argv)
            break;
        }
    }
-   usdGenRegisterM1Operators();
    UsdGenGraphDesc const desc = MakeG3();
    UsdGenCompiler compiler;
    UsdGenGraph graph;

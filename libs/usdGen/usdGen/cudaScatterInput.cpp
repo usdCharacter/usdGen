@@ -355,7 +355,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input does not yet support flip frame handedness", reason);
     std::unique_ptr<UsdGenOp> op = registry.Create(scatterId);
-    if (!op || op->GeometryInputArity() != 0)
+    if (!op || registry.Record(scatterId).Def().geometryInputArity != 0)
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter input cannot resolve the authoritative random Scatter kernel", reason);
     UsdGenDiagnostics diagnostics;

@@ -228,7 +228,7 @@ bool PlaneAliases(UsdGenPlane const &a, UsdGenPlane const *b)
 void PrepareExtraPlanes(UsdGenCompiledNode &node,
                         UsdGenCurveBuffer const &upstream, bool hasUpstream)
 {
-    if (!hasUpstream || node.op->IsGenerator()) return;
+    if (!hasUpstream || node.record->Has(kUsdGenOpGenerator)) return;
 
     UsdGenCurveBuffer &buffer = node.buffer;
     // Preserve prior private output arrays for sparse sweeps, but overwrite
@@ -282,7 +282,7 @@ void PrepareExtraPlanes(UsdGenCompiledNode &node,
         InsertOrAssignPlane(cv ? &buffer.extraCv : &buffer.extraCurve,
                             std::move(plane));
     }
-    if (node.op->RemapsVertexPlanes()) {
+    if (node.remapsVertexPlanes) {
         for (UsdGenPlane const &source : upstream.extraCv) {
             UsdGenPlane plane = source;
             UsdGenPlane const *prior = FindPlane(oldCv, source.name);
@@ -365,7 +365,7 @@ void PrepareNodeForEval(
     // the node's EFFECTIVE curve count, not its pre-inheritance 0 (an
     // un-populated styler buffer would otherwise size every touched plane
     // to zero and hand the kernel null plane pointers).
-    if (hasUp && !op.IsGenerator()) {
+    if (hasUp && !node.record->Has(kUsdGenOpGenerator)) {
         ownsBuffer = node.capture && node.capture->OwnsBuffer();
         if (!ownsBuffer) {
             buf.totalCurves = upBuf.totalCurves;
@@ -435,7 +435,7 @@ void PrepareNodeForEval(
                 a.assign(nCvs, 0.0f);
         } else if (hasUp && up.size() == nCvs) {
             if (a.cdata() != up.cdata()) a = up;  // CoW share; read-only
-        } else if (!hasUp && op.IsGenerator()) {
+        } else if (!hasUp && node.record->Has(kUsdGenOpGenerator)) {
             // Source generators own the presence semantics of optional
             // planes.  In particular Scatter has no input width plane;
             // materializing a zero array here would make downstream Grow
@@ -467,7 +467,7 @@ void PrepareNodeForEval(
 /// even after it no longer aliases the immediate upstream buffer.
 void EnsureWritablePlanes(UsdGenCompiledNode &node, UsdGenOp &op)
 {
-    if (!op.RemapsVertexPlanes()) return;
+    if (!node.remapsVertexPlanes) return;
     uint32_t const planes=op.PlanesTouched();
     if (planes & UsdGenOp::kPlanePoints) {
         (void)node.buffer.px.data();
@@ -824,13 +824,13 @@ void SweepChunk(size_t index, void *payload)
     view.outI = view.outCount ? outI.data() : nullptr;
     view.inF = view.inCount ? inF.data() : nullptr;
     view.inI = view.inCount ? inI.data() : nullptr;
-    view.extraCv = pl.op->RemapsVertexPlanes() && !buf.extraCv.empty()
+    view.extraCv = node.remapsVertexPlanes && !buf.extraCv.empty()
         ? buf.extraCv.data() : nullptr;
     view.extraCvF = pl.extraCvF.empty() ? nullptr : pl.extraCvF.data();
     view.extraCvI = pl.extraCvI.empty() ? nullptr : pl.extraCvI.data();
-    view.inExtraCv = pl.op->RemapsVertexPlanes() && !upBuf.extraCv.empty()
+    view.inExtraCv = node.remapsVertexPlanes && !upBuf.extraCv.empty()
         ? upBuf.extraCv.data() : nullptr;
-    view.extraCvCount = pl.op->RemapsVertexPlanes()
+    view.extraCvCount = node.remapsVertexPlanes
         ? static_cast<uint32_t>(std::min(buf.extraCv.size(), upBuf.extraCv.size()))
         : 0;
     view.pointScratch = pl.pointScratch.empty() ? nullptr
@@ -1100,7 +1100,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // Configure is structural, while effective enabled can be driven by
         // a value expression later in preparation. Conservatively transact
         // any graph containing a fallible remapper.
-        transactionalRun |= node.op && node.op->RemapsVertexPlanes();
+        transactionalRun |= node.op && node.remapsVertexPlanes;
     }
 
     // Operators evaluate in Default space until a deform: a deform, and every
@@ -1240,7 +1240,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             // A groom-domain usdGen:enabled drives the node's own gate. With
             // nothing connected the authored value stands.
             double enabled = 0.0;
-            node.enabled = node.paramView.GroomExpressionValue(UsdGenTokens().enabled, &enabled)
+            node.enabled = node.paramView.GroomExpressionValue(node.record->EnabledSlot(), &enabled)
                 ? enabled != 0.0 : node.desc->enabled;
         }
 
@@ -1251,7 +1251,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         if (!node.enabled) {
             job->reCaptured = false;
             node.captureNeeded = false;
-            if (op.IsGenerator() &&
+            if (node.record->Has(kUsdGenOpGenerator) &&
                 (node.buffer.totalCurves != 0 || node.buffer.totalCvs != 0)) {
                 node.buffer = UsdGenCurveBuffer();
                 node.buffer.topologyVersion = ++node.topologySeq;
@@ -1321,7 +1321,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             // already matches. No totalCurves > 0 gate either: a generator
             // re-capturing to ZERO curves must still repartition, or its stale
             // chunk plan sweeps dead chunks against empty buffers.
-            if (node.op->IsGenerator() ||
+            if (node.record->Has(kUsdGenOpGenerator) ||
                 node.topoFx == UsdGenTopoFx::CvCount) {
                 int const total = static_cast<int>(node.buffer.totalCurves);
                 int const cvp = int(node.buffer.totalCvs /
@@ -1354,7 +1354,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // Native time readers move without any authored parameter dirty.
         // Route only their output and descendants; static upstream captures
         // remain reusable during playback.
-        if (node.enabled && op.ReadsTime() &&
+        if (node.enabled && node.record->Has(kUsdGenOpReadsTime) &&
             (node.lastEvalTime != evalCtx.time ||
              node.lastEvalRate != graph.Desc().timeCodesPerSecond))
             graph.DirtyValue(node.id);
@@ -1379,7 +1379,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         UsdGenCurveBuffer const &upBuf = hasUp
             ? graph.Node(node.inputs.front()).buffer : emptyBuf;
 
-        if (!node.enabled && op.IsGenerator()) {
+        if (!node.enabled && node.record->Has(kUsdGenOpGenerator)) {
             std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
                       UsdGenDirtyNone);
             return true;
@@ -1432,14 +1432,14 @@ UsdGenRunResult UsdGenScheduler::_Run(
         pl.planes = op.PlanesTouched();
         // Fallible remappers cannot progressively publish a tile before the
         // frontier joins and validates the shared failure flag.
-        pl.deferCompletion = op.RemapsVertexPlanes();
+        pl.deferCompletion = node.remapsVertexPlanes;
         if (pl.deferCompletion) {
             pl.pointScratch.resize(node.buffer.totalCvs);
             pl.scalarScratch.resize(node.buffer.totalCvs);
         }
         pl.extraCvF.clear();
         pl.extraCvI.clear();
-        if (op.RemapsVertexPlanes()) {
+        if (node.remapsVertexPlanes) {
             pl.extraCvF.reserve(node.buffer.extraCv.size());
             pl.extraCvI.reserve(node.buffer.extraCv.size());
             for (UsdGenPlane &plane : node.buffer.extraCv) {
@@ -1697,7 +1697,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         job.evalAll ? "  (all chunks: values moved)" : "");
                 }
                 completed[size_t(frontier[j])] = 1;
-                if (node.op->ReadsTime() && node.enabled) {
+                if (node.record->Has(kUsdGenOpReadsTime) && node.enabled) {
                     node.lastEvalTime = evalCtx.time;
                     node.lastEvalRate = graph.Desc().timeCodesPerSecond;
                 }

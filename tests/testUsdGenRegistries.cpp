@@ -43,9 +43,7 @@ void Check(bool ok, std::string const &what)
 class TestOp : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenRegistriesTestOp"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit TestOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {}; }
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &, UsdGenCapture *,
@@ -54,9 +52,9 @@ public:
                   UsdGenChunkView *) const override {}
 };
 
-std::unique_ptr<UsdGenOp> CreateTestOp(UsdGenOpRecord const &, void *)
+std::unique_ptr<UsdGenOp> CreateTestOp(UsdGenOpRecord const &rec, void *)
 {
-    return std::make_unique<TestOp>();
+    return std::make_unique<TestOp>(rec);
 }
 
 using D = expr::Domain;
@@ -105,7 +103,7 @@ struct Registered {
     UsdGenOpId duplicateEnum = UsdGenOpId::Invalid;
     UsdGenOpId noCreate = UsdGenOpId::Invalid;
     UsdGenOpId tooMany = UsdGenOpId::Invalid;
-    UsdGenOpId legacyDuplicate = UsdGenOpId::Invalid;
+    UsdGenOpId builtinDuplicate = UsdGenOpId::Invalid;
     UsdGenTypeId type = UsdGenTypeId::Invalid;
     UsdGenTypeId typeDuplicate = UsdGenTypeId::Invalid;
     bool kernel = false, kernelDuplicate = true, kernelBadOp = true;
@@ -151,8 +149,7 @@ void RegisterTestLibrary(UsdGenRegistrar &r)
     d.params = TfSpan<const UsdGenParamDecl>(g_many.data(), g_many.size());
     g_reg.tooMany = r.RegisterOp(d);
 
-    g_reg.legacyDuplicate = r.RegisterLegacyOp(TfToken("UsdGenWidth"),
-        [] { return std::unique_ptr<UsdGenOp>(std::make_unique<TestOp>()); });
+    g_reg.builtinDuplicate = r.RegisterOp(TestDef("UsdGenWidth"));
 
     UsdGenTypeDef t;
     t.name = "UsdGenRegistriesTestMap";
@@ -183,7 +180,7 @@ void TestRegistration()
     Check(g_reg.duplicateEnum == UsdGenOpId::Invalid, "duplicate enumerant is rejected");
     Check(g_reg.noCreate == UsdGenOpId::Invalid, "a def without create is rejected");
     Check(g_reg.tooMany == UsdGenOpId::Invalid, "more than kUsdGenMaxParamsPerOp is rejected");
-    Check(g_reg.legacyDuplicate == UsdGenOpId::Invalid, "legacy duplicate is rejected");
+    Check(g_reg.builtinDuplicate == UsdGenOpId::Invalid, "a built-in's name is rejected");
     Check(ops.Count() == 34, "rejected defs take no id");
     Check(g_reg.type != UsdGenTypeId::Invalid && g_reg.typeDuplicate == UsdGenTypeId::Invalid,
           "type registers once");
@@ -194,16 +191,13 @@ void TestRegistration()
 void TestDenseHandles()
 {
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
-    std::vector<TfToken> const known = ops.KnownTypes();
-    Check(known.size() == ops.Count(), "KnownTypes covers every record");
     for (uint32_t i = 0; i < ops.Count(); ++i) {
         UsdGenOpRecord const &r = ops.Record(UsdGenOpId(i));
         Check(UsdGenIndex(r.Id()) == i, "dense id " + std::to_string(i));
         Check(ops.Find(r.Name()) == r.Id(), "Find(Name()) for " + r.Name().GetString());
-        Check(i < known.size() && known[i] == r.Name(), "KnownTypes order " + std::to_string(i));
-        Check(ops.HasKernel(r.Name()), "HasKernel " + r.Name().GetString());
+        Check(r.Def().create != nullptr, "create hook " + r.Name().GetString());
         std::unique_ptr<UsdGenOp> op = ops.Create(r.Id());
-        Check(op && (r.Id() == g_reg.plain || op->Type() == r.Name()),
+        Check(op && &op->Record() == &r,
               "Create(id) makes " + r.Name().GetString());
     }
     Check(ops.Record(ops.Find(TfToken("UsdGenScatter"))).Id() == UsdGenOpId(0),
@@ -402,9 +396,9 @@ void TestExpressionAdmission()
           "op without connectable params");
 }
 
-/// Routing derived from the legacy decls equals the compiler's routing table
-/// for every built-in op (the S4-2 switch-over relies on it).
-void TestLegacyRoutingMatchesCompiler()
+/// Routing derived from the decls equals the compiler's routing table for
+/// every built-in op.
+void TestRoutingMatchesCompiler()
 {
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     int compared = 0;
@@ -463,7 +457,7 @@ void TestInterner()
 void TestFrozen()
 {
     UsdGenFreezeRegistries();
-    UsdGenOpRegistry &ops = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     Check(ops.IsFrozen(), "frozen");
     uint32_t const count = ops.Count();
     Check(!UsdGenRegisterStatic(&RegisterTestLibrary), "UsdGenRegisterStatic after freeze");
@@ -474,9 +468,6 @@ void TestFrozen()
     Check(g_reg.saved->RegisterType(t) == UsdGenTypeId::Invalid, "RegisterType after freeze");
     Check(!g_reg.saved->RegisterKernel(g_reg.plain, UsdGenBackendId(0), UsdGenKernelDef{}),
           "RegisterKernel after freeze");
-    Check(!ops.Register(TfToken("UsdGenRegistriesLateLegacy"),
-                        [] { return std::unique_ptr<UsdGenOp>(std::make_unique<TestOp>()); }),
-          "legacy Register after freeze");
     Check(ops.Count() == count, "nothing registered after freeze");
     UsdGenFreezeRegistries();   // idempotent
     TestInterner();
@@ -486,7 +477,6 @@ void TestFrozen()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     TestRegistration();
     TestDenseHandles();
     TestRecord();
@@ -495,7 +485,7 @@ int main()
     TestResolveDescIds();
     TestExpressionAdmission();
     TestInterner();
-    TestLegacyRoutingMatchesCompiler();
+    TestRoutingMatchesCompiler();
     TestFrozen();
     if (g_failures) {
         std::printf("testUsdGenRegistries: %d failure(s)\n", g_failures);

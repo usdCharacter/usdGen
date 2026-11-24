@@ -170,7 +170,6 @@ int main() {
     int deviceCount=0;
     if (cudaGetDeviceCount(&deviceCount)!=cudaSuccess || deviceCount==0) return 77;
 #endif
-    usdGenRegisterM1Operators();
     auto d = Desc();
     UsdGenCurveBuffer out;
     CHECK(Run(d, &out));

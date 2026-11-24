@@ -9,6 +9,7 @@
 //       zero effect, direction:source tangents, connected-expression and mask
 //       cooks, and fail-closed validation.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -159,23 +160,23 @@ static bool CookSourceOnly(UsdGenGraphDesc desc, SdfPath const &source,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenDirection");
     Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenDirection)");
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenDirection)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Direction reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
-          "Direction has TopologyEffect None");
     UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
+    Check(rec.Def().topoFx == UsdGenTopoFx::None,
+          "Direction has TopologyEffect None");
     std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
     for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
         (rec.ParamClass(s) == UsdGenParamClass::Value ? valueV : topoV).push_back(rec.ParamName(s));
     TfSpan<const TfToken> const refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("direction:source"),
           "Direction declares the direction:source reference input");
-    Check(op->OutputPrimvars().empty(), "Direction emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(rec).empty(), "Direction emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Direction touches the points plane only");
     TfSpan<const TfToken> const topo(topoV.data(), topoV.size());
@@ -620,7 +621,6 @@ static void CheckFailClosed()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckRigidCook();
     CheckPerSegmentCooks();

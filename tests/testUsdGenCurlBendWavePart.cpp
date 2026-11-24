@@ -7,6 +7,7 @@
 //       compiles, one wrong-destination and one wrong-domain binding fail);
 //   (3) deterministic CPU cooks over small hand-built topologies (fixed seeds).
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
@@ -153,7 +154,7 @@ static UsdGenPlane const *FindCurvePlane(UsdGenCurveBuffer const &buffer,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     struct Expect {
         char const *type;
         char const *reference;
@@ -173,10 +174,11 @@ static void CheckRegistryContracts()
         Check(op != nullptr, "Create(" + name + ")");
         if (!op) continue;
         Check(registry.Record(registry.Find(type)).Name() == type, name + " reports its own type");
-        Check(op->TopologyEffect() == UsdGenTopoFx::None,
+        UsdGenOpRecord const &rec = op->Record();
+        Check(rec.Def().topoFx == UsdGenTopoFx::None,
               name + " has TopologyEffect None");
-        TfSpan<const TfToken> const refs = op->ReferenceInputs();
-        TfSpan<const TfToken> const primvars = op->OutputPrimvars();
+        TfSpan<const TfToken> const refs = rec.ReferenceInputs();
+        std::vector<TfToken> const primvars = usdGenTest::OutputPlaneNames(rec);
         if (expect.reference) {
             Check(refs.size() == 1 && refs[0] == TfToken(expect.reference),
                   name + " declares the part:curves reference input");
@@ -781,7 +783,6 @@ static void CheckGrowLiftCook()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckExpressionTargets();
     CheckWaveCook();

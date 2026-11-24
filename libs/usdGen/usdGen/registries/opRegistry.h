@@ -8,7 +8,6 @@
 #include "usdGen/curveBuffer.h"          // UsdGenPlane (step 5 replaces it)
 #include "pxr/base/tf/token.h"
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -18,7 +17,9 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenRegistrar;
+class UsdGenOpRegistry;
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
+UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;   // registrar-only
 
 /// Immutable after RegisterOp. Every name interned once.
 class USDGEN_CORE_API UsdGenOpRecord {
@@ -58,9 +59,8 @@ private:
 
 class USDGEN_CORE_API UsdGenOpRegistry {
 public:
-    /// CAS-published, as before. Non-const until the tests stop calling the
-    /// legacy Register below (S4-T); then const.
-    static UsdGenOpRegistry &Get() noexcept;
+    /// Built with the built-ins on first use and published by CAS.
+    static UsdGenOpRegistry const &Get() noexcept;
     bool IsFrozen() const noexcept { return _frozen.load(std::memory_order_acquire); }
     uint32_t Count() const noexcept { return _count; }
     /// Compile phase only. Pointer-hash probe; never interns.
@@ -68,23 +68,10 @@ public:
     UsdGenOpRecord const &Record(UsdGenOpId id) const noexcept { return _records[UsdGenIndex(id)]; }
     std::unique_ptr<UsdGenOp> Create(UsdGenOpId id) const;
 
-    // ---- Legacy API (temporary: S4-T moves the tests, S4-8 deletes it) ----
-    using Factory = std::function<std::unique_ptr<UsdGenOp>()>;
-    /// RegisterLegacyOp. False on a duplicate type or after freeze.
-    bool Register(TfToken const &type, Factory factory);
-    std::unique_ptr<UsdGenOp> Create(TfToken const &type) const;
-    bool HasKernel(TfToken const &type) const;
-    bool ReadsTime(TfToken const &type) const;
-    bool SamplesFrameInputs(TfToken const &type) const;
-    bool GetOperatorContract(TfToken const &type, size_t *outGeometryInputArity,
-                             size_t *outReferenceInputArity, UsdGenRole *outRole) const;
-    bool GetGeometryInputArity(TfToken const &type, size_t *outArity) const;
-    /// Registered type names in registration order.
-    std::vector<TfToken> KnownTypes() const;
-
 private:
     friend class UsdGenRegistrar;
     friend void UsdGenFreezeRegistries();
+    friend UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;
     UsdGenOpRegistry();
     UsdGenOpRecord _records[kUsdGenMaxOps];
     uint32_t _count = 0;
@@ -96,16 +83,16 @@ private:
 /// Fills UsdGenNodeDesc::opId and UsdGenMapDesc::typeId. Compile phase.
 USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphDesc *desc);
 
-/// Generic expression admission over the record's decls; replaces
-/// expressionTargets.cpp. Messages (substrings tests check today):
+/// Generic expression admission over the record's decls. Messages (substrings tests check today):
 ///   "unsupported or incorrectly typed <displayName> expression <param>"
 ///   "<displayName> <param> requires groom evaluation"
 ///   "<displayName> <param> requires groom/primitive evaluation"
 ///   "operator <name> at <path> does not accept connected (expression) parameters"
 USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &,
     UsdGenNodeDesc const &, std::vector<std::string> *errors);
-
-/// Legacy (S4-8 deletes): makes sure the built-ins are registered.
-USDGEN_CORE_API void usdGenRegisterM1Operators();
+/// The same for a node whose record is looked up (opId, else its type); an
+/// unregistered type with bindings is rejected. Compile phase.
+USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenNodeDesc const &,
+    std::vector<std::string> *errors);
 
 }  // namespace usdGen

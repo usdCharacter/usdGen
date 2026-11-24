@@ -113,7 +113,6 @@ uint64_t TotalChunksEvaluated(UsdGenRunResult const &r)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     UsdGenGraphDesc const desc = MakeRaggedDesc();
     UsdGenCompiler  compiler;

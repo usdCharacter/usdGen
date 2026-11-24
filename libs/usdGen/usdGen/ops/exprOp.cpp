@@ -12,7 +12,6 @@
 
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/frontend.h"
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 
 #include <algorithm>
@@ -50,9 +49,9 @@ UsdGenParamDecl const kParams[kCount] = {
 constexpr UsdGenMapSlotDecl kMapSlots[] = {    // compiler.cpp:428-431, all four as today
     {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
 
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *)
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return std::make_unique<UsdGenExprOp>();
+    return std::make_unique<UsdGenExprOp>(r);
 }
 
 struct UsdGenExprOpCapture final : public UsdGenCapturePayload
@@ -93,30 +92,6 @@ bool IsBlank(std::string const &text)
 
 }  // namespace
 
-static TfTokenVector _topoParams = [] {
-    TfTokenVector v = UsdGenBaseTopologyParams();
-    v.push_back(TfToken("mode"));             // structural kernel branch (02 §6.1)
-    v.push_back(TfToken("expr:returnType"));  // structural output branch (02 §6.1)
-    v.push_back(TfToken("expr:source"));      // capture: recompiled at Capture
-    v.push_back(TfToken("expr:maps"));        // rel retarget recompiles (02 §6.1)
-    return v;
-}();
-
-static TfTokenVector _valueParams = [] {
-    TfTokenVector v = UsdGenBaseValueParams();
-    v.push_back(TfToken("enabled"));  // value-toggle styler (02 §6.3)
-    v.push_back(TfToken("mask"));     // operator envelope, literal or connected
-    return v;
-}();
-
-TfSpan<const TfToken> UsdGenExprOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topoParams.data(), _topoParams.size());
-}
-TfSpan<const TfToken> UsdGenExprOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_valueParams.data(), _valueParams.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenExprOp::CreateCapture() const
 {
     return std::make_unique<UsdGenExprOpCapture>();

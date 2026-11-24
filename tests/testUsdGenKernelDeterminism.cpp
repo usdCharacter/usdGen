@@ -166,7 +166,7 @@ bool CompareGraphs(UsdGenGraph const &a, UsdGenGraph const &b)
     for (int i = 0; i < a.NodeCount(); ++i) {
         UsdGenCompiledNode const &na = a.Node(i);
         UsdGenCompiledNode const &nb = b.Node(i);
-        std::string p = "node " + std::to_string(i) + " (" + na.type.GetString() + ") ";
+        std::string p = "node " + std::to_string(i) + " (" + na.record->Name().GetString() + ") ";
 
         ok = (na.buffer.totalCurves == nb.buffer.totalCurves) && ok;
         ok = (na.buffer.totalCvs == nb.buffer.totalCvs) && ok;
@@ -229,7 +229,6 @@ using namespace usdGen;
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     auto runAt = [](int threads) -> UsdGenGraph {
         UsdGenGraphDesc d = MakeG3();

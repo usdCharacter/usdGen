@@ -48,24 +48,8 @@ enum Tok : uint16_t {
 class UsdGenClumpOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenClumpOp(UsdGenOpRecord const &record);
+    explicit UsdGenClumpOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenClumpOp() override = default;
-
-    UsdGenOpRecord const &Record() const noexcept { return *_record; }
-
-    // Static description, answered from the record until S4-8 removes the
-    // virtuals (tests and the engine still ask the instance).
-    TfToken Type() const override { return _record->Name(); }
-    UsdGenTopoFx TopologyEffect() const override { return _record->Def().topoFx; }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    /// Legacy instance view (S4-8 removes it): the level-0 planes. Compiled
-    /// nodes bind the emittedPlanes hook's planes at their allocated level.
-    TfSpan<const TfToken> OutputPrimvars() const override;
-    /// "guides": the guide set of the guides / guideSeeded centre modes.
-    /// Optional: a node with no usdGen:guides target resolves none.
-    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -78,11 +62,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-
-private:
-    UsdGenOpRecord const *_record;
-    std::vector<TfToken> _topology, _value;
-    std::vector<TfToken> _outputs;   // level 0
 };
 
 class UsdGenRegistrar;

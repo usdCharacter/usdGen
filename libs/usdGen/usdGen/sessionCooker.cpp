@@ -328,7 +328,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     _CacheMix(&h1, static_cast<uint64_t>(graph.TerminalNodeId()));
     for (UsdGenNodeId id = 0; id != static_cast<UsdGenNodeId>(graph.NodeCount()); ++id) {
         UsdGenCompiledNode const &node = graph.Node(id);
-        _CacheMixText(&h0, node.type.GetString());
+        _CacheMixText(&h0, node.record ? node.record->Name().GetString() : std::string());
         _CacheMixText(&h1, node.desc ? node.desc->path.GetString() : std::string());
         _CacheMix(&h1, node.structuralDigest[0]);
         _CacheMix(&h0, node.structuralDigest[1]);
@@ -2258,7 +2258,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         if (!pointsOnlyRun) break;
         if (rs.id >= static_cast<UsdGenNodeId>(_graph.NodeCount())) { pointsOnlyRun = false; break; }
         UsdGenCompiledNode const &n = _graph.Node(rs.id);
-        pointsOnlyRun = n.op && !n.op->IsGenerator() && !n.op->RemapsVertexPlanes() &&
+        pointsOnlyRun = n.op && !n.record->Has(kUsdGenOpGenerator) && !n.remapsVertexPlanes &&
             n.op->PlanesTouched() == UsdGenOp::kPlanePoints && n.outputPrimvars.empty();
     }
     bool const channelsSettled = _tileChannelsSettled && pointsOnlyRun;
@@ -3019,7 +3019,7 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
         if (entry.first >= static_cast<UsdGenNodeId>(_graph.NodeCount())) continue;
         UsdGenCompiledNode const& n = _graph.Node(entry.first);
         UsdGenNodeStats& s = out[entry.first];
-        s.type = n.type; s.path = n.desc ? n.desc->path : SdfPath();
+        s.type = n.record ? n.record->Name() : TfToken(); s.path = n.desc ? n.desc->path : SdfPath();
         s.captureMs = entry.second.captureMs; s.lastEvalMs = entry.second.evalMs;
         s.meanEvalMs = entry.second.evalMs; s.curvesOut = n.buffer.totalCurves;
         for (UsdGenChunkDirtyBits bit : n.chunkDirty) if (bit) ++s.chunksDirty;

@@ -122,7 +122,6 @@ double NowMs()
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     // ---- fresh compile of the 200-node graph (context number, no budget) ----
     UsdGenGraphDesc const desc = MakeChain(200);
@@ -242,7 +241,7 @@ int main()
                   "edited node receives a new value digest");
             Check(digestGraph.Node(4).structuralDigest == oldWidthStructuralDigest &&
                       (digestGraph.Node(4).captureNeeded ||
-                       digestGraph.Node(4).op->CaptureDigestComplete()) &&
+                       digestGraph.Node(4).record->Has(kUsdGenOpCaptureDigestComplete)) &&
                       digestGraph.Node(4).lastParamDigest !=
                           digestGraph.Node(4).paramValueDigest,
                   "value edit preserves structure while requiring fresh evaluation");

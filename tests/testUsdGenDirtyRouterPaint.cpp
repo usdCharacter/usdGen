@@ -122,7 +122,6 @@ HdDataSourceLocator Loc(std::initializer_list<TfToken> tokens)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     // 1. The compiled snapshot resolves paint maps from both ref lists.
     UsdGenCompiler compiler;

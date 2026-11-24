@@ -27,10 +27,9 @@ enum AxisMode : int { kAxisRootDirection, kAxisUniform, kAxisAttribute };
 class UsdGenBendOp final : public UsdGenOp
 {
 public:
-    UsdGenBendOp() = default;
+    explicit UsdGenBendOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenBendOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenBend"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

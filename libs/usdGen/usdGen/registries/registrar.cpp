@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/legacyOpTraits.h"
 #include "usdGen/registries/opRecordTables.h"
 #include "usdGen/registries/token.h"
 
@@ -186,22 +185,9 @@ bool UsdGenRegistrar::RegisterKernel(UsdGenOpId op, UsdGenBackendId backend,
     return true;
 }
 
-UsdGenOpId UsdGenRegistrar::RegisterLegacyOp(TfToken const &type,
-                                             std::function<std::unique_ptr<UsdGenOp>()> factory)
-{
-    if (_ops->IsFrozen() || type.IsEmpty() || !factory ||
-        _ops->Find(type) != UsdGenOpId::Invalid)
-        return UsdGenOpId::Invalid;
-    UsdGenOpDef const *def = UsdGenMakeLegacyOpDef(type, std::move(factory));
-    if (!def) return UsdGenOpId::Invalid;
-    UsdGenOpId const id = RegisterOp(*def);
-    if (id == UsdGenOpId::Invalid) UsdGenDiscardLegacyOpDef(def);
-    return id;
-}
-
 bool UsdGenRegisterStatic(UsdGenRegisterFn fn)
 {
-    UsdGenOpRegistry &ops = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry &ops = UsdGenMutableOpRegistry();
     if (!fn || ops.IsFrozen()) return false;
     UsdGenRegistrar registrar(ops);
     fn(registrar);
@@ -232,7 +218,7 @@ bool UsdGenLoadExtension(std::string const &path, std::string *error)
 
 void UsdGenFreezeRegistries()
 {
-    UsdGenOpRegistry &ops = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry &ops = UsdGenMutableOpRegistry();
     if (ops.IsFrozen()) return;
     UsdGenMutableTypeRegistry()._frozen.store(true, std::memory_order_release);
     UsdGenMutableBackendRegistry()._frozen.store(true, std::memory_order_release);

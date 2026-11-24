@@ -93,7 +93,7 @@ uint32_t UsdGenStrandSet::Index(uint32_t c) const
 }
 
 UsdGenWholeStrandOp::UsdGenWholeStrandOp(UsdGenOpRecord const &record)
-    : UsdGenRecordedOp(record)
+    : UsdGenOp(record)
     , _mask(record.FindParam(UsdGenTokens().mask))
 {
     UsdGenEngineTokens const &t = UsdGenTokens();

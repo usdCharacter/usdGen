@@ -185,9 +185,7 @@ std::atomic<unsigned> batchEntered{0};
 std::atomic<bool> batchRelease{false}, batchTimedOut{false};
 class BatchHoldOp final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenImagingBatchHold"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
+    explicit BatchHoldOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 1}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
@@ -207,8 +205,8 @@ void RegisterBatchHoldOp(UsdGenRegistrar &r)
         UsdGenOpDef d;
         d.name = "UsdGenImagingBatchHold";
         d.displayName = "ImagingBatchHold";
-        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-            return std::make_unique<BatchHoldOp>();
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<BatchHoldOp>(rec);
         };
         r.RegisterOp(d);
     }

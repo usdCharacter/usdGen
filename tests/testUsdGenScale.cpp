@@ -8,6 +8,7 @@
 //       scale:knots ramp, the per-curve scaleRandom draw, identity at zero
 //       effect, one connected-expression cook, and fail-closed validation.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -164,20 +165,20 @@ static bool HasParam(TfSpan<const TfToken> const &span, char const *name)
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenScale");
     Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenScale)");
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenScale)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Scale reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "Scale has TopologyEffect None");
     Check(op->PlanesTouched() ==
               (UsdGenOp::kPlanePoints | UsdGenOp::kPlaneWidths),
           "Scale touches the points and widths planes");
-    Check(op->ReferenceInputs().empty(), "Scale declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "Scale emits no output primvars");
+    Check(op->Record().ReferenceInputs().empty(), "Scale declares no reference inputs");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "Scale emits no output primvars");
     UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
     std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
     for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
@@ -500,7 +501,6 @@ static void CheckFailClosed()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckScaleCook();
     CheckWidthTooCook();

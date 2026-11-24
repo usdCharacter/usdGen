@@ -59,10 +59,9 @@ enum Interp : int { kInterpLinear, kInterpCatmullRom, kInterpBspline, kInterpCon
 class UsdGenDirectionOp final : public UsdGenOp
 {
 public:
-    UsdGenDirectionOp() = default;
+    explicit UsdGenDirectionOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenDirectionOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenDirection"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

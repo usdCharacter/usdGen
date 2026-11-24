@@ -266,7 +266,6 @@ static bool TestRoot(GfVec3f const *rest, GfVec2f const *uv, int const *fvi,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     UsdGenSurfaceDesc const s = Surface();
     CHECK(s.faceVertexCounts.size() == 5047);
     int const seed = 7;

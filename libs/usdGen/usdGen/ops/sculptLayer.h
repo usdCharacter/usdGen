@@ -31,10 +31,10 @@ enum : UsdGenParamSlot {
 enum Tok : uint16_t { kTokRootFrame, kTokObject };
 }  // namespace sculptP
 
-class UsdGenSculptLayerOp final : public UsdGenRecordedOp
+class UsdGenSculptLayerOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenSculptLayerOp(UsdGenOpRecord const &record) : UsdGenRecordedOp(record) {}
+    explicit UsdGenSculptLayerOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenSculptLayerOp() override = default;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;

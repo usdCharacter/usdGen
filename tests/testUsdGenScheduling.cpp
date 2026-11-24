@@ -124,7 +124,6 @@ bool SameFloatPlane(VtFloatArray const &a, VtFloatArray const &b)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     UsdGenSession session(8);
     UsdGenGraphDesc const desc = MakeG3();

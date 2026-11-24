@@ -241,7 +241,6 @@ uint64_t HashCurves(UsdGenCurveBuffer const &b)
 bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
                     std::string *error)
 {
-    usdGenRegisterM1Operators();
     UsdGenNodeDesc const &node = desc.nodes[0];
     usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &node, &desc);
     UsdGenParamView const &params = paramsView.View();
@@ -1325,7 +1324,6 @@ int main(int argc, char **argv)
     if (opts.csv)
         std::printf("stage,median_ms,best_ms,worst_ms,checksum,extra\n");
 
-    usdGenRegisterM1Operators();
     UsdGenGraphDesc const desc = MakeDesc(opts.grid, opts.grid);
     size_t const faceCount = desc.surfaces[0].faceVertexCounts.size();
 

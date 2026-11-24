@@ -776,7 +776,6 @@ void TestDeterminism()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     TestUvGrid();
     TestCountMode();
     TestEven();

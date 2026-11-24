@@ -535,7 +535,6 @@ void CheckClumpMapDirtyPropagation()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     {
         UsdStageRefPtr const guideStage = UsdStage::Open(kGuideScene);
         if (!guideStage) { std::printf("FAIL: cannot open %s\n", kGuideScene); return 1; }

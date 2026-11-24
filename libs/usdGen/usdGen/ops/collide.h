@@ -72,11 +72,7 @@ public:
     explicit UsdGenCollideOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenCollideOp() override = default;
 
-    void Configure(UsdGenParamView const &params) override;
-    bool RemapsVertexPlanes() const override { return _cutThenCollide; }
-    /// Legacy instance view of the emittedPlanes hook (S4-8 removes it):
-    /// `collideUnresolved` when Configure() saw resolveType = relax.
-    TfSpan<const TfToken> OutputPrimvars() const override;
+    void Configure(UsdGenConfigureContext const &ctx) override;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -91,7 +87,6 @@ public:
     uint32_t PlanesTouched() const override;
 private:
     bool _cutThenCollide = false;
-    TfTokenVector _outputs;
     // Warning identity is topology-based, so posed animation and transforms
     // cannot flood Play with the same polygon fallback diagnostic.
     mutable std::array<std::atomic<uint64_t>, 256> _warned{};

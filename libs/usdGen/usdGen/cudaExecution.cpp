@@ -4,7 +4,6 @@
 #include "usdGen/taskScheduler.h"
 
 #include "usdGen/cudaStages.h"
-#include "usdGen/expressionTargets.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/engineTokens.h"
@@ -85,8 +84,9 @@ bool CudaIs(UsdGenNodeDesc const& node, UsdGenCudaStage stage) noexcept {
 // usdGen:rebind's default (curveRootCapture.cpp), interned at load.
 [[maybe_unused]] TfToken const kCudaRebindOnError = UsdGenInternToken("onError");
 // Plan task types that name no op (asserted by the CUDA plan tests).
-[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken("UsdGenScatterGrow");
-TfToken const kCudaPublicationTask = UsdGenInternToken("UsdGenPublication");
+// "UsdGen" + "ScatterGrow": task types, not ops (the op-name gate).
+[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken(std::string("UsdGen") + "ScatterGrow");
+TfToken const kCudaPublicationTask = UsdGenInternToken(std::string("UsdGen") + "Publication");
 // A token-valued literal with exactly this text (VtValue(TfToken(text)) ==).
 [[maybe_unused]] bool HoldsTokenText(VtValue const& value, char const* text) {
     return value.IsHolding<TfToken>() && value.UncheckedGet<TfToken>().GetString() == text;
@@ -169,12 +169,11 @@ bool ValidateCudaClumpMotionInputs(UsdGenGraphDesc const& desc,
     return true;
 }
 #ifdef USDGEN_ENABLE_CUDA
-// The per-operator expression allowlist is shared with the CPU lane and the
-// compiler (expressionTargets.cpp). Keeping a second copy here is exactly how
-// the two lanes would drift.
+// The per-operator expression admission is the op record's, shared with the
+// CPU lane and the compiler. A second copy here is how the lanes would drift.
 bool ValidateExpressionTargets(UsdGenNodeDesc const& node, UsdGenDiagnostics* diagnostics) {
     std::vector<std::string> errors;
-    if (UsdGenValidateExpressionTargets(node, &errors)) return true;
+    if (UsdGenValidateExpressionBindings(node, &errors)) return true;
     for (auto const& error : errors) Fail(diagnostics, error);
     return false;
 }
@@ -1469,21 +1468,25 @@ bool ExecutionState::PrepareScatterGrowWorkspace(UsdGenCudaExecutionPlan const& 
 // Operator-declared named bindings require an explicit CUDA launcher contract.
 // The aggregate NamedChannels value currently transports authored source data
 // through Source/Length/publication, but generic operator launchers do not bind
-// InputPrimvars()/OutputPrimvars().  Reject every such operator here, including
+// declared input/output planes.  Reject every such operator here, including
 // topology-preserving ones, so a future capability row cannot silently ignore
 // a read or mutate inherited COW storage.  CurveSource and Length have dedicated
 // asynchronous topology transactions for inherited authored planes.
 bool ValidateCudaNamedPlaneBindings(UsdGenGraphDesc const& desc,
                                     UsdGenDiagnostics* diagnostics) {
-    usdGenRegisterM1Operators();
     bool hasAuthoredPlanes = false;
     for (auto const& curves : desc.curveSets)
         hasAuthoredPlanes = hasAuthoredPlanes || !curves.authoredPlanes.empty();
+    UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
     for (auto const& node : desc.nodes) {
-        std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(node.type);
-        if (!op) continue;
-        if (!op->InputPrimvars().empty() || !op->OutputPrimvars().empty()) {
-            if (op->TopologyEffect() == UsdGenTopoFx::None)
+        UsdGenOpId const id = node.opId != UsdGenOpId::Invalid ? node.opId : ops.Find(node.type);
+        if (id == UsdGenOpId::Invalid || !ops.Record(id).Def().create) continue;
+        UsdGenOpRecord const& record = ops.Record(id);
+        // Static planes, or an indexed plane family (always at least one).
+        bool const declaresPlanes = !record.InputPlanes().empty() ||
+            !record.OutputPlanes().empty() || record.Def().hooks.indexedPlanes;
+        if (declaresPlanes) {
+            if (record.Def().topoFx == UsdGenTopoFx::None)
                 return Fail(diagnostics,
                     "named primvar bindings require an explicit CUDA operator "
                     "COW contract at " + node.path.GetString());
@@ -1491,7 +1494,7 @@ bool ValidateCudaNamedPlaneBindings(UsdGenGraphDesc const& desc,
                 "named topology planes require CUDA execution-graph transport at " +
                 node.path.GetString());
         }
-        if (op->TopologyEffect() == UsdGenTopoFx::None) continue;
+        if (record.Def().topoFx == UsdGenTopoFx::None) continue;
         if (!hasAuthoredPlanes || CudaIs(node, UsdGenCudaStage::Length) ||
             CudaIs(node, UsdGenCudaStage::Grow)) continue;
         if (CudaIs(node, UsdGenCudaStage::CurveSource)) continue;

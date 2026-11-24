@@ -16,7 +16,6 @@
 #include "golden/goldenGraphs.h"
 
 #include "usdGen/compiler.h"
-#include "usdGen/expressionTargets.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -69,6 +68,13 @@ std::vector<std::string> Names(TfSpan<const TfToken> tokens)
 {
     std::vector<std::string> out;
     for (TfToken const &t : tokens) out.push_back(t.GetString());
+    return out;
+}
+
+std::vector<std::string> Names(TfSpan<const UsdGenPlane> planes)
+{
+    std::vector<std::string> out;
+    for (UsdGenPlane const &p : planes) out.push_back(p.name.GetString());
     return out;
 }
 
@@ -149,7 +155,7 @@ std::string Admission(TfToken const &type, std::string const &name, Native const
         b.domain = domains[d];
         node.expressionBindings.push_back(b);
         std::vector<std::string> errors;
-        out += UsdGenValidateExpressionTargets(node, &errors) ? letters[d] : '-';
+        out += UsdGenValidateExpressionBindings(node, &errors) ? letters[d] : '-';
     }
     return out;
 }
@@ -157,17 +163,22 @@ std::string Admission(TfToken const &type, std::string const &name, Native const
 void Snapshot(TfToken const &type, std::ostringstream &os)
 {
     std::string const T = type.GetString();
-    std::unique_ptr<UsdGenOp> const op = UsdGenOpRegistry::Get().Create(type);
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
+    std::unique_ptr<UsdGenOp> const op = registry.Create(registry.Find(type));
     if (!op) { Fail(T + ": registry cannot create it"); return; }
-    os << T << " static topoFx=" << TopoFx(op->TopologyEffect())
-       << " role=" << (op->Role() == UsdGenRole::Reference ? "Reference" : "Curves")
-       << " arity=" << op->GeometryInputArity() << " ordered=" << op->GeometryInputsOrdered()
-       << " generator=" << op->IsGenerator() << " readsTime=" << op->ReadsTime()
-       << " samplesFrameInputs=" << op->SamplesFrameInputs()
-       << " captureDigestComplete=" << op->CaptureDigestComplete()
-       << " remapsVertexPlanes=" << op->RemapsVertexPlanes() << '\n';
-    os << T << " referenceInputs " << Join(Names(UsdGenOpRegistry::Get().Record(UsdGenOpRegistry::Get().Find(type)).ReferenceInputs())) << '\n';
-    os << T << " inputPlanes " << Join(Names(op->InputPrimvars())) << '\n';
+    UsdGenOpRecord const &rec = op->Record();
+    UsdGenOpDef const &opDef = rec.Def();
+    os << T << " static topoFx=" << TopoFx(opDef.topoFx)
+       << " role=" << (opDef.role == UsdGenRole::Reference ? "Reference" : "Curves")
+       << " arity=" << size_t(opDef.geometryInputArity)
+       << " ordered=" << rec.Has(kUsdGenOpGeometryInputsOrdered)
+       << " generator=" << rec.Has(kUsdGenOpGenerator)
+       << " readsTime=" << rec.Has(kUsdGenOpReadsTime)
+       << " samplesFrameInputs=" << rec.Has(kUsdGenOpSamplesFrameInputs)
+       << " captureDigestComplete=" << rec.Has(kUsdGenOpCaptureDigestComplete)
+       << " remapsVertexPlanes=" << rec.Has(kUsdGenOpRemapsVertexPlanes) << '\n';
+    os << T << " referenceInputs " << Join(Names(rec.ReferenceInputs())) << '\n';
+    os << T << " inputPlanes " << Join(Names(rec.InputPlanes())) << '\n';
 
     UsdGenGraphDesc const base = usdGenGolden::MakeOpGraph(type, false);
     if (base.nodes.empty()) { Fail(T + ": no fixture graph"); return; }
@@ -315,12 +326,13 @@ void Diff(std::string const &expected, std::string const &actual)
 
 int main()
 {
-    usdGenRegisterM1Operators();
     if (!UsdSchemaRegistry::GetInstance().FindConcretePrimDefinition(TfToken("UsdGenLength"))) {
         std::printf("FAIL: the usdGen schema is not loaded (PXR_PLUGINPATH_NAME)\n");
         return 1;
     }
-    std::vector<TfToken> types = UsdGenOpRegistry::Get().KnownTypes();
+    std::vector<TfToken> types;
+    for (uint32_t i = 0; i < UsdGenOpRegistry::Get().Count(); ++i)
+        types.push_back(UsdGenOpRegistry::Get().Record(UsdGenOpId(i)).Name());
     std::sort(types.begin(), types.end(),
               [](TfToken const &a, TfToken const &b) { return a.GetString() < b.GetString(); });
     std::ostringstream os;

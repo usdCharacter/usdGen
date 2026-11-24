@@ -82,7 +82,7 @@ struct UsdGenStrandSet
 /// The def of a subclass declares, in order: input, surface, seed, its
 /// structural parameters, then enabled and mask (Value class), and its output
 /// planes (UsdGenOpDef::outputPlanes). TopologyEffect stays None.
-class UsdGenWholeStrandOp : public UsdGenRecordedOp
+class UsdGenWholeStrandOp : public UsdGenOp
 {
 public:
     explicit UsdGenWholeStrandOp(UsdGenOpRecord const &record);

@@ -402,26 +402,6 @@ void EmittedPlanes(UsdGenParamView const &p, int base, UsdGenPlaneSink &sink)
 
 }  // namespace
 
-UsdGenClumpOp::UsdGenClumpOp(UsdGenOpRecord const &record) : _record(&record)
-{
-    for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s)
-        (record.ParamClass(s) == UsdGenParamClass::Value ? _value : _topology)
-            .push_back(record.ParamName(s));
-    for (uint16_t i = kTokClumpId0; i <= kTokClumpWeight0; ++i)
-        _outputs.push_back(record.Token(i));
-}
-TfSpan<const TfToken> UsdGenClumpOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topology.data(), _topology.size());
-}
-TfSpan<const TfToken> UsdGenClumpOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_value.data(), _value.size());
-}
-TfSpan<const TfToken> UsdGenClumpOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenClumpOp::CreateCapture() const
 {
     return std::make_unique<UsdGenClumpCapture>();
@@ -442,7 +422,7 @@ UsdGenEpoch UsdGenClumpOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
         for (UsdGenParamSlot s = 0; s < kEnabled; ++s) {   // the topology list
-            d.Mix(_record->ParamName(s));
+            d.Mix(Record().ParamName(s));
             d.Mix(p->GetValue(s, VtValue()));
         }
     }
@@ -544,7 +524,7 @@ bool UsdGenClumpOp::Capture(
     // overrides and sub-clumps.
     bool const referenceMode = !mapMode && s.centers != Centers::Density;
     std::vector<int> strandIndex(R);
-    if (int const *plane = IntCurvePlane(upstream, _record->Token(kTokStrandIndex)))
+    if (int const *plane = IntCurvePlane(upstream, Record().Token(kTokStrandIndex)))
         std::copy(plane, plane + R, strandIndex.begin());
     else
         std::iota(strandIndex.begin(), strandIndex.end(), 0);
@@ -624,12 +604,12 @@ bool UsdGenClumpOp::Capture(
                 for (int d = 0; d < 3; ++d) guideRoots[g * 3 + d] = r[d];
             }
         }
-        int const *partKey = IntCurvePlane(upstream, _record->Token(kTokPartId));
+        int const *partKey = IntCurvePlane(upstream, Record().Token(kTokPartId));
         // The strand's guide: the upstream nearestGuide plane (parting-aware,
         // from guide interpolation) when valid, else the guide rooted nearest.
         std::vector<int> nearest;
         if (G > 0) {
-            int const *plane = IntCurvePlane(upstream, _record->Token(kTokNearestGuide));
+            int const *plane = IntCurvePlane(upstream, Record().Token(kTokNearestGuide));
             clumpRef::NearestFinder finder;
             finder.Build(guideRoots);
             nearest.assign(R, -1);

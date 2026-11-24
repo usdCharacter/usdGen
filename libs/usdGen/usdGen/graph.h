@@ -83,7 +83,6 @@ struct UsdGenCompiledNode : UsdGenPooled
     int                  descIdx = -1;            // index of that desc in graph Desc().nodes
 
     UsdGenNodeId           id = kUsdGenInvalidNode;
-    TfToken                type;
     UsdGenOpId             opId = UsdGenOpId::Invalid;
     UsdGenOpRecord const  *record = nullptr;         // immutable, process lifetime
     std::unique_ptr<UsdGenOp> op;
@@ -120,6 +119,8 @@ struct UsdGenCompiledNode : UsdGenPooled
     int                    indexedPlaneBase = -1;  // first indexed plane (clumpId_<base>)
     uint8_t                indexedPlaneCount = 0;
     bool                   limitSurfaceUv = false; // hooks.emitsLimitSurfaceUv at compile
+    // kUsdGenOpRemapsVertexPlanes or hooks.remapsVertexPlanes, at compile.
+    bool                   remapsVertexPlanes = false;
     // Plane slots resolved per run by the scheduler; negative: curve rate.
     std::array<int16_t, kUsdGenMaxExtraPlaneSlots> outPlaneIndex{}, inPlaneIndex{};
     // Connected (expression) parameters evaluated for this node, once per

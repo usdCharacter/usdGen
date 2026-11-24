@@ -395,7 +395,6 @@ void CheckScene()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckColorMaps();
     CheckBuilder();
     CheckScene();

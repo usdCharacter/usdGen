@@ -30,10 +30,9 @@ enum Mode : int { kModeHeight, kModeVector };
 class UsdGenDisplaceOp final : public UsdGenOp
 {
 public:
-    UsdGenDisplaceOp() = default;
+    explicit UsdGenDisplaceOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenDisplaceOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenDisplace"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

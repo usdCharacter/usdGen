@@ -47,20 +47,8 @@ constexpr int kClumpLevels = 6;
 class UsdGenGuideInterpolateOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenGuideInterpolateOp(UsdGenOpRecord const &record);
+    explicit UsdGenGuideInterpolateOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenGuideInterpolateOp() override = default;
-
-    UsdGenOpRecord const &Record() const noexcept { return *_record; }
-
-    // Static description, answered from the record until S4-8 removes the
-    // virtuals (tests and the engine still ask the instance).
-    TfToken Type() const override { return _record->Name(); }
-    UsdGenTopoFx TopologyEffect() const override { return _record->Def().topoFx; }
-    bool IsGenerator() const override { return _record->Has(kUsdGenOpGenerator); }
-
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
-    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -73,9 +61,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-private:
-    UsdGenOpRecord const *_record;
-    std::vector<TfToken> _topology, _value;
 };
 
 class UsdGenRegistrar;

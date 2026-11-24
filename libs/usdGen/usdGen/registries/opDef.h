@@ -91,6 +91,9 @@ struct UsdGenOpHooks {
     void (*emittedPlanes)(UsdGenParamView const &, int indexedBase, UsdGenPlaneSink &) = nullptr;
     /// Roots carry limit-surface UVs (Scatter with subdivisionLevel > 0).
     bool (*emitsLimitSurfaceUv)(UsdGenParamView const &) = nullptr;
+    /// Evaluate remaps every inherited vertex plane for this node's params
+    /// (Collide in cutThenCollide); ORed with kUsdGenOpRemapsVertexPlanes.
+    bool (*remapsVertexPlanes)(UsdGenParamView const &) = nullptr;
     /// 4a. Fill sampleIndices and field; false: no binding.
     bool (*makeAnimationBinding)(UsdGenAnimationBindingQuery const &, UsdGenOp const &,
                                  UsdGenRbfAnimationBinding *out) = nullptr;

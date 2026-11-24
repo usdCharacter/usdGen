@@ -177,7 +177,6 @@ int main(int argc, char **argv)
     if (scene.empty()) { Usage(); return 2; }
 
     if (!quiet) TfDebug::SetDebugSymbolsByName("USDGEN_*", true);
-    usdGen::usdGenRegisterM1Operators();
 
     auto const openStart = Clock::now();
     UsdStageRefPtr const stage = UsdStage::Open(scene, UsdStage::LoadAll);

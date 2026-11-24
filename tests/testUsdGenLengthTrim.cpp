@@ -545,9 +545,9 @@ static void TestTrim()
 {
     // Registry contract.
     std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTrim")));
-    Check(op && op->ReferenceInputs().size() == 1 &&
-          op->ReferenceInputs()[0] == TfToken("trim:curves") &&
-          op->TopologyEffect() == UsdGenTopoFx::None, "UsdGenTrim declares trim:curves");
+    Check(op && op->Record().ReferenceInputs().size() == 1 &&
+          op->Record().ReferenceInputs()[0] == TfToken("trim:curves") &&
+          op->Record().Def().topoFx == UsdGenTopoFx::None, "UsdGenTrim declares trim:curves");
 
     UsdGenCurveBuffer input, out;
     {
@@ -750,7 +750,6 @@ static void TestResampleSpacing()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     TestLengthDefaultMax();
     TestLengthRandomRange();
     TestLengthShareByClump();

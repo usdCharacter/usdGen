@@ -333,7 +333,6 @@ int main()
     // the mutable compiled graph is replaced.  This is deliberately kept in
     // the contract test because it also guards the public graph boundary:
     // snapshots may not contain pointers into nodes, operators or Desc().
-    usdGen::usdGenRegisterM1Operators();
     usdGen::UsdGenGraphDesc routingDesc;
     routingDesc.description = SdfPath("/routing");
     routingDesc.terminal = SdfPath("/routing/source");

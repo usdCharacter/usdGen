@@ -12,6 +12,7 @@
 // combiner they bake into.
 
 #include "usdGen/op.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
@@ -53,7 +54,7 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
                             float const *inWidth,
                             bool ragged = false)
 {
-    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(TfToken("UsdGenWidth"));
+    std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenWidth")));
 
     UsdGenNodeDesc node;
     node.path = SdfPath("/groom/width");

@@ -401,21 +401,6 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 
 }  // namespace
 
-UsdGenGuideInterpolateOp::UsdGenGuideInterpolateOp(UsdGenOpRecord const &record)
-    : _record(&record)
-{
-    for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s)
-        (record.ParamClass(s) == UsdGenParamClass::Value ? _value : _topology)
-            .push_back(record.ParamName(s));
-}
-TfSpan<const TfToken> UsdGenGuideInterpolateOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topology.data(), _topology.size());
-}
-TfSpan<const TfToken> UsdGenGuideInterpolateOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_value.data(), _value.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenGuideInterpolateOp::CreateCapture() const
 {
     return std::make_unique<UsdGenGuideInterpolateCapture>();
@@ -435,8 +420,8 @@ UsdGenEpoch UsdGenGuideInterpolateOp::CaptureDigest(UsdGenCaptureContext const &
 {
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
-        for (UsdGenParamSlot s = 0; s < _record->ParamCount(); ++s) {
-            d.Mix(_record->ParamName(s));
+        for (UsdGenParamSlot s = 0; s < Record().ParamCount(); ++s) {
+            d.Mix(Record().ParamName(s));
             d.Mix(p->GetValue(s, VtValue()));
         }
     }
@@ -876,7 +861,7 @@ bool UsdGenGuideInterpolateOp::Capture(
     // the other guides continue shaping geometry without claiming that this
     // strand moves rigidly with a group it did not fully follow. Numeric
     // levels not present on guides retain the root-source planes above.
-    UsdGenOpRecord const &record = *_record;
+    UsdGenOpRecord const &record = Record();
     auto const &tk = UsdGenTokens();
     auto findGuideIds = [&guides, &record](int level) -> UsdGenPlane const * {
         TfToken const name = ClumpPlaneName(record, level, 0);

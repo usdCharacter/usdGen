@@ -1551,10 +1551,6 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
 
 }  // namespace
 
-TfSpan<const TfToken> UsdGenCollideOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenCollideOp::CreateCapture() const
 {
     return std::make_unique<UsdGenCollideCapture>();
@@ -1712,11 +1708,9 @@ bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
     return false;
 }
 
-void UsdGenCollideOp::Configure(UsdGenParamView const &params)
+void UsdGenCollideOp::Configure(UsdGenConfigureContext const &ctx)
 {
-    _cutThenCollide = DeepMode(params) == params.op->Token(kTokCutThenCollide);
-    _outputs.clear();
-    if (EmitsUnresolved(params)) _outputs.push_back(params.op->Token(kTokUnresolved));
+    _cutThenCollide = DeepMode(ctx.params) == ctx.params.op->Token(kTokCutThenCollide);
 }
 uint32_t UsdGenCollideOp::PlanesTouched() const
 {
@@ -2930,6 +2924,14 @@ void UsdGenCollideOp::Evaluate(
     }
 }
 
+namespace {
+/// cutThenCollide remaps every inherited vertex plane (and so may fail).
+bool RemapsVertexPlanes(UsdGenParamView const &params)
+{
+    return params.op && DeepMode(params) == params.op->Token(kTokCutThenCollide);
+}
+}  // namespace
+
 UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
 {
     UsdGenOpDef d;
@@ -2942,6 +2944,7 @@ UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
     d.mapSlots = UsdGenSpan(kMaps);
     d.tokens = UsdGenSpan(kTokens);
     d.hooks.emittedPlanes = &EmittedPlanes;
+    d.hooks.remapsVertexPlanes = &RemapsVertexPlanes;
     return r.RegisterOp(d);
 }
 

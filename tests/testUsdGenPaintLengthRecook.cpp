@@ -296,7 +296,6 @@ void Repaint(Scene &scene, char const *primvar, float value)
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
     Scene scene;
     scene.stage = UsdStage::CreateInMemory("paint-length-recook.usda");
     scene.stage->GetRootLayer()->ImportFromString(kFixture);

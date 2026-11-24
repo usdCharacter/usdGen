@@ -30,10 +30,9 @@ enum Mode : int { kModeAlongCurve, kModeNeighbours, kModeBox };
 class UsdGenSmoothOp final : public UsdGenOp
 {
 public:
-    UsdGenSmoothOp() = default;
+    explicit UsdGenSmoothOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenSmoothOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenSmooth"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

@@ -89,7 +89,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"clockwise", UsdGenParamClass::Value, true, kBoolGroom},
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenCurlOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenCurlOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenCurlOp::CreateCapture() const
 {

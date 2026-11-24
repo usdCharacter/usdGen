@@ -851,7 +851,6 @@ int main(int argc, char **argv)
         if (!std::strcmp(argv[i], "--usda")) usda = argv[++i];
         else if (!std::strcmp(argv[i], "--dump")) dumpPath = argv[++i];
     }
-    usdGenRegisterM1Operators();
     if (!usda.empty()) return Harness(usda, dumpPath);
     TestGeometry();
     TestGenerator();

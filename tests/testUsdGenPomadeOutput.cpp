@@ -812,7 +812,6 @@ void CheckSubsetOutput(Grid const &grid, int n)
 
 int main()
 {
-    usdGenRegisterM1Operators();
     int const n = 4;
     Grid const grid = MakeGrid(n);
     PomadeModel model;

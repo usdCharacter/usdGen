@@ -28,10 +28,9 @@ enum AxisMode : int { kAxisCurveTangent, kAxisGuide };
 class UsdGenCurlOp final : public UsdGenOp
 {
 public:
-    UsdGenCurlOp() = default;
+    explicit UsdGenCurlOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenCurlOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenCurl"); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;

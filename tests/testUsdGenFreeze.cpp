@@ -486,7 +486,7 @@ static void CheckDigestImmunity()
 {
     // Kernel-level proof: the capture identity ignores the upstream
     // generation (and the cosmetic tier) but moves on mode/epoch/seed edits.
-    UsdGenFreezeOp op;
+    UsdGenFreezeOp op(FreezeRecord());
     UsdGenGraphDesc desc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false},
          {TfToken("frozen:epoch"), VtValue(std::string("e1")), false}},
@@ -540,7 +540,7 @@ static void CheckAliasingKernel()
     // The snapshot is a private deep copy: mutating the source buffer after
     // Capture (through const-cast, the scheduler's write discipline) must
     // not move the captured planes.
-    UsdGenFreezeOp op;
+    UsdGenFreezeOp op(FreezeRecord());
     UsdGenGraphDesc desc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     UsdGenStackParams stack(desc, desc.nodes[1], FreezeRecord());
@@ -775,7 +775,7 @@ static void CheckBadDefaultWidthFailsClosed()
           "NaN defaultWidth with a widthless snapshot fails closed");
     // The graph fails in the source node first (it validates defaultWidth
     // unconditionally), so Freeze's own message is pinned at kernel level.
-    UsdGenFreezeOp op;
+    UsdGenFreezeOp op(FreezeRecord());
     UsdGenGraphDesc kernelDesc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     kernelDesc.defaultWidth = std::numeric_limits<float>::quiet_NaN();

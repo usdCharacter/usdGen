@@ -99,7 +99,7 @@ int main()
                        "topology/control expression must evaluate at groom domain");
         }
     }
-    // The per-operator allowlist is one shared table (expressionTargets.cpp)
+    // The per-operator allowlist is one shared table (the op record's decls)
     // that the compiler applies on every backend and the CUDA admission calls
     // instead of keeping a copy, so these rejections are lane-independent.
     auto foreignTarget = valid;

@@ -94,7 +94,6 @@ bool ValidateVulkanGrow(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node,
 bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc* output, UsdGenDiagnostics* diag) {
     if (!output) return false;
     UsdGenGraphDesc desc = input;
-    usdGenRegisterM1Operators();
     UsdGenEngineTokens const& et = UsdGenTokens();
     UsdGenVulkanTokens const& vk = UsdGenVkTokens();
     // Lowered sources become the op whose Vulkan stage is CurveSource.

@@ -90,8 +90,13 @@ void ExprVkRun::Quarantine() noexcept {
 }
 std::shared_ptr<const ChargedBuffer> ExprVkRun::owners() const noexcept { return state_->ownerMap; }
 ExprVkParameterField const *ExprVkRun::Find(TfToken const &t) const {
+    return Find(std::string_view(t.GetString()));
+}
+ExprVkParameterField const *ExprVkRun::Find(std::string_view name) const {
+    if (name.compare(0, 7, "usdGen:") == 0)
+        name.remove_prefix(7);
     for (auto const &f : state_->fields)
-        if (Local(f.destination) == Local(t))
+        if (Local(f.destination) == name)
             return &f;
     return nullptr;
 }

@@ -93,25 +93,6 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 
 }  // namespace
 
-UsdGenPartOp::UsdGenPartOp(UsdGenOpRecord const &record) : _record(&record)
-{
-    for (UsdGenParamSlot s = 0; s < record.ParamCount(); ++s)
-        (record.ParamClass(s) == UsdGenParamClass::Value ? _value : _topology)
-            .push_back(record.ParamName(s));
-    for (UsdGenPlane const &plane : record.OutputPlanes()) _outputs.push_back(plane.name);
-}
-TfSpan<const TfToken> UsdGenPartOp::TopologyParameters() const
-{
-    return TfSpan<const TfToken>(_topology.data(), _topology.size());
-}
-TfSpan<const TfToken> UsdGenPartOp::ValueParameters() const
-{
-    return TfSpan<const TfToken>(_value.data(), _value.size());
-}
-TfSpan<const TfToken> UsdGenPartOp::OutputPrimvars() const
-{
-    return TfSpan<const TfToken>(_outputs.data(), _outputs.size());
-}
 std::unique_ptr<UsdGenCapture> UsdGenPartOp::CreateCapture() const
 {
     return std::make_unique<UsdGenPartCapture>();
@@ -146,7 +127,7 @@ UsdGenEpoch UsdGenPartOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // reference values, as it does for GuideInterpolate.
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
-        d.Mix(_record->ParamName(kRadius));
+        d.Mix(Record().ParamName(kRadius));
         d.Mix(p->GetValue(kRadius, VtValue()));
     }
     d.Mix(uint64_t(ctx.seed));

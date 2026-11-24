@@ -182,7 +182,6 @@ int main()
         for (UsdGenNodeDesc &node : ambiguous.nodes)
             for (UsdGenExpressionBinding &binding : node.expressionBindings)
                 binding.output = TfToken();
-        usdGenRegisterM1Operators();
         UsdGenCompiler compiler;
         UsdGenGraph graph;
         UsdGenCompileResult const result = compiler.Compile(ambiguous, &graph);

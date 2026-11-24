@@ -111,7 +111,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
     {"window", UsdGenParamClass::Value},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenSmoothOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenSmoothOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenSmoothOp::CreateCapture() const
 {

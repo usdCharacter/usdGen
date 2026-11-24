@@ -72,7 +72,6 @@ UsdGenGraphDesc Chain(int firstLevels, int secondPinned = -1) {
 }
 
 int main() {
-    usdGenRegisterM1Operators();
     UsdGenCurveBuffer b; b.totalCurves = 3; b.totalCvs = 6;
     AddLevel(&b, 10, {2,2,-1}, 0xfedcba9876543210ULL, 0.75f);
     AddLevel(&b, 2, {1,1,-1}, 0xfedcba9876543210ULL, 0.5f);

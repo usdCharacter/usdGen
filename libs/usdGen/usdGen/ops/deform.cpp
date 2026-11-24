@@ -25,7 +25,6 @@
 #include "usdGen/ops/curveWrap.h"
 #include "usdGen/ops/regionMap.h"
 
-#include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/rbfAnimation.h"
 #include "usdGen/scheduler.h"
@@ -53,7 +52,6 @@ namespace {
 
 using namespace deformP;
 using D = expr::Domain;
-const TfToken sGuides{"guides"};   // ReferenceInputs() until S4-8
 constexpr char const *kRefs[] = {"guides"};
 constexpr char const *kTokens[] = {"curveWrap", "usdGen:regionMap", "periodic", "rbf"};
 constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
@@ -75,9 +73,9 @@ UsdGenParamDecl const kParams[kCount] = {
 constexpr UsdGenMapSlotDecl kMaps[] = {    // compiler.cpp:428-431, all four as today
     {"usdGen:map"}, {"usdGen:regionMap"}, {"usdGen:densityMap"}, {"usdGen:lengthMap"}};
 
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *)
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 {
-    return std::make_unique<UsdGenDeformOp>();
+    return std::make_unique<UsdGenDeformOp>(r);
 }
 
 // The strands loop overwrites every element, so the result buffer must not
@@ -245,19 +243,6 @@ GfMatrix4d DriverToGroom(UsdGenGraphDesc const *desc, SdfPath const &path)
 
 }  // namespace
 
-UsdGenDeformOp::UsdGenDeformOp()
-    : topologyParameters_(UsdGenBaseTopologyParams()),
-      valueParameters_(UsdGenBaseValueParams())
-{
-    topologyParameters_.push_back(TfToken("rbfSamples"));
-    topologyParameters_.push_back(TfToken("mode"));
-    topologyParameters_.push_back(TfToken("regionMap"));
-    topologyParameters_.push_back(TfToken("guideRegions"));
-    valueParameters_.push_back(TfToken("enabled"));
-    valueParameters_.push_back(TfToken("lockRoots"));
-    valueParameters_.push_back(TfToken("mask"));   // operator envelope (02 §2.13)
-}
-
 bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diagnostics) {
     auto fail = [&](char const *message) {
         if (diagnostics) diagnostics->Error(message);
@@ -282,16 +267,6 @@ bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diag
     if (!cuda && !guided && (!params.desc || params.desc->surfaces.empty()))
         return fail("UsdGenDeform: requires usdGen:guides or a bound usdGen:surface");
     return true;
-}
-
-TfSpan<const TfToken> UsdGenDeformOp::TopologyParameters() const {
-    return TfSpan<const TfToken>(topologyParameters_.data(), topologyParameters_.size());
-}
-TfSpan<const TfToken> UsdGenDeformOp::ValueParameters() const {
-    return TfSpan<const TfToken>(valueParameters_.data(), valueParameters_.size());
-}
-TfSpan<const TfToken> UsdGenDeformOp::ReferenceInputs() const {
-    return TfSpan<const TfToken>(&sGuides, 1);
 }
 
 UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const {

@@ -618,7 +618,6 @@ void SessionSubmitVisibleStress()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     SharedCellStress();
     CacheStoreStress();
     LeasedEvictionStress();

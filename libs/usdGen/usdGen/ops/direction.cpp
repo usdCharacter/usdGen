@@ -233,7 +233,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"direction:interpolation", UsdGenParamClass::Value, true, {}, UsdGenSpan(kInterps)},
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenDirectionOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenDirectionOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenDirectionOp::CreateCapture() const
 {

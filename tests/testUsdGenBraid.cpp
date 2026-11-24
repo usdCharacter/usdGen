@@ -16,6 +16,7 @@
 // bundle slot, knot-mask zeros at crossings, flyaways keyed by strandIndex,
 // no-guide pass-through, determinism (repeat cooks, 1 vs 4 threads).
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -285,16 +286,17 @@ static void CheckRegistry()
     std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenBraid")));
     Check(op != nullptr, "UsdGenBraid is registered");
     if (!op) return;
-    TfSpan<const TfToken> refs = op->ReferenceInputs();
+    UsdGenOpRecord const &rec = op->Record();
+    TfSpan<const TfToken> refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("guides"), "Braid declares the guides reference");
-    TfSpan<const TfToken> out = op->OutputPrimvars();
+    std::vector<TfToken> const out = usdGenTest::OutputPlaneNames(rec);
     bool clump = false, mask = false;
     for (TfToken const &t : out) {
         clump = clump || t == TfToken("clumpId_0");
         mask = mask || t == TfToken("braidKnotMask");
     }
     Check(out.size() == 2 && clump && mask, "Braid emits clumpId_0 and braidKnotMask");
-    TfSpan<const TfToken> topo = op->TopologyParameters();
+    std::vector<TfToken> const topo = usdGenTest::RoutedParams(rec, false);
     bool hasFreq = false;
     for (TfToken const &t : topo) hasFreq = hasFreq || t == TfToken("braid:frequency");
     Check(hasFreq, "braid:frequency is a structural (capture) parameter");
@@ -685,7 +687,6 @@ static void CheckDefaultsAndDeterminism()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistry();
     CheckWeave();
     CheckProfileAndReferenceLength();

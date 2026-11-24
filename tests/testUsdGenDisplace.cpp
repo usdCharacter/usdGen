@@ -9,6 +9,7 @@
 //       (per strand root) and the amount (per CV);
 //   (3) mode=vector and unknown modes fail closed.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -150,18 +151,18 @@ static bool CookSourceOnly(UsdGenGraphDesc const &desc, SdfPath const &source,
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenDisplace");
     Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenDisplace)");
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenDisplace)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Displace reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "Displace has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "Displace declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "Displace emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "Displace emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Displace touches the points plane only");
     std::set<std::string> topo, value;
@@ -341,7 +342,6 @@ static void CheckBadModeFailsClosed()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckRegistryContracts();
     CheckIdentityCook();
     CheckHeightCook();

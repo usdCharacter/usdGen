@@ -148,7 +148,6 @@ static bool CheckBowties(UsdGenSurfaceDesc const &s, int seed,
 
 int main()
 {
-    usdGenRegisterM1Operators();
     int const seed = 42;
 
     // One-pass path (faceCount <= 4096): one bowtie, one root, fallback N.

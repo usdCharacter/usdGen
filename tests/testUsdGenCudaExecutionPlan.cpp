@@ -18,35 +18,24 @@ using namespace usdGen;
 namespace {
 class TopologyNamedPlaneProbe final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestTopologyNamedPlane"); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> InputPrimvars() const override { return _planes; }
+    explicit TopologyNamedPlaneProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 2}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
                   UsdGenChunkView*) const override {}
-private:
-    std::array<TfToken, 1> const _planes{{TfToken("guideIndex")}};
 };
 
 class ValueNamedPlaneProbe final : public UsdGenOp {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestValueNamedPlane"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _planes; }
+    explicit ValueNamedPlaneProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 3}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
                   UsdGenChunkView*) const override {}
-private:
-    std::array<TfToken, 1> const _planes{{TfToken("guideWeight")}};
 };
 
 void RegisterNamedPlaneProbes(UsdGenRegistrar &r)
@@ -58,8 +47,8 @@ void RegisterNamedPlaneProbes(UsdGenRegistrar &r)
     UsdGenOpDef d;
     d.name = "UsdGenTestTopologyNamedPlane";
     d.displayName = "TestTopologyNamedPlane";
-    d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-        return std::make_unique<TopologyNamedPlaneProbe>();
+    d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<TopologyNamedPlaneProbe>(rec);
     };
     d.topoFx = UsdGenTopoFx::CurveCount;
     d.inputPlanes = UsdGenSpan(kIn);
@@ -67,8 +56,8 @@ void RegisterNamedPlaneProbes(UsdGenRegistrar &r)
     UsdGenOpDef v;
     v.name = "UsdGenTestValueNamedPlane";
     v.displayName = "TestValueNamedPlane";
-    v.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-        return std::make_unique<ValueNamedPlaneProbe>();
+    v.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+        return std::make_unique<ValueNamedPlaneProbe>(rec);
     };
     v.outputPlanes = UsdGenSpan(kOut);
     r.RegisterOp(v);

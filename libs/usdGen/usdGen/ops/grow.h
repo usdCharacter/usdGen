@@ -15,17 +15,8 @@ namespace usdGen {
 class UsdGenGrowOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenGrowOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
+    explicit UsdGenGrowOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenGrowOp() override = default;
-
-    UsdGenOpRecord const &Record() const noexcept { return *_record; }
-    // Registered values served from the record; removed with the legacy virtuals (S4-8).
-    TfToken Type() const override { return _record->Name(); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CvCount; }
-    bool IsGenerator() const override { return true; }
-
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -38,9 +29,6 @@ public:
                   UsdGenChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-    bool CaptureDigestComplete() const override { return true; }
-private:
-    UsdGenOpRecord const *_record;
 };
 
 /// Parameter slots: the order of UsdGenRegisterGrowOp's decl table.

@@ -17,21 +17,8 @@ namespace usdGen {
 class UsdGenScatterOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenScatterOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
+    explicit UsdGenScatterOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
     ~UsdGenScatterOp() override = default;
-
-    UsdGenOpRecord const &Record() const noexcept { return *_record; }
-    // Registered values served from the record; removed with the legacy virtuals (S4-8).
-    TfToken Type() const override { return _record->Name(); }
-    UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CurveCount; }
-    UsdGenRole Role() const override { return UsdGenRole::Curves; }
-    bool IsGenerator() const override { return true; }
-    size_t GeometryInputArity() const override { return 0; }
-
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    /// usdGen:guides (guide proximity, distribution "perGuide").
-    TfSpan<const TfToken> ReferenceInputs() const override { return _record->ReferenceInputs(); }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -46,7 +33,6 @@ public:
     uint32_t PlanesTouched() const override;
 
 private:
-    UsdGenOpRecord const *_record;
     // Static rest/topology array digests, memoized across poses (the steady
     // state rehashes megabytes of unchanged rest data every frame).
     mutable opUtil::ContentDigestCache<VtVec3fArray> restPointsDigest_;

@@ -4,7 +4,7 @@
 // derived from the composed hierarchy by the descriptor builder; Kahn sort
 // with namespace tie-break; cycle detection (compile error
 // naming the offending pair); dense node ids in topological order;
-// reference-lane ordering (§1.5); OutputPrimvars
+// reference-lane ordering (§1.5); output/input plane
 // slot binding (§1.2); Merkle structural digests (§3.3); tile arithmetic
 // (R21); dirty routing table rebuild data (§5.1).
 //
@@ -13,8 +13,6 @@
 // inputs, topology-class params and relationship targets) keeps its op,
 // capture and buffer from the previous graph. Exactly one appended node therefore rebuilds exactly one node.
 #include "usdGen/compiler.h"
-
-#include "usdGen/expressionTargets.h"
 
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
@@ -180,8 +178,8 @@ bool ValidateAuthoredPlanes(UsdGenGraphDesc const &desc,
     return ok;
 }
 
-bool BindExtraPlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
-                         UsdGenCompiledNode *node, UsdGenCompileResult *result)
+bool BindExtraPlaneSlots(UsdGenOpRecord const &record, UsdGenCompiledNode *node,
+                         UsdGenCompileResult *result)
 {
     auto bindNames = [&](TfSpan<const TfToken> names, std::vector<TfToken> *slots,
                          char const *direction) {
@@ -206,11 +204,9 @@ bool BindExtraPlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
         }
         return true;
     };
-    // Record planes when the op declares them; a legacy op still names its
-    // planes through the virtuals.
-    auto bind = [&](TfSpan<const UsdGenPlane> planes, TfSpan<const TfToken> legacy,
-                    std::vector<TfToken> *slots, char const *direction) {
-        if (planes.empty()) return bindNames(legacy, slots, direction);
+    // The record's static planes.
+    auto bind = [&](TfSpan<const UsdGenPlane> planes, std::vector<TfToken> *slots,
+                    char const *direction) {
         if (planes.size() > kUsdGenMaxExtraPlaneSlots) {
             result->errors.push_back(std::string("UsdGenCompiler: operator '") +
                 node->desc->path.GetString() + "' declares too many " +
@@ -240,21 +236,12 @@ bool BindExtraPlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
         outputs = bindNames(TfSpan<const TfToken>(sink.names, kept), &node->outputPrimvars,
                             "output");
     } else {
-        outputs = bind(record.OutputPlanes(), op.OutputPrimvars(), &node->outputPrimvars,
-                       "output");
+        outputs = bind(record.OutputPlanes(), &node->outputPrimvars, "output");
     }
-    return outputs &&
-        bind(record.InputPlanes(), op.InputPrimvars(), &node->inputPrimvars, "input");
+    return outputs && bind(record.InputPlanes(), &node->inputPrimvars, "input");
 }
 
 /// Same slot names in the same order, without allocating.
-bool SameSlots(TfSpan<const TfToken> names, std::vector<TfToken> const &slots)
-{
-    if (names.size() != slots.size()) return false;
-    for (size_t i = 0; i < slots.size(); ++i)
-        if (names[i] != slots[i]) return false;
-    return true;
-}
 bool SameSlots(TfSpan<const UsdGenPlane> planes, std::vector<TfToken> const &slots)
 {
     if (planes.size() != slots.size()) return false;
@@ -265,17 +252,11 @@ bool SameSlots(TfSpan<const UsdGenPlane> planes, std::vector<TfToken> const &slo
 /// The planes BindExtraPlaneSlots would bind are the ones already bound.
 /// emittedPlanes reads structural params and the indexed run only, so on a
 /// value-only edit with an unchanged run its planes are the bound ones.
-bool SamePlaneSlots(UsdGenOp const &op, UsdGenOpRecord const &record,
-                    UsdGenCompiledNode const &node)
+bool SamePlaneSlots(UsdGenOpRecord const &record, UsdGenCompiledNode const &node)
 {
-    bool const out = record.Def().hooks.emittedPlanes ? true
-        : record.OutputPlanes().empty()
-        ? SameSlots(op.OutputPrimvars(), node.outputPrimvars)
-        : SameSlots(record.OutputPlanes(), node.outputPrimvars);
-    bool const in = record.InputPlanes().empty()
-        ? SameSlots(op.InputPrimvars(), node.inputPrimvars)
-        : SameSlots(record.InputPlanes(), node.inputPrimvars);
-    return out && in;
+    bool const out = record.Def().hooks.emittedPlanes ||
+        SameSlots(record.OutputPlanes(), node.outputPrimvars);
+    return out && SameSlots(record.InputPlanes(), node.inputPrimvars);
 }
 
 bool ValidateExpressionBindings(UsdGenGraphDesc const &desc,
@@ -342,9 +323,8 @@ bool ValidateExpressionBindings(UsdGenGraphDesc const &desc,
     for (auto const &node : desc.nodes) {
         PSet<TfToken> destinations;
         // Both lanes run an expression evaluator, so a connected parameter is
-        // no longer backend-gated. What each OPERATOR admits is the one shared
-        // table in expressionTargets.cpp, used here and by the CUDA admission.
-        if (!UsdGenValidateExpressionTargets(node, &result.errors)) ok = false;
+        // no longer backend-gated. What each op admits is its record's decls.
+        if (!UsdGenValidateExpressionBindings(node, &result.errors)) ok = false;
         for (auto const &b : node.expressionBindings) {
             auto ei = std::find_if(desc.expressions.begin(), desc.expressions.end(), [&](auto const &e){ return e.path == b.expression; });
             if (ei == desc.expressions.end()) { result.errors.push_back("expression binding references missing expression " + b.expression.GetString()); ok = false; continue; }
@@ -879,6 +859,9 @@ void BindParams(UsdGenCompiledNode &node, UsdGenGraphDesc const *desc,
     node.indexedPlaneCount = static_cast<uint8_t>(indexedCount);
     auto const emitsUv = record ? record->Def().hooks.emitsLimitSurfaceUv : nullptr;
     node.limitSurfaceUv = emitsUv && emitsUv(node.paramView);
+    auto const remaps = record ? record->Def().hooks.remapsVertexPlanes : nullptr;
+    node.remapsVertexPlanes = record &&
+        (record->Has(kUsdGenOpRemapsVertexPlanes) || (remaps && remaps(node.paramView)));
 }
 
 /// True when `b` differs from `a` only in the values of routed Value-class
@@ -1033,8 +1016,6 @@ void UsdGenCompiler::_Build(
     UsdGenGraph const *reuse,
     UsdGenCompileResult &result)
 {
-    // Registries exist (built-ins registered). Freezing here waits for S4-T:
-    // testUsdGenExecutionBackend and testUsdGenAsyncSession register after a compile.
     UsdGenCompileTokenScope tokenScope;
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
 
@@ -1451,8 +1432,8 @@ void UsdGenCompiler::_Build(
             scratch.desc = &nd;
             BindParams(scratch, &desc, &nd, &record, indexedBases[size_t(di)],
                        indexedCounts[size_t(di)]);
-            probe->Configure(scratch.paramView);
-            if (!BindExtraPlaneSlots(*probe, record, &scratch, &result)) return;
+            probe->Configure({scratch.paramView, scratch.indexedPlaneBase});
+            if (!BindExtraPlaneSlots(record, &scratch, &result)) return;
         }
     }
     // The previous graph's nodes, in the graph's retained vector so its
@@ -1608,7 +1589,7 @@ void UsdGenCompiler::_Build(
             !indexedSlotsChanged &&
             oldNodeForNewDesc[di] >= 0) {
             UsdGenCompiledNode &oldS = *oldNodes[size_t(oldNodeForNewDesc[di])];
-            if (oldS.type == nd.type) {
+            if (oldS.record == record) {
                 // Verbatim reuse: refresh desc-owned fields and rebuild the
                 // dense-id edge list in retained capacity (no alloc when the
                 // fan-in is stable). sameNodeDesc() above already proved all
@@ -1647,7 +1628,7 @@ void UsdGenCompiler::_Build(
             size_t(oldNodeAtPath[di]) < oldNodes.size() &&
             oldNodes[size_t(oldNodeAtPath[di])]) {
             UsdGenCompiledNode &old = *oldNodes[size_t(oldNodeAtPath[di])];
-            if (old.op && old.desc && old.type == nd.type && old.record == record &&
+            if (old.op && old.desc && old.record == record &&
                 old.topoFx == record->Def().topoFx &&
                 old.role == record->Def().role &&
                 ValueOnlyEdit(*old.desc, nd, *record)) {
@@ -1656,9 +1637,9 @@ void UsdGenCompiler::_Build(
                     old.indexedPlaneCount == indexedCount;
                 // Re-resolved against the new entry before Configure reads it.
                 BindParams(old, out->_desc.get(), newNd, record, indexedBase, indexedCount);
-                old.op->Configure(old.paramView);
+                old.op->Configure({old.paramView, old.indexedPlaneBase});
                 if (planes == old.op->PlanesTouched() && sameRun &&
-                    SamePlaneSlots(*old.op, *record, old)) {
+                    SamePlaneSlots(*record, old)) {
                     auto moved = std::move(oldNodes[size_t(oldNodeAtPath[di])]);
                     moved->id = static_cast<UsdGenNodeId>(pos);
                     moved->desc = &out->_desc->nodes[di];
@@ -1688,7 +1669,7 @@ void UsdGenCompiler::_Build(
         // their matching destructions never happen.
         if (!oldNodes.empty() && oldNodeForNewDesc[di] >= 0) {
             UsdGenCompiledNode &old0 = *oldNodes[size_t(oldNodeForNewDesc[di])];
-            if (old0.type == nd.type && old0.record == record) {
+            if (old0.record == record) {
                 PVec<SdfPath> inputPaths0(nd.inputs.begin(), nd.inputs.end());
                 if (!record->Has(kUsdGenOpGeometryInputsOrdered))
                     std::sort(inputPaths0.begin(), inputPaths0.end());
@@ -1760,7 +1741,6 @@ void UsdGenCompiler::_Build(
             lend(node->params, old.params);
         }
         node->id = static_cast<UsdGenNodeId>(pos);
-        node->type = nd.type;
         node->desc = &out->_desc->nodes[di];
         node->descIdx = di;
 
@@ -1776,8 +1756,8 @@ void UsdGenCompiler::_Build(
         // the planes are bound: an operator may name its planes from its
         // parameters.
         BindParams(*node, out->_desc.get(), newNd, record, indexedBase, indexedCount);
-        node->op->Configure(node->paramView);
-        if (!BindExtraPlaneSlots(*node->op, *record, node.get(), &result)) return;
+        node->op->Configure({node->paramView, node->indexedPlaneBase});
+        if (!BindExtraPlaneSlots(*record, node.get(), &result)) return;
 
         node->topoFx = record->Def().topoFx;
         node->role = record->Def().role;
@@ -1835,7 +1815,7 @@ void UsdGenCompiler::_Build(
         // move the digest (03 §3.3/§3.6). The digest slots and the routing
         // table are the record's, built once at registration.
         digests[pos] = ComputeNodeDigest(
-            nd, TypeSeed(node->type), record,
+            nd, TypeSeed(nd.type), record,
             inputPaths, refPaths, bindings, childDigests);
         node->structuralDigest = digests[pos];
 
@@ -1858,7 +1838,7 @@ void UsdGenCompiler::_Build(
             UsdGenCompiledNode const &oldRef = *oldNodes[size_t(oldNodeForNewDesc[di])];
             bool const stable = !indexedSlotsChanged &&
                 oldRef.structuralDigest == node->structuralDigest &&
-                oldRef.type == node->type &&
+                oldRef.record == node->record &&
                 oldRef.topoFx == node->topoFx &&
                 oldRef.role == node->role;
             if (stable) {

@@ -303,7 +303,6 @@ HdContainerDataSourceHandle SelectionsOverlay()
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
 
     UsdStageRefPtr stage = UsdStage::CreateInMemory("viewport-overlay");
     stage->GetRootLayer()->ImportFromString(kFixture);

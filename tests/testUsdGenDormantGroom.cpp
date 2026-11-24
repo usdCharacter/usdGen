@@ -205,7 +205,6 @@ public:
 
 int main()
 {
-    usdGen::usdGenRegisterM1Operators();
 
     // --- Hiding the Description -------------------------------------------
     Scene scene = MakeScene("dormant-hidden", Fixture());

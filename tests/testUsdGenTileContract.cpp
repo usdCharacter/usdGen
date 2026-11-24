@@ -82,10 +82,7 @@ void Check(bool ok, std::string const &what)
 class GuideIndexWriter final : public UsdGenOp
 {
 public:
-    TfToken Type() const override { return TfToken("UsdGenTestGuideIndexWriter"); }
-    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
-    TfSpan<const TfToken> ValueParameters() const override { return {}; }
-    TfSpan<const TfToken> OutputPrimvars() const override { return _outputs; }
+    explicit GuideIndexWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {19, 1}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
@@ -97,8 +94,6 @@ public:
             for (uint32_t component = 0; component != 3; ++component)
                 view->outI[0][curve * 3 + component] = int(component);
     }
-private:
-    std::array<TfToken, 1> const _outputs{{TfToken("guideIndex")}};
 };
 
 void RegisterGuideIndexWriter(UsdGenRegistrar &r)
@@ -109,8 +104,8 @@ void RegisterGuideIndexWriter(UsdGenRegistrar &r)
         UsdGenOpDef d;
         d.name = "UsdGenTestGuideIndexWriter";
         d.displayName = "TestGuideIndexWriter";
-        d.create = [](UsdGenOpRecord const&, void*) -> std::unique_ptr<UsdGenOp> {
-            return std::make_unique<GuideIndexWriter>();
+        d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
+            return std::make_unique<GuideIndexWriter>(rec);
         };
         d.outputPlanes = UsdGenSpan(kOut);
         r.RegisterOp(d);

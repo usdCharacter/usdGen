@@ -61,7 +61,7 @@ UsdGenParamDecl const kParams[kCount] = {
     {"amplitudeN", UsdGenParamClass::Value, true, kFloatAll},
     {"mask", UsdGenParamClass::Value, true, kFloatAll},
 };
-std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &, void *) { return std::make_unique<UsdGenWaveOp>(); }
+std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *) { return std::make_unique<UsdGenWaveOp>(r); }
 }  // namespace
 std::unique_ptr<UsdGenCapture> UsdGenWaveOp::CreateCapture() const
 {

@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -78,7 +79,7 @@ bool GrowNoiseReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output,
             parameter.name != TfToken("preserveLength")) return false;
     }
     if (!transformOnly && !CpuReference(withoutNoise, output)) return false;
-    UsdGenParamView values{&desc, &*noise};
+    usdGenTest::NodeParams values(*noise);
     if (!values.GetBool(TfToken("enabled"), true)) return false;
     if (values.GetDouble(TfToken("preserveLength"), 1.0) != 0.0 ||
         values.GetBool(TfToken("cumulative"), false)) return false;
@@ -260,7 +261,7 @@ bool GrowLengthScaleReference(UsdGenGraphDesc const& desc, float scale,
     auto length = std::find_if(base.nodes.begin(), base.nodes.end(),
         [](auto const& n){ return n.type == TfToken("UsdGenLength"); });
     if (length == base.nodes.end()) return false;
-    UsdGenParamView parameters{&base,&*length};
+    usdGenTest::NodeParams parameters(*length);
     auto const mode=parameters.GetToken(TfToken("length:mode"),TfToken("scale"));
     auto const method=parameters.GetToken(TfToken("length:method"),TfToken("scale"));
     if ((mode!=TfToken("scale")&&mode!=TfToken("cull")) ||
@@ -366,7 +367,7 @@ bool MixedGrowReference(UsdGenGraphDesc const& desc, UsdGenCurveBuffer* output) 
         if(node.type==TfToken("UsdGenNoise")) {
             if(!GrowNoiseReference(stage,output,true)) return false;
         } else if(node.type==TfToken("UsdGenLength")) {
-            UsdGenParamView p{&desc,&node};
+            usdGenTest::NodeParams p(node);
             float const scale=float(p.GetDouble(TfToken("length:value"),1));
             bool const cut=p.GetToken(TfToken("length:method"),TfToken("scale"))==TfToken("cutExtend");
             if(!GrowLengthScaleReference(stage,scale,output,cut,true)) return false;
@@ -607,20 +608,20 @@ bool NoiseDagReference(UsdGenGraphDesc const& desc,UsdGenCurveBuffer* output) {
                 value=std::move(grown);
             }
         } else if(node->type==TfToken("UsdGenLength")) {
-            auto stage=desc;stage.nodes={*node};UsdGenParamView p{&stage,&stage.nodes.front()};
+            auto stage=desc;stage.nodes={*node};usdGenTest::NodeParams p(stage.nodes.front());
             bool const cut=p.GetToken(TfToken("length:method"),TfToken("scale"))==TfToken("cutExtend");
             if(!GrowLengthScaleReference(stage,float(p.GetDouble(TfToken("length:value"),1)),&value,cut,true)) {
                 std::fprintf(stderr,"Length host oracle failed at %s\n",node->path.GetText());
                 return false;
             }
         } else if(node->type==TfToken("UsdGenWidth")) {
-            UsdGenParamView p{&desc,&*node};
+            usdGenTest::NodeParams p(*node);
             std::fill(value.width.begin(),value.width.end(),float(p.GetDouble(TfToken("width"),0)));
         } else if(node->type==TfToken("UsdGenWidthBlend")) {
             if(node->inputs.size()!=2||!evaluate(node->inputs[1],depth+1)) return false;
             auto const& right=values.at(node->inputs[1]);
             if(value.px!=right.px||value.py!=right.py||value.pz!=right.pz||value.width.size()!=right.width.size()) return false;
-            UsdGenParamView const wb{&desc,&*node};
+            usdGenTest::NodeParams const wb(*node);
             float const weight=float(wb.GetDouble(TfToken("widthBlend:weight"),1.0));
             for(size_t i=0;i<value.width.size();++i)
                 value.width[i]=value.width[i]+(right.width[i]-value.width[i])*weight;
@@ -784,7 +785,6 @@ bool CudaNonWidthRejected(UsdGenGraphDesc const& desc) {
 
 int main() {
     int count=0; if(cudaGetDeviceCount(&count)!=cudaSuccess||!count) return 77;
-    usdGenRegisterM1Operators();
     cudaStream_t stream=nullptr; CHECK(cudaStreamCreateWithFlags(&stream,cudaStreamNonBlocking)==cudaSuccess);
     auto desc=Desc(); UsdGenCurveBuffer reference; CHECK(CpuReference(desc,&reference));
     CHECK(reference.curveId==VtArray<uint64_t>({7,40})&&reference.totalCvs==8);
@@ -1614,7 +1614,7 @@ int main() {
                 return node.type==TfToken("UsdGenLength");
             });
             for(auto const& node:dagDesc.nodes) if(lengthNodes==1&&node.type==TfToken("UsdGenLength")) {
-                UsdGenParamView parameters{&dagDesc,&node};
+                usdGenTest::NodeParams parameters(node);
                 if(parameters.GetToken(TfToken("length:mode"),TfToken("scale"))==TfToken("cull")&&
                    TerminalUsesOperator(dagDesc,TfToken("UsdGenLength")))
                     CHECK(expected.totalCurves==(parameters.GetDouble(TfToken("cullThreshold"),0)==1.5?1u:0u));

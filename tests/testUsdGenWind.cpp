@@ -15,6 +15,7 @@
 //   (4) CUDA-backend explicit rejection: Wind is CPU-only (no capability
 //       matrix row, like Clump), so ValidateCudaGraph refuses a Wind graph.
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/clumpMotion.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
@@ -171,26 +172,26 @@ static bool PointsEqual(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 
 static void CheckRegistryContracts()
 {
-    UsdGenOpRegistry &registry = UsdGenOpRegistry::Get();
+    UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     TfToken const type("UsdGenWind");
     Check(registry.Find(type) != UsdGenOpId::Invalid, "HasKernel(UsdGenWind)");
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenWind)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Wind reports its own type");
-    Check(op->TopologyEffect() == UsdGenTopoFx::None,
+    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
           "Wind has TopologyEffect None");
-    Check(op->ReferenceInputs().empty(),
+    Check(op->Record().ReferenceInputs().empty(),
           "Wind declares no reference inputs");
-    Check(op->OutputPrimvars().empty(), "Wind emits no output primvars");
+    Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "Wind emits no output primvars");
     Check(op->PlanesTouched() == UsdGenOp::kPlanePoints,
           "Wind touches the points plane only");
-    Check(op->ReadsTime() && registry.ReadsTime(type) &&
-              !registry.ReadsTime(TfToken("UsdGenCurveSource")),
+    Check(op->Record().Has(kUsdGenOpReadsTime) && registry.Record(registry.Find(type)).Has(kUsdGenOpReadsTime) &&
+              !registry.Record(registry.Find(TfToken("UsdGenCurveSource"))).Has(kUsdGenOpReadsTime),
           "Wind declares a native time dependency; static source does not");
     std::set<std::string> topo, value;
-    for (TfToken const &t : op->TopologyParameters()) topo.insert(t.GetString());
-    for (TfToken const &t : op->ValueParameters()) value.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), false)) topo.insert(t.GetString());
+    for (TfToken const &t : usdGenTest::RoutedParams(op->Record(), true)) value.insert(t.GetString());
     Check(topo == std::set<std::string>{"input", "surface", "seed"},
           "Wind topology parameters are input/surface/seed");
     Check(value == std::set<std::string>{"enabled", "mask", "direction",
@@ -1057,7 +1058,6 @@ static void CheckIncrementalPlayback()
 
 int main()
 {
-    usdGenRegisterM1Operators();
     CheckIncrementalPlayback();
     CheckRegistryContracts();
     CheckIdentityCook();

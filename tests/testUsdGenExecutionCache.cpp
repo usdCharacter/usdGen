@@ -131,7 +131,6 @@ std::shared_ptr<const UsdGenGeneration> DevicePayload(
 
 int main()
 {
-    usdGenRegisterM1Operators();
     UsdGenGraphDesc desc = Description();
     UsdGenExecutionInputVersions versions =
         UsdGenExecutionInputVersions::FromDescription(desc);

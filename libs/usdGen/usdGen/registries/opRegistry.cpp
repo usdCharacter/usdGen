@@ -117,7 +117,12 @@ UsdGenOpRegistry::UsdGenOpRegistry()
 
 // Built on first use and published by CAS; a thread that loses the race
 // discards its own copy, so nobody waits. Never freed.
-UsdGenOpRegistry &UsdGenOpRegistry::Get() noexcept
+UsdGenOpRegistry const &UsdGenOpRegistry::Get() noexcept
+{
+    return UsdGenMutableOpRegistry();
+}
+
+UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept
 {
     if (UsdGenOpRegistry *registry = gOpRegistry.load(std::memory_order_acquire))
         return *registry;
@@ -149,63 +154,6 @@ std::unique_ptr<UsdGenOp> UsdGenOpRegistry::Create(UsdGenOpId id) const
     return record.Def().create ? record.Def().create(record, record.Def().createContext)
                                : nullptr;
 }
-
-bool UsdGenOpRegistry::Register(TfToken const &type, Factory factory)
-{
-    UsdGenRegistrar r(*this);
-    return r.RegisterLegacyOp(type, std::move(factory)) != UsdGenOpId::Invalid;
-}
-
-std::unique_ptr<UsdGenOp> UsdGenOpRegistry::Create(TfToken const &type) const
-{
-    return Create(Find(type));
-}
-
-bool UsdGenOpRegistry::HasKernel(TfToken const &type) const
-{
-    UsdGenOpId const id = Find(type);
-    return id != UsdGenOpId::Invalid && Record(id).Def().create;
-}
-
-bool UsdGenOpRegistry::ReadsTime(TfToken const &type) const
-{
-    UsdGenOpId const id = Find(type);
-    return id != UsdGenOpId::Invalid && Record(id).Has(kUsdGenOpReadsTime);
-}
-
-bool UsdGenOpRegistry::SamplesFrameInputs(TfToken const &type) const
-{
-    UsdGenOpId const id = Find(type);
-    return id != UsdGenOpId::Invalid && Record(id).Has(kUsdGenOpSamplesFrameInputs);
-}
-
-bool UsdGenOpRegistry::GetOperatorContract(TfToken const &type, size_t *outGeometryInputArity,
-                                           size_t *outReferenceInputArity,
-                                           UsdGenRole *outRole) const
-{
-    UsdGenOpId const id = Find(type);
-    if (id == UsdGenOpId::Invalid) return false;
-    UsdGenOpRecord const &record = Record(id);
-    if (outGeometryInputArity) *outGeometryInputArity = record.Def().geometryInputArity;
-    if (outReferenceInputArity) *outReferenceInputArity = record.ReferenceInputs().size();
-    if (outRole) *outRole = record.Def().role;
-    return true;
-}
-
-bool UsdGenOpRegistry::GetGeometryInputArity(TfToken const &type, size_t *outArity) const
-{
-    return GetOperatorContract(type, outArity, nullptr, nullptr);
-}
-
-std::vector<TfToken> UsdGenOpRegistry::KnownTypes() const
-{
-    std::vector<TfToken> types;
-    types.reserve(_count);
-    for (uint32_t i = 0; i < _count; ++i) types.push_back(_records[i].Name());
-    return types;
-}
-
-void usdGenRegisterM1Operators() { (void)UsdGenOpRegistry::Get(); }
 
 // ---- intake ------------------------------------------------------------------
 
@@ -292,6 +240,25 @@ bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &record,
                         DomainList(admission->domains) + " evaluation");
     }
     return ok;
+}
+
+bool UsdGenValidateExpressionBindings(UsdGenNodeDesc const &node,
+                                      std::vector<std::string> *errors)
+{
+    if (node.expressionBindings.empty()) return true;
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    UsdGenOpId id = node.opId;
+    if (id == UsdGenOpId::Invalid || UsdGenIndex(id) >= ops.Count() ||
+        ops.Record(id).Name() != node.type)
+        id = ops.Find(node.type);
+    if (id == UsdGenOpId::Invalid) {
+        if (errors)
+            errors->push_back("operator " + node.type.GetString() + " at " +
+                              node.path.GetString() +
+                              " does not accept connected (expression) parameters");
+        return false;
+    }
+    return UsdGenValidateExpressionBindings(ops.Record(id), node, errors);
 }
 
 }  // namespace usdGen

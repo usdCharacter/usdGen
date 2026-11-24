@@ -31,10 +31,10 @@ enum : UsdGenParamSlot {
 enum Tok : uint16_t { kTokUniform, kTokKeepParam };
 }  // namespace resampleP
 
-class UsdGenResampleOp final : public UsdGenRecordedOp
+class UsdGenResampleOp final : public UsdGenOp
 {
 public:
-    explicit UsdGenResampleOp(UsdGenOpRecord const &record) : UsdGenRecordedOp(record) {}
+    explicit UsdGenResampleOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}
     ~UsdGenResampleOp() override = default;
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;

@@ -142,7 +142,6 @@ uint64_t ChunksEvaluated(UsdGenRunResult const &r, UsdGenNodeId id)
 
 int main()
 {
-    usdGenRegisterM1Operators();
 
     UsdGenGraphDesc const desc = MakeG3();
     UsdGenCompiler compiler;

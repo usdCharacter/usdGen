@@ -18,6 +18,7 @@
 //       bound surface, determinism;
 //   (4) Width bezier profile (set and multiply).
 #include "usdGen/compiler.h"
+#include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -269,16 +270,17 @@ void TestContracts()
     std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenClump")));
     Check(op != nullptr, "registry creates UsdGenClump");
     if (!op) return;
-    TfSpan<const TfToken> const refs = op->ReferenceInputs();
+    UsdGenOpRecord const &rec = op->Record();
+    TfSpan<const TfToken> const refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("guides"),
           "UsdGenClump declares the guides reference input");
-    TfSpan<const TfToken> const outs = op->OutputPrimvars();
+    std::vector<TfToken> const outs = usdGenTest::OutputPlaneNames(rec);
     Check(outs.size() == 4 && outs[0] == TfToken("clumpId_0") &&
               outs[1] == TfToken("clumpCenter_0") &&
               outs[2] == TfToken("clumpCenterId_0") &&
               outs[3] == TfToken("clumpWeight_0"),
           "UsdGenClump emits clumpId_0 plus its centre/weight planes");
-    TfSpan<const TfToken> const topo = op->TopologyParameters();
+    std::vector<TfToken> const topo = usdGenTest::RoutedParams(rec, false);
     for (char const *name : {"clump:centers", "clump:count", "clump:profile:mode", "clump:root",
                              "clump:flyaway:fraction", "clump:sub:enabled", "clump:overrides",
                              "clump:overrideCount"})

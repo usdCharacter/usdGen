@@ -169,7 +169,7 @@ UsdGenGraph::RoutingSnapshot() const
         UsdGenCompiledNode const &node = *nodePtr;
         UsdGenGraphRoutingNode copy;
         copy.id = node.id;
-        copy.type = node.record ? node.record->Name() : node.type;
+        copy.type = node.record ? node.record->Name() : TfToken();
         copy.hasSurface = node.hasSurface;
         copy.surface = node.surface;
         copy.paramRouting = node.paramRouting;
