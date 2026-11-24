@@ -737,13 +737,9 @@ public:
         UsdGenExecutionCacheDomainKey key, size_t maxBytes) {
         if (key.backend == UsdGenDeviceBackend::Unknown || maxBytes == 0)
             return {};
-        struct Registry {
-            std::mutex mutex;
-            std::unordered_map<UsdGenExecutionCacheDomainKey,
-                std::weak_ptr<UsdGenExecutionCacheDomain>,
-                UsdGenExecutionCacheDomainKeyHasher> domains;
-        };
-        static Registry* registry = new Registry;
+        // One registry per process: an inline function-local static would
+        // give usdGen.dll and every caller module its own copy on Windows.
+        SharedRegistry* registry = _SharedRegistry();
         std::lock_guard<std::mutex> lock(registry->mutex);
         auto found = registry->domains.find(key);
         if (found != registry->domains.end()) {
@@ -755,6 +751,14 @@ public:
         registry->domains.emplace(key, domain);
         return domain;
     }
+
+    struct SharedRegistry {
+        std::mutex mutex;
+        std::unordered_map<UsdGenExecutionCacheDomainKey,
+            std::weak_ptr<UsdGenExecutionCacheDomain>,
+            UsdGenExecutionCacheDomainKeyHasher> domains;
+    };
+    static SharedRegistry* _SharedRegistry() noexcept;
 
 private:
     struct InFlight {

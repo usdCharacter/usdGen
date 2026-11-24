@@ -176,6 +176,13 @@ uint64_t UsdGenExecutionCacheKey::Hash() const noexcept
     return MixU64(hash, inputs.Hash());
 }
 
+UsdGenExecutionCacheDomain::SharedRegistry*
+UsdGenExecutionCacheDomain::_SharedRegistry() noexcept
+{
+    static SharedRegistry* registry = new SharedRegistry;
+    return registry;
+}
+
 } // namespace usdGen
 
 // The cache store is header-only so callers can select a payload type and an
