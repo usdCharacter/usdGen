@@ -77,6 +77,17 @@ private:
     SamplerKind _kind;
 };
 
+// The stub table, made at load and read-only afterwards; never reachable
+// from another SeExpr consumer.
+SE::ExprFunc cbrtFunc(&StubCbrt);
+SE::ExprFunc truncFunc(&StubTrunc);
+SE::ExprFunc randFunc(&StubRand, 0, 3);
+SE::ExprFunc distFunc(&StubDist);
+SamplerStub geoSamplerStub(SamplerKind::Geometry);
+SamplerStub ptexStub(SamplerKind::Ptex);
+SE::ExprFunc geoSamplerFunc(geoSamplerStub, 2, 5);
+SE::ExprFunc ptexFunc(ptexStub, 1, 1);
+
 class Var final : public SE::ExprVarRef {
 public:
     explicit Var(int dim) : ExprVarRef(SE::ExprType().FP(dim).Varying()) {}
@@ -107,16 +118,6 @@ class CheckedExpression final : public SE::Expression {
 public:
     CheckedExpression(std::string const &s, int dim, Domain domain, bool samplerElement = false) : Expression(NormalizeLineEndings(s), SE::ExprType().FP(dim), Expression::UseInterpreter), _domain(domain), _valueDim(dim), _samplerElement(samplerElement) {}
     SE::ExprFunc *resolveFunc(const std::string &name) const override {
-        // Function-local statics: initialised once, read-only afterwards, and
-        // never reachable from another SeExpr consumer.
-        static SE::ExprFunc cbrtFunc(&StubCbrt);
-        static SE::ExprFunc truncFunc(&StubTrunc);
-        static SE::ExprFunc randFunc(&StubRand, 0, 3);
-        static SE::ExprFunc distFunc(&StubDist);
-        static SamplerStub geoSamplerStub(SamplerKind::Geometry);
-        static SamplerStub ptexStub(SamplerKind::Ptex);
-        static SE::ExprFunc geoSamplerFunc(geoSamplerStub, 2, 5);
-        static SE::ExprFunc ptexFunc(ptexStub, 1, 1);
         if (name == "cbrt") return &cbrtFunc;
         if (name == "trunc") return &truncFunc;
         if (name == "rand") return &randFunc;
@@ -1365,6 +1366,9 @@ private:
     }
 };
 
+std::string const kNoSource;
+IRProgram const kNoProgram{};
+
 } // namespace
 
 struct Program::Impl { std::string source; bool valid=false; IRProgram ir; };
@@ -1374,8 +1378,8 @@ Program::Program(Program&&) noexcept = default;
 Program& Program::operator=(Program&&) noexcept = default;
 Program::Program(std::unique_ptr<Impl> p) : _impl(std::move(p)) {}
 bool Program::Valid() const noexcept { return _impl && _impl->valid; }
-std::string const &Program::Source() const noexcept { static std::string empty; return _impl ? _impl->source : empty; }
-IRProgram const &Program::IR() const noexcept { static IRProgram empty; return _impl ? _impl->ir : empty; }
+std::string const &Program::Source() const noexcept { return _impl ? _impl->source : kNoSource; }
+IRProgram const &Program::IR() const noexcept { return _impl ? _impl->ir : kNoProgram; }
 
 CompileResult Frontend::Compile(std::string const &source, FrontendOptions const &opt)
 {

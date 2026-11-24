@@ -195,8 +195,8 @@ bool UsdGenLimitSurface::EvaluateCagePoint(int face, int const corners[3], GfVec
     // other polygon as the regular n-gon whose corner k sits at angle 2*pi*k/n.
     auto layout=[n](int k) {
         if(n==4) {
-            static GfVec2d const square[4]={GfVec2d(0,0),GfVec2d(1,0),GfVec2d(1,1),GfVec2d(0,1)};
-            return square[k];
+            static constexpr double square[4][2]={{0,0},{1,0},{1,1},{0,1}};
+            return GfVec2d(square[k][0],square[k][1]);
         }
         double const a=2*3.14159265358979323846*double(k)/double(n);
         return GfVec2d(std::cos(a),std::sin(a));

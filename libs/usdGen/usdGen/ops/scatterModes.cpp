@@ -52,10 +52,11 @@ constexpr uint32_t kSaltScatterThin = 0x5363546Eu;   // "ScTn": random-path thin
 constexpr uint32_t kMaxTarget = 2000000u;
 constexpr size_t kSamplerBatch = 16384;
 
+TfToken const kDensityMapRelationship("usdGen:densityMap");  // made at load
+
 TfToken const &DensityMapRelationship()
 {
-    static TfToken const t("usdGen:densityMap");
-    return t;
+    return kDensityMapRelationship;
 }
 
 inline uint32_t FloatBits(float f)

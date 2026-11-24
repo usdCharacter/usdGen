@@ -47,11 +47,24 @@ __global__ void FbmKernel(
 
 namespace usdGen {
 
+namespace {
+// Persistent plumbing, constant-initialized at namespace scope.
+cudaStream_t stream = nullptr;
+float *dBase = nullptr;   // nCurves*3 floats
+float *dT = nullptr;      // n floats
+float *dField = nullptr;  // n floats
+float *dPcv = nullptr;    // nCurves floats
+float *hIn = nullptr;     // pinned: base | cvT
+float *hOut = nullptr;    // pinned: field | perCurve
+size_t capBase = 0, capT = 0, capField = 0, capPcv = 0;
+size_t capIn = 0, capOut = 0;
+}  // namespace
+
 // GPU path for UsdGenNoiseOp::Capture. Returns false (CPU fallback) if the
 // device, any transfer, or the launch fails.
 //
 // Persistent plumbing (CUDA1b): stream, device scratch, and pinned staging
-// are function-local statics created once and grown on demand. Capture runs
+// live at namespace scope (above), created once and grown on demand. Capture runs
 // sequentially on the scheduler commit thread (topo order), so no locking
 // is needed. Per call: memcpy into pinned staging, two async H2D copies,
 // the kernel, two async D2H copies, stream sync, memcpy out.
@@ -70,15 +83,6 @@ bool UsdGenNoiseCaptureGPU(const float *base,
     const size_t n = (size_t)nCurves * (size_t)nCV;
     const size_t nBase = (size_t)nCurves * 3u;
 
-    static cudaStream_t stream = nullptr;
-    static float *dBase = nullptr;   // nCurves*3 floats
-    static float *dT = nullptr;      // n floats
-    static float *dField = nullptr;  // n floats
-    static float *dPcv = nullptr;    // nCurves floats
-    static float *hIn = nullptr;     // pinned: base | cvT
-    static float *hOut = nullptr;    // pinned: field | perCurve
-    static size_t capBase = 0, capT = 0, capField = 0, capPcv = 0;
-    static size_t capIn = 0, capOut = 0;
 
     if (stream == nullptr) {
         int dev = -1;

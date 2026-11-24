@@ -1483,6 +1483,10 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
     return true;
 }
 
+namespace {
+VtFloatArray const kNoPlane;  // a missing plane reads as empty
+}  // namespace
+
 UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     std::vector<UsdGenScalpShadowContribution> const& parts)
 {
@@ -1535,8 +1539,7 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
         -> VtFloatArray const& {
         for(UsdGenPlane const& p:cap.extraUniform)
             if(p.name==TfToken(name)) return p.f;
-        static VtFloatArray const none;
-        return none;
+        return kNoPlane;
     };
     bool sameAlbedo=true;
     for(auto const* part:used)

@@ -21,6 +21,9 @@ struct UsdGenClumpMotionGroup {
 
 // Read-only dense capture data. Copies and capture clones share the immutable
 // allocation; a new binding builds a new vector and cannot mutate a prior one.
+// The empty vector an unbound array reads; namespace scope, made at load.
+template<class T> inline std::vector<T> const kUsdGenClumpEmptyValues{};
+
 template<class T> class UsdGenClumpReadOnlyArray {
 public:
     UsdGenClumpReadOnlyArray() = default;
@@ -37,8 +40,7 @@ public:
     T const &back() const { return _values[_size - 1]; }
 private:
     std::vector<T> const &Get() const {
-        static std::vector<T> const emptyValues;
-        return _data ? *_data : emptyValues;
+        return _data ? *_data : kUsdGenClumpEmptyValues<T>;
     }
     std::shared_ptr<const std::vector<T>> _data;
     T const *_values = nullptr;

@@ -52,10 +52,24 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+namespace {
+std::atomic<UsdGenOpRegistry *> g_opRegistry{nullptr};
+}  // namespace
+
+// Built on first use and published by CAS; a thread that loses the race
+// discards its own copy, so nobody waits. Never freed: factories are read
+// until process exit.
 UsdGenOpRegistry &UsdGenOpRegistry::Get()
 {
-    static UsdGenOpRegistry instance;
-    return instance;
+    if (UsdGenOpRegistry *registry = g_opRegistry.load(std::memory_order_acquire))
+        return *registry;
+    UsdGenOpRegistry *fresh = new UsdGenOpRegistry;
+    UsdGenOpRegistry *winner = nullptr;
+    if (g_opRegistry.compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
+                                             std::memory_order_acquire))
+        return *fresh;
+    delete fresh;
+    return *winner;
 }
 
 bool UsdGenOpRegistry::Register(TfToken const &type, Factory factory)

@@ -68,6 +68,8 @@ bool UsdGenPrimSetSignature::operator==(
 
 namespace {
 
+std::vector<std::string> const kNoNames;
+
 // Per-prim primvar-name list from a signature; empty when the path is new.
 std::vector<std::string> const &
 _namesFor(UsdGenPrimSetSignature const &sig, std::string const &path)
@@ -75,8 +77,7 @@ _namesFor(UsdGenPrimSetSignature const &sig, std::string const &path)
     for (size_t i = 0; i < sig.primPaths.size(); ++i)
         if (sig.primPaths[i] == path)
             return sig.primvarNames[i];
-    static const std::vector<std::string> kEmpty;
-    return kEmpty;
+    return kNoNames;
 }
 
 // next-names minus prev-names, both kept sorted by the builder.

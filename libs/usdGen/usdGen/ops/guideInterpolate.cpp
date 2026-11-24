@@ -390,6 +390,10 @@ UsdGenEpoch UsdGenGuideInterpolateOp::CaptureDigest(UsdGenCaptureContext const &
     return d.Epoch(0x4775696465ull);
 }
 
+namespace {
+UsdGenCurveBuffer const kNoGuides;  // made at load
+}  // namespace
+
 bool UsdGenGuideInterpolateOp::Capture(
     UsdGenCaptureContext const &ctx,
     UsdGenCurveBuffer const &upstream,
@@ -407,7 +411,6 @@ bool UsdGenGuideInterpolateOp::Capture(
     bool const falloff = s.mode == Mode::Falloff;
 
     // --- the guide set (optional for the reference weightings) -----------------
-    static UsdGenCurveBuffer const kNoGuides;
     bool const haveRef = ctx.referenceCount == 1 && ctx.resolvedReferences &&
         ctx.resolvedReferences[0] && ctx.resolvedReferences[0]->value;
     if (falloff ? !haveRef : ctx.referenceCount > 1 || (ctx.referenceCount == 1 && !haveRef))

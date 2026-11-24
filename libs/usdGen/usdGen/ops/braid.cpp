@@ -163,10 +163,11 @@ float MinLaneSeparation()
     return best;
 }
 
+float const kMinLaneSeparation = MinLaneSeparation();  // made at load
+
 float CachedMinLaneSeparation()
 {
-    static float const value = MinLaneSeparation();
-    return value;
+    return kMinLaneSeparation;
 }
 
 /// Lane amplitude envelope at t: fade-in ramp times (1 - fade-out ramp); the
