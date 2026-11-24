@@ -598,7 +598,10 @@ std::shared_ptr<DeformPipeline> DeformPipeline::Create(
     if (wantCache && (!valid(cacheSpirv.verify) || !valid(cacheSpirv.fill) ||
                       !valid(cacheSpirv.cached)))
         return {};
-    if (!context->shaderFloat64Enabled()) return {};
+    if (!context->shaderFloat64Enabled() || !context->computeTimeline()) return {};
+    // The hetero suffix runs on the process task scheduler: bring it up with
+    // the pipeline (backend registration), not inside the first pose.
+    (void)UsdGenTaskScheduler::Process();
     VkPhysicalDeviceProperties physical{};
     vkGetPhysicalDeviceProperties(context->physicalDevice(), &physical);
     if (physical.limits.maxComputeWorkGroupInvocations < kApplyLocalSize ||
