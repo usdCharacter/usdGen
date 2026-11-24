@@ -6,6 +6,7 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenEnable.h"
 #include "usdGenImaging/testHook.h"
+#include "usdGenImaging/atomicShared.h"
 #include "usdGenImaging/rbfAnimation.h"
 #include "pxr/imaging/hd/extComputationSchema.h"
 #include "pxr/imaging/hd/extComputationPrimvarsSchema.h"
@@ -15,6 +16,7 @@
 #include "usdGen/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
 #include "usdGen/furOcclusion.h"
+#include "usdGen/parkingWord.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/imaging/hd/sceneIndexPluginRegistry.h"
 #include "pxr/imaging/hd/filteringSceneIndex.h"
@@ -143,13 +145,16 @@ SdfPath ScalpShadowMaskMaterialPath(SdfPath const& description) {
 // the inherited displayStyle (see DescriptionOverlay): moving the usdview
 // complexity slider has to rebind the tile, not just re-repr it, or the hair
 // material stays bound at the wire level and Storm fails to compile it.
+// Built at library load, not on first use (no guarded function statics).
+HdDataSourceLocatorSet const s_inheritedFromDescriptionLocators{
+    HdLegacyDisplayStyleSchema::GetDefaultLocator(),
+    HdSelectionsSchema::GetDefaultLocator(),
+    HdMaterialBindingsSchema::GetDefaultLocator()};
 HdDataSourceLocatorSet const& InheritedFromDescriptionLocators() {
-    static HdDataSourceLocatorSet const locators{
-        HdLegacyDisplayStyleSchema::GetDefaultLocator(),
-        HdSelectionsSchema::GetDefaultLocator(),
-        HdMaterialBindingsSchema::GetDefaultLocator()};
-    return locators;
+    return s_inheritedFromDescriptionLocators;
 }
+HdDataSourceLocatorSet const s_universalLocators = HdDataSourceLocatorSet::UniversalSet();
+HdDataSourceLocatorSet const s_noLocators;
 
 // refineLevel of a prim-level container, or -1 when it states no opinion.
 int RefineLevelOf(HdContainerDataSourceHandle const& container) {
@@ -318,14 +323,12 @@ char const* DormantReason(HdSceneIndexBase const& input, HdSceneIndexPrim const&
 // Overlaid on a hidden groom's tiles and scalp-shadow cap. The tiles keep the
 // visibility they were cooked with, and a dormant groom is not re-cooked just
 // to bake a new one.
-HdContainerDataSourceHandle const& HiddenOverlay() {
-    static HdContainerDataSourceHandle const hidden = HdRetainedContainerDataSource::New(
-        HdVisibilitySchema::GetSchemaToken(),
-        HdVisibilitySchema::Builder()
-            .SetVisibility(HdRetainedTypedSampledDataSource<bool>::New(false))
-            .Build());
-    return hidden;
-}
+HdContainerDataSourceHandle const s_hiddenOverlay = HdRetainedContainerDataSource::New(
+    HdVisibilitySchema::GetSchemaToken(),
+    HdVisibilitySchema::Builder()
+        .SetVisibility(HdRetainedTypedSampledDataSource<bool>::New(false))
+        .Build());
+HdContainerDataSourceHandle const& HiddenOverlay() { return s_hiddenOverlay; }
 
 // Whether an expression or native operator reads the live frame/time.
 bool DescReadsTime(Desc const& desc) {
@@ -606,108 +609,109 @@ struct UsdGenGroomSceneIndex::_Ingress {
 };
 
 namespace {
+// A one-shot latch parked on a word (parkingWord.h).
+struct ParkLatch {
+    std::atomic<uint32_t> open{0};
+    void Open() {
+        open.store(1, std::memory_order_release);
+        usdGen::UsdGenUnparkAll(open);
+    }
+    void Wait() {
+        while (!open.load(std::memory_order_acquire)) usdGen::UsdGenParkWhileEqual(open, 0);
+    }
+};
 // Test-only gates exercise the final-reference -> cleanup-enqueue gap. They
 // allocate no production wait path: a deleter consults them only when armed.
 struct TestFinalDeleterGate {
-    tbb::flow::graph entered, release;
+    ParkLatch entered, release;
     std::atomic<bool> claimed{false};
-    TestFinalDeleterGate() { entered.reserve_wait(); release.reserve_wait(); }
     void Pause() {
-        entered.release_wait();
-        release.wait_for_all();
+        entered.Open();
+        release.Wait();
     }
 };
 struct TestDrainWaitGate {
-    tbb::flow::graph entered;
-    std::atomic<bool> signaled{false};
-    TestDrainWaitGate() { entered.reserve_wait(); }
-    void Signal() { if (!signaled.exchange(true)) entered.release_wait(); }
+    ParkLatch entered;
+    void Signal() { entered.Open(); }
 };
-std::shared_ptr<TestFinalDeleterGate> s_testFinalDeleterGate;
-std::shared_ptr<TestDrainWaitGate> s_testDrainWaitGate;
+::usdGenImaging::UsdGenAtomicShared<TestFinalDeleterGate> s_testFinalDeleterGate;
+::usdGenImaging::UsdGenAtomicShared<TestDrainWaitGate> s_testDrainWaitGate;
 }
 
 // Constructed after the store: scenes close before store/retirement teardown.
 // Every scene has its OWN pipeline on the shared runtime.
 struct UsdGenSceneService {
     struct RetirementRecord {
-        std::unique_ptr<tbb::flow::graph> completion{new tbb::flow::graph};
+        std::atomic<uint32_t> completion{0};  // 1 once Done; waiters park on it
         std::atomic<bool> pending{true};
+        // Set before Erase removes the entry, so a racing Register backs out.
+        std::atomic<bool> erased{false};
         static std::atomic<uint64_t> liveCount;
-        RetirementRecord() { liveCount.fetch_add(1, std::memory_order_relaxed); completion->reserve_wait(); }
-        ~RetirementRecord() { if (completion) Done(); liveCount.fetch_sub(1, std::memory_order_relaxed); }
-        void Done() { if (pending.exchange(false)) completion->release_wait(); }
-        void Wait() { completion->wait_for_all(); }
+        RetirementRecord() { liveCount.fetch_add(1, std::memory_order_relaxed); }
+        ~RetirementRecord() { Done(); liveCount.fetch_sub(1, std::memory_order_relaxed); }
+        void Done() {
+            if (!pending.exchange(false)) return;
+            completion.store(1, std::memory_order_release);
+            usdGen::UsdGenUnparkAll(completion);
+        }
+        void Wait() {
+            while (!completion.load(std::memory_order_acquire))
+                usdGen::UsdGenParkWhileEqual(completion, 0);
+        }
         // Called only with a strong live State after all its work is gone.
-        // A public static handle can then outlive framework static teardown.
-        void Disarm() { Done(); completion.reset(); }
+        void Disarm() { Done(); }
     };
     struct Entry {
         std::weak_ptr<UsdGenGroomSceneIndex::_State> state;
         std::shared_ptr<RetirementRecord> retirement;
     };
+    using Entries = std::vector<Entry>;
     usdGen::UsdGenExecutionRuntime runtime{8};
+    // State destruction can wait during Pipeline shutdown, so it runs on
+    // `cleanup` (unlimited), never inline on the final-reference thread.
     tbb::flow::graph retirement;
     tbb::flow::function_node<std::function<void()>> cleanup;
-    // State destruction can wait during Pipeline shutdown, so it stays on
-    // `cleanup` (unlimited).  This separate serial actor owns only the short
-    // registration map mutations; no application mutex protects it.
-    tbb::flow::graph registryGraph;
-    tbb::flow::function_node<std::function<void()>> registry;
-    std::map<RetirementRecord*, Entry> states;
-    std::shared_ptr<const std::vector<Entry>> playbackEntries =
-        std::make_shared<const std::vector<Entry>>();
+    // Registered scenes: a copy-on-write vector installed by CAS. Readers
+    // (playback status, drains, counts) load it and never wait.
+    ::usdGenImaging::UsdGenAtomicShared<Entries const> registered{std::make_shared<Entries const>()};
     std::atomic<uint64_t> playbackLifecycle{0}, playbackLive{0};
-    void PublishPlaybackEntries() {
-        auto next = std::make_shared<std::vector<Entry>>();
-        for (auto const& entry : states) next->push_back(entry.second);
-        std::atomic_store(&playbackEntries,
-            std::shared_ptr<const std::vector<Entry>>(std::move(next)));
-    }
     UsdGenSceneService() : cleanup(retirement, tbb::flow::unlimited,
-        [](std::function<void()> action) { action(); return tbb::flow::continue_msg{}; }),
-        registry(registryGraph, 1,
         [](std::function<void()> action) { action(); return tbb::flow::continue_msg{}; }) {}
     ~UsdGenSceneService();
     void Retire(std::function<void()> action) {
         if (!cleanup.try_put(std::move(action))) std::terminate();
     }
     void Register(Entry entry) {
-        if (!registry.try_put([this, entry=std::move(entry)]() mutable {
-            // Done is set only by the serial erase after State deletion, so
-            // this retains the final-reference -> cleanup-enqueue gap.
-            if (entry.retirement->pending.load(std::memory_order_acquire))
-                states[entry.retirement.get()] = std::move(entry);
-            PublishPlaybackEntries();
-        })) std::terminate();
+        RetirementRecord* const record = entry.retirement.get();
+        ::usdGenImaging::UsdGenCowUpdateIf(registered, [&](Entries& e) {
+            // Done is set only by Erase after State deletion, so this
+            // retains the final-reference -> cleanup-enqueue gap.
+            if (!record->pending.load(std::memory_order_acquire)) return false;
+            e.push_back(entry);
+            return true;
+        });
+        // An Erase that removed before this insert landed: back it out.
+        if (record->erased.load()) Remove(record);
     }
     void Erase(std::shared_ptr<RetirementRecord> record) {
-        if (!registry.try_put([this, record=std::move(record)] {
-            states.erase(record.get());
-            PublishPlaybackEntries();
-            // A Drain wait returning now also guarantees a following
-            // registry snapshot cannot retain this completed entry.
-            record->Done();
-        })) std::terminate();
+        record->erased.store(true);
+        Remove(record.get());
+        // A Drain wait returning now also guarantees a following
+        // registry snapshot cannot retain this completed entry.
+        record->Done();
     }
-    std::vector<Entry> Snapshot() {
-        struct Reply {
-            tbb::flow::graph done;
-            std::vector<Entry> entries;
-            std::exception_ptr error;
-            Reply() { done.reserve_wait(); }
-        };
-        auto reply = std::make_shared<Reply>();
-        if (!registry.try_put([this, reply] {
-            try {
-                reply->entries.reserve(states.size());
-                for (auto const& entry : states) reply->entries.push_back(entry.second);
-            } catch (...) { reply->error = std::current_exception(); }
-            reply->done.release_wait();
-        })) std::terminate();
-        reply->done.wait_for_all();
-        if (reply->error) std::rethrow_exception(reply->error);
-        return std::move(reply->entries);
+    void Remove(RetirementRecord* record) {
+        ::usdGenImaging::UsdGenCowUpdateIf(registered, [&](Entries& e) {
+            auto const end = std::remove_if(e.begin(), e.end(),
+                [&](Entry const& entry) { return entry.retirement.get() == record; });
+            if (end == e.end()) return false;
+            e.erase(end, e.end());
+            return true;
+        });
+    }
+    Entries Snapshot() const {
+        auto const current = registered.Load();
+        return current ? *current : Entries{};
     }
     void Barrier() { (void)Snapshot(); }
     size_t RetainedStateCount() { return Snapshot().size(); }
@@ -724,6 +728,7 @@ struct UsdGenSceneService {
 };
 std::atomic<uint64_t> UsdGenSceneService::RetirementRecord::liveCount{0};
 namespace {
+std::atomic<UsdGenSceneService*> s_sceneService{nullptr};
 UsdGenSceneService& SceneService() {
     (void)::usdGenImaging::UsdGenSessionStore::GetInstance();
     // Intentionally leaked, like the process-lifetime registries in
@@ -747,8 +752,7 @@ UsdGenSceneService& SceneService() {
     // reclaims the mapping at process death. Scenes torn down while the
     // process is live are unaffected -- they retire through the actors as
     // before, with the workers running.
-    static UsdGenSceneService* service = new UsdGenSceneService;
-    return *service;
+    return ::usdGenImaging::UsdGenLazyLeaked(s_sceneService);
 }
 }
 
@@ -897,8 +901,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
             }
             // What a frontend showing `shown` must dirty to reach this value.
             HdDataSourceLocatorSet const& DirtySince(uint64_t shown) const {
-                static HdDataSourceLocatorSet const all = HdDataSourceLocatorSet::UniversalSet();
-                return shown >= since ? locators : all;
+                return shown >= since ? locators : s_universalLocators;
             }
         };
         std::shared_ptr<const std::map<SdfPath, SourceValue>> source;
@@ -908,13 +911,13 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
     };
     // catalog is owner-written/capture-read. visible is only installed by
     // the serialized Hydra frontend immediately before its matching notice.
-    std::shared_ptr<const Snapshot> catalog = std::make_shared<const Snapshot>();
-    std::shared_ptr<const Snapshot> visible = std::make_shared<const Snapshot>();
+    ::usdGenImaging::UsdGenAtomicShared<const Snapshot> catalog{std::make_shared<const Snapshot>()};
+    ::usdGenImaging::UsdGenAtomicShared<const Snapshot> visible{std::make_shared<const Snapshot>()};
     // The owner replaces this single presentation target.  There is no
     // historical notice queue: a stalled async consumer retains at most the
     // newest immutable snapshot and the frontend computes its complete delta
     // from the snapshot it actually displayed.
-    std::shared_ptr<const Snapshot> pending;
+    ::usdGenImaging::UsdGenAtomicShared<const Snapshot> pending;
     HdSceneIndexBasePtr recipient; // initialized before admission; weak
     usdGen::UsdGenExecutionSequenceWindow sequences;
     std::atomic<bool> closing{false};
@@ -983,8 +986,8 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
             throw std::runtime_error("usdGen groom owner requires command capacity for shutdown");
     }
     ~_State() { if (owner) owner->Shutdown(); }
-    auto SnapshotValue() const { return std::atomic_load(&catalog); }
-    auto VisibleSnapshot() const { return std::atomic_load(&visible); }
+    auto SnapshotValue() const { return catalog.Load(); }
+    auto VisibleSnapshot() const { return visible.Load(); }
     // The scalp-shadow caps shown, by lattice: what they were built from and
     // the data sources built, so a snapshot whose caps did not change reuses
     // them instead of summing and packing ~10^5 points again. Owner-thread only,
@@ -1104,13 +1107,13 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         }
         ShowScalpShadows(next->members);
         auto result = std::shared_ptr<const Snapshot>(std::move(next));
-        std::atomic_store(&catalog, result);
+        catalog.Store(result);
         return result;
     }
     void QueuePublication(Added = {}, Removed = {}, Dirtied = {}) {
-        // Atomic shared_ptr exchange releases every superseded snapshot (and
-        // its TileMap owners) immediately when no reader still holds it.
-        std::atomic_store(&pending, PublishSnapshot());
+        // The exchange releases every superseded snapshot (and its TileMap
+        // owners) immediately when no reader still holds it.
+        pending.Store(PublishSnapshot());
     }
     bool Post(Pipeline::CommandTicket&& ticket, std::function<void()> command,
               std::function<void()> onCancel = {}) {
@@ -1821,10 +1824,9 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
             // that stamp, and those synthetic dirties stay on the drain -- but
             // no locators are left for the drain to forward again.  Dirties
             // recorded earlier and not yet shown are kept (Dirty accumulates).
-            static HdDataSourceLocatorSet const delivered;
             for (auto const& dirty : forwardDirtied) {
                 HdDataSourceLocatorSet const& locators =
-                    packet.dirtiedDelivered ? delivered : dirty.dirtyLocators;
+                    packet.dirtiedDelivered ? s_noLocators : dirty.dirtyLocators;
                 if (dirty.primPath == SdfPath::AbsoluteRootPath()) {
                     rootValue.Dirty(seq, locators, shown->rootValue.stamp);
                     continue;
@@ -2045,11 +2047,10 @@ UsdGenSceneService::~UsdGenSceneService() {
         state->quiesced.store(true, std::memory_order_release);
     }
     live.clear();
+    // Cleanup deletion events erase their registration only after State
+    // destruction, on the cleanup lane. Public construction is stopped, so
+    // this exclusive shutdown wait prevents member teardown racing a late erase.
     retirement.wait_for_all();
-    // Cleanup deletion events enqueue their short registry erase only after
-    // State destruction.  Public construction is stopped, so this exclusive
-    // shutdown wait prevents member teardown from racing a late erase.
-    registryGraph.wait_for_all();
     sessions.clear();
     Session::DrainRetired();
 }
@@ -2084,7 +2085,7 @@ void UsdGenSceneService::DrainRetired() {
     // State's final-reference -> enqueue -> deletion completion boundary.
     for (auto const& record : records) {
         if (expired.count(record.get()) && record->pending.load(std::memory_order_acquire))
-            if (auto gate = std::atomic_load(&s_testDrainWaitGate)) gate->Signal();
+            if (auto gate = s_testDrainWaitGate.Load()) gate->Signal();
         record->Wait();
     }
 }
@@ -2107,7 +2108,7 @@ UsdGenGroomSceneIndex::UsdGenGroomSceneIndex(HdSceneIndexBaseRefPtr const& input
             // pipelines/subscriptions have already been removed externally.
             delete state;
         } else {
-            if (auto gate = std::atomic_load(&s_testFinalDeleterGate);
+            if (auto gate = s_testFinalDeleterGate.Load();
                 gate && !gate->claimed.exchange(true)) gate->Pause();
             service.Retire([&service, state, record] {
                 delete state;
@@ -2175,8 +2176,7 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
             // A poll consumes precisely one newest target.  Snapshot diffing
             // here (rather than retaining owner-side notice history) keeps
             // presentation bounded even when a renderer stops polling.
-            auto target = std::atomic_exchange(&_state->pending,
-                std::shared_ptr<const _State::Snapshot>());
+            auto target = _state->pending.Exchange(nullptr);
             if (target) {
                 TRACE_SCOPE("usdGen diff snapshot and notify Hydra");
                 auto before = _state->VisibleSnapshot();
@@ -2488,7 +2488,7 @@ void UsdGenGroomSceneIndex::_DrainPublications(bool waitForIngress, bool explici
                 std::stable_sort(added.begin(), added.end(), [](auto const& a, auto const& b) {
                     return a.primPath.GetPathElementCount() < b.primPath.GetPathElementCount();
                 });
-                std::atomic_store(&_state->visible, target);
+                _state->visible.Store(target);
                 if (TfDebug::IsEnabled(USDGEN_INGRESS))
                     for (auto const& current : target->members) {
                         auto prior = std::find_if(before->members.begin(), before->members.end(),
@@ -3133,15 +3133,15 @@ void UsdGenGroomSceneIndex::_TestDrainOwnerWithoutFrontend() const {
     _state->Synchronize();
 }
 size_t UsdGenGroomSceneIndex::_TestPendingPublicationCount() const {
-    return std::atomic_load(&_state->pending) ? 1 : 0;
+    return _state->pending.Load() ? 1 : 0;
 }
 std::weak_ptr<void const> UsdGenGroomSceneIndex::_TestPendingSnapshotWeak() const {
-    std::shared_ptr<void const> owner = std::atomic_load(&_state->pending);
+    std::shared_ptr<void const> owner = _state->pending.Load();
     return owner;
 }
 std::weak_ptr<void const> UsdGenGroomSceneIndex::_TestPendingTileMapWeak(
     SdfPath const& root) const {
-    auto pending = std::atomic_load(&_state->pending);
+    auto pending = _state->pending.Load();
     if (!pending) return {};
     for (auto const& g : pending->members) if (g.root == root) {
         std::shared_ptr<void const> owner = g.tiles;
@@ -3150,7 +3150,7 @@ std::weak_ptr<void const> UsdGenGroomSceneIndex::_TestPendingTileMapWeak(
     return {};
 }
 int64_t UsdGenGroomSceneIndex::_TestPendingPublishedGeneration(SdfPath const& root) const {
-    auto pending = std::atomic_load(&_state->pending);
+    auto pending = _state->pending.Load();
     if (!pending) return -1;
     for (auto const& g : pending->members) if (g.root == root) return g.generation;
     return -1;
@@ -3196,7 +3196,7 @@ std::string UsdGenGroomSceneIndex::PlaybackStatusJson(std::string const& selecto
     auto& service = SceneService();
     uint64_t const lifecycle = service.playbackLifecycle.load(std::memory_order_acquire);
     uint64_t const liveCount = service.playbackLive.load(std::memory_order_acquire);
-    auto entries = std::atomic_load(&service.playbackEntries);
+    auto entries = service.registered.Load();
     std::vector<std::shared_ptr<_State>> live, relevant;
     for (auto const& entry : *entries) if (auto state = entry.state.lock()) {
         if (state->closing.load(std::memory_order_acquire)) continue;
@@ -3326,23 +3326,23 @@ uint64_t UsdGenGroomSceneIndex::_TestRetirementRecordCount() {
 }
 void UsdGenGroomSceneIndex::_TestSceneServiceBarrier() { SceneService().Barrier(); }
 void UsdGenGroomSceneIndex::_TestArmFinalDeleterPause() {
-    std::atomic_store(&s_testFinalDeleterGate, std::make_shared<TestFinalDeleterGate>());
+    s_testFinalDeleterGate.Store(std::make_shared<TestFinalDeleterGate>());
 }
 void UsdGenGroomSceneIndex::_TestWaitFinalDeleterPause() {
-    if (auto gate = std::atomic_load(&s_testFinalDeleterGate)) gate->entered.wait_for_all();
+    if (auto gate = s_testFinalDeleterGate.Load()) gate->entered.Wait();
 }
 void UsdGenGroomSceneIndex::_TestReleaseFinalDeleterPause() {
-    if (auto gate = std::atomic_load(&s_testFinalDeleterGate)) gate->release.release_wait();
-    std::atomic_store(&s_testFinalDeleterGate, std::shared_ptr<TestFinalDeleterGate>());
+    if (auto gate = s_testFinalDeleterGate.Load()) gate->release.Open();
+    s_testFinalDeleterGate.Store(nullptr);
 }
 void UsdGenGroomSceneIndex::_TestArmDrainWait() {
-    std::atomic_store(&s_testDrainWaitGate, std::make_shared<TestDrainWaitGate>());
+    s_testDrainWaitGate.Store(std::make_shared<TestDrainWaitGate>());
 }
 void UsdGenGroomSceneIndex::_TestWaitDrainWait() {
-    if (auto gate = std::atomic_load(&s_testDrainWaitGate)) gate->entered.wait_for_all();
+    if (auto gate = s_testDrainWaitGate.Load()) gate->entered.Wait();
 }
 void UsdGenGroomSceneIndex::_TestReleaseDrainWait() {
-    std::atomic_store(&s_testDrainWaitGate, std::shared_ptr<TestDrainWaitGate>());
+    s_testDrainWaitGate.Store(nullptr);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
