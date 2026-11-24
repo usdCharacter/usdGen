@@ -8,7 +8,6 @@
 #include "usdGen/limitSurface.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/furOcclusion.h"
-#include "usdGen/ops/deform.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
@@ -2927,28 +2926,29 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
     std::vector<UsdGenTilePublication> const& tiles) const
 {
     auto const& terminal = _graph.Node(_graph.TerminalNodeId());
-    auto const* deform = dynamic_cast<UsdGenDeformOp const*>(terminal.op.get());
-    if (!deform || !terminal.desc || !terminal.desc->enabled ||
-        (!terminal.desc->mode.IsEmpty() && terminal.desc->mode != TfToken("rbf")) || terminal.inputs.size() != 1 ||
-        !terminal.desc->curves.empty() || !terminal.desc->references.empty() ||
-        !terminal.desc->expressionBindings.empty() || !terminal.desc->maps.empty() ||
-        !terminal.desc->mapBindings.empty() ||
-        terminal.surface >= _desc.surfaces.size() ||
-        terminal.paramView.GetBool(TfToken("lockRoots"), true) ||
-        terminal.paramView.GetDouble(TfToken("mask"), 1.0) != 1.0 ||
-        !terminal.outputPrimvars.empty() || deform->AnimationSamples().empty()) return {};
-    // Only a static styling stack followed by one surface-driven RBF can
-    // retain its upstream geometry while the surface poses.
+    if (!terminal.op || !terminal.record || !terminal.desc) return {};
+    auto const makeBinding = terminal.record->Def().hooks.makeAnimationBinding;
+    if (!makeBinding) return {};
+    UsdGenAnimationBindingQuery query;
+    query.terminalDesc = terminal.desc;
+    query.terminalParams = &terminal.paramView;
+    query.surface = terminal.surface < _desc.surfaces.size() ? &_desc.surfaces[terminal.surface] : nullptr;
+    query.terminalInputCount = uint32_t(terminal.inputs.size());
+    query.terminalHasOutputPlanes = !terminal.outputPrimvars.empty();
+    query.graphStatic = true;
     for (int i = 0; i != _graph.NodeCount(); ++i) {
         auto const& node = _graph.Node(i);
-        if (!node.op || node.op->ReadsTime() || !node.desc->expressionBindings.empty()) return {};
-        if (&node != &terminal && node.op->Type() == TfToken("UsdGenDeform")) return {};
-        for (auto const& param : node.desc->params) if (param.animated) return {};
+        if (!node.op || !node.record || node.record->Has(kUsdGenOpReadsTime) ||
+            !node.desc->expressionBindings.empty())
+            query.graphStatic = false;
+        else
+            for (auto const& param : node.desc->params) if (param.animated) query.graphStatic = false;
+        if (node.opId == terminal.opId) ++query.nodesWithTerminalOp;
     }
-    auto binding = std::make_shared<UsdGenRbfAnimationBinding>();
-    binding->surface = _desc.surfaces[terminal.surface].path;
-    binding->sampleIndices = deform->AnimationSamples();
-    binding->field = deform->AnimationField();
+    UsdGenRbfAnimationBinding fields;
+    if (!makeBinding(query, *terminal.op, &fields) || !query.surface) return {};
+    auto binding = std::make_shared<UsdGenRbfAnimationBinding>(std::move(fields));
+    binding->surface = query.surface->path;
     auto restResult = result;
     restResult.terminalOutput = &_graph.Node(terminal.inputs.front()).buffer;
     for (auto const& tv : result.tiles) {

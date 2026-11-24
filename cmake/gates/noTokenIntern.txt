@@ -21,7 +21,6 @@ libs/usdGen/usdGen/ops/smooth.h 1
 libs/usdGen/usdGen/ops/straighten.h 1
 libs/usdGen/usdGen/ops/wave.h 1
 libs/usdGen/usdGen/registries/token.cpp 1
-libs/usdGen/usdGen/sessionCooker.cpp 4
 libs/usdGen/usdGen/vulkan/exprVkParameters.cpp 1
 libs/usdGen/usdGen/vulkan/exprVkProgram.cpp 1
 libs/usdGen/usdGen/vulkan/sourceWidthJob.cpp 1

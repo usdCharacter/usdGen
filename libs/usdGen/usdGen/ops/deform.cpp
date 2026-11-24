@@ -27,6 +27,7 @@
 
 #include "usdGen/opParams.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/rbfAnimation.h"
 #include "usdGen/scheduler.h"
 
 #include "pxr/base/gf/matrix4d.h"
@@ -54,7 +55,7 @@ using namespace deformP;
 using D = expr::Domain;
 const TfToken sGuides{"guides"};   // ReferenceInputs() until S4-8
 constexpr char const *kRefs[] = {"guides"};
-constexpr char const *kTokens[] = {"curveWrap", "usdGen:regionMap", "periodic"};
+constexpr char const *kTokens[] = {"curveWrap", "usdGen:regionMap", "periodic", "rbf"};
 constexpr UsdGenExprAdmission kBoolGroom{expr::ScalarType::Bool, 1, "bool", D::Groom};
 constexpr UsdGenExprAdmission kBoolRoot{expr::ScalarType::Bool, 1, "bool", D::Groom | D::Primitive};
 constexpr UsdGenExprAdmission kIntGroom{expr::ScalarType::Int32, 1, "int", D::Groom};
@@ -972,6 +973,33 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
     }
 }
 
+namespace {
+
+// Only a static styling stack followed by one surface-driven RBF can retain
+// its upstream geometry while the surface poses (the tail-deform binding).
+bool MakeAnimationBinding(UsdGenAnimationBindingQuery const &q, UsdGenOp const &op,
+                          UsdGenRbfAnimationBinding *out)
+{
+    UsdGenNodeDesc const *n = q.terminalDesc;
+    UsdGenParamView const *p = q.terminalParams;
+    if (!n || !p || !p->op || !out || !n->enabled) return false;
+    if (!n->mode.IsEmpty() && n->mode != p->op->Token(kTokRbf)) return false;
+    if (q.terminalInputCount != 1 || !n->curves.empty() || !n->references.empty() ||
+        !n->expressionBindings.empty() || !n->maps.empty() || !n->mapBindings.empty() ||
+        !q.surface || p->GetBool(kLockRoots, true) || p->GetDouble(kMask, 1.0) != 1.0 ||
+        q.terminalHasOutputPlanes)
+        return false;
+    // The hook is registered on Deform only, so the terminal op is one.
+    auto const &deform = static_cast<UsdGenDeformOp const &>(op);
+    if (deform.AnimationSamples().empty() || !q.graphStatic || q.nodesWithTerminalOp != 1)
+        return false;
+    out->sampleIndices = deform.AnimationSamples();
+    out->field = deform.AnimationField();
+    return true;
+}
+
+}  // namespace
+
 UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &r)
 {
     UsdGenOpDef d;
@@ -984,7 +1012,7 @@ UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &r)
     d.referenceInputs = UsdGenSpan(kRefs);
     d.mapSlots = UsdGenSpan(kMaps);
     d.tokens = UsdGenSpan(kTokens);
-    // 4a-2 adds d.hooks.makeAnimationBinding
+    d.hooks.makeAnimationBinding = &MakeAnimationBinding;
     return r.RegisterOp(d);
 }
 
