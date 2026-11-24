@@ -3324,7 +3324,7 @@ set_tests_properties(testUsdGenGroomExamples PROPERTIES
 
 # Restructure step 4 guards: the CPU lane's output of record and the op
 # contract snapshot. Both compare against tests/golden/*.txt byte for byte.
-foreach(_t testUsdGenOutputGoldens)
+foreach(_t testUsdGenOutputGoldens testUsdGenOpContracts)
     add_executable(${_t} tests/${_t}.cpp tests/golden/goldenGraphs.cpp)
     target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
     target_include_directories(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

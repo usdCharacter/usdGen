@@ -1,0 +1,879 @@
+# testUsdGenOpContracts: the engine's view of every registered op.
+# Never edit by hand; USDGEN_GOLDEN_WRITE=1 rewrites.
+UsdGenBend static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenBend referenceInputs -
+UsdGenBend inputPlanes -
+UsdGenBend routedType UsdGenBend
+UsdGenBend topologyParameters input,surface,seed,axisMode
+UsdGenBend valueParameters enabled,angle,angle:knots,angle:interpolation,angleRandom,axis,mask
+UsdGenBend routing input=0x80,surface=0x80,seed=0x2,axisMode=0x80,enabled=0x1,angle=0x1,angle:knots=0x1,angle:interpolation=0x1,angleRandom=0x1,axis=0x1,mask=0x1
+UsdGenBend digest axisMode
+UsdGenBend configure[fallbacks] - planes=0x1
+UsdGenBend configure[angle:interpolation=linear] - planes=0x1
+UsdGenBend configure[angle:interpolation=catmullRom] - planes=0x1
+UsdGenBend configure[angle:interpolation=bspline] - planes=0x1
+UsdGenBend configure[angle:interpolation=constant] - planes=0x1
+UsdGenBend configure[axisMode=rootDirection] - planes=0x1
+UsdGenBend configure[axisMode=uniform] - planes=0x1
+UsdGenBend configure[axisMode=attribute] - planes=0x1
+UsdGenBend expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr axisMode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr angle bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenBend expr angle:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr angle:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBend expr angleRandom bool=--- int=--- float=--- float2=GP- vector3f=---
+UsdGenBend expr axis bool=--- int=--- float=--- float2=--- vector3f=GP-
+UsdGenBend expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenBend expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenBraid referenceInputs guides
+UsdGenBraid inputPlanes -
+UsdGenBraid routedType UsdGenBraid
+UsdGenBraid topologyParameters input,surface,seed,braid:frequency,braid:width,braid:flatness,braid:knotTightness,braid:fadeIn,braid:fadeOut,braid:rootSpread,braid:tipSpread,braid:tailLength,braid:tailRelax,braid:tailCinch,braid:referenceLength,braid:root,braid:mid,braid:midShift,braid:tip,braid:amount,braid:flyaway:fraction,braid:flyaway:amount,braid:knotMask
+UsdGenBraid valueParameters enabled,mask
+UsdGenBraid routing input=0x80,surface=0x80,seed=0x2,braid:frequency=0x2,braid:width=0x2,braid:flatness=0x2,braid:knotTightness=0x2,braid:fadeIn=0x2,braid:fadeOut=0x2,braid:rootSpread=0x2,braid:tipSpread=0x2,braid:tailLength=0x2,braid:tailRelax=0x2,braid:tailCinch=0x2,braid:referenceLength=0x2,braid:root=0x2,braid:mid=0x2,braid:midShift=0x2,braid:tip=0x2,braid:amount=0x2,braid:flyaway:fraction=0x2,braid:flyaway:amount=0x2,braid:knotMask=0x2,enabled=0x1,mask=0x1
+UsdGenBraid digest -
+UsdGenBraid configure[fallbacks] clumpId_0,braidKnotMask planes=0x1
+UsdGenBraid expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:frequency bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:width bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:flatness bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:knotTightness bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:fadeIn bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:fadeOut bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:rootSpread bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:tipSpread bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:tailLength bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:tailRelax bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:tailCinch bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:referenceLength bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:root bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:mid bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:midShift bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:tip bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:flyaway:fraction bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:flyaway:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr braid:knotMask bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenBraid expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenBraid expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource static topoFx=CurveCount role=Curves arity=0 ordered=0 generator=1 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenCardSource referenceInputs cards,cardStrands
+UsdGenCardSource inputPlanes -
+UsdGenCardSource routedType UsdGenCardSource
+UsdGenCardSource topologyParameters input,surface,seed,enabled,cards,cardStrands,cardSource:layer,cardSource:uvId,cardSource:tile,cardSource:braid,cardSource:amount,cardSource:rootFlatten,cardSource:smooth,cardSource:maxStrands,cardSource:braidWidth,cardSource:braidFlatness,cvCount
+UsdGenCardSource valueParameters -
+UsdGenCardSource routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,cards=0x2,cardStrands=0x2,cardSource:layer=0x2,cardSource:uvId=0x2,cardSource:tile=0x2,cardSource:braid=0x2,cardSource:amount=0x2,cardSource:rootFlatten=0x2,cardSource:smooth=0x2,cardSource:maxStrands=0x2,cardSource:braidWidth=0x2,cardSource:braidFlatness=0x2,cvCount=0x2
+UsdGenCardSource digest -
+UsdGenCardSource configure[fallbacks] cardIndex,strandIndex,strandSeed planes=0x0
+UsdGenCardSource expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr enabled bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cards bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardStrands bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:layer bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:uvId bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:tile bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:braid bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:rootFlatten bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:smooth bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:maxStrands bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:braidWidth bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cardSource:braidFlatness bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr cvCount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCardSource expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenClump referenceInputs guides
+UsdGenClump inputPlanes -
+UsdGenClump routedType UsdGenClump
+UsdGenClump topologyParameters input,surface,seed,clump:amount,clump:map,clump:density,clump:size,clump:levels,clump:level,clump:sizeReduction,clump:tightnessReduction,clump:method,clump:profile:knots,clump:profile:interpolation,clump:stray:amount,clump:stray:rate,clump:stray:falloff,preserveLength,guides,clump:centers,clump:count,clump:profile:mode,clump:root,clump:mid,clump:midShift,clump:tip,clump:flyaway:fraction,clump:flyaway:amount,clump:sub:enabled,clump:sub:count,clump:sub:spread,clump:sub:amount,clump:sub:ids,clump:overrides,clump:overrideCount
+UsdGenClump valueParameters enabled,mask
+UsdGenClump routing input=0x80,surface=0x80,seed=0x2,clump:amount=0x2,clump:map=0x2,clump:density=0x2,clump:size=0x2,clump:levels=0x80,clump:level=0x80,clump:sizeReduction=0x2,clump:tightnessReduction=0x2,clump:method=0x2,clump:profile:knots=0x2,clump:profile:interpolation=0x2,clump:stray:amount=0x2,clump:stray:rate=0x2,clump:stray:falloff=0x2,preserveLength=0x2,guides=0x80,clump:centers=0x2,clump:count=0x2,clump:profile:mode=0x2,clump:root=0x2,clump:mid=0x2,clump:midShift=0x2,clump:tip=0x2,clump:flyaway:fraction=0x2,clump:flyaway:amount=0x2,clump:sub:enabled=0x2,clump:sub:count=0x2,clump:sub:spread=0x2,clump:sub:amount=0x2,clump:sub:ids=0x2,clump:overrides=0x2,clump:overrideCount=0x2,enabled=0x1,mask=0x1
+UsdGenClump digest clump:levels,clump:level
+UsdGenClump configure[fallbacks] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:centers=density] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:centers=count] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:centers=guides] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:centers=guideSeeded] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:method=linearBlend] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:method=extrudeAndBlend] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:profile:interpolation=linear] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:profile:interpolation=catmullRom] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:profile:interpolation=bspline] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:profile:interpolation=constant] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:profile:mode=ramp] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:profile:mode=bezier] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:level=-1,clump:levels=0] compile-failed
+UsdGenClump configure[clump:level=-1,clump:levels=1] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:level=-1,clump:levels=2] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0,clumpId_1,clumpCenter_1,clumpCenterId_1,clumpWeight_1 planes=0x1
+UsdGenClump configure[clump:level=-1,clump:levels=4] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0,clumpId_1,clumpCenter_1,clumpCenterId_1,clumpWeight_1,clumpId_2,clumpCenter_2,clumpCenterId_2,clumpWeight_2,clumpId_3,clumpCenter_3,clumpCenterId_3,clumpWeight_3 planes=0x1
+UsdGenClump configure[clump:level=-1,clump:levels=5] compile-failed
+UsdGenClump configure[clump:level=0,clump:levels=0] compile-failed
+UsdGenClump configure[clump:level=0,clump:levels=1] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0 planes=0x1
+UsdGenClump configure[clump:level=0,clump:levels=2] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0,clumpId_1,clumpCenter_1,clumpCenterId_1,clumpWeight_1 planes=0x1
+UsdGenClump configure[clump:level=0,clump:levels=4] clumpId_0,clumpCenter_0,clumpCenterId_0,clumpWeight_0,clumpId_1,clumpCenter_1,clumpCenterId_1,clumpWeight_1,clumpId_2,clumpCenter_2,clumpCenterId_2,clumpWeight_2,clumpId_3,clumpCenter_3,clumpCenterId_3,clumpWeight_3 planes=0x1
+UsdGenClump configure[clump:level=0,clump:levels=5] compile-failed
+UsdGenClump configure[clump:level=3,clump:levels=0] compile-failed
+UsdGenClump configure[clump:level=3,clump:levels=1] clumpId_3,clumpCenter_3,clumpCenterId_3,clumpWeight_3 planes=0x1
+UsdGenClump configure[clump:level=3,clump:levels=2] clumpId_3,clumpCenter_3,clumpCenterId_3,clumpWeight_3,clumpId_4,clumpCenter_4,clumpCenterId_4,clumpWeight_4 planes=0x1
+UsdGenClump configure[clump:level=3,clump:levels=4] clumpId_3,clumpCenter_3,clumpCenterId_3,clumpWeight_3,clumpId_4,clumpCenter_4,clumpCenterId_4,clumpWeight_4,clumpId_5,clumpCenter_5,clumpCenterId_5,clumpWeight_5,clumpId_6,clumpCenter_6,clumpCenterId_6,clumpWeight_6 planes=0x1
+UsdGenClump configure[clump:level=3,clump:levels=5] compile-failed
+UsdGenClump configure[after a 2-level Clump] clumpId_2,clumpCenter_2,clumpCenterId_2,clumpWeight_2 planes=0x1
+UsdGenClump expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:amount bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenClump expr clump:map bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenClump expr clump:density bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:size bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:levels bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:level bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:sizeReduction bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:tightnessReduction bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:method bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:profile:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:profile:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:stray:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:stray:rate bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:stray:falloff bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr preserveLength bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenClump expr guides bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:centers bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:count bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:profile:mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:root bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:mid bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:midShift bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:tip bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:flyaway:fraction bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:flyaway:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:sub:enabled bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:sub:count bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:sub:spread bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:sub:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:sub:ids bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:overrides bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr clump:overrideCount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenClump expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenClump expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=1 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenCollide referenceInputs -
+UsdGenCollide inputPlanes -
+UsdGenCollide routedType UsdGenCollide
+UsdGenCollide topologyParameters input,surface,seed,colliders,resolveType,deepPenetrationMode
+UsdGenCollide valueParameters enabled,mask,offset,pushAmount,iterations,cutDepthThreshold,cutBlendDepth,clearance:root,clearance:tip,relax:iterations
+UsdGenCollide routing input=0x80,surface=0x80,seed=0x2,colliders=0x2,resolveType=0x80,deepPenetrationMode=0x2,enabled=0x1,mask=0x1,offset=0x1,pushAmount=0x1,iterations=0x1,cutDepthThreshold=0x1,cutBlendDepth=0x1,clearance:root=0x1,clearance:tip=0x1,relax:iterations=0x1
+UsdGenCollide digest resolveType
+UsdGenCollide configure[fallbacks] - planes=0x1
+UsdGenCollide configure[deepPenetrationMode=collide] - planes=0x1
+UsdGenCollide configure[deepPenetrationMode=cutThenCollide] - planes=0x3
+UsdGenCollide configure[resolveType=flexible] - planes=0x1
+UsdGenCollide configure[resolveType=stiff] - planes=0x1
+UsdGenCollide configure[resolveType=relax] collideUnresolved planes=0x1
+UsdGenCollide expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr colliders bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr resolveType bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr deepPenetrationMode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenCollide expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenCollide expr offset bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenCollide expr pushAmount bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenCollide expr iterations bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenCollide expr cutDepthThreshold bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenCollide expr cutBlendDepth bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenCollide expr clearance:root bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenCollide expr clearance:tip bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenCollide expr relax:iterations bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenCollide expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenCurl referenceInputs -
+UsdGenCurl inputPlanes -
+UsdGenCurl routedType UsdGenCurl
+UsdGenCurl topologyParameters input,surface,seed,axisMode
+UsdGenCurl valueParameters enabled,radius,radius:knots,radius:interpolation,frequency,phase,phaseRandom,taper,clockwise,mask
+UsdGenCurl routing input=0x80,surface=0x80,seed=0x2,axisMode=0x80,enabled=0x1,radius=0x1,radius:knots=0x1,radius:interpolation=0x1,frequency=0x1,phase=0x1,phaseRandom=0x1,taper=0x1,clockwise=0x1,mask=0x1
+UsdGenCurl digest axisMode
+UsdGenCurl configure[fallbacks] - planes=0x1
+UsdGenCurl configure[axisMode=curveTangent] - planes=0x1
+UsdGenCurl configure[axisMode=guide] - planes=0x1
+UsdGenCurl configure[radius:interpolation=linear] - planes=0x1
+UsdGenCurl configure[radius:interpolation=catmullRom] - planes=0x1
+UsdGenCurl configure[radius:interpolation=bspline] - planes=0x1
+UsdGenCurl configure[radius:interpolation=constant] - planes=0x1
+UsdGenCurl expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr axisMode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr radius bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenCurl expr radius:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr radius:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr frequency bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenCurl expr phase bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenCurl expr phaseRandom bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenCurl expr taper bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr clockwise bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenCurl expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenCurl expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource static topoFx=CurveCount role=Curves arity=0 ordered=0 generator=1 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenCurveSource referenceInputs -
+UsdGenCurveSource inputPlanes -
+UsdGenCurveSource routedType UsdGenCurveSource
+UsdGenCurveSource topologyParameters input,surface,seed,enabled,mode,useRest,usdGen:useRest,interpolationMode,densityMultiplier,regionMapChannel,expectMapGeneration,resampleTo,idSource,staleAction,expectEpoch,rebind
+UsdGenCurveSource valueParameters -
+UsdGenCurveSource routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,mode=0x2,useRest=0x2,usdGen:useRest=0x2,interpolationMode=0x2,densityMultiplier=0x2,regionMapChannel=0x2,expectMapGeneration=0x2,resampleTo=0x2,idSource=0x2,staleAction=0x2,expectEpoch=0x2,rebind=0x2
+UsdGenCurveSource digest -
+UsdGenCurveSource configure[fallbacks] - planes=0x7
+UsdGenCurveSource configure[idSource=primvar] - planes=0x7
+UsdGenCurveSource configure[idSource=index] - planes=0x7
+UsdGenCurveSource configure[interpolationMode=none] - planes=0x7
+UsdGenCurveSource configure[interpolationMode=surfaceCage] - planes=0x7
+UsdGenCurveSource configure[rebind=never] - planes=0x7
+UsdGenCurveSource configure[rebind=onError] - planes=0x7
+UsdGenCurveSource configure[rebind=always] - planes=0x7
+UsdGenCurveSource configure[staleAction=warn] - planes=0x7
+UsdGenCurveSource configure[staleAction=ignore] - planes=0x7
+UsdGenCurveSource configure[staleAction=block] - planes=0x7
+UsdGenCurveSource expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr enabled bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr useRest bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr usdGen:useRest bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr interpolationMode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr densityMultiplier bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr regionMapChannel bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr expectMapGeneration bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr resampleTo bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr idSource bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr staleAction bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr expectEpoch bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr rebind bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenCurveSource expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenDeform referenceInputs guides
+UsdGenDeform inputPlanes -
+UsdGenDeform routedType UsdGenDeform
+UsdGenDeform topologyParameters input,surface,seed,rbfSamples,mode,regionMap,guideRegions
+UsdGenDeform valueParameters enabled,lockRoots,mask
+UsdGenDeform routing input=0x80,surface=0x80,seed=0x2,rbfSamples=0x2,mode=0x2,regionMap=0x2,guideRegions=0x2,enabled=0x1,lockRoots=0x1,mask=0x1
+UsdGenDeform digest -
+UsdGenDeform configure[fallbacks] - planes=0x1
+UsdGenDeform configure[mode=] - planes=0x1
+UsdGenDeform configure[mode=curveWrap] - planes=0x1
+UsdGenDeform expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr rbfSamples bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenDeform expr mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr regionMap bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr guideRegions bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr lockRoots bool=GP- int=--- float=--- float2=--- vector3f=---
+UsdGenDeform expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDeform expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenDirection referenceInputs direction:source
+UsdGenDirection inputPlanes -
+UsdGenDirection routedType UsdGenDirection
+UsdGenDirection topologyParameters input,surface,seed,mode,direction:source
+UsdGenDirection valueParameters enabled,direction,amount,lift,tiltU,tiltV,tiltN,aroundN,followSkinContour,direction:knots,direction:interpolation,mask
+UsdGenDirection routing input=0x80,surface=0x80,seed=0x2,mode=0x80,direction:source=0x80,enabled=0x1,direction=0x1,amount=0x1,lift=0x1,tiltU=0x1,tiltV=0x1,tiltN=0x1,aroundN=0x1,followSkinContour=0x1,direction:knots=0x1,direction:interpolation=0x1,mask=0x1
+UsdGenDirection digest mode,direction:source
+UsdGenDirection configure[fallbacks] - planes=0x1
+UsdGenDirection configure[direction:interpolation=linear] - planes=0x1
+UsdGenDirection configure[direction:interpolation=catmullRom] - planes=0x1
+UsdGenDirection configure[direction:interpolation=bspline] - planes=0x1
+UsdGenDirection configure[direction:interpolation=constant] - planes=0x1
+UsdGenDirection configure[mode=rigid] - planes=0x1
+UsdGenDirection configure[mode=perSegment] - planes=0x1
+UsdGenDirection expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr direction:source bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr direction bool=--- int=--- float=--- float2=--- vector3f=GP-
+UsdGenDirection expr amount bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenDirection expr lift bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenDirection expr tiltU bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenDirection expr tiltV bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenDirection expr tiltN bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenDirection expr aroundN bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenDirection expr followSkinContour bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenDirection expr direction:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr direction:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDirection expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDirection expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDisplace static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenDisplace referenceInputs -
+UsdGenDisplace inputPlanes -
+UsdGenDisplace routedType UsdGenDisplace
+UsdGenDisplace topologyParameters input,surface,seed,mode,displace:map
+UsdGenDisplace valueParameters enabled,mask,displace:amount,displace:base,displace:scale,displace:offset
+UsdGenDisplace routing input=0x80,surface=0x80,seed=0x2,mode=0x80,displace:map=0x80,enabled=0x1,mask=0x1,displace:amount=0x1,displace:base=0x1,displace:scale=0x1,displace:offset=0x1
+UsdGenDisplace digest mode,displace:map
+UsdGenDisplace configure[fallbacks] - planes=0x1
+UsdGenDisplace configure[mode=height] - planes=0x1
+UsdGenDisplace configure[mode=vector] - planes=0x1
+UsdGenDisplace expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDisplace expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDisplace expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDisplace expr mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenDisplace expr displace:map bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenDisplace expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenDisplace expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDisplace expr displace:amount bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDisplace expr displace:base bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDisplace expr displace:scale bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDisplace expr displace:offset bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenDisplace expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenExprOp referenceInputs -
+UsdGenExprOp inputPlanes -
+UsdGenExprOp routedType UsdGenExprOp
+UsdGenExprOp topologyParameters input,surface,seed,mode,expr:returnType,expr:source,expr:maps
+UsdGenExprOp valueParameters enabled,mask
+UsdGenExprOp routing input=0x80,surface=0x80,seed=0x2,mode=0x80,expr:returnType=0x80,expr:source=0x2,expr:maps=0x80,enabled=0x1,mask=0x1
+UsdGenExprOp digest mode,expr:returnType,expr:maps
+UsdGenExprOp configure[fallbacks] - planes=0x3
+UsdGenExprOp configure[expr:returnType=displacement] - planes=0x3
+UsdGenExprOp configure[expr:returnType=width] - planes=0x3
+UsdGenExprOp configure[expr:returnType=color] - planes=0x3
+UsdGenExprOp configure[mode=cv] - planes=0x3
+UsdGenExprOp configure[mode=curve] - planes=0x3
+UsdGenExprOp expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr expr:returnType bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr expr:source bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr expr:maps bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenExprOp expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenExprOp expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze static topoFx=CurveCount role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenFreeze referenceInputs frozen:curves
+UsdGenFreeze inputPlanes -
+UsdGenFreeze routedType UsdGenFreeze
+UsdGenFreeze topologyParameters input,surface,seed,enabled,frozen:curves,frozen:mode,frozen:epoch
+UsdGenFreeze valueParameters frozen:tier
+UsdGenFreeze routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,frozen:curves=0x80,frozen:mode=0x80,frozen:epoch=0x2,frozen:tier=0x1
+UsdGenFreeze digest frozen:curves,frozen:mode
+UsdGenFreeze configure[fallbacks] - planes=0x3
+UsdGenFreeze configure[frozen:mode=frozen] - planes=0x3
+UsdGenFreeze configure[frozen:mode=live] - planes=0x3
+UsdGenFreeze configure[frozen:tier=session] - planes=0x3
+UsdGenFreeze configure[frozen:tier=sublayer] - planes=0x3
+UsdGenFreeze configure[frozen:tier=payload] - planes=0x3
+UsdGenFreeze expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr enabled bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr frozen:curves bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr frozen:mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr frozen:epoch bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr frozen:tier bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFreeze expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenFrizz referenceInputs -
+UsdGenFrizz inputPlanes -
+UsdGenFrizz routedType UsdGenFrizz
+UsdGenFrizz topologyParameters input,surface,seed,frizz:amplitude,frizz:wavesX,frizz:wavesZ,frizz:noise,frizz:noiseSize,frizz:sharpness,frizz:root,frizz:mid,frizz:midShift,frizz:tip,frizz:useClumpIds,frizz:preserveKnots
+UsdGenFrizz valueParameters enabled,mask
+UsdGenFrizz routing input=0x80,surface=0x80,seed=0x2,frizz:amplitude=0x2,frizz:wavesX=0x2,frizz:wavesZ=0x2,frizz:noise=0x2,frizz:noiseSize=0x2,frizz:sharpness=0x2,frizz:root=0x2,frizz:mid=0x2,frizz:midShift=0x2,frizz:tip=0x2,frizz:useClumpIds=0x2,frizz:preserveKnots=0x2,enabled=0x1,mask=0x1
+UsdGenFrizz digest -
+UsdGenFrizz configure[fallbacks] - planes=0x1
+UsdGenFrizz expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:amplitude bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:wavesX bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:wavesZ bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:noise bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:noiseSize bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:sharpness bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:root bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:mid bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:midShift bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:tip bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:useClumpIds bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr frizz:preserveKnots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenFrizz expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenFrizz expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGrow static topoFx=CvCount role=Curves arity=1 ordered=0 generator=1 readsTime=0 samplesFrameInputs=0 captureDigestComplete=1 remapsVertexPlanes=0
+UsdGenGrow referenceInputs -
+UsdGenGrow inputPlanes -
+UsdGenGrow routedType UsdGenGrow
+UsdGenGrow topologyParameters input,surface,seed,enabled,segments,direction,length,lengthRandom
+UsdGenGrow valueParameters directionVector,lift,azimuth,azimuthRandom
+UsdGenGrow routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,segments=0x80,direction=0x80,length=0x2,lengthRandom=0x2,directionVector=0x1,lift=0x1,azimuth=0x1,azimuthRandom=0x1
+UsdGenGrow digest segments,direction
+UsdGenGrow configure[fallbacks] - planes=0x7
+UsdGenGrow configure[direction=surfaceNormal] - planes=0x7
+UsdGenGrow configure[direction=vector] - planes=0x7
+UsdGenGrow expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGrow expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGrow expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGrow expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenGrow expr segments bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenGrow expr direction bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGrow expr length bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenGrow expr lengthRandom bool=--- int=--- float=--- float2=GP- vector3f=---
+UsdGenGrow expr directionVector bool=--- int=--- float=--- float2=--- vector3f=GP-
+UsdGenGrow expr lift bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenGrow expr azimuth bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenGrow expr azimuthRandom bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenGrow expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate static topoFx=CvCount role=Curves arity=1 ordered=0 generator=1 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenGuideInterpolate referenceInputs guides
+UsdGenGuideInterpolate inputPlanes -
+UsdGenGuideInterpolate routedType UsdGenGuideInterpolate
+UsdGenGuideInterpolate topologyParameters input,surface,seed,enabled,guides,regionMap,cvCount,maxGuides,influenceRadius,influenceDecay,maxGuideAngle,blendMethod,blendInSkinSpace,useUniqueGuide,randomizeGuide,regionCrossover,region,weighting,tightness,bendFollow,defaultLength,part:points,part:counts,part:normals,part:amount,part:angle,part:radius,part:distance
+UsdGenGuideInterpolate valueParameters -
+UsdGenGuideInterpolate routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,guides=0x80,regionMap=0x2,cvCount=0x2,maxGuides=0x2,influenceRadius=0x2,influenceDecay=0x2,maxGuideAngle=0x2,blendMethod=0x2,blendInSkinSpace=0x2,useUniqueGuide=0x2,randomizeGuide=0x2,regionCrossover=0x2,region=0x2,weighting=0x2,tightness=0x2,bendFollow=0x2,defaultLength=0x2,part:points=0x2,part:counts=0x2,part:normals=0x2,part:amount=0x2,part:angle=0x2,part:radius=0x2,part:distance=0x2
+UsdGenGuideInterpolate digest -
+UsdGenGuideInterpolate configure[fallbacks] - planes=0x7
+UsdGenGuideInterpolate configure[blendMethod=linearBlend] - planes=0x7
+UsdGenGuideInterpolate configure[blendMethod=extrudeAndBlend] - planes=0x7
+UsdGenGuideInterpolate configure[weighting=falloff] - planes=0x7
+UsdGenGuideInterpolate configure[weighting=nearest] - planes=0x7
+UsdGenGuideInterpolate configure[weighting=inverseDistance] - planes=0x7
+UsdGenGuideInterpolate configure[weighting=gaussian] - planes=0x7
+UsdGenGuideInterpolate expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr guides bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr regionMap bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr cvCount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr maxGuides bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr influenceRadius bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr influenceDecay bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr maxGuideAngle bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr blendMethod bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr blendInSkinSpace bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr useUniqueGuide bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr randomizeGuide bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr regionCrossover bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr region bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenGuideInterpolate expr weighting bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr tightness bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr bendFollow bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr defaultLength bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:points bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:counts bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:normals bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:angle bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:radius bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr part:distance bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenGuideInterpolate expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength static topoFx=CurveCount role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenLength referenceInputs -
+UsdGenLength inputPlanes -
+UsdGenLength routedType UsdGenLength
+UsdGenLength topologyParameters input,surface,seed,enabled,length:mode,length:method,rebuild,length:value,length:random,minRemainingLength,cullThreshold,length:min,length:max,length:randomize,length:shareByClump,length:followClumpMean
+UsdGenLength valueParameters mask
+UsdGenLength routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,length:mode=0x80,length:method=0x80,rebuild=0x80,length:value=0x2,length:random=0x2,minRemainingLength=0x2,cullThreshold=0x4,length:min=0x2,length:max=0x2,length:randomize=0x2,length:shareByClump=0x2,length:followClumpMean=0x2,mask=0x1
+UsdGenLength digest length:mode,length:method,rebuild
+UsdGenLength configure[fallbacks] - planes=0x1
+UsdGenLength configure[length:method=scale] - planes=0x1
+UsdGenLength configure[length:method=cutExtend] - planes=0x1
+UsdGenLength configure[length:mode=set] - planes=0x1
+UsdGenLength configure[length:mode=scale] - planes=0x1
+UsdGenLength configure[length:mode=cull] - planes=0x1
+UsdGenLength configure[length:mode=randomRange] restLength planes=0x1
+UsdGenLength configure[rebuild=keepParam] - planes=0x1
+UsdGenLength configure[rebuild=reparam] - planes=0x1
+UsdGenLength expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:method bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr rebuild bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:value bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenLength expr length:random bool=--- int=--- float=--- float2=GP- vector3f=---
+UsdGenLength expr minRemainingLength bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenLength expr cullThreshold bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenLength expr length:min bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:max bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:randomize bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:shareByClump bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr length:followClumpMean bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenLength expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenLength expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=1 remapsVertexPlanes=0
+UsdGenNoise referenceInputs -
+UsdGenNoise inputPlanes -
+UsdGenNoise routedType UsdGenNoise
+UsdGenNoise topologyParameters input,surface,seed
+UsdGenNoise valueParameters enabled,noise:magnitude,noise:magnitude:knots,noise:magnitude:interpolation,noise:frequency,noise:correlation,noise:octaves,noise:lacunarity,noise:gain,cumulative,preserveLength,mask
+UsdGenNoise routing input=0x80,surface=0x80,seed=0x2,enabled=0x1,noise:magnitude=0x1,noise:magnitude:knots=0x1,noise:magnitude:interpolation=0x1,noise:frequency=0x1,noise:correlation=0x1,noise:octaves=0x1,noise:lacunarity=0x1,noise:gain=0x1,cumulative=0x1,preserveLength=0x1,mask=0x1
+UsdGenNoise digest -
+UsdGenNoise configure[fallbacks] - planes=0x1
+UsdGenNoise configure[noise:magnitude:interpolation=linear] - planes=0x1
+UsdGenNoise configure[noise:magnitude:interpolation=catmullRom] - planes=0x1
+UsdGenNoise configure[noise:magnitude:interpolation=bspline] - planes=0x1
+UsdGenNoise configure[noise:magnitude:interpolation=constant] - planes=0x1
+UsdGenNoise expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr noise:magnitude bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr noise:magnitude:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr noise:magnitude:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr noise:frequency bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr noise:correlation bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr noise:octaves bool=--- int=GPT float=--- float2=--- vector3f=---
+UsdGenNoise expr noise:lacunarity bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr noise:gain bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr cumulative bool=GP- int=--- float=--- float2=--- vector3f=---
+UsdGenNoise expr preserveLength bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenNoise expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenPart static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenPart referenceInputs part:curves
+UsdGenPart inputPlanes -
+UsdGenPart routedType UsdGenPart
+UsdGenPart topologyParameters input,surface,seed,part:curves,part:radius
+UsdGenPart valueParameters enabled,part:strength,mask
+UsdGenPart routing input=0x80,surface=0x80,seed=0x2,part:curves=0x80,part:radius=0x2,enabled=0x1,part:strength=0x1,mask=0x1
+UsdGenPart digest part:curves
+UsdGenPart configure[fallbacks] partId planes=0x0
+UsdGenPart expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenPart expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenPart expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenPart expr part:curves bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenPart expr part:radius bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenPart expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenPart expr part:strength bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenPart expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenPart expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenReferenceSource static topoFx=CurveCount role=Reference arity=0 ordered=0 generator=1 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenReferenceSource referenceInputs reference
+UsdGenReferenceSource inputPlanes -
+UsdGenReferenceSource routedType UsdGenReferenceSource
+UsdGenReferenceSource topologyParameters -
+UsdGenReferenceSource valueParameters -
+UsdGenReferenceSource routing -
+UsdGenReferenceSource digest -
+UsdGenReferenceSource configure[fallbacks] - planes=0x0
+UsdGenReferenceSource expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenResample static topoFx=CvCount role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenResample referenceInputs -
+UsdGenResample inputPlanes -
+UsdGenResample routedType UsdGenResample
+UsdGenResample topologyParameters input,surface,seed,cvCount,distribution,restoreSegmentLengths,spacing
+UsdGenResample valueParameters enabled,mask
+UsdGenResample routing input=0x80,surface=0x80,seed=0x2,cvCount=0x2,distribution=0x80,restoreSegmentLengths=0x2,spacing=0x2,enabled=0x1,mask=0x1
+UsdGenResample digest distribution
+UsdGenResample configure[fallbacks] - planes=0x7
+UsdGenResample configure[distribution=uniform] - planes=0x7
+UsdGenResample configure[distribution=keepParam] - planes=0x7
+UsdGenResample expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr cvCount bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenResample expr distribution bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr restoreSegmentLengths bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr spacing bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenResample expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenResample expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScale static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenScale referenceInputs -
+UsdGenScale inputPlanes -
+UsdGenScale routedType UsdGenScale
+UsdGenScale topologyParameters input,surface,seed,widthToo
+UsdGenScale valueParameters enabled,scale,scale:knots,scale:interpolation,scaleRandom,mask
+UsdGenScale routing input=0x80,surface=0x80,seed=0x2,widthToo=0x2,enabled=0x1,scale=0x1,scale:knots=0x1,scale:interpolation=0x1,scaleRandom=0x1,mask=0x1
+UsdGenScale digest -
+UsdGenScale configure[fallbacks] - planes=0x3
+UsdGenScale configure[scale:interpolation=linear] - planes=0x3
+UsdGenScale configure[scale:interpolation=catmullRom] - planes=0x3
+UsdGenScale configure[scale:interpolation=bspline] - planes=0x3
+UsdGenScale configure[scale:interpolation=constant] - planes=0x3
+UsdGenScale expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr widthToo bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr scale bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenScale expr scale:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr scale:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScale expr scaleRandom bool=--- int=--- float=--- float2=GP- vector3f=---
+UsdGenScale expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenScale expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter static topoFx=CurveCount role=Curves arity=0 ordered=0 generator=1 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenScatter referenceInputs guides
+UsdGenScatter inputPlanes -
+UsdGenScatter routedType UsdGenScatter
+UsdGenScatter topologyParameters input,surface,seed,enabled,density,flip,subdivisionLevel,distribution,countMode,proximity:mode,proximity:distance,proximity:coverage,guides,densityMap
+UsdGenScatter valueParameters -
+UsdGenScatter routing input=0x80,surface=0x80,seed=0x2,enabled=0x6,density=0x2,flip=0x2,subdivisionLevel=0x2,distribution=0x2,countMode=0x2,proximity:mode=0x2,proximity:distance=0x2,proximity:coverage=0x2,guides=0x80,densityMap=0x2
+UsdGenScatter digest -
+UsdGenScatter configure[fallbacks] - planes=0x5
+UsdGenScatter configure[countMode=perFace] - planes=0x5
+UsdGenScatter configure[countMode=surface] - planes=0x5
+UsdGenScatter configure[distribution=random] - planes=0x5
+UsdGenScatter configure[distribution=even] - planes=0x5
+UsdGenScatter configure[distribution=uvGrid] - planes=0x5
+UsdGenScatter configure[distribution=vertex] - planes=0x5
+UsdGenScatter configure[distribution=perGuide] - planes=0x5
+UsdGenScatter configure[proximity:mode=none] - planes=0x5
+UsdGenScatter configure[proximity:mode=distance] - planes=0x5
+UsdGenScatter configure[proximity:mode=coverage] - planes=0x5
+UsdGenScatter expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr enabled bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr density bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr flip bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr subdivisionLevel bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr distribution bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr countMode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr proximity:mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr proximity:distance bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr proximity:coverage bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr guides bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr densityMap bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenScatter expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenSculptLayer referenceInputs -
+UsdGenSculptLayer inputPlanes -
+UsdGenSculptLayer routedType UsdGenSculptLayer
+UsdGenSculptLayer topologyParameters input,surface,seed,sculpt:space,sculpt:curveIds,sculpt:cvOffsets,sculpt:epoch,sculpt:lockedCurves,sculpt:rootPrims,sculpt:rootUVs
+UsdGenSculptLayer valueParameters enabled,mask,sculpt:weight,sculpt:deltas
+UsdGenSculptLayer routing input=0x80,surface=0x80,seed=0x2,sculpt:space=0x80,sculpt:curveIds=0x2,sculpt:cvOffsets=0x2,sculpt:epoch=0x2,sculpt:lockedCurves=0x2,sculpt:rootPrims=0x2,sculpt:rootUVs=0x2,enabled=0x1,mask=0x1,sculpt:weight=0x1,sculpt:deltas=0x1
+UsdGenSculptLayer digest sculpt:space
+UsdGenSculptLayer configure[fallbacks] - planes=0x1
+UsdGenSculptLayer configure[sculpt:space=rootFrame] - planes=0x1
+UsdGenSculptLayer configure[sculpt:space=object] - planes=0x1
+UsdGenSculptLayer expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:space bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:curveIds bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:cvOffsets bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:epoch bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:lockedCurves bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:rootPrims bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:rootUVs bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:weight bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenSculptLayer expr sculpt:deltas bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSculptLayer expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenSmooth referenceInputs -
+UsdGenSmooth inputPlanes -
+UsdGenSmooth routedType UsdGenSmooth
+UsdGenSmooth topologyParameters input,surface,seed,mode,searchRadius,numNeighbors
+UsdGenSmooth valueParameters enabled,strength,iterations,lockRoot,mask,window
+UsdGenSmooth routing input=0x80,surface=0x80,seed=0x2,mode=0x80,searchRadius=0x2,numNeighbors=0x2,enabled=0x1,strength=0x1,iterations=0x1,lockRoot=0x1,mask=0x1,window=0x1
+UsdGenSmooth digest mode
+UsdGenSmooth configure[fallbacks] - planes=0x1
+UsdGenSmooth configure[mode=alongCurve] - planes=0x1
+UsdGenSmooth configure[mode=neighbours] - planes=0x1
+UsdGenSmooth configure[mode=box] - planes=0x1
+UsdGenSmooth expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr searchRadius bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenSmooth expr numNeighbors bool=--- int=GP- float=--- float2=--- vector3f=---
+UsdGenSmooth expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr strength bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenSmooth expr iterations bool=--- int=G-- float=--- float2=--- vector3f=---
+UsdGenSmooth expr lockRoot bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenSmooth expr window bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenSmooth expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenStraighten static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenStraighten referenceInputs -
+UsdGenStraighten inputPlanes -
+UsdGenStraighten routedType UsdGenStraighten
+UsdGenStraighten topologyParameters input,surface,seed
+UsdGenStraighten valueParameters enabled,tangentStraightness,normalStraightness,mask
+UsdGenStraighten routing input=0x80,surface=0x80,seed=0x2,enabled=0x1,tangentStraightness=0x1,normalStraightness=0x1,mask=0x1
+UsdGenStraighten digest -
+UsdGenStraighten configure[fallbacks] - planes=0x1
+UsdGenStraighten expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenStraighten expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenStraighten expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenStraighten expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenStraighten expr tangentStraightness bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenStraighten expr normalStraightness bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenStraighten expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenStraighten expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenTieClump referenceInputs guides
+UsdGenTieClump inputPlanes -
+UsdGenTieClump routedType UsdGenTieClump
+UsdGenTieClump topologyParameters input,surface,seed,guides,tie:amount,tie:spread,tie:positions,tie:entryCounts,tie:guideIndices,tie:vertexIndices
+UsdGenTieClump valueParameters enabled,mask
+UsdGenTieClump routing input=0x80,surface=0x80,seed=0x2,guides=0x80,tie:amount=0x2,tie:spread=0x2,tie:positions=0x2,tie:entryCounts=0x2,tie:guideIndices=0x2,tie:vertexIndices=0x2,enabled=0x1,mask=0x1
+UsdGenTieClump digest -
+UsdGenTieClump configure[fallbacks] - planes=0x1
+UsdGenTieClump expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr guides bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr tie:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr tie:spread bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr tie:positions bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr tie:entryCounts bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr tie:guideIndices bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr tie:vertexIndices bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenTieClump expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenTieClump expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenTrim referenceInputs trim:curves
+UsdGenTrim inputPlanes -
+UsdGenTrim routedType UsdGenTrim
+UsdGenTrim topologyParameters input,surface,seed,trim:angle,trim:invert,trim:distance,trim:normalSearch
+UsdGenTrim valueParameters enabled,mask
+UsdGenTrim routing input=0x80,surface=0x80,seed=0x2,trim:angle=0x2,trim:invert=0x2,trim:distance=0x2,trim:normalSearch=0x2,enabled=0x1,mask=0x1
+UsdGenTrim digest -
+UsdGenTrim configure[fallbacks] - planes=0x1
+UsdGenTrim expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr trim:angle bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr trim:invert bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr trim:distance bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr trim:normalSearch bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenTrim expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenTrim expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenTwist referenceInputs -
+UsdGenTwist inputPlanes -
+UsdGenTwist routedType UsdGenTwist
+UsdGenTwist topologyParameters input,surface,seed,twist:amount,twist:root,twist:mid,twist:midShift,twist:tip,twist:noise,twist:useClumpIds,twist:resnapRoot
+UsdGenTwist valueParameters enabled,mask
+UsdGenTwist routing input=0x80,surface=0x80,seed=0x2,twist:amount=0x2,twist:root=0x2,twist:mid=0x2,twist:midShift=0x2,twist:tip=0x2,twist:noise=0x2,twist:useClumpIds=0x2,twist:resnapRoot=0x2,enabled=0x1,mask=0x1
+UsdGenTwist digest -
+UsdGenTwist configure[fallbacks] - planes=0x1
+UsdGenTwist expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:amount bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:root bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:mid bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:midShift bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:tip bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:noise bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:useClumpIds bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr twist:resnapRoot bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenTwist expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenTwist expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWave static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenWave referenceInputs -
+UsdGenWave inputPlanes -
+UsdGenWave routedType UsdGenWave
+UsdGenWave topologyParameters input,surface,seed
+UsdGenWave valueParameters enabled,frequencyU,frequencyN,amplitudeU,amplitudeN,mask
+UsdGenWave routing input=0x80,surface=0x80,seed=0x2,enabled=0x1,frequencyU=0x1,frequencyN=0x1,amplitudeU=0x1,amplitudeN=0x1,mask=0x1
+UsdGenWave digest -
+UsdGenWave configure[fallbacks] - planes=0x1
+UsdGenWave expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWave expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWave expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWave expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenWave expr frequencyU bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWave expr frequencyN bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWave expr amplitudeU bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWave expr amplitudeN bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWave expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWave expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenWidth referenceInputs -
+UsdGenWidth inputPlanes -
+UsdGenWidth routedType UsdGenWidth
+UsdGenWidth topologyParameters input,surface,seed,replace
+UsdGenWidth valueParameters enabled,width,width:knots,width:interpolation,width:profile:mode,width:root,width:mid,width:midShift,width:tip,mask
+UsdGenWidth routing input=0x80,surface=0x80,seed=0x2,replace=0x80,enabled=0x1,width=0x1,width:knots=0x1,width:interpolation=0x1,width:profile:mode=0x1,width:root=0x1,width:mid=0x1,width:midShift=0x1,width:tip=0x1,mask=0x1
+UsdGenWidth digest replace
+UsdGenWidth configure[fallbacks] - planes=0x2
+UsdGenWidth configure[width:interpolation=linear] - planes=0x2
+UsdGenWidth configure[width:interpolation=catmullRom] - planes=0x2
+UsdGenWidth configure[width:interpolation=bspline] - planes=0x2
+UsdGenWidth configure[width:interpolation=constant] - planes=0x2
+UsdGenWidth configure[width:profile:mode=ramp] - planes=0x2
+UsdGenWidth configure[width:profile:mode=bezier] - planes=0x2
+UsdGenWidth expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr replace bool=GPT int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWidth expr width:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width:profile:mode bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width:root bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width:mid bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width:midShift bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr width:tip bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidth expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWidth expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidthBlend static topoFx=None role=Curves arity=2 ordered=1 generator=0 readsTime=0 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenWidthBlend referenceInputs -
+UsdGenWidthBlend inputPlanes -
+UsdGenWidthBlend routedType UsdGenWidthBlend
+UsdGenWidthBlend topologyParameters -
+UsdGenWidthBlend valueParameters enabled,widthBlend:weight
+UsdGenWidthBlend routing enabled=0x1,widthBlend:weight=0x1
+UsdGenWidthBlend digest enabled(compile-failed)
+UsdGenWidthBlend configure[fallbacks] - planes=0x2
+UsdGenWidthBlend expr enabled bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidthBlend expr widthBlend:weight bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWidthBlend expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWind static topoFx=None role=Curves arity=1 ordered=0 generator=0 readsTime=1 samplesFrameInputs=0 captureDigestComplete=0 remapsVertexPlanes=0
+UsdGenWind referenceInputs -
+UsdGenWind inputPlanes -
+UsdGenWind routedType UsdGenWind
+UsdGenWind topologyParameters input,surface,seed
+UsdGenWind valueParameters enabled,direction,constStrength,gustStrength,billowLowStrength,billowLowFrequency,billowLowRate,billowHighStrength,billowHighFrequency,billowHighRate,stiffness,stiffness:knots,stiffness:interpolation,mask
+UsdGenWind routing input=0x80,surface=0x80,seed=0x2,enabled=0x1,direction=0x1,constStrength=0x1,gustStrength=0x1,billowLowStrength=0x1,billowLowFrequency=0x1,billowLowRate=0x1,billowHighStrength=0x1,billowHighFrequency=0x1,billowHighRate=0x1,stiffness=0x1,stiffness:knots=0x1,stiffness:interpolation=0x1,mask=0x1
+UsdGenWind digest -
+UsdGenWind configure[fallbacks] - planes=0x1
+UsdGenWind configure[stiffness:interpolation=linear] - planes=0x1
+UsdGenWind configure[stiffness:interpolation=catmullRom] - planes=0x1
+UsdGenWind configure[stiffness:interpolation=bspline] - planes=0x1
+UsdGenWind configure[stiffness:interpolation=constant] - planes=0x1
+UsdGenWind expr input bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWind expr surface bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWind expr seed bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWind expr enabled bool=G-- int=--- float=--- float2=--- vector3f=---
+UsdGenWind expr direction bool=--- int=--- float=--- float2=--- vector3f=GP-
+UsdGenWind expr constStrength bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenWind expr gustStrength bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenWind expr billowLowStrength bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenWind expr billowLowFrequency bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenWind expr billowLowRate bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenWind expr billowHighStrength bool=--- int=--- float=GP- float2=--- vector3f=---
+UsdGenWind expr billowHighFrequency bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenWind expr billowHighRate bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenWind expr stiffness bool=--- int=--- float=G-- float2=--- vector3f=---
+UsdGenWind expr stiffness:knots bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWind expr stiffness:interpolation bool=--- int=--- float=--- float2=--- vector3f=---
+UsdGenWind expr mask bool=--- int=--- float=GPT float2=--- vector3f=---
+UsdGenWind expr bogus bool=--- int=--- float=--- float2=--- vector3f=---
