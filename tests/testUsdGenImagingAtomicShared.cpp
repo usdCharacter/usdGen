@@ -11,14 +11,17 @@
 //   2. 64 threads Load/Store/Exchange/CAS on one cell; every value carries a
 //      canary, and every value is destroyed exactly once.
 //   3. UsdGenCowUpdate from 64 threads loses no update.
-//   4. UsdGenLazyLeaked from 64 threads installs exactly one object and
-//      destroys none.
+//   4. UsdGenLazyLeaked from 64 threads constructs exactly one object (the
+//      racers park until it is published) and destroys none; a throwing
+//      make reopens the slot for the next caller.
 
 #include "usdGen/sharedCell.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -159,7 +162,13 @@ void CowUpdate()
 }
 
 struct Lazy {
-    Lazy() { made.fetch_add(1); }
+    Lazy()
+    {
+        made.fetch_add(1);
+        // Widen the race: a slow constructor (a thread pool, say) is where
+        // a speculative build would start a second one.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
     ~Lazy() { freed.fetch_add(1); }
     static std::atomic<int> made, freed;
 };
@@ -182,7 +191,20 @@ void LazyLeaked()
     bool same = true;
     for (Lazy *p : seen) same = same && p == seen[0];
     Check(same && seen[0] == g_lazy.load(), "every racer gets the installed object");
-    Check(Lazy::made.load() >= 1 && Lazy::freed.load() == 0, "no candidate is destroyed");
+    Check(Lazy::made.load() == 1 && Lazy::freed.load() == 0,
+          "exactly one object is constructed and none destroyed (made " +
+              std::to_string(Lazy::made.load()) + ")");
+
+    std::atomic<Lazy *> slot{nullptr};
+    bool threw = false;
+    try {
+        UsdGenLazyLeaked(slot, []() -> Lazy * { throw std::runtime_error("make failed"); });
+    } catch (std::runtime_error const &) {
+        threw = true;
+    }
+    Check(threw && slot.load() == nullptr, "a throwing make propagates and reopens the slot");
+    Lazy &second = UsdGenLazyLeaked(slot);
+    Check(&second == slot.load() && Lazy::made.load() == 2, "the next caller builds the object");
 }
 
 }  // namespace

@@ -30,6 +30,7 @@
 #include "usdGen/epoch.h"
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <utility>
 
@@ -197,21 +198,52 @@ bool UsdGenCowUpdateIf(UsdGenSharedCell<T const> &cell, Edit &&edit)
     }
 }
 
+/// Sequence word UsdGenLazyLeaked waiters park on (sharedCell.cpp).
+uint32_t UsdGenLazyLeakedSequence() noexcept;
+void UsdGenLazyLeakedPark(uint32_t seen) noexcept;
+void UsdGenLazyLeakedPublished() noexcept;
+
 /// Installs a process-lifetime object into a constant-initialized atomic
-/// pointer by CAS (no function-local static, no guard lock). Nothing it makes
-/// is destroyed, so no destructor that might wait runs at DLL detach or on a
-/// racing loser: a loser's candidate (only when two threads race the first
-/// call) is leaked like the winner.
+/// pointer (no function-local static, no guard lock). Exactly one caller
+/// runs `make`: it claims the slot with a sentinel by CAS, and racing first
+/// callers park on a sequence word until it publishes (a thread that owns
+/// workers is never built twice). Nothing it makes is destroyed, so no
+/// destructor that might wait runs at DLL detach. If `make` throws, the slot
+/// is reopened and the exception propagates. `make` must not re-enter the
+/// same slot. Read the slot only through this function.
 template <class T, class Make>
 T &UsdGenLazyLeaked(std::atomic<T *> &slot, Make &&make)
 {
+    T *const busy = reinterpret_cast<T *>(uintptr_t(1));
     T *p = slot.load(std::memory_order_acquire);
-    if (p) return *p;
-    T *candidate = make();
-    if (slot.compare_exchange_strong(p, candidate, std::memory_order_acq_rel,
-                                     std::memory_order_acquire))
-        return *candidate;
-    return *p;  // lost the race: p holds the winner; candidate stays leaked
+    if (p && p != busy) return *p;
+    for (;;) {
+        p = nullptr;
+        if (slot.compare_exchange_strong(p, busy, std::memory_order_acq_rel,
+                                         std::memory_order_acquire)) {
+            T *made = nullptr;
+            try {
+                made = make();
+            } catch (...) {
+                slot.store(nullptr, std::memory_order_seq_cst);
+                UsdGenLazyLeakedPublished();
+                throw;
+            }
+            slot.store(made, std::memory_order_seq_cst);
+            UsdGenLazyLeakedPublished();
+            return *made;
+        }
+        if (p != busy) return *p;
+        // Read the word before re-checking the slot: a publish in between
+        // changes the word, so the park returns at once.
+        uint32_t const seen = UsdGenLazyLeakedSequence();
+        p = slot.load(std::memory_order_seq_cst);
+        if (p == busy) {
+            UsdGenLazyLeakedPark(seen);
+        } else if (p) {
+            return *p;
+        }
+    }
 }
 
 template <class T>
