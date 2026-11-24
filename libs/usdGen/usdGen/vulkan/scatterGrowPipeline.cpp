@@ -8,15 +8,34 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <atomic>
 #include <new>
+#include <thread>
 
-#include "tbb/parallel_for.h"
-#include "tbb/task_arena.h"
+#include "usdGen/workerPool.h"
 
 namespace usdGen::vulkan {
 namespace {
 constexpr VkDeviceSize kWordBytes = sizeof(uint32_t);
 constexpr uint32_t kLocalSize = 256;
+constexpr size_t kCpuBuildChunks = 8;
+
+// Host build pool: made by the first big build (published by CAS, never
+// destroyed, so nothing joins at exit) and owned by one build at a time,
+// taken by exchange. A concurrent build runs its ranges inline instead;
+// per-curve work is partition-independent, so the bytes are the same.
+std::atomic<UsdGenWorkerPool*> gBuildPool{nullptr};
+std::atomic<bool> gBuildPoolMade{false};
+
+UsdGenWorkerPool* TakeBuildPool() noexcept {
+    if (auto* pool = gBuildPool.exchange(nullptr, std::memory_order_acq_rel)) return pool;
+    if (gBuildPoolMade.exchange(true, std::memory_order_acq_rel)) return nullptr;  // in use
+    try { return new UsdGenWorkerPool(int(kCpuBuildChunks)); }
+    catch (...) { gBuildPoolMade.store(false, std::memory_order_release); return nullptr; }
+}
+void PutBuildPool(UsdGenWorkerPool* pool) noexcept {
+    if (pool) gBuildPool.store(pool, std::memory_order_release);
+}
 
 // SplitMix64 finalizer (UsdGenDraw01/hash.h) — the CUDA Hash64.
 inline uint64_t Hash64(uint64_t key, uint64_t salt) noexcept {
@@ -201,29 +220,40 @@ bool ScatterGrowPipeline::BuildCpu(std::vector<float> const& positions,
         }
         return true;
     };
-    // Threaded over curve ranges for big builds (plain TBB: BuildCpu is
-    // pure host math with no scheduler context): per-curve work is ~20x
-    // a finite scan's few cycles (sqrt + hash + the cv loop), so the
-    // dispatch breakeven sits ~20x below the 32K scan rule. Small builds
-    // keep the serial driver below.
-    int const cpuWorkers = tbb::this_task_arena::max_concurrency();
+    // Threaded over curve ranges for big builds (BuildCpu is pure host
+    // math with no scheduler context, so it uses the build pool above):
+    // per-curve work is ~20x a finite scan's few cycles (sqrt + hash + the
+    // cv loop), so the dispatch breakeven sits ~20x below the 32K scan
+    // rule. Small builds keep the serial driver below.
+    int const cpuWorkers = int(std::thread::hardware_concurrency());
     size_t const cpuChunks =
-        (cpuWorkers > 1 && n > 4096) ? std::min({size_t(cpuWorkers), size_t(8), n})
+        (cpuWorkers > 1 && n > 4096) ? std::min({size_t(cpuWorkers), kCpuBuildChunks, n})
                                      : 1;
     if (cpuChunks == 1) {
         if (!runRange(0, n))
             return bad();
     } else {
-        unsigned char failed[8] = {};
-        tbb::parallel_for(tbb::blocked_range<size_t>(0, cpuChunks),
-            [&](tbb::blocked_range<size_t> const &range) {
-                for (size_t p = range.begin(); p != range.end(); ++p) {
-                    size_t const c0 = (p * n) / cpuChunks;
-                    size_t const c1 = ((p + 1) * n) / cpuChunks;
-                    if (!runRange(c0, c1))
-                        failed[p] = 1;
-                }
-            });
+        unsigned char failed[kCpuBuildChunks] = {};
+        struct Payload {
+            decltype(runRange)* run;
+            unsigned char* failed;
+            size_t n, chunks;
+        } payload{&runRange, failed, n, cpuChunks};
+        auto body = [](size_t p, void* v) {
+            auto* pl = static_cast<Payload*>(v);
+            size_t const c0 = (p * pl->n) / pl->chunks;
+            size_t const c1 = ((p + 1) * pl->n) / pl->chunks;
+            if (!(*pl->run)(c0, c1))
+                pl->failed[p] = 1;
+        };
+        UsdGenWorkerPool* pool = TakeBuildPool();
+        if (pool) {
+            try { pool->ParallelFor(cpuChunks, body, &payload, 1); }
+            catch (...) { PutBuildPool(pool); throw; }
+            PutBuildPool(pool);
+        } else {
+            for (size_t p = 0; p < cpuChunks; ++p) body(p, &payload);
+        }
         for (size_t p = 0; p < cpuChunks; ++p)
             if (failed[p])
                 return bad();
