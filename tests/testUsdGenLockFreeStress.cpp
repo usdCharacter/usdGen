@@ -615,24 +615,36 @@ void SessionSubmitVisibleStress()
 
 }  // namespace
 
+// DIAGNOSTIC (temporary): per-section wall time, flushed as it goes.
+template <class F>
+void UsdGenDiagTimed(char const *name, F &&f)
+{
+    auto const t0 = std::chrono::steady_clock::now();
+    f();
+    double const ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    std::printf("DIAG %s: %.1f ms\n", name, ms);
+    std::fflush(stdout);
+}
+
 int main()
 {
     usdGenRegisterM1Operators();
-    SharedCellStress();
-    CacheStoreStress();
-    LeasedEvictionStress();
-    InvalidateWalkPinned();
-    StaleWithdrawUnpinned();
-    PublishVersusInvalidate();
-    DomainCoalescingStress();
-    MailboxNewestRuns();
-    ReservationStress();
-    SessionSubmitVisibleStress();
+    UsdGenDiagTimed("SharedCellStress", [] { SharedCellStress(); });
+    UsdGenDiagTimed("CacheStoreStress", [] { CacheStoreStress(); });
+    UsdGenDiagTimed("LeasedEvictionStress", [] { LeasedEvictionStress(); });
+    UsdGenDiagTimed("InvalidateWalkPinned", [] { InvalidateWalkPinned(); });
+    UsdGenDiagTimed("StaleWithdrawUnpinned", [] { StaleWithdrawUnpinned(); });
+    UsdGenDiagTimed("PublishVersusInvalidate", [] { PublishVersusInvalidate(); });
+    UsdGenDiagTimed("DomainCoalescingStress", [] { DomainCoalescingStress(); });
+    UsdGenDiagTimed("MailboxNewestRuns", [] { MailboxNewestRuns(); });
+    UsdGenDiagTimed("ReservationStress", [] { ReservationStress(); });
+    UsdGenDiagTimed("SessionSubmitVisibleStress", [] { SessionSubmitVisibleStress(); });
     DrainEpochs();
     if (failures) {
         std::printf("%d failure(s)\n", failures);
         return 1;
     }
     std::puts("PASS");
-    return 0;
+    std::puts("DIAG: forced failure so ctest shows the section times (temporary)");
+    return 1;
 }
