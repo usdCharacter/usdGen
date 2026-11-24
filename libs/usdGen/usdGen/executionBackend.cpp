@@ -2,9 +2,8 @@
 
 #include "usdGen/op.h"
 
+#include <atomic>
 #include <cstring>
-#include <map>
-#include <mutex>
 #include <string>
 #include <utility>
 
@@ -19,15 +18,19 @@ uint32_t UsdGenVulkanCapabilityVersionForBackendContract() noexcept;
 
 namespace {
 
-struct AdapterRegistry {
-    std::mutex mutex;
-    std::map<UsdGenExecutionBackend,
-             std::shared_ptr<const UsdGenExecutionBackendAdapter>> adapters;
+// Frozen backend registry: one slot per backend, claimed once by CAS (the
+// first registration wins) before UsdGenFreezeRegistries; reads are plain
+// acquire loads. Entries live for the process. Constant-initialized and
+// trivially destructible, so nothing runs at DLL detach.
+struct AdapterEntry {
+    std::shared_ptr<const UsdGenExecutionBackendAdapter> adapter;
 };
+constexpr size_t kBackendSlots = 8;
+std::atomic<AdapterEntry *> gAdapters[kBackendSlots] = {};
+std::atomic<bool> gAdaptersFrozen{false};
 
-AdapterRegistry &GetAdapterRegistry() {
-    static auto *registry = new AdapterRegistry;
-    return *registry;
+size_t BackendSlot(UsdGenExecutionBackend backend) noexcept {
+    return static_cast<size_t>(backend) % kBackendSlots;
 }
 
 void SetReason(std::string *reason, char const *message) noexcept {
@@ -89,14 +92,23 @@ bool RegisterUsdGenExecutionBackendAdapter(
         SetReason(reason, "execution backend adapter contract name is not canonical");
         return false;
     }
+    if (gAdaptersFrozen.load(std::memory_order_acquire)) {
+        SetReason(reason, "execution backend registry is frozen");
+        return false;
+    }
+    auto &slot = gAdapters[BackendSlot(contract.backend)];
+    if (slot.load(std::memory_order_acquire)) {
+        SetReason(reason, "execution backend adapter is already registered");
+        return false;
+    }
     try {
-        auto &registry = GetAdapterRegistry();
-        std::lock_guard<std::mutex> lock(registry.mutex);
-        if (registry.adapters.find(contract.backend) != registry.adapters.end()) {
+        auto *entry = new AdapterEntry{std::move(adapter)};
+        AdapterEntry *expected = nullptr;
+        if (!slot.compare_exchange_strong(expected, entry, std::memory_order_acq_rel)) {
+            delete entry;
             SetReason(reason, "execution backend adapter is already registered");
             return false;
         }
-        registry.adapters.emplace(contract.backend, std::move(adapter));
         return true;
     } catch (...) {
         SetReason(reason, "execution backend adapter registration failed");
@@ -104,17 +116,15 @@ bool RegisterUsdGenExecutionBackendAdapter(
     }
 }
 
+void UsdGenFreezeExecutionBackendRegistry() noexcept {
+    gAdaptersFrozen.store(true, std::memory_order_release);
+}
+
 std::shared_ptr<const UsdGenExecutionBackendAdapter>
 FindUsdGenExecutionBackendAdapter(UsdGenExecutionBackend backend) noexcept {
-    try {
-        auto &registry = GetAdapterRegistry();
-        std::lock_guard<std::mutex> lock(registry.mutex);
-        auto const found = registry.adapters.find(backend);
-        return found == registry.adapters.end() ?
-            std::shared_ptr<const UsdGenExecutionBackendAdapter>{} : found->second;
-    } catch (...) {
-        return {};
-    }
+    if (backend == UsdGenExecutionBackend::Invalid) return {};
+    AdapterEntry const *entry = gAdapters[BackendSlot(backend)].load(std::memory_order_acquire);
+    return entry ? entry->adapter : nullptr;
 }
 
 const char *UsdGenExecutionBackendName(UsdGenExecutionBackend backend) noexcept {
