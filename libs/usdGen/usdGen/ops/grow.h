@@ -15,15 +15,17 @@ namespace usdGen {
 class UsdGenGrowOp final : public UsdGenOp
 {
 public:
-    UsdGenGrowOp() = default;
+    explicit UsdGenGrowOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}
     ~UsdGenGrowOp() override = default;
 
-    TfToken Type() const override { return TfToken("UsdGenGrow"); }
+    UsdGenOpRecord const &Record() const noexcept { return *_record; }
+    // Registered values served from the record; removed with the legacy virtuals (S4-8).
+    TfToken Type() const override { return _record->Name(); }
     UsdGenTopoFx TopologyEffect() const override { return UsdGenTopoFx::CvCount; }
     bool IsGenerator() const override { return true; }
 
-    TfSpan<const TfToken> TopologyParameters() const override;
-    TfSpan<const TfToken> ValueParameters() const override;
+    TfSpan<const TfToken> TopologyParameters() const override { return {}; }
+    TfSpan<const TfToken> ValueParameters() const override { return {}; }
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
@@ -38,11 +40,21 @@ public:
     uint32_t PlanesTouched() const override;
     bool CaptureDigestComplete() const override { return true; }
 private:
-    const TfToken sVector{"vector"};
+    UsdGenOpRecord const *_record;
 };
 
+/// Parameter slots: the order of UsdGenRegisterGrowOp's decl table.
+namespace growP {
+enum : UsdGenParamSlot {
+    kInput, kSurface, kSeed, kEnabled, kSegments, kDirection, kLength, kLengthRandom,
+    kDirectionVector, kLift, kAzimuth, kAzimuthRandom,
+    kCount
+};
+enum Direction : int { kDirSurfaceNormal, kDirVector };
+enum Tok : uint16_t { kTokSurfaceNormal, kTokVector };
+}  // namespace growP
+
 class UsdGenRegistrar;
-/// Legacy registration stub; S4-4 replaces it with a def.
 UsdGenOpId UsdGenRegisterGrowOp(UsdGenRegistrar &);
 
 }  // namespace usdGen
