@@ -634,30 +634,32 @@ struct TestDrainWaitGate {
     ParkLatch entered;
     void Signal() { entered.Open(); }
 };
-::usdGen::UsdGenSharedCell<TestFinalDeleterGate> s_testFinalDeleterGate;
-::usdGen::UsdGenSharedCell<TestDrainWaitGate> s_testDrainWaitGate;
+// Leaked cells: a deleter consults them during static destruction too.
+std::atomic<::usdGen::UsdGenSharedCell<TestFinalDeleterGate> *> s_testFinalDeleterGate{nullptr};
+::usdGen::UsdGenSharedCell<TestFinalDeleterGate> &FinalDeleterGate()
+{
+    return ::usdGen::UsdGenLazyLeaked(s_testFinalDeleterGate);
+}
+std::atomic<::usdGen::UsdGenSharedCell<TestDrainWaitGate> *> s_testDrainWaitGate{nullptr};
+::usdGen::UsdGenSharedCell<TestDrainWaitGate> &DrainWaitGate()
+{
+    return ::usdGen::UsdGenLazyLeaked(s_testDrainWaitGate);
+}
 }
 
 // Constructed after the store: scenes close before store/retirement teardown.
 // Every scene has its OWN pipeline on the shared runtime.
 struct UsdGenSceneService {
     struct RetirementRecord {
-        std::atomic<uint32_t> completion{0};  // 1 once Done; waiters park on it
+        ParkLatch completion;  // opened once Done; waiters park on it
         std::atomic<bool> pending{true};
-        // Set before Erase removes the entry, so a racing Register backs out.
-        std::atomic<bool> erased{false};
         static std::atomic<uint64_t> liveCount;
         RetirementRecord() { liveCount.fetch_add(1, std::memory_order_relaxed); }
         ~RetirementRecord() { Done(); liveCount.fetch_sub(1, std::memory_order_relaxed); }
         void Done() {
-            if (!pending.exchange(false)) return;
-            completion.store(1, std::memory_order_release);
-            usdGen::UsdGenUnparkAll(completion);
+            if (pending.exchange(false)) completion.Open();
         }
-        void Wait() {
-            while (!completion.load(std::memory_order_acquire))
-                usdGen::UsdGenParkWhileEqual(completion, 0);
-        }
+        void Wait() { completion.Wait(); }
         // Called only with a strong live State after all its work is gone.
         void Disarm() { Done(); }
     };
@@ -680,20 +682,14 @@ struct UsdGenSceneService {
         try { cleanup.Post(std::move(action)); }
         catch (...) { std::terminate(); }
     }
+    // Called at the end of the scene-index constructor, while it still holds
+    // its State strongly: the State's deleter (and so Erase) cannot run
+    // before this returns. The entry retains the record through the
+    // final-reference -> cleanup-enqueue gap.
     void Register(Entry entry) {
-        RetirementRecord* const record = entry.retirement.get();
-        ::usdGen::UsdGenCowUpdateIf(registered, [&](Entries& e) {
-            // Done is set only by Erase after State deletion, so this
-            // retains the final-reference -> cleanup-enqueue gap.
-            if (!record->pending.load(std::memory_order_acquire)) return false;
-            e.push_back(entry);
-            return true;
-        });
-        // An Erase that removed before this insert landed: back it out.
-        if (record->erased.load()) Remove(record);
+        ::usdGen::UsdGenCowUpdate(registered, [&](Entries& e) { e.push_back(entry); });
     }
     void Erase(std::shared_ptr<RetirementRecord> record) {
-        record->erased.store(true);
         Remove(record.get());
         // A Drain wait returning now also guarantees a following
         // registry snapshot cannot retain this completed entry.
@@ -2084,7 +2080,7 @@ void UsdGenSceneService::DrainRetired() {
     // final-reference -> enqueue -> deletion completion boundary.
     for (auto const& record : records) {
         if (expired.count(record.get()) && record->pending.load(std::memory_order_acquire))
-            if (auto gate = s_testDrainWaitGate.Load()) gate->Signal();
+            if (auto gate = DrainWaitGate().Load()) gate->Signal();
         record->Wait();
     }
 }
@@ -2107,7 +2103,7 @@ UsdGenGroomSceneIndex::UsdGenGroomSceneIndex(HdSceneIndexBaseRefPtr const& input
             // pipelines/subscriptions have already been removed externally.
             delete state;
         } else {
-            if (auto gate = s_testFinalDeleterGate.Load();
+            if (auto gate = FinalDeleterGate().Load();
                 gate && !gate->claimed.exchange(true)) gate->Pause();
             service.Retire([&service, state, record] {
                 delete state;
@@ -3325,23 +3321,23 @@ uint64_t UsdGenGroomSceneIndex::_TestRetirementRecordCount() {
 }
 void UsdGenGroomSceneIndex::_TestSceneServiceBarrier() { SceneService().Barrier(); }
 void UsdGenGroomSceneIndex::_TestArmFinalDeleterPause() {
-    s_testFinalDeleterGate.Store(std::make_shared<TestFinalDeleterGate>());
+    FinalDeleterGate().Store(std::make_shared<TestFinalDeleterGate>());
 }
 void UsdGenGroomSceneIndex::_TestWaitFinalDeleterPause() {
-    if (auto gate = s_testFinalDeleterGate.Load()) gate->entered.Wait();
+    if (auto gate = FinalDeleterGate().Load()) gate->entered.Wait();
 }
 void UsdGenGroomSceneIndex::_TestReleaseFinalDeleterPause() {
-    if (auto gate = s_testFinalDeleterGate.Load()) gate->release.Open();
-    s_testFinalDeleterGate.Store(nullptr);
+    if (auto gate = FinalDeleterGate().Load()) gate->release.Open();
+    FinalDeleterGate().Store(nullptr);
 }
 void UsdGenGroomSceneIndex::_TestArmDrainWait() {
-    s_testDrainWaitGate.Store(std::make_shared<TestDrainWaitGate>());
+    DrainWaitGate().Store(std::make_shared<TestDrainWaitGate>());
 }
 void UsdGenGroomSceneIndex::_TestWaitDrainWait() {
-    if (auto gate = s_testDrainWaitGate.Load()) gate->entered.Wait();
+    if (auto gate = DrainWaitGate().Load()) gate->entered.Wait();
 }
 void UsdGenGroomSceneIndex::_TestReleaseDrainWait() {
-    s_testDrainWaitGate.Store(nullptr);
+    DrainWaitGate().Store(nullptr);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

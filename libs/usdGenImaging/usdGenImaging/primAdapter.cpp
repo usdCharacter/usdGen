@@ -528,14 +528,19 @@ namespace {
 // table holds each mapping too, so a returned reference never dangles.
 using _MappingTable = std::unordered_map<
     TfToken, std::shared_ptr<const UsdImagingDataSourceMapped::PropertyMappings>, TfHash>;
-::usdGen::UsdGenSharedCell<_MappingTable const> s_mappingTable;
+// Leaked: data sources may keep a returned mapping past static destruction.
+std::atomic<::usdGen::UsdGenSharedCell<_MappingTable const> *> s_mappingTable{nullptr};
+::usdGen::UsdGenSharedCell<_MappingTable const> &MappingTable()
+{
+    return ::usdGen::UsdGenLazyLeaked(s_mappingTable);
+}
 }
 
 const UsdImagingDataSourceMapped::PropertyMappings &
 UsdGenPrimAdapterBase::_Mappings(TfToken const &key, UsdPrimDefinition const *def)
 {
     using Mapping = UsdImagingDataSourceMapped::PropertyMappings;
-    if (auto table = s_mappingTable.Load()) {
+    if (auto table = MappingTable().Load()) {
         if (auto it = table->find(key); it != table->end()) return *it->second;
     }
     std::vector<UsdImagingDataSourceMapped::PropertyMapping> mappings;
@@ -586,10 +591,10 @@ UsdGenPrimAdapterBase::_Mappings(TfToken const &key, UsdPrimDefinition const *de
     // Concurrent builders may construct equivalent candidates.  Only the
     // canonical inserted value is returned, so all callers retain a stable
     // reference and no mutable published object is ever replaced.
-    ::usdGen::UsdGenCowUpdateIf(s_mappingTable, [&](_MappingTable &table) {
+    ::usdGen::UsdGenCowUpdateIf(MappingTable(), [&](_MappingTable &table) {
         return table.emplace(key, slot).second;
     });
-    return *s_mappingTable.Load()->at(key);
+    return *MappingTable().Load()->at(key);
 }
 
 // Split per 02 §0.7 (relative elements, no container prefix).

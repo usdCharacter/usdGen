@@ -45,15 +45,20 @@ using RegistrySnapshot = std::shared_ptr<RegistryVector const>;
 // Membership is a copy-on-write vector installed by CAS: a mutation is
 // visible when it returns, from any thread, and never waits. Readers load a
 // completed immutable vector; weak promotion then keeps an index alive for a
-// probe. Constant-initialized; never destroyed in a way that waits.
-usdGen::UsdGenSharedCell<RegistryVector const> g_hookRegistry;
+// probe. The cell is leaked (never destroyed): a scene index that dies
+// during static destruction may still unregister through it.
+std::atomic<usdGen::UsdGenSharedCell<RegistryVector const> *> g_hookRegistry{nullptr};
+usdGen::UsdGenSharedCell<RegistryVector const> &HookRegistry()
+{
+    return usdGen::UsdGenLazyLeaked(g_hookRegistry);
+}
 
-RegistrySnapshot _HookSnapshot() { return g_hookRegistry.Load(); }
+RegistrySnapshot _HookSnapshot() { return HookRegistry().Load(); }
 
 template <class Mutation>
 void _MutateRegistry(Mutation mutation)
 {
-    usdGen::UsdGenCowUpdate(g_hookRegistry, mutation);
+    usdGen::UsdGenCowUpdate(HookRegistry(), mutation);
 }
 
 }  // namespace
