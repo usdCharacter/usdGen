@@ -15,8 +15,6 @@ libs/usdGen/usdGen/ops/braid.h 1
 libs/usdGen/usdGen/ops/cardGeometry.cpp 8
 libs/usdGen/usdGen/ops/cardSource.cpp 8
 libs/usdGen/usdGen/ops/cardSource.h 1
-libs/usdGen/usdGen/ops/clump.cpp 12
-libs/usdGen/usdGen/ops/clump.h 4
 libs/usdGen/usdGen/ops/collide.cpp 26
 libs/usdGen/usdGen/ops/collide.h 1
 libs/usdGen/usdGen/ops/curl.cpp 13
@@ -36,14 +34,10 @@ libs/usdGen/usdGen/ops/freeze.h 5
 libs/usdGen/usdGen/ops/frizz.h 1
 libs/usdGen/usdGen/ops/grow.cpp 40
 libs/usdGen/usdGen/ops/grow.h 2
-libs/usdGen/usdGen/ops/guideInterpolate.cpp 26
-libs/usdGen/usdGen/ops/guideInterpolate.h 1
 libs/usdGen/usdGen/ops/length.cpp 45
 libs/usdGen/usdGen/ops/length.h 4
 libs/usdGen/usdGen/ops/noise.cpp 20
 libs/usdGen/usdGen/ops/noise.h 8
-libs/usdGen/usdGen/ops/part.cpp 9
-libs/usdGen/usdGen/ops/part.h 3
 libs/usdGen/usdGen/ops/referenceSource.cpp 1
 libs/usdGen/usdGen/ops/referenceSource.h 1
 libs/usdGen/usdGen/ops/resample.cpp 6
