@@ -13,6 +13,7 @@
 
 #include "usdGen/op.h"
 #include "usdGenOpFixture.h"
+#include "bufferOpCalls.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
@@ -77,7 +78,7 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
     cctx.params = &view;
     UsdGenCurveBuffer upstream;  // empty: Width's capture reads no geometry
     std::unique_ptr<UsdGenCapture> cap = op->CreateCapture();
-    if (!op->Capture(cctx, upstream, cap.get(), &diag)) {
+    if (!op->Capture(cctx, UsdGenBufferInputs(upstream), cap.get(), &diag)) {
         std::printf("FAIL: Capture failed\n");
         g_allOk = false;
         return {};
@@ -89,7 +90,7 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
         for (uint32_t i = 0; i < kCv; ++i)
             hairT[c * kCv + i] = float(i) / float(kCv - 1);
 
-    UsdGenLegacyChunkView chunk{};
+    UsdGenTestChunk chunk;
     chunk.curveCount = kCurves;
     chunk.cvCount = kCv;
     chunk.hairT = hairT.data();
@@ -107,7 +108,7 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
 
     UsdGenEvalContext ectx;
     ectx.params = &view;
-    op->Evaluate(ectx, *cap, &chunk);
+    op->Evaluate(ectx, *cap, chunk.View());
     return out;
 }
 

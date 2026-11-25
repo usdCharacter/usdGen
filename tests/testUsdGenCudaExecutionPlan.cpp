@@ -21,10 +21,10 @@ public:
     explicit TopologyNamedPlaneProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 2}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenLegacyChunkView*) const override {}
+                  UsdGenChunkView const &) const override {}
 };
 
 class ValueNamedPlaneProbe final : public UsdGenOp {
@@ -32,10 +32,10 @@ public:
     explicit ValueNamedPlaneProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 3}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenLegacyChunkView*) const override {}
+                  UsdGenChunkView const &) const override {}
 };
 
 void RegisterNamedPlaneProbes(UsdGenRegistrar &r)

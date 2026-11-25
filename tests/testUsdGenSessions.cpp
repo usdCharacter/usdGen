@@ -37,12 +37,12 @@ public:
     explicit FailingCaptureOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1,1}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics* diagnostics) override {
         diagnostics->Error("deliberate execution failure for publication regression");
         return false;
     }
-    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenLegacyChunkView*) const override {}
+    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView const &) const override {}
 };
 
 void RegisterFailingCaptureOp(UsdGenRegistrar &r)

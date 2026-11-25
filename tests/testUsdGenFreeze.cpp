@@ -533,7 +533,8 @@ static void CheckDigestImmunity()
     upstream.topologyVersion = 300;
     upstream.valueVersion = 400;
     upstream.totalCurves = 5;
-    Check(cap->ValidForTopology(upstream),
+    Check(cap->ValidForTopology(
+              static_cast<UsdGenOpInputs const &>(UsdGenBufferInputs(upstream)).Primary()),
           "ValidForTopology ignores upstream revisions (immune)");
 }
 

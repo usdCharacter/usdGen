@@ -1,11 +1,15 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// Test helpers (5.3b-e): drive a new-family op's Capture/Evaluate by concrete
-// type over builder buffers and legacy chunk views. 5.3f converts the callers.
+// Test helpers: drive an op's Capture/Evaluate by concrete type over builder
+// buffers and raw chunk-local planes, the way the scheduler does.
 #pragma once
+#include "usdGen/exec/chunkView.h"
 #include "usdGen/registries/op.h"
 #include "usdGenCurves/types/curveBridge.h"
 #include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/types/curveSet.h"
+
+#include <cstdint>
 
 namespace usdGen {
 
@@ -28,16 +32,79 @@ private:
     UsdGenOpInputs _in;
 };
 
-/// A chunk view that wraps the old family's view for UsdGenCurveChunk.
-class UsdGenLegacyChunkWrap
+/// One chunk over raw chunk-local CurveSet planes (static channels only).
+/// Fill the fields, then pass View(); the view points into this object.
+/// The range takes first/live/tile/surface from desc (zero, live =
+/// curveCount without one) and its counts from curveCount/cvCount.
+struct UsdGenTestChunk
 {
-public:
-    explicit UsdGenLegacyChunkWrap(UsdGenLegacyChunkView *legacy) { _view.legacy = legacy; }
-    UsdGenLegacyChunkWrap(UsdGenLegacyChunkWrap const &) = delete;
-    UsdGenLegacyChunkWrap &operator=(UsdGenLegacyChunkWrap const &) = delete;
-    operator UsdGenChunkView const &() const { return _view; }
+    UsdGenChunkDesc const *desc = nullptr;
+    float *px = nullptr, *py = nullptr, *pz = nullptr, *width = nullptr, *hairT = nullptr;
+    float const *inPx = nullptr, *inPy = nullptr, *inPz = nullptr;
+    float const *inWidth = nullptr, *inWidth2 = nullptr;
+    uint64_t const *curveId = nullptr;
+    int const *rootPrim = nullptr;
+    int const *cvOffsets = nullptr;     // absolute, at the chunk's first curve; null = uniform
+    GfVec2f const *rootUV = nullptr;
+    GfVec3f const *rootT = nullptr, *rootN = nullptr, *rootB = nullptr;
+    float const *rampLut = nullptr;
+    GfVec3d *pointScratch = nullptr;
+    double *scalarScratch = nullptr;
+    UsdGenChunkExtent *extentSlot = nullptr;
+    uint32_t curveCount = 0, cvCount = 0, inCvCount = 0, inFirstCv = 0;
+    int const *inCvOffsets = nullptr;
+
+    UsdGenChunkView const &View()
+    {
+        _range = UsdGenChunkRange{};
+        _range.first[0] = desc ? desc->firstCurve : 0;
+        _range.count[0] = curveCount;
+        _range.first[1] = desc ? desc->firstCv : 0;
+        _range.stride[1] = cvCount;
+        _range.live = desc ? desc->liveCount : curveCount;
+        _range.group = desc ? uint16_t(desc->tile) : 0;
+        _range.domain = desc ? uint16_t(desc->surface) : 0;
+        for (uint32_t s = 0; s < kUsdGenCurveStaticSlots; ++s) {
+            _out[s] = nullptr;
+            _in[s] = _in2[s] = nullptr;
+        }
+        _out[kUsdGenCurvePx] = px;
+        _out[kUsdGenCurvePy] = py;
+        _out[kUsdGenCurvePz] = pz;
+        _out[kUsdGenCurveWidth] = width;
+        _out[kUsdGenCurveHairT] = hairT;
+        _out[kUsdGenCurveId] = const_cast<uint64_t *>(curveId);
+        _out[kUsdGenCurveRootPrim] = const_cast<int *>(rootPrim);
+        _out[kUsdGenCurveRootUV] = const_cast<GfVec2f *>(rootUV);
+        _out[kUsdGenCurveRootT] = const_cast<GfVec3f *>(rootT);
+        _out[kUsdGenCurveRootN] = const_cast<GfVec3f *>(rootN);
+        _out[kUsdGenCurveRootB] = const_cast<GfVec3f *>(rootB);
+        _in[kUsdGenCurvePx] = inPx;
+        _in[kUsdGenCurvePy] = inPy;
+        _in[kUsdGenCurvePz] = inPz;
+        _in[kUsdGenCurveWidth] = inWidth;
+        _in2[kUsdGenCurveWidth] = inWidth2;
+        _view = UsdGenChunkView{};
+        _view.range = &_range;
+        _view.offsets[2] = reinterpret_cast<uint32_t const *>(cvOffsets);
+        _view.inOffsets[2] = reinterpret_cast<uint32_t const *>(inCvOffsets);
+        _view.inFirst[2] = inFirstCv;
+        _view.inStride[2] = inCvCount;
+        _view.out = _out;
+        _view.in = _in;
+        _view.in2 = inWidth2 ? _in2 : nullptr;
+        _view.pointScratch = pointScratch;
+        _view.scalarScratch = scalarScratch;
+        _view.extentSlot = extentSlot;
+        _view.rampLut = rampLut;
+        return _view;
+    }
 
 private:
+    UsdGenChunkRange _range;
+    void *_out[kUsdGenCurveStaticSlots] = {};
+    void const *_in[kUsdGenCurveStaticSlots] = {};
+    void const *_in2[kUsdGenCurveStaticSlots] = {};
     UsdGenChunkView _view{};
 };
 

@@ -4,7 +4,7 @@
 // host, never alongside the documentation renderer. No absolute timing gates.
 #include "usdGen/clumpMotion.h"
 #include "usdGen/ops/wind.h"
-#include "usdGenCurves/types/curveBridge.h"
+#include "../bufferOpCalls.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -79,23 +79,20 @@ bool Equal(UsdGenCurveBuffer const& a,UsdGenCurveBuffer const& b) {
 }
 bool Capture(UsdGenWindOp& op, UsdGenCaptureContext const& cc, UsdGenCurveBuffer const& buffer,
              UsdGenCapture* out, UsdGenDiagnostics* diag) {
-    UsdGenCurveBufferSetView set; set.Bind(buffer);
-    UsdGenCurveBuffer const* legacy[1]={&buffer};
-    UsdGenOpInputs in; in.sets=&set.View(); in.count=1; in.legacy=legacy;
-    return op.Capture(cc,in,out,diag);
+    return op.Capture(cc,UsdGenBufferInputs(buffer),out,diag);
 }
 void Evaluate(UsdGenWindOp const& op, UsdGenCapture const& capture,
               UsdGenEvalContext const& ctx, UsdGenCurveBuffer const& input,
               UsdGenCurveBuffer* output, bool reverse=false) {
     for(size_t n=0;n<input.chunks.size();++n) {
         auto const& ch=input.chunks[reverse?input.chunks.size()-1-n:n];
-        UsdGenLegacyChunkView v{}; v.desc=&ch; v.curveCount=ch.curveCount; v.cvCount=ch.cvCount;
+        UsdGenTestChunk v; v.desc=&ch; v.curveCount=ch.curveCount; v.cvCount=ch.cvCount;
         v.inCvCount=ch.cvCount; v.inFirstCv=ch.firstCv;
         v.inPx=input.px.cdata()+ch.firstCv; v.inPy=input.py.cdata()+ch.firstCv;
         v.inPz=input.pz.cdata()+ch.firstCv; v.px=output->px.data()+ch.firstCv;
         v.py=output->py.data()+ch.firstCv; v.pz=output->pz.data()+ch.firstCv;
         v.hairT=output->hairT.data()+ch.firstCv; v.curveId=input.curveId.cdata()+ch.firstCurve;
-        static_cast<UsdGenOp const&>(op).Evaluate(ctx,capture,&v);   // old family: wraps into the new
+        op.Evaluate(ctx,capture,v.View());
     }
 }
 }

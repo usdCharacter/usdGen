@@ -46,10 +46,10 @@ public:
     explicit TestOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {}; }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &, UsdGenCapture *,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &, UsdGenCapture *,
                  UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *) const override {}
+                  UsdGenChunkView const &) const override {}
 };
 
 std::unique_ptr<UsdGenOp> CreateTestOp(UsdGenOpRecord const &rec, void *)

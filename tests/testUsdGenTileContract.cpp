@@ -32,6 +32,7 @@
 #include "usdGen/types.h"
 
 #include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -85,10 +86,12 @@ public:
     explicit GuideIndexWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {19, 1}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenLegacyChunkView* view) const override {
+                  UsdGenChunkView const &chunk) const override {
+        UsdGenCurveChunk const curve(chunk);
+        UsdGenCurveChunk const *view = &curve;
         if (!view->outI || !view->outI[0]) return;
         for (uint32_t curve = 0; curve != view->curveCount; ++curve)
             for (uint32_t component = 0; component != 3; ++component)

@@ -3376,16 +3376,12 @@ set_tests_properties(testUsdGenCookGoldens PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T0;gate;gate:golden"
     SKIP_RETURN_CODE 77 TIMEOUT 1800)
 
-# Restructure 5.3a: the op family bridge, and the cook goldens with every
-# chunk's generic view checked against the old one (USDGEN_BRIDGE_VERIFY).
+# Restructure 5.3a/5.3f: ops over buffer-backed set views (the old op
+# family and USDGEN_BRIDGE_VERIFY are gone).
 add_executable(testUsdGenOpBridge tests/testUsdGenOpBridge.cpp)
 target_link_libraries(testUsdGenOpBridge PRIVATE usdGenTestUtils)
 add_test(NAME testUsdGenOpBridge COMMAND testUsdGenOpBridge)
 set_tests_properties(testUsdGenOpBridge PROPERTIES LABELS "T0;bridge")
-add_test(NAME testUsdGenCookGoldensBridgeVerify COMMAND testUsdGenCookGoldens)
-set_tests_properties(testUsdGenCookGoldensBridgeVerify PROPERTIES
-    ENVIRONMENT_MODIFICATION "${_usdgen_m1_env};USDGEN_BRIDGE_VERIFY=set:1"
-    LABELS "T1;bridge" SKIP_RETURN_CODE 77 TIMEOUT 1800)
 
 # Step 4 registries: handles, lookups, freeze, interner counters.
 add_executable(testUsdGenRegistries tests/testUsdGenRegistries.cpp tests/golden/goldenGraphs.cpp)

@@ -10,6 +10,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/scheduler.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -50,14 +51,16 @@ public:
     {
         return {0x4355544641494cULL, 1};
     }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override
     {
         return true;
     }
     void Evaluate(UsdGenEvalContext const &ctx, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *view) const override
+                  UsdGenChunkView const &chunk) const override
     {
+        UsdGenCurveChunk const curve(chunk);
+        UsdGenCurveChunk const *view = &curve;
         uint32_t count = view->curveCount * view->cvCount;
         if (view->cvCount == 0 && view->cvOffsets)
             count = uint32_t(view->cvOffsets[view->curveCount] -
@@ -70,11 +73,11 @@ public:
                 view->width[cv] = view->inWidth[cv] + 1.0f;
             for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
                 auto &field=view->extraCv[plane];
-                auto const &source=view->inExtraCv[plane];
                 size_t const index=(view->desc ? view->desc->firstCv : 0)+cv;
-                if (field.type==TfToken("float"))
-                    const_cast<float *>(field.f.cdata())[index] =
-                        source.f[index] + 1.0f;
+                // Whole-column bases: the node's plane and its input's.
+                if (field.type==TfToken("float") && view->extraCvF[plane] &&
+                    view->inExtraCvF[plane])
+                    view->extraCvF[plane][index] = view->inExtraCvF[plane][index] + 1.0f;
             }
         }
 

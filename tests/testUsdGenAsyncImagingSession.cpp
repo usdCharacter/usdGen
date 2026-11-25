@@ -188,7 +188,7 @@ public:
     explicit BatchHoldOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 1}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics* diagnostics) override {
         batchEntered.fetch_add(1, std::memory_order_release);
         if (WaitFor([] { return batchRelease.load(std::memory_order_acquire); })) return true;
@@ -196,7 +196,7 @@ public:
         diagnostics->Error("store batch capture gate timed out");
         return false;
     }
-    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenLegacyChunkView*) const override {}
+    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView const &) const override {}
 };
 
 void RegisterBatchHoldOp(UsdGenRegistrar &r)

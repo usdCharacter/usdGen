@@ -16,6 +16,7 @@
 #include "usdGen/ops/grow.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/scheduler.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"
@@ -46,11 +47,13 @@ public:
     explicit ExtraCvWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {7, 1}; }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *view) const override
+                  UsdGenChunkView const &chunk) const override
     {
+        UsdGenCurveChunk const curve(chunk);
+        UsdGenCurveChunk const *view = &curve;
         if (!view->outF || !view->inF || !view->outF[0] || !view->inF[0]) return;
         uint32_t count = view->curveCount * view->cvCount;
         if (view->cvCount == 0 && view->cvOffsets)
@@ -65,11 +68,13 @@ public:
     explicit ExtraCurveWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {7, 2}; }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *view) const override
+                  UsdGenChunkView const &chunk) const override
     {
+        UsdGenCurveChunk const curve(chunk);
+        UsdGenCurveChunk const *view = &curve;
         if (!view->outI || !view->inI || !view->outI[0] || !view->inI[0]) return;
         for (uint32_t i = 0; i < view->curveCount; ++i)
             view->outI[0][i] = view->inI[0][i] + 20;
@@ -90,12 +95,14 @@ public:
     explicit HeldWidthWriter(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {9, 1}; }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override { return true; }
     uint32_t PlanesTouched() const override { return kPlaneWidths; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *view) const override
+                  UsdGenChunkView const &chunk) const override
     {
+        UsdGenCurveChunk const curve(chunk);
+        UsdGenCurveChunk const *view = &curve;
         HeldEvalGate *gate = g_heldEvalGate;
         if (gate) {
             gate->entered.fetch_add(1, std::memory_order_release);
@@ -645,7 +652,7 @@ void TestGrowAngularLift()
     chunk.liveCount = 1;
     chunk.cvCount = 3;
     float px[3] = {}, py[3] = {}, pz[3] = {}, hairT[3] = {};
-    UsdGenLegacyChunkView view{};
+    UsdGenTestChunk view;
     view.desc = &chunk;
     view.px = px; view.py = py; view.pz = pz; view.hairT = hairT;
     view.inPx = roots.px.cdata(); view.inPy = roots.py.cdata();
@@ -655,7 +662,7 @@ void TestGrowAngularLift()
     view.inCvCount = 2;
     UsdGenEvalContext evalContext;
     evalContext.params = &evaluateParams;
-    grow.Evaluate(evalContext, *evaluateCapture, UsdGenLegacyChunkWrap(&view));
+    grow.Evaluate(evalContext, *evaluateCapture, view.View());
     Check(std::fabs(px[0] - 10.0f) < 1.e-5f &&
               std::fabs(px[1] - 10.0f) < 1.e-5f &&
               std::fabs(px[2] - 10.0f) < 1.e-5f &&
@@ -828,13 +835,13 @@ void TestGrowAzimuth()
         UsdGenChunkDesc chunk; chunk.firstCurve=begin; chunk.curveCount=count/2;
         chunk.liveCount=count/2; chunk.cvCount=2;
         std::vector<float> x(count),y(count),z(count);
-        UsdGenLegacyChunkView view{}; view.desc=&chunk;
+        UsdGenTestChunk view; view.desc=&chunk;
         view.curveCount=count/2; view.cvCount=2; view.inCvCount=1;
         view.inPx=roots.px.cdata()+begin; view.inPy=roots.py.cdata()+begin; view.inPz=roots.pz.cdata()+begin;
         view.rootN=roots.rootN.cdata()+begin; view.rootB=roots.rootB.cdata()+begin;
         view.px=x.data(); view.py=y.data(); view.pz=z.data();
         UsdGenEvalContext eval; eval.params=&params;
-        grow.Evaluate(eval, *random, UsdGenLegacyChunkWrap(&view));
+        grow.Evaluate(eval, *random, view.View());
         for(uint32_t i=0;i<count;++i)
             equal &= GfVec3f(x[i],y[i],z[i]) == UsdGenCaptureBuffer(*random).rest[begin*2+i];
     }

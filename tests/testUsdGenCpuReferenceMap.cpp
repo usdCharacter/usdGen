@@ -62,7 +62,7 @@ public:
     explicit ReferenceProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {31, 7}; }
-    bool Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *diag) override
     {
         if (ctx.referenceCount != 2 || !ctx.references || !ctx.resolvedReferences ||
@@ -89,7 +89,7 @@ public:
             ctx.mapBindings[0].relationship == TfToken("usdGen:map") &&
             ctx.mapBindings[1].relationship == TfToken("usdGen:map");
     }
-    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenLegacyChunkView *) const override {}
+    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenChunkView const &) const override {}
 };
 
 class CurveProbe final : public UsdGenOp
@@ -98,14 +98,14 @@ public:
     explicit CurveProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {41, 9}; }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override
     {
         ++gCurveCaptures;
         gOrder.push_back(2);
         return true;
     }
-    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenLegacyChunkView *) const override {}
+    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenChunkView const &) const override {}
 };
 
 class ContractProbe final : public UsdGenOp
@@ -114,9 +114,9 @@ public:
     ContractProbe(UsdGenOpRecord const &r, bool reference) : UsdGenOp(r), _reference(reference) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1,2}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
-    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenLegacyChunkView*) const override {}
+    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView const &) const override {}
 private:
     [[maybe_unused]] bool _reference;
 };
