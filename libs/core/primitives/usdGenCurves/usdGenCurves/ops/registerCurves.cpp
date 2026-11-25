@@ -4,6 +4,7 @@
 // registry's constructor calls this; registration order is id order.
 #include "usdGen/registries/registrar.h"
 #include "usdGen/cudaStages.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/grow.h"
@@ -64,6 +65,7 @@ void RegisterMapTypes(UsdGenRegistrar &r)
 
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
+    UsdGenRegisterCurveSetType(r);   // first: op defs name its type
     UsdGenVulkanKernelOps k;
     k.scatter = UsdGenRegisterScatterOp(r);
     k.grow = UsdGenRegisterGrowOp(r);
