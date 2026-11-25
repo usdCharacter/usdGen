@@ -28,7 +28,7 @@ enum : UsdGenParamSlot {
 };
 enum Mode : int { kModeScale, kModeSet, kModeCull, kModeRandomRange };
 enum Method : int { kMethodScale, kMethodCutExtend };
-enum Tok : uint16_t { kTokClumpId0, kTokLengthMap, kTokRestLength };
+enum Tok : uint16_t { kTokClumpId0, kTokLengthMap, kTokRestLength, kTokStrandSeed, kTokStrandIndex };
 }  // namespace lengthP
 
 class UsdGenLengthOp final : public UsdGenOp
@@ -40,12 +40,12 @@ public:
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
     bool Capture(UsdGenCaptureContext const &ctx,
-                 UsdGenCurveBuffer const &upstream,
+                 UsdGenOpInputs const &in,
                  UsdGenCapture *out,
                  UsdGenDiagnostics *diag) override;
     void Evaluate(UsdGenEvalContext const &ctx,
                   UsdGenCapture const &capture,
-                  UsdGenLegacyChunkView *view) const override;
+                  UsdGenChunkView const &chunk) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
 };

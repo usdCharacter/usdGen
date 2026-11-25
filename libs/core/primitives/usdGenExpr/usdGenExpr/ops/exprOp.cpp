@@ -10,6 +10,7 @@
 // message; see exprOp.h for the contract.
 #include "usdGen/ops/exprOp.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/frontend.h"
@@ -69,8 +70,9 @@ struct UsdGenExprOpCapture final : public UsdGenCapturePayload
     {
         return std::make_unique<UsdGenExprOpCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         // The expression may read upstream values ($P, $cWidth, ...), so a
         // value move recaptures exactly like a topology move (Clump rule).
         if (upstream.topologyVersion != upstreamTopologyVersion ||
@@ -172,10 +174,11 @@ UsdGenEpoch UsdGenExprOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenExprOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
     // Literals and tokens are validated here (the CPU lane never calls Bind).
@@ -294,7 +297,7 @@ bool UsdGenExprOp::Capture(
     view.hairT = upstream.hairT.empty() ? nullptr : upstream.hairT.cdata();
     view.rootUV = upstream.rootUV.empty() ? nullptr
         : reinterpret_cast<float const *>(upstream.rootUV.cdata());
-    auto rootFrame = [&](VtVec3fArray const &plane) -> float const * {
+    auto rootFrame = [&](UsdGenSpan<const GfVec3f> plane) -> float const * {
         return curveCount && plane.size() == curveCount
             ? reinterpret_cast<float const *>(plane.cdata()) : nullptr;
     };
@@ -351,8 +354,10 @@ bool UsdGenExprOp::Capture(
 void UsdGenExprOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenExprOpCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const maskField =

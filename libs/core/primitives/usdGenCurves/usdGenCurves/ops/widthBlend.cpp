@@ -2,7 +2,9 @@
 #include "usdGen/ops/widthBlend.h"
 
 #include <cmath>
+#include <algorithm>
 #include <cstdint>
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/registries/registrar.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -65,46 +67,47 @@ bool ReadWeight(UsdGenParamView const *params, float *out,
     return true;
 }
 
-bool SamePlane(UsdGenPlane const &a, UsdGenPlane const &b)
-{
-    return a.name == b.name && a.interpolation == b.interpolation &&
-        a.type == b.type && a.arity == b.arity && a.f == b.f && a.i == b.i;
-}
-
-bool SamePlaneList(std::vector<UsdGenPlane> const &a,
-                   std::vector<UsdGenPlane> const &b)
+template <class T>
+bool SameSpan(UsdGenSpan<const T> a, UsdGenSpan<const T> b)
 {
     if (a.size() != b.size()) return false;
-    for (size_t i = 0; i != a.size(); ++i)
-        if (!SamePlane(a[i], b[i])) return false;
-    return true;
+    if (a.data() == b.data()) return true;
+    return std::equal(a.begin(), a.end(), b.begin());
+}
+
+bool SamePlane(UsdGenPlaneView const &a, UsdGenPlaneView const &b)
+{
+    return a.name == b.name && a.interpolation == b.interpolation &&
+        a.type == b.type && a.arity == b.arity &&
+        SameSpan<float>(a.f, b.f) && SameSpan<int>(a.i, b.i);
 }
 
 /// WidthBlend's right input may differ only in the width plane.  Compare all
 /// other transported values and topology metadata explicitly so a malformed
-/// fan-in never silently pairs unlike curve streams.
-bool SameNonWidthData(UsdGenCurveBuffer const &left,
-                      UsdGenCurveBuffer const &right)
+/// fan-in never silently pairs unlike curve streams. (The chunk partition is
+/// the graph's, a function of these counts and offsets.)
+bool SameNonWidthData(UsdGenCurveSetView const &left,
+                      UsdGenCurveSetView const &right)
 {
     if (left.totalCurves != right.totalCurves || left.totalCvs != right.totalCvs ||
-        left.px != right.px || left.py != right.py || left.pz != right.pz ||
-        left.rest != right.rest ||
-        left.hairT != right.hairT || left.curveId != right.curveId ||
-        left.rootPrim != right.rootPrim || left.rootUV != right.rootUV ||
-        left.rootT != right.rootT || left.rootN != right.rootN ||
-        left.rootB != right.rootB || left.cvOffsets != right.cvOffsets ||
-        !SamePlaneList(left.extraCv, right.extraCv) ||
-        !SamePlaneList(left.extraCurve, right.extraCurve) ||
-        left.chunks.size() != right.chunks.size())
+        !SameSpan<float>(left.px, right.px) || !SameSpan<float>(left.py, right.py) ||
+        !SameSpan<float>(left.pz, right.pz) ||
+        !SameSpan<GfVec3f>(left.rest, right.rest) ||
+        !SameSpan<float>(left.hairT, right.hairT) ||
+        !SameSpan<uint64_t>(left.curveId, right.curveId) ||
+        !SameSpan<int>(left.rootPrim, right.rootPrim) ||
+        !SameSpan<GfVec2f>(left.rootUV, right.rootUV) ||
+        !SameSpan<GfVec3f>(left.rootT, right.rootT) ||
+        !SameSpan<GfVec3f>(left.rootN, right.rootN) ||
+        !SameSpan<GfVec3f>(left.rootB, right.rootB) ||
+        !SameSpan<int>(left.cvOffsets, right.cvOffsets) ||
+        left.ExtraCvCount() != right.ExtraCvCount() ||
+        left.ExtraCurveCount() != right.ExtraCurveCount())
         return false;
-    for (size_t i = 0; i != left.chunks.size(); ++i) {
-        UsdGenChunkDesc const &a = left.chunks[i];
-        UsdGenChunkDesc const &b = right.chunks[i];
-        if (a.firstCurve != b.firstCurve || a.curveCount != b.curveCount ||
-            a.liveCount != b.liveCount || a.firstCv != b.firstCv ||
-            a.cvCount != b.cvCount || a.tile != b.tile || a.surface != b.surface)
-            return false;
-    }
+    for (uint32_t i = 0; i != left.ExtraCvCount(); ++i)
+        if (!SamePlane(left.ExtraCv(i), right.ExtraCv(i))) return false;
+    for (uint32_t i = 0; i != left.ExtraCurveCount(); ++i)
+        if (!SamePlane(left.ExtraCurve(i), right.ExtraCurve(i))) return false;
     return true;
 }
 
@@ -114,8 +117,9 @@ struct UsdGenWidthBlendCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenWidthBlendCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.totalCurves != 0 && upstream.totalCvs != 0;
     }
 };
@@ -175,29 +179,20 @@ UsdGenEpoch UsdGenWidthBlendOp::CaptureDigest(
 
 bool UsdGenWidthBlendOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
     TF_UNUSED(out);
     float weight = 1.0f;
     if (!ReadWeight(ctx.params, &weight, diag)) return false;
-    if (ctx.upstreamCount != 2 || !ctx.upstreams || !ctx.upstreams[0] ||
-        !ctx.upstreams[1]) {
+    if (in.count != 2 || !in.sets) {
         if (diag) diag->Error(
             "UsdGenWidthBlend: exactly two ordered geometry inputs are required");
         return false;
     }
-    // Keep the legacy primary argument honest: the scheduler passes the first
-    // ordered input here, and direct callers can still provide a value copy.
-    UsdGenCurveBuffer const &left = *ctx.upstreams[0];
-    UsdGenCurveBuffer const &right = *ctx.upstreams[1];
-    if (&upstream != &left &&
-        (upstream.totalCurves != left.totalCurves || upstream.totalCvs != left.totalCvs)) {
-        if (diag) diag->Error(
-            "UsdGenWidthBlend: primary geometry input disagrees with ordered input 0");
-        return false;
-    }
+    UsdGenCurveSetView const left = UsdGenCurveSetView::Of(in.sets[0]);
+    UsdGenCurveSetView const right = UsdGenCurveSetView::Of(in.sets[1]);
     if (!SameNonWidthData(left, right)) {
         if (diag) diag->Error(
             "UsdGenWidthBlend: ordered inputs must have identical non-width geometry");
@@ -214,8 +209,10 @@ bool UsdGenWidthBlendOp::Capture(
 void UsdGenWidthBlendOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &capture,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     TF_UNUSED(capture);
     if (!view || !view->width || !view->inWidth || !view->inWidth2) return;
     float weight = ctx.params

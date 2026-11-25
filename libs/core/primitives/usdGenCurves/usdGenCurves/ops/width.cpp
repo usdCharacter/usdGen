@@ -9,6 +9,7 @@
 // TopologyEffect = None.
 #include "usdGen/ops/width.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/strandUtil.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -114,8 +115,9 @@ struct UsdGenWidthCapture final : public UsdGenCapturePayload
     {
         return std::make_unique<UsdGenWidthCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         // Width never changes topology; hairT must exist (generator written it).
         return !upstream.hairT.empty();
     }
@@ -210,12 +212,12 @@ UsdGenEpoch UsdGenWidthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenWidthOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
     TF_UNUSED(ctx);
-    TF_UNUSED(upstream);
+    TF_UNUSED(in);
     TF_UNUSED(out);
     TF_UNUSED(diag);
     // `width:knots` is value-class (02 :665): the ramp LUT is rebuilt every
@@ -229,8 +231,10 @@ bool UsdGenWidthOp::Capture(
 void UsdGenWidthOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     // usdGen:width and usdGen:mask are CONNECTABLE: an authored literal is a
