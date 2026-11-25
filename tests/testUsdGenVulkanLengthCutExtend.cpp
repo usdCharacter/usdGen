@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/vulkan/lengthScalePipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
@@ -74,8 +75,8 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     UsdGenPlane q; q.name = TfToken("privateUniform"); q.interpolation = TfToken("uniform");
     q.type = TfToken("int"); q.i = {18,19}; s.extraCurve = {maskPlane, q};
     i.geometry.alreadyDeformed = true;
-    i.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline,
-                                UsdGenDeviceCurveWrap::Pinned};
+    i.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline,
+                                UsdGenCurveLayoutWrap::Pinned);
     i.geometry.tiles = {{3,0,2,0,7}};
     uint32_t named[] = {73, 81};
     i.additionalNamed.push_back({{"namedCurve", UsdGenDeviceValueType::UInt32,
@@ -148,16 +149,16 @@ int main(int argc, char** argv) {
             CHECK(!child->PlaneOwner(frame.metadata.name));
         }
         CHECK(child->geometry().alreadyDeformed == base->geometry().alreadyDeformed &&
-              child->geometry().curveTopology.type == base->geometry().curveTopology.type &&
-              child->geometry().curveTopology.basis == base->geometry().curveTopology.basis &&
-              child->geometry().curveTopology.wrap == base->geometry().curveTopology.wrap &&
+              UsdGenCurveLayoutTypeOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutTypeOf(base->geometry().layoutMetadata) &&
+              UsdGenCurveLayoutBasisOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutBasisOf(base->geometry().layoutMetadata) &&
+              UsdGenCurveLayoutWrapOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutWrapOf(base->geometry().layoutMetadata) &&
               child->geometry().tiles.size() == base->geometry().tiles.size() &&
               child->chunks().size() == base->chunks().size());
         for (size_t i = 0; i != base->geometry().tiles.size(); ++i) {
             auto const& a = child->geometry().tiles[i];
             auto const& b = base->geometry().tiles[i];
-            CHECK(a.tile == b.tile && a.firstCurve == b.firstCurve &&
-                  a.curveCount == b.curveCount && a.firstPoint == b.firstPoint &&
+            CHECK(a.tile == b.tile && a.firstElement == b.firstElement &&
+                  a.elementCount == b.elementCount && a.firstPoint == b.firstPoint &&
                   a.pointCount == b.pointCount && a.extentMin == b.extentMin &&
                   a.extentMax == b.extentMax && a.boundsValid == b.boundsValid);
         }

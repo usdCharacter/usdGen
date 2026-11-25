@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "vulkanReadbackFixture.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/vulkan/widthBlendPipeline.h"
@@ -63,7 +64,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     UsdGenPlane gf; gf.name = TfToken("guideWeight"); gf.interpolation = TfToken("uniform");
     gf.type = TfToken("float"); gf.arity = 3; gf.f = {.2f,.3f,.5f,.1f,.2f,.7f};
     b.extraCurve = {cf,maskPlane,gi,gf};
-    info.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::CatmullRom, UsdGenDeviceCurveWrap::Pinned};
+    info.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::CatmullRom, UsdGenCurveLayoutWrap::Pinned);
     info.geometry.alreadyDeformed = true;
     UsdGenDeviceTileMetadata tile{9,0,2,0,8}; tile.extentMin = {0,0,0}; tile.extentMax = {8,8,8}; tile.boundsValid = true;
     info.geometry.tiles = {tile};
@@ -119,7 +120,7 @@ int main(int argc, char** argv) {
         CHECK(!a->PlaneOwner("sourceRootT"));
     }
     CHECK(a->curveCount() == 2 && a->pointCount() == 8 && a->topologyVersion() == 3 && a->valueVersion() == 5);
-    CHECK(a->geometry().alreadyDeformed && a->geometry().curveTopology.basis == UsdGenDeviceCurveBasis::CatmullRom);
+    CHECK(a->geometry().alreadyDeformed && UsdGenCurveLayoutBasisOf(a->geometry().layoutMetadata) == UsdGenCurveLayoutBasis::CatmullRom);
     CHECK(a->chunks().size() == 1 && a->chunks()[0].boundsRest == info.source.chunks[0].boundsRest);
     CHECK(a->geometry().tiles.size() == 1 && a->geometry().tiles[0].boundsValid && a->geometry().tiles[0].extentMax[0] == 8);
     CHECK(upload->Submit() == SourceGenerationStatus::InvalidInput);
@@ -215,7 +216,7 @@ int main(int argc, char** argv) {
         CHECK(child->valueVersion()==6 && child->geometry().valueVersion==6 && a->valueVersion()==5);
         CHECK(child->topologyVersion()==a->topologyVersion() && child->geometry().topologyVersion==a->geometry().topologyVersion);
         CHECK(child->geometry().alreadyDeformed==a->geometry().alreadyDeformed);
-        CHECK(child->geometry().curveTopology.basis==a->geometry().curveTopology.basis);
+        CHECK(UsdGenCurveLayoutBasisOf(child->geometry().layoutMetadata)==UsdGenCurveLayoutBasisOf(a->geometry().layoutMetadata));
         CHECK(&child->chunks()==&a->chunks() && &child->sourceFrames()==&a->sourceFrames());
         for(auto const& plane:a->planes()) {
             auto baseOwner=a->PlaneOwner(plane.metadata.name);

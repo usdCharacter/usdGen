@@ -1818,7 +1818,7 @@ PicktileVkTileLease AcquirePicktileVkTile(
 std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles, std::string* reason,
-    std::array<uint8_t, 3> layoutMetadata) {
+    UsdGenDeviceLayoutMetadata layoutMetadata) {
     auto fail = [&](char const* message) {
         if (reason) *reason = message;
         return std::shared_ptr<const UsdGenDeviceGeneration>{};
@@ -1856,7 +1856,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
     info.identity = candidate->Identity();
     info.geometry = geometry;
     info.geometry.tiles = std::move(tiles);
-    if (layoutMetadata != std::array<uint8_t, 3>{}) info.geometry.layoutMetadata = layoutMetadata;
+    if (layoutMetadata != UsdGenDeviceLayoutMetadata{}) info.geometry.layoutMetadata = layoutMetadata;
     info.tool = candidate->Tool();
     info.channels = candidate->Channels();
     info.owner = candidate->Owner();

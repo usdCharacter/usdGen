@@ -20,6 +20,7 @@
 // CUDA test's expectedX/expectedWidths/expectedHairT) verify the Vulkan leg
 // in every build. Exits 77 when either backend is unavailable, after running
 // the available Vulkan oracle checks. Available-device failures fail the test.
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/vulkan/resampleVkPipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/vulkan/executionPlan.h"
@@ -165,7 +166,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     s.chunks.resize(1);
     s.chunks[0].firstCurve = 0; s.chunks[0].curveCount = 2; s.chunks[0].liveCount = 2;
     s.chunks[0].firstCv = 0; s.chunks[0].cvCount = 0; s.chunks[0].tile = 5; s.chunks[0].surface = 1;
-    info.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline, UsdGenDeviceCurveWrap::Pinned};
+    info.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     info.geometry.tiles = {{5, 0, 2, 0, 6}};
     return info;
 }
@@ -383,13 +384,13 @@ int main(int argc, char** argv) {
     std::printf("resampleVk target=4 oracle worst diff: %.3g\n", double(worst));
     CHECK(four->chunks().size() == 1 && four->chunks()[0].firstCurve == 0 && four->chunks()[0].curveCount == 2 &&
         four->chunks()[0].liveCount == 2 && four->chunks()[0].firstCv == 0 && four->chunks()[0].cvCount == 4 &&
-        four->chunks()[0].tile == 5 && four->tiles().size() == 1 && four->tiles()[0].firstCurve == 0 &&
-        four->tiles()[0].curveCount == 2 && four->tiles()[0].firstPoint == 0 && four->tiles()[0].pointCount == 8 &&
+        four->chunks()[0].tile == 5 && four->tiles().size() == 1 && four->tiles()[0].firstElement == 0 &&
+        four->tiles()[0].elementCount == 2 && four->tiles()[0].firstPoint == 0 && four->tiles()[0].pointCount == 8 &&
         !four->tiles()[0].boundsValid);
     for (auto const& plane : four->outputs()) {
         if (plane.metadata.domain == UsdGenDeviceDomain::Point) CHECK(plane.metadata.elementCount == 8);
         if (plane.metadata.domain == UsdGenDeviceDomain::Primitive) CHECK(plane.metadata.elementCount == 2);
-        if (plane.metadata.semantic == UsdGenDeviceChannelSemantic::CurveOffsets)
+        if (plane.metadata.semantic == UsdGenDeviceChannelSemantic::ElementOffsets)
             CHECK(plane.metadata.elementCount == 3);
     }
     // Determinism: a second run reproduces every output byte bit-for-bit.
@@ -467,8 +468,8 @@ int main(int argc, char** argv) {
     VulkanSourceGenerationCreateInfo emptyInfo; emptyInfo.context = context;
     emptyInfo.source.totalCurves = 0; emptyInfo.source.totalCvs = 0;
     emptyInfo.source.topologyVersion = 31; emptyInfo.source.valueVersion = 32;
-    emptyInfo.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline,
-        UsdGenDeviceCurveWrap::Pinned};
+    emptyInfo.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline,
+        UsdGenCurveLayoutWrap::Pinned);
     auto emptyBase = Upload(native, std::move(emptyInfo));
     CHECK(emptyBase && emptyBase->curveCount() == 0 && emptyBase->pointCount() == 0);
     auto emptyOut = Run(*pipeline, native, emptyBase, 4, &semantic);

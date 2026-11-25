@@ -1513,14 +1513,14 @@ int main(int argc, char** argv) {
     auto emptyHandle = CompileVulkanSourceWidthPlan(emptyDesc, nullptr); CHECK(emptyHandle);
     auto emptyPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(emptyHandle->Payload()); CHECK(emptyPlan);
     auto emptyResult = SubmitAndWait(*owner, executor, emptyPlan, context, 103, std::make_shared<unsigned>(9));
-    CHECK(emptyResult.generation->Geometry().curveCount == 0 && emptyResult.generation->Geometry().pointCount == 0);
+    CHECK(emptyResult.generation->Geometry().elementCount == 0 && emptyResult.generation->Geometry().pointCount == 0);
 
     // Canonical empty C3 needs no rest sample even when useRest=true.
     auto badEmpty = emptyDesc; badEmpty.nodes[0].params[0].value = VtValue(true);
     auto emptyRestHandle = CompileVulkanSourceWidthPlan(badEmpty, nullptr); CHECK(emptyRestHandle);
     auto emptyRest = std::static_pointer_cast<const VulkanSourceWidthPlan>(emptyRestHandle->Payload()); CHECK(emptyRest);
     auto emptyRestResult = SubmitAndWait(*owner, executor, emptyRest, context, 104, std::make_shared<unsigned>(10));
-    CHECK(emptyRestResult.generation->Geometry().curveCount == 0 && emptyRestResult.generation->Geometry().pointCount == 0);
+    CHECK(emptyRestResult.generation->Geometry().elementCount == 0 && emptyRestResult.generation->Geometry().pointCount == 0);
 
     owner->InvokeOwner([&] { firstResult.generation.reset(); secondResult.generation.reset(); lengthResult.generation.reset(); fanoutResult.generation.reset(); boundResult.generation.reset(); rootedRetry.generation.reset(); reboundResult.generation.reset(); droppedResult.generation.reset(); boundLengthResult.generation.reset(); boundBlendResult.generation.reset(); affineResult.generation.reset(); affineRetry.generation.reset(); shortIndexResult.generation.reset(); duplicateIndexResult.generation.reset(); emptyResult.generation.reset(); emptyRestResult.generation.reset(); plainResult.generation.reset(); noiseResult.generation.reset(); });
     oldCutExecutor->Shutdown(); CHECK(oldCutExecutor->IsShutdown());

@@ -3,6 +3,7 @@
 
 #include "sourceWidthJob.h"
 #include "lengthEnvelope.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -1444,7 +1445,7 @@ void VulkanSourceWidthJob::BeginTileBounds() {
         };
     // CUDA parity (Finalize): CatmullRom only when the capture topology says
     // so, otherwise BSpline. Linear is unrepresentable in the device basis.
-    auto basis = value->geometry().layoutMetadata[1] == uint8_t(UsdGenDeviceCurveBasis::CatmullRom)
+    auto basis = UsdGenCurveLayoutBasisOf(value->geometry().layoutMetadata) == UsdGenCurveLayoutBasis::CatmullRom
                      ? PicktileVkTileBoundsBasis::CatmullRom
                      : PicktileVkTileBoundsBasis::BSpline;
     bounds_ = info_.boundsPipeline->Begin(std::move(points), std::move(widths), std::move(spans),

@@ -7,6 +7,7 @@
 #include "exprVkStructural.h"
 #include "growVkPlan.h"
 #include "usdGen/curveLoader.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/vulkan/vkStages.h"
@@ -382,12 +383,12 @@ struct Relay final : std::enable_shared_from_this<Relay> {
             // Match C3 capture space policy, not the presence of rest arrays.
             // The source loader preserves current points in either mode.
             capture.geometry.alreadyDeformed = !plan->SourceControls().useRest;
-            capture.geometry.layoutMetadata = {uint8_t(UsdGenDeviceCurveType::Cubic),
-                                                  uint8_t(!plan->SourceControls().surfaceCage &&
+            capture.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+                                                  (!plan->SourceControls().surfaceCage &&
                                                                   plan->Source().basis == UsdGenTokens().catmullRom
-                                                              ? UsdGenDeviceCurveBasis::CatmullRom
-                                                              : UsdGenDeviceCurveBasis::BSpline),
-                                                  uint8_t(UsdGenDeviceCurveWrap::Pinned)};
+                                                              ? UsdGenCurveLayoutBasis::CatmullRom
+                                                              : UsdGenCurveLayoutBasis::BSpline),
+                                                  UsdGenCurveLayoutWrap::Pinned);
             VulkanPublicationJob::CreateInfo jobInfo;
             jobInfo.domain = executor->createInfo().domain;
             jobInfo.generation = request.generation;

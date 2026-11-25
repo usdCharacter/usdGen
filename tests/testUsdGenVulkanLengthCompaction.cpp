@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/vulkan/lengthCompactionPipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
@@ -117,7 +118,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     source.chunks[0].firstCv = 0; source.chunks[0].cvCount = 0; source.chunks[0].tile = 7; source.chunks[0].surface = 1;
     source.chunks[1].firstCurve = 2; source.chunks[1].curveCount = 2; source.chunks[1].liveCount = 2;
     source.chunks[1].firstCv = 5; source.chunks[1].cvCount = 0; source.chunks[1].tile = 9; source.chunks[1].surface = 1;
-    info.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline, UsdGenDeviceCurveWrap::Pinned};
+    info.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     info.geometry.alreadyDeformed = true;
     info.geometry.tiles = {{7,0,2,0,5}, {9,2,2,5,6}};
     float groom[] = {9.5f, 7.25f};
@@ -162,8 +163,8 @@ static VulkanSourceGenerationCreateInfo LargeFixture(std::shared_ptr<DeviceConte
         info.geometry.tiles.push_back({chunk.tile, first, chunk.curveCount, chunk.firstCv,
                                        s.cvOffsets[last] - chunk.firstCv});
     }
-    info.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline,
-                                   UsdGenDeviceCurveWrap::Pinned};
+    info.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline,
+                                   UsdGenCurveLayoutWrap::Pinned);
     info.geometry.alreadyDeformed = true;
     float groom[] = {3.25f};
     info.additionalNamed.push_back({{"LargeGroom", UsdGenDeviceValueType::Float32,
@@ -264,7 +265,7 @@ int main(int argc, char** argv) {
     auto subset = compact(base, 1.f, 24); CHECK(subset && subset->curveCount() == 3 && subset->pointCount() == 8);
     CHECK(CompletePacket(native, context, subset, original, {0,2,3}, {0,1,5,6,7,8,9,10}));
     CHECK(subset->geometry().alreadyDeformed && subset->geometry().topologyVersion == 24 && subset->geometry().valueVersion == 24);
-    CHECK(subset->chunks().size() == 2 && subset->geometry().tiles.size() == 2 && subset->chunks()[0].curveCount == 1 && subset->geometry().tiles[0].curveCount == 1);
+    CHECK(subset->chunks().size() == 2 && subset->geometry().tiles.size() == 2 && subset->chunks()[0].curveCount == 1 && subset->geometry().tiles[0].elementCount == 1);
     // Repeated culls retain predecessors: first COW packet and original remain immutable.
     auto final = compact(subset, 2.5f, 25); CHECK(final && final->curveCount() == 1 && final->pointCount() == 4);
     CHECK(CompletePacket(native, context, final, original, {3}, {7,8,9,10}));
@@ -275,7 +276,7 @@ int main(int argc, char** argv) {
     auto zero = compact(base, 0.f, 26); CHECK(zero && zero->curveCount() == 4 && zero->pointCount() == 11);
     CHECK(CompletePacket(native, context, zero, original, {0,1,2,3}, {0,1,2,3,4,5,6,7,8,9,10}));
     auto empty = compact(base, 4.f, 27); CHECK(empty && !empty->curveCount() && !empty->pointCount());
-    CHECK(empty->chunks().size() == 2 && empty->geometry().tiles.size() == 2 && empty->chunks()[0].curveCount == 0 && empty->chunks()[1].curveCount == 0 && empty->geometry().tiles[0].curveCount == 0 && empty->geometry().tiles[1].curveCount == 0);
+    CHECK(empty->chunks().size() == 2 && empty->geometry().tiles.size() == 2 && empty->chunks()[0].curveCount == 0 && empty->chunks()[1].curveCount == 0 && empty->geometry().tiles[0].elementCount == 0 && empty->geometry().tiles[1].elementCount == 0);
     CHECK(CompletePacket(native, context, empty, original, {}, {}));
 
     // Density-live curves are a prefix within each allocated chunk. A cull
@@ -325,8 +326,8 @@ int main(int argc, char** argv) {
         CHECK(out.tile == in.tile && out.firstCurve == compactCurve && out.curveCount == live &&
               out.liveCount == live && out.firstCv == compactPoint && out.cvCount == 0);
         CHECK(largeSubset->geometry().tiles[i].tile == in.tile &&
-              largeSubset->geometry().tiles[i].firstCurve == compactCurve &&
-              largeSubset->geometry().tiles[i].curveCount == live &&
+              largeSubset->geometry().tiles[i].firstElement == compactCurve &&
+              largeSubset->geometry().tiles[i].elementCount == live &&
               largeSubset->geometry().tiles[i].firstPoint == compactPoint &&
               largeSubset->geometry().tiles[i].pointCount == pointsIn);
         compactCurve += live; compactPoint += pointsIn;
@@ -336,8 +337,8 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i != largeEmpty->chunks().size(); ++i) {
         auto const& out = largeEmpty->chunks()[i]; auto const& tile = largeEmpty->geometry().tiles[i];
         CHECK(out.tile == large->chunks()[i].tile && out.firstCurve == 0 && out.curveCount == 0 &&
-              out.liveCount == 0 && out.firstCv == 0 && out.cvCount == 0 && tile.firstCurve == 0 &&
-              tile.curveCount == 0 && tile.firstPoint == 0 && tile.pointCount == 0);
+              out.liveCount == 0 && out.firstCv == 0 && out.cvCount == 0 && tile.firstElement == 0 &&
+              tile.elementCount == 0 && tile.firstPoint == 0 && tile.pointCount == 0);
     }
     largeCandidate.reset(); largeEmpty.reset(); largeSubset.reset(); large.reset();
     partialFinal.reset(); partialSubset.reset(); partial.reset();

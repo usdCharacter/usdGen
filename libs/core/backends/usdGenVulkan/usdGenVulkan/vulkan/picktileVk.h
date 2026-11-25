@@ -494,7 +494,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles,
     std::string* reason = nullptr,
-    std::array<uint8_t, 3> layoutMetadata = {});
+    UsdGenDeviceLayoutMetadata layoutMetadata = {});
 
 // Session-layer admission for Vulkan tools: the generation exposes the exact
 // channels a tool needs (points/curveOffsets required with exact bytes;

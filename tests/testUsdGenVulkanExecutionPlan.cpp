@@ -319,10 +319,10 @@ int main() {
         CHECK(plan->Steps().size() == 1 &&
               plan->Steps()[0].kind == VulkanSourceWidthStage::Kind::Resample);
         auto const& publication = handle->Metadata()->Tasks().back();
-        CHECK(publication.resources[0].resource == UsdGenExecutionDataKind::CurveGeometry);
+        CHECK(publication.resources[0].resource == UsdGenExecutionDataKind::ElementGeometry);
         CHECK(publication.resources[1].resource == UsdGenExecutionDataKind::Widths);
         CHECK(handle->Metadata()->Values()[publication.resources[0].inputValue].resource ==
-              UsdGenExecutionDataKind::CurveGeometry);
+              UsdGenExecutionDataKind::ElementGeometry);
         CHECK(handle->Metadata()->Values()[publication.resources[1].inputValue].resource ==
               UsdGenExecutionDataKind::Widths);
     }
@@ -406,7 +406,7 @@ int main() {
               plan->Steps()[0].deform.rootTargets[3] == .5f);
         auto const& publication = handle->Metadata()->Tasks().back();
         CHECK(handle->Metadata()->Values()[publication.resources[0].inputValue].resource ==
-              UsdGenExecutionDataKind::CurveGeometry);
+              UsdGenExecutionDataKind::ElementGeometry);
         CHECK(handle->Metadata()->Values()[publication.resources[1].inputValue].resource ==
               UsdGenExecutionDataKind::Widths);
         UsdGenNodeDesc cull;
@@ -475,7 +475,7 @@ int main() {
     auto const& publication = metadata->Tasks()[2];
     CHECK(source.id == 0 && source.semanticNode == 0 && source.kind == UsdGenExecutionTaskKind::Source &&
           source.path == SdfPath("/Groom/Ops/source") && source.resources.size() == 5 &&
-          source.resources[0].resource == UsdGenExecutionDataKind::CurveGeometry &&
+          source.resources[0].resource == UsdGenExecutionDataKind::ElementGeometry &&
           source.resources[0].access == UsdGenExecutionResourceAccess::ReadWrite &&
           source.resources[0].inputValue == 0 && source.resources[0].outputValue == 1 &&
           source.resources[1].resource == UsdGenExecutionDataKind::Widths &&
@@ -491,16 +491,16 @@ int main() {
           publication.dependencies == std::vector<uint32_t>({0, 1}) &&
           HasDependency(publication, 0, UsdGenExecutionDependencyLifetimePublicationJoin) &&
           HasDependency(publication, 1, UsdGenExecutionDependencyLifetimePublicationJoin));
-    CHECK(metadata->Values()[0].id == 0 && metadata->Values()[0].resource == UsdGenExecutionDataKind::CurveGeometry &&
+    CHECK(metadata->Values()[0].id == 0 && metadata->Values()[0].resource == UsdGenExecutionDataKind::ElementGeometry &&
           metadata->Values()[0].producerTask == UINT32_MAX && metadata->Values()[0].storage == UsdGenExecutionValueStorage::ExternalImmutable &&
-          metadata->Values()[1].id == 1 && metadata->Values()[1].resource == UsdGenExecutionDataKind::CurveGeometry &&
+          metadata->Values()[1].id == 1 && metadata->Values()[1].resource == UsdGenExecutionDataKind::ElementGeometry &&
           metadata->Values()[1].producerTask == 0 && metadata->Values()[1].version == 1 && metadata->Values()[1].storage == UsdGenExecutionValueStorage::JobOwnedImmutable &&
           metadata->Values()[2].id == 2 && metadata->Values()[2].resource == UsdGenExecutionDataKind::Widths &&
           metadata->Values()[2].producerTask == 0 && metadata->Values()[2].version == 1 && metadata->Values()[2].storage == UsdGenExecutionValueStorage::JobOwnedImmutable &&
           metadata->Values()[3].id == 3 && metadata->Values()[3].resource == UsdGenExecutionDataKind::Widths &&
           metadata->Values()[3].producerTask == 1 && metadata->Values()[3].version == 2 && metadata->Values()[3].storage == UsdGenExecutionValueStorage::PublishedImmutable);
     for (uint32_t valueId : {4u, 5u, 6u}) {
-        auto const kind = valueId == 4 ? UsdGenExecutionDataKind::CurveTopology
+        auto const kind = valueId == 4 ? UsdGenExecutionDataKind::ElementTopology
                          : valueId == 5 ? UsdGenExecutionDataKind::StableIds
                                         : UsdGenExecutionDataKind::NamedChannels;
         auto const resourceIndex = valueId - 2;
@@ -587,14 +587,14 @@ int main() {
         return std::any_of(task.resources.begin(), task.resources.end(),
             [&](auto const& use) { return use.resource == kind && use.access == access; });
     };
-    for (auto kind : {UsdGenExecutionDataKind::CurveGeometry,
+    for (auto kind : {UsdGenExecutionDataKind::ElementGeometry,
                       UsdGenExecutionDataKind::Widths,
-                      UsdGenExecutionDataKind::CurveTopology,
+                      UsdGenExecutionDataKind::ElementTopology,
                       UsdGenExecutionDataKind::StableIds,
                       UsdGenExecutionDataKind::NamedChannels,
                       UsdGenExecutionDataKind::RootBindings})
         CHECK(hasUse(*cullTask, kind, UsdGenExecutionResourceAccess::ReadWrite));
-    CHECK(cullWidthTask->resources[0].resource == UsdGenExecutionDataKind::CurveGeometry &&
+    CHECK(cullWidthTask->resources[0].resource == UsdGenExecutionDataKind::ElementGeometry &&
           cullWidthTask->resources[0].inputValue != UINT32_MAX);
     auto findUse = [](UsdGenExecutionTaskMetadata const& task,
                       UsdGenExecutionDataKind kind,
@@ -606,17 +606,17 @@ int main() {
         return found == task.resources.end() ? nullptr : &*found;
     };
     auto const* sourceTopology = findUse(cullMetadata->Tasks()[0],
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Write);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Write);
     auto const* cullTopology = findUse(*cullTask,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::ReadWrite);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::ReadWrite);
     auto const* widthTopology = findUse(*cullWidthTask,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read);
     CHECK(sourceTopology && sourceTopology->outputValue == 4 && sourceTopology->producerTask == UINT32_MAX &&
           cullTopology && cullTopology->producerTask == 0 && cullTopology->inputValue == 4 &&
           cullTopology->outputValue != UINT32_MAX && widthTopology &&
           widthTopology->producerTask == cullTask->id &&
           widthTopology->inputValue == cullTopology->outputValue);
-    CHECK(cullMetadata->Values()[cullTopology->outputValue].resource == UsdGenExecutionDataKind::CurveTopology &&
+    CHECK(cullMetadata->Values()[cullTopology->outputValue].resource == UsdGenExecutionDataKind::ElementTopology &&
           cullMetadata->Values()[cullTopology->outputValue].producerTask == cullTask->id);
     auto cullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(cullHandle->Payload());
     CHECK(cullPlan && cullPlan->Steps().size() == 2 &&
@@ -678,16 +678,16 @@ int main() {
           finalCullTask->semanticNode == 1 &&
           finalCullTask->path == authoredLengthTask->path);
     auto const* finalCullTopology = findUse(*finalCullTask,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::ReadWrite);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::ReadWrite);
     CHECK(finalCullTopology && finalCullTopology->inputValue != UINT32_MAX &&
           finalCullTopology->outputValue != UINT32_MAX &&
           scaleThresholdMetadata->Values()[finalCullTopology->outputValue].resource ==
-              UsdGenExecutionDataKind::CurveTopology &&
+              UsdGenExecutionDataKind::ElementTopology &&
           scaleThresholdMetadata->Values()[finalCullTopology->outputValue].producerTask ==
               finalCullTask->id);
     auto const* finalCullWidth = findTask(scaleThresholdMetadata, "/Groom/Ops/width");
     auto const* finalCullGeometry = finalCullWidth ? findUse(*finalCullWidth,
-        UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Read) : nullptr;
+        UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::Read) : nullptr;
     CHECK(finalCullWidth && finalCullGeometry &&
           finalCullGeometry->producerTask == finalCullTask->id);
     auto finalCullIds = findUse(*finalCullTask, UsdGenExecutionDataKind::StableIds,
@@ -760,14 +760,14 @@ int main() {
     auto const* firstCullTask = findTask(repeatedMetadata, "/Groom/Ops/cull");
     CHECK(repeatedMetadata && cull2Task && repeatedWidthTask && firstCullTask);
     auto const* cull2Topology = findUse(*cull2Task,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::ReadWrite);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::ReadWrite);
     auto const* repeatedWidthTopology = findUse(*repeatedWidthTask,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read);
     CHECK(cull2Topology && cull2Topology->producerTask == firstCullTask->id &&
           cull2Topology->inputValue != 4 && cull2Topology->outputValue != UINT32_MAX &&
           repeatedWidthTopology && repeatedWidthTopology->producerTask == cull2Task->id &&
           repeatedWidthTopology->inputValue == cull2Topology->outputValue &&
-          repeatedMetadata->Values()[cull2Topology->outputValue].resource == UsdGenExecutionDataKind::CurveTopology &&
+          repeatedMetadata->Values()[cull2Topology->outputValue].resource == UsdGenExecutionDataKind::ElementTopology &&
           repeatedMetadata->Values()[cull2Topology->outputValue].producerTask == cull2Task->id);
     auto const* cull2Named = findUse(*cull2Task,
         UsdGenExecutionDataKind::NamedChannels, UsdGenExecutionResourceAccess::ReadWrite);
@@ -809,8 +809,8 @@ int main() {
     CHECK(unequalMetadata && unequalRightCull && unequalRightWidth && unequalBlend);
     // An independent equal-parameter cull has its own non-width lineage. The
     // comparison packet must bind every right-branch value to that producer.
-    for (auto kind : {UsdGenExecutionDataKind::CurveGeometry,
-                      UsdGenExecutionDataKind::CurveTopology,
+    for (auto kind : {UsdGenExecutionDataKind::ElementGeometry,
+                      UsdGenExecutionDataKind::ElementTopology,
                       UsdGenExecutionDataKind::StableIds,
                       UsdGenExecutionDataKind::NamedChannels,
                       UsdGenExecutionDataKind::RootBindings}) {
@@ -848,10 +848,10 @@ int main() {
     CHECK(lengthMetadata->Tasks().size() == 4 && lengthMetadata->Values().size() == 8 && lengthMetadata->TerminalTask() == 3);
     CHECK(lengthMetadata->Values()[7].producerTask == 1 && lengthMetadata->Values()[3].producerTask == 2);
     auto const* scaleTopology = findUse(lengthMetadata->Tasks()[1],
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read, 4);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read, 4);
     auto const* scaleWidthTopology = findUse(lengthMetadata->Tasks()[2],
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read, 4);
-    CHECK(lengthMetadata->Values()[4].resource == UsdGenExecutionDataKind::CurveTopology &&
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read, 4);
+    CHECK(lengthMetadata->Values()[4].resource == UsdGenExecutionDataKind::ElementTopology &&
           lengthMetadata->Values()[4].producerTask == 0 && lengthMetadata->Values()[4].version == 1 &&
           scaleTopology && scaleTopology->producerTask == 0 &&
           scaleWidthTopology && scaleWidthTopology->producerTask == 0);
@@ -885,13 +885,13 @@ int main() {
     auto const* setTask = findTask(setMetadata, "/Groom/Ops/length");
     auto const* setWidthTask = findTask(setMetadata, "/Groom/Ops/width");
     CHECK(setTask && setWidthTask && !setTask->topologyBarrier);
-    auto const* setGeometry = findUse(*setTask, UsdGenExecutionDataKind::CurveGeometry,
+    auto const* setGeometry = findUse(*setTask, UsdGenExecutionDataKind::ElementGeometry,
                                       UsdGenExecutionResourceAccess::ReadWrite);
-    auto const* setTopology = findUse(*setTask, UsdGenExecutionDataKind::CurveTopology,
+    auto const* setTopology = findUse(*setTask, UsdGenExecutionDataKind::ElementTopology,
                                       UsdGenExecutionResourceAccess::Read, 4);
     auto const* setNamed = findUse(*setTask, UsdGenExecutionDataKind::NamedChannels,
                                    UsdGenExecutionResourceAccess::Read, 6);
-    auto const* setWidthGeometry = findUse(*setWidthTask, UsdGenExecutionDataKind::CurveGeometry,
+    auto const* setWidthGeometry = findUse(*setWidthTask, UsdGenExecutionDataKind::ElementGeometry,
                                            UsdGenExecutionResourceAccess::Read);
     CHECK(setGeometry && setGeometry->inputValue == 1 && setGeometry->outputValue == 7 &&
           setGeometry->producerTask == 0 && setTopology && setTopology->producerTask == 0 &&
@@ -899,11 +899,11 @@ int main() {
           setWidthGeometry->inputValue == 7 && setWidthGeometry->producerTask == setTask->id &&
           setMetadata->Values()[4].producerTask == 0 &&
           setMetadata->Values()[6].producerTask == 0 &&
-          setMetadata->Values()[7].resource == UsdGenExecutionDataKind::CurveGeometry &&
+          setMetadata->Values()[7].resource == UsdGenExecutionDataKind::ElementGeometry &&
           setMetadata->Values()[7].producerTask == setTask->id);
     auto setPublication = setMetadata->Tasks().back();
     auto const* publicationTopology = findUse(setPublication,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read, 4);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read, 4);
     auto const* publicationNamed = findUse(setPublication,
         UsdGenExecutionDataKind::NamedChannels, UsdGenExecutionResourceAccess::Read, 6);
     CHECK(publicationTopology && publicationTopology->producerTask == 0 &&
@@ -926,9 +926,9 @@ int main() {
     auto const* beforeSetTask = findTask(setThenCullMetadata, "/Groom/Ops/set");
     auto const* afterCullTask = findTask(setThenCullMetadata, "/Groom/Ops/cull");
     CHECK(beforeSetTask && afterCullTask);
-    auto const* beforeSetTopology = findUse(*beforeSetTask, UsdGenExecutionDataKind::CurveTopology,
+    auto const* beforeSetTopology = findUse(*beforeSetTask, UsdGenExecutionDataKind::ElementTopology,
                                             UsdGenExecutionResourceAccess::Read, 4);
-    auto const* afterCullTopology = findUse(*afterCullTask, UsdGenExecutionDataKind::CurveTopology,
+    auto const* afterCullTopology = findUse(*afterCullTask, UsdGenExecutionDataKind::ElementTopology,
                                             UsdGenExecutionResourceAccess::ReadWrite);
     CHECK(beforeSetTopology && beforeSetTopology->producerTask == 0 &&
           afterCullTopology && afterCullTopology->producerTask == 0 &&
@@ -949,11 +949,11 @@ int main() {
     auto const* priorCullTask = findTask(cullThenSetMetadata, "/Groom/Ops/cull");
     auto const* afterSetTask = findTask(cullThenSetMetadata, "/Groom/Ops/set");
     CHECK(priorCullTask && afterSetTask);
-    auto const* priorCullTopology = findUse(*priorCullTask, UsdGenExecutionDataKind::CurveTopology,
+    auto const* priorCullTopology = findUse(*priorCullTask, UsdGenExecutionDataKind::ElementTopology,
                                             UsdGenExecutionResourceAccess::ReadWrite);
-    auto const* afterSetTopology = findUse(*afterSetTask, UsdGenExecutionDataKind::CurveTopology,
+    auto const* afterSetTopology = findUse(*afterSetTask, UsdGenExecutionDataKind::ElementTopology,
                                            UsdGenExecutionResourceAccess::Read, priorCullTopology->outputValue);
-    auto const* afterSetGeometry = findUse(*afterSetTask, UsdGenExecutionDataKind::CurveGeometry,
+    auto const* afterSetGeometry = findUse(*afterSetTask, UsdGenExecutionDataKind::ElementGeometry,
                                            UsdGenExecutionResourceAccess::ReadWrite);
     CHECK(priorCullTopology && afterSetTopology && afterSetTopology->producerTask == priorCullTask->id &&
           afterSetGeometry && afterSetGeometry->producerTask == priorCullTask->id &&
@@ -1054,7 +1054,7 @@ int main() {
     CHECK(minimumMetadata);
     auto const* minimumTask = minimumMetadata->FindSemanticTask(1);
     CHECK(minimumTask && !minimumTask->topologyBarrier);
-    auto minimumTopology = findUse(*minimumTask, UsdGenExecutionDataKind::CurveTopology,
+    auto minimumTopology = findUse(*minimumTask, UsdGenExecutionDataKind::ElementTopology,
                                   UsdGenExecutionResourceAccess::Read);
     CHECK(minimumTopology && minimumTopology->inputValue == 4 &&
           minimumTopology->producerTask == 0);
@@ -1100,7 +1100,7 @@ int main() {
     auto const* cullMinimumTask = findTask(cullMinimumMetadata, "/Groom/Ops/cull");
     CHECK(cullMinimumTask && cullMinimumTask->topologyBarrier);
     auto cullMinimumTopology = findUse(*cullMinimumTask,
-        UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::ReadWrite);
+        UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::ReadWrite);
     CHECK(cullMinimumTopology && cullMinimumTopology->inputValue == 4 &&
           cullMinimumTopology->producerTask == 0);
     for (VtValue invalid : {VtValue(-.25f), VtValue(std::numeric_limits<float>::quiet_NaN()),

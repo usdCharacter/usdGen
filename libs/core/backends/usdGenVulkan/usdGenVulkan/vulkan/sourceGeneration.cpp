@@ -3,6 +3,7 @@
 
 #include "sourceGeneration.h"
 #include "sourceValidation.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include <new>
 
 #include <cmath>
@@ -438,9 +439,9 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithGrown(
     try {
         auto child = std::shared_ptr<VulkanSourceGeneration>(
             new VulkanSourceGeneration(base, named, target, value));
-        child->childGeometry_.layoutMetadata = {uint8_t(UsdGenDeviceCurveType::Cubic),
-                                              uint8_t(UsdGenDeviceCurveBasis::BSpline),
-                                              uint8_t(UsdGenDeviceCurveWrap::Pinned)};
+        child->childGeometry_.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+                                              UsdGenCurveLayoutBasis::BSpline,
+                                              UsdGenCurveLayoutWrap::Pinned);
         if (!base->curveCount()) return child;
         using T = UsdGenDeviceValueType; using D = UsdGenDeviceDomain;
         using S = UsdGenDeviceChannelSemantic;
@@ -657,9 +658,9 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithCompac
         // Disabled Grow lowers to a native empty compaction but retains the
         // generated topology contract instead of the predecessor's basis.
         if (emptyGrow)
-            child->childGeometry_.layoutMetadata = {uint8_t(UsdGenDeviceCurveType::Cubic),
-                                                  uint8_t(UsdGenDeviceCurveBasis::BSpline),
-                                                  uint8_t(UsdGenDeviceCurveWrap::Pinned)};
+            child->childGeometry_.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+                                                  UsdGenCurveLayoutBasis::BSpline,
+                                                  UsdGenCurveLayoutWrap::Pinned);
         return child;
     } catch (std::bad_alloc const&) {
         if (why) *why = "compacted COW allocation failed";

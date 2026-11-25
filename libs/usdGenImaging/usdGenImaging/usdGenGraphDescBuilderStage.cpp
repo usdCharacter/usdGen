@@ -50,7 +50,7 @@ using usdGen::UsdGenCurveSetDesc;
 using usdGen::UsdGenGraphDesc;
 using usdGen::UsdGenNodeDesc;
 using usdGen::UsdGenParamValue;
-using usdGen::UsdGenRole;
+using usdGen::UsdGenLane;
 using usdGen::UsdGenLookDesc;
 using usdGen::UsdGenSurfaceDesc;
 using usdGen::UsdGenSurfaceSample;
@@ -391,7 +391,7 @@ struct _GraphWalker
     std::unordered_set<std::string> operatorPaths;
     std::unordered_set<std::string> visited;
     // guides rels mark their curve sets as the Reference lane (I3)
-    std::unordered_map<std::string, UsdGenRole> curveRoles;
+    std::unordered_map<std::string, UsdGenLane> curveRoles;
 
     void Walk(UsdPrim const &prim)
     {
@@ -412,7 +412,7 @@ struct _GraphWalker
                 SdfPathVector targets;
                 rel.GetTargets(&targets);
                 for (SdfPath const &target : targets) {
-                    curveRoles[target.GetString()] = UsdGenRole::Reference;
+                    curveRoles[target.GetString()] = UsdGenLane::Reference;
                 }
             }
         }
@@ -697,7 +697,7 @@ std::set<TfToken> const s_reservedCurvePlanes{
 
 void
 _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
-               UsdGenRole role, double time, UsdGenCurveSetDesc *out,
+               UsdGenLane role, double time, UsdGenCurveSetDesc *out,
                std::vector<std::string> *errors)
 {
     UsdPrim prim = stage->GetPrimAtPath(path);
@@ -1080,7 +1080,7 @@ BuildGraphDescFromStage(
         return desc;
     }
     desc.terminal = operatorOrder.back();
-    std::unordered_map<std::string, UsdGenRole> curveRoles;
+    std::unordered_map<std::string, UsdGenLane> curveRoles;
 
     // Expressions are providers, never stack nodes.  Preserve native output
     // type and source verbatim; compiler policy decides whether evaluation is
@@ -1186,7 +1186,7 @@ BuildGraphDescFromStage(
                 rel.GetTargets(&targets);
                 for (SdfPath const &target : targets) {
                     node.curves.push_back(target);
-                    curveRoles[target.GetString()] = UsdGenRole::Reference;
+                    curveRoles[target.GetString()] = UsdGenLane::Reference;
                 }
                 continue;
             } else if (name == "input") {
@@ -1227,7 +1227,7 @@ BuildGraphDescFromStage(
             for (SdfPath const &t : relTargets) {
                 bucket->push_back(t);
                 if (name == "guides" || isPartCurves || isDirectionSource || isFrozenCurves) {
-                    curveRoles[t.GetString()] = UsdGenRole::Reference;
+                    curveRoles[t.GetString()] = UsdGenLane::Reference;
                 }
             }
         }
@@ -1334,7 +1334,7 @@ BuildGraphDescFromStage(
         }
     };
 
-    auto curveFor = [&](SdfPath const &p, UsdGenRole role) {
+    auto curveFor = [&](SdfPath const &p, UsdGenLane role) {
         auto it = curveIndex.find(p.GetString());
         if (it == curveIndex.end()) {
             UsdGenCurveSetDesc cs;
@@ -1342,9 +1342,9 @@ BuildGraphDescFromStage(
             it = curveIndex.emplace(p.GetString(), desc.curveSets.size())
                      .first;
             desc.curveSets.push_back(std::move(cs));
-        } else if (role == UsdGenRole::Reference) {
+        } else if (role == UsdGenLane::Reference) {
             // Reference is the stronger lane claim (I3).
-            desc.curveSets[it->second].role = UsdGenRole::Reference;
+            desc.curveSets[it->second].role = UsdGenLane::Reference;
         }
     };
 
@@ -1404,7 +1404,7 @@ BuildGraphDescFromStage(
             surfaceFor(s);
         }
         for (SdfPath const &c : node.curves) {
-            UsdGenRole role = UsdGenRole::Curves;
+            UsdGenLane role = UsdGenLane::Chunked;
             auto roleIt = curveRoles.find(c.GetString());
             if (roleIt != curveRoles.end()) {
                 role = roleIt->second;
@@ -1412,7 +1412,7 @@ BuildGraphDescFromStage(
             curveFor(c, role);
         }
         for (SdfPath const &reference : node.references) {
-            curveFor(reference, UsdGenRole::Reference);
+            curveFor(reference, UsdGenLane::Reference);
         }
         for (SdfPath const &m : node.maps) {
             mapFor(m);
