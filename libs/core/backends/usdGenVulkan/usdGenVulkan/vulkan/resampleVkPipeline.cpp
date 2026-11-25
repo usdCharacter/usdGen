@@ -252,7 +252,7 @@ std::unique_ptr<ResampleVkPipeline::Candidate> ResampleVkPipeline::Begin(
                 c.liveCount > c.curveCount || c.firstCv > base->pointCount()) return {};
         }
         for (auto const& t : s->tiles) {
-            if (t.firstCurve > s->curves || t.curveCount > s->curves - t.firstCurve ||
+            if (t.firstElement > s->curves || t.elementCount > s->curves - t.firstElement ||
                 t.firstPoint > base->pointCount() || t.pointCount > base->pointCount() - t.firstPoint) return {};
         }
         uint64_t const total = uint64_t(base->planes().size()) + base->sourceFrames().size();
@@ -282,7 +282,7 @@ std::unique_ptr<ResampleVkPipeline::Candidate> ResampleVkPipeline::Begin(
                     if (!consistent(plane, plane.metadata.elementCount)) return false;
                     output.owner = owner; output.bytes = plane.bytes; s->outputs.push_back(std::move(output)); return true;
                 }
-                bool const offsets = plane.metadata.semantic == S::CurveOffsets;
+                bool const offsets = plane.metadata.semantic == S::ElementOffsets;
                 if (offsets) {
                     if (plane.metadata.domain != D::Topology || !consistent(plane, curves64 + 1)) return false;
                     output.metadata.elementCount = curves64 + 1; output.bytes = offsetsBytes;
@@ -361,8 +361,8 @@ std::unique_ptr<ResampleVkPipeline::Candidate> ResampleVkPipeline::Begin(
                 c.firstCv = c.firstCurve * target; c.cvCount = target;
             }
             for (auto& t : s->tiles) {
-                t.firstPoint = uint64_t(t.firstCurve) * target;
-                t.pointCount = uint64_t(t.curveCount) * target;
+                t.firstPoint = uint64_t(t.firstElement) * target;
+                t.pointCount = uint64_t(t.elementCount) * target;
                 t.boundsValid = false;
             }
             if (!s->Submit(before, r)) goto failed;

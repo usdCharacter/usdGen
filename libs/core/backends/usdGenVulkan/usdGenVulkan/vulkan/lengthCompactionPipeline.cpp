@@ -267,9 +267,9 @@ std::unique_ptr<LengthCompactionPipeline::Candidate> LengthCompactionPipeline::B
             spans[index++]=c.firstCv;spans[index++]=UINT32_MAX;
         }
         for(auto const& t:s->tiles) {
-            if(t.firstCurve>s->push.curves||t.curveCount>s->push.curves-t.firstCurve||
+            if(t.firstElement>s->push.curves||t.elementCount>s->push.curves-t.firstElement||
                 t.firstPoint>s->push.points||t.pointCount>s->push.points-t.firstPoint)return {};
-            spans[index++]=uint32_t(t.firstCurve);spans[index++]=uint32_t(t.firstCurve+t.curveCount);
+            spans[index++]=uint32_t(t.firstElement);spans[index++]=uint32_t(t.firstElement+t.elementCount);
             spans[index++]=uint32_t(t.firstPoint);spans[index++]=uint32_t(t.firstPoint+t.pointCount);
         }
         auto valid=[&](std::shared_ptr<const ChargedBuffer> const& b,uint64_t bytes) {
@@ -321,7 +321,7 @@ VkResult LengthCompactionPipeline::Candidate::PollCounts(uint32_t* semanticStatu
             ++i;c.liveCount=s.control[i++];i+=2;
         }
         for(auto& t:s.tiles) {
-            t.firstCurve=s.control[i++];t.curveCount=s.control[i++];
+            t.firstElement=s.control[i++];t.elementCount=s.control[i++];
             t.firstPoint=s.control[i++];t.pointCount=s.control[i++];t.boundsValid=false;
         }
         s.countsProved=true;
@@ -351,7 +351,7 @@ bool LengthCompactionPipeline::Candidate::BeginScatter(VkResult* result,BeforeSu
                 if(plane.metadata.domain==UsdGenDeviceDomain::Groom) {
                     output.owner=owner;output.bytes=plane.bytes;s.outputs.push_back(std::move(output));return true;
                 }
-                bool offsets=plane.metadata.semantic==UsdGenDeviceChannelSemantic::CurveOffsets;
+                bool offsets=plane.metadata.semantic==UsdGenDeviceChannelSemantic::ElementOffsets;
                 bool point=plane.metadata.domain==UsdGenDeviceDomain::Point;
                 if(!offsets&&!point&&plane.metadata.domain!=UsdGenDeviceDomain::Primitive)return false;
                 output.metadata.elementCount=offsets?uint64_t(s.curves)+1:point?s.points:s.curves;
