@@ -535,7 +535,7 @@ int main() {
     CHECK(publication.id == 4 && publication.semanticNode == UINT32_MAX &&
           publication.authoredOrderKey == 4 &&
           publication.kind == UsdGenExecutionTaskKind::Publication &&
-          publication.path == desc.terminal && publication.type == TfToken("UsdGenPublication") &&
+          publication.path == desc.terminal && publication.type == TfToken("CudaPublication") &&
           DependenciesAre(publication,{0,1,2,3}) && publication.topologyBarrier &&
           publication.exclusiveWorkspace && !publication.estimate.timeAvailable &&
           publication.estimate.estimatedMicroseconds == 0 &&
@@ -622,7 +622,7 @@ int main() {
     auto const* scatterBlend = taskAt("/Ops/Blend");
     CHECK(scatterGrowMetadata && fused && scatterLength && scatterNoise &&
           scatterLeft && scatterRight && scatterBlend &&
-          fused->type == TfToken("UsdGenScatterGrow") &&
+          fused->type == TfToken("CudaScatterGrow") &&
           scatterGrowMetadata->Shape() == UsdGenExecutionPlanShape::SourceRootedValueDag);
     auto hasDependency = [](UsdGenExecutionTaskMetadata const& task, uint32_t id) {
         return std::find(task.dependencies.begin(), task.dependencies.end(), id) != task.dependencies.end();

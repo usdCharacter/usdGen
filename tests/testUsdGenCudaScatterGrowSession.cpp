@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
               metadata->MemoryEstimate().conservativeUpperBound);
         CHECK(metadata->Tasks().size() == 2 && metadata->Operators().size() == 2);
         CHECK(metadata->TerminalTask() == 1);
-        CHECK(metadata->Tasks()[0].type == TfToken("UsdGenScatterGrow"));
+        CHECK(metadata->Tasks()[0].type == TfToken("CudaScatterGrow"));
         CHECK(metadata->Tasks()[0].estimate.steadyBytes == 2 * sizeof(int));
         CHECK(metadata->Tasks()[1].dependencies == std::vector<uint32_t>{0});
         CHECK(metadata->Tasks()[1].estimate.scratchPeakBytes > 0);

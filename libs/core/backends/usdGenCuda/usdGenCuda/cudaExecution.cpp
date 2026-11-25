@@ -84,10 +84,10 @@ bool CudaIs(UsdGenNodeDesc const& node, UsdGenCudaStage stage) noexcept {
 }
 // usdGen:rebind's default (curveRootCapture.cpp), interned at load.
 [[maybe_unused]] TfToken const kCudaRebindOnError = UsdGenInternToken("onError");
-// Plan task types that name no op (asserted by the CUDA plan tests).
-// "UsdGen" + "ScatterGrow": task types, not ops (the op-name gate).
-[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken(std::string("UsdGen") + "ScatterGrow");
-TfToken const kCudaPublicationTask = UsdGenInternToken(std::string("UsdGen") + "Publication");
+// Plan task types, not op names: backend-prefixed like the Vulkan plan's
+// "VulkanPublication" (asserted by the CUDA plan tests).
+[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken("CudaScatterGrow");
+TfToken const kCudaPublicationTask = UsdGenInternToken("CudaPublication");
 // A token-valued literal with exactly this text (VtValue(TfToken(text)) ==).
 [[maybe_unused]] bool HoldsTokenText(VtValue const& value, char const* text) {
     return value.IsHolding<TfToken>() && value.UncheckedGet<TfToken>().GetString() == text;
