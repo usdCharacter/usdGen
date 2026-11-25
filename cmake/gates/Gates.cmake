@@ -17,9 +17,8 @@
 
 set(USDGEN_LOCK_PATTERN
     "std::(recursive_|timed_|shared_|recursive_timed_|shared_timed_)?mutex|std::condition_variable|std::(lock_guard|unique_lock|scoped_lock|shared_lock)|std::(once_flag|call_once)|std::(counting_semaphore|binary_semaphore|latch|barrier)|std::(future|promise|shared_future|packaged_task)|std::atomic_(load|store|exchange|compare_exchange_[a-z]+)(_explicit)?[ ]*\\(|atomic<std::shared_ptr|pthread_(mutex|cond|rwlock)|CRITICAL_SECTION|SRWLOCK|Tf(Spin|BigRW)Mutex|tbb::|#[ ]*include[ ]*[<\"](oneapi/)?tbb[/.]|oneapi/tbb")
-# Below the hosts: everything that becomes base/, core/, backends/ and
-# primitives/. Today all of it lives in usdGen and usdGenMath.
-set(USDGEN_BELOW_HOSTS_DIRS "libs/usdGenMath;libs/usdGen;libs/base;libs/core")
+# Below the hosts: base/ and core/ (engine, backends, primitives).
+set(USDGEN_BELOW_HOSTS_DIRS "libs/base;libs/core")
 # An indented "static <type> <name> = / {" that is not constexpr,
 # thread_local or inline, and whose type is not an atomic, a fundamental
 # type or a std::array of one (constant-initialised in practice). Misses
@@ -105,7 +104,7 @@ add_test(NAME testUsdGenNoOpNameLiterals
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -DNAME=no-op-name-literals
-        -DDIRS=libs/usdGen
+        -DDIRS=libs/core
         "-DPATTERN=${USDGEN_OP_NAME_LITERAL_PATTERN}"
         "-DEXCLUDE=${USDGEN_OP_NAME_LITERAL_EXCLUDE}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noOpNameLiterals.txt
@@ -114,7 +113,7 @@ add_test(NAME testUsdGenNoTokenIntern
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -DNAME=no-token-intern
-        -DDIRS=libs/usdGen
+        -DDIRS=libs/core
         "-DPATTERN=${USDGEN_TOKEN_INTERN_PATTERN}"
         "-DEXCLUDE=^[ ]*//"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noTokenIntern.txt
@@ -123,8 +122,8 @@ add_test(NAME testUsdGenEngineNoOpCoupling
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -DNAME=engine-no-op-coupling
-        -DDIRS=libs/usdGen
-        "-DEXCLUDE_PATHS=^libs/usdGen/usdGen/ops/"
+        -DDIRS=libs/core
+        "-DEXCLUDE_PATHS=^libs/core/(primitives/[^/]+/[^/]+/ops/|backends/usdGenCuda/usdGenCuda/registerCurvesCuda[.]cpp$|backends/usdGenVulkan/usdGenVulkan/registerCurvesVulkan[.]cpp$)"
         "-DPATTERN=${USDGEN_OP_COUPLING_PATTERN}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/engineNoOpCoupling.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
@@ -136,3 +135,18 @@ target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)
 set_tests_properties(testUsdGenWarmAllocations PROPERTIES
     LABELS "T0;perf;gate;gate:zero-alloc" RUN_SERIAL TRUE)
+
+# Directory move (M0): no include through the old spellings that
+# cmake/IncludeShim.cmake forwards. Step 12 empties the baseline and deletes
+# the shim; a file without a baseline line must have zero hits.
+string(REPLACE "." "[.]" _usdgen_shim_alts "${USDGEN_SHIM_OLD_SPELLINGS}")
+string(REPLACE ";" "|" _usdgen_shim_alts "${_usdgen_shim_alts}")
+add_test(NAME testUsdGenNoShimIncludes
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-shim-includes
+        -DDIRS=libs,tests,testutils,plugin
+        "-DPATTERN=^[ ]*#[ ]*include[ ]*[<\"](${_usdgen_shim_alts})[>\"]"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noShimIncludes.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoShimIncludes PROPERTIES LABELS "T0;build;gate;gate:no-shim")

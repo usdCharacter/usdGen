@@ -6,6 +6,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "pxr/base/js/json.h"
 #include "pxr/imaging/hd/retainedSceneIndex.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
@@ -42,7 +43,7 @@ public:
     explicit TemporalOp(usdGen::UsdGenOpRecord const &r) : usdGen::UsdGenOp(r) {}
     bool Bind(usdGen::UsdGenParamView const&, usdGen::UsdGenDiagnostics*) override { return true; }
     usdGen::UsdGenEpoch CaptureDigest(usdGen::UsdGenCaptureContext const&) const override { return {1, captureEpoch.load()}; }
-    bool Capture(usdGen::UsdGenCaptureContext const&, usdGen::UsdGenCurveBuffer const&,
+    bool Capture(usdGen::UsdGenCaptureContext const&, usdGen::UsdGenOpInputs const &,
         usdGen::UsdGenCapture*, usdGen::UsdGenDiagnostics*) override {
         if (holdCapture.exchange(false)) {
             captureEntered.store(true);
@@ -52,7 +53,9 @@ public:
         }
         return true;
     }
-    void Evaluate(usdGen::UsdGenEvalContext const&, usdGen::UsdGenCapture const&, usdGen::UsdGenChunkView* view) const override {
+    void Evaluate(usdGen::UsdGenEvalContext const&, usdGen::UsdGenCapture const&, usdGen::UsdGenChunkView const &chunk) const override {
+        usdGen::UsdGenCurveChunk const curve(chunk);
+        usdGen::UsdGenCurveChunk const *view = &curve;
         if (holdTile.load() && view->desc->tile == 1) {
             tileEntered.store(true);
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);

@@ -32,7 +32,7 @@ examples/docs/operators/wind-clumped.usda text eol=lf
 examples/docs/operators/wind-unclumped.usda text eol=lf
 examples/guide-interpolate-plane.usda text eol=crlf
 examples/rbf-guides-plane.usda text eol=crlf
-libs/usdGen/usdGen/ops/collide.cpp -text
+libs/core/primitives/usdGenCurves/usdGenCurves/ops/collide.cpp -text
 tools/docs/capture_collide_slide_ui.py text eol=crlf
 tools/docs/encode_collide_gif.py text eol=lf
 tools/docs/render_collide_cut_accepted.py text eol=crlf

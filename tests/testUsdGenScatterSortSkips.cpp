@@ -9,6 +9,8 @@
 // each case pins its shape premise from the reference morton keys plus the
 // full sort contract (sorted, stable, exact permutation).
 #include "usdGen/op.h"
+#include "bufferOpCalls.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenOpFixture.h"
@@ -89,9 +91,9 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
     ctx.seed = uint32_t(node.seed);
     ctx.diag = &diag;
     UsdGenCurveBuffer empty;
-    if (!op.Capture(ctx, empty, cap.get(), &diag))
+    if (!op.Capture(ctx, UsdGenBufferInputs(empty), cap.get(), &diag))
         return false;
-    *out = cap->Buffer();
+    *out = UsdGenCaptureBuffer(*cap);
     return true;
 }
 

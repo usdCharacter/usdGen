@@ -77,8 +77,8 @@ def runtime_paths() -> dict[str, Path]:
     """Pin both the native solver and the OpenUSD/OpenSubdiv installation."""
     return {
         "scene_sha256": SCENE,
-        "solver_source_sha256": ROOT / "libs/usdGen/usdGen/ops/collide.cpp",
-        "limit_source_sha256": ROOT / "libs/usdGen/usdGen/limitSurface.cpp",
+        "solver_source_sha256": ROOT / "libs/core/primitives/usdGenCurves/usdGenCurves/ops/collide.cpp",
+        "limit_source_sha256": ROOT / "libs/core/primitives/usdGenSurface/usdGenSurface/limitSurface.cpp",
         "solver_sha256": BUILD / "usdGen.dll",
         "imaging_sha256": BUILD / "usdGenImaging.dll",
         "baker_sha256": baker_path(),

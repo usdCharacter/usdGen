@@ -5,6 +5,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
@@ -330,10 +331,12 @@ public:
         return {1, 1};
     }
     bool Capture(usdGen::UsdGenCaptureContext const&,
-                 usdGen::UsdGenCurveBuffer const&, usdGen::UsdGenCapture*,
+                 usdGen::UsdGenOpInputs const &, usdGen::UsdGenCapture*,
                  usdGen::UsdGenDiagnostics*) override { return true; }
     void Evaluate(usdGen::UsdGenEvalContext const&, usdGen::UsdGenCapture const&,
-                  usdGen::UsdGenChunkView* view) const override {
+                  usdGen::UsdGenChunkView const &chunk) const override {
+        usdGen::UsdGenCurveChunk const curve(chunk);
+        usdGen::UsdGenCurveChunk const *view = &curve;
         if (view->desc->tile != 1) return;
         ProgressiveTileHold::entered.store(true, std::memory_order_release);
         auto const deadline = std::chrono::steady_clock::now() +

@@ -323,10 +323,10 @@ set_target_properties(usdGenExprFrontend PROPERTIES
     POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
 
-file(GLOB_RECURSE USDGEN_MATH_SOURCES libs/usdGenMath/*.cpp)
+file(GLOB_RECURSE USDGEN_MATH_SOURCES libs/base/usdGenMath/*.cpp)
 add_library(usdGenMath STATIC ${USDGEN_MATH_SOURCES})
 target_include_directories(usdGenMath PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/base>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenMath PUBLIC
     arch tf gf vt work
@@ -373,32 +373,32 @@ if(_usdgen_host_expr_fp_options)
     # contraction emits FMAs while CUDA --fmad=false keeps separate rounding.
     # Keep these source-local; unrelated engine arithmetic is unchanged.
     set_property(SOURCE
-        libs/usdGen/usdGen/ops/noise.cpp
-        libs/usdGen/usdGen/ops/wind.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp
         # Imported-groom kernels reproduce a reference generator bit for bit;
         # keep their float evaluation order independent of the toolchain.
-        libs/usdGen/usdGen/ops/strandUtil.cpp
-        libs/usdGen/usdGen/ops/wholeStrand.cpp
-        libs/usdGen/usdGen/ops/scatterModes.cpp
-        libs/usdGen/usdGen/ops/guideBlend.cpp
-        libs/usdGen/usdGen/ops/guideInterpolate.cpp
-        libs/usdGen/usdGen/ops/clumpModes.cpp
-        libs/usdGen/usdGen/ops/braid.cpp
-        libs/usdGen/usdGen/ops/twist.cpp
-        libs/usdGen/usdGen/ops/frizz.cpp
-        libs/usdGen/usdGen/ops/lengthRange.cpp
-        libs/usdGen/usdGen/ops/trim.cpp
-        libs/usdGen/usdGen/ops/tieClump.cpp
-        libs/usdGen/usdGen/ops/cardSource.cpp
-        libs/usdGen/usdGen/ops/cardGeometry.cpp
-        libs/usdGen/usdGen/cpuParameters.cpp
-        libs/usdGen/usdGen/expressions/cpuEvaluator.cpp
-        libs/usdGen/usdGen/expressions/frontend.cpp
-        libs/usdGen/usdGen/expressions/samplers.cpp
-        libs/usdGen/usdGen/vulkan/exprVkProgram.cpp
-        libs/usdGen/usdGen/vulkan/exprVkParameters.cpp
-        libs/usdGen/usdGen/vulkan/exprVkRun.cpp
-        libs/usdGen/usdGen/vulkan/exprVkPlan.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/strandUtil.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/wholeStrand.cpp
+        libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatterModes.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/guideBlend.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/guideInterpolate.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/clumpModes.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/braid.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/twist.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/frizz.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/lengthRange.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/trim.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/tieClump.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardSource.cpp
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardGeometry.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/expressions/frontend.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/expressions/samplers.cpp
+        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp
+        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkParameters.cpp
+        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkRun.cpp
+        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp
         tests/testUsdGenSeExprOracle.cpp
         tests/usdGenSeExprOracle.cpp
         tests/testUsdGenExpressionCpuEval.cpp
@@ -411,33 +411,44 @@ endif()
 # ---------------------------------------------------------------------------
 # usdGen (SHARED — the engine core, no usd/usdImaging/hd linkage)
 # ---------------------------------------------------------------------------
-file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/usdGen/*.cpp)
+file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/*.cpp)
 # Native Vulkan owners are opt-in and must not leak SDK headers/runtime
 # dependencies into CUDA-only or CPU-only core builds.
-list(FILTER USDGEN_CORE_SOURCES EXCLUDE REGEX "/usdGen/vulkan/.*\\.cpp$")
+list(FILTER USDGEN_CORE_SOURCES EXCLUDE REGEX "/usdGenVulkan/vulkan/.*\\.cpp$")
+# Include roots of everything under libs/core plus the old-spelling shim
+# (cmake/IncludeShim.cmake). PUBLIC on usdGen until step 6 splits it.
+include(cmake/IncludeShim.cmake)
+set(USDGEN_CORE_INCLUDE_DIRS
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenSurface>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenExpr>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan>
+    $<BUILD_INTERFACE:${USDGEN_SHIM_DIR}>)
 # exprEval.{h,cpp} (a stale SeExpr2-engine evaluator design) and its unwired
 # tests/testUsdGenExpr.cpp are deleted: the IR interpreter in
 # expressions/irExec.h is the design, shared by the CUDA kernel and by
 # expressions/cpuEvaluator.cpp.
 list(REMOVE_ITEM USDGEN_CORE_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/executionResources.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/executionRetirement.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/executionBackendCudaProvider.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/executionBackendVulkanProvider.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen/usdGen/exec/device/executionResources.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp"
     # CUDA-only helper exposes CUDA vector types; do not compile it in the
     # CPU-only core build selected by ordinary consumers.
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/cudaScatterInput.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp"
     # CUDA completion lane and stream fence include cuda_runtime.h; the CUDA
     # block below adds them to usdGen and usdGenGpu.
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/gpu/cudaCompletionLane.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/gpu/cudaFence.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp")
 add_library(usdGenExecutionResources SHARED
-    libs/usdGen/usdGen/executionResources.cpp
-    libs/usdGen/usdGen/executionRetirement.cpp
+    libs/core/usdGen/usdGen/exec/device/executionResources.cpp
+    libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp
     # Private copy of the parking primitive for the retirement drain.
-    libs/usdGen/usdGen/parkingWord.cpp)
+    libs/core/usdGen/usdGen/exec/parkingWord.cpp)
 target_include_directories(usdGenExecutionResources PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>
+    ${USDGEN_CORE_INCLUDE_DIRS}
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenExecutionResources PRIVATE Threads::Threads)
 set_target_properties(usdGenExecutionResources PROPERTIES
@@ -448,9 +459,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
 endif()
 add_library(usdGen SHARED ${USDGEN_CORE_SOURCES})
 target_sources(usdGen PRIVATE
-    libs/usdGen/usdGen/executionBackendCudaProvider.cpp
-    libs/usdGen/usdGen/executionBackendVulkanProvider.cpp)
-set_source_files_properties(libs/usdGen/usdGen/expressions/frontend.cpp PROPERTIES
+    libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp)
+set_source_files_properties(libs/core/primitives/usdGenExpr/usdGenExpr/expressions/frontend.cpp PROPERTIES
     COMPILE_DEFINITIONS "SeExpr2=UsdGenSeExprFrontend;SeExprInternal2=UsdGenSeExprFrontendInternal;USDGEN_SEEXPR_SANDBOX"
     INCLUDE_DIRECTORIES "${_usdgen_frontend_dir}")
 # The host suffix port (deformEvaluateCpu.h, inlined into
@@ -458,11 +469,11 @@ set_source_files_properties(libs/usdGen/usdGen/expressions/frontend.cpp PROPERTI
 # keeps the explicit-fma loop's sqrt scalar and the suffix runs ~2x slower.
 # Values are unchanged (errno only); nothing in the library reads errno.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(libs/usdGen/usdGen/vulkan/deformPipeline.cpp PROPERTIES
+    set_source_files_properties(libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deformPipeline.cpp PROPERTIES
         COMPILE_OPTIONS "-fno-math-errno")
 endif()
 target_include_directories(usdGen PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>
+    ${USDGEN_CORE_INCLUDE_DIRS}
     $<INSTALL_INTERFACE:include>)
 # Public headers expose SdfPath/TfToken/GfVec3f/VtArray, so those base libs
 # must be PUBLIC for consumers (tests) to link them transitively; sdf in
@@ -536,7 +547,7 @@ set_target_properties(usdGenImaging PROPERTIES
 # register-fragile tangent path (+0.7..+1.8ms); declined.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(
-        libs/usdGen/usdGen/ops/scatter.cpp
+        libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatter.cpp
         PROPERTIES COMPILE_OPTIONS -fno-math-errno)
 endif()
 
@@ -704,7 +715,7 @@ file(CONFIGURE OUTPUT "${_usdgen_hair_model_file}"
 # Only the cooker reads it (the USDGEN_FUR_DENSITY default), so it is a source
 # property: switching models recompiles that one file, not the library.
 if(_usdgen_hair_model MATCHES "^(marschner|rtxcr)$")
-    set_property(SOURCE libs/usdGen/usdGen/sessionCooker.cpp APPEND PROPERTY
+    set_property(SOURCE libs/core/usdGen/usdGen/exec/sessionCooker.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS USDGEN_FUR_LOCAL_DENSITY=1)
 endif()
 message(STATUS "usdGen: strand shading model ${_usdgen_hair_model}")
@@ -926,53 +937,53 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
     # frozen at creation: pin the property explicitly.
     set_target_properties(usdGen PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
     message(STATUS "usdGen CUDA: ${CUDAToolkit_VERSION} (${CMAKE_CUDA_COMPILER}), arch sm_${USDGEN_CUDA_ARCH}")
-    # The kernel lands at libs/usdGen/usdGen/ops/noise_gpu.cu (CUDA1b); wire
+    # The kernel lands at libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise_gpu.cu (CUDA1b); wire
     # it into usdGen the moment the file exists (hook stays inert until then).
     if(USE_GPU_NOISE)
-        target_sources(usdGen PRIVATE libs/usdGen/usdGen/ops/noise_gpu.cu)
+        target_sources(usdGen PRIVATE libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise_gpu.cu)
         # Enables the #ifdef USDGEN_USE_GPU_NOISE branch in noise.cpp (04 §2.9).
         target_compile_definitions(usdGen PRIVATE USDGEN_USE_GPU_NOISE)
     endif()
     if(USDGEN_ENABLE_CUDA)
-        target_sources(usdGen PRIVATE libs/usdGen/usdGen/cudaScatterInput.cpp
-            libs/usdGen/usdGen/gpu/cudaCompletionLane.cpp)
+        target_sources(usdGen PRIVATE libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp)
         add_library(usdGenGpu STATIC
-            libs/usdGen/usdGen/gpu/deviceBuffer.cu
-            libs/usdGen/usdGen/gpu/deviceResources.cu
-            libs/usdGen/usdGen/gpu/imageSampler.cu
-            libs/usdGen/usdGen/gpu/rbf.cu
-            libs/usdGen/usdGen/gpu/curveGeometry.cu
-            libs/usdGen/usdGen/gpu/curveSource.cu
-            libs/usdGen/usdGen/gpu/scatterGrow.cu
-            libs/usdGen/usdGen/gpu/curveGrow.cu
-            libs/usdGen/usdGen/gpu/expressionContext.cu
-            libs/usdGen/usdGen/gpu/deformCurves.cu
-            libs/usdGen/usdGen/gpu/styleOps.cu
-            libs/usdGen/usdGen/gpu/width.cu
-            libs/usdGen/usdGen/gpu/widthBlend.cu
-            libs/usdGen/usdGen/gpu/widthOverlapWitness.cu
-            libs/usdGen/usdGen/gpu/surfaceBinding.cu
-            libs/usdGen/usdGen/gpu/length.cu
-            libs/usdGen/usdGen/gpu/curveCompaction.cu
-            libs/usdGen/usdGen/gpu/curveResample.cu
-            libs/usdGen/usdGen/gpu/namedChannelTopology.cu
-            libs/usdGen/usdGen/gpu/picking.cu
-            libs/usdGen/usdGen/gpu/pointOverride.cu
-            libs/usdGen/usdGen/gpu/topology.cu
-            libs/usdGen/usdGen/gpu/nonWidthCompare.cu
-            libs/usdGen/usdGen/gpu/curveIndices.cu
-            libs/usdGen/usdGen/gpu/curveTiles.cu
-            libs/usdGen/usdGen/gpu/curveTileBounds.cu
-            libs/usdGen/usdGen/gpu/rootFrames.cu
-            libs/usdGen/usdGen/gpu/rootFrameGather.cu
-            libs/usdGen/usdGen/gpu/cudaRetirement.cu
-            libs/usdGen/usdGen/gpu/noise.cu
-            libs/usdGen/usdGen/gpu/expression.cu
-            libs/usdGen/usdGen/gpu/cudaFence.cpp
-            libs/usdGen/usdGen/parkingWord.cpp)
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/rbf.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGeometry.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveSource.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGrow.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/expressionContext.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/deformCurves.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/styleOps.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/width.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthBlend.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthOverlapWitness.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/surfaceBinding.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/length.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveCompaction.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveResample.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/namedChannelTopology.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/picking.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/pointOverride.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/topology.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/nonWidthCompare.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveIndices.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTiles.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTileBounds.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrames.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrameGather.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/noise.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu
+            libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp
+            libs/core/usdGen/usdGen/exec/parkingWord.cpp)
         target_include_directories(usdGenGpu PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen>
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>)
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda>
+            ${USDGEN_CORE_INCLUDE_DIRS})
         # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
         # on toolkits older than 12.8.
         target_link_libraries(usdGenGpu PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver usdGenExecutionResources)
@@ -1078,52 +1089,52 @@ option(USDGEN_BUILD_VULKAN_TESTS "Build native Vulkan compute and injected-provi
 # in the shared test runtime. The canonical UUID registry always lives in
 # the same DSO as DeviceContext, never one static copy per consumer.
 set(_usdgen_vulkan_sources
-    libs/usdGen/usdGen/vulkan/deviceFactory.cpp
-    libs/usdGen/usdGen/vulkan/deviceContext.cpp
-    libs/usdGen/usdGen/vulkan/chargedBuffer.cpp
-    libs/usdGen/usdGen/vulkan/memoryPool.cpp
-    libs/usdGen/usdGen/vulkan/queueTimeline.cpp
-    libs/usdGen/usdGen/vulkan/completionService.cpp
-    libs/usdGen/usdGen/vulkan/externalRetirement.cpp
-    libs/usdGen/usdGen/vulkan/sourceGeneration.cpp
-    libs/usdGen/usdGen/vulkan/deviceGenerationAdapter.cpp
-    libs/usdGen/usdGen/vulkan/publicationJob.cpp
-    libs/usdGen/usdGen/vulkan/executionPlan.cpp
-    libs/usdGen/usdGen/vulkan/planExecutor.cpp
-    libs/usdGen/usdGen/vulkan/sessionProvider.cpp
-    libs/usdGen/usdGen/vulkan/defaultProvider.cpp
-    libs/usdGen/usdGen/vulkan/sourceWidthJob.cpp
-    libs/usdGen/usdGen/vulkan/lengthScalePipeline.cpp
-    libs/usdGen/usdGen/vulkan/lengthCompactionPipeline.cpp
-    libs/usdGen/usdGen/vulkan/widthBlendPipeline.cpp
-    libs/usdGen/usdGen/vulkan/nonWidthComparePipeline.cpp
-    libs/usdGen/usdGen/vulkan/topologyPipeline.cpp
-    libs/usdGen/usdGen/vulkan/pointOverridePipeline.cpp
-    libs/usdGen/usdGen/vulkan/curveGrowPipeline.cpp
-    libs/usdGen/usdGen/vulkan/scatterGrowPipeline.cpp
-    libs/usdGen/usdGen/vulkan/rootFramesPipeline.cpp
-    libs/usdGen/usdGen/vulkan/rootFrameGatherPipeline.cpp
-    libs/usdGen/usdGen/vulkan/noisePipeline.cpp
-    libs/usdGen/usdGen/vulkan/deformPipeline.cpp
-    libs/usdGen/usdGen/vulkan/rbfVkBinding.cpp
-    libs/usdGen/usdGen/vulkan/rbfVkDeformPipeline.cpp
-    libs/usdGen/usdGen/vulkan/surfaceVk.cpp
-    libs/usdGen/usdGen/vulkan/widthPipeline.cpp
-    libs/usdGen/usdGen/vulkan/resampleVkPipeline.cpp
-    libs/usdGen/usdGen/vulkan/mapVkImage.cpp
-    libs/usdGen/usdGen/vulkan/styleVkPipeline.cpp
-    libs/usdGen/usdGen/vulkan/picktileVk.cpp
-    libs/usdGen/usdGen/vulkan/exprVkProgram.cpp
-    libs/usdGen/usdGen/vulkan/exprVkEvaluate.cpp
-    libs/usdGen/usdGen/vulkan/exprVkContext.cpp
-    libs/usdGen/usdGen/vulkan/exprVkApply.cpp
-    libs/usdGen/usdGen/vulkan/exprVkParameters.cpp
-    libs/usdGen/usdGen/vulkan/exprVkPlan.cpp
-    libs/usdGen/usdGen/vulkan/exprVkRun.cpp
-    libs/usdGen/usdGen/vulkan/exprVkStructural.cpp
-    libs/usdGen/usdGen/vulkan/exprVkPack.cpp
-    libs/usdGen/usdGen/vulkan/growVkPipeline.cpp
-    libs/usdGen/usdGen/vulkan/growVkPlan.cpp)
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceFactory.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceContext.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/chargedBuffer.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/memoryPool.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/queueTimeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/externalRetirement.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceGeneration.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceGenerationAdapter.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/publicationJob.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/planExecutor.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sessionProvider.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/defaultProvider.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceWidthJob.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/lengthScalePipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/lengthCompactionPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/widthBlendPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/nonWidthComparePipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/topologyPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/pointOverridePipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/curveGrowPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/scatterGrowPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFramesPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFrameGatherPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/noisePipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deformPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkBinding.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkDeformPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/widthPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/resampleVkPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/mapVkImage.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/styleVkPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/picktileVk.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkEvaluate.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkContext.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkApply.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkParameters.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkRun.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkStructural.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPack.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPlan.cpp)
 if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_TESTS))
     # Vendored header fallback when VULKAN_SDK is unset (mirrors the
     # auto-probe; cache hint, never ENV, so the host loader stays visible).
@@ -1153,7 +1164,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         target_link_libraries(usdGenVulkanNative INTERFACE
             usdGen Vulkan::Vulkan usdGenExecutionResources Threads::Threads)
         target_include_directories(usdGenVulkanNative INTERFACE
-            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>"
+            ${USDGEN_CORE_INCLUDE_DIRS}
             "$<INSTALL_INTERFACE:include>")
     else()
         # Test-only: keep Vulkan out of the core (no SDK leakage into
@@ -1162,7 +1173,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         target_link_libraries(usdGenVulkanNative PUBLIC Vulkan::Vulkan usdGenExecutionResources usdGen Threads::Threads)
         target_link_libraries(usdGenVulkanNative PRIVATE usdGenMath)
         target_include_directories(usdGenVulkanNative PUBLIC
-            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen>"
+            ${USDGEN_CORE_INCLUDE_DIRS}
             "$<INSTALL_INTERFACE:include>")
         set_target_properties(usdGenVulkanNative PROPERTIES
             POSITION_INDEPENDENT_CODE ON
@@ -1186,7 +1197,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     endif()
     set(_usdgen_vulkan_spirv_files)
     function(_usdgen_compile_vulkan_shader _tag _file)
-        set(_shader "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/vulkan/shaders/${_file}.comp")
+        set(_shader "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/${_file}.comp")
         set(_spv "${CMAKE_CURRENT_BINARY_DIR}/vulkan/${_file}.spv")
         add_custom_command(OUTPUT "${_spv}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/vulkan"
@@ -1248,7 +1259,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     _usdgen_compile_vulkan_shader(minimum lengthMinimum)
     _usdgen_compile_vulkan_shader(literal_v1 lengthLiteralV1)
     _usdgen_compile_vulkan_shader(envelope_v1 lengthEnvelopeV1
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGen/usdGen/vulkan/shaders/float32Envelope.glsl")
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/float32Envelope.glsl")
     _usdgen_compile_vulkan_shader(device_v1 lengthDeviceV1)
     _usdgen_compile_vulkan_shader(stylevk_ramp styleVkWidthRamp)
     _usdgen_compile_vulkan_shader(stylevk_length styleVkLength)
@@ -1379,6 +1390,14 @@ add_executable(testUsdGenWorkerPool tests/testUsdGenWorkerPool.cpp)
 target_link_libraries(testUsdGenWorkerPool PRIVATE usdGen)
 add_test(NAME testUsdGenWorkerPool COMMAND testUsdGenWorkerPool)
 set_tests_properties(testUsdGenWorkerPool PROPERTIES LABELS "T0;scheduling;pool" RUN_SERIAL ON TIMEOUT 60)
+add_executable(testUsdGenElementSet tests/testUsdGenElementSet.cpp)
+target_link_libraries(testUsdGenElementSet PRIVATE usdGen)
+add_test(NAME testUsdGenElementSet COMMAND testUsdGenElementSet)
+set_tests_properties(testUsdGenElementSet PROPERTIES LABELS "T0;elementSet" RUN_SERIAL ON TIMEOUT 120)
+add_executable(testUsdGenCurveSet tests/testUsdGenCurveSet.cpp tests/testUsdGenCurveSetChunk.cpp)
+target_link_libraries(testUsdGenCurveSet PRIVATE usdGen)
+add_test(NAME testUsdGenCurveSet COMMAND testUsdGenCurveSet)
+set_tests_properties(testUsdGenCurveSet PROPERTIES LABELS "T0;elementSet" RUN_SERIAL ON TIMEOUT 120)
 add_executable(testUsdGenEpoch tests/testUsdGenEpoch.cpp)
 target_link_libraries(testUsdGenEpoch PRIVATE usdGen)
 add_test(NAME testUsdGenEpoch COMMAND testUsdGenEpoch)
@@ -1921,7 +1940,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             -o "${_usdgen_vulkan_arithmetic_spv}"
         COMMAND "${USDGEN_SPIRV_VAL_EXECUTABLE}" --target-env vulkan1.2 "${_usdgen_vulkan_arithmetic_spv}"
         DEPENDS tests/shaders/envelopeArithmetic.comp
-            libs/usdGen/usdGen/vulkan/shaders/float32Envelope.glsl VERBATIM)
+            libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/float32Envelope.glsl VERBATIM)
     add_executable(testUsdGenVulkanEnvelopeArithmetic tests/testUsdGenVulkanEnvelopeArithmetic.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}"
@@ -2457,7 +2476,7 @@ if(USDGEN_ENABLE_CUDA)
     add_executable(testUsdGenCudaCurveGrow tests/testUsdGenCudaCurveGrow.cu)
     target_link_libraries(testUsdGenCudaCurveGrow PRIVATE usdGenGpu usdGen)
     target_include_directories(testUsdGenCudaCurveGrow PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenMath")
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath")
     add_test(NAME testUsdGenCudaCurveGrow COMMAND testUsdGenCudaCurveGrow)
     add_test(NAME testUsdGenCudaCurveGrowQuarantine COMMAND testUsdGenCudaCurveGrow --quarantine)
     set_tests_properties(testUsdGenCudaCurveGrowQuarantine PROPERTIES
@@ -2469,7 +2488,7 @@ if(USDGEN_ENABLE_CUDA)
     add_executable(testUsdGenCudaScatterGrow tests/testUsdGenCudaScatterGrow.cu)
     target_link_libraries(testUsdGenCudaScatterGrow PRIVATE usdGenGpu usdGen)
     target_include_directories(testUsdGenCudaScatterGrow PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenMath")
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath")
     add_test(NAME testUsdGenCudaScatterGrow COMMAND testUsdGenCudaScatterGrow)
     set_tests_properties(testUsdGenCudaScatterGrow PROPERTIES
         LABELS "T0;cuda;topology;scatter-grow" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
@@ -2477,7 +2496,7 @@ if(USDGEN_ENABLE_CUDA)
     add_executable(testUsdGenCudaScatterGrowPreflight tests/testUsdGenCudaScatterGrowPreflight.cu)
     target_link_libraries(testUsdGenCudaScatterGrowPreflight PRIVATE usdGenGpu usdGen)
     target_include_directories(testUsdGenCudaScatterGrowPreflight PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenMath")
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath")
     add_test(NAME testUsdGenCudaScatterGrowPreflight COMMAND testUsdGenCudaScatterGrowPreflight)
     add_test(NAME testUsdGenCudaScatterGrowHostQuarantine
         COMMAND testUsdGenCudaScatterGrowPreflight --quarantine-host)
@@ -3342,6 +3361,27 @@ foreach(_t testUsdGenOutputGoldens testUsdGenOpContracts)
 endforeach()
 # The output golden belongs to one toolchain; another skips with 77.
 set_tests_properties(testUsdGenOutputGoldens PROPERTIES SKIP_RETURN_CODE 77)
+
+# Restructure 5.0: published geometry of record over frames 0/1/12 and a
+# value and topology edit (tests/golden/cookDigests.<os>-<cc>.txt; a
+# toolchain without its own file skips with 77).
+add_executable(testUsdGenCookGoldens tests/testUsdGenCookGoldens.cpp tests/golden/goldenGraphs.cpp)
+target_link_libraries(testUsdGenCookGoldens PRIVATE usdGenTestUtilsHd)
+target_include_directories(testUsdGenCookGoldens PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_compile_definitions(testUsdGenCookGoldens PRIVATE
+    USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    USDGEN_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden")
+add_test(NAME testUsdGenCookGoldens COMMAND testUsdGenCookGoldens)
+set_tests_properties(testUsdGenCookGoldens PROPERTIES
+    ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T0;gate;gate:golden"
+    SKIP_RETURN_CODE 77 TIMEOUT 1800)
+
+# Restructure 5.3a/5.3f: ops over buffer-backed set views (the old op
+# family and USDGEN_BRIDGE_VERIFY are gone).
+add_executable(testUsdGenOpBridge tests/testUsdGenOpBridge.cpp)
+target_link_libraries(testUsdGenOpBridge PRIVATE usdGenTestUtils)
+add_test(NAME testUsdGenOpBridge COMMAND testUsdGenOpBridge)
+set_tests_properties(testUsdGenOpBridge PROPERTIES LABELS "T0;bridge")
 
 # Step 4 registries: handles, lookups, freeze, interner counters.
 add_executable(testUsdGenRegistries tests/testUsdGenRegistries.cpp tests/golden/goldenGraphs.cpp)
@@ -4848,7 +4888,10 @@ install(FILES
 
 # Install public headers for the exported targets' $<INSTALL_INTERFACE:include>
 # dirs. The build-tree include roots are:
-#   usdGen        libs/usdGen          -> #include "usdGen/..."
+#   usdGen        libs/core/usdGen     -> #include "usdGen/{api,registries,compile,exec}/..."
+#   usdGenCurves, usdGenSurface, usdGenExpr (libs/core/primitives/<name>),
+#   usdGenCuda, usdGenVulkan (libs/core/backends/<name>) -> #include "<name>/..."
+#   the include shim (<build>/shim) -> the pre-move "usdGen/..." spellings
 #   usdGenSchema  libs/usdGenSchema    -> #include "usdGenSchema/..."
 #   usdGenImaging libs/usdGenImaging   -> #include "usdGenImaging/..."
 #   usdGenPomade   libs/usdGenPomade     -> #include "usdGenPomade/..."
@@ -4860,11 +4903,22 @@ install(FILES
 # N-7 (plan §1.2): usdGenMath is not an installed target, so no math headers
 # are installed either — they stay in-tree until the public math headers
 # land in M7; the old include/usdGenMath rule is gone.
-install(DIRECTORY libs/usdGen/usdGen/
+# The Session routing bridge deliberately carries cooker/private COW
+# mechanics and is not part of the installed adapter surface.
+install(DIRECTORY libs/core/usdGen/usdGen/
     DESTINATION include/usdGen
     FILES_MATCHING PATTERN "*.h"
-    # The Session routing bridge deliberately carries cooker/private COW
-    # mechanics and is not part of the installed adapter surface.
+    PATTERN "sessionBackendExecutor.h" EXCLUDE)
+foreach(_usdgen_root primitives/usdGenCurves primitives/usdGenSurface
+        primitives/usdGenExpr backends/usdGenCuda backends/usdGenVulkan)
+    get_filename_component(_usdgen_name "${_usdgen_root}" NAME)
+    install(DIRECTORY libs/core/${_usdgen_root}/${_usdgen_name}/
+        DESTINATION include/${_usdgen_name}
+        FILES_MATCHING PATTERN "*.h")
+endforeach()
+install(DIRECTORY "${USDGEN_SHIM_DIR}/usdGen/"
+    DESTINATION include/usdGen
+    FILES_MATCHING PATTERN "*.h"
     PATTERN "sessionBackendExecutor.h" EXCLUDE)
 install(DIRECTORY libs/usdGenSchema/usdGenSchema/
     DESTINATION include/usdGenSchema

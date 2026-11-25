@@ -5,8 +5,8 @@
 # input and pass on clean input (no silent false passes either way).
 #
 # Inputs (via -D):
-#   FIXTURE_DIR - root of the fixture tree (must mirror libs/usdGenMath,
-#                 libs/usdGen, testutils/usdGenTestUtils)
+#   FIXTURE_DIR - root of the fixture tree (must mirror libs/base/usdGenMath,
+#                 libs/core, testutils/usdGenTestUtils)
 #   FORBIDDEN   - the same forbidden-include regex the real gate uses
 #   EXPECT      - "fail" (gate must FATAL_ERROR) or "pass" (gate must pass)
 

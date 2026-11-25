@@ -1,4 +1,5 @@
 #include "usdGen/cudaScatterInput.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 
@@ -34,10 +35,10 @@ static bool Direct(UsdGenGraphDesc const& d, UsdGenCurveBuffer* out) {
     UsdGenStackParams const resolved(d,d.nodes.front(),registry.Record(id));
     UsdGenParamView const &p=resolved.View();
     if (!op->Bind(p,&diag)) return false;
-    auto capture=op->CreateCapture(); UsdGenCurveBuffer empty; UsdGenCaptureContext c;
+    auto capture=op->CreateCapture(); UsdGenCaptureContext c;
     c.desc=&d; c.params=&p; c.surface=0; c.seed=uint32_t(d.nodes.front().seed); c.diag=&diag;
-    if (!op->Capture(c,empty,capture.get(),&diag)) return false;
-    *out=capture->Buffer();
+    if (!op->Capture(c,UsdGenOpInputs{},capture.get(),&diag)) return false;   // a source: no input
+    *out=UsdGenCaptureBuffer(*capture);
     return true;
 }
 

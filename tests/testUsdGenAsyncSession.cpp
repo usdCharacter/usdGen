@@ -6,6 +6,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/session.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -62,7 +63,7 @@ public:
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override {
         return {1, HoldCaptureState::epoch.load(std::memory_order_acquire)};
     }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *diagnostics) override {
         if (HoldCaptureState::hold.load(std::memory_order_acquire)) {
             HoldCaptureState::entered.store(true, std::memory_order_release);
@@ -79,7 +80,7 @@ public:
         return true;
     }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *) const override {}
+                  UsdGenChunkView const &) const override {}
 };
 
 struct HoldTileState {
@@ -96,10 +97,12 @@ public:
     explicit HoldTileOp(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const&, UsdGenDiagnostics*) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1, 1}; }
-    bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
+    bool Capture(UsdGenCaptureContext const&, UsdGenOpInputs const &,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenChunkView* view) const override {
+                  UsdGenChunkView const &chunk) const override {
+        UsdGenCurveChunk const curve(chunk);
+        UsdGenCurveChunk const *view = &curve;
         if (view->desc->tile != 1) return;
         HoldTileState::entered.store(true, std::memory_order_release);
         auto const deadline = std::chrono::steady_clock::now() +

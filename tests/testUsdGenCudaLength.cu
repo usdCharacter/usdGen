@@ -1,5 +1,5 @@
 #include "gpu/length.h"
-#include "../libs/usdGenMath/usdGenMath/hash.h"
+#include "../libs/base/usdGenMath/usdGenMath/hash.h"
 #include "floatUlpFixture.h"
 
 #include <cmath>

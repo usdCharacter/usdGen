@@ -46,10 +46,10 @@ public:
     explicit InternProbe(UsdGenOpRecord const &r) : UsdGenOp(r) {}
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override { return {3, 1}; }
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &, UsdGenCapture *,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &, UsdGenCapture *,
                  UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *) const override
+                  UsdGenChunkView const &) const override
     {
         switch (g_intern.load(std::memory_order_relaxed)) {
         case Intern::Exec:

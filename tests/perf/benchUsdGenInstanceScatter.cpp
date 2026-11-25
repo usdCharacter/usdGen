@@ -31,6 +31,8 @@
 // Scatter Evaluate is intentionally absent: it is an empty identity hook
 // (ops/scatter.cpp), so there is nothing to time.
 #include "usdGen/curveBuffer.h"
+#include "bufferOpCalls.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/maps/attributeInstance.h"
 #include "usdGen/maps/attributeMap.h"
@@ -258,11 +260,11 @@ bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
     ctx.surface = 0;
     ctx.seed = uint32_t(node.seed);
     ctx.diag = &diag;
-    if (!op.Capture(ctx, empty, cap.get(), &diag)) {
+    if (!op.Capture(ctx, UsdGenBufferInputs(empty), cap.get(), &diag)) {
         *error = diag.errors.empty() ? "scatter Capture failed" : diag.errors[0];
         return false;
     }
-    *roots = cap->Buffer();
+    *roots = UsdGenCaptureBuffer(*cap);
     return true;
 }
 
@@ -291,7 +293,7 @@ int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
         ctx.seed = uint32_t(node.seed);
         ctx.diag = &diag;
         auto const t0 = std::chrono::steady_clock::now();
-        bool const ok = op.Capture(ctx, empty, cap.get(), &diag);
+        bool const ok = op.Capture(ctx, UsdGenBufferInputs(empty), cap.get(), &diag);
         auto const t1 = std::chrono::steady_clock::now();
         if (!ok) {
             std::printf("scatter_capture error: %s\n",
@@ -300,8 +302,8 @@ int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
         }
         ms.push_back(
             std::chrono::duration<double, std::milli>(t1 - t0).count());
-        Fold(&sum, HashCurves(cap->Buffer()));
-        ncurves = cap->Buffer().totalCurves;
+        Fold(&sum, HashCurves(UsdGenCaptureBuffer(*cap)));
+        ncurves = UsdGenCaptureBuffer(*cap).totalCurves;
     }
     char extra[64];
     std::snprintf(extra, sizeof(extra), "curves=%u", ncurves);
