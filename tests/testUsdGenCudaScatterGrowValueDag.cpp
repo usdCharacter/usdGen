@@ -276,11 +276,11 @@ static int RbfCases(cudaStream_t stream) {
     diagnostics={}; auto emptyPlan=CompileCudaGraph(compose(sourceDesc,0),&diagnostics); CHECK(emptyPlan);
     auto emptyWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(emptyWorkspace);
     auto empty=ExecuteCudaGraph(*emptyPlan,*emptyWorkspace,1.,300,&diagnostics);
-    CHECK(empty && empty->Geometry().alreadyDeformed && empty->Geometry().pointCount==0 && empty->Geometry().curveCount==0);
+    CHECK(empty && empty->Geometry().alreadyDeformed && empty->Geometry().pointCount==0 && empty->Geometry().elementCount==0);
     UsdGenExecutionRuntime runtime(4); UsdGenCudaExecutionQueue queue(runtime,-1,&diagnostics);
     CHECK(queue.Valid() && queue.Submit(emptyPlan,1.)); queue.Drain();
     CHECK(queue.Snapshot() && queue.Snapshot()->generation && queue.Snapshot()->generation->Geometry().alreadyDeformed &&
-        queue.Snapshot()->generation->Geometry().pointCount==0 && queue.Snapshot()->generation->Geometry().curveCount==0);
+        queue.Snapshot()->generation->Geometry().pointCount==0 && queue.Snapshot()->generation->Geometry().elementCount==0);
     return 0;
 }
 

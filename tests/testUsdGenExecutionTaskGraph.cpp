@@ -119,14 +119,14 @@ static int TestAutomaticHazardLowering()
     for (uint32_t i = 0; i != 9; ++i)
         tasks.push_back(HazardTask(i, i));
     std::vector<UsdGenExecutionValueMetadata> values;
-    values.push_back({0, UsdGenExecutionDataKind::CurveGeometry, 0, 1,
+    values.push_back({0, UsdGenExecutionDataKind::ElementGeometry, 0, 1,
                       UsdGenExecutionValueStorage::JobOwnedImmutable});
-    values.push_back({1, UsdGenExecutionDataKind::CurveGeometry,
+    values.push_back({1, UsdGenExecutionDataKind::ElementGeometry,
                       UINT32_MAX, 0,
                       UsdGenExecutionValueStorage::ExternalImmutable});
-    values.push_back({2, UsdGenExecutionDataKind::CurveGeometry, 5, 1,
+    values.push_back({2, UsdGenExecutionDataKind::ElementGeometry, 5, 1,
                       UsdGenExecutionValueStorage::ExclusiveWorkspaceVersion});
-    values.push_back({3, UsdGenExecutionDataKind::CurveGeometry, 7, 2,
+    values.push_back({3, UsdGenExecutionDataKind::ElementGeometry, 7, 2,
                       UsdGenExecutionValueStorage::ExclusiveWorkspaceVersion});
     values.push_back({4, UsdGenExecutionDataKind::TerminalGeneration, 8, 1,
                       UsdGenExecutionValueStorage::PublishedImmutable});
@@ -158,24 +158,24 @@ static int TestAutomaticHazardLowering()
 
     // Two immutable siblings read one producer value. They must both retain
     // the logical producer edge, but must not be serialized with each other.
-    tasks[1].resources.push_back(read(UsdGenExecutionDataKind::CurveGeometry,
+    tasks[1].resources.push_back(read(UsdGenExecutionDataKind::ElementGeometry,
                                       0, 0));
-    tasks[2].resources.push_back(read(UsdGenExecutionDataKind::CurveGeometry,
+    tasks[2].resources.push_back(read(UsdGenExecutionDataKind::ElementGeometry,
                                       0, 0));
     // Explicitly mutable workspace users exercise reader/read, reader/write,
     // and write/write ordering. Reads 3 and 4 may overlap; write 5 waits for
     // both readers; read 6 follows that writer; write 7 waits for writer 5
     // and outstanding reader 6.
     tasks[3].resources.push_back(read(
-        UsdGenExecutionDataKind::CurveGeometry, 1, UINT32_MAX));
+        UsdGenExecutionDataKind::ElementGeometry, 1, UINT32_MAX));
     tasks[4].resources.push_back(read(
-        UsdGenExecutionDataKind::CurveGeometry, 1, UINT32_MAX));
+        UsdGenExecutionDataKind::ElementGeometry, 1, UINT32_MAX));
     tasks[5].resources.push_back(write(
-        UsdGenExecutionDataKind::CurveGeometry, 2));
+        UsdGenExecutionDataKind::ElementGeometry, 2));
     tasks[6].resources.push_back(read(
-        UsdGenExecutionDataKind::CurveGeometry, 2, 5));
+        UsdGenExecutionDataKind::ElementGeometry, 2, 5));
     tasks[7].resources.push_back(write(
-        UsdGenExecutionDataKind::CurveGeometry, 3));
+        UsdGenExecutionDataKind::ElementGeometry, 3));
     hazard(tasks[3], UsdGenExecutionResourceHazardAccess::Read);
     hazard(tasks[4], UsdGenExecutionResourceHazardAccess::Read);
     hazard(tasks[5], UsdGenExecutionResourceHazardAccess::Write);
@@ -188,7 +188,7 @@ static int TestAutomaticHazardLowering()
     // and retain both provenance bits.
     tasks[8].kind = UsdGenExecutionTaskKind::Publication;
     tasks[8].resources.push_back(read(
-        UsdGenExecutionDataKind::CurveGeometry, 0, 0));
+        UsdGenExecutionDataKind::ElementGeometry, 0, 0));
     tasks[8].resources.push_back(write(
         UsdGenExecutionDataKind::TerminalGeneration, 4));
     for (uint32_t i = 0; i != 8; ++i)
@@ -262,15 +262,15 @@ static int TestAutomaticHazardLowering()
     std::vector<UsdGenExecutionTaskMetadata> cycleTasks{
         HazardTask(0, 0), HazardTask(1, 1)};
     std::vector<UsdGenExecutionValueMetadata> cycleValues{
-        {0, UsdGenExecutionDataKind::CurveGeometry, 0, 1,
+        {0, UsdGenExecutionDataKind::ElementGeometry, 0, 1,
          UsdGenExecutionValueStorage::ExclusiveWorkspaceVersion},
-        {1, UsdGenExecutionDataKind::CurveGeometry, 1, 1,
+        {1, UsdGenExecutionDataKind::ElementGeometry, 1, 1,
          UsdGenExecutionValueStorage::ExclusiveWorkspaceVersion}};
     cycleTasks[0].resources.push_back({
-        UsdGenExecutionDataKind::CurveGeometry,
+        UsdGenExecutionDataKind::ElementGeometry,
         UsdGenExecutionResourceAccess::ReadWrite, 1, 1, 0});
     cycleTasks[1].resources.push_back({
-        UsdGenExecutionDataKind::CurveGeometry,
+        UsdGenExecutionDataKind::ElementGeometry,
         UsdGenExecutionResourceAccess::ReadWrite, 0, 0, 1});
     reason.clear();
     CHECK(!UsdGenExecutionDependencyCompiler::Lower(&cycleTasks, cycleValues,
@@ -302,15 +302,15 @@ static int TestAutomaticHazardLowering()
     std::vector<UsdGenExecutionTaskMetadata> shuffled{
         HazardTask(1, 10), HazardTask(0, 30), HazardTask(2, 20)};
     shuffled[0].resources.push_back({
-        UsdGenExecutionDataKind::CurveGeometry,
+        UsdGenExecutionDataKind::ElementGeometry,
         UsdGenExecutionResourceAccess::Read, 2, 1, UINT32_MAX});
     shuffled[2].resources.push_back({
-        UsdGenExecutionDataKind::CurveGeometry,
+        UsdGenExecutionDataKind::ElementGeometry,
         UsdGenExecutionResourceAccess::Write, UINT32_MAX, UINT32_MAX, 1});
     hazard(shuffled[0], UsdGenExecutionResourceHazardAccess::Read);
     hazard(shuffled[2], UsdGenExecutionResourceHazardAccess::Write);
     std::vector<UsdGenExecutionValueMetadata> shuffledValues{
-        {1, UsdGenExecutionDataKind::CurveGeometry, 2, 1,
+        {1, UsdGenExecutionDataKind::ElementGeometry, 2, 1,
          UsdGenExecutionValueStorage::ExclusiveWorkspaceVersion}};
     reason.clear();
     CHECK(UsdGenExecutionDependencyCompiler::Lower(&shuffled,

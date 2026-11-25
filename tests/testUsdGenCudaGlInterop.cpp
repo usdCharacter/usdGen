@@ -27,7 +27,7 @@ using Semantic = usdGen::UsdGenDeviceChannelSemantic;
 
 namespace {
 constexpr std::array<Semantic,8> channels{Semantic::Points, Semantic::RestPoints,
-    Semantic::Widths, Semantic::HairT, Semantic::CurveOffsets,
+    Semantic::Widths, Semantic::HairT, Semantic::ElementOffsets,
     Semantic::StableIds, Semantic::RootPrim, Semantic::RootUV};
 struct Buffers {
     std::array<HdBufferArrayRangeSharedPtr,8> ranges;

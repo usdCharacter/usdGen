@@ -185,7 +185,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles,
     std::string* reason = nullptr,
-    UsdGenDeviceCurveTopologyMetadata curveTopology = {});
+    UsdGenDeviceLayoutMetadata layoutMetadata = {});
 
 } // namespace usdGen::gpu
 #endif

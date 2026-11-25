@@ -1,3 +1,4 @@
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/deviceGeneration.h"
 
 #include <cstdio>
@@ -100,7 +101,7 @@ int main()
     info.identity = {usdGen::UsdGenDeviceBackend::Cuda, 2, 17};
     info.geometry.topologyVersion = 4;
     info.geometry.valueVersion = 9;
-    info.geometry.curveCount = 3;
+    info.geometry.elementCount = 3;
     info.geometry.pointCount = 12;
     info.geometry.tiles.push_back({7, 0, 3, 0, 12});
     info.tool = {"brushA", 21, 17};
@@ -112,7 +113,7 @@ int main()
                              usdGen::UsdGenDeviceChannelSemantic::Widths});
     info.channels.push_back({"curveOffsets", usdGen::UsdGenDeviceValueType::UInt32,
                              usdGen::UsdGenDeviceDomain::Topology, 4, 1, 4, true,
-                             usdGen::UsdGenDeviceChannelSemantic::CurveOffsets});
+                             usdGen::UsdGenDeviceChannelSemantic::ElementOffsets});
     info.owner = owner;
 
     std::string reason;
@@ -215,7 +216,7 @@ int main()
     usdGen::UsdGenDeviceGeneration::CreateInfo mixedTopology;
     mixedTopology.identity = generation->Identity();
     mixedTopology.geometry = generation->Geometry();
-    mixedTopology.geometry.curveTopology.type = usdGen::UsdGenDeviceCurveType::Cubic;
+    mixedTopology.geometry.layoutMetadata.kind = uint8_t(usdGen::UsdGenCurveLayoutType::Cubic);
     mixedTopology.tool = generation->Tool();
     mixedTopology.channels = generation->Channels();
     mixedTopology.owner = generation->Owner();
@@ -228,7 +229,7 @@ int main()
 
     usdGen::UsdGenDeviceGeneration::CreateInfo badShape;
     badShape.identity = {usdGen::UsdGenDeviceBackend::Cuda, 2, 18};
-    badShape.geometry.curveCount = 3;
+    badShape.geometry.elementCount = 3;
     badShape.geometry.pointCount = 12;
     badShape.owner = owner;
     badShape.channels.push_back(

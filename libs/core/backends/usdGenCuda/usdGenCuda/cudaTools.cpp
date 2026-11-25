@@ -1,4 +1,5 @@
 #ifdef USDGEN_ENABLE_CUDA
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/gpu/tools.h"
 #include "usdGen/gpu/cudaCompletionLane.h"
 #include <cmath>
@@ -29,21 +30,19 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
     if (!tiles || !boundsReady || !base_) return Fail("missing point-edit bounds state");
     *boundsReady = false;
     auto const& geometry = base_->device->Geometry();
-    auto const& topology = geometry.curveTopology;
+    auto const& topology = geometry.layoutMetadata;
     // Range-only legacy generations are legal, but cannot be declared render
     // ready without a concrete shader topology.
-    if (topology.type == UsdGenDeviceCurveType::Unknown &&
-        topology.basis == UsdGenDeviceCurveBasis::Unknown &&
-        topology.wrap == UsdGenDeviceCurveWrap::Unknown)
+    if (topology == UsdGenDeviceLayoutMetadata{})
         return true;
     CurveTileBoundsBasis basis;
-    if (topology.type != UsdGenDeviceCurveType::Cubic ||
-        topology.wrap != UsdGenDeviceCurveWrap::Pinned) {
+    if (UsdGenCurveLayoutTypeOf(topology) != UsdGenCurveLayoutType::Cubic ||
+        UsdGenCurveLayoutWrapOf(topology) != UsdGenCurveLayoutWrap::Pinned) {
         return Fail("point-edit bounds require concrete pinned C3 topology");
     }
-    if (topology.basis == UsdGenDeviceCurveBasis::BSpline)
+    if (UsdGenCurveLayoutBasisOf(topology) == UsdGenCurveLayoutBasis::BSpline)
         basis = CurveTileBoundsBasis::BSpline;
-    else if (topology.basis == UsdGenDeviceCurveBasis::CatmullRom)
+    else if (UsdGenCurveLayoutBasisOf(topology) == UsdGenCurveLayoutBasis::CatmullRom)
         basis = CurveTileBoundsBasis::CatmullRom;
     else
         return Fail("point-edit bounds require B-spline or Catmull-Rom topology");
@@ -61,26 +60,26 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
     uint64_t curveEnd = 0, pointEnd = 0, previousId = 0;
     bool first = true;
     for (UsdGenDeviceTileMetadata const& tile : geometry.tiles) {
-        if ((!first && tile.tile <= previousId) || tile.firstCurve != curveEnd ||
-            tile.firstPoint != pointEnd || tile.curveCount > tile.pointCount ||
-            (tile.curveCount == 0 && tile.pointCount != 0) ||
-            tile.firstCurve > UINT32_MAX || tile.curveCount > UINT32_MAX - tile.firstCurve ||
+        if ((!first && tile.tile <= previousId) || tile.firstElement != curveEnd ||
+            tile.firstPoint != pointEnd || tile.elementCount > tile.pointCount ||
+            (tile.elementCount == 0 && tile.pointCount != 0) ||
+            tile.firstElement > UINT32_MAX || tile.elementCount > UINT32_MAX - tile.firstElement ||
             tile.firstPoint > UINT32_MAX || tile.pointCount > UINT32_MAX - tile.firstPoint ||
-            tile.curveCount > geometry.curveCount - curveEnd ||
+            tile.elementCount > geometry.elementCount - curveEnd ||
             tile.pointCount > geometry.pointCount - pointEnd) {
             return Fail("point-edit bounds found malformed tile metadata");
         }
-        hostSpans.push_back({tile.tile, static_cast<uint32_t>(tile.firstCurve),
-            static_cast<uint32_t>(tile.curveCount), static_cast<uint32_t>(tile.firstPoint),
+        hostSpans.push_back({tile.tile, static_cast<uint32_t>(tile.firstElement),
+            static_cast<uint32_t>(tile.elementCount), static_cast<uint32_t>(tile.firstPoint),
             static_cast<uint32_t>(tile.pointCount)});
-        curveEnd += tile.curveCount;
+        curveEnd += tile.elementCount;
         pointEnd += tile.pointCount;
         previousId = tile.tile;
         first = false;
     }
-    if ((hostSpans.empty() && (geometry.curveCount || geometry.pointCount)) ||
+    if ((hostSpans.empty() && (geometry.elementCount || geometry.pointCount)) ||
         (!hostSpans.empty() &&
-         (curveEnd != geometry.curveCount || pointEnd != geometry.pointCount))) {
+         (curveEnd != geometry.elementCount || pointEnd != geometry.pointCount))) {
         return Fail("point-edit bounds do not cover base geometry");
     }
     size_t const count = hostSpans.size();
