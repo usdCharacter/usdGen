@@ -17,10 +17,10 @@ public:
 
     bool Bind(UsdGenParamView const &, UsdGenDiagnostics *) override { return true; }
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &) const override;
-    bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
+    bool Capture(UsdGenCaptureContext const &, UsdGenOpInputs const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override;
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *) const override {}
+                  UsdGenChunkView const &) const override {}
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
 };

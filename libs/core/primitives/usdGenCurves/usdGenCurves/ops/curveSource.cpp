@@ -430,11 +430,11 @@ uint32_t UsdGenCurveSourceOp::PlanesTouched() const
 }
 
 bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
-                                  UsdGenCurveBuffer const &upstream,
+                                  UsdGenOpInputs const &in,
                                   UsdGenCapture *out,
                                   UsdGenDiagnostics *diag)
 {
-   TF_UNUSED(upstream);
+    TF_UNUSED(in);
    if (!ctx.desc) {
       if (diag) diag->Error("UsdGenCurveSource::Capture: no graph description");
       return false;
@@ -651,9 +651,9 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
 
 void UsdGenCurveSourceOp::Evaluate(UsdGenEvalContext const &ctx,
                                    UsdGenCapture const &capture,
-                                   UsdGenLegacyChunkView *view) const
+                                   UsdGenChunkView const &chunk) const
 {
-   (void)ctx; (void)capture; (void)view;
+   (void)ctx; (void)capture; (void)chunk;
 }
 
 UsdGenOpId UsdGenRegisterCurveSourceOp(UsdGenRegistrar &r)

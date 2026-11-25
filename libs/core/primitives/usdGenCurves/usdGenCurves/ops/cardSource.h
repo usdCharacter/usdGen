@@ -45,11 +45,11 @@ public:
 
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
-    bool Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuffer const &upstream,
+    bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
                  UsdGenCapture *out, UsdGenDiagnostics *diag) override;
     /// Identity: Capture fills the whole node buffer.
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenLegacyChunkView *) const override {}
+                  UsdGenChunkView const &) const override {}
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
 };
