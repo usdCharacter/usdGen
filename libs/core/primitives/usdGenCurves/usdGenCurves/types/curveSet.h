@@ -83,9 +83,6 @@ struct UsdGenCurveSetView {
     USDGEN_CORE_API UsdGenPlaneView ExtraCv(uint32_t) const noexcept;
     /// Compile/prepare time (name search). perCv: found among the CV planes.
     USDGEN_CORE_API bool FindPlane(UsdGenToken const &, UsdGenPlaneView *out, bool *perCv) const noexcept;
-    /// Bridge (5.3a; 5.4 deletes): the builder buffer this view reads, or
-    /// null for a set. Helpers that key caches on VtArray identity use it.
-    UsdGenCurveBuffer const *LegacyBuffer() const noexcept { return _buffer; }
 private:
     UsdGenElementSetView _set{};
     UsdGenCurveBuffer const *_buffer = nullptr;   // set by Of(UsdGenCurveBuffer)
