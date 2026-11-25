@@ -178,6 +178,16 @@ Left over:
 - **Proves it:** goldens; recook times within noise or better; warm allocations still 0.
 - **Depends on:** 4.
 
+Left over after 5.4 (reference values are sets, the buffer bridge is tests-only, owning and whole-strand captures recycle):
+
+| What | Notes |
+|---|---|
+| `UsdGenWorkerPool` is not merged into `UsdGenTaskScheduler` | Perf item, not correctness. Needs its own bench first (task latency, `ParallelFor` throughput, warm-cook time at 100k) against the two-pool setup |
+| Capture bodies that allocate on every re-capture, so they are not in `testUsdGenWarmAllocations` (counts per warm re-capture at 10k curves) | Clump, about 920: `PickCentres` spatial hash (`unordered_map<int64, vector<uint32>>`, clump.cpp:309-310) and membership vectors (clump.cpp:467-469, 546, 816). GuideInterpolate, about 1300: `guideBlend::Delaunay2D` (guideBlend.cpp:634-652), `BuildGuides` (guideBlend.cpp:787-793), the clumpRef kd-tree. Collide, about 20000: `ValidateColliderMesh` edge `std::map` per capture (collide.cpp:1527-1538, with an O(faces^2) offset scan), then the BVH. Twist and Frizz `Compute`: group `std::map`/vectors (twist.cpp:249-283), per-strand arc and offset vectors (frizz.cpp:137, 154, 255) |
+| Non-owning captures (Clump, Collide, Smooth, Straighten, ...) are not `Recyclable` | One payload allocation per re-capture; worth doing with the item above |
+| `Recompile` rebuilds every reference value | About 8 allocations per edit with one reference curve set (`BuildReferenceValue`, the per-node reference sets and maps). Reuse by (path, `curveGeneration`) would make edits of graphs with guides allocation-free |
+| `UsdGenBuildClumpMotion(UsdGenCurveSetView)` copies the planes | So the previous-capture reuse never hits for set inputs (Noise, Bend, Curl, Wind, GuideInterpolate) |
+
 ### 6. Split the primitives
 
 - **Goal:** `libs/core/primitives/usdGenSurface` (scatter emits a RootSet; `ops/scatter.h:24` today), `usdGenCurves` (types and 30 ops), `usdGenExpr`. Each is a DLL that exports `usdGenRegister`.
