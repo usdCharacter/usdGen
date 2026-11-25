@@ -20,6 +20,7 @@
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
 #include "usdGen/compiler.h"
+#include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
@@ -527,7 +528,7 @@ static void CheckDigestImmunity()
     upstream.topologyVersion = 3;
     upstream.valueVersion = 4;
     UsdGenDiagnostics diag;
-    Check(op.Capture(ctx, upstream, cap.get(), &diag) && !diag.HasErrors(),
+    Check(op.Capture(ctx, UsdGenBufferInputs(upstream), cap.get(), &diag) && !diag.HasErrors(),
           "kernel-level frozen capture succeeds");
     upstream.topologyVersion = 300;
     upstream.valueVersion = 400;
@@ -575,7 +576,7 @@ static void CheckAliasingKernel()
     upstream.valueVersion = 12;
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
     UsdGenDiagnostics diag;
-    Check(op.Capture(ctx, upstream, cap.get(), &diag) && !diag.HasErrors(),
+    Check(op.Capture(ctx, UsdGenBufferInputs(upstream), cap.get(), &diag) && !diag.HasErrors(),
           "aliasing fixture capture succeeds");
     if (diag.HasErrors()) return;
     Check((cap->OwnedBuffer() != nullptr), "frozen capture owns its buffer");
@@ -624,7 +625,7 @@ static void CheckAliasingKernel()
     ctx.params = &liveView;
     std::unique_ptr<UsdGenCapture> liveCap = op.CreateCapture();
     UsdGenDiagnostics liveDiag;
-    Check(op.Capture(ctx, upstream, liveCap.get(), &liveDiag) &&
+    Check(op.Capture(ctx, UsdGenBufferInputs(upstream), liveCap.get(), &liveDiag) &&
               !liveDiag.HasErrors(),
           "live capture succeeds");
     Check(!(liveCap->OwnedBuffer() != nullptr), "live capture owns no buffer");
@@ -793,7 +794,7 @@ static void CheckBadDefaultWidthFailsClosed()
     widthless.pz.assign(6, 0.0f);
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
     UsdGenDiagnostics diag;
-    Check(!op.Capture(ctx, widthless, cap.get(), &diag),
+    Check(!op.Capture(ctx, UsdGenBufferInputs(widthless), cap.get(), &diag),
           "Freeze rejects a widthless snapshot under NaN defaultWidth");
     Check(AnyContains(diag.errors, "defaultWidth"),
           "NaN defaultWidth names the parameter");

@@ -7,6 +7,7 @@
 // (M1: root frame T), vector (usdGen:directionVector).
 #include "usdGen/ops/grow.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -134,8 +135,9 @@ struct UsdGenGrowCapture final : public UsdGenCapturePayload
         upstreamCurves = 0;
         return true;
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.valueVersion == upstreamValueVersion &&
                upstream.totalCurves == upstreamCurves;
@@ -277,10 +279,11 @@ UsdGenEpoch UsdGenGrowOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenGrowOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     auto &cap = *static_cast<UsdGenGrowCapture *>(out);
 
@@ -593,7 +596,7 @@ bool UsdGenGrowOp::Capture(
         if (diag) diag->Error("UsdGenGrow: upstream root-frame plane cardinality does not match curve topology");
         return false;
     }
-    auto finiteFrame = [](VtVec3fArray const &values) {
+    auto finiteFrame = [](UsdGenSpan<const GfVec3f> const &values) {
         for (GfVec3f const &v : values)
             if (!std::isfinite(v[0]) || !std::isfinite(v[1]) || !std::isfinite(v[2])) return false;
         return true;
@@ -635,8 +638,10 @@ bool UsdGenGrowOp::Capture(
 void UsdGenGrowOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     TF_UNUSED(ctx);
     UsdGenGrowCapture const &cap =
         static_cast<UsdGenGrowCapture const &>(captureIn);

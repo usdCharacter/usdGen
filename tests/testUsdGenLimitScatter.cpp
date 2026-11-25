@@ -1,4 +1,5 @@
 #include "usdGen/limitSurface.h"
+#include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -54,7 +55,7 @@ static bool RunDirect(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out) {
     UsdGenCaptureContext ctx;ctx.desc=&d;ctx.params=&params;ctx.surface=0;
     ctx.seed=uint32_t(node.seed);ctx.diag=&diag;
     UsdGenCurveBuffer empty;
-    if(!op.Capture(ctx,empty,cap.get(),&diag))return false;
+    if(!op.Capture(ctx,UsdGenBufferInputs(empty),cap.get(),&diag))return false;
     *out=UsdGenCaptureBuffer(*cap);return true;
 }
 // z = x^2 + y^2 over [-3,4]^2, quads except the four cells nearest (-3,-3),

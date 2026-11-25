@@ -44,6 +44,7 @@
 // Evaluate writes the captured strands, following their roots.
 #include "usdGen/ops/guideInterpolate.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/clumpMotion.h"
 #include "usdGen/ops/guideBlend.h"
@@ -95,8 +96,9 @@ struct UsdGenGuideInterpolateCapture final : public UsdGenCurveCapture
         return std::make_unique<UsdGenGuideInterpolateCapture>(*this);
     }
     bool OwnsBuffer() const override { return true; }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.valueVersion == upstreamValueVersion &&
                upstream.totalCurves == upstreamCurves;
@@ -437,10 +439,11 @@ UsdGenCurveBuffer const kNoGuides;  // made at load
 
 bool UsdGenGuideInterpolateOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params;
     auto &cap = *static_cast<UsdGenGuideInterpolateCapture *>(out);
     Settings s;
@@ -1011,8 +1014,10 @@ bool UsdGenGuideInterpolateOp::Capture(
 void UsdGenGuideInterpolateOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     TF_UNUSED(ctx);
     auto const &cap = static_cast<UsdGenGuideInterpolateCapture const &>(captureIn);
     size_t const n = cap.cvCount;

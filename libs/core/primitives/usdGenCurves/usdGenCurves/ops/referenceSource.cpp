@@ -42,7 +42,7 @@ std::unique_ptr<UsdGenCapture> UsdGenReferenceSourceOp::CreateCapture() const
 
 bool UsdGenReferenceSourceOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &, UsdGenCapture *out,
+    UsdGenOpInputs const &, UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
     if (!out || ctx.referenceCount != 1 || !ctx.resolvedReferences ||

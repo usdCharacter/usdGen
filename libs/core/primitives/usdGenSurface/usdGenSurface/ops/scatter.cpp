@@ -483,11 +483,11 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
 
 bool UsdGenScatterOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(upstream);
+    TF_UNUSED(in);
     UsdGenGraphDesc const *desc = ctx.desc;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!desc) {
@@ -1689,11 +1689,11 @@ bool UsdGenScatterOp::Capture(
 void UsdGenScatterOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &capture,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
     // A generator's Evaluate is identity: Capture filled the node buffer
     // (framework pre-copied the planes from the capture buffer).
-    TF_UNUSED(ctx); TF_UNUSED(capture); TF_UNUSED(view);
+    TF_UNUSED(ctx); TF_UNUSED(capture); TF_UNUSED(chunk);
 }
 
 UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)

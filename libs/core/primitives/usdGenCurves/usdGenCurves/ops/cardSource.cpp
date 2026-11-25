@@ -258,7 +258,7 @@ std::unique_ptr<UsdGenCapture> UsdGenCardSourceOp::CreateCapture() const
     return std::make_unique<UsdGenCardSourceCapture>();
 }
 
-bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuffer const &,
+bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &,
                                  UsdGenCapture *out, UsdGenDiagnostics *diag)
 {
     auto fail = [&](std::string const &message) {
