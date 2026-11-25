@@ -50,7 +50,7 @@ enum class UsdGenDeviceChannelSemantic : uint8_t {
     RestPoints,
     Widths,
     HairT,
-    CurveOffsets,
+    ElementOffsets,
     StableIds,
     RootPrim,
     RootUV
@@ -65,31 +65,25 @@ enum class UsdGenDeviceStatus : uint8_t {
     SynchronizationFailed
 };
 
-/// Renderer-neutral curve topology for a device generation.  Unknown is the
-/// backwards-compatible state for consumers that do not opt into device
-/// rendering; CUDA C3 publication admits only the concrete values below.
-enum class UsdGenDeviceCurveType : uint8_t {
-    Unknown = 0,
-    Cubic = 1
-};
-
-enum class UsdGenDeviceCurveBasis : uint8_t {
-    Unknown = 0,
-    BSpline = 1,
-    CatmullRom = 2
-};
-
-enum class UsdGenDeviceCurveWrap : uint8_t {
-    Unknown = 0,
-    Pinned = 1
-};
-
-struct UsdGenDeviceCurveTopologyMetadata
+/// Opaque layout descriptor for a device generation: three bytes the owning
+/// primitive interprets (curves: type, basis, wrap; see
+/// usdGenCurves/types/curveDeviceLayout.h).  All zero means unspecified, the
+/// state for consumers that do not opt into device rendering.
+struct UsdGenDeviceLayoutMetadata
 {
-    UsdGenDeviceCurveType type = UsdGenDeviceCurveType::Unknown;
-    UsdGenDeviceCurveBasis basis = UsdGenDeviceCurveBasis::Unknown;
-    UsdGenDeviceCurveWrap wrap = UsdGenDeviceCurveWrap::Unknown;
+    uint8_t kind = 0;
+    uint8_t variant = 0;
+    uint8_t wrap = 0;
 };
+
+constexpr bool operator==(UsdGenDeviceLayoutMetadata const& a,
+                          UsdGenDeviceLayoutMetadata const& b) noexcept {
+    return a.kind == b.kind && a.variant == b.variant && a.wrap == b.wrap;
+}
+constexpr bool operator!=(UsdGenDeviceLayoutMetadata const& a,
+                          UsdGenDeviceLayoutMetadata const& b) noexcept {
+    return !(a == b);
+}
 
 /// An opaque native stream/queue token.  Zero denotes the backend default
 /// queue.  The concrete owner interprets this value; this API never casts or
@@ -117,12 +111,12 @@ struct UsdGenDeviceChannelMetadata
 };
 
 /// A range into the backend-owned geometry channels.  The range is metadata;
-/// it is not a host copy of curve offsets or points.
+/// it is not a host copy of element offsets or points.
 struct UsdGenDeviceTileMetadata
 {
     uint32_t tile = 0;
-    uint64_t firstCurve = 0;
-    uint64_t curveCount = 0;
+    uint64_t firstElement = 0;
+    uint64_t elementCount = 0;
     uint64_t firstPoint = 0;
     uint64_t pointCount = 0;
     // Scalar conservative render bounds paired with this immutable tile
@@ -137,13 +131,13 @@ struct UsdGenDeviceGeometryMetadata
 {
     uint64_t topologyVersion = 0;
     uint64_t valueVersion = 0;
-    uint64_t curveCount = 0;
+    uint64_t elementCount = 0;
     uint64_t pointCount = 0;
     std::vector<UsdGenDeviceTileMetadata> tiles;
     // Already-deformed C3 caches must not have scalp motion applied again.
     bool alreadyDeformed = false;
     // Appended to preserve existing aggregate initializers above.
-    UsdGenDeviceCurveTopologyMetadata curveTopology;
+    UsdGenDeviceLayoutMetadata layoutMetadata;
 };
 
 /// Validate immutable shape metadata before a backend allocates or submits.

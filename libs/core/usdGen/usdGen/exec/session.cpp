@@ -474,7 +474,7 @@ bool UsdGenSession::StageDeviceRevision(UsdGenGenerationConstPtr const& expected
             revision->Identity().deviceIndex != expected->device->Identity().deviceIndex ||
             revision->Identity().generation != static_cast<uint64_t>(expected->id + 1) ||
             revision->Geometry().topologyVersion != expected->device->Geometry().topologyVersion ||
-            revision->Geometry().curveCount != expected->device->Geometry().curveCount ||
+            revision->Geometry().elementCount != expected->device->Geometry().elementCount ||
             revision->Geometry().pointCount != expected->device->Geometry().pointCount ||
             revision->Geometry().alreadyDeformed != expected->device->Geometry().alreadyDeformed) {
             if (reason) *reason = "device edit revision has incompatible identity or topology";

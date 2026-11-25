@@ -85,8 +85,8 @@ enum class UsdGenExecutionDataKind : uint8_t {
     // A scheduler-only identity for a backend workspace lane.  It is not a
     // geometry value and therefore must never appear in ResourceUse.
     ExecutionWorkspace,
-    CurveGeometry,
-    CurveTopology,
+    ElementGeometry,
+    ElementTopology,
     StableIds,
     RootBindings,
     Widths,
@@ -140,7 +140,7 @@ struct UsdGenExecutionDependency {
 };
 
 struct UsdGenExecutionResourceUse {
-    UsdGenExecutionDataKind resource = UsdGenExecutionDataKind::CurveGeometry;
+    UsdGenExecutionDataKind resource = UsdGenExecutionDataKind::ElementGeometry;
     UsdGenExecutionResourceAccess access = UsdGenExecutionResourceAccess::Read;
     // UINT32_MAX denotes an external/authored input.  Otherwise this names
     // the task whose logical resource version is observed.  The dependency
@@ -168,7 +168,7 @@ enum class UsdGenExecutionValueStorage : uint8_t {
 
 struct UsdGenExecutionValueMetadata {
     uint32_t id = 0;
-    UsdGenExecutionDataKind resource = UsdGenExecutionDataKind::CurveGeometry;
+    UsdGenExecutionDataKind resource = UsdGenExecutionDataKind::ElementGeometry;
     uint32_t producerTask = UINT32_MAX;
     uint32_t version = 0;
     UsdGenExecutionValueStorage storage =

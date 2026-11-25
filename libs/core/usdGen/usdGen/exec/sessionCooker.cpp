@@ -127,11 +127,11 @@ bool _TerminalTopologyRevision(UsdGenExecutionPlanMetadata const& metadata,
     uint32_t producer = UINT32_MAX;
     bool found = false;
     for (auto const& use : terminal->resources) {
-        if (use.resource != UsdGenExecutionDataKind::CurveTopology) continue;
+        if (use.resource != UsdGenExecutionDataKind::ElementTopology) continue;
         if (found || use.access != UsdGenExecutionResourceAccess::Read ||
             use.inputValue >= metadata.Values().size()) return false;
         auto const& value = metadata.Values()[use.inputValue];
-        if (value.resource != UsdGenExecutionDataKind::CurveTopology ||
+        if (value.resource != UsdGenExecutionDataKind::ElementTopology ||
             value.producerTask != use.producerTask) return false;
         found = true; producer = value.producerTask;
     }
