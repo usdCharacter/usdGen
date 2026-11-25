@@ -22,6 +22,7 @@
 // re-captures on every frame it moves; the factorization is kept while the
 // rest samples do not change. Evaluate applies usdGen:mask.
 #include "usdGen/ops/deform.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/curveWrap.h"
 #include "usdGen/ops/regionMap.h"
 
@@ -163,8 +164,9 @@ struct UsdGenDeformCapture final : public UsdGenCapture
     }
     bool RecordedChunkExtents() const override { return extentsRecorded; }
     bool WroteDirectOutput() const override { return wroteDirect; }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.valueVersion == upstreamValueVersion &&
                upstream.totalCurves == upstreamCurves &&
@@ -343,8 +345,10 @@ std::unique_ptr<UsdGenCapture> UsdGenDeformOp::CreateCapture() const {
 }
 uint32_t UsdGenDeformOp::PlanesTouched() const { return kPlanePoints; }
 
-bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer const& upstream,
-                             UsdGenCapture* out, UsdGenDiagnostics* diagnostics) {
+bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs const &in,
+                             UsdGenCapture* out, UsdGenDiagnostics* diagnostics)
+{
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     auto fail = [&](std::string const &message) {
         if (diagnostics) diagnostics->Error("UsdGenDeform: " + message);
         return false;
@@ -880,7 +884,9 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
 }
 
 void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const& captureIn,
-                              UsdGenLegacyChunkView* view) const {
+                              UsdGenChunkView const &chunk) const {
+    UsdGenCurveChunk chunkCurves(chunk);
+    UsdGenCurveChunk const *view = &chunkCurves;
     auto const &cap = static_cast<UsdGenDeformCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
     UsdGenParamField const maskField = p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
@@ -896,7 +902,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
     // and the lerp below closes over finite/Inf without producing NaN),
     // which is what makes the chunked union bitwise exact. Null in every
     // graph the gate does not select: one predictable branch per CV.
-    UsdGenLegacyChunkExtent *extSlot = view->extentSlot;
+    UsdGenChunkExtent *extSlot = view->extentSlot;
     GfRange3f chunkExt;
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
@@ -939,12 +945,15 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
         }
     }
     if (extSlot && view->desc) {
-        extSlot->extent = chunkExt;
-        extSlot->firstCurve = view->desc->firstCurve;
-        extSlot->curveCount = view->desc->curveCount;
-        extSlot->liveCount = view->desc->liveCount;
-        extSlot->firstCv = view->desc->firstCv;
-        extSlot->cvCount = view->desc->cvCount;
+        for (int k = 0; k < 3; ++k) {
+            extSlot->min[k] = chunkExt.GetMin()[k];
+            extSlot->max[k] = chunkExt.GetMax()[k];
+        }
+        extSlot->range.first[0] = view->desc->firstCurve;
+        extSlot->range.count[0] = view->desc->curveCount;
+        extSlot->range.live = view->desc->liveCount;
+        extSlot->range.first[1] = view->desc->firstCv;
+        extSlot->range.stride[1] = view->desc->cvCount;
     }
 }
 
