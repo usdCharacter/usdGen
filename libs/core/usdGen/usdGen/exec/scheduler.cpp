@@ -26,6 +26,7 @@
 #include "usdGen/fastCores.h"
 #include "usdGen/types.h"
 #include "usdGen/api/writeSet.h"
+#include "usdGen/exec/epoch.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
@@ -932,6 +933,9 @@ UsdGenRunResult UsdGenScheduler::Run(
     UsdGenCookInternFails(tokenCheck, &result.diagnostics);
     result.nodeStats = TfSpan<const UsdGenNodeRunStats>(_scratch->nodeStats);
     _scratch->running.store(false, std::memory_order_release);
+    // Cook-lane drain: what this cook retired is freed by the cook, not left
+    // to an idle worker (a no-op on a pinned thread or with nothing due).
+    UsdGenEpochDrain();
     return result;
 }
 
