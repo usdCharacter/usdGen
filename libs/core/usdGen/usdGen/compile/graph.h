@@ -7,7 +7,6 @@
 #define USDGEN_GRAPH_H
 
 #include "usdGen/api/elementSet.h"
-#include "usdGen/curveBuffer.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"

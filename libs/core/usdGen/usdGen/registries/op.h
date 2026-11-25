@@ -15,7 +15,6 @@
 #define USDGEN_OP_H
 
 #include "usdGen/cpuParameters.h"
-#include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/opRegistry.h"
@@ -37,6 +36,17 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenWorkDispatcher;  // defined in usdGen/scheduler.h
+
+/// Immutable compiler-resolved external reference value. The shared payload
+/// gives a capture a stable value identity without retaining a mutable graph,
+/// descriptor, scene index, or stage object.
+struct UsdGenResolvedReferenceValue
+{
+    SdfPath path;
+    uint64_t curveGeneration = 0;
+    uint64_t identity = 0;
+    std::shared_ptr<const UsdGenReferenceSet> value;
+};
 
 /// Diagnostics collected by a node; the imaging layer is the one that logs
 /// (the engine core stays TF_WARN-free on hot paths, 03 §9.2).

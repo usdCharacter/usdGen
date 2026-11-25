@@ -334,7 +334,7 @@ bool LoadGuides(UsdGenCaptureContext const &ctx, Guides *out, std::string *error
 {
     UsdGenReferenceSet const *ref = GuideSet(ctx);
     if (!ref) return true;
-    UsdGenCurveSetView const view = ref->View();
+    UsdGenCurveSetView const view = UsdGenCurveSetView::Of(*ref);
     UsdGenCurveSetView const *b = &view;
     if (b->totalCurves == 0) return true;
     std::vector<uint32_t> spans;

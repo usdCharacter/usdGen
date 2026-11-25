@@ -588,7 +588,7 @@ bool UsdGenClumpOp::Capture(
             ctx.referenceCount >= 1 && ctx.resolvedReferences && ctx.resolvedReferences[0] &&
             ctx.resolvedReferences[0]->value;
         UsdGenCurveSetView const guideView =
-            haveGuides ? ctx.resolvedReferences[0]->value->View() : UsdGenCurveSetView{};
+            haveGuides ? UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value) : UsdGenCurveSetView{};
         UsdGenCurveSetView const *guides = haveGuides ? &guideView : nullptr;
         size_t G = 0;
         clumpRef::GuideTable table;

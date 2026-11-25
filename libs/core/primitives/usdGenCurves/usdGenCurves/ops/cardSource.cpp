@@ -289,7 +289,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
         else if (ctx.references)
             ref = ctx.references[i];
         if (!ref) continue;
-        UsdGenCurveSetView const b = ref->View();
+        UsdGenCurveSetView const b = UsdGenCurveSetView::Of(*ref);
         if (IsSpineSet(b)) {
             if (spineSet) return fail("more than one card spine set (curves with a cardType plane)");
             spineView = b;

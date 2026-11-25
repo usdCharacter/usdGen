@@ -21,6 +21,7 @@
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveBuffer.h"   // BuildReferenceValue (until 7.3a)
 #include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"

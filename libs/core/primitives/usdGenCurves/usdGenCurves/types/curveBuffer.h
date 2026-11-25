@@ -30,25 +30,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
-/// One named extra plane (03 §1.2). R24 pins type/arity per emitted name:
-///   clumpId_<level> : uniform int,       arity 1
-///   clumpCenter_<level> : uniform float,  arity 3 (rest anchor)
-///   clumpCenterId_<level> : uniform int,  arity 2 (exact uint64 words)
-///   clumpWeight_<level> : vertex float,   arity 1 (effective cohesion)
-///   guideIndex      : uniform int[],     arity 3
-///   guideWeight     : uniform float[],   arity 3
-/// `int[3]`/`float[3]` are not USD type names. Exactly one of `f`/`i` holds
-/// the payload.
-struct UsdGenPlane
-{
-    TfToken      name;
-    TfToken      interpolation;   // vertex | uniform | constant
-    TfToken      type;            // float | int
-    uint8_t      arity = 1;
-    VtFloatArray f;
-    VtIntArray   i;
-};
-
 /// One chunk (03 §1.2). Surface-major, then Morton order over rest roots (§1.7).
 struct UsdGenChunkDesc
 {
@@ -447,31 +428,6 @@ struct UsdGenTileView
     // consumed by the session's generation builder (not part of C2).
     bool pointsDirty = false;
     bool widthsDirty = false;
-};
-
-/// One reference set per reference node, per generation (03 §1.5, I3).
-struct UsdGenReferenceSet
-{
-    /// CurveSet built once at compile, exported (never recycled), evaluated
-    /// in full, never chunk-dirty.
-    UsdGenRef<const UsdGenElementSet> set;
-    uint64_t generation = 0;
-    /// The set through the curve view; empty when unset.
-    UsdGenCurveSetView View() const noexcept
-    {
-        return set ? UsdGenCurveSetView::Of(*set) : UsdGenCurveSetView{};
-    }
-};
-
-/// Immutable compiler-resolved external reference value.  The shared payload
-/// gives a capture a stable value identity without retaining a mutable graph,
-/// descriptor, scene index, or stage object.
-struct UsdGenResolvedReferenceValue
-{
-    SdfPath path;
-    uint64_t curveGeneration = 0;
-    uint64_t identity = 0;
-    std::shared_ptr<const UsdGenReferenceSet> value;
 };
 
 // ---------------------------------------------------------------------------

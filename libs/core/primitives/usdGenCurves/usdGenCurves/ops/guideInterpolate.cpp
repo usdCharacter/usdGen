@@ -468,7 +468,7 @@ bool UsdGenGuideInterpolateOp::Capture(
     if (falloff ? !haveRef : ctx.referenceCount > 1 || (ctx.referenceCount == 1 && !haveRef))
         return fail("usdGen:guides must target one guide curve set");
     UsdGenCurveSetView const guides =
-        haveRef ? ctx.resolvedReferences[0]->value->View() : UsdGenCurveSetView{};
+        haveRef ? UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value) : UsdGenCurveSetView{};
     UsdGenClumpMotion guideClumps;
     if (haveRef) {
         std::string clumpError;

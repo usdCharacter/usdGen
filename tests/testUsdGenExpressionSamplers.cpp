@@ -13,6 +13,7 @@
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
 #include "usdGen/expressions/samplers.h"
+#include "usdGenCurves/types/curveBuffer.h"
 
 #include <Ptexture.h>
 

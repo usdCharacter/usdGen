@@ -5,7 +5,7 @@
 #pragma once
 #include "usdGen/export.h"
 #include "usdGen/registries/opDef.h"
-#include "usdGen/curveBuffer.h"          // UsdGenPlane (step 5 replaces it)
+#include "usdGen/compile/types.h"        // UsdGenPlane
 #include "pxr/base/tf/token.h"
 #include <atomic>
 #include <memory>

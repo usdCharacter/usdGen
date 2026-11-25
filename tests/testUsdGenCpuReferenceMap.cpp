@@ -84,9 +84,9 @@ public:
         return ctx.resolvedReferences[0]->path == SdfPath("/referenceMap/guidesA") &&
             ctx.resolvedReferences[1]->path == SdfPath("/referenceMap/guidesB") &&
             ctx.references[0]->generation == gReferenceGeneration &&
-            ctx.references[0]->View().totalCurves == 2 &&
-            ctx.references[0]->View().totalCvs == 4 &&
-            RestFallbackMatchesPoints(ctx.references[0]->View()) &&
+            UsdGenCurveSetView::Of(*ctx.references[0]).totalCurves == 2 &&
+            UsdGenCurveSetView::Of(*ctx.references[0]).totalCvs == 4 &&
+            RestFallbackMatchesPoints(UsdGenCurveSetView::Of(*ctx.references[0])) &&
             ctx.mapBindings[0].relationship == TfToken("usdGen:map") &&
             ctx.mapBindings[1].relationship == TfToken("usdGen:map");
     }
@@ -630,7 +630,7 @@ void ValidateReferenceProducerChain()
 
     std::shared_ptr<const UsdGenReferenceSet> const oldValue =
         graph.ReferenceValues()[0].value;
-    UsdGenCurveSetView const oldView = oldValue->View();
+    UsdGenCurveSetView const oldView = UsdGenCurveSetView::Of(*oldValue);
     float const oldPoint = oldView.px[0];
     GfVec3f const oldRest = oldView.rest[0];
     VtFloatArray const oldPlane(oldView.ExtraCv(0).f.begin(), oldView.ExtraCv(0).f.end());

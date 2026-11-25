@@ -154,7 +154,7 @@ bool UsdGenPartOp::Capture(
     if (ctx.referenceCount != 1 || !ctx.resolvedReferences || !ctx.resolvedReferences[0] ||
         !ctx.resolvedReferences[0]->value)
         return fail("usdGen:part:curves must target one parting curve set");
-    UsdGenCurveSetView const parting = ctx.resolvedReferences[0]->value->View();
+    UsdGenCurveSetView const parting = UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value);
     size_t const M = parting.totalCurves;
     if (M == 0) return fail("the parting curve set has no curves");
 

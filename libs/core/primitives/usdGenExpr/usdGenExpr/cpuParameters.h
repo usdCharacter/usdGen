@@ -17,7 +17,6 @@
 #ifndef USDGEN_CPU_PARAMETERS_H
 #define USDGEN_CPU_PARAMETERS_H
 
-#include "usdGen/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/ir.h"

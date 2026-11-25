@@ -258,7 +258,7 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
     if (ctx.referenceCount == 0 || !ctx.resolvedReferences || !ctx.resolvedReferences[0] ||
         !ctx.resolvedReferences[0]->value)
         return true;
-    UsdGenCurveSetView const curves = ctx.resolvedReferences[0]->value->View();
+    UsdGenCurveSetView const curves = UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value);
     std::vector<uint32_t> spans;
     std::string error;
     if (!opUtil::CurveSpans(curves, &spans, &error))

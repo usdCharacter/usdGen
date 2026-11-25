@@ -710,7 +710,7 @@ bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         if (diag) diag->Warn(Label() + ": usdGen:guides targets no guide curve set; strands are not braided");
         return true;
     }
-    UsdGenCurveSetView const guides = ctx.resolvedReferences[0]->value->View();
+    UsdGenCurveSetView const guides = UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value);
     std::vector<uint32_t> guideSpans;
     std::string error;
     if (!opUtil::CurveSpans(guides, &guideSpans, &error)) {

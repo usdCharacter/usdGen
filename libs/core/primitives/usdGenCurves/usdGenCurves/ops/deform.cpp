@@ -299,7 +299,7 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         UsdGenResolvedReferenceValue const *value =
             ctx.resolvedReferences ? ctx.resolvedReferences[r] : nullptr;
         if (!value || !value->value) { d.Mix(uint64_t(~0ull)); continue; }
-        UsdGenCurveSetView const b = value->value->View();
+        UsdGenCurveSetView const b = UsdGenCurveSetView::Of(*value->value);
         d.Mix(uint64_t(b.totalCurves));
         d.Mix(uint64_t(b.totalCvs));
         MixArray(&d, b.px.cdata(), b.px.size() * sizeof(float));
@@ -458,7 +458,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         } else {
             UsdGenResolvedReferenceValue const &reference = *ctx.resolvedReferences[0];
             driverLabel = "usdGen:guides " + reference.path.GetString();
-            driverView = reference.value->View();
+            driverView = UsdGenCurveSetView::Of(*reference.value);
             UsdGenCurveSetView const &drivers = driverView;
             if (wrap && drivers.totalCurves != 1 && !regionMapped)
                 return fail("multiple curveWrap center curves require regionMap and guideRegions");

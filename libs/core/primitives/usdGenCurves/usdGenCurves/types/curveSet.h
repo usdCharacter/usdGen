@@ -9,6 +9,7 @@
 #include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
+#include "usdGen/exec/chunkView.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -74,6 +75,11 @@ struct UsdGenPlaneView {
 struct UsdGenCurveSetView {
     USDGEN_CORE_API static UsdGenCurveSetView Of(UsdGenElementSetView const &) noexcept;
     static UsdGenCurveSetView Of(UsdGenElementSet const &s) noexcept { return Of(s.View()); }
+    /// A reference set's curves; empty when unset.
+    static UsdGenCurveSetView Of(UsdGenReferenceSet const &r) noexcept
+    {
+        return r.set ? Of(*r.set) : UsdGenCurveSetView{};
+    }
     USDGEN_CORE_API static UsdGenCurveSetView Of(UsdGenCurveBuffer const &) noexcept;   // tests, builders
     UsdGenSpan<const float> px, py, pz, width, hairT;
     UsdGenSpan<const GfVec3f> rest, rootT, rootN, rootB;
