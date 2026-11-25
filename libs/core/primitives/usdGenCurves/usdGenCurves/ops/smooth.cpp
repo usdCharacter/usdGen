@@ -63,8 +63,9 @@ struct UsdGenSmoothCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenSmoothCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         // alongCurve reads the current chunk input, so it never goes stale;
         // neighbours reads the capture snapshot, which tracks deformed roots
         // and is rebuilt on any upstream change.
@@ -179,10 +180,11 @@ UsdGenEpoch UsdGenSmoothOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenSmoothOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params;
     auto &cap = *static_cast<UsdGenSmoothCapture *>(out);
     auto fail = [&](std::string const &message) {
@@ -298,7 +300,7 @@ bool UsdGenSmoothOp::Capture(
     return true;
 }
 
-void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenLegacyChunkView *view) const
+void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenCurveChunk const *view) const
 {
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
@@ -361,8 +363,10 @@ void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenLegacyChunk
 void UsdGenSmoothOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
     auto const *cvOff = view->cvOffsets;

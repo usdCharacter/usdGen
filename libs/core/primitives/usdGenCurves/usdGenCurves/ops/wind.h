@@ -67,12 +67,12 @@ public:
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
     bool Capture(UsdGenCaptureContext const &ctx,
-                 UsdGenCurveBuffer const &upstream,
+                 UsdGenOpInputs const &in,
                  UsdGenCapture *out,
                  UsdGenDiagnostics *diag) override;
     void Evaluate(UsdGenEvalContext const &ctx,
                   UsdGenCapture const &capture,
-                  UsdGenLegacyChunkView *view) const override;
+                  UsdGenChunkView const &chunk) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
     bool ReadsTime(UsdGenParamView const &params) const override {

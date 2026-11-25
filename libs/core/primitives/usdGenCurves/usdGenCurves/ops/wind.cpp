@@ -15,6 +15,7 @@
 // stiffness and its ramp are groom-wide; the mask envelopes per CV.
 #include "usdGen/ops/wind.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/scratch.h"
 
 #include "usdGen/clumpMotion.h"
@@ -69,8 +70,9 @@ struct UsdGenWindCapture final : public UsdGenCapturePayload
     {
         return std::make_unique<UsdGenWindCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         // Rest roots track the current positions when the rest plane is
         // incomplete, so value changes invalidate the pin (Direction precedent).
         return upstream.topologyVersion == upstreamTopologyVersion &&
@@ -241,10 +243,11 @@ UsdGenEpoch UsdGenWindOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenWindOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     auto &cap = *static_cast<UsdGenWindCapture *>(out);
     auto fail = [&](std::string const &message) {
@@ -343,8 +346,10 @@ bool UsdGenWindOp::Capture(
 void UsdGenWindOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenWindCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const directionField =
