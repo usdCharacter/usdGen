@@ -68,10 +68,16 @@ void UsdGenCurveChunk::_Wrap(UsdGenLegacyChunkView const &l) noexcept
     extraCvCount = std::min<uint32_t>(l.extraCvCount, kMaxSlots);
     for (uint32_t k = 0; k < extraCvCount; ++k) {
         if (l.extraCv) _extraCv[k] = Info(l.extraCv[k]);
-        if (l.inExtraCv) _inExtraCv[k] = Info(l.inExtraCv[k]);
+        if (l.inExtraCv) {
+            _inExtraCv[k] = Info(l.inExtraCv[k]);
+            _inExtraCvF[k] = l.inExtraCv[k].f.cdata();
+            _inExtraCvI[k] = l.inExtraCv[k].i.cdata();
+        }
     }
     extraCv = l.extraCv ? _extraCv : nullptr;
     inExtraCv = l.inExtraCv ? _inExtraCv : nullptr;
+    inExtraCvF = l.inExtraCv ? _inExtraCvF : nullptr;
+    inExtraCvI = l.inExtraCv ? _inExtraCvI : nullptr;
     extraCvF = l.extraCvF; extraCvI = l.extraCvI;
     pointScratch = l.pointScratch; scalarScratch = l.scalarScratch;
     curveCount = l.curveCount; cvCount = l.cvCount; inCvCount = l.inCvCount;
@@ -145,7 +151,14 @@ UsdGenCurveChunk::UsdGenCurveChunk(UsdGenChunkView const &v) noexcept
         for (uint32_t k = 0; k < extraCvCount; ++k) {
             UsdGenChannelDesc const &d = (*v.channels)[v.remapped[k]];
             _extraCv[k] = Info(d);
-            _inExtraCv[k] = Info((*v.inChannels)[inRun[k]]);
+            UsdGenChannelDesc const &inDesc = (*v.inChannels)[inRun[k]];
+            _inExtraCv[k] = Info(inDesc);
+            size_t const inShift = size_t(v.inFirst[2]) * inDesc.arity;
+            if (inDesc.scalar == UsdGenScalar::I32) {
+                if (int const *p = AtIn<int>(v.in, inRun[k])) _inExtraCvI[k] = p - inShift;
+            } else if (float const *p = AtIn<float>(v.in, inRun[k])) {
+                _inExtraCvF[k] = p - inShift;
+            }
             size_t const shift = first * d.arity;
             if (d.scalar == UsdGenScalar::I32) {
                 if (int *p = At<int>(v.out, v.remapped[k])) _extraCvI[k] = p - shift;
@@ -157,6 +170,8 @@ UsdGenCurveChunk::UsdGenCurveChunk(UsdGenChunkView const &v) noexcept
         extraCvF = _extraCvF;
         extraCvI = _extraCvI;
         inExtraCv = _inExtraCv;
+        inExtraCvF = _inExtraCvF;
+        inExtraCvI = _inExtraCvI;
     }
     pointScratch = static_cast<GfVec3d *>(v.pointScratch);
     scalarScratch = v.scalarScratch;

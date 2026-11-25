@@ -22,6 +22,7 @@
 // still hard-errors on every one of those states; the Evaluate fallbacks
 // only cover a literal edited after capture and can never write NaN.
 #include "usdGen/ops/collide.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/limitSurface.h"
 
 #include "usdGen/ops/opUtil.h"
@@ -173,8 +174,9 @@ struct UsdGenCollideCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenCollideCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.totalCurves == upstreamCurves &&
                upstream.totalCvs == upstreamCvs;
     }
@@ -1871,10 +1873,11 @@ void UsdGenCollideOp::WarnOnce(UsdGenDiagnostics *diag, SdfPath const &path,
 
 bool UsdGenCollideOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p || !p->node) {
         if (diag) diag->Error("UsdGenCollide: no node description");
@@ -2132,8 +2135,10 @@ bool UsdGenCollideOp::Capture(
 void UsdGenCollideOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenCollideCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const offsetField =
@@ -2228,16 +2233,15 @@ void UsdGenCollideOp::Evaluate(
                 if (cutMode && view->width && view->inWidth)
                     view->width[local]=view->inWidth[local];
                 if (cutMode) for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
-                    UsdGenPlane const &out=view->extraCv[plane];
-                    UsdGenPlane const &in=view->inExtraCv[plane];
+                    UsdGenCurveChunk::PlaneInfo const &out=view->extraCv[plane];
                     uint8_t const arity=std::max<uint8_t>(out.arity,1);
                     size_t const first=(cvBase+local)*arity;
                     for (uint8_t component=0;component<arity;++component) {
                         size_t const value=first+component;
                         if (out.type==UsdGenTokens().int_)
-                            view->extraCvI[plane][value]=in.i[value];
+                            view->extraCvI[plane][value]=view->inExtraCvI[plane][value];
                         else
-                            view->extraCvF[plane][value]=in.f[value];
+                            view->extraCvF[plane][value]=view->inExtraCvF[plane][value];
                     }
                 }
             }
@@ -2279,16 +2283,15 @@ void UsdGenCollideOp::Evaluate(
                 size_t const cv=g+i;
                 if (view->width && view->inWidth) view->width[cv]=view->inWidth[cv];
                 for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
-                    UsdGenPlane const &out=view->extraCv[plane];
-                    UsdGenPlane const &in=view->inExtraCv[plane];
+                    UsdGenCurveChunk::PlaneInfo const &out=view->extraCv[plane];
                     uint8_t const arity=std::max<uint8_t>(out.arity,1);
                     size_t const first=(cvBase+cv)*arity;
                     for (uint8_t component=0;component<arity;++component) {
                         size_t const value=first+component;
                         if (out.type==UsdGenTokens().int_)
-                            view->extraCvI[plane][value]=in.i[value];
+                            view->extraCvI[plane][value]=view->inExtraCvI[plane][value];
                         else
-                            view->extraCvF[plane][value]=in.f[value];
+                            view->extraCvF[plane][value]=view->inExtraCvF[plane][value];
                     }
                 }
             }
@@ -2456,8 +2459,7 @@ void UsdGenCollideOp::Evaluate(
                         view->width[dst]=float(double(view->inWidth[src0])+
                             (double(view->inWidth[src1])-view->inWidth[src0])*alpha);
                     for (uint32_t plane=0;plane<view->extraCvCount;++plane) {
-                        UsdGenPlane const &out=view->extraCv[plane];
-                        UsdGenPlane const &in=view->inExtraCv[plane];
+                        UsdGenCurveChunk::PlaneInfo const &out=view->extraCv[plane];
                         uint8_t const arity=std::max<uint8_t>(out.arity,1);
                         for (uint8_t component=0;component<arity;++component) {
                             size_t const d=(cvBase+dst)*arity+component;
@@ -2465,10 +2467,10 @@ void UsdGenCollideOp::Evaluate(
                             size_t const y=(cvBase+src1)*arity+component;
                             if (out.type==UsdGenTokens().int_)
                                 view->extraCvI[plane][d]=
-                                    alpha<0.5 ? in.i[x] : in.i[y];
+                                    alpha<0.5 ? view->inExtraCvI[plane][x] : view->inExtraCvI[plane][y];
                             else
                                 view->extraCvF[plane][d]=float(
-                                    double(in.f[x])+(double(in.f[y])-in.f[x])*alpha);
+                                    double(view->inExtraCvF[plane][x])+(double(view->inExtraCvF[plane][y])-view->inExtraCvF[plane][x])*alpha);
                         }
                     }
                 }

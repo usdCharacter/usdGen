@@ -303,7 +303,8 @@ bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &c
     // Strand identity: clumpId_0, strandSeed and strandIndex planes when the
     // upstream carries them (UsdGenStrandSet fallbacks otherwise).
     UsdGenStrandSet ids;
-    ids.upstream = &upstream;
+    UsdGenCurveSetView const upstreamView = UsdGenCurveSetView::Of(upstream);   // 5.3b-e P: UsdGenStrandSet reads a view; V drops this line when length ports
+    ids.upstream = &upstreamView;
     lengthRange::Strands strands;
     strands.spans = &spans;
     if (int const *clump = ids.CurveInt(rec.Token(kTokClumpId0)))
