@@ -9,6 +9,7 @@
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
 #include "usdGen/ops/freeze.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/opUtil.h"
 
@@ -31,28 +32,24 @@ namespace {
 // upstream planes through const-cast raw pointers (SweepChunk), which never
 // detaches. A shared "snapshot" would corrupt on the next upstream commit,
 // so every snapshot plane is a fresh allocation filled by memcpy.
-template <typename Array>
-void DeepCopyArray(Array const &src, Array *dst)
+template <typename Source, typename Array>
+void DeepCopyArray(Source const &src, Array *dst)
 {
     dst->resize(src.size());
     if (!src.empty()) std::copy(src.begin(), src.end(), dst->begin());
 }
 
-void DeepCopyPlanes(std::vector<UsdGenPlane> const &src,
-                    std::vector<UsdGenPlane> *dst)
+void DeepCopyPlane(UsdGenPlaneView const &src, UsdGenPlane *dst)
 {
-    dst->resize(src.size());
-    for (size_t i = 0; i < src.size(); ++i) {
-        (*dst)[i].name = src[i].name;
-        (*dst)[i].interpolation = src[i].interpolation;
-        (*dst)[i].type = src[i].type;
-        (*dst)[i].arity = src[i].arity;
-        DeepCopyArray(src[i].f, &(*dst)[i].f);
-        DeepCopyArray(src[i].i, &(*dst)[i].i);
-    }
+    dst->name = src.name;
+    dst->interpolation = src.interpolation;
+    dst->type = src.type;
+    dst->arity = src.arity;
+    DeepCopyArray(src.f, &dst->f);
+    DeepCopyArray(src.i, &dst->i);
 }
 
-void DeepCopyBuffer(UsdGenCurveBuffer const &src, UsdGenCurveBuffer *dst)
+void DeepCopyBuffer(UsdGenCurveSetView const &src, UsdGenCurveBuffer *dst)
 {
     dst->totalCurves = src.totalCurves;
     dst->totalCvs = src.totalCvs;
@@ -76,8 +73,12 @@ void DeepCopyBuffer(UsdGenCurveBuffer const &src, UsdGenCurveBuffer *dst)
     // Grow/Resample), so installed planes survive upstream edits exactly
     // like the rest channel. A frozen node that passed live extras through
     // would leak the chain it caps (02 §2.9).
-    DeepCopyPlanes(src.extraCv, &dst->extraCv);
-    DeepCopyPlanes(src.extraCurve, &dst->extraCurve);
+    dst->extraCv.resize(src.ExtraCvCount());
+    for (uint32_t k = 0; k < src.ExtraCvCount(); ++k)
+        DeepCopyPlane(src.ExtraCv(k), &dst->extraCv[k]);
+    dst->extraCurve.resize(src.ExtraCurveCount());
+    for (uint32_t k = 0; k < src.ExtraCurveCount(); ++k)
+        DeepCopyPlane(src.ExtraCurve(k), &dst->extraCurve[k]);
 }
 
 struct UsdGenFreezeCapture final : public UsdGenCurveCapture
@@ -90,7 +91,7 @@ struct UsdGenFreezeCapture final : public UsdGenCurveCapture
         return std::make_unique<UsdGenFreezeCapture>(*this);
     }
     bool OwnsBuffer() const override { return !live; }
-    bool ValidForTopology(UsdGenCurveBuffer const &) const override
+    bool ValidForTopology(UsdGenElementSetView const &) const override
     {
         // The freeze contract: frozen output NEVER follows upstream edits,
         // so an upstream topology/value revision alone never invalidates.
@@ -215,10 +216,11 @@ UsdGenEpoch UsdGenFreezeOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenFreezeOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params;
     auto &cap = *static_cast<UsdGenFreezeCapture *>(out);
     auto fail = [&](std::string const &message) {
@@ -244,7 +246,7 @@ bool UsdGenFreezeOp::Capture(
     }
 
     std::string topoError;
-    auto checkPlanes = [&](UsdGenCurveBuffer const &b, char const *whose) -> bool {
+    auto checkPlanes = [&](UsdGenCurveSetView const &b, char const *whose) -> bool {
         std::vector<uint32_t> spans;
         if (!opUtil::CurveSpans(b, &spans, &topoError))
             return fail(std::string(whose) + topoError);
@@ -273,14 +275,17 @@ bool UsdGenFreezeOp::Capture(
     // enforces 0-or-1 resolved references; direct callers are checked here.
     if (ctx.referenceCount > 1)
         return fail("usdGen:frozen:curves must target at most one snapshot curve set");
-    UsdGenCurveBuffer const *snapshot = nullptr;
+    UsdGenCurveSetView refView;
+    UsdGenCurveSetView const *snapshot = nullptr;
     bool const explicitSnapshot =
         ctx.referenceCount == 1 && ctx.resolvedReferences && ctx.resolvedReferences[0] &&
         ctx.resolvedReferences[0]->value;
     if (ctx.referenceCount == 1 && !explicitSnapshot)
         return fail("usdGen:frozen:curves names a snapshot with no resolved value");
-    if (explicitSnapshot)
-        snapshot = &ctx.resolvedReferences[0]->value->buffer;
+    if (explicitSnapshot) {
+        refView = UsdGenCurveSetView::Of(ctx.resolvedReferences[0]->value->buffer);
+        snapshot = &refView;
+    }
     else
         snapshot = &upstream;
 
@@ -294,7 +299,9 @@ bool UsdGenFreezeOp::Capture(
         // installed. Counts AND ragged offsets must agree.
         if (snapshot->totalCurves != upstream.totalCurves ||
             snapshot->totalCvs != upstream.totalCvs ||
-            !(snapshot->cvOffsets == upstream.cvOffsets))
+            !(snapshot->cvOffsets.size() == upstream.cvOffsets.size() &&
+              std::equal(snapshot->cvOffsets.begin(), snapshot->cvOffsets.end(),
+                         upstream.cvOffsets.begin())))
             return fail("the frozen:curves snapshot layout (curves/CVs/offsets) "
                         "must match the chain input layout in the session tier");
     }
@@ -334,8 +341,10 @@ bool UsdGenFreezeOp::Capture(
 void UsdGenFreezeOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenFreezeCapture const &>(captureIn);
     if (cap.live) {
         // Passthrough: chain input to private output. Layouts agree by

@@ -11,8 +11,9 @@ namespace usdGen {
 
 // Direct categorical region-map transport shared by growth and deformation.
 // This samples actual Ptex texels at REST roots, never face display colors.
+template <class Geometry>
 inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
-                                 UsdGenCurveBuffer const &geometry,
+                                 Geometry const &geometry,
                                  std::vector<int> *regions, bool *mapped,
                                  std::string *error) {
     *mapped=false; regions->clear();
