@@ -232,7 +232,7 @@ void TestTransactionalFailure(bool unequalDepth)
     context.desc = &graph.Desc();
     int callbacks = 0;
     OutputSnapshot published;
-    auto completed = [&](UsdGenTileView const &, UsdGenElementSet const &set) {
+    auto completed = [&](UsdGenChunkGroup const &, UsdGenElementSet const &set) {
         ++callbacks;
         published = Snapshot(UsdGenCurveBufferFromSet(set));
     };

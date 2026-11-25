@@ -344,7 +344,7 @@ struct UsdGenCaptureContext
     // extent writer); every other Capture caller leaves them null, and a
     // capture that records extents must fail closed to not recording unless
     // all four are present and chunkCount == chunkExtentCount.
-    UsdGenChunkDesc const *chunks = nullptr;
+    UsdGenChunkRange const *chunks = nullptr;
     size_t                 chunkCount = 0;
     UsdGenChunkExtent     *chunkExtentSlots = nullptr;
     size_t                 chunkExtentCount = 0;

@@ -1591,18 +1591,18 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
     float const *tpz = term.pz.empty() ? nullptr : termView.pz.cdata();
     size_t const nPx = term.px.size();
     size_t compared = 0, extentsOk = 0, countsOk = 0;
-    for (UsdGenTileView const &tv : graph.Tiles()) {
+    for (UsdGenChunkGroup const &tv : graph.Groups()) {
         // Untouched tiles keep their previous extent; only a tile the
         // interleave rewrote (pointsDirty) must match the reference.
-        if (!tv.pointsDirty) continue;
+        if (!(tv.dirtyRoles & (1u << uint32_t(UsdGenChannelRole::Position)))) continue;
         if (tn.chunks.size() < size_t(tv.firstChunk) + tv.chunkCount) continue;
         GfRange3f ref;
         uint64_t liveCurves = 0, liveCvs = 0;
         for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-            UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
-            if (ragged && cd.cvCount == 0) {
-                for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                    size_t const g = size_t(cd.firstCurve) + c;
+            UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
+            if (ragged && cd.stride[1] == 0) {
+                for (uint32_t c = 0; c < cd.live; ++c) {
+                    size_t const g = size_t(cd.first[0]) + c;
                     if (g + 1 >= term.cvOffsets.size()) break;
                     uint32_t const p0 = uint32_t(term.cvOffsets[g]);
                     uint32_t const len = uint32_t(term.cvOffsets[g + 1]) - p0;
@@ -1617,12 +1617,12 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
                 }
                 continue;
             }
-            liveCurves += cd.liveCount;
-            liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+            liveCurves += cd.live;
+            liveCvs += uint64_t(cd.live) * cd.stride[1];
             if (!tpx || !tpy || !tpz) continue;
-            for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                size_t const o = size_t(cd.firstCv) + size_t(c) * cd.cvCount;
-                for (uint32_t v = 0; v < cd.cvCount; ++v) {
+            for (uint32_t c = 0; c < cd.live; ++c) {
+                size_t const o = size_t(cd.first[1]) + size_t(c) * cd.stride[1];
+                for (uint32_t v = 0; v < cd.stride[1]; ++v) {
                     size_t const p = o + v;
                     if (p >= nPx) break;
                     ref.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
@@ -1630,9 +1630,9 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
             }
         }
         ++compared;
-        extentsOk += std::memcmp(&tv.extent.GetMin(), &ref.GetMin(), sizeof(GfVec3f)) == 0 &&
-                std::memcmp(&tv.extent.GetMax(), &ref.GetMax(), sizeof(GfVec3f)) == 0;
-        countsOk += tv.totalLiveCurves == liveCurves && tv.totalLiveCvs == liveCvs;
+        extentsOk += std::memcmp(tv.extentMin, ref.GetMin().data(), sizeof(GfVec3f)) == 0 &&
+                std::memcmp(tv.extentMax, ref.GetMax().data(), sizeof(GfVec3f)) == 0;
+        countsOk += tv.live[0] == liveCurves && tv.live[1] == liveCvs;
     }
     Check(compared > 0, what + ": the pose dirties tiles");
     Check(compared > 0 && extentsOk == compared && countsOk == compared,

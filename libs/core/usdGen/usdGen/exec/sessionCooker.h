@@ -227,12 +227,12 @@ private:
     // become the publication baseline, its state must not suppress a later
     // cook relative to that baseline.
     uint64_t _lastCookedEpoch = 0;
-    UsdGenTilePublication _BuildTilePublication(UsdGenTileView const&, UsdGenRunResult const&,
+    UsdGenTilePublication _BuildTilePublication(UsdGenChunkGroup const&, UsdGenRunResult const&,
                                                 UsdGenGenerationConstPtr const&);
     /// `previous` with its points regathered from the terminal buffer, every
     /// other channel shared. False (and `out` untouched) when the tile's
     /// curve layout no longer matches `previous`.
-    bool _RefreshTilePoints(UsdGenTileView const&, UsdGenRunResult const&,
+    bool _RefreshTilePoints(UsdGenChunkGroup const&, UsdGenRunResult const&,
                             UsdGenTilePublication const& previous,
                             UsdGenTilePublication *out) const;
     std::shared_ptr<const UsdGenRbfAnimationBinding> _BuildAnimationBinding(

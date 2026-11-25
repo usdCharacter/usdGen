@@ -303,10 +303,10 @@ int main(int argc, char **argv)
                     SameArray(a.pz, b.pz) && SameArray(a.width, b.width) &&
                     SameArray(a.hairT, b.hairT) && SameArray(a.curveId, b.curveId) &&
                     SameArray(a.rootPrim, b.rootPrim) &&
-                    rA.tiles.size() == rB.tiles.size();
-        for (size_t i = 0; same && i < rA.tiles.size(); ++i)
-            same = rA.tiles[i].totalLiveCurves == rB.tiles[i].totalLiveCurves &&
-                   rA.tiles[i].totalLiveCvs == rB.tiles[i].totalLiveCvs;
+                    rA.groups.size() == rB.groups.size();
+        for (size_t i = 0; same && i < rA.groups.size(); ++i)
+            same = rA.groups[i].live[0] == rB.groups[i].live[0] &&
+                   rA.groups[i].live[1] == rB.groups[i].live[1];
         std::printf("E-8 (1 vs 8 threads bitwise): %s\n", same ? "PASS" : "FAIL");
         if (!same) ++g_hardFail;
     }

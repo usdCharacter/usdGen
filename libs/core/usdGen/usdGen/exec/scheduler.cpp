@@ -340,7 +340,7 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
     }
 
     uint32_t const nCurves = topology->Count(1);
-    uint32_t const cvp = node.chunks.empty() ? 0 : node.chunks[0].cvCount;
+    uint32_t const cvp = node.chunks.empty() ? 0 : node.chunks[0].stride[1];
     UsdGenSpan<const uint32_t> const offs = topology->Offsets(2);
     uint32_t const nCvs = (cvp == 0 && !offs.empty() && size_t(nCurves) < offs.size())
         ? offs[nCurves] : nCurves * cvp;
@@ -497,6 +497,9 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
     mix(node.expressions.Digest());
     return digest;
 }
+/// Group dirty bits: the roles a run wrote (UsdGenChunkGroup::dirtyRoles).
+constexpr uint32_t kPositionDirty = 1u << uint32_t(UsdGenChannelRole::Position);
+constexpr uint32_t kWidthDirty = 1u << uint32_t(UsdGenChannelRole::Width);
 /// An extent slot no writer filled (range.live).
 constexpr uint32_t kExtentUnwritten = 0xffffffffu;
 
@@ -672,8 +675,8 @@ void SweepChunk(size_t index, void *payload)
 {
     NodeSweepPayload &pl = *static_cast<NodeSweepPayload *>(payload);
     UsdGenCompiledNode &node = *pl.node;
-    UsdGenChunkDesc const &cd = node.chunks[index];
-    if (cd.curveCount == 0) return;
+    UsdGenChunkRange const &cd = node.chunks[index];
+    if (cd.count[0] == 0) return;
     bool const chunkDirty =
         node.chunkDirty.empty()
             ? true   // no dirty bookkeeping for this partition: evaluate (never skip blindly)
@@ -685,44 +688,37 @@ void SweepChunk(size_t index, void *payload)
     size_t const nOffs = offs ? size_t(pl.outView.count[1]) + 1 : 0;
     uint32_t const *upOffs = pl.inView.offsets[2];
     size_t const nUpOffs = upOffs ? size_t(pl.inView.count[1]) + 1 : 0;
-    UsdGenChunkDesc const *upC = (pl.up && pl.up->chunks.size() == node.chunks.size())
+    UsdGenChunkRange const *upC = (pl.up && pl.up->chunks.size() == node.chunks.size())
         ? &pl.up->chunks[index] : nullptr;
-    UsdGenChunkDesc const *upC2 = (pl.up2 && pl.up2->chunks.size() == node.chunks.size())
+    UsdGenChunkRange const *upC2 = (pl.up2 && pl.up2->chunks.size() == node.chunks.size())
         ? &pl.up2->chunks[index] : nullptr;
 
-    uint32_t nCvs = cd.curveCount * cd.cvCount;
-    if (cd.cvCount == 0 && nOffs) {
+    uint32_t nCvs = cd.count[0] * cd.stride[1];
+    if (cd.stride[1] == 0 && nOffs) {
         // Ragged span [firstCurve, firstCurve+curveCount) from topology offsets.
-        size_t const f = cd.firstCurve;
-        if (f + cd.curveCount < nOffs)
-            nCvs = uint32_t(offs[f + cd.curveCount] - offs[f]);
+        size_t const f = cd.first[0];
+        if (f + cd.count[0] < nOffs)
+            nCvs = uint32_t(offs[f + cd.count[0]] - offs[f]);
     }
-    size_t const base = cd.firstCv;
-    size_t const upBase = upC ? upC->firstCv : 0;
+    size_t const base = cd.first[1];
+    size_t const upBase = upC ? upC->first[1] : 0;
 
-    UsdGenChunkRange range;
-    range.first[0] = cd.firstCurve;
-    range.count[0] = cd.curveCount;
-    range.first[1] = cd.firstCv;
+    UsdGenChunkRange range = cd;
     range.count[1] = nCvs;
-    range.stride[1] = cd.cvCount;
-    range.live = cd.liveCount;
-    range.group = uint16_t(cd.tile);
-    range.domain = uint16_t(cd.surface);
     UsdGenChunkView chunk{};
     chunk.range = &range;
     // Ragged offsets stay absolute, pointer at the chunk's first curve; null
     // on the uniform fast path.
-    if (cd.cvCount == 0 && nOffs && size_t(cd.firstCurve) < nOffs)
-        chunk.offsets[2] = offs + cd.firstCurve;
-    if (upC && upC->cvCount == 0 && nUpOffs && size_t(upC->firstCurve) < nUpOffs)
-        chunk.inOffsets[2] = upOffs + upC->firstCurve;
-    chunk.inFirst[1] = upC ? upC->firstCurve : cd.firstCurve;
+    if (cd.stride[1] == 0 && nOffs && size_t(cd.first[0]) < nOffs)
+        chunk.offsets[2] = offs + cd.first[0];
+    if (upC && upC->stride[1] == 0 && nUpOffs && size_t(upC->first[0]) < nUpOffs)
+        chunk.inOffsets[2] = upOffs + upC->first[0];
+    chunk.inFirst[1] = upC ? upC->first[0] : cd.first[0];
     chunk.inFirst[2] = static_cast<uint32_t>(upBase);
-    chunk.inStride[2] = upC ? upC->cvCount : 0;
+    chunk.inStride[2] = upC ? upC->stride[1] : 0;
     if (pl.outSet && index < pl.tableChunks) {
         void **out = pl.outTables.data() + index * pl.outSlots;
-        FillSlotTable(*pl.outSet, pl.outSlots, cd.firstCurve, base,
+        FillSlotTable(*pl.outSet, pl.outSlots, cd.first[0], base,
                       const_cast<void const **>(out));
         chunk.out = out;
         chunk.channels = pl.outSet->channels;
@@ -740,7 +736,7 @@ void SweepChunk(size_t index, void *payload)
     }
     if (pl.in2Set && upC2 && index < pl.tableChunks) {
         void const **in2 = pl.in2Tables.data() + index * pl.in2Slots;
-        FillSlotTable(*pl.in2Set, pl.in2Slots, upC2->firstCurve, upC2->firstCv, in2);
+        FillSlotTable(*pl.in2Set, pl.in2Slots, upC2->first[0], upC2->first[1], in2);
         chunk.in2 = in2;
     }
     chunk.emitted = pl.emitted.data();
@@ -785,13 +781,12 @@ struct InterleavePayload
 void InterleaveTile(size_t index, void *payload)
 {
     InterleavePayload &pl = *static_cast<InterleavePayload *>(payload);
-    UsdGenTileView &tv =
-        const_cast<UsdGenTileView &>(pl.graph->Tiles()[index]);
+    UsdGenChunkGroup &tv =
+        const_cast<UsdGenChunkGroup &>(pl.graph->Groups()[index]);
     // Tile dirty flags are per-run observations (03 §5.4 step 5), not sticky
     // state: clear first so a run that evaluates no chunk of this tile reports
     // "nothing changed" instead of replaying the previous run's flag.
-    tv.pointsDirty = false;
-    tv.widthsDirty = false;
+    tv.dirtyRoles = 0;
     if (!(*pl.touched)[index]) return;
 
     // Terminal node owns the chunk partition the tiles index into.
@@ -806,7 +801,7 @@ void InterleaveTile(size_t index, void *payload)
     size_t const nPx = term.px.size();
     bool const ragged = !term.cvOffsets.empty();
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        UsdGenChunkDesc const &cd = pl.tn->chunks[tv.firstChunk + i];
+        UsdGenChunkRange const &cd = pl.tn->chunks[tv.firstChunk + i];
         if (pl.extents) {
             // Fused path: the counts below are the point path's statements
             // verbatim (same inputs, same sums); the extent unions the
@@ -814,9 +809,9 @@ void InterleaveTile(size_t index, void *payload)
             // the sequential pass bitwise for NaN-free points (the gate
             // admits only deform-recorded runs, and deform outputs cannot
             // carry NaN — see the contract on UsdGenChunkView::extentSlot).
-            if (ragged && cd.cvCount == 0) {
-                for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                    size_t const g = size_t(cd.firstCurve) + c;
+            if (ragged && cd.stride[1] == 0) {
+                for (uint32_t c = 0; c < cd.live; ++c) {
+                    size_t const g = size_t(cd.first[0]) + c;
                     if (g + 1 >= term.cvOffsets.size()) break;
                     uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
                     uint32_t const len =
@@ -825,8 +820,8 @@ void InterleaveTile(size_t index, void *payload)
                     liveCvs += len;
                 }
             } else {
-                liveCurves += cd.liveCount;
-                liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+                liveCurves += cd.live;
+                liveCvs += uint64_t(cd.live) * cd.stride[1];
             }
             UsdGenChunkExtent const &e = pl.extents[tv.firstChunk + i];
             extent.UnionWith(GfRange3f(GfVec3f(e.min[0], e.min[1], e.min[2]),
@@ -836,9 +831,9 @@ void InterleaveTile(size_t index, void *payload)
         // Ragged path (03 §1.3): per-curve CV spans come from cvOffsets, not
         // liveCount*cvCount (cvCount == 0 on the ragged path). g indexes the
         // absolute curve so cvOffsets[g] is valid.
-        if (ragged && cd.cvCount == 0) {
-            for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                size_t const g = size_t(cd.firstCurve) + c;
+        if (ragged && cd.stride[1] == 0) {
+            for (uint32_t c = 0; c < cd.live; ++c) {
+                size_t const g = size_t(cd.first[0]) + c;
                 if (g + 1 >= term.cvOffsets.size()) break;
                 uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
                 uint32_t const len =
@@ -854,23 +849,25 @@ void InterleaveTile(size_t index, void *payload)
             }
             continue;
         }
-        liveCurves += cd.liveCount;
-        liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+        liveCurves += cd.live;
+        liveCvs += uint64_t(cd.live) * cd.stride[1];
         if (!tpx || !tpy || !tpz) continue;
-        for (uint32_t c = 0; c < cd.liveCount; ++c) {
-            size_t const o = size_t(cd.firstCv) + size_t(c) * cd.cvCount;
-            for (uint32_t v = 0; v < cd.cvCount; ++v) {
+        for (uint32_t c = 0; c < cd.live; ++c) {
+            size_t const o = size_t(cd.first[1]) + size_t(c) * cd.stride[1];
+            for (uint32_t v = 0; v < cd.stride[1]; ++v) {
                 size_t const p = o + v;
                 if (p >= nPx) break;
                 extent.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
             }
         }
     }
-    tv.extent = extent;
-    tv.totalLiveCurves = static_cast<uint32_t>(liveCurves);
-    tv.totalLiveCvs = static_cast<uint32_t>(liveCvs);
-    tv.pointsDirty = true;
-    tv.widthsDirty = pl.widthsFlag;
+    for (int k = 0; k < 3; ++k) {
+        tv.extentMin[k] = extent.GetMin()[k];
+        tv.extentMax[k] = extent.GetMax()[k];
+    }
+    tv.live[0] = static_cast<uint32_t>(liveCurves);
+    tv.live[1] = static_cast<uint32_t>(liveCvs);
+    tv.dirtyRoles = kPositionDirty | (pl.widthsFlag ? kWidthDirty : 0u);
 }
 
 }  // namespace
@@ -1002,7 +999,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
     UsdGenDiagnostics aggregated;
     auto dispatcher = MakeWorkDispatcher();
 
-    int nTiles = graph.NumTiles();
+    int nTiles = graph.NumGroups();
     std::vector<char> &tileTouched = S.tileTouched;
     tileTouched.assign(size_t(nTiles), 0);
     bool transactionalRun=false;
@@ -1256,14 +1253,13 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 UsdGenElementSet const &out = graph.NodeOutput(node.id);
                 int const total = static_cast<int>(out.Count(1));
                 int const cvp = int(out.Count(2) / std::max<uint32_t>(1, out.Count(1)));
-                if (graph.Repartition(total, cvp))
+                if (graph.Repartition(uint32_t(total), uint32_t(cvp)))
                     result.topologyChanged = true;
             } else if (job->reCaptured && node.chunks.empty() && hasUp) {
                 UsdGenCompiledNode const &upN = graph.Node(node.input);
                 uint32_t const upCurves = graph.NodeOutput(node.input).Count(1);
                 if (!upN.chunks.empty() && upCurves > 0 &&
-                    graph.Repartition(static_cast<int>(upCurves),
-                                      static_cast<int>(upN.chunks[0].cvCount)))
+                    graph.Repartition(upCurves, upN.chunks[0].stride[1]))
                     result.topologyChanged = true;
             }
         }
@@ -1476,8 +1472,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             }
             // Capture can repartition the graph. Keep completion counters and
             // the eventual interleave sweep aligned with the new tile plan.
-            if (graph.NumTiles() != nTiles) {
-                nTiles = graph.NumTiles();
+            if (graph.NumGroups() != nTiles) {
+                nTiles = graph.NumGroups();
                 tileTouched.resize(nTiles, 1);
             }
 
@@ -1526,7 +1522,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         terminalRemaining[t].store(0, std::memory_order_relaxed);
                     for (ChunkExecution const &item : work) {
                         if (item.payload != &job->sweep) continue;
-                        UsdGenTileId const tile = job->sweep.node->chunks[item.chunk].tile;
+                        UsdGenTileId const tile = job->sweep.node->chunks[item.chunk].group;
                         if (tile < static_cast<UsdGenTileId>(nTiles))
                             terminalRemaining[tile].fetch_add(1, std::memory_order_relaxed);
                     }
@@ -1534,10 +1530,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
                                                terminalRemaining, nTiles,
                                                &tileCompleted};
                     job->sweep.onChunkCompleted = [t = &S.terminal](size_t chunk) {
-                        UsdGenTileId const tile = t->node->chunks[chunk].tile;
+                        UsdGenTileId const tile = t->node->chunks[chunk].group;
                         if (tile >= static_cast<UsdGenTileId>(t->nTiles)) return;
                         if (t->remaining[tile].fetch_sub(1, std::memory_order_acq_rel) == 1)
-                            (*t->completed)(t->graph->Tiles()[tile], *t->node->output);
+                            (*t->completed)(t->graph->Groups()[tile], *t->node->output);
                     };
                     break;
                 }
@@ -1600,8 +1596,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     // tiles, cleared dirt, stats with no eval leg).
                     UsdGenWriteSet::Restamp(*node.output, ++node.valueVersion);
                     for (size_t c = 0; c < node.chunks.size(); ++c)
-                        if (node.chunks[c].tile < tileTouched.size())
-                            tileTouched[node.chunks[c].tile] = 1;
+                        if (node.chunks[c].group < tileTouched.size())
+                            tileTouched[node.chunks[c].group] = 1;
                     std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
                               UsdGenDirtyNone);
                     auto const end = std::chrono::steady_clock::now();
@@ -1621,8 +1617,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         UsdGenWriteSet::Restamp(*node.output, ++node.valueVersion);
                         for (size_t c = 0; c < node.chunks.size(); ++c)
                             if (job.sweep.didEval[c] &&
-                                node.chunks[c].tile < tileTouched.size())
-                                tileTouched[node.chunks[c].tile] = 1;
+                                node.chunks[c].group < tileTouched.size())
+                                tileTouched[node.chunks[c].group] = 1;
                     }
                     std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
                               UsdGenDirtyNone);
@@ -1689,15 +1685,15 @@ UsdGenRunResult UsdGenScheduler::_Run(
                   sameBacking(term.pz, written.pz) &&
                   sameBacking(term.cvOffsets, written.cvOffsets);
         for (size_t i = 0; ok && i < extentChunks; ++i) {
-            UsdGenChunkDesc const &tc = tn.chunks[i];
-            UsdGenChunkDesc const &wc = wn.chunks[i];
+            UsdGenChunkRange const &tc = tn.chunks[i];
+            UsdGenChunkRange const &wc = wn.chunks[i];
             UsdGenChunkRange const &s = extentScratch[i].range;
-            ok = tc.liveCount == tc.curveCount && wc.liveCount == wc.curveCount &&
-                 s.first[0] == wc.firstCurve && s.count[0] == wc.curveCount &&
-                 s.live == wc.liveCount && s.first[1] == wc.firstCv &&
-                 s.stride[1] == wc.cvCount && wc.firstCurve == tc.firstCurve &&
-                 wc.curveCount == tc.curveCount && wc.liveCount == tc.liveCount &&
-                 wc.firstCv == tc.firstCv && wc.cvCount == tc.cvCount;
+            ok = tc.live == tc.count[0] && wc.live == wc.count[0] &&
+                 s.first[0] == wc.first[0] && s.count[0] == wc.count[0] &&
+                 s.live == wc.live && s.first[1] == wc.first[1] &&
+                 s.stride[1] == wc.stride[1] && wc.first[0] == tc.first[0] &&
+                 wc.count[0] == tc.count[0] && wc.live == tc.live &&
+                 wc.first[1] == tc.first[1] && wc.stride[1] == tc.stride[1];
         }
         if (ok) fusedExtents = extentScratch.data();
     }
@@ -1717,10 +1713,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
     if (tileCompleted && transactionalRun)
         for (int tile=0;tile<nTiles;++tile)
             if (tileTouched[size_t(tile)])
-                tileCompleted(graph.Tiles()[tile], termSet);
+                tileCompleted(graph.Groups()[tile], termSet);
 
     result.terminalOutput = &graph.Output();
-    result.tiles = graph.Tiles();
+    result.groups = graph.Groups();
     result.diagnostics = std::move(aggregated);
     return result;
 }

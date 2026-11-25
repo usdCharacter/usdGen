@@ -159,9 +159,9 @@ bool CompareGraphs(UsdGenGraph const &a, UsdGenGraph const &b)
            std::to_string(a.NodeCount()) + " == " + std::to_string(b.NodeCount()) +
            " nodes");
     ok = (a.TerminalNodeId() == b.TerminalNodeId()) && ok;
-    ok = (a.NumTiles() == b.NumTiles()) && ok;
-    Report(a.NumTiles() == b.NumTiles(),
-           std::to_string(a.NumTiles()) + " == " + std::to_string(b.NumTiles()) +
+    ok = (a.NumGroups() == b.NumGroups()) && ok;
+    Report(a.NumGroups() == b.NumGroups(),
+           std::to_string(a.NumGroups()) + " == " + std::to_string(b.NumGroups()) +
            " tiles");
 
     for (int i = 0; i < a.NodeCount(); ++i) {
@@ -200,9 +200,9 @@ bool CompareGraphs(UsdGenGraph const &a, UsdGenGraph const &b)
             for (size_t c = 0; c < na.chunks.size(); ++c) {
                 auto const &ca = na.chunks[c];
                 auto const &cb = nb.chunks[c];
-                if (ca.firstCurve != cb.firstCurve || ca.curveCount != cb.curveCount ||
-                    ca.firstCv != cb.firstCv || ca.cvCount != cb.cvCount ||
-                    ca.liveCount != cb.liveCount || ca.tile != cb.tile) {
+                if (ca.first[0] != cb.first[0] || ca.count[0] != cb.count[0] ||
+                    ca.first[1] != cb.first[1] || ca.stride[1] != cb.stride[1] ||
+                    ca.live != cb.live || ca.group != cb.group) {
                     chunkOk = false;
                     break;
                 }
@@ -212,13 +212,12 @@ bool CompareGraphs(UsdGenGraph const &a, UsdGenGraph const &b)
     }
 
     // tiles: extents + live counts
-    for (int t = 0; t < a.NumTiles(); ++t) {
-        auto const &ta = a.Tiles()[t];
-        auto const &tb = b.Tiles()[t];
-        bool okT = ta.totalLiveCurves == tb.totalLiveCurves &&
-                   ta.totalLiveCvs == tb.totalLiveCvs &&
-                   ta.extent.GetMin() == tb.extent.GetMin() &&
-                   ta.extent.GetMax() == tb.extent.GetMax();
+    for (int t = 0; t < a.NumGroups(); ++t) {
+        auto const &ta = a.Groups()[t];
+        auto const &tb = b.Groups()[t];
+        bool okT = ta.live[0] == tb.live[0] && ta.live[1] == tb.live[1];
+        for (int k = 0; k < 3; ++k)
+            okT = okT && ta.extentMin[k] == tb.extentMin[k] && ta.extentMax[k] == tb.extentMax[k];
         Report(okT, "tile " + std::to_string(t) + " extent/liveCounts");
         ok = okT && ok;
     }
@@ -258,7 +257,7 @@ int main()
                     threads, res.terminalOutput->Count(1),
                     res.terminalOutput->Count(2),
                     static_cast<unsigned>(graph.Chunks(graph.TerminalNodeId()).size()),
-                    graph.NumTiles());
+                    graph.NumGroups());
         return graph;
     };
 

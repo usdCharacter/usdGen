@@ -121,7 +121,7 @@ struct UsdGenCompiledNode : UsdGenPooled
     // The capture `capture` replaced, kept when Recyclable(): the next
     // re-capture refills it (by then nothing downstream shares its arrays).
     std::unique_ptr<UsdGenCapture> spareCapture;
-    std::vector<UsdGenChunkDesc> chunks;          // this node's chunk partition
+    UsdGenPoolVector<UsdGenChunkRange> chunks;    // this node's chunk partition
     std::vector<UsdGenChunkDirtyBits> chunkDirty; // one dirty word per chunk
     std::vector<uint8_t>      chunkCaptured;      // capture-validity byte per chunk (reference lane: single flag)
 
@@ -223,8 +223,9 @@ public:
     UsdGenElementSet const &NodeOutput(NodeId id) const;
     /// A set with no elements (made on first use).
     UsdGenElementSet const &EmptyOutput() const;
-    TfSpan<const UsdGenChunkDesc> Chunks(NodeId id) const;
-    TfSpan<const UsdGenTileView>  Tiles() const;
+    UsdGenSpan<const UsdGenChunkRange> Chunks(NodeId id) const;
+    /// Publication groups over the terminal's chunks (a C2 tile per group).
+    UsdGenSpan<const UsdGenChunkGroup> Groups() const;
 
     /// True when any node carries a dirty byte the next commit must consume.
     bool AnyDirty() const noexcept;
@@ -257,20 +258,21 @@ public:
     int ChunkSize() const noexcept { return _chunkSize; }
     int TileTarget() const noexcept { return _tileTarget; }
     int ChunksPerTile() const noexcept { return _chunksPerTile; }
-    int NumTiles() const noexcept { return int(_tiles.size()); }
+    int NumGroups() const noexcept { return int(_groups.size()); }
     NodeId TerminalNodeId() const noexcept { return _terminal; }
     UsdGenNodeId NodeIdForPath(SdfPath const &path) const;
     /// OR bits into node id's chunks (all of them) and propagate the value
     /// bits to every strict descendant (03 §5.2 hop 3).
     void MarkNode(NodeId id, uint32_t bits);
-    /// Re-partition every node's chunks + the tile set after a topology
-    /// change. Per-node CV count is taken from the node's own buffer when
-    /// known (a generator upstream of a CV-changing node keeps its own
-    /// cv/curve); `cvCount` is the fallback for nodes whose buffers are not
-    /// populated yet. Returns true when the layout (curve count, chunk
-    /// count or any node's cv/curve) changed; unchanged nodes keep their
-    /// chunk and dirty bytes.
-    bool Repartition(int totalCurves, int cvCount);
+    /// Re-partition every node's chunks + the group set after a topology
+    /// change, through the output layout's partition and groups hooks. A
+    /// node's sub-item layout comes from its effective set when known (a
+    /// generator upstream of a CV-changing node keeps its own cv/curve);
+    /// `fallbackStride` items per element stand in for a set not populated
+    /// yet. Returns true when the layout (element count, chunk count or any
+    /// node's chunk spans) changed; unchanged nodes keep their chunk and
+    /// dirty bytes.
+    bool Repartition(uint32_t elements, uint32_t fallbackStride);
 private:
     void _PropagateDescendantBits(uint32_t bits, std::vector<bool> const &descendants);
 
@@ -286,7 +288,9 @@ private:
     mutable std::vector<std::array<uint64_t, 3>> _restSourceKeys;
     std::shared_ptr<const UsdGenCudaExecutionPlan> _cudaPlan;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _nodes; // indexed by id
-    std::vector<UsdGenTileView> _tiles;          // terminal tile partition
+    UsdGenPoolVector<UsdGenChunkGroup> _groups;  // terminal publication groups
+    UsdGenPoolVector<UsdGenChunkRange> _rangeScratch;   // Repartition's desired chunks
+    UsdGenPoolVector<UsdGenChunkGroup> _groupScratch;   // and groups
     std::vector<UsdGenResolvedReferenceValue> _referenceValues;
     std::vector<UsdGenResolvedMapValue> _mapValues;
     UsdGenNodeId      _terminal = InvalidNode;
@@ -295,7 +299,7 @@ private:
     int _chunkSize = kUsdGenDefaultChunkSize;
     int _tileTarget = kUsdGenTileTargetDefault;
     int _chunksPerTile = 1;
-    int _partitionCurves = 0;   // totalCurves of the last partition (0 == unpartitioned)
+    uint32_t _partitionElements = 0;   // elements of the last partition (0 == unpartitioned)
     // Fallback lifetime belongs to the graph, not process static teardown.
     // Made on first use; Output exposes it only as const.
     mutable UsdGenRef<const UsdGenElementSet> _emptyOutput;

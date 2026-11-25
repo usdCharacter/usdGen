@@ -831,25 +831,25 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         // sweep's per-CV ExtendBy sequence bitwise (GfRange keeps the
         // incumbent on ties under either spelling).
         size_t chunk = 0;
-        bool nested = ctx.chunkCount > 0 && ctx.chunks[0].firstCurve == 0;
+        bool nested = ctx.chunkCount > 0 && ctx.chunks[0].first[0] == 0;
         for (size_t k = 1; nested && k < ctx.chunkCount; ++k)
-            nested = ctx.chunks[k].firstCurve == ctx.chunks[k - 1].firstCurve +
-                ctx.chunks[k - 1].curveCount;
+            nested = ctx.chunks[k].first[0] == ctx.chunks[k - 1].first[0] +
+                ctx.chunks[k - 1].count[0];
         if (nested) {
-            UsdGenChunkDesc const &last = ctx.chunks[ctx.chunkCount - 1];
-            nested = size_t(last.firstCurve + last.curveCount) == R;
+            UsdGenChunkRange const &last = ctx.chunks[ctx.chunkCount - 1];
+            nested = size_t(last.first[0] + last.count[0]) == R;
         }
         for (size_t g = 0; nested && g < groups; ++g) {
             size_t const gFirst = g * kGroupStrands;
             size_t const gLast = std::min(gFirst + kGroupStrands, R);
             while (chunk < ctx.chunkCount &&
-                   size_t(ctx.chunks[chunk].firstCurve + ctx.chunks[chunk].curveCount) <=
+                   size_t(ctx.chunks[chunk].first[0] + ctx.chunks[chunk].count[0]) <=
                        gFirst)
                 ++chunk;
             nested = chunk < ctx.chunkCount &&
-                ctx.chunks[chunk].firstCurve <= gFirst &&
-                gLast <= size_t(ctx.chunks[chunk].firstCurve +
-                                ctx.chunks[chunk].curveCount);
+                ctx.chunks[chunk].first[0] <= gFirst &&
+                gLast <= size_t(ctx.chunks[chunk].first[0] +
+                                ctx.chunks[chunk].count[0]);
         }
         if (nested) {
             // Reduce into locals first: the slots publish only on full
@@ -861,18 +861,18 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             for (size_t g = 0; g < groups; ++g) {
                 size_t const gFirst = g * kGroupStrands;
                 while (chunk < ctx.chunkCount &&
-                       size_t(ctx.chunks[chunk].firstCurve +
-                              ctx.chunks[chunk].curveCount) <= gFirst)
+                       size_t(ctx.chunks[chunk].first[0] +
+                              ctx.chunks[chunk].count[0]) <= gFirst)
                     ++chunk;
                 if (chunk >= ctx.chunkCount) { nested = false; break; }
-                UsdGenChunkDesc const &cd = ctx.chunks[chunk];
+                UsdGenChunkRange const &cd = ctx.chunks[chunk];
                 local[chunk].UnionWith(groupExtents[g]);
                 UsdGenChunkRange &span = ranges[chunk];
-                span.first[0] = cd.firstCurve;
-                span.count[0] = cd.curveCount;
-                span.live = cd.liveCount;
-                span.first[1] = cd.firstCv;
-                span.stride[1] = cd.cvCount;
+                span.first[0] = cd.first[0];
+                span.count[0] = cd.count[0];
+                span.live = cd.live;
+                span.first[1] = cd.first[1];
+                span.stride[1] = cd.stride[1];
             }
             if (nested) {
                 for (size_t k = 0; k < ctx.chunkCount; ++k) {

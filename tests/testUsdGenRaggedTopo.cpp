@@ -160,9 +160,9 @@ int main()
     UsdGenNodeId const deform = graph.NodeIdForPath(SdfPath("/ragged/deform"));
     bool chunksRagged = !graph.Chunks(deform).empty();
     int  covered = 0;
-    for (UsdGenChunkDesc const &cd : graph.Chunks(deform)) {
-        if (cd.cvCount != 0) chunksRagged = false;
-        covered += int(cd.curveCount);
+    for (UsdGenChunkRange const &cd : graph.Chunks(deform)) {
+        if (cd.stride[1] != 0) chunksRagged = false;
+        covered += int(cd.count[0]);
     }
     Check(chunksRagged, "every deform chunk carries cvCount == 0 (ragged)");
     Check(covered == 3, "chunk curve spans cover all 3 curves");

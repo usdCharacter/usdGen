@@ -829,6 +829,10 @@ void _GatherColor(const Plane &plane, uint32_t curveIdx, uint32_t cvIdx,
     }
 }
 
+// Group dirty bits the scheduler's interleave sets (UsdGenChunkGroup::dirtyRoles).
+constexpr uint32_t kGroupPositionDirty = 1u << uint32_t(UsdGenChannelRole::Position);
+constexpr uint32_t kGroupWidthDirty = 1u << uint32_t(UsdGenChannelRole::Width);
+
 // A named per-curve (cv false) or per-CV plane of the terminal.
 std::optional<UsdGenPlaneView> _FindPlane(UsdGenCurveSetView const &term, bool cv,
                                           TfToken const &name)
@@ -853,7 +857,7 @@ std::optional<UsdGenPlaneView> _FindPlane(UsdGenCurveSetView const &term, bool c
 // overwritten and no garbage is observed. wantColor selects Root (NoColor
 // passes false); every other color mode stays on the serial loop.
 bool _BuildTilePublicationBulk(
-    UsdGenTileView const &tv, UsdGenCurveSetView const &term,
+    UsdGenChunkGroup const &tv, UsdGenCurveSetView const &term,
     UsdGenCompiledNode const &tn, bool wantColor, GfVec3f const &rootColor,
     UsdGenTilePublication *pub, uint32_t *depSurface, bool *hasDep)
 {
@@ -866,11 +870,11 @@ bool _BuildTilePublicationBulk(
     bool const needHairT = !term.hairT.empty();
     bool const needSt = !term.rootUV.empty();
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
-        if (cd.cvCount == 0)
+        UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
+        if (cd.stride[1] == 0)
             return false;
-        uint64_t const n = uint64_t(cd.liveCount) * cd.cvCount;
-        uint64_t const cvEnd = uint64_t(cd.firstCv) + n;
+        uint64_t const n = uint64_t(cd.live) * cd.stride[1];
+        uint64_t const cvEnd = uint64_t(cd.first[1]) + n;
         if (cvEnd > term.px.size() || cvEnd > term.py.size() ||
             cvEnd > term.pz.size())
             return false;
@@ -878,17 +882,17 @@ bool _BuildTilePublicationBulk(
             return false;
         if (needHairT && cvEnd > term.hairT.size())
             return false;
-        uint64_t const gEnd = uint64_t(cd.firstCurve) + cd.liveCount;
+        uint64_t const gEnd = uint64_t(cd.first[0]) + cd.live;
         if (gEnd > term.curveId.size())
             return false;
         if (needSt && gEnd > term.rootUV.size())
             return false;
-        scanCurves += cd.liveCount;
+        scanCurves += cd.live;
         scanCvs += n;
     }
-    if (scanCurves != tv.totalLiveCurves || scanCvs != tv.totalLiveCvs)
+    if (scanCurves != tv.live[0] || scanCvs != tv.live[1])
         return false;
-    size_t const nCurves = tv.totalLiveCurves, nCvs = tv.totalLiveCvs;
+    size_t const nCurves = tv.live[0], nCvs = tv.live[1];
     auto noInit = [](auto *b, auto *e) {
         (void)b;
         (void)e;
@@ -918,13 +922,13 @@ bool _BuildTilePublicationBulk(
     float maxX = -inf, maxY = -inf, maxZ = -inf;
     size_t curOff = 0, cvOff = 0;
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
-        uint32_t const L = cd.liveCount;
+        UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
+        uint32_t const L = cd.live;
         if (L == 0)
             continue;
-        size_t const n = size_t(L) * cd.cvCount;
-        uint32_t const G = cd.firstCurve, P = cd.firstCv;
-        std::fill(counts + curOff, counts + curOff + L, int(cd.cvCount));
+        size_t const n = size_t(L) * cd.stride[1];
+        uint32_t const G = cd.first[0], P = cd.first[1];
+        std::fill(counts + curOff, counts + curOff + L, int(cd.stride[1]));
         for (uint32_t c = 0; c < L; ++c)
             hairIds[curOff + c] = UsdGenHairId(term.curveId[G + c]);
         if (needSt)
@@ -958,7 +962,7 @@ bool _BuildTilePublicationBulk(
     pub->extentMin = GfVec3d(e.GetMin()[0], e.GetMin()[1], e.GetMin()[2]);
     pub->extentMax = GfVec3d(e.GetMax()[0], e.GetMax()[1], e.GetMax()[2]);
     if (tv.chunkCount != 0) {
-        *depSurface = tn.chunks[tv.firstChunk].surface;
+        *depSurface = tn.chunks[tv.firstChunk].domain;
         *hasDep = true;
     }
     return true;
@@ -2180,7 +2184,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     // count go on an overflow stack). Whoever holds `delivering` emits the
     // ready slot prefix and the overflow in order, so progress stays serial.
     size_t const slotCount = progress && !_desc.preview.Active()
-        ? size_t(std::max(0, _graph.NumTiles())) : 0;
+        ? size_t(std::max(0, _graph.NumGroups())) : 0;
     if (slotCount > _progressSlotCapacity) {
         _progressSlots.reset(new _ProgressSlot[slotCount]);
         _progressSlotCapacity = slotCount;
@@ -2244,7 +2248,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         }
     };
     auto tileCompleted = progress && !_desc.preview.Active()
-        ? UsdGenScheduler::TileCompleted([&](UsdGenTileView const& tile,
+        ? UsdGenScheduler::TileCompleted([&](UsdGenChunkGroup const& tile,
                                                UsdGenElementSet const& output) {
             if (superseded && superseded()) return;
             UsdGenRunResult partial;
@@ -2255,12 +2259,12 @@ UsdGenStats publishedStats, bool invalidateValues,
             // tile's points a second time.
             size_t const i = slotsClaimed.fetch_add(1, std::memory_order_relaxed);
             if (i < slotCount) {
-                progressSlots[i].tile = tile.tile;
+                progressSlots[i].tile = tile.id;
                 progressSlots[i].publication = std::move(publication);
                 progressSlots[i].ready.store(true, std::memory_order_release);
             } else {
                 auto *n = new _StreamedTile;
-                n->tile = tile.tile;
+                n->tile = tile.id;
                 n->publication = std::move(publication);
                 overflowReady.Push(n);
             }
@@ -2308,7 +2312,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     UsdGenGenerationConstPtr prev = _store.Get();
     UsdGenGeneration gen;
     gen.frame = frame;
-    gen.tiles.reserve(result.tiles.size());
+    gen.tiles.reserve(result.groups.size());
 
     // usdGen:preview recolours every tile, including those whose geometry
     // this cook did not touch.
@@ -2356,13 +2360,13 @@ UsdGenStats publishedStats, bool invalidateValues,
 
     TRACE_SCOPE("usdGen build tile publications");
     // Serial triage (cheap): carry-over and streamed reuse resolve here in
-    // result.tiles order; only the _BuildTilePublication calls fan out.
+    // result.groups order; only the _BuildTilePublication calls fan out.
     // Every tile reads only its own view plus shared-immutable run state
     // (terminal buffer, graph, desc, preview colors) and writes only its
     // own publication, so any build order fills identical tiles -- and the
     // streaming path already invokes _BuildTilePublication concurrently
     // from scheduler workers, so the function is production-hardened for
-    // it. Assembly below restores result.tiles order, the progress emits
+    // it. Assembly below restores result.groups order, the progress emits
     // keep their serial sequence, and the first failing tile's exception
     // still wins (captured per slot, rethrown in order). One deliberate
     // edge difference: on a layout-corruption throw with a progress
@@ -2387,33 +2391,34 @@ UsdGenStats publishedStats, bool invalidateValues,
     };
     size_t rebuiltTiles = 0;
     size_t rebuildCvs = 0;
-    std::vector<UsdGenTileView const *> buildViews;
+    std::vector<UsdGenChunkGroup const *> buildViews;
     // Points-only republication: the previous tile with fresh points (every
     // other channel shared), when nothing but points moved since it was built.
     bool const refreshPoints = channelsSettled && prev && !recolour && !_rebuildAllTiles &&
         !_previewColors.active;
     size_t refreshedTiles = 0;
-    for (UsdGenTileView const &tv : result.tiles) {
+    for (UsdGenChunkGroup const &tv : result.groups) {
         // E-4: untouched tiles carry over their publication wholesale (the
         // VtArray copies share buffers, so step 7 sees IsIdentical == true).
         const bool rebuild =
-            result.topologyChanged || tv.pointsDirty || tv.widthsDirty || recolour ||
+            result.topologyChanged || (tv.dirtyRoles & kGroupPositionDirty) ||
+            (tv.dirtyRoles & kGroupWidthDirty) || recolour ||
             _rebuildAllTiles;
         const UsdGenTilePublication *previous = nullptr;
         if (prev) {
             auto it = std::lower_bound(
-                prev->tiles.begin(), prev->tiles.end(), tv.tile,
+                prev->tiles.begin(), prev->tiles.end(), tv.id,
                 [](UsdGenTilePublication const &p, UsdGenTileId t) {
                     return p.tile < t;
                 });
-            if (it != prev->tiles.end() && it->tile == tv.tile) previous = &*it;
+            if (it != prev->tiles.end() && it->tile == tv.id) previous = &*it;
         }
         if (!rebuild && previous) {
             gen.tiles.push_back(*previous);
             continue;
         }
         ++rebuiltTiles;
-        if (refreshPoints && previous && !tv.widthsDirty) {
+        if (refreshPoints && previous && !(tv.dirtyRoles & kGroupWidthDirty)) {
             UsdGenTilePublication refreshed;
             if (_RefreshTilePoints(tv, result, *previous, &refreshed)) {
                 gen.tiles.push_back(std::move(refreshed));
@@ -2421,11 +2426,11 @@ UsdGenStats publishedStats, bool invalidateValues,
                 continue;
             }
         }
-        if (UsdGenTilePublication const *streamed = findStreamed(tv.tile)) {
+        if (UsdGenTilePublication const *streamed = findStreamed(tv.id)) {
             gen.tiles.push_back(*streamed);
             continue;
         }
-        rebuildCvs += tv.totalLiveCvs;
+        rebuildCvs += tv.live[1];
         buildViews.push_back(&tv);
     }
     std::vector<UsdGenTilePublication> built(buildViews.size());
@@ -2444,7 +2449,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     if (tileChunks > 1) {
         std::vector<std::exception_ptr> buildError(buildViews.size());
         UsdGenRunResult const &buildResult = result;
-        UsdGenTileView const *const *views = buildViews.data();
+        UsdGenChunkGroup const *const *views = buildViews.data();
         UsdGenTilePublication *slots = built.data();
         std::exception_ptr *errors = buildError.data();
         size_t const jobs = buildViews.size();
@@ -2452,7 +2457,7 @@ UsdGenStats publishedStats, bool invalidateValues,
             UsdGenSessionCooker *cooker;
             UsdGenRunResult const *result;
             UsdGenGenerationConstPtr const *prev;
-            UsdGenTileView const *const *views;
+            UsdGenChunkGroup const *const *views;
             UsdGenTilePublication *slots;
             std::exception_ptr *errors;
             size_t jobs, chunks;
@@ -2637,13 +2642,13 @@ UsdGenStats publishedStats, bool invalidateValues,
 }
 
 UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
-    UsdGenTileView const &tv, UsdGenRunResult const &result,
+    UsdGenChunkGroup const &tv, UsdGenRunResult const &result,
     UsdGenGenerationConstPtr const &prev)
 {
     TF_UNUSED(prev);
     UsdGenTilePublication pub;
-    pub.tile = tv.tile;
-    pub.primPath = _TilePath(_desc.description, tv.tile);
+    pub.tile = tv.id;
+    pub.primPath = _TilePath(_desc.description, tv.id);
     if (!_desc.curveBasis.IsEmpty())
         pub.basis = _desc.curveBasis.GetString();
     pub.refineLevel = 2;
@@ -2651,11 +2656,11 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*result.terminalOutput);
     UsdGenCompiledNode const &tn = _graph.Node(_graph.TerminalNodeId());
 
-    pub.curveVertexCounts.reserve(tv.totalLiveCurves);
-    pub.points.reserve(tv.totalLiveCvs);
-    pub.widths.reserve(tv.totalLiveCvs);
-    pub.hairT.reserve(tv.totalLiveCvs);
-    pub.hairId.reserve(tv.totalLiveCurves);
+    pub.curveVertexCounts.reserve(tv.live[0]);
+    pub.points.reserve(tv.live[1]);
+    pub.widths.reserve(tv.live[1]);
+    pub.hairT.reserve(tv.live[1]);
+    pub.hairId.reserve(tv.live[0]);
 
     std::optional<UsdGenPlaneView> const displayColor =
         _FindPlane(term, false, UsdGenTokens().displayColor);
@@ -2813,20 +2818,20 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     // capacity-only: short gathers (failed bounds checks, multi-push
     // color arities resuming past their share) just push less.
     if (!term.rootUV.empty())
-        pub.st.reserve(tv.totalLiveCurves);
+        pub.st.reserve(tv.live[0]);
     if (colorMode == Preview && _previewColors.perCv)
-        pub.displayColor.reserve(tv.totalLiveCvs);
+        pub.displayColor.reserve(tv.live[1]);
     else if (colorMode != NoColor)
-        pub.displayColor.reserve(tv.totalLiveCurves);
+        pub.displayColor.reserve(tv.live[0]);
     for (ExtraPlanePublication *extra : vertexPlanes) {
-        size_t const n = size_t(tv.totalLiveCvs) * extra->output.arity;
+        size_t const n = size_t(tv.live[1]) * extra->output.arity;
         if (extra->output.type == UsdGenTokens().int_)
             extra->output.i.reserve(n);
         else
             extra->output.f.reserve(n);
     }
     for (ExtraPlanePublication *extra : uniformPlanes) {
-        size_t const n = size_t(tv.totalLiveCurves) * extra->output.arity;
+        size_t const n = size_t(tv.live[0]) * extra->output.arity;
         if (extra->output.type == UsdGenTokens().int_)
             extra->output.i.reserve(n);
         else
@@ -2846,17 +2851,17 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
                                             &depSurface, &hasDep);
     if (!useBulk) {
         for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-            UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
+            UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
             // id 0 is a legitimate surface (compiler.cpp assigns dense indices
             // from 0): the first chunk of the tile always establishes the
             // dependency, never a `!= 0` sentinel.
-            if (firstChunk) { depSurface = cd.surface; hasDep = true; firstChunk = false; }
-            for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                const uint32_t g = cd.firstCurve + c;
+            if (firstChunk) { depSurface = cd.domain; hasDep = true; firstChunk = false; }
+            for (uint32_t c = 0; c < cd.live; ++c) {
+                const uint32_t g = cd.first[0] + c;
                 uint32_t p0 = 0, len = 0;
-                if (cd.cvCount != 0) {
-                    len = cd.cvCount;
-                    p0 = cd.firstCv + c * cd.cvCount;
+                if (cd.stride[1] != 0) {
+                    len = cd.stride[1];
+                    p0 = cd.first[1] + c * cd.stride[1];
                 } else if (g + 1 < term.cvOffsets.size()) {   // ragged chunk
                     p0 = static_cast<uint32_t>(term.cvOffsets[g]);
                     len = static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
@@ -2980,8 +2985,8 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
     binding->surface = query.surface->path;
     auto restResult = result;
     restResult.terminalOutput = &_graph.NodeOutput(terminal.inputs.front());
-    for (auto const& tv : result.tiles) {
-        auto tile = std::find_if(tiles.begin(), tiles.end(), [&](auto const& t) { return t.tile == tv.tile; });
+    for (auto const& tv : result.groups) {
+        auto tile = std::find_if(tiles.begin(), tiles.end(), [&](auto const& t) { return t.tile == tv.id; });
         UsdGenTilePublication rest;
         if (tile == tiles.end() || !_RefreshTilePoints(tv, restResult, *tile, &rest)) return {};
         double padding = 0;
@@ -2991,7 +2996,7 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
     return binding;
 }
 
-bool UsdGenSessionCooker::_RefreshTilePoints(UsdGenTileView const &tv,
+bool UsdGenSessionCooker::_RefreshTilePoints(UsdGenChunkGroup const &tv,
                                              UsdGenRunResult const &result,
                                              UsdGenTilePublication const &previous,
                                              UsdGenTilePublication *out) const
@@ -3008,13 +3013,13 @@ bool UsdGenSessionCooker::_RefreshTilePoints(UsdGenTileView const &tv,
     GfRange3f e;
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
         if (size_t(tv.firstChunk) + i >= tn.chunks.size()) return false;
-        UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
-        for (uint32_t c = 0; c < cd.liveCount; ++c) {
-            uint32_t const g = cd.firstCurve + c;
+        UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
+        for (uint32_t c = 0; c < cd.live; ++c) {
+            uint32_t const g = cd.first[0] + c;
             uint32_t p0 = 0, len = 0;
-            if (cd.cvCount != 0) {
-                len = cd.cvCount;
-                p0 = cd.firstCv + c * cd.cvCount;
+            if (cd.stride[1] != 0) {
+                len = cd.stride[1];
+                p0 = cd.first[1] + c * cd.stride[1];
             } else if (g + 1 < term.cvOffsets.size()) {   // ragged chunk
                 p0 = static_cast<uint32_t>(term.cvOffsets[g]);
                 len = static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;

@@ -141,7 +141,7 @@ struct Harness {
         return UsdGenRef<const UsdGenElementSet>(
             &graph.NodeOutput(graph.NodeIdForPath(SdfPath("/curveRagged/src"))));
     }
-    TfSpan<const UsdGenChunkDesc> TerminalChunks() const {
+    UsdGenSpan<const UsdGenChunkRange> TerminalChunks() const {
         return graph.Chunks(graph.NodeIdForPath(desc.terminal));
     }
 };
@@ -169,10 +169,10 @@ int main()
         auto const chunks = h.TerminalChunks();
         Check(!chunks.empty(), "ragged: Width has real chunk descriptors");
         Check(std::all_of(chunks.begin(), chunks.end(),
-                          [](UsdGenChunkDesc const &cd) { return cd.cvCount == 0; }),
+                          [](UsdGenChunkRange const &cd) { return cd.stride[1] == 0; }),
               "ragged: every Width chunk cvCount == 0");
         int covered = 0;
-        for (UsdGenChunkDesc const &cd : chunks) covered += int(cd.curveCount);
+        for (UsdGenChunkRange const &cd : chunks) covered += int(cd.count[0]);
         Check(covered == 3, "ragged: chunk curve spans cover all 3 curves");
 
         // Source-node buffer carries the CVs verbatim (ragged, counts [2,6,4]).
@@ -199,7 +199,7 @@ int main()
         auto const chunks = h.TerminalChunks();
         Check(!chunks.empty() &&
               std::all_of(chunks.begin(), chunks.end(),
-                          [](UsdGenChunkDesc const &cd) { return cd.cvCount == 4; }),
+                          [](UsdGenChunkRange const &cd) { return cd.stride[1] == 4; }),
               "uniform: every Width chunk carries cvCount == 4");
 
         // curve 0 = 2 source CVs resampled to 4 along the polyline: endpoints
