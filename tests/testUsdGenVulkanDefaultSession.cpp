@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Plain Session production-provider parity. Geometry readback is test-only.
 #include "usdGen/session.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
@@ -76,7 +77,7 @@ Oracle CpuOracle(UsdGenGraphDesc desc) {
     UsdGenEvalContext evaluation; evaluation.desc = &graph.Desc();
     UsdGenScheduler scheduler(2);
     CHECK(!scheduler.Run(graph, evaluation, 1).diagnostics.HasErrors());
-    auto const& b = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    auto const& b = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     std::vector<GfVec3f> points(b.totalCvs);
     for (size_t i = 0; i != b.totalCvs; ++i) points[i] = {b.px[i], b.py[i], b.pz[i]};
     return {{"points", Bytes(points)},

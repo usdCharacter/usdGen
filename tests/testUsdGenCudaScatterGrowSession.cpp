@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
@@ -68,7 +69,7 @@ static bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     auto result = scheduler.Run(graph, context, 1);
     for (auto const& error : result.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     if (result.diagnostics.HasErrors()) return false;
-    *output = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     return true;
 }
 

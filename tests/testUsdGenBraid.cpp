@@ -16,6 +16,7 @@
 // bundle slot, knot-mask zeros at crossings, flyaways keyed by strandIndex,
 // no-guide pass-through, determinism (repeat cooks, 1 vs 4 threads).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -232,7 +233,7 @@ static Result Cook(Scene const &scene, int threads = 2)
         return r;
     }
     r.warnings = run.diagnostics.warnings;
-    UsdGenCurveBuffer const &out = graph.Output();
+    UsdGenCurveBuffer const out = OutputBuffer(graph);
     r.buffer = out;
     size_t const R = out.totalCurves;
     if (R == 0 || out.curveId.size() != R || out.totalCvs % R != 0) return r;

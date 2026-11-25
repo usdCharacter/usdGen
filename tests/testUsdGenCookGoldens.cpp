@@ -25,6 +25,7 @@
 // diagnostics.
 
 #include "golden/goldenGraphs.h"
+#include "nodeSets.h"
 
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
@@ -514,7 +515,7 @@ void CookTerminal(UsdGenGraphDesc const &desc, std::string const &step, std::str
         return;
     }
     rows->Add(step + " terminal", "ok");
-    AddTerminal(rows, step, graph.Output());
+    AddTerminal(rows, step, OutputBuffer(graph));
 }
 
 /// One step of a subject's session: set the descriptor, commit, digest.

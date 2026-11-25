@@ -6,6 +6,7 @@
 // runtime density must not cause Pomade to rebake it.
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -187,7 +188,7 @@ Cooked CookOutput(UsdStagePtr const &stage, SdfPath const &description)
         result.diagnostic = "missing terminal";
         return result;
     }
-    result.buffer = graph.Node(terminal).buffer;
+    result.buffer = NodeBuffer(graph, terminal);
     result.ok = true;
     return result;
 }

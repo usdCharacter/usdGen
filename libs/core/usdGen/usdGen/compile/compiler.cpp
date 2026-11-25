@@ -1899,13 +1899,13 @@ void UsdGenCompiler::_Build(
             lend(node->chunkDirty, old.chunkDirty);
             lend(node->chunkCaptured, old.chunkCaptured);
         }
-        if (node->buffer.topologyVersion == 0 && node->buffer.valueVersion == 0 &&
+        if (node->topologyVersion == 0 && node->valueVersion == 0 &&
             oldNodeAtPath[di] >= 0 && size_t(oldNodeAtPath[di]) < oldNodes.size() &&
             oldNodes[size_t(oldNodeAtPath[di])]) {
             UsdGenCompiledNode const &prior = *oldNodes[size_t(oldNodeAtPath[di])];
             node->topologySeq = prior.topologySeq;
-            node->buffer.topologyVersion = prior.buffer.topologyVersion;
-            node->buffer.valueVersion = prior.buffer.valueVersion;
+            node->topologyVersion = prior.topologyVersion;
+            node->valueVersion = prior.valueVersion;
         }
         out->_nodeByPath[nd.path] = node->id;
         out->_nodes[pos] = std::move(node);

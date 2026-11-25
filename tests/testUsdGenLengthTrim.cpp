@@ -13,6 +13,7 @@
 //   Resample spacing: per-strand counts, ragged layout, arc-length
 //     uniformity, hairT, carried planes, a ragged downstream sweep.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -167,7 +168,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
         return false;
     }
     if (warnings) *warnings = run.diagnostics.warnings;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

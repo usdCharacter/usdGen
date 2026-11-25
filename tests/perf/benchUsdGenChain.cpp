@@ -14,6 +14,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -295,8 +296,8 @@ int main(int argc, char **argv)
         ctxB.desc = &gB.Desc();
         UsdGenRunResult rA = s1.Run(gA, ctxA, 1);
         UsdGenRunResult rB = s8.Run(gB, ctxB, 1);
-        UsdGenCurveBuffer const &a = *rA.terminalOutput;
-        UsdGenCurveBuffer const &b = *rB.terminalOutput;
+        UsdGenCurveBuffer const a = UsdGenCurveBufferFromSet(*rA.terminalOutput);
+        UsdGenCurveBuffer const b = UsdGenCurveBufferFromSet(*rB.terminalOutput);
         bool same = a.totalCurves == b.totalCurves && a.totalCvs == b.totalCvs &&
                     SameArray(a.px, b.px) && SameArray(a.py, b.py) &&
                     SameArray(a.pz, b.pz) && SameArray(a.width, b.width) &&

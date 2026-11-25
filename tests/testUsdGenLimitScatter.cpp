@@ -1,4 +1,5 @@
 #include "usdGen/limitSurface.h"
+#include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/compiler.h"
@@ -31,7 +32,7 @@ static bool Run(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out,int threads=2) {
     UsdGenCompiler compiler;UsdGenGraph graph;if(!compiler.Compile(d,&graph).ok)return false;
     UsdGenScheduler scheduler(threads);UsdGenEvalContext ctx;ctx.desc=&graph.Desc();
     auto run=scheduler.Run(graph,ctx,1);if(run.diagnostics.HasErrors())return false;
-    *out=graph.Output();return true;
+    *out=OutputBuffer(graph);return true;
 }
 static UsdGenSurfaceDesc BigGrid(int w,int h) {
     UsdGenSurfaceDesc s;s.path=SdfPath("/Scalp");s.subdivisionScheme=TfToken("catmullClark");

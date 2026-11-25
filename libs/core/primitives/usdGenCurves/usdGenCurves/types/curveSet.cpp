@@ -362,8 +362,10 @@ bool UsdGenCurveSetView::FindPlane(UsdGenToken const &name, UsdGenPlaneView *out
 
 // ---- converters ------------------------------------------------------------------
 
+namespace {
+
 UsdGenRef<const UsdGenElementSet>
-UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, uint64_t valueVersion)
+SetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, uint64_t valueVersion, bool exact)
 {
     UsdGenElementLayout const &layout = UsdGenCurveSetLayout();
     if (!layout.channels.size()) return {};
@@ -445,14 +447,23 @@ UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, u
     };
     for (UsdGenPlane const &p : b.extraCurve) putPlane(p);
     for (UsdGenPlane const &p : b.extraCv) putPlane(p);
-    w.SetVersions(topologyVersion, valueVersion);
+    if (exact) w.SetVersionsExact(topologyVersion, valueVersion);
+    else w.SetVersions(topologyVersion, valueVersion);
     return std::move(w).Seal();
+}
+
+}  // namespace
+
+UsdGenRef<const UsdGenElementSet>
+UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, uint64_t valueVersion)
+{
+    return SetFromBuffer(b, topologyVersion, valueVersion, false);
 }
 
 UsdGenRef<const UsdGenElementSet> UsdGenCurveCapture::Output() const
 {
     if (!OwnsBuffer()) return {};
-    return UsdGenCurveSetFromBuffer(_buffer, _buffer.topologyVersion, _buffer.valueVersion);
+    return SetFromBuffer(_buffer, _buffer.topologyVersion, _buffer.valueVersion, true);
 }
 
 UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &v)

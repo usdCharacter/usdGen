@@ -11,6 +11,7 @@
 // and recycling must never write into a buffer something still holds.
 
 #include "usdGen/allocCounter.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
@@ -188,7 +189,7 @@ UsdGenCurveBuffer FreshCook(UsdGenGraphDesc const &desc)
     UsdGenEvalContext ctx;
     ctx.desc = &graph.Desc();
     scheduler.Run(graph, ctx, 1);
-    return graph.Node(graph.TerminalNodeId()).buffer;
+    return OutputBuffer(graph);
 }
 
 template <class T>
@@ -286,32 +287,30 @@ int main()
     if (warmInterns != 0) { std::printf("FAIL: the warm cook interned a token\n"); ++failures; }
     if (editInterns != 0) { std::printf("FAIL: the param edit interned a token\n"); ++failures; }
     // Recycled storage must not change a single bit of the output.
-    UsdGenCurveBuffer const &out = graph.Node(graph.TerminalNodeId()).buffer;
+    UsdGenCurveBuffer const out = OutputBuffer(graph);
     if (out.totalCurves == 0 || !SameOutput(out, FreshCook(b))) {
         std::printf("FAIL: param edit output differs from a fresh cook\n");
         ++failures;
     }
     fullDirty();
     scheduler.Run(graph, ctx, ++gen);
-    if (!SameOutput(graph.Node(graph.TerminalNodeId()).buffer, FreshCook(b))) {
+    if (!SameOutput(OutputBuffer(graph), FreshCook(b))) {
         std::printf("FAIL: warm cook output differs from a fresh cook\n");
         ++failures;
     }
     // A buffer something still holds (a published generation) is never a
     // recycling candidate: two more re-captures of Grow must leave it intact.
     {
-        UsdGenCurveBuffer const held = graph.Node(1).buffer;
-        UsdGenCurveBuffer copy = held;
-        copy.px = VtFloatArray(held.px.begin(), held.px.end());
-        copy.py = VtFloatArray(held.py.begin(), held.py.end());
-        copy.pz = VtFloatArray(held.pz.begin(), held.pz.end());
-        copy.width = VtFloatArray(held.width.begin(), held.width.end());
-        copy.hairT = VtFloatArray(held.hairT.begin(), held.hairT.end());
-        copy.rest = VtVec3fArray(held.rest.begin(), held.rest.end());
+        // The node's output set as a published generation would hold it
+        // (Export marks its arenas shared outside the cook).
+        UsdGenRef<const UsdGenElementSet> const heldSet = graph.Node(1).output;
+        if (heldSet) heldSet->Export();
+        UsdGenCurveBuffer const copy = heldSet ? UsdGenCurveBufferFromSet(*heldSet) : UsdGenCurveBuffer();
         for (int i = 0; i < 2; ++i) {
             fullDirty();
             scheduler.Run(graph, ctx, ++gen);
         }
+        UsdGenCurveBuffer const held = heldSet ? UsdGenCurveBufferFromSet(*heldSet) : UsdGenCurveBuffer();
         if (held.px.empty() || !SameOutput(held, copy)) {
             std::printf("FAIL: recycling wrote into a held buffer\n");
             ++failures;
@@ -320,7 +319,7 @@ int main()
     compiler.Recompile(a, &graph);
     ctx.desc = &graph.Desc();
     scheduler.Run(graph, ctx, ++gen);
-    if (!SameOutput(graph.Node(graph.TerminalNodeId()).buffer, FreshCook(a)) ||
+    if (!SameOutput(OutputBuffer(graph), FreshCook(a)) ||
         SameOutput(FreshCook(a), FreshCook(b))) {
         std::printf("FAIL: edit back output differs from a fresh cook\n");
         ++failures;

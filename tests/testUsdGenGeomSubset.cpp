@@ -18,6 +18,7 @@
 // run under ctest, which supplies it.
 
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "nodeSets.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -206,7 +207,7 @@ bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::string *erro
     if (warnings)
         warnings->insert(warnings->end(), run.diagnostics.warnings.begin(),
                          run.diagnostics.warnings.end());
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

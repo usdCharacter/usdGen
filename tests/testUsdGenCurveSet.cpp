@@ -9,6 +9,7 @@
 //   - UsdGenCurveChunk over a generic chunk view (testUsdGenCurveSetChunk.cpp)
 
 #include "usdGenCurves/types/curveBuffer.h"
+#include "nodeSets.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/compile/compiler.h"
@@ -345,7 +346,7 @@ void PartitionCaseRun(PartitionCase const &k)
     UsdGenCurveBuffer const fixture = MakeBuffer(k.curves, k.cvp, false, false);
     if (k.cooked)
         for (int n = 0; n < graph.NodeCount(); ++n)
-            graph.Node(UsdGenGraph::NodeId(n)).buffer = fixture;
+            Check(SetNodeBuffer(graph, UsdGenGraph::NodeId(n), fixture), "partition fixture installs");
     UsdGenRef<const UsdGenElementSet> set = UsdGenCurveSetFromBuffer(fixture, 1, 1);
     Check(bool(set), "partition fixture converts");
     if (!set) return;

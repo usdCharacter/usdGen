@@ -14,6 +14,7 @@
 //          reference length, clump-shared seeds and lengths, knot-mask
 //          attenuation; the root never moves; cooks are deterministic.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -182,7 +183,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
         for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

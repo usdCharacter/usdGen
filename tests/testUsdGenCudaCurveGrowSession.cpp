@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
@@ -250,7 +251,7 @@ bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
         for(auto const& error:result.diagnostics.errors) std::fprintf(stderr,"CPU oracle: %s\n",error.c_str());
         return false;
     }
-    *output=graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     return true;
 }
 

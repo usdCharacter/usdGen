@@ -30,6 +30,7 @@
 // the Vulkan legs are skipped; an unavailable device skips (exit 77).
 
 #include "usdGen/compiler.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -623,7 +624,7 @@ int main(int argc, char **argv)
     }
     // Repeatability: the same pose twice must be bitwise identical.
     auto terminalChecksum = [&]() {
-        UsdGenCurveBuffer const &t = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+        UsdGenCurveSetView const t = UsdGenCurveSetView::Of(graph.NodeOutput(graph.NodeIdForPath(desc.terminal)));
         uint64_t h = Fnv1a(t.px.cdata(), t.px.size() * sizeof(float));
         h ^= Fnv1a(t.py.cdata(), t.py.size() * sizeof(float)) * 1099511628211ULL;
         h ^= Fnv1a(t.pz.cdata(), t.pz.size() * sizeof(float)) * 1099511628211ULL;
@@ -638,8 +639,8 @@ int main(int argc, char **argv)
         return 1;
     }
     std::printf("  curves=%u cvs=%u\n",
-                graph.Node(graph.NodeIdForPath(desc.terminal)).buffer.totalCurves,
-                graph.Node(graph.NodeIdForPath(desc.terminal)).buffer.totalCvs);
+                graph.NodeOutput(graph.NodeIdForPath(desc.terminal)).Count(1),
+                graph.NodeOutput(graph.NodeIdForPath(desc.terminal)).Count(2));
 
     std::vector<double> tCommit, tDeformCapture, tDeformEval;
     uint64_t lastChecksum = 0;

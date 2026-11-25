@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
 
@@ -67,9 +68,9 @@ int Run(double factor, bool empty = false) {
     context.desc = &graph.Desc();
     auto run = scheduler.Run(graph, context, 1);
     CHECK(!run.diagnostics.HasErrors());
-    auto const& buffer = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     if (empty) {
-        auto const& source = graph.Node(graph.NodeIdForPath(desc.nodes.front().path)).buffer;
+        UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(desc.nodes.front().path));
         std::fprintf(stderr, "empty Length: curves=%u cvs=%u offsets=%zu sourceOffsets=%zu\n",
             buffer.totalCurves, buffer.totalCvs, buffer.cvOffsets.size(), source.cvOffsets.size());
         CHECK(buffer.totalCurves == 0 && buffer.totalCvs == 0);
@@ -107,7 +108,7 @@ int main() {
     UsdGenEvalContext context; context.desc = &graph.Desc();
     auto run = scheduler.Run(graph, context, 1);
     CHECK(!run.diagnostics.HasErrors());
-    auto const& buffer = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     CHECK(buffer.totalCvs == 9 && buffer.cvOffsets.size() == 4 &&
           buffer.cvOffsets[0] == 0 && buffer.cvOffsets[1] == 2 &&
           buffer.cvOffsets[2] == 6 && buffer.cvOffsets[3] == 9);

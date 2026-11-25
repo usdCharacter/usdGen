@@ -10,6 +10,7 @@
 // Tier T0: engine core only (no Hydra, no stage — gate B-1).
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -167,29 +168,31 @@ bool CompareGraphs(UsdGenGraph const &a, UsdGenGraph const &b)
         UsdGenCompiledNode const &na = a.Node(i);
         UsdGenCompiledNode const &nb = b.Node(i);
         std::string p = "node " + std::to_string(i) + " (" + na.record->Name().GetString() + ") ";
+        UsdGenCurveBuffer const ba = NodeBuffer(a, UsdGenNodeId(i));
+        UsdGenCurveBuffer const bb = NodeBuffer(b, UsdGenNodeId(i));
 
-        ok = (na.buffer.totalCurves == nb.buffer.totalCurves) && ok;
-        ok = (na.buffer.totalCvs == nb.buffer.totalCvs) && ok;
-        ok = (na.buffer.topologyVersion == nb.buffer.topologyVersion) && ok;
-        ok = (na.buffer.valueVersion == nb.buffer.valueVersion) && ok;
-        Report(na.buffer.totalCurves == nb.buffer.totalCurves &&
-                   na.buffer.totalCvs == nb.buffer.totalCvs &&
-                   na.buffer.topologyVersion == nb.buffer.topologyVersion &&
-                   na.buffer.valueVersion == nb.buffer.valueVersion,
+        ok = (ba.totalCurves == bb.totalCurves) && ok;
+        ok = (ba.totalCvs == bb.totalCvs) && ok;
+        ok = (ba.topologyVersion == bb.topologyVersion) && ok;
+        ok = (ba.valueVersion == bb.valueVersion) && ok;
+        Report(ba.totalCurves == bb.totalCurves &&
+                   ba.totalCvs == bb.totalCvs &&
+                   ba.topologyVersion == bb.topologyVersion &&
+                   ba.valueVersion == bb.valueVersion,
                p + "topology/valueVersion (" +
-               std::to_string(na.buffer.totalCurves) + " cv, " +
-               std::to_string(na.buffer.totalCvs) + " cvs, topo " +
-               std::to_string(na.buffer.topologyVersion) + ", val " +
-               std::to_string(na.buffer.valueVersion) + ")");
+               std::to_string(ba.totalCurves) + " cv, " +
+               std::to_string(ba.totalCvs) + " cvs, topo " +
+               std::to_string(ba.topologyVersion) + ", val " +
+               std::to_string(ba.valueVersion) + ")");
 
-        ok = SameFloatArray(na.buffer.px, nb.buffer.px, p + "px") && ok;
-        ok = SameFloatArray(na.buffer.py, nb.buffer.py, p + "py") && ok;
-        ok = SameFloatArray(na.buffer.pz, nb.buffer.pz, p + "pz") && ok;
-        ok = SameFloatArray(na.buffer.width, nb.buffer.width, p + "widths") && ok;
-        ok = SameFloatArray(na.buffer.hairT, nb.buffer.hairT, p + "hairT") && ok;
-        ok = SameArray(na.buffer.curveId, nb.buffer.curveId, p + "curveId") && ok;
-        ok = SameArray(na.buffer.rootPrim, nb.buffer.rootPrim, p + "rootPrim") && ok;
-        ok = SameArray(na.buffer.rootUV, nb.buffer.rootUV, p + "rootUV") && ok;
+        ok = SameFloatArray(ba.px, bb.px, p + "px") && ok;
+        ok = SameFloatArray(ba.py, bb.py, p + "py") && ok;
+        ok = SameFloatArray(ba.pz, bb.pz, p + "pz") && ok;
+        ok = SameFloatArray(ba.width, bb.width, p + "widths") && ok;
+        ok = SameFloatArray(ba.hairT, bb.hairT, p + "hairT") && ok;
+        ok = SameArray(ba.curveId, bb.curveId, p + "curveId") && ok;
+        ok = SameArray(ba.rootPrim, bb.rootPrim, p + "rootPrim") && ok;
+        ok = SameArray(ba.rootUV, bb.rootUV, p + "rootUV") && ok;
 
         // chunk partition
         bool chunkOk = na.chunks.size() == nb.chunks.size();
@@ -252,8 +255,8 @@ int main()
             std::exit(1);
         }
         std::printf("run @ %d threads: terminal %u curves x %u CVs, %u chunks, %d tiles\n",
-                    threads, res.terminalOutput->totalCurves,
-                    res.terminalOutput->totalCvs,
+                    threads, res.terminalOutput->Count(1),
+                    res.terminalOutput->Count(2),
                     static_cast<unsigned>(graph.Chunks(graph.TerminalNodeId()).size()),
                     graph.NumTiles());
         return graph;

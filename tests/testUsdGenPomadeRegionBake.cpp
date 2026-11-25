@@ -20,6 +20,7 @@
 //   * the Clump wiring offer fires only for unconnected usdGen:clump:map.
 
 #include "usdGenPomade/pomadeApi.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGenPomade/pomadeApiStage.h"
 #include "usdGenPomade/pomadeBake.h"
 #include "usdGenPomade/pomadeCommit.h"
@@ -280,7 +281,7 @@ void CheckBakeAndExpression()
     usdGen::UsdGenCpuParameters parameters;
     bool changed = false;
     std::vector<std::string> errors;
-    bool const ok = parameters.Evaluate(desc, desc.nodes[0], strands, 0, 0, 0,
+    bool const ok = parameters.Evaluate(desc, desc.nodes[0], usdGen::UsdGenCurveSetView::Of(strands), 0, 0, 0,
                                         &changed, &errors);
     Check(ok, "bake: the ptex() expression evaluates" +
                       (errors.empty() ? "" : ": " + errors[0]));
@@ -855,7 +856,7 @@ void CheckLevelChannels()
     usdGen::UsdGenCpuParameters parameters;
     bool changed = false;
     std::vector<std::string> errors;
-    bool const ok = parameters.Evaluate(desc, desc.nodes[0], strands, 0, 0, 0,
+    bool const ok = parameters.Evaluate(desc, desc.nodes[0], usdGen::UsdGenCurveSetView::Of(strands), 0, 0, 0,
                                         &changed, &errors);
     Check(ok, "levels: the level-2 ptex() expression evaluates" +
                   (errors.empty() ? "" : ": " + errors[0]));

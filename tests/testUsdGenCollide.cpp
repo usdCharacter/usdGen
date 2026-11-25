@@ -13,6 +13,7 @@
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
@@ -181,7 +182,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     if (std::getenv("USDGEN_TEST_COLLIDE_FINGERPRINT")) {
         uint64_t hash = 14695981039346656037ull;
         for (auto const* plane : {&out->px, &out->py, &out->pz, &out->width}) {
@@ -306,16 +307,15 @@ static void CheckColliderWorldTransforms()
     liveContext.desc = &liveGraph.Desc();
     Check(!scheduler.Run(liveGraph, liveContext, 1).diagnostics.HasErrors(),
           "Raised collider live cook runs");
-    VtFloatArray const raisedPx(liveGraph.Output().px.begin(),
-                               liveGraph.Output().px.end());
+    VtFloatArray const raisedPx = OutputBuffer(liveGraph).px;
     raised.surfaces.front().worldMatrix = GfMatrix4d(1.0);
     Check(compiler.Recompile(raised, &liveGraph).ok,
           "Animated collider world transform recompiles");
     liveContext.desc = &liveGraph.Desc();
     Check(!scheduler.Run(liveGraph, liveContext, 2).diagnostics.HasErrors(),
           "Moved collider live recook runs");
-    Check(liveGraph.Output().px != raisedPx ||
-          !SamePoints(liveGraph.Output(), plain),
+    Check(OutputBuffer(liveGraph).px != raisedPx ||
+          !SamePoints(OutputBuffer(liveGraph), plain),
           "Animated collider matrix invalidates capture and changes points");
 
     // An identical parent transform on description and collider cancels.
@@ -325,7 +325,7 @@ static void CheckColliderWorldTransforms()
     UsdGenCurveBuffer baseOut, parentOut;
     Check(Cook(base, &baseOut) && Cook(sharedParent, &parentOut),
           "Shared-parent collider and description cook");
-    Check(SamePoints(liveGraph.Output(), baseOut),
+    Check(SamePoints(OutputBuffer(liveGraph), baseOut),
           "Animated collider recook matches fresh local collider cook");
     Check(SamePoints(baseOut, parentOut),
           "Shared parent transform cancels from collider-to-groom frame");
@@ -356,7 +356,7 @@ static void CheckColliderWorldTransforms()
     liveContext.desc = &descLiveGraph.Desc();
     Check(!scheduler.Run(descLiveGraph, liveContext, 2).diagnostics.HasErrors(),
           "Moved-description live recook runs");
-    Check(SamePoints(descLiveGraph.Output(), plain),
+    Check(SamePoints(OutputBuffer(descLiveGraph), plain),
           "Description-only transform invalidates collider capture");
 
     // Nonuniform scale and reflection change the triangle geometry. An
@@ -1361,20 +1361,20 @@ static void CheckDeepPenetrationCut()
     bool toggleOk=compiler.Compile(toggle,&graph).ok;
     context.desc=&graph.Desc();
     toggleOk &= !scheduler.Run(graph,context,1).diagnostics.HasErrors();
-    UsdGenCurveBuffer first=graph.Output();
+    UsdGenCurveBuffer first=OutputBuffer(graph);
     toggle.nodes.back().params[4].value=VtValue(TfToken("cutThenCollide"));
     toggleOk &= compiler.Recompile(toggle,&graph).ok;
     context.desc=&graph.Desc();
     toggleOk &= !scheduler.Run(graph,context,2).diagnostics.HasErrors();
     UsdGenCurveBuffer cutFresh;
-    toggleOk &= Cook(toggle,&cutFresh) && SamePoints(graph.Output(),cutFresh) &&
-                CurveLength(graph.Output(),0,6)<CurveLength(first,0,6);
+    toggleOk &= Cook(toggle,&cutFresh) && SamePoints(OutputBuffer(graph),cutFresh) &&
+                CurveLength(OutputBuffer(graph),0,6)<CurveLength(first,0,6);
     toggle.nodes.back().params[4].value=VtValue(TfToken("collide"));
     toggleOk &= compiler.Recompile(toggle,&graph).ok;
     context.desc=&graph.Desc();
     toggleOk &= !scheduler.Run(graph,context,3).diagnostics.HasErrors();
     UsdGenCurveBuffer fresh;
-    toggleOk &= Cook(toggle,&fresh) && SamePoints(graph.Output(),fresh) &&
+    toggleOk &= Cook(toggle,&fresh) && SamePoints(OutputBuffer(graph),fresh) &&
                 SamePoints(first,fresh);
     Check(toggleOk,"collide-cut-collide structural toggles match fresh graphs");
 

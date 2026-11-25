@@ -19,6 +19,7 @@
 // prints each cook's diagnostics.
 
 #include "golden/goldenGraphs.h"
+#include "nodeSets.h"
 
 #include "usdGen/compiler.h"
 #include "usdGen/generationStore.h"
@@ -187,7 +188,7 @@ std::string CookScheduler(UsdGenGraphDesc const &desc, std::string const &label,
         PrintDiagnostics(label + " run", run.diagnostics.errors);
         return "run-failed";
     }
-    AddBuffer(rows, graph.Output());
+    AddBuffer(rows, OutputBuffer(graph));
     return "ok";
 }
 

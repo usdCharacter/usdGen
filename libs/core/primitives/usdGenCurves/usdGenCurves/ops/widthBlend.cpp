@@ -167,10 +167,10 @@ UsdGenEpoch UsdGenWidthBlendOp::CaptureDigest(
         h ^= v;
         h *= 0x100000001b3ULL;
     };
-    mix(ctx.upstreamCount);
-    if (ctx.upstreams) {
-        for (uint32_t i = 0; i != ctx.upstreamCount; ++i)
-            mix(ctx.upstreams[i] ? ctx.upstreams[i]->topologyVersion : UINT64_MAX);
+    mix(ctx.inputs.count);
+    if (ctx.inputs.sets) {
+        for (uint32_t i = 0; i != ctx.inputs.count; ++i)
+            mix(ctx.inputs.sets[i].topologyVersion);
     } else {
         mix(ctx.upstreamGeneration);
     }

@@ -8,6 +8,7 @@
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -246,12 +247,22 @@ UsdGenNodeId UsdGenGraph::NodeIdForPath(SdfPath const &path) const
     return it == _nodeByPath.end() ? InvalidNode : it->second;
 }
 
-UsdGenCurveBuffer const &UsdGenGraph::Output() const
+UsdGenElementSet const &UsdGenGraph::Output() const
 {
-    if (_terminal == InvalidNode || _nodes.empty() || !_nodes[_terminal]) {
-        return _emptyOutput;
-    }
-    return _nodes[_terminal]->buffer;
+    return NodeOutput(_terminal);
+}
+
+UsdGenElementSet const &UsdGenGraph::NodeOutput(UsdGenNodeId id) const
+{
+    if (id != InvalidNode && id < _nodes.size() && _nodes[id] && _nodes[id]->output)
+        return *_nodes[id]->output;
+    return EmptyOutput();
+}
+
+UsdGenElementSet const &UsdGenGraph::EmptyOutput() const
+{
+    if (!_emptyOutput) _emptyOutput = UsdGenElementSet::Empty(UsdGenCurveSetLayout());
+    return *_emptyOutput;
 }
 
 TfSpan<const UsdGenChunkDesc> UsdGenGraph::Chunks(UsdGenNodeId id) const
@@ -433,13 +444,13 @@ void UsdGenGraph::DirtyGeometry(SdfPath const &prim)
     }
 }
 
-// Effective curve buffer for a node: a pure passthrough node (no topo fx)
-// presents its input's buffer — topology, cv totals and offsets — so stale
-// downstream totals never override a changed upstream layout; a topo fx
-// regenerates curves and owns the layout again. Traced through passthrough
-// inputs only; depth guards against accidental cycles in the input chain.
-static UsdGenCurveBuffer const &_EffBuffer(UsdGenGraph const &g,
-                                           UsdGenNodeId id, int depth)
+// Effective set for a node: a pure passthrough node (no topo fx) presents
+// its input's set — topology, cv totals and offsets — so stale downstream
+// totals never override a changed upstream layout; a topo fx regenerates
+// curves and owns the layout again. Traced through passthrough inputs only;
+// depth guards against accidental cycles in the input chain.
+static UsdGenElementSet const &_EffSet(UsdGenGraph const &g,
+                                       UsdGenNodeId id, int depth)
 {
     UsdGenCompiledNode const &n = g.Node(id);
     // Length's static CurveCount classification covers its whole family,
@@ -449,11 +460,11 @@ static UsdGenCurveBuffer const &_EffBuffer(UsdGenGraph const &g,
     // An actual owning capture remains an authoritative topology boundary.
     bool const nonOwningLength = n.op && n.record &&
         n.record->Has(kUsdGenOpFollowsInputUntilOwning) &&
-        (!n.capture || !n.capture->OwnedBuffer());
+        (!n.capture || !n.captureOutput);
     if ((n.topoFx != UsdGenTopoFx::None && !nonOwningLength) ||
         n.input == kUsdGenInvalidNode || depth > 64)
-        return n.buffer;
-    return _EffBuffer(g, n.input, depth + 1);
+        return g.NodeOutput(id);
+    return _EffSet(g, n.input, depth + 1);
 }
 
 bool UsdGenGraph::Repartition(int totalCurves, int cvCount)
@@ -511,12 +522,12 @@ bool UsdGenGraph::Repartition(int totalCurves, int cvCount)
         // verbatim: per-chunk firstCv is the source offset, cvCount == 0
         // means "variable cv/curve" per UsdGenChunkDesc.
         UsdGenNodeId const id = static_cast<UsdGenNodeId>(ni);
-        UsdGenCurveBuffer const &eff = _EffBuffer(*this, id, 0);
-        VtIntArray const &offs = eff.cvOffsets;
+        UsdGenElementSet const &eff = _EffSet(*this, id, 0);
+        UsdGenSpan<const uint32_t> const offs = eff.Offsets(2);
+        uint32_t const effCurves = eff.Count(1), effCvs = eff.Count(2);
         uint32_t cvpUniform = static_cast<uint32_t>(std::max(0, cvCount));
-        if (eff.totalCurves > 0 &&
-            eff.totalCvs % eff.totalCurves == 0) {
-            cvpUniform = eff.totalCvs / eff.totalCurves;
+        if (effCurves > 0 && effCvs % effCurves == 0) {
+            cvpUniform = effCvs / effCurves;
         }
         uint32_t const cvp = offs.empty() ? cvpUniform : 0u;
         // Keep existing chunks only if the count matches and EVERY chunk

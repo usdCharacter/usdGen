@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/executionBackend.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/curveLoader.h"
 #include "usdGen/op.h"
@@ -1575,7 +1576,7 @@ int main() {
     CHECK(calls == 1 && injected && graph.NodeCount() == 2);
     CHECK(graph.Desc().executionBackend == UsdGenExecutionBackend::Vulkan);
     CHECK(graph.NodeIdForPath(input.terminal) == 1);
-    CHECK(graph.Node(0).buffer.totalCvs == 0 && graph.Node(1).buffer.totalCvs == 0);
+    CHECK(NodeBuffer(graph, 0).totalCvs == 0 && NodeBuffer(graph, 1).totalCvs == 0);
     auto retained = injected;
     auto rejected = input;
     rejected.nodes[1].params.push_back({TfToken("taper"), VtValue(1.1f), false});

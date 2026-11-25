@@ -18,6 +18,7 @@
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
@@ -154,7 +155,7 @@ static bool CookDiag(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
     for (auto const &e : run.diagnostics.errors)
         std::printf("  run: %s\n", e.c_str());
     if (run.diagnostics.HasErrors()) return false;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

@@ -40,7 +40,7 @@ struct UsdGenNodeRunStats
 
 struct UsdGenRunResult
 {
-    UsdGenCurveBuffer const *terminalOutput = nullptr;  // owned by the graph
+    UsdGenElementSet const *terminalOutput = nullptr;   // owned by the graph
     TfSpan<const UsdGenTileView> tiles;
     bool superseded = false;   // a newer request arrived; the published generation is unchanged
     bool topologyChanged = false; // re-partition happened; every tile re-interleaves
@@ -74,7 +74,7 @@ class UsdGenScheduler
 {
 public:
     using TileCompleted = std::function<void(UsdGenTileView const&,
-                                             UsdGenCurveBuffer const&)>;
+                                             UsdGenElementSet const&)>;
     /// threadLimit: 0 == env USDGEN_THREAD_LIMIT, else one-shot calibration.
     explicit UsdGenScheduler(int threadLimit = 0);
     ~UsdGenScheduler();

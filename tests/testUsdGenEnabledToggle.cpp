@@ -7,6 +7,7 @@
 // so an edit that never reaches the engine is caught here rather than in a
 // render.
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "nodeSets.h"
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -125,7 +126,7 @@ bool Cook(UsdStageRefPtr const &stage, UsdGenCurveBuffer *out, uint64_t generati
             std::printf("      run: %s\n", error.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

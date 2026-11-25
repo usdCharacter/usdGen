@@ -18,6 +18,7 @@
 //       bound surface, determinism;
 //   (4) Width bezier profile (set and multiply).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -212,7 +213,7 @@ bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
         return false;
     }
     if (warnings) *warnings = run.diagnostics.warnings;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

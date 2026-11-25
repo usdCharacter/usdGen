@@ -11,6 +11,7 @@
 // XZ plane, root normal +Y) -> GuideInterpolate with a reference guide set.
 // Expected values are computed by hand from the reference rules.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/ops/guideBlend.h"
 #include "usdGen/scheduler.h"
@@ -160,7 +161,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, bool quiet
             for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

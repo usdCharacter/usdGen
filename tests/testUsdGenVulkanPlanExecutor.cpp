@@ -5,6 +5,7 @@
 // source/width executor.  CPU construction below is an independent oracle for
 // C3 canonicalization; GPU bytes are always read back from the publication.
 #include "usdGen/vulkan/planExecutor.h"
+#include "nodeSets.h"
 #include "usdGen/vulkan/executionPlan.h"
 #include "usdGen/vulkan/deviceGenerationAdapter.h"
 #include "usdGen/vulkan/completionService.h"
@@ -260,7 +261,7 @@ bool CpuReference(UsdGenGraphDesc desc, Oracle* expected) {
     UsdGenScheduler scheduler(2); UsdGenEvalContext context; context.desc = &graph.Desc();
     auto result = scheduler.Run(graph, context, 1);
     if (result.diagnostics.HasErrors()) return false;
-    auto const& buffer = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     Oracle output;
     output.points.resize(buffer.totalCvs); output.rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != output.points.size(); ++i)

@@ -6,12 +6,12 @@
 #ifndef USDGEN_GRAPH_H
 #define USDGEN_GRAPH_H
 
+#include "usdGen/api/elementSet.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/types.h"
-#include "usdGenCurves/types/curveBridge.h"
 
 #include <array>
 #include <cstddef>
@@ -76,7 +76,7 @@ struct UsdGenGraphRoutingSnapshot
     UsdGenNodeId terminal = kUsdGenInvalidNode;
 };
 
-/// One compiled node. Owns its UsdGenOp, its output buffer, its capture, its
+/// One compiled node. Owns its UsdGenOp, its output set, its capture, its
 /// chunk dirty bytes and its digests (03 §3.2).
 struct UsdGenCompiledNode : UsdGenPooled
 {
@@ -97,20 +97,30 @@ struct UsdGenCompiledNode : UsdGenPooled
 
     UsdGenEpoch            structuralDigest {};  // Merkle d(n) (03 §3.3)
     UsdGenEpoch            captureEpoch {};      // (03 §3.4)
-    uint64_t               valueVersion = 0;     // (03 §3.2)
-    uint64_t               topologySeq = 0;       // monotone install counter for generators
+    // The stamps of `output` (03 §3.2), kept here too so a node without an
+    // output yet (or a rebuilt one, compiler) carries them: valueVersion is
+    // this node's own counter, bumped by every run that writes;
+    // topologyVersion follows the input, or topologySeq for an owning capture.
+    uint64_t               valueVersion = 0;
+    uint64_t               topologyVersion = 0;
+    uint64_t               topologySeq = 0;       // monotone install counter for owning captures
 
-    UsdGenCurveBuffer      buffer;               // this node's output (S24)
-    // Bridge (5.3a; 5.4 deletes): `buffer` as a set for the new op families,
-    // rebound by the scheduler before each use.
-    UsdGenCurveBufferSetView setView;
+    // This node's output (S24): sealed by the scheduler whenever it prepares
+    // the node. Unwritten channels share the input's (or the capture's)
+    // columns; the written ones live in one delta arena that the next run
+    // rewrites in place (D9). Null before the first run.
+    UsdGenRef<const UsdGenElementSet> output;
+    // An owning capture's output, converted once per capture: the base the
+    // node's output derives from. Null for every other capture.
+    UsdGenRef<const UsdGenElementSet> captureOutput;
+    // Slot cache: the output's channel table for the input table and prior
+    // output table it was derived from (refreshed only when either moves).
+    UsdGenRef<const UsdGenChannelTable> channels;
+    uint64_t               channelsInput = 0, channelsPrior = 0;
     std::unique_ptr<UsdGenCapture> capture;       // epoch-keyed payload
     // The capture `capture` replaced, kept when Recyclable(): the next
     // re-capture refills it (by then nothing downstream shares its arrays).
     std::unique_ptr<UsdGenCapture> spareCapture;
-    // Written planes an owning capture's buffer replaced, kept for the next
-    // install (same retirement lag as spareCapture).
-    VtFloatArray retiredPx, retiredPy, retiredPz, retiredHairT;
     std::vector<UsdGenChunkDesc> chunks;          // this node's chunk partition
     std::vector<UsdGenChunkDirtyBits> chunkDirty; // one dirty word per chunk
     std::vector<uint8_t>      chunkCaptured;      // capture-validity byte per chunk (reference lane: single flag)
@@ -206,8 +216,13 @@ public:
         return _inputVersions;
     }
 
-    /// The terminal node's OUTPUT buffer and its tile partition (03 §6.3).
-    UsdGenCurveBuffer const &Output() const;
+    /// The terminal node's output set (an empty set before the first run)
+    /// and its tile partition (03 §6.3).
+    UsdGenElementSet const &Output() const;
+    /// A node's output, or the empty set.
+    UsdGenElementSet const &NodeOutput(NodeId id) const;
+    /// A set with no elements (made on first use).
+    UsdGenElementSet const &EmptyOutput() const;
     TfSpan<const UsdGenChunkDesc> Chunks(NodeId id) const;
     TfSpan<const UsdGenTileView>  Tiles() const;
 
@@ -282,8 +297,8 @@ private:
     int _chunksPerTile = 1;
     int _partitionCurves = 0;   // totalCurves of the last partition (0 == unpartitioned)
     // Fallback lifetime belongs to the graph, not process static teardown.
-    // It is private and Output exposes it only as const.
-    UsdGenCurveBuffer _emptyOutput;
+    // Made on first use; Output exposes it only as const.
+    mutable UsdGenRef<const UsdGenElementSet> _emptyOutput;
     UsdGenExecutionInputVersions _inputVersions;
 };
 

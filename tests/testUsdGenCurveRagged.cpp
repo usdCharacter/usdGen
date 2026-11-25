@@ -17,6 +17,7 @@
 // main(): PASS/FAIL + exit code.
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -132,9 +133,13 @@ struct Harness {
         }
     }
 
-    UsdGenCurveBuffer const &Terminal() const { return graph.Output(); }
-    UsdGenCurveBuffer const &Source() const {
-        return graph.Node(graph.NodeIdForPath(SdfPath("/curveRagged/src"))).buffer;
+    UsdGenCurveBuffer Terminal() const { return OutputBuffer(graph); }
+    UsdGenCurveBuffer Source() const {
+        return NodeBuffer(graph, graph.NodeIdForPath(SdfPath("/curveRagged/src")));
+    }
+    UsdGenRef<const UsdGenElementSet> SourceSet() const {
+        return UsdGenRef<const UsdGenElementSet>(
+            &graph.NodeOutput(graph.NodeIdForPath(SdfPath("/curveRagged/src"))));
     }
     TfSpan<const UsdGenChunkDesc> TerminalChunks() const {
         return graph.Chunks(graph.NodeIdForPath(desc.terminal));
@@ -211,7 +216,8 @@ int main()
     {
         Harness h(0, 0.25f);
         UsdGenCurveBuffer const &initial = h.Source();
-        VtFloatArray oldWidths = initial.width;
+        UsdGenRef<const UsdGenElementSet> const initialSet = h.SourceSet();
+        UsdGenSpan<const float> const oldWidths = UsdGenCurveSetView::Of(*initialSet).width;
         Check(initial.width == VtFloatArray(12, 0.25f) &&
                   h.Terminal().width == VtFloatArray(12, 0.25f),
               "default width: surface source and terminal use description fallback");
@@ -227,9 +233,9 @@ int main()
         Check(!run.diagnostics.HasErrors(),
               "default width: changed fallback recaptures cleanly");
         UsdGenCurveBuffer const &updated = h.Source();
-        Check(oldWidths == VtFloatArray(12, 0.25f) &&
+        Check(VtFloatArray(oldWidths.begin(), oldWidths.end()) == VtFloatArray(12, 0.25f) &&
                   updated.width == VtFloatArray(12, 0.5f) &&
-                  oldWidths.cdata() != updated.width.cdata(),
+                  oldWidths.cdata() != UsdGenCurveSetView::Of(*h.SourceSet()).width.cdata(),
               "default width: recapture keeps immutable predecessor COW owner");
 
         for (float invalidWidth : {-1.0f,

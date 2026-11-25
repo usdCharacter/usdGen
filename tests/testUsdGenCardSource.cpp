@@ -21,6 +21,7 @@
 // cards ("mesh vertices=<v> indices=<i>"). --dump writes one line per strand:
 // <prim> <curveId hex> <strandIndex> <cardIndex> <root xyz> <tip xyz>.
 #include "usdGen/authoredPlaneConvert.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -492,7 +493,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::strin
         }
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

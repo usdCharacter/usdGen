@@ -272,11 +272,9 @@ struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptu
     /// True when this capture is usable for the given upstream topology;
     /// false forces a re-capture.
     virtual bool ValidForTopology(UsdGenElementSetView const &) const { return true; }
-    /// Generators: the set this capture produced (the node's output base).
+    /// Owning captures (generators, Resample, frozen Freeze): the set this
+    /// capture produced, the node's output base; null for every other capture.
     virtual UsdGenRef<const UsdGenElementSet> Output() const { return {}; }
-    /// Bridge (5.3a; 5.4 deletes): the builder buffer a generator capture
-    /// owns, installed into its node; null for every other capture.
-    virtual UsdGenCurveBuffer const *OwnedBuffer() const { return nullptr; }
     /// True when Capture recorded per-chunk extents into the scheduler's
     /// slots. Consumed only through the interleave's span revalidation, so
     /// a stale true on a reused capture fails closed into the point pass.
@@ -336,10 +334,9 @@ struct UsdGenCaptureContext
     UsdGenSurfaceId        surface = 0;
     uint32_t               seed = 0;
     uint64_t               upstreamGeneration = 0; // upstream buffer topologyVersion
-    // The ordered inputs as builder buffers, for CaptureDigest (Capture
-    // reads UsdGenOpInputs).
-    UsdGenCurveBuffer const **upstreams = nullptr;
-    uint32_t               upstreamCount = 0;
+    // The ordered geometry inputs, for CaptureDigest (Capture takes them
+    // as its own argument).
+    UsdGenOpInputs         inputs;
     UsdGenWorkDispatcher  *dispatcher = nullptr;  // capture may parallelise in the arena
     UsdGenDiagnostics     *diag = nullptr;
     // The node's chunk partition plus the scheduler's per-chunk fused-extent

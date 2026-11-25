@@ -15,12 +15,12 @@ struct UsdGenCurveCapture : UsdGenCapture
 {
     UsdGenCurveBuffer const &Buffer() const { return _buffer; }
     UsdGenCurveBuffer &MutableBuffer() { return _buffer; }
-    /// True for generator captures: the framework installs Buffer() into the
-    /// owning node after a successful Capture.
+    /// True for owning captures (generators, Resample, frozen Freeze): the
+    /// scheduler installs Output() as the node's base after a successful Capture.
     virtual bool OwnsBuffer() const { return false; }
-    UsdGenCurveBuffer const *OwnedBuffer() const final { return OwnsBuffer() ? &_buffer : nullptr; }
-    /// OwnsBuffer(): the buffer as a set (a copy per call; the scheduler
-    /// reads Buffer() until 5.4). Null otherwise or when inconsistent.
+    /// OwnsBuffer(): the buffer as a set with the buffer's own versions (a
+    /// copy per call; the scheduler converts once per capture). Null
+    /// otherwise or when inconsistent.
     USDGEN_CORE_API UsdGenRef<const UsdGenElementSet> Output() const override;
 
 protected:

@@ -10,6 +10,7 @@
 // the math is wrong (counts, spacing, proximity radius, thinning fraction,
 // stable strand identity, determinism).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -149,7 +150,7 @@ bool Cook(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, std::string *error =
         if (error) *error += e;
     }
     if (run.diagnostics.HasErrors()) return false;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

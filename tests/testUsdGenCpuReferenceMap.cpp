@@ -3,6 +3,7 @@
 // finishes before ordinary curve work regardless of Kahn tie-break order.
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/imagePayload.h"
 #include "usdGen/op.h"
@@ -603,8 +604,8 @@ void ValidateReferenceProducerChain()
     Check(!run.diagnostics.HasErrors(), "reference source chain executes");
     UsdGenNodeId const sourceId = graph.NodeIdForPath(SdfPath("/referenceChain/reference"));
     UsdGenNodeId const widthId = graph.NodeIdForPath(desc.terminal);
-    UsdGenCurveBuffer const &source = graph.Node(sourceId).buffer;
-    UsdGenCurveBuffer const &output = graph.Node(widthId).buffer;
+    UsdGenCurveBuffer const source = NodeBuffer(graph, sourceId);
+    UsdGenCurveBuffer const output = NodeBuffer(graph, widthId);
     Check(source.totalCurves == 2 && source.totalCvs == 4 &&
               source.px == VtFloatArray{1, 1, 4, 4} &&
               source.py == VtFloatArray{2, 3, 5, 6} &&
@@ -643,8 +644,8 @@ void ValidateReferenceProducerChain()
     UsdGenNodeId const newSourceId = graph.NodeIdForPath(SdfPath("/referenceChain/reference"));
     Check(oldValue->buffer.px[0] == oldPoint && oldValue->buffer.rest[0] == oldRest &&
               oldValue->buffer.extraCv[0].f == oldPlane &&
-              graph.Node(newSourceId).buffer.px[0] == 9.0f &&
-              graph.Node(newSourceId).buffer.rest[0] == GfVec3f(19, 18, 17),
+              NodeBuffer(graph, newSourceId).px[0] == 9.0f &&
+              NodeBuffer(graph, newSourceId).rest[0] == GfVec3f(19, 18, 17),
           "reference generation recapture does not mutate prior immutable COW points/rest");
 
     UsdGenGraphDesc invalid = desc;
@@ -653,7 +654,7 @@ void ValidateReferenceProducerChain()
     Check(!failed.ok && !failed.errors.empty() &&
               failed.errors.front().find("unresolved reference value") != std::string::npos,
           "reference source rejects an unresolved input deterministically");
-    Check(graph.Node(newSourceId).buffer.px[0] == 9.0f,
+    Check(NodeBuffer(graph, newSourceId).px[0] == 9.0f,
           "failed reference recompile preserves last-good producer output");
 
     UsdGenGraphDesc missingSlot = desc;

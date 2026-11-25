@@ -13,6 +13,7 @@
 #include "usdGen/executionBackend.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 
@@ -30,6 +31,7 @@
 #include <memory>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -780,7 +782,8 @@ UsdGenDevicePresentationMetadata _BuildDevicePresentation(
 
 // Sample a named curve buffer plane into the publication's uniform array.
 // "uniform" planes index by curve, "vertex" planes by CV.
-void _GatherPlane(const UsdGenPlane &plane, uint32_t curveIdx, uint32_t cvIdx,
+template <class Plane>
+void _GatherPlane(const Plane &plane, uint32_t curveIdx, uint32_t cvIdx,
                   bool wantUniform, VtFloatArray *outF)
 {
     if (plane.type == UsdGenTokens().int_ || plane.arity == 0) return;
@@ -792,7 +795,8 @@ void _GatherPlane(const UsdGenPlane &plane, uint32_t curveIdx, uint32_t cvIdx,
         outF->push_back(plane.f[idx * plane.arity + k]);
 }
 
-bool _GatherPlaneElement(UsdGenPlane const& plane, size_t index,
+template <class Plane>
+bool _GatherPlaneElement(Plane const& plane, size_t index,
                          UsdGenPlane* out)
 {
     if (!out || plane.arity == 0) return false;
@@ -811,7 +815,8 @@ bool _GatherPlaneElement(UsdGenPlane const& plane, size_t index,
 }
 
 // Color planes may be float3 (arity 3) or float (arity 1, grey).
-void _GatherColor(const UsdGenPlane &plane, uint32_t curveIdx, uint32_t cvIdx,
+template <class Plane>
+void _GatherColor(const Plane &plane, uint32_t curveIdx, uint32_t cvIdx,
                   VtVec3fArray *out)
 {
     VtFloatArray tmp;
@@ -824,12 +829,16 @@ void _GatherColor(const UsdGenPlane &plane, uint32_t curveIdx, uint32_t cvIdx,
     }
 }
 
-const UsdGenPlane *_FindPlane(const std::vector<UsdGenPlane> &planes,
-                              TfToken name)
+// A named per-curve (cv false) or per-CV plane of the terminal.
+std::optional<UsdGenPlaneView> _FindPlane(UsdGenCurveSetView const &term, bool cv,
+                                          TfToken const &name)
 {
-    for (const UsdGenPlane &p : planes)
-        if (p.name == name) return &p;
-    return nullptr;
+    uint32_t const n = cv ? term.ExtraCvCount() : term.ExtraCurveCount();
+    for (uint32_t k = 0; k < n; ++k) {
+        UsdGenPlaneView const p = cv ? term.ExtraCv(k) : term.ExtraCurve(k);
+        if (p.name == name) return p;
+    }
+    return std::nullopt;
 }
 
 // Bulk tile path (bit-identical): when the tile's chunks are all uniform,
@@ -844,7 +853,7 @@ const UsdGenPlane *_FindPlane(const std::vector<UsdGenPlane> &planes,
 // overwritten and no garbage is observed. wantColor selects Root (NoColor
 // passes false); every other color mode stays on the serial loop.
 bool _BuildTilePublicationBulk(
-    UsdGenTileView const &tv, UsdGenCurveBuffer const &term,
+    UsdGenTileView const &tv, UsdGenCurveSetView const &term,
     UsdGenCompiledNode const &tn, bool wantColor, GfVec3f const &rootColor,
     UsdGenTilePublication *pub, uint32_t *depSurface, bool *hasDep)
 {
@@ -2236,7 +2245,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     };
     auto tileCompleted = progress && !_desc.preview.Active()
         ? UsdGenScheduler::TileCompleted([&](UsdGenTileView const& tile,
-                                               UsdGenCurveBuffer const& output) {
+                                               UsdGenElementSet const& output) {
             if (superseded && superseded()) return;
             UsdGenRunResult partial;
             partial.terminalOutput = &output;
@@ -2305,7 +2314,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     // this cook did not touch.
     {
         std::vector<std::string> previewWarnings;
-        _previewColors = _preview.Build(_desc, _graph, *result.terminalOutput, frame,
+        _previewColors = _preview.Build(_desc, _graph, UsdGenCurveSetView::Of(*result.terminalOutput), frame,
                                         &previewWarnings);
         for (std::string const &warning : previewWarnings) _lastDiagnostics.Warn(warning);
     }
@@ -2639,7 +2648,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         pub.basis = _desc.curveBasis.GetString();
     pub.refineLevel = 2;
 
-    UsdGenCurveBuffer const &term = *result.terminalOutput;
+    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*result.terminalOutput);
     UsdGenCompiledNode const &tn = _graph.Node(_graph.TerminalNodeId());
 
     pub.curveVertexCounts.reserve(tv.totalLiveCurves);
@@ -2648,20 +2657,20 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     pub.hairT.reserve(tv.totalLiveCvs);
     pub.hairId.reserve(tv.totalLiveCurves);
 
-    UsdGenPlane const *displayColor = _FindPlane(term.extraCurve, UsdGenTokens().displayColor);
+    std::optional<UsdGenPlaneView> const displayColor =
+        _FindPlane(term, false, UsdGenTokens().displayColor);
     struct ExtraPlanePublication {
-        UsdGenPlane const* source = nullptr;
+        std::optional<UsdGenPlaneView> source;
         UsdGenPlane output;
     };
     std::vector<ExtraPlanePublication> extraPlanes;
     // The forwarded source colour is consumed into the tile's displayColor
     // below, never published: it is an input to the colour decision, not a
     // primvar of its own.
-    UsdGenPlane const *sourceColor = _FindPlane(term.extraCurve,
-                                                UsdGenSourceColorPlane());
-    if (!sourceColor) sourceColor = _FindPlane(term.extraCv,
-                                               UsdGenSourceColorPlane());
-    auto addExtraPlane = [&](UsdGenPlane const& plane, TfToken expectedInterpolation) {
+    std::optional<UsdGenPlaneView> sourceColor =
+        _FindPlane(term, false, UsdGenSourceColorPlane());
+    if (!sourceColor) sourceColor = _FindPlane(term, true, UsdGenSourceColorPlane());
+    auto addExtraPlane = [&](UsdGenPlaneView const& plane, TfToken expectedInterpolation) {
         if (plane.name == UsdGenTokens().displayColor ||
             plane.name == UsdGenSourceColorPlane()) return;
         size_t const elements = expectedInterpolation == UsdGenTokens().constant ? 1 :
@@ -2681,7 +2690,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
             throw std::runtime_error("duplicate extra-plane publication name '" +
                                      plane.name.GetString() + "'");
         ExtraPlanePublication entry;
-        entry.source = &plane;
+        entry.source = plane;
         entry.output.name = plane.name;
         entry.output.interpolation = plane.interpolation;
         entry.output.type = plane.type;
@@ -2690,7 +2699,8 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
             _GatherPlaneElement(plane, 0, &entry.output);
         extraPlanes.push_back(std::move(entry));
     };
-    for (UsdGenPlane const &p : term.extraCurve) {
+    for (uint32_t k = 0; k < term.ExtraCurveCount(); ++k) {
+        UsdGenPlaneView const p = term.ExtraCurve(k);
         if (p.interpolation == UsdGenTokens().constant)
             addExtraPlane(p, UsdGenTokens().constant);
         else if (p.interpolation == UsdGenTokens().uniform)
@@ -2699,8 +2709,8 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
             throw std::runtime_error("invalid per-curve extra-plane interpolation for '" +
                                      p.name.GetString() + "'");
     }
-    for (UsdGenPlane const& p : term.extraCv)
-        addExtraPlane(p, UsdGenTokens().vertex);
+    for (uint32_t k = 0; k < term.ExtraCvCount(); ++k)
+        addExtraPlane(term.ExtraCv(k), UsdGenTokens().vertex);
 
     // Precedence (02 §2.14): an AUTHORED look on the description wins;
     // otherwise the source curves' own displayColor, which is what a
@@ -2742,7 +2752,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         plane.arity = static_cast<decltype(plane.arity)>(v.size());
         plane.f.assign(v.begin(), v.end());
         ExtraPlanePublication entry;
-        entry.source = nullptr;   // synthesized; the uniform gather never runs
+        entry.source.reset();     // synthesized; the uniform gather never runs
         entry.output = std::move(plane);
         extraPlanes.push_back(std::move(entry));
     };
@@ -2969,7 +2979,7 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
     auto binding = std::make_shared<UsdGenRbfAnimationBinding>(std::move(fields));
     binding->surface = query.surface->path;
     auto restResult = result;
-    restResult.terminalOutput = &_graph.Node(terminal.inputs.front()).buffer;
+    restResult.terminalOutput = &_graph.NodeOutput(terminal.inputs.front());
     for (auto const& tv : result.tiles) {
         auto tile = std::find_if(tiles.begin(), tiles.end(), [&](auto const& t) { return t.tile == tv.tile; });
         UsdGenTilePublication rest;
@@ -2989,7 +2999,7 @@ bool UsdGenSessionCooker::_RefreshTilePoints(UsdGenTileView const &tv,
     // The same chunk -> live curve -> CV walk as _BuildTilePublication, so
     // the points land in the order the previous build published them; any
     // disagreement with the previous curve layout refuses the refresh.
-    UsdGenCurveBuffer const &term = *result.terminalOutput;
+    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*result.terminalOutput);
     UsdGenCompiledNode const &tn = _graph.Node(_graph.TerminalNodeId());
     size_t const count = previous.points.size();
     VtVec3fArray points(count);
@@ -3040,7 +3050,7 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
         UsdGenNodeStats& s = out[entry.first];
         s.type = n.record ? n.record->Name() : TfToken(); s.path = n.desc ? n.desc->path : SdfPath();
         s.captureMs = entry.second.captureMs; s.lastEvalMs = entry.second.evalMs;
-        s.meanEvalMs = entry.second.evalMs; s.curvesOut = n.buffer.totalCurves;
+        s.meanEvalMs = entry.second.evalMs; s.curvesOut = _graph.NodeOutput(n.id).Count(1);
         for (UsdGenChunkDirtyBits bit : n.chunkDirty) if (bit) ++s.chunksDirty;
         s.chunksTotal = n.chunks.size();
     }

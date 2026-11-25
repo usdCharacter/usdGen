@@ -6,6 +6,7 @@
 // cannot leak one sibling's writes into the other or into the terminal branch.
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/graph.h"
@@ -259,32 +260,37 @@ FanoutResult RunFanout(UsdGenGraphDesc const &desc,
         return result;
     }
 
-    UsdGenCurveBuffer const &terminal = graph.Output();
-    UsdGenCurveBuffer const &sibling = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/" + siblingName))).buffer;
-    UsdGenCurveBuffer const &source = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/source"))).buffer;
+    auto const terminalView = OutputView(graph);
+    UsdGenCurveBuffer const terminal = OutputBuffer(graph);
+    auto const siblingView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/" + siblingName)));
+    UsdGenCurveBuffer const sibling = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/" + siblingName)));
+    auto const sourceView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/source")));
+    UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/source")));
     result.terminal.assign(terminal.width.begin(), terminal.width.end());
     result.sibling.assign(sibling.width.begin(), sibling.width.end());
     result.source.assign(source.width.begin(), source.width.end());
     result.branchStorageIsolated =
-        terminal.width.cdata() != sibling.width.cdata() &&
-        terminal.width.cdata() != source.width.cdata() &&
-        sibling.width.cdata() != source.width.cdata();
+        terminalView.width.cdata() != siblingView.width.cdata() &&
+        terminalView.width.cdata() != sourceView.width.cdata() &&
+        siblingView.width.cdata() != sourceView.width.cdata();
     // Width is the sole written plane. Points and generated hairT must retain
     // the source allocation in both branches; this catches a whole-buffer
     // clone masquerading as copy-on-write.
     result.unchangedPlanesShared =
         !source.px.empty() && !source.py.empty() && !source.pz.empty() &&
         !source.hairT.empty() &&
-        terminal.px.cdata() == source.px.cdata() &&
-        terminal.py.cdata() == source.py.cdata() &&
-        terminal.pz.cdata() == source.pz.cdata() &&
-        terminal.hairT.cdata() == source.hairT.cdata() &&
-        sibling.px.cdata() == source.px.cdata() &&
-        sibling.py.cdata() == source.py.cdata() &&
-        sibling.pz.cdata() == source.pz.cdata() &&
-        sibling.hairT.cdata() == source.hairT.cdata();
+        terminalView.px.cdata() == sourceView.px.cdata() &&
+        terminalView.py.cdata() == sourceView.py.cdata() &&
+        terminalView.pz.cdata() == sourceView.pz.cdata() &&
+        terminalView.hairT.cdata() == sourceView.hairT.cdata() &&
+        siblingView.px.cdata() == sourceView.px.cdata() &&
+        siblingView.py.cdata() == sourceView.py.cdata() &&
+        siblingView.pz.cdata() == sourceView.pz.cdata() &&
+        siblingView.hairT.cdata() == sourceView.hairT.cdata();
     result.siblingRan = std::all_of(result.sibling.begin(), result.sibling.end(),
                                     [](float value) { return value == 0.75f; });
     return result;
@@ -484,13 +490,19 @@ void TestGrowNamedPlaneTopologyOwnership()
 
     UsdGenNodeId const sourceId = graph.NodeIdForPath(source.path);
     UsdGenNodeId const growId = graph.NodeIdForPath(grow.path);
-    InstallGrowExtraPlanes(&graph.Node(sourceId).buffer);
+    {
+        UsdGenCurveBuffer planes = NodeBuffer(graph, sourceId);
+        InstallGrowExtraPlanes(&planes);
+        Check(SetNodeBuffer(graph, sourceId, planes), "Grow named-plane fixture installs");
+    }
     graph.MarkNode(growId, UsdGenDirtyCapture);
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "Grow captures transformed named planes without diagnostics");
 
-    UsdGenCurveBuffer const &input = graph.Node(sourceId).buffer;
-    UsdGenCurveBuffer const &output = graph.Node(growId).buffer;
+    auto const inputView = NodeView(graph, sourceId);
+    UsdGenCurveBuffer const input = NodeBuffer(graph, sourceId);
+    auto const outputView = NodeView(graph, growId);
+    UsdGenCurveBuffer const output = NodeBuffer(graph, growId);
     Check(input.totalCvs == 8 && output.totalCvs == 6 &&
               output.extraCv.size() == 2 && output.extraCurve.size() == 2 &&
               output.extraCv[0].name == TfToken("cvIndex") &&
@@ -503,31 +515,36 @@ void TestGrowNamedPlaneTopologyOwnership()
               output.extraCurve[1].name == TfToken("curvePayload") &&
               output.extraCurve[1].i == VtIntArray{0, 1},
           "Grow resamples vertex and copies uniform/constant named planes");
-    Check(output.extraCv[0].i.cdata() != input.extraCv[0].i.cdata() &&
-              output.extraCv[1].f.cdata() != input.extraCv[1].f.cdata() &&
-              output.extraCurve[0].f.cdata() != input.extraCurve[0].f.cdata() &&
-              output.extraCurve[1].i.cdata() != input.extraCurve[1].i.cdata(),
+    Check(outputView.ExtraCv(0).i.cdata() != inputView.ExtraCv(0).i.cdata() &&
+              outputView.ExtraCv(1).f.cdata() != inputView.ExtraCv(1).f.cdata() &&
+              outputView.ExtraCurve(0).f.cdata() != inputView.ExtraCurve(0).f.cdata() &&
+              outputView.ExtraCurve(1).i.cdata() != inputView.ExtraCurve(1).i.cdata(),
           "Grow owns private COW named-plane outputs after topology change");
-    graph.Node(growId).buffer.extraCv[1].f[0] = -9.0f;
-    Check(input.extraCv[1].f[0] == 0.0f,
+    const_cast<float *>(NodeView(graph, growId).ExtraCv(1).f.data())[0] = -9.0f;
+    Check(NodeView(graph, sourceId).ExtraCv(1).f[0] == 0.0f,
           "Grow named-plane output mutation cannot alter the upstream COW owner");
 
     // A value-only upstream width update must re-capture Grow's transformed
     // width owner even though the root/CV topology did not move.
-    graph.Node(sourceId).buffer.width = VtFloatArray{
-        0.0f, 0.25f, 0.75f, 1.0f,
-        1.0f, 0.75f, 0.25f, 0.0f};
-    graph.Node(sourceId).buffer.valueVersion += 1;
+    {
+        UsdGenCurveBuffer widths = NodeBuffer(graph, sourceId);
+        widths.width = VtFloatArray{
+            0.0f, 0.25f, 0.75f, 1.0f,
+            1.0f, 0.75f, 0.25f, 0.0f};
+        widths.valueVersion += 1;
+        Check(SetNodeBuffer(graph, sourceId, widths), "upstream width edit installs");
+    }
     graph.MarkNode(growId, UsdGenDirtyParameter);
     Check(!scheduler.Run(graph, context, 3).diagnostics.HasErrors(),
           "Grow re-captures its width owner after an upstream value edit");
-    UsdGenCurveBuffer const &widthRefreshed = graph.Node(growId).buffer;
+    auto const widthRefreshedView = NodeView(graph, growId);
+    UsdGenCurveBuffer const widthRefreshed = NodeBuffer(graph, growId);
     Check(widthRefreshed.width == VtFloatArray{
               0.0f, 0.5f, 1.0f, 1.0f, 0.5f, 0.0f} &&
-              widthRefreshed.width.cdata() != input.width.cdata(),
+              widthRefreshedView.width.cdata() != NodeView(graph, sourceId).width.cdata(),
           "Grow resamples an upstream width plane into a private COW owner");
-    graph.Node(growId).buffer.width[1] = -7.0f;
-    Check(input.width[1] == 0.25f,
+    const_cast<float *>(NodeView(graph, growId).width.data())[1] = -7.0f;
+    Check(NodeView(graph, sourceId).width[1] == 0.25f,
           "Grow width output writes cannot mutate the upstream width owner");
 }
 
@@ -870,7 +887,7 @@ void TestGrowAzimuth()
     node.params[3].value=VtValue(0.f); node.params[4].value=VtValue(0.f);
     UsdGenCpuParameters expressions; bool changed=false;
     std::vector<std::string> expressionErrors;
-    Check(expressions.Evaluate(desc,node,roots,0,0,21,&changed,&expressionErrors),
+    Check(expressions.Evaluate(desc,node,UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
           "Grow primitive azimuth expression evaluates");
     params.expressions=&expressions;
     auto connected=capture();
@@ -879,14 +896,14 @@ void TestGrowAzimuth()
           "Grow consumes a distinct connected azimuth at each root");
     node.expressionBindings[0].destination=TfToken("azimuthRandom");
     desc.expressions[0].source="$index % 2";
-    Check(expressions.Evaluate(desc,node,roots,0,0,21,&changed,&expressionErrors),
+    Check(expressions.Evaluate(desc,node,UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
           "Grow primitive azimuthRandom expression evaluates");
     auto connectedRandom=capture();
     Check(UsdGenCaptureBuffer(*connectedRandom).rest[1] == UsdGenCaptureBuffer(*zero).rest[1] &&
           UsdGenCaptureBuffer(*connectedRandom).rest[3] == UsdGenCaptureBuffer(*random).rest[3],
           "Grow consumes connected azimuthRandom independently per root");
     desc.expressions[0].source="1.1";
-    Check(expressions.Evaluate(desc,node,roots,0,0,21,&changed,&expressionErrors),
+    Check(expressions.Evaluate(desc,node,UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
           "Out-of-range expression is evaluated before Grow validates it");
     auto invalidConnected=grow.CreateCapture();
     Check(!grow.Capture(context,UsdGenBufferInputs(roots),invalidConnected.get(),&diag),
@@ -926,8 +943,8 @@ void TestScatterGrowDefaultWidthThroughScheduler()
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(),
           "Scatter->Grow default-width scheduler fixture executes");
-    UsdGenCurveBuffer const &scatter = graph.Node(graph.NodeIdForPath(scatterPath)).buffer;
-    UsdGenCurveBuffer const &output = graph.Output();
+    UsdGenCurveBuffer const scatter = NodeBuffer(graph, graph.NodeIdForPath(scatterPath));
+    UsdGenCurveBuffer const output = OutputBuffer(graph);
     Check(scatter.width.empty() && output.totalCvs > 0 &&
               output.width == VtFloatArray(output.totalCvs, desc.defaultWidth),
           "Scatter preserves absent widths so Grow publishes desc.defaultWidth");
@@ -1042,10 +1059,13 @@ void TestAuthoredSourcePlanes()
     UsdGenRunResult run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(), "authored named-plane source executes on CPU");
     if (run.diagnostics.HasErrors()) return;
-    UsdGenCurveBuffer const &sourceBuffer = graph.Node(
-        graph.NodeIdForPath(source.path)).buffer;
+    auto const sourceBufferView = NodeView(graph, 
+        graph.NodeIdForPath(source.path));
+    UsdGenCurveBuffer const sourceBuffer = NodeBuffer(graph, 
+        graph.NodeIdForPath(source.path));
     UsdGenNodeId writerId = graph.NodeIdForPath(writer.path);
-    UsdGenCurveBuffer const &writerBuffer = graph.Node(writerId).buffer;
+    auto const writerBufferView = NodeView(graph, writerId);
+    UsdGenCurveBuffer const writerBuffer = NodeBuffer(graph, writerId);
     VtFloatArray const expectedPoint = VtFloatArray{
         0, 10, 1.0f / 3.0f, 10.0f + 1.0f / 3.0f,
         2.0f / 3.0f, 10.0f + 2.0f / 3.0f, 1, 11,
@@ -1062,11 +1082,11 @@ void TestAuthoredSourcePlanes()
     Check(sourcePlanesMaterialized,
           "source materializes point, primitive, and groom authored planes");
     if (!sourcePlanesMaterialized) return;
-    Check(sourceBuffer.extraCv[0].f.cdata() !=
+    Check(sourceBufferView.ExtraCv(0).f.cdata() !=
               graph.Desc().curveSets[0].authoredPlanes[0].floatValues.cdata(),
           "resampled source plane materializes private COW storage");
-    Check(writerBuffer.extraCv.size() == 1 && writerBuffer.extraCv[0].f.cdata() ==
-              sourceBuffer.extraCv[0].f.cdata(),
+    Check(writerBuffer.extraCv.size() == 1 && writerBufferView.ExtraCv(0).f.cdata() ==
+              sourceBufferView.ExtraCv(0).f.cdata(),
           "unchanged downstream plane shares immutable source COW data");
 
     // Recompile may retain CurveSource's op/capture when relationship topology
@@ -1077,8 +1097,10 @@ void TestAuthoredSourcePlanes()
     Check(compiled.ok, "authored plane value edit recompiles incrementally");
     context.desc = &graph.Desc();
     run = scheduler.Run(graph, context, 2);
-    UsdGenCurveBuffer const &edited = graph.Node(
-        graph.NodeIdForPath(source.path)).buffer;
+    auto const editedView = NodeView(graph, 
+        graph.NodeIdForPath(source.path));
+    UsdGenCurveBuffer const edited = NodeBuffer(graph, 
+        graph.NodeIdForPath(source.path));
     Check(!run.diagnostics.HasErrors() && edited.extraCurve.size() == 2 &&
               edited.extraCurve[0].i[0] == 42,
           "incremental capture refreshes changed authored COW payload");
@@ -1088,8 +1110,10 @@ void TestAuthoredSourcePlanes()
     Check(compiled.ok, "authored plane removal recompiles incrementally");
     context.desc = &graph.Desc();
     run = scheduler.Run(graph, context, 3);
-    UsdGenCurveBuffer const &removed = graph.Node(
-        graph.NodeIdForPath(source.path)).buffer;
+    auto const removedView = NodeView(graph, 
+        graph.NodeIdForPath(source.path));
+    UsdGenCurveBuffer const removed = NodeBuffer(graph, 
+        graph.NodeIdForPath(source.path));
     Check(!run.diagnostics.HasErrors() && removed.extraCv.empty() &&
               removed.extraCurve.empty(),
           "incremental capture removes stale authored COW planes");
@@ -1192,20 +1216,27 @@ void TestExtraPlaneCowAndTopologyRefresh()
     auto sourceId = graph.NodeIdForPath(SdfPath("/fanout/source"));
     auto cvId = graph.NodeIdForPath(SdfPath("/fanout/cvWriter"));
     auto curveId = graph.NodeIdForPath(SdfPath("/fanout/curveWriter"));
-    InstallExtraPlanes(&graph.Node(sourceId).buffer);
+    {
+        UsdGenCurveBuffer planes = NodeBuffer(graph, sourceId);
+        InstallExtraPlanes(&planes);
+        Check(SetNodeBuffer(graph, sourceId, planes), "extra-plane fixture installs");
+    }
     graph.MarkNode(cvId, UsdGenDirtyParameter);
     graph.MarkNode(curveId, UsdGenDirtyParameter);
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "extra-plane fan-out evaluates declared slots");
 
-    UsdGenCurveBuffer const &source = graph.Node(sourceId).buffer;
-    UsdGenCurveBuffer const &cv = graph.Node(cvId).buffer;
-    UsdGenCurveBuffer const &curve = graph.Node(curveId).buffer;
-    Check(cv.extraCv[0].f.cdata() != source.extraCv[0].f.cdata() &&
-              curve.extraCurve[0].i.cdata() != source.extraCurve[0].i.cdata(),
+    auto const sourceView = NodeView(graph, sourceId);
+    UsdGenCurveBuffer const source = NodeBuffer(graph, sourceId);
+    auto const cvView = NodeView(graph, cvId);
+    UsdGenCurveBuffer const cv = NodeBuffer(graph, cvId);
+    auto const curveView = NodeView(graph, curveId);
+    UsdGenCurveBuffer const curve = NodeBuffer(graph, curveId);
+    Check(cvView.ExtraCv(0).f.cdata() != sourceView.ExtraCv(0).f.cdata() &&
+              curveView.ExtraCurve(0).i.cdata() != sourceView.ExtraCurve(0).i.cdata(),
           "declared OutputPrimvars privately materialize their VtArray storage");
-    Check(cv.extraCurve[0].i.cdata() == source.extraCurve[0].i.cdata() &&
-              curve.extraCv[0].f.cdata() == source.extraCv[0].f.cdata(),
+    Check(cvView.ExtraCurve(0).i.cdata() == sourceView.ExtraCurve(0).i.cdata() &&
+              curveView.ExtraCv(0).f.cdata() == sourceView.ExtraCv(0).f.cdata(),
           "fan-out branches retain aliases for untouched extra CV and curve planes");
     Check(cv.extraCv[0].f[3] == source.extraCv[0].f[3] + 10.0f &&
               curve.extraCurve[0].i[1] == source.extraCurve[0].i[1] + 20 &&
@@ -1226,22 +1257,29 @@ void TestExtraPlaneCowAndTopologyRefresh()
     sourceId = graph.NodeIdForPath(SdfPath("/fanout/source"));
     cvId = graph.NodeIdForPath(SdfPath("/fanout/cvWriter"));
     curveId = graph.NodeIdForPath(SdfPath("/fanout/curveWriter"));
-    InstallExtraPlanes(&graph.Node(sourceId).buffer);
+    {
+        UsdGenCurveBuffer planes = NodeBuffer(graph, sourceId);
+        InstallExtraPlanes(&planes);
+        Check(SetNodeBuffer(graph, sourceId, planes), "extra-plane fixture installs");
+    }
     graph.MarkNode(cvId, UsdGenDirtyParameter);
     graph.MarkNode(curveId, UsdGenDirtyParameter);
     Check(!scheduler.Run(graph, context, 4).diagnostics.HasErrors(),
           "extra-plane fan-out evaluates refreshed aliases");
 
-    UsdGenCurveBuffer const &newSource = graph.Node(sourceId).buffer;
-    UsdGenCurveBuffer const &newCv = graph.Node(cvId).buffer;
-    UsdGenCurveBuffer const &newCurve = graph.Node(curveId).buffer;
+    auto const newSourceView = NodeView(graph, sourceId);
+    UsdGenCurveBuffer const newSource = NodeBuffer(graph, sourceId);
+    auto const newCvView = NodeView(graph, cvId);
+    UsdGenCurveBuffer const newCv = NodeBuffer(graph, cvId);
+    auto const newCurveView = NodeView(graph, curveId);
+    UsdGenCurveBuffer const newCurve = NodeBuffer(graph, curveId);
     Check(newSource.totalCurves == 2 && newSource.totalCvs == 12 &&
               newCv.extraCv[0].f.size() == 12 && newCurve.extraCurve[0].i.size() == 2,
           "extra-plane output storage is resized for the refreshed topology");
-    Check(newCv.extraCurve[0].i.cdata() == newSource.extraCurve[0].i.cdata() &&
-              newCurve.extraCv[0].f.cdata() == newSource.extraCv[0].f.cdata() &&
-              newCv.extraCv[0].f.cdata() != newSource.extraCv[0].f.cdata() &&
-              newCurve.extraCurve[0].i.cdata() != newSource.extraCurve[0].i.cdata(),
+    Check(newCvView.ExtraCurve(0).i.cdata() == newSourceView.ExtraCurve(0).i.cdata() &&
+              newCurveView.ExtraCv(0).f.cdata() == newSourceView.ExtraCv(0).f.cdata() &&
+              newCvView.ExtraCv(0).f.cdata() != newSourceView.ExtraCv(0).f.cdata() &&
+              newCurveView.ExtraCurve(0).i.cdata() != newSourceView.ExtraCurve(0).i.cdata(),
           "topology refresh replaces stale extra-plane aliases while preserving COW isolation");
 }
 
@@ -1306,26 +1344,32 @@ void TestCowAliasesRefreshAfterTopologyRevision()
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "COW refresh fixture evaluates the changed source topology");
 
-    UsdGenCurveBuffer const &source = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/source"))).buffer;
-    UsdGenCurveBuffer const &terminal = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/terminal"))).buffer;
-    UsdGenCurveBuffer const &sibling = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/sibling"))).buffer;
+    auto const sourceView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/source")));
+    UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/source")));
+    auto const terminalView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/terminal")));
+    UsdGenCurveBuffer const terminal = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/terminal")));
+    auto const siblingView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/sibling")));
+    UsdGenCurveBuffer const sibling = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/sibling")));
     Check(source.totalCurves == 3 && terminal.totalCurves == 3 &&
               sibling.totalCurves == 3 && source.totalCvs == 12 &&
               terminal.totalCvs == 12 && sibling.totalCvs == 12,
           "reused COW branches refresh inherited topology totals");
-    Check(terminal.curveId.cdata() == source.curveId.cdata() &&
-              sibling.curveId.cdata() == source.curveId.cdata() &&
-              terminal.rootUV.cdata() == source.rootUV.cdata() &&
-              sibling.rootUV.cdata() == source.rootUV.cdata(),
+    Check(terminalView.curveId.cdata() == sourceView.curveId.cdata() &&
+              siblingView.curveId.cdata() == sourceView.curveId.cdata() &&
+              terminalView.rootUV.cdata() == sourceView.rootUV.cdata() &&
+              siblingView.rootUV.cdata() == sourceView.rootUV.cdata(),
           "reused COW branches replace stale per-curve aliases");
-    Check(terminal.px.cdata() == source.px.cdata() &&
-              sibling.px.cdata() == source.px.cdata() &&
-              terminal.width.cdata() != source.width.cdata() &&
-              sibling.width.cdata() != source.width.cdata() &&
-              terminal.width.cdata() != sibling.width.cdata(),
+    Check(terminalView.px.cdata() == sourceView.px.cdata() &&
+              siblingView.px.cdata() == sourceView.px.cdata() &&
+              terminalView.width.cdata() != sourceView.width.cdata() &&
+              siblingView.width.cdata() != sourceView.width.cdata() &&
+              terminalView.width.cdata() != siblingView.width.cdata(),
           "topology revision still shares reads and materializes writes");
 }
 
@@ -1502,20 +1546,25 @@ void TestOrderedWidthBlend()
     Check(!run.diagnostics.HasErrors(),
           "ordered WidthBlend executes without diagnostics");
     if (run.diagnostics.HasErrors()) return;
-    UsdGenCurveBuffer const &leftBuffer = graph.Node(
-        graph.NodeIdForPath(left.path)).buffer;
-    UsdGenCurveBuffer const &rightBuffer = graph.Node(
-        graph.NodeIdForPath(right.path)).buffer;
-    UsdGenCurveBuffer const &merged = graph.Output();
+    auto const leftBufferView = NodeView(graph, 
+        graph.NodeIdForPath(left.path));
+    UsdGenCurveBuffer const leftBuffer = NodeBuffer(graph, 
+        graph.NodeIdForPath(left.path));
+    auto const rightBufferView = NodeView(graph, 
+        graph.NodeIdForPath(right.path));
+    UsdGenCurveBuffer const rightBuffer = NodeBuffer(graph, 
+        graph.NodeIdForPath(right.path));
+    auto const mergedView = OutputView(graph);
+    UsdGenCurveBuffer const merged = OutputBuffer(graph);
     bool values = merged.width.size() == 8;
     if (values)
         for (float value : merged.width)
             values = values && std::fabs(value - 0.375f) < 1e-6f;
     Check(values, "WidthBlend applies blend interpolation exactly once");
-    Check(merged.width.cdata() != leftBuffer.width.cdata() &&
-              merged.width.cdata() != rightBuffer.width.cdata() &&
-              merged.px.cdata() == leftBuffer.px.cdata() &&
-              merged.px.cdata() != merged.width.cdata(),
+    Check(mergedView.width.cdata() != leftBufferView.width.cdata() &&
+              mergedView.width.cdata() != rightBufferView.width.cdata() &&
+              mergedView.px.cdata() == leftBufferView.px.cdata() &&
+              mergedView.px.cdata() != mergedView.width.cdata(),
           "WidthBlend fresh width storage is CoW-isolated while non-width data aliases left");
     bool inputsPreserved = leftBuffer.width.size() == 8 &&
                            rightBuffer.width.size() == 8;
@@ -1540,9 +1589,9 @@ void TestOrderedWidthBlend()
     Check(!swappedRun.diagnostics.HasErrors(),
           "swapped WidthBlend executes without diagnostics");
     if (!swappedRun.diagnostics.HasErrors()) {
-        bool swappedValue = swapped.Output().width.size() == 8;
+        bool swappedValue = OutputBuffer(swapped).width.size() == 8;
         if (swappedValue)
-            for (float value : swapped.Output().width)
+            for (float value : OutputBuffer(swapped).width)
                 swappedValue = swappedValue && std::fabs(value - 0.625f) < 1e-6f;
         Check(swappedValue, "WidthBlend authored operand order changes only merged widths");
     }
@@ -1619,19 +1668,25 @@ void TestDependencyReadyHeldFanout()
           "dependency-ready held fan-out completes without diagnostics");
     if (run.diagnostics.HasErrors()) return;
 
-    UsdGenCurveBuffer const &source = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/source"))).buffer;
-    UsdGenCurveBuffer const &left = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/heldLeft"))).buffer;
-    UsdGenCurveBuffer const &right = graph.Node(graph.NodeIdForPath(
-        SdfPath("/fanout/heldRight"))).buffer;
+    auto const sourceView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/source")));
+    UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/source")));
+    auto const leftView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/heldLeft")));
+    UsdGenCurveBuffer const left = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/heldLeft")));
+    auto const rightView = NodeView(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/heldRight")));
+    UsdGenCurveBuffer const right = NodeBuffer(graph, graph.NodeIdForPath(
+        SdfPath("/fanout/heldRight")));
     Check(!left.width.empty() && !right.width.empty() &&
-              left.width.cdata() != right.width.cdata() &&
-              left.width.cdata() != source.width.cdata() &&
-              right.width.cdata() != source.width.cdata(),
+              leftView.width.cdata() != rightView.width.cdata() &&
+              leftView.width.cdata() != sourceView.width.cdata() &&
+              rightView.width.cdata() != sourceView.width.cdata(),
           "held fan-out branches materialize isolated writable COW widths");
-    Check(!source.px.empty() && left.px.cdata() == source.px.cdata() &&
-              right.px.cdata() == source.px.cdata(),
+    Check(!source.px.empty() && leftView.px.cdata() == sourceView.px.cdata() &&
+              rightView.px.cdata() == sourceView.px.cdata(),
           "held fan-out branches retain immutable non-width aliases");
 }
 
