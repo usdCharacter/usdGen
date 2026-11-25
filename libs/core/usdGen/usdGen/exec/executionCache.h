@@ -10,7 +10,6 @@
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/epoch.h"
-#include "usdGen/generationStore.h"
 
 #include <cstdint>
 #include <cstring>
@@ -29,6 +28,8 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+struct UsdGenGeneration;   // generationStore.h; the Store holds it by shared_ptr
 
 struct UsdGenExecutionInputGeneration {
     SdfPath identity;

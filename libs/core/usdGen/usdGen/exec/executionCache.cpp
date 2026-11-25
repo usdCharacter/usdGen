@@ -1,4 +1,5 @@
 #include "usdGen/executionCache.h"
+#include "usdGen/exec/generationStore.h"
 
 #include "usdGen/executionRuntimeInternal.h"
 #include "usdGen/parkingWord.h"
