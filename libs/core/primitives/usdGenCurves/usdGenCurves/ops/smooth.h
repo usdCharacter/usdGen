@@ -42,10 +42,10 @@ public:
                  UsdGenDiagnostics *diag) override;
     void Evaluate(UsdGenEvalContext const &ctx,
                   UsdGenCapture const &capture,
-                  UsdGenChunkView *view) const override;
+                  UsdGenLegacyChunkView *view) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-    void EvaluateBox(UsdGenEvalContext const &ctx, UsdGenChunkView *view) const;
+    void EvaluateBox(UsdGenEvalContext const &ctx, UsdGenLegacyChunkView *view) const;
 };
 
 class UsdGenRegistrar;

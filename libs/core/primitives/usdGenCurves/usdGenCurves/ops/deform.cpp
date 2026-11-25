@@ -851,7 +851,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
             // Reduce into locals first: the slots publish only on full
             // success, so an abandoned walk can never leave partial
             // extents behind valid spans.
-            std::vector<UsdGenChunkExtent> local(ctx.chunkCount);
+            std::vector<UsdGenLegacyChunkExtent> local(ctx.chunkCount);
             chunk = 0;
             for (size_t g = 0; g < groups; ++g) {
                 size_t const gFirst = g * kGroupStrands;
@@ -861,7 +861,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
                     ++chunk;
                 if (chunk >= ctx.chunkCount) { nested = false; break; }
                 UsdGenChunkDesc const &cd = ctx.chunks[chunk];
-                UsdGenChunkExtent &slot = local[chunk];
+                UsdGenLegacyChunkExtent &slot = local[chunk];
                 slot.extent.UnionWith(groupExtents[g]);
                 slot.firstCurve = cd.firstCurve;
                 slot.curveCount = cd.curveCount;
@@ -880,7 +880,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenCurveBuffer 
 }
 
 void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const& captureIn,
-                              UsdGenChunkView* view) const {
+                              UsdGenLegacyChunkView* view) const {
     auto const &cap = static_cast<UsdGenDeformCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
     UsdGenParamField const maskField = p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
@@ -896,7 +896,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
     // and the lerp below closes over finite/Inf without producing NaN),
     // which is what makes the chunked union bitwise exact. Null in every
     // graph the gate does not select: one predictable branch per CV.
-    UsdGenChunkExtent *extSlot = view->extentSlot;
+    UsdGenLegacyChunkExtent *extSlot = view->extentSlot;
     GfRange3f chunkExt;
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);

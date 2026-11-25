@@ -335,7 +335,7 @@ bool UsdGenSculptLayerOp::Capture(
 void UsdGenSculptLayerOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenSculptLayerCapture const &>(captureIn);
     float *px = view->px, *py = view->py, *pz = view->pz;

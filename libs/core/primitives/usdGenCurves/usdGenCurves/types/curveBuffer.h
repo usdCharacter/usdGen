@@ -132,6 +132,23 @@ bool UsdGenCompactExtraPlanes(UsdGenCurveBuffer const &source,
                               UsdGenCurveBuffer *target,
                               std::string *error = nullptr);
 
+struct UsdGenCurveSetView;   // usdGenCurves/types/curveSet.h
+
+/// View overloads (5.3a): a buffer-backed view takes the buffer path; a
+/// set-backed one copies its planes and curve topology into a scratch
+/// buffer first (capture time only).
+USDGEN_CORE_API bool UsdGenResampleExtraPlanes(UsdGenCurveSetView const &source,
+                                               UsdGenCurveBuffer *target,
+                                               std::string *error = nullptr);
+USDGEN_CORE_API bool UsdGenCompactExtraPlanes(UsdGenCurveSetView const &source,
+                                              std::vector<uint32_t> const &survivors,
+                                              UsdGenCurveBuffer *target,
+                                              std::string *error = nullptr);
+/// A buffer with the view's counts, offsets and named planes (copies; no
+/// built-in columns). What the overloads above and UsdGenBuildClumpMotion's
+/// view overload read when the view is a set.
+USDGEN_CORE_API UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &source);
+
 namespace detail {
 
 inline bool
@@ -141,9 +158,10 @@ _UsdGenExtraPlaneFail(std::string const &message, std::string *error)
     return false;
 }
 
-template <class SpanVector>
+// 'Curves': UsdGenCurveBuffer or UsdGenCurveSetView (same field names).
+template <class Curves, class SpanVector>
 inline bool
-_UsdGenCurveSpans(UsdGenCurveBuffer const &buffer,
+_UsdGenCurveSpans(Curves const &buffer,
                   SpanVector *spans, std::string *error)
 {
     if (!spans)
@@ -418,12 +436,14 @@ UsdGenCompactExtraPlanes(UsdGenCurveBuffer const &source,
     }
 }
 
+/// Bridge (5.3a-f): the old Evaluate family's extent slot; the generic one is
+/// usdGen/exec/chunkView.h's UsdGenChunkExtent.
 /// One chunk's posed extent, recorded by the sweep that wrote the points
 /// so the tile interleave can union per-chunk extents instead of re-reading
 /// every point. The span pins the chunk layout the extent was recorded
 /// under: a mid-run repartition changes the spans and the interleave falls
 /// back to the point pass, so a stale slot is never read.
-struct UsdGenChunkExtent
+struct UsdGenLegacyChunkExtent
 {
     GfRange3f extent;
     uint32_t firstCurve = 0;
@@ -433,9 +453,11 @@ struct UsdGenChunkExtent
     uint32_t cvCount = 0;
 };
 
+/// Bridge (5.3a-f): the old Evaluate family's chunk view; the generic one is
+/// usdGen/exec/chunkView.h's UsdGenChunkView, read through UsdGenCurveChunk.
 /// What a kernel is allowed to touch. All pointers are chunk-local bases
 /// (03 §1.2). cvCount == 0 on the ragged path.
-struct UsdGenChunkView
+struct UsdGenLegacyChunkView
 {
     const UsdGenChunkDesc *desc;
     float       *px, *py, *pz;               // out: writable
@@ -471,7 +493,7 @@ struct UsdGenChunkView
     // (every op but the recording points-writer). A recording kernel writes
     // the extent over exactly the floats it stores, in store order, plus
     // the span from desc, before Evaluate returns.
-    UsdGenChunkExtent *extentSlot = nullptr;
+    UsdGenLegacyChunkExtent *extentSlot = nullptr;
     uint32_t curveCount, cvCount;            // cvCount == 0 on the ragged path
     uint32_t inCvCount = 0;                  // upstream's CVs per curve (in* base + c*inCvCount + i)
     // Upstream ragged offsets for this chunk, shifted to firstCurve but still

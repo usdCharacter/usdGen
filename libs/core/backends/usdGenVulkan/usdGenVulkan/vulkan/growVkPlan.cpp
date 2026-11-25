@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "growVkPlan.h"
 #include "usdGen/op.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/vulkan/vkStages.h"
@@ -148,7 +149,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
             ctx.surface = static_cast<UsdGenSurfaceId>(surface - desc.surfaces.begin()); ctx.seed = uint32_t(node.seed);
             UsdGenCurveBuffer empty;
             if (!capture || (node.enabled && !op->Capture(ctx,empty,capture.get(),diag))) return Fail(diag,"Scatter capture failed");
-            auto const& roots = capture->Buffer();
+            auto const& roots = static_cast<UsdGenCurveCapture const &>(*capture).Buffer();
             size_t const n = node.enabled ? roots.totalCurves : 0;
             if (n > UINT32_MAX / 2 || (n && (roots.totalCvs != n || roots.curveId.size() != n ||
                 roots.rootPrim.size()!=n || roots.rootUV.size()!=n || roots.rootT.size()!=n || roots.rootB.size()!=n || roots.rootN.size()!=n)))

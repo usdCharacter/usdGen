@@ -196,7 +196,7 @@ public:
         diagnostics->Error("store batch capture gate timed out");
         return false;
     }
-    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
+    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenLegacyChunkView*) const override {}
 };
 
 void RegisterBatchHoldOp(UsdGenRegistrar &r)

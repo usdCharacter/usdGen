@@ -333,7 +333,7 @@ public:
                  usdGen::UsdGenCurveBuffer const&, usdGen::UsdGenCapture*,
                  usdGen::UsdGenDiagnostics*) override { return true; }
     void Evaluate(usdGen::UsdGenEvalContext const&, usdGen::UsdGenCapture const&,
-                  usdGen::UsdGenChunkView* view) const override {
+                  usdGen::UsdGenLegacyChunkView* view) const override {
         if (view->desc->tile != 1) return;
         ProgressiveTileHold::entered.store(true, std::memory_order_release);
         auto const deadline = std::chrono::steady_clock::now() +

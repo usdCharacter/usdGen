@@ -2132,7 +2132,7 @@ bool UsdGenCollideOp::Capture(
 void UsdGenCollideOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenCollideCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

@@ -12,6 +12,7 @@
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
 #include "usdGen/op.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenOpFixture.h"
@@ -96,7 +97,7 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
             *error = diag.errors.front();
         return false;
     }
-    *out = cap->Buffer();
+    *out = UsdGenCaptureBuffer(*cap);
     return true;
 }
 

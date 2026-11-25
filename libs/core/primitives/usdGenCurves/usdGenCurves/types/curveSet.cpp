@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/api/writeSet.h"
 #include "usdGen/registries/engineTokens.h"
@@ -261,6 +262,11 @@ uint32_t UsdGenCurveSetGroups(uint32_t chunks, UsdGenPartitionParams const &para
 
 UsdGenCurveSetView UsdGenCurveSetView::Of(UsdGenElementSetView const &s) noexcept
 {
+    if (s.legacy) {   // bridge (5.3a): read the buffer itself, VtArray identity included
+        UsdGenCurveSetView v = Of(*static_cast<UsdGenCurveBuffer const *>(s.legacy));
+        v._set = s;
+        return v;
+    }
     UsdGenCurveSetView v;
     if (!s.channels || s.channels->StaticCount() < kUsdGenCurveStaticSlots || !s.columns || !s.values)
         return v;
@@ -441,6 +447,53 @@ UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, u
     for (UsdGenPlane const &p : b.extraCv) putPlane(p);
     w.SetVersions(topologyVersion, valueVersion);
     return std::move(w).Seal();
+}
+
+UsdGenRef<const UsdGenElementSet> UsdGenCurveCapture::Output() const
+{
+    if (!OwnsBuffer()) return {};
+    return UsdGenCurveSetFromBuffer(_buffer, _buffer.topologyVersion, _buffer.valueVersion);
+}
+
+UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &v)
+{
+    UsdGenCurveBuffer b;
+    Take(&b.cvOffsets, v.cvOffsets);
+    auto plane = [](UsdGenPlaneView const &p) {
+        UsdGenPlane out;
+        out.name = p.name;
+        out.interpolation = p.interpolation;
+        out.type = p.type;
+        out.arity = p.arity;
+        Take(&out.f, p.f);
+        Take(&out.i, p.i);
+        return out;
+    };
+    b.extraCurve.reserve(v.ExtraCurveCount());
+    for (uint32_t k = 0; k < v.ExtraCurveCount(); ++k) b.extraCurve.push_back(plane(v.ExtraCurve(k)));
+    b.extraCv.reserve(v.ExtraCvCount());
+    for (uint32_t k = 0; k < v.ExtraCvCount(); ++k) b.extraCv.push_back(plane(v.ExtraCv(k)));
+    b.totalCurves = v.totalCurves;
+    b.totalCvs = v.totalCvs;
+    b.topologyVersion = v.topologyVersion;
+    b.valueVersion = v.valueVersion;
+    return b;
+}
+
+bool UsdGenResampleExtraPlanes(UsdGenCurveSetView const &source, UsdGenCurveBuffer *target,
+                               std::string *error)
+{
+    if (UsdGenCurveBuffer const *buffer = source.LegacyBuffer())
+        return UsdGenResampleExtraPlanes(*buffer, target, error);
+    return UsdGenResampleExtraPlanes(UsdGenCurvePlanesBuffer(source), target, error);
+}
+
+bool UsdGenCompactExtraPlanes(UsdGenCurveSetView const &source, std::vector<uint32_t> const &survivors,
+                              UsdGenCurveBuffer *target, std::string *error)
+{
+    if (UsdGenCurveBuffer const *buffer = source.LegacyBuffer())
+        return UsdGenCompactExtraPlanes(*buffer, survivors, target, error);
+    return UsdGenCompactExtraPlanes(UsdGenCurvePlanesBuffer(source), survivors, target, error);
 }
 
 UsdGenCurveBuffer UsdGenCurveBufferFromSet(UsdGenElementSet const &set)

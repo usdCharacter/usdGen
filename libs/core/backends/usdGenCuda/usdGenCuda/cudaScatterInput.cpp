@@ -2,6 +2,7 @@
 
 #include "usdGen/cudaStages.h"
 #include "usdGen/op.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
 
 #include "usdGen/taskScheduler.h"
@@ -250,7 +251,7 @@ void RecycleConvertShell(gpu::ScatterGrowRoots const* roots)
     // planes (only tests copy roots) stay correct: the next Capture
     // resize detaches before writing, preserving the live copy's bytes.
     if (t_captureShell) {
-        UsdGenCurveBuffer& buf = t_captureShell->MutableBuffer();
+        UsdGenCurveBuffer& buf = static_cast<UsdGenCurveCapture &>(*t_captureShell).MutableBuffer();
         shell->stableIds.donate(buf.curveId);
         shell->rootPrim.donate(buf.rootPrim);
         shell->rootUV.donate(buf.rootUV);
@@ -380,7 +381,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (!op->Capture(context, emptyUpstream, capture.get(), &diagnostics))
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     diagnostics.errors.empty() ? "Scatter Capture failed" : diagnostics.errors.front(), reason);
-    UsdGenCurveBuffer const& roots = capture->Buffer();
+    UsdGenCurveBuffer const& roots = static_cast<UsdGenCurveCapture const &>(*capture).Buffer();
     size_t const n = roots.totalCurves;
     if (roots.totalCvs != n || roots.px.size() != n || roots.py.size() != n ||
         roots.pz.size() != n || roots.curveId.size() != n || roots.rootPrim.size() != n ||
@@ -411,7 +412,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     // below the threshold.
     // Same bytes, any chunking.
     {
-        UsdGenCurveBuffer& mut = capture->MutableBuffer();
+        UsdGenCurveBuffer& mut = static_cast<UsdGenCurveCapture &>(*capture).MutableBuffer();
         prep->stableIds.adopt(std::move(mut.curveId));
         prep->rootPrim.adopt(std::move(mut.rootPrim));
         prep->rootUV.adopt(std::move(mut.rootUV));
@@ -452,7 +453,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     // capture, including the empty-topology early return (stale sizes
     // would trip the convert's topology validation).
     {
-        UsdGenCurveBuffer& buf = capture->MutableBuffer();
+        UsdGenCurveBuffer& buf = static_cast<UsdGenCurveCapture &>(*capture).MutableBuffer();
         buf.px.clear(); buf.py.clear(); buf.pz.clear();
         buf.rest.clear(); buf.width.clear(); buf.hairT.clear();
         buf.extraCv.clear();

@@ -1,7 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// Compile check for chunkView.h. Emits nothing: the legacy curve types of
-// the same names (curveBuffer.h) stay in other TUs until 5.3a/5.4.
+// Compile check for chunkView.h. Emits nothing.
 #include "usdGen/exec/chunkView.h"
 
 #include <type_traits>

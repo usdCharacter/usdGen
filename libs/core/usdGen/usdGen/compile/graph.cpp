@@ -449,7 +449,7 @@ static UsdGenCurveBuffer const &_EffBuffer(UsdGenGraph const &g,
     // An actual owning capture remains an authoritative topology boundary.
     bool const nonOwningLength = n.op && n.record &&
         n.record->Has(kUsdGenOpFollowsInputUntilOwning) &&
-        (!n.capture || !n.capture->OwnsBuffer());
+        (!n.capture || !n.capture->OwnedBuffer());
     if ((n.topoFx != UsdGenTopoFx::None && !nonOwningLength) ||
         n.input == kUsdGenInvalidNode || depth > 64)
         return n.buffer;

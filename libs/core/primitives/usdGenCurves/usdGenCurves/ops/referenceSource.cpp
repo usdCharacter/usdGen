@@ -1,4 +1,5 @@
 #include "usdGen/ops/referenceSource.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include <memory>
 #include "usdGen/registries/registrar.h"
@@ -8,7 +9,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 namespace {
 
-struct UsdGenReferenceSourceCapture final : public UsdGenCapture
+struct UsdGenReferenceSourceCapture final : public UsdGenCurveCapture
 {
     bool OwnsBuffer() const override { return true; }
     std::unique_ptr<UsdGenCapture> Clone() const override

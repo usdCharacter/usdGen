@@ -89,7 +89,7 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
         for (uint32_t i = 0; i < kCv; ++i)
             hairT[c * kCv + i] = float(i) / float(kCv - 1);
 
-    UsdGenChunkView chunk{};
+    UsdGenLegacyChunkView chunk{};
     chunk.curveCount = kCurves;
     chunk.cvCount = kCv;
     chunk.hairT = hairT.data();

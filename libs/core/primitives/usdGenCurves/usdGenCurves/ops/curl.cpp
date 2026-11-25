@@ -11,6 +11,7 @@
 // offsets by r(0). All work is per curve/CV in Evaluate; Capture only
 // validates.
 #include "usdGen/ops/curl.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
@@ -213,7 +214,7 @@ bool UsdGenCurlOp::Capture(
 void UsdGenCurlOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenCurlCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

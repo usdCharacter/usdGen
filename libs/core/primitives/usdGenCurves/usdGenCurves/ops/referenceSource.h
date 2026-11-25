@@ -20,7 +20,7 @@ public:
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override;
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *) const override {}
+                  UsdGenLegacyChunkView *) const override {}
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
 };

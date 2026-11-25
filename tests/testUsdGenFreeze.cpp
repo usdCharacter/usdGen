@@ -20,6 +20,7 @@
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
 #include "usdGen/compiler.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
@@ -577,13 +578,13 @@ static void CheckAliasingKernel()
     Check(op.Capture(ctx, upstream, cap.get(), &diag) && !diag.HasErrors(),
           "aliasing fixture capture succeeds");
     if (diag.HasErrors()) return;
-    Check(cap->OwnsBuffer(), "frozen capture owns its buffer");
-    FrozenCopy const snap = SnapshotOf(cap->Buffer());
-    VtVec3fArray const restSnap = PrivateCopy(cap->Buffer().rest);
-    VtFloatArray const cvSnap = cap->Buffer().extraCv.empty()
-        ? VtFloatArray() : PrivateCopy(cap->Buffer().extraCv[0].f);
-    VtIntArray const curveSnap = cap->Buffer().extraCurve.empty()
-        ? VtIntArray() : PrivateCopy(cap->Buffer().extraCurve[0].i);
+    Check((cap->OwnedBuffer() != nullptr), "frozen capture owns its buffer");
+    FrozenCopy const snap = SnapshotOf(UsdGenCaptureBuffer(*cap));
+    VtVec3fArray const restSnap = PrivateCopy(UsdGenCaptureBuffer(*cap).rest);
+    VtFloatArray const cvSnap = UsdGenCaptureBuffer(*cap).extraCv.empty()
+        ? VtFloatArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCv[0].f);
+    VtIntArray const curveSnap = UsdGenCaptureBuffer(*cap).extraCurve.empty()
+        ? VtIntArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCurve[0].i);
     float *wx = const_cast<float *>(upstream.px.cdata());
     float *wy = const_cast<float *>(upstream.py.cdata());
     float *wz = const_cast<float *>(upstream.pz.cdata());
@@ -603,15 +604,15 @@ static void CheckAliasingKernel()
     int *cx = const_cast<int *>(upstream.extraCurve[0].i.cdata());
     cx[0] = -cx[0];
     cx[1] = -cx[1];
-    Check(SameAs(snap, cap->Buffer()),
+    Check(SameAs(snap, UsdGenCaptureBuffer(*cap)),
           "captured snapshot is a deep copy (source mutation does not alias)");
-    Check(cap->Buffer().rest == restSnap,
+    Check(UsdGenCaptureBuffer(*cap).rest == restSnap,
           "captured rest is a deep copy (source rest mutation does not alias)");
-    Check(cap->Buffer().extraCv.size() == 1 &&
-              cap->Buffer().extraCv[0].f == cvSnap,
+    Check(UsdGenCaptureBuffer(*cap).extraCv.size() == 1 &&
+              UsdGenCaptureBuffer(*cap).extraCv[0].f == cvSnap,
           "captured per-CV planes are deep copies");
-    Check(cap->Buffer().extraCurve.size() == 1 &&
-              cap->Buffer().extraCurve[0].i == curveSnap,
+    Check(UsdGenCaptureBuffer(*cap).extraCurve.size() == 1 &&
+              UsdGenCaptureBuffer(*cap).extraCurve[0].i == curveSnap,
           "captured per-curve planes are deep copies");
 
     // Live captures own nothing.
@@ -626,7 +627,7 @@ static void CheckAliasingKernel()
     Check(op.Capture(ctx, upstream, liveCap.get(), &liveDiag) &&
               !liveDiag.HasErrors(),
           "live capture succeeds");
-    Check(!liveCap->OwnsBuffer(), "live capture owns no buffer");
+    Check(!(liveCap->OwnedBuffer() != nullptr), "live capture owns no buffer");
 }
 
 static void CheckDeterminism()

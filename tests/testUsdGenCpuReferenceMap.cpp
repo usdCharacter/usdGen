@@ -89,7 +89,7 @@ public:
             ctx.mapBindings[0].relationship == TfToken("usdGen:map") &&
             ctx.mapBindings[1].relationship == TfToken("usdGen:map");
     }
-    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenChunkView *) const override {}
+    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenLegacyChunkView *) const override {}
 };
 
 class CurveProbe final : public UsdGenOp
@@ -105,7 +105,7 @@ public:
         gOrder.push_back(2);
         return true;
     }
-    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenChunkView *) const override {}
+    void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &, UsdGenLegacyChunkView *) const override {}
 };
 
 class ContractProbe final : public UsdGenOp
@@ -116,7 +116,7 @@ public:
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const&) const override { return {1,2}; }
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
-    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
+    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenLegacyChunkView*) const override {}
 private:
     [[maybe_unused]] bool _reference;
 };

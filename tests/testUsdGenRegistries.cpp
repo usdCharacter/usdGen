@@ -49,7 +49,7 @@ public:
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &, UsdGenCapture *,
                  UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *) const override {}
+                  UsdGenLegacyChunkView *) const override {}
 };
 
 std::unique_ptr<UsdGenOp> CreateTestOp(UsdGenOpRecord const &rec, void *)

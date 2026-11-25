@@ -1006,7 +1006,7 @@ void CheckDeformEvaluateViewShapes()
     auto makeView = [&](UsdGenChunkDesc *d, float *px, float *py, float *pz,
                         size_t inBase, uint32_t nCurves, uint32_t cvCount,
                         int const *cvOffsets) {
-        UsdGenChunkView v{};
+        UsdGenLegacyChunkView v{};
         v.desc = d;
         v.px = px;
         v.py = py;
@@ -1021,7 +1021,7 @@ void CheckDeformEvaluateViewShapes()
     };
     UsdGenEvalContext evalCtx; // params null: default mask 1.0
     std::vector<float> uniPx(term.totalCvs), uniPy(term.totalCvs), uniPz(term.totalCvs);
-    UsdGenChunkView uniView = makeView(&fullDesc, uniPx.data(), uniPy.data(), uniPz.data(),
+    UsdGenLegacyChunkView uniView = makeView(&fullDesc, uniPx.data(), uniPy.data(), uniPz.data(),
                                        0, uint32_t(curves), uint32_t(perCurve), nullptr);
     op->Evaluate(evalCtx, *graph.Node(deformId).capture, &uniView);
     auto plane = [&](VtFloatArray const &p) {
@@ -1036,7 +1036,7 @@ void CheckDeformEvaluateViewShapes()
     UsdGenChunkDesc raggedDesc = fullDesc;
     raggedDesc.cvCount = 0;
     std::vector<float> ragPx(term.totalCvs), ragPy(term.totalCvs), ragPz(term.totalCvs);
-    UsdGenChunkView ragView = makeView(&raggedDesc, ragPx.data(), ragPy.data(), ragPz.data(),
+    UsdGenLegacyChunkView ragView = makeView(&raggedDesc, ragPx.data(), ragPy.data(), ragPz.data(),
                                        0, uint32_t(curves), 0, offsets.data());
     op->Evaluate(evalCtx, *graph.Node(deformId).capture, &ragView);
     Check(same(uniPx, ragPx) && same(uniPy, ragPy) && same(uniPz, ragPz),
@@ -1050,7 +1050,7 @@ void CheckDeformEvaluateViewShapes()
     tailDesc.cvCount = uint32_t(perCurve);
     size_t const tailCvs = (curves - half) * perCurve;
     std::vector<float> tailPx(tailCvs), tailPy(tailCvs), tailPz(tailCvs);
-    UsdGenChunkView tailView = makeView(&tailDesc, tailPx.data(), tailPy.data(), tailPz.data(),
+    UsdGenLegacyChunkView tailView = makeView(&tailDesc, tailPx.data(), tailPy.data(), tailPz.data(),
                                         half * perCurve, uint32_t(curves - half),
                                         uint32_t(perCurve), nullptr);
     op->Evaluate(evalCtx, *graph.Node(deformId).capture, &tailView);
@@ -1072,13 +1072,13 @@ void CheckDeformEvaluateViewShapes()
     maskCtx.params = &maskView;
     std::vector<float> blendUniPx(term.totalCvs), blendUniPy(term.totalCvs),
         blendUniPz(term.totalCvs);
-    UsdGenChunkView blendUniView =
+    UsdGenLegacyChunkView blendUniView =
         makeView(&fullDesc, blendUniPx.data(), blendUniPy.data(), blendUniPz.data(), 0,
                  uint32_t(curves), uint32_t(perCurve), nullptr);
     op->Evaluate(maskCtx, *graph.Node(deformId).capture, &blendUniView);
     std::vector<float> blendRagPx(term.totalCvs), blendRagPy(term.totalCvs),
         blendRagPz(term.totalCvs);
-    UsdGenChunkView blendRagView =
+    UsdGenLegacyChunkView blendRagView =
         makeView(&raggedDesc, blendRagPx.data(), blendRagPy.data(), blendRagPz.data(), 0,
                  uint32_t(curves), 0, offsets.data());
     op->Evaluate(maskCtx, *graph.Node(deformId).capture, &blendRagView);
@@ -1825,7 +1825,7 @@ void CheckCaptureDirectMaskReuse()
             fullDesc.firstCv = 0;
             fullDesc.cvCount = perCurve;
             std::vector<float> hx(total), hy(total), hz(total);
-            UsdGenChunkView v{};
+            UsdGenLegacyChunkView v{};
             v.desc = &fullDesc;
             v.px = hx.data();
             v.py = hy.data();

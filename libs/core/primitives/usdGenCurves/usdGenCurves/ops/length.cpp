@@ -20,6 +20,7 @@
 // usdGen:mask envelope and writes the `restLength` plane. Its capture
 // tracks upstream VALUES (positions), unlike the factor modes.
 #include "usdGen/ops/length.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 
 #include "usdGen/ops/lengthRange.h"
@@ -408,7 +409,7 @@ bool UsdGenLengthOp::Capture(
 void UsdGenLengthOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 
 {
     UsdGenLengthCapture const &cap =

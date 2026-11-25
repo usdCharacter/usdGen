@@ -242,7 +242,7 @@ bool UsdGenPartOp::Capture(
 void UsdGenPartOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(ctx);
     auto const &cap = static_cast<UsdGenPartCapture const &>(captureIn);

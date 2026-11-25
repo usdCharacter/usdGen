@@ -992,7 +992,7 @@ bool UsdGenClumpOp::Capture(
 void UsdGenClumpOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenClumpCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;

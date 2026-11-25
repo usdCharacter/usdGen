@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGen/clumpMotion.h"
 #include "usdGen/registries/engineTokens.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include <algorithm>
 #include <cmath>
@@ -202,6 +203,16 @@ bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
         [](auto const &a, auto const &b) { return a.level < b.level; });
     *out = std::move(candidate);
     return true;
+}
+
+bool UsdGenBuildClumpMotion(UsdGenCurveSetView const &curves,
+                            UsdGenClumpMotion *out,
+                            std::string *error,
+                            UsdGenClumpMotion const *previous)
+{
+    if (UsdGenCurveBuffer const *buffer = curves.LegacyBuffer())
+        return UsdGenBuildClumpMotion(*buffer, out, error, previous);
+    return UsdGenBuildClumpMotion(UsdGenCurvePlanesBuffer(curves), out, error, previous);
 }
 
 } // namespace usdGen

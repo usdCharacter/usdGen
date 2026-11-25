@@ -13,6 +13,7 @@
 // (review M-3 / engine rule E-8). Roots are Morton-sorted by rest position so
 // chunk placement is surface-major (plan/04 :641).
 #include "usdGen/ops/scatter.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/digest.h"
 #include "usdGen/limitSurface.h"
@@ -44,7 +45,7 @@ namespace usdGen {
 
 namespace {
 
-struct UsdGenScatterCapture final : public UsdGenCapture
+struct UsdGenScatterCapture final : public UsdGenCurveCapture
 {
     std::unique_ptr<UsdGenCapture> Clone() const override
     {
@@ -1688,7 +1689,7 @@ bool UsdGenScatterOp::Capture(
 void UsdGenScatterOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &capture,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     // A generator's Evaluate is identity: Capture filled the node buffer
     // (framework pre-copied the planes from the capture buffer).

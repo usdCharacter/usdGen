@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: MIT
 // The CurveSet primitive: its element layout (level 1 curves, level 2 CVs),
 // partition and group hooks, read views and the builder converters.
-//
-// No pxr include and no curveBuffer.h here: until 5.3a/5.4 rename the legacy
-// UsdGenChunkView/UsdGenChunkExtent in curveBuffer.h, a TU sees exactly one of
-// them, and the forward declarations below bind to whichever it includes.
-// UsdGenCurveChunk needs the generic one (usdGen/exec/chunkView.h).
+// No pxr include and no curveBuffer.h here.
 #pragma once
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/export.h"
@@ -31,6 +27,7 @@ using PXR_NS::GfVec3d;
 struct UsdGenCurveBuffer;     // usdGenCurves/types/curveBuffer.h
 struct UsdGenChunkView;       // usdGen/exec/chunkView.h
 struct UsdGenChunkExtent;     // usdGen/exec/chunkView.h
+struct UsdGenLegacyChunkView; // bridge (5.3a-f): usdGenCurves/types/curveBuffer.h
 class UsdGenRegistrar;
 
 /// Static channels of the CurveSet layout (slot == enumerator).
@@ -87,6 +84,9 @@ struct UsdGenCurveSetView {
     USDGEN_CORE_API UsdGenPlaneView ExtraCv(uint32_t) const noexcept;
     /// Compile/prepare time (name search). perCv: found among the CV planes.
     USDGEN_CORE_API bool FindPlane(UsdGenToken const &, UsdGenPlaneView *out, bool *perCv) const noexcept;
+    /// Bridge (5.3a; 5.4 deletes): the builder buffer this view reads, or
+    /// null for a set. Helpers that key caches on VtArray identity use it.
+    UsdGenCurveBuffer const *LegacyBuffer() const noexcept { return _buffer; }
 private:
     UsdGenElementSetView _set{};
     UsdGenCurveBuffer const *_buffer = nullptr;   // set by Of(UsdGenCurveBuffer)
@@ -96,6 +96,8 @@ private:
 /// the worker's stack from the generic view. No allocation, no name lookup.
 /// cvOffsets/inCvOffsets keep the legacy meaning (absolute values, pointer at
 /// the chunk's first curve); extraCvF/I are whole-column bases as before.
+/// Bridge (5.3a-f): a view with 'legacy' set and no 'range' is a wrapper of
+/// the old family's view, which is then copied member for member.
 class UsdGenCurveChunk {
 public:
     USDGEN_CORE_API explicit UsdGenCurveChunk(UsdGenChunkView const &) noexcept;
@@ -127,6 +129,7 @@ public:
     float const *InF(uint32_t s) const { return inF[s]; }
     int const *InI(uint32_t s) const { return inI[s]; }
 private:
+    void _Wrap(UsdGenLegacyChunkView const &) noexcept;
     Desc _desc{};
     float *_outF[kMaxSlots] = {}; int *_outI[kMaxSlots] = {};
     float const *_inF[kMaxSlots] = {}; int const *_inI[kMaxSlots] = {};

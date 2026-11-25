@@ -1,4 +1,5 @@
 #include "usdGen/ops/curveSource.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/curveLoader.h"
 #include "usdGen/surfaceCageSource.h"
@@ -24,7 +25,7 @@ namespace usdGen {
 
 namespace {
 
-struct UsdGenCurveSourceCapture final : public UsdGenCapture
+struct UsdGenCurveSourceCapture final : public UsdGenCurveCapture
 {
    std::unique_ptr<UsdGenCapture> Clone() const override
    {
@@ -650,7 +651,7 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
 
 void UsdGenCurveSourceOp::Evaluate(UsdGenEvalContext const &ctx,
                                    UsdGenCapture const &capture,
-                                   UsdGenChunkView *view) const
+                                   UsdGenLegacyChunkView *view) const
 {
    (void)ctx; (void)capture; (void)view;
 }

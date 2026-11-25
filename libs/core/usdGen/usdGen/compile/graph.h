@@ -11,6 +11,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveBridge.h"
 
 #include <array>
 #include <cstddef>
@@ -100,6 +101,9 @@ struct UsdGenCompiledNode : UsdGenPooled
     uint64_t               topologySeq = 0;       // monotone install counter for generators
 
     UsdGenCurveBuffer      buffer;               // this node's output (S24)
+    // Bridge (5.3a; 5.4 deletes): `buffer` as a set for the new op families,
+    // rebound by the scheduler before each use.
+    UsdGenCurveBufferSetView setView;
     std::unique_ptr<UsdGenCapture> capture;       // epoch-keyed payload
     // The capture `capture` replaced, kept when Recyclable(): the next
     // re-capture refills it (by then nothing downstream shares its arrays).

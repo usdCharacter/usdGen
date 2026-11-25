@@ -9,6 +9,7 @@
 // per-root broadcast. Every edge fails closed with a UsdGenDiagnostics
 // message; see exprOp.h for the contract.
 #include "usdGen/ops/exprOp.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/frontend.h"
@@ -350,7 +351,7 @@ bool UsdGenExprOp::Capture(
 void UsdGenExprOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenExprOpCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

@@ -52,7 +52,7 @@ public:
         }
         return true;
     }
-    void Evaluate(usdGen::UsdGenEvalContext const&, usdGen::UsdGenCapture const&, usdGen::UsdGenChunkView* view) const override {
+    void Evaluate(usdGen::UsdGenEvalContext const&, usdGen::UsdGenCapture const&, usdGen::UsdGenLegacyChunkView* view) const override {
         if (holdTile.load() && view->desc->tile == 1) {
             tileEntered.store(true);
             auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);

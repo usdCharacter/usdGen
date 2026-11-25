@@ -24,7 +24,7 @@ public:
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenChunkView*) const override {}
+                  UsdGenLegacyChunkView*) const override {}
 };
 
 class ValueNamedPlaneProbe final : public UsdGenOp {
@@ -35,7 +35,7 @@ public:
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenChunkView*) const override {}
+                  UsdGenLegacyChunkView*) const override {}
 };
 
 void RegisterNamedPlaneProbes(UsdGenRegistrar &r)

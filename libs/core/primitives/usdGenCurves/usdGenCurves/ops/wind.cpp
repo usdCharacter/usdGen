@@ -14,6 +14,7 @@
 // direction/constStrength/gustStrength sample per curve root (primitive);
 // stiffness and its ramp are groom-wide; the mask envelopes per CV.
 #include "usdGen/ops/wind.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/scratch.h"
 
 #include "usdGen/clumpMotion.h"
@@ -342,7 +343,7 @@ bool UsdGenWindOp::Capture(
 void UsdGenWindOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenWindCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

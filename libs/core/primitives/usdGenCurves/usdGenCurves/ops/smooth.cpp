@@ -298,7 +298,7 @@ bool UsdGenSmoothOp::Capture(
     return true;
 }
 
-void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenChunkView *view) const
+void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenLegacyChunkView *view) const
 {
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;
@@ -361,7 +361,7 @@ void UsdGenSmoothOp::EvaluateBox(UsdGenEvalContext const &ctx, UsdGenChunkView *
 void UsdGenSmoothOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;

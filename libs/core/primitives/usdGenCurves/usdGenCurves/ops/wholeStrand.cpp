@@ -200,7 +200,7 @@ bool UsdGenWholeStrandOp::Capture(UsdGenCaptureContext const &ctx,
 
 void UsdGenWholeStrandOp::Evaluate(UsdGenEvalContext const &ctx,
                                    UsdGenCapture const &captureIn,
-                                   UsdGenChunkView *view) const
+                                   UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenWholeStrandCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;

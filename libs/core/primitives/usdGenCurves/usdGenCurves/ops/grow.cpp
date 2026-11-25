@@ -6,6 +6,7 @@
 // positions and hairT. Direction: surfaceNormal (root frame N), attribute
 // (M1: root frame T), vector (usdGen:directionVector).
 #include "usdGen/ops/grow.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -634,7 +635,7 @@ bool UsdGenGrowOp::Capture(
 void UsdGenGrowOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(ctx);
     UsdGenGrowCapture const &cap =

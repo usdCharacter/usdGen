@@ -118,6 +118,8 @@ struct UsdGenElementSetView {
     void const *const *columns = nullptr;                        // per slot; null = absent
     uint32_t const *values = nullptr;                            // values per slot (items * arity)
     uint64_t topologyVersion = 0, valueVersion = 0;
+    /// Bridge (5.3a; 5.4 deletes): the builder buffer these columns alias, or null.
+    void const *legacy = nullptr;
     template <class T> T const *Column(UsdGenSlot s) const noexcept { return static_cast<T const *>(columns[s]); }
     bool Has(UsdGenSlot s) const noexcept { return channels && s < channels->Size() && columns[s]; }
     uint32_t Values(UsdGenSlot s) const noexcept { return values[s]; }

@@ -81,7 +81,7 @@ void Evaluate(UsdGenWindOp const& op, UsdGenCapture const& capture,
               UsdGenCurveBuffer* output, bool reverse=false) {
     for(size_t n=0;n<input.chunks.size();++n) {
         auto const& ch=input.chunks[reverse?input.chunks.size()-1-n:n];
-        UsdGenChunkView v{}; v.desc=&ch; v.curveCount=ch.curveCount; v.cvCount=ch.cvCount;
+        UsdGenLegacyChunkView v{}; v.desc=&ch; v.curveCount=ch.curveCount; v.cvCount=ch.cvCount;
         v.inCvCount=ch.cvCount; v.inFirstCv=ch.firstCv;
         v.inPx=input.px.cdata()+ch.firstCv; v.inPy=input.py.cdata()+ch.firstCv;
         v.inPz=input.pz.cdata()+ch.firstCv; v.px=output->px.data()+ch.firstCv;

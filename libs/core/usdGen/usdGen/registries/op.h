@@ -20,6 +20,8 @@
 #include "usdGen/pool.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/elementSet.h"
+#include "usdGen/exec/chunkView.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -260,21 +262,24 @@ private:
     UsdGenParamView _view;
 };
 
-/// Opaque per-node capture payload; M1 operators derive their own concrete
-/// payload types. Lifetime: owned by the compiled node, keyed by the node's
-/// capture epoch (03 §3.4).
+/// Opaque per-node capture payload; operators derive their own concrete
+/// payload types (curve generators: UsdGenCurveCapture, usdGenCurves/types/
+/// curveCapture.h). Lifetime: owned by the compiled node, keyed by the
+/// node's capture epoch (03 §3.4).
 struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptures
 {
     virtual ~UsdGenCapture() = default;
-    /// True when this capture is usable for the given upstream topology
-    /// (curve/CV counts); false forces a re-capture.
+    /// True when this capture is usable for the given upstream topology;
+    /// false forces a re-capture.
+    virtual bool ValidForTopology(UsdGenElementSetView const &) const { return true; }
+    /// Bridge (5.3a-f): the same question over the upstream builder buffer.
+    /// The scheduler asks both; a capture overrides one.
     virtual bool ValidForTopology(UsdGenCurveBuffer const &) const { return true; }
-    /// The buffer this capture owns/wraps (a generator's output topology);
-    /// default-constructed (empty) for non-generator captures.
-    virtual UsdGenCurveBuffer const &Buffer() const { return _buffer; }
-    /// True for generator captures: the framework installs Buffer() into the
-    /// owning node after a successful Capture.
-    virtual bool OwnsBuffer() const { return false; }
+    /// Generators: the set this capture produced (the node's output base).
+    virtual UsdGenRef<const UsdGenElementSet> Output() const { return {}; }
+    /// Bridge (5.3a; 5.4 deletes): the builder buffer a generator capture
+    /// owns, installed into its node; null for every other capture.
+    virtual UsdGenCurveBuffer const *OwnedBuffer() const { return nullptr; }
     /// True when Capture recorded per-chunk extents into the scheduler's
     /// slots. Consumed only through the interleave's span revalidation, so
     /// a stale true on a reused capture fails closed into the point pass.
@@ -284,7 +289,8 @@ struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptu
     /// buffer, so the sweep has nothing to run. The scheduler consults
     /// this only for a capture taken this run.
     virtual bool WroteDirectOutput() const { return false; }
-    UsdGenCurveBuffer &MutableBuffer() { return _buffer; }
+    /// The 257-entry LUT over hairT Evaluate reads, or null.
+    virtual float const *RampLut() const { return nullptr; }
     /// Type-erased copy for the incremental recompile path (E-6);
     /// concrete payloads override.
     virtual std::unique_ptr<UsdGenCapture> Clone() const { return nullptr; }
@@ -297,24 +303,23 @@ struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptu
     /// right before Capture refills it, so every array a newer generation
     /// still shares has been released by then. False: make a fresh one.
     virtual bool Recycle() { return false; }
-protected:
-    UsdGenCurveBuffer _buffer;
 };
 
-/// M1 shared capture payload base: op-specific per-curve / per-CV scalars
-/// resolved once per capture epoch (I4).
-/// Copyable (VtArray CoW); every CONCRETE payload must override Clone() with
-/// a full copy of its own derived type — a base-level clone would silently
-/// slice the op-specific fields (the E-6 reuse defect this closes).
-struct UsdGenCapturePayload : public UsdGenCapture
-{
-    VtFloatArray perCurve;      // op-specific meaning (target length, ...)
-    VtFloatArray perCv;         // op-specific meaning (noise displacement field, ...)
-    VtFloatArray rampLut;       // 257-entry op-specific LUT over hairT; empty == unused
+/// The empty input: what Primary() reads when a node has none.
+inline constexpr UsdGenElementSetView kUsdGenNoInput{};
 
-    /// Abstract: every concrete payload overrides this with a full-type copy
-    /// (`return std::make_unique<Self>(*this);` — see ops/*.cpp).
-    std::unique_ptr<UsdGenCapture> Clone() const override = 0;
+/// The geometry an op's Capture reads: one view per geometry input, in order.
+struct UsdGenOpInputs
+{
+    UsdGenElementSetView const *sets = nullptr;
+    uint32_t count = 0;
+    UsdGenElementSetView const &Primary() const noexcept
+    {
+        return sets && count ? sets[0] : kUsdGenNoInput;
+    }
+    /// Bridge (5.3a-f): the same inputs as builder buffers for the old
+    /// Capture family; legacy[0] is valid (an empty buffer) when count is 0.
+    UsdGenCurveBuffer const *const *legacy = nullptr;
 };
 
 struct UsdGenCaptureContext
@@ -351,7 +356,7 @@ struct UsdGenCaptureContext
     // all four are present and chunkCount == chunkExtentCount.
     UsdGenChunkDesc const *chunks = nullptr;
     size_t                 chunkCount = 0;
-    UsdGenChunkExtent     *chunkExtentSlots = nullptr;
+    UsdGenLegacyChunkExtent     *chunkExtentSlots = nullptr;
     size_t                 chunkExtentCount = 0;
     // The node's previous-run point planes (writable) for capture-direct
     // output, plus their CV count. Set only by UsdGenScheduler::Run when
@@ -412,21 +417,33 @@ public:
     // ---- capture: topology-dependent, cached by epoch (03 §3.4) --------------
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
     /// Fill *out (derive the concrete payload). A generator (topoFx != None)
-    /// must also populate its output topology (chunks, cvCount, totalCurves)
-    /// into *out->buffer when it creates curves.
-    virtual bool Capture(UsdGenCaptureContext const &ctx,
-                         UsdGenCurveBuffer const &upstream,
-                         UsdGenCapture *out,
-                         UsdGenDiagnostics *diag) = 0;
+    /// also produces its output topology (UsdGenCurveCapture::MutableBuffer).
+    /// Default: the old family through in.legacy (bridge, 5.3a-f).
+    USDGEN_CORE_API virtual bool Capture(UsdGenCaptureContext const &ctx,
+                                         UsdGenOpInputs const &in,
+                                         UsdGenCapture *out,
+                                         UsdGenDiagnostics *diag);
+    /// Bridge (5.3a-f), the old family. Default: the new family over views
+    /// of 'upstream' and ctx.upstreams. Overriding neither fails the capture.
+    USDGEN_CORE_API virtual bool Capture(UsdGenCaptureContext const &ctx,
+                                         UsdGenCurveBuffer const &upstream,
+                                         UsdGenCapture *out,
+                                         UsdGenDiagnostics *diag);
 
     // ---- evaluate: per chunk, parallel, allocation-free (03 §8.1) ------------
-    virtual void Evaluate(UsdGenEvalContext const &ctx,
-                          UsdGenCapture const &capture,
-                          UsdGenChunkView *view) const = 0;
+    /// Default: the old family through chunk.legacy (bridge, 5.3a-f).
+    USDGEN_CORE_API virtual void Evaluate(UsdGenEvalContext const &ctx,
+                                          UsdGenCapture const &capture,
+                                          UsdGenChunkView const &chunk) const;
+    /// Bridge (5.3a-f), the old family. Default: the new family over a view
+    /// wrapping 'view'. Overriding neither fails the cook (ctx.failureCode).
+    USDGEN_CORE_API virtual void Evaluate(UsdGenEvalContext const &ctx,
+                                          UsdGenCapture const &capture,
+                                          UsdGenLegacyChunkView *view) const;
 
     /// Allocate the concrete capture payload for this operator. The payload
     /// owns its per-curve results; generators additionally fill
-    /// UsdGenCapture::MutableBuffer() (OwnsBuffer() == true).
+    /// UsdGenCurveCapture::MutableBuffer() (OwnsBuffer() == true).
     virtual std::unique_ptr<UsdGenCapture> CreateCapture() const
     {
         return std::make_unique<UsdGenCapture>();

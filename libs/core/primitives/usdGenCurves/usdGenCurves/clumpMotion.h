@@ -14,6 +14,8 @@
 
 namespace usdGen {
 
+struct UsdGenCurveSetView;   // usdGenCurves/types/curveSet.h
+
 struct UsdGenClumpMotionGroup {
     GfVec3f restAnchor;
     uint64_t centerId = 0;
@@ -68,6 +70,12 @@ struct UsdGenClumpMotion {
 // levels remain visible with no groups or weights; consumers must not infer
 // cohesion from an ID alone. A malformed native quartet fails closed.
 USDGEN_CORE_API bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
+                            UsdGenClumpMotion *out,
+                            std::string *error = nullptr,
+                            UsdGenClumpMotion const *previous = nullptr);
+/// View overload (5.3a): a buffer-backed view takes the buffer path; a set
+/// copies its planes first, so the previous-capture reuse never hits there.
+USDGEN_CORE_API bool UsdGenBuildClumpMotion(UsdGenCurveSetView const &curves,
                             UsdGenClumpMotion *out,
                             std::string *error = nullptr,
                             UsdGenClumpMotion const *previous = nullptr);

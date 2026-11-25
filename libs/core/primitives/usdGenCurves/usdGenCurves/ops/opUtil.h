@@ -6,6 +6,7 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/base/gf/vec3d.h"
 #include "pxr/base/gf/vec3f.h"
@@ -119,7 +120,18 @@ inline bool CurveSpans(UsdGenCurveBuffer const &buffer, std::vector<uint32_t> *s
     return detail::_UsdGenCurveSpans(buffer, spans, error);
 }
 
+inline bool CurveSpans(UsdGenCurveSetView const &curves, std::vector<uint32_t> *spans,
+                       std::string *error)
+{
+    return detail::_UsdGenCurveSpans(curves, spans, error);
+}
+
 inline GfVec3f Point(UsdGenCurveBuffer const &b, size_t cv)
+{
+    return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]);
+}
+
+inline GfVec3f Point(UsdGenCurveSetView const &b, size_t cv)
 {
     return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]);
 }
@@ -127,6 +139,11 @@ inline GfVec3f Point(UsdGenCurveBuffer const &b, size_t cv)
 /// The rest position of CV `cv` when the buffer carries a complete rest
 /// plane, else its current position.
 inline GfVec3f RestPoint(UsdGenCurveBuffer const &b, size_t cv)
+{
+    return b.rest.size() == b.totalCvs ? b.rest[cv] : Point(b, cv);
+}
+
+inline GfVec3f RestPoint(UsdGenCurveSetView const &b, size_t cv)
 {
     return b.rest.size() == b.totalCvs ? b.rest[cv] : Point(b, cv);
 }

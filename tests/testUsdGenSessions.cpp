@@ -42,7 +42,7 @@ public:
         diagnostics->Error("deliberate execution failure for publication regression");
         return false;
     }
-    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenChunkView*) const override {}
+    void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&, UsdGenLegacyChunkView*) const override {}
 };
 
 void RegisterFailingCaptureOp(UsdGenRegistrar &r)

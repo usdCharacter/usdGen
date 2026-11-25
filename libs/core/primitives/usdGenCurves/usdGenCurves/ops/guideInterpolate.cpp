@@ -43,6 +43,7 @@
 // (strandIndex, strandSeed, ...) are carried into the generated buffer.
 // Evaluate writes the captured strands, following their roots.
 #include "usdGen/ops/guideInterpolate.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/clumpMotion.h"
 #include "usdGen/ops/guideBlend.h"
@@ -80,7 +81,7 @@ using namespace guideP;
 constexpr uint32_t kSaltGuide = 0x47554944u;   // "GUID"
 constexpr size_t kMaxCandidates = 32;
 
-struct UsdGenGuideInterpolateCapture final : public UsdGenCapture
+struct UsdGenGuideInterpolateCapture final : public UsdGenCurveCapture
 {
     uint32_t cvCount = 0;
     std::vector<float> result;   // 3 * curves * cvCount, rooted at `roots`
@@ -1010,7 +1011,7 @@ bool UsdGenGuideInterpolateOp::Capture(
 void UsdGenGuideInterpolateOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(ctx);
     auto const &cap = static_cast<UsdGenGuideInterpolateCapture const &>(captureIn);

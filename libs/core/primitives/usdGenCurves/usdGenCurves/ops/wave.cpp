@@ -11,6 +11,7 @@
 // Clump motion metadata therefore does not alter this deterministic styler;
 // changing its frequency or root frame would override authored wave shape.
 #include "usdGen/ops/wave.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
@@ -163,7 +164,7 @@ bool UsdGenWaveOp::Capture(
 void UsdGenWaveOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

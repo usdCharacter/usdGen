@@ -13,6 +13,7 @@
 // by. All work is per curve/CV in Evaluate (no capture payload); Capture only
 // validates literals and fails closed on non-finite connected values.
 #include "usdGen/ops/straighten.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
@@ -158,7 +159,7 @@ bool UsdGenStraightenOp::Capture(
 void UsdGenStraightenOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

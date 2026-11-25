@@ -56,7 +56,7 @@ public:
         return true;
     }
     void Evaluate(UsdGenEvalContext const &ctx, UsdGenCapture const &,
-                  UsdGenChunkView *view) const override
+                  UsdGenLegacyChunkView *view) const override
     {
         uint32_t count = view->curveCount * view->cvCount;
         if (view->cvCount == 0 && view->cvOffsets)

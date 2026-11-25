@@ -14,6 +14,7 @@
 // per-frame SeExpr FBM over 800 k CVs measures ~100 ms single-thread /
 // ~12.5 ms at 8 threads on this host (MEASURED, fbmbench, M1 integration).
 #include "usdGen/ops/noise.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/clumpMotion.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
@@ -422,7 +423,7 @@ bool UsdGenNoiseOp::Capture(
 void UsdGenNoiseOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     UsdGenNoiseCapture const &cap =
         static_cast<UsdGenNoiseCapture const &>(captureIn);

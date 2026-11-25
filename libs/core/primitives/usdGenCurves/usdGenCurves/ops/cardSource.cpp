@@ -4,6 +4,7 @@
 // usdGen — UsdGenCardSourceOp implementation. See cardSource.h for the
 // behaviour and ops/cardGeometry.h for the card grids.
 #include "usdGen/ops/cardSource.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/ops/cardGeometry.h"
 #include "usdGen/ops/opUtil.h"
@@ -27,7 +28,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 namespace {
 
-struct UsdGenCardSourceCapture final : public UsdGenCapture
+struct UsdGenCardSourceCapture final : public UsdGenCurveCapture
 {
     bool OwnsBuffer() const override { return true; }
     std::unique_ptr<UsdGenCapture> Clone() const override

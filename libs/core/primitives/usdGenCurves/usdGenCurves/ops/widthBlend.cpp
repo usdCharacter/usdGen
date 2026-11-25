@@ -214,7 +214,7 @@ bool UsdGenWidthBlendOp::Capture(
 void UsdGenWidthBlendOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &capture,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(capture);
     if (!view || !view->width || !view->inWidth || !view->inWidth2) return;

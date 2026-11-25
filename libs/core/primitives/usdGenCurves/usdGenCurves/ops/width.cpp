@@ -8,6 +8,7 @@
 // target = max(width, 0) * clamp01(f) with f <= 1e-6 -> 1.
 // TopologyEffect = None.
 #include "usdGen/ops/width.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/ops/strandUtil.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -228,7 +229,7 @@ bool UsdGenWidthOp::Capture(
 void UsdGenWidthOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

@@ -49,7 +49,7 @@ public:
                  UsdGenCapture *out, UsdGenDiagnostics *diag) override;
     /// Identity: Capture fills the whole node buffer.
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *) const override {}
+                  UsdGenLegacyChunkView *) const override {}
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override { return 0; }
 };

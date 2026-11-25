@@ -11,6 +11,7 @@
 // payload — the draws are pure functions of seed, curveId and salt, so a
 // scaleRandom edit re-rolls by re-evaluating); Capture only validates.
 #include "usdGen/ops/scale.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
@@ -203,7 +204,7 @@ bool UsdGenScaleOp::Capture(
 void UsdGenScaleOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

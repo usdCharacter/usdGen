@@ -79,7 +79,7 @@ public:
         return true;
     }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *) const override {}
+                  UsdGenLegacyChunkView *) const override {}
 };
 
 struct HoldTileState {
@@ -99,7 +99,7 @@ public:
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenChunkView* view) const override {
+                  UsdGenLegacyChunkView* view) const override {
         if (view->desc->tile != 1) return;
         HoldTileState::entered.store(true, std::memory_order_release);
         auto const deadline = std::chrono::steady_clock::now() +

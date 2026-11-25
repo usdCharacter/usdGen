@@ -14,6 +14,7 @@
 // follow the strands. Distribution and restoreSegmentLengths apply per
 // strand exactly as with a fixed count.
 #include "usdGen/ops/resample.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/scratch.h"
 
 #include "usdGen/curveBuffer.h"
@@ -303,7 +304,7 @@ bool UsdGenResampleOp::Capture(
 void UsdGenResampleOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenResampleCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

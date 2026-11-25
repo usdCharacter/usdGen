@@ -6,6 +6,7 @@
 // cannot leak one sibling's writes into the other or into the terminal branch.
 
 #include "usdGen/compiler.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -47,7 +48,7 @@ public:
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *view) const override
+                  UsdGenLegacyChunkView *view) const override
     {
         if (!view->outF || !view->inF || !view->outF[0] || !view->inF[0]) return;
         uint32_t count = view->curveCount * view->cvCount;
@@ -66,7 +67,7 @@ public:
     bool Capture(UsdGenCaptureContext const &, UsdGenCurveBuffer const &,
                  UsdGenCapture *, UsdGenDiagnostics *) override { return true; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *view) const override
+                  UsdGenLegacyChunkView *view) const override
     {
         if (!view->outI || !view->inI || !view->outI[0] || !view->inI[0]) return;
         for (uint32_t i = 0; i < view->curveCount; ++i)
@@ -92,7 +93,7 @@ public:
                  UsdGenCapture *, UsdGenDiagnostics *) override { return true; }
     uint32_t PlanesTouched() const override { return kPlaneWidths; }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
-                  UsdGenChunkView *view) const override
+                  UsdGenLegacyChunkView *view) const override
     {
         HeldEvalGate *gate = g_heldEvalGate;
         if (gate) {
@@ -550,7 +551,7 @@ void TestGrowWidthFallbackCapture()
 
     auto fallbackCapture = grow.CreateCapture();
     Check(grow.Capture(context, roots, fallbackCapture.get(), &diagnostics) &&
-              fallbackCapture->Buffer().width == VtFloatArray(6, 0.025f),
+              UsdGenCaptureBuffer(*fallbackCapture).width == VtFloatArray(6, 0.025f),
           "Grow materializes desc.defaultWidth for roots without widths");
 
     roots.totalCvs = 8;
@@ -561,7 +562,7 @@ void TestGrowWidthFallbackCapture()
     auto inheritedCapture = grow.CreateCapture();
     Check(grow.Capture(context, roots, inheritedCapture.get(), &diagnostics),
           "Grow captures an inherited width plane");
-    UsdGenCurveBuffer &grown = inheritedCapture->MutableBuffer();
+    UsdGenCurveBuffer &grown = UsdGenCaptureMutableBuffer(*inheritedCapture);
     Check(grown.width == VtFloatArray{0.0f, 0.5f, 1.0f, 1.0f, 0.5f, 0.0f} &&
               grown.width.cdata() != roots.width.cdata(),
           "Grow resamples inherited widths to a fresh topology owner");
@@ -604,7 +605,7 @@ void TestGrowAngularLift()
     auto capture = grow.CreateCapture();
     Check(grow.Capture(context, roots, capture.get(), &diagnostics),
           "Grow captures angular lift without mutating input");
-    auto const &lifted = capture->Buffer().rest;
+    auto const &lifted = UsdGenCaptureBuffer(*capture).rest;
     Check(lifted.size() == 3 && lifted[0] == GfVec3f(0, 0, 0) &&
               std::fabs(lifted[1][0]) < 1.e-5f &&
               std::fabs(lifted[1][1] - 0.5f) < 1.e-5f &&
@@ -622,7 +623,7 @@ void TestGrowAngularLift()
     auto negativeCapture = grow.CreateCapture();
     Check(grow.Capture(context, roots, negativeCapture.get(), &diagnostics),
           "Grow captures negative angular lift");
-    auto const &negative = negativeCapture->Buffer().rest;
+    auto const &negative = UsdGenCaptureBuffer(*negativeCapture).rest;
     Check(negative.size() == 3 && std::fabs(negative[1][1] + 0.5f) < 1.e-5f &&
               std::fabs(negative[2][1] + 1.0f) < 1.e-5f &&
               std::fabs(negative[2][0]) < 1.e-5f &&
@@ -643,7 +644,7 @@ void TestGrowAngularLift()
     chunk.liveCount = 1;
     chunk.cvCount = 3;
     float px[3] = {}, py[3] = {}, pz[3] = {}, hairT[3] = {};
-    UsdGenChunkView view{};
+    UsdGenLegacyChunkView view{};
     view.desc = &chunk;
     view.px = px; view.py = py; view.pz = pz; view.hairT = hairT;
     view.inPx = roots.px.cdata(); view.inPy = roots.py.cdata();
@@ -751,37 +752,37 @@ void TestGrowAzimuth()
     // Explicit zero must retain the exact existing direction path.
     node.params.erase(node.params.begin()+3,node.params.end());
     auto absent = capture();
-    Check(zero->Buffer().rest == absent->Buffer().rest,
+    Check(UsdGenCaptureBuffer(*zero).rest == UsdGenCaptureBuffer(*absent).rest,
           "Grow zero azimuth controls preserve existing points bit-for-bit");
     node.params.push_back({TfToken("azimuth"), VtValue(90.0f), false});
     node.params.push_back({TfToken("azimuthRandom"), VtValue(0.0f), false});
     auto fixed = capture();
-    auto const endpoint = fixed->Buffer().rest[1];
+    auto const endpoint = UsdGenCaptureBuffer(*fixed).rest[1];
     Check(std::fabs(endpoint[0]) < 1e-5f &&
           std::fabs(endpoint[1]-std::sin(42.f*3.14159265358979323846f/180.f)) < 1e-5f &&
-          std::fabs(endpoint[2]-zero->Buffer().rest[1][2]) < 1e-5f,
+          std::fabs(endpoint[2]-UsdGenCaptureBuffer(*zero).rest[1][2]) < 1e-5f,
           "Grow azimuth turns the leaned direction around N, preserving inclination");
     node.params[3].value = VtValue(0.0f);
     node.params[4].value = VtValue(1.0f);
     auto random = capture();
     auto repeat = capture();
-    Check(random->Buffer().rest == repeat->Buffer().rest, "Grow azimuth repeatability");
+    Check(UsdGenCaptureBuffer(*random).rest == UsdGenCaptureBuffer(*repeat).rest, "Grow azimuth repeatability");
     std::swap(roots.curveId[0], roots.curveId[1]);
     auto reordered = capture();
-    Check(reordered->Buffer().rest[1] == random->Buffer().rest[3] &&
-          reordered->Buffer().rest[3] == random->Buffer().rest[1],
+    Check(UsdGenCaptureBuffer(*reordered).rest[1] == UsdGenCaptureBuffer(*random).rest[3] &&
+          UsdGenCaptureBuffer(*reordered).rest[3] == UsdGenCaptureBuffer(*random).rest[1],
           "Grow random azimuth follows stable IDs when strand order changes");
     std::swap(roots.curveId[0], roots.curveId[1]);
     GfVec3f mean(0);
     int quadrants[4] = {};
     bool shape = true;
     for(uint32_t c=0;c<count;++c) {
-        auto const v = random->Buffer().rest[c*2+1];
+        auto const v = UsdGenCaptureBuffer(*random).rest[c*2+1];
         mean += v;
         ++quadrants[(v[0]<0 ? 1:0)+(v[1]<0 ? 2:0)];
         shape &= std::fabs(v.GetLength()-1.f)<1e-5f &&
-                 std::fabs(v[2]-zero->Buffer().rest[1][2])<1e-5f &&
-                 random->Buffer().rest[c*2] == GfVec3f(0);
+                 std::fabs(v[2]-UsdGenCaptureBuffer(*zero).rest[1][2])<1e-5f &&
+                 UsdGenCaptureBuffer(*random).rest[c*2] == GfVec3f(0);
     }
     mean /= float(count);
     Check(shape && std::fabs(mean[0])<.04f && std::fabs(mean[1])<.04f &&
@@ -804,7 +805,7 @@ void TestGrowAzimuth()
         GfVec3f chartMean(0);
         int bins[4]={};
         for(uint32_t c=face*(count/4);c<(face+1)*(count/4);++c) {
-            GfVec3f const v=charts->Buffer().rest[c*2+1];
+            GfVec3f const v=UsdGenCaptureBuffer(*charts).rest[c*2+1];
             chartMean+=v;
             ++bins[(v[0]<0 ? 1:0)+(v[1]<0 ? 2:0)];
         }
@@ -815,7 +816,7 @@ void TestGrowAzimuth()
     Check(isotropicCharts, "Full random azimuth has no shared face direction across rotated quad charts");
     for(uint32_t c=0;c<count;++c) roots.rootPrim[c]+=73;
     auto renamedFaces=capture();
-    Check(renamedFaces->Buffer().rest == charts->Buffer().rest,
+    Check(UsdGenCaptureBuffer(*renamedFaces).rest == UsdGenCaptureBuffer(*charts).rest,
           "Grow direction does not use face ID as a random input");
     roots.rootPrim.clear();
     roots.rootT.assign(count,GfVec3f(1,0,0)); roots.rootB.assign(count,GfVec3f(0,1,0));
@@ -826,7 +827,7 @@ void TestGrowAzimuth()
         UsdGenChunkDesc chunk; chunk.firstCurve=begin; chunk.curveCount=count/2;
         chunk.liveCount=count/2; chunk.cvCount=2;
         std::vector<float> x(count),y(count),z(count);
-        UsdGenChunkView view{}; view.desc=&chunk;
+        UsdGenLegacyChunkView view{}; view.desc=&chunk;
         view.curveCount=count/2; view.cvCount=2; view.inCvCount=1;
         view.inPx=roots.px.cdata()+begin; view.inPy=roots.py.cdata()+begin; view.inPz=roots.pz.cdata()+begin;
         view.rootN=roots.rootN.cdata()+begin; view.rootB=roots.rootB.cdata()+begin;
@@ -834,13 +835,13 @@ void TestGrowAzimuth()
         UsdGenEvalContext eval; eval.params=&params;
         grow.Evaluate(eval,*random,&view);
         for(uint32_t i=0;i<count;++i)
-            equal &= GfVec3f(x[i],y[i],z[i]) == random->Buffer().rest[begin*2+i];
+            equal &= GfVec3f(x[i],y[i],z[i]) == UsdGenCaptureBuffer(*random).rest[begin*2+i];
     }
     Check(equal, "Grow posed/rest azimuth agrees across chunk boundaries");
     auto const digest = grow.CaptureDigest(context);
     context.seed = 22;
     auto reseeded = capture();
-    Check(reseeded->Buffer().rest != random->Buffer().rest,
+    Check(UsdGenCaptureBuffer(*reseeded).rest != UsdGenCaptureBuffer(*random).rest,
           "Grow seed changes azimuth without a shared global RNG");
     context.seed = 21;
     node.params[4].value = VtValue(.5f);
@@ -865,16 +866,16 @@ void TestGrowAzimuth()
           "Grow primitive azimuth expression evaluates");
     params.expressions=&expressions;
     auto connected=capture();
-    Check(connected->Buffer().rest[1] == zero->Buffer().rest[1] &&
-          (connected->Buffer().rest[3]-fixed->Buffer().rest[1]).GetLength()<1e-5f,
+    Check(UsdGenCaptureBuffer(*connected).rest[1] == UsdGenCaptureBuffer(*zero).rest[1] &&
+          (UsdGenCaptureBuffer(*connected).rest[3]-UsdGenCaptureBuffer(*fixed).rest[1]).GetLength()<1e-5f,
           "Grow consumes a distinct connected azimuth at each root");
     node.expressionBindings[0].destination=TfToken("azimuthRandom");
     desc.expressions[0].source="$index % 2";
     Check(expressions.Evaluate(desc,node,roots,0,0,21,&changed,&expressionErrors),
           "Grow primitive azimuthRandom expression evaluates");
     auto connectedRandom=capture();
-    Check(connectedRandom->Buffer().rest[1] == zero->Buffer().rest[1] &&
-          connectedRandom->Buffer().rest[3] == random->Buffer().rest[3],
+    Check(UsdGenCaptureBuffer(*connectedRandom).rest[1] == UsdGenCaptureBuffer(*zero).rest[1] &&
+          UsdGenCaptureBuffer(*connectedRandom).rest[3] == UsdGenCaptureBuffer(*random).rest[3],
           "Grow consumes connected azimuthRandom independently per root");
     desc.expressions[0].source="1.1";
     Check(expressions.Evaluate(desc,node,roots,0,0,21,&changed,&expressionErrors),

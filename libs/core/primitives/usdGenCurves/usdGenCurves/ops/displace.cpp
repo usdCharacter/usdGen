@@ -16,6 +16,7 @@
 // map type reaches the kernel. All work is per curve/CV in Evaluate (no
 // capture payload); Capture only validates literals and connected values.
 #include "usdGen/ops/displace.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
@@ -176,7 +177,7 @@ bool UsdGenDisplaceOp::Capture(
 void UsdGenDisplaceOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

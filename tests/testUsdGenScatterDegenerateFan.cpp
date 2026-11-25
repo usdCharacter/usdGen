@@ -9,6 +9,7 @@
 // one-pass emitRange fan and the two-pass fanFace+spill fan) must publish
 // the fallback on every rootN.
 #include "usdGen/op.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenOpFixture.h"
@@ -82,7 +83,7 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
     UsdGenCurveBuffer empty;
     if (!op.Capture(ctx, empty, cap.get(), &diag))
         return false;
-    *out = cap->Buffer();
+    *out = UsdGenCaptureBuffer(*cap);
     return true;
 }
 

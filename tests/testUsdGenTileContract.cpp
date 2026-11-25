@@ -88,7 +88,7 @@ public:
     bool Capture(UsdGenCaptureContext const&, UsdGenCurveBuffer const&,
                  UsdGenCapture*, UsdGenDiagnostics*) override { return true; }
     void Evaluate(UsdGenEvalContext const&, UsdGenCapture const&,
-                  UsdGenChunkView* view) const override {
+                  UsdGenLegacyChunkView* view) const override {
         if (!view->outI || !view->outI[0]) return;
         for (uint32_t curve = 0; curve != view->curveCount; ++curve)
             for (uint32_t component = 0; component != 3; ++component)

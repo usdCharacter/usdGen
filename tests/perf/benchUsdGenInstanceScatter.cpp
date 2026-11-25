@@ -31,6 +31,7 @@
 // Scatter Evaluate is intentionally absent: it is an empty identity hook
 // (ops/scatter.cpp), so there is nothing to time.
 #include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/maps/attributeInstance.h"
 #include "usdGen/maps/attributeMap.h"
@@ -262,7 +263,7 @@ bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
         *error = diag.errors.empty() ? "scatter Capture failed" : diag.errors[0];
         return false;
     }
-    *roots = cap->Buffer();
+    *roots = UsdGenCaptureBuffer(*cap);
     return true;
 }
 
@@ -300,8 +301,8 @@ int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
         }
         ms.push_back(
             std::chrono::duration<double, std::milli>(t1 - t0).count());
-        Fold(&sum, HashCurves(cap->Buffer()));
-        ncurves = cap->Buffer().totalCurves;
+        Fold(&sum, HashCurves(UsdGenCaptureBuffer(*cap)));
+        ncurves = UsdGenCaptureBuffer(*cap).totalCurves;
     }
     char extra[64];
     std::snprintf(extra, sizeof(extra), "curves=%u", ncurves);

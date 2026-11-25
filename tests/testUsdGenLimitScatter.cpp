@@ -1,4 +1,5 @@
 #include "usdGen/limitSurface.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -54,7 +55,7 @@ static bool RunDirect(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out) {
     ctx.seed=uint32_t(node.seed);ctx.diag=&diag;
     UsdGenCurveBuffer empty;
     if(!op.Capture(ctx,empty,cap.get(),&diag))return false;
-    *out=cap->Buffer();return true;
+    *out=UsdGenCaptureBuffer(*cap);return true;
 }
 // z = x^2 + y^2 over [-3,4]^2, quads except the four cells nearest (-3,-3),
 // each split into two triangles (alternating diagonals). Vertex UVs are the

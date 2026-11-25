@@ -11,6 +11,7 @@
 // zero-length axis bends nothing. All work is per curve/CV in Evaluate;
 // Capture only validates.
 #include "usdGen/ops/bend.h"
+#include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
@@ -234,7 +235,7 @@ bool UsdGenBendOp::Capture(
 void UsdGenBendOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenBendCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;

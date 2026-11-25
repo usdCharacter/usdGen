@@ -8,6 +8,7 @@
 // mode owns nothing and Evaluate memcpys the chain input to the output.
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
 #include "usdGen/ops/freeze.h"
+#include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/ops/opUtil.h"
 
@@ -79,7 +80,7 @@ void DeepCopyBuffer(UsdGenCurveBuffer const &src, UsdGenCurveBuffer *dst)
     DeepCopyPlanes(src.extraCurve, &dst->extraCurve);
 }
 
-struct UsdGenFreezeCapture final : public UsdGenCapture
+struct UsdGenFreezeCapture final : public UsdGenCurveCapture
 {
     bool live = false;
     std::string epoch;
@@ -333,7 +334,7 @@ bool UsdGenFreezeOp::Capture(
 void UsdGenFreezeOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenChunkView *view) const
+    UsdGenLegacyChunkView *view) const
 {
     auto const &cap = static_cast<UsdGenFreezeCapture const &>(captureIn);
     if (cap.live) {

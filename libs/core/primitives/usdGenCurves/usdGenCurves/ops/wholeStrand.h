@@ -94,7 +94,7 @@ public:
                  UsdGenDiagnostics *diag) final;
     void Evaluate(UsdGenEvalContext const &ctx,
                   UsdGenCapture const &capture,
-                  UsdGenChunkView *view) const final;
+                  UsdGenLegacyChunkView *view) const final;
     std::unique_ptr<UsdGenCapture> CreateCapture() const final;
     uint32_t PlanesTouched() const final { return kPlanePoints; }
 

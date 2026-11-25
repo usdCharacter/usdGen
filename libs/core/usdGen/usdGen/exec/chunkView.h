@@ -1,14 +1,13 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // What a worker hands Evaluate: one chunk of a node's set and its primary input.
-// Note: the legacy curve types of the same names (usdGenCurves/types/
-// curveBuffer.h) are renamed or deleted by 5.3a/5.4; until then no TU may
-// include both headers.
 #pragma once
 #include "usdGen/api/elementSet.h"
 #include <cstdint>
 
 namespace usdGen {
+
+struct UsdGenLegacyChunkView;   // bridge (5.3a-f): usdGenCurves/types/curveBuffer.h
 
 struct UsdGenChunkExtent { float min[3], max[3]; UsdGenChunkRange range; };
 
@@ -31,11 +30,9 @@ struct UsdGenChunkView {
     double *scalarScratch = nullptr;
     UsdGenChunkExtent *extentSlot = nullptr;
     float const *rampLut = nullptr;
-};
-
-struct UsdGenReferenceSet {
-    UsdGenRef<const UsdGenElementSet> set; // root-local offsets are dynamic channels "__localX/Y/Z"
-    uint64_t generation = 0;
+    /// Bridge (5.3a-f): the same chunk as the old family's view, or null.
+    /// With 'range' null the view is only this wrapper (UsdGenCurveChunk reads it).
+    UsdGenLegacyChunkView *legacy = nullptr;
 };
 
 }  // namespace usdGen
