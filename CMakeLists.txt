@@ -508,6 +508,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
 endif()
 
 # ---------------------------------------------------------------------------
+# usdGenUsd (SHARED, host): the only code that maps SdfPath to engine node
+# keys (step 7). Links usdGen + sdf + usd; nothing in libs/core links it.
+# ---------------------------------------------------------------------------
+file(GLOB_RECURSE USDGEN_USD_SOURCES libs/hosts/usdGenUsd/*.cpp)
+add_library(usdGenUsd SHARED ${USDGEN_USD_SOURCES})
+target_include_directories(usdGenUsd PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd>
+    $<INSTALL_INTERFACE:include>)
+target_link_libraries(usdGenUsd
+    PUBLIC usdGen sdf tf
+    PRIVATE usd)
+set_target_properties(usdGenUsd PROPERTIES
+    CXX_VISIBILITY_PRESET default
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# ---------------------------------------------------------------------------
 # usdGenSchema (SHARED, minimal — tokens + extent registration)
 # ---------------------------------------------------------------------------
 file(GLOB_RECURSE USDGEN_SCHEMA_SOURCES libs/usdGenSchema/*.cpp)
@@ -1394,6 +1410,10 @@ add_executable(testUsdGenElementSet tests/testUsdGenElementSet.cpp)
 target_link_libraries(testUsdGenElementSet PRIVATE usdGen)
 add_test(NAME testUsdGenElementSet COMMAND testUsdGenElementSet)
 set_tests_properties(testUsdGenElementSet PROPERTIES LABELS "T0;elementSet" RUN_SERIAL ON TIMEOUT 120)
+add_executable(testUsdGenNodeKeyMap tests/testUsdGenNodeKeyMap.cpp)
+target_link_libraries(testUsdGenNodeKeyMap PRIVATE usdGenUsd)
+add_test(NAME testUsdGenNodeKeyMap COMMAND testUsdGenNodeKeyMap)
+set_tests_properties(testUsdGenNodeKeyMap PROPERTIES LABELS "T0;nodeKey" TIMEOUT 60)
 add_executable(testUsdGenCurveSet tests/testUsdGenCurveSet.cpp tests/testUsdGenCurveSetChunk.cpp)
 target_link_libraries(testUsdGenCurveSet PRIVATE usdGen)
 add_test(NAME testUsdGenCurveSet COMMAND testUsdGenCurveSet)
@@ -4788,7 +4808,7 @@ endif() # USDGEN_BUILD_TESTS
 # shipped objects) — installing them would put libusdGenMath.a /
 # libusdGen_seexpr.a into lib/ and drag their unprefixed INTERFACE include
 # roots into the usdGenTargets export set.
-install(TARGETS usdGenExecutionResources usdGen usdGenImaging usdGenSchema usdGenShaders usdGenPomade
+install(TARGETS usdGenExecutionResources usdGen usdGenUsd usdGenImaging usdGenSchema usdGenShaders usdGenPomade
     EXPORT usdGenTargets
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
@@ -4920,6 +4940,9 @@ install(DIRECTORY "${USDGEN_SHIM_DIR}/usdGen/"
     DESTINATION include/usdGen
     FILES_MATCHING PATTERN "*.h"
     PATTERN "sessionBackendExecutor.h" EXCLUDE)
+install(DIRECTORY libs/hosts/usdGenUsd/usdGenUsd/
+    DESTINATION include/usdGenUsd
+    FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY libs/usdGenSchema/usdGenSchema/
     DESTINATION include/usdGenSchema
     FILES_MATCHING PATTERN "*.h")
