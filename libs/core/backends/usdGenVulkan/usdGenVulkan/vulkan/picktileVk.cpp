@@ -1739,7 +1739,7 @@ PicktileVkGeometryLease AcquirePicktileVkGeometry(
     if (!inner) return {};
     if (inner.WaitUntilReady() != UsdGenDeviceStatus::Ok) return {};
     auto const& geometry = generation->Geometry();
-    uint64_t const curves = geometry.curveCount;
+    uint64_t const curves = geometry.elementCount;
     uint64_t const points = geometry.pointCount;
     if (curves == std::numeric_limits<uint64_t>::max()) return {};
     auto const& planes = inner.Planes();
@@ -1782,11 +1782,11 @@ PicktileVkTileLease AcquirePicktileVkTile(
     PicktileVkGeometryLease parent = AcquirePicktileVkGeometry(generation, queueStream);
     if (!parent) return {};
     PicktileVkGeometryView const& geometry = parent.View();
-    if (tile->curveCount > tile->pointCount ||
-        (tile->curveCount == 0 && tile->pointCount != 0) ||
-        tile->firstCurve > geometry.curveCount ||
-        tile->curveCount > geometry.curveCount - tile->firstCurve ||
-        tile->curveCount == std::numeric_limits<uint64_t>::max() ||
+    if (tile->elementCount > tile->pointCount ||
+        (tile->elementCount == 0 && tile->pointCount != 0) ||
+        tile->firstElement > geometry.curveCount ||
+        tile->elementCount > geometry.curveCount - tile->firstElement ||
+        tile->elementCount == std::numeric_limits<uint64_t>::max() ||
         tile->firstPoint > std::numeric_limits<uint32_t>::max() ||
         tile->pointCount > std::numeric_limits<uint32_t>::max() - tile->firstPoint)
         return {};
@@ -1796,21 +1796,21 @@ PicktileVkTileLease AcquirePicktileVkTile(
     view.topologyVersion = generation->Geometry().topologyVersion;
     view.valueVersion = generation->Geometry().valueVersion;
     // The extra offset sentinel is part of every non-empty and empty tile.
-    uint64_t const offsetCount = tile->curveCount + 1;
-    if (!SlicePlane(geometry.curveOffsets, tile->firstCurve, offsetCount, &view.curveOffsets) ||
+    uint64_t const offsetCount = tile->elementCount + 1;
+    if (!SlicePlane(geometry.curveOffsets, tile->firstElement, offsetCount, &view.curveOffsets) ||
         !SlicePlane(geometry.points, tile->firstPoint, tile->pointCount, &view.points) ||
         !SlicePlane(geometry.restPoints, tile->firstPoint, tile->pointCount, &view.restPoints) ||
         !SlicePlane(geometry.widths, tile->firstPoint, tile->pointCount, &view.widths) ||
         !SlicePlane(geometry.hairT, tile->firstPoint, tile->pointCount, &view.hairT) ||
-        !SlicePlane(geometry.stableIds, tile->firstCurve, tile->curveCount, &view.stableIds))
+        !SlicePlane(geometry.stableIds, tile->firstElement, tile->elementCount, &view.stableIds))
         return {};
     // Optional channels absent from the generation slice to empty views; a
     // half-present root pair fails closed (CUDA AcquireGeometryTile parity).
     bool const rootsEmpty = geometry.rootPrim.elementCount == 0;
     bool const uvsEmpty = geometry.rootUV.elementCount == 0;
     if (rootsEmpty != uvsEmpty) return {};
-    if (!SlicePlane(geometry.rootPrim, tile->firstCurve, tile->curveCount, &view.rootPrim) ||
-        !SlicePlane(geometry.rootUV, tile->firstCurve, tile->curveCount, &view.rootUV))
+    if (!SlicePlane(geometry.rootPrim, tile->firstElement, tile->elementCount, &view.rootPrim) ||
+        !SlicePlane(geometry.rootUV, tile->firstElement, tile->elementCount, &view.rootUV))
         return {};
     return PicktileVkTileLease(std::move(parent), view);
 }
@@ -1818,7 +1818,7 @@ PicktileVkTileLease AcquirePicktileVkTile(
 std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles, std::string* reason,
-    UsdGenDeviceCurveTopologyMetadata curveTopology) {
+    std::array<uint8_t, 3> layoutMetadata) {
     auto fail = [&](char const* message) {
         if (reason) *reason = message;
         return std::shared_ptr<const UsdGenDeviceGeneration>{};
@@ -1833,34 +1833,30 @@ std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
             return fail("tile IDs must be strictly increasing");
         first = false;
         previousId = tile.tile;
-        if (tile.curveCount > tile.pointCount ||
-            (tile.curveCount == 0 && tile.pointCount != 0) ||
+        if (tile.elementCount > tile.pointCount ||
+            (tile.elementCount == 0 && tile.pointCount != 0) ||
             tile.firstPoint > std::numeric_limits<uint32_t>::max() ||
             tile.pointCount > std::numeric_limits<uint32_t>::max() - tile.firstPoint ||
-            tile.firstCurve != curveEnd || tile.firstPoint != pointEnd ||
-            tile.curveCount > geometry.curveCount - curveEnd ||
+            tile.firstElement != curveEnd || tile.firstPoint != pointEnd ||
+            tile.elementCount > geometry.elementCount - curveEnd ||
             tile.pointCount > geometry.pointCount - pointEnd ||
-            tile.curveCount > std::numeric_limits<uint64_t>::max() - curveEnd ||
+            tile.elementCount > std::numeric_limits<uint64_t>::max() - curveEnd ||
             tile.pointCount > std::numeric_limits<uint64_t>::max() - pointEnd)
             return fail("tile ranges must be contiguous and in bounds");
-        curveEnd += tile.curveCount;
+        curveEnd += tile.elementCount;
         pointEnd += tile.pointCount;
     }
     if (tiles.empty()) {
-        if (geometry.curveCount != 0 || geometry.pointCount != 0)
+        if (geometry.elementCount != 0 || geometry.pointCount != 0)
             return fail("non-empty geometry requires tile metadata");
-    } else if (curveEnd != geometry.curveCount || pointEnd != geometry.pointCount) {
+    } else if (curveEnd != geometry.elementCount || pointEnd != geometry.pointCount) {
         return fail("tile metadata does not cover geometry");
     }
     UsdGenDeviceGeneration::CreateInfo info;
     info.identity = candidate->Identity();
     info.geometry = geometry;
     info.geometry.tiles = std::move(tiles);
-    if (curveTopology.type != UsdGenDeviceCurveType::Unknown ||
-        curveTopology.basis != UsdGenDeviceCurveBasis::Unknown ||
-        curveTopology.wrap != UsdGenDeviceCurveWrap::Unknown) {
-        info.geometry.curveTopology = curveTopology;
-    }
+    if (layoutMetadata != std::array<uint8_t, 3>{}) info.geometry.layoutMetadata = layoutMetadata;
     info.tool = candidate->Tool();
     info.channels = candidate->Channels();
     info.owner = candidate->Owner();
@@ -1880,11 +1876,11 @@ bool ValidatePicktileVkToolChannels(UsdGenDeviceGeometryMetadata const& geometry
     };
     auto const* points = find("points");
     auto const* offsets = find("curveOffsets");
-    if (geometry.curveCount == std::numeric_limits<uint64_t>::max())
+    if (geometry.elementCount == std::numeric_limits<uint64_t>::max())
         return fail("Vulkan tools reject a degenerate curve count");
     if (!points || points->elementCount != geometry.pointCount)
         return fail("Vulkan tools require an exact points channel");
-    if (!offsets || offsets->elementCount != geometry.curveCount + 1)
+    if (!offsets || offsets->elementCount != geometry.elementCount + 1)
         return fail("Vulkan tools require an exact curveOffsets channel");
     auto check = [&](char const* name, uint64_t elements) {
         auto const* channel = find(name);
@@ -1892,9 +1888,9 @@ bool ValidatePicktileVkToolChannels(UsdGenDeviceGeometryMetadata const& geometry
             return fail("Vulkan tool channel has an inexact element count");
         return true;
     };
-    if (!check("stableIds", geometry.curveCount) || !check("rest", geometry.pointCount) ||
+    if (!check("stableIds", geometry.elementCount) || !check("rest", geometry.pointCount) ||
         !check("width", geometry.pointCount) || !check("hairT", geometry.pointCount) ||
-        !check("rootPrim", geometry.curveCount) || !check("rootUV", geometry.curveCount))
+        !check("rootPrim", geometry.elementCount) || !check("rootUV", geometry.elementCount))
         return false;
     return true;
 }
@@ -1909,8 +1905,8 @@ bool PicktileVkPublishTileMetadata(PicktileVkTileSpan const* spans,
     for (size_t i = 0; i < tileCount; ++i) {
         UsdGenDeviceTileMetadata tile{};
         tile.tile = spans[i].tile;
-        tile.firstCurve = spans[i].firstCurve;
-        tile.curveCount = spans[i].curveCount;
+        tile.firstElement = spans[i].firstCurve;
+        tile.elementCount = spans[i].curveCount;
         tile.firstPoint = spans[i].firstPoint;
         tile.pointCount = spans[i].pointCount;
         for (size_t axis = 0; axis != 3; ++axis) {

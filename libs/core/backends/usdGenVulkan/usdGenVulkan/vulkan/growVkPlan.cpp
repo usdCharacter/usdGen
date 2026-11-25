@@ -113,9 +113,9 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
                 return Fail(diag, "ReferenceSource requires one authored reference");
             auto curves = std::find_if(desc.curveSets.begin(),desc.curveSets.end(),
                 [&](auto const& value) { return value.path == node.references.front(); });
-            if (curves == desc.curveSets.end() || curves->role != UsdGenRole::Reference)
+            if (curves == desc.curveSets.end() || curves->role != UsdGenLane::Reference)
                 return Fail(diag, "unresolved ReferenceSource");
-            curves->role = UsdGenRole::Curves; curves->curveRole = et.hair;
+            curves->role = UsdGenLane::Chunked; curves->curveRole = et.hair;
             // CUDA ReferenceSource imports the snapshot as current geometry.
             node.curves = node.references; node.references.clear();
             lowerToSource(node, false);
@@ -155,7 +155,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
                 roots.rootPrim.size()!=n || roots.rootUV.size()!=n || roots.rootT.size()!=n || roots.rootB.size()!=n || roots.rootN.size()!=n)))
                 return Fail(diag,"invalid captured roots");
             UsdGenCurveSetDesc curves; curves.path = node.path.AppendChild(vk.capturedRoots);
-            curves.role = UsdGenRole::Curves; curves.curveRole = et.hair;
+            curves.role = UsdGenLane::Chunked; curves.curveRole = et.hair;
             curves.curveVertexCounts = VtIntArray(n,2); curves.points.resize(2*n); curves.rest.resize(2*n);
             curves.widths = VtFloatArray(2*n,desc.defaultWidth); curves.curveId = n ? roots.curveId : VtArray<uint64_t>();
             curves.skinPrim = n ? roots.rootPrim : VtIntArray(); curves.skinPrimUv = n ? roots.rootUV : VtVec2fArray(); curves.rootFrame.resize(n);

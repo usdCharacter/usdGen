@@ -138,7 +138,7 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         return Fail(diagnostics, "CurveSource requires exactly one C3 curve target");
     auto found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
                               [&](auto const &item) { return item.path == node.curves.front(); });
-    if (found == desc.curveSets.end() || found->role != UsdGenRole::Curves ||
+    if (found == desc.curveSets.end() || found->role != UsdGenLane::Chunked ||
         found->curveRole != et.hair)
         return Fail(diagnostics, "CurveSource target must be one resolved C3 hair curve set");
     // Current/rest points stay source-local. Only constructing absent root
@@ -1336,11 +1336,11 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     using A = UsdGenExecutionResourceAccess;
     using S = UsdGenExecutionValueStorage;
     std::vector<UsdGenExecutionValueMetadata> values{
-        {0, K::CurveGeometry, UINT32_MAX, 0, S::ExternalImmutable},
-        {1, K::CurveGeometry, 0, 1, S::JobOwnedImmutable},
+        {0, K::ElementGeometry, UINT32_MAX, 0, S::ExternalImmutable},
+        {1, K::ElementGeometry, 0, 1, S::JobOwnedImmutable},
         {2, K::Widths, 0, 1, S::JobOwnedImmutable},
         {3, K::Widths, finalTask, finalTask + 1, S::PublishedImmutable},
-        {4, K::CurveTopology, 0, 1, S::JobOwnedImmutable},
+        {4, K::ElementTopology, 0, 1, S::JobOwnedImmutable},
         {5, K::StableIds, 0, 1, S::JobOwnedImmutable},
         // One immutable source bundle: hairT plus every authored named plane.
         // Point-only stages retain/read it; topology-changing stages publish a
@@ -1387,7 +1387,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     sourceTask.path = sourceNode.path;
     sourceTask.type = original.nodes[sourceIndex].type;
     sourceTask.exclusiveWorkspace = false;
-    sourceTask.resources = {{K::CurveGeometry, A::ReadWrite, UINT32_MAX, 0, 1},
+    sourceTask.resources = {{K::ElementGeometry, A::ReadWrite, UINT32_MAX, 0, 1},
                             {K::Widths, A::Write, UINT32_MAX, UINT32_MAX, 2}};
     for (uint32_t id : sourceImmutableIds)
         sourceTask.resources.push_back({values[id].resource, A::Write, UINT32_MAX, UINT32_MAX, id});
@@ -1440,13 +1440,13 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         uint32_t output = taskId == finalTask ? 3u : uint32_t(values.size());
         if (output != 3)
             values.push_back({});
-        values[output] = {output, length ? K::CurveGeometry : K::Widths, taskId, taskId + 1,
+        values[output] = {output, length ? K::ElementGeometry : K::Widths, taskId, taskId + 1,
                           output == 3 ? S::PublishedImmutable : S::JobOwnedImmutable};
         if (length)
             out.geometry = output;
         else
             out.widths = output;
-        task.resources.push_back({K::CurveGeometry, length ? A::ReadWrite : A::Read,
+        task.resources.push_back({K::ElementGeometry, length ? A::ReadWrite : A::Read,
                                   values[in.geometry].producerTask, in.geometry,
                                   length ? output : UINT32_MAX});
         if (topologyChange) {
@@ -1470,7 +1470,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             auto right = bundles[stage.rightInput];
             stage.requiresNonWidthProof = right.geometry != in.geometry;
             if (stage.requiresNonWidthProof) {
-                task.resources.push_back({K::CurveGeometry, A::Read,
+                task.resources.push_back({K::ElementGeometry, A::Read,
                                           values[right.geometry].producerTask, right.geometry,
                                           UINT32_MAX});
                 for (uint32_t id : right.inherited)
@@ -1544,7 +1544,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     publication.exclusiveWorkspace = false;
     auto terminal = bundles.back();
     publication.resources = {
-        {K::CurveGeometry, A::Read, values[terminal.geometry].producerTask, terminal.geometry,
+        {K::ElementGeometry, A::Read, values[terminal.geometry].producerTask, terminal.geometry,
          UINT32_MAX},
         {K::Widths, A::Read, values[terminal.widths].producerTask, terminal.widths, UINT32_MAX}};
     for (uint32_t id : terminal.inherited)
