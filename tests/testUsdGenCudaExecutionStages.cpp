@@ -29,7 +29,7 @@ static UsdGenGraphDesc Desc() {
     s.points = s.restPoints; s.points[0][0] = 1;
     s.faceVertexCounts = {3,3,3}; s.faceVertexIndices = {0,1,2,0,1,3,1,2,4};
     d.surfaces.push_back(s);
-    UsdGenCurveSetDesc c; c.path = SdfPath("/Curves"); c.role = UsdGenRole::Curves;
+    UsdGenCurveSetDesc c; c.path = SdfPath("/Curves"); c.role = UsdGenLane::Chunked;
     c.curveRole = TfToken("hair"); c.curveVertexCounts = {2};
     c.points = {{.2f,.2f,0},{.2f,.4f,0}}; c.rest = c.points;
     c.curveId = {7}; c.skinPrim = {0}; c.skinPrimUv = {{.2f,.2f}};

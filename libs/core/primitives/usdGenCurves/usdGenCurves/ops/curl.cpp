@@ -356,7 +356,7 @@ UsdGenOpId UsdGenRegisterCurlOp(UsdGenRegistrar &r)
     d.name = "UsdGenCurl";
     d.displayName = "Curl";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     return r.RegisterOp(d);
 }

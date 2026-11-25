@@ -14,6 +14,7 @@
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/ops/guideBlend.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>
@@ -68,7 +69,7 @@ static UsdGenGraphDesc Build(Fixture const &f)
     // (rows tangent, binormal, normal; tangent x binormal = normal).
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/groom/roots");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     size_t const R = f.roots.size();
     hair.curveVertexCounts.assign(R, 2);
@@ -125,7 +126,7 @@ static UsdGenGraphDesc Build(Fixture const &f)
     if (f.withGuides) {
         UsdGenCurveSetDesc guides;
         guides.path = SdfPath("/groom/guides");
-        guides.role = UsdGenRole::Reference;
+        guides.role = UsdGenLane::Reference;
         guides.curveRole = TfToken("guide");
         for (Polyline const &g : f.guides) {
             guides.curveVertexCounts.push_back(int(g.size()));

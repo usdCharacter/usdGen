@@ -350,7 +350,7 @@ UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &r)
     d.name = "UsdGenWidth";
     d.displayName = "Width";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     d.mapSlots = UsdGenSpan(kMaps);
     d.tokens = UsdGenSpan(kTokens);

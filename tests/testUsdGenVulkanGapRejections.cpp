@@ -69,7 +69,7 @@ UsdGenGraphDesc MakeDesc() {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Groom/C3");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{0, 0, 0}, {0, 1, 0}};

@@ -158,7 +158,7 @@ UsdGenSurfaceDesc TriSurface() {
 void AddRaggedRootedCurves(UsdGenGraphDesc& d) {
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -244,7 +244,7 @@ UsdGenGraphDesc FixtureSurfaceFree() {
     UsdGenGraphDesc d = BaseDesc();
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -296,7 +296,7 @@ UsdGenGraphDesc FixtureMoved() {
     d.surfaces.push_back(surface);
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -362,7 +362,7 @@ DeformFixture FixtureDeformMovedSurface() {
     fx.desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");

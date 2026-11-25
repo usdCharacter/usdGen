@@ -129,7 +129,7 @@ UsdGenGraphDesc MakeCudaSourceDesc()
 
     UsdGenCurveSetDesc curves;
     curves.path = source.curves.front();
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = VtIntArray{2, 3};
     curves.points = VtVec3fArray{

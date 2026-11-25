@@ -66,7 +66,7 @@ static UsdGenGraphDesc AffineDesc() {
     surface.worldMatrix = relative * sourceWorld;
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc curves;
-    curves.path = SdfPath("/Affine/Curves"); curves.role = UsdGenRole::Curves;
+    curves.path = SdfPath("/Affine/Curves"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair"); curves.curveVertexCounts = {3};
     curves.points = {{.2f,.2f,0}, {.2f,.2f,1}, {.2f,.2f,2}};
     curves.rest = curves.points; curves.curveId = {17};

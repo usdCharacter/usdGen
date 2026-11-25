@@ -66,19 +66,19 @@ static Curve Straight(GfVec3f const &root, int cvs, float step)
 }
 
 static UsdGenCurveSetDesc HairSet(SdfPath const &path, std::vector<Curve> const &curves,
-                                  UsdGenRole role = UsdGenRole::Curves)
+                                  UsdGenLane role = UsdGenLane::Chunked)
 {
     UsdGenCurveSetDesc set;
     set.path = path;
     set.role = role;
-    set.curveRole = TfToken(role == UsdGenRole::Curves ? "hair" : "guide");
+    set.curveRole = TfToken(role == UsdGenLane::Chunked ? "hair" : "guide");
     for (Curve const &c : curves) {
         set.curveVertexCounts.push_back(int(c.size()));
         for (GfVec3f const &p : c) set.points.push_back(p);
     }
     set.rest = set.points;
     size_t const n = curves.size();
-    if (role == UsdGenRole::Curves) {
+    if (role == UsdGenLane::Chunked) {
         set.widths.assign(set.points.size(), 0.01f);
         set.curveId.resize(n);
         for (size_t c = 0; c < n; ++c) set.curveId[c] = uint64_t(c);
@@ -479,7 +479,7 @@ static UsdGenGraphDesc TrimDesc(TrimSetup const &t,
                                 bool withSurface = false)
 {
     UsdGenGraphDesc desc = BaseDesc(ThreeStrands());
-    UsdGenCurveSetDesc blades = HairSet(SdfPath("/groom/trimCurves"), t.curves, UsdGenRole::Reference);
+    UsdGenCurveSetDesc blades = HairSet(SdfPath("/groom/trimCurves"), t.curves, UsdGenLane::Reference);
     if (!t.normals.empty())
         AddFloatPlane(blades, "normal", t.normals, UsdGenAuthoredPlaneDomain::Point, 3);
     if (!t.angle.empty())
@@ -548,7 +548,7 @@ static void TestTrim()
     std::unique_ptr<UsdGenOp> op = UsdGenOpRegistry::Get().Create(UsdGenOpRegistry::Get().Find(TfToken("UsdGenTrim")));
     Check(op && op->Record().ReferenceInputs().size() == 1 &&
           op->Record().ReferenceInputs()[0] == TfToken("trim:curves") &&
-          op->Record().Def().topoFx == UsdGenTopoFx::None, "UsdGenTrim declares trim:curves");
+          op->Record().Def().countChanges == 0, "UsdGenTrim declares trim:curves");
 
     UsdGenCurveBuffer input, out;
     {

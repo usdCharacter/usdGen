@@ -29,7 +29,7 @@ static UsdGenGraphDesc Desc() {
     d.defaultWidth = .125f;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Hair");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {3, 2};
     curves.rest = {{10,0,0}, {11,0,0}, {12,0,0}, {20,0,0}, {21,0,0}};

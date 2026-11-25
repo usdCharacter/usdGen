@@ -1057,7 +1057,7 @@ UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &r)
     d.name = "UsdGenGuideInterpolate";
     d.displayName = "GuideInterpolate";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CvCount;
+    d.countChanges = UsdGenCountsAtLevel(2);
     d.traits = kUsdGenOpGenerator | kUsdGenOpCaptureOwnsRestAndPlanes;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);

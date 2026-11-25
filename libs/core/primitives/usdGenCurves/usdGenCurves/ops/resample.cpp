@@ -434,7 +434,7 @@ UsdGenOpId UsdGenRegisterResampleOp(UsdGenRegistrar &r)
     d.name = "UsdGenResample";
     d.displayName = "Resample";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CvCount;
+    d.countChanges = UsdGenCountsAtLevel(2);
     d.traits = kUsdGenOpCaptureOwnsRestAndPlanes;   // scheduler: rest and planes follow Capture
     d.params = UsdGenSpan(kParams);
     d.tokens = UsdGenSpan(kTokens);

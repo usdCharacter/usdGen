@@ -536,7 +536,7 @@ UsdGenOpId UsdGenRegisterLengthOp(UsdGenRegistrar &r)
     d.name = "UsdGenLength";
     d.displayName = "Length";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;               // cull mode exists (ADR §9 R14)
+    d.countChanges = UsdGenCountsAtLevel(1);               // cull mode exists (ADR §9 R14)
     d.traits = kUsdGenOpFollowsInputUntilOwning;
     d.params = UsdGenSpan(kParams);
     d.mapSlots = UsdGenSpan(kMaps);

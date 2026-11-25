@@ -272,7 +272,7 @@ void CheckWorldMetricBridge(std::string const &mapFile)
 
     UsdGenCurveSetDesc sparse;
     sparse.path = SdfPath("/Sparse");
-    sparse.role = UsdGenRole::Reference;
+    sparse.role = UsdGenLane::Reference;
     sparse.curveRole = TfToken("guide");
     sparse.worldMatrix = world;
     auto payload = std::make_shared<UsdGenSurfaceCagePayload>();

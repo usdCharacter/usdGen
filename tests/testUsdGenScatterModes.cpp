@@ -97,7 +97,7 @@ UsdGenCurveSetDesc GuideSet(std::vector<std::vector<GfVec3f>> const &curves,
 {
     UsdGenCurveSetDesc g;
     g.path = SdfPath("/Groom/Guides");
-    g.role = UsdGenRole::Reference;
+    g.role = UsdGenLane::Reference;
     g.curveRole = TfToken("guide");
     g.type = TfToken("linear");
     for (auto const &c : curves) {

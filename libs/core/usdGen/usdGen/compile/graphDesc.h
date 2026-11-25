@@ -224,7 +224,7 @@ struct UsdGenNodeDesc
 struct UsdGenCurveSetDesc
 {
     SdfPath         path;
-    UsdGenRole      role;              // Reference (guides, clump centres) | Curves (a CurveSource)
+    UsdGenLane      role;              // Reference (guides, clump centres) | Chunked (a CurveSource)
     TfToken         curveRole;         // primvars:usdGen:role: hair | guide (C3 marker)
     VtIntArray      curveVertexCounts;
     VtVec3fArray    points, rest;      // rest == primvars:rest; may share points' buffer

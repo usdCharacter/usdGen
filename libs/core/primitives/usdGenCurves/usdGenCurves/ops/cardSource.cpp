@@ -5,6 +5,7 @@
 // behaviour and ops/cardGeometry.h for the card grids.
 #include "usdGen/ops/cardSource.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/cardGeometry.h"
 #include "usdGen/ops/opUtil.h"
@@ -565,8 +566,8 @@ UsdGenOpId UsdGenRegisterCardSourceOp(UsdGenRegistrar &r)
     d.name = "UsdGenCardSource";
     d.displayName = "CardSource";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;
-    d.role = UsdGenRole::Curves;
+    d.countChanges = UsdGenCountsAtLevel(1);
+    d.lane = UsdGenLane::Chunked;
     d.geometryInputArity = 0;
     d.traits = kUsdGenOpGenerator;
     d.params = UsdGenSpan(kParams);

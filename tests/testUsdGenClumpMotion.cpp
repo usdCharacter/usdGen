@@ -229,7 +229,7 @@ int main() {
     imported.nodes[0].curves = {SdfPath("/clump/imported")};
     UsdGenCurveSetDesc sourceCurves;
     sourceCurves.path = imported.nodes[0].curves.front();
-    sourceCurves.role = UsdGenRole::Curves;
+    sourceCurves.role = UsdGenLane::Chunked;
     sourceCurves.curveRole = TfToken("hair");
     sourceCurves.curveVertexCounts = {2};
     sourceCurves.points = {{0,0,0}, {0,1,0}};

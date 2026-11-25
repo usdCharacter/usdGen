@@ -57,7 +57,7 @@ struct UsdGenGraphRoutingNode
     std::vector<std::pair<TfToken, uint32_t>> paramRouting;
     UsdGenSurfaceId surface = 0;
     bool hasSurface = false;
-    std::vector<SdfPath> curveRefs;
+    std::vector<SdfPath> inputRefs;
     std::vector<SdfPath> mapRefs;
     std::vector<UsdGenMapBindingDesc> mapBindingRefs;
     std::vector<SdfPath> geometryRefs;
@@ -91,8 +91,8 @@ struct UsdGenCompiledNode : UsdGenPooled
     UsdGenNodeId           input = kUsdGenInvalidNode;   // primary usdGen:input (dense range test)
     std::vector<UsdGenNodeId> inputs;                   // all usdGen:input targets
 
-    UsdGenTopoFx           topoFx = UsdGenTopoFx::None;
-    UsdGenRole             role = UsdGenRole::Curves;
+    uint8_t                countChanges = 0;
+    UsdGenLane             lane = UsdGenLane::Chunked;
     bool                   enabled = true;
 
     UsdGenEpoch            structuralDigest {};  // Merkle d(n) (03 §3.3)
@@ -150,7 +150,7 @@ struct UsdGenCompiledNode : UsdGenPooled
     std::vector<TfToken> inputPrimvars;
     UsdGenSurfaceId        surface = 0;
     bool                   hasSurface = false;
-    std::vector<SdfPath>   curveRefs;            // usdGen:curves/guides/frozen:curves targets
+    std::vector<SdfPath>   inputRefs;            // usdGen:curves/guides/frozen:curves targets
     std::vector<SdfPath>   mapRefs;              // legacy flat map targets
     std::vector<UsdGenMapBindingDesc> mapBindingRefs; // typed authored map slots
     // Prims a connected expression reads through its input:<name>
@@ -203,7 +203,7 @@ public:
     void DirtyMap(SdfPath const &mapPrim, uint64_t generation = UINT64_MAX);
     /// Bumps the capture epoch of every node whose UsdGenNodeDesc::curves names this prim
     /// (a C3 BasisCurves changed: guide edit, re-freeze, re-import). §3.6, §4.5.
-    void DirtyCurves(SdfPath const &curvePrim,
+    void DirtyInput(SdfPath const &inputIdentity,
                      uint64_t generation = UINT64_MAX);
     /// Re-captures every node whose connected expressions sample this prim
     /// (geoSampler()/ptex() inputs), or a descendant of it.

@@ -29,6 +29,12 @@ struct UsdGenChunkView;       // usdGen/exec/chunkView.h
 struct UsdGenChunkExtent;     // usdGen/exec/chunkView.h
 class UsdGenRegistrar;
 
+/// CPU-lane ceiling on CVs per generated or resampled strand (Grow segments,
+/// GuideInterpolate/CardSource cvCount, Resample cvCount/spacing). The CUDA
+/// and Vulkan lanes keep their own, smaller kernel limits and refuse a graph
+/// above them at admission. Also the CurveSet type's level-2 limit.
+constexpr uint32_t kUsdGenMaxCvsPerCurve = 4096u;
+
 /// Static channels of the CurveSet layout (slot == enumerator).
 enum UsdGenCurveSlot : UsdGenSlot {
     kUsdGenCurvePx, kUsdGenCurvePy, kUsdGenCurvePz,           // L2 F32 Position, comp 0/1/2 (planar)

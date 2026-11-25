@@ -67,7 +67,7 @@ static expr::ValueShape FloatShape(uint32_t n = 1)
 static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
                                           std::vector<GfVec3f> const &roots,
                                           int cvs, float step,
-                                          UsdGenRole role = UsdGenRole::Curves,
+                                          UsdGenLane role = UsdGenLane::Chunked,
                                           float width = 0.1f,
                                           uint64_t idBase = 0,
                                           bool withWidths = true)
@@ -75,7 +75,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
     UsdGenCurveSetDesc set;
     set.path = path;
     set.role = role;
-    set.curveRole = TfToken(role == UsdGenRole::Reference ? "guide" : "hair");
+    set.curveRole = TfToken(role == UsdGenLane::Reference ? "guide" : "hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
     set.points.resize(n * size_t(cvs));
@@ -235,9 +235,9 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenFreeze)");
     if (!op) return;
     Check(record.Name() == type, "Freeze reports its own type");
-    Check(record.Def().topoFx == UsdGenTopoFx::CurveCount,
+    Check(record.Def().countChanges == UsdGenCountsAtLevel(1),
           "Freeze has TopologyEffect CurveCount (static worst case)");
-    Check(record.Def().role == UsdGenRole::Curves, "Freeze is a Curves-role chain node");
+    Check(record.Def().lane == UsdGenLane::Chunked, "Freeze is a Curves-role chain node");
     Check(record.Def().geometryInputArity == 1, "Freeze consumes one chain input");
     Check(!record.Has(kUsdGenOpGenerator), "Freeze is not a generator");
     TfSpan<const TfToken> const refs = record.ReferenceInputs();
@@ -283,7 +283,7 @@ static UsdGenGraphDesc FreezeDesc(std::vector<UsdGenParamValue> const &params,
                                                 GfVec3f(103, 0, 0)};
         desc.curveSets.push_back(StraightStrands(
             SdfPath("/freeze/snap"), snapRoots, snapshotCvs, 0.5f,
-            UsdGenRole::Reference, 0.5f, 7, snapshotWidths));
+            UsdGenLane::Reference, 0.5f, 7, snapshotWidths));
         freeze.references = {SdfPath("/freeze/snap")};
     }
     desc.nodes.push_back(freeze);
@@ -726,7 +726,7 @@ static void CheckEmptySnapshotFailsClosed()
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     UsdGenCurveSetDesc empty;
     empty.path = SdfPath("/freeze/empty");
-    empty.role = UsdGenRole::Reference;
+    empty.role = UsdGenLane::Reference;
     empty.curveRole = TfToken("guide");
     desc.curveSets.push_back(empty);
     desc.nodes.back().references = {SdfPath("/freeze/empty")};
@@ -850,7 +850,7 @@ static UsdGenGraphDesc CudaFreezeDesc()
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f, .2f, 0}, {.2f, .4f, 0}};

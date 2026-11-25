@@ -1007,7 +1007,7 @@ void TestAuthoredSourcePlanes()
 
     UsdGenCurveSetDesc sourceCurves;
     sourceCurves.path = SdfPath("/authoredPlanes/curves");
-    sourceCurves.role = UsdGenRole::Curves;
+    sourceCurves.role = UsdGenLane::Chunked;
     sourceCurves.curveRole = TfToken("hair");
     sourceCurves.curveVertexCounts = VtIntArray{2, 2};
     sourceCurves.points = surface.restPoints;
@@ -1125,7 +1125,7 @@ void TestAuthoredPlaneValidation()
     desc.curveSets.clear();
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/fanout/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveVertexCounts = VtIntArray{4, 4};
     curves.points.resize(8);
     UsdGenAuthoredPlaneDesc invalid;

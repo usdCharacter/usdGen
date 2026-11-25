@@ -406,7 +406,7 @@ public:
 
     // ---- capture: topology-dependent, cached by epoch (03 §3.4) --------------
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
-    /// Fill *out (derive the concrete payload). A generator (topoFx != None)
+    /// Fill *out (derive the concrete payload). A generator (countChanges != 0)
     /// also produces its output topology (UsdGenCurveCapture::MutableBuffer).
     virtual bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
                          UsdGenCapture *out, UsdGenDiagnostics *diag) = 0;

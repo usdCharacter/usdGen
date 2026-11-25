@@ -60,7 +60,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -180,7 +180,7 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenWind)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Wind reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
+    Check(op->Record().Def().countChanges == 0,
           "Wind has TopologyEffect None");
     Check(op->Record().ReferenceInputs().empty(),
           "Wind declares no reference inputs");
@@ -815,7 +815,7 @@ static void CheckGuideClumpInheritance()
     desc.nodes.pop_back();
     UsdGenCurveSetDesc guides = desc.curveSets.front();
     guides.path = SdfPath("/wind/guides");
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.points.resize(clumpedGuides.totalCvs);
     for (uint32_t cv = 0; cv < clumpedGuides.totalCvs; ++cv)

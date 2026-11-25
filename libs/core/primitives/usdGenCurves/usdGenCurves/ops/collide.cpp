@@ -2940,7 +2940,7 @@ UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
     d.name = "UsdGenCollide";
     d.displayName = "Collide";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.traits = kUsdGenOpSamplesFrameInputs;
     d.params = UsdGenSpan(kParams);
     d.mapSlots = UsdGenSpan(kMaps);

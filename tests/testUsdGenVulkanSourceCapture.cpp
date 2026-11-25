@@ -38,7 +38,7 @@ UsdGenGraphDesc Fixture(bool surface = true, TfToken rebind = TfToken("never"))
 
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/Groom/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic"); hair.basis = TfToken("bspline"); hair.wrap = TfToken("pinned");
     hair.curveVertexCounts = {3, 3, 3};

@@ -998,7 +998,7 @@ UsdGenOpId UsdGenRegisterDeformOp(UsdGenRegistrar &r)
     d.name = "UsdGenDeform";
     d.displayName = "Deform";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.traits = kUsdGenOpRecordsChunkExtents | kUsdGenOpPosesSpace;   // scheduler.cpp:1031, 1076
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kRefs);

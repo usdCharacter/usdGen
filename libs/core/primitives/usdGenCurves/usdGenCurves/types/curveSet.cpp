@@ -182,7 +182,7 @@ UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &r)
     UsdGenTypeDef def;
     def.name = "UsdGenCurveSet";
     def.layout = &fresh->layout;
-    def.limits[1] = 4096u;   // kUsdGenMaxCvsPerCurve (compile/types.h until 5.5 moves it here)
+    def.limits[1] = kUsdGenMaxCvsPerCurve;
     UsdGenTypeId const id = r.RegisterType(def);
     if (id == UsdGenTypeId::Invalid) {
         delete fresh;

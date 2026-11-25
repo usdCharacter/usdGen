@@ -110,7 +110,7 @@ UsdGenCurveSetDesc Hair(bool withPlanes)
 {
     UsdGenCurveSetDesc set;
     set.path = P("hair");
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     int const n = kHairSide * kHairSide;
     set.curveVertexCounts.assign(size_t(n), kHairCvs);
@@ -176,7 +176,7 @@ UsdGenCurveSetDesc Guides(char const *leaf, float scale)
 {
     UsdGenCurveSetDesc set;
     set.path = P(leaf);
-    set.role = UsdGenRole::Reference;
+    set.role = UsdGenLane::Reference;
     set.curveRole = TfToken("guide");
     int const n = kGuideSide * kGuideSide;
     set.curveVertexCounts.assign(size_t(n), kGuideCvs);
@@ -205,7 +205,7 @@ UsdGenCurveSetDesc Roots()
     UsdGenCurveSetDesc hair = Hair(false);
     UsdGenCurveSetDesc set;
     set.path = P("roots");
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = hair.curveVertexCounts.size();
     set.curveVertexCounts.assign(n, 2);
@@ -315,7 +315,7 @@ UsdGenCurveSetDesc CardSpines()
 {
     UsdGenCurveSetDesc set;
     set.path = P("cards");
-    set.role = UsdGenRole::Reference;
+    set.role = UsdGenLane::Reference;
     set.type = TfToken("linear");
     set.wrap = TfToken("nonperiodic");
     struct Spec { float x, z; int id, layer, uvId, tile, type; };
@@ -350,7 +350,7 @@ UsdGenCurveSetDesc CardLibrary()
 {
     UsdGenCurveSetDesc set;
     set.path = P("cardStrands_0000000000000001");
-    set.role = UsdGenRole::Reference;
+    set.role = UsdGenLane::Reference;
     set.type = TfToken("linear");
     set.wrap = TfToken("nonperiodic");
     struct Lib { int uvId, tile, index, count; float x; };
@@ -487,7 +487,7 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
     if (type == "UsdGenPart") {
         UsdGenCurveSetDesc parting;
         parting.path = P("parting");
-        parting.role = UsdGenRole::Reference;
+        parting.role = UsdGenLane::Reference;
         parting.curveRole = TfToken("guide");
         parting.curveVertexCounts = {3};
         parting.points = {GfVec3f(0.5f, 0, -0.1f), GfVec3f(0.45f, 0, 0.5f), GfVec3f(0.55f, 0, 1.1f)};
@@ -501,7 +501,7 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
     if (type == "UsdGenFreeze") {
         UsdGenCurveSetDesc snap = Hair(false);
         snap.path = P("snap");
-        snap.role = UsdGenRole::Reference;
+        snap.role = UsdGenLane::Reference;
         for (GfVec3f &p : snap.points) p += GfVec3f(0.0f, 0.0f, 0.1f * p[1]);
         snap.rest = snap.points;
         op.references = {snap.path};

@@ -67,7 +67,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -1460,7 +1460,7 @@ static void CheckCutVertexPlaneChunks()
         {TfToken("deepPenetrationMode"),VtValue(TfToken("cutThenCollide")),false},
         {TfToken("cutDepthThreshold"),VtValue(0.1f),false}});
     UsdGenCurveSetDesc hair;
-    hair.path=SdfPath("/collide/hair"); hair.role=UsdGenRole::Curves;
+    hair.path=SdfPath("/collide/hair"); hair.role=UsdGenLane::Chunked;
     hair.curveRole=TfToken("hair");
     int constexpr curves=513;
     for (int c=0;c<curves;++c) {
@@ -1541,7 +1541,7 @@ static void CheckCutTemporalCurve7000()
         UsdGenGraphDesc desc;
         desc.description=SdfPath("/temporal"); desc.defaultWidth=0.01f;
         UsdGenCurveSetDesc hair; hair.path=SdfPath("/temporal/hair");
-        hair.role=UsdGenRole::Curves; hair.curveRole=TfToken("hair");
+        hair.role=UsdGenLane::Chunked; hair.curveRole=TfToken("hair");
         auto const &points=r.at("upstreamPoints").GetJsArray();
         hair.curveVertexCounts={int(points.size())};
         for (auto const &point:points) { auto const &p=point.GetJsArray();
@@ -1641,7 +1641,7 @@ static void CheckCutProjectedCurve1870()
         return s;
     };
     UsdGenCurveSetDesc hair; hair.path=SdfPath("/cutLocal/hair");
-    hair.role=UsdGenRole::Curves; hair.curveRole=TfToken("hair");
+    hair.role=UsdGenLane::Chunked; hair.curveRole=TfToken("hair");
     for (auto const &value:curve.at("upstreamPoints").GetJsArray()) {
         auto const &p=value.GetJsArray(); hair.points.emplace_back(
             float(number(p[0])),float(number(p[1])),float(number(p[2])));
@@ -1719,7 +1719,7 @@ static void CheckRegistryContracts()
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Collide reports its own type");
     UsdGenOpRecord const &rec = op->Record();
-    Check(rec.Def().topoFx == UsdGenTopoFx::None,
+    Check(rec.Def().countChanges == 0,
           "Collide has TopologyEffect None");
     Check(rec.ReferenceInputs().empty(),
           "Collide declares no reference inputs");

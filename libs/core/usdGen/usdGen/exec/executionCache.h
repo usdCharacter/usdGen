@@ -83,7 +83,7 @@ struct UsdGenExecutionInputVersions {
     // Dirty routing updates are intentionally explicit and return whether an
     // existing identity was found. Unknown targets can still be represented
     // by callers by appending a generation-zero entry before publication.
-    bool UpdateCurve(SdfPath const& identity, uint64_t generation) noexcept;
+    bool UpdateInput(SdfPath const& identity, uint64_t generation) noexcept;
     bool UpdateMap(SdfPath const& identity, uint64_t generation) noexcept;
     bool UpdateSurface(SdfPath const& identity, uint64_t generation) noexcept;
 };

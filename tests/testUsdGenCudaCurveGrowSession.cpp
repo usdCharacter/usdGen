@@ -131,7 +131,7 @@ UsdGenGraphDesc Desc(bool resampleAndLift = false, bool namedPlanes = true,
     desc.executionBackend=UsdGenExecutionBackend::Cuda;
     desc.defaultWidth=.125f;
     UsdGenCurveSetDesc curves;
-    curves.path=SdfPath("/Hair"); curves.role=UsdGenRole::Curves;
+    curves.path=SdfPath("/Hair"); curves.role=UsdGenLane::Chunked;
     curves.curveRole=TfToken("hair");
     if (!emptySource) {
         curves.curveVertexCounts={3,2};
@@ -530,7 +530,7 @@ bool GrowFromHostValueReference(UsdGenGraphDesc const& desc,UsdGenNodeDesc const
         return false;
     }
     UsdGenCurveSetDesc sourceData;sourceData.path=SdfPath("/Oracle/Input");
-    sourceData.role=UsdGenRole::Curves;sourceData.curveRole=TfToken("hair");
+    sourceData.role=UsdGenLane::Chunked;sourceData.curveRole=TfToken("hair");
     sourceData.points.resize(points);sourceData.curveVertexCounts.resize(curves);
     if(input.cvOffsets.empty()) {
         if(curves ? points%curves!=0 : points!=0) return false;

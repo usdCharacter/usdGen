@@ -626,7 +626,7 @@ UsdGenOpId UsdGenRegisterDirectionOp(UsdGenRegistrar &r)
     d.name = "UsdGenDirection";
     d.displayName = "Direction";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);
     return r.RegisterOp(d);

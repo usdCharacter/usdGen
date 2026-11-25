@@ -1076,7 +1076,7 @@ UsdGenOpId UsdGenRegisterClumpOp(UsdGenRegistrar &r)
     d.name = "UsdGenClump";
     d.displayName = "Clump";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.traits = kUsdGenOpFixedOutputPlaneLayout;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);
