@@ -234,7 +234,7 @@ int main() {
         CHECK(grow->CommitFreshFinish() == CurveGrowStatus::Ok);
         input.reset();
         auto generation = MakeCurveGrowGeneration(std::move(grow), 12);
-        CHECK(generation && generation->Geometry().curveCount == 0 && generation->Geometry().pointCount == 0);
+        CHECK(generation && generation->Geometry().elementCount == 0 && generation->Geometry().pointCount == 0);
         auto lease = AcquireGeometry(generation, consumer);
         CHECK(lease && lease.RootT().size == 0 && lease.RootPrim().size == 0);
         std::vector<uint32_t> offsets;

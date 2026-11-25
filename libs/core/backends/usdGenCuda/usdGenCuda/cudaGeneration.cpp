@@ -1,4 +1,5 @@
 #ifdef USDGEN_ENABLE_CUDA
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/gpu/cudaCompat.h"
 #include "usdGen/gpu/curveCompaction.h"
@@ -560,7 +561,7 @@ static std::shared_ptr<const UsdGenDeviceGeneration> MakeGeneration(
     info.identity = {UsdGenDeviceBackend::Cuda, device, generation};
     info.geometry.topologyVersion = generation;
     info.geometry.valueVersion = generation;
-    info.geometry.curveCount = view.curveCount;
+    info.geometry.elementCount = view.curveCount;
     info.geometry.pointCount = view.pointCount;
     if (topologyVersion != UINT64_MAX) info.geometry.topologyVersion = topologyVersion;
     info.geometry.alreadyDeformed = alreadyDeformed;
@@ -576,7 +577,7 @@ static std::shared_ptr<const UsdGenDeviceGeneration> MakeGeneration(
     channel("widths", Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::Widths);
     channel("hairT", Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::HairT);
     // Offsets are topology storage (C+1), not a per-primitive value (C).
-    channel("curveOffsets", Type::UInt32, Domain::Topology, view.curveOffsets.size, 1, sizeof(uint32_t), Semantic::CurveOffsets);
+    channel("curveOffsets", Type::UInt32, Domain::Topology, view.curveOffsets.size, 1, sizeof(uint32_t), Semantic::ElementOffsets);
     channel("curveId", Type::UInt64, Domain::Primitive, view.curveCount, 1, sizeof(uint64_t), Semantic::StableIds);
     if (rootPrim.size)
         channel("skinprim", Type::Int32, Domain::Primitive, view.curveCount, 1, sizeof(int32_t), Semantic::RootPrim);
@@ -866,30 +867,30 @@ CudaGeometryTileLease AcquireGeometryTile(
     view.valueVersion = generation->Geometry().valueVersion;
 
     // The extra offset sentinel is part of every non-empty and empty tile.
-    if (tile->curveCount > tile->pointCount ||
-        (tile->curveCount == 0 && tile->pointCount != 0) ||
-        tile->firstCurve > geometry.curveCount ||
-        tile->curveCount > geometry.curveCount - tile->firstCurve ||
-        tile->curveCount == std::numeric_limits<uint64_t>::max() ||
+    if (tile->elementCount > tile->pointCount ||
+        (tile->elementCount == 0 && tile->pointCount != 0) ||
+        tile->firstElement > geometry.curveCount ||
+        tile->elementCount > geometry.curveCount - tile->firstElement ||
+        tile->elementCount == std::numeric_limits<uint64_t>::max() ||
         tile->firstPoint > std::numeric_limits<uint32_t>::max() ||
         tile->pointCount > std::numeric_limits<uint32_t>::max() - tile->firstPoint)
         return result;
-    uint64_t const offsetCount = tile->curveCount + 1;
-    if (!_Slice(offsets, tile->firstCurve, offsetCount, &view.curveOffsets) ||
+    uint64_t const offsetCount = tile->elementCount + 1;
+    if (!_Slice(offsets, tile->firstElement, offsetCount, &view.curveOffsets) ||
         !_Slice(parent.HairT(), tile->firstPoint, tile->pointCount, &view.hairT) ||
         !_Slice(geometry.points, tile->firstPoint, tile->pointCount, &view.points) ||
         !_Slice(geometry.restPoints, tile->firstPoint, tile->pointCount, &view.restPoints) ||
         !_Slice(geometry.widths, tile->firstPoint, tile->pointCount, &view.widths) ||
-        !_Slice(geometry.stableIds, tile->firstCurve, tile->curveCount, &view.stableIds))
+        !_Slice(geometry.stableIds, tile->firstElement, tile->elementCount, &view.stableIds))
         return result;
 
     DeviceView<const int32_t> const roots = parent.RootPrim();
     DeviceView<const float2> const uvs = parent.RootUV();
     if ((roots.size == 0) != (uvs.size == 0)) return result;
     if (roots.size == 0) view.rootPrim = {};
-    else if (!_Slice(roots, tile->firstCurve, tile->curveCount, &view.rootPrim)) return result;
+    else if (!_Slice(roots, tile->firstElement, tile->elementCount, &view.rootPrim)) return result;
     if (uvs.size == 0) view.rootUV = {};
-    else if (!_Slice(uvs, tile->firstCurve, tile->curveCount, &view.rootUV)) return result;
+    else if (!_Slice(uvs, tile->firstElement, tile->elementCount, &view.rootUV)) return result;
     result.view_ = view;
     result.parent_ = std::move(parent);
     return result;
@@ -898,7 +899,7 @@ CudaGeometryTileLease AcquireGeometryTile(
 std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles, std::string* reason,
-    UsdGenDeviceCurveTopologyMetadata curveTopology)
+    UsdGenDeviceLayoutMetadata layoutMetadata)
 {
     if (!candidate || !candidate->Owner()) {
         if (reason) *reason = "tile metadata requires an owned generation";
@@ -914,27 +915,27 @@ std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
         }
         first = false;
         previousId = tile.tile;
-        if (tile.curveCount > tile.pointCount ||
-            (tile.curveCount == 0 && tile.pointCount != 0) ||
+        if (tile.elementCount > tile.pointCount ||
+            (tile.elementCount == 0 && tile.pointCount != 0) ||
             tile.firstPoint > std::numeric_limits<uint32_t>::max() ||
             tile.pointCount > std::numeric_limits<uint32_t>::max() - tile.firstPoint ||
-            tile.firstCurve != curveEnd || tile.firstPoint != pointEnd ||
-            tile.curveCount > geometry.curveCount - curveEnd ||
+            tile.firstElement != curveEnd || tile.firstPoint != pointEnd ||
+            tile.elementCount > geometry.elementCount - curveEnd ||
             tile.pointCount > geometry.pointCount - pointEnd ||
-            tile.curveCount > std::numeric_limits<uint64_t>::max() - curveEnd ||
+            tile.elementCount > std::numeric_limits<uint64_t>::max() - curveEnd ||
             tile.pointCount > std::numeric_limits<uint64_t>::max() - pointEnd) {
             if (reason) *reason = "tile ranges must be contiguous and in bounds";
             return {};
         }
-        curveEnd += tile.curveCount;
+        curveEnd += tile.elementCount;
         pointEnd += tile.pointCount;
     }
     if (tiles.empty()) {
-        if (geometry.curveCount != 0 || geometry.pointCount != 0) {
+        if (geometry.elementCount != 0 || geometry.pointCount != 0) {
             if (reason) *reason = "non-empty geometry requires tile metadata";
             return {};
         }
-    } else if (curveEnd != geometry.curveCount || pointEnd != geometry.pointCount) {
+    } else if (curveEnd != geometry.elementCount || pointEnd != geometry.pointCount) {
         if (reason) *reason = "tile metadata does not cover geometry";
         return {};
     }
@@ -942,10 +943,8 @@ std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
     info.identity = candidate->Identity();
     info.geometry = geometry;
     info.geometry.tiles = std::move(tiles);
-    if (curveTopology.type != UsdGenDeviceCurveType::Unknown ||
-        curveTopology.basis != UsdGenDeviceCurveBasis::Unknown ||
-        curveTopology.wrap != UsdGenDeviceCurveWrap::Unknown) {
-        info.geometry.curveTopology = curveTopology;
+    if (layoutMetadata != UsdGenDeviceLayoutMetadata{}) {
+        info.geometry.layoutMetadata = layoutMetadata;
     }
     info.tool = candidate->Tool();
     info.channels = candidate->Channels();

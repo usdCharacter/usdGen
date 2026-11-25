@@ -293,9 +293,9 @@ int main(int argc, char** argv) {
         CHECK(!first->device->Geometry().tiles.empty());
         uint64_t nextCurve = 0, nextPoint = 0;
         for (auto const& tile : first->device->Geometry().tiles) {
-            CHECK(tile.firstCurve == nextCurve && tile.firstPoint == nextPoint);
-            CHECK(tile.curveCount > 0 && tile.pointCount == tile.curveCount * 5);
-            nextCurve += tile.curveCount;
+            CHECK(tile.firstElement == nextCurve && tile.firstPoint == nextPoint);
+            CHECK(tile.elementCount > 0 && tile.pointCount == tile.elementCount * 5);
+            nextCurve += tile.elementCount;
             nextPoint += tile.pointCount;
         }
         CHECK(nextCurve == ids.size() && nextPoint == points.size());

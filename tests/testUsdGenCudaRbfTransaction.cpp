@@ -697,7 +697,7 @@ static int ValueDagTransactions() {
         auto first = ExecuteCudaGraph(*plan, *workspace, 1.0, 1001, &diagnostics);
         CHECK(expected && first && !diagnostics.HasErrors() && SameGeneration(expected, first));
         if (variant == 7) {
-            CHECK(first->Geometry().pointCount == 0 && first->Geometry().curveCount == 0 &&
+            CHECK(first->Geometry().pointCount == 0 && first->Geometry().elementCount == 0 &&
                   first->Geometry().alreadyDeformed);
             UsdGenExecutionRuntime runtime(4);
             UsdGenCudaExecutionQueue queue(runtime, -1, &diagnostics);

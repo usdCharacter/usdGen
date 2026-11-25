@@ -1,3 +1,4 @@
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "cudaGlFixture.h"
 #include "usdGen/gpu/generation.h"
 
@@ -67,17 +68,15 @@ int main()
     tiles[2].extentMax = {.6f, .7f, .1f};
     tiles[2].boundsValid = true;
     tiles[3].boundsValid = true;
-    UsdGenDeviceCurveTopologyMetadata const topology{
-        UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline,
-        UsdGenDeviceCurveWrap::Pinned};
+    UsdGenDeviceLayoutMetadata const topology = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     std::string reason;
     auto tiled = WithTileMetadata(generation, tiles, &reason, topology);
     CHECK(tiled);
     CHECK(tiled->Geometry().topologyVersion == generation->Geometry().topologyVersion);
     CHECK(tiled->Geometry().valueVersion == generation->Geometry().valueVersion);
-    CHECK(tiled->Geometry().curveTopology.type == UsdGenDeviceCurveType::Cubic &&
-          tiled->Geometry().curveTopology.basis == UsdGenDeviceCurveBasis::BSpline &&
-          tiled->Geometry().curveTopology.wrap == UsdGenDeviceCurveWrap::Pinned &&
+    CHECK(UsdGenCurveLayoutTypeOf(tiled->Geometry().layoutMetadata) == UsdGenCurveLayoutType::Cubic &&
+          UsdGenCurveLayoutBasisOf(tiled->Geometry().layoutMetadata) == UsdGenCurveLayoutBasis::BSpline &&
+          UsdGenCurveLayoutWrapOf(tiled->Geometry().layoutMetadata) == UsdGenCurveLayoutWrap::Pinned &&
           tiled->Geometry().tiles[1].boundsValid &&
           tiled->Geometry().tiles[1].extentMin[0] == -.6f &&
           tiled->Geometry().tiles[2].extentMax[1] == .7f);
@@ -203,10 +202,10 @@ int main()
         std::make_unique<DeviceBuffer<float3>>(std::move(revisedPoints)), {}, &reason);
     CHECK(revision);
     CHECK(revision->Geometry().tiles.size() == 1 &&
-          revision->Geometry().tiles[0].curveCount == 2);
+          revision->Geometry().tiles[0].elementCount == 2);
     CHECK(revision->Geometry().topologyVersion == noRootsTiled->Geometry().topologyVersion);
     CHECK(!revision->Geometry().tiles[0].boundsValid &&
-          revision->Geometry().curveTopology.type == UsdGenDeviceCurveType::Cubic);
+          UsdGenCurveLayoutTypeOf(revision->Geometry().layoutMetadata) == UsdGenCurveLayoutType::Cubic);
     auto oldRest = Copy(noRootsTile.View().restPoints, stream);
     auto revisionTile = AcquireGeometryTile(revision, 2, 1, stream);
     CHECK(revisionTile && revisionTile.View().points.size == 5);

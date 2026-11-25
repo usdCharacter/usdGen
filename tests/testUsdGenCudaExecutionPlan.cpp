@@ -493,8 +493,8 @@ int main() {
     auto const external = UINT32_MAX;
     auto const& source = metadata->Tasks()[0];
     CHECK(source.resources.size() == 7);
-    CHECK(ResourceIs(source,0,UsdGenExecutionDataKind::CurveGeometry,UsdGenExecutionResourceAccess::Write,external));
-    CHECK(ResourceIs(source,1,UsdGenExecutionDataKind::CurveTopology,UsdGenExecutionResourceAccess::Write,external));
+    CHECK(ResourceIs(source,0,UsdGenExecutionDataKind::ElementGeometry,UsdGenExecutionResourceAccess::Write,external));
+    CHECK(ResourceIs(source,1,UsdGenExecutionDataKind::ElementTopology,UsdGenExecutionResourceAccess::Write,external));
     CHECK(ResourceIs(source,2,UsdGenExecutionDataKind::StableIds,UsdGenExecutionResourceAccess::Write,external));
     CHECK(ResourceIs(source,3,UsdGenExecutionDataKind::RootBindings,UsdGenExecutionResourceAccess::Write,external));
     CHECK(ResourceIs(source,4,UsdGenExecutionDataKind::Widths,UsdGenExecutionResourceAccess::Write,external));
@@ -505,15 +505,15 @@ int main() {
     CHECK(width.resources.size() == 6);
     CHECK(ResourceIs(width,4,UsdGenExecutionDataKind::StableIds,UsdGenExecutionResourceAccess::Read,0));
     CHECK(ResourceIs(width,5,UsdGenExecutionDataKind::RootBindings,UsdGenExecutionResourceAccess::Read,0));
-    CHECK(ResourceIs(width,0,UsdGenExecutionDataKind::CurveGeometry,UsdGenExecutionResourceAccess::Read,0));
-    CHECK(ResourceIs(width,1,UsdGenExecutionDataKind::CurveTopology,UsdGenExecutionResourceAccess::Read,0));
+    CHECK(ResourceIs(width,0,UsdGenExecutionDataKind::ElementGeometry,UsdGenExecutionResourceAccess::Read,0));
+    CHECK(ResourceIs(width,1,UsdGenExecutionDataKind::ElementTopology,UsdGenExecutionResourceAccess::Read,0));
     CHECK(ResourceIs(width,2,UsdGenExecutionDataKind::ParameterValues,UsdGenExecutionResourceAccess::Read,external));
     CHECK(ResourceIs(width,3,UsdGenExecutionDataKind::Widths,UsdGenExecutionResourceAccess::ReadWrite,0));
 
     auto const& length = metadata->Tasks()[2];
     CHECK(length.resources.size() == 7);
-    CHECK(ResourceIs(length,0,UsdGenExecutionDataKind::CurveGeometry,UsdGenExecutionResourceAccess::ReadWrite,0));
-    CHECK(ResourceIs(length,1,UsdGenExecutionDataKind::CurveTopology,UsdGenExecutionResourceAccess::ReadWrite,0));
+    CHECK(ResourceIs(length,0,UsdGenExecutionDataKind::ElementGeometry,UsdGenExecutionResourceAccess::ReadWrite,0));
+    CHECK(ResourceIs(length,1,UsdGenExecutionDataKind::ElementTopology,UsdGenExecutionResourceAccess::ReadWrite,0));
     CHECK(ResourceIs(length,2,UsdGenExecutionDataKind::StableIds,UsdGenExecutionResourceAccess::ReadWrite,0));
     CHECK(ResourceIs(length,3,UsdGenExecutionDataKind::RootBindings,UsdGenExecutionResourceAccess::ReadWrite,0));
     CHECK(ResourceIs(length,4,UsdGenExecutionDataKind::Widths,UsdGenExecutionResourceAccess::ReadWrite,1));
@@ -522,8 +522,8 @@ int main() {
 
     auto const& deform = metadata->Tasks()[3];
     CHECK(deform.resources.size() == 8);
-    CHECK(ResourceIs(deform,0,UsdGenExecutionDataKind::CurveGeometry,UsdGenExecutionResourceAccess::ReadWrite,2));
-    CHECK(ResourceIs(deform,1,UsdGenExecutionDataKind::CurveTopology,UsdGenExecutionResourceAccess::Read,2));
+    CHECK(ResourceIs(deform,0,UsdGenExecutionDataKind::ElementGeometry,UsdGenExecutionResourceAccess::ReadWrite,2));
+    CHECK(ResourceIs(deform,1,UsdGenExecutionDataKind::ElementTopology,UsdGenExecutionResourceAccess::Read,2));
     CHECK(ResourceIs(deform,2,UsdGenExecutionDataKind::StableIds,UsdGenExecutionResourceAccess::Read,2));
     CHECK(ResourceIs(deform,3,UsdGenExecutionDataKind::RootBindings,UsdGenExecutionResourceAccess::Read,2));
     CHECK(ResourceIs(deform,4,UsdGenExecutionDataKind::Widths,UsdGenExecutionResourceAccess::Read,2));
@@ -561,8 +561,8 @@ int main() {
               UsdGenExecutionResourceHazardAccess::ReadWrite);
     CHECK(metadata->FindSemanticTask(publication.semanticNode) == nullptr);
     CHECK(publication.resources.size() == 7);
-    CHECK(ResourceIs(publication,0,UsdGenExecutionDataKind::CurveGeometry,UsdGenExecutionResourceAccess::Read,3));
-    CHECK(ResourceIs(publication,1,UsdGenExecutionDataKind::CurveTopology,UsdGenExecutionResourceAccess::Read,2));
+    CHECK(ResourceIs(publication,0,UsdGenExecutionDataKind::ElementGeometry,UsdGenExecutionResourceAccess::Read,3));
+    CHECK(ResourceIs(publication,1,UsdGenExecutionDataKind::ElementTopology,UsdGenExecutionResourceAccess::Read,2));
     CHECK(ResourceIs(publication,2,UsdGenExecutionDataKind::StableIds,UsdGenExecutionResourceAccess::Read,2));
     CHECK(ResourceIs(publication,3,UsdGenExecutionDataKind::RootBindings,UsdGenExecutionResourceAccess::Read,2));
     CHECK(ResourceIs(publication,4,UsdGenExecutionDataKind::Widths,UsdGenExecutionResourceAccess::Read,2));
@@ -647,17 +647,17 @@ int main() {
             [&](auto const& use) { return use.resource == kind && use.access == access &&
                 use.producerTask == producer; }) != task.resources.end();
     };
-    CHECK(findUse(*scatterLength, UsdGenExecutionDataKind::CurveGeometry,
+    CHECK(findUse(*scatterLength, UsdGenExecutionDataKind::ElementGeometry,
                   UsdGenExecutionResourceAccess::ReadWrite, fused->id) &&
-          findUse(*scatterNoise, UsdGenExecutionDataKind::CurveGeometry,
+          findUse(*scatterNoise, UsdGenExecutionDataKind::ElementGeometry,
                   UsdGenExecutionResourceAccess::ReadWrite, fused->id) &&
           findUse(*scatterRight, UsdGenExecutionDataKind::Widths,
                   UsdGenExecutionResourceAccess::ReadWrite, fused->id));
     // Noise owns the right point revision, while Grow remains the owner of
     // its inherited topology/IDs/root bindings/named channels.
-    CHECK(findUse(*scatterBlend, UsdGenExecutionDataKind::CurveGeometry,
+    CHECK(findUse(*scatterBlend, UsdGenExecutionDataKind::ElementGeometry,
                   UsdGenExecutionResourceAccess::Read, scatterNoise->id));
-    for (auto kind : {UsdGenExecutionDataKind::CurveTopology,
+    for (auto kind : {UsdGenExecutionDataKind::ElementTopology,
                       UsdGenExecutionDataKind::StableIds,
                       UsdGenExecutionDataKind::RootBindings,
                       UsdGenExecutionDataKind::NamedChannels})
@@ -680,7 +680,7 @@ int main() {
     auto const& selectedPublication = *selectedGrowMetadata->FindTask(
         selectedGrowMetadata->TerminalTask());
     CHECK(std::any_of(selectedPublication.resources.begin(), selectedPublication.resources.end(),
-        [](auto const& use) { return use.resource == UsdGenExecutionDataKind::CurveGeometry &&
+        [](auto const& use) { return use.resource == UsdGenExecutionDataKind::ElementGeometry &&
             use.access == UsdGenExecutionResourceAccess::Read && use.producerTask == 0; }));
     // A resolved surface also admits RBF Deform after a fused Grow lineage.
     // The Deform task owns only the new geometry revision; topology, roots,
@@ -707,7 +707,7 @@ int main() {
           !scatterDeformMetadata->MemoryEstimate().memoryAvailable &&
           !scatterDeformMetadata->MemoryEstimate().conservativeUpperBound &&
           !scatterDeformMetadata->MemoryEstimate().runtimeRefinementAvailable);
-    CHECK(findUse(*scatterDeformTask, UsdGenExecutionDataKind::CurveGeometry,
+    CHECK(findUse(*scatterDeformTask, UsdGenExecutionDataKind::ElementGeometry,
                   UsdGenExecutionResourceAccess::ReadWrite, scatterLength->id));
     auto const surfaceUse = std::find_if(scatterDeformTask->resources.begin(),
         scatterDeformTask->resources.end(), [](auto const& use) {
@@ -734,7 +734,7 @@ int main() {
     auto independentMetadata = GetCudaExecutionPlanMetadata(*independentPlan);
     auto const* noiseDeformTask = findTask(independentMetadata, "/Ops/NoiseDeform");
     CHECK(independentMetadata && noiseDeformTask &&
-          findUse(*noiseDeformTask, UsdGenExecutionDataKind::CurveGeometry,
+          findUse(*noiseDeformTask, UsdGenExecutionDataKind::ElementGeometry,
                   UsdGenExecutionResourceAccess::ReadWrite, scatterNoise->id));
 
     // A second Deform on the same lineage remains forbidden because it would
@@ -803,7 +803,7 @@ int main() {
                         UsdGenExecutionDependencySemanticData));
     auto geometryUse = [](UsdGenExecutionTaskMetadata const& task) {
         for (auto const& use : task.resources)
-            if (use.resource == UsdGenExecutionDataKind::CurveGeometry) return &use;
+            if (use.resource == UsdGenExecutionDataKind::ElementGeometry) return &use;
         return static_cast<UsdGenExecutionResourceUse const*>(nullptr);
     };
     auto const* terminalGeometry = geometryUse(*branchTerminal);

@@ -1,4 +1,5 @@
 #include "usdGen/deviceGeneration.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -86,28 +87,13 @@ bool ValidSemantic(UsdGenDeviceChannelSemantic semantic)
     case UsdGenDeviceChannelSemantic::RestPoints:
     case UsdGenDeviceChannelSemantic::Widths:
     case UsdGenDeviceChannelSemantic::HairT:
-    case UsdGenDeviceChannelSemantic::CurveOffsets:
+    case UsdGenDeviceChannelSemantic::ElementOffsets:
     case UsdGenDeviceChannelSemantic::StableIds:
     case UsdGenDeviceChannelSemantic::RootPrim:
     case UsdGenDeviceChannelSemantic::RootUV:
         return true;
     }
     return false;
-}
-
-bool ValidCurveTopology(UsdGenDeviceCurveTopologyMetadata const &topology)
-{
-    using Type = UsdGenDeviceCurveType;
-    using Basis = UsdGenDeviceCurveBasis;
-    using Wrap = UsdGenDeviceCurveWrap;
-    if (topology.type == Type::Unknown || topology.basis == Basis::Unknown ||
-        topology.wrap == Wrap::Unknown) {
-        return topology.type == Type::Unknown &&
-            topology.basis == Basis::Unknown && topology.wrap == Wrap::Unknown;
-    }
-    return topology.type == Type::Cubic &&
-        (topology.basis == Basis::BSpline || topology.basis == Basis::CatmullRom) &&
-        topology.wrap == Wrap::Pinned;
 }
 
 bool ValidBounds(UsdGenDeviceTileMetadata const &tile)
@@ -118,7 +104,7 @@ bool ValidBounds(UsdGenDeviceTileMetadata const &tile)
             tile.extentMin[axis] > tile.extentMax[axis]) {
             return false;
         }
-        if (tile.curveCount == 0 && tile.pointCount == 0 &&
+        if (tile.elementCount == 0 && tile.pointCount == 0 &&
             (tile.extentMin[axis] != 0.0f || tile.extentMax[axis] != 0.0f)) {
             return false;
         }
@@ -137,7 +123,7 @@ bool ValidSemanticShape(UsdGenDeviceChannelMetadata const &channel,
         case UsdGenDeviceDomain::Tool:
             return channel.elementCount == 1;
         case UsdGenDeviceDomain::Primitive:
-            return channel.elementCount == geometry.curveCount;
+            return channel.elementCount == geometry.elementCount;
         case UsdGenDeviceDomain::Point:
             return channel.elementCount == geometry.pointCount;
         case UsdGenDeviceDomain::Tile:
@@ -156,23 +142,23 @@ bool ValidSemanticShape(UsdGenDeviceChannelMetadata const &channel,
         return channel.type == UsdGenDeviceValueType::Float32 &&
                channel.domain == UsdGenDeviceDomain::Point &&
                channel.elementCount == geometry.pointCount;
-    case S::CurveOffsets:
+    case S::ElementOffsets:
         return channel.type == UsdGenDeviceValueType::UInt32 &&
                channel.domain == UsdGenDeviceDomain::Topology &&
-               geometry.curveCount != UINT64_MAX &&
-               channel.elementCount == geometry.curveCount + 1;
+               geometry.elementCount != UINT64_MAX &&
+               channel.elementCount == geometry.elementCount + 1;
     case S::StableIds:
         return channel.type == UsdGenDeviceValueType::UInt64 &&
                channel.domain == UsdGenDeviceDomain::Primitive &&
-               channel.elementCount == geometry.curveCount;
+               channel.elementCount == geometry.elementCount;
     case S::RootPrim:
         return channel.type == UsdGenDeviceValueType::Int32 &&
                channel.domain == UsdGenDeviceDomain::Primitive &&
-               channel.elementCount == geometry.curveCount;
+               channel.elementCount == geometry.elementCount;
     case S::RootUV:
         return channel.type == UsdGenDeviceValueType::Float32x2 &&
                channel.domain == UsdGenDeviceDomain::Primitive &&
-               channel.elementCount == geometry.curveCount;
+               channel.elementCount == geometry.elementCount;
     }
     return false;
 }
@@ -204,12 +190,12 @@ bool UsdGenDeviceChannelStorageBytes(UsdGenDeviceChannelMetadata const& channel,
 bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
     std::vector<UsdGenDeviceChannelMetadata> const& channels, std::string* reason)
 {
-    if ((geometry.pointCount == 0 && geometry.curveCount != 0) ||
-        (geometry.curveCount == 0 && geometry.pointCount != 0)) {
+    if ((geometry.pointCount == 0 && geometry.elementCount != 0) ||
+        (geometry.elementCount == 0 && geometry.pointCount != 0)) {
         Fail(reason, "device geometry has mismatched curve and point counts");
         return false;
     }
-    if (!ValidCurveTopology(geometry.curveTopology)) {
+    if (!UsdGenCurveLayoutValid(geometry.layoutMetadata)) {
         Fail(reason, "device geometry has invalid curve topology metadata");
         return false;
     }
@@ -240,8 +226,8 @@ bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
     std::vector<uint32_t> tileIds;
     tileIds.reserve(geometry.tiles.size());
     for (UsdGenDeviceTileMetadata const &tile : geometry.tiles) {
-        if (tile.firstCurve > geometry.curveCount ||
-            tile.curveCount > geometry.curveCount - tile.firstCurve ||
+        if (tile.firstElement > geometry.elementCount ||
+            tile.elementCount > geometry.elementCount - tile.firstElement ||
             tile.firstPoint > geometry.pointCount ||
             tile.pointCount > geometry.pointCount - tile.firstPoint) {
             Fail(reason, "device tile range exceeds geometry");

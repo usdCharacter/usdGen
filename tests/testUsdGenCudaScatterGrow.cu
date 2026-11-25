@@ -194,7 +194,7 @@ int main() {
         CHECK(second->Owner()->ExclusiveRetainedBytes() > 0);
         auto empty = makeGeneration(1.0f, 3, true);
         CHECK(empty && empty->Owner()->ProducerReady() &&
-              empty->Geometry().curveCount == 0 && empty->Geometry().pointCount == 0);
+              empty->Geometry().elementCount == 0 && empty->Geometry().pointCount == 0);
         auto emptyLease = AcquireGeometry(empty, stream);
         CHECK(emptyLease && emptyLease.Geometry().curveOffsets.size == 1);
         std::vector<uint32_t> offsets(1, 99);
