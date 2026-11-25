@@ -15,6 +15,9 @@ constexpr uint32_t UsdGenIndex(UsdGenTypeId id) noexcept { return uint32_t(id); 
 using UsdGenSlot = uint16_t;                       // index into a UsdGenChannelTable
 constexpr UsdGenSlot kUsdGenNoSlot = 0xFFFFu;
 constexpr uint8_t kUsdGenMaxLevels = 3;            // levels 1..3 under the constant level 0
-constexpr uint8_t kUsdGenMaxArenasPerSet = 4;      // Plan compacts past this
+// Plan compacts past this. Every writer on a chain adds one arena to the
+// sets below it and a compacted set re-copies its shared columns on every
+// cook, so the limit sits above the chains in use (5.4: 4 compacted G3).
+constexpr uint8_t kUsdGenMaxArenasPerSet = 16;
 
 }  // namespace usdGen
