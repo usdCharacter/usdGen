@@ -508,6 +508,9 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
     mix(node.expressions.Digest());
     return digest;
 }
+/// An extent slot no writer filled (range.live).
+constexpr uint32_t kExtentUnwritten = 0xffffffffu;
+
 struct NodeSweepPayload
 {
     UsdGenCompiledNode *node;
@@ -521,10 +524,6 @@ struct NodeSweepPayload
     std::atomic<uint32_t> failureCode{0};
     bool deferCompletion = false;
     std::vector<GfVec3d> pointScratch;
-    // Writable extra-CV plane bases, detached on the commit thread. Workers
-    // write through these and never touch the VtArray handles.
-    std::vector<float *> extraCvF;
-    std::vector<int *> extraCvI;
     std::vector<double> scalarScratch;
     std::vector<uint8_t> didEval;  // one byte per chunk: a bit-packed
                                    // vector<bool> makes 64 workers share one
@@ -539,15 +538,15 @@ struct NodeSweepPayload
     // chunk of the gate-time partition), or null for every other node.
     // SweepChunk hands slot [index] to the kernel; slots are disjoint per
     // (node, chunk), so concurrent sweeps never share one.
-    UsdGenLegacyChunkExtent *extentBase = nullptr;
+    UsdGenChunkExtent *extentBase = nullptr;
     size_t extentCap = 0;
     // Extra-plane slots resolved once per run, after preparation, so the
     // chunk sweep does no name lookup: output, its upstream predecessor of
     // the same layout (null otherwise), input.
     std::array<PlaneLookup, kUsdGenMaxExtraPlaneSlots> outPlanes{}, outPredecessors{}, inPlanes{};
-    // Bridge (5.3a-f): what the generic chunk view is built from. The sets
-    // are the nodes' buffer-backed views, bound on the commit thread; the
-    // per-chunk slot tables are chunk-major and keep their capacity.
+    // What the chunk view is built from. The sets are the nodes'
+    // buffer-backed views (bridge, 5.4 deletes), bound on the commit thread;
+    // the per-chunk slot tables are chunk-major and keep their capacity.
     UsdGenElementSetView const *outSet = nullptr, *inSet = nullptr, *in2Set = nullptr;
     std::array<UsdGenSlot, kUsdGenMaxExtraPlaneSlots> emitted{}, emittedIn{}, consumed{};
     uint16_t emittedCount = 0, consumedCount = 0, remappedCount = 0;
@@ -556,10 +555,8 @@ struct NodeSweepPayload
     std::vector<void const *> inTables, in2Tables;
     uint32_t outSlots = 0, inSlots = 0, in2Slots = 0;
     size_t tableChunks = 0;
-    UsdGenChunkExtent *genericExtentBase = nullptr;
-    bool pointsIn = false;   // the old view offers input points to point writers
+    bool pointsIn = false;   // input points go to point writers
     bool widthIn = false;    // and input px alone to width writers
-    bool verify = false;     // USDGEN_BRIDGE_VERIFY: compare both views per chunk
 };
 
 /// Chunk-local bases of every slot of 'set': level-2 channels at cvBase,
@@ -575,43 +572,6 @@ void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t curve
         table[s] = static_cast<char const *>(column) +
                    element * d.arity * UsdGenScalarBytes(d.scalar);
     }
-}
-
-/// USDGEN_BRIDGE_VERIFY: the generic view, read through UsdGenCurveChunk,
-/// presents exactly the old view's pointers and counts.
-bool SameAsLegacy(UsdGenCurveChunk const &c, UsdGenLegacyChunkView const &l)
-{
-    UsdGenChunkDesc const &d = *l.desc;
-    bool ok = c.desc->firstCurve == d.firstCurve && c.desc->curveCount == d.curveCount &&
-        c.desc->liveCount == d.liveCount && c.desc->firstCv == d.firstCv &&
-        c.desc->cvCount == d.cvCount && c.desc->tile == uint16_t(d.tile) &&
-        c.desc->surface == uint16_t(d.surface);
-    ok = ok && c.px == l.px && c.py == l.py && c.pz == l.pz && c.inPx == l.inPx &&
-        c.inPy == l.inPy && c.inPz == l.inPz && c.inWidth == l.inWidth &&
-        c.inWidth2 == l.inWidth2 && c.width == l.width && c.hairT == l.hairT &&
-        c.curveId == l.curveId && c.rootPrim == l.rootPrim && c.cvOffsets == l.cvOffsets &&
-        c.rootUV == l.rootUV && c.rootT == l.rootT && c.rootN == l.rootN &&
-        c.rootB == l.rootB && c.rampLut == l.rampLut;
-    ok = ok && c.outCount == l.outCount && c.inCount == l.inCount &&
-        (c.outF == nullptr) == (l.outF == nullptr) && (c.inF == nullptr) == (l.inF == nullptr);
-    for (uint32_t k = 0; ok && c.outF && k < c.outCount; ++k)
-        ok = c.outF[k] == l.outF[k] && c.outI[k] == l.outI[k];
-    for (uint32_t k = 0; ok && c.inF && k < c.inCount; ++k)
-        ok = c.inF[k] == l.inF[k] && c.inI[k] == l.inI[k];
-    ok = ok && c.extraCvCount == l.extraCvCount;
-    for (uint32_t k = 0; ok && k < c.extraCvCount; ++k) {
-        UsdGenCurveChunk::PlaneInfo const &a = c.extraCv[k];
-        UsdGenCurveChunk::PlaneInfo const &b = c.inExtraCv[k];
-        ok = a.name == l.extraCv[k].name && a.interpolation == l.extraCv[k].interpolation &&
-            a.type == l.extraCv[k].type && a.arity == l.extraCv[k].arity &&
-            b.name == l.inExtraCv[k].name && b.type == l.inExtraCv[k].type &&
-            b.arity == l.inExtraCv[k].arity &&
-            c.extraCvF[k] == l.extraCvF[k] && c.extraCvI[k] == l.extraCvI[k];
-    }
-    return ok && c.pointScratch == l.pointScratch && c.scalarScratch == l.scalarScratch &&
-        c.curveCount == l.curveCount && c.cvCount == l.cvCount &&
-        c.inCvCount == l.inCvCount && c.inCvOffsets == l.inCvOffsets &&
-        c.inFirstCv == l.inFirstCv;
 }
 
 /// Resolves the node's extra-plane slots against the prepared buffers.
@@ -686,8 +646,6 @@ struct NodeExecution
         s.pointScratch.clear();
         s.scalarScratch.clear();
         s.didEval.clear();
-        s.extraCvF.clear();
-        s.extraCvI.clear();
         s.onChunkCompleted = nullptr;
         s.extentBase = nullptr;
         s.extentCap = 0;
@@ -696,8 +654,7 @@ struct NodeExecution
         s.remapped = nullptr;
         s.outSlots = s.inSlots = s.in2Slots = 0;
         s.tableChunks = 0;
-        s.genericExtentBase = nullptr;
-        s.pointsIn = s.widthIn = s.verify = false;
+        s.pointsIn = s.widthIn = false;
         recaptureReason = nullptr;
         reCaptured = expressionsChanged = shouldSweep = sweptDirect = false;
         evalAll = anyChunkDirty = false;
@@ -726,9 +683,7 @@ struct TerminalTiles
 
 struct UsdGenRunScratch
 {
-    std::vector<UsdGenLegacyChunkExtent> extents;
-    std::vector<UsdGenChunkExtent> genericExtents;   // bridge: slots the new family writes
-    bool verifyBridge = false;                       // USDGEN_BRIDGE_VERIFY, read once
+    std::vector<UsdGenChunkExtent> extents;
     std::vector<char> tileTouched, poseSpace, completed;
     std::vector<int> frontier;
     std::vector<std::unique_ptr<NodeExecution>> jobs;   // grows, never shrinks
@@ -762,11 +717,10 @@ void SweepChunk(size_t index, void *payload)
             : (node.chunkDirty[index] & UsdGenDirtyParameter) != 0;
     if (!pl.evalAll && !chunkDirty) return;
 
-    UsdGenCurveBuffer &buf = node.buffer;
+    UsdGenCurveBuffer const &buf = node.buffer;
     UsdGenCurveBuffer const &upBuf = pl.up ? pl.up->buffer : EmptyBuffer();
     UsdGenChunkDesc const *upC = (pl.up && pl.up->chunks.size() == node.chunks.size())
         ? &pl.up->chunks[index] : nullptr;
-    UsdGenCurveBuffer const &upBuf2 = pl.up2 ? pl.up2->buffer : EmptyBuffer();
     UsdGenChunkDesc const *upC2 = (pl.up2 && pl.up2->chunks.size() == node.chunks.size())
         ? &pl.up2->chunks[index] : nullptr;
 
@@ -780,165 +734,6 @@ void SweepChunk(size_t index, void *payload)
     size_t const base = cd.firstCv;
     size_t const upBase = upC ? upC->firstCv : 0;
 
-    UsdGenLegacyChunkView view{};
-    view.desc = &cd;
-    view.curveCount = cd.curveCount;
-    view.cvCount = cd.cvCount;
-    // The recording writer's slot, when the gate armed one and the chunk
-    // still fits the gate-time partition (a mid-run repartition grows the
-    // partition past the scratch; the interleave size check falls back).
-    view.extentSlot = (pl.extentBase && index < pl.extentCap)
-        ? pl.extentBase + index : nullptr;
-    view.inCvCount = upC ? upC->cvCount : 0;
-    view.inFirstCv = static_cast<uint32_t>(upBase);
-    view.inCvOffsets = (upC && upC->cvCount == 0 && !upBuf.cvOffsets.empty() &&
-                        size_t(upC->firstCurve) < upBuf.cvOffsets.size())
-        ? upBuf.cvOffsets.cdata() + upC->firstCurve : nullptr;
-    view.outCount = static_cast<uint32_t>(node.outputPrimvars.size());
-    view.inCount = static_cast<uint32_t>(node.inputPrimvars.size());
-    view.outF = nullptr;
-    view.outI = nullptr;
-    view.inF = nullptr;
-    view.inI = nullptr;
-    // Chunk-local BY BINDING (zero copy): absolute offsets; planes below slice at
-    // base=cd.firstCv, so the op-facing plane-relative CV index is
-    //   view->cvOffsets[c] - int(desc->firstCv) + i
-    // (ops MUST apply the -firstCv subtraction; uniform fast path stays null).
-    view.cvOffsets = (cd.cvCount == 0 && !buf.cvOffsets.empty() &&
-                      size_t(cd.firstCurve) < buf.cvOffsets.size())
-        ? buf.cvOffsets.cdata() + cd.firstCurve : nullptr;
-
-    auto outPlane = [&](VtFloatArray &a) -> float * {
-        // cdata(), NOT data(): detach is hoisted to the commit thread
-        // (EnsureOwnedPlanes). data() here would CoW-copy the full buffer
-        // once per chunk while a pass-through alias holds a reference.
-        return a.empty() ? nullptr : const_cast<float *>(a.cdata()) + base;
-    };
-    auto inPlane = [&](VtFloatArray const &a) -> float const * {
-        return a.empty() ? nullptr : a.cdata() + upBase;
-    };
-
-    if (pl.planes & UsdGenOp::kPlanePoints) {
-        view.px = outPlane(buf.px);
-        view.py = outPlane(buf.py);
-        view.pz = outPlane(buf.pz);
-        view.inPx = inPlane(upBuf.px);
-        view.inPy = inPlane(upBuf.py);
-        view.inPz = inPlane(upBuf.pz);
-    } else {
-        view.px = buf.px.empty() ? nullptr : const_cast<float *>(buf.px.cdata()) + base;
-        view.py = buf.py.empty() ? nullptr : const_cast<float *>(buf.py.cdata()) + base;
-        view.pz = buf.pz.empty() ? nullptr : const_cast<float *>(buf.pz.cdata()) + base;
-    }
-    view.inWidth = inPlane(upBuf.width);   // upstream-width READ port (03 §1.2)
-    view.inWidth2 = upC2 && !upBuf2.width.empty()
-        ? upBuf2.width.cdata() + upC2->firstCv : nullptr;
-    if (pl.planes & UsdGenOp::kPlaneWidths) {
-        view.width = outPlane(buf.width);
-        if (!view.inPx) view.inPx = inPlane(upBuf.px);
-    } else {
-        view.width = buf.width.empty() ? nullptr
-            : const_cast<float *>(buf.width.cdata()) + base;
-    }
-    if (pl.planes & UsdGenOp::kPlaneHairT) {
-        view.hairT = outPlane(buf.hairT);
-    } else {
-        view.hairT = buf.hairT.empty() ? nullptr
-            : const_cast<float *>(buf.hairT.cdata()) + base;
-    }
-
-    // Extra planes use fixed stack tables: Evaluate() remains allocation-free
-    // even when an operator exposes several typed slots.  Slots are resolved
-    // from the freshly prepared buffer, rather than cached pointers, so a
-    // retained node cannot write a VtArray from a stale topology revision.
-    std::array<float *, kUsdGenMaxExtraPlaneSlots> outF{};
-    std::array<int *, kUsdGenMaxExtraPlaneSlots> outI{};
-    std::array<float const *, kUsdGenMaxExtraPlaneSlots> inF{};
-    std::array<int const *, kUsdGenMaxExtraPlaneSlots> inI{};
-    std::array<float const *, kUsdGenMaxExtraPlaneSlots> outputInF{};
-    std::array<int const *, kUsdGenMaxExtraPlaneSlots> outputInI{};
-    std::array<size_t, kUsdGenMaxExtraPlaneSlots> outputValues{};
-    auto offsetFor = [&](bool cv, bool upstreamPlane, uint8_t arity) {
-        size_t const element = cv
-            ? (upstreamPlane ? upBase : base)
-            : (upstreamPlane && upC ? upC->firstCurve : cd.firstCurve);
-        return element * std::max<uint8_t>(arity, 1);
-    };
-    auto const &tk = UsdGenTokens();
-    for (uint32_t slot = 0; slot < view.outCount; ++slot) {
-        PlaneLookup const output = pl.outPlanes[slot];
-        if (!output.plane) continue;  // compiler/preparation is fail-closed to a null port
-        size_t const offset = offsetFor(output.cv, false, output.plane->arity);
-        outputValues[slot] = size_t(output.cv ? nCvs : cd.curveCount) *
-            std::max<uint8_t>(output.plane->arity, 1);
-        if (output.plane->type == tk.int_) {
-            outI[slot] = output.plane->i.empty() ? nullptr
-                : const_cast<int *>(output.plane->i.cdata()) + offset;
-        } else {
-            outF[slot] = output.plane->f.empty() ? nullptr
-                : const_cast<float *>(output.plane->f.cdata()) + offset;
-        }
-        // Envelope endpoints operate on the logical predecessor of the same
-        // output name, not on InputPrimvars slot position (the two lists may
-        // legitimately differ).
-        PlaneLookup const predecessor = pl.outPredecessors[slot];
-        if (!predecessor.plane) continue;
-        size_t const inOffset = offsetFor(predecessor.cv, true, predecessor.plane->arity);
-        if (predecessor.plane->type == tk.int_)
-            outputInI[slot] = predecessor.plane->i.empty() ? nullptr
-                : predecessor.plane->i.cdata() + inOffset;
-        else
-            outputInF[slot] = predecessor.plane->f.empty() ? nullptr
-                : predecessor.plane->f.cdata() + inOffset;
-    }
-    for (uint32_t slot = 0; slot < view.inCount; ++slot) {
-        PlaneLookup const input = pl.inPlanes[slot];
-        if (!input.plane) continue;
-        size_t const offset = offsetFor(input.cv, true, input.plane->arity);
-        if (input.plane->type == tk.int_)
-            inI[slot] = input.plane->i.empty() ? nullptr : input.plane->i.cdata() + offset;
-        else
-            inF[slot] = input.plane->f.empty() ? nullptr : input.plane->f.cdata() + offset;
-    }
-    view.outF = view.outCount ? outF.data() : nullptr;
-    view.outI = view.outCount ? outI.data() : nullptr;
-    view.inF = view.inCount ? inF.data() : nullptr;
-    view.inI = view.inCount ? inI.data() : nullptr;
-    view.extraCv = node.remapsVertexPlanes && !buf.extraCv.empty()
-        ? buf.extraCv.data() : nullptr;
-    view.extraCvF = pl.extraCvF.empty() ? nullptr : pl.extraCvF.data();
-    view.extraCvI = pl.extraCvI.empty() ? nullptr : pl.extraCvI.data();
-    view.inExtraCv = node.remapsVertexPlanes && !upBuf.extraCv.empty()
-        ? upBuf.extraCv.data() : nullptr;
-    view.extraCvCount = node.remapsVertexPlanes
-        ? static_cast<uint32_t>(std::min(buf.extraCv.size(), upBuf.extraCv.size()))
-        : 0;
-    view.pointScratch = pl.pointScratch.empty() ? nullptr
-        : pl.pointScratch.data()+base;
-    view.scalarScratch = pl.scalarScratch.empty() ? nullptr
-        : pl.scalarScratch.data()+base;
-
-    // Per-curve arrays (read-only views into the node's own buffer).
-    size_t const baseCurve = cd.firstCurve;
-    view.curveId = buf.curveId.empty() ? nullptr
-        : buf.curveId.cdata() + baseCurve;
-    view.rootPrim = buf.rootPrim.empty() ? nullptr
-        : buf.rootPrim.cdata() + baseCurve;
-    view.rootUV = buf.rootUV.empty() ? nullptr
-        : buf.rootUV.cdata() + baseCurve;
-    view.rootT = buf.rootT.empty() ? nullptr
-        : const_cast<GfVec3f *>(buf.rootT.cdata()) + baseCurve;
-    view.rootN = buf.rootN.empty() ? nullptr
-        : const_cast<GfVec3f *>(buf.rootN.cdata()) + baseCurve;
-    view.rootB = buf.rootB.empty() ? nullptr
-        : const_cast<GfVec3f *>(buf.rootB.cdata()) + baseCurve;
-
-    // Capture-payload views: the magnitude LUT comes from the node's capture.
-    view.rampLut = node.capture ? node.capture->RampLut() : nullptr;
-
-    // Bridge (5.3a-f): the generic view of the same chunk over the nodes'
-    // buffer-backed sets; the default Evaluate forwards to the old family
-    // through chunk.legacy.
     UsdGenChunkRange range;
     range.first[0] = cd.firstCurve;
     range.count[0] = cd.curveCount;
@@ -950,11 +745,18 @@ void SweepChunk(size_t index, void *payload)
     range.domain = uint16_t(cd.surface);
     UsdGenChunkView chunk{};
     chunk.range = &range;
-    chunk.offsets[2] = reinterpret_cast<uint32_t const *>(view.cvOffsets);
-    chunk.inOffsets[2] = reinterpret_cast<uint32_t const *>(view.inCvOffsets);
+    // Ragged offsets stay absolute, pointer at the chunk's first curve; null
+    // on the uniform fast path.
+    if (cd.cvCount == 0 && !buf.cvOffsets.empty() &&
+        size_t(cd.firstCurve) < buf.cvOffsets.size())
+        chunk.offsets[2] = reinterpret_cast<uint32_t const *>(buf.cvOffsets.cdata() + cd.firstCurve);
+    if (upC && upC->cvCount == 0 && !upBuf.cvOffsets.empty() &&
+        size_t(upC->firstCurve) < upBuf.cvOffsets.size())
+        chunk.inOffsets[2] =
+            reinterpret_cast<uint32_t const *>(upBuf.cvOffsets.cdata() + upC->firstCurve);
     chunk.inFirst[1] = upC ? upC->firstCurve : cd.firstCurve;
     chunk.inFirst[2] = static_cast<uint32_t>(upBase);
-    chunk.inStride[2] = view.inCvCount;
+    chunk.inStride[2] = upC ? upC->cvCount : 0;
     if (pl.outSet && index < pl.tableChunks) {
         void **out = pl.outTables.data() + index * pl.outSlots;
         FillSlotTable(*pl.outSet, pl.outSlots, cd.firstCurve, base,
@@ -965,6 +767,7 @@ void SweepChunk(size_t index, void *payload)
     if (pl.inSet && index < pl.tableChunks) {
         void const **in = pl.inTables.data() + index * pl.inSlots;
         FillSlotTable(*pl.inSet, pl.inSlots, chunk.inFirst[1], upBase, in);
+        // Input points go to point writers; input px alone to width writers.
         if (!pl.pointsIn && pl.inSlots > kUsdGenCurvePz) {
             if (!pl.widthIn) in[kUsdGenCurvePx] = nullptr;
             in[kUsdGenCurvePy] = in[kUsdGenCurvePz] = nullptr;
@@ -984,16 +787,14 @@ void SweepChunk(size_t index, void *payload)
     chunk.emittedCount = pl.emittedCount;
     chunk.consumedCount = pl.consumedCount;
     chunk.remappedCount = pl.remappedCount;
-    chunk.pointScratch = view.pointScratch;
-    chunk.scalarScratch = view.scalarScratch;
-    chunk.extentSlot = (pl.genericExtentBase && index < pl.extentCap)
-        ? pl.genericExtentBase + index : nullptr;
-    chunk.rampLut = view.rampLut;
-    chunk.legacy = &view;
-    if (pl.verify && !SameAsLegacy(UsdGenCurveChunk(chunk), view)) {
-        uint32_t expected = 0;
-        pl.failureCode.compare_exchange_strong(expected, 4u, std::memory_order_acq_rel);
-    }
+    chunk.pointScratch = pl.pointScratch.empty() ? nullptr : pl.pointScratch.data() + base;
+    chunk.scalarScratch = pl.scalarScratch.empty() ? nullptr : pl.scalarScratch.data() + base;
+    // The recording writer's slot, when the gate armed one and the chunk
+    // still fits the gate-time partition (a mid-run repartition grows the
+    // partition past the scratch; the interleave size check falls back).
+    chunk.extentSlot = (pl.extentBase && index < pl.extentCap) ? pl.extentBase + index : nullptr;
+    // Capture-payload views: the magnitude LUT comes from the node's capture.
+    chunk.rampLut = node.capture ? node.capture->RampLut() : nullptr;
 
     pl.op->Evaluate(pl.ctx, *node.capture, chunk);
 
@@ -1015,7 +816,7 @@ struct InterleavePayload
     bool widthsFlag;
     // Fused extents: per-chunk records from the recording sweep, consumed
     // in chunk order. Null unless every validation check passed.
-    UsdGenLegacyChunkExtent const *extents = nullptr;
+    UsdGenChunkExtent const *extents = nullptr;
 };
 
 void InterleaveTile(size_t index, void *payload)
@@ -1049,7 +850,7 @@ void InterleaveTile(size_t index, void *payload)
             // recorded per-chunk extents in chunk order, which reproduces
             // the sequential pass bitwise for NaN-free points (the gate
             // admits only deform-recorded runs, and deform outputs cannot
-            // carry NaN — see the contract on UsdGenLegacyChunkView::extentSlot).
+            // carry NaN — see the contract on UsdGenChunkView::extentSlot).
             if (ragged && cd.cvCount == 0) {
                 for (uint32_t c = 0; c < cd.liveCount; ++c) {
                     size_t const g = size_t(cd.firstCurve) + c;
@@ -1064,7 +865,9 @@ void InterleaveTile(size_t index, void *payload)
                 liveCurves += cd.liveCount;
                 liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
             }
-            extent.UnionWith(pl.extents[tv.firstChunk + i].extent);
+            UsdGenChunkExtent const &e = pl.extents[tv.firstChunk + i];
+            extent.UnionWith(GfRange3f(GfVec3f(e.min[0], e.min[1], e.min[2]),
+                                       GfVec3f(e.max[0], e.max[1], e.max[2])));
             continue;
         }
         // Ragged path (03 §1.3): per-curve CV spans come from cvOffsets, not
@@ -1154,10 +957,7 @@ UsdGenRunResult UsdGenScheduler::Run(
     Superseded const &superseded)
 {
     TF_UNUSED(generationRequested);
-    if (!_scratch) {
-        _scratch = std::make_unique<UsdGenRunScratch>();
-        _scratch->verifyBridge = TfGetenvBool("USDGEN_BRIDGE_VERIFY", false);
-    }
+    if (!_scratch) _scratch = std::make_unique<UsdGenRunScratch>();
     if (_scratch->running.exchange(true, std::memory_order_acquire)) {
         TF_CODING_ERROR("UsdGenScheduler::Run is not reentrant");
         UsdGenRunResult refused;
@@ -1222,23 +1022,20 @@ UsdGenRunResult UsdGenScheduler::_Run(
             if (extentChunks == 0) extentWriter = -1;
         }
     }
-    std::vector<UsdGenLegacyChunkExtent> &extentScratch = S.extents;
+    // Slots start unwritten (live matches no chunk), so the validation
+    // below rejects any slot no writer filled.
+    std::vector<UsdGenChunkExtent> &extentScratch = S.extents;
     extentScratch.clear();
-    if (extentWriter >= 0) extentScratch.resize(extentChunks);
-    // Bridge: the new family's extent slots, unwritten until a sweep writes
-    // them; the post-sweep loop moves written ones into extentScratch.
-    S.genericExtents.clear();
     if (extentWriter >= 0) {
         UsdGenChunkExtent unwritten{};
-        unwritten.range.live = kUsdGenExtentUnwritten;
-        S.genericExtents.resize(extentChunks, unwritten);
+        unwritten.range.live = kExtentUnwritten;
+        extentScratch.resize(extentChunks, unwritten);
     }
     bool extentSwept = false;
 
     UsdGenDiagnostics aggregated;
     auto dispatcher = MakeWorkDispatcher();
     UsdGenCurveBuffer const emptyBuf;
-    UsdGenCurveBuffer const *const noInputBuffer[1] = {&emptyBuf};
 
     int nTiles = graph.NumTiles();
     std::vector<char> &tileTouched = S.tileTouched;
@@ -1303,7 +1100,6 @@ UsdGenRunResult UsdGenScheduler::_Run(
         UsdGenOpInputs inputs;
         inputs.sets = job->inputSets.empty() ? nullptr : job->inputSets.data();
         inputs.count = static_cast<uint32_t>(job->inputSets.size());
-        inputs.legacy = job->upstreamInputs.empty() ? noInputBuffer : job->upstreamInputs.data();
         job->captureStart = std::chrono::steady_clock::now();
 
         TfSpan<const UsdGenResolvedReferenceValue> const graphReferences =
@@ -1437,8 +1233,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             !node.capture ? "no capture yet" :
             node.captureNeeded ? "compiler requested" :
             captureIdentity != node.captureEpoch ? "capture digest moved" :
-            !(node.capture->ValidForTopology(upBuf) &&
-              node.capture->ValidForTopology(inputs.Primary())) ? "input changed" : nullptr;
+            !node.capture->ValidForTopology(inputs.Primary()) ? "input changed" : nullptr;
         job->reCaptured = job->recaptureReason != nullptr;
         if (job->reCaptured) {
             TRACE_SCOPE("usdGen capture");
@@ -1594,15 +1389,12 @@ UsdGenRunResult UsdGenScheduler::_Run(
             pl.pointScratch.resize(node.buffer.totalCvs);
             pl.scalarScratch.resize(node.buffer.totalCvs);
         }
-        pl.extraCvF.clear();
-        pl.extraCvI.clear();
+        // Remappers write extra CV planes through the chunk tables: detach
+        // them here, on the commit thread, before the tables are bound.
         if (node.remapsVertexPlanes) {
-            pl.extraCvF.reserve(node.buffer.extraCv.size());
-            pl.extraCvI.reserve(node.buffer.extraCv.size());
             for (UsdGenPlane &plane : node.buffer.extraCv) {
-                bool const isInt = plane.type == UsdGenTokens().int_;
-                pl.extraCvI.push_back(isInt && !plane.i.empty() ? plane.i.data() : nullptr);
-                pl.extraCvF.push_back(!isInt && !plane.f.empty() ? plane.f.data() : nullptr);
+                if (plane.type == UsdGenTokens().int_) { if (!plane.i.empty()) (void)plane.i.data(); }
+                else if (!plane.f.empty()) (void)plane.f.data();
             }
         }
         pl.didEval.assign(node.chunks.size(), 0);
@@ -1610,10 +1402,9 @@ UsdGenRunResult UsdGenScheduler::_Run(
         if (pos == extentWriter && extentWriter >= 0) {
             pl.extentBase = extentScratch.data();
             pl.extentCap = extentChunks;
-            pl.genericExtentBase = S.genericExtents.data();
         }
-        // Bridge (5.3a-f): the sets and slots the generic chunk view reads,
-        // bound after every commit-thread detach above.
+        // The sets and slots the chunk view reads, bound after every
+        // commit-thread detach above.
         {
             node.setView.Bind(node.buffer);
             pl.outSet = &node.setView.View();
@@ -1660,7 +1451,6 @@ UsdGenRunResult UsdGenScheduler::_Run(
             pl.in2Tables.resize(pl.tableChunks * pl.in2Slots);
             pl.pointsIn = (pl.planes & UsdGenOp::kPlanePoints) != 0;
             pl.widthIn = (pl.planes & UsdGenOp::kPlaneWidths) != 0;
-            pl.verify = S.verifyBridge;
         }
         // Capture-direct: this run's capture wrote the output planes, so
         // no sweep to run. Freshness comes from the re-capture flag, never
@@ -1820,10 +1610,6 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     message = "UsdGenCollide: closed-surface depth query failed";
                 else if (failure == 2)
                     message = "UsdGenCollide: cut depth search exceeded its deterministic resource budget";
-                else if (failure == 3)
-                    message = "UsdGen: operator implements neither Evaluate family";
-                else if (failure == 4)
-                    message = "UsdGen: bridge chunk views disagree (USDGEN_BRIDGE_VERIFY)";
                 aggregated.Error(std::move(message));
                 result.diagnostics = std::move(aggregated);
                 return result;
@@ -1840,9 +1626,6 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 NodeExecution &job = *jobs[j];
                 UsdGenCompiledNode &node = graph.Node(frontier[j]);
                 if (int(frontier[j]) == extentWriter && job.shouldSweep) {
-                    for (size_t c = 0; c < S.genericExtents.size() && c < extentScratch.size(); ++c)
-                        if (S.genericExtents[c].range.live != kUsdGenExtentUnwritten)
-                            UsdGenLegacyExtentFrom(S.genericExtents[c], &extentScratch[c]);
                     extentSwept = true;
                     for (uint8_t b : job.sweep.didEval)
                         if (!b) extentSwept = false;
@@ -1931,7 +1714,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
     // they were, so anything that moved since (a repartition, a plane
     // detach, a differently-sized terminal partition) fails closed into
     // the point pass.
-    UsdGenLegacyChunkExtent const *fusedExtents = nullptr;
+    UsdGenChunkExtent const *fusedExtents = nullptr;
     if (extentWriter >= 0 && extentSwept) {
         UsdGenCompiledNode const &wn = graph.Node(UsdGenNodeId(extentWriter));
         auto sameBacking = [](auto const &a, auto const &b) {
@@ -1946,11 +1729,11 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (size_t i = 0; ok && i < extentChunks; ++i) {
             UsdGenChunkDesc const &tc = tn.chunks[i];
             UsdGenChunkDesc const &wc = wn.chunks[i];
-            UsdGenLegacyChunkExtent const &s = extentScratch[i];
+            UsdGenChunkRange const &s = extentScratch[i].range;
             ok = tc.liveCount == tc.curveCount && wc.liveCount == wc.curveCount &&
-                 s.firstCurve == wc.firstCurve && s.curveCount == wc.curveCount &&
-                 s.liveCount == wc.liveCount && s.firstCv == wc.firstCv &&
-                 s.cvCount == wc.cvCount && wc.firstCurve == tc.firstCurve &&
+                 s.first[0] == wc.firstCurve && s.count[0] == wc.curveCount &&
+                 s.live == wc.liveCount && s.first[1] == wc.firstCv &&
+                 s.stride[1] == wc.cvCount && wc.firstCurve == tc.firstCurve &&
                  wc.curveCount == tc.curveCount && wc.liveCount == tc.liveCount &&
                  wc.firstCv == tc.firstCv && wc.cvCount == tc.cvCount;
         }

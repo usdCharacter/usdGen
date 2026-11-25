@@ -7,8 +7,6 @@
 
 namespace usdGen {
 
-struct UsdGenLegacyChunkView;   // bridge (5.3a-f): usdGenCurves/types/curveBuffer.h
-
 struct UsdGenChunkExtent { float min[3], max[3]; UsdGenChunkRange range; };
 
 struct UsdGenChunkView {
@@ -30,9 +28,6 @@ struct UsdGenChunkView {
     double *scalarScratch = nullptr;
     UsdGenChunkExtent *extentSlot = nullptr;
     float const *rampLut = nullptr;
-    /// Bridge (5.3a-f): the same chunk as the old family's view, or null.
-    /// With 'range' null the view is only this wrapper (UsdGenCurveChunk reads it).
-    UsdGenLegacyChunkView *legacy = nullptr;
 };
 
 }  // namespace usdGen

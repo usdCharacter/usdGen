@@ -371,14 +371,13 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (!capture)
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     "Scatter kernel did not create capture storage", reason);
-    UsdGenCurveBuffer emptyUpstream;
     UsdGenCaptureContext context;
     context.desc = &desc;
     context.params = &resolved.View();
     context.surface = static_cast<UsdGenSurfaceId>(surfaceIt - desc.surfaces.begin());
     context.seed = static_cast<uint32_t>(node.seed);
     context.diag = &diagnostics;
-    if (!op->Capture(context, emptyUpstream, capture.get(), &diagnostics))
+    if (!op->Capture(context, UsdGenOpInputs{}, capture.get(), &diagnostics))   // a source: no input
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     diagnostics.errors.empty() ? "Scatter Capture failed" : diagnostics.errors.front(), reason);
     UsdGenCurveBuffer const& roots = static_cast<UsdGenCurveCapture const &>(*capture).Buffer();

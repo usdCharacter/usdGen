@@ -1,15 +1,12 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// Bridge (5.3a): buffer-backed set views and the UsdGenOp family defaults.
-// 5.3f deletes the op defaults, 5.4 the buffer views.
+// Bridge (5.3a; 5.4 deletes): buffer-backed set views.
 #include "usdGenCurves/types/curveBridge.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/op.h"
 
 #include <algorithm>
-#include <vector>
 
 namespace usdGen {
 
@@ -38,28 +35,6 @@ void Put(UsdGenPoolVector<void const *> &columns, UsdGenPoolVector<uint32_t> &va
 {
     columns[slot] = a.empty() ? nullptr : static_cast<void const *>(a.cdata());
     values[slot] = uint32_t(a.size() * arity);
-}
-
-// The op whose default is forwarding on this thread: re-entering a default
-// for the same op means it overrides neither family.
-thread_local UsdGenOp const *tBridgeOp = nullptr;
-
-struct BridgeScope
-{
-    explicit BridgeScope(UsdGenOp const *op) noexcept : prev(tBridgeOp) { tBridgeOp = op; }
-    ~BridgeScope() { tBridgeOp = prev; }
-    BridgeScope(BridgeScope const &) = delete;
-    BridgeScope &operator=(BridgeScope const &) = delete;
-    UsdGenOp const *prev;
-};
-
-constexpr uint32_t kBridgeFailure = 3;   // scheduler.cpp names it
-
-void FailEvaluate(UsdGenEvalContext const &ctx) noexcept
-{
-    if (!ctx.failureCode) return;
-    uint32_t expected = 0;
-    ctx.failureCode->compare_exchange_strong(expected, kBridgeFailure, std::memory_order_acq_rel);
 }
 
 }  // namespace
@@ -121,69 +96,6 @@ void UsdGenCurveBufferSetView::Bind(UsdGenCurveBuffer const &b)
     _view.topologyVersion = b.topologyVersion;
     _view.valueVersion = b.valueVersion;
     _view.legacy = &b;
-}
-
-// ---- UsdGenOp family defaults ------------------------------------------------------
-
-bool UsdGenOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
-                       UsdGenCapture *out, UsdGenDiagnostics *diag)
-{
-    if (tBridgeOp == this || !in.legacy || !in.legacy[0]) {
-        if (diag) diag->Error("UsdGen: operator implements neither Capture family");
-        return false;
-    }
-    BridgeScope const scope(this);
-    return Capture(ctx, *in.legacy[0], out, diag);
-}
-
-bool UsdGenOp::Capture(UsdGenCaptureContext const &ctx, UsdGenCurveBuffer const &upstream,
-                       UsdGenCapture *out, UsdGenDiagnostics *diag)
-{
-    if (tBridgeOp == this) {
-        if (diag) diag->Error("UsdGen: operator implements neither Capture family");
-        return false;
-    }
-    BridgeScope const scope(this);
-    // Capture time (callers outside the scheduler): views over the buffers.
-    uint32_t const extra = ctx.upstreams && ctx.upstreamCount > 1 ? ctx.upstreamCount - 1 : 0;
-    std::vector<UsdGenCurveBufferSetView> views(size_t(extra) + 1);
-    std::vector<UsdGenElementSetView> sets(views.size());
-    std::vector<UsdGenCurveBuffer const *> legacy(views.size());
-    for (size_t i = 0; i < views.size(); ++i) {
-        legacy[i] = i == 0 ? &upstream : ctx.upstreams[i];
-        views[i].Bind(*legacy[i]);
-        sets[i] = views[i].View();
-    }
-    UsdGenOpInputs in;
-    in.sets = sets.data();
-    in.count = uint32_t(sets.size());
-    in.legacy = legacy.data();
-    return Capture(ctx, in, out, diag);
-}
-
-void UsdGenOp::Evaluate(UsdGenEvalContext const &ctx, UsdGenCapture const &capture,
-                        UsdGenChunkView const &chunk) const
-{
-    if (tBridgeOp == this || !chunk.legacy) { FailEvaluate(ctx); return; }
-    BridgeScope const scope(this);
-    Evaluate(ctx, capture, chunk.legacy);
-}
-
-void UsdGenOp::Evaluate(UsdGenEvalContext const &ctx, UsdGenCapture const &capture,
-                        UsdGenLegacyChunkView *view) const
-{
-    if (tBridgeOp == this || !view) { FailEvaluate(ctx); return; }
-    BridgeScope const scope(this);
-    // A wrapper only: UsdGenCurveChunk reads 'view'; a generic extent the op
-    // writes lands in the old slot.
-    UsdGenChunkExtent extent{};
-    extent.range.live = kUsdGenExtentUnwritten;
-    UsdGenChunkView wrapper{};
-    wrapper.legacy = view;
-    wrapper.extentSlot = view->extentSlot ? &extent : nullptr;
-    Evaluate(ctx, capture, wrapper);
-    if (view->extentSlot && extent.range.live != kUsdGenExtentUnwritten)
-        UsdGenLegacyExtentFrom(extent, view->extentSlot);
 }
 
 }  // namespace usdGen

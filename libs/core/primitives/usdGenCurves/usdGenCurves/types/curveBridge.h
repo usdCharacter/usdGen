@@ -1,12 +1,10 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // Bridge (5.3a; 5.4 deletes): element-set views over builder buffers, so the
-// scheduler hands the new op families views while it still stores buffers,
-// and the extent conversion between the two chunk-view families.
+// scheduler hands ops set views while it still stores buffers.
 #pragma once
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/export.h"
-#include "usdGen/exec/chunkView.h"
 #include "usdGen/exec/pool.h"
 #include "usdGenCurves/types/curveBuffer.h"
 
@@ -34,20 +32,5 @@ private:
     UsdGenPoolVector<uint32_t> _values;
     UsdGenElementSetView _view;
 };
-
-/// Sentinel for a generic extent slot nobody wrote (range.live).
-constexpr uint32_t kUsdGenExtentUnwritten = 0xffffffffu;
-
-/// A written generic extent as the old family's slot (same floats, same span).
-inline void UsdGenLegacyExtentFrom(UsdGenChunkExtent const &e, UsdGenLegacyChunkExtent *out)
-{
-    out->extent.SetMin(GfVec3f(e.min[0], e.min[1], e.min[2]));
-    out->extent.SetMax(GfVec3f(e.max[0], e.max[1], e.max[2]));
-    out->firstCurve = e.range.first[0];
-    out->curveCount = e.range.count[0];
-    out->liveCount = e.range.live;
-    out->firstCv = e.range.first[1];
-    out->cvCount = e.range.stride[1];
-}
 
 }  // namespace usdGen

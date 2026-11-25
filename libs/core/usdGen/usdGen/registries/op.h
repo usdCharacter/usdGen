@@ -272,9 +272,6 @@ struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptu
     /// True when this capture is usable for the given upstream topology;
     /// false forces a re-capture.
     virtual bool ValidForTopology(UsdGenElementSetView const &) const { return true; }
-    /// Bridge (5.3a-f): the same question over the upstream builder buffer.
-    /// The scheduler asks both; a capture overrides one.
-    virtual bool ValidForTopology(UsdGenCurveBuffer const &) const { return true; }
     /// Generators: the set this capture produced (the node's output base).
     virtual UsdGenRef<const UsdGenElementSet> Output() const { return {}; }
     /// Bridge (5.3a; 5.4 deletes): the builder buffer a generator capture
@@ -317,9 +314,6 @@ struct UsdGenOpInputs
     {
         return sets && count ? sets[0] : kUsdGenNoInput;
     }
-    /// Bridge (5.3a-f): the same inputs as builder buffers for the old
-    /// Capture family; legacy[0] is valid (an empty buffer) when count is 0.
-    UsdGenCurveBuffer const *const *legacy = nullptr;
 };
 
 struct UsdGenCaptureContext
@@ -342,9 +336,8 @@ struct UsdGenCaptureContext
     UsdGenSurfaceId        surface = 0;
     uint32_t               seed = 0;
     uint64_t               upstreamGeneration = 0; // upstream buffer topologyVersion
-    // Complete ordered input list for a multi-input operator.  Unary kernels
-    // continue to use the legacy Capture() argument and upstreamGeneration;
-    // fan-in kernels opt in by declaring geometryInputArity > 1.
+    // The ordered inputs as builder buffers, for CaptureDigest (Capture
+    // reads UsdGenOpInputs).
     UsdGenCurveBuffer const **upstreams = nullptr;
     uint32_t               upstreamCount = 0;
     UsdGenWorkDispatcher  *dispatcher = nullptr;  // capture may parallelise in the arena
@@ -356,7 +349,7 @@ struct UsdGenCaptureContext
     // all four are present and chunkCount == chunkExtentCount.
     UsdGenChunkDesc const *chunks = nullptr;
     size_t                 chunkCount = 0;
-    UsdGenLegacyChunkExtent     *chunkExtentSlots = nullptr;
+    UsdGenChunkExtent     *chunkExtentSlots = nullptr;
     size_t                 chunkExtentCount = 0;
     // The node's previous-run point planes (writable) for capture-direct
     // output, plus their CV count. Set only by UsdGenScheduler::Run when
@@ -418,28 +411,12 @@ public:
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
     /// Fill *out (derive the concrete payload). A generator (topoFx != None)
     /// also produces its output topology (UsdGenCurveCapture::MutableBuffer).
-    /// Default: the old family through in.legacy (bridge, 5.3a-f).
-    USDGEN_CORE_API virtual bool Capture(UsdGenCaptureContext const &ctx,
-                                         UsdGenOpInputs const &in,
-                                         UsdGenCapture *out,
-                                         UsdGenDiagnostics *diag);
-    /// Bridge (5.3a-f), the old family. Default: the new family over views
-    /// of 'upstream' and ctx.upstreams. Overriding neither fails the capture.
-    USDGEN_CORE_API virtual bool Capture(UsdGenCaptureContext const &ctx,
-                                         UsdGenCurveBuffer const &upstream,
-                                         UsdGenCapture *out,
-                                         UsdGenDiagnostics *diag);
+    virtual bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
+                         UsdGenCapture *out, UsdGenDiagnostics *diag) = 0;
 
     // ---- evaluate: per chunk, parallel, allocation-free (03 §8.1) ------------
-    /// Default: the old family through chunk.legacy (bridge, 5.3a-f).
-    USDGEN_CORE_API virtual void Evaluate(UsdGenEvalContext const &ctx,
-                                          UsdGenCapture const &capture,
-                                          UsdGenChunkView const &chunk) const;
-    /// Bridge (5.3a-f), the old family. Default: the new family over a view
-    /// wrapping 'view'. Overriding neither fails the cook (ctx.failureCode).
-    USDGEN_CORE_API virtual void Evaluate(UsdGenEvalContext const &ctx,
-                                          UsdGenCapture const &capture,
-                                          UsdGenLegacyChunkView *view) const;
+    virtual void Evaluate(UsdGenEvalContext const &ctx, UsdGenCapture const &capture,
+                          UsdGenChunkView const &chunk) const = 0;
 
     /// Allocate the concrete capture payload for this operator. The payload
     /// owns its per-curve results; generators additionally fill

@@ -855,7 +855,8 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             // Reduce into locals first: the slots publish only on full
             // success, so an abandoned walk can never leave partial
             // extents behind valid spans.
-            std::vector<UsdGenLegacyChunkExtent> local(ctx.chunkCount);
+            std::vector<GfRange3f> local(ctx.chunkCount);
+            std::vector<UsdGenChunkRange> ranges(ctx.chunkCount);
             chunk = 0;
             for (size_t g = 0; g < groups; ++g) {
                 size_t const gFirst = g * kGroupStrands;
@@ -865,17 +866,21 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                     ++chunk;
                 if (chunk >= ctx.chunkCount) { nested = false; break; }
                 UsdGenChunkDesc const &cd = ctx.chunks[chunk];
-                UsdGenLegacyChunkExtent &slot = local[chunk];
-                slot.extent.UnionWith(groupExtents[g]);
-                slot.firstCurve = cd.firstCurve;
-                slot.curveCount = cd.curveCount;
-                slot.liveCount = cd.liveCount;
-                slot.firstCv = cd.firstCv;
-                slot.cvCount = cd.cvCount;
+                local[chunk].UnionWith(groupExtents[g]);
+                UsdGenChunkRange &span = ranges[chunk];
+                span.first[0] = cd.firstCurve;
+                span.count[0] = cd.curveCount;
+                span.live = cd.liveCount;
+                span.first[1] = cd.firstCv;
+                span.stride[1] = cd.cvCount;
             }
             if (nested) {
-                for (size_t k = 0; k < ctx.chunkCount; ++k)
-                    ctx.chunkExtentSlots[k] = local[k];
+                for (size_t k = 0; k < ctx.chunkCount; ++k) {
+                    UsdGenChunkExtent &slot = ctx.chunkExtentSlots[k];
+                    GfVec3f const &mn = local[k].GetMin(), &mx = local[k].GetMax();
+                    for (int a = 0; a < 3; ++a) { slot.min[a] = mn[a]; slot.max[a] = mx[a]; }
+                    slot.range = ranges[k];
+                }
                 cap.extentsRecorded = true;
             }
         }

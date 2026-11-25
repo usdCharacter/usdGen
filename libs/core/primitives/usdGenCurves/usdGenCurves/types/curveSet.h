@@ -27,7 +27,6 @@ using PXR_NS::GfVec3d;
 struct UsdGenCurveBuffer;     // usdGenCurves/types/curveBuffer.h
 struct UsdGenChunkView;       // usdGen/exec/chunkView.h
 struct UsdGenChunkExtent;     // usdGen/exec/chunkView.h
-struct UsdGenLegacyChunkView; // bridge (5.3a-f): usdGenCurves/types/curveBuffer.h
 class UsdGenRegistrar;
 
 /// Static channels of the CurveSet layout (slot == enumerator).
@@ -96,8 +95,6 @@ private:
 /// the worker's stack from the generic view. No allocation, no name lookup.
 /// cvOffsets/inCvOffsets keep the legacy meaning (absolute values, pointer at
 /// the chunk's first curve); extraCvF/I are whole-column bases as before.
-/// Bridge (5.3a-f): a view with 'legacy' set and no 'range' is a wrapper of
-/// the old family's view, which is then copied member for member.
 class UsdGenCurveChunk {
 public:
     USDGEN_CORE_API explicit UsdGenCurveChunk(UsdGenChunkView const &) noexcept;
@@ -130,7 +127,6 @@ public:
     float const *InF(uint32_t s) const { return inF[s]; }
     int const *InI(uint32_t s) const { return inI[s]; }
 private:
-    void _Wrap(UsdGenLegacyChunkView const &) noexcept;
     Desc _desc{};
     float *_outF[kMaxSlots] = {}; int *_outI[kMaxSlots] = {};
     float const *_inF[kMaxSlots] = {}; int const *_inI[kMaxSlots] = {};

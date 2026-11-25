@@ -1,9 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// UsdGenCurveChunk over the generic chunk view, or over the old family's
-// view it wraps (bridge, 5.3a-f).
+// UsdGenCurveChunk over the generic chunk view.
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGenCurves/types/curveBuffer.h"
 
 #include "usdGen/exec/chunkView.h"
 #include "usdGen/registries/engineTokens.h"
@@ -37,60 +35,10 @@ UsdGenCurveChunk::PlaneInfo Info(UsdGenChannelDesc const &d) noexcept
     return p;
 }
 
-UsdGenCurveChunk::PlaneInfo Info(UsdGenPlane const &p) noexcept
-{
-    UsdGenCurveChunk::PlaneInfo i;
-    i.name = p.name;
-    i.interpolation = p.interpolation;
-    i.type = p.type;
-    i.arity = p.arity;
-    return i;
-}
-
 }  // namespace
-
-void UsdGenCurveChunk::_Wrap(UsdGenLegacyChunkView const &l) noexcept
-{
-    if (l.desc) {
-        UsdGenChunkDesc const &d = *l.desc;
-        _desc = {d.firstCurve, d.curveCount, d.liveCount, d.firstCv, d.cvCount,
-                 uint16_t(d.tile), uint16_t(d.surface)};
-    }
-    desc = &_desc;
-    px = l.px; py = l.py; pz = l.pz;
-    inPx = l.inPx; inPy = l.inPy; inPz = l.inPz; inWidth = l.inWidth; inWidth2 = l.inWidth2;
-    width = l.width; hairT = l.hairT;
-    curveId = l.curveId; rootPrim = l.rootPrim; cvOffsets = l.cvOffsets;
-    rootUV = l.rootUV; rootT = l.rootT; rootN = l.rootN; rootB = l.rootB;
-    rampLut = l.rampLut;
-    outF = l.outF; outI = l.outI; inF = l.inF; inI = l.inI;
-    outCount = l.outCount; inCount = l.inCount;
-    extraCvCount = std::min<uint32_t>(l.extraCvCount, kMaxSlots);
-    for (uint32_t k = 0; k < extraCvCount; ++k) {
-        if (l.extraCv) _extraCv[k] = Info(l.extraCv[k]);
-        if (l.inExtraCv) {
-            _inExtraCv[k] = Info(l.inExtraCv[k]);
-            _inExtraCvF[k] = l.inExtraCv[k].f.cdata();
-            _inExtraCvI[k] = l.inExtraCv[k].i.cdata();
-        }
-    }
-    extraCv = l.extraCv ? _extraCv : nullptr;
-    inExtraCv = l.inExtraCv ? _inExtraCv : nullptr;
-    inExtraCvF = l.inExtraCv ? _inExtraCvF : nullptr;
-    inExtraCvI = l.inExtraCv ? _inExtraCvI : nullptr;
-    extraCvF = l.extraCvF; extraCvI = l.extraCvI;
-    pointScratch = l.pointScratch; scalarScratch = l.scalarScratch;
-    curveCount = l.curveCount; cvCount = l.cvCount; inCvCount = l.inCvCount;
-    inCvOffsets = l.inCvOffsets; inFirstCv = l.inFirstCv;
-}
 
 UsdGenCurveChunk::UsdGenCurveChunk(UsdGenChunkView const &v) noexcept
 {
-    if (!v.range && v.legacy) {
-        _Wrap(*v.legacy);
-        extentSlot = v.extentSlot;
-        return;
-    }
     if (v.range) {
         UsdGenChunkRange const &r = *v.range;
         _desc = {r.first[0], r.count[0], r.live, r.first[1], r.stride[1], r.group, r.domain};
