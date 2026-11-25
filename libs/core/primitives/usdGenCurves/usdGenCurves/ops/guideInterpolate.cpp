@@ -96,6 +96,17 @@ struct UsdGenGuideInterpolateCapture final : public UsdGenCurveCapture
         return std::make_unique<UsdGenGuideInterpolateCapture>(*this);
     }
     bool OwnsBuffer() const override { return true; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        cvCount = 0;
+        result.clear();
+        roots.clear();
+        upstreamTopologyVersion = upstreamValueVersion = 0;
+        upstreamCurves = 0;
+        return true;
+    }
     bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
         UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);

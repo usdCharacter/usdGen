@@ -47,12 +47,29 @@ struct UsdGenResampleCapture final : public UsdGenCapturePayload
     uint64_t upstreamTopologyVersion = 0;
     uint64_t upstreamValueVersion = 0;
     uint32_t upstreamCurves = 0;
+    // Capture scratch, kept across Recycle() (never read by Evaluate).
+    std::vector<uint32_t> spans, outCounts, outFirst;
+    std::vector<float> cumlen;
 
     std::unique_ptr<UsdGenCapture> Clone() const override
     {
         return std::make_unique<UsdGenResampleCapture>(*this);
     }
     bool OwnsBuffer() const override { return true; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        perCurve.clear();
+        perCv.clear();
+        rampLut.clear();
+        cvCount = 8;
+        spacing = 0.0f;
+        keepParam = restoreLengths = false;
+        upstreamTopologyVersion = upstreamValueVersion = 0;
+        upstreamCurves = 0;
+        return true;
+    }
     bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
         UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
@@ -181,7 +198,7 @@ bool UsdGenResampleOp::Capture(
     cap.upstreamValueVersion = upstream.valueVersion;
     cap.upstreamCurves = upstream.totalCurves;
 
-    std::vector<uint32_t> spans;
+    std::vector<uint32_t> &spans = cap.spans;
     std::string error;
     if (!opUtil::CurveSpans(upstream, &spans, &error))
         return fail("strand topology: " + error);
@@ -196,7 +213,8 @@ bool UsdGenResampleOp::Capture(
         return fail("upstream point plane cardinality does not match its CV topology");
 
     // Output CV count per strand: fixed, or from the strand's current length.
-    std::vector<uint32_t> outCounts(R, uint32_t(cvCount));
+    std::vector<uint32_t> &outCounts = cap.outCounts;
+    outCounts.assign(R, uint32_t(cvCount));
     if (cap.spacing > 0.0f) {
         for (uint32_t c = 0; c != R; ++c) {
             float length = 0.0f;
@@ -225,12 +243,13 @@ bool UsdGenResampleOp::Capture(
     buf.totalCurves = R;
     buf.totalCvs = uint32_t(totalCvs);
     buf.topologyVersion = upstream.topologyVersion + 1;
-    std::vector<uint32_t> outFirst(size_t(R) + 1, 0u);
+    std::vector<uint32_t> &outFirst = cap.outFirst;
+    outFirst.assign(size_t(R) + 1, 0u);
     for (uint32_t c = 0; c != R; ++c) outFirst[c + 1] = outFirst[c] + outCounts[c];
     if (cap.spacing > 0.0f) {
         // Ragged: explicit offsets (also when every count agrees, so the
         // scheduler never substitutes an upstream ragged layout).
-        buf.cvOffsets = VtIntArray(size_t(R) + 1);
+        buf.cvOffsets.resize(size_t(R) + 1);
         for (size_t c = 0; c <= R; ++c) buf.cvOffsets[c] = int(outFirst[c]);
     } else {
         buf.cvOffsets.clear();  // fixed cvCount: the output is uniform.
@@ -238,8 +257,11 @@ bool UsdGenResampleOp::Capture(
 
     // Named planes follow the new cardinality (the scheduler keeps these
     // private owners instead of re-aliasing upstream descriptors).
+    // No upstream planes: nothing to carry (the call would only validate
+    // the spans checked above).
     std::string planeError;
-    if (!UsdGenResampleExtraPlanes(upstream, &buf, &planeError))
+    if ((upstream.ExtraCurveCount() || upstream.ExtraCvCount()) &&
+        !UsdGenResampleExtraPlanes(upstream, &buf, &planeError))
         return fail("extra planes: " + planeError);
 
     // Widths resample with the same weights as points; without an upstream
@@ -253,11 +275,14 @@ bool UsdGenResampleOp::Capture(
     bool const hasWidths = !upstream.width.empty();
     if (hasWidths && upstream.width.size() != upstream.totalCvs)
         return fail("upstream width plane cardinality does not match its CV topology");
-    VtFloatArray resampledWidths(buf.totalCvs, fallbackWidth);
-    VtVec3fArray resampledRest(buf.totalCvs);
+    // Written in place: a recycled capture's arrays keep their storage.
+    VtFloatArray &resampledWidths = buf.width;
+    VtVec3fArray &resampledRest = buf.rest;
+    resampledWidths.assign(buf.totalCvs, fallbackWidth);
+    resampledRest.assign(buf.totalCvs, GfVec3f(0.0f));
     bool const hasRest = upstream.rest.size() == upstream.totalCvs;
 
-    std::vector<float> cumlen;
+    std::vector<float> &cumlen = cap.cumlen;
     for (uint32_t c = 0; c != R; ++c) {
         uint32_t const first = spans[c], nIn = spans[c + 1] - first;
         // Arc table over the REST shape: rest resamples by arc length so the
@@ -299,8 +324,6 @@ bool UsdGenResampleOp::Capture(
             }
         }
     }
-    buf.width = std::move(resampledWidths);
-    buf.rest = std::move(resampledRest);
     return true;
 }
 

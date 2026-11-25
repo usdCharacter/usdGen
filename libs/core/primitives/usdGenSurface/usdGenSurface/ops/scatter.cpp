@@ -54,6 +54,12 @@ struct UsdGenScatterCapture final : public UsdGenCurveCapture
         return c;
     }
     bool OwnsBuffer() const override { return true; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        return true;
+    }
 };
 
 GfVec3f Normalize3(GfVec3f const &v)

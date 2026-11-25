@@ -35,6 +35,12 @@ struct UsdGenCardSourceCapture final : public UsdGenCurveCapture
     {
         return std::make_unique<UsdGenCardSourceCapture>(*this);
     }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        return true;
+    }
 };
 
 using namespace cardSourceP;

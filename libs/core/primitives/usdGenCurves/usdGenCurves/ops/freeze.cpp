@@ -91,6 +91,14 @@ struct UsdGenFreezeCapture final : public UsdGenCurveCapture
         return std::make_unique<UsdGenFreezeCapture>(*this);
     }
     bool OwnsBuffer() const override { return !live; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        live = false;
+        epoch.clear();
+        return true;
+    }
     bool ValidForTopology(UsdGenElementSetView const &) const override
     {
         // The freeze contract: frozen output NEVER follows upstream edits,

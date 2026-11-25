@@ -34,6 +34,12 @@ struct UsdGenCurveSourceCapture final : public UsdGenCurveCapture
       return c;
    }
    bool OwnsBuffer() const override { return true; }
+   bool Recyclable() const override { return true; }
+   bool Recycle() override
+   {
+      UsdGenRecycleBuffer(_buffer);
+      return true;
+   }
 };
 
 bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
