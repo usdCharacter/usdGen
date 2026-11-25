@@ -5,6 +5,7 @@
 // bit-exact positions/uv/frames, including the overflow-fan recompute
 // (ntri > 2), restricted capture, flip, and error parity.
 #include "usdGen/op.h"
+#include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/scatter.h"
@@ -128,7 +129,7 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
     ctx.seed = uint32_t(node.seed);
     ctx.diag = &diag;
     UsdGenCurveBuffer empty;
-    if (!op.Capture(ctx, empty, cap.get(), &diag)) {
+    if (!op.Capture(ctx, UsdGenBufferInputs(empty), cap.get(), &diag)) {
         if (error && !diag.errors.empty())
             *error = diag.errors.front();
         return false;

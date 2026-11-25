@@ -20,6 +20,7 @@
 // widths or colours, the drivers with the stage's own locators; the scene
 // globals' frame alone cooks nothing (the example reads no $frame).
 #include "usdGen/compiler.h"
+#include "bufferOpCalls.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -678,7 +679,7 @@ void CheckNonFiniteCapture()
     UsdGenDeformOp op(registry.Record(registry.Find(TfToken("UsdGenDeform"))));
     auto capture = op.CreateCapture();
     UsdGenDiagnostics diagnostics;
-    bool const ok = op.Capture(ctx, upstream, capture.get(), &diagnostics);
+    bool const ok = op.Capture(ctx, UsdGenBufferInputs(upstream), capture.get(), &diagnostics);
     bool const refused = !ok && !diagnostics.errors.empty() &&
         diagnostics.errors[0].find("non-finite") != std::string::npos;
     Check(refused, "a deformation that overflows float is refused, not published");
@@ -1023,7 +1024,7 @@ void CheckDeformEvaluateViewShapes()
     std::vector<float> uniPx(term.totalCvs), uniPy(term.totalCvs), uniPz(term.totalCvs);
     UsdGenLegacyChunkView uniView = makeView(&fullDesc, uniPx.data(), uniPy.data(), uniPz.data(),
                                        0, uint32_t(curves), uint32_t(perCurve), nullptr);
-    op->Evaluate(evalCtx, *graph.Node(deformId).capture, &uniView);
+    op->Evaluate(evalCtx, *graph.Node(deformId).capture, UsdGenLegacyChunkWrap(&uniView));
     auto plane = [&](VtFloatArray const &p) {
         return std::vector<float>(p.begin(), p.end());
     };
@@ -1038,7 +1039,7 @@ void CheckDeformEvaluateViewShapes()
     std::vector<float> ragPx(term.totalCvs), ragPy(term.totalCvs), ragPz(term.totalCvs);
     UsdGenLegacyChunkView ragView = makeView(&raggedDesc, ragPx.data(), ragPy.data(), ragPz.data(),
                                        0, uint32_t(curves), 0, offsets.data());
-    op->Evaluate(evalCtx, *graph.Node(deformId).capture, &ragView);
+    op->Evaluate(evalCtx, *graph.Node(deformId).capture, UsdGenLegacyChunkWrap(&ragView));
     Check(same(uniPx, ragPx) && same(uniPy, ragPy) && same(uniPz, ragPz),
           "ragged and uniform views agree bitwise at full mask");
     // Offset chunk (second half of the curves): the firstCv math.
@@ -1053,7 +1054,7 @@ void CheckDeformEvaluateViewShapes()
     UsdGenLegacyChunkView tailView = makeView(&tailDesc, tailPx.data(), tailPy.data(), tailPz.data(),
                                         half * perCurve, uint32_t(curves - half),
                                         uint32_t(perCurve), nullptr);
-    op->Evaluate(evalCtx, *graph.Node(deformId).capture, &tailView);
+    op->Evaluate(evalCtx, *graph.Node(deformId).capture, UsdGenLegacyChunkWrap(&tailView));
     bool tailOk = true;
     for (size_t i = 0; i < tailCvs && tailOk; ++i) {
         size_t const o = half * perCurve + i;
@@ -1075,13 +1076,13 @@ void CheckDeformEvaluateViewShapes()
     UsdGenLegacyChunkView blendUniView =
         makeView(&fullDesc, blendUniPx.data(), blendUniPy.data(), blendUniPz.data(), 0,
                  uint32_t(curves), uint32_t(perCurve), nullptr);
-    op->Evaluate(maskCtx, *graph.Node(deformId).capture, &blendUniView);
+    op->Evaluate(maskCtx, *graph.Node(deformId).capture, UsdGenLegacyChunkWrap(&blendUniView));
     std::vector<float> blendRagPx(term.totalCvs), blendRagPy(term.totalCvs),
         blendRagPz(term.totalCvs);
     UsdGenLegacyChunkView blendRagView =
         makeView(&raggedDesc, blendRagPx.data(), blendRagPy.data(), blendRagPz.data(), 0,
                  uint32_t(curves), 0, offsets.data());
-    op->Evaluate(maskCtx, *graph.Node(deformId).capture, &blendRagView);
+    op->Evaluate(maskCtx, *graph.Node(deformId).capture, UsdGenLegacyChunkWrap(&blendRagView));
     Check(same(blendUniPx, blendRagPx) && same(blendUniPy, blendRagPy) &&
               same(blendUniPz, blendRagPz),
           "ragged and uniform views agree bitwise at partial mask");
@@ -1836,7 +1837,7 @@ void CheckCaptureDirectMaskReuse()
             v.curveCount = uint32_t(curves);
             v.cvCount = perCurve;
             UsdGenEvalContext evalCtx; // params null: default mask 1.0
-            op->Evaluate(evalCtx, *directCap, &v);
+            op->Evaluate(evalCtx, *directCap, UsdGenLegacyChunkWrap(&v));
             Check(hx == directX && hy == directY && hz == directZ,
                   "mask reuse: the direct capture carries its deformed values");
         }
