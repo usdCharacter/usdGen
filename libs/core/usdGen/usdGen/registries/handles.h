@@ -1,12 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #pragma once
+#include "usdGen/api/ids.h"
 #include <cstdint>
 
 namespace usdGen {
 
-enum class UsdGenOpId : uint16_t { Invalid = 0xFFFFu };
-enum class UsdGenTypeId : uint16_t { Invalid = 0xFFFFu };
 /// Value == uint8_t(UsdGenExecutionBackend) until step 8.
 enum class UsdGenBackendId : uint8_t { Invalid = 0xFFu };
 
@@ -19,8 +18,6 @@ constexpr uint32_t kUsdGenMaxBackends = 8;
 constexpr uint32_t kUsdGenMaxParamsPerOp = 128;   // Clump declares ~50 today
 constexpr uint32_t kUsdGenMaxOpTokens = 32;
 
-constexpr uint32_t UsdGenIndex(UsdGenOpId id) noexcept { return uint32_t(id); }
-constexpr uint32_t UsdGenIndex(UsdGenTypeId id) noexcept { return uint32_t(id); }
 constexpr uint32_t UsdGenIndex(UsdGenBackendId id) noexcept { return uint32_t(id); }
 
 }  // namespace usdGen

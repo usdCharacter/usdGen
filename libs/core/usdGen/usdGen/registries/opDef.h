@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // What an op library tells the engine about one op: plain data plus hooks.
 #pragma once
+#include "usdGen/api/span.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/expressions/context.h"   // expr::Domain, expr::ScalarType
 #include "usdGen/types.h"                 // UsdGenTopoFx, UsdGenRole
@@ -113,12 +114,8 @@ enum UsdGenOpTrait : uint32_t {
     kUsdGenOpFixedOutputPlaneLayout   = 1u << 10,  // scheduler.cpp:228-236
 };
 
-/// TfSpan has no C-array constructor: `d.params = UsdGenSpan(kParams);`.
-template <class T, size_t N>
-inline TfSpan<const T> UsdGenSpan(T const (&array)[N]) noexcept
-{
-    return TfSpan<const T>(array, N);
-}
+/// TfSpan has no C-array constructor: `d.params = UsdGenSpan(kParams);`
+/// (api/span.h) converts through TfSpan's container constructor.
 
 using UsdGenOpCreateFn = std::unique_ptr<UsdGenOp> (*)(UsdGenOpRecord const &, void *context);
 
