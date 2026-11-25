@@ -48,7 +48,7 @@ UsdGenGraphDesc MakeDescriptor(bool sourceWidths, bool useRest, float literal,
     desc.executionBackend = UsdGenExecutionBackend::Vulkan;
     desc.defaultWidth = .8f;
     UsdGenCurveSetDesc curves;
-    curves.path = SdfPath("/Executor/C3"); curves.role = UsdGenRole::Curves;
+    curves.path = SdfPath("/Executor/C3"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair"); curves.curveVertexCounts = {3, 2, 4};
     // Deliberately unsorted stable IDs and ragged source order.
     curves.curveId = {30, 10, 20};

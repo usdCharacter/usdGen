@@ -20,7 +20,7 @@ static UsdGenGraphDesc MakeDesc() {
     s.points = s.restPoints;
     s.faceVertexCounts = {3,3,3}; s.faceVertexIndices = {0,1,2, 0,1,3, 1,2,4};
     d.surfaces.push_back(s);
-    UsdGenCurveSetDesc c; c.path = SdfPath("/Hair"); c.role = UsdGenRole::Curves;
+    UsdGenCurveSetDesc c; c.path = SdfPath("/Hair"); c.role = UsdGenLane::Chunked;
     c.curveRole = TfToken("hair"); c.type = TfToken("cubic"); c.basis = TfToken("bspline"); c.wrap = TfToken("pinned");
     // Roots lie on their bound triangles.  The IDs deliberately arrive out
     // of order; the source preparation sorts every curve payload by ID.

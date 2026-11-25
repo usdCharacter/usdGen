@@ -1213,7 +1213,7 @@ void UsdGenCompiler::_Build(
     struct StaticOperatorContract {
         size_t geometryInputArity = 0;
         size_t referenceInputArity = 0;
-        UsdGenRole role = UsdGenRole::Curves;
+        UsdGenLane lane = UsdGenLane::Chunked;
     };
     PVec<StaticOperatorContract> operatorContracts(desc.nodes.size());
     for (size_t nodeIndex = 0; nodeIndex != desc.nodes.size(); ++nodeIndex) {
@@ -1227,7 +1227,7 @@ void UsdGenCompiler::_Build(
         StaticOperatorContract& contract = operatorContracts[nodeIndex];
         contract.geometryInputArity = record->Def().geometryInputArity;
         contract.referenceInputArity = record->ReferenceInputs().size();
-        contract.role = record->Def().role;
+        contract.lane = record->Def().lane;
         if (node.inputs.size() != contract.geometryInputArity) {
             std::ostringstream message;
             message << "UsdGenCompiler: operator '" << node.path.GetText()
@@ -1260,7 +1260,7 @@ void UsdGenCompiler::_Build(
     PHashMap<SdfPath, uint32_t, SdfPath::Hash> referenceByPath;
     PHashMap<SdfPath, uint32_t, SdfPath::Hash> mapByPath;
     for (UsdGenCurveSetDesc const &curves : desc.curveSets) {
-        if (curves.role != UsdGenRole::Reference) continue;
+        if (curves.role != UsdGenLane::Reference) continue;
         if (referenceByPath.count(curves.path)) {
             result.errors.push_back("UsdGenCompiler: duplicate reference curve set '" +
                                     curves.path.GetString() + "'");
@@ -1302,7 +1302,7 @@ void UsdGenCompiler::_Build(
             // slots.  This is the only empty-input rule; every nonempty
             // reference, curve, or map path continues through the complete
             // duplicate/target/typed-binding validation below.
-            if (contract.role == UsdGenRole::Reference &&
+            if (contract.lane == UsdGenLane::Reference &&
                 contract.referenceInputArity != 0) {
                 result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
                     "' has 0 resolved reference values but its operator declares " +
@@ -1342,7 +1342,7 @@ void UsdGenCompiler::_Build(
                     std::to_string(contract.referenceInputArity) + " reference slots");
                 return;
             }
-        } else if (contract.role == UsdGenRole::Reference &&
+        } else if (contract.lane == UsdGenLane::Reference &&
                    contract.referenceInputArity != 0) {
             result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
                 "' has 0 resolved reference values but its operator declares " +
@@ -1638,8 +1638,8 @@ void UsdGenCompiler::_Build(
             oldNodes[size_t(oldNodeAtPath[di])]) {
             UsdGenCompiledNode &old = *oldNodes[size_t(oldNodeAtPath[di])];
             if (old.op && old.desc && old.record == record &&
-                old.topoFx == record->Def().topoFx &&
-                old.role == record->Def().role &&
+                old.countChanges == record->Def().countChanges &&
+                old.lane == record->Def().lane &&
                 ValueOnlyEdit(*old.desc, nd, *record)) {
                 uint32_t const planes = old.op->PlanesTouched();
                 bool const sameRun = old.indexedPlaneBase == indexedBase &&
@@ -1704,8 +1704,8 @@ void UsdGenCompiler::_Build(
                     nd, TypeSeed(nd.type), record,
                     inputPaths0, refPaths0, bindings0, childDigests0);
                 if (dg0 == old0.structuralDigest && !indexedSlotsChanged &&
-                    old0.topoFx == record->Def().topoFx &&
-                    old0.role == record->Def().role) {
+                    old0.countChanges == record->Def().countChanges &&
+                    old0.lane == record->Def().lane) {
                     // Stable: move whole, refresh desc-owned fields only.
                     // inputs/descendants-aside everything rides along:
                     // op, capture, buffer, chunks, dirty bytes, epochs,
@@ -1740,7 +1740,7 @@ void UsdGenCompiler::_Build(
             oldNodes[size_t(lendFrom)]) {
             UsdGenCompiledNode &old = *oldNodes[size_t(lendFrom)];
             lend(node->inputs, old.inputs);
-            lend(node->curveRefs, old.curveRefs);
+            lend(node->inputRefs, old.inputRefs);
             lend(node->mapRefs, old.mapRefs);
             lend(node->mapBindingRefs, old.mapBindingRefs);
             lend(node->outputPrimvars, old.outputPrimvars);
@@ -1768,8 +1768,8 @@ void UsdGenCompiler::_Build(
         node->op->Configure({node->paramView, node->indexedPlaneBase});
         if (!BindExtraPlaneSlots(*record, node.get(), &result)) return;
 
-        node->topoFx = record->Def().topoFx;
-        node->role = record->Def().role;
+        node->countChanges = record->Def().countChanges;
+        node->lane = record->Def().lane;
         node->enabled = nd.enabled;
 
         // Input edges (dense ids).
@@ -1783,7 +1783,7 @@ void UsdGenCompiler::_Build(
         node->input = node->inputs.empty() ? kUsdGenInvalidNode : node->inputs.front();
 
         // Relationship targets.
-        node->curveRefs = nd.curves;
+        node->inputRefs = nd.curves;
         PVec<UsdGenMapBindingDesc> bindings;
         std::string bindingError;
         if (!EffectiveMapBindings(nd, &bindings, &bindingError)) {
@@ -1848,8 +1848,8 @@ void UsdGenCompiler::_Build(
             bool const stable = !indexedSlotsChanged &&
                 oldRef.structuralDigest == node->structuralDigest &&
                 oldRef.record == node->record &&
-                oldRef.topoFx == node->topoFx &&
-                oldRef.role == node->role;
+                oldRef.countChanges == node->countChanges &&
+                oldRef.lane == node->lane;
             if (stable) {
                 // Move the whole node; refresh only what the new desc
                 // owns. Op, capture, buffer, chunks, dirty bytes,
@@ -1866,7 +1866,7 @@ void UsdGenCompiler::_Build(
                 moved->input = node->input;
                 moved->inputs = std::move(node->inputs);
                 moved->descendants = std::move(node->descendants);
-                moved->curveRefs = std::move(node->curveRefs);
+                moved->inputRefs = std::move(node->inputRefs);
                 moved->mapRefs = std::move(node->mapRefs);
                 moved->mapBindingRefs = std::move(node->mapBindingRefs);
                 moved->hasSurface = node->hasSurface;
@@ -1919,7 +1919,7 @@ void UsdGenCompiler::_Build(
     }
 
     // Bind external descriptor values after all node instances have been
-    // created.  `guides` paths live in curveRefs in both builders; generic
+    // created.  `guides` paths live in inputRefs in both builders; generic
     // `references` paths are accepted too.  Preserve authored order: duplicate
     // paths were rejected during the transactional preflight above.
     for (auto const &nodePtr : out->_nodes) {
@@ -1944,7 +1944,7 @@ void UsdGenCompiler::_Build(
                 }
             }
         }
-        if (node.desc->references.empty() && node.curveRefs.empty() &&
+        if (node.desc->references.empty() && node.inputRefs.empty() &&
             node.mapBindingRefs.empty()) {
             // Static empty-slot validation completed before any old runtime
             // state moved.  Avoid constructing empty ordered sets and making
@@ -1972,11 +1972,11 @@ void UsdGenCompiler::_Build(
         };
         for (SdfPath const &path : node.desc->references)
             if (!addReference(path)) return;
-        for (SdfPath const &path : node.curveRefs)
+        for (SdfPath const &path : node.inputRefs)
             if (referenceByPath.count(path) && !addReference(path)) return;
 
         TfSpan<const TfToken> const declaredReferences = node.record->ReferenceInputs();
-        if ((!node.referenceValues.empty() || node.role == UsdGenRole::Reference) &&
+        if ((!node.referenceValues.empty() || node.lane == UsdGenLane::Reference) &&
             node.referenceValues.size() != declaredReferences.size()) {
             result.errors.push_back("UsdGenCompiler: node '" +
                 node.desc->path.GetString() + "' has " +

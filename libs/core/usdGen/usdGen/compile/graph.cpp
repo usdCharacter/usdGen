@@ -175,7 +175,7 @@ UsdGenGraph::RoutingSnapshot() const
         copy.hasSurface = node.hasSurface;
         copy.surface = node.surface;
         copy.paramRouting = node.paramRouting;
-        copy.curveRefs = node.curveRefs;
+        copy.inputRefs = node.inputRefs;
         copy.mapRefs = node.mapRefs;
         copy.mapBindingRefs = node.mapBindingRefs;
         copy.geometryRefs = node.geometryRefs;
@@ -418,15 +418,15 @@ void UsdGenGraph::DirtyMap(SdfPath const &mapPrim, uint64_t generation)
     }
 }
 
-void UsdGenGraph::DirtyCurves(SdfPath const &curvePrim, uint64_t generation)
+void UsdGenGraph::DirtyInput(SdfPath const &inputIdentity, uint64_t generation)
 {
     if (generation != UINT64_MAX)
-        _inputVersions.UpdateCurve(curvePrim, generation);
+        _inputVersions.UpdateInput(inputIdentity, generation);
     for (auto &nPtr : _nodes) {
         if (!nPtr) continue;
         auto &n = *nPtr;
-        for (SdfPath const &c : n.curveRefs)
-            if (c == curvePrim) {
+        for (SdfPath const &c : n.inputRefs)
+            if (c == inputIdentity) {
                 MarkNode(n.id, UsdGenDirtyCapture);
                 break;
             }
@@ -462,7 +462,7 @@ static UsdGenElementSet const &_EffSet(UsdGenGraph const &g,
     bool const nonOwningLength = n.op && n.record &&
         n.record->Has(kUsdGenOpFollowsInputUntilOwning) &&
         (!n.capture || !n.captureOutput);
-    if ((n.topoFx != UsdGenTopoFx::None && !nonOwningLength) ||
+    if ((n.countChanges != 0 && !nonOwningLength) ||
         n.input == kUsdGenInvalidNode || depth > 64)
         return g.NodeOutput(id);
     return _EffSet(g, n.input, depth + 1);

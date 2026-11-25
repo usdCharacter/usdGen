@@ -44,7 +44,7 @@ static UsdGenCurveSetDesc Strands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = curves.size();
     set.curveVertexCounts.assign(n, 0);
@@ -139,7 +139,7 @@ static void CheckRegistry()
     Check(op != nullptr, "Create(UsdGenResample)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenResample reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::CvCount,
+    Check(op->Record().Def().countChanges == UsdGenCountsAtLevel(2),
           "UsdGenResample has TopologyEffect CvCount");
     Check(op->Record().ReferenceInputs().empty(),
           "UsdGenResample declares no reference inputs");

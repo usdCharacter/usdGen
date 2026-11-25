@@ -110,7 +110,7 @@ static UsdGenCurveSetDesc Strands(std::vector<GfVec3f> const &roots, int cvs, fl
 {
     UsdGenCurveSetDesc set;
     set.path = SdfPath("/groom/hair");
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -210,7 +210,7 @@ static void TestRegistry()
         std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
         Check(registry.Find(type) != UsdGenOpId::Invalid && op && registry.Record(registry.Find(type)).Name() == type, std::string(name) + " registered");
         if (!op) continue;
-        Check(op->Record().Def().topoFx == UsdGenTopoFx::None && usdGenTest::OutputPlaneNames(op->Record()).empty(),
+        Check(op->Record().Def().countChanges == 0 && usdGenTest::OutputPlaneNames(op->Record()).empty(),
               std::string(name) + " keeps topology and emits no planes");
     }
 }

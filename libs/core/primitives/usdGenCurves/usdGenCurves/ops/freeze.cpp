@@ -403,7 +403,7 @@ UsdGenOpId UsdGenRegisterFreezeOp(UsdGenRegistrar &r)
     d.name = "UsdGenFreeze";
     d.displayName = "Freeze";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;                // static worst case (freeze.h)
+    d.countChanges = UsdGenCountsAtLevel(1);                // static worst case (freeze.h)
     d.traits = kUsdGenOpCaptureOwnsRestAndPlanes;       // scheduler.cpp:386-392, 440-446
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kRefs);

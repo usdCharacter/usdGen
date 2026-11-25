@@ -135,7 +135,7 @@ void RegisterProbes(UsdGenRegistrar &r)
     ref.name="UsdGenTestReferenceProbe";
     ref.displayName="TestReferenceProbe";
     ref.create=[](UsdGenOpRecord const &rec, void *)->std::unique_ptr<UsdGenOp>{return std::make_unique<ReferenceProbe>(rec);};
-    ref.role=UsdGenRole::Reference;
+    ref.lane=UsdGenLane::Reference;
     ref.geometryInputArity=0;
     ref.referenceInputs=UsdGenSpan(kProbeReferences);
     ref.mapSlots=UsdGenSpan(kProbeMapSlots);
@@ -171,7 +171,7 @@ void RegisterContractProbes(UsdGenRegistrar &r)
     ref.displayName="TestReferenceContract";
     ref.create=create;
     ref.createContext=&reference;
-    ref.role=UsdGenRole::Reference;
+    ref.lane=UsdGenLane::Reference;
     ref.geometryInputArity=1;
     ref.referenceInputs=UsdGenSpan(kContractReferences);
     gContractRegistered[1]=r.RegisterOp(ref)!=UsdGenOpId::Invalid;
@@ -181,14 +181,14 @@ void RegisterContractProbes(UsdGenRegistrar &r)
 }
 
 bool OperatorContract(UsdGenOpRegistry const &registry,TfToken const &type,size_t *geometry,
-                      size_t *references,UsdGenRole *role)
+                      size_t *references,UsdGenLane *role)
 {
     UsdGenOpId const id=registry.Find(type);
     if(id==UsdGenOpId::Invalid)return false;
     UsdGenOpRecord const &record=registry.Record(id);
     *geometry=record.Def().geometryInputArity;
     *references=record.ReferenceInputs().size();
-    *role=record.Def().role;
+    *role=record.Def().lane;
     return true;
 }
 
@@ -204,12 +204,12 @@ void ValidateRegistryContractReuse()
     Check(!gContractRegistered[2],
           "a type has exactly one kernel: re-registration is refused");
     Check(gContractConstructions==probed,"a refused registration constructs nothing");
-    size_t geometry=99,references=99;UsdGenRole role=UsdGenRole::Reference;
+    size_t geometry=99,references=99;UsdGenLane role=UsdGenLane::Reference;
     Check(OperatorContract(registry,type,&geometry,&references,&role)&&
-          geometry==0&&references==0&&role==UsdGenRole::Curves,
+          geometry==0&&references==0&&role==UsdGenLane::Chunked,
           "the source type retains its geometry/reference/role contract");
     Check(OperatorContract(registry,referenceType,&geometry,&references,&role)&&
-          geometry==1&&references==2&&role==UsdGenRole::Reference,
+          geometry==1&&references==2&&role==UsdGenLane::Reference,
           "the reference type has its distinct reference contract");
     Check(!OperatorContract(registry,TfToken("UsdGenMissingContract"),&geometry,&references,&role),
           "a missing type does not borrow a different contract");
@@ -238,7 +238,7 @@ void ValidateRegistryContractReuse()
           graph.Node(0).structuralDigest==digest&&gContractConstructions==probed+1,
           "failed contract preflight preserves prior graph without constructing candidates");
     UsdGenCurveSetDesc external;external.path=SdfPath("/contract/guides");
-    external.role=UsdGenRole::Reference;external.curveRole=TfToken("guide");
+    external.role=UsdGenLane::Reference;external.curveRole=TfToken("guide");
     external.curveVertexCounts={2};external.points={{0,0,0},{0,1,0}};
     invalid.curveSets={external};invalid.nodes.back().references={external.path};
     result=compiler.Recompile(invalid,&graph);
@@ -276,7 +276,7 @@ UsdGenGraphDesc Fixture()
 
     UsdGenCurveSetDesc guide;
     guide.path = SdfPath("/referenceMap/guidesA");
-    guide.role = UsdGenRole::Reference;
+    guide.role = UsdGenLane::Reference;
     guide.curveRole = TfToken("guide");
     guide.curveVertexCounts = VtIntArray{2, 2};
     guide.points = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(0, 1, 0),
@@ -541,7 +541,7 @@ UsdGenGraphDesc ReferenceChainFixture()
 
     UsdGenCurveSetDesc reference;
     reference.path = SdfPath("/referenceChain/guides");
-    reference.role = UsdGenRole::Reference;
+    reference.role = UsdGenLane::Reference;
     reference.curveVertexCounts = VtIntArray{2, 2};
     reference.points = VtVec3fArray{
         GfVec3f(1, 2, 3), GfVec3f(1, 3, 3),

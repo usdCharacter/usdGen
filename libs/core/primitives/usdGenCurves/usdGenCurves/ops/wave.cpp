@@ -232,7 +232,7 @@ UsdGenOpId UsdGenRegisterWaveOp(UsdGenRegistrar &r)
     d.name = "UsdGenWave";
     d.displayName = "Wave";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     return r.RegisterOp(d);
 }

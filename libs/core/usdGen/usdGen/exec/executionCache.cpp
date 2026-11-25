@@ -118,7 +118,7 @@ void UsdGenExecutionInputVersions::FromDescription(
     result.surfaces.clear();
     result.valid = true;
     for (auto const& curve : desc.curveSets) {
-        auto& bucket = curve.role == UsdGenRole::Reference
+        auto& bucket = curve.role == UsdGenLane::Reference
             ? result.references : result.sources;
         bucket.push_back({curve.path, curve.curveGeneration});
     }
@@ -145,7 +145,7 @@ uint64_t UsdGenExecutionInputVersions::Hash() const noexcept
     return MixU64(hash, valid ? 1 : 0);
 }
 
-bool UsdGenExecutionInputVersions::UpdateCurve(
+bool UsdGenExecutionInputVersions::UpdateInput(
     SdfPath const& identity, uint64_t generation) noexcept
 {
     return Update(&sources, identity, generation) |

@@ -49,7 +49,7 @@ static UsdGenGraphDesc MakeDesc(bool withNoise) {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Hair");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.type = TfToken("cubic"); curves.basis = TfToken("bspline"); curves.wrap = TfToken("pinned");
     // Arrival order is deliberately not stable-ID order. ID 42 is the

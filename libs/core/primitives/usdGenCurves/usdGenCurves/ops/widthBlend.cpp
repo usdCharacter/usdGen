@@ -243,7 +243,7 @@ UsdGenOpId UsdGenRegisterWidthBlendOp(UsdGenRegistrar &r)
     d.name = "UsdGenWidthBlend";
     d.displayName = "WidthBlend";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.geometryInputArity = 2;
     d.traits = kUsdGenOpGeometryInputsOrdered;
     d.params = UsdGenSpan(kParams);

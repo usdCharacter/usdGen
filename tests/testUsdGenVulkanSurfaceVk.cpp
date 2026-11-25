@@ -149,7 +149,7 @@ UsdGenSurfaceDesc MakeSurface() {
 UsdGenCurveSetDesc MakeSource() {
     UsdGenCurveSetDesc source;
     source.path = SdfPath("/Groom/C3");
-    source.role = UsdGenRole::Curves;
+    source.role = UsdGenLane::Chunked;
     source.curveRole = TfToken("hair");
     source.curveVertexCounts = {3, 3, 3};
     auto points = CurvePoints();

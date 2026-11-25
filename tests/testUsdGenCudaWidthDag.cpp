@@ -77,7 +77,7 @@ UsdGenGraphDesc BaseDesc() {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Dag/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f,.2f,0}, {.2f,.4f,0}};
@@ -108,7 +108,7 @@ UsdGenNodeDesc ReferenceSource() {
 
 UsdGenGraphDesc ReferenceWidthDesc(float width = .25f) {
     auto desc = BaseDesc();
-    desc.curveSets.front().role = UsdGenRole::Reference;
+    desc.curveSets.front().role = UsdGenLane::Reference;
     desc.curveSets.front().curveRole = TfToken("guide");
     auto source = ReferenceSource();
     auto terminal = Width("/Dag/ReferenceWidth", "/Dag/ReferenceSource", width);
@@ -2340,7 +2340,7 @@ int main() {
                 node.inputs={SdfPath("/Dag/Source")};
         } else if(variant==1) {
             auto& curves=provenanceDesc.curveSets.front();
-            curves.role=UsdGenRole::Reference;curves.curveRole=TfToken("guide");
+            curves.role=UsdGenLane::Reference;curves.curveRole=TfToken("guide");
             curves.authoredPlanes.clear();
             for(auto& node:provenanceDesc.nodes) if(node.path==SdfPath("/Dag/Source")) {
                 node.type=TfToken("UsdGenReferenceSource");node.curves.clear();node.surfaces.clear();

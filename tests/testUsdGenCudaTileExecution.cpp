@@ -52,7 +52,7 @@ static UsdGenGraphDesc MakeDesc(size_t curves, float threshold, float width,
 
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/Hair");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");

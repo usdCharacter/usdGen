@@ -263,7 +263,7 @@ UsdGenGraphDesc Source() {
     surface.faceVertexCounts = {3,3,3}; surface.faceVertexIndices = {0,1,2,0,1,3,1,2,4};
     desc.surfaces = {surface};
     UsdGenCurveSetDesc curves; curves.path = SdfPath("/Curves");
-    curves.role = UsdGenRole::Curves; curves.curveRole = TfToken("hair");
+    curves.role = UsdGenLane::Chunked; curves.curveRole = TfToken("hair");
     curves.type = TfToken("cubic"); curves.basis = TfToken("bspline"); curves.wrap = TfToken("pinned");
     curves.curveGeneration = 41; curves.curveVertexCounts = {2,3,2};
     curves.curveId = {99,42,11};
@@ -401,7 +401,7 @@ int main(int argc, char** argv) {
     }
     {
         auto desc = Source(); auto& curves = desc.curveSets[0];
-        curves.role = UsdGenRole::Reference; curves.curveRole = TfToken("guide");
+        curves.role = UsdGenLane::Reference; curves.curveRole = TfToken("guide");
         // CUDA ReferenceSource accepts bare reference geometry; named planes
         // and authored root frames are outside its admitted contract.
         curves.authoredPlanes.clear(); curves.rootFrame.clear();

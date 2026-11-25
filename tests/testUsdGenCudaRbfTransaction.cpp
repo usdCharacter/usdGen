@@ -60,7 +60,7 @@ UsdGenGraphDesc RbfDesc() {
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/RbfAtomic/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f,.2f,0}, {.2f,.4f,0}};

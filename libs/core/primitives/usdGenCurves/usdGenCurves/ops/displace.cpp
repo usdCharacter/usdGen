@@ -241,7 +241,7 @@ UsdGenOpId UsdGenRegisterDisplaceOp(UsdGenRegistrar &r)
     d.name = "UsdGenDisplace";
     d.displayName = "Displace";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     return r.RegisterOp(d);
 }

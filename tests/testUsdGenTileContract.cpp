@@ -144,7 +144,7 @@ UsdGenGraphDesc MakeGroomDesc(SdfPath const &descPath, float width = 0.02f)
 
     UsdGenCurveSetDesc guides;
     guides.path = descPath.AppendChild(TfToken("guides"));
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.curveVertexCounts = VtIntArray(kCurveCount, kVertsPerCurve);
     guides.points.resize(size_t(kCurveCount) * kVertsPerCurve);

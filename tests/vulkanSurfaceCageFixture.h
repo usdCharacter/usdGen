@@ -43,7 +43,7 @@ inline UsdGenGraphDesc SurfaceCageDesc(std::string const& mapFile) {
     // CurveSource consumes its sparse rails through the curve slot. Marking
     // these as Reference makes the general compiler resolve a reference slot
     // that CurveSource does not declare, before either backend is selected.
-    sparse.path = SdfPath("/Sparse"); sparse.role = UsdGenRole::Curves;
+    sparse.path = SdfPath("/Sparse"); sparse.role = UsdGenLane::Chunked;
     sparse.curveRole = TfToken("hair"); sparse.curveVertexCounts = {3,3,3};
     sparse.points = {{0,0,0},{0,0,.25f},{0,0,1},
                      {1,0,0},{1,0,.25f},{1,0,1},

@@ -74,8 +74,8 @@ UsdGenOpId UsdGenRegisterReferenceSourceOp(UsdGenRegistrar &r)
     d.name = "UsdGenReferenceSource";
     d.displayName = "ReferenceSource";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;
-    d.role = UsdGenRole::Reference;
+    d.countChanges = UsdGenCountsAtLevel(1);
+    d.lane = UsdGenLane::Reference;
     d.geometryInputArity = 0;
     d.traits = kUsdGenOpGenerator;
     d.referenceInputs = UsdGenSpan(kReferenceInputs);

@@ -20,7 +20,7 @@ UsdGenGraphDesc MakeDescriptor(double factor, bool empty = false) {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/LengthRagged/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2, 4, 3};
     curves.curveId = {100, 200, 300};

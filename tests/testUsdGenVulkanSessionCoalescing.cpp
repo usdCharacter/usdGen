@@ -231,7 +231,7 @@ static UsdGenGraphDesc MakeProviderDescriptor() {
     desc.defaultWidth = .5f;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/SessionProvider/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {3, 2};
     curves.curveId = {20, 10};

@@ -50,7 +50,7 @@ void RegisterNamedPlaneProbes(UsdGenRegistrar &r)
     d.create = [](UsdGenOpRecord const &rec, void *) -> std::unique_ptr<UsdGenOp> {
         return std::make_unique<TopologyNamedPlaneProbe>(rec);
     };
-    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.countChanges = UsdGenCountsAtLevel(1);
     d.inputPlanes = UsdGenSpan(kIn);
     r.RegisterOp(d);
     UsdGenOpDef v;
@@ -79,7 +79,7 @@ static UsdGenGraphDesc MakeDesc() {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f,.2f,0}, {.2f,.4f,0}};

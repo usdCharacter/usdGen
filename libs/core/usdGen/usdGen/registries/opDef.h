@@ -5,7 +5,7 @@
 #include "usdGen/api/span.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/expressions/context.h"   // expr::Domain, expr::ScalarType
-#include "usdGen/types.h"                 // UsdGenTopoFx, UsdGenRole
+#include "usdGen/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
 
 #include "pxr/base/tf/span.h"
 #include <cstdint>
@@ -126,8 +126,8 @@ struct UsdGenOpDef {
     char const *displayName = nullptr;   // diagnostics, e.g. "Length"
     UsdGenOpCreateFn create = nullptr;
     void *createContext = nullptr;
-    UsdGenTopoFx topoFx = UsdGenTopoFx::None;
-    UsdGenRole role = UsdGenRole::Curves;
+    uint8_t countChanges = 0;                // bit L: element counts at level L may change
+    UsdGenLane lane = UsdGenLane::Chunked;
     uint8_t geometryInputArity = 1;
     uint32_t traits = 0;
     TfSpan<const UsdGenParamDecl> params;

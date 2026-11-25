@@ -1,4 +1,5 @@
 #include "usdGen/surfaceCageSource.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 
@@ -421,7 +422,7 @@ bool UsdGenBuildSurfaceCageCurveSet(
     if (!UsdGenInterpolateSurfaceCage(prepared.input, &dense, error)) return false;
     UsdGenCurveSetDesc candidate;
     candidate.path = sparse.path;
-    candidate.role = UsdGenRole::Curves;
+    candidate.role = UsdGenLane::Chunked;
     candidate.curveRole = UsdGenTokens().hair;
     candidate.curveVertexCounts = std::move(dense.curveVertexCounts);
     candidate.points = std::move(dense.points);

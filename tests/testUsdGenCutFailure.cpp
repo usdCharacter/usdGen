@@ -100,7 +100,7 @@ UsdGenCurveSetDesc MakeCurves()
     constexpr int curveCount = 600;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/cutFailure/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts.assign(curveCount, 2);
     curves.points.reserve(curveCount * 2);

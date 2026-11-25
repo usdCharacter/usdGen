@@ -175,7 +175,7 @@ int main(int argc, char **argv)
         if (dumpSets) {
             for (auto const &cs : desc.curveSets) {
                 std::printf("  curveSet %s role=%s curves=%zu planes=%zu", cs.path.GetText(),
-                            cs.role == UsdGenRole::Reference ? "reference" : "curves",
+                            cs.role == UsdGenLane::Reference ? "reference" : "curves",
                             cs.curveVertexCounts.size(), cs.authoredPlanes.size());
                 size_t shown = 0;
                 for (auto const &pl : cs.authoredPlanes)

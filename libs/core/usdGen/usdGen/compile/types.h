@@ -29,12 +29,6 @@ using UsdGenSurfaceId = uint16_t;   // index into UsdGenGraphDesc::surfaces
 
 constexpr UsdGenNodeId kUsdGenInvalidNode = ~0u;
 
-/// CPU-lane ceiling on CVs per generated or resampled strand (Grow segments,
-/// GuideInterpolate/CardSource cvCount, Resample cvCount/spacing). The CUDA
-/// and Vulkan lanes keep their own, smaller kernel limits and refuse a graph
-/// above them at admission.
-constexpr uint32_t kUsdGenMaxCvsPerCurve = 4096u;
-
 /// 128-bit digest; used for the Merkle structural digest and the capture epoch.
 using UsdGenEpoch = std::array<uint64_t, 2>;
 
@@ -55,11 +49,15 @@ inline bool operator!=(UsdGenEpoch const &a, UsdGenEpoch const &b)
 // ---------------------------------------------------------------------------
 
 
-/// R14 static topology effect. `CurveCount` is the plan's `MayChangeCurveCount`.
-enum class UsdGenTopoFx : uint8_t { None, CurveCount, CvCount, Both };
+/// Bit L of UsdGenOpDef::countChanges: the op may change the element count at
+/// level L (R14). Curve sets: level 1 = curves, level 2 = CVs.
+constexpr uint8_t UsdGenCountsAtLevel(unsigned level) noexcept
+{
+    return static_cast<uint8_t>(1u << level);
+}
 
 /// I3 reference lane: un-chunked buffers evaluated to completion before consumers.
-enum class UsdGenRole : uint8_t { Curves, Reference };
+enum class UsdGenLane : uint8_t { Chunked, Reference };
 
 
 /// UsdGenDirtyBits — unscoped integer constants (ADR §9 R3: never written

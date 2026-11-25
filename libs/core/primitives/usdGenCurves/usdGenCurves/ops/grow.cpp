@@ -708,7 +708,7 @@ UsdGenOpId UsdGenRegisterGrowOp(UsdGenRegistrar &r)
     d.name = "UsdGenGrow";
     d.displayName = "Grow";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CvCount;
+    d.countChanges = UsdGenCountsAtLevel(2);
     d.traits = kUsdGenOpGenerator | kUsdGenOpCaptureDigestComplete |
         kUsdGenOpCaptureOwnsRestAndPlanes;
     d.params = UsdGenSpan(kParams);

@@ -45,7 +45,7 @@ UsdGenGraphDesc Descriptor() {
     desc.executionBackend = UsdGenExecutionBackend::Vulkan;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/DefaultSession/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {3, 2}; curves.curveId = {20, 10};
     curves.points = {{0,0,0},{1,0,0},{2,0,0},{0,1,0},{1,1,0}};

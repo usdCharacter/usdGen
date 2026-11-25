@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
     desc.description = SdfPath("/GrowFailure");
     desc.executionBackend = UsdGenExecutionBackend::Cuda;
     UsdGenCurveSetDesc curves;
-    curves.path = SdfPath("/Hair"); curves.role = UsdGenRole::Curves;
+    curves.path = SdfPath("/Hair"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair"); curves.curveVertexCounts = {2};
     curves.points = {{1,2,3},{1,2,4}}; curves.rest = curves.points;
     curves.curveId = {7}; curves.skinPrim = {0}; curves.skinPrimUv = {{0,0}};

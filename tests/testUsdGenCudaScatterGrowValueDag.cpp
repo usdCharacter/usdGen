@@ -99,7 +99,7 @@ UsdGenGraphDesc Source() {
 // Test-only native readback supplies an independent ordinary C3 CUDA oracle.
 // Production source/operator execution never takes this host geometry route.
 UsdGenGraphDesc AsC3(UsdGenGraphDesc d, Packet const& p) {
-    UsdGenCurveSetDesc c; c.path=SdfPath("/Captured"); c.role=UsdGenRole::Curves; c.curveRole=TfToken("hair");
+    UsdGenCurveSetDesc c; c.path=SdfPath("/Captured"); c.role=UsdGenLane::Chunked; c.curveRole=TfToken("hair");
     for(size_t i=0;i<p.ids.size();++i) {
         c.curveId.push_back(p.ids[i]); c.curveVertexCounts.push_back(int(p.offsets[i+1]-p.offsets[i]));
         c.skinPrim.push_back(p.prim[i]); c.skinPrimUv.push_back(GfVec2f(p.uv[i].x,p.uv[i].y));

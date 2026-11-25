@@ -440,7 +440,7 @@ UsdGenOpId UsdGenRegisterExprOpOp(UsdGenRegistrar &r)
     d.name = "UsdGenExprOp";
     d.displayName = "ExprOp";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     d.mapSlots = UsdGenSpan(kMapSlots);
     d.tokens = UsdGenSpan(kTokens);

@@ -308,7 +308,7 @@ UsdGenOpId UsdGenRegisterScaleOp(UsdGenRegistrar &r)
     d.name = "UsdGenScale";
     d.displayName = "Scale";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     return r.RegisterOp(d);
 }

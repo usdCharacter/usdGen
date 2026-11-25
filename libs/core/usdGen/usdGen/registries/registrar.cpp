@@ -57,13 +57,13 @@ bool HashInsert(std::vector<std::pair<TfToken, UsdGenParamSlot>> *hash, size_t m
 
 /// Dirty bits of one routed parameter: compiler.cpp ClassifyParamBits.
 uint32_t RoutingBits(UsdGenEngineTokens const &t, TfToken const &name,
-                     UsdGenParamClass cls, UsdGenTopoFx topoFx)
+                     UsdGenParamClass cls, uint8_t countChanges)
 {
     if (cls == UsdGenParamClass::Value) return UsdGenDirtyParameter;
     if (name == t.input || name == t.guides || name == t.curves || name == t.surface)
         return UsdGenDirtyStructural;
     if (name == t.enabled)
-        return topoFx != UsdGenTopoFx::None ? (UsdGenDirtyTopology | UsdGenDirtyCapture)
+        return countChanges != 0 ? (UsdGenDirtyTopology | UsdGenDirtyCapture)
                                             : UsdGenDirtyParameter;
     if (name == t.seed) return UsdGenDirtyCapture;
     switch (cls) {
@@ -111,7 +111,7 @@ UsdGenOpId UsdGenRegistrar::RegisterOp(UsdGenOpDef const &def)
         }
         if (param == et.enabled) enabled = UsdGenParamSlot(s);
         if (decl.routed)
-            tables->routing.push_back({param, RoutingBits(et, param, decl.cls, def.topoFx)});
+            tables->routing.push_back({param, RoutingBits(et, param, decl.cls, def.countChanges)});
         if (decl.routed && decl.cls == UsdGenParamClass::Structural)
             tables->digest.push_back(UsdGenParamSlot(s));
         tables->paramNames.push_back(param);

@@ -1249,7 +1249,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             // re-capturing to ZERO curves must still repartition, or its stale
             // chunk plan sweeps dead chunks against empty buffers.
             if (node.record->Has(kUsdGenOpGenerator) ||
-                node.topoFx == UsdGenTopoFx::CvCount) {
+                node.countChanges == UsdGenCountsAtLevel(2)) {
                 UsdGenElementSet const &out = graph.NodeOutput(node.id);
                 int const total = static_cast<int>(out.Count(1));
                 int const cvp = int(out.Count(2) / std::max<uint32_t>(1, out.Count(1)));
@@ -1426,7 +1426,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         bool const referenceLane = lane == 0;
         int remaining = 0;
         for (int pos = 0; pos < graph.NodeCount(); ++pos)
-            remaining += ((graph.Node(pos).role == UsdGenRole::Reference) ==
+            remaining += ((graph.Node(pos).lane == UsdGenLane::Reference) ==
                           referenceLane);
         while (remaining > 0) {
             if (superseded && superseded()) {
@@ -1439,7 +1439,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             for (int pos = 0; pos < graph.NodeCount(); ++pos) {
                 UsdGenCompiledNode const &node = graph.Node(pos);
                 if (completed[size_t(pos)] ||
-                    ((node.role == UsdGenRole::Reference) != referenceLane))
+                    ((node.lane == UsdGenLane::Reference) != referenceLane))
                     continue;
                 bool ready = true;
                 for (UsdGenNodeId input : node.inputs) {

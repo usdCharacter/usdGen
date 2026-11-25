@@ -47,7 +47,7 @@ UsdGenCurveSetDesc Strands(SdfPath path, int nx, int ny, float spacing,
                            float step, float width) {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     int const n = nx * ny, cvs = 6;
     set.curveVertexCounts.assign(n, cvs);
@@ -181,7 +181,7 @@ void ExportPart(UsdStageRefPtr const &stage) {
                                     41, 25, .006f, .033f, .0018f));
     UsdGenCurveSetDesc parting;
     parting.path = SdfPath("/PartGraph/PartingCurve");
-    parting.role = UsdGenRole::Reference;
+    parting.role = UsdGenLane::Reference;
     parting.curveRole = TfToken("guide");
     parting.curveVertexCounts = {3};
     parting.points = {GfVec3f(-.16f, 0, 0), GfVec3f(0, 0, 0),

@@ -85,7 +85,7 @@ UsdGenOpDef TestDef(char const *name)
     d.name = name;
     d.displayName = "RegTest";
     d.create = &CreateTestOp;
-    d.topoFx = UsdGenTopoFx::CurveCount;
+    d.countChanges = UsdGenCountsAtLevel(1);
     d.traits = kUsdGenOpReadsTime;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kRefs);

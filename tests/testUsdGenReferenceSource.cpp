@@ -201,7 +201,7 @@ void CheckBuilderRouting(char const *which, UsdGenGraphDesc const &desc)
     UsdGenCurveSetDesc const *set = FindCurveSet(desc, kBaked);
     Check(set != nullptr, what + ": target becomes a captured curve set");
     if (!set) return;
-    Check(set->role == UsdGenRole::Reference,
+    Check(set->role == UsdGenLane::Reference,
           what + ": captured set rides the Reference lane");
     Check(set->points == BakedPoints(),
           what + ": captured points equal the baked points");

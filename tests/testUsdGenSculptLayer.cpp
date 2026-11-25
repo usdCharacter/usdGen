@@ -54,7 +54,7 @@ static UsdGenCurveSetDesc SculptStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -146,7 +146,7 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenSculptLayer)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "SculptLayer reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
+    Check(op->Record().Def().countChanges == 0,
           "SculptLayer has TopologyEffect None");
     Check(op->Record().ReferenceInputs().empty(),
           "SculptLayer declares no reference inputs");

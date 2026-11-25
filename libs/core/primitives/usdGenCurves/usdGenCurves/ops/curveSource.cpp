@@ -668,8 +668,8 @@ UsdGenOpId UsdGenRegisterCurveSourceOp(UsdGenRegistrar &r)
     d.name = "UsdGenCurveSource";
     d.displayName = "CurveSource";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;
-    d.role = UsdGenRole::Curves;
+    d.countChanges = UsdGenCountsAtLevel(1);
+    d.lane = UsdGenLane::Chunked;
     d.geometryInputArity = 0;
     d.traits = kUsdGenOpGenerator;
     d.params = UsdGenSpan(kParams);

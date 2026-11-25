@@ -55,7 +55,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -173,7 +173,7 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenScale)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Scale reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
+    Check(op->Record().Def().countChanges == 0,
           "Scale has TopologyEffect None");
     Check(op->PlanesTouched() ==
               (UsdGenOp::kPlanePoints | UsdGenOp::kPlaneWidths),
