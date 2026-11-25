@@ -28,7 +28,7 @@ enum : UsdGenParamSlot {
 };
 enum Mode : int { kModeScale, kModeSet, kModeCull, kModeRandomRange };
 enum Method : int { kMethodScale, kMethodCutExtend };
-enum Tok : uint16_t { kTokClumpId0, kTokLengthMap, kTokRestLength, kTokStrandSeed, kTokStrandIndex };
+enum Tok : uint16_t { kTokClumpId0, kTokLengthMap, kTokRestLength };
 }  // namespace lengthP
 
 class UsdGenLengthOp final : public UsdGenOp

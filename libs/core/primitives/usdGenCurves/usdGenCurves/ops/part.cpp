@@ -9,6 +9,7 @@
 // when the buffers carry them, so partIds are stable under deformation.
 // TopologyEffect = None.
 #include "usdGen/ops/part.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/opUtil.h"
 
@@ -41,8 +42,9 @@ struct UsdGenPartCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenPartCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         // Nearest-side assignment reads positions, like Clump's centres.
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.valueVersion == upstreamValueVersion &&
@@ -137,10 +139,11 @@ UsdGenEpoch UsdGenPartOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenPartOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params;
     auto &cap = *static_cast<UsdGenPartCapture *>(out);
     auto fail = [&](std::string const &message) {
@@ -242,8 +245,10 @@ bool UsdGenPartOp::Capture(
 void UsdGenPartOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     TF_UNUSED(ctx);
     auto const &cap = static_cast<UsdGenPartCapture const &>(captureIn);
     // Points pass through: this kernel only publishes the side assignment.

@@ -22,7 +22,6 @@
 #include "usdGen/ops/length.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/registries/engineTokens.h"
 
 
 #include "usdGen/ops/lengthRange.h"
@@ -155,8 +154,7 @@ bool UnknownEnum(UsdGenParamView const &p, UsdGenParamSlot slot)
 constexpr char const *kModes[] = {"scale", "set", "cull", "randomRange"};
 constexpr char const *kMethods[] = {"scale", "cutExtend"};
 constexpr char const *kRebuilds[] = {"keepParam", "reparam"};
-constexpr char const *kTokens[] = {"clumpId_0", "usdGen:lengthMap", "restLength",
-                                    "strandSeed", "strandIndex"};
+constexpr char const *kTokens[] = {"clumpId_0", "usdGen:lengthMap", "restLength"};
 constexpr UsdGenMapSlotDecl kMaps[] = {{"usdGen:lengthMap"}};
 
 using D = expr::Domain;
@@ -271,34 +269,6 @@ UsdGenEpoch UsdGenLengthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 namespace {
 
-// The upstream strand identity planes (UsdGenStrandSet's CurveInt/Seed/Index
-// over a view): clumpId_0, strandSeed and strandIndex when present.
-struct StrandIds
-{
-    StrandIds(UsdGenOpRecord const &rec, UsdGenCurveSetView const &up)
-        : _up(up)
-        , _seed(CurveInt(rec.Token(kTokStrandSeed)))
-        , _index(CurveInt(rec.Token(kTokStrandIndex)))
-    {}
-    int const *CurveInt(TfToken const &name) const
-    {
-        UsdGenPlaneView plane;
-        bool perCv = false;
-        UsdGenEngineTokens const &t = UsdGenTokens();
-        if (!_up.FindPlane(name, &plane, &perCv) || perCv || plane.type != t.int_ ||
-            plane.arity != 1 || plane.interpolation != t.uniform ||
-            plane.i.size() != _up.totalCurves)
-            return nullptr;
-        return plane.i.data();
-    }
-    uint32_t Index(uint32_t c) const { return _index ? uint32_t(_index[c]) : c; }
-    uint32_t Seed(uint32_t c) const { return _seed ? uint32_t(_seed[c]) : Index(c); }
-private:
-    UsdGenCurveSetView const &_up;
-    int const *_seed;
-    int const *_index;
-};
-
 // randomRange: the whole-strand length stage over every upstream strand.
 // The upstream node has completed its sweep (dependency frontier), so its
 // point planes hold this run's positions.
@@ -334,7 +304,8 @@ bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &c
 
     // Strand identity: clumpId_0, strandSeed and strandIndex planes when the
     // upstream carries them (UsdGenStrandSet fallbacks otherwise).
-    StrandIds const ids(rec, upstream);
+    UsdGenStrandSet ids;
+    ids.upstream = &upstream;
     lengthRange::Strands strands;
     strands.spans = &spans;
     if (int const *clump = ids.CurveInt(rec.Token(kTokClumpId0)))

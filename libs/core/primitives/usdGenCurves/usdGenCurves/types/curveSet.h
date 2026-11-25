@@ -119,6 +119,7 @@ public:
     uint32_t outCount = 0, inCount = 0;
     PlaneInfo const *extraCv = nullptr; float *const *extraCvF = nullptr; int *const *extraCvI = nullptr;
     PlaneInfo const *inExtraCv = nullptr; uint32_t extraCvCount = 0;
+    float const *const *inExtraCvF = nullptr; int const *const *inExtraCvI = nullptr;   // whole-column bases, like extraCvF/I
     GfVec3d *pointScratch = nullptr; double *scalarScratch = nullptr; UsdGenChunkExtent *extentSlot = nullptr;
     uint32_t curveCount = 0, cvCount = 0, inCvCount = 0;
     int const *inCvOffsets = nullptr; uint32_t inFirstCv = 0;
@@ -135,6 +136,7 @@ private:
     float const *_inF[kMaxSlots] = {}; int const *_inI[kMaxSlots] = {};
     PlaneInfo _extraCv[kMaxSlots], _inExtraCv[kMaxSlots];
     float *_extraCvF[kMaxSlots] = {}; int *_extraCvI[kMaxSlots] = {};
+    float const *_inExtraCvF[kMaxSlots] = {}; int const *_inExtraCvI[kMaxSlots] = {};
 };
 
 /// Builder <-> set. FromBuffer copies into one arena (generators: once per

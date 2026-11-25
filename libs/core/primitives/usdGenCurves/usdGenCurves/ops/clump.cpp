@@ -57,6 +57,7 @@
 // count) and sub-clumps (usdGen:clump:sub:*, sector centres projected onto
 // the bound surface).
 #include "usdGen/ops/clump.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/clumpModes.h"
 #include "usdGen/ops/opUtil.h"
@@ -110,8 +111,9 @@ struct UsdGenClumpCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenClumpCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.valueVersion == upstreamValueVersion &&
                upstream.totalCurves == upstreamCurves &&
@@ -247,12 +249,14 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
 }
 
 /// A uniform int plane (arity 1) of the upstream buffer, or null.
-int const *IntCurvePlane(UsdGenCurveBuffer const &buffer, TfToken const &name)
+int const *IntCurvePlane(UsdGenCurveSetView const &buffer, TfToken const &name)
 {
-    for (UsdGenPlane const &plane : buffer.extraCurve)
+    for (uint32_t k = 0; k < buffer.ExtraCurveCount(); ++k) {
+        UsdGenPlaneView const plane = buffer.ExtraCurve(k);
         if (plane.name == name && plane.type == UsdGenTokens().int_ && plane.arity == 1 &&
             plane.interpolation == UsdGenTokens().uniform && plane.i.size() == buffer.totalCurves)
             return plane.i.cdata();
+    }
     return nullptr;
 }
 
@@ -444,10 +448,11 @@ UsdGenEpoch UsdGenClumpOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenClumpOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params;
     auto &cap = *static_cast<UsdGenClumpCapture *>(out);
     Settings s;
@@ -992,8 +997,10 @@ bool UsdGenClumpOp::Capture(
 void UsdGenClumpOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenClumpCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
     UsdGenParamField const maskField = p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};

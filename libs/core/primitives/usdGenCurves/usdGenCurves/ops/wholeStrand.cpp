@@ -30,8 +30,9 @@ struct UsdGenWholeStrandCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenWholeStrandCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.valueVersion == upstreamValueVersion &&
                upstream.totalCurves == upstreamCurves &&
@@ -39,10 +40,15 @@ struct UsdGenWholeStrandCapture final : public UsdGenCapture
     }
 };
 
-UsdGenPlane const *FindPlane(std::vector<UsdGenPlane> const &planes, TfToken const &name)
+// A named plane of the upstream view: curve rate (levels 0-1) or vertex rate.
+UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, TfToken const &name,
+                                 UsdGenPlaneView *storage)
 {
-    for (UsdGenPlane const &p : planes)
-        if (p.name == name) return &p;
+    uint32_t const n = perCv ? v.ExtraCvCount() : v.ExtraCurveCount();
+    for (uint32_t k = 0; k < n; ++k) {
+        *storage = perCv ? v.ExtraCv(k) : v.ExtraCurve(k);
+        if (storage->name == name) return storage;
+    }
     return nullptr;
 }
 
@@ -54,7 +60,8 @@ const TfToken sStrandIndex = UsdGenInternToken("strandIndex");
 int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
 {
     if (!upstream) return nullptr;
-    UsdGenPlane const *p = FindPlane(upstream->extraCurve, name);
+    UsdGenPlaneView plane;
+    UsdGenPlaneView const *p = FindPlane(*upstream, false, name, &plane);
     if (!p || p->type != UsdGenTokens().int_ || p->arity != 1 ||
         p->interpolation != UsdGenTokens().uniform || p->i.size() != upstream->totalCurves)
         return nullptr;
@@ -64,7 +71,8 @@ int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
 float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
 {
     if (!upstream) return nullptr;
-    UsdGenPlane const *p = FindPlane(upstream->extraCurve, name);
+    UsdGenPlaneView plane;
+    UsdGenPlaneView const *p = FindPlane(*upstream, false, name, &plane);
     if (!p || p->type != UsdGenTokens().float_ || p->arity != 1 ||
         p->interpolation != UsdGenTokens().uniform || p->f.size() != upstream->totalCurves)
         return nullptr;
@@ -74,7 +82,8 @@ float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
 float const *UsdGenStrandSet::CvFloat(TfToken const &name) const
 {
     if (!upstream) return nullptr;
-    UsdGenPlane const *p = FindPlane(upstream->extraCv, name);
+    UsdGenPlaneView plane;
+    UsdGenPlaneView const *p = FindPlane(*upstream, true, name, &plane);
     if (!p || p->type != UsdGenTokens().float_ || p->arity != 1 || p->f.size() != upstream->totalCvs)
         return nullptr;
     return p->f.cdata();
@@ -146,9 +155,10 @@ UsdGenEpoch UsdGenWholeStrandOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
 }
 
 bool UsdGenWholeStrandOp::Capture(UsdGenCaptureContext const &ctx,
-                                  UsdGenCurveBuffer const &upstream,
+                                  UsdGenOpInputs const &in,
                                   UsdGenCapture *out, UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     auto &cap = *static_cast<UsdGenWholeStrandCapture *>(out);
     cap.upstreamTopologyVersion = upstream.topologyVersion;
     cap.upstreamValueVersion = upstream.valueVersion;
@@ -200,8 +210,10 @@ bool UsdGenWholeStrandOp::Capture(UsdGenCaptureContext const &ctx,
 
 void UsdGenWholeStrandOp::Evaluate(UsdGenEvalContext const &ctx,
                                    UsdGenCapture const &captureIn,
-                                   UsdGenLegacyChunkView *view) const
+                                   UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenWholeStrandCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params;
     UsdGenParamField const maskField = p ? p->GetScalarField(_mask, 1.0) : UsdGenParamField{1.0};

@@ -21,6 +21,7 @@
 #define USDGEN_OPS_WHOLE_STRAND_H
 
 #include "usdGen/ops/recordedOp.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
@@ -53,7 +54,7 @@ struct UsdGenStrandPlaneData
 /// one mutable xyz array. Compute edits `points` in place.
 struct UsdGenStrandSet
 {
-    UsdGenCurveBuffer const *upstream = nullptr;
+    UsdGenCurveSetView const *upstream = nullptr;
     std::vector<uint32_t> spans;          // [spans[c], spans[c+1]) CV range of curve c
     std::vector<float> points;            // 3 * totalCvs, starts as the input
 
@@ -89,12 +90,12 @@ public:
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const final;
     bool Capture(UsdGenCaptureContext const &ctx,
-                 UsdGenCurveBuffer const &upstream,
+                 UsdGenOpInputs const &in,
                  UsdGenCapture *out,
                  UsdGenDiagnostics *diag) final;
     void Evaluate(UsdGenEvalContext const &ctx,
                   UsdGenCapture const &capture,
-                  UsdGenLegacyChunkView *view) const final;
+                  UsdGenChunkView const &chunk) const final;
     std::unique_ptr<UsdGenCapture> CreateCapture() const final;
     uint32_t PlanesTouched() const final { return kPlanePoints; }
 
