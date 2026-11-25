@@ -20,6 +20,7 @@
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/cudaExecution.h"
@@ -66,7 +67,7 @@ static expr::ValueShape FloatShape(uint32_t n = 1)
 static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
                                           std::vector<GfVec3f> const &roots,
                                           int cvs, float step,
-                                          UsdGenRole role = UsdGenRole::Curves,
+                                          UsdGenLane role = UsdGenLane::Chunked,
                                           float width = 0.1f,
                                           uint64_t idBase = 0,
                                           bool withWidths = true)
@@ -74,7 +75,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
     UsdGenCurveSetDesc set;
     set.path = path;
     set.role = role;
-    set.curveRole = TfToken(role == UsdGenRole::Reference ? "guide" : "hair");
+    set.curveRole = TfToken(role == UsdGenLane::Reference ? "guide" : "hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
     set.points.resize(n * size_t(cvs));
@@ -161,7 +162,7 @@ static bool CookFull(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -234,9 +235,9 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenFreeze)");
     if (!op) return;
     Check(record.Name() == type, "Freeze reports its own type");
-    Check(record.Def().topoFx == UsdGenTopoFx::CurveCount,
+    Check(record.Def().countChanges == UsdGenCountsAtLevel(1),
           "Freeze has TopologyEffect CurveCount (static worst case)");
-    Check(record.Def().role == UsdGenRole::Curves, "Freeze is a Curves-role chain node");
+    Check(record.Def().lane == UsdGenLane::Chunked, "Freeze is a Curves-role chain node");
     Check(record.Def().geometryInputArity == 1, "Freeze consumes one chain input");
     Check(!record.Has(kUsdGenOpGenerator), "Freeze is not a generator");
     TfSpan<const TfToken> const refs = record.ReferenceInputs();
@@ -282,7 +283,7 @@ static UsdGenGraphDesc FreezeDesc(std::vector<UsdGenParamValue> const &params,
                                                 GfVec3f(103, 0, 0)};
         desc.curveSets.push_back(StraightStrands(
             SdfPath("/freeze/snap"), snapRoots, snapshotCvs, 0.5f,
-            UsdGenRole::Reference, 0.5f, 7, snapshotWidths));
+            UsdGenLane::Reference, 0.5f, 7, snapshotWidths));
         freeze.references = {SdfPath("/freeze/snap")};
     }
     desc.nodes.push_back(freeze);
@@ -416,7 +417,7 @@ static void CheckImmunitySameGraph()
     UsdGenRunResult run1 = scheduler.Run(graph, ctx, 1);
     Check(!run1.diagnostics.HasErrors(), "immunity fixture first run cooks");
     if (run1.diagnostics.HasErrors()) return;
-    FrozenCopy const first = SnapshotOf(graph.Output());
+    FrozenCopy const first = SnapshotOf(OutputBuffer(graph));
 
     UsdGenNodeId const sourceId = graph.NodeIdForPath(SdfPath("/freeze/source"));
     UsdGenNodeId const freezeId = graph.NodeIdForPath(SdfPath("/freeze/op"));
@@ -426,47 +427,50 @@ static void CheckImmunitySameGraph()
     if (sourceId == UsdGenGraph::InvalidNode ||
         freezeId == UsdGenGraph::InvalidNode)
         return;
-    UsdGenCompiledNode &source = graph.Node(sourceId);
-    Check(!source.buffer.rest.empty(),
+    UsdGenCurveSetView const sourceView = NodeView(graph, sourceId);
+    Check(!sourceView.rest.empty(),
           "immunity fixture source carries rest");
     // Private value copies: prep rebinds rest handles, so a handle copy of
     // run-1 output would alias the live array and pass vacuously.
-    VtVec3fArray const run1UpstreamRest = PrivateCopy(source.buffer.rest);
-    VtVec3fArray const firstRest = PrivateCopy(graph.Output().rest);
+    VtVec3fArray const run1UpstreamRest = PrivateCopy(NodeBuffer(graph, sourceId).rest);
+    VtVec3fArray const firstRest = PrivateCopy(OutputBuffer(graph).rest);
     Check(firstRest == run1UpstreamRest,
           "frozen output carries the snapshot rest, not a live alias");
-    float *mutate = const_cast<float *>(source.buffer.px.cdata());
-    for (size_t o = 0; o < source.buffer.px.size(); ++o) mutate[o] += 10.0f;
+    float *mutate = const_cast<float *>(sourceView.px.cdata());
+    for (size_t o = 0; o < sourceView.px.size(); ++o) mutate[o] += 10.0f;
     // Rest mutates in place; a brand-new extra plane appears upstream. Both
     // must leave the frozen output untouched (captureAuthorsRest /
     // captureOwnsTransformedPlanes keep the snapshot's planes).
-    GfVec3f *rr = const_cast<GfVec3f *>(source.buffer.rest.cdata());
-    for (size_t o = 0; o < source.buffer.rest.size(); ++o)
+    GfVec3f *rr = const_cast<GfVec3f *>(sourceView.rest.cdata());
+    for (size_t o = 0; o < sourceView.rest.size(); ++o)
         rr[o] += GfVec3f(1.0f, 2.0f, 3.0f);
     UsdGenPlane late;
     late.name = TfToken("latePlane");
     late.interpolation = TfToken("vertex");
     late.type = TfToken("float");
     late.arity = 1;
-    late.f.assign(source.buffer.px.size(), 0.5f);
-    source.buffer.extraCv.push_back(late);
-    source.buffer.topologyVersion += 100;
-    source.buffer.valueVersion += 100;
+    late.f.assign(sourceView.px.size(), 0.5f);
+    UsdGenCurveBuffer edited = NodeBuffer(graph, sourceId);
+    edited.extraCv.push_back(late);
+    edited.topologyVersion += 100;
+    edited.valueVersion += 100;
+    Check(SetNodeBuffer(graph, sourceId, edited), "immunity fixture upstream edit installs");
     graph.MarkNode(freezeId, UsdGenDirtyParameter);
     UsdGenRunResult run2 = scheduler.Run(graph, ctx, 2);
     Check(!run2.diagnostics.HasErrors(), "immunity fixture second run cooks");
     if (run2.diagnostics.HasErrors()) return;
-    Check(SameAs(first, graph.Output()),
+    Check(SameAs(first, OutputBuffer(graph)),
           "frozen output is bit-identical after an upstream edit (no recapture)");
-    bool upstreamStillMutated = !source.buffer.px.empty();
-    for (size_t o = 0; o < source.buffer.px.size(); ++o)
+    UsdGenCurveSetView const sourceAfter = NodeView(graph, sourceId);
+    bool upstreamStillMutated = !sourceAfter.px.empty();
+    for (size_t o = 0; o < sourceAfter.px.size(); ++o)
         upstreamStillMutated = upstreamStillMutated &&
-            source.buffer.px[o] == first.px[o] + 10.0f;
+            sourceAfter.px[o] == first.px[o] + 10.0f;
     Check(upstreamStillMutated,
           "the upstream mutation persisted, so the freeze really ignored it");
-    Check(graph.Output().rest == firstRest,
+    Check(OutputBuffer(graph).rest == firstRest,
           "frozen rest is bit-identical after the upstream rest edit");
-    Check(graph.Output().extraCv.empty() && graph.Output().extraCurve.empty(),
+    Check(OutputBuffer(graph).extraCv.empty() && OutputBuffer(graph).extraCurve.empty(),
           "frozen output gains no upstream extra planes after the snapshot");
 }
 
@@ -580,7 +584,7 @@ static void CheckAliasingKernel()
     Check(op.Capture(ctx, UsdGenBufferInputs(upstream), cap.get(), &diag) && !diag.HasErrors(),
           "aliasing fixture capture succeeds");
     if (diag.HasErrors()) return;
-    Check((cap->OwnedBuffer() != nullptr), "frozen capture owns its buffer");
+    Check(bool(cap->Output()), "frozen capture owns its buffer");
     FrozenCopy const snap = SnapshotOf(UsdGenCaptureBuffer(*cap));
     VtVec3fArray const restSnap = PrivateCopy(UsdGenCaptureBuffer(*cap).rest);
     VtFloatArray const cvSnap = UsdGenCaptureBuffer(*cap).extraCv.empty()
@@ -629,7 +633,7 @@ static void CheckAliasingKernel()
     Check(op.Capture(ctx, UsdGenBufferInputs(upstream), liveCap.get(), &liveDiag) &&
               !liveDiag.HasErrors(),
           "live capture succeeds");
-    Check(!(liveCap->OwnedBuffer() != nullptr), "live capture owns no buffer");
+    Check(!bool(liveCap->Output()), "live capture owns no buffer");
 }
 
 static void CheckDeterminism()
@@ -652,11 +656,11 @@ static void CheckDeterminism()
     UsdGenEvalContext ctx;
     ctx.desc = &graph.Desc();
     UsdGenRunResult run1 = scheduler.Run(graph, ctx, 1);
-    FrozenCopy const retained = SnapshotOf(graph.Output());
+    FrozenCopy const retained = SnapshotOf(OutputBuffer(graph));
     UsdGenRunResult run2 = scheduler.Run(graph, ctx, 2);
     Check(!run1.diagnostics.HasErrors() && !run2.diagnostics.HasErrors(),
           "determinism retained runs cook");
-    Check(SameAs(retained, graph.Output()),
+    Check(SameAs(retained, OutputBuffer(graph)),
           "two runs on one graph are bit-identical");
 }
 
@@ -722,7 +726,7 @@ static void CheckEmptySnapshotFailsClosed()
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     UsdGenCurveSetDesc empty;
     empty.path = SdfPath("/freeze/empty");
-    empty.role = UsdGenRole::Reference;
+    empty.role = UsdGenLane::Reference;
     empty.curveRole = TfToken("guide");
     desc.curveSets.push_back(empty);
     desc.nodes.back().references = {SdfPath("/freeze/empty")};
@@ -846,7 +850,7 @@ static UsdGenGraphDesc CudaFreezeDesc()
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f, .2f, 0}, {.2f, .4f, 0}};

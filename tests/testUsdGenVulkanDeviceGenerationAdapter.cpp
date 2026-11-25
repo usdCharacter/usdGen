@@ -4,6 +4,7 @@
 // Vulkan device-generation adapter contract.  This test keeps the source
 // capture/readback boundary separate from neutral publication: production
 // publication must expose metadata and owners, never geometry bytes.
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/vulkan/deviceGenerationAdapter.h"
 #include "usdGen/vulkan/completionService.h"
@@ -53,7 +54,7 @@ static std::string PublicName(UsdGenDeviceChannelMetadata const& metadata) {
     case UsdGenDeviceChannelSemantic::RestPoints: return "rest";
     case UsdGenDeviceChannelSemantic::Widths: return "widths";
     case UsdGenDeviceChannelSemantic::HairT: return "hairT";
-    case UsdGenDeviceChannelSemantic::CurveOffsets: return "curveOffsets";
+    case UsdGenDeviceChannelSemantic::ElementOffsets: return "curveOffsets";
     case UsdGenDeviceChannelSemantic::StableIds: return "curveId";
     case UsdGenDeviceChannelSemantic::RootPrim: return "skinprim";
     case UsdGenDeviceChannelSemantic::RootUV: return "skinprimuv";
@@ -74,11 +75,11 @@ static VulkanSourcePrepareInfo SourceFixture() {
     b.rootB = VtVec3fArray(2, GfVec3f(0,1,0));
     b.rootN = VtVec3fArray(2, GfVec3f(0,0,1));
     in.geometry.topologyVersion = 11; in.geometry.valueVersion = 23;
-    in.geometry.curveCount = 2; in.geometry.pointCount = 4;
+    in.geometry.elementCount = 2; in.geometry.pointCount = 4;
     in.geometry.alreadyDeformed = true;
-    in.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic,
-        UsdGenDeviceCurveBasis::BSpline, UsdGenDeviceCurveWrap::Pinned};
-    UsdGenDeviceTileMetadata tile; tile.tile = 4; tile.curveCount = 2;
+    in.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+        UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
+    UsdGenDeviceTileMetadata tile; tile.tile = 4; tile.elementCount = 2;
     tile.pointCount = 4; tile.boundsValid = true; tile.extentMin = {0,0,0};
     tile.extentMax = {3,1,1}; in.geometry.tiles = {tile};
     uint32_t guide[] = {3,7};
@@ -154,8 +155,8 @@ int main(int argc, char** argv) {
     CHECK(prepared);
     CHECK(prepared->topologyVersion() == 11 && prepared->valueVersion() == 23);
     CHECK(prepared->geometry().alreadyDeformed);
-    CHECK(prepared->geometry().curveTopology.type == UsdGenDeviceCurveType::Cubic);
-    CHECK(prepared->geometry().curveTopology.basis == UsdGenDeviceCurveBasis::BSpline);
+    CHECK(UsdGenCurveLayoutTypeOf(prepared->geometry().layoutMetadata) == UsdGenCurveLayoutType::Cubic);
+    CHECK(UsdGenCurveLayoutBasisOf(prepared->geometry().layoutMetadata) == UsdGenCurveLayoutBasis::BSpline);
     CHECK(prepared->geometry().tiles.size() == 1 && prepared->geometry().tiles[0].boundsValid);
 
     bool sawT = false, sawB = false, sawN = false, sawPublicT = false;

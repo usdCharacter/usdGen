@@ -1,4 +1,6 @@
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
@@ -130,7 +132,7 @@ UsdGenGraphDesc Desc(bool resampleAndLift = false, bool namedPlanes = true,
     desc.executionBackend=UsdGenExecutionBackend::Cuda;
     desc.defaultWidth=.125f;
     UsdGenCurveSetDesc curves;
-    curves.path=SdfPath("/Hair"); curves.role=UsdGenRole::Curves;
+    curves.path=SdfPath("/Hair"); curves.role=UsdGenLane::Chunked;
     curves.curveRole=TfToken("hair");
     if (!emptySource) {
         curves.curveVertexCounts={3,2};
@@ -250,7 +252,7 @@ bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
         for(auto const& error:result.diagnostics.errors) std::fprintf(stderr,"CPU oracle: %s\n",error.c_str());
         return false;
     }
-    *output=graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     return true;
 }
 
@@ -529,7 +531,7 @@ bool GrowFromHostValueReference(UsdGenGraphDesc const& desc,UsdGenNodeDesc const
         return false;
     }
     UsdGenCurveSetDesc sourceData;sourceData.path=SdfPath("/Oracle/Input");
-    sourceData.role=UsdGenRole::Curves;sourceData.curveRole=TfToken("hair");
+    sourceData.role=UsdGenLane::Chunked;sourceData.curveRole=TfToken("hair");
     sourceData.points.resize(points);sourceData.curveVertexCounts.resize(curves);
     if(input.cvOffsets.empty()) {
         if(curves ? points%curves!=0 : points!=0) return false;
@@ -1207,7 +1209,7 @@ int main() {
     CHECK(allCullPlan&&!allCullDiagnostics.HasErrors());
     auto allCullDirect=ExecuteCudaGraph(*allCullPlan,*positiveLengthWorkspace,1,173,&allCullDiagnostics);
     CHECK(allCullDirect&&!allCullDiagnostics.HasErrors()&&
-          allCullDirect->Geometry().curveCount==0&&allCullDirect->Geometry().pointCount==0&&
+          allCullDirect->Geometry().elementCount==0&&allCullDirect->Geometry().pointCount==0&&
           CheckGeneration(allCullDirect,allCullReference,stream));
     // Midpoint threshold is derived from the two deterministic generated
     // strands, proving survivor selection is data-driven rather than a fixed
@@ -1225,7 +1227,7 @@ int main() {
     auto partialPlan=CompileCudaGraph(partialCull,&partialDiagnostics);
     CHECK(partialPlan&&!partialDiagnostics.HasErrors());
     auto partialDirect=ExecuteCudaGraph(*partialPlan,*positiveLengthWorkspace,1,176,&partialDiagnostics);
-    CHECK(partialDirect&&!partialDiagnostics.HasErrors()&&partialDirect->Geometry().curveCount==1&&
+    CHECK(partialDirect&&!partialDiagnostics.HasErrors()&&partialDirect->Geometry().elementCount==1&&
           partialDirect->Geometry().pointCount==4&&CheckGeneration(partialDirect,partialReference,stream));
     {
         // Retain the full pre-cull generation while the same Session changes
@@ -1621,7 +1623,7 @@ int main() {
             }
             bool const sourceRootContract=!TerminalUsesOperator(dagDesc,TfToken("UsdGenGrow"));
             auto const expectedBasis=sourceRootContract&&dagDesc.curveSets.front().basis==TfToken("catmullRom")
-                ? UsdGenDeviceCurveBasis::CatmullRom : UsdGenDeviceCurveBasis::BSpline;
+                ? UsdGenCurveLayoutBasis::CatmullRom : UsdGenCurveLayoutBasis::BSpline;
             auto dagPlan=CompileCudaGraph(dagDesc,&dagDiagnostics);
             for(auto const& error:dagDiagnostics.errors) std::fprintf(stderr,"Noise DAG compile: %s\n",error.c_str());
             CHECK(dagPlan&&!dagDiagnostics.HasErrors());
@@ -1641,7 +1643,7 @@ int main() {
             auto dagDirect=ExecuteCudaGraph(*dagPlan,*dagWorkspace,1,400+variant,&dagDiagnostics,held);
             for(auto const& error:dagDiagnostics.errors) std::fprintf(stderr,"Noise DAG execute variant=%zu terminal=%s: %s\n",variant,dagDesc.terminal.GetText(),error.c_str());
             CHECK(dagDirect&&!dagDiagnostics.HasErrors()&&CheckGeneration(dagDirect,expected,stream,sourceRootContract));
-            CHECK(dagDirect->Geometry().curveTopology.basis==expectedBasis);
+            CHECK(UsdGenCurveLayoutBasisOf(dagDirect->Geometry().layoutMetadata)==expectedBasis);
             dagSession.SetGraphDesc(dagDesc);
             auto published=dagSession.Commit(static_cast<double>(1+variant),UsdGenCommitReason::SetTime);
             if(!published||!published->device||dagSession.LastDiagnostics().HasErrors()) {
@@ -1651,7 +1653,7 @@ int main() {
             }
             CHECK(published&&published->device&&!dagSession.LastDiagnostics().HasErrors()&&
                   CheckGeneration(published->device,expected,stream,sourceRootContract));
-            CHECK(published->device->Geometry().curveTopology.basis==expectedBasis);
+            CHECK(UsdGenCurveLayoutBasisOf(published->device->Geometry().layoutMetadata)==expectedBasis);
             if(variant==1||variant==3||variant==8||variant==9||variant>=topologyCasesBegin) {
                 auto dagJob=CreateCudaExecutionJob(dagPlan,*dagWorkspace,1,450+variant,&dagDiagnostics);CHECK(dagJob);
                 std::promise<bool> sourceDone;auto sourceReady=sourceDone.get_future();
@@ -1671,7 +1673,7 @@ int main() {
                 CHECK(FinalizeCudaExecutionJobAsync(dagJob,[&](auto result){done.set_value(std::move(result));})&&
                       ready.wait_for(std::chrono::seconds(10))==std::future_status::ready);
                 auto result=ready.get();CHECK(result&&CheckGeneration(result,expected,stream,sourceRootContract));
-                CHECK(result->Geometry().curveTopology.basis==expectedBasis);
+                CHECK(UsdGenCurveLayoutBasisOf(result->Geometry().layoutMetadata)==expectedBasis);
             }
             if(!held) {
                 held=published->device;heldReference=expected;
@@ -1893,13 +1895,13 @@ int main() {
             auto sourceDirect=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1,200+variant,&sourceDiagnostics,retainedSource);
             for(auto const& error:sourceDiagnostics.errors) std::fprintf(stderr,"%s\n",error.c_str());
             CHECK(sourceDirect&&!sourceDiagnostics.HasErrors()&&CheckGeneration(sourceDirect,expected,stream,true));
-            CHECK(sourceDirect->Geometry().curveTopology.basis==UsdGenDeviceCurveBasis::CatmullRom);
+            CHECK(UsdGenCurveLayoutBasisOf(sourceDirect->Geometry().layoutMetadata)==UsdGenCurveLayoutBasis::CatmullRom);
             sourceSession.SetGraphDesc(terminalSource);
             auto published=sourceSession.Commit(1,UsdGenCommitReason::SetTime);
             for(auto const& error:sourceSession.LastDiagnostics().errors) std::fprintf(stderr,"%s\n",error.c_str());
             CHECK(published&&published->device&&!sourceSession.LastDiagnostics().HasErrors()&&
                 CheckGeneration(published->device,expected,stream,true)&&
-                published->device->Geometry().curveTopology.basis==UsdGenDeviceCurveBasis::CatmullRom);
+                UsdGenCurveLayoutBasisOf(published->device->Geometry().layoutMetadata)==UsdGenCurveLayoutBasis::CatmullRom);
             if(variant==2) {
                 auto sourceJob=CreateCudaExecutionJob(sourcePlan,*sourceWorkspace,1,210,&sourceDiagnostics);
                 CHECK(sourceJob);

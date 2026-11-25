@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/executionRetirement.h"
@@ -69,7 +70,7 @@ static bool Reference(UsdGenGraphDesc d, UsdGenCurveBuffer* result) {
     UsdGenScheduler scheduler(2); UsdGenEvalContext ctx; ctx.desc = &graph.Desc();
     auto evaluated = scheduler.Run(graph, ctx, 1);
     if (evaluated.diagnostics.HasErrors()) return false;
-    *result = graph.Node(graph.NodeIdForPath(d.terminal)).buffer;
+    *result = NodeBuffer(graph, graph.NodeIdForPath(d.terminal));
     return true;
 }
 

@@ -618,42 +618,43 @@ void CardSurface(Span const &span, float u, float v, float depth, GfVec3f *posit
 
 // --- reference-set planes ---------------------------------------------------------------
 
-UsdGenPlane const *CurvePlane(UsdGenCurveBuffer const &b, char const *name, uint8_t arity)
+UsdGenPlaneView CurvePlane(UsdGenCurveSetView const &b, char const *name, uint8_t arity)
 {
     UsdGenEngineTokens const &t = UsdGenTokens();
-    for (UsdGenPlane const &p : b.extraCurve) {
+    for (uint32_t k = 0; k < b.ExtraCurveCount(); ++k) {
+        UsdGenPlaneView const p = b.ExtraCurve(k);
         // Text compare: the plane vocabulary is the card contract, not engine tokens.
         if (p.arity != arity || p.interpolation != t.uniform ||
             std::strcmp(p.name.GetText(), name) != 0) continue;
         size_t const values = size_t(b.totalCurves) * arity;
         if ((p.type == t.int_ && p.i.size() == values) ||
             (p.type == t.float_ && p.f.size() == values))
-            return &p;
+            return p;
     }
-    return nullptr;
+    return {};
 }
 
-PlaneColumn::PlaneColumn(UsdGenCurveBuffer const &b, char const *name)
+PlaneColumn::PlaneColumn(UsdGenCurveSetView const &b, char const *name)
     : plane(CurvePlane(b, name))
 {
 }
 
 int PlaneColumn::Int(size_t c, int fallback) const
 {
-    if (!plane) return fallback;
-    if (plane->type == UsdGenTokens().int_) return plane->i[c];
-    float const v = plane->f[c];
+    if (!Has()) return fallback;
+    if (plane.type == UsdGenTokens().int_) return plane.i[c];
+    float const v = plane.f[c];
     return std::isfinite(v) ? int(std::lround(v)) : fallback;
 }
 
 float PlaneColumn::Float(size_t c, float fallback) const
 {
-    if (!plane) return fallback;
-    return plane->type == UsdGenTokens().int_ ? float(plane->i[c]) : plane->f[c];
+    if (!Has()) return fallback;
+    return plane.type == UsdGenTokens().int_ ? float(plane.i[c]) : plane.f[c];
 }
 
-bool IsSpineSet(UsdGenCurveBuffer const &b) { return PlaneColumn(b, "cardType").Has(); }
-bool IsLibrarySet(UsdGenCurveBuffer const &b)
+bool IsSpineSet(UsdGenCurveSetView const &b) { return PlaneColumn(b, "cardType").Has(); }
+bool IsLibrarySet(UsdGenCurveSetView const &b)
 {
     return !IsSpineSet(b) && PlaneColumn(b, "tile").Has() && PlaneColumn(b, "index").Has();
 }
@@ -663,7 +664,7 @@ static uint64_t U64(int lo, int hi)
     return uint64_t(uint32_t(lo)) | (uint64_t(uint32_t(hi)) << 32);
 }
 
-bool DecodeCards(UsdGenCurveBuffer const &b, std::vector<Card> *cards, std::string *error)
+bool DecodeCards(UsdGenCurveSetView const &b, std::vector<Card> *cards, std::string *error)
 {
     std::vector<uint32_t> spans;
     if (!opUtil::CurveSpans(b, &spans, error)) return false;
@@ -681,8 +682,9 @@ bool DecodeCards(UsdGenCurveBuffer const &b, std::vector<Card> *cards, std::stri
         fn(b, "frizzNoise"), fr(b, "frizzRoot"), fm(b, "frizzMid"), fms(b, "frizzMidShift"),
         ft(b, "frizzTip"), po(b, "pushOutEnabled"), por(b, "pushOutRoot"), pot(b, "pushOutTip"),
         pos(b, "pushOutSmoothness");
-    UsdGenPlane const *bary = CurvePlane(b, "rootBary", 3);
-    if (bary && bary->type != UsdGenTokens().float_) bary = nullptr;
+    UsdGenPlaneView const baryPlane = CurvePlane(b, "rootBary", 3);
+    UsdGenPlaneView const *bary =
+        !baryPlane.name.IsEmpty() && baryPlane.type == UsdGenTokens().float_ ? &baryPlane : nullptr;
     cards->assign(b.totalCurves, Card());
     for (uint32_t c = 0; c < b.totalCurves; ++c) {
         Card &k = (*cards)[c];

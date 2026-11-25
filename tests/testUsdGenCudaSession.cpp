@@ -50,7 +50,7 @@ static UsdGenGraphDesc SourceDesc() {
     desc.terminal = node.path;
     desc.nodes.push_back(node);
     UsdGenCurveSetDesc curves;
-    curves.path = SdfPath("/Source"); curves.role = UsdGenRole::Curves;
+    curves.path = SdfPath("/Source"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2,3};
     curves.points = {GfVec3f(10,0,0),GfVec3f(11,0,0),GfVec3f(20,0,0),GfVec3f(21,0,0),GfVec3f(24,0,0)};
@@ -164,7 +164,7 @@ static UsdGenGraphDesc ReferenceSourceWidthDesc()
 
     UsdGenCurveSetDesc reference;
     reference.path = SdfPath("/Reference/Guides");
-    reference.role = UsdGenRole::Reference;
+    reference.role = UsdGenLane::Reference;
     reference.curveRole = TfToken("guide");
     reference.curveGeneration = 41;
     reference.curveVertexCounts = {2, 2};

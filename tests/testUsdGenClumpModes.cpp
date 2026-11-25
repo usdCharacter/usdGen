@@ -18,6 +18,7 @@
 //       bound surface, determinism;
 //   (4) Width bezier profile (set and multiply).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -74,7 +75,7 @@ UsdGenCurveSetDesc Strands(std::vector<GfVec3f> const &roots, std::vector<float>
 {
     UsdGenCurveSetDesc set;
     set.path = SdfPath("/groom/hair");
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     if (steps.size() == 1) steps.assign(n, steps.front());
@@ -109,7 +110,7 @@ UsdGenCurveSetDesc GuideSet(std::vector<std::vector<GfVec3f>> const &curves)
 {
     UsdGenCurveSetDesc set;
     set.path = SdfPath("/groom/guides");
-    set.role = UsdGenRole::Reference;
+    set.role = UsdGenLane::Reference;
     set.curveRole = TfToken("guide");
     for (auto const &curve : curves) {
         set.curveVertexCounts.push_back(int(curve.size()));
@@ -212,7 +213,7 @@ bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
         return false;
     }
     if (warnings) *warnings = run.diagnostics.warnings;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

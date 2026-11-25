@@ -113,6 +113,36 @@ private:
     bool valid_ = false;
 };
 
+/// ContentDigestCache for a column of an immutable element set. The key is
+/// the column's address and size under the same owning set; the cache holds
+/// that set, so the column cannot be freed and reused while keyed, and a hit
+/// proves the bytes unchanged. A miss rehashes exactly as MixBytes. Holding
+/// the set is a refcount: no allocation.
+class SetColumnDigestCache
+{
+public:
+    uint64_t Digest(UsdGenRef<const UsdGenElementSet> const &owner, void const *data, size_t bytes)
+    {
+        if (valid_ && owner_.Get() == owner.Get() && data_ == data && bytes_ == bytes)
+            return digest_;
+        opUtil::Digest d;
+        d.MixBytes(data, bytes);
+        owner_ = owner;
+        data_ = data;
+        bytes_ = bytes;
+        digest_ = d.h;
+        valid_ = true;
+        return digest_;
+    }
+
+private:
+    UsdGenRef<const UsdGenElementSet> owner_;
+    void const *data_ = nullptr;
+    size_t bytes_ = 0;
+    uint64_t digest_ = 0;
+    bool valid_ = false;
+};
+
 /// Curve spans [spans[c], spans[c+1]) of a uniform or ragged buffer.
 inline bool CurveSpans(UsdGenCurveBuffer const &buffer, std::vector<uint32_t> *spans,
                        std::string *error)

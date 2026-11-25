@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/cudaExecutionQueue.h"
 #include "usdGen/executionResources.h"
@@ -76,7 +77,7 @@ UsdGenGraphDesc BaseDesc() {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Dag/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f,.2f,0}, {.2f,.4f,0}};
@@ -107,7 +108,7 @@ UsdGenNodeDesc ReferenceSource() {
 
 UsdGenGraphDesc ReferenceWidthDesc(float width = .25f) {
     auto desc = BaseDesc();
-    desc.curveSets.front().role = UsdGenRole::Reference;
+    desc.curveSets.front().role = UsdGenLane::Reference;
     desc.curveSets.front().curveRole = TfToken("guide");
     auto source = ReferenceSource();
     auto terminal = Width("/Dag/ReferenceWidth", "/Dag/ReferenceSource", width);
@@ -286,7 +287,7 @@ bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
             std::fprintf(stderr, "  %s\n", error.c_str());
         return false;
     }
-    *output = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     return true;
 }
 
@@ -1122,9 +1123,9 @@ int main() {
                   UsdGenExecutionValueStorage::JobOwnedImmutable);
     }
     auto const* terminalGeometry = Use(
-        *terminal, UsdGenExecutionDataKind::CurveGeometry);
+        *terminal, UsdGenExecutionDataKind::ElementGeometry);
     auto const* siblingGeometry = Use(
-        *sibling, UsdGenExecutionDataKind::CurveGeometry);
+        *sibling, UsdGenExecutionDataKind::ElementGeometry);
     CHECK(terminalGeometry && siblingGeometry &&
           terminalGeometry->inputValue == siblingGeometry->inputValue &&
           metadata->FindValue(terminalGeometry->inputValue)->storage ==
@@ -1531,17 +1532,17 @@ int main() {
           !topologyTerminal->exclusiveWorkspace &&
           !topologySibling->exclusiveWorkspace);
     auto const* lengthGeometry = Use(
-        *topologyLength, UsdGenExecutionDataKind::CurveGeometry);
+        *topologyLength, UsdGenExecutionDataKind::ElementGeometry);
     auto const* lengthWidths = Use(
         *topologyLength, UsdGenExecutionDataKind::Widths);
     auto const* topologyTerminalGeometry = Use(
-        *topologyTerminal, UsdGenExecutionDataKind::CurveGeometry);
+        *topologyTerminal, UsdGenExecutionDataKind::ElementGeometry);
     auto const* topologySiblingGeometry = Use(
-        *topologySibling, UsdGenExecutionDataKind::CurveGeometry);
+        *topologySibling, UsdGenExecutionDataKind::ElementGeometry);
     auto const* terminalTopology = Use(
-        *topologyTerminal, UsdGenExecutionDataKind::CurveTopology);
+        *topologyTerminal, UsdGenExecutionDataKind::ElementTopology);
     auto const* siblingTopology = Use(
-        *topologySibling, UsdGenExecutionDataKind::CurveTopology);
+        *topologySibling, UsdGenExecutionDataKind::ElementTopology);
     auto const* topologyTerminalWidths = Use(
         *topologyTerminal, UsdGenExecutionDataKind::Widths);
     auto const* topologySiblingWidths = Use(
@@ -2064,14 +2065,14 @@ int main() {
                     rbfLeftTask->id) != rbfBlendTask->dependencies.end() &&
           std::find(rbfBlendTask->dependencies.begin(), rbfBlendTask->dependencies.end(),
                     rbfRightTask->id) != rbfBlendTask->dependencies.end());
-    for (auto kind : {UsdGenExecutionDataKind::CurveGeometry,
-                      UsdGenExecutionDataKind::CurveTopology,
+    for (auto kind : {UsdGenExecutionDataKind::ElementGeometry,
+                      UsdGenExecutionDataKind::ElementTopology,
                       UsdGenExecutionDataKind::StableIds,
                       UsdGenExecutionDataKind::RootBindings,
                       UsdGenExecutionDataKind::NamedChannels}) {
         // RBF creates only the right branch's point revision. The rest of
         // its non-width packet is the immutable Length-owned inheritance.
-        auto const expectedProducer = kind == UsdGenExecutionDataKind::CurveGeometry
+        auto const expectedProducer = kind == UsdGenExecutionDataKind::ElementGeometry
             ? rbfRightTask->id : rbfLengthTask->id;
         CHECK(std::any_of(rbfBlendTask->resources.begin(), rbfBlendTask->resources.end(),
             [&](auto const& use) { return use.resource == kind &&
@@ -2095,7 +2096,7 @@ int main() {
     CHECK(rbfLeftTerminalTask && rbfPublication &&
           rbfPublication->kind == UsdGenExecutionTaskKind::Publication &&
           std::any_of(rbfPublication->resources.begin(), rbfPublication->resources.end(),
-              [&](auto const& use) { return use.resource == UsdGenExecutionDataKind::CurveGeometry &&
+              [&](auto const& use) { return use.resource == UsdGenExecutionDataKind::ElementGeometry &&
                   use.access == UsdGenExecutionResourceAccess::Read &&
                   use.producerTask == rbfLeftTerminalTask->id; }));
 
@@ -2280,7 +2281,7 @@ int main() {
         auto mergeTask=TaskByPath(*equalMetadata,"/Dag/CrossOriginBlend");
         auto rightTask=TaskByPath(*equalMetadata,"/Dag/EqualRightLength");
         CHECK(mergeTask && rightTask && mergeTask->estimate.scratchPeakBytes==16);
-        for(auto kind:{UsdGenExecutionDataKind::CurveGeometry,UsdGenExecutionDataKind::CurveTopology,
+        for(auto kind:{UsdGenExecutionDataKind::ElementGeometry,UsdGenExecutionDataKind::ElementTopology,
                       UsdGenExecutionDataKind::StableIds,UsdGenExecutionDataKind::RootBindings,
                       UsdGenExecutionDataKind::NamedChannels}) {
             auto rightUse=std::find_if(rightTask->resources.begin(),rightTask->resources.end(),
@@ -2339,7 +2340,7 @@ int main() {
                 node.inputs={SdfPath("/Dag/Source")};
         } else if(variant==1) {
             auto& curves=provenanceDesc.curveSets.front();
-            curves.role=UsdGenRole::Reference;curves.curveRole=TfToken("guide");
+            curves.role=UsdGenLane::Reference;curves.curveRole=TfToken("guide");
             curves.authoredPlanes.clear();
             for(auto& node:provenanceDesc.nodes) if(node.path==SdfPath("/Dag/Source")) {
                 node.type=TfToken("UsdGenReferenceSource");node.curves.clear();node.surfaces.clear();

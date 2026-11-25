@@ -556,7 +556,7 @@ bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphDesc const &desc,
 
 bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphDesc const &desc,
                                           UsdGenNodeDesc const &node,
-                                          UsdGenCurveBuffer const &geometry,
+                                          UsdGenCurveSetView const &geometry,
                                           expr::Context const &controls, Item *item,
                                           std::vector<std::string> *diagnostics)
 {
@@ -824,7 +824,7 @@ bool UsdGenCpuParameters::Compile(UsdGenGraphDesc const &desc, UsdGenNodeDesc co
 }
 
 bool UsdGenCpuParameters::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                                   UsdGenCurveBuffer const &geometry, double frame,
+                                   UsdGenCurveSetView const &geometry, double frame,
                                    double time, uint32_t seed, bool *changed,
                                    std::vector<std::string> *diagnostics)
 {
@@ -925,7 +925,7 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc c
     // $dPduref, $dPdv/$dPdvref and $faceId. A producer that did not publish a
     // full per-curve plane leaves the channel null, which keeps the variable
     // unavailable rather than inventing a frame.
-    auto rootFrame = [&](VtVec3fArray const &plane) -> float const * {
+    auto rootFrame = [&](UsdGenSpan<const GfVec3f> const &plane) -> float const * {
         return curveCount && plane.size() == curveCount
             ? reinterpret_cast<float const *>(plane.cdata()) : nullptr;
     };

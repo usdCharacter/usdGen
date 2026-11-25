@@ -8,11 +8,13 @@
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -173,7 +175,7 @@ UsdGenGraph::RoutingSnapshot() const
         copy.hasSurface = node.hasSurface;
         copy.surface = node.surface;
         copy.paramRouting = node.paramRouting;
-        copy.curveRefs = node.curveRefs;
+        copy.inputRefs = node.inputRefs;
         copy.mapRefs = node.mapRefs;
         copy.mapBindingRefs = node.mapBindingRefs;
         copy.geometryRefs = node.geometryRefs;
@@ -246,23 +248,33 @@ UsdGenNodeId UsdGenGraph::NodeIdForPath(SdfPath const &path) const
     return it == _nodeByPath.end() ? InvalidNode : it->second;
 }
 
-UsdGenCurveBuffer const &UsdGenGraph::Output() const
+UsdGenElementSet const &UsdGenGraph::Output() const
 {
-    if (_terminal == InvalidNode || _nodes.empty() || !_nodes[_terminal]) {
-        return _emptyOutput;
-    }
-    return _nodes[_terminal]->buffer;
+    return NodeOutput(_terminal);
 }
 
-TfSpan<const UsdGenChunkDesc> UsdGenGraph::Chunks(UsdGenNodeId id) const
+UsdGenElementSet const &UsdGenGraph::NodeOutput(UsdGenNodeId id) const
+{
+    if (id != InvalidNode && id < _nodes.size() && _nodes[id] && _nodes[id]->output)
+        return *_nodes[id]->output;
+    return EmptyOutput();
+}
+
+UsdGenElementSet const &UsdGenGraph::EmptyOutput() const
+{
+    if (!_emptyOutput) _emptyOutput = UsdGenElementSet::Empty(UsdGenCurveSetLayout());
+    return *_emptyOutput;
+}
+
+UsdGenSpan<const UsdGenChunkRange> UsdGenGraph::Chunks(UsdGenNodeId id) const
 {
     UsdGenCompiledNode const &n = Node(id);
-    return TfSpan<const UsdGenChunkDesc>(n.chunks.data(), n.chunks.size());
+    return UsdGenSpan<const UsdGenChunkRange>(n.chunks.data(), n.chunks.size());
 }
 
-TfSpan<const UsdGenTileView> UsdGenGraph::Tiles() const
+UsdGenSpan<const UsdGenChunkGroup> UsdGenGraph::Groups() const
 {
-    return TfSpan<const UsdGenTileView>(_tiles.data(), _tiles.size());
+    return UsdGenSpan<const UsdGenChunkGroup>(_groups.data(), _groups.size());
 }
 
 bool UsdGenGraph::AnyDirty() const noexcept
@@ -352,7 +364,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
         UsdGenCompiledNode &n = *nPtr;
         bool any = false;
         for (size_t c = 0; c < n.chunks.size(); ++c) {
-            if (n.chunks[c].surface != surface) continue;
+            if (n.chunks[c].domain != surface) continue;
             any = true;
             n.chunkDirty[c] |= static_cast<UsdGenChunkDirtyBits>(bits);
         }
@@ -362,7 +374,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
                 if (d >= _nodes.size() || !_nodes[d]) continue;
                 UsdGenCompiledNode &dn = *_nodes[d];
                 for (size_t c = 0; c < dn.chunks.size(); ++c) {
-                    if (dn.chunks[c].surface != surface) continue;
+                    if (dn.chunks[c].domain != surface) continue;
                     if (bits & UsdGenDirtyCapture) dn.captureNeeded = true;
                     dn.chunkDirty[c] |= static_cast<UsdGenChunkDirtyBits>(
                         valueBits ? valueBits : UsdGenDirtyParameter);
@@ -406,15 +418,15 @@ void UsdGenGraph::DirtyMap(SdfPath const &mapPrim, uint64_t generation)
     }
 }
 
-void UsdGenGraph::DirtyCurves(SdfPath const &curvePrim, uint64_t generation)
+void UsdGenGraph::DirtyInput(SdfPath const &inputIdentity, uint64_t generation)
 {
     if (generation != UINT64_MAX)
-        _inputVersions.UpdateCurve(curvePrim, generation);
+        _inputVersions.UpdateInput(inputIdentity, generation);
     for (auto &nPtr : _nodes) {
         if (!nPtr) continue;
         auto &n = *nPtr;
-        for (SdfPath const &c : n.curveRefs)
-            if (c == curvePrim) {
+        for (SdfPath const &c : n.inputRefs)
+            if (c == inputIdentity) {
                 MarkNode(n.id, UsdGenDirtyCapture);
                 break;
             }
@@ -433,13 +445,13 @@ void UsdGenGraph::DirtyGeometry(SdfPath const &prim)
     }
 }
 
-// Effective curve buffer for a node: a pure passthrough node (no topo fx)
-// presents its input's buffer — topology, cv totals and offsets — so stale
-// downstream totals never override a changed upstream layout; a topo fx
-// regenerates curves and owns the layout again. Traced through passthrough
-// inputs only; depth guards against accidental cycles in the input chain.
-static UsdGenCurveBuffer const &_EffBuffer(UsdGenGraph const &g,
-                                           UsdGenNodeId id, int depth)
+// Effective set for a node: a pure passthrough node (no topo fx) presents
+// its input's set — topology, cv totals and offsets — so stale downstream
+// totals never override a changed upstream layout; a topo fx regenerates
+// curves and owns the layout again. Traced through passthrough inputs only;
+// depth guards against accidental cycles in the input chain.
+static UsdGenElementSet const &_EffSet(UsdGenGraph const &g,
+                                       UsdGenNodeId id, int depth)
 {
     UsdGenCompiledNode const &n = g.Node(id);
     // Length's static CurveCount classification covers its whole family,
@@ -449,123 +461,91 @@ static UsdGenCurveBuffer const &_EffBuffer(UsdGenGraph const &g,
     // An actual owning capture remains an authoritative topology boundary.
     bool const nonOwningLength = n.op && n.record &&
         n.record->Has(kUsdGenOpFollowsInputUntilOwning) &&
-        (!n.capture || !n.capture->OwnedBuffer());
-    if ((n.topoFx != UsdGenTopoFx::None && !nonOwningLength) ||
+        (!n.capture || !n.captureOutput);
+    if ((n.countChanges != 0 && !nonOwningLength) ||
         n.input == kUsdGenInvalidNode || depth > 64)
-        return n.buffer;
-    return _EffBuffer(g, n.input, depth + 1);
+        return g.NodeOutput(id);
+    return _EffSet(g, n.input, depth + 1);
 }
 
-bool UsdGenGraph::Repartition(int totalCurves, int cvCount)
+bool UsdGenGraph::Repartition(uint32_t elements, uint32_t fallbackStride)
 {
-    int const nChunks = ComputeNumChunks(totalCurves, _chunkSize);
+    UsdGenElementLayout const &layout = EmptyOutput().Channels().Layout();
+    if (!layout.partition || !layout.groups) return false;
+    UsdGenPartitionParams params;
+    params.chunkSize = static_cast<uint32_t>(std::max(1, _chunkSize));
+    params.groupTarget = static_cast<uint32_t>(std::max(0, _tileTarget));
+    UsdGenElementSetView none{};
+    none.count[1] = elements;
+    uint32_t const nChunks = layout.partition(elements, none, params, {});
+    uint32_t const nGroups = layout.groups(nChunks, params, {});
     // 03 §1.4: tileTarget is clamped to [32, 256] for the partition.
-    int const tileTarget =
-        std::clamp(_tileTarget, kUsdGenTileMin, kUsdGenTileMax);
-    int const cpt = ComputeChunksPerTile(nChunks, tileTarget);
-    int const nTiles = ComputeNumTiles(nChunks, tileTarget);
-    int const previousChunks = ComputeNumChunks(_partitionCurves, _chunkSize);
-    bool const chunkLayoutChanged = previousChunks != nChunks;
-    bool const tileLayoutChanged = (chunkLayoutChanged || _chunksPerTile != cpt ||
-                                    int(_tiles.size()) != nTiles);
-    bool const changed = (_partitionCurves != totalCurves || tileLayoutChanged);
-    _partitionCurves = totalCurves;
+    int const cpt = ComputeChunksPerTile(int(nChunks),
+                                         std::clamp(_tileTarget, kUsdGenTileMin, kUsdGenTileMax));
+    uint32_t const previousChunks = static_cast<uint32_t>(
+        ComputeNumChunks(int(_partitionElements), _chunkSize));
+    _groupScratch.resize(nGroups);
+    layout.groups(nChunks, params, UsdGenSpan<UsdGenChunkGroup>(_groupScratch.data(), nGroups));
+    bool groupsMoved = _groups.size() != nGroups;
+    for (uint32_t g = 0; !groupsMoved && g < nGroups; ++g)
+        groupsMoved = _groups[g].firstChunk != _groupScratch[g].firstChunk ||
+                      _groups[g].chunkCount != _groupScratch[g].chunkCount;
+    bool const tileLayoutChanged = previousChunks != nChunks || _chunksPerTile != cpt || groupsMoved;
+    bool const changed = _partitionElements != elements || tileLayoutChanged;
+    _partitionElements = elements;
 
     if (tileLayoutChanged) {
         _chunksPerTile = cpt;
-        _tiles.assign(nTiles, UsdGenTileView());
-        auto boundary = [=](int t) -> int {
-            // Reserve one chunk for each remaining tile before taking the
-            // packed upper bound; this keeps every tile non-empty while
-            // preserving the cpt ceiling when nChunks is just above nTiles.
-            int64_t const packed = int64_t(t) * int64_t(cpt);
-            int64_t const tail = int64_t(nChunks) - int64_t(nTiles - t);
-            return static_cast<int>(std::min(packed, tail));
-        };
-        for (int t = 0; t < nTiles; ++t) {
-            _tiles[t].tile = static_cast<UsdGenTileId>(t);
-            _tiles[t].firstChunk = static_cast<uint32_t>(boundary(t));
-            _tiles[t].chunkCount =
-                static_cast<uint32_t>(boundary(t + 1) - boundary(t));
+        _groups.assign(nGroups, UsdGenChunkGroup());
+        float const inf = std::numeric_limits<float>::max();
+        for (uint32_t g = 0; g < nGroups; ++g) {
+            _groups[g].id = _groupScratch[g].id;
+            _groups[g].firstChunk = _groupScratch[g].firstChunk;
+            _groups[g].chunkCount = _groupScratch[g].chunkCount;
+            for (int k = 0; k < 3; ++k) {   // GfRange3f's empty state
+                _groups[g].extentMin[k] = inf;
+                _groups[g].extentMax[k] = -inf;
+            }
         }
     }
 
-    auto tileForChunk = [=](int chunk) -> UsdGenTileId {
-        auto const it = std::upper_bound(
-            _tiles.begin(), _tiles.end(), static_cast<uint32_t>(chunk),
-            [](uint32_t value, UsdGenTileView const& tile) {
-                return value < tile.firstChunk;
-            });
-        return static_cast<UsdGenTileId>(
-            it == _tiles.begin() ? 0 : std::distance(_tiles.begin(), it) - 1);
-    };
-
     bool layoutDiff = false;
-
+    _rangeScratch.resize(nChunks);
     for (size_t ni = 0; ni < _nodes.size(); ++ni) {
         if (!_nodes[ni]) continue;
         UsdGenCompiledNode &n = *_nodes[ni];
-        // Per-node cvp: prefer the node's actual curve data (its effective
-        // buffer, possibly a pure passthrough input's) over the partition's
-        // uniform override. Ragged buffers (non-empty cvOffsets) are carried
-        // verbatim: per-chunk firstCv is the source offset, cvCount == 0
-        // means "variable cv/curve" per UsdGenChunkDesc.
+        // Per-node sub-item layout: prefer the node's actual curve data (its
+        // effective set, possibly a pure passthrough input's) over the
+        // fallback stride. Ragged sets carry their offsets verbatim (stride
+        // 0, first item from the offsets).
         UsdGenNodeId const id = static_cast<UsdGenNodeId>(ni);
-        UsdGenCurveBuffer const &eff = _EffBuffer(*this, id, 0);
-        VtIntArray const &offs = eff.cvOffsets;
-        uint32_t cvpUniform = static_cast<uint32_t>(std::max(0, cvCount));
-        if (eff.totalCurves > 0 &&
-            eff.totalCvs % eff.totalCurves == 0) {
-            cvpUniform = eff.totalCvs / eff.totalCurves;
+        UsdGenElementSetView view = _EffSet(*this, id, 0).View();
+        if (!view.offsets[2] && (!view.count[1] || view.count[2] % view.count[1])) {
+            view.count[1] = elements;
+            view.count[2] = elements * fallbackStride;
         }
-        uint32_t const cvp = offs.empty() ? cvpUniform : 0u;
+        layout.partition(elements, view, params,
+                         UsdGenSpan<UsdGenChunkRange>(_rangeScratch.data(), nChunks));
         // Keep existing chunks only if the count matches and EVERY chunk
-        // still equals the desired layout (curve span AND cv span: a 10->20
+        // still has the desired element span AND sub-item span (a 10->20
         // root recook keeps 1 chunk and the same cv/curve, so comparing cv
         // fields alone keeps a stale curve span that under-emits tiles when
         // growing -- or over-reads buffers when shrinking).
-        bool keep = !n.chunks.empty() && int(n.chunks.size()) == nChunks;
-        for (int c = 0; keep && c < nChunks; ++c) {
-            uint32_t const firstCurve = static_cast<uint32_t>(c * _chunkSize);
-            uint32_t const curveCount = static_cast<uint32_t>(
-                std::min(_chunkSize, totalCurves - c * _chunkSize));
-            uint32_t const wantFirstCv = offs.empty()
-                ? firstCurve * cvp
-                : static_cast<uint32_t>(
-                      offs[std::min<size_t>(firstCurve, offs.size() - 1)]);
-            keep = n.chunks[c].firstCurve == firstCurve &&
-                   n.chunks[c].curveCount == curveCount &&
-                   n.chunks[c].cvCount == cvp &&
-                   n.chunks[c].firstCv == wantFirstCv;
+        bool keep = !n.chunks.empty() && n.chunks.size() == nChunks;
+        for (uint32_t c = 0; keep && c < nChunks; ++c) {
+            UsdGenChunkRange const &want = _rangeScratch[c];
+            keep = n.chunks[c].first[0] == want.first[0] &&
+                   n.chunks[c].count[0] == want.count[0] &&
+                   n.chunks[c].stride[1] == want.stride[1] &&
+                   n.chunks[c].first[1] == want.first[1];
         }
         if (keep) {
-            if (tileLayoutChanged) {
-                // Tile ids moved under a kept chunk set: refresh them.
-                for (auto &cd : n.chunks)
-                    cd.tile = tileForChunk(static_cast<int>(
-                        cd.firstCurve / std::max<size_t>(1, _chunkSize)));
-            }
+            // Group ids moved under a kept chunk set: refresh them.
+            if (tileLayoutChanged)
+                for (uint32_t c = 0; c < nChunks; ++c) n.chunks[c].group = _rangeScratch[c].group;
             continue;
         }
-        n.chunks.assign(nChunks, UsdGenChunkDesc());
-        for (int c = 0; c < nChunks; ++c) {
-            UsdGenChunkDesc &cd = n.chunks[c];
-            cd.firstCurve = static_cast<uint32_t>(c * _chunkSize);
-            cd.curveCount = static_cast<uint32_t>(
-                std::min(_chunkSize, totalCurves - c * _chunkSize));
-            if (offs.empty()) {
-                cd.firstCv = cd.firstCurve * cvp;
-                cd.cvCount = cvp;
-            } else {
-                // Ragged: cvCount == 0 = variable cv/curve; firstCv is the
-                // source-curve offset (clamped for safety).
-                cd.cvCount = 0;
-                cd.firstCv = static_cast<uint32_t>(
-                    offs[std::min<size_t>(cd.firstCurve, offs.size() - 1)]);
-            }
-            cd.liveCount = cd.curveCount;
-            cd.tile = tileForChunk(c);
-        }
+        n.chunks.assign(_rangeScratch.begin(), _rangeScratch.end());
         layoutDiff = true;
         n.chunkDirty.assign(nChunks, UsdGenDirtyParameter);
         n.chunkCaptured.assign(nChunks, 0);

@@ -20,6 +20,7 @@
 // widths or colours, the drivers with the stage's own locators; the scene
 // globals' frame alone cooks nothing (the example reads no $frame).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -474,8 +475,8 @@ Cooked Cook(UsdStageRefPtr const &stage, double time,
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     out.errors.insert(out.errors.end(), run.diagnostics.errors.begin(), run.diagnostics.errors.end());
     if (run.diagnostics.HasErrors()) return out;
-    out.input = graph.Node(graph.NodeIdForPath(input)).buffer;
-    out.output = graph.Node(graph.NodeIdForPath(deform)).buffer;
+    out.input = NodeBuffer(graph, graph.NodeIdForPath(input));
+    out.output = NodeBuffer(graph, graph.NodeIdForPath(deform));
     out.ok = out.output.totalCurves > 0 && out.output.totalCvs == out.input.totalCvs &&
         out.output.totalCvs % out.output.totalCurves == 0;
     out.cvs = out.ok ? out.output.totalCvs / out.output.totalCurves : 0;
@@ -768,7 +769,7 @@ void CheckDeformChosenDigest()
         return rr.ok && !run.diagnostics.HasErrors();
     };
     auto outputBits = [&]() {
-        UsdGenCurveBuffer const &b = graph.Node(deformId).buffer;
+        UsdGenCurveBuffer const b = NodeBuffer(graph, deformId);
         std::vector<float> bits;
         bits.reserve(b.px.size() + b.py.size() + b.pz.size() + 2);
         bits.push_back(float(b.totalCurves));
@@ -780,7 +781,7 @@ void CheckDeformChosenDigest()
     };
 
     Check(runPose(), "the digest fixture cooks its rest pose");
-    if (graph.Node(deformId).buffer.totalCurves == 0) {
+    if (NodeBuffer(graph, deformId).totalCurves == 0) {
         Check(false, "the digest fixture grows curves");
         return;
     }
@@ -886,11 +887,11 @@ void CheckDefaultSpaceUntilDeform()
         UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/groom/clump"));
         UsdGenNodeId const terminal = graph.TerminalNodeId();
         Check(run(), "the rest pose cooks " + label);
-        UsdGenCurveBuffer const &clumped = graph.Node(clumpId).buffer;
+        UsdGenCurveBuffer const clumped = NodeBuffer(graph, clumpId);
         if (clumped.totalCurves == 0) { Check(false, "the fixture grows curves " + label); continue; }
         UsdGenCapture const *restCapture = graph.Node(clumpId).capture.get();
         std::vector<float> const clumpRest = bits(clumped);
-        std::vector<float> const terminalRest = bits(graph.Node(terminal).buffer);
+        std::vector<float> const terminalRest = bits(NodeBuffer(graph, terminal));
 
         VtVec3fArray posed = d.surfaces[0].restPoints;
         for (GfVec3f &p : posed) p += offset;
@@ -899,13 +900,13 @@ void CheckDefaultSpaceUntilDeform()
         Check(run(), "the posed surface cooks " + label);
         Check(graph.Node(clumpId).capture.get() == restCapture,
               "a posed surface does not re-capture Clump upstream of the deform " + label);
-        Check(bits(graph.Node(clumpId).buffer) == clumpRest,
+        Check(bits(NodeBuffer(graph, clumpId)) == clumpRest,
               "Clump's output stays in Default space " + label);
-        UsdGenCurveBuffer const &out = graph.Node(terminal).buffer;
+        UsdGenCurveBuffer const out = NodeBuffer(graph, terminal);
         if (withDeform) {
             double error = 0.0;
             for (size_t cv = 0; cv < out.totalCvs && cv < clumped.totalCvs; ++cv)
-                error = std::max(error, double((P(out, cv) - (P(graph.Node(clumpId).buffer, cv) + offset)).GetLength()));
+                error = std::max(error, double((P(out, cv) - (P(NodeBuffer(graph, clumpId), cv) + offset)).GetLength()));
             Check(out.totalCvs == clumped.totalCvs && error < 1e-4,
                   "the deform carries the rest groom by the pose, error " + std::to_string(error));
         } else {
@@ -981,8 +982,9 @@ void CheckDeformEvaluateViewShapes()
     ctx.desc = &graph.Desc();
     UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
     Check(rr.ok && !run.diagnostics.HasErrors(), "the view-shape pose cooks");
-    UsdGenCurveBuffer const &term = graph.Node(deformId).buffer;
-    UsdGenCurveBuffer const &up = graph.Node(graph.Node(deformId).input).buffer;
+    UsdGenCurveBuffer const term = NodeBuffer(graph, deformId);
+    auto const upView = NodeView(graph, graph.Node(deformId).input);
+    UsdGenCurveBuffer const up = NodeBuffer(graph, graph.Node(deformId).input);
     if (term.totalCurves < 2 || term.totalCvs == 0 || up.px.size() != term.totalCvs ||
         term.totalCvs % term.totalCurves != 0 || !term.cvOffsets.empty()) {
         Check(false, "the view-shape fixture grows a uniform groom");
@@ -1012,9 +1014,9 @@ void CheckDeformEvaluateViewShapes()
         v.px = px;
         v.py = py;
         v.pz = pz;
-        v.inPx = up.px.cdata() + inBase;
-        v.inPy = up.py.cdata() + inBase;
-        v.inPz = up.pz.cdata() + inBase;
+        v.inPx = upView.px.cdata() + inBase;
+        v.inPy = upView.py.cdata() + inBase;
+        v.inPz = upView.pz.cdata() + inBase;
         v.curveCount = nCurves;
         v.cvCount = cvCount;
         v.cvOffsets = cvOffsets;
@@ -1581,25 +1583,26 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
     // counts over the terminal points. Untouched tiles keep their previous
     // extent and are skipped.
     UsdGenCompiledNode const &tn = graph.Node(graph.TerminalNodeId());
-    UsdGenCurveBuffer const &term = graph.Output();
+    auto const termView = OutputView(graph);
+    UsdGenCurveBuffer const term = OutputBuffer(graph);
     bool const ragged = !term.cvOffsets.empty();
-    float const *tpx = term.px.empty() ? nullptr : term.px.cdata();
-    float const *tpy = term.py.empty() ? nullptr : term.py.cdata();
-    float const *tpz = term.pz.empty() ? nullptr : term.pz.cdata();
+    float const *tpx = term.px.empty() ? nullptr : termView.px.cdata();
+    float const *tpy = term.py.empty() ? nullptr : termView.py.cdata();
+    float const *tpz = term.pz.empty() ? nullptr : termView.pz.cdata();
     size_t const nPx = term.px.size();
     size_t compared = 0, extentsOk = 0, countsOk = 0;
-    for (UsdGenTileView const &tv : graph.Tiles()) {
+    for (UsdGenChunkGroup const &tv : graph.Groups()) {
         // Untouched tiles keep their previous extent; only a tile the
         // interleave rewrote (pointsDirty) must match the reference.
-        if (!tv.pointsDirty) continue;
+        if (!(tv.dirtyRoles & (1u << uint32_t(UsdGenChannelRole::Position)))) continue;
         if (tn.chunks.size() < size_t(tv.firstChunk) + tv.chunkCount) continue;
         GfRange3f ref;
         uint64_t liveCurves = 0, liveCvs = 0;
         for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-            UsdGenChunkDesc const &cd = tn.chunks[tv.firstChunk + i];
-            if (ragged && cd.cvCount == 0) {
-                for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                    size_t const g = size_t(cd.firstCurve) + c;
+            UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
+            if (ragged && cd.stride[1] == 0) {
+                for (uint32_t c = 0; c < cd.live; ++c) {
+                    size_t const g = size_t(cd.first[0]) + c;
                     if (g + 1 >= term.cvOffsets.size()) break;
                     uint32_t const p0 = uint32_t(term.cvOffsets[g]);
                     uint32_t const len = uint32_t(term.cvOffsets[g + 1]) - p0;
@@ -1614,12 +1617,12 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
                 }
                 continue;
             }
-            liveCurves += cd.liveCount;
-            liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+            liveCurves += cd.live;
+            liveCvs += uint64_t(cd.live) * cd.stride[1];
             if (!tpx || !tpy || !tpz) continue;
-            for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                size_t const o = size_t(cd.firstCv) + size_t(c) * cd.cvCount;
-                for (uint32_t v = 0; v < cd.cvCount; ++v) {
+            for (uint32_t c = 0; c < cd.live; ++c) {
+                size_t const o = size_t(cd.first[1]) + size_t(c) * cd.stride[1];
+                for (uint32_t v = 0; v < cd.stride[1]; ++v) {
                     size_t const p = o + v;
                     if (p >= nPx) break;
                     ref.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
@@ -1627,9 +1630,9 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
             }
         }
         ++compared;
-        extentsOk += std::memcmp(&tv.extent.GetMin(), &ref.GetMin(), sizeof(GfVec3f)) == 0 &&
-                std::memcmp(&tv.extent.GetMax(), &ref.GetMax(), sizeof(GfVec3f)) == 0;
-        countsOk += tv.totalLiveCurves == liveCurves && tv.totalLiveCvs == liveCvs;
+        extentsOk += std::memcmp(tv.extentMin, ref.GetMin().data(), sizeof(GfVec3f)) == 0 &&
+                std::memcmp(tv.extentMax, ref.GetMax().data(), sizeof(GfVec3f)) == 0;
+        countsOk += tv.live[0] == liveCurves && tv.live[1] == liveCvs;
     }
     Check(compared > 0, what + ": the pose dirties tiles");
     Check(compared > 0 && extentsOk == compared && countsOk == compared,
@@ -1799,11 +1802,12 @@ void CheckCaptureDirectMaskReuse()
     Check(directCap && directCap->WroteDirectOutput(),
           "mask reuse: the bent cook goes direct");
     if (!directCap || !directCap->WroteDirectOutput()) return;
-    UsdGenCurveBuffer const &up = graph.Node(growId).buffer;
+    auto const upView = NodeView(graph, growId);
+    UsdGenCurveBuffer const up = NodeBuffer(graph, growId);
     std::vector<float> const beforeX(up.px.begin(), up.px.end());
     std::vector<float> const beforeY(up.py.begin(), up.py.end());
     std::vector<float> const beforeZ(up.pz.begin(), up.pz.end());
-    UsdGenCurveBuffer const &term = graph.Node(deformId).buffer;
+    UsdGenCurveBuffer const term = NodeBuffer(graph, deformId);
     std::vector<float> const directX(term.px.begin(), term.px.end());
     std::vector<float> const directY(term.py.begin(), term.py.end());
     std::vector<float> const directZ(term.pz.begin(), term.pz.end());
@@ -1831,9 +1835,9 @@ void CheckCaptureDirectMaskReuse()
             v.px = hx.data();
             v.py = hy.data();
             v.pz = hz.data();
-            v.inPx = up.px.cdata();
-            v.inPy = up.py.cdata();
-            v.inPz = up.pz.cdata();
+            v.inPx = upView.px.cdata();
+            v.inPy = upView.py.cdata();
+            v.inPz = upView.pz.cdata();
             v.curveCount = uint32_t(curves);
             v.cvCount = perCurve;
             UsdGenEvalContext evalCtx; // params null: default mask 1.0
@@ -1853,7 +1857,7 @@ void CheckCaptureDirectMaskReuse()
           "mask reuse: the mask edit re-captures");
     Check(!graph.Node(deformId).capture->WroteDirectOutput(),
           "mask reuse: the mask edit declines direct output");
-    UsdGenCurveBuffer const &out = graph.Node(deformId).buffer;
+    UsdGenCurveBuffer const out = NodeBuffer(graph, deformId);
     bool blendOk = out.px.size() == directX.size();
     for (size_t i = 0; blendOk && i < directX.size(); ++i) {
         float const e0 = beforeX[i] + (directX[i] - beforeX[i]) * 0.5f;
@@ -1911,14 +1915,16 @@ void CheckCaptureDirectFailureRestore()
         nonFinite = nonFinite || e.find("non-finite") != std::string::npos;
     Check(refused && nonFinite,
           "failure restore: the overflowing pose is refused, not published");
-    UsdGenCurveBuffer const &out = graph.Node(deformId).buffer;
-    UsdGenCurveBuffer const &up = graph.Node(growId).buffer;
+    auto const outView = NodeView(graph, deformId);
+    UsdGenCurveBuffer const out = NodeBuffer(graph, deformId);
+    auto const upView = NodeView(graph, growId);
+    UsdGenCurveBuffer const up = NodeBuffer(graph, growId);
     bool restored = out.px.size() == up.px.size();
-    restored = restored && std::memcmp(out.px.cdata(), up.px.cdata(),
+    restored = restored && std::memcmp(outView.px.cdata(), upView.px.cdata(),
                                        out.px.size() * sizeof(float)) == 0;
-    restored = restored && std::memcmp(out.py.cdata(), up.py.cdata(),
+    restored = restored && std::memcmp(outView.py.cdata(), upView.py.cdata(),
                                        up.py.size() * sizeof(float)) == 0;
-    restored = restored && std::memcmp(out.pz.cdata(), up.pz.cdata(),
+    restored = restored && std::memcmp(outView.pz.cdata(), upView.pz.cdata(),
                                        out.pz.size() * sizeof(float)) == 0;
     Check(restored, "failure restore: the failed run restores the input planes");
 }

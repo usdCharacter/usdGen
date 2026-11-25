@@ -15,6 +15,7 @@
 //   (4) CUDA-backend explicit rejection: Wind is CPU-only (no capability
 //       matrix row, like Clump), so ValidateCudaGraph refuses a Wind graph.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/clumpMotion.h"
 #include "usdGen/cudaExecution.h"
@@ -59,7 +60,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -143,7 +144,7 @@ static bool CookAt(UsdGenGraphDesc const &desc, double time, UsdGenCurveBuffer *
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -179,7 +180,7 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenWind)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Wind reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
+    Check(op->Record().Def().countChanges == 0,
           "Wind has TopologyEffect None");
     Check(op->Record().ReferenceInputs().empty(),
           "Wind declares no reference inputs");
@@ -398,7 +399,8 @@ static void CheckLiveTimeOnOneGraph()
     };
     auto first = run(0.0);
     Check(!first.diagnostics.HasErrors(), "Live Wind first frame cooks");
-    std::vector<float> const firstZ(graph.Output().pz.begin(), graph.Output().pz.end());
+    VtFloatArray const firstPz = OutputBuffer(graph).pz;
+    std::vector<float> const firstZ(firstPz.begin(), firstPz.end());
     auto same = run(0.0);
     Check(!same.diagnostics.HasErrors(), "Live Wind same frame reuses output");
     bool noWork = true;
@@ -408,7 +410,7 @@ static void CheckLiveTimeOnOneGraph()
     Check(!later.diagnostics.HasErrors(), "Live Wind later frame cooks");
     bool animated = false;
     for (size_t i = 0; i < firstZ.size(); ++i)
-        animated |= firstZ[i] != graph.Output().pz[i];
+        animated |= firstZ[i] != OutputView(graph).pz[i];
     Check(animated, "Live Wind billow changes on the same compiled graph");
     uint64_t sourceChunks = 0, windChunks = 0, widthChunks = 0;
     for (auto const& stat : later.nodeStats) {
@@ -423,7 +425,8 @@ static void CheckLiveTimeOnOneGraph()
     noWork = true;
     for (auto const& stat : repeated.nodeStats) noWork &= stat.chunksEvaluated == 0;
     Check(noWork, "Repeated frame reuses Wind and downstream chunks");
-    std::vector<float> const priorRateZ(graph.Output().pz.begin(), graph.Output().pz.end());
+    VtFloatArray const priorRatePz = OutputBuffer(graph).pz;
+    std::vector<float> const priorRateZ(priorRatePz.begin(), priorRatePz.end());
     desc.timeCodesPerSecond = 12.0;
     Check(compiler.Recompile(desc, &graph).ok,
           "Live Wind timeCodesPerSecond edit recompiles");
@@ -431,12 +434,12 @@ static void CheckLiveTimeOnOneGraph()
     auto rateChanged = run(24.0);
     animated = false;
     for (size_t i = 0; i < priorRateZ.size(); ++i)
-        animated |= priorRateZ[i] != graph.Output().pz[i];
+        animated |= priorRateZ[i] != OutputView(graph).pz[i];
     Check(!rateChanged.diagnostics.HasErrors() && animated,
           "Wind reevaluates when seconds-per-frame changes at fixed frame");
     UsdGenCurveBuffer freshRate;
     Check(CookAt(desc, 24.0, &freshRate) &&
-              PointsEqual(graph.Output(), freshRate),
+              PointsEqual(OutputBuffer(graph), freshRate),
           "Same-graph rate edit matches a fresh cook at the same frame");
 }
 
@@ -663,7 +666,7 @@ static void CheckClumpMotion()
     context.desc = &graph.Desc();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "Live zero-cohesion Wind cook runs");
-    UsdGenCurveBuffer const &zeroLive = graph.Output();
+    UsdGenCurveBuffer const zeroLive = OutputBuffer(graph);
     VtFloatArray const zeroPx(zeroLive.px.begin(), zeroLive.px.end());
     VtFloatArray const zeroPy(zeroLive.py.begin(), zeroLive.py.end());
     VtFloatArray const zeroPz(zeroLive.pz.begin(), zeroLive.pz.end());
@@ -676,7 +679,7 @@ static void CheckClumpMotion()
     context.desc = &graph.Desc();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "Live positive-cohesion Wind recook runs");
-    UsdGenCurveBuffer positiveLive = graph.Output();
+    UsdGenCurveBuffer positiveLive = OutputBuffer(graph);
     Check(positiveLive.px != zeroPx || positiveLive.py != zeroPy ||
           positiveLive.pz != zeroPz,
           "Zero-to-positive live edit switches to clump motion");
@@ -684,9 +687,10 @@ static void CheckClumpMotion()
           "Live positive-cohesion recook matches fresh positive cook");
     UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/wind/clump"));
     UsdGenPlane const *liveWeight = nullptr;
-    for (UsdGenPlane const &plane : graph.Node(clumpId).buffer.extraCv)
+    UsdGenCurveBuffer const clumpOut = NodeBuffer(graph, clumpId);
+    for (UsdGenPlane const &plane : clumpOut.extraCv)
         if (plane.name == TfToken("clumpWeight_0")) liveWeight = &plane;
-    bool positiveWeight = liveWeight && liveWeight->f.size() == graph.Node(clumpId).buffer.totalCvs;
+    bool positiveWeight = liveWeight && liveWeight->f.size() == clumpOut.totalCvs;
     if (positiveWeight)
         for (float w : liveWeight->f) positiveWeight = positiveWeight && w > 0.0f;
     Check(positiveWeight, "Live amount edit refreshes native Clump cohesion weights");
@@ -811,7 +815,7 @@ static void CheckGuideClumpInheritance()
     desc.nodes.pop_back();
     UsdGenCurveSetDesc guides = desc.curveSets.front();
     guides.path = SdfPath("/wind/guides");
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.points.resize(clumpedGuides.totalCvs);
     for (uint32_t cv = 0; cv < clumpedGuides.totalCvs; ++cv)
@@ -1030,29 +1034,29 @@ static void CheckIncrementalPlayback()
     ctx.time = 0;
     Check(!scheduler.Run(graph, ctx, 1).diagnostics.HasErrors(), "initial playback pose cooks");
     // Graph buffers are mutable work storage; detach the saved point planes.
-    auto initial = graph.Output();
+    auto initial = OutputBuffer(graph);
     initial.px.data(); initial.py.data(); initial.pz.data();
     auto const source = graph.NodeIdForPath(SdfPath("/source"));
     auto const windId = graph.NodeIdForPath(wind.path);
-    auto const sourceVersion = graph.Node(source).buffer.valueVersion;
+    auto const sourceVersion = NodeBuffer(graph, source).valueVersion;
     auto const capture = graph.Node(windId).capture.get();
     ctx.time = 240;
     auto run = scheduler.Run(graph, ctx, 2);
-    Check(!run.diagnostics.HasErrors() && !PointsEqual(initial, graph.Output()),
+    Check(!run.diagnostics.HasErrors() && !PointsEqual(initial, OutputBuffer(graph)),
           "cached Wind animates on a new frame");
-    Check(graph.Node(source).buffer.valueVersion == sourceVersion &&
+    Check(NodeBuffer(graph, source).valueVersion == sourceVersion &&
               graph.Node(windId).capture.get() == capture,
           "playback reuses static source and Wind capture");
-    auto animated = graph.Output();
+    auto animated = OutputBuffer(graph);
     animated.px.data(); animated.py.data(); animated.pz.data();
-    auto const windVersion = graph.Node(windId).buffer.valueVersion;
+    auto const windVersion = NodeBuffer(graph, windId).valueVersion;
     run = scheduler.Run(graph, ctx, 3);
-    Check(!run.diagnostics.HasErrors() && PointsEqual(animated, graph.Output()) &&
-              graph.Node(windId).buffer.valueVersion == windVersion,
+    Check(!run.diagnostics.HasErrors() && PointsEqual(animated, OutputBuffer(graph)) &&
+              NodeBuffer(graph, windId).valueVersion == windVersion,
           "unchanged frame skips Wind evaluation");
     ctx.time = 0;
     run = scheduler.Run(graph, ctx, 4);
-    Check(!run.diagnostics.HasErrors() && PointsEqual(initial, graph.Output()),
+    Check(!run.diagnostics.HasErrors() && PointsEqual(initial, OutputBuffer(graph)),
           "backward playback restores deterministic points through downstream Width");
 }
 

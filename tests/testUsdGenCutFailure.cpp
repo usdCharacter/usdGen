@@ -4,6 +4,7 @@
 // Transactional CPU publication coverage for fallible vertex remappers.
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -99,7 +100,7 @@ UsdGenCurveSetDesc MakeCurves()
     constexpr int curveCount = 600;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/cutFailure/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts.assign(curveCount, 2);
     curves.points.reserve(curveCount * 2);
@@ -213,7 +214,7 @@ OutputSnapshot FreshOutput(UsdGenGraphDesc const &desc)
     g_evaluations.store(0, std::memory_order_release);
     UsdGenRunResult const run = scheduler.Run(graph, context, 2);
     Check(!run.diagnostics.HasErrors(), "fresh parity graph succeeds");
-    return Snapshot(graph.Output());
+    return Snapshot(OutputBuffer(graph));
 }
 
 void TestTransactionalFailure(bool unequalDepth)
@@ -231,9 +232,9 @@ void TestTransactionalFailure(bool unequalDepth)
     context.desc = &graph.Desc();
     int callbacks = 0;
     OutputSnapshot published;
-    auto completed = [&](UsdGenTileView const &, UsdGenCurveBuffer const &buffer) {
+    auto completed = [&](UsdGenChunkGroup const &, UsdGenElementSet const &set) {
         ++callbacks;
-        published = Snapshot(buffer);
+        published = Snapshot(UsdGenCurveBufferFromSet(set));
     };
 
     g_failEnabled.store(false, std::memory_order_release);

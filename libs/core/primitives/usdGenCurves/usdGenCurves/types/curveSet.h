@@ -9,6 +9,7 @@
 #include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
+#include "usdGen/exec/chunkView.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -28,6 +29,12 @@ struct UsdGenCurveBuffer;     // usdGenCurves/types/curveBuffer.h
 struct UsdGenChunkView;       // usdGen/exec/chunkView.h
 struct UsdGenChunkExtent;     // usdGen/exec/chunkView.h
 class UsdGenRegistrar;
+
+/// CPU-lane ceiling on CVs per generated or resampled strand (Grow segments,
+/// GuideInterpolate/CardSource cvCount, Resample cvCount/spacing). The CUDA
+/// and Vulkan lanes keep their own, smaller kernel limits and refuse a graph
+/// above them at admission. Also the CurveSet type's level-2 limit.
+constexpr uint32_t kUsdGenMaxCvsPerCurve = 4096u;
 
 /// Static channels of the CurveSet layout (slot == enumerator).
 enum UsdGenCurveSlot : UsdGenSlot {
@@ -68,6 +75,11 @@ struct UsdGenPlaneView {
 struct UsdGenCurveSetView {
     USDGEN_CORE_API static UsdGenCurveSetView Of(UsdGenElementSetView const &) noexcept;
     static UsdGenCurveSetView Of(UsdGenElementSet const &s) noexcept { return Of(s.View()); }
+    /// A reference set's curves; empty when unset.
+    static UsdGenCurveSetView Of(UsdGenReferenceSet const &r) noexcept
+    {
+        return r.set ? Of(*r.set) : UsdGenCurveSetView{};
+    }
     USDGEN_CORE_API static UsdGenCurveSetView Of(UsdGenCurveBuffer const &) noexcept;   // tests, builders
     UsdGenSpan<const float> px, py, pz, width, hairT;
     UsdGenSpan<const GfVec3f> rest, rootT, rootN, rootB;
@@ -83,9 +95,6 @@ struct UsdGenCurveSetView {
     USDGEN_CORE_API UsdGenPlaneView ExtraCv(uint32_t) const noexcept;
     /// Compile/prepare time (name search). perCv: found among the CV planes.
     USDGEN_CORE_API bool FindPlane(UsdGenToken const &, UsdGenPlaneView *out, bool *perCv) const noexcept;
-    /// Bridge (5.3a; 5.4 deletes): the builder buffer this view reads, or
-    /// null for a set. Helpers that key caches on VtArray identity use it.
-    UsdGenCurveBuffer const *LegacyBuffer() const noexcept { return _buffer; }
 private:
     UsdGenElementSetView _set{};
     UsdGenCurveBuffer const *_buffer = nullptr;   // set by Of(UsdGenCurveBuffer)
@@ -139,9 +148,11 @@ private:
 /// capture); null when the buffer is inconsistent (a column or plane whose
 /// size disagrees with its counts, planes not "float"/"int" or in the wrong
 /// rate, ragged offsets not totalCurves+1). Chunks are not carried: the
-/// graph owns the partition. BufferFromSet copies (tests and tools).
+/// graph owns the partition. exactVersions stamps the versions as given
+/// (zero included). BufferFromSet copies (tests and tools).
 USDGEN_CORE_API UsdGenRef<const UsdGenElementSet>
-UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &, uint64_t topologyVersion, uint64_t valueVersion);
+UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &, uint64_t topologyVersion, uint64_t valueVersion,
+                         bool exactVersions = false);
 USDGEN_CORE_API UsdGenCurveBuffer UsdGenCurveBufferFromSet(UsdGenElementSet const &);
 
 }  // namespace usdGen

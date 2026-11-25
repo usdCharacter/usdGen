@@ -18,6 +18,7 @@
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
@@ -68,7 +69,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -154,7 +155,7 @@ static bool CookDiag(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
     for (auto const &e : run.diagnostics.errors)
         std::printf("  run: %s\n", e.c_str());
     if (run.diagnostics.HasErrors()) return false;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -185,7 +186,7 @@ static void CheckRegistryContracts()
     Check(op != nullptr, "Create(UsdGenExprOp)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "ExprOp reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::None,
+    Check(op->Record().Def().countChanges == 0,
           "ExprOp has TopologyEffect None");
     Check(op->Record().ReferenceInputs().empty(),
           "ExprOp declares no reference inputs");

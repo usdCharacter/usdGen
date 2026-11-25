@@ -25,10 +25,20 @@ struct UsdGenWholeStrandCapture final : public UsdGenCapture
     uint32_t upstreamCurves = 0;
     uint32_t upstreamCvs = 0;
     bool ok = false;
+    std::vector<uint32_t> spans;   // capture scratch, kept across Recycle()
 
     std::unique_ptr<UsdGenCapture> Clone() const override
     {
         return std::make_unique<UsdGenWholeStrandCapture>(*this);
+    }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        // Capture refills result, planes and spans; their storage stays.
+        upstreamTopologyVersion = upstreamValueVersion = 0;
+        upstreamCurves = upstreamCvs = 0;
+        ok = false;
+        return true;
     }
     bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
@@ -165,17 +175,37 @@ bool UsdGenWholeStrandOp::Capture(UsdGenCaptureContext const &ctx,
     cap.upstreamCurves = upstream.totalCurves;
     cap.upstreamCvs = upstream.totalCvs;
     cap.ok = false;
-    cap.result.clear();
-    cap.planes.assign(_specs.size(), UsdGenStrandPlaneData());
+    // A recycled capture's vectors keep their storage: resize, never rebuild.
+    cap.planes.resize(_specs.size());
 
     size_t const R = upstream.totalCurves, totalCvs = upstream.totalCvs;
     for (size_t s = 0; s < _specs.size(); ++s) {
         size_t const n = _specs[s].cv ? totalCvs : R;
-        if (_specs[s].isInt) cap.planes[s].i.assign(n, -1);
-        else cap.planes[s].f.assign(n, 0.0f);
+        UsdGenStrandPlaneData &plane = cap.planes[s];
+        if (_specs[s].isInt) {
+            plane.i.assign(n, -1);
+            plane.f.clear();
+        } else {
+            plane.f.assign(n, 0.0f);
+            plane.i.clear();
+        }
     }
     UsdGenStrandSet strands;
     strands.upstream = &upstream;
+    strands.spans.swap(cap.spans);
+    strands.points.swap(cap.result);
+    // Hands the scratch back on every return; result is the computed points
+    // only on success.
+    struct Restore {
+        UsdGenWholeStrandCapture &cap;
+        UsdGenStrandSet &strands;
+        ~Restore()
+        {
+            cap.spans.swap(strands.spans);
+            cap.result.swap(strands.points);
+            if (!cap.ok) cap.result.clear();
+        }
+    } restore{cap, strands};
     std::string error;
     if (!opUtil::CurveSpans(upstream, &strands.spans, &error)) {
         if (diag) diag->Error(Label() + ": " + error);
@@ -203,7 +233,6 @@ bool UsdGenWholeStrandOp::Capture(UsdGenCaptureContext const &ctx,
             return false;
         }
     }
-    cap.result = std::move(strands.points);
     cap.ok = true;
     return true;
 }

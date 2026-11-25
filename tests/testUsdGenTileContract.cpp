@@ -144,7 +144,7 @@ UsdGenGraphDesc MakeGroomDesc(SdfPath const &descPath, float width = 0.02f)
 
     UsdGenCurveSetDesc guides;
     guides.path = descPath.AppendChild(TfToken("guides"));
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.curveVertexCounts = VtIntArray(kCurveCount, kVertsPerCurve);
     guides.points.resize(size_t(kCurveCount) * kVertsPerCurve);
@@ -286,9 +286,9 @@ void CheckPartitionBoundaries()
     Check(result.ok, "boundary partition fixture compiles");
     if (!result.ok) return;
     for (int nChunks : {33, 34, 65}) {
-        Check(graph.Repartition(nChunks * kUsdGenDefaultChunkSize, 1),
+        Check(graph.Repartition(uint32_t(nChunks * kUsdGenDefaultChunkSize), 1),
               "boundary repartition reports layout");
-        auto tiles = graph.Tiles();
+        auto tiles = graph.Groups();
         Check(tiles.size() == 32, "small partition clamps to 32 tiles");
         uint32_t covered = 0;
         for (size_t i = 0; i < tiles.size(); ++i) {
@@ -315,9 +315,9 @@ void CheckPartitionBoundaries()
             auto chunks = graph.Chunks(static_cast<UsdGenGraph::NodeId>(node));
             for (size_t c = 0; c < chunks.size(); ++c) {
                 auto const &chunk = chunks[c];
-                Check(chunk.tile < tiles.size() &&
-                      c >= tiles[chunk.tile].firstChunk &&
-                      c < tiles[chunk.tile].firstChunk + tiles[chunk.tile].chunkCount,
+                Check(chunk.group < tiles.size() &&
+                      c >= tiles[chunk.group].firstChunk &&
+                      c < tiles[chunk.group].firstChunk + tiles[chunk.group].chunkCount,
                       "chunk tile ID agrees with tile interval");
             }
         }
@@ -327,7 +327,7 @@ void CheckPartitionBoundaries()
     result = compiler.Compile(desc, &canonical);
     Check(result.ok && canonical.Repartition(100000, 4),
           "canonical 100k repartition reports layout");
-    Check(canonical.Tiles().size() == 49,
+    Check(canonical.Groups().size() == 49,
           "100k/512/tileTarget64 remains 49 tiles");
 }
 

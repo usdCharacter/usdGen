@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // End-to-end parity through the two production Session executors. Device
 // readback below is confined to the test; no host geometry oracle is published.
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/session.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/vulkan/defaultProvider.h"
@@ -77,7 +78,7 @@ Packet ReadCuda(DeviceGeneration const& generation) {
                 case UsdGenDeviceChannelSemantic::RestPoints: pointer = view.restPoints.data; break;
                 case UsdGenDeviceChannelSemantic::Widths: pointer = view.widths.data; break;
                 case UsdGenDeviceChannelSemantic::HairT: pointer = lease.HairT().data; break;
-                case UsdGenDeviceChannelSemantic::CurveOffsets: pointer = view.curveOffsets.data; break;
+                case UsdGenDeviceChannelSemantic::ElementOffsets: pointer = view.curveOffsets.data; break;
                 case UsdGenDeviceChannelSemantic::StableIds: pointer = view.stableIds.data; break;
                 case UsdGenDeviceChannelSemantic::RootPrim: pointer = lease.RootPrim().data; break;
                 case UsdGenDeviceChannelSemantic::RootUV: pointer = lease.RootUV().data; break;
@@ -189,12 +190,12 @@ template<class T> std::vector<T> Values(Packet const& packet, UsdGenDeviceChanne
 
 void Compare(Packet const& cuda, Packet const& vulkan, float pointTolerance = 0,
              bool generatedRest = false) {
-    CHECK(cuda.geometry.curveCount == vulkan.geometry.curveCount);
+    CHECK(cuda.geometry.elementCount == vulkan.geometry.elementCount);
     CHECK(cuda.geometry.pointCount == vulkan.geometry.pointCount);
     CHECK(cuda.geometry.alreadyDeformed == vulkan.geometry.alreadyDeformed);
-    CHECK(cuda.geometry.curveTopology.type == vulkan.geometry.curveTopology.type);
-    CHECK(cuda.geometry.curveTopology.basis == vulkan.geometry.curveTopology.basis);
-    CHECK(cuda.geometry.curveTopology.wrap == vulkan.geometry.curveTopology.wrap);
+    CHECK(UsdGenCurveLayoutTypeOf(cuda.geometry.layoutMetadata) == UsdGenCurveLayoutTypeOf(vulkan.geometry.layoutMetadata));
+    CHECK(UsdGenCurveLayoutBasisOf(cuda.geometry.layoutMetadata) == UsdGenCurveLayoutBasisOf(vulkan.geometry.layoutMetadata));
+    CHECK(UsdGenCurveLayoutWrapOf(cuda.geometry.layoutMetadata) == UsdGenCurveLayoutWrapOf(vulkan.geometry.layoutMetadata));
     if (cuda.planes.size() != vulkan.planes.size()) {
         std::fprintf(stderr, "CUDA planes:");
         for (auto const& plane : cuda.planes) std::fprintf(stderr, " %s", plane.first.c_str());
@@ -263,7 +264,7 @@ UsdGenGraphDesc Source() {
     surface.faceVertexCounts = {3,3,3}; surface.faceVertexIndices = {0,1,2,0,1,3,1,2,4};
     desc.surfaces = {surface};
     UsdGenCurveSetDesc curves; curves.path = SdfPath("/Curves");
-    curves.role = UsdGenRole::Curves; curves.curveRole = TfToken("hair");
+    curves.role = UsdGenLane::Chunked; curves.curveRole = TfToken("hair");
     curves.type = TfToken("cubic"); curves.basis = TfToken("bspline"); curves.wrap = TfToken("pinned");
     curves.curveGeneration = 41; curves.curveVertexCounts = {2,3,2};
     curves.curveId = {99,42,11};
@@ -345,7 +346,7 @@ struct Pair {
 void ExpectedSource(Packet const& packet, bool culled = false) {
     CHECK(Values<uint64_t>(packet, UsdGenDeviceChannelSemantic::StableIds) ==
         (culled ? std::vector<uint64_t>{11,99} : std::vector<uint64_t>{11,42,99}));
-    CHECK(Values<uint32_t>(packet, UsdGenDeviceChannelSemantic::CurveOffsets) ==
+    CHECK(Values<uint32_t>(packet, UsdGenDeviceChannelSemantic::ElementOffsets) ==
         (culled ? std::vector<uint32_t>{0,2,4} : std::vector<uint32_t>{0,2,5,7}));
     CHECK(Values<float>(packet.planes.at("density")) ==
         (culled ? std::vector<float>{30,31,10,11} : std::vector<float>{30,31,20,21,22,10,11}));
@@ -378,17 +379,17 @@ int main(int argc, char** argv) {
         CHECK(test::WriteSurfaceCageOwnerMap(map));
         auto desc = test::SurfaceCageDesc(map);
         Pair pair; pair.Set(desc); auto dense = pair.Run();
-        CHECK(dense.geometry.curveCount > 3 && dense.geometry.pointCount == 4*dense.geometry.curveCount);
-        CHECK(Values<int32_t>(dense.planes.at("tubeId")) == std::vector<int32_t>(dense.geometry.curveCount,41));
-        CHECK(Values<int32_t>(dense.planes.at("regionId")) == std::vector<int32_t>(dense.geometry.curveCount,8));
-        CHECK(Values<int32_t>(dense.planes.at("hierarchyLevel")) == std::vector<int32_t>(dense.geometry.curveCount,2));
+        CHECK(dense.geometry.elementCount > 3 && dense.geometry.pointCount == 4*dense.geometry.elementCount);
+        CHECK(Values<int32_t>(dense.planes.at("tubeId")) == std::vector<int32_t>(dense.geometry.elementCount,41));
+        CHECK(Values<int32_t>(dense.planes.at("regionId")) == std::vector<int32_t>(dense.geometry.elementCount,8));
+        CHECK(Values<int32_t>(dense.planes.at("hierarchyLevel")) == std::vector<int32_t>(dense.geometry.elementCount,2));
         auto retainedCuda = Commit(pair.cuda,1); auto retainedVk = Commit(pair.vulkan,1);
         desc.nodes[0].params.push_back({TfToken("resampleTo"),VtValue(7),false});
         auto width = Node("/CageWidth","UsdGenWidth",desc.terminal);
         width.params = {{TfToken("width"),VtValue(.3f),false}};
         Append(desc,width); pair.Set(desc); auto resampled = pair.Run(2,3.e-6f);
-        CHECK(resampled.geometry.curveCount == dense.geometry.curveCount &&
-            resampled.geometry.pointCount == 7*dense.geometry.curveCount);
+        CHECK(resampled.geometry.elementCount == dense.geometry.elementCount &&
+            resampled.geometry.pointCount == 7*dense.geometry.elementCount);
         CHECK(Values<uint64_t>(resampled,UsdGenDeviceChannelSemantic::StableIds) ==
             Values<uint64_t>(dense,UsdGenDeviceChannelSemantic::StableIds));
         Compare(dense,ReadCuda(retainedCuda)); Compare(dense,ReadVulkan(retainedVk));
@@ -401,7 +402,7 @@ int main(int argc, char** argv) {
     }
     {
         auto desc = Source(); auto& curves = desc.curveSets[0];
-        curves.role = UsdGenRole::Reference; curves.curveRole = TfToken("guide");
+        curves.role = UsdGenLane::Reference; curves.curveRole = TfToken("guide");
         // CUDA ReferenceSource accepts bare reference geometry; named planes
         // and authored root frames are outside its admitted contract.
         curves.authoredPlanes.clear(); curves.rootFrame.clear();
@@ -412,7 +413,7 @@ int main(int argc, char** argv) {
         Append(desc, width);
         Pair pair; pair.Set(desc); auto packet = pair.Run();
         CHECK(Values<uint64_t>(packet,UsdGenDeviceChannelSemantic::StableIds) == std::vector<uint64_t>({11,42,99}));
-        CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::CurveOffsets) == std::vector<uint32_t>({0,2,5,7}));
+        CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::ElementOffsets) == std::vector<uint32_t>({0,2,5,7}));
     }
     {
         auto desc = Source(); Append(desc, Cull(desc.terminal, false));
@@ -478,7 +479,7 @@ int main(int argc, char** argv) {
         Append(desc, deform); Pair pair; pair.Set(desc);
         auto packet = pair.Run(1, 2.e-5f); ExpectedSource(packet);
         auto points = Values<GfVec3f>(packet, UsdGenDeviceChannelSemantic::Points);
-        auto offsets = Values<uint32_t>(packet, UsdGenDeviceChannelSemantic::CurveOffsets);
+        auto offsets = Values<uint32_t>(packet, UsdGenDeviceChannelSemantic::ElementOffsets);
         CHECK(points.size() == 7 && offsets.size() == 4);
         // Stable IDs sort authored curve 2, 1, 0 into output order.
         auto const& surface = desc.surfaces[0];
@@ -524,9 +525,9 @@ int main(int argc, char** argv) {
             grow.params.push_back({TfToken("azimuthRandom"),VtValue(.8f),false});
         }
         Append(desc,grow); Pair pair; pair.Set(desc); auto packet = pair.Run(1,2.e-5f,true);
-        CHECK(packet.geometry.curveCount == 3 && packet.geometry.pointCount == 15);
+        CHECK(packet.geometry.elementCount == 3 && packet.geometry.pointCount == 15);
         CHECK(Values<uint64_t>(packet,UsdGenDeviceChannelSemantic::StableIds) == std::vector<uint64_t>({11,42,99}));
-        CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::CurveOffsets) == std::vector<uint32_t>({0,5,10,15}));
+        CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::ElementOffsets) == std::vector<uint32_t>({0,5,10,15}));
         if (!randomized) {
             auto points = Values<GfVec3f>(packet,UsdGenDeviceChannelSemantic::Points);
             for (size_t c=0;c!=3;++c) for(size_t i=0;i!=5;++i)
@@ -614,8 +615,8 @@ int main(int argc, char** argv) {
         auto desc = Source();
         desc.nodes[0].params.push_back({TfToken("resampleTo"),VtValue(5),false});
         Pair pair; pair.Set(desc); auto resampled = pair.Run(1,3.e-6f);
-        CHECK(resampled.geometry.curveCount == 3 && resampled.geometry.pointCount == 15);
-        CHECK(Values<uint32_t>(resampled,UsdGenDeviceChannelSemantic::CurveOffsets) ==
+        CHECK(resampled.geometry.elementCount == 3 && resampled.geometry.pointCount == 15);
+        CHECK(Values<uint32_t>(resampled,UsdGenDeviceChannelSemantic::ElementOffsets) ==
             std::vector<uint32_t>({0,5,10,15}));
         CHECK(Values<float>(resampled.planes.at("density")) ==
             std::vector<float>({30,30.25f,30.5f,30.75f,31,20,20.5f,21,21.5f,22,10,10.25f,10.5f,10.75f,11}));
@@ -625,7 +626,7 @@ int main(int argc, char** argv) {
         curves.curveVertexCounts.clear(); curves.curveId.clear(); curves.points.clear(); curves.rest.clear();
         curves.widths.clear(); curves.skinPrim.clear(); curves.skinPrimUv.clear(); curves.rootFrame.clear();
         curves.authoredPlanes.clear(); Pair pair; pair.Set(desc); auto empty = pair.Run();
-        CHECK(empty.geometry.curveCount == 0 && empty.geometry.pointCount == 0);
+        CHECK(empty.geometry.elementCount == 0 && empty.geometry.pointCount == 0);
         CHECK(Values<uint64_t>(empty,UsdGenDeviceChannelSemantic::StableIds).empty());
     }
     {
@@ -645,13 +646,13 @@ int main(int argc, char** argv) {
                        {TfToken("lengthRandom"),VtValue(GfVec2f(.5f,1.5f)),false}};
         desc.nodes = {grow,scatter}; desc.terminal = grow.path;
         Pair pair; pair.Set(desc); auto packet = pair.Run(1,2.e-5f,true);
-        CHECK(packet.geometry.curveCount > 0 && packet.geometry.pointCount == 5*packet.geometry.curveCount);
+        CHECK(packet.geometry.elementCount > 0 && packet.geometry.pointCount == 5*packet.geometry.elementCount);
         // Changing topology must create a fresh generation while the old
         // published packet and its owner remain consumable.
         auto retainedCuda = Commit(pair.cuda,1); auto retainedVk = Commit(pair.vulkan,1);
         desc.nodes[0].params[0].value = VtValue(7); pair.Set(desc); auto revised = pair.Run(2,2.e-5f,true);
-        CHECK(revised.geometry.curveCount == packet.geometry.curveCount &&
-            revised.geometry.pointCount == 7*packet.geometry.curveCount);
+        CHECK(revised.geometry.elementCount == packet.geometry.elementCount &&
+            revised.geometry.pointCount == 7*packet.geometry.elementCount);
         CHECK(Values<uint64_t>(packet,UsdGenDeviceChannelSemantic::StableIds) ==
             Values<uint64_t>(revised,UsdGenDeviceChannelSemantic::StableIds));
         Compare(packet,ReadCuda(retainedCuda),2.e-5f,true);
@@ -694,10 +695,10 @@ int main(int argc, char** argv) {
         Expression(desc,2,"/Expr/GeneratedReplace","$primIndex == 0","replace",
             expr::Domain::Primitive,expr::ScalarType::Bool,"bool",VtValue(false));
         Pair pair; pair.Set(desc); auto packet = pair.Run(1,3.e-6f,true);
-        CHECK(packet.geometry.curveCount == 3 && packet.geometry.pointCount == 15);
+        CHECK(packet.geometry.elementCount == 3 && packet.geometry.pointCount == 15);
         CHECK(Values<uint64_t>(packet,UsdGenDeviceChannelSemantic::StableIds) ==
             std::vector<uint64_t>({11,42,99}));
-        CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::CurveOffsets) ==
+        CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::ElementOffsets) ==
             std::vector<uint32_t>({0,5,10,15}));
         CHECK(Values<int32_t>(packet.planes.at("classPair")) == std::vector<int32_t>({11,3,42,2,99,1}));
         auto widths = Values<float>(packet,UsdGenDeviceChannelSemantic::Widths);
@@ -773,13 +774,13 @@ int main(int argc, char** argv) {
         Pair pair; pair.Set(desc);
         for (double frame : {0.,1.,0.}) {
             auto packet = pair.Run(frame,3.e-6f);
-            CHECK(packet.geometry.curveCount == 3);
+            CHECK(packet.geometry.elementCount == 3);
             if (frame == 0) {
                 ExpectedSource(packet);
                 CHECK(packet.geometry.pointCount == 7);
             } else {
                 CHECK(packet.geometry.pointCount == 15);
-                CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::CurveOffsets) ==
+                CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::ElementOffsets) ==
                     std::vector<uint32_t>({0,5,10,15}));
             }
         }
@@ -813,18 +814,18 @@ int main(int argc, char** argv) {
                        {TfToken("direction"),VtValue(TfToken("surfaceNormal")),false}};
         Append(desc,grow); Pair pair; pair.Set(desc);
         auto packet = pair.Run(1,2.e-5f,true);
-        CHECK(packet.geometry.curveTopology.basis == UsdGenDeviceCurveBasis::BSpline);
+        CHECK(UsdGenCurveLayoutBasisOf(packet.geometry.layoutMetadata) == UsdGenCurveLayoutBasis::BSpline);
         CHECK(packet.geometry.pointCount == (empty ? 0 : 15));
         CHECK(!packet.geometry.alreadyDeformed);
         if (empty)
-            CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::CurveOffsets) ==
+            CHECK(Values<uint32_t>(packet,UsdGenDeviceChannelSemantic::ElementOffsets) ==
                 std::vector<uint32_t>{0});
         desc.nodes.front().params.front().value = VtValue(false); pair.Set(desc);
         auto current = pair.Run(2,2.e-5f,true);
         CHECK(current.geometry.alreadyDeformed);
         desc.nodes.back().enabled = false; pair.Set(desc);
         auto disabled = pair.Run(3,2.e-5f,true);
-        CHECK(disabled.geometry.curveTopology.basis == UsdGenDeviceCurveBasis::BSpline);
+        CHECK(UsdGenCurveLayoutBasisOf(disabled.geometry.layoutMetadata) == UsdGenCurveLayoutBasis::BSpline);
         CHECK(disabled.geometry.pointCount == (empty ? 0 : 15) && disabled.geometry.alreadyDeformed);
         for (auto const& plane : current.planes)
             CHECK(disabled.planes.at(plane.first).bytes == plane.second.bytes);

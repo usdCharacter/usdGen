@@ -540,7 +540,7 @@ UsdGenOpId UsdGenRegisterNoiseOp(UsdGenRegistrar &r)
     d.name = "UsdGenNoise";
     d.displayName = "Noise";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.traits = kUsdGenOpCaptureDigestComplete;
     d.params = UsdGenSpan(kParams);
     d.tokens = UsdGenSpan(kTokens);

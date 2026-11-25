@@ -30,4 +30,11 @@ struct UsdGenChunkView {
     float const *rampLut = nullptr;
 };
 
+/// One reference set per reference node, per generation (03 §1.5, I3): built
+/// once at compile, exported (never recycled), evaluated in full.
+struct UsdGenReferenceSet {
+    UsdGenRef<const UsdGenElementSet> set;
+    uint64_t generation = 0;
+};
+
 }  // namespace usdGen

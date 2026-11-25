@@ -5,12 +5,18 @@
 // After two warm-up cooks, a steady-state cook (same topology, every chunk
 // dirty) and a value-only parameter edit must not allocate more than their
 // budgets. The budgets ratchet down to zero; lower them when a change frees
-// allocations, never raise them. Neither may intern a token (step-4 gate 4). The graph is the bench's G3 chain
-// (scatter -> grow -> noise -> length -> width) at 10k curves. Every
-// measured cook must also reproduce a fresh compile's output bit for bit,
-// and recycling must never write into a buffer something still holds.
+// allocations, never raise them. Neither may intern a token (step-4 gate 4).
+// Two graphs at 10k curves: the bench's G3 chain (scatter -> grow -> noise ->
+// length -> width) and a re-capture chain (scatter -> grow -> noise ->
+// resample -> twist -> width) whose noise edit re-captures Resample (an
+// owning capture) and Twist (a whole-strand op) because their input moved.
+// Clump, GuideInterpolate and Collide are not in it: their capture bodies
+// still allocate (PLAN.md leftovers). Every measured cook must also
+// reproduce a fresh compile's output bit for bit, and recycling must never
+// write into a buffer something still holds.
 
 #include "usdGen/allocCounter.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
@@ -42,6 +48,7 @@
 #include <cstring>
 #include <new>
 #include <string>
+#include <vector>
 
 // The count lives in usdGen (allocCounter.h). On ELF this replacement
 // interposes on every module and feeds it; on Windows usdGen wraps every
@@ -85,12 +92,9 @@ namespace {
 constexpr uint64_t kWarmCookBudget = 0;   // BUDGET_WARM
 constexpr uint64_t kParamEditBudget = 0;  // BUDGET_EDIT
 
-UsdGenGraphDesc MakeDesc(double magnitude)
+void AddSurface(UsdGenGraphDesc *d)
 {
     constexpr int NX = 100, NY = 100;   // 100 area units at density 100: ~10k roots
-    UsdGenGraphDesc d;
-    d.description = SdfPath("/groom");
-    d.terminal = SdfPath("/groom/width");
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
     s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
@@ -111,15 +115,29 @@ UsdGenGraphDesc MakeDesc(double magnitude)
             s.faceVertexIndices[o + 2] = a + NX + 2;
             s.faceVertexIndices[o + 3] = a + NX + 1;
         }
-    d.surfaces.push_back(std::move(s));
+    d->surfaces.push_back(std::move(s));
+}
+
+UsdGenNodeDesc &AddNode(UsdGenGraphDesc *d, char const *name, char const *type, char const *input)
+{
+    UsdGenNodeDesc n;
+    n.path = SdfPath(std::string("/groom/") + name);
+    n.type = TfToken(type);
+    n.enabled = true;
+    if (*input) n.inputs.push_back(SdfPath(std::string("/groom/") + input));
+    else n.surfaces.push_back(SdfPath("/groom/surface"));
+    d->nodes.push_back(std::move(n));
+    return d->nodes.back();
+}
+
+UsdGenGraphDesc MakeDesc(double magnitude)
+{
+    UsdGenGraphDesc d;
+    d.description = SdfPath("/groom");
+    d.terminal = SdfPath("/groom/width");
+    AddSurface(&d);
     auto add = [&](char const *name, char const *type, char const *input) {
-        UsdGenNodeDesc n;
-        n.path = SdfPath(std::string("/groom/") + name);
-        n.type = TfToken(type);
-        n.enabled = true;
-        if (*input) n.inputs.push_back(SdfPath(std::string("/groom/") + input));
-        else n.surfaces.push_back(SdfPath("/groom/surface"));
-        d.nodes.push_back(std::move(n));
+        AddNode(&d, name, type, input);
     };
     add("scatter", "UsdGenScatter", "");
     add("grow", "UsdGenGrow", "scatter");
@@ -138,6 +156,28 @@ UsdGenGraphDesc MakeDesc(double magnitude)
         if (n.type == TfToken("UsdGenWidth"))
             n.params.push_back({TfToken("width"), VtValue(0.02), false});
     }
+    return d;
+}
+
+// The re-capture chain over the same surface. Twist keeps its defaults (no
+// twist angles), so its Compute returns at its gate and the chain measures
+// the whole-strand capture itself.
+UsdGenGraphDesc MakeRecaptureDesc(double magnitude)
+{
+    UsdGenGraphDesc d;
+    d.description = SdfPath("/groom");
+    d.terminal = SdfPath("/groom/width");
+    AddSurface(&d);
+    AddNode(&d, "scatter", "UsdGenScatter", "");
+    AddNode(&d, "grow", "UsdGenGrow", "scatter")
+        .params.push_back({TfToken("segments"), VtValue(8), false});
+    AddNode(&d, "noise", "UsdGenNoise", "grow")
+        .params.push_back({TfToken("noise:magnitude"), VtValue(magnitude), false});
+    AddNode(&d, "resample", "UsdGenResample", "noise")
+        .params.push_back({TfToken("cvCount"), VtValue(6), false});
+    AddNode(&d, "twist", "UsdGenTwist", "resample");
+    AddNode(&d, "width", "UsdGenWidth", "twist")
+        .params.push_back({TfToken("width"), VtValue(0.02), false});
     return d;
 }
 
@@ -188,7 +228,7 @@ UsdGenCurveBuffer FreshCook(UsdGenGraphDesc const &desc)
     UsdGenEvalContext ctx;
     ctx.desc = &graph.Desc();
     scheduler.Run(graph, ctx, 1);
-    return graph.Node(graph.TerminalNodeId()).buffer;
+    return OutputBuffer(graph);
 }
 
 template <class T>
@@ -230,15 +270,15 @@ void RegisterLateOp(UsdGenRegistrar &r)
     r.RegisterOp(d);
 }
 
-int main()
+namespace {
+
+// Warm-up, then the measured warm cook and value edit of a -> b, the
+// fresh-cook comparisons and the held-output check on node 'heldNode'.
+// 'recaptured' nodes (paths) must re-capture in the measured param edit.
+int Gate(char const *name, UsdGenGraphDesc const &a, UsdGenGraphDesc const &b, int heldNode,
+         std::vector<char const *> const &recaptured = {})
 {
-    (void)UsdGenOpRegistry::Get();   // built-ins register on first use
-    UsdGenFreezeRegistries();   // compile and exec read frozen registries
-    if (UsdGenRegisterStatic(&RegisterLateOp)) {
-        std::printf("FAIL: registration after freeze\n");
-        return 1;
-    }
-    UsdGenGraphDesc const a = MakeDesc(0.05), b = MakeDesc(0.06);
+    std::printf("== %s\n", name);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     if (!compiler.Compile(a, &graph).ok) {
@@ -273,6 +313,9 @@ int main()
         scheduler.Run(graph, ctx, ++gen);
         warmInterns = UsdGenTotalInternCount() - before;
     });
+    std::vector<UsdGenCapture const *> captures;
+    for (char const *path : recaptured)
+        captures.push_back(graph.Node(graph.NodeIdForPath(SdfPath(path))).capture.get());
     uint64_t const edit = Counted("edit", [&] {
         uint64_t const before = UsdGenTotalInternCount();
         compiler.Recompile(b, &graph);
@@ -281,37 +324,42 @@ int main()
         editInterns = UsdGenTotalInternCount() - before;
     });
     int failures = 0;
+    for (size_t i = 0; i < recaptured.size(); ++i) {
+        UsdGenCompiledNode const &node = graph.Node(graph.NodeIdForPath(SdfPath(recaptured[i])));
+        if (!node.capture || node.capture.get() == captures[i]) {
+            std::printf("FAIL: %s did not re-capture in the param edit\n", recaptured[i]);
+            ++failures;
+        }
+    }
     std::printf("warm cook interns: %llu, param edit interns: %llu (target 0)\n",
                 (unsigned long long)warmInterns, (unsigned long long)editInterns);
     if (warmInterns != 0) { std::printf("FAIL: the warm cook interned a token\n"); ++failures; }
     if (editInterns != 0) { std::printf("FAIL: the param edit interned a token\n"); ++failures; }
     // Recycled storage must not change a single bit of the output.
-    UsdGenCurveBuffer const &out = graph.Node(graph.TerminalNodeId()).buffer;
+    UsdGenCurveBuffer const out = OutputBuffer(graph);
     if (out.totalCurves == 0 || !SameOutput(out, FreshCook(b))) {
         std::printf("FAIL: param edit output differs from a fresh cook\n");
         ++failures;
     }
     fullDirty();
     scheduler.Run(graph, ctx, ++gen);
-    if (!SameOutput(graph.Node(graph.TerminalNodeId()).buffer, FreshCook(b))) {
+    if (!SameOutput(OutputBuffer(graph), FreshCook(b))) {
         std::printf("FAIL: warm cook output differs from a fresh cook\n");
         ++failures;
     }
     // A buffer something still holds (a published generation) is never a
     // recycling candidate: two more re-captures of Grow must leave it intact.
     {
-        UsdGenCurveBuffer const held = graph.Node(1).buffer;
-        UsdGenCurveBuffer copy = held;
-        copy.px = VtFloatArray(held.px.begin(), held.px.end());
-        copy.py = VtFloatArray(held.py.begin(), held.py.end());
-        copy.pz = VtFloatArray(held.pz.begin(), held.pz.end());
-        copy.width = VtFloatArray(held.width.begin(), held.width.end());
-        copy.hairT = VtFloatArray(held.hairT.begin(), held.hairT.end());
-        copy.rest = VtVec3fArray(held.rest.begin(), held.rest.end());
+        // The node's output set as a published generation would hold it
+        // (Export marks its arenas shared outside the cook).
+        UsdGenRef<const UsdGenElementSet> const heldSet = graph.Node(heldNode).output;
+        if (heldSet) heldSet->Export();
+        UsdGenCurveBuffer const copy = heldSet ? UsdGenCurveBufferFromSet(*heldSet) : UsdGenCurveBuffer();
         for (int i = 0; i < 2; ++i) {
             fullDirty();
             scheduler.Run(graph, ctx, ++gen);
         }
+        UsdGenCurveBuffer const held = heldSet ? UsdGenCurveBufferFromSet(*heldSet) : UsdGenCurveBuffer();
         if (held.px.empty() || !SameOutput(held, copy)) {
             std::printf("FAIL: recycling wrote into a held buffer\n");
             ++failures;
@@ -320,7 +368,7 @@ int main()
     compiler.Recompile(a, &graph);
     ctx.desc = &graph.Desc();
     scheduler.Run(graph, ctx, ++gen);
-    if (!SameOutput(graph.Node(graph.TerminalNodeId()).buffer, FreshCook(a)) ||
+    if (!SameOutput(OutputBuffer(graph), FreshCook(a)) ||
         SameOutput(FreshCook(a), FreshCook(b))) {
         std::printf("FAIL: edit back output differs from a fresh cook\n");
         ++failures;
@@ -331,5 +379,21 @@ int main()
                 (unsigned long long)edit, (unsigned long long)kParamEditBudget);
     if (warm > kWarmCookBudget) { std::printf("FAIL: warm cook over budget\n"); ++failures; }
     if (edit > kParamEditBudget) { std::printf("FAIL: param edit over budget\n"); ++failures; }
+    return failures;
+}
+
+}  // namespace
+
+int main()
+{
+    (void)UsdGenOpRegistry::Get();   // built-ins register on first use
+    UsdGenFreezeRegistries();   // compile and exec read frozen registries
+    if (UsdGenRegisterStatic(&RegisterLateOp)) {
+        std::printf("FAIL: registration after freeze\n");
+        return 1;
+    }
+    int failures = Gate("G3 chain", MakeDesc(0.05), MakeDesc(0.06), 1);
+    failures += Gate("re-capture chain", MakeRecaptureDesc(0.05), MakeRecaptureDesc(0.06), 3,
+                     {"/groom/resample", "/groom/twist"});
     return failures ? 1 : 0;
 }

@@ -60,7 +60,7 @@ _ParamLocator(TfToken const &strippedName,
         siblings.push_back(TfToken(ns));
     }
     // Routed params are attributes (relationships route as graph edges via
-    // curveRefs/mapRefs below, never through paramRouting).
+    // inputRefs/mapRefs below, never through paramRouting).
     return HdDataSourceLocator(UsdGenContainerToken())
         .Append(UsdGenPrimAdapterBase::LocatorForProperty(
             TfToken(s), /*isRelationship=*/false, siblings));
@@ -217,7 +217,7 @@ UsdGenDirtyRouter::Rebuild(usdGen::UsdGenGraphRoutingSnapshot const &snapshot)
         }
         // C3 curves changed -> re-capture the consuming node (no curve scope
         // in UsdGenPendingDirty: the capture class carries it, 02 §6 row 5).
-        for (SdfPath const &curveRef : node.curveRefs) {
+        for (SdfPath const &curveRef : node.inputRefs) {
             table[curveRef].prefixes.emplace_back(
                 HdDataSourceLocator(),
                 Entry{node.id, usdGen::UsdGenDirtyCapture});

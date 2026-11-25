@@ -91,6 +91,14 @@ struct UsdGenFreezeCapture final : public UsdGenCurveCapture
         return std::make_unique<UsdGenFreezeCapture>(*this);
     }
     bool OwnsBuffer() const override { return !live; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        live = false;
+        epoch.clear();
+        return true;
+    }
     bool ValidForTopology(UsdGenElementSetView const &) const override
     {
         // The freeze contract: frozen output NEVER follows upstream edits,
@@ -283,7 +291,7 @@ bool UsdGenFreezeOp::Capture(
     if (ctx.referenceCount == 1 && !explicitSnapshot)
         return fail("usdGen:frozen:curves names a snapshot with no resolved value");
     if (explicitSnapshot) {
-        refView = UsdGenCurveSetView::Of(ctx.resolvedReferences[0]->value->buffer);
+        refView = UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value);
         snapshot = &refView;
     }
     else
@@ -395,7 +403,7 @@ UsdGenOpId UsdGenRegisterFreezeOp(UsdGenRegistrar &r)
     d.name = "UsdGenFreeze";
     d.displayName = "Freeze";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;                // static worst case (freeze.h)
+    d.countChanges = UsdGenCountsAtLevel(1);                // static worst case (freeze.h)
     d.traits = kUsdGenOpCaptureOwnsRestAndPlanes;       // scheduler.cpp:386-392, 440-446
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kRefs);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/vulkan/lengthScalePipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
@@ -66,7 +67,7 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     UsdGenChunkDesc chunk; chunk.firstCurve = 0; chunk.curveCount = 2; chunk.liveCount = 2; chunk.firstCv = 0; chunk.cvCount = 0; chunk.tile = 3; chunk.surface = 1; s.chunks = {chunk};
     UsdGenPlane p; p.name = TfToken("privateVertex"); p.interpolation = TfToken("vertex"); p.type = TfToken("float"); p.arity = 1; p.f = {3,4,5,6,7,8,9}; s.extraCv = {p};
     UsdGenPlane q; q.name = TfToken("privateUniform"); q.interpolation = TfToken("uniform"); q.type = TfToken("int"); q.i = {18,19}; s.extraCurve = {maskPlane, q};
-    i.geometry.alreadyDeformed = true; i.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline, UsdGenDeviceCurveWrap::Pinned};
+    i.geometry.alreadyDeformed = true; i.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     i.geometry.tiles = {{3,0,2,0,7}};
     uint32_t named[] = {73, 81}; i.additionalNamed.push_back({{"namedCurve", UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, Bytes(named,2)});
     return i;
@@ -104,7 +105,7 @@ int main(int argc, char** argv) {
         CHECK(child->SourceFrameOwner(frame.metadata.name) == base->SourceFrameOwner(frame.metadata.name));
         CHECK(!child->PlaneOwner(frame.metadata.name));
     }
-    CHECK(child->SourceFrameOwner("sourceRootT") == base->SourceFrameOwner("sourceRootT")); CHECK(child->geometry().alreadyDeformed == base->geometry().alreadyDeformed); CHECK(child->geometry().curveTopology.type == base->geometry().curveTopology.type && child->geometry().curveTopology.basis == base->geometry().curveTopology.basis && child->geometry().curveTopology.wrap == base->geometry().curveTopology.wrap); CHECK(child->chunks().size() == base->chunks().size() && child->chunks()[0].firstCurve == base->chunks()[0].firstCurve && child->chunks()[0].curveCount == base->chunks()[0].curveCount);
+    CHECK(child->SourceFrameOwner("sourceRootT") == base->SourceFrameOwner("sourceRootT")); CHECK(child->geometry().alreadyDeformed == base->geometry().alreadyDeformed); CHECK(UsdGenCurveLayoutTypeOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutTypeOf(base->geometry().layoutMetadata) && UsdGenCurveLayoutBasisOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutBasisOf(base->geometry().layoutMetadata) && UsdGenCurveLayoutWrapOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutWrapOf(base->geometry().layoutMetadata)); CHECK(child->chunks().size() == base->chunks().size() && child->chunks()[0].firstCurve == base->chunks()[0].firstCurve && child->chunks()[0].curveCount == base->chunks()[0].curveCount);
     Packet changed; CHECK(Capture(native, context, child, &changed) && changed.size() == original.size());
     CHECK(original.count("stableIds") && original.count("rest") && original.count("sourceRootT"));
     for (auto const& plane : original) if (plane.first != "points") CHECK(changed.at(plane.first) == plane.second);

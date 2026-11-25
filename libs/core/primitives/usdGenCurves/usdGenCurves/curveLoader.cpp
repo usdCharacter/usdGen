@@ -350,7 +350,7 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
         return Fail(diag, "description defaultWidth must be finite and >= 0");
     Options options;
     if (!ReadOptions(ctx, &options, diag)) return false;
-    if (source.path.IsEmpty() || source.role != UsdGenRole::Curves ||
+    if (source.path.IsEmpty() || source.role != UsdGenLane::Chunked ||
         source.curveRole != TfToken("hair"))
         return Fail(diag, "CurveSource requires a C3 hair BasisCurves source; guide/reference lanes are not implemented here");
     if (!Finite(source.worldMatrix))

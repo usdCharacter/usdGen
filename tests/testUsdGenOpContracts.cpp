@@ -78,14 +78,13 @@ std::vector<std::string> Names(TfSpan<const UsdGenPlane> planes)
     return out;
 }
 
-char const *TopoFx(UsdGenTopoFx fx)
+// Golden spelling of countChanges (level 1 = curves, level 2 = CVs).
+char const *TopoFx(uint8_t countChanges)
 {
-    switch (fx) {
-    case UsdGenTopoFx::None: return "None";
-    case UsdGenTopoFx::CurveCount: return "CurveCount";
-    case UsdGenTopoFx::CvCount: return "CvCount";
-    case UsdGenTopoFx::Both: return "Both";
-    }
+    if (countChanges == 0) return "None";
+    if (countChanges == UsdGenCountsAtLevel(1)) return "CurveCount";
+    if (countChanges == UsdGenCountsAtLevel(2)) return "CvCount";
+    if (countChanges == (UsdGenCountsAtLevel(1) | UsdGenCountsAtLevel(2))) return "Both";
     return "?";
 }
 
@@ -168,8 +167,8 @@ void Snapshot(TfToken const &type, std::ostringstream &os)
     if (!op) { Fail(T + ": registry cannot create it"); return; }
     UsdGenOpRecord const &rec = op->Record();
     UsdGenOpDef const &opDef = rec.Def();
-    os << T << " static topoFx=" << TopoFx(opDef.topoFx)
-       << " role=" << (opDef.role == UsdGenRole::Reference ? "Reference" : "Curves")
+    os << T << " static topoFx=" << TopoFx(opDef.countChanges)
+       << " role=" << (opDef.lane == UsdGenLane::Reference ? "Reference" : "Curves")
        << " arity=" << size_t(opDef.geometryInputArity)
        << " ordered=" << rec.Has(kUsdGenOpGeometryInputsOrdered)
        << " generator=" << rec.Has(kUsdGenOpGenerator)

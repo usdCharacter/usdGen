@@ -1,3 +1,4 @@
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/epoch.h"
 #include "usdGen/sharedCell.h"
@@ -83,10 +84,10 @@ bool CudaIs(UsdGenNodeDesc const& node, UsdGenCudaStage stage) noexcept {
 }
 // usdGen:rebind's default (curveRootCapture.cpp), interned at load.
 [[maybe_unused]] TfToken const kCudaRebindOnError = UsdGenInternToken("onError");
-// Plan task types that name no op (asserted by the CUDA plan tests).
-// "UsdGen" + "ScatterGrow": task types, not ops (the op-name gate).
-[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken(std::string("UsdGen") + "ScatterGrow");
-TfToken const kCudaPublicationTask = UsdGenInternToken(std::string("UsdGen") + "Publication");
+// Plan task types, not op names: backend-prefixed like the Vulkan plan's
+// "VulkanPublication" (asserted by the CUDA plan tests).
+[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken("CudaScatterGrow");
+TfToken const kCudaPublicationTask = UsdGenInternToken("CudaPublication");
 // A token-valued literal with exactly this text (VtValue(TfToken(text)) ==).
 [[maybe_unused]] bool HoldsTokenText(VtValue const& value, char const* text) {
     return value.IsHolding<TfToken>() && value.UncheckedGet<TfToken>().GetString() == text;
@@ -503,7 +504,7 @@ bool ValidateCudaResolvedInputs(UsdGenGraphDesc const& desc,
             node.surfaces.empty() && node.inputs.empty()) {
             auto const found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
                 [&](auto const& curves) { return curves.path == node.references.front(); });
-            if (found != desc.curveSets.end() && found->role == UsdGenRole::Reference) {
+            if (found != desc.curveSets.end() && found->role == UsdGenLane::Reference) {
                 if (found->authoredPlanes.empty() && found->rootFrame.empty())
                     continue;
                 if (!found->authoredPlanes.empty())
@@ -1191,7 +1192,7 @@ struct ExecutionState {
     gpu::DeviceView<const float> sourceHairT;
     gpu::DeviceView<const int32_t> sourceRootPrim;
     gpu::DeviceView<const float2> sourceRootUV;
-    UsdGenDeviceCurveTopologyMetadata sourceCurveTopology;
+    UsdGenDeviceLayoutMetadata sourceCurveTopology;
     std::vector<gpu::CudaNamedChannelPlane> sourceTerminalNamedChannels;
     bool sourceNamedPreserved = false;
     bool sourceTerminalSelected = false;
@@ -1210,7 +1211,7 @@ struct ExecutionState {
         gpu::DeviceView<const float> hairT;
         gpu::DeviceView<const int32_t> rootPrim;
         gpu::DeviceView<const float2> rootUV;
-        UsdGenDeviceCurveTopologyMetadata curveTopology;
+        UsdGenDeviceLayoutMetadata layoutMetadata;
         bool deformed = false;
         gpu::DeviceView<const float3> pointOrigin;
         gpu::DeviceView<const float> widthOrigin;
@@ -1233,7 +1234,7 @@ struct ExecutionState {
     // publication accepts (or rolls back) every entry together.
     std::vector<std::unique_ptr<CudaRbfPendingPublication>> pendingRbf;
     bool deformed = false;
-    UsdGenDeviceCurveTopologyMetadata curveTopology;
+    UsdGenDeviceLayoutMetadata layoutMetadata;
     bool failed = false;
     bool prepared = false;
     bool sourceUploadPending = false;
@@ -1486,7 +1487,7 @@ bool ValidateCudaNamedPlaneBindings(UsdGenGraphDesc const& desc,
         bool const declaresPlanes = !record.InputPlanes().empty() ||
             !record.OutputPlanes().empty() || record.Def().hooks.indexedPlanes;
         if (declaresPlanes) {
-            if (record.Def().topoFx == UsdGenTopoFx::None)
+            if (record.Def().countChanges == 0)
                 return Fail(diagnostics,
                     "named primvar bindings require an explicit CUDA operator "
                     "COW contract at " + node.path.GetString());
@@ -1494,7 +1495,7 @@ bool ValidateCudaNamedPlaneBindings(UsdGenGraphDesc const& desc,
                 "named topology planes require CUDA execution-graph transport at " +
                 node.path.GetString());
         }
-        if (record.Def().topoFx == UsdGenTopoFx::None) continue;
+        if (record.Def().countChanges == 0) continue;
         if (!hasAuthoredPlanes || CudaIs(node, UsdGenCudaStage::Length) ||
             CudaIs(node, UsdGenCudaStage::Grow)) continue;
         if (CudaIs(node, UsdGenCudaStage::CurveSource)) continue;
@@ -2915,7 +2916,7 @@ bool ValidateCudaGraph(UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnosti
                 "UsdGenReferenceSource requires exactly one reference and no geometry/map inputs");
         auto const reference = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
             [&](auto const& curves) { return curves.path == node.references.front(); });
-        if (reference == desc.curveSets.end() || reference->role != UsdGenRole::Reference)
+        if (reference == desc.curveSets.end() || reference->role != UsdGenLane::Reference)
             return Fail(diagnostics, "UsdGenReferenceSource requires a resolved reference curve set");
         if (!reference->authoredPlanes.empty())
             return Fail(diagnostics,
@@ -3195,7 +3196,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             0, producerScratch, true);
         std::array<uint32_t, 6> sourceValues{};
         std::array<UsdGenExecutionDataKind, 6> const sourceKinds{
-            UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionDataKind::CurveTopology,
+            UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionDataKind::ElementTopology,
             UsdGenExecutionDataKind::StableIds, UsdGenExecutionDataKind::RootBindings,
             UsdGenExecutionDataKind::Widths, UsdGenExecutionDataKind::NamedChannels};
         for (size_t i=0;i<sourceKinds.size();++i) {
@@ -3870,8 +3871,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             task.exclusiveWorkspace = true;
         if (task.kind == UsdGenExecutionTaskKind::Source) {
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Write},
-                {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Write},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::Write},
+                {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Write},
                 {UsdGenExecutionDataKind::StableIds, UsdGenExecutionResourceAccess::Write},
                 {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::Write},
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Write},
@@ -3879,8 +3880,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
         } else if (CudaIs(node, UsdGenCudaStage::Width)) {
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Read},
-                {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::Read},
+                {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::ReadWrite}};
             if (!node.mapBindings.empty()) task.resources.push_back(
@@ -3892,8 +3893,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 UsdGenExecutionResourceAccess::Read});
         } else if (CudaIs(node, UsdGenCudaStage::WidthBlend)) {
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Read},
-                {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::Read},
+                {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::StableIds, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::NamedChannels, UsdGenExecutionResourceAccess::Read},
@@ -3903,8 +3904,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Read}};
         } else if (CudaIs(node, UsdGenCudaStage::Length) || CudaIs(node, UsdGenCudaStage::Grow)) {
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::ReadWrite},
-                {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::ReadWrite},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::ReadWrite},
+                {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::StableIds, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::ReadWrite},
@@ -3912,8 +3913,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
         } else if (CudaIs(node, UsdGenCudaStage::Noise)) {
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::ReadWrite},
-                {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::ReadWrite},
+                {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::StableIds, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Read},
@@ -3925,8 +3926,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             // widths, and named channels, all of which are immutable inputs
             // to the RBF operation and subsequent non-width fan-in proof.
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::ReadWrite},
-                {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::ReadWrite},
+                {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::StableIds, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Read},
@@ -3935,7 +3936,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
         } else {
             task.resources = {
-                {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::ReadWrite},
+                {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::ReadWrite},
                 {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::SurfaceGeometry, UsdGenExecutionResourceAccess::Read},
                 {UsdGenExecutionDataKind::ParameterValues, UsdGenExecutionResourceAccess::Read}};
@@ -3971,8 +3972,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             // when its compiled proof bit requires them.
             if (semanticNode < layout.requiresNonWidthProof.size() &&
                 layout.requiresNonWidthProof[semanticNode]) {
-                for (auto kind : {UsdGenExecutionDataKind::CurveGeometry,
-                                  UsdGenExecutionDataKind::CurveTopology,
+                for (auto kind : {UsdGenExecutionDataKind::ElementGeometry,
+                                  UsdGenExecutionDataKind::ElementTopology,
                                   UsdGenExecutionDataKind::StableIds,
                                   UsdGenExecutionDataKind::RootBindings,
                                   UsdGenExecutionDataKind::NamedChannels}) {
@@ -4023,8 +4024,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         terminal.declaredDependencies.push_back({
             id, UsdGenExecutionDependencyLifetimePublicationJoin});
     terminal.resources = {
-        {UsdGenExecutionDataKind::CurveGeometry, UsdGenExecutionResourceAccess::Read},
-        {UsdGenExecutionDataKind::CurveTopology, UsdGenExecutionResourceAccess::Read},
+        {UsdGenExecutionDataKind::ElementGeometry, UsdGenExecutionResourceAccess::Read},
+        {UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::Read},
         {UsdGenExecutionDataKind::StableIds, UsdGenExecutionResourceAccess::Read},
         {UsdGenExecutionDataKind::RootBindings, UsdGenExecutionResourceAccess::Read},
         {UsdGenExecutionDataKind::Widths, UsdGenExecutionResourceAccess::Read},
@@ -4319,7 +4320,7 @@ bool ExecuteCudaJobSource(UsdGenCudaExecutionJob& job) {
         job.state.hairT=job.state.scatterGrow->hairT();
         job.state.rootPrim=job.state.scatterGrow->rootPrim();
         job.state.rootUV=job.state.scatterGrow->rootUV();
-        job.state.curveTopology={UsdGenDeviceCurveType::Cubic,UsdGenDeviceCurveBasis::BSpline,UsdGenDeviceCurveWrap::Pinned};
+        job.state.layoutMetadata=UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
         job.state.prepared=true;
         job.state.RecordSourceValue(*job.plan);
         job.sourceDone=true; return true;
@@ -4703,8 +4704,7 @@ struct SourceRelayService {
                 job->state.hairT = job->state.scatterGrow->hairT();
                 job->state.rootPrim = job->state.scatterGrow->rootPrim();
                 job->state.rootUV = job->state.scatterGrow->rootUV();
-                job->state.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                    UsdGenDeviceCurveBasis::BSpline, UsdGenDeviceCurveWrap::Pinned};
+                job->state.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
                 job->state.prepared = true;
                 job->state.RecordSourceValue(*job->plan);
             }
@@ -5777,9 +5777,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                     if (!BuildFullNonWidthInput(left, &a) || !BuildFullNonWidthInput(right, &b) ||
                         !left.sourceFrameDomain || left.sourceFrameDomain != right.sourceFrameDomain ||
                         left.sourceFramesPresent != right.sourceFramesPresent ||
-                        left.curveTopology.type != right.curveTopology.type ||
-                        left.curveTopology.basis != right.curveTopology.basis ||
-                        left.curveTopology.wrap != right.curveTopology.wrap) {
+                        left.layoutMetadata != right.layoutMetadata) {
                         selected.Restore(); Finish(slotIndex, false, false); return;
                     }
                     relay->candidate->nonWidthCompare = std::make_unique<gpu::CudaCurveFullNonWidthCompare>();
@@ -6029,7 +6027,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                     value.hairT = input.hairT;
                     value.rootPrim = input.rootPrim;
                     value.rootUV = input.rootUV;
-                    value.curveTopology = input.curveTopology;
+                    value.layoutMetadata = input.layoutMetadata;
                     value.widthOrigin = input.widthOrigin;
                     value.widthOwnerNode = input.widthOwnerNode;
                     value.topologyOwnerNode = input.topologyOwnerNode;
@@ -6229,7 +6227,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
                 value.hairT = input.hairT;
                 value.rootPrim = input.rootPrim;
                 value.rootUV = input.rootUV;
-                value.curveTopology = input.curveTopology;
+                value.layoutMetadata = input.layoutMetadata;
                 value.deformed = true;
                 value.topologyOwnerNode = input.topologyOwnerNode;
                 value.topologyOwners = input.topologyOwners;
@@ -6390,7 +6388,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             value.hairT = inputValue.hairT;
             value.rootPrim = inputValue.rootPrim;
             value.rootUV = inputValue.rootUV;
-            value.curveTopology = inputValue.curveTopology;
+            value.layoutMetadata = inputValue.layoutMetadata;
             value.deformed = inputValue.deformed;
             value.topologyOwnerNode = inputValue.topologyOwnerNode;
             value.topologyOwners = inputValue.topologyOwners;
@@ -6480,8 +6478,8 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             value.hairT = outputHairT;
             value.rootPrim = outputRootPrim;
             value.rootUV = outputRootUV;
-            value.curveTopology = job->plan->geometryValueDag
-                ? inputValue.curveTopology : job->state.curveTopology;
+            value.layoutMetadata = job->plan->geometryValueDag
+                ? inputValue.layoutMetadata : job->state.layoutMetadata;
             value.deformed = job->plan->geometryValueDag
                 ? inputValue.deformed : job->state.deformed;
             value.pointOrigin = outputGeometry.points;
@@ -6522,7 +6520,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             geometryValue.hairT = inputSnapshot.hairT;
             geometryValue.rootPrim = inputSnapshot.rootPrim;
             geometryValue.rootUV = inputSnapshot.rootUV;
-            geometryValue.curveTopology = inputSnapshot.curveTopology;
+            geometryValue.layoutMetadata = inputSnapshot.layoutMetadata;
             geometryValue.deformed = inputSnapshot.deformed;
             geometryValue.topologyOwnerNode = inputSnapshot.topologyOwnerNode;
             geometryValue.topologyOwners = inputSnapshot.topologyOwners;
@@ -6955,9 +6953,9 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::PublishFinal(
     if (previous) {
         auto const& priorTiles = previous->Geometry().tiles;
         bool const sameTiles = priorTiles.size() == tiles.size() && std::equal(priorTiles.begin(), priorTiles.end(), tiles.begin(),
-            [](auto const& a, auto const& b) { return a.tile == b.tile && a.firstCurve == b.firstCurve && a.curveCount == b.curveCount && a.firstPoint == b.firstPoint && a.pointCount == b.pointCount; });
-        auto const& oldTopology = previous->Geometry().curveTopology;
-        bool const sameKind = oldTopology.type == curveTopology.type && oldTopology.basis == curveTopology.basis && oldTopology.wrap == curveTopology.wrap;
+            [](auto const& a, auto const& b) { return a.tile == b.tile && a.firstElement == b.firstElement && a.elementCount == b.elementCount && a.firstPoint == b.firstPoint && a.pointCount == b.pointCount; });
+        auto const& oldTopology = previous->Geometry().layoutMetadata;
+        bool const sameKind = oldTopology == layoutMetadata;
         if (gpuTopologyEqual && sameTiles && sameKind) topologyVersion = previous->Geometry().topologyVersion;
     }
     // Allocate/cache stats before ownership transfer so a throwing host
@@ -6990,7 +6988,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::PublishFinal(
         ? gpu::MakeResampledGeneration(std::move(source), std::move(resampled), generation, &reason, deformed, std::move(finalWidths), std::move(finalPoints), topologyVersion, std::move(namedChannels))
         : gpu::MakeSourceGeneration(std::move(source), generation, &reason, deformed, std::move(finalWidths), std::move(finalPoints), topologyVersion, std::move(namedChannels));
     if (!result) { Fail(diagnostics, reason); return {}; }
-    result = gpu::WithTileMetadata(result, std::move(tiles), &reason, curveTopology);
+    result = gpu::WithTileMetadata(result, std::move(tiles), &reason, layoutMetadata);
     if (!result) { Fail(diagnostics, reason); return {}; }
     execution.stats.Store(std::move(stats));
     finalized = true; return result;
@@ -7010,7 +7008,7 @@ void FinalizationRelayService::Complete(size_t index, unsigned phase) {
     auto stream = workspace.impl_->stream;
     if (phase == 0) {
         if (!candidate.tileHostStatus.data || *candidate.tileHostStatus.data != 0) { selected.Restore(); Finish(index, {}, false); return; }
-        gpu::CurveTileBoundsOptions options; options.basis = job->state.curveTopology.basis == UsdGenDeviceCurveBasis::CatmullRom ? gpu::CurveTileBoundsBasis::CatmullRom : gpu::CurveTileBoundsBasis::BSpline;
+        gpu::CurveTileBoundsOptions options; options.basis = UsdGenCurveLayoutBasisOf(job->state.layoutMetadata) == UsdGenCurveLayoutBasis::CatmullRom ? gpu::CurveTileBoundsBasis::CatmullRom : gpu::CurveTileBoundsBasis::BSpline;
         gpu::CurveTileBoundsInput input{job->state.geometry.points, job->state.geometry.widths, static_cast<gpu::DeviceBuffer<gpu::CurveTileSpan> const&>(candidate.deviceTiles).view()};
         if (gpu::BuildCurveTileBounds(options, input, {candidate.boundsScratch.view()}, {candidate.tileMinimums.view(), candidate.tileMaximums.view(), candidate.boundsStatus.view()}, stream) != cudaSuccess ||
             cudaMemcpyAsync(candidate.boundsHostStatus.data, candidate.boundsStatus.data(), sizeof(uint32_t), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
@@ -7373,9 +7371,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecuteCudaGraph(
         state.hairT = state.scatterGrow->hairT();
         state.rootPrim = state.scatterGrow->rootPrim();
         state.rootUV = state.scatterGrow->rootUV();
-        state.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                               UsdGenDeviceCurveBasis::BSpline,
-                               UsdGenDeviceCurveWrap::Pinned};
+        state.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
         state.prepared = true;
     } else {
         if (!state.Prepare(plan, workspace, frame, diagnostics, true, nullptr,
@@ -7459,7 +7455,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::Finalize(
     auto const& desc = plan.desc;
     auto const capturedStableIds = this->captureStableIds;
     auto const capturedCurveCount = this->captureCurveCount;
-    auto const& topologyRef = this->curveTopology;
+    auto const& topologyRef = this->layoutMetadata;
     gpu::CurveTileRequirements tileRequirements;
     gpu::CurveTileOptions tileOptions;
     tileOptions.tileTarget = static_cast<uint32_t>(std::clamp(
@@ -7523,7 +7519,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> ExecutionState::Finalize(
         Fail(diagnostics, "CUDA tile bounds allocation failed; previous generation retained"); return {};
     }
     gpu::CurveTileBoundsOptions boundsOptions;
-    boundsOptions.basis = topologyRef.basis == UsdGenDeviceCurveBasis::CatmullRom
+    boundsOptions.basis = UsdGenCurveLayoutBasisOf(topologyRef) == UsdGenCurveLayoutBasis::CatmullRom
         ? gpu::CurveTileBoundsBasis::CatmullRom
         : gpu::CurveTileBoundsBasis::BSpline;
     gpu::CurveTileBoundsInput boundsInput{
@@ -8519,12 +8515,12 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     }
     if (curves.wrap == tokens.nonperiodic && diagnostics)
         diagnostics->Warn("CUDA CurveSource promotes nonperiodic wrap to pinned; endpoints now reach the first/last CV");
-    this->curveTopology = {
-        UsdGenDeviceCurveType::Cubic,
+    this->layoutMetadata = UsdGenCurveLayout(
+        UsdGenCurveLayoutType::Cubic,
         curves.basis == tokens.catmullRom
-            ? UsdGenDeviceCurveBasis::CatmullRom
-            : UsdGenDeviceCurveBasis::BSpline,
-        UsdGenDeviceCurveWrap::Pinned};
+            ? UsdGenCurveLayoutBasis::CatmullRom
+            : UsdGenCurveLayoutBasis::BSpline,
+        UsdGenCurveLayoutWrap::Pinned);
     if (!curves.widths.empty() &&
         curves.widthsInterpolation != tokens.vertex && curves.widthsInterpolation != tokens.constant) {
         Fail(diagnostics, "C3 widths must use vertex or constant interpolation"); this->failed = true; return false;
@@ -9110,9 +9106,7 @@ bool ExecutionState::AcceptCurveGrow(UsdGenCudaExecutionPlan const& plan, uint32
         value.hairT = hairT;
         value.rootPrim = rootPrim;
         value.rootUV = rootUV;
-        value.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                               UsdGenDeviceCurveBasis::BSpline,
-                               UsdGenDeviceCurveWrap::Pinned};
+        value.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
         value.deformed = deformed;
         value.pointOrigin = geometry.points;
         value.widthOrigin = geometry.widths;
@@ -9129,8 +9123,7 @@ bool ExecutionState::AcceptCurveGrow(UsdGenCudaExecutionPlan const& plan, uint32
         }
         value.ready = true;
     }
-    curveTopology = {UsdGenDeviceCurveType::Cubic, UsdGenDeviceCurveBasis::BSpline,
-                     UsdGenDeviceCurveWrap::Pinned};
+    layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     return true;
 }
 
@@ -9236,9 +9229,7 @@ bool ExecutionState::AcceptCurveGrowValue(UsdGenCudaExecutionPlan const& plan,
     value.hairT = owners->grow->hairT();
     value.rootPrim = owners->grow->rootPrim();
     value.rootUV = owners->grow->rootUV();
-    value.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                           UsdGenDeviceCurveBasis::BSpline,
-                           UsdGenDeviceCurveWrap::Pinned};
+    value.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     value.deformed = input.deformed;
     value.pointOrigin = value.geometry.points;
     value.widthOrigin = value.geometry.widths;
@@ -9295,7 +9286,7 @@ void ExecutionState::RecordSourceValue(UsdGenCudaExecutionPlan const& plan) {
     sourceValue.hairT = hairT;
     sourceValue.rootPrim = rootPrim;
     sourceValue.rootUV = rootUV;
-    sourceValue.curveTopology = curveTopology;
+    sourceValue.layoutMetadata = layoutMetadata;
     sourceValue.deformed = deformed;
     sourceValue.pointOrigin = geometry.points;
     sourceValue.widthOrigin = geometry.widths;
@@ -9310,7 +9301,7 @@ void ExecutionState::RecordSourceValue(UsdGenCudaExecutionPlan const& plan) {
     sourceValue.ready = true;
     sourceGeometry = geometry;
     sourceHairT = hairT; sourceRootPrim = rootPrim; sourceRootUV = rootUV;
-    sourceCurveTopology = curveTopology; sourceDeformed = deformed;
+    sourceCurveTopology = layoutMetadata; sourceDeformed = deformed;
     sourceValueRecorded = true;
 }
 void ExecutionState::PreserveSourceNamedChannels(UsdGenCudaExecutionPlan const& plan) {
@@ -9525,7 +9516,7 @@ bool ExecutionState::SelectTerminal(UsdGenCudaExecutionPlan const& plan,
             }
             geometry = sourceGeometry; hairT = sourceHairT;
             rootPrim = sourceRootPrim; rootUV = sourceRootUV;
-            curveTopology = sourceCurveTopology; deformed = sourceDeformed;
+            layoutMetadata = sourceCurveTopology; deformed = sourceDeformed;
             auto const sourceNames = plan.sourceNode < geometryValues.size()
                 ? geometryValues[plan.sourceNode].namedOwners : nullptr;
             if (sourceNames)
@@ -9594,7 +9585,7 @@ bool ExecutionState::SelectTerminal(UsdGenCudaExecutionPlan const& plan,
         hairT = terminal.hairT;
         rootPrim = terminal.rootPrim;
         rootUV = terminal.rootUV;
-        curveTopology = terminal.curveTopology;
+        layoutMetadata = terminal.layoutMetadata;
         deformed = terminal.deformed;
         terminal.pointOrigin = geometry.points;
         terminal.widthOrigin = geometry.widths;
@@ -9874,7 +9865,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
         hairTRef = inputSnapshot.hairT;
         rootPrimRef = inputSnapshot.rootPrim;
         rootUVRef = inputSnapshot.rootUV;
-        curveTopology = inputSnapshot.curveTopology;
+        layoutMetadata = inputSnapshot.layoutMetadata;
         deformedRef = inputSnapshot.deformed;
         if (width.stage == UsdGenCudaStage::Deform && deformedRef) {
             Fail(diagnostics,
@@ -10016,9 +10007,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                     !leftValue.sourceFrameDomain || !rightValue.sourceFrameDomain ||
                     leftValue.sourceFramesPresent != rightValue.sourceFramesPresent ||
                     leftValue.sourceFrameDomain != rightValue.sourceFrameDomain ||
-                    leftValue.curveTopology.type != rightValue.curveTopology.type ||
-                    leftValue.curveTopology.basis != rightValue.curveTopology.basis ||
-                    leftValue.curveTopology.wrap != rightValue.curveTopology.wrap) {
+                    leftValue.layoutMetadata != rightValue.layoutMetadata) {
                     return Fail(diagnostics, "CUDA WidthBlend non-width predecessor metadata is unavailable");
                 }
                 struct CompareLifetime {
@@ -10104,7 +10093,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
                 geometryValue.hairT = inputValue.hairT;
                 geometryValue.rootPrim = inputValue.rootPrim;
                 geometryValue.rootUV = inputValue.rootUV;
-                geometryValue.curveTopology = inputValue.curveTopology;
+                geometryValue.layoutMetadata = inputValue.layoutMetadata;
                 geometryValue.deformed = inputValue.deformed;
                 geometryValue.topologyOwnerNode = inputValue.topologyOwnerNode;
                 geometryValue.topologyOwners = inputValue.topologyOwners;
@@ -10309,7 +10298,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             value.hairT = inputValue.hairT;
             value.rootPrim = inputValue.rootPrim;
             value.rootUV = inputValue.rootUV;
-            value.curveTopology = inputValue.curveTopology;
+            value.layoutMetadata = inputValue.layoutMetadata;
             value.deformed = inputValue.deformed;
             value.topologyOwnerNode = inputValue.topologyOwnerNode;
             value.topologyOwners = inputValue.topologyOwners;
@@ -10543,7 +10532,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             auto const outputRootUV = plan.geometryValueDag
                 ? topologyOwners[width.semanticNode]->compaction->rootUV() : rootUVRef;
             value.geometry = outputGeometry; value.hairT = outputHairT; value.rootPrim = outputRootPrim;
-            value.rootUV = outputRootUV; value.curveTopology = curveTopology;
+            value.rootUV = outputRootUV; value.layoutMetadata = layoutMetadata;
             value.deformed = deformedRef; value.pointOrigin = outputGeometry.points;
             value.widthOrigin = outputGeometry.widths; value.pointOwnerNode = width.semanticNode;
             value.widthOwnerNode = width.semanticNode; value.topologyOwnerNode = width.semanticNode;
@@ -10776,7 +10765,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             value.hairT = inputValue.hairT;
             value.rootPrim = inputValue.rootPrim;
             value.rootUV = inputValue.rootUV;
-            value.curveTopology = inputValue.curveTopology;
+            value.layoutMetadata = inputValue.layoutMetadata;
             value.deformed = true;
             value.topologyOwnerNode = inputValue.topologyOwnerNode;
             value.topologyOwners = inputValue.topologyOwners;
@@ -10884,7 +10873,7 @@ bool ExecutionState::RunOperator(UsdGenCudaExecutionPlan const& plan,
             geometryValue.hairT = inputValue.hairT;
             geometryValue.rootPrim = inputValue.rootPrim;
             geometryValue.rootUV = inputValue.rootUV;
-            geometryValue.curveTopology = inputValue.curveTopology;
+            geometryValue.layoutMetadata = inputValue.layoutMetadata;
             geometryValue.deformed = inputValue.deformed;
             geometryValue.topologyOwnerNode = inputValue.topologyOwnerNode;
                 geometryValue.topologyOwners = inputValue.topologyOwners;

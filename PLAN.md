@@ -55,6 +55,9 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoTokenIntern` | token.cpp, curveLoader.cpp, furOcclusion.cpp, limitSurface.cpp | token.cpp only |
 | `testUsdGenEngineNoOpCoupling` | 4 rbfField includes | empty |
 | `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
+| `testUsdGenNoShimIncludes` (old include spellings) | see `noShimIncludes.txt` | empty at step 12 |
+| `testUsdGenCookGoldens`, `testUsdGenOutputGoldens`, `testUsdGenOpContracts` | byte-identical | never regenerated without a reviewed output change |
+| `testUsdGenEngineNoCurveBuffer` | compiler.cpp 2 (7.3a), generationStore.h 1 (6.3) | empty at 6.3, then the 6.5 gate subsumes it |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
 
@@ -155,28 +158,46 @@ Left over:
 | ops/rbfField.h included by rbfAnimation.h, vulkan/rbfVkPlan.h, vulkan/executionPlan.cpp, vulkan/surfaceVk.cpp (engineNoOpCoupling baseline) | 6 and 8 |
 | Hydra vocabulary in sessionCooker (engine tokens, no interning) | 9 |
 | Op registry is built on first use and frozen by the first compile; Ptex cache and the cache-domain table are still made on first use. There is no `Engine::Create` to own them | 5 |
-| CUDA plan task types "UsdGenScatterGrow"/"UsdGenPublication" are interned once at load, spelled in two pieces for gate 1 | 8 |
+| ~~CUDA plan task types spelled in two pieces for gate 1~~ | done in 5.6: `CudaScatterGrow`/`CudaPublication` |
 | `testUsdGenScenePublication` also aborts at exit intermittently (0xc0000409), on restructure/s4 too | not a step; owner of the imaging exit path |
 
-### 5. Generic data model
+### M0 and 5. Done
 
-- **Goal:** the engine works on ElementLayout and ElementSet; curves are the first registered layout.
-- **Where (hard-wired today):**
-  - `op.h:199-220, 262, 271`: output is `UsdGenCurveBuffer`
-  - `graph.h:99-101, 171` (`DirtyCurves(SdfPath)`), `:233` (`Repartition(totalCurves, cvCount)`)
-  - `types.h:36` (4096-CV limit), `:59` TopoFx, `:62` Role
-  - `scheduler.cpp:533-553` (CV spans from cvOffsets)
-  - `deviceGeneration.h:53-146`
-  - `executionPlan.h:88`
-  - `executionCache.h:82` `UpdateCurve(SdfPath)`
-  - `graphDesc.h:78, 220`
-- **Work:**
-  - Chunks become element ranges, with partition as a layout hook and ragged offsets for any number of levels.
-  - Each ElementSet lives in one arena, with WriteSet delta arenas and a device mirror at the same offsets.
-  - Ops get typed inputs and outputs. All 32 ops change mechanically.
-- **Done:** output is byte-identical (goldens), and `curveBuffer.h` is gone from graph, scheduler and cache.
-- **Proves it:** goldens; recook times within noise or better; warm allocations still 0.
-- **Depends on:** 4.
+- **M0:** `libs/base/usdGenMath`, `libs/core/usdGen/{api,registries,compile,exec}`, `libs/core/backends/usdGen{Cuda,Vulkan}`, `libs/core/primitives/usdGen{Surface,Curves,Expr}`. Old include spellings forward through `cmake/IncludeShim.cmake`; `testUsdGenNoShimIncludes` ratchets them down.
+- **5.0:** `testUsdGenCookGoldens`: published geometry of record (examples plus 32 single-op scenes, frames 0/1/12, a value and a topology edit).
+- **5.1, 5.2:** `api/{span,token,ids,channel,arena,elementSet,writeSet}.h`, `exec/chunkView.h`; the CurveSet layout with its partition and groups hooks, views and converters in `usdGenCurves/types/curveSet.*`.
+- **5.3:** every op on `Capture(ctx, UsdGenOpInputs)` / `Evaluate(ctx, cap, UsdGenChunkView)`; the old virtuals and the bridge are gone.
+- **5.4:** node outputs are element sets in recycled arenas; chunk ranges and publication groups come from the layout hooks; reference values hold sets; owning and whole-strand captures recycle; the epoch drains at the end of every cook.
+- **5.5:** generic names (`countChanges`, `UsdGenLane`, `DirtyInput/inputRefs/UpdateInput`, device element and layout names).
+- **5.6:** `curveBuffer.h` is gone from graph, scheduler, cache, op and the registries (`UsdGenPlane` is in `compile/types.h`, `UsdGenReferenceSet` in `exec/chunkView.h`, `UsdGenResolvedReferenceValue` in `op.h`). Gate `testUsdGenEngineNoCurveBuffer`. CUDA plan task types are `CudaScatterGrow`/`CudaPublication` (no op-name dodge).
+- Goldens, contracts and cook digests byte-identical throughout; warm cook and param edit 0 / 0.
+
+Bench, main (b741e6c) against step 5, same Windows machine, 4 threads, medians of 5 alternating rounds. The machine was NOT idle: four other worktrees were running ctest suites, so absolute times run about 30% above the step-4 table; compare the columns, not the tables.
+
+| Metric | main | step 5 |
+|---|---|---|
+| Cold cook, 100k curves | 169.0 ms | 168.1 ms |
+| Warm recook | 156.8 ms | 156.4 ms |
+| Param-edit recook | 133.6 ms | 5.4 ms |
+| Hydra publish | 881.7 ms | 367.8 ms |
+| Hydra pull | 0.48 ms | 0.42 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 |
+
+Left over:
+
+| What | Where it goes |
+|---|---|
+| `compiler.cpp` `BuildReferenceValue` builds a curve buffer (gate baseline) | 7.3a |
+| `generationStore.h` includes `curveBuffer.h` for the publication types, so `session.*`, `sessionCooker.cpp` and `executionCache.cpp` still see it (gate baseline) | 6.3 |
+| Scheduler, compiler, graph and sessionCooker name `UsdGenCurveSetView` and include `usdGenCurves/types/curveSet.h` | 6 (6.5 source gate) |
+| `UsdGenPlane` (tokens for interpolation/type, VtArray payload) is still the registry's plane layout; the brief's `UsdGenChannelDesc` replaces it | 6 |
+| Device channels by `std::string` (`cudaGeneration.cpp` `NamedChannel`) | 8 |
+| `UsdGenWorkerPool` is not merged into `UsdGenTaskScheduler`. Perf item; needs its own bench first (task latency, `ParallelFor` throughput, warm-cook time at 100k) | 8 |
+| Re-capture allocations outside `testUsdGenWarmAllocations` (per warm re-capture at 10k curves): Clump about 920 (`PickCentres` hash, membership vectors), GuideInterpolate about 1300 (`Delaunay2D`, `BuildGuides`, clumpRef kd-tree), Collide about 20000 (`ValidateColliderMesh` edge map, BVH), Twist and Frizz `Compute` vectors | 6 (usdGenCurves owns the ops) |
+| Non-owning captures (Clump, Collide, Smooth, Straighten, ...) are not `Recyclable` | 6, with the item above |
+| `UsdGenBuildClumpMotion(UsdGenCurveSetView)` copies the planes, so previous-capture reuse never hits for set inputs | 6 |
+| `Recompile` rebuilds every reference value (about 8 allocations per edit with one reference set) | 7 (reuse by NodeKey and generation) |
+| Op registry, Ptex cache and cache-domain table are made on first use; there is no `Engine::Create` | 12 |
 
 ### 6. Split the primitives
 

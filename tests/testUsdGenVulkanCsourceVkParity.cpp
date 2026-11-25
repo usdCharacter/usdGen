@@ -31,6 +31,7 @@
 // Host admission tables and loader checks always run. Each device leg runs
 // when its backend is available; the test fails only on a run check, and the
 // summary banner states explicitly which parity legs were proven.
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/vulkan/deviceContext.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/vulkan/chargedBuffer.h"
@@ -158,7 +159,7 @@ UsdGenSurfaceDesc TriSurface() {
 void AddRaggedRootedCurves(UsdGenGraphDesc& d) {
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -244,7 +245,7 @@ UsdGenGraphDesc FixtureSurfaceFree() {
     UsdGenGraphDesc d = BaseDesc();
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -296,7 +297,7 @@ UsdGenGraphDesc FixtureMoved() {
     d.surfaces.push_back(surface);
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -362,7 +363,7 @@ DeformFixture FixtureDeformMovedSurface() {
     fx.desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/CsourceVk/C3");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -869,9 +870,9 @@ bool VulkanSourceSnapshot(VulkanDevice const& dev, UsdGenGraphDesc const& d,
     info.source = loaded;
     info.geometry.topologyVersion = 11;
     info.geometry.valueVersion = 12;
-    info.geometry.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                                  UsdGenDeviceCurveBasis::BSpline,
-                                  UsdGenDeviceCurveWrap::Pinned};
+    info.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+                                  UsdGenCurveLayoutBasis::BSpline,
+                                  UsdGenCurveLayoutWrap::Pinned);
     bool useRest = true;
     for (auto const& p : d.nodes[0].params)
         if (p.name == TfToken("useRest") && p.value.IsHolding<bool>())

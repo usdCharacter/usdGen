@@ -40,8 +40,8 @@ struct UsdGenNodeRunStats
 
 struct UsdGenRunResult
 {
-    UsdGenCurveBuffer const *terminalOutput = nullptr;  // owned by the graph
-    TfSpan<const UsdGenTileView> tiles;
+    UsdGenElementSet const *terminalOutput = nullptr;   // owned by the graph
+    UsdGenSpan<const UsdGenChunkGroup> groups;   // the terminal's publication groups
     bool superseded = false;   // a newer request arrived; the published generation is unchanged
     bool topologyChanged = false; // re-partition happened; every tile re-interleaves
     UsdGenDiagnostics diagnostics; // node diagnostics for this run
@@ -73,8 +73,8 @@ struct UsdGenRunScratch;
 class UsdGenScheduler
 {
 public:
-    using TileCompleted = std::function<void(UsdGenTileView const&,
-                                             UsdGenCurveBuffer const&)>;
+    using TileCompleted = std::function<void(UsdGenChunkGroup const&,
+                                             UsdGenElementSet const&)>;
     /// threadLimit: 0 == env USDGEN_THREAD_LIMIT, else one-shot calibration.
     explicit UsdGenScheduler(int threadLimit = 0);
     ~UsdGenScheduler();

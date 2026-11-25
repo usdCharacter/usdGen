@@ -5,7 +5,7 @@
 #pragma once
 #include "usdGen/exec/chunkView.h"
 #include "usdGen/registries/op.h"
-#include "usdGenCurves/types/curveBridge.h"
+#include "curveBufferSetView.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 

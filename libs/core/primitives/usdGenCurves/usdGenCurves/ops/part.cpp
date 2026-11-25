@@ -154,7 +154,7 @@ bool UsdGenPartOp::Capture(
     if (ctx.referenceCount != 1 || !ctx.resolvedReferences || !ctx.resolvedReferences[0] ||
         !ctx.resolvedReferences[0]->value)
         return fail("usdGen:part:curves must target one parting curve set");
-    UsdGenCurveBuffer const &parting = ctx.resolvedReferences[0]->value->buffer;
+    UsdGenCurveSetView const parting = UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value);
     size_t const M = parting.totalCurves;
     if (M == 0) return fail("the parting curve set has no curves");
 
@@ -268,7 +268,7 @@ UsdGenOpId UsdGenRegisterPartOp(UsdGenRegistrar &r)
     d.name = "UsdGenPart";
     d.displayName = "Part";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);
     d.outputPlanes = UsdGenSpan(kOutputs);

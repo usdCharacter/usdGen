@@ -1,3 +1,4 @@
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/cudaParameters.h"
 #include "usdGen/executionResources.h"
@@ -29,7 +30,7 @@ static UsdGenGraphDesc Desc() {
     s.points = s.restPoints; s.points[0][0] = 1;
     s.faceVertexCounts = {3,3,3}; s.faceVertexIndices = {0,1,2,0,1,3,1,2,4};
     d.surfaces.push_back(s);
-    UsdGenCurveSetDesc c; c.path = SdfPath("/Curves"); c.role = UsdGenRole::Curves;
+    UsdGenCurveSetDesc c; c.path = SdfPath("/Curves"); c.role = UsdGenLane::Chunked;
     c.curveRole = TfToken("hair"); c.curveVertexCounts = {2};
     c.points = {{.2f,.2f,0},{.2f,.4f,0}}; c.rest = c.points;
     c.curveId = {7}; c.skinPrim = {0}; c.skinPrimUv = {{.2f,.2f}};
@@ -269,16 +270,14 @@ static bool SameFinalMetadata(std::shared_ptr<const UsdGenDeviceGeneration> cons
                               std::shared_ptr<const UsdGenDeviceGeneration> const& b) {
     if (!a || !b) return false;
     auto const& ag = a->Geometry(); auto const& bg = b->Geometry();
-    if (ag.curveCount != bg.curveCount || ag.pointCount != bg.pointCount ||
+    if (ag.elementCount != bg.elementCount || ag.pointCount != bg.pointCount ||
         ag.topologyVersion != bg.topologyVersion || ag.valueVersion != bg.valueVersion ||
         ag.alreadyDeformed != bg.alreadyDeformed ||
-        ag.curveTopology.type != bg.curveTopology.type ||
-        ag.curveTopology.basis != bg.curveTopology.basis ||
-        ag.curveTopology.wrap != bg.curveTopology.wrap || ag.tiles.size() != bg.tiles.size() ||
+        ag.layoutMetadata != bg.layoutMetadata || ag.tiles.size() != bg.tiles.size() ||
         a->Channels().size() != b->Channels().size()) return false;
     for (size_t i = 0; i != ag.tiles.size(); ++i) {
         auto const& x = ag.tiles[i]; auto const& y = bg.tiles[i];
-        if (x.tile != y.tile || x.firstCurve != y.firstCurve || x.curveCount != y.curveCount ||
+        if (x.tile != y.tile || x.firstElement != y.firstElement || x.elementCount != y.elementCount ||
             x.firstPoint != y.firstPoint || x.pointCount != y.pointCount ||
             x.boundsValid != y.boundsValid || x.extentMin != y.extentMin || x.extentMax != y.extentMax)
             return false;
@@ -423,7 +422,7 @@ int main() {
     auto literalFirst = ExecuteCudaGraph(*literalLengthPlan, *literalAdmissionWorkspace,
                                          2, 30, &diagnostics);
     CHECK(literalFirst && !diagnostics.HasErrors() &&
-          literalFirst->Geometry().curveCount == 2 &&
+          literalFirst->Geometry().elementCount == 2 &&
           literalFirst->Geometry().pointCount == 4);
     int literalDevice = -1;
     CHECK(cudaGetDevice(&literalDevice) == cudaSuccess);
@@ -574,7 +573,7 @@ int main() {
         }) && Wait(operatorDone) && operatorOk.load(std::memory_order_acquire));
     }
     auto asyncLiteralGeneration = FinalizeCudaExecutionJob(*asyncLiteralJob);
-    CHECK(asyncLiteralGeneration && asyncLiteralGeneration->Geometry().curveCount == 2 &&
+    CHECK(asyncLiteralGeneration && asyncLiteralGeneration->Geometry().elementCount == 2 &&
           asyncLiteralGeneration->Geometry().pointCount == 4);
     auto const afterLiteralAsync = literalResources->Snapshot();
     CHECK(ResourceKindBytes(afterLiteralAsync, UsdGenExecutionResourceKind::Pending) == 0);
@@ -590,7 +589,7 @@ int main() {
     auto partialLiteral = ExecuteCudaGraph(*partialLiteralPlan, *literalAdmissionWorkspace,
                                            2, 36, &diagnostics, asyncLiteralGeneration);
     CHECK(partialLiteral && !diagnostics.HasErrors() &&
-          partialLiteral->Geometry().curveCount == 1 &&
+          partialLiteral->Geometry().elementCount == 1 &&
           partialLiteral->Geometry().pointCount == 2 && partialLiteral->Owner() &&
           partialLiteral->Owner() != asyncLiteralGeneration->Owner() &&
           ResourceKindBytes(literalResources->Snapshot(),
@@ -602,7 +601,7 @@ int main() {
     auto allCullLiteral = ExecuteCudaGraph(*allCullLiteralPlan, *literalAdmissionWorkspace,
                                            2, 37, &diagnostics, partialLiteral);
     CHECK(allCullLiteral && !diagnostics.HasErrors() &&
-          allCullLiteral->Geometry().curveCount == 0 &&
+          allCullLiteral->Geometry().elementCount == 0 &&
           allCullLiteral->Geometry().pointCount == 0 && allCullLiteral->Owner() &&
           allCullLiteral->Owner() != partialLiteral->Owner() &&
           ResourceKindBytes(literalResources->Snapshot(),
@@ -826,7 +825,7 @@ int main() {
     auto emptyAsync=FinalizeCudaExecutionJob(*emptyControl);
     auto emptyLegacy=ExecuteCudaGraph(*emptyControlPlan,*emptyLegacyWorkspace,1,204,&diagnostics);
     cudaStream_t emptyStream=nullptr; CHECK(cudaStreamCreateWithFlags(&emptyStream,cudaStreamNonBlocking)==cudaSuccess);
-    CHECK(emptyAsync && emptyLegacy && emptyAsync->Geometry().curveCount==0 && emptyAsync->Geometry().pointCount==0 &&
+    CHECK(emptyAsync && emptyLegacy && emptyAsync->Geometry().elementCount==0 && emptyAsync->Geometry().pointCount==0 &&
           emptyAsync->Geometry().tiles.empty() && Same(emptyAsync,emptyLegacy,emptyStream) &&
           SameFinalMetadata(emptyAsync,emptyLegacy));
     CHECK(cudaStreamDestroy(emptyStream)==cudaSuccess);
@@ -1283,7 +1282,7 @@ int main() {
     // This is deliberately a non-cull fixture.  Keep the cardinality
     // assertion ahead of all value/topology comparisons so an all-culled
     // generation cannot make their changed-value oracle vacuous.
-    CHECK(lengthAsyncGeneration->Geometry().curveCount==2 &&
+    CHECK(lengthAsyncGeneration->Geometry().elementCount==2 &&
           lengthAsyncGeneration->Geometry().pointCount==4);
     auto lengthSyncGeneration=ExecuteCudaGraph(*lengthPlan,*lengthSyncWorkspace,2,81,&diagnostics,widthAsyncGeneration);
     CHECK(lengthSyncGeneration);
@@ -1646,7 +1645,7 @@ int main() {
     auto finalEmptyJob=prepareFinal(allCullPlan,finalEmptyWorkspace,102,lengthAsyncGeneration); CHECK(finalEmptyJob);
     std::shared_ptr<const UsdGenDeviceGeneration> finalEmpty;
     CHECK(finishAsync(finalEmptyJob,&finalEmpty) && finalEmpty &&
-          finalEmpty->Geometry().curveCount==0 && finalEmpty->Geometry().pointCount==0 &&
+          finalEmpty->Geometry().elementCount==0 && finalEmpty->Geometry().pointCount==0 &&
           !finalEmpty->Geometry().tiles.empty());
 
     struct FinalGate { void (*arm)(); void (*wait)(); void (*release)(); };
@@ -1821,7 +1820,7 @@ int main() {
     CHECK(ExecuteCudaJobSource(*zeroSourceJob));
     std::shared_ptr<const UsdGenDeviceGeneration> zeroSourceGeneration;
     CHECK(finishAsync(zeroSourceJob,&zeroSourceGeneration) && zeroSourceGeneration &&
-          zeroSourceGeneration->Geometry().curveCount==0 && zeroSourceGeneration->Geometry().pointCount==0 &&
+          zeroSourceGeneration->Geometry().elementCount==0 && zeroSourceGeneration->Geometry().pointCount==0 &&
           zeroSourceGeneration->Geometry().tiles.empty());
     // The initial publication has no prior lease/topology comparison but uses
     // the same asynchronous tile/bounds/metadata pipeline.
@@ -1868,7 +1867,7 @@ int main() {
         auto first = ExecuteCudaGraph(*variantPlan, *variantWorkspace, 2,
                                       generation, &diagnostics);
         if (!first || diagnostics.HasErrors() ||
-            first->Geometry().curveCount != 2 ||
+            first->Geometry().elementCount != 2 ||
             first->Geometry().pointCount != 4 || !first->Owner()) return false;
         auto const priorOwner = first->Owner();
         auto const baseline = literalResources->Snapshot();
@@ -1925,7 +1924,7 @@ int main() {
                                        generation + 2, &diagnostics, first);
         if (!direct || diagnostics.HasErrors() || !direct->Owner() ||
             direct->Owner() == priorOwner ||
-            direct->Geometry().curveCount != 2 ||
+            direct->Geometry().elementCount != 2 ||
             direct->Geometry().pointCount != 4) return false;
 
         // Exercise the staged asynchronous publication with the same
@@ -1956,7 +1955,7 @@ int main() {
                 asyncResult = std::move(result);
                 finalDone.store(true, std::memory_order_release);
             }) || !Wait(finalDone) || !asyncResult ||
-            asyncResult->Geometry().curveCount != 2 ||
+            asyncResult->Geometry().elementCount != 2 ||
             asyncResult->Geometry().pointCount != 4) return false;
 
         cudaStream_t compareStream = nullptr;

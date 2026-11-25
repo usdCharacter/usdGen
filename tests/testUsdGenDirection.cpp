@@ -9,6 +9,7 @@
 //       zero effect, direction:source tangents, connected-expression and mask
 //       cooks, and fail-closed validation.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
@@ -60,7 +61,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -143,7 +144,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -168,7 +169,7 @@ static void CheckRegistryContracts()
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Direction reports its own type");
     UsdGenOpRecord const &rec = registry.Record(registry.Find(type));
-    Check(rec.Def().topoFx == UsdGenTopoFx::None,
+    Check(rec.Def().countChanges == 0,
           "Direction has TopologyEffect None");
     std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
     for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
@@ -557,7 +558,7 @@ static void CheckSourceCook()
         StraightStrands(SdfPath("/dirsource/hair"), roots, kCvs, 0.25f));
     UsdGenCurveSetDesc guides;
     guides.path = SdfPath("/dirsource/guides");
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.curveVertexCounts = {3};
     guides.points = {GfVec3f(-1, 0, 0), GfVec3f(0, 0, 0), GfVec3f(1, 0, 0)};

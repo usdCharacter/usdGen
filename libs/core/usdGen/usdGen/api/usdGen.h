@@ -1,7 +1,7 @@
 // usdGen — engine core public header.
 //
-// M0: minimal surface. The full graph / operator / buffer model (UsdGenGraphDesc,
-// UsdGenOp, UsdGenCurveBuffer, chunk/tile layout, digests, dirty router) lands
+// M0: minimal surface. The full graph / operator / element-set model
+// (UsdGenGraphDesc, UsdGenOp, chunk/tile layout, digests, dirty router) lands
 // in M1 (03-execution-engine.md). This header exists so the `usdGen` target has
 // a stable public identity and a version symbol, and so `usdGenImaging` /
 // `usdGenSchema` can link against the target.

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/clumpMotion.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -228,7 +229,7 @@ int main() {
     imported.nodes[0].curves = {SdfPath("/clump/imported")};
     UsdGenCurveSetDesc sourceCurves;
     sourceCurves.path = imported.nodes[0].curves.front();
-    sourceCurves.role = UsdGenRole::Curves;
+    sourceCurves.role = UsdGenLane::Chunked;
     sourceCurves.curveRole = TfToken("hair");
     sourceCurves.curveVertexCounts = {2};
     sourceCurves.points = {{0,0,0}, {0,1,0}};
@@ -276,7 +277,7 @@ int main() {
         Check(!run.diagnostics.HasErrors(), "imported quartet survives Clump cook");
         if (!run.diagnostics.HasErrors()) {
             UsdGenClumpMotion importedMotion;
-            Check(UsdGenBuildClumpMotion(importedGraph.Output(),
+            Check(UsdGenBuildClumpMotion(OutputView(importedGraph),
                                          &importedMotion, &error) &&
                   importedMotion.levels.size() == 3 &&
                   importedMotion.levels[0].level == 0 &&

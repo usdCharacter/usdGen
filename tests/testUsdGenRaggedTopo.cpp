@@ -26,6 +26,7 @@
 // here (out of scope for this ticket).
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/op.h"
@@ -141,7 +142,9 @@ int main()
     }
     Check(!run1.diagnostics.HasErrors(), "first eval ran without errors (no crash)");
 
-    UsdGenCurveBuffer const *out = graph.Output().totalCvs ? &graph.Output() : run1.terminalOutput;
+    UsdGenCurveBuffer const outBuffer = UsdGenCurveBufferFromSet(
+        graph.Output().Count(2) || !run1.terminalOutput ? graph.Output() : *run1.terminalOutput);
+    UsdGenCurveBuffer const *out = run1.terminalOutput ? &outBuffer : nullptr;
     Check(out != nullptr, "terminal output buffer published");
     if (!out) { std::printf("RaggedTopo FAIL\n"); return 1; }
 
@@ -157,9 +160,9 @@ int main()
     UsdGenNodeId const deform = graph.NodeIdForPath(SdfPath("/ragged/deform"));
     bool chunksRagged = !graph.Chunks(deform).empty();
     int  covered = 0;
-    for (UsdGenChunkDesc const &cd : graph.Chunks(deform)) {
-        if (cd.cvCount != 0) chunksRagged = false;
-        covered += int(cd.curveCount);
+    for (UsdGenChunkRange const &cd : graph.Chunks(deform)) {
+        if (cd.stride[1] != 0) chunksRagged = false;
+        covered += int(cd.count[0]);
     }
     Check(chunksRagged, "every deform chunk carries cvCount == 0 (ragged)");
     Check(covered == 3, "chunk curve spans cover all 3 curves");
@@ -172,9 +175,9 @@ int main()
     Check(TotalChunksEvaluated(run2) == 0,
           "clean re-run cooks zero chunks (no re-sweep, 03 §3.2/§5.4)");
     Check(!graph.AnyDirty(), "graph still clean after the second eval");
-    Check(std::vector<float>(graph.Output().px.cbegin(), graph.Output().px.cend()) == px1 &&
-          std::vector<float>(graph.Output().py.cbegin(), graph.Output().py.cend()) == py1 &&
-          std::vector<float>(graph.Output().pz.cbegin(), graph.Output().pz.cend()) == pz1,
+    Check(std::vector<float>(OutputView(graph).px.begin(), OutputView(graph).px.end()) == px1 &&
+          std::vector<float>(OutputView(graph).py.begin(), OutputView(graph).py.end()) == py1 &&
+          std::vector<float>(OutputView(graph).pz.begin(), OutputView(graph).pz.end()) == pz1,
           "second eval output is idempotent (bit-identical positions, vs snapshots)");
 
     if (g_failures) std::printf("RaggedTopo FAIL\n");

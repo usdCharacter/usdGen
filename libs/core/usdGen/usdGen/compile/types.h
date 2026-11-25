@@ -6,10 +6,10 @@
 #ifndef USDGEN_TYPES_H
 #define USDGEN_TYPES_H
 
-#include "pxr/pxr.h"
 #include "pxr/base/gf/range3f.h"
 #include "pxr/base/tf/token.h"
 #include "pxr/base/tf/span.h"
+#include "pxr/base/vt/array.h"
 
 #include <array>
 #include <cmath>
@@ -28,12 +28,6 @@ using UsdGenTileId    = uint16_t;
 using UsdGenSurfaceId = uint16_t;   // index into UsdGenGraphDesc::surfaces
 
 constexpr UsdGenNodeId kUsdGenInvalidNode = ~0u;
-
-/// CPU-lane ceiling on CVs per generated or resampled strand (Grow segments,
-/// GuideInterpolate/CardSource cvCount, Resample cvCount/spacing). The CUDA
-/// and Vulkan lanes keep their own, smaller kernel limits and refuse a graph
-/// above them at admission.
-constexpr uint32_t kUsdGenMaxCvsPerCurve = 4096u;
 
 /// 128-bit digest; used for the Merkle structural digest and the capture epoch.
 using UsdGenEpoch = std::array<uint64_t, 2>;
@@ -55,11 +49,15 @@ inline bool operator!=(UsdGenEpoch const &a, UsdGenEpoch const &b)
 // ---------------------------------------------------------------------------
 
 
-/// R14 static topology effect. `CurveCount` is the plan's `MayChangeCurveCount`.
-enum class UsdGenTopoFx : uint8_t { None, CurveCount, CvCount, Both };
+/// Bit L of UsdGenOpDef::countChanges: the op may change the element count at
+/// level L (R14). Curve sets: level 1 = curves, level 2 = CVs.
+constexpr uint8_t UsdGenCountsAtLevel(unsigned level) noexcept
+{
+    return static_cast<uint8_t>(1u << level);
+}
 
 /// I3 reference lane: un-chunked buffers evaluated to completion before consumers.
-enum class UsdGenRole : uint8_t { Curves, Reference };
+enum class UsdGenLane : uint8_t { Chunked, Reference };
 
 
 /// UsdGenDirtyBits — unscoped integer constants (ADR §9 R3: never written
@@ -150,6 +148,25 @@ inline int ComputeNumTiles(int nChunks, int tileTarget = kUsdGenTileTargetDefaul
     return std::min(nChunks, n);
 }
 
+/// One named plane (03 §1.2): the op registry's plane layouts, the
+/// scheduler's channel mapping and publication's extra planes. R24 pins type/arity per emitted name:
+///   clumpId_<level> : uniform int,       arity 1
+///   clumpCenter_<level> : uniform float,  arity 3 (rest anchor)
+///   clumpCenterId_<level> : uniform int,  arity 2 (exact uint64 words)
+///   clumpWeight_<level> : vertex float,   arity 1 (effective cohesion)
+///   guideIndex      : uniform int[],     arity 3
+///   guideWeight     : uniform float[],   arity 3
+/// `int[3]`/`float[3]` are not USD type names. Exactly one of `f`/`i` holds
+/// the payload.
+struct UsdGenPlane
+{
+    TfToken      name;
+    TfToken      interpolation;   // vertex | uniform | constant
+    TfToken      type;            // float | int
+    uint8_t      arity = 1;
+    VtFloatArray f;
+    VtIntArray   i;
+};
 
 }  // namespace usdGen
 

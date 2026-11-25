@@ -9,6 +9,7 @@
 //   - UsdGenCurveChunk over a generic chunk view (testUsdGenCurveSetChunk.cpp)
 
 #include "usdGenCurves/types/curveBuffer.h"
+#include "nodeSets.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/compile/compiler.h"
@@ -326,10 +327,10 @@ bool SameChunks(UsdGenGraph const &graph, UsdGenGraph::NodeId id, std::vector<Us
     auto const chunks = graph.Chunks(id);
     if (chunks.size() != ranges.size()) return false;
     for (size_t c = 0; c < chunks.size(); ++c) {
-        UsdGenChunkDesc const &a = chunks[c];
+        UsdGenChunkRange const &a = chunks[c];
         UsdGenChunkRange const &r = ranges[c];
-        if (a.firstCurve != r.first[0] || a.curveCount != r.count[0] || a.liveCount != r.live ||
-            a.firstCv != r.first[1] || a.cvCount != r.stride[1] || a.tile != r.group || a.surface != r.domain)
+        if (a.first[0] != r.first[0] || a.count[0] != r.count[0] || a.live != r.live ||
+            a.first[1] != r.first[1] || a.stride[1] != r.stride[1] || a.group != r.group || a.domain != r.domain)
             return false;
     }
     return true;
@@ -345,7 +346,7 @@ void PartitionCaseRun(PartitionCase const &k)
     UsdGenCurveBuffer const fixture = MakeBuffer(k.curves, k.cvp, false, false);
     if (k.cooked)
         for (int n = 0; n < graph.NodeCount(); ++n)
-            graph.Node(UsdGenGraph::NodeId(n)).buffer = fixture;
+            Check(SetNodeBuffer(graph, UsdGenGraph::NodeId(n), fixture), "partition fixture installs");
     UsdGenRef<const UsdGenElementSet> set = UsdGenCurveSetFromBuffer(fixture, 1, 1);
     Check(bool(set), "partition fixture converts");
     if (!set) return;
@@ -362,7 +363,7 @@ void PartitionCaseRun(PartitionCase const &k)
     UsdGenElementLayout const &layout = UsdGenCurveSetLayout();
 
     for (int pass = 0; pass < 2; ++pass) {   // the second pass keeps every chunk
-        graph.Repartition(int(k.curves), k.fallbackCvp);
+        graph.Repartition(k.curves, uint32_t(std::max(0, k.fallbackCvp)));
         uint32_t const n = layout.partition(k.curves, view, params, {});
         std::vector<UsdGenChunkRange> ranges(n);
         Check(layout.partition(k.curves, view, params, {ranges.data(), ranges.size()}) == n, "partition count");
@@ -373,16 +374,16 @@ void PartitionCaseRun(PartitionCase const &k)
         for (UsdGenChunkRange const &r : ranges) cvs += r.count[1];
         Check(cvs == uint64_t(view.count[2]) || !view.count[1], "chunk CV counts cover the set");
 
-        auto const tiles = graph.Tiles();
+        auto const tiles = graph.Groups();
         uint32_t const g = layout.groups(n, params, {});
         std::vector<UsdGenChunkGroup> groups(g);
         layout.groups(n, params, {groups.data(), groups.size()});
         bool sameTiles = tiles.size() == groups.size();
         for (size_t t = 0; sameTiles && t < tiles.size(); ++t)
-            sameTiles = tiles[t].tile == groups[t].id && tiles[t].firstChunk == groups[t].firstChunk &&
+            sameTiles = tiles[t].id == groups[t].id && tiles[t].firstChunk == groups[t].firstChunk &&
                         tiles[t].chunkCount == groups[t].chunkCount;
         Check(sameTiles, k.what);
-        Check(int(g) == graph.NumTiles(), "group count");
+        Check(int(g) == graph.NumGroups(), "group count");
     }
 }
 

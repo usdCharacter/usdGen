@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/imagePayload.h"
 #include "usdGen/op.h"
@@ -28,7 +29,7 @@ static UsdGenGraphDesc Desc() {
     d.defaultWidth = .125f;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Hair");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {3, 2};
     curves.rest = {{10,0,0}, {11,0,0}, {12,0,0}, {20,0,0}, {21,0,0}};
@@ -158,7 +159,7 @@ static bool Run(UsdGenGraphDesc const& d, UsdGenCurveBuffer* result,
     if (printErrors) for (auto const& e : run.diagnostics.errors)
         std::fprintf(stderr, "%s\n", e.c_str());
     if (run.diagnostics.HasErrors()) return false;
-    *result = graph.Output();
+    *result = OutputBuffer(graph);
 #ifdef USDGEN_TEST_CUDA_SOURCE_PARITY
     if (!CudaParity(d,*result)) return false;
 #endif
@@ -248,7 +249,7 @@ int main() {
             UsdGenScheduler frameScheduler(2);
             UsdGenEvalContext frameCtx; frameCtx.desc = &frameGraph.Desc();
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,1).diagnostics.HasErrors());
-            auto const frozen = frameGraph.Output();
+            auto const frozen = OutputView(frameGraph);
             auto posed = derived;
             posed.surfaces[0].points[0] += GfVec3f(0,0,2);
             posed.surfaces[0].surfaceGeneration = 91;
@@ -260,8 +261,8 @@ int main() {
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,2).diagnostics.HasErrors());
             // Rest root capture survives changing posed points/sample times;
             // reusing its COW storage proves generation was not rerun.
-            CHECK(frameGraph.Output().px.cdata() == frozen.px.cdata());
-            auto priorNormals = frameGraph.Output().rootN;
+            CHECK(OutputView(frameGraph).px.cdata() == frozen.px.cdata());
+            auto priorNormals = OutputBuffer(frameGraph).rootN;
             auto recaptured = derived;
             recaptured.surfaces[0].restNormalDomain = UsdGenSurfaceNormalDomain::Constant;
             recaptured.surfaces[0].restNormals = {{0,1,1}};
@@ -270,7 +271,7 @@ int main() {
             CHECK(frameCompiler.Recompile(recaptured,&frameGraph).ok);
             frameCtx.desc = &frameGraph.Desc();
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,3).diagnostics.HasErrors());
-            CHECK(frameGraph.Output().rootN != priorNormals &&
+            CHECK(OutputBuffer(frameGraph).rootN != priorNormals &&
                   priorNormals == VtVec3fArray(2,GfVec3f(0,0,1)));
         }
         auto old = framed;
@@ -320,9 +321,9 @@ int main() {
         UsdGenScheduler scheduler(2);
         UsdGenEvalContext ctx; ctx.desc = &graph.Desc();
         CHECK(!scheduler.Run(graph,ctx,1).diagnostics.HasErrors());
-        auto const& source = graph.Node(graph.NodeIdForPath(d.terminal)).buffer;
-        CHECK(graph.Output().rest.cdata() == source.rest.cdata());
-        CHECK(graph.Output().width.cdata() != source.width.cdata());
+        auto const source = NodeView(graph, graph.NodeIdForPath(d.terminal));
+        CHECK(OutputView(graph).rest.cdata() == source.rest.cdata());
+        CHECK(OutputView(graph).width.cdata() != source.width.cdata());
     }
     // CPU topology prerequisite: ragged input roots use their actual offsets,
     // and the generated rest geometry follows rest roots, not posed roots.
@@ -342,14 +343,15 @@ int main() {
         auto run = scheduler.Run(graph,ctx,1);
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr,"%s\n",error.c_str());
         CHECK(!run.diagnostics.HasErrors());
-        auto const& source = graph.Node(graph.NodeIdForPath(d.terminal)).buffer;
-        auto const& output = graph.Output();
+        auto const sourceView = NodeView(graph, graph.NodeIdForPath(d.terminal));
+        auto const source = NodeBuffer(graph, graph.NodeIdForPath(d.terminal));
+        auto const output = OutputBuffer(graph);
         CHECK(output.totalCvs == 8 && output.rest.size() == 8);
         CHECK(output.px[0] == 120 && output.px[4] == 110);
         CHECK(output.pz[3] == 1 && output.pz[7] == 1);
         CHECK(output.rest[0] == GfVec3f(20,0,0) && output.rest[3] == GfVec3f(20,0,1));
         CHECK(output.rest[4] == GfVec3f(10,0,0) && output.rest[7] == GfVec3f(10,0,1));
-        CHECK(output.rest.cdata() != source.rest.cdata());
+        CHECK(OutputView(graph).rest.cdata() != sourceView.rest.cdata());
         CHECK(source.rest == sourceRest);
     }
 
@@ -406,28 +408,29 @@ int main() {
     UsdGenEvalContext ctx;
     ctx.desc = &graph.Desc();
     CHECK(!scheduler.Run(graph, ctx, 1).diagnostics.HasErrors());
-    auto old = graph.Output();
+    UsdGenRef<const UsdGenElementSet> const oldSet(&graph.Output());
+    auto const old = UsdGenCurveSetView::Of(*oldSet);
     d.curveSets[0].rest[3][0] = 30;
     d.curveSets[0].points[3][0] = 130;
     d.curveSets[0].widths[3] = .9f;
     CHECK(compiler.Recompile(d, &graph).ok);
     ctx.desc = &graph.Desc();
     CHECK(!scheduler.Run(graph, ctx, 2).diagnostics.HasErrors());
-    CHECK(graph.Output().px.front() == 130 && graph.Output().width.front() == .9f);
-    CHECK(graph.Output().rest.front()[0] == 30);
+    CHECK(OutputView(graph).px.front() == 130 && OutputView(graph).width.front() == .9f);
+    CHECK(OutputView(graph).rest.front()[0] == 30);
     CHECK(old.px.front() == 120 && old.width.front() == .4f && old.rest.front()[0] == 20);
-    CHECK(old.px.cdata() != graph.Output().px.cdata());
-    CHECK(old.width.cdata() != graph.Output().width.cdata());
-    CHECK(old.rest.cdata() != graph.Output().rest.cdata());
+    CHECK(old.px.cdata() != OutputView(graph).px.cdata());
+    CHECK(old.width.cdata() != OutputView(graph).width.cdata());
+    CHECK(old.rest.cdata() != OutputView(graph).rest.cdata());
 
     // Failures must not overwrite a caller's last-good source value.
-    auto good = graph.Output();
+    auto good = OutputBuffer(graph);
     d.curveSets[0].curveId = {7,7};
     CHECK(compiler.Recompile(d, &graph).ok);
     ctx.desc = &graph.Desc();
     CHECK(scheduler.Run(graph,ctx,3).diagnostics.HasErrors());
-    CHECK(graph.Output().px == good.px && graph.Output().width == good.width &&
-          graph.Output().rest == good.rest);
+    CHECK(OutputBuffer(graph).px == good.px && OutputBuffer(graph).width == good.width &&
+          OutputBuffer(graph).rest == good.rest);
     for (int variant = 0; variant != 10; ++variant) {
         auto bad = Desc();
         auto& c = bad.curveSets[0];

@@ -296,14 +296,18 @@ void TestRecycle()
 
 void TestCompaction()
 {
-    UsdGenChannelDesc const dyn[] = {
-        Desc("a", UsdGenScalar::F32, 1, 2), Desc("b", UsdGenScalar::F32, 1, 2),
-        Desc("c", UsdGenScalar::F32, 1, 2), Desc("d", UsdGenScalar::F32, 1, 2),
-        Desc("e", UsdGenScalar::F32, 1, 2),
-    };
-    auto table = UsdGenChannelTable::Make(Layout().layout, UsdGenSpan<const UsdGenChannelDesc>(dyn, 5));
+    // One written channel per derive: the limit's worth of arenas plus one.
+    constexpr UsdGenSlot kWrites = UsdGenSlot(kUsdGenMaxArenasPerSet) + 1;
+    static_assert(kWrites <= 26, "one letter per channel");
+    char names[kWrites][2] = {};
+    UsdGenChannelDesc dyn[kWrites];
+    for (UsdGenSlot k = 0; k < kWrites; ++k) {
+        names[k][0] = char('a' + k);
+        dyn[k] = Desc(names[k], UsdGenScalar::F32, 1, 2);
+    }
+    auto table = UsdGenChannelTable::Make(Layout().layout, UsdGenSpan<const UsdGenChannelDesc>(dyn, kWrites));
     auto set = MakeFresh(table);
-    for (UsdGenSlot k = 0; k < 5; ++k) {
+    for (UsdGenSlot k = 0; k < kWrites; ++k) {
         UsdGenSlot const slot = UsdGenSlot(kStatics + k);
         UsdGenWriteSet w = UsdGenWriteSet::Derive(set, table);
         w.Plan(UsdGenSpan<const UsdGenSlot>(&slot, 1));
@@ -312,10 +316,10 @@ void TestCompaction()
         set = std::move(w).Seal();
         Check(set->ArenaCount() <= kUsdGenMaxArenasPerSet, "arena count stays within the limit");
     }
-    Check(set->ArenaCount() == 2, "compacted after the fourth arena");
+    Check(set->ArenaCount() == 2, "compacted after the limit's arena");
     bool bytes = set->Offsets(2).size() == 4 && set->Offsets(2)[3] == 5 && set->Column<float>(kPx)[2] == 20.0f &&
                  set->Column<uint64_t>(kId)[1] == 101 && set->Column<float>(kUv)[5] == -2.0f;
-    for (UsdGenSlot k = 0; k < 5; ++k) {
+    for (UsdGenSlot k = 0; k < kWrites; ++k) {
         UsdGenSpan<const float> col = set->Column<float>(UsdGenSlot(kStatics + k));
         for (size_t i = 0; i < col.size(); ++i) bytes = bytes && col[i] == float(k * 100 + i);
         bytes = bytes && col.size() == 5 && Aligned(col.data());

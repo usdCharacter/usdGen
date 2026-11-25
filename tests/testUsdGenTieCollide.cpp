@@ -17,6 +17,7 @@
 //   (3) Collide flexible over a bumpy many-triangle mesh is bit-identical to
 //       the brute-force first-win closest-point scan it replaced.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -54,7 +55,7 @@ static UsdGenCurveSetDesc Strands(SdfPath const &path, std::vector<Polyline> con
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     for (Polyline const &c : curves) {
         set.curveVertexCounts.push_back(int(c.size()));
@@ -121,7 +122,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
             for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -200,7 +201,7 @@ static UsdGenGraphDesc TieDesc(TieSpec const &ties,
     desc.curveSets.push_back(hair);
     UsdGenCurveSetDesc guides;
     guides.path = SdfPath("/tie/guides");
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.curveVertexCounts = {5, 4, 2};
     guides.points = {GfVec3f(0, 0, 0), GfVec3f(0, 0.5f, 0), GfVec3f(0, 1.0f, 0),
@@ -289,7 +290,7 @@ static void CheckTieRegistry()
     std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
     Check(op != nullptr, "Create(UsdGenTieClump)");
     if (!op) return;
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::None, "TieClump has TopologyEffect None");
+    Check(op->Record().Def().countChanges == 0, "TieClump has TopologyEffect None");
     Check(op->Record().ReferenceInputs().size() == 1 && op->Record().ReferenceInputs()[0] == TfToken("guides"),
           "TieClump reads the single reference slot 'guides'");
     Check(usdGenTest::OutputPlaneNames(op->Record()).empty(), "TieClump emits no planes");

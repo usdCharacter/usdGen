@@ -31,6 +31,7 @@
 
 #include "usdGen/curveBuffer.h"
 #include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"
@@ -144,27 +145,27 @@ void MeshCounts(std::vector<Span> const &spans, uint64_t *vertices, uint64_t *in
 // --- reading the reference curve sets (card_planes contract) ---------------------------
 
 /// The uniform plane `name` of a curve set with the given arity, int or float,
-/// sized to the curve count; null when absent or malformed.
-UsdGenPlane const *CurvePlane(UsdGenCurveBuffer const &set, char const *name, uint8_t arity = 1);
+/// sized to the curve count; an empty view (no name) when absent or malformed.
+UsdGenPlaneView CurvePlane(UsdGenCurveSetView const &set, char const *name, uint8_t arity = 1);
 
 /// A uniform scalar plane read as int or float whichever way it was authored.
 struct PlaneColumn
 {
-    UsdGenPlane const *plane = nullptr;
-    PlaneColumn(UsdGenCurveBuffer const &b, char const *name);
-    bool Has() const { return plane != nullptr; }
+    UsdGenPlaneView plane;
+    PlaneColumn(UsdGenCurveSetView const &b, char const *name);
+    bool Has() const { return !plane.name.IsEmpty(); }
     int Int(size_t c, int fallback) const;
     float Float(size_t c, float fallback) const;
 };
 
 /// The card spine set carries a `cardType` plane.
-bool IsSpineSet(UsdGenCurveBuffer const &set);
+bool IsSpineSet(UsdGenCurveSetView const &set);
 /// The tile strand library carries `tile` and `index` planes and no `cardType`.
-bool IsLibrarySet(UsdGenCurveBuffer const &set);
+bool IsLibrarySet(UsdGenCurveSetView const &set);
 
 /// Decodes every curve of a card spine set into a sanitized Card (rest points;
 /// missing planes take the card defaults).
-bool DecodeCards(UsdGenCurveBuffer const &spineSet, std::vector<Card> *cards, std::string *error);
+bool DecodeCards(UsdGenCurveSetView const &spineSet, std::vector<Card> *cards, std::string *error);
 
 /// The spine curve id hash of a strand grown on strip `strip` of card `cardId`
 /// from local tile strand `j`.

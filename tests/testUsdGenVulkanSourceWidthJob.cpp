@@ -359,7 +359,7 @@ int main(int argc, char** argv) {
             CHECK(job->state() == VulkanSourceWidthJob::State::Ready);
             auto const& tiles = result->geometry().tiles;
             CHECK(tiles.size() == 1 && tiles[0].tile == 0 && tiles[0].boundsValid);
-            CHECK(tiles[0].firstCurve == 0 && tiles[0].curveCount == 1 &&
+            CHECK(tiles[0].firstElement == 0 && tiles[0].elementCount == 1 &&
                 tiles[0].firstPoint == 0 && tiles[0].pointCount == 2);
             for (int axis = 0; axis != 3; ++axis)
                 CHECK(std::isfinite(tiles[0].extentMin[axis]) && std::isfinite(tiles[0].extentMax[axis]) &&

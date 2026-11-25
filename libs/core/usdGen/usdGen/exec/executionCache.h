@@ -10,7 +10,6 @@
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/epoch.h"
-#include "usdGen/generationStore.h"
 
 #include <cstdint>
 #include <cstring>
@@ -29,6 +28,8 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
+
+struct UsdGenGeneration;   // generationStore.h; the Store holds it by shared_ptr
 
 struct UsdGenExecutionInputGeneration {
     SdfPath identity;
@@ -82,7 +83,7 @@ struct UsdGenExecutionInputVersions {
     // Dirty routing updates are intentionally explicit and return whether an
     // existing identity was found. Unknown targets can still be represented
     // by callers by appending a generation-zero entry before publication.
-    bool UpdateCurve(SdfPath const& identity, uint64_t generation) noexcept;
+    bool UpdateInput(SdfPath const& identity, uint64_t generation) noexcept;
     bool UpdateMap(SdfPath const& identity, uint64_t generation) noexcept;
     bool UpdateSurface(SdfPath const& identity, uint64_t generation) noexcept;
 };

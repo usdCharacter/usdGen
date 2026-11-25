@@ -16,7 +16,7 @@ static UsdGenGraphDesc MakeDesc() {
     surface.restPoints = {{0,0,0},{1,0,0},{0,1,0},{0,0,1},{1,1,1}};
     surface.points = surface.restPoints; surface.faceVertexCounts = {3,3,3};
     surface.faceVertexIndices = {0,1,2, 0,1,3, 1,2,4}; d.surfaces.push_back(surface);
-    UsdGenCurveSetDesc curves; curves.path = SdfPath("/Hair"); curves.role = UsdGenRole::Curves;
+    UsdGenCurveSetDesc curves; curves.path = SdfPath("/Hair"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair"); curves.type = TfToken("cubic"); curves.basis = TfToken("bspline"); curves.wrap = TfToken("pinned");
     curves.curveVertexCounts = {2,3,4}; curves.curveId = {30,10,20};
     curves.points = {{.2f,0,.2f},{.2f,.4f,.2f}, {.8f,.4f,.2f},{.8f,.6f,.2f},{.8f,.6f,.5f},

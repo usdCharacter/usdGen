@@ -21,6 +21,7 @@
 #include "usdGen/cpuParameters.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
@@ -68,19 +69,19 @@ public:
     /// `terminal`. Returns an inactive result when nothing is previewed. A new
     /// warning is appended to `warnings`; a repeat of the last one is not.
     UsdGenPreviewColors Build(UsdGenGraphDesc const &desc, UsdGenGraph const &graph,
-                              UsdGenCurveBuffer const &terminal, double frame,
+                              UsdGenCurveSetView const &terminal, double frame,
                               std::vector<std::string> *warnings);
 
 private:
     struct Values;
-    bool FromExpression(UsdGenGraphDesc const &desc, UsdGenCurveBuffer const &terminal,
+    bool FromExpression(UsdGenGraphDesc const &desc, UsdGenCurveSetView const &terminal,
                         double frame, Values *values, std::string *warning);
-    bool FromMap(UsdGenGraphDesc const &desc, UsdGenCurveBuffer const &terminal,
+    bool FromMap(UsdGenGraphDesc const &desc, UsdGenCurveSetView const &terminal,
                  double frame, Values *values, std::string *warning);
     bool FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph const &graph,
                        Values *values, std::string *warning);
     bool Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                  UsdGenCurveBuffer const &terminal, double frame, std::string *warning);
+                  UsdGenCurveSetView const &terminal, double frame, std::string *warning);
 
     UsdGenCpuParameters _parameters;   // expression and map previews
     UsdGenGraphDesc _mapDesc;          // the private ptex("map") expression's world

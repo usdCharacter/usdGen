@@ -17,7 +17,7 @@
 #ifndef USDGEN_CPU_PARAMETERS_H
 #define USDGEN_CPU_PARAMETERS_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/ir.h"
 #include "usdGen/expressions/samplers.h"
@@ -81,7 +81,7 @@ public:
     /// differ from the previous evaluation (the caller uses it to force a
     /// re-capture and a chunk sweep).
     bool Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                  UsdGenCurveBuffer const &geometry, double frame, double time,
+                  UsdGenCurveSetView const &geometry, double frame, double time,
                   uint32_t seed, bool *changed,
                   std::vector<std::string> *diagnostics);
 
@@ -139,7 +139,7 @@ private:
     bool ResolveSamplers(UsdGenGraphDesc const &desc, UsdGenExpressionDesc const &expression,
                          Item *item, std::vector<std::string> *diagnostics);
     bool PrepareSamplers(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                         UsdGenCurveBuffer const &geometry, expr::Context const &controls,
+                         UsdGenCurveSetView const &geometry, expr::Context const &controls,
                          Item *item, std::vector<std::string> *diagnostics);
     bool Compile(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                  std::vector<std::string> *diagnostics);

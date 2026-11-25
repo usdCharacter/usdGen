@@ -96,6 +96,17 @@ struct UsdGenGuideInterpolateCapture final : public UsdGenCurveCapture
         return std::make_unique<UsdGenGuideInterpolateCapture>(*this);
     }
     bool OwnsBuffer() const override { return true; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        cvCount = 0;
+        result.clear();
+        roots.clear();
+        upstreamTopologyVersion = upstreamValueVersion = 0;
+        upstreamCurves = 0;
+        return true;
+    }
     bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
         UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
@@ -325,9 +336,10 @@ void Resample(float const *points, size_t count, size_t n, float *out)
 
 /// The guide set's per-curve plane `name` as ints (int or float uniform,
 /// arity 1), or empty.
-std::vector<int> CurveInts(UsdGenCurveBuffer const &buffer, TfToken const &name)
+std::vector<int> CurveInts(UsdGenCurveSetView const &buffer, TfToken const &name)
 {
-    for (UsdGenPlane const &plane : buffer.extraCurve) {
+    for (uint32_t k = 0; k < buffer.ExtraCurveCount(); ++k) {
+        UsdGenPlaneView const plane = buffer.ExtraCurve(k);
         if (plane.name != name || plane.arity != 1 ||
             plane.interpolation != UsdGenTokens().uniform)
             continue;
@@ -433,10 +445,6 @@ UsdGenEpoch UsdGenGuideInterpolateOp::CaptureDigest(UsdGenCaptureContext const &
     return d.Epoch(0x4775696465ull);
 }
 
-namespace {
-UsdGenCurveBuffer const kNoGuides;  // made at load
-}  // namespace
-
 bool UsdGenGuideInterpolateOp::Capture(
     UsdGenCaptureContext const &ctx,
     UsdGenOpInputs const &in,
@@ -459,8 +467,8 @@ bool UsdGenGuideInterpolateOp::Capture(
         ctx.resolvedReferences[0] && ctx.resolvedReferences[0]->value;
     if (falloff ? !haveRef : ctx.referenceCount > 1 || (ctx.referenceCount == 1 && !haveRef))
         return fail("usdGen:guides must target one guide curve set");
-    UsdGenCurveBuffer const &guides =
-        haveRef ? ctx.resolvedReferences[0]->value->buffer : kNoGuides;
+    UsdGenCurveSetView const guides =
+        haveRef ? UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value) : UsdGenCurveSetView{};
     UsdGenClumpMotion guideClumps;
     if (haveRef) {
         std::string clumpError;
@@ -867,11 +875,9 @@ bool UsdGenGuideInterpolateOp::Capture(
     // levels not present on guides retain the root-source planes above.
     UsdGenOpRecord const &record = Record();
     auto const &tk = UsdGenTokens();
-    auto findGuideIds = [&guides, &record](int level) -> UsdGenPlane const * {
-        TfToken const name = ClumpPlaneName(record, level, 0);
-        auto const it = std::lower_bound(guides.extraCurve.begin(), guides.extraCurve.end(), name,
-            [](UsdGenPlane const &plane, TfToken const &needle) { return plane.name < needle; });
-        return it != guides.extraCurve.end() && it->name == name ? &*it : nullptr;
+    auto findGuideIds = [&guides, &record](int level, UsdGenPlaneView *out) {
+        bool perCv = false;
+        return guides.FindPlane(ClumpPlaneName(record, level, 0), out, &perCv) && !perCv;
     };
     auto erasePlane = [&buf](TfToken const &name) {
         auto eraseNamed = [&name](std::vector<UsdGenPlane> *planes) {
@@ -890,8 +896,9 @@ bool UsdGenGuideInterpolateOp::Capture(
     };
     for (UsdGenClumpMotionLevel const &level : guideClumps.levels) {
         if (level.weight.empty()) continue; // legacy ID only
-        UsdGenPlane const *guideIds = findGuideIds(level.level);
-        if (!guideIds || guideIds->i.size() != G) continue;
+        UsdGenPlaneView guideIdPlane;
+        if (!findGuideIds(level.level, &guideIdPlane) || guideIdPlane.i.size() != G) continue;
+        UsdGenPlaneView const *guideIds = &guideIdPlane;
         UsdGenPlane outId, outCenter, outCenterId, outWeight;
         outId.name = ClumpPlaneName(record, level.level, 0);
         outId.interpolation = tk.uniform;
@@ -1050,7 +1057,7 @@ UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &r)
     d.name = "UsdGenGuideInterpolate";
     d.displayName = "GuideInterpolate";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CvCount;
+    d.countChanges = UsdGenCountsAtLevel(2);
     d.traits = kUsdGenOpGenerator | kUsdGenOpCaptureOwnsRestAndPlanes;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);

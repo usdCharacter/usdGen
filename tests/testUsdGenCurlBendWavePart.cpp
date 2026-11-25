@@ -7,6 +7,7 @@
 //       compiles, one wrong-destination and one wrong-domain binding fail);
 //   (3) deterministic CPU cooks over small hand-built topologies (fixed seeds).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
@@ -55,7 +56,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -138,7 +139,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -175,7 +176,7 @@ static void CheckRegistryContracts()
         if (!op) continue;
         Check(registry.Record(registry.Find(type)).Name() == type, name + " reports its own type");
         UsdGenOpRecord const &rec = op->Record();
-        Check(rec.Def().topoFx == UsdGenTopoFx::None,
+        Check(rec.Def().countChanges == 0,
               name + " has TopologyEffect None");
         TfSpan<const TfToken> const refs = rec.ReferenceInputs();
         std::vector<TfToken> const primvars = usdGenTest::OutputPlaneNames(rec);
@@ -207,7 +208,7 @@ static UsdGenGraphDesc OpDesc(char const *opType, bool withPartRef)
     if (withPartRef) {
         UsdGenCurveSetDesc parting;
         parting.path = SdfPath("/groom/parting");
-        parting.role = UsdGenRole::Reference;
+        parting.role = UsdGenLane::Reference;
         parting.curveRole = TfToken("guide");
         parting.curveVertexCounts = {3};
         parting.points = {GfVec3f(-1, 0, 0), GfVec3f(0, 0, 0), GfVec3f(1, 0, 0)};
@@ -689,7 +690,7 @@ static void CheckPartCook()
         StraightStrands(SdfPath("/part/hair"), roots, kCvs, 0.25f));
     UsdGenCurveSetDesc parting;
     parting.path = SdfPath("/part/parting");
-    parting.role = UsdGenRole::Reference;
+    parting.role = UsdGenLane::Reference;
     parting.curveRole = TfToken("guide");
     parting.curveVertexCounts = {3};
     parting.points = {GfVec3f(-1, 0, 0), GfVec3f(0, 0, 0), GfVec3f(1, 0, 0)};

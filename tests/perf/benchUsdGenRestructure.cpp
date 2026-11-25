@@ -211,8 +211,8 @@ void EngineBench(int threads, int runs)
         t1 = Clock::now();
         coldCook.v.push_back(Ms(t0, t1));
         if (first.terminalOutput) {
-            curves = first.terminalOutput->totalCurves;
-            cvs = first.terminalOutput->totalCvs;
+            curves = first.terminalOutput->Count(1);
+            cvs = first.terminalOutput->Count(2);
         }
         // Warm: same topology, every chunk dirty.
         for (int i = 0; i < 3; ++i) {

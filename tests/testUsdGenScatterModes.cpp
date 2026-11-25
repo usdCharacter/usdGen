@@ -10,6 +10,7 @@
 // the math is wrong (counts, spacing, proximity radius, thinning fraction,
 // stable strand identity, determinism).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -96,7 +97,7 @@ UsdGenCurveSetDesc GuideSet(std::vector<std::vector<GfVec3f>> const &curves,
 {
     UsdGenCurveSetDesc g;
     g.path = SdfPath("/Groom/Guides");
-    g.role = UsdGenRole::Reference;
+    g.role = UsdGenLane::Reference;
     g.curveRole = TfToken("guide");
     g.type = TfToken("linear");
     for (auto const &c : curves) {
@@ -149,7 +150,7 @@ bool Cook(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, std::string *error =
         if (error) *error += e;
     }
     if (run.diagnostics.HasErrors()) return false;
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -157,7 +158,7 @@ bool Cook(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, std::string *error =
 UsdGenReferenceSet ReferenceOf(UsdGenCurveSetDesc const &g)
 {
     UsdGenReferenceSet r;
-    UsdGenCurveBuffer &b = r.buffer;
+    UsdGenCurveBuffer b;
     b.totalCurves = uint32_t(g.curveVertexCounts.size());
     b.totalCvs = uint32_t(g.points.size());
     b.cvOffsets = VtIntArray(b.totalCurves + 1, 0);
@@ -170,6 +171,8 @@ UsdGenReferenceSet ReferenceOf(UsdGenCurveSetDesc const &g)
     }
     b.rest = g.rest;
     b.curveId = g.curveId;
+    r.set = UsdGenCurveSetFromBuffer(b, 0, 0, true);
+    if (r.set) r.set->Export();
     return r;
 }
 

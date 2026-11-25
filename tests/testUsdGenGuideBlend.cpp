@@ -11,8 +11,10 @@
 // XZ plane, root normal +Y) -> GuideInterpolate with a reference guide set.
 // Expected values are computed by hand from the reference rules.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/ops/guideBlend.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/scheduler.h"
 
 #include <cmath>
@@ -67,7 +69,7 @@ static UsdGenGraphDesc Build(Fixture const &f)
     // (rows tangent, binormal, normal; tangent x binormal = normal).
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/groom/roots");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     size_t const R = f.roots.size();
     hair.curveVertexCounts.assign(R, 2);
@@ -124,7 +126,7 @@ static UsdGenGraphDesc Build(Fixture const &f)
     if (f.withGuides) {
         UsdGenCurveSetDesc guides;
         guides.path = SdfPath("/groom/guides");
-        guides.role = UsdGenRole::Reference;
+        guides.role = UsdGenLane::Reference;
         guides.curveRole = TfToken("guide");
         for (Polyline const &g : f.guides) {
             guides.curveVertexCounts.push_back(int(g.size()));
@@ -160,7 +162,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, bool quiet
             for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

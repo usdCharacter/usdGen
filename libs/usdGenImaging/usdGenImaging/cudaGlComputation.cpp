@@ -104,17 +104,17 @@ UsdGenCudaGlComputation::_WholeChannelCount(uint64_t *count) const noexcept
     case S::HairT:
         *count = _generation->Geometry().pointCount;
         return true;
-    case S::CurveOffsets:
-        if (_generation->Geometry().curveCount ==
+    case S::ElementOffsets:
+        if (_generation->Geometry().elementCount ==
             std::numeric_limits<uint64_t>::max()) {
             return false;
         }
-        *count = _generation->Geometry().curveCount + 1;
+        *count = _generation->Geometry().elementCount + 1;
         return true;
     case S::StableIds:
     case S::RootPrim:
     case S::RootUV:
-        *count = _generation->Geometry().curveCount;
+        *count = _generation->Geometry().elementCount;
         return true;
     default:
         return false;
@@ -140,11 +140,11 @@ UsdGenCudaGlComputation::_SelectedTile(
         // malformed sibling can otherwise make a generation's tile layout
         // ambiguous even when this candidate happens to be in bounds.
         if ((havePreviousId && candidate.tile <= previousId) ||
-            candidate.curveCount > candidate.pointCount ||
-            (candidate.curveCount == 0 && candidate.pointCount != 0) ||
-            candidate.firstCurve != curveEnd || candidate.firstPoint != pointEnd ||
-            candidate.firstCurve > geometry.curveCount ||
-            candidate.curveCount > geometry.curveCount - candidate.firstCurve ||
+            candidate.elementCount > candidate.pointCount ||
+            (candidate.elementCount == 0 && candidate.pointCount != 0) ||
+            candidate.firstElement != curveEnd || candidate.firstPoint != pointEnd ||
+            candidate.firstElement > geometry.elementCount ||
+            candidate.elementCount > geometry.elementCount - candidate.firstElement ||
             candidate.firstPoint > geometry.pointCount ||
             candidate.pointCount > geometry.pointCount - candidate.firstPoint ||
             candidate.firstPoint > std::numeric_limits<uint32_t>::max() ||
@@ -152,7 +152,7 @@ UsdGenCudaGlComputation::_SelectedTile(
                 std::numeric_limits<uint32_t>::max() - candidate.firstPoint) {
             return false;
         }
-        curveEnd += candidate.curveCount;
+        curveEnd += candidate.elementCount;
         pointEnd += candidate.pointCount;
         previousId = candidate.tile;
         havePreviousId = true;
@@ -161,7 +161,7 @@ UsdGenCudaGlComputation::_SelectedTile(
             found = true;
         }
     }
-    return found && curveEnd == geometry.curveCount &&
+    return found && curveEnd == geometry.elementCount &&
         pointEnd == geometry.pointCount;
 }
 
@@ -190,16 +190,16 @@ UsdGenCudaGlComputation::_Describe(
         case S::HairT:
             channelCount = tile.pointCount;
             break;
-        case S::CurveOffsets:
-            if (tile.curveCount == std::numeric_limits<uint64_t>::max()) {
+        case S::ElementOffsets:
+            if (tile.elementCount == std::numeric_limits<uint64_t>::max()) {
                 return false;
             }
-            channelCount = tile.curveCount + 1;
+            channelCount = tile.elementCount + 1;
             break;
         case S::StableIds:
         case S::RootPrim:
         case S::RootUV:
-            channelCount = tile.curveCount;
+            channelCount = tile.elementCount;
             break;
         default:
             return false;
@@ -223,7 +223,7 @@ UsdGenCudaGlComputation::_Describe(
         *tuple = HdTupleType{HdTypeFloat, 1};
         *elementBytes = sizeof(float);
         return true;
-    case S::CurveOffsets:
+    case S::ElementOffsets:
         *tuple = HdTupleType{HdTypeUInt32, 1};
         *elementBytes = sizeof(uint32_t);
         return true;
@@ -308,7 +308,7 @@ UsdGenCudaGlComputation::Execute(
     case S::Points:
     case S::RestPoints: expectedValueType = VT::Float32x3; expectedArity = 3; break;
     case S::RootUV: expectedValueType = VT::Float32x2; expectedArity = 2; break;
-    case S::CurveOffsets: expectedValueType = VT::UInt32; break;
+    case S::ElementOffsets: expectedValueType = VT::UInt32; break;
     case S::StableIds: expectedValueType = VT::UInt64; break;
     case S::RootPrim: expectedValueType = VT::Int32; break;
     case S::Widths:
@@ -404,7 +404,7 @@ UsdGenCudaGlComputation::Execute(
         case S::RestPoints: source = geometry.restPoints.data; sourceCount = geometry.restPoints.size; break;
         case S::Widths: source = geometry.widths.data; sourceCount = geometry.widths.size; break;
         case S::HairT: source = geometry.hairT.data; sourceCount = geometry.hairT.size; break;
-        case S::CurveOffsets: source = geometry.curveOffsets.data; sourceCount = geometry.curveOffsets.size; break;
+        case S::ElementOffsets: source = geometry.curveOffsets.data; sourceCount = geometry.curveOffsets.size; break;
         case S::StableIds: source = geometry.stableIds.data; sourceCount = geometry.stableIds.size; break;
         case S::RootPrim: source = geometry.rootPrim.data; sourceCount = geometry.rootPrim.size; break;
         case S::RootUV: source = geometry.rootUV.data; sourceCount = geometry.rootUV.size; break;
@@ -417,7 +417,7 @@ UsdGenCudaGlComputation::Execute(
         case S::RestPoints: source = geometry.restPoints.data; sourceCount = geometry.restPoints.size; break;
         case S::Widths: source = geometry.widths.data; sourceCount = geometry.widths.size; break;
         case S::HairT: { auto v = lease.HairT(); source = v.data; sourceCount = v.size; break; }
-        case S::CurveOffsets: source = geometry.curveOffsets.data; sourceCount = geometry.curveOffsets.size; break;
+        case S::ElementOffsets: source = geometry.curveOffsets.data; sourceCount = geometry.curveOffsets.size; break;
         case S::StableIds: source = geometry.stableIds.data; sourceCount = geometry.stableIds.size; break;
         case S::RootPrim: { auto v = lease.RootPrim(); source = v.data; sourceCount = v.size; break; }
         case S::RootUV: { auto v = lease.RootUV(); source = v.data; sourceCount = v.size; break; }

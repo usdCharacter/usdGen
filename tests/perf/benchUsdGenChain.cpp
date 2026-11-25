@@ -14,6 +14,8 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -295,17 +297,17 @@ int main(int argc, char **argv)
         ctxB.desc = &gB.Desc();
         UsdGenRunResult rA = s1.Run(gA, ctxA, 1);
         UsdGenRunResult rB = s8.Run(gB, ctxB, 1);
-        UsdGenCurveBuffer const &a = *rA.terminalOutput;
-        UsdGenCurveBuffer const &b = *rB.terminalOutput;
+        UsdGenCurveBuffer const a = UsdGenCurveBufferFromSet(*rA.terminalOutput);
+        UsdGenCurveBuffer const b = UsdGenCurveBufferFromSet(*rB.terminalOutput);
         bool same = a.totalCurves == b.totalCurves && a.totalCvs == b.totalCvs &&
                     SameArray(a.px, b.px) && SameArray(a.py, b.py) &&
                     SameArray(a.pz, b.pz) && SameArray(a.width, b.width) &&
                     SameArray(a.hairT, b.hairT) && SameArray(a.curveId, b.curveId) &&
                     SameArray(a.rootPrim, b.rootPrim) &&
-                    rA.tiles.size() == rB.tiles.size();
-        for (size_t i = 0; same && i < rA.tiles.size(); ++i)
-            same = rA.tiles[i].totalLiveCurves == rB.tiles[i].totalLiveCurves &&
-                   rA.tiles[i].totalLiveCvs == rB.tiles[i].totalLiveCvs;
+                    rA.groups.size() == rB.groups.size();
+        for (size_t i = 0; same && i < rA.groups.size(); ++i)
+            same = rA.groups[i].live[0] == rB.groups[i].live[0] &&
+                   rA.groups[i].live[1] == rB.groups[i].live[1];
         std::printf("E-8 (1 vs 8 threads bitwise): %s\n", same ? "PASS" : "FAIL");
         if (!same) ++g_hardFail;
     }

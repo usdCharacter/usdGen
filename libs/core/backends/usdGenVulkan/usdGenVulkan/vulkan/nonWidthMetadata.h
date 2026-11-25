@@ -24,8 +24,8 @@ inline bool SameNonWidthChannelMetadata(UsdGenDeviceChannelMetadata const& a,
 inline bool SameNonWidthTileMetadata(UsdGenDeviceTileMetadata const& a,
                                      UsdGenDeviceTileMetadata const& b)
 {
-    if (a.tile != b.tile || a.firstCurve != b.firstCurve ||
-        a.curveCount != b.curveCount || a.firstPoint != b.firstPoint ||
+    if (a.tile != b.tile || a.firstElement != b.firstElement ||
+        a.elementCount != b.elementCount || a.firstPoint != b.firstPoint ||
         a.pointCount != b.pointCount || a.boundsValid != b.boundsValid)
         return false;
     for (size_t axis = 0; axis != a.extentMin.size(); ++axis) {
@@ -40,11 +40,9 @@ inline bool SameNonWidthGeometryMetadata(UsdGenDeviceGeometryMetadata const& a,
                                          UsdGenDeviceGeometryMetadata const& b)
 {
     // topologyVersion/valueVersion are revision IDs, not fan-in semantics.
-    if (a.curveCount != b.curveCount || a.pointCount != b.pointCount ||
+    if (a.elementCount != b.elementCount || a.pointCount != b.pointCount ||
         a.alreadyDeformed != b.alreadyDeformed ||
-        a.curveTopology.type != b.curveTopology.type ||
-        a.curveTopology.basis != b.curveTopology.basis ||
-        a.curveTopology.wrap != b.curveTopology.wrap ||
+        a.layoutMetadata != b.layoutMetadata ||
         a.tiles.size() != b.tiles.size())
         return false;
     for (size_t i = 0; i != a.tiles.size(); ++i)

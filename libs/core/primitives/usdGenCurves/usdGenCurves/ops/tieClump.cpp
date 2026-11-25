@@ -201,7 +201,7 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
     if (ctx.referenceCount != 1 || !ctx.resolvedReferences || !ctx.resolvedReferences[0] ||
         !ctx.resolvedReferences[0]->value)
         return fail("usdGen:guides must target one guide curve set when ties are authored");
-    UsdGenCurveBuffer const &guides = ctx.resolvedReferences[0]->value->buffer;
+    UsdGenCurveSetView const guides = UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value);
     std::vector<uint32_t> guideSpans;
     std::string error;
     if (!opUtil::CurveSpans(guides, &guideSpans, &error)) return fail("guide topology: " + error);

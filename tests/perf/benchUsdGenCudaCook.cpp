@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
             for (auto const& e : diagnostics.errors) std::fprintf(stderr, "%s\n", e.c_str());
             return 1;
         }
-        curves = next->Geometry().curveCount;
+        curves = next->Geometry().elementCount;
         previous = std::move(next);
         if (run >= 3) direct.push_back(ms(t0, t1));
     }

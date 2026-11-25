@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
@@ -68,7 +69,7 @@ static bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     auto result = scheduler.Run(graph, context, 1);
     for (auto const& error : result.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     if (result.diagnostics.HasErrors()) return false;
-    *output = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     return true;
 }
 
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
               metadata->MemoryEstimate().conservativeUpperBound);
         CHECK(metadata->Tasks().size() == 2 && metadata->Operators().size() == 2);
         CHECK(metadata->TerminalTask() == 1);
-        CHECK(metadata->Tasks()[0].type == TfToken("UsdGenScatterGrow"));
+        CHECK(metadata->Tasks()[0].type == TfToken("CudaScatterGrow"));
         CHECK(metadata->Tasks()[0].estimate.steadyBytes == 2 * sizeof(int));
         CHECK(metadata->Tasks()[1].dependencies == std::vector<uint32_t>{0});
         CHECK(metadata->Tasks()[1].estimate.scratchPeakBytes > 0);
@@ -292,9 +293,9 @@ int main(int argc, char** argv) {
         CHECK(!first->device->Geometry().tiles.empty());
         uint64_t nextCurve = 0, nextPoint = 0;
         for (auto const& tile : first->device->Geometry().tiles) {
-            CHECK(tile.firstCurve == nextCurve && tile.firstPoint == nextPoint);
-            CHECK(tile.curveCount > 0 && tile.pointCount == tile.curveCount * 5);
-            nextCurve += tile.curveCount;
+            CHECK(tile.firstElement == nextCurve && tile.firstPoint == nextPoint);
+            CHECK(tile.elementCount > 0 && tile.pointCount == tile.elementCount * 5);
+            nextCurve += tile.elementCount;
             nextPoint += tile.pointCount;
         }
         CHECK(nextCurve == ids.size() && nextPoint == points.size());

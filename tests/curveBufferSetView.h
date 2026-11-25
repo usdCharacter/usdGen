@@ -1,18 +1,43 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// Bridge (5.3a; 5.4 deletes): buffer-backed set views.
-#include "usdGenCurves/types/curveBridge.h"
+// Tests only: element-set views over builder buffers (the 5.3a bridge, moved
+// out of the engine in 5.4), so tests hand ops set views over buffers.
+#pragma once
+#include "usdGen/api/elementSet.h"
+#include "usdGen/exec/pool.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/registries/engineTokens.h"
-
 #include <algorithm>
+#include <cstdint>
 
 namespace usdGen {
 
-namespace {
+/// A UsdGenElementSetView of the CurveSet layout over a UsdGenCurveBuffer.
+/// Columns alias the buffer's arrays.
+class UsdGenCurveBufferSetView
+{
+public:
+    /// Points the view at 'b'. Rebuilds the channel table only when the
+    /// buffer's plane layout changed (allocates then); otherwise it
+    /// refreshes pointers and counts and allocates nothing.
+    void Bind(UsdGenCurveBuffer const &b);
+    UsdGenElementSetView const &View() const noexcept { return _view; }
+    UsdGenChannelTable const *Channels() const noexcept { return _table.Get(); }
 
-UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p, bool cv, UsdGenEngineTokens const &tk) noexcept
+private:
+    UsdGenRef<const UsdGenChannelTable> _table;
+    UsdGenPoolVector<UsdGenChannelDesc> _dynamic;   // extraCurve then extraCv
+    UsdGenPoolVector<UsdGenSlot> _planeSlots;       // same order: the table slot
+    UsdGenPoolVector<void const *> _columns;
+    UsdGenPoolVector<uint32_t> _values;
+    UsdGenElementSetView _view;
+};
+
+namespace curveBufferSetViewDetail {
+
+inline UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p, bool cv, UsdGenEngineTokens const &tk) noexcept
 {
     UsdGenChannelDesc d;
     d.name = p.name;
@@ -23,24 +48,25 @@ UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p, bool cv, UsdGenEngineTokens co
     return d;
 }
 
-bool SameDesc(UsdGenChannelDesc const &a, UsdGenChannelDesc const &b) noexcept
+inline bool SameDesc(UsdGenChannelDesc const &a, UsdGenChannelDesc const &b) noexcept
 {
     return a.name == b.name && a.scalar == b.scalar && a.arity == b.arity &&
            a.level == b.level && a.flags == b.flags;
 }
 
 template <class A>
-void Put(UsdGenPoolVector<void const *> &columns, UsdGenPoolVector<uint32_t> &values,
-         UsdGenSlot slot, A const &a, uint32_t arity) noexcept
+inline void Put(UsdGenPoolVector<void const *> &columns, UsdGenPoolVector<uint32_t> &values,
+                UsdGenSlot slot, A const &a, uint32_t arity) noexcept
 {
     columns[slot] = a.empty() ? nullptr : static_cast<void const *>(a.cdata());
     values[slot] = uint32_t(a.size() * arity);
 }
 
-}  // namespace
+}  // namespace curveBufferSetViewDetail
 
-void UsdGenCurveBufferSetView::Bind(UsdGenCurveBuffer const &b)
+inline void UsdGenCurveBufferSetView::Bind(UsdGenCurveBuffer const &b)
 {
+    using namespace curveBufferSetViewDetail;
     UsdGenEngineTokens const &tk = UsdGenTokens();
     size_t const planes = b.extraCurve.size() + b.extraCv.size();
     bool same = _table && _dynamic.size() == planes;
@@ -95,7 +121,6 @@ void UsdGenCurveBufferSetView::Bind(UsdGenCurveBuffer const &b)
     _view.values = _values.data();
     _view.topologyVersion = b.topologyVersion;
     _view.valueVersion = b.valueVersion;
-    _view.legacy = &b;
 }
 
 }  // namespace usdGen

@@ -6,12 +6,11 @@
 #ifndef USDGEN_GRAPH_H
 #define USDGEN_GRAPH_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGen/api/elementSet.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/types.h"
-#include "usdGenCurves/types/curveBridge.h"
 
 #include <array>
 #include <cstddef>
@@ -57,7 +56,7 @@ struct UsdGenGraphRoutingNode
     std::vector<std::pair<TfToken, uint32_t>> paramRouting;
     UsdGenSurfaceId surface = 0;
     bool hasSurface = false;
-    std::vector<SdfPath> curveRefs;
+    std::vector<SdfPath> inputRefs;
     std::vector<SdfPath> mapRefs;
     std::vector<UsdGenMapBindingDesc> mapBindingRefs;
     std::vector<SdfPath> geometryRefs;
@@ -76,7 +75,7 @@ struct UsdGenGraphRoutingSnapshot
     UsdGenNodeId terminal = kUsdGenInvalidNode;
 };
 
-/// One compiled node. Owns its UsdGenOp, its output buffer, its capture, its
+/// One compiled node. Owns its UsdGenOp, its output set, its capture, its
 /// chunk dirty bytes and its digests (03 §3.2).
 struct UsdGenCompiledNode : UsdGenPooled
 {
@@ -91,27 +90,37 @@ struct UsdGenCompiledNode : UsdGenPooled
     UsdGenNodeId           input = kUsdGenInvalidNode;   // primary usdGen:input (dense range test)
     std::vector<UsdGenNodeId> inputs;                   // all usdGen:input targets
 
-    UsdGenTopoFx           topoFx = UsdGenTopoFx::None;
-    UsdGenRole             role = UsdGenRole::Curves;
+    uint8_t                countChanges = 0;
+    UsdGenLane             lane = UsdGenLane::Chunked;
     bool                   enabled = true;
 
     UsdGenEpoch            structuralDigest {};  // Merkle d(n) (03 §3.3)
     UsdGenEpoch            captureEpoch {};      // (03 §3.4)
-    uint64_t               valueVersion = 0;     // (03 §3.2)
-    uint64_t               topologySeq = 0;       // monotone install counter for generators
+    // The stamps of `output` (03 §3.2), kept here too so a node without an
+    // output yet (or a rebuilt one, compiler) carries them: valueVersion is
+    // this node's own counter, bumped by every run that writes;
+    // topologyVersion follows the input, or topologySeq for an owning capture.
+    uint64_t               valueVersion = 0;
+    uint64_t               topologyVersion = 0;
+    uint64_t               topologySeq = 0;       // monotone install counter for owning captures
 
-    UsdGenCurveBuffer      buffer;               // this node's output (S24)
-    // Bridge (5.3a; 5.4 deletes): `buffer` as a set for the new op families,
-    // rebound by the scheduler before each use.
-    UsdGenCurveBufferSetView setView;
+    // This node's output (S24): sealed by the scheduler whenever it prepares
+    // the node. Unwritten channels share the input's (or the capture's)
+    // columns; the written ones live in one delta arena that the next run
+    // rewrites in place (D9). Null before the first run.
+    UsdGenRef<const UsdGenElementSet> output;
+    // An owning capture's output, converted once per capture: the base the
+    // node's output derives from. Null for every other capture.
+    UsdGenRef<const UsdGenElementSet> captureOutput;
+    // Slot cache: the output's channel table for the input table and prior
+    // output table it was derived from (refreshed only when either moves).
+    UsdGenRef<const UsdGenChannelTable> channels;
+    uint64_t               channelsInput = 0, channelsPrior = 0;
     std::unique_ptr<UsdGenCapture> capture;       // epoch-keyed payload
     // The capture `capture` replaced, kept when Recyclable(): the next
     // re-capture refills it (by then nothing downstream shares its arrays).
     std::unique_ptr<UsdGenCapture> spareCapture;
-    // Written planes an owning capture's buffer replaced, kept for the next
-    // install (same retirement lag as spareCapture).
-    VtFloatArray retiredPx, retiredPy, retiredPz, retiredHairT;
-    std::vector<UsdGenChunkDesc> chunks;          // this node's chunk partition
+    UsdGenPoolVector<UsdGenChunkRange> chunks;    // this node's chunk partition
     std::vector<UsdGenChunkDirtyBits> chunkDirty; // one dirty word per chunk
     std::vector<uint8_t>      chunkCaptured;      // capture-validity byte per chunk (reference lane: single flag)
 
@@ -140,7 +149,7 @@ struct UsdGenCompiledNode : UsdGenPooled
     std::vector<TfToken> inputPrimvars;
     UsdGenSurfaceId        surface = 0;
     bool                   hasSurface = false;
-    std::vector<SdfPath>   curveRefs;            // usdGen:curves/guides/frozen:curves targets
+    std::vector<SdfPath>   inputRefs;            // usdGen:curves/guides/frozen:curves targets
     std::vector<SdfPath>   mapRefs;              // legacy flat map targets
     std::vector<UsdGenMapBindingDesc> mapBindingRefs; // typed authored map slots
     // Prims a connected expression reads through its input:<name>
@@ -193,7 +202,7 @@ public:
     void DirtyMap(SdfPath const &mapPrim, uint64_t generation = UINT64_MAX);
     /// Bumps the capture epoch of every node whose UsdGenNodeDesc::curves names this prim
     /// (a C3 BasisCurves changed: guide edit, re-freeze, re-import). §3.6, §4.5.
-    void DirtyCurves(SdfPath const &curvePrim,
+    void DirtyInput(SdfPath const &inputIdentity,
                      uint64_t generation = UINT64_MAX);
     /// Re-captures every node whose connected expressions sample this prim
     /// (geoSampler()/ptex() inputs), or a descendant of it.
@@ -206,10 +215,16 @@ public:
         return _inputVersions;
     }
 
-    /// The terminal node's OUTPUT buffer and its tile partition (03 §6.3).
-    UsdGenCurveBuffer const &Output() const;
-    TfSpan<const UsdGenChunkDesc> Chunks(NodeId id) const;
-    TfSpan<const UsdGenTileView>  Tiles() const;
+    /// The terminal node's output set (an empty set before the first run)
+    /// and its tile partition (03 §6.3).
+    UsdGenElementSet const &Output() const;
+    /// A node's output, or the empty set.
+    UsdGenElementSet const &NodeOutput(NodeId id) const;
+    /// A set with no elements (made on first use).
+    UsdGenElementSet const &EmptyOutput() const;
+    UsdGenSpan<const UsdGenChunkRange> Chunks(NodeId id) const;
+    /// Publication groups over the terminal's chunks (a C2 tile per group).
+    UsdGenSpan<const UsdGenChunkGroup> Groups() const;
 
     /// True when any node carries a dirty byte the next commit must consume.
     bool AnyDirty() const noexcept;
@@ -242,20 +257,21 @@ public:
     int ChunkSize() const noexcept { return _chunkSize; }
     int TileTarget() const noexcept { return _tileTarget; }
     int ChunksPerTile() const noexcept { return _chunksPerTile; }
-    int NumTiles() const noexcept { return int(_tiles.size()); }
+    int NumGroups() const noexcept { return int(_groups.size()); }
     NodeId TerminalNodeId() const noexcept { return _terminal; }
     UsdGenNodeId NodeIdForPath(SdfPath const &path) const;
     /// OR bits into node id's chunks (all of them) and propagate the value
     /// bits to every strict descendant (03 §5.2 hop 3).
     void MarkNode(NodeId id, uint32_t bits);
-    /// Re-partition every node's chunks + the tile set after a topology
-    /// change. Per-node CV count is taken from the node's own buffer when
-    /// known (a generator upstream of a CV-changing node keeps its own
-    /// cv/curve); `cvCount` is the fallback for nodes whose buffers are not
-    /// populated yet. Returns true when the layout (curve count, chunk
-    /// count or any node's cv/curve) changed; unchanged nodes keep their
-    /// chunk and dirty bytes.
-    bool Repartition(int totalCurves, int cvCount);
+    /// Re-partition every node's chunks + the group set after a topology
+    /// change, through the output layout's partition and groups hooks. A
+    /// node's sub-item layout comes from its effective set when known (a
+    /// generator upstream of a CV-changing node keeps its own cv/curve);
+    /// `fallbackStride` items per element stand in for a set not populated
+    /// yet. Returns true when the layout (element count, chunk count or any
+    /// node's chunk spans) changed; unchanged nodes keep their chunk and
+    /// dirty bytes.
+    bool Repartition(uint32_t elements, uint32_t fallbackStride);
 private:
     void _PropagateDescendantBits(uint32_t bits, std::vector<bool> const &descendants);
 
@@ -271,7 +287,9 @@ private:
     mutable std::vector<std::array<uint64_t, 3>> _restSourceKeys;
     std::shared_ptr<const UsdGenCudaExecutionPlan> _cudaPlan;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _nodes; // indexed by id
-    std::vector<UsdGenTileView> _tiles;          // terminal tile partition
+    UsdGenPoolVector<UsdGenChunkGroup> _groups;  // terminal publication groups
+    UsdGenPoolVector<UsdGenChunkRange> _rangeScratch;   // Repartition's desired chunks
+    UsdGenPoolVector<UsdGenChunkGroup> _groupScratch;   // and groups
     std::vector<UsdGenResolvedReferenceValue> _referenceValues;
     std::vector<UsdGenResolvedMapValue> _mapValues;
     UsdGenNodeId      _terminal = InvalidNode;
@@ -280,10 +298,10 @@ private:
     int _chunkSize = kUsdGenDefaultChunkSize;
     int _tileTarget = kUsdGenTileTargetDefault;
     int _chunksPerTile = 1;
-    int _partitionCurves = 0;   // totalCurves of the last partition (0 == unpartitioned)
+    uint32_t _partitionElements = 0;   // elements of the last partition (0 == unpartitioned)
     // Fallback lifetime belongs to the graph, not process static teardown.
-    // It is private and Output exposes it only as const.
-    UsdGenCurveBuffer _emptyOutput;
+    // Made on first use; Output exposes it only as const.
+    mutable UsdGenRef<const UsdGenElementSet> _emptyOutput;
     UsdGenExecutionInputVersions _inputVersions;
 };
 

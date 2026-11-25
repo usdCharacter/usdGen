@@ -3,6 +3,7 @@
 
 #include "sourceGeneration.h"
 #include "sourceValidation.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include <new>
 
 #include <cmath>
@@ -438,9 +439,9 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithGrown(
     try {
         auto child = std::shared_ptr<VulkanSourceGeneration>(
             new VulkanSourceGeneration(base, named, target, value));
-        child->childGeometry_.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                                               UsdGenDeviceCurveBasis::BSpline,
-                                               UsdGenDeviceCurveWrap::Pinned};
+        child->childGeometry_.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+                                              UsdGenCurveLayoutBasis::BSpline,
+                                              UsdGenCurveLayoutWrap::Pinned);
         if (!base->curveCount()) return child;
         using T = UsdGenDeviceValueType; using D = UsdGenDeviceDomain;
         using S = UsdGenDeviceChannelSemantic;
@@ -466,7 +467,7 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithGrown(
         replace("rest", T::Float32x3, D::Point, 3, S::RestPoints, grow.rest());
         replace("width", T::Float32, D::Point, 1, S::Widths, grow.widths());
         replace("hairT", T::Float32, D::Point, 1, S::HairT, grow.hairT());
-        replace("curveOffsets", T::UInt32, D::Topology, 1, S::CurveOffsets, grow.offsets());
+        replace("curveOffsets", T::UInt32, D::Topology, 1, S::ElementOffsets, grow.offsets());
         replace("stableIds", T::UInt64, D::Primitive, 1, S::StableIds, grow.ids());
         replace("rootPrim", T::Int32, D::Primitive, 1, S::RootPrim, grow.rootPrim());
         replace("rootUV", T::Float32x2, D::Primitive, 2, S::RootUV, grow.rootUV());
@@ -596,7 +597,7 @@ VulkanSourceGeneration::VulkanSourceGeneration(
     childGeometry_ = base->geometry();
     childGeometry_.topologyVersion = value;
     childGeometry_.valueVersion = value;
-    childGeometry_.curveCount = compactCurves_;
+    childGeometry_.elementCount = compactCurves_;
     childGeometry_.pointCount = compactPoints_;
     childGeometry_.tiles = compactTiles_;
     for (auto& tile : childGeometry_.tiles) tile.boundsValid = false;
@@ -625,7 +626,7 @@ VulkanSourceGeneration::VulkanSourceGeneration(
     childGeometry_ = base->geometry();
     childGeometry_.topologyVersion = value;
     childGeometry_.valueVersion = value;
-    childGeometry_.curveCount = compactCurves_;
+    childGeometry_.elementCount = compactCurves_;
     childGeometry_.pointCount = compactPoints_;
     childGeometry_.tiles = compactTiles_;
     for (auto& tile : childGeometry_.tiles) tile.boundsValid = false;
@@ -657,9 +658,9 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithCompac
         // Disabled Grow lowers to a native empty compaction but retains the
         // generated topology contract instead of the predecessor's basis.
         if (emptyGrow)
-            child->childGeometry_.curveTopology = {UsdGenDeviceCurveType::Cubic,
-                                                   UsdGenDeviceCurveBasis::BSpline,
-                                                   UsdGenDeviceCurveWrap::Pinned};
+            child->childGeometry_.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
+                                                  UsdGenCurveLayoutBasis::BSpline,
+                                                  UsdGenCurveLayoutWrap::Pinned);
         return child;
     } catch (std::bad_alloc const&) {
         if (why) *why = "compacted COW allocation failed";
@@ -712,13 +713,13 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithTiles(
         }
         first = false;
         previousId = tile.tile;
-        if (tile.curveCount > tile.pointCount ||
-            (tile.curveCount == 0 && tile.pointCount != 0) ||
+        if (tile.elementCount > tile.pointCount ||
+            (tile.elementCount == 0 && tile.pointCount != 0) ||
             tile.firstPoint > std::numeric_limits<uint32_t>::max() ||
             tile.pointCount > std::numeric_limits<uint32_t>::max() - tile.firstPoint ||
-            tile.firstCurve != curveEnd || tile.firstPoint != pointEnd ||
-            tile.curveCount > curves - curveEnd || tile.pointCount > points - pointEnd ||
-            tile.curveCount > std::numeric_limits<uint64_t>::max() - curveEnd ||
+            tile.firstElement != curveEnd || tile.firstPoint != pointEnd ||
+            tile.elementCount > curves - curveEnd || tile.pointCount > points - pointEnd ||
+            tile.elementCount > std::numeric_limits<uint64_t>::max() - curveEnd ||
             tile.pointCount > std::numeric_limits<uint64_t>::max() - pointEnd) {
             if (why) *why = "tile ranges must be contiguous and in bounds";
             return {};
@@ -731,7 +732,7 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithTiles(
                 return {};
             }
         }
-        curveEnd += tile.curveCount;
+        curveEnd += tile.elementCount;
         pointEnd += tile.pointCount;
     }
     if (tiles.empty()) {

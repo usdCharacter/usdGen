@@ -161,7 +161,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/authoredPlaneConvert.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
 libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp 5
-libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.h 5
+libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.h 4
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/context.cpp 1
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.cpp 2
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.h 2
@@ -202,7 +202,7 @@ libs/core/usdGen/usdGen/api/usdGen.h 1
 libs/core/usdGen/usdGen/compile/compiler.cpp 5
 libs/core/usdGen/usdGen/compile/compiler.h 4
 libs/core/usdGen/usdGen/compile/graph.cpp 2
-libs/core/usdGen/usdGen/compile/graph.h 4
+libs/core/usdGen/usdGen/compile/graph.h 3
 libs/core/usdGen/usdGen/compile/graphDesc.h 2
 libs/core/usdGen/usdGen/exec/allocCounter.cpp 1
 libs/core/usdGen/usdGen/exec/allocCounter.h 1
@@ -217,7 +217,7 @@ libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp 3
 libs/core/usdGen/usdGen/exec/device/executionRetirement.h 1
 libs/core/usdGen/usdGen/exec/epoch.cpp 1
 libs/core/usdGen/usdGen/exec/executionCache.cpp 3
-libs/core/usdGen/usdGen/exec/executionCache.h 4
+libs/core/usdGen/usdGen/exec/executionCache.h 3
 libs/core/usdGen/usdGen/exec/executionPipeline.cpp 5
 libs/core/usdGen/usdGen/exec/executionRuntimeInternal.h 2
 libs/core/usdGen/usdGen/exec/executionSequenceWindow.cpp 1
@@ -247,10 +247,10 @@ libs/core/usdGen/usdGen/exec/taskScheduler.cpp 4
 libs/core/usdGen/usdGen/exec/workerPool.cpp 5
 libs/core/usdGen/usdGen/registries/backendRegistry.h 1
 libs/core/usdGen/usdGen/registries/engineTokens.h 1
-libs/core/usdGen/usdGen/registries/op.h 4
+libs/core/usdGen/usdGen/registries/op.h 3
 libs/core/usdGen/usdGen/registries/opDef.h 2
 libs/core/usdGen/usdGen/registries/opRegistry.cpp 2
-libs/core/usdGen/usdGen/registries/opRegistry.h 2
+libs/core/usdGen/usdGen/registries/opRegistry.h 1
 libs/core/usdGen/usdGen/registries/registrar.h 1
 libs/core/usdGen/usdGen/registries/token.h 1
 libs/core/usdGen/usdGen/registries/typeRegistry.h 1

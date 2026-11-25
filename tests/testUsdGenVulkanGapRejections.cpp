@@ -69,7 +69,7 @@ UsdGenGraphDesc MakeDesc() {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Groom/C3");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{0, 0, 0}, {0, 1, 0}};
@@ -235,7 +235,7 @@ int main() {
                 if (value.producerTask != cullTask) continue;
                 if (value.resource == UsdGenExecutionDataKind::NamedChannels)
                     namedReplacement = true;
-                if (value.resource == UsdGenExecutionDataKind::CurveTopology)
+                if (value.resource == UsdGenExecutionDataKind::ElementTopology)
                     topologyReplacement = true;
             }
             ok = ok && cullTask != UINT32_MAX && namedReplacement && topologyReplacement;
@@ -709,9 +709,9 @@ int main() {
             for (auto const& value : handle->Metadata()->Values())
                 kinds.insert(value.resource);
         std::set<UsdGenExecutionDataKind> const want{
-            UsdGenExecutionDataKind::CurveGeometry,
+            UsdGenExecutionDataKind::ElementGeometry,
             UsdGenExecutionDataKind::Widths,
-            UsdGenExecutionDataKind::CurveTopology,
+            UsdGenExecutionDataKind::ElementTopology,
             UsdGenExecutionDataKind::StableIds,
             UsdGenExecutionDataKind::NamedChannels};
         Check(ok && kinds == want, "tools: plan values carry no pick/tile/index kinds");
@@ -722,13 +722,13 @@ int main() {
         // serves what the plan values never carried. Device spans/bounds are
         // proven by testUsdGenVulkanPicktileVkParity, not here.
         UsdGenDeviceGeometryMetadata geometry{};
-        geometry.curveCount = 2;
+        geometry.elementCount = 2;
         geometry.pointCount = 5;
         std::vector<UsdGenDeviceChannelMetadata> channels{
             {"points", UsdGenDeviceValueType::Float32x3, UsdGenDeviceDomain::Point, 5, 3, 12,
                 true, UsdGenDeviceChannelSemantic::Points},
             {"curveOffsets", UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Topology, 3,
-                1, 4, true, UsdGenDeviceChannelSemantic::CurveOffsets},
+                1, 4, true, UsdGenDeviceChannelSemantic::ElementOffsets},
             {"stableIds", UsdGenDeviceValueType::UInt64, UsdGenDeviceDomain::Primitive, 2,
                 1, 8, true, UsdGenDeviceChannelSemantic::StableIds},
         };
@@ -825,7 +825,7 @@ int main() {
                 if (value.producerTask == resampleTask) {
                     if (value.resource == UsdGenExecutionDataKind::NamedChannels)
                         namedReplacement = true;
-                    if (value.resource == UsdGenExecutionDataKind::CurveTopology)
+                    if (value.resource == UsdGenExecutionDataKind::ElementTopology)
                         topologyReplacement = true;
                 }
             }

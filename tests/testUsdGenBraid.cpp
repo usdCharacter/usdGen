@@ -16,6 +16,7 @@
 // bundle slot, knot-mask zeros at crossings, flyaways keyed by strandIndex,
 // no-guide pass-through, determinism (repeat cooks, 1 vs 4 threads).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -97,14 +98,14 @@ struct LaneSpec
 
 // --- graph fixtures -------------------------------------------------------
 
-static UsdGenCurveSetDesc StraightSet(SdfPath const &path, UsdGenRole role,
+static UsdGenCurveSetDesc StraightSet(SdfPath const &path, UsdGenLane role,
                                       std::vector<GfVec3f> const &roots, int cvs,
                                       std::vector<float> const &lengths)
 {
     UsdGenCurveSetDesc set;
     set.path = path;
     set.role = role;
-    set.curveRole = TfToken(role == UsdGenRole::Reference ? "guide" : "hair");
+    set.curveRole = TfToken(role == UsdGenLane::Reference ? "guide" : "hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
     set.points.resize(n * size_t(cvs));
@@ -159,14 +160,14 @@ static UsdGenGraphDesc MakeDesc(Scene const &scene)
     desc.defaultWidth = 0.01f;
     std::vector<float> lengths = scene.strandLengths;
     if (lengths.empty()) lengths.assign(scene.strandRoots.size(), 1.0f);
-    UsdGenCurveSetDesc hair = StraightSet(SdfPath("/groom/hair"), UsdGenRole::Curves,
+    UsdGenCurveSetDesc hair = StraightSet(SdfPath("/groom/hair"), UsdGenLane::Chunked,
                                           scene.strandRoots, scene.strandCvs, lengths);
     if (!scene.strandIndex.empty()) AddUniformInt(&hair, "strandIndex", scene.strandIndex);
     if (!scene.nearestGuide.empty()) AddUniformInt(&hair, "nearestGuide", scene.nearestGuide);
     desc.curveSets.push_back(hair);
     if (scene.withGuides)
         desc.curveSets.push_back(StraightSet(
-            SdfPath("/groom/guides"), UsdGenRole::Reference, scene.guideRoots, scene.guideCvs,
+            SdfPath("/groom/guides"), UsdGenLane::Reference, scene.guideRoots, scene.guideCvs,
             std::vector<float>(scene.guideRoots.size(), scene.guideLength)));
 
     UsdGenNodeDesc source;
@@ -232,7 +233,7 @@ static Result Cook(Scene const &scene, int threads = 2)
         return r;
     }
     r.warnings = run.diagnostics.warnings;
-    UsdGenCurveBuffer const &out = graph.Output();
+    UsdGenCurveBuffer const out = OutputBuffer(graph);
     r.buffer = out;
     size_t const R = out.totalCurves;
     if (R == 0 || out.curveId.size() != R || out.totalCvs % R != 0) return r;

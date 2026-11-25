@@ -60,7 +60,7 @@ UsdGenGraphDesc RbfDesc() {
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/RbfAtomic/Curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {2};
     curves.points = {{.2f,.2f,0}, {.2f,.4f,0}};
@@ -697,7 +697,7 @@ static int ValueDagTransactions() {
         auto first = ExecuteCudaGraph(*plan, *workspace, 1.0, 1001, &diagnostics);
         CHECK(expected && first && !diagnostics.HasErrors() && SameGeneration(expected, first));
         if (variant == 7) {
-            CHECK(first->Geometry().pointCount == 0 && first->Geometry().curveCount == 0 &&
+            CHECK(first->Geometry().pointCount == 0 && first->Geometry().elementCount == 0 &&
                   first->Geometry().alreadyDeformed);
             UsdGenExecutionRuntime runtime(4);
             UsdGenCudaExecutionQueue queue(runtime, -1, &diagnostics);

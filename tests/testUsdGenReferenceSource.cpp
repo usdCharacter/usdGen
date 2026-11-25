@@ -9,6 +9,7 @@
 // consumes the pulled geometry, and an empty reference fails closed.
 
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -200,7 +201,7 @@ void CheckBuilderRouting(char const *which, UsdGenGraphDesc const &desc)
     UsdGenCurveSetDesc const *set = FindCurveSet(desc, kBaked);
     Check(set != nullptr, what + ": target becomes a captured curve set");
     if (!set) return;
-    Check(set->role == UsdGenRole::Reference,
+    Check(set->role == UsdGenLane::Reference,
           what + ": captured set rides the Reference lane");
     Check(set->points == BakedPoints(),
           what + ": captured points equal the baked points");
@@ -270,8 +271,8 @@ void CheckCook(UsdGenGraphDesc const &desc, bool checkNative = false)
     Check(sourceId != kUsdGenInvalidNode && widthId != kUsdGenInvalidNode,
           "both stack nodes compiled");
     if (sourceId == kUsdGenInvalidNode || widthId == kUsdGenInvalidNode) return;
-    UsdGenCurveBuffer const &source = graph.Node(sourceId).buffer;
-    UsdGenCurveBuffer const &output = graph.Node(widthId).buffer;
+    UsdGenCurveBuffer const source = NodeBuffer(graph, sourceId);
+    UsdGenCurveBuffer const output = NodeBuffer(graph, widthId);
     VtVec3fArray const baked = BakedPoints();
     bool pointsVerbatim = source.totalCurves == 2 && source.totalCvs == 6;
     for (size_t i = 0; pointsVerbatim && i < baked.size(); ++i)

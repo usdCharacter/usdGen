@@ -50,7 +50,7 @@ static UsdGenGraphDesc RootedC3() {
     scalp.restPoints = {{0,0,0}, {1,0,0}, {0,1,0}}; scalp.points = scalp.restPoints;
     scalp.faceVertexCounts = {3}; scalp.faceVertexIndices = {0,1,2};
     scalp.uv = {{0,0}, {1,0}, {0,1}}; desc.surfaces = {scalp};
-    UsdGenCurveSetDesc c3; c3.path = SdfPath("/Groom/C3"); c3.role = UsdGenRole::Curves;
+    UsdGenCurveSetDesc c3; c3.path = SdfPath("/Groom/C3"); c3.role = UsdGenLane::Chunked;
     c3.curveRole = TfToken("hair"); c3.type = TfToken("cubic"); c3.basis = TfToken("bspline");
     c3.wrap = TfToken("pinned"); c3.curveVertexCounts = {3,3};
     c3.points = {{.2f,.2f,0}, {.2f,.2f,1}, {.2f,.2f,2}, {.7f,.1f,0}, {.7f,.1f,1}, {.7f,.1f,2}};

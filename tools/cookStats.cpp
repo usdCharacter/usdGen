@@ -17,6 +17,8 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 #include "pxr/usdImaging/usdImaging/sceneIndices.h"
@@ -174,7 +176,7 @@ int main(int argc, char **argv)
         if (dumpSets) {
             for (auto const &cs : desc.curveSets) {
                 std::printf("  curveSet %s role=%s curves=%zu planes=%zu", cs.path.GetText(),
-                            cs.role == UsdGenRole::Reference ? "reference" : "curves",
+                            cs.role == UsdGenLane::Reference ? "reference" : "curves",
                             cs.curveVertexCounts.size(), cs.authoredPlanes.size());
                 size_t shown = 0;
                 for (auto const &pl : cs.authoredPlanes)
@@ -204,7 +206,7 @@ int main(int argc, char **argv)
             for (auto const &e : run.diagnostics.errors) std::printf("  %s\n", e.c_str());
             continue;
         }
-        UsdGenCurveBuffer const &b = graph.Output();
+        UsdGenCurveBuffer const b = UsdGenCurveBufferFromSet(graph.Output());
         uint32_t minCv = 0, maxCv = 0;
         std::vector<int> counts(b.totalCurves, 0);
         for (uint32_t c = 0; c < b.totalCurves; ++c) {

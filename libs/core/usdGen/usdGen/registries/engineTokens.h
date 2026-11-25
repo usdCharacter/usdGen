@@ -9,14 +9,14 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 struct UsdGenEngineTokens {
-    // plane rate / scalar (curveBuffer.h:43-44)
+    // plane rate / scalar (UsdGenPlane, types.h)
     TfToken vertex, uniform, constant, float_, int_;
     // base node parameters (compiler.cpp:779-801) and the "usdGen:" prefix
     TfToken input, surface, seed, enabled, guides, curves, mask, usdGenPrefix;
     // C3 curve-set vocabulary (graphDesc.h:224-235, cudaExecution.cpp:8376-8398)
     TfToken hair, cubic, bspline, catmullRom, pinned, nonperiodic, vertexWidths;
     // publication vocabulary; step 9 moves it (sessionCooker.cpp:678-2882,
-    // generationStore.cpp:163-180, curveBuffer.h:564, graphDesc.h:124)
+    // generationStore.cpp:163-180, tile publication, graphDesc.h:124)
     TfToken renderNamespace /* __usdGenRender */, allPurpose, none, displayColor,
         hairT, hairId, st, bakeColor, velocities, scalpShadow, materialScalpShadow,
         result;

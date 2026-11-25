@@ -49,7 +49,7 @@ static UsdGenGraphDesc MakeDesc(bool withNoise) {
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Hair");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.type = TfToken("cubic"); curves.basis = TfToken("bspline"); curves.wrap = TfToken("pinned");
     // Arrival order is deliberately not stable-ID order. ID 42 is the
@@ -188,7 +188,7 @@ int main() {
         std::promise<std::shared_ptr<const UsdGenDeviceGeneration>> finalPromise;auto finalFuture=finalPromise.get_future();
         CHECK(FinalizeCudaExecutionJobAsync(mixedJob,[&](auto result){finalPromise.set_value(std::move(result));})&&
               finalFuture.wait_for(std::chrono::seconds(10))==std::future_status::ready);
-        auto final=finalFuture.get();CHECK(final&&!mixedDiagnostics.HasErrors()&&final->Geometry().curveCount==3&&
+        auto final=finalFuture.get();CHECK(final&&!mixedDiagnostics.HasErrors()&&final->Geometry().elementCount==3&&
             final->Geometry().pointCount==18&&!growBCallback&&!lengthCallback&&!noiseCallback);
         auto finalLease=gpu::AcquireGeometry(final,stream); CHECK(finalLease);
         CHECK(finalLease.RootT().size==3&&finalLease.RootB().size==3&&finalLease.RootN().size==3);
@@ -358,7 +358,7 @@ int main() {
         }));
         auto final = branchFinalFuture.wait_for(std::chrono::seconds(10)) == std::future_status::ready
             ? branchFinalFuture.get() : std::shared_ptr<const UsdGenDeviceGeneration>{};
-        CHECK(final && final->Geometry().curveCount == 3 && !branchDiagnostics.HasErrors());
+        CHECK(final && final->Geometry().elementCount == 3 && !branchDiagnostics.HasErrors());
     }
     {
         // Independent same-topology Noise siblings share frame-event state;
@@ -462,7 +462,7 @@ int main() {
         }));
         auto final = finalFuture.wait_for(std::chrono::seconds(10)) == std::future_status::ready
             ? finalFuture.get() : std::shared_ptr<const UsdGenDeviceGeneration>{};
-        CHECK(final && final->Geometry().curveCount == 2 && !siblingDiagnostics.HasErrors() &&
+        CHECK(final && final->Geometry().elementCount == 2 && !siblingDiagnostics.HasErrors() &&
               CudaExecutionJobOperatorCount(*siblingJob) == 3);
     }
     {

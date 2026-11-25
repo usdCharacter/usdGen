@@ -136,7 +136,7 @@ int main(int argc,char** argv) {
         if(tilesPipeline) {
             auto const& tiles=results[i]->geometry().tiles;
             CHECK(tiles.size()==1 && tiles[0].tile==0 && tiles[0].boundsValid);
-            CHECK(tiles[0].firstCurve==0 && tiles[0].curveCount==1);
+            CHECK(tiles[0].firstElement==0 && tiles[0].elementCount==1);
             CHECK(tiles[0].firstPoint==0 && tiles[0].pointCount==2);
         }
     }

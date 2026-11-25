@@ -14,6 +14,7 @@
 //   * retargeting the expression's input:guideCurves recooks them;
 //   * retargeting a UsdGenPtexMap's file recooks the clumps.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/maps/ptexMap.h"
 #include "usdGen/op.h"
@@ -89,7 +90,7 @@ Cooked Cook(UsdStageRefPtr const &stage, char const *description, std::string co
         for (auto const &error : run.diagnostics.errors) std::printf("  %s\n", error.c_str());
         return result;
     }
-    result.out = graph.Output();
+    result.out = OutputBuffer(graph);
     result.ok = result.out.totalCurves > 0 && result.out.cvOffsets.empty() &&
         result.out.totalCvs % result.out.totalCurves == 0;
     result.cvs = result.ok ? result.out.totalCvs / result.out.totalCurves : 0;

@@ -72,7 +72,7 @@ using usdGen::UsdGenCurveSetDesc;
 using usdGen::UsdGenGraphDesc;
 using usdGen::UsdGenNodeDesc;
 using usdGen::UsdGenParamValue;
-using usdGen::UsdGenRole;
+using usdGen::UsdGenLane;
 using usdGen::UsdGenLookDesc;
 using usdGen::UsdGenSurfaceDesc;
 using usdGen::UsdGenSurfaceSample;
@@ -657,7 +657,7 @@ struct _HydraWalker
     std::unordered_set<std::string> operatorPaths;
     std::unordered_set<std::string> visited;
     // guides rels mark their curve sets as the Reference lane (I3)
-    std::unordered_map<std::string, UsdGenRole> curveRoles;
+    std::unordered_map<std::string, UsdGenLane> curveRoles;
 
     HdContainerDataSourceHandle _UsdGen(SdfPath const &path)
     {
@@ -687,7 +687,7 @@ struct _HydraWalker
         targets.clear();
         if (_HGetPathArray(ug, &targets, {"guides"})) {
             for (SdfPath const &target : targets) {
-                curveRoles[target.GetString()] = UsdGenRole::Reference;
+                curveRoles[target.GetString()] = UsdGenLane::Reference;
             }
         }
     }
@@ -998,7 +998,7 @@ _HBuildSurfaceCagePayload(HdContainerDataSourceHandle const &root,
 
 void
 _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
-                UsdGenRole role, _HdTime t, UsdGenCurveSetDesc *out,
+                UsdGenLane role, _HdTime t, UsdGenCurveSetDesc *out,
                 std::vector<std::string> *errors)
 {
     HdContainerDataSourceHandle primDs;
@@ -1586,7 +1586,7 @@ CaptureGraphDescFromHydra(
         return result;
     }
     desc.terminal = operatorOrder.back();
-    std::unordered_map<std::string, UsdGenRole> curveRoles;
+    std::unordered_map<std::string, UsdGenLane> curveRoles;
 
     if (HdContainerDataSourceHandle expressions = _HChild(descUg, "expressions")) {
         for (TfToken const &name : expressions->GetNames()) {
@@ -1648,7 +1648,7 @@ CaptureGraphDescFromHydra(
             if (!captured.exists) continue;
             UsdGenNodeDesc node = captured.node;
             for (SdfPath const &guide : captured.guides)
-                curveRoles[guide.GetString()] = UsdGenRole::Reference;
+                curveRoles[guide.GetString()] = UsdGenLane::Reference;
             // Hierarchy is the topology contract.  Do not permit a legacy
             // authored input relationship to alter it.
             node.inputs.clear();
@@ -1725,7 +1725,7 @@ CaptureGraphDescFromHydra(
         }
     };
 
-    auto curveFor = [&](SdfPath const &p, UsdGenRole role) {
+    auto curveFor = [&](SdfPath const &p, UsdGenLane role) {
         auto it = curveIndex.find(p.GetString());
         if (it == curveIndex.end()) {
             UsdGenCurveSetDesc cs;
@@ -1733,9 +1733,9 @@ CaptureGraphDescFromHydra(
             it = curveIndex.emplace(p.GetString(), desc.curveSets.size())
                      .first;
             desc.curveSets.push_back(std::move(cs));
-        } else if (role == UsdGenRole::Reference) {
+        } else if (role == UsdGenLane::Reference) {
             // Reference is the stronger lane claim (I3).
-            desc.curveSets[it->second].role = UsdGenRole::Reference;
+            desc.curveSets[it->second].role = UsdGenLane::Reference;
         }
     };
 
@@ -1803,7 +1803,7 @@ CaptureGraphDescFromHydra(
             surfaceFor(s);
         }
         for (SdfPath const &c : node.curves) {
-            UsdGenRole role = UsdGenRole::Curves;
+            UsdGenLane role = UsdGenLane::Chunked;
             auto roleIt = curveRoles.find(c.GetString());
             if (roleIt != curveRoles.end()) {
                 role = roleIt->second;
@@ -1811,7 +1811,7 @@ CaptureGraphDescFromHydra(
             curveFor(c, role);
         }
         for (SdfPath const &reference : node.references) {
-            curveFor(reference, UsdGenRole::Reference);
+            curveFor(reference, UsdGenLane::Reference);
         }
         for (SdfPath const &m : node.maps) {
             mapFor(m);

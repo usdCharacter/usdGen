@@ -25,7 +25,8 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/fastCores.h"
 #include "usdGen/types.h"
-#include "usdGenCurves/types/curveBridge.h"
+#include "usdGen/api/writeSet.h"
+#include "usdGen/exec/epoch.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
@@ -44,6 +45,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -72,76 +74,10 @@ int ResolveThreadLimit(int requested)
 }
 
 
-UsdGenCurveBuffer const &EmptyBuffer()
+/// The input of a node with none, and the output of a node not run yet.
+UsdGenElementSet const *OutputOrEmpty(UsdGenGraph const &graph, UsdGenCompiledNode const &node)
 {
-    static UsdGenCurveBuffer const empty;
-    return empty;
-}
-
-/// Per-curve arrays a styler needs but does not compute (inherited from the
-/// upstream buffer; VtArray assignment is a cheap CoW share).
-void InheritPerCurve(UsdGenCurveBuffer &dst, UsdGenCurveBuffer const &src)
-{
-    if (dst.curveId.empty() && !src.curveId.empty()) dst.curveId = src.curveId;
-    if (dst.rootPrim.empty() && !src.rootPrim.empty()) dst.rootPrim = src.rootPrim;
-    if (dst.rootUV.empty() && !src.rootUV.empty()) dst.rootUV = src.rootUV;
-    if (dst.rootT.empty() && !src.rootT.empty()) dst.rootT = src.rootT;
-    if (dst.rootN.empty() && !src.rootN.empty()) dst.rootN = src.rootN;
-    if (dst.rootB.empty() && !src.rootB.empty()) dst.rootB = src.rootB;
-}
-
-/// A non-owning styler's per-curve channels are immutable aliases of its
-/// current input. Refresh them on every preparation: emptiness is not an
-/// ownership bit, and a reused node may otherwise retain aliases from an old
-/// upstream topology/stable-ID generation.
-void AliasPerCurve(UsdGenCurveBuffer &dst, UsdGenCurveBuffer const &src)
-{
-    dst.curveId = src.curveId;
-    dst.rootPrim = src.rootPrim;
-    dst.rootUV = src.rootUV;
-    dst.rootT = src.rootT;
-    dst.rootN = src.rootN;
-    dst.rootB = src.rootB;
-}
-
-void AliasExtraPlanes(UsdGenCurveBuffer &dst, UsdGenCurveBuffer const &src)
-{
-    // Copying the vectors copies only plane descriptors and VtArray handles.
-    // The arrays themselves remain immutable aliases until an output slot is
-    // explicitly materialized below.
-    dst.extraCv = src.extraCv;
-    dst.extraCurve = src.extraCurve;
-}
-
-UsdGenPlane const *FindPlane(std::vector<UsdGenPlane> const &planes,
-                             TfToken const &name)
-{
-    auto const it = std::lower_bound(planes.begin(), planes.end(), name,
-        [](UsdGenPlane const &plane, TfToken const &needle) {
-            return plane.name < needle;
-        });
-    return it != planes.end() && it->name == name ? &*it : nullptr;
-}
-
-struct PlaneLookup
-{
-    UsdGenPlane const *plane = nullptr;
-    bool cv = false;
-};
-
-PlaneLookup FindExtraPlane(UsdGenCurveBuffer const &buffer, TfToken const &name)
-{
-    if (UsdGenPlane const *plane = FindPlane(buffer.extraCv, name))
-        return {plane, true};
-    if (UsdGenPlane const *plane = FindPlane(buffer.extraCurve, name))
-        return {plane, false};
-    return {};
-}
-
-bool SamePlaneLayout(UsdGenPlane const &a, UsdGenPlane const &b)
-{
-    return a.name == b.name && a.interpolation == b.interpolation &&
-        a.type == b.type && a.arity == b.arity;
+    return node.output ? node.output.Get() : &graph.EmptyOutput();
 }
 
 bool HasPrefix(std::string const &s, char const *prefix)
@@ -208,275 +144,328 @@ bool IsFixedLayoutPlane(UsdGenOpRecord const *record, TfToken const &name)
            HasPrefix(s, "clumpCenterId_") || HasPrefix(s, "clumpWeight_");
 }
 
-void InsertOrAssignPlane(std::vector<UsdGenPlane> *planes, UsdGenPlane plane)
+/// A plane descriptor as a channel (the CurveSet converter's mapping).
+UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p)
 {
-    auto it = std::lower_bound(planes->begin(), planes->end(), plane.name,
-        [](UsdGenPlane const &candidate, TfToken const &needle) {
-            return candidate.name < needle;
-        });
-    if (it != planes->end() && it->name == plane.name)
-        *it = std::move(plane);
-    else
-        planes->insert(it, std::move(plane));
+    auto const &tk = UsdGenTokens();
+    UsdGenChannelDesc d;
+    d.name = p.name;
+    d.arity = p.arity;
+    d.level = p.interpolation == tk.vertex ? 2 : p.interpolation == tk.constant ? 0 : 1;
+    d.scalar = p.type == tk.int_ ? UsdGenScalar::I32 : UsdGenScalar::F32;
+    d.flags = p.arity > 1 ? uint8_t(kUsdGenChannelPacked) : uint8_t(0);
+    return d;
 }
 
-bool PlaneAliases(UsdGenPlane const &a, UsdGenPlane const *b)
+/// A dynamic (named, non-static) channel of 'table', or kUsdGenNoSlot.
+UsdGenSlot DynamicSlot(UsdGenChannelTable const *table, TfToken const &name)
 {
-    if (!b) return false;
-    return a.type == UsdGenTokens().int_ ? a.i.cdata() == b->i.cdata()
-                                    : a.f.cdata() == b->f.cdata();
+    if (!table) return kUsdGenNoSlot;
+    UsdGenSlot const s = table->Find(name);
+    return s != kUsdGenNoSlot && s >= table->StaticCount() ? s : kUsdGenNoSlot;
 }
 
-void PrepareExtraPlanes(UsdGenCompiledNode &node,
-                        UsdGenCurveBuffer const &upstream, bool hasUpstream)
+void const *ColumnOf(UsdGenElementSet const *set, UsdGenSlot s)
 {
-    if (!hasUpstream || node.record->Has(kUsdGenOpGenerator)) return;
+    return set && s != kUsdGenNoSlot && set->Has(s) ? set->View().columns[s] : nullptr;
+}
 
-    UsdGenCurveBuffer &buffer = node.buffer;
-    // Preserve prior private output arrays for sparse sweeps, but overwrite
-    // every pass-through descriptor with the CURRENT source first.  That is
-    // what prevents a retained node from keeping VtArray aliases from an old
-    // topology generation.
-    std::vector<UsdGenPlane> const oldCv = buffer.extraCv;
-    std::vector<UsdGenPlane> const oldCurve = buffer.extraCurve;
-    AliasExtraPlanes(buffer, upstream);
+uint32_t ValuesOf(UsdGenElementSet const *set, UsdGenSlot s)
+{
+    return set && s != kUsdGenNoSlot && set->Has(s) ? set->View().values[s] : 0u;
+}
 
-    for (TfToken const &name : node.outputPrimvars) {
-        PlaneLookup const source = FindExtraPlane(upstream, name);
-        PlaneLookup old;
-        if (UsdGenPlane const *cvPlane = FindPlane(oldCv, name)) old = {cvPlane, true};
-        else if (UsdGenPlane const *curvePlane = FindPlane(oldCurve, name)) old = {curvePlane, false};
+/// What one slot of a node's next output holds: nothing, a column shared
+/// from another set, or a column of the node's own delta arena (zero-filled,
+/// or keeping 'from''s column, which is where it already is when the arena
+/// is rewritten in place).
+struct ColumnPlan
+{
+    enum Kind : uint8_t { Absent, Share, Own };
+    Kind kind = Absent;
+    UsdGenElementSet const *from = nullptr;
+    UsdGenSlot fromSlot = kUsdGenNoSlot;
+};
 
-        PlaneLookup const layout = source.plane ? source : old;
-        bool const nativeClump = IsFixedLayoutPlane(node.record, name);
-        UsdGenPlane plane = nativeClump ? DefaultOutputPlane(node.record, name) :
-            (layout.plane ? *layout.plane : DefaultOutputPlane(node.record, name));
-        // A first producer's domain comes from its default layout (vertex
-        // planes such as braidKnotMask are sized per CV).
-        bool const cv = nativeClump ? plane.interpolation == UsdGenTokens().vertex :
-            (layout.plane ? layout.cv
-                          : plane.interpolation == UsdGenTokens().vertex);
-        size_t const values = size_t(cv ? buffer.totalCvs : buffer.totalCurves) *
-            std::max<uint8_t>(plane.arity, 1);
-
-        // Retain only a same-layout private old output.  If it aliases the
-        // upstream payload (or its topology-sized storage no longer fits), a
-        // fresh VtArray is required before the chunk kernel receives a raw
-        // writable pointer.
-        bool const keepOld = old.plane && old.cv == cv &&
-            SamePlaneLayout(*old.plane, plane) && !PlaneAliases(*old.plane, source.plane) &&
-            (plane.type == UsdGenTokens().int_ ? old.plane->i.size() == values
-                                          : old.plane->f.size() == values);
-        if (keepOld) plane = *old.plane;
-        else if (plane.type == UsdGenTokens().int_) {
-            plane.i = VtIntArray(values, 0);
-            plane.f.clear();
-        } else {
-            plane.f = VtFloatArray(values, 0.0f);
-            plane.i.clear();
-        }
-        if (nativeClump) {
-            auto &other = cv ? buffer.extraCurve : buffer.extraCv;
-            auto it = std::lower_bound(other.begin(), other.end(), name,
-                [](UsdGenPlane const &p, TfToken const &n) { return p.name < n; });
-            if (it != other.end() && it->name == name) other.erase(it);
-        }
-        InsertOrAssignPlane(cv ? &buffer.extraCv : &buffer.extraCurve,
-                            std::move(plane));
+ColumnPlan PlanShare(UsdGenElementSet const *set, UsdGenSlot s)
+{
+    ColumnPlan c;
+    if (set && s != kUsdGenNoSlot && set->Has(s)) {
+        c.kind = ColumnPlan::Share;
+        c.from = set;
+        c.fromSlot = s;
     }
-    if (node.remapsVertexPlanes) {
-        for (UsdGenPlane const &source : upstream.extraCv) {
-            UsdGenPlane plane = source;
-            UsdGenPlane const *prior = FindPlane(oldCv, source.name);
-            size_t const values = size_t(buffer.totalCvs) *
-                std::max<uint8_t>(source.arity, 1);
-            bool const reusable = prior && SamePlaneLayout(*prior, source) &&
-                !PlaneAliases(*prior, &source) &&
-                (source.type == UsdGenTokens().int_ ? prior->i.size() == values
-                                                : prior->f.size() == values);
-            if (reusable) {
-                plane = *prior;
-                // Detach on the commit thread while the retained descriptor
-                // is still a second owner. Workers only receive raw pointers.
-                if (source.type == UsdGenTokens().int_) (void)plane.i.data();
-                else (void)plane.f.data();
-            }
-            else if (source.type == UsdGenTokens().int_) {
-                plane.i = VtIntArray(values, 0); plane.f.clear();
-            } else {
-                plane.f = VtFloatArray(values, 0.0f); plane.i.clear();
-            }
-            InsertOrAssignPlane(&buffer.extraCv, std::move(plane));
-        }
-    }
+    return c;
 }
 
-/// Installs an owning capture's buffer as the node's output. Planes the op
-/// writes that the capture leaves empty take the storage retired by the
-/// previous install, cleared (still empty, as before; preparation refills
-/// it); the planes this install replaces retire in turn. Downstream aliases
-/// of the replaced planes are refreshed by this cook, so by the next install
-/// they are unique again.
-void InstallCaptureBuffer(UsdGenCompiledNode &node, UsdGenOp const &op,
-                          UsdGenCapture const &cap,
-                          UsdGenCurveBuffer const &upBuf, bool hasUp)
+ColumnPlan PlanOwn(UsdGenElementSet const *keep, UsdGenSlot s)
 {
-    UsdGenCurveBuffer &buf = node.buffer;
-    uint32_t const touched = op.PlanesTouched();
-    bool const points = (touched & UsdGenOp::kPlanePoints) != 0;
-    bool const hairT = (touched & UsdGenOp::kPlaneHairT) != 0;
-    VtFloatArray px, py, pz, ht;
-    if (points) { px.swap(buf.px); py.swap(buf.py); pz.swap(buf.pz); }
-    if (hairT) ht.swap(buf.hairT);
+    ColumnPlan c;
+    c.kind = ColumnPlan::Own;
+    if (keep && s != kUsdGenNoSlot && keep->Has(s)) {
+        c.from = keep;
+        c.fromSlot = s;
+    }
+    return c;
+}
+
+/// The prior output's column as it is: still the node's own when it lives in
+/// the prior delta arena, else the alias it was.
+ColumnPlan PlanKeep(UsdGenElementSet const *prior, UsdGenSlot s)
+{
+    if (!prior || s == kUsdGenNoSlot || !prior->Has(s)) return {};
+    return prior->OwnsColumn(s) ? PlanOwn(prior, s) : PlanShare(prior, s);
+}
+
+/// Per-run scratch of the output preparation (commit thread; keeps capacity).
+struct OutputScratch
+{
+    std::vector<ColumnPlan> plans;
+    std::vector<UsdGenSlot> own;
+    std::vector<UsdGenChannelDesc> added;
+    std::vector<std::pair<TfToken, ColumnPlan>> named;   // emitted, then remapped
+};
+
+void Mix(uint64_t *h, uint64_t v)
+{
+    *h ^= v;
+    *h *= 0x100000001b3ULL;
+}
+
+/// Seals the node's output from 'plans' over 'table', counts and offsets
+/// from 'topology'. Own columns are written in one delta arena, recycled in
+/// place from the prior output when its layout still fits.
+void SealOutput(UsdGenCompiledNode &node, UsdGenElementSet const &topology,
+                UsdGenRef<const UsdGenChannelTable> const &table, OutputScratch &S,
+                uint64_t topologyVersion)
+{
+    UsdGenWriteSet ws = UsdGenWriteSet::Derive(UsdGenRef<const UsdGenElementSet>(&topology), table);
+    S.own.clear();
+    UsdGenChannelTable const &t = *table;
+    for (UsdGenSlot s = 0; s < t.Size(); ++s) {
+        ColumnPlan const &c = S.plans[s];
+        if (c.kind == ColumnPlan::Absent) ws.Drop(s);
+        else if (c.kind == ColumnPlan::Share) {
+            // Derive already shares the topology set's column of the same name.
+            if (c.from != &topology || c.from->Channels()[c.fromSlot].name != t[s].name ||
+                !UsdGenSameLayout(c.from->Channels()[c.fromSlot], t[s]))
+                ws.Share(s, *c.from, c.fromSlot);
+        } else if (ws.ValueCount(s)) S.own.push_back(s);
+        else ws.Drop(s);   // an empty column is an absent one
+    }
+    if (node.output) ws.RecycleInPlace(node.output);
+    ws.Plan(UsdGenSpan<const UsdGenSlot>(S.own.data(), S.own.size()));
+    for (UsdGenSlot s : S.own) {
+        ColumnPlan const &c = S.plans[s];
+        UsdGenSpan<std::byte> const dst = ws.Write<std::byte>(s);
+        if (dst.empty()) continue;
+        void const *src = ColumnOf(c.from, c.fromSlot);
+        size_t const srcBytes = c.from ? size_t(ValuesOf(c.from, c.fromSlot)) *
+            UsdGenScalarBytes(c.from->Channels()[c.fromSlot].scalar) : 0u;
+        if (src == dst.data()) continue;   // kept in place
+        if (src && srcBytes == dst.size()) std::memcpy(dst.data(), src, dst.size());
+        else std::memset(dst.data(), 0, dst.size());
+    }
+    ws.SetVersionsExact(topologyVersion, node.valueVersion);
+    node.topologyVersion = topologyVersion;
+    node.output = std::move(ws).Seal();
+}
+
+/// Installs an owning capture's output as the node's output: the capture's
+/// columns, plus the input's per-curve channels the capture leaves out.
+void InstallCaptureOutput(UsdGenCompiledNode &node, UsdGenElementSet const *up)
+{
+    UsdGenElementSet const &cap = *node.captureOutput;
     // valueVersion is monotone per node: the capture's own buffer counts
     // from zero, and adopting that stamp would let a downstream capture
     // keyed on the old stamp match.
-    uint64_t const priorValueVersion = buf.valueVersion;
-    buf = *cap.OwnedBuffer();
-    buf.valueVersion = std::max(buf.valueVersion, priorValueVersion);
-    buf.topologyVersion = ++node.topologySeq;
-    if (hasUp) InheritPerCurve(buf, upBuf);
-    auto recycle = [](VtFloatArray &plane, VtFloatArray &retired, VtFloatArray &replaced) {
-        if (!plane.empty()) return;   // the capture owns this plane
-        plane.swap(retired);
-        plane.clear();                // keeps the storage only when unique
-        retired.swap(replaced);
-    };
-    if (points) {
-        recycle(buf.px, node.retiredPx, px);
-        recycle(buf.py, node.retiredPy, py);
-        recycle(buf.pz, node.retiredPz, pz);
+    node.valueVersion = std::max(cap.ValueVersion(), node.valueVersion);
+    node.topologyVersion = ++node.topologySeq;
+    UsdGenWriteSet ws = UsdGenWriteSet::Derive(node.captureOutput, {});
+    if (up) {
+        for (UsdGenSlot s : {UsdGenSlot(kUsdGenCurveId), UsdGenSlot(kUsdGenCurveRootPrim),
+                             UsdGenSlot(kUsdGenCurveRootUV), UsdGenSlot(kUsdGenCurveRootT),
+                             UsdGenSlot(kUsdGenCurveRootN), UsdGenSlot(kUsdGenCurveRootB)})
+            if (!cap.Has(s) && up->Has(s)) ws.Share(s, *up, s);
     }
-    if (hairT) recycle(buf.hairT, node.retiredHairT, ht);
+    ws.Plan({});
+    ws.SetVersionsExact(node.topologyVersion, node.valueVersion);
+    node.output = std::move(ws).Seal();
 }
 
-/// Commit-thread preparation of one node's output buffer before its
-/// evaluate sweep: topology fields and per-curve arrays are inherited from
-/// the upstream node; CV planes the operator does NOT touch are CoW-aliased
-/// from upstream (re-aliased every commit, so a stale shared array can
-/// never outlive its source); planes it DOES touch must exist at full
-/// buffer size (chunk-local pointers are sliced from these).
-void PrepareNodeForEval(
-    UsdGenCompiledNode &node, UsdGenOp &op,
-    UsdGenCurveBuffer const &upBuf, bool hasUp)
+/// The input's set under this node's own value version (a disabled node).
+void PassThroughOutput(UsdGenCompiledNode &node, UsdGenElementSet const &up)
 {
-    UsdGenCurveBuffer &buf = node.buffer;
-    bool ownsBuffer = false;
+    UsdGenWriteSet ws = UsdGenWriteSet::Derive(UsdGenRef<const UsdGenElementSet>(&up), {});
+    ws.Plan({});
+    ws.SetVersionsExact(up.TopologyVersion(), node.valueVersion);
+    node.topologyVersion = up.TopologyVersion();
+    node.output = std::move(ws).Seal();
+}
 
-    // Inherit the topology FIRST: the CV count of the sizing below must be
-    // the node's EFFECTIVE curve count, not its pre-inheritance 0 (an
-    // un-populated styler buffer would otherwise size every touched plane
-    // to zero and hand the kernel null plane pointers).
-    if (hasUp && !node.record->Has(kUsdGenOpGenerator)) {
-        ownsBuffer = node.capture && node.capture->OwnedBuffer();
-        if (!ownsBuffer) {
-            buf.totalCurves = upBuf.totalCurves;
-            buf.totalCvs = upBuf.totalCvs;
-            buf.topologyVersion = upBuf.topologyVersion;
-            AliasPerCurve(buf, upBuf);
-        } else {
-            if (buf.totalCurves == 0) {
-                buf.totalCurves = upBuf.totalCurves;
-                buf.totalCvs = upBuf.totalCvs;
-                buf.topologyVersion = upBuf.topologyVersion;
+/// Commit-thread preparation of one node's output before its evaluate
+/// sweep (S24). The topology follows the input (or the owning capture);
+/// per-curve channels and rest are aliases of the input's (re-aliased every
+/// commit, so a stale shared column never outlives its source); a channel
+/// the op WRITES is the node's own storage at full size, kept from the last
+/// run (sparse sweeps leave clean chunks as they were) unless it no longer
+/// fits or still aliases the input, when it starts zero-filled; a channel
+/// the op passes through aliases the input's.
+void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdGenOp const &op,
+                        UsdGenElementSet const *up, OutputScratch &S)
+{
+    bool const hasUp = up != nullptr;
+    bool const generator = node.record->Has(kUsdGenOpGenerator);
+    UsdGenElementSet const *prior = OutputOrEmpty(graph, node);
+    bool const owns = hasUp && !generator && node.capture && node.captureOutput;
+
+    // Topology FIRST: the CV count of the sizing below is the node's
+    // EFFECTIVE count.
+    UsdGenElementSet const *topology = prior;
+    uint64_t topologyVersion = node.topologyVersion;
+    if (hasUp && !generator) {
+        if (!owns) {
+            topology = up;
+            topologyVersion = up->TopologyVersion();
+        } else if (prior->Count(1) == 0) {
+            // An owning capture that authored no topology (Deform) inherits it.
+            topology = up;
+            topologyVersion = up->TopologyVersion();
+        } else if (prior->Offsets(2).empty() && !up->Offsets(2).empty() &&
+                   prior->Count(1) == up->Count(1) && prior->Count(2) == up->Count(2)) {
+            // FIX (P1, ragged-at-Deform): an owning capture with the input's
+            // totals and no offsets of its own keeps the input's ragged layout.
+            topology = up;
+        }
+    }
+
+    uint32_t const nCurves = topology->Count(1);
+    uint32_t const cvp = node.chunks.empty() ? 0 : node.chunks[0].stride[1];
+    UsdGenSpan<const uint32_t> const offs = topology->Offsets(2);
+    uint32_t const nCvs = (cvp == 0 && !offs.empty() && size_t(nCurves) < offs.size())
+        ? offs[nCurves] : nCurves * cvp;
+
+    // The channel table: the input's, plus the planes this op emits (and,
+    // for a remapper, owns) -- unless a generator or an owning capture that
+    // transformed the planes already fixed them.
+    bool const captureOwnsPlanes = owns && node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
+    bool const extrasFromInput = hasUp && !generator && !captureOwnsPlanes;
+    UsdGenRef<const UsdGenChannelTable> table(&prior->Channels());
+    S.named.clear();
+    S.added.clear();
+    if (extrasFromInput) {
+        UsdGenChannelTable const *inT = &up->Channels();
+        UsdGenChannelTable const *oldT = &prior->Channels();
+        for (TfToken const &name : node.outputPrimvars) {
+            UsdGenSlot const source = DynamicSlot(inT, name);
+            UsdGenSlot const old = DynamicSlot(oldT, name);
+            bool const nativeClump = IsFixedLayoutPlane(node.record, name);
+            UsdGenChannelDesc d;
+            if (nativeClump || (source == kUsdGenNoSlot && old == kUsdGenNoSlot))
+                d = PlaneDesc(DefaultOutputPlane(node.record, name));
+            else
+                d = source != kUsdGenNoSlot ? (*inT)[source] : (*oldT)[old];
+            size_t const values = size_t(d.level >= 2 ? topology->Count(2) : topology->Count(1)) *
+                std::max<uint8_t>(d.arity, 1);
+            // Keep only a same-layout private old output; one that aliases
+            // the input's column (or no longer fits) starts fresh.
+            bool const keepOld = old != kUsdGenNoSlot && UsdGenSameLayout((*oldT)[old], d) &&
+                ColumnOf(prior, old) != ColumnOf(up, source) &&
+                ValuesOf(prior, old) == values;
+            S.added.push_back(d);
+            S.named.emplace_back(name, PlanOwn(keepOld ? prior : nullptr, old));
+        }
+        if (node.remapsVertexPlanes) {
+            for (UsdGenSlot source : inT->DynamicRun(2)) {
+                UsdGenChannelDesc const &d = (*inT)[source];
+                UsdGenSlot const old = DynamicSlot(oldT, d.name);
+                bool const reusable = old != kUsdGenNoSlot && (*oldT)[old].level >= 2 &&
+                    UsdGenSameLayout((*oldT)[old], d) &&
+                    ColumnOf(prior, old) != ColumnOf(up, source) &&
+                    ValuesOf(prior, old) == size_t(topology->Count(2)) * std::max<uint8_t>(d.arity, 1);
+                S.added.push_back(d);
+                S.named.emplace_back(d.name, PlanOwn(reusable ? prior : nullptr, old));
             }
-            InheritPerCurve(buf, upBuf);
         }
-        if (!ownsBuffer) {
-            // Topology metadata refresh/clear on pass-through preps only; owning
-            // captures (e.g. Deform) keep their authored cvOffsets.
-            buf.cvOffsets = upBuf.cvOffsets;
-        } else if (buf.cvOffsets.empty() && !upBuf.cvOffsets.empty() &&
-                   buf.totalCurves == upBuf.totalCurves &&
-                   buf.totalCvs == upBuf.totalCvs) {
-            // FIX (P1, ragged-at-Deform): an owning capture that authored NO
-            // topology of its own (Deform — the totals just above are the
-            // inherited upstream ones) must not drop a ragged input layout:
-            // ragged totals with EMPTY offsets make Repartition derive a
-            // uniform cvp (totalCvs/totalCurves == 12/3 == 4) and sweep
-            // ragged spans as uniform. Carry the input cvOffsets verbatim,
-            // mirroring the pass-through carry; the totals equality pins
-            // "no topology authored" so a re-topologised owner keeps its own.
-            buf.cvOffsets = upBuf.cvOffsets;
+        uint64_t key = 0xcbf29ce484222325ULL;
+        Mix(&key, inT->Digest());
+        Mix(&key, oldT->Digest());
+        for (UsdGenChannelDesc const &d : S.added) {
+            Mix(&key, d.name.Hash());
+            Mix(&key, uint64_t(d.level) | uint64_t(d.arity) << 8 | uint64_t(d.scalar) << 16);
         }
-        // Rest is an immutable C3 transport channel, separate from current
-        // points.  Every topology-preserving operator aliases it on each
-        // preparation so a reused node cannot retain a prior generation's
-        // owner.  Topology producers that repartition CVs (Grow, Resample,
-        // GuideInterpolate)
-        // explicitly materialize a new rest layout during Capture instead.
-        // Frozen Freeze owns its buffer (OwnsBuffer()==!live) and keeps the
-        // snapshotted rest; live Freeze re-aliases like a styler.
-        bool const captureAuthorsRest = ownsBuffer && node.record &&
-            node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
-        if (!captureAuthorsRest)
-            buf.rest = upBuf.rest;
+        if (node.channels && node.channelsInput == key) {
+            table = node.channels;
+        } else {
+            table = inT->With(UsdGenSpan<const UsdGenChannelDesc>(S.added.data(), S.added.size()));
+            if (node.channels && node.channels->Digest() == table->Digest()) table = node.channels;
+            node.channels = table;
+            node.channelsInput = key;
+        }
     }
 
-    uint32_t const nCurves = buf.totalCurves;
-    uint32_t const cvp = node.chunks.empty() ? 0 : node.chunks[0].cvCount;
-    uint32_t const nCvs = (cvp == 0 && !buf.cvOffsets.empty() &&
-                           size_t(nCurves) < buf.cvOffsets.size())
-        ? uint32_t(buf.cvOffsets[nCurves])   // ragged: total CVs from offsets
-        : nCurves * cvp;
+    UsdGenChannelTable const &t = *table;
+    S.plans.assign(t.Size(), ColumnPlan{});
 
-    // Plane policy (03 §1.2/§8.5, S24): a plane the OP WRITES must be THIS
-    // node's own storage (VtArray CoW sharing would make the kernel's write
-    // detach-and-memcpy the whole buffer once per run — the measured cost of
-    // every sparse commit); a plane the op passes through is a read-only
-    // alias of the upstream plane, refreshed only when the identity differs.
-    // Kernels write through the raw pointer SweepChunk slices from
-    // cdata()+const_cast. Fallible remappers detach retained storage once on
-    // this commit thread before workers receive those pointers.
+    // Built-in CV planes: a plane the OP WRITES is this node's own storage
+    // (sharing would make the kernel write the input); a plane the op
+    // passes through aliases the input's.
     uint32_t const planes = op.PlanesTouched();
-    auto prep = [&](bool write, VtFloatArray &a, VtFloatArray const &up) {
+    auto prep = [&](UsdGenSlot s, bool write) {
+        uint32_t const have = ValuesOf(prior, s);
         if (write) {
-            // assign(): refills storage this node owns alone, and makes
-            // fresh private storage when it is shared (an upstream alias).
-            if (a.size() != nCvs || (hasUp && a.cdata() == up.cdata()))
-                a.assign(nCvs, 0.0f);
-        } else if (hasUp && up.size() == nCvs) {
-            if (a.cdata() != up.cdata()) a = up;  // CoW share; read-only
-        } else if (!hasUp && node.record->Has(kUsdGenOpGenerator)) {
-            // Source generators own the presence semantics of optional
-            // planes.  In particular Scatter has no input width plane;
-            // materializing a zero array here would make downstream Grow
-            // resample an invented authored width instead of its description
-            // fallback.  Capture-created Source planes remain untouched.
-        } else if (a.size() != nCvs) {
-            a.assign(nCvs, 0.0f);
+            bool const fresh = have != nCvs ||
+                (hasUp && have && ColumnOf(prior, s) == ColumnOf(up, s));
+            S.plans[s] = PlanOwn(fresh ? nullptr : prior, s);
+        } else if (hasUp && ValuesOf(up, s) == nCvs) {
+            S.plans[s] = PlanShare(up, s);
+        } else if (!hasUp && generator) {
+            // Source generators own the presence of optional planes (Scatter
+            // has no width; inventing one would change Grow's fallback).
+            S.plans[s] = PlanKeep(prior, s);
+        } else if (have != nCvs) {
+            S.plans[s] = PlanOwn(nullptr, s);
+        } else {
+            S.plans[s] = PlanKeep(prior, s);
         }
     };
-    prep(planes & UsdGenOp::kPlanePoints, buf.px, upBuf.px);
-    prep(planes & UsdGenOp::kPlanePoints, buf.py, upBuf.py);
-    prep(planes & UsdGenOp::kPlanePoints, buf.pz, upBuf.pz);
-    prep(planes & UsdGenOp::kPlaneWidths, buf.width, upBuf.width);
-    prep(planes & UsdGenOp::kPlaneHairT, buf.hairT, upBuf.hairT);
-    // A CV-repartitioning capture has already transformed inherited named
-    // planes or authored guide-derived replacements for its new CV layout.
-    // Do not replace those private owners with the old upstream descriptors
-    // during generic pass-through preparation.
-    // Frozen Freeze: the snapshot owns the transformed extras (same ownsBuffer
-    // gate as above); live Freeze prepares pass-through.
-    bool const captureOwnsTransformedPlanes = hasUp && ownsBuffer && node.record &&
-        node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
-    if (!captureOwnsTransformedPlanes)
-        PrepareExtraPlanes(node, upBuf, hasUp);
-}
+    prep(kUsdGenCurvePx, planes & UsdGenOp::kPlanePoints);
+    prep(kUsdGenCurvePy, planes & UsdGenOp::kPlanePoints);
+    prep(kUsdGenCurvePz, planes & UsdGenOp::kPlanePoints);
+    prep(kUsdGenCurveWidth, planes & UsdGenOp::kPlaneWidths);
+    prep(kUsdGenCurveHairT, planes & UsdGenOp::kPlaneHairT);
 
-/// Detach writable built-in planes on the commit thread for fallible
-/// remappers. Their node buffer can still share a retained published snapshot
-/// even after it no longer aliases the immediate upstream buffer.
-void EnsureWritablePlanes(UsdGenCompiledNode &node, UsdGenOp &op)
-{
-    if (!node.remapsVertexPlanes) return;
-    uint32_t const planes=op.PlanesTouched();
-    if (planes & UsdGenOp::kPlanePoints) {
-        (void)node.buffer.px.data();
-        (void)node.buffer.py.data();
-        (void)node.buffer.pz.data();
+    // Rest is an immutable C3 transport channel: every topology-preserving
+    // operator aliases the input's. Captures that repartition CVs (Grow,
+    // Resample, GuideInterpolate, frozen Freeze) author their own.
+    bool const captureAuthorsRest = owns && node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
+    S.plans[kUsdGenCurveRest] = hasUp && !generator && !captureAuthorsRest
+        ? PlanShare(up, kUsdGenCurveRest) : PlanKeep(prior, kUsdGenCurveRest);
+
+    // Per-curve channels: aliases of the input (an owning capture keeps the
+    // ones it authored and inherits the rest).
+    for (UsdGenSlot s : {UsdGenSlot(kUsdGenCurveId), UsdGenSlot(kUsdGenCurveRootPrim),
+                         UsdGenSlot(kUsdGenCurveRootUV), UsdGenSlot(kUsdGenCurveRootT),
+                         UsdGenSlot(kUsdGenCurveRootN), UsdGenSlot(kUsdGenCurveRootB)}) {
+        if (!hasUp || generator) S.plans[s] = PlanKeep(prior, s);
+        else if (owns && prior->Has(s)) S.plans[s] = PlanKeep(prior, s);
+        else S.plans[s] = PlanShare(up, s);
     }
-    if (planes & UsdGenOp::kPlaneWidths) (void)node.buffer.width.data();
+
+    // Named planes: emitted and remapped ones are the node's own; the rest
+    // alias the input's (or stay the capture's).
+    for (UsdGenSlot s = t.StaticCount(); s < t.Size(); ++s) {
+        TfToken const &name = t[s].name;
+        if (!extrasFromInput) {
+            S.plans[s] = PlanKeep(prior, DynamicSlot(&prior->Channels(), name));
+            continue;
+        }
+        ColumnPlan const *own = nullptr;
+        for (auto const &entry : S.named)
+            if (entry.first == name) own = &entry.second;   // the last entry wins
+        S.plans[s] = own ? *own : PlanShare(up, DynamicSlot(&up->Channels(), name));
+    }
+    SealOutput(node, *topology, table, S, topologyVersion);
 }
 
 UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
@@ -508,6 +497,9 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
     mix(node.expressions.Digest());
     return digest;
 }
+/// Group dirty bits: the roles a run wrote (UsdGenChunkGroup::dirtyRoles).
+constexpr uint32_t kPositionDirty = 1u << uint32_t(UsdGenChannelRole::Position);
+constexpr uint32_t kWidthDirty = 1u << uint32_t(UsdGenChannelRole::Width);
 /// An extent slot no writer filled (range.live).
 constexpr uint32_t kExtentUnwritten = 0xffffffffu;
 
@@ -540,13 +532,10 @@ struct NodeSweepPayload
     // (node, chunk), so concurrent sweeps never share one.
     UsdGenChunkExtent *extentBase = nullptr;
     size_t extentCap = 0;
-    // Extra-plane slots resolved once per run, after preparation, so the
-    // chunk sweep does no name lookup: output, its upstream predecessor of
-    // the same layout (null otherwise), input.
-    std::array<PlaneLookup, kUsdGenMaxExtraPlaneSlots> outPlanes{}, outPredecessors{}, inPlanes{};
-    // What the chunk view is built from. The sets are the nodes'
-    // buffer-backed views (bridge, 5.4 deletes), bound on the commit thread;
-    // the per-chunk slot tables are chunk-major and keep their capacity.
+    // What the chunk view is built from: the node's sealed output and its
+    // inputs, viewed on the commit thread; the per-chunk slot tables are
+    // chunk-major and keep their capacity.
+    UsdGenElementSetView outView{}, inView{}, in2View{};
     UsdGenElementSetView const *outSet = nullptr, *inSet = nullptr, *in2Set = nullptr;
     std::array<UsdGenSlot, kUsdGenMaxExtraPlaneSlots> emitted{}, emittedIn{}, consumed{};
     uint16_t emittedCount = 0, consumedCount = 0, remappedCount = 0;
@@ -574,29 +563,6 @@ void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t curve
     }
 }
 
-/// Resolves the node's extra-plane slots against the prepared buffers.
-void ResolvePlaneSlots(NodeSweepPayload &pl, UsdGenCompiledNode const &node,
-                       UsdGenCurveBuffer const &upBuf)
-{
-    size_t const outs = std::min<size_t>(node.outputPrimvars.size(), kUsdGenMaxExtraPlaneSlots);
-    size_t const ins = std::min<size_t>(node.inputPrimvars.size(), kUsdGenMaxExtraPlaneSlots);
-    for (size_t slot = 0; slot < kUsdGenMaxExtraPlaneSlots; ++slot) {
-        pl.outPlanes[slot] = {};
-        pl.outPredecessors[slot] = {};
-        pl.inPlanes[slot] = {};
-    }
-    for (size_t slot = 0; slot < outs; ++slot) {
-        PlaneLookup const output = FindExtraPlane(node.buffer, node.outputPrimvars[slot]);
-        pl.outPlanes[slot] = output;
-        if (!output.plane) continue;
-        PlaneLookup const predecessor = FindExtraPlane(upBuf, node.outputPrimvars[slot]);
-        if (predecessor.plane && predecessor.cv == output.cv &&
-            SamePlaneLayout(*predecessor.plane, *output.plane))
-            pl.outPredecessors[slot] = predecessor;
-    }
-    for (size_t slot = 0; slot < ins; ++slot)
-        pl.inPlanes[slot] = FindExtraPlane(upBuf, node.inputPrimvars[slot]);
-}
 
 // A prepared node job owns the small vectors whose addresses are published in
 // its EvalContext.  Preparation happens on the commit thread; arena workers
@@ -608,8 +574,7 @@ std::string NodeLabel(UsdGenCompiledNode const &node)
 
 struct NodeExecution
 {
-    std::vector<UsdGenCurveBuffer const *> upstreamInputs;
-    std::vector<UsdGenElementSetView> inputSets;   // bridge: views of upstreamInputs
+    std::vector<UsdGenElementSetView> inputSets;   // views of the input nodes' outputs
     std::vector<UsdGenReferenceSet const *> referenceSets;
     std::vector<UsdGenResolvedReferenceValue const *> resolvedReferences;
     std::vector<UsdGenResolvedMapValue const *> resolvedMaps;
@@ -628,7 +593,6 @@ struct NodeExecution
     // Back to a fresh job, keeping every vector's capacity.
     void Reset()
     {
-        upstreamInputs.clear();
         inputSets.clear();
         referenceSets.clear();
         resolvedReferences.clear();
@@ -650,6 +614,7 @@ struct NodeExecution
         s.extentBase = nullptr;
         s.extentCap = 0;
         s.outSet = s.inSet = s.in2Set = nullptr;
+        s.outView = s.inView = s.in2View = UsdGenElementSetView{};
         s.emittedCount = s.consumedCount = s.remappedCount = 0;
         s.remapped = nullptr;
         s.outSlots = s.inSlots = s.in2Slots = 0;
@@ -692,6 +657,7 @@ struct UsdGenRunScratch
     size_t terminalCapacity = 0;
     TerminalTiles terminal;
     std::vector<UsdGenNodeRunStats> nodeStats;
+    OutputScratch output;
     std::atomic<bool> running{false};
 };
 
@@ -709,57 +675,50 @@ void SweepChunk(size_t index, void *payload)
 {
     NodeSweepPayload &pl = *static_cast<NodeSweepPayload *>(payload);
     UsdGenCompiledNode &node = *pl.node;
-    UsdGenChunkDesc const &cd = node.chunks[index];
-    if (cd.curveCount == 0) return;
+    UsdGenChunkRange const &cd = node.chunks[index];
+    if (cd.count[0] == 0) return;
     bool const chunkDirty =
         node.chunkDirty.empty()
             ? true   // no dirty bookkeeping for this partition: evaluate (never skip blindly)
             : (node.chunkDirty[index] & UsdGenDirtyParameter) != 0;
     if (!pl.evalAll && !chunkDirty) return;
 
-    UsdGenCurveBuffer const &buf = node.buffer;
-    UsdGenCurveBuffer const &upBuf = pl.up ? pl.up->buffer : EmptyBuffer();
-    UsdGenChunkDesc const *upC = (pl.up && pl.up->chunks.size() == node.chunks.size())
+    // Ragged offsets: count[1] + 1 entries, absolute; null on the uniform path.
+    uint32_t const *offs = pl.outView.offsets[2];
+    size_t const nOffs = offs ? size_t(pl.outView.count[1]) + 1 : 0;
+    uint32_t const *upOffs = pl.inView.offsets[2];
+    size_t const nUpOffs = upOffs ? size_t(pl.inView.count[1]) + 1 : 0;
+    UsdGenChunkRange const *upC = (pl.up && pl.up->chunks.size() == node.chunks.size())
         ? &pl.up->chunks[index] : nullptr;
-    UsdGenChunkDesc const *upC2 = (pl.up2 && pl.up2->chunks.size() == node.chunks.size())
+    UsdGenChunkRange const *upC2 = (pl.up2 && pl.up2->chunks.size() == node.chunks.size())
         ? &pl.up2->chunks[index] : nullptr;
 
-    uint32_t nCvs = cd.curveCount * cd.cvCount;
-    if (cd.cvCount == 0 && !buf.cvOffsets.empty()) {
+    uint32_t nCvs = cd.count[0] * cd.stride[1];
+    if (cd.stride[1] == 0 && nOffs) {
         // Ragged span [firstCurve, firstCurve+curveCount) from topology offsets.
-        size_t const f = cd.firstCurve;
-        if (f + cd.curveCount < buf.cvOffsets.size())
-            nCvs = uint32_t(buf.cvOffsets[f + cd.curveCount] - buf.cvOffsets[f]);
+        size_t const f = cd.first[0];
+        if (f + cd.count[0] < nOffs)
+            nCvs = uint32_t(offs[f + cd.count[0]] - offs[f]);
     }
-    size_t const base = cd.firstCv;
-    size_t const upBase = upC ? upC->firstCv : 0;
+    size_t const base = cd.first[1];
+    size_t const upBase = upC ? upC->first[1] : 0;
 
-    UsdGenChunkRange range;
-    range.first[0] = cd.firstCurve;
-    range.count[0] = cd.curveCount;
-    range.first[1] = cd.firstCv;
+    UsdGenChunkRange range = cd;
     range.count[1] = nCvs;
-    range.stride[1] = cd.cvCount;
-    range.live = cd.liveCount;
-    range.group = uint16_t(cd.tile);
-    range.domain = uint16_t(cd.surface);
     UsdGenChunkView chunk{};
     chunk.range = &range;
     // Ragged offsets stay absolute, pointer at the chunk's first curve; null
     // on the uniform fast path.
-    if (cd.cvCount == 0 && !buf.cvOffsets.empty() &&
-        size_t(cd.firstCurve) < buf.cvOffsets.size())
-        chunk.offsets[2] = reinterpret_cast<uint32_t const *>(buf.cvOffsets.cdata() + cd.firstCurve);
-    if (upC && upC->cvCount == 0 && !upBuf.cvOffsets.empty() &&
-        size_t(upC->firstCurve) < upBuf.cvOffsets.size())
-        chunk.inOffsets[2] =
-            reinterpret_cast<uint32_t const *>(upBuf.cvOffsets.cdata() + upC->firstCurve);
-    chunk.inFirst[1] = upC ? upC->firstCurve : cd.firstCurve;
+    if (cd.stride[1] == 0 && nOffs && size_t(cd.first[0]) < nOffs)
+        chunk.offsets[2] = offs + cd.first[0];
+    if (upC && upC->stride[1] == 0 && nUpOffs && size_t(upC->first[0]) < nUpOffs)
+        chunk.inOffsets[2] = upOffs + upC->first[0];
+    chunk.inFirst[1] = upC ? upC->first[0] : cd.first[0];
     chunk.inFirst[2] = static_cast<uint32_t>(upBase);
-    chunk.inStride[2] = upC ? upC->cvCount : 0;
+    chunk.inStride[2] = upC ? upC->stride[1] : 0;
     if (pl.outSet && index < pl.tableChunks) {
         void **out = pl.outTables.data() + index * pl.outSlots;
-        FillSlotTable(*pl.outSet, pl.outSlots, cd.firstCurve, base,
+        FillSlotTable(*pl.outSet, pl.outSlots, cd.first[0], base,
                       const_cast<void const **>(out));
         chunk.out = out;
         chunk.channels = pl.outSet->channels;
@@ -777,7 +736,7 @@ void SweepChunk(size_t index, void *payload)
     }
     if (pl.in2Set && upC2 && index < pl.tableChunks) {
         void const **in2 = pl.in2Tables.data() + index * pl.in2Slots;
-        FillSlotTable(*pl.in2Set, pl.in2Slots, upC2->firstCurve, upC2->firstCv, in2);
+        FillSlotTable(*pl.in2Set, pl.in2Slots, upC2->first[0], upC2->first[1], in2);
         chunk.in2 = in2;
     }
     chunk.emitted = pl.emitted.data();
@@ -811,7 +770,7 @@ struct InterleavePayload
 {
     UsdGenGraph *graph;
     UsdGenCompiledNode const *tn;
-    UsdGenCurveBuffer const *term;
+    UsdGenCurveSetView term;
     std::vector<char> *touched;
     bool widthsFlag;
     // Fused extents: per-chunk records from the recording sweep, consumed
@@ -822,19 +781,18 @@ struct InterleavePayload
 void InterleaveTile(size_t index, void *payload)
 {
     InterleavePayload &pl = *static_cast<InterleavePayload *>(payload);
-    UsdGenTileView &tv =
-        const_cast<UsdGenTileView &>(pl.graph->Tiles()[index]);
+    UsdGenChunkGroup &tv =
+        const_cast<UsdGenChunkGroup &>(pl.graph->Groups()[index]);
     // Tile dirty flags are per-run observations (03 §5.4 step 5), not sticky
     // state: clear first so a run that evaluates no chunk of this tile reports
     // "nothing changed" instead of replaying the previous run's flag.
-    tv.pointsDirty = false;
-    tv.widthsDirty = false;
+    tv.dirtyRoles = 0;
     if (!(*pl.touched)[index]) return;
 
     // Terminal node owns the chunk partition the tiles index into.
     if (pl.tn->chunks.size() < tv.firstChunk + tv.chunkCount) return;
 
-    UsdGenCurveBuffer const &term = *pl.term;
+    UsdGenCurveSetView const &term = pl.term;
     GfRange3f extent;
     uint64_t liveCurves = 0, liveCvs = 0;
     float const *tpx = term.px.empty() ? nullptr : term.px.cdata();
@@ -843,7 +801,7 @@ void InterleaveTile(size_t index, void *payload)
     size_t const nPx = term.px.size();
     bool const ragged = !term.cvOffsets.empty();
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        UsdGenChunkDesc const &cd = pl.tn->chunks[tv.firstChunk + i];
+        UsdGenChunkRange const &cd = pl.tn->chunks[tv.firstChunk + i];
         if (pl.extents) {
             // Fused path: the counts below are the point path's statements
             // verbatim (same inputs, same sums); the extent unions the
@@ -851,9 +809,9 @@ void InterleaveTile(size_t index, void *payload)
             // the sequential pass bitwise for NaN-free points (the gate
             // admits only deform-recorded runs, and deform outputs cannot
             // carry NaN — see the contract on UsdGenChunkView::extentSlot).
-            if (ragged && cd.cvCount == 0) {
-                for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                    size_t const g = size_t(cd.firstCurve) + c;
+            if (ragged && cd.stride[1] == 0) {
+                for (uint32_t c = 0; c < cd.live; ++c) {
+                    size_t const g = size_t(cd.first[0]) + c;
                     if (g + 1 >= term.cvOffsets.size()) break;
                     uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
                     uint32_t const len =
@@ -862,8 +820,8 @@ void InterleaveTile(size_t index, void *payload)
                     liveCvs += len;
                 }
             } else {
-                liveCurves += cd.liveCount;
-                liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+                liveCurves += cd.live;
+                liveCvs += uint64_t(cd.live) * cd.stride[1];
             }
             UsdGenChunkExtent const &e = pl.extents[tv.firstChunk + i];
             extent.UnionWith(GfRange3f(GfVec3f(e.min[0], e.min[1], e.min[2]),
@@ -873,9 +831,9 @@ void InterleaveTile(size_t index, void *payload)
         // Ragged path (03 §1.3): per-curve CV spans come from cvOffsets, not
         // liveCount*cvCount (cvCount == 0 on the ragged path). g indexes the
         // absolute curve so cvOffsets[g] is valid.
-        if (ragged && cd.cvCount == 0) {
-            for (uint32_t c = 0; c < cd.liveCount; ++c) {
-                size_t const g = size_t(cd.firstCurve) + c;
+        if (ragged && cd.stride[1] == 0) {
+            for (uint32_t c = 0; c < cd.live; ++c) {
+                size_t const g = size_t(cd.first[0]) + c;
                 if (g + 1 >= term.cvOffsets.size()) break;
                 uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
                 uint32_t const len =
@@ -891,23 +849,25 @@ void InterleaveTile(size_t index, void *payload)
             }
             continue;
         }
-        liveCurves += cd.liveCount;
-        liveCvs += uint64_t(cd.liveCount) * cd.cvCount;
+        liveCurves += cd.live;
+        liveCvs += uint64_t(cd.live) * cd.stride[1];
         if (!tpx || !tpy || !tpz) continue;
-        for (uint32_t c = 0; c < cd.liveCount; ++c) {
-            size_t const o = size_t(cd.firstCv) + size_t(c) * cd.cvCount;
-            for (uint32_t v = 0; v < cd.cvCount; ++v) {
+        for (uint32_t c = 0; c < cd.live; ++c) {
+            size_t const o = size_t(cd.first[1]) + size_t(c) * cd.stride[1];
+            for (uint32_t v = 0; v < cd.stride[1]; ++v) {
                 size_t const p = o + v;
                 if (p >= nPx) break;
                 extent.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
             }
         }
     }
-    tv.extent = extent;
-    tv.totalLiveCurves = static_cast<uint32_t>(liveCurves);
-    tv.totalLiveCvs = static_cast<uint32_t>(liveCvs);
-    tv.pointsDirty = true;
-    tv.widthsDirty = pl.widthsFlag;
+    for (int k = 0; k < 3; ++k) {
+        tv.extentMin[k] = extent.GetMin()[k];
+        tv.extentMax[k] = extent.GetMax()[k];
+    }
+    tv.live[0] = static_cast<uint32_t>(liveCurves);
+    tv.live[1] = static_cast<uint32_t>(liveCvs);
+    tv.dirtyRoles = kPositionDirty | (pl.widthsFlag ? kWidthDirty : 0u);
 }
 
 }  // namespace
@@ -970,6 +930,9 @@ UsdGenRunResult UsdGenScheduler::Run(
     UsdGenCookInternFails(tokenCheck, &result.diagnostics);
     result.nodeStats = TfSpan<const UsdGenNodeRunStats>(_scratch->nodeStats);
     _scratch->running.store(false, std::memory_order_release);
+    // Cook-lane drain: what this cook retired is freed by the cook, not left
+    // to an idle worker (a no-op on a pinned thread or with nothing due).
+    UsdGenEpochDrain();
     return result;
 }
 
@@ -1035,9 +998,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
 
     UsdGenDiagnostics aggregated;
     auto dispatcher = MakeWorkDispatcher();
-    UsdGenCurveBuffer const emptyBuf;
 
-    int nTiles = graph.NumTiles();
+    int nTiles = graph.NumGroups();
     std::vector<char> &tileTouched = S.tileTouched;
     tileTouched.assign(size_t(nTiles), 0);
     bool transactionalRun=false;
@@ -1083,19 +1045,16 @@ UsdGenRunResult UsdGenScheduler::_Run(
         TRACE_SCOPE("usdGen prepare");   // a dynamic name interns a token per node
         UsdGenDiagnostics nodeDiag;
         bool const hasUp = !node.inputs.empty();
-        UsdGenCurveBuffer const &upBuf = hasUp
-            ? graph.Node(node.inputs.front()).buffer : emptyBuf;
-        job->upstreamInputs.reserve(node.inputs.size());
+        UsdGenElementSet const *up = hasUp
+            ? OutputOrEmpty(graph, graph.Node(node.inputs.front())) : nullptr;
+        job->inputSets.reserve(node.inputs.size());
         for (UsdGenNodeId input : node.inputs) {
             if (input >= static_cast<UsdGenNodeId>(graph.NodeCount())) {
                 nodeDiag.Error("UsdGen: invalid compiled geometry input on '" +
                                node.desc->path.GetString() + "'");
                 break;
             }
-            UsdGenCompiledNode &inputNode = graph.Node(input);
-            job->upstreamInputs.push_back(&inputNode.buffer);
-            inputNode.setView.Bind(inputNode.buffer);   // bridge: the input as a set
-            job->inputSets.push_back(inputNode.setView.View());
+            job->inputSets.push_back(OutputOrEmpty(graph, graph.Node(input))->View());
         }
         UsdGenOpInputs inputs;
         inputs.sets = job->inputSets.empty() ? nullptr : job->inputSets.data();
@@ -1141,10 +1100,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
         cctx.mapBindingCount = static_cast<uint32_t>(node.mapBindingRefs.size());
         cctx.surface = node.hasSurface ? node.surface : 0;
         cctx.seed = node.desc ? static_cast<uint32_t>(node.desc->seed) : 0;
-        cctx.upstreamGeneration = hasUp ? upBuf.topologyVersion : 0;
-        cctx.upstreams = job->upstreamInputs.empty() ? nullptr
-            : job->upstreamInputs.data();
-        cctx.upstreamCount = static_cast<uint32_t>(job->upstreamInputs.size());
+        cctx.upstreamGeneration = hasUp ? up->TopologyVersion() : 0;
+        cctx.inputs = inputs;
         cctx.dispatcher = &dispatcher;
         cctx.diag = &nodeDiag;
         // Capture-direct output: the node's previous-run point planes for
@@ -1156,15 +1113,24 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // fails closed into the sweep path. Progressive cooks keep the
         // sweep (per-chunk completion), so they offer no direct planes.
         if (!tileCompleted) {
-            UsdGenCurveBuffer const &nbuf = node.buffer;
-            bool const outSized = nbuf.totalCvs > 0 &&
-                nbuf.px.size() == nbuf.totalCvs &&
-                nbuf.py.size() == nbuf.totalCvs &&
-                nbuf.pz.size() == nbuf.totalCvs;
-            cctx.outPx = outSized ? const_cast<float *>(nbuf.px.cdata()) : nullptr;
-            cctx.outPy = outSized ? const_cast<float *>(nbuf.py.cdata()) : nullptr;
-            cctx.outPz = outSized ? const_cast<float *>(nbuf.pz.cdata()) : nullptr;
-            cctx.outPlaneCvs = outSized ? size_t(nbuf.totalCvs) : 0;
+            // Offered only while the previous output's point columns are
+            // the node's own (its delta arena): the arena preparation below
+            // keeps them in place, or copies them when it moves.
+            UsdGenElementSet const *prior = node.output.Get();
+            uint32_t const cvs = prior ? prior->Count(2) : 0u;
+            bool const outSized = cvs > 0 &&
+                prior->OwnsColumn(kUsdGenCurvePx) && prior->OwnsColumn(kUsdGenCurvePy) &&
+                prior->OwnsColumn(kUsdGenCurvePz) &&
+                prior->Column<float>(kUsdGenCurvePx).size() == cvs &&
+                prior->Column<float>(kUsdGenCurvePy).size() == cvs &&
+                prior->Column<float>(kUsdGenCurvePz).size() == cvs;
+            auto column = [&](UsdGenSlot s) {
+                return outSized ? const_cast<float *>(prior->Column<float>(s).data()) : nullptr;
+            };
+            cctx.outPx = column(kUsdGenCurvePx);
+            cctx.outPy = column(kUsdGenCurvePy);
+            cctx.outPz = column(kUsdGenCurvePz);
+            cctx.outPlaneCvs = outSized ? size_t(cvs) : 0;
             cctx.chunks = node.chunks.empty() ? nullptr : node.chunks.data();
             cctx.chunkCount = node.chunks.size();
             if (pos == extentWriter && extentWriter >= 0) {
@@ -1181,7 +1147,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             double const seconds = std::isfinite(rate) && rate > 0.0
                 ? evalCtx.time / rate : evalCtx.time;
             std::vector<std::string> expressionErrors;
-            if (!node.expressions.Evaluate(spaceDesc(pos), *node.desc, upBuf,
+            if (!node.expressions.Evaluate(spaceDesc(pos), *node.desc,
+                                           UsdGenCurveSetView::Of(up ? up->View() : UsdGenElementSetView{}),
                                            evalCtx.time, seconds, cctx.seed,
                                            &job->expressionsChanged,
                                            &expressionErrors))
@@ -1203,10 +1170,16 @@ UsdGenRunResult UsdGenScheduler::_Run(
         if (!node.enabled) {
             job->reCaptured = false;
             node.captureNeeded = false;
-            if (node.record->Has(kUsdGenOpGenerator) &&
-                (node.buffer.totalCurves != 0 || node.buffer.totalCvs != 0)) {
-                node.buffer = UsdGenCurveBuffer();
-                node.buffer.topologyVersion = ++node.topologySeq;
+            if (node.record->Has(kUsdGenOpGenerator) && node.output &&
+                (node.output->Count(1) != 0 || node.output->Count(2) != 0)) {
+                node.valueVersion = 0;
+                node.topologyVersion = ++node.topologySeq;
+                UsdGenWriteSet ws = UsdGenWriteSet::Derive(
+                    UsdGenRef<const UsdGenElementSet>(&graph.EmptyOutput()), {});
+                ws.Plan({});
+                ws.SetVersionsExact(node.topologyVersion, 0);
+                node.output = std::move(ws).Seal();
+                node.captureOutput.Reset();
                 node.capture.reset();
                 if (graph.Repartition(0, 0)) result.topologyChanged = true;
             }
@@ -1250,8 +1223,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 cap = op.CreateCapture();
             }
             if (cap && op.Capture(cctx, inputs, cap.get(), &nodeDiag)) {
-                if (cap->OwnedBuffer())
-                    InstallCaptureBuffer(node, op, *cap, upBuf, hasUp);
+                // An owning capture's output, converted once per capture.
+                node.captureOutput = cap->Output();
+                if (node.captureOutput)
+                    InstallCaptureOutput(node, up);
                 std::unique_ptr<UsdGenCapture> replaced = std::move(node.capture);
                 node.capture = std::move(cap);
                 if (replaced && replaced->Recyclable())
@@ -1274,17 +1249,17 @@ UsdGenRunResult UsdGenScheduler::_Run(
             // re-capturing to ZERO curves must still repartition, or its stale
             // chunk plan sweeps dead chunks against empty buffers.
             if (node.record->Has(kUsdGenOpGenerator) ||
-                node.topoFx == UsdGenTopoFx::CvCount) {
-                int const total = static_cast<int>(node.buffer.totalCurves);
-                int const cvp = int(node.buffer.totalCvs /
-                                    std::max<uint32_t>(1, node.buffer.totalCurves));
-                if (graph.Repartition(total, cvp))
+                node.countChanges == UsdGenCountsAtLevel(2)) {
+                UsdGenElementSet const &out = graph.NodeOutput(node.id);
+                int const total = static_cast<int>(out.Count(1));
+                int const cvp = int(out.Count(2) / std::max<uint32_t>(1, out.Count(1)));
+                if (graph.Repartition(uint32_t(total), uint32_t(cvp)))
                     result.topologyChanged = true;
             } else if (job->reCaptured && node.chunks.empty() && hasUp) {
                 UsdGenCompiledNode const &upN = graph.Node(node.input);
-                if (!upN.chunks.empty() && upN.buffer.totalCurves > 0 &&
-                    graph.Repartition(static_cast<int>(upN.buffer.totalCurves),
-                                      static_cast<int>(upN.chunks[0].cvCount)))
+                uint32_t const upCurves = graph.NodeOutput(node.input).Count(1);
+                if (!upN.chunks.empty() && upCurves > 0 &&
+                    graph.Repartition(upCurves, upN.chunks[0].stride[1]))
                     result.topologyChanged = true;
             }
         }
@@ -1328,8 +1303,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
         UsdGenCompiledNode &node = graph.Node(pos);
         UsdGenOp &op = *node.op;
         bool const hasUp = !node.inputs.empty();
-        UsdGenCurveBuffer const &upBuf = hasUp
-            ? graph.Node(node.inputs.front()).buffer : emptyBuf;
+        UsdGenElementSet const *up = hasUp
+            ? OutputOrEmpty(graph, graph.Node(node.inputs.front())) : nullptr;
 
         if (!node.enabled && node.record->Has(kUsdGenOpGenerator)) {
             std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
@@ -1337,15 +1312,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             return true;
         }
         if (!node.enabled && hasUp) {
-            UsdGenCurveBuffer &buf = node.buffer;
-            buf.px = upBuf.px; buf.py = upBuf.py; buf.pz = upBuf.pz;
-            buf.rest = upBuf.rest;
-            buf.width = upBuf.width; buf.hairT = upBuf.hairT;
-            AliasPerCurve(buf, upBuf);
-            AliasExtraPlanes(buf, upBuf);
-            buf.totalCurves = upBuf.totalCurves;
-            buf.totalCvs = upBuf.totalCvs;
-            buf.topologyVersion = upBuf.topologyVersion;
+            PassThroughOutput(node, *up);
             std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
                       UsdGenDirtyNone);
             return true;
@@ -1356,8 +1323,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             return true;
         }
 
-        PrepareNodeForEval(node, op, upBuf, hasUp);
-        EnsureWritablePlanes(node, op);
+        PrepareNodeForEval(graph, node, op, up, S.output);
         NodeSweepPayload &pl = job->sweep;
         pl.node = &node;
         pl.graph = &graph;
@@ -1386,19 +1352,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // frontier joins and validates the shared failure flag.
         pl.deferCompletion = node.remapsVertexPlanes;
         if (pl.deferCompletion) {
-            pl.pointScratch.resize(node.buffer.totalCvs);
-            pl.scalarScratch.resize(node.buffer.totalCvs);
-        }
-        // Remappers write extra CV planes through the chunk tables: detach
-        // them here, on the commit thread, before the tables are bound.
-        if (node.remapsVertexPlanes) {
-            for (UsdGenPlane &plane : node.buffer.extraCv) {
-                if (plane.type == UsdGenTokens().int_) { if (!plane.i.empty()) (void)plane.i.data(); }
-                else if (!plane.f.empty()) (void)plane.f.data();
-            }
+            pl.pointScratch.resize(node.output->Count(2));
+            pl.scalarScratch.resize(node.output->Count(2));
         }
         pl.didEval.assign(node.chunks.size(), 0);
-        ResolvePlaneSlots(pl, node, pl.up ? pl.up->buffer : EmptyBuffer());
         if (pos == extentWriter && extentWriter >= 0) {
             pl.extentBase = extentScratch.data();
             pl.extentCap = extentChunks;
@@ -1406,37 +1363,36 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // The sets and slots the chunk view reads, bound after every
         // commit-thread detach above.
         {
-            node.setView.Bind(node.buffer);
-            pl.outSet = &node.setView.View();
+            pl.outView = node.output->View();
+            pl.outSet = &pl.outView;
             UsdGenChannelTable const *outTable = pl.outSet->channels;
             UsdGenChannelTable const *inTable = nullptr;
             if (pl.up) {
-                UsdGenCompiledNode &upNode = graph.Node(node.input);
-                upNode.setView.Bind(upNode.buffer);
-                pl.inSet = &upNode.setView.View();
+                pl.inView = OutputOrEmpty(graph, graph.Node(node.input))->View();
+                pl.inSet = &pl.inView;
                 inTable = pl.inSet->channels;
             }
             if (pl.up2) {
-                UsdGenCompiledNode &up2Node = graph.Node(node.inputs[1]);
-                up2Node.setView.Bind(up2Node.buffer);
-                pl.in2Set = &up2Node.setView.View();
+                pl.in2View = OutputOrEmpty(graph, graph.Node(node.inputs[1]))->View();
+                pl.in2Set = &pl.in2View;
             }
-            auto find = [](UsdGenChannelTable const *table, TfToken const &name) {
-                return table ? table->Find(name) : kUsdGenNoSlot;
-            };
+            // Named-plane slots, resolved once per run so the sweep does no
+            // name lookup: output, its input predecessor of the same layout
+            // (none otherwise), input.
             pl.emittedCount = static_cast<uint16_t>(
                 std::min<size_t>(node.outputPrimvars.size(), kUsdGenMaxExtraPlaneSlots));
             for (uint16_t k = 0; k < pl.emittedCount; ++k) {
-                pl.emitted[k] = pl.outPlanes[k].plane
-                    ? find(outTable, node.outputPrimvars[k]) : kUsdGenNoSlot;
-                pl.emittedIn[k] = pl.outPredecessors[k].plane
-                    ? find(inTable, node.outputPrimvars[k]) : kUsdGenNoSlot;
+                UsdGenSlot const out = DynamicSlot(outTable, node.outputPrimvars[k]);
+                UsdGenSlot const in = out == kUsdGenNoSlot ? kUsdGenNoSlot
+                    : DynamicSlot(inTable, node.outputPrimvars[k]);
+                pl.emitted[k] = out;
+                pl.emittedIn[k] = in != kUsdGenNoSlot &&
+                    UsdGenSameLayout((*outTable)[out], (*inTable)[in]) ? in : kUsdGenNoSlot;
             }
             pl.consumedCount = static_cast<uint16_t>(
                 std::min<size_t>(node.inputPrimvars.size(), kUsdGenMaxExtraPlaneSlots));
             for (uint16_t k = 0; k < pl.consumedCount; ++k)
-                pl.consumed[k] = pl.inPlanes[k].plane
-                    ? find(inTable, node.inputPrimvars[k]) : kUsdGenNoSlot;
+                pl.consumed[k] = DynamicSlot(inTable, node.inputPrimvars[k]);
             if (node.remapsVertexPlanes && outTable) {
                 UsdGenSpan<const UsdGenSlot> const run = outTable->DynamicRun(2);
                 pl.remapped = run.data();
@@ -1470,7 +1426,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         bool const referenceLane = lane == 0;
         int remaining = 0;
         for (int pos = 0; pos < graph.NodeCount(); ++pos)
-            remaining += ((graph.Node(pos).role == UsdGenRole::Reference) ==
+            remaining += ((graph.Node(pos).lane == UsdGenLane::Reference) ==
                           referenceLane);
         while (remaining > 0) {
             if (superseded && superseded()) {
@@ -1483,7 +1439,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             for (int pos = 0; pos < graph.NodeCount(); ++pos) {
                 UsdGenCompiledNode const &node = graph.Node(pos);
                 if (completed[size_t(pos)] ||
-                    ((node.role == UsdGenRole::Reference) != referenceLane))
+                    ((node.lane == UsdGenLane::Reference) != referenceLane))
                     continue;
                 bool ready = true;
                 for (UsdGenNodeId input : node.inputs) {
@@ -1516,8 +1472,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             }
             // Capture can repartition the graph. Keep completion counters and
             // the eventual interleave sweep aligned with the new tile plan.
-            if (graph.NumTiles() != nTiles) {
-                nTiles = graph.NumTiles();
+            if (graph.NumGroups() != nTiles) {
+                nTiles = graph.NumGroups();
                 tileTouched.resize(nTiles, 1);
             }
 
@@ -1566,7 +1522,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         terminalRemaining[t].store(0, std::memory_order_relaxed);
                     for (ChunkExecution const &item : work) {
                         if (item.payload != &job->sweep) continue;
-                        UsdGenTileId const tile = job->sweep.node->chunks[item.chunk].tile;
+                        UsdGenTileId const tile = job->sweep.node->chunks[item.chunk].group;
                         if (tile < static_cast<UsdGenTileId>(nTiles))
                             terminalRemaining[tile].fetch_add(1, std::memory_order_relaxed);
                     }
@@ -1574,10 +1530,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
                                                terminalRemaining, nTiles,
                                                &tileCompleted};
                     job->sweep.onChunkCompleted = [t = &S.terminal](size_t chunk) {
-                        UsdGenTileId const tile = t->node->chunks[chunk].tile;
+                        UsdGenTileId const tile = t->node->chunks[chunk].group;
                         if (tile >= static_cast<UsdGenTileId>(t->nTiles)) return;
                         if (t->remaining[tile].fetch_sub(1, std::memory_order_acq_rel) == 1)
-                            (*t->completed)(t->graph->Tiles()[tile], t->node->buffer);
+                            (*t->completed)(t->graph->Groups()[tile], *t->node->output);
                     };
                     break;
                 }
@@ -1638,10 +1594,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     // (or, gateless, skipped) its extents: publish exactly
                     // what a full sweep would have (fresh values, touched
                     // tiles, cleared dirt, stats with no eval leg).
-                    node.buffer.valueVersion += 1;
+                    UsdGenWriteSet::Restamp(*node.output, ++node.valueVersion);
                     for (size_t c = 0; c < node.chunks.size(); ++c)
-                        if (node.chunks[c].tile < tileTouched.size())
-                            tileTouched[node.chunks[c].tile] = 1;
+                        if (node.chunks[c].group < tileTouched.size())
+                            tileTouched[node.chunks[c].group] = 1;
                     std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
                               UsdGenDirtyNone);
                     auto const end = std::chrono::steady_clock::now();
@@ -1658,11 +1614,11 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     for (uint8_t b : job.sweep.didEval)
                         if (b) { wrote = true; break; }
                     if (wrote) {
-                        node.buffer.valueVersion += 1;
+                        UsdGenWriteSet::Restamp(*node.output, ++node.valueVersion);
                         for (size_t c = 0; c < node.chunks.size(); ++c)
                             if (job.sweep.didEval[c] &&
-                                node.chunks[c].tile < tileTouched.size())
-                                tileTouched[node.chunks[c].tile] = 1;
+                                node.chunks[c].group < tileTouched.size())
+                                tileTouched[node.chunks[c].group] = 1;
                     }
                     std::fill(node.chunkDirty.begin(), node.chunkDirty.end(),
                               UsdGenDirtyNone);
@@ -1703,7 +1659,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             }
         }
     }
-    UsdGenCurveBuffer const &term = graph.Output();
+    UsdGenElementSet const &termSet = graph.Output();
+    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(termSet);
     UsdGenCompiledNode const &tn = graph.Node(graph.TerminalNodeId());
     UsdGenOp const *termOp = tn.op.get();
 
@@ -1717,25 +1674,26 @@ UsdGenRunResult UsdGenScheduler::_Run(
     UsdGenChunkExtent const *fusedExtents = nullptr;
     if (extentWriter >= 0 && extentSwept) {
         UsdGenCompiledNode const &wn = graph.Node(UsdGenNodeId(extentWriter));
+        UsdGenCurveSetView const written = UsdGenCurveSetView::Of(*OutputOrEmpty(graph, wn));
         auto sameBacking = [](auto const &a, auto const &b) {
             return a.size() == b.size() && (a.empty() || a.cdata() == b.cdata());
         };
         bool ok = tn.chunks.size() == extentChunks &&
                   wn.chunks.size() == extentChunks &&
-                  sameBacking(term.px, wn.buffer.px) &&
-                  sameBacking(term.py, wn.buffer.py) &&
-                  sameBacking(term.pz, wn.buffer.pz) &&
-                  sameBacking(term.cvOffsets, wn.buffer.cvOffsets);
+                  sameBacking(term.px, written.px) &&
+                  sameBacking(term.py, written.py) &&
+                  sameBacking(term.pz, written.pz) &&
+                  sameBacking(term.cvOffsets, written.cvOffsets);
         for (size_t i = 0; ok && i < extentChunks; ++i) {
-            UsdGenChunkDesc const &tc = tn.chunks[i];
-            UsdGenChunkDesc const &wc = wn.chunks[i];
+            UsdGenChunkRange const &tc = tn.chunks[i];
+            UsdGenChunkRange const &wc = wn.chunks[i];
             UsdGenChunkRange const &s = extentScratch[i].range;
-            ok = tc.liveCount == tc.curveCount && wc.liveCount == wc.curveCount &&
-                 s.first[0] == wc.firstCurve && s.count[0] == wc.curveCount &&
-                 s.live == wc.liveCount && s.first[1] == wc.firstCv &&
-                 s.stride[1] == wc.cvCount && wc.firstCurve == tc.firstCurve &&
-                 wc.curveCount == tc.curveCount && wc.liveCount == tc.liveCount &&
-                 wc.firstCv == tc.firstCv && wc.cvCount == tc.cvCount;
+            ok = tc.live == tc.count[0] && wc.live == wc.count[0] &&
+                 s.first[0] == wc.first[0] && s.count[0] == wc.count[0] &&
+                 s.live == wc.live && s.first[1] == wc.first[1] &&
+                 s.stride[1] == wc.stride[1] && wc.first[0] == tc.first[0] &&
+                 wc.count[0] == tc.count[0] && wc.live == tc.live &&
+                 wc.first[1] == tc.first[1] && wc.stride[1] == tc.stride[1];
         }
         if (ok) fusedExtents = extentScratch.data();
     }
@@ -1744,7 +1702,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         InterleavePayload ip;
         ip.graph = &graph;
         ip.tn = &tn;
-        ip.term = &term;
+        ip.term = term;
         ip.touched = &tileTouched;
         ip.widthsFlag = termOp &&
             (termOp->PlanesTouched() & UsdGenOp::kPlaneWidths) != 0;
@@ -1755,10 +1713,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
     if (tileCompleted && transactionalRun)
         for (int tile=0;tile<nTiles;++tile)
             if (tileTouched[size_t(tile)])
-                tileCompleted(graph.Tiles()[tile],term);
+                tileCompleted(graph.Groups()[tile], termSet);
 
     result.terminalOutput = &graph.Output();
-    result.tiles = graph.Tiles();
+    result.groups = graph.Groups();
     result.diagnostics = std::move(aggregated);
     return result;
 }

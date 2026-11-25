@@ -73,8 +73,8 @@ USDGEN_CORE_API bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
                             UsdGenClumpMotion *out,
                             std::string *error = nullptr,
                             UsdGenClumpMotion const *previous = nullptr);
-/// View overload (5.3a): a buffer-backed view takes the buffer path; a set
-/// copies its planes first, so the previous-capture reuse never hits there.
+/// View overload: copies the planes first, so the previous-capture reuse
+/// never hits there.
 USDGEN_CORE_API bool UsdGenBuildClumpMotion(UsdGenCurveSetView const &curves,
                             UsdGenClumpMotion *out,
                             std::string *error = nullptr,

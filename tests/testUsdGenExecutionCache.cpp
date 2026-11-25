@@ -45,7 +45,7 @@ UsdGenGraphDesc Description()
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/cache/groomA/hair");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.curveGeneration = 7;
     // The publication tests need actual nonempty C3 data, not the legacy
@@ -60,13 +60,13 @@ UsdGenGraphDesc Description()
     desc.curveSets.push_back(std::move(hair));
     UsdGenCurveSetDesc secondHair;
     secondHair.path = SdfPath("/cache/groomA/hair2");
-    secondHair.role = UsdGenRole::Curves;
+    secondHair.role = UsdGenLane::Chunked;
     secondHair.curveRole = TfToken("hair");
     secondHair.curveGeneration = 8;
     desc.curveSets.push_back(std::move(secondHair));
     UsdGenCurveSetDesc guides;
     guides.path = SdfPath("/cache/groomA/guides");
-    guides.role = UsdGenRole::Reference;
+    guides.role = UsdGenLane::Reference;
     guides.curveRole = TfToken("guide");
     guides.curveGeneration = 9;
     desc.curveSets.push_back(std::move(guides));
@@ -628,7 +628,7 @@ int main()
               graph.Node(mapNode).captureNeeded,
           "map dirty updates version and invalidates consumer and descendant captures");
     Check(graph.AnyDirty(), "map dirty remains observable");
-    graph.DirtyCurves(desc.curveSets[2].path, 10);
+    graph.DirtyInput(desc.curveSets[2].path, 10);
     Check(graph.InputVersions().references.front().generation == 10 &&
               graph.Node(mapNode).captureNeeded,
           "curve dirty updates reference generation without clearing existing dirt");

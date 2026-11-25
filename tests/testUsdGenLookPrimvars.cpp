@@ -63,7 +63,7 @@ UsdGenGraphDesc Description()
 
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/look/groom/hair");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.curveGeneration = 1;
     hair.curveVertexCounts = {3};

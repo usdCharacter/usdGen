@@ -33,6 +33,7 @@ struct UsdGenWriteSet::Impl : UsdGenPooled {
     UsdGenRef<const UsdGenChannelTable> channels;
     UsdGenRef<const UsdGenElementSet> base;
     UsdGenRef<UsdGenArena> delta;                // the recycled candidate before Plan
+    UsdGenRef<const UsdGenElementSet> inPlace;   // RecycleInPlace candidate before Plan
     UsdGenPoolVector<Slot> slots;
     UsdGenPoolVector<UsdGenRef<const UsdGenArena>> held;   // Share() sources
     uint32_t count[kUsdGenMaxLevels + 1] = {1, 0, 0, 0};
@@ -42,7 +43,7 @@ struct UsdGenWriteSet::Impl : UsdGenPooled {
     uint8_t offsetKind[kUsdGenMaxLevels + 1] = {};         // kShared, kWritten (Fresh, planned), kCopied
     bool offsetWritten[kUsdGenMaxLevels + 1] = {};
     uint64_t topologyOverride = 0, valueOverride = 0;
-    bool fresh = false, planned = false;
+    bool fresh = false, planned = false, exactVersions = false, keptInPlace = false;
 
     uint32_t ValuesFor(UsdGenChannelDesc const &d) const noexcept
     {
@@ -129,6 +130,17 @@ void UsdGenWriteSet::Recycle(UsdGenRef<const UsdGenElementSet> previous) noexcep
     _impl->delta = UsdGenRef<UsdGenArena>::Adopt(const_cast<UsdGenArena *>(p._arenas[p._delta].Detach()));
 }
 
+void UsdGenWriteSet::RecycleInPlace(UsdGenRef<const UsdGenElementSet> previous) noexcept
+{
+    if (!_impl || _impl->planned || !previous) return;
+    _impl->inPlace = std::move(previous);
+}
+
+bool UsdGenWriteSet::RecycledInPlace() const noexcept
+{
+    return _impl && _impl->keptInPlace;
+}
+
 void UsdGenWriteSet::Plan(UsdGenSpan<const UsdGenSlot> written)
 {
     if (!_impl || _impl->planned) return;
@@ -187,8 +199,36 @@ void UsdGenWriteSet::Plan(UsdGenSpan<const UsdGenSlot> written)
     }
     if (!needDelta) {
         im.delta.Reset();
+        im.inPlace.Reset();
         return;
     }
+    if (im.inPlace && !im.delta) {
+        UsdGenElementSet const &p = *im.inPlace;
+        UsdGenArena const *a = p._delta < p._arenaCount ? p._arenas[p._delta].Get() : nullptr;
+        bool keep = a && !a->IsShared() && a->Capacity() >= cursor;
+        for (uint8_t l = 1; keep && l <= kUsdGenMaxLevels; ++l) {
+            if (im.offsetKind[l] == kShared || im.offsetKind[l] == kCopied)
+                keep = im.offsetArena[l] != a;
+            if (keep && (im.offsetKind[l] == kWritten || im.offsetKind[l] == kCopied))
+                keep = p._count[l - 1] == im.count[l - 1] && p._offsets[l] &&
+                       static_cast<void const *>(p._offsets[l]) == a->Payload() + im.offsetAt[l];
+        }
+        UsdGenChannelTable const &pt = *p._channels;
+        for (UsdGenSlot s = 0; keep && s < im.slots.size(); ++s) {
+            Impl::Slot const &slot = im.slots[s];
+            if (slot.kind == kShared || slot.kind == kCopied) keep = slot.arena != a;
+            if (!keep || (slot.kind != kWritten && slot.kind != kCopied)) continue;
+            keep = s < p._columns.size() && p._columns[s] && p._columnArena[s] == p._delta &&
+                   p._values[s] == slot.values && table[s].name == pt[s].name &&
+                   UsdGenSameLayout(table[s], pt[s]) &&
+                   static_cast<void const *>(p._columns[s]) == a->Payload() + slot.at;
+        }
+        if (keep) {
+            im.delta = UsdGenRef<UsdGenArena>(const_cast<UsdGenArena *>(a));
+            im.keptInPlace = true;
+        }
+    }
+    im.inPlace.Reset();
     if (!im.delta || im.delta->Capacity() < cursor) {
         im.delta.Reset();   // back to the pool before the next block is taken
         im.delta = UsdGenArena::Acquire(size_t(cursor));
@@ -265,6 +305,14 @@ void UsdGenWriteSet::SetVersions(uint64_t topologyVersion, uint64_t valueVersion
     _impl->valueOverride = valueVersion;
 }
 
+void UsdGenWriteSet::SetVersionsExact(uint64_t topologyVersion, uint64_t valueVersion) noexcept
+{
+    if (!_impl) return;
+    _impl->topologyOverride = topologyVersion;
+    _impl->valueOverride = valueVersion;
+    _impl->exactVersions = true;
+}
+
 UsdGenRef<const UsdGenElementSet> UsdGenWriteSet::Seal() &&
 {
     if (!_impl) return {};
@@ -311,9 +359,9 @@ UsdGenRef<const UsdGenElementSet> UsdGenWriteSet::Seal() &&
         usesDelta = usesDelta || im.offsetKind[l] == kCopied ||
                     (im.offsetKind[l] == kWritten && im.offsetWritten[l]);
 
-    uint64_t const topology = im.topologyOverride ? im.topologyOverride
+    uint64_t const topology = im.topologyOverride || im.exactVersions ? im.topologyOverride
         : im.fresh || !im.base ? NextVersion() : im.base->_topologyVersion;
-    uint64_t const value = im.valueOverride ? im.valueOverride
+    uint64_t const value = im.valueOverride || im.exactVersions ? im.valueOverride
         : im.fresh || !im.base || wrote ? NextVersion() : im.base->_valueVersion;
     out._topologyVersion = topology;
     out._valueVersion = value;
@@ -336,6 +384,15 @@ UsdGenRef<const UsdGenElementSet> UsdGenWriteSet::Seal() &&
     delete _impl;
     _impl = nullptr;
     return set;
+}
+
+void UsdGenWriteSet::Restamp(UsdGenElementSet const &set, uint64_t valueVersion) noexcept
+{
+    UsdGenElementSet &s = const_cast<UsdGenElementSet &>(set);
+    s._valueVersion = valueVersion;
+    if (s._delta >= s._arenaCount) return;
+    for (size_t i = 0; i < s._columns.size(); ++i)
+        if (s._columns[i] && s._columnArena[i] == s._delta) s._versions[i] = valueVersion;
 }
 
 UsdGenWriteSet::~UsdGenWriteSet()

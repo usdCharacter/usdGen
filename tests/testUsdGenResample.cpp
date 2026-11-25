@@ -1,6 +1,7 @@
 // UsdGenResample contracts, expression targets, and CPU cooks: uniform and
 // keepParam resampling, mask hold, length restore, and cvCount validation.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
@@ -43,7 +44,7 @@ static UsdGenCurveSetDesc Strands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = curves.size();
     set.curveVertexCounts.assign(n, 0);
@@ -92,7 +93,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -138,7 +139,7 @@ static void CheckRegistry()
     Check(op != nullptr, "Create(UsdGenResample)");
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "UsdGenResample reports its own type");
-    Check(op->Record().Def().topoFx == UsdGenTopoFx::CvCount,
+    Check(op->Record().Def().countChanges == UsdGenCountsAtLevel(2),
           "UsdGenResample has TopologyEffect CvCount");
     Check(op->Record().ReferenceInputs().empty(),
           "UsdGenResample declares no reference inputs");

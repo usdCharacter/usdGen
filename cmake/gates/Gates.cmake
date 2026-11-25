@@ -130,6 +130,21 @@ add_test(NAME testUsdGenEngineNoOpCoupling
 set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenNoTokenIntern
     testUsdGenEngineNoOpCoupling PROPERTIES LABELS "T0;build;gate;gate:registries")
 
+# Step 5.6: the engine works on element sets; the curve builder buffer, its
+# chunk and tile types and curveBuffer.h stay out of libs/core/usdGen except
+# the files the baseline names (BuildReferenceValue until 7.3a, publication
+# types until 6.3). Comment lines are no hit.
+add_test(NAME testUsdGenEngineNoCurveBuffer
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=engine-no-curve-buffer
+        -DDIRS=libs/core/usdGen
+        "-DPATTERN=curveBuffer[.]h|UsdGenCurveBuffer|UsdGenChunkDesc|UsdGenTileView"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/engineNoCurveBuffer.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenEngineNoCurveBuffer PROPERTIES LABELS "T0;build;gate;gate:engine-generic")
+
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
 target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)

@@ -10,6 +10,7 @@
 //   * follow the AUTHORED literal, so usdGen:width is still $value;
 //   * change when the expression source is edited on the stage.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
@@ -70,7 +71,7 @@ bool Cook(UsdStageRefPtr const &stage, UsdGenCurveBuffer *out, std::string const
         for (auto const &error : run.diagnostics.errors) std::printf("  %s\n", error.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 

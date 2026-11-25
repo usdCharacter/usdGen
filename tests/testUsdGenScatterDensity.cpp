@@ -5,6 +5,7 @@
 // multiplier joins the capture digest so a repaint recooks instead of
 // reading back cached pre-stroke roots.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -55,7 +56,7 @@ static bool Run(UsdGenGraphDesc const& d, UsdGenCurveBuffer* result) {
     for (auto const& e : run.diagnostics.errors)
         std::fprintf(stderr, "%s\n", e.c_str());
     if (run.diagnostics.HasErrors()) return false;
-    *result = graph.Output();
+    *result = OutputBuffer(graph);
     return true;
 }
 
@@ -88,7 +89,7 @@ static bool ReRun(UsdGenGraphDesc const& d0, UsdGenGraphDesc const& d1,
     for (auto const& e : run1.diagnostics.errors)
         std::fprintf(stderr, "%s\n", e.c_str());
     if (run1.diagnostics.HasErrors()) return false;
-    *result = graph.Output();
+    *result = OutputBuffer(graph);
     *plansEmpty = true;
     for (size_t i = 0; i < graph.NodeCount(); ++i)
         *plansEmpty = *plansEmpty &&

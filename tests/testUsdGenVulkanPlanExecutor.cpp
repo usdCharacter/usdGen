@@ -5,6 +5,7 @@
 // source/width executor.  CPU construction below is an independent oracle for
 // C3 canonicalization; GPU bytes are always read back from the publication.
 #include "usdGen/vulkan/planExecutor.h"
+#include "nodeSets.h"
 #include "usdGen/vulkan/executionPlan.h"
 #include "usdGen/vulkan/deviceGenerationAdapter.h"
 #include "usdGen/vulkan/completionService.h"
@@ -47,7 +48,7 @@ UsdGenGraphDesc MakeDescriptor(bool sourceWidths, bool useRest, float literal,
     desc.executionBackend = UsdGenExecutionBackend::Vulkan;
     desc.defaultWidth = .8f;
     UsdGenCurveSetDesc curves;
-    curves.path = SdfPath("/Executor/C3"); curves.role = UsdGenRole::Curves;
+    curves.path = SdfPath("/Executor/C3"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair"); curves.curveVertexCounts = {3, 2, 4};
     // Deliberately unsorted stable IDs and ragged source order.
     curves.curveId = {30, 10, 20};
@@ -260,7 +261,7 @@ bool CpuReference(UsdGenGraphDesc desc, Oracle* expected) {
     UsdGenScheduler scheduler(2); UsdGenEvalContext context; context.desc = &graph.Desc();
     auto result = scheduler.Run(graph, context, 1);
     if (result.diagnostics.HasErrors()) return false;
-    auto const& buffer = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     Oracle output;
     output.points.resize(buffer.totalCvs); output.rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != output.points.size(); ++i)
@@ -1512,14 +1513,14 @@ int main(int argc, char** argv) {
     auto emptyHandle = CompileVulkanSourceWidthPlan(emptyDesc, nullptr); CHECK(emptyHandle);
     auto emptyPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(emptyHandle->Payload()); CHECK(emptyPlan);
     auto emptyResult = SubmitAndWait(*owner, executor, emptyPlan, context, 103, std::make_shared<unsigned>(9));
-    CHECK(emptyResult.generation->Geometry().curveCount == 0 && emptyResult.generation->Geometry().pointCount == 0);
+    CHECK(emptyResult.generation->Geometry().elementCount == 0 && emptyResult.generation->Geometry().pointCount == 0);
 
     // Canonical empty C3 needs no rest sample even when useRest=true.
     auto badEmpty = emptyDesc; badEmpty.nodes[0].params[0].value = VtValue(true);
     auto emptyRestHandle = CompileVulkanSourceWidthPlan(badEmpty, nullptr); CHECK(emptyRestHandle);
     auto emptyRest = std::static_pointer_cast<const VulkanSourceWidthPlan>(emptyRestHandle->Payload()); CHECK(emptyRest);
     auto emptyRestResult = SubmitAndWait(*owner, executor, emptyRest, context, 104, std::make_shared<unsigned>(10));
-    CHECK(emptyRestResult.generation->Geometry().curveCount == 0 && emptyRestResult.generation->Geometry().pointCount == 0);
+    CHECK(emptyRestResult.generation->Geometry().elementCount == 0 && emptyRestResult.generation->Geometry().pointCount == 0);
 
     owner->InvokeOwner([&] { firstResult.generation.reset(); secondResult.generation.reset(); lengthResult.generation.reset(); fanoutResult.generation.reset(); boundResult.generation.reset(); rootedRetry.generation.reset(); reboundResult.generation.reset(); droppedResult.generation.reset(); boundLengthResult.generation.reset(); boundBlendResult.generation.reset(); affineResult.generation.reset(); affineRetry.generation.reset(); shortIndexResult.generation.reset(); duplicateIndexResult.generation.reset(); emptyResult.generation.reset(); emptyRestResult.generation.reset(); plainResult.generation.reset(); noiseResult.generation.reset(); });
     oldCutExecutor->Shutdown(); CHECK(oldCutExecutor->IsShutdown());

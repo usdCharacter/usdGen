@@ -14,6 +14,7 @@
 //          reference length, clump-shared seeds and lengths, knot-mask
 //          attenuation; the root never moves; cooks are deterministic.
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -109,7 +110,7 @@ static UsdGenCurveSetDesc Strands(std::vector<GfVec3f> const &roots, int cvs, fl
 {
     UsdGenCurveSetDesc set;
     set.path = SdfPath("/groom/hair");
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -182,7 +183,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
         for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -209,7 +210,7 @@ static void TestRegistry()
         std::unique_ptr<UsdGenOp> op = registry.Create(registry.Find(type));
         Check(registry.Find(type) != UsdGenOpId::Invalid && op && registry.Record(registry.Find(type)).Name() == type, std::string(name) + " registered");
         if (!op) continue;
-        Check(op->Record().Def().topoFx == UsdGenTopoFx::None && usdGenTest::OutputPlaneNames(op->Record()).empty(),
+        Check(op->Record().Def().countChanges == 0 && usdGenTest::OutputPlaneNames(op->Record()).empty(),
               std::string(name) + " keeps topology and emits no planes");
     }
 }

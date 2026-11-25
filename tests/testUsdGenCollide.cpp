@@ -13,6 +13,7 @@
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
 #include "usdGen/compiler.h"
+#include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/expressions/context.h"
@@ -66,7 +67,7 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
 {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     size_t const n = roots.size();
     set.curveVertexCounts.assign(n, cvs);
@@ -181,7 +182,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
             std::printf("  run: %s\n", e.c_str());
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     if (std::getenv("USDGEN_TEST_COLLIDE_FINGERPRINT")) {
         uint64_t hash = 14695981039346656037ull;
         for (auto const* plane : {&out->px, &out->py, &out->pz, &out->width}) {
@@ -306,16 +307,15 @@ static void CheckColliderWorldTransforms()
     liveContext.desc = &liveGraph.Desc();
     Check(!scheduler.Run(liveGraph, liveContext, 1).diagnostics.HasErrors(),
           "Raised collider live cook runs");
-    VtFloatArray const raisedPx(liveGraph.Output().px.begin(),
-                               liveGraph.Output().px.end());
+    VtFloatArray const raisedPx = OutputBuffer(liveGraph).px;
     raised.surfaces.front().worldMatrix = GfMatrix4d(1.0);
     Check(compiler.Recompile(raised, &liveGraph).ok,
           "Animated collider world transform recompiles");
     liveContext.desc = &liveGraph.Desc();
     Check(!scheduler.Run(liveGraph, liveContext, 2).diagnostics.HasErrors(),
           "Moved collider live recook runs");
-    Check(liveGraph.Output().px != raisedPx ||
-          !SamePoints(liveGraph.Output(), plain),
+    Check(OutputBuffer(liveGraph).px != raisedPx ||
+          !SamePoints(OutputBuffer(liveGraph), plain),
           "Animated collider matrix invalidates capture and changes points");
 
     // An identical parent transform on description and collider cancels.
@@ -325,7 +325,7 @@ static void CheckColliderWorldTransforms()
     UsdGenCurveBuffer baseOut, parentOut;
     Check(Cook(base, &baseOut) && Cook(sharedParent, &parentOut),
           "Shared-parent collider and description cook");
-    Check(SamePoints(liveGraph.Output(), baseOut),
+    Check(SamePoints(OutputBuffer(liveGraph), baseOut),
           "Animated collider recook matches fresh local collider cook");
     Check(SamePoints(baseOut, parentOut),
           "Shared parent transform cancels from collider-to-groom frame");
@@ -356,7 +356,7 @@ static void CheckColliderWorldTransforms()
     liveContext.desc = &descLiveGraph.Desc();
     Check(!scheduler.Run(descLiveGraph, liveContext, 2).diagnostics.HasErrors(),
           "Moved-description live recook runs");
-    Check(SamePoints(descLiveGraph.Output(), plain),
+    Check(SamePoints(OutputBuffer(descLiveGraph), plain),
           "Description-only transform invalidates collider capture");
 
     // Nonuniform scale and reflection change the triangle geometry. An
@@ -1361,20 +1361,20 @@ static void CheckDeepPenetrationCut()
     bool toggleOk=compiler.Compile(toggle,&graph).ok;
     context.desc=&graph.Desc();
     toggleOk &= !scheduler.Run(graph,context,1).diagnostics.HasErrors();
-    UsdGenCurveBuffer first=graph.Output();
+    UsdGenCurveBuffer first=OutputBuffer(graph);
     toggle.nodes.back().params[4].value=VtValue(TfToken("cutThenCollide"));
     toggleOk &= compiler.Recompile(toggle,&graph).ok;
     context.desc=&graph.Desc();
     toggleOk &= !scheduler.Run(graph,context,2).diagnostics.HasErrors();
     UsdGenCurveBuffer cutFresh;
-    toggleOk &= Cook(toggle,&cutFresh) && SamePoints(graph.Output(),cutFresh) &&
-                CurveLength(graph.Output(),0,6)<CurveLength(first,0,6);
+    toggleOk &= Cook(toggle,&cutFresh) && SamePoints(OutputBuffer(graph),cutFresh) &&
+                CurveLength(OutputBuffer(graph),0,6)<CurveLength(first,0,6);
     toggle.nodes.back().params[4].value=VtValue(TfToken("collide"));
     toggleOk &= compiler.Recompile(toggle,&graph).ok;
     context.desc=&graph.Desc();
     toggleOk &= !scheduler.Run(graph,context,3).diagnostics.HasErrors();
     UsdGenCurveBuffer fresh;
-    toggleOk &= Cook(toggle,&fresh) && SamePoints(graph.Output(),fresh) &&
+    toggleOk &= Cook(toggle,&fresh) && SamePoints(OutputBuffer(graph),fresh) &&
                 SamePoints(first,fresh);
     Check(toggleOk,"collide-cut-collide structural toggles match fresh graphs");
 
@@ -1460,7 +1460,7 @@ static void CheckCutVertexPlaneChunks()
         {TfToken("deepPenetrationMode"),VtValue(TfToken("cutThenCollide")),false},
         {TfToken("cutDepthThreshold"),VtValue(0.1f),false}});
     UsdGenCurveSetDesc hair;
-    hair.path=SdfPath("/collide/hair"); hair.role=UsdGenRole::Curves;
+    hair.path=SdfPath("/collide/hair"); hair.role=UsdGenLane::Chunked;
     hair.curveRole=TfToken("hair");
     int constexpr curves=513;
     for (int c=0;c<curves;++c) {
@@ -1541,7 +1541,7 @@ static void CheckCutTemporalCurve7000()
         UsdGenGraphDesc desc;
         desc.description=SdfPath("/temporal"); desc.defaultWidth=0.01f;
         UsdGenCurveSetDesc hair; hair.path=SdfPath("/temporal/hair");
-        hair.role=UsdGenRole::Curves; hair.curveRole=TfToken("hair");
+        hair.role=UsdGenLane::Chunked; hair.curveRole=TfToken("hair");
         auto const &points=r.at("upstreamPoints").GetJsArray();
         hair.curveVertexCounts={int(points.size())};
         for (auto const &point:points) { auto const &p=point.GetJsArray();
@@ -1641,7 +1641,7 @@ static void CheckCutProjectedCurve1870()
         return s;
     };
     UsdGenCurveSetDesc hair; hair.path=SdfPath("/cutLocal/hair");
-    hair.role=UsdGenRole::Curves; hair.curveRole=TfToken("hair");
+    hair.role=UsdGenLane::Chunked; hair.curveRole=TfToken("hair");
     for (auto const &value:curve.at("upstreamPoints").GetJsArray()) {
         auto const &p=value.GetJsArray(); hair.points.emplace_back(
             float(number(p[0])),float(number(p[1])),float(number(p[2])));
@@ -1719,7 +1719,7 @@ static void CheckRegistryContracts()
     if (!op) return;
     Check(registry.Record(registry.Find(type)).Name() == type, "Collide reports its own type");
     UsdGenOpRecord const &rec = op->Record();
-    Check(rec.Def().topoFx == UsdGenTopoFx::None,
+    Check(rec.Def().countChanges == 0,
           "Collide has TopologyEffect None");
     Check(rec.ReferenceInputs().empty(),
           "Collide declares no reference inputs");

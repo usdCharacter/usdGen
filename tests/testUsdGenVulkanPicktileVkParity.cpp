@@ -381,13 +381,13 @@ int main(int argc, char** argv) {
     // ---- Host-only admission/metadata/lease proofs (no device needed). ----
     {
         UsdGenDeviceGeometryMetadata geometry{};
-        geometry.curveCount = 2;
+        geometry.elementCount = 2;
         geometry.pointCount = 5;
         std::vector<UsdGenDeviceChannelMetadata> channels{
             {"points", UsdGenDeviceValueType::Float32x3, UsdGenDeviceDomain::Point, 5, 3, 12,
                 true, UsdGenDeviceChannelSemantic::Points},
             {"curveOffsets", UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Topology, 3,
-                1, 4, true, UsdGenDeviceChannelSemantic::CurveOffsets},
+                1, 4, true, UsdGenDeviceChannelSemantic::ElementOffsets},
             {"stableIds", UsdGenDeviceValueType::UInt64, UsdGenDeviceDomain::Primitive, 2,
                 1, 8, true, UsdGenDeviceChannelSemantic::StableIds},
         };
@@ -405,7 +405,7 @@ int main(int argc, char** argv) {
         float maximums[6]{5, 6, 7, 10, 6, 4};
         std::vector<UsdGenDeviceTileMetadata> tiles;
         CHECK(PicktileVkPublishTileMetadata(spans, minimums, maximums, 2, &tiles) &&
-            tiles.size() == 2 && tiles[0].tile == 0 && tiles[1].firstCurve == 1 &&
+            tiles.size() == 2 && tiles[0].tile == 0 && tiles[1].firstElement == 1 &&
             tiles[1].pointCount == 3 && tiles[0].boundsValid &&
             tiles[1].extentMax[0] == 10.0f);
         float flipped[6]{6, 7, 8, 11, 7, 5};
@@ -419,7 +419,7 @@ int main(int argc, char** argv) {
         info.identity.backend = UsdGenDeviceBackend::Vulkan;
         info.identity.deviceIndex = 0;
         info.identity.generation = 7;
-        info.geometry.curveCount = 2;
+        info.geometry.elementCount = 2;
         info.geometry.pointCount = 5;
         info.owner = owner;
         std::string reason;

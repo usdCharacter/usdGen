@@ -9,6 +9,7 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "usdGen/executionPipeline.h"
+#include "nodeSets.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/vulkan/deviceContext.h"
 #include "usdGen/vulkan/completionService.h"
@@ -242,7 +243,7 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    auto const& buffer = graph.Node(graph.NodeIdForPath(desc.terminal)).buffer;
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
     out->points.resize(buffer.totalCvs);
     out->rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
@@ -284,7 +285,7 @@ static UsdGenGraphDesc MakeProviderDescriptor(bool withLength = false) {
     desc.defaultWidth = .5f;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/SessionProvider/curves");
-    curves.role = UsdGenRole::Curves;
+    curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair");
     curves.curveVertexCounts = {3, 2};
     curves.curveId = {20, 10};

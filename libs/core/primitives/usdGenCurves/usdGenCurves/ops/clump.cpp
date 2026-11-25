@@ -584,10 +584,12 @@ bool UsdGenClumpOp::Capture(
     // Membership into `member`, then the absolute lerp toward each clump's
     // target curve. Selection reads the rest roots, targets the live curves.
     auto referenceLevel = [&](std::vector<int32_t> &member) -> bool {
-        UsdGenCurveBuffer const *guides =
+        bool const haveGuides =
             ctx.referenceCount >= 1 && ctx.resolvedReferences && ctx.resolvedReferences[0] &&
-                    ctx.resolvedReferences[0]->value
-                ? &ctx.resolvedReferences[0]->value->buffer : nullptr;
+            ctx.resolvedReferences[0]->value;
+        UsdGenCurveSetView const guideView =
+            haveGuides ? UsdGenCurveSetView::Of(*ctx.resolvedReferences[0]->value) : UsdGenCurveSetView{};
+        UsdGenCurveSetView const *guides = haveGuides ? &guideView : nullptr;
         size_t G = 0;
         clumpRef::GuideTable table;
         std::vector<float> guideRoots;
@@ -1074,7 +1076,7 @@ UsdGenOpId UsdGenRegisterClumpOp(UsdGenRegistrar &r)
     d.name = "UsdGenClump";
     d.displayName = "Clump";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.traits = kUsdGenOpFixedOutputPlaneLayout;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);

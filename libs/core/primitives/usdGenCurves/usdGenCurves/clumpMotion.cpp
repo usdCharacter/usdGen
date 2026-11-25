@@ -210,8 +210,6 @@ bool UsdGenBuildClumpMotion(UsdGenCurveSetView const &curves,
                             std::string *error,
                             UsdGenClumpMotion const *previous)
 {
-    if (UsdGenCurveBuffer const *buffer = curves.LegacyBuffer())
-        return UsdGenBuildClumpMotion(*buffer, out, error, previous);
     return UsdGenBuildClumpMotion(UsdGenCurvePlanesBuffer(curves), out, error, previous);
 }
 

@@ -20,6 +20,7 @@
 //   includes self), for k = 1 .. n-2; both endpoints are always fixed (no
 //   lockRoot), and there is no length preservation.
 #include "usdGen/ops/smooth.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
@@ -536,7 +537,7 @@ UsdGenOpId UsdGenRegisterSmoothOp(UsdGenRegistrar &r)
     d.name = "UsdGenSmooth";
     d.displayName = "Smooth";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     return r.RegisterOp(d);
 }

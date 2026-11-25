@@ -15,7 +15,6 @@
 #define USDGEN_OP_H
 
 #include "usdGen/cpuParameters.h"
-#include "usdGen/curveBuffer.h"
 #include "usdGen/graphDesc.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/opRegistry.h"
@@ -37,6 +36,17 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenWorkDispatcher;  // defined in usdGen/scheduler.h
+
+/// Immutable compiler-resolved external reference value. The shared payload
+/// gives a capture a stable value identity without retaining a mutable graph,
+/// descriptor, scene index, or stage object.
+struct UsdGenResolvedReferenceValue
+{
+    SdfPath path;
+    uint64_t curveGeneration = 0;
+    uint64_t identity = 0;
+    std::shared_ptr<const UsdGenReferenceSet> value;
+};
 
 /// Diagnostics collected by a node; the imaging layer is the one that logs
 /// (the engine core stays TF_WARN-free on hot paths, 03 §9.2).
@@ -272,11 +282,9 @@ struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptu
     /// True when this capture is usable for the given upstream topology;
     /// false forces a re-capture.
     virtual bool ValidForTopology(UsdGenElementSetView const &) const { return true; }
-    /// Generators: the set this capture produced (the node's output base).
+    /// Owning captures (generators, Resample, frozen Freeze): the set this
+    /// capture produced, the node's output base; null for every other capture.
     virtual UsdGenRef<const UsdGenElementSet> Output() const { return {}; }
-    /// Bridge (5.3a; 5.4 deletes): the builder buffer a generator capture
-    /// owns, installed into its node; null for every other capture.
-    virtual UsdGenCurveBuffer const *OwnedBuffer() const { return nullptr; }
     /// True when Capture recorded per-chunk extents into the scheduler's
     /// slots. Consumed only through the interleave's span revalidation, so
     /// a stale true on a reused capture fails closed into the point pass.
@@ -336,10 +344,9 @@ struct UsdGenCaptureContext
     UsdGenSurfaceId        surface = 0;
     uint32_t               seed = 0;
     uint64_t               upstreamGeneration = 0; // upstream buffer topologyVersion
-    // The ordered inputs as builder buffers, for CaptureDigest (Capture
-    // reads UsdGenOpInputs).
-    UsdGenCurveBuffer const **upstreams = nullptr;
-    uint32_t               upstreamCount = 0;
+    // The ordered geometry inputs, for CaptureDigest (Capture takes them
+    // as its own argument).
+    UsdGenOpInputs         inputs;
     UsdGenWorkDispatcher  *dispatcher = nullptr;  // capture may parallelise in the arena
     UsdGenDiagnostics     *diag = nullptr;
     // The node's chunk partition plus the scheduler's per-chunk fused-extent
@@ -347,7 +354,7 @@ struct UsdGenCaptureContext
     // extent writer); every other Capture caller leaves them null, and a
     // capture that records extents must fail closed to not recording unless
     // all four are present and chunkCount == chunkExtentCount.
-    UsdGenChunkDesc const *chunks = nullptr;
+    UsdGenChunkRange const *chunks = nullptr;
     size_t                 chunkCount = 0;
     UsdGenChunkExtent     *chunkExtentSlots = nullptr;
     size_t                 chunkExtentCount = 0;
@@ -409,7 +416,7 @@ public:
 
     // ---- capture: topology-dependent, cached by epoch (03 §3.4) --------------
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
-    /// Fill *out (derive the concrete payload). A generator (topoFx != None)
+    /// Fill *out (derive the concrete payload). A generator (countChanges != 0)
     /// also produces its output topology (UsdGenCurveCapture::MutableBuffer).
     virtual bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
                          UsdGenCapture *out, UsdGenDiagnostics *diag) = 0;

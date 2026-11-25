@@ -382,7 +382,7 @@ UsdGenOpId UsdGenRegisterBendOp(UsdGenRegistrar &r)
     d.name = "UsdGenBend";
     d.displayName = "Bend";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::None;
+    d.countChanges = 0;
     d.params = UsdGenSpan(kParams);
     return r.RegisterOp(d);
 }

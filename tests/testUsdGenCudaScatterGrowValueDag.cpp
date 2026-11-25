@@ -99,7 +99,7 @@ UsdGenGraphDesc Source() {
 // Test-only native readback supplies an independent ordinary C3 CUDA oracle.
 // Production source/operator execution never takes this host geometry route.
 UsdGenGraphDesc AsC3(UsdGenGraphDesc d, Packet const& p) {
-    UsdGenCurveSetDesc c; c.path=SdfPath("/Captured"); c.role=UsdGenRole::Curves; c.curveRole=TfToken("hair");
+    UsdGenCurveSetDesc c; c.path=SdfPath("/Captured"); c.role=UsdGenLane::Chunked; c.curveRole=TfToken("hair");
     for(size_t i=0;i<p.ids.size();++i) {
         c.curveId.push_back(p.ids[i]); c.curveVertexCounts.push_back(int(p.offsets[i+1]-p.offsets[i]));
         c.skinPrim.push_back(p.prim[i]); c.skinPrimUv.push_back(GfVec2f(p.uv[i].x,p.uv[i].y));
@@ -276,11 +276,11 @@ static int RbfCases(cudaStream_t stream) {
     diagnostics={}; auto emptyPlan=CompileCudaGraph(compose(sourceDesc,0),&diagnostics); CHECK(emptyPlan);
     auto emptyWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(emptyWorkspace);
     auto empty=ExecuteCudaGraph(*emptyPlan,*emptyWorkspace,1.,300,&diagnostics);
-    CHECK(empty && empty->Geometry().alreadyDeformed && empty->Geometry().pointCount==0 && empty->Geometry().curveCount==0);
+    CHECK(empty && empty->Geometry().alreadyDeformed && empty->Geometry().pointCount==0 && empty->Geometry().elementCount==0);
     UsdGenExecutionRuntime runtime(4); UsdGenCudaExecutionQueue queue(runtime,-1,&diagnostics);
     CHECK(queue.Valid() && queue.Submit(emptyPlan,1.)); queue.Drain();
     CHECK(queue.Snapshot() && queue.Snapshot()->generation && queue.Snapshot()->generation->Geometry().alreadyDeformed &&
-        queue.Snapshot()->generation->Geometry().pointCount==0 && queue.Snapshot()->generation->Geometry().curveCount==0);
+        queue.Snapshot()->generation->Geometry().pointCount==0 && queue.Snapshot()->generation->Geometry().elementCount==0);
     return 0;
 }
 

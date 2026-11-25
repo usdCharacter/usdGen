@@ -54,6 +54,12 @@ struct UsdGenScatterCapture final : public UsdGenCurveCapture
         return c;
     }
     bool OwnsBuffer() const override { return true; }
+    bool Recyclable() const override { return true; }
+    bool Recycle() override
+    {
+        UsdGenRecycleBuffer(_buffer);
+        return true;
+    }
 };
 
 GfVec3f Normalize3(GfVec3f const &v)
@@ -1702,8 +1708,8 @@ UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
     d.name = "UsdGenScatter";
     d.displayName = "Scatter";
     d.create = &Create;
-    d.topoFx = UsdGenTopoFx::CurveCount;
-    d.role = UsdGenRole::Curves;
+    d.countChanges = UsdGenCountsAtLevel(1);
+    d.lane = UsdGenLane::Chunked;
     d.geometryInputArity = 0;
     d.traits = kUsdGenOpGenerator;
     d.params = UsdGenSpan(kParams);

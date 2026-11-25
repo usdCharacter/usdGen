@@ -73,10 +73,10 @@ inline bool PackSource(VulkanSourcePrepareInfo const& in,
             if (offsets[i+1] - offsets[i] != chunk.cvCount) return fail("chunk uniform span disagrees with offsets");
     }
     auto g = in.geometry;
-    if ((g.curveCount && g.curveCount != c) || (g.pointCount && g.pointCount != p) ||
+    if ((g.elementCount && g.elementCount != c) || (g.pointCount && g.pointCount != p) ||
         (g.topologyVersion && g.topologyVersion != b.topologyVersion) ||
         (g.valueVersion && g.valueVersion != b.valueVersion)) return fail("source capture metadata mismatch");
-    g.curveCount = c; g.pointCount = p; g.topologyVersion = b.topologyVersion; g.valueVersion = b.valueVersion;
+    g.elementCount = c; g.pointCount = p; g.topologyVersion = b.topologyVersion; g.valueVersion = b.valueVersion;
     std::vector<SourceHostPlane> packed;
     using T = UsdGenDeviceValueType; using D = UsdGenDeviceDomain; using S = UsdGenDeviceChannelSemantic;
     auto add = [&](char const* name, T type, D domain, size_t elements, uint32_t arity,
@@ -91,7 +91,7 @@ inline bool PackSource(VulkanSourcePrepareInfo const& in,
     std::vector<float> points(p * 3);
     for (size_t i = 0; i != p; ++i) { points[3*i] = b.px[i]; points[3*i+1] = b.py[i]; points[3*i+2] = b.pz[i]; }
     add("points", T::Float32x3, D::Point, p, 3, S::Points, points.data(), points.size()*4);
-    add("curveOffsets", T::UInt32, D::Topology, c+1, 1, S::CurveOffsets, offsets.data(), offsets.size()*4);
+    add("curveOffsets", T::UInt32, D::Topology, c+1, 1, S::ElementOffsets, offsets.data(), offsets.size()*4);
     add("stableIds", T::UInt64, D::Primitive, c, 1, S::StableIds, b.curveId.cdata(), c*8);
     auto optional = [&](char const* name, T type, D domain, size_t n, uint32_t arity, S semantic, auto const& array, bool privateFrame = false) {
         if (!array.empty()) add(name, type, domain, n, arity, semantic, array.cdata(), array.size()*sizeof(array[0]), privateFrame);

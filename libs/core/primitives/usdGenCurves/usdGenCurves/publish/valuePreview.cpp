@@ -37,7 +37,8 @@ struct UsdGenValuePreview::Values
     unsigned components = 1;
     size_t count = 0;
     double const *data = nullptr;
-    UsdGenCurveBuffer const *geometry = nullptr;
+    UsdGenCurveSetView const *geometry = nullptr;
+    UsdGenCurveSetView input;      // an operator's input strands (FromAttribute)
 };
 
 namespace {
@@ -177,7 +178,7 @@ bool LiteralValues(VtValue const &value, std::vector<double> *out)
 }
 
 /// First CV of every curve, plus the end.
-std::vector<size_t> CurveOffsets(UsdGenCurveBuffer const &buffer)
+std::vector<size_t> CurveOffsets(UsdGenCurveSetView const &buffer)
 {
     size_t const curves = buffer.totalCurves;
     std::vector<size_t> offsets(curves + 1, 0);
@@ -194,14 +195,14 @@ size_t const kNoMatch = std::numeric_limits<size_t>::max();
 
 /// For each curve of `to`, its index in `from`: the same index when the two
 /// are one buffer or carry no ids, else the curve with the same id.
-std::vector<size_t> MatchCurves(UsdGenCurveBuffer const &from, UsdGenCurveBuffer const &to)
+std::vector<size_t> MatchCurves(UsdGenCurveSetView const &from, UsdGenCurveSetView const &to)
 {
     std::vector<size_t> match(to.totalCurves, kNoMatch);
     bool const ids = from.curveId.size() == from.totalCurves &&
                      to.curveId.size() == to.totalCurves;
     bool sameOrder = &from == &to ||
         (from.totalCurves == to.totalCurves &&
-         (!ids || std::equal(from.curveId.cbegin(), from.curveId.cend(), to.curveId.cbegin())));
+         (!ids || std::equal(from.curveId.begin(), from.curveId.end(), to.curveId.begin())));
     if (sameOrder) {
         for (size_t c = 0; c < match.size(); ++c) match[c] = c;
         return match;
@@ -309,7 +310,7 @@ SdfPath UsdGenPreviewMaterialPath(SdfPath const &description, TfToken const &sha
 }
 
 bool UsdGenValuePreview::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                                  UsdGenCurveBuffer const &terminal, double frame,
+                                  UsdGenCurveSetView const &terminal, double frame,
                                   std::string *message)
 {
     double const rate = desc.timeCodesPerSecond;
@@ -325,7 +326,7 @@ bool UsdGenValuePreview::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc co
 }
 
 bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
-                                        UsdGenCurveBuffer const &terminal, double frame,
+                                        UsdGenCurveSetView const &terminal, double frame,
                                         Values *values, std::string *warning)
 {
     UsdGenPreviewDesc const &preview = desc.preview;
@@ -381,7 +382,7 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
 }
 
 bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
-                                 UsdGenCurveBuffer const &terminal, double frame,
+                                 UsdGenCurveSetView const &terminal, double frame,
                                  Values *values, std::string *warning)
 {
     UsdGenPreviewDesc const &preview = desc.preview;
@@ -480,8 +481,9 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph 
         UsdGenCompiledNode const &node = graph.Node(id);
         if (!node.desc || node.desc->path != operatorPath) continue;
         // Connected values were evaluated over the operator's INPUT strands.
-        UsdGenCurveBuffer const &input = node.inputs.empty()
-            ? node.buffer : graph.Node(node.inputs.front()).buffer;
+        values->input = UsdGenCurveSetView::Of(
+            graph.NodeOutput(node.inputs.empty() ? node.id : node.inputs.front()));
+        UsdGenCurveSetView const &input = values->input;
         bool const connected = std::any_of(
             node.desc->expressionBindings.begin(), node.desc->expressionBindings.end(),
             [&](UsdGenExpressionBinding const &b) {
@@ -533,7 +535,7 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph 
 
 UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphDesc const &desc,
                                               UsdGenGraph const &graph,
-                                              UsdGenCurveBuffer const &terminal,
+                                              UsdGenCurveSetView const &terminal,
                                               double frame,
                                               std::vector<std::string> *warnings)
 {
@@ -574,7 +576,7 @@ UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphDesc const &desc,
         if (values.domain == Domain::Groom) {
             std::fill(out.colors.begin(), out.colors.end(), colour(0));
         } else {
-            UsdGenCurveBuffer const &from = *values.geometry;
+            UsdGenCurveSetView const &from = *values.geometry;
             std::vector<size_t> const match = MatchCurves(from, terminal);
             size_t matched = 0;
             if (values.domain == Domain::Primitive) {

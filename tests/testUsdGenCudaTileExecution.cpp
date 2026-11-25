@@ -1,4 +1,5 @@
 // End-to-end CUDA session tile publication: Source -> Length(cull) -> Width.
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/session.h"
 #include "usdGen/gpu/generation.h"
 
@@ -52,7 +53,7 @@ static UsdGenGraphDesc MakeDesc(size_t curves, float threshold, float width,
 
     UsdGenCurveSetDesc hair;
     hair.path = SdfPath("/Hair");
-    hair.role = UsdGenRole::Curves;
+    hair.role = UsdGenLane::Chunked;
     hair.curveRole = TfToken("hair");
     hair.type = TfToken("cubic");
     hair.basis = TfToken("bspline");
@@ -100,8 +101,8 @@ static bool SameTiles(std::vector<UsdGenDeviceTileMetadata> const& a,
 {
     if (a.size() != b.size()) return false;
     for (size_t i = 0; i != a.size(); ++i) {
-        if (a[i].tile != b[i].tile || a[i].firstCurve != b[i].firstCurve ||
-            a[i].curveCount != b[i].curveCount || a[i].firstPoint != b[i].firstPoint ||
+        if (a[i].tile != b[i].tile || a[i].firstElement != b[i].firstElement ||
+            a[i].elementCount != b[i].elementCount || a[i].firstPoint != b[i].firstPoint ||
             a[i].pointCount != b[i].pointCount) return false;
     }
     return true;
@@ -110,14 +111,14 @@ static bool SameTiles(std::vector<UsdGenDeviceTileMetadata> const& a,
 static bool CoversEveryCurve(std::vector<UsdGenDeviceTileMetadata> const& tiles,
                              uint64_t curveCount, uint64_t pointCount)
 {
-    if (tiles.empty() || tiles.front().firstCurve != 0 ||
+    if (tiles.empty() || tiles.front().firstElement != 0 ||
         tiles.front().firstPoint != 0) return false;
     uint64_t curves = 0;
     uint64_t points = 0;
     for (UsdGenDeviceTileMetadata const& tile : tiles) {
-        if (tile.firstCurve != curves || tile.firstPoint != points ||
-            tile.curveCount == 0 || tile.pointCount != tile.curveCount * 2) return false;
-        curves += tile.curveCount;
+        if (tile.firstElement != curves || tile.firstPoint != points ||
+            tile.elementCount == 0 || tile.pointCount != tile.elementCount * 2) return false;
+        curves += tile.elementCount;
         points += tile.pointCount;
     }
     return curves == curveCount && points == pointCount;
@@ -139,9 +140,9 @@ int main()
     CHECK(SameTiles(initialTiles, {{0, 0, 512, 0, 1024},
                                    {1, 512, 0, 1024, 0},
                                    {2, 512, 76, 1024, 152}}));
-    CHECK(first->device->Geometry().curveTopology.type == UsdGenDeviceCurveType::Cubic &&
-          first->device->Geometry().curveTopology.basis == UsdGenDeviceCurveBasis::BSpline &&
-          first->device->Geometry().curveTopology.wrap == UsdGenDeviceCurveWrap::Pinned);
+    CHECK(UsdGenCurveLayoutTypeOf(first->device->Geometry().layoutMetadata) == UsdGenCurveLayoutType::Cubic &&
+          UsdGenCurveLayoutBasisOf(first->device->Geometry().layoutMetadata) == UsdGenCurveLayoutBasis::BSpline &&
+          UsdGenCurveLayoutWrapOf(first->device->Geometry().layoutMetadata) == UsdGenCurveLayoutWrap::Pinned);
     for (UsdGenDeviceTileMetadata const &tile : initialTiles) {
         CHECK(tile.boundsValid);
         for (size_t axis = 0; axis != tile.extentMin.size(); ++axis)
@@ -163,8 +164,8 @@ int main()
     auto firstView = firstTile.View();
     auto emptyView = emptyTile.View();
     auto lastView = lastTile.View();
-    CHECK(firstView.range.curveCount == 512 && firstView.range.pointCount == 1024 &&
-          lastView.range.firstCurve == 512 && lastView.range.curveCount == 76 &&
+    CHECK(firstView.range.elementCount == 512 && firstView.range.pointCount == 1024 &&
+          lastView.range.firstElement == 512 && lastView.range.elementCount == 76 &&
           lastView.range.firstPoint == 1024 && lastView.range.pointCount == 152);
     auto firstOffsets = Copy(firstView.curveOffsets, stream);
     auto firstIds = Copy(firstView.stableIds, stream);
@@ -226,7 +227,7 @@ int main()
     session.SetGraphDesc(catmull);
     auto third = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(third && third->device &&
-          third->device->Geometry().curveTopology.basis == UsdGenDeviceCurveBasis::CatmullRom &&
+          UsdGenCurveLayoutBasisOf(third->device->Geometry().layoutMetadata) == UsdGenCurveLayoutBasis::CatmullRom &&
           third->device->Geometry().topologyVersion != topology);
     auto catmullWidth = catmull;
     catmullWidth.nodes[2].params[0].value = VtValue(.3f);
@@ -247,8 +248,8 @@ int main()
     auto const& emptyTiles = empty->device->Geometry().tiles;
     CHECK(emptyTiles.size() == 3);
     for (size_t tile = 0; tile != emptyTiles.size(); ++tile) {
-        CHECK(emptyTiles[tile].tile == tile && emptyTiles[tile].curveCount == 0 &&
-              emptyTiles[tile].pointCount == 0 && emptyTiles[tile].firstCurve == 0 &&
+        CHECK(emptyTiles[tile].tile == tile && emptyTiles[tile].elementCount == 0 &&
+              emptyTiles[tile].pointCount == 0 && emptyTiles[tile].firstElement == 0 &&
               emptyTiles[tile].firstPoint == 0 && emptyTiles[tile].boundsValid);
         CHECK((emptyTiles[tile].extentMin == std::array<float, 3>{} &&
                emptyTiles[tile].extentMax == std::array<float, 3>{}));

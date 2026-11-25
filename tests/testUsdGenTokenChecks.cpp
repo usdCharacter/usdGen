@@ -156,7 +156,7 @@ int main(int argc, char **argv)
 
     UsdGenRunResult const clean = run(Intern::None);
     Check(!clean.diagnostics.HasErrors() && clean.terminalOutput &&
-              clean.terminalOutput->totalCurves > 0,
+              clean.terminalOutput->Count(1) > 0,
           "a run that interns nothing succeeds");
 
     uint64_t const execBefore = UsdGenExecInternCount();

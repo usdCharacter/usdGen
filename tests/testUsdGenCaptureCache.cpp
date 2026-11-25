@@ -130,7 +130,7 @@ int main() {
     Check(corrected.desc.validationErrors.empty() && !invalid.desc.validationErrors.empty(),
           "corrected dirty node clears its error, preserving old descriptor");
     Check(corrected.desc.curveSets.size() == 1 &&
-          corrected.desc.curveSets[0].role == usdGen::UsdGenRole::Curves,
+          corrected.desc.curveSets[0].role == usdGen::UsdGenLane::Chunked,
           "removing last guide role recomputes shared curve pool role");
 
     options.previousCache = corrected.cache;

@@ -3,13 +3,14 @@
 //
 // testUsdGenOpBridge (5.3a, 5.3f): ops over buffer-backed set views.
 //  - an op written against the Capture/Evaluate family cooks in a graph and
-//    its Capture sees the input as a buffer-backed set view;
+//    its Capture sees the input node's output set (5.4: no buffer behind it);
 //  - a direct Evaluate over a test chunk view reproduces the cooked bytes;
 //  - UsdGenOp has no default Capture/Evaluate (5.3f deleted the old family);
-//  - UsdGenCurveBufferSetView shows a buffer as a set over the buffer's own
-//    arrays and rebinds without allocating.
+//  - UsdGenCurveBufferSetView (tests/curveBufferSetView.h) shows a buffer as
+//    a set over the buffer's own arrays and rebinds without allocating.
 
 #include "usdGen/compile/compiler.h"
+#include "nodeSets.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/compile/graphDesc.h"
 #include "usdGen/exec/allocCounter.h"
@@ -17,7 +18,7 @@
 #include "usdGen/registries/op.h"
 #include "usdGen/registries/registrar.h"
 #include "bufferOpCalls.h"
-#include "usdGenCurves/types/curveBridge.h"
+#include "curveBufferSetView.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
@@ -50,7 +51,8 @@ char const *const kProbeType = "UsdGenBridgeProbe";
 struct ProbeCapture final : UsdGenCapture
 {
     uint32_t curves = 0, cvs = 0;
-    bool sawBuffer = false;
+    bool oneInput = false;
+    float const *inPx = nullptr;
     std::unique_ptr<UsdGenCapture> Clone() const override { return std::make_unique<ProbeCapture>(*this); }
 };
 
@@ -84,7 +86,8 @@ public:
         auto &cap = static_cast<ProbeCapture &>(*out);
         cap.curves = up.totalCurves;
         cap.cvs = up.totalCvs;
-        cap.sawBuffer = up.LegacyBuffer() != nullptr && in.count == 1;
+        cap.oneInput = in.count == 1;
+        cap.inPx = up.px.data();
         return true;
     }
     void Evaluate(UsdGenEvalContext const &, UsdGenCapture const &,
@@ -168,16 +171,18 @@ void TestProbe()
     Check(!cooked.result.diagnostics.HasErrors(), "the probe cooks");
 
     UsdGenNodeId const probe = cooked.graph.TerminalNodeId();
-    UsdGenCurveBuffer const &grow = cooked.graph.Node(cooked.graph.Node(probe).input).buffer;
-    UsdGenCurveBuffer const &a = cooked.graph.Output();
+    auto const growView = NodeView(cooked.graph, cooked.graph.Node(probe).input);
+    UsdGenCurveBuffer const grow = NodeBuffer(cooked.graph, cooked.graph.Node(probe).input);
+    UsdGenCurveBuffer const a = OutputBuffer(cooked.graph);
     Check(a.totalCvs > 0 && a.totalCvs == grow.totalCvs, "the probe wrote every CV");
     bool shifted = a.px.size() == grow.px.size();
     for (size_t i = 0; shifted && i < a.px.size(); ++i)
         shifted = a.px[i] == grow.px[i] + 1.0f && a.py[i] == grow.py[i] + 2.0f && a.pz[i] == grow.pz[i] + 3.0f;
     Check(shifted, "the probe moved every CV by (1, 2, 3)");
     auto const *nc = dynamic_cast<ProbeCapture const *>(cooked.graph.Node(probe).capture.get());
-    Check(nc && nc->curves == grow.totalCurves && nc->cvs == grow.totalCvs && nc->sawBuffer,
-          "Capture saw the input as a buffer-backed view");
+    Check(nc && nc->curves == grow.totalCurves && nc->cvs == grow.totalCvs && nc->oneInput &&
+              nc->inPx == growView.px.data(),
+          "Capture saw the input node's output set");
 
     // Direct calls: Capture over UsdGenBufferInputs, Evaluate over a test chunk.
     UsdGenOp &op = *cooked.graph.Node(probe).op;
@@ -187,7 +192,8 @@ void TestProbe()
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
     bool const captured = op.Capture(cctx, UsdGenBufferInputs(grow), cap.get(), &diag);
     auto const &pc = static_cast<ProbeCapture const &>(*cap);
-    Check(captured && pc.curves == grow.totalCurves && pc.cvs == grow.totalCvs && pc.sawBuffer,
+    Check(captured && pc.curves == grow.totalCurves && pc.cvs == grow.totalCvs && pc.oneInput &&
+              pc.inPx == grow.px.cdata(),
           "a direct Capture reads a buffer through UsdGenBufferInputs");
 
     uint32_t const cvp = grow.totalCurves ? grow.totalCvs / grow.totalCurves : 0;
@@ -198,7 +204,7 @@ void TestProbe()
     UsdGenTestChunk view;
     view.desc = &desc;
     view.px = x.data(); view.py = y.data(); view.pz = z.data();
-    view.inPx = grow.px.cdata(); view.inPy = grow.py.cdata(); view.inPz = grow.pz.cdata();
+    view.inPx = growView.px.cdata(); view.inPy = growView.py.cdata(); view.inPz = growView.pz.cdata();
     view.curveCount = grow.totalCurves;
     view.cvCount = view.inCvCount = cvp;
     UsdGenEvalContext ectx;
@@ -236,7 +242,7 @@ void TestBufferSetView()
     UsdGenElementSetView const &v = sv.View();
     UsdGenSlot const partSlot = v.channels ? v.channels->Find(part.name) : kUsdGenNoSlot;
     UsdGenSlot const wSlot = v.channels ? v.channels->Find(w.name) : kUsdGenNoSlot;
-    Check(v.channels && v.count[1] == 2 && v.count[2] == 5 && v.legacy == &b &&
+    Check(v.channels && v.count[1] == 2 && v.count[2] == 5 &&
               v.offsets[2] == reinterpret_cast<uint32_t const *>(b.cvOffsets.cdata()),
           "set view counts and offsets are the buffer's");
     Check(v.columns[kUsdGenCurvePx] == b.px.cdata() && v.values[kUsdGenCurveRest] == 15 &&
@@ -249,7 +255,9 @@ void TestBufferSetView()
               (*v.channels)[partSlot].level == 1 && (*v.channels)[wSlot].level == 2,
           "named planes are dynamic channels over the plane arrays");
     UsdGenCurveSetView const cs = UsdGenCurveSetView::Of(v);
-    Check(cs.LegacyBuffer() == &b && cs.ExtraCurveCount() == 1 && cs.ExtraCvCount() == 1 &&
+    Check(cs.ExtraCurveCount() == 1 && cs.ExtraCvCount() == 1 &&
+              cs.ExtraCurve(0).i.data() == b.extraCurve[0].i.cdata() &&
+              cs.ExtraCv(0).f.data() == b.extraCv[0].f.cdata() &&
               cs.totalCvs == 5 && cs.px.data() == b.px.cdata(),
           "UsdGenCurveSetView reads a buffer-backed set as the buffer");
 

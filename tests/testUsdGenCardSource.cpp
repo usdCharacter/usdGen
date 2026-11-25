@@ -21,6 +21,7 @@
 // cards ("mesh vertices=<v> indices=<i>"). --dump writes one line per strand:
 // <prim> <curveId hex> <strandIndex> <cardIndex> <root xyz> <tip xyz>.
 #include "usdGen/authoredPlaneConvert.h"
+#include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -382,7 +383,7 @@ static UsdGenCurveSetDesc SpineSet(std::vector<SpineSpec> const &cards)
 {
     UsdGenCurveSetDesc set;
     set.path = SdfPath("/cards/data/cards");
-    set.role = UsdGenRole::Reference;
+    set.role = UsdGenLane::Reference;
     set.type = TfToken("linear");
     set.wrap = TfToken("nonperiodic");
     std::vector<int> idLo, idHi, layer, uvId, tile, tile2, type, erased, segs;
@@ -415,7 +416,7 @@ static UsdGenCurveSetDesc LibrarySet(std::vector<LibStrand> const &strands)
 {
     UsdGenCurveSetDesc set;
     set.path = SdfPath("/cards/data/cardStrands_0000000000000001");
-    set.role = UsdGenRole::Reference;
+    set.role = UsdGenLane::Reference;
     set.type = TfToken("linear");
     set.wrap = TfToken("nonperiodic");
     std::vector<int> uv, tile, index, count;
@@ -492,7 +493,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::strin
         }
         return false;
     }
-    *out = graph.Output();
+    *out = OutputBuffer(graph);
     return true;
 }
 
@@ -665,7 +666,7 @@ static bool ReadCurveSet(SdfLayerHandle const &layer, SdfPath const &path, UsdGe
     SdfPrimSpecHandle const prim = layer->GetPrimAtPath(path);
     if (!prim) return false;
     out->path = path;
-    out->role = UsdGenRole::Reference;
+    out->role = UsdGenLane::Reference;
     out->type = TfToken("linear");
     out->wrap = TfToken("nonperiodic");
     out->curveVertexCounts = Get<VtIntArray>(layer, path, "curveVertexCounts");
@@ -799,7 +800,7 @@ static int Harness(std::string const &usda, std::string const &dumpPath)
             UsdGenCurveBuffer const b = BufferFromSet(spine);
             std::vector<card::Card> cards;
             std::string error;
-            if (!card::DecodeCards(b, &cards, &error)) {
+            if (!card::DecodeCards(UsdGenCurveSetView::Of(b), &cards, &error)) {
                 std::printf("cannot decode cards: %s\n", error.c_str());
                 continue;
             }
