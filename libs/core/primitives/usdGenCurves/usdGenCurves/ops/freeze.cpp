@@ -283,7 +283,7 @@ bool UsdGenFreezeOp::Capture(
     if (ctx.referenceCount == 1 && !explicitSnapshot)
         return fail("usdGen:frozen:curves names a snapshot with no resolved value");
     if (explicitSnapshot) {
-        refView = UsdGenCurveSetView::Of(ctx.resolvedReferences[0]->value->buffer);
+        refView = ctx.resolvedReferences[0]->value->View();
         snapshot = &refView;
     }
     else

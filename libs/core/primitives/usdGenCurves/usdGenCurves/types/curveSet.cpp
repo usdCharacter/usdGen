@@ -262,11 +262,6 @@ uint32_t UsdGenCurveSetGroups(uint32_t chunks, UsdGenPartitionParams const &para
 
 UsdGenCurveSetView UsdGenCurveSetView::Of(UsdGenElementSetView const &s) noexcept
 {
-    if (s.legacy) {   // bridge (5.3a): read the buffer itself, VtArray identity included
-        UsdGenCurveSetView v = Of(*static_cast<UsdGenCurveBuffer const *>(s.legacy));
-        v._set = s;
-        return v;
-    }
     UsdGenCurveSetView v;
     if (!s.channels || s.channels->StaticCount() < kUsdGenCurveStaticSlots || !s.columns || !s.values)
         return v;
@@ -455,9 +450,10 @@ SetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, uint64_t val
 }  // namespace
 
 UsdGenRef<const UsdGenElementSet>
-UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, uint64_t valueVersion)
+UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &b, uint64_t topologyVersion, uint64_t valueVersion,
+                         bool exactVersions)
 {
-    return SetFromBuffer(b, topologyVersion, valueVersion, false);
+    return SetFromBuffer(b, topologyVersion, valueVersion, exactVersions);
 }
 
 UsdGenRef<const UsdGenElementSet> UsdGenCurveCapture::Output() const
@@ -494,16 +490,12 @@ UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &v)
 bool UsdGenResampleExtraPlanes(UsdGenCurveSetView const &source, UsdGenCurveBuffer *target,
                                std::string *error)
 {
-    if (UsdGenCurveBuffer const *buffer = source.LegacyBuffer())
-        return UsdGenResampleExtraPlanes(*buffer, target, error);
     return UsdGenResampleExtraPlanes(UsdGenCurvePlanesBuffer(source), target, error);
 }
 
 bool UsdGenCompactExtraPlanes(UsdGenCurveSetView const &source, std::vector<uint32_t> const &survivors,
                               UsdGenCurveBuffer *target, std::string *error)
 {
-    if (UsdGenCurveBuffer const *buffer = source.LegacyBuffer())
-        return UsdGenCompactExtraPlanes(*buffer, survivors, target, error);
     return UsdGenCompactExtraPlanes(UsdGenCurvePlanesBuffer(source), survivors, target, error);
 }
 

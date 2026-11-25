@@ -94,6 +94,7 @@ private:
    // branch still hashes every frame). Shared by the surface and guide
    // branches; a rewire misses once and rehashes.
    mutable opUtil::ContentDigestCache<VtVec3fArray> restDigest_;
+   mutable opUtil::SetColumnDigestCache referenceRestDigest_;
 
    // Hashes the posed surface drivers Capture reads on a selection-cache
    // hit (surface-driven RBF only): the rest decides the selection, so

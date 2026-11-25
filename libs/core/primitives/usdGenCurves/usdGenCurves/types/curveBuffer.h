@@ -8,6 +8,7 @@
 #include "usdGen/pool.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -134,8 +135,7 @@ bool UsdGenCompactExtraPlanes(UsdGenCurveBuffer const &source,
 
 struct UsdGenCurveSetView;   // usdGenCurves/types/curveSet.h
 
-/// View overloads (5.3a): a buffer-backed view takes the buffer path; a
-/// set-backed one copies its planes and curve topology into a scratch
+/// View overloads: copy the view's planes and curve topology into a scratch
 /// buffer first (capture time only).
 USDGEN_CORE_API bool UsdGenResampleExtraPlanes(UsdGenCurveSetView const &source,
                                                UsdGenCurveBuffer *target,
@@ -146,7 +146,7 @@ USDGEN_CORE_API bool UsdGenCompactExtraPlanes(UsdGenCurveSetView const &source,
                                               std::string *error = nullptr);
 /// A buffer with the view's counts, offsets and named planes (copies; no
 /// built-in columns). What the overloads above and UsdGenBuildClumpMotion's
-/// view overload read when the view is a set.
+/// view overload read.
 USDGEN_CORE_API UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &source);
 
 namespace detail {
@@ -452,9 +452,15 @@ struct UsdGenTileView
 /// One reference set per reference node, per generation (03 §1.5, I3).
 struct UsdGenReferenceSet
 {
-    UsdGenCurveBuffer buffer;                 // evaluated in full, never chunk-dirty
-    VtFloatArray      localX, localY, localZ; // root-local offsets, refreshed per frame
-    uint64_t          generation = 0;
+    /// CurveSet built once at compile, exported (never recycled), evaluated
+    /// in full, never chunk-dirty.
+    UsdGenRef<const UsdGenElementSet> set;
+    uint64_t generation = 0;
+    /// The set through the curve view; empty when unset.
+    UsdGenCurveSetView View() const noexcept
+    {
+        return set ? UsdGenCurveSetView::Of(*set) : UsdGenCurveSetView{};
+    }
 };
 
 /// Immutable compiler-resolved external reference value.  The shared payload

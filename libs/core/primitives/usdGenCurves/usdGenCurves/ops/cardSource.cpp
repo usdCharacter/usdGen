@@ -135,7 +135,7 @@ using Column = card::PlaneColumn;
 
 struct Library
 {
-    UsdGenCurveBuffer const *buffer = nullptr;
+    UsdGenCurveSetView buffer;
     std::vector<uint32_t> spans;
     struct Entry { std::vector<uint32_t> curves; uint64_t strandCount = 0; };
     std::map<std::pair<int, int>, Entry> entries;   // (uvId, tile) -> strands in order
@@ -148,9 +148,9 @@ struct Library
     }
 };
 
-bool DecodeLibrary(UsdGenCurveBuffer const &b, Library *lib, std::string *error)
+bool DecodeLibrary(UsdGenCurveSetView const &b, Library *lib, std::string *error)
 {
-    lib->buffer = &b;
+    lib->buffer = b;
     if (!opUtil::CurveSpans(b, &lib->spans, error)) return false;
     Column const uvId(b, "uvId"), tile(b, "tile"), index(b, "index"), count(b, "tileStrandCount");
     lib->index.assign(b.totalCurves, 0);
@@ -272,7 +272,8 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     buf = UsdGenCurveBuffer();
 
     // --- reference sets, told apart by their planes ------------------------------------
-    UsdGenCurveBuffer const *spineSet = nullptr, *librarySet = nullptr;
+    UsdGenCurveSetView spineView, libraryView;
+    UsdGenCurveSetView const *spineSet = nullptr, *librarySet = nullptr;
     bool emptySet = false;
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         UsdGenReferenceSet const *ref = nullptr;
@@ -281,13 +282,15 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
         else if (ctx.references)
             ref = ctx.references[i];
         if (!ref) continue;
-        UsdGenCurveBuffer const &b = ref->buffer;
+        UsdGenCurveSetView const b = ref->View();
         if (IsSpineSet(b)) {
             if (spineSet) return fail("more than one card spine set (curves with a cardType plane)");
-            spineSet = &b;
+            spineView = b;
+            spineSet = &spineView;
         } else if (IsLibrarySet(b)) {
             if (librarySet) return fail("more than one tile strand library");
-            librarySet = &b;
+            libraryView = b;
+            librarySet = &libraryView;
         } else if (b.totalCurves == 0) {
             emptySet = true;   // an empty set carries no planes: no cards or no strands
         }
@@ -421,7 +424,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     std::vector<int> rootPrim(R, -1);
     std::vector<GfVec2f> rootUV(R, GfVec2f(0.0f));
     float const depthScale = 1.0f - s.rootFlatten;
-    UsdGenCurveBuffer const &lb = *library.buffer;
+    UsdGenCurveSetView const &lb = library.buffer;
 
     // Braid strands: the processed spine and its root frame per card.
     std::map<uint32_t, std::pair<std::vector<GfVec3f>, std::vector<GfVec3f>>> braidPaths;

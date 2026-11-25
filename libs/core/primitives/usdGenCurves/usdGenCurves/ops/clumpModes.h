@@ -23,6 +23,7 @@
 
 #include "usdGen/curveBuffer.h"
 #include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"
@@ -162,7 +163,7 @@ class GuideTable
 {
 public:
     /// Current positions of `guides`; ng is clamped to [2, ...].
-    bool Build(UsdGenCurveBuffer const &guides, size_t ng, std::string *error);
+    bool Build(UsdGenCurveSetView const &guides, size_t ng, std::string *error);
     size_t Count() const { return _length.size(); }
     float Length(size_t g) const { return _length[g]; }
     GfVec3f Sample(size_t g, float a) const;

@@ -139,9 +139,11 @@ private:
 /// capture); null when the buffer is inconsistent (a column or plane whose
 /// size disagrees with its counts, planes not "float"/"int" or in the wrong
 /// rate, ragged offsets not totalCurves+1). Chunks are not carried: the
-/// graph owns the partition. BufferFromSet copies (tests and tools).
+/// graph owns the partition. exactVersions stamps the versions as given
+/// (zero included). BufferFromSet copies (tests and tools).
 USDGEN_CORE_API UsdGenRef<const UsdGenElementSet>
-UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &, uint64_t topologyVersion, uint64_t valueVersion);
+UsdGenCurveSetFromBuffer(UsdGenCurveBuffer const &, uint64_t topologyVersion, uint64_t valueVersion,
+                         bool exactVersions = false);
 USDGEN_CORE_API UsdGenCurveBuffer UsdGenCurveBufferFromSet(UsdGenElementSet const &);
 
 }  // namespace usdGen

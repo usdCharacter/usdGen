@@ -181,16 +181,18 @@ private:
     std::vector<Node> _nodes;
 };
 
-UsdGenPlane const *FindPlane(std::vector<UsdGenPlane> const &planes, TfToken const &name)
+/// The named plane among the per-curve (cv false) or per-CV planes, in
+/// 'storage'; null when absent.
+UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &curves, TfToken const &name, bool cv,
+                                 UsdGenPlaneView *storage)
 {
-    for (UsdGenPlane const &p : planes)
-        if (p.name == name) return &p;
-    return nullptr;
+    bool perCv = false;
+    return curves.FindPlane(name, storage, &perCv) && perCv == cv ? storage : nullptr;
 }
 
 /// A per-curve value of a uniform (or constant) float/int plane; false when
 /// absent or non-finite.
-bool CurveValue(UsdGenPlane const *plane, size_t curve, size_t curves, double *out)
+bool CurveValue(UsdGenPlaneView const *plane, size_t curve, size_t curves, double *out)
 {
     if (!plane || plane->arity < 1) return false;
     bool const constant = plane->interpolation == UsdGenTokens().constant;
@@ -256,7 +258,7 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
     if (ctx.referenceCount == 0 || !ctx.resolvedReferences || !ctx.resolvedReferences[0] ||
         !ctx.resolvedReferences[0]->value)
         return true;
-    UsdGenCurveBuffer const &curves = ctx.resolvedReferences[0]->value->buffer;
+    UsdGenCurveSetView const curves = ctx.resolvedReferences[0]->value->View();
     std::vector<uint32_t> spans;
     std::string error;
     if (!opUtil::CurveSpans(curves, &spans, &error))
@@ -266,10 +268,12 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
         return fail("trim curve point planes do not match their CV count");
     size_t const curveCount = curves.totalCurves;
 
-    UsdGenPlane const *anglePlane = FindPlane(curves.extraCurve, Record().Token(kTokAngle));
-    UsdGenPlane const *invertPlane = FindPlane(curves.extraCurve, Record().Token(kTokInvert));
-    UsdGenPlane const *distancePlane = FindPlane(curves.extraCurve, Record().Token(kTokDistance));
-    UsdGenPlane const *normalPlane = FindPlane(curves.extraCv, Record().Token(kTokNormal));
+    UsdGenPlaneView planes[4];
+    UsdGenPlaneView const *anglePlane = FindPlane(curves, Record().Token(kTokAngle), false, &planes[0]);
+    UsdGenPlaneView const *invertPlane = FindPlane(curves, Record().Token(kTokInvert), false, &planes[1]);
+    UsdGenPlaneView const *distancePlane =
+        FindPlane(curves, Record().Token(kTokDistance), false, &planes[2]);
+    UsdGenPlaneView const *normalPlane = FindPlane(curves, Record().Token(kTokNormal), true, &planes[3]);
     bool const storedNormals = normalPlane && normalPlane->type == UsdGenTokens().float_ &&
         normalPlane->arity == 3 && normalPlane->f.size() == size_t(curves.totalCvs) * 3;
 

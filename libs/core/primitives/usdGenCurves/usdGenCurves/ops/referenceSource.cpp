@@ -9,9 +9,13 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 namespace {
 
+/// Owns its output: the compiled reference set itself (immutable, exported),
+/// handed on without a copy.
 struct UsdGenReferenceSourceCapture final : public UsdGenCurveCapture
 {
+    UsdGenRef<const UsdGenElementSet> set;
     bool OwnsBuffer() const override { return true; }
+    UsdGenRef<const UsdGenElementSet> Output() const override { return set; }
     std::unique_ptr<UsdGenCapture> Clone() const override
     {
         return std::make_unique<UsdGenReferenceSourceCapture>(*this);
@@ -52,12 +56,15 @@ bool UsdGenReferenceSourceOp::Capture(
         return false;
     }
 
-    // Buffer assignment shares immutable VtArray/plane storage, including the
-    // optional C3 rest plane (which the compiler materializes from authored
-    // rest or points fallback). Downstream writers are made private by
-    // PrepareNodeForEval before raw writes.
-    static_cast<UsdGenReferenceSourceCapture *>(out)->MutableBuffer() =
-        ctx.resolvedReferences[0]->value->buffer;
+    // The compiled set (rest included: the compiler materializes it from
+    // authored rest or the points fallback). It is exported, so downstream
+    // writers derive their own arenas and never write it in place.
+    UsdGenRef<const UsdGenElementSet> const &set = ctx.resolvedReferences[0]->value->set;
+    if (!set) {
+        if (diag) diag->Error("UsdGenReferenceSource: the resolved reference value has no set");
+        return false;
+    }
+    static_cast<UsdGenReferenceSourceCapture *>(out)->set = set;
     return true;
 }
 

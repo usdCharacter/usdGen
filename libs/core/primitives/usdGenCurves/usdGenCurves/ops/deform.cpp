@@ -299,13 +299,14 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         UsdGenResolvedReferenceValue const *value =
             ctx.resolvedReferences ? ctx.resolvedReferences[r] : nullptr;
         if (!value || !value->value) { d.Mix(uint64_t(~0ull)); continue; }
-        UsdGenCurveBuffer const &b = value->value->buffer;
+        UsdGenCurveSetView const b = value->value->View();
         d.Mix(uint64_t(b.totalCurves));
         d.Mix(uint64_t(b.totalCvs));
         MixArray(&d, b.px.cdata(), b.px.size() * sizeof(float));
         MixArray(&d, b.py.cdata(), b.py.size() * sizeof(float));
         MixArray(&d, b.pz.cdata(), b.pz.size() * sizeof(float));
-        d.Mix(restDigest_.Digest(b.rest));
+        d.Mix(referenceRestDigest_.Digest(value->value->set, b.rest.cdata(),
+                                          b.rest.size() * sizeof(GfVec3f)));
         GfMatrix4d const m = DriverToGroom(ctx.desc, value->path);
         MixArray(&d, m.GetArray(), 16 * sizeof(double));
     }
@@ -399,7 +400,8 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         UsdGenSurfaceDesc const *surfaceSrc = nullptr;
         GfMatrix4d surfaceRelative;
         bool surfaceAffine = true;
-        UsdGenCurveBuffer const *guideSrc = nullptr;
+        UsdGenCurveSetView driverView;   // outlives the branch: guideSrc points here
+        UsdGenCurveSetView const *guideSrc = nullptr;
         GfMatrix4d guideToGroom;
         std::vector<GfVec3d> rest, now;
         std::vector<size_t> chosen;
@@ -456,7 +458,8 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         } else {
             UsdGenResolvedReferenceValue const &reference = *ctx.resolvedReferences[0];
             driverLabel = "usdGen:guides " + reference.path.GetString();
-            UsdGenCurveBuffer const &drivers = reference.value->buffer;
+            driverView = reference.value->View();
+            UsdGenCurveSetView const &drivers = driverView;
             if (wrap && drivers.totalCurves != 1 && !regionMapped)
                 return fail("multiple curveWrap center curves require regionMap and guideRegions");
             if (wrap) {

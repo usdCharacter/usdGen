@@ -21,6 +21,7 @@
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/types.h"
+#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/diagnostic.h"
@@ -535,7 +536,7 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
 
     auto value = std::make_shared<UsdGenReferenceSet>();
     value->generation = curves.curveGeneration;
-    UsdGenCurveBuffer &buffer = value->buffer;
+    UsdGenCurveBuffer buffer;   // builder, converted once below
     buffer.totalCurves = static_cast<uint32_t>(curves.curveVertexCounts.size());
     buffer.totalCvs = static_cast<uint32_t>(totalCvs);
     buffer.topologyVersion = curves.curveGeneration;
@@ -578,16 +579,13 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
     buffer.py.resize(buffer.totalCvs);
     buffer.pz.resize(buffer.totalCvs);
     buffer.hairT.resize(buffer.totalCvs);
-    value->localX.resize(buffer.totalCvs);
-    value->localY.resize(buffer.totalCvs);
-    value->localZ.resize(buffer.totalCvs);
     uint32_t cv = 0;
     for (int count : curves.curveVertexCounts) {
         for (int i = 0; i < count; ++i, ++cv) {
             GfVec3f const &point = curves.points[cv];
-            buffer.px[cv] = value->localX[cv] = point[0];
-            buffer.py[cv] = value->localY[cv] = point[1];
-            buffer.pz[cv] = value->localZ[cv] = point[2];
+            buffer.px[cv] = point[0];
+            buffer.py[cv] = point[1];
+            buffer.pz[cv] = point[2];
             buffer.hairT[cv] = count > 1 ? float(i) / float(count - 1) : 0.0f;
         }
     }
@@ -632,6 +630,15 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
     };
     std::sort(buffer.extraCv.begin(), buffer.extraCv.end(), byName);
     std::sort(buffer.extraCurve.begin(), buffer.extraCurve.end(), byName);
+    // One arena at compile; exported so no cook ever recycles it in place.
+    value->set = UsdGenCurveSetFromBuffer(buffer, buffer.topologyVersion,
+                                          buffer.valueVersion, true);
+    if (!value->set) {
+        *error = "reference curve set '" + curves.path.GetString() +
+            "' is not a consistent curve set";
+        return false;
+    }
+    value->set->Export();
     out->path = curves.path;
     out->curveGeneration = curves.curveGeneration;
     out->identity = Fnv1aI64(Fnv1aCstr(1469598103934665603ULL,

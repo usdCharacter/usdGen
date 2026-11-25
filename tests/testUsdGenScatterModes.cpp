@@ -158,7 +158,7 @@ bool Cook(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, std::string *error =
 UsdGenReferenceSet ReferenceOf(UsdGenCurveSetDesc const &g)
 {
     UsdGenReferenceSet r;
-    UsdGenCurveBuffer &b = r.buffer;
+    UsdGenCurveBuffer b;
     b.totalCurves = uint32_t(g.curveVertexCounts.size());
     b.totalCvs = uint32_t(g.points.size());
     b.cvOffsets = VtIntArray(b.totalCurves + 1, 0);
@@ -171,6 +171,8 @@ UsdGenReferenceSet ReferenceOf(UsdGenCurveSetDesc const &g)
     }
     b.rest = g.rest;
     b.curveId = g.curveId;
+    r.set = UsdGenCurveSetFromBuffer(b, 0, 0, true);
+    if (r.set) r.set->Export();
     return r;
 }
 

@@ -800,7 +800,7 @@ static int Harness(std::string const &usda, std::string const &dumpPath)
             UsdGenCurveBuffer const b = BufferFromSet(spine);
             std::vector<card::Card> cards;
             std::string error;
-            if (!card::DecodeCards(b, &cards, &error)) {
+            if (!card::DecodeCards(UsdGenCurveSetView::Of(b), &cards, &error)) {
                 std::printf("cannot decode cards: %s\n", error.c_str());
                 continue;
             }

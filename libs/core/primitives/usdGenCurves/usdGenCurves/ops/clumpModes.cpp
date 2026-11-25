@@ -376,7 +376,7 @@ void AssignCenters(std::vector<uint32_t> const &A, float const *roots,
 // Guide curves
 // ---------------------------------------------------------------------------
 
-bool GuideTable::Build(UsdGenCurveBuffer const &guides, size_t ng, std::string *error)
+bool GuideTable::Build(UsdGenCurveSetView const &guides, size_t ng, std::string *error)
 {
     std::vector<uint32_t> spans;
     if (!opUtil::CurveSpans(guides, &spans, error)) return false;

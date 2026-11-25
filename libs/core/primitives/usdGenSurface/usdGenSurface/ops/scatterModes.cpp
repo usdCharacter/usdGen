@@ -320,20 +320,23 @@ struct Guides
     std::vector<GfVec2f> skinUv;
 };
 
-UsdGenCurveBuffer const *GuideBuffer(UsdGenCaptureContext const &ctx)
+UsdGenReferenceSet const *GuideSet(UsdGenCaptureContext const &ctx)
 {
     if (ctx.referenceCount == 0) return nullptr;
     if (ctx.resolvedReferences && ctx.resolvedReferences[0] && ctx.resolvedReferences[0]->value)
-        return &ctx.resolvedReferences[0]->value->buffer;
-    if (ctx.references && ctx.references[0]) return &ctx.references[0]->buffer;
+        return ctx.resolvedReferences[0]->value.get();
+    if (ctx.references && ctx.references[0]) return ctx.references[0];
     return nullptr;
 }
 
 /// Eligible guides (>= 2 points, polyline length > 1e-6), in curve order.
 bool LoadGuides(UsdGenCaptureContext const &ctx, Guides *out, std::string *error)
 {
-    UsdGenCurveBuffer const *b = GuideBuffer(ctx);
-    if (!b || b->totalCurves == 0) return true;
+    UsdGenReferenceSet const *ref = GuideSet(ctx);
+    if (!ref) return true;
+    UsdGenCurveSetView const view = ref->View();
+    UsdGenCurveSetView const *b = &view;
+    if (b->totalCurves == 0) return true;
     std::vector<uint32_t> spans;
     if (!opUtil::CurveSpans(*b, &spans, error)) return false;
     bool const hasRest = b->rest.size() == b->totalCvs;

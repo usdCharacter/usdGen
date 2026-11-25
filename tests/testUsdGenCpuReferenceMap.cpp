@@ -42,7 +42,7 @@ void Check(bool ok, std::string const &what)
     else std::printf("ok:   %s\n", what.c_str());
 }
 
-bool RestFallbackMatchesPoints(UsdGenCurveBuffer const &buffer)
+bool RestFallbackMatchesPoints(UsdGenCurveSetView const &buffer)
 {
     // Recapture snapshots the current reference points, not the first cook.
     if (buffer.rest.size() != buffer.totalCvs ||
@@ -84,9 +84,9 @@ public:
         return ctx.resolvedReferences[0]->path == SdfPath("/referenceMap/guidesA") &&
             ctx.resolvedReferences[1]->path == SdfPath("/referenceMap/guidesB") &&
             ctx.references[0]->generation == gReferenceGeneration &&
-            ctx.references[0]->buffer.totalCurves == 2 &&
-            ctx.references[0]->buffer.totalCvs == 4 &&
-            RestFallbackMatchesPoints(ctx.references[0]->buffer) &&
+            ctx.references[0]->View().totalCurves == 2 &&
+            ctx.references[0]->View().totalCvs == 4 &&
+            RestFallbackMatchesPoints(ctx.references[0]->View()) &&
             ctx.mapBindings[0].relationship == TfToken("usdGen:map") &&
             ctx.mapBindings[1].relationship == TfToken("usdGen:map");
     }
@@ -630,9 +630,10 @@ void ValidateReferenceProducerChain()
 
     std::shared_ptr<const UsdGenReferenceSet> const oldValue =
         graph.ReferenceValues()[0].value;
-    float const oldPoint = oldValue->buffer.px[0];
-    GfVec3f const oldRest = oldValue->buffer.rest[0];
-    VtFloatArray const oldPlane = oldValue->buffer.extraCv[0].f;
+    UsdGenCurveSetView const oldView = oldValue->View();
+    float const oldPoint = oldView.px[0];
+    GfVec3f const oldRest = oldView.rest[0];
+    VtFloatArray const oldPlane(oldView.ExtraCv(0).f.begin(), oldView.ExtraCv(0).f.end());
     desc.curveSets[0].curveGeneration = 32;
     desc.curveSets[0].points[0] = GfVec3f(9, 8, 7);
     desc.curveSets[0].rest[0] = GfVec3f(19, 18, 17);
@@ -642,8 +643,9 @@ void ValidateReferenceProducerChain()
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "reference generation edit executes producer chain");
     UsdGenNodeId const newSourceId = graph.NodeIdForPath(SdfPath("/referenceChain/reference"));
-    Check(oldValue->buffer.px[0] == oldPoint && oldValue->buffer.rest[0] == oldRest &&
-              oldValue->buffer.extraCv[0].f == oldPlane &&
+    Check(oldView.ExtraCvCount() == 1 &&
+              oldView.px[0] == oldPoint && oldView.rest[0] == oldRest &&
+              VtFloatArray(oldView.ExtraCv(0).f.begin(), oldView.ExtraCv(0).f.end()) == oldPlane &&
               NodeBuffer(graph, newSourceId).px[0] == 9.0f &&
               NodeBuffer(graph, newSourceId).rest[0] == GfVec3f(19, 18, 17),
           "reference generation recapture does not mutate prior immutable COW points/rest");
