@@ -22,6 +22,16 @@ public:
     /// big enough and held only by 'previous' (the warm path: no pool traffic).
     /// Pass the last reference (moved): a 'previous' held elsewhere is refused.
     USDGEN_CORE_API void Recycle(UsdGenRef<const UsdGenElementSet> previous) noexcept;
+    /// Before Plan: rewrite 'previous''s delta arena in place (D9), even
+    /// while sets of the same cook still share it (they see the new values,
+    /// like a column aliased in place). Plan keeps the arena only when it is
+    /// not shared outside the cook, big enough, no shared column lives in it,
+    /// and every planned column (and offset table) sits where 'previous' had
+    /// the same channel with the same size; a kept column keeps its contents
+    /// until written. Otherwise Plan takes another arena and 'previous'
+    /// keeps its bytes. True after Plan when the arena was kept.
+    USDGEN_CORE_API void RecycleInPlace(UsdGenRef<const UsdGenElementSet> previous) noexcept;
+    USDGEN_CORE_API bool RecycledInPlace() const noexcept;
     /// Size one delta arena for every column written, before the first Write.
     /// Copies shared columns into it when the set would need more than
     /// kUsdGenMaxArenasPerSet arenas.
@@ -39,7 +49,13 @@ public:
     USDGEN_CORE_API void Drop(UsdGenSlot slot);
     /// Overrides the versions Seal stamps (0 keeps the automatic one).
     USDGEN_CORE_API void SetVersions(uint64_t topologyVersion, uint64_t valueVersion) noexcept;
+    /// The versions Seal stamps, zero included.
+    USDGEN_CORE_API void SetVersionsExact(uint64_t topologyVersion, uint64_t valueVersion) noexcept;
     USDGEN_CORE_API UsdGenRef<const UsdGenElementSet> Seal() &&;
+    /// Re-stamps a sealed set's value version (and its delta columns') in
+    /// place: the commit thread, after the sweep that wrote it joined, while
+    /// the set is still private to the cook.
+    USDGEN_CORE_API static void Restamp(UsdGenElementSet const &set, uint64_t valueVersion) noexcept;
     USDGEN_CORE_API ~UsdGenWriteSet();
     UsdGenWriteSet(UsdGenWriteSet &&o) noexcept : _impl(o._impl) { o._impl = nullptr; }
     UsdGenWriteSet &operator=(UsdGenWriteSet &&o) noexcept

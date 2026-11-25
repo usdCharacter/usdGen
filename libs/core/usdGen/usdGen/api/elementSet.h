@@ -163,6 +163,10 @@ public:
     UsdGenArena const &ArenaAt(uint8_t i) const noexcept { return *_arenas[i]; }
     /// The column's arena and byte offset; a device mirror uses the same offsets.
     uint8_t ColumnArena(UsdGenSlot s) const noexcept { return Has(s) ? _columnArena[s] : uint8_t(0xFF); }
+    /// The arena this set's own Seal wrote (its delta), or 0xFF.
+    uint8_t DeltaArena() const noexcept { return _delta; }
+    /// True when the column lives in this set's delta arena.
+    bool OwnsColumn(UsdGenSlot s) const noexcept { return Has(s) && _columnArena[s] == _delta; }
     USDGEN_CORE_API uint64_t ColumnOffset(UsdGenSlot) const noexcept;
     /// Marks every arena shared (cache store, host handoff).
     USDGEN_CORE_API void Export() const noexcept;
