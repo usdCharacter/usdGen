@@ -35,15 +35,15 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
     for (auto const &param:map->params) {
         std::string const &name=param.name.GetString();
         if (name=="map:firstChannel") {
-            if (!param.value.IsHolding<int>()) return fail("firstChannel must be an integer");
-            options.firstChannel=param.value.UncheckedGet<int>();
+            if (!param.value.template IsHolding<int>()) return fail("firstChannel must be an integer");
+            options.firstChannel=param.value.template UncheckedGet<int>();
         }
         if (name=="map:filter" &&
-            (!param.value.IsHolding<TfToken>() || param.value.UncheckedGet<TfToken>().GetString()!="nearest"))
+            (!param.value.template IsHolding<TfToken>() || param.value.template UncheckedGet<TfToken>().GetString()!="nearest"))
             return fail("categorical maps require filter=nearest");
         if (name=="map:blur" &&
-            ((param.value.IsHolding<float>() && param.value.UncheckedGet<float>()!=0) ||
-             (param.value.IsHolding<double>() && param.value.UncheckedGet<double>()!=0)))
+            ((param.value.template IsHolding<float>() && param.value.template UncheckedGet<float>()!=0) ||
+             (param.value.template IsHolding<double>() && param.value.template UncheckedGet<double>()!=0)))
             return fail("categorical maps require blur=0");
     }
     auto texture=UsdGenPtexTexture::Open(map->resolvedAssetPath,options,error);
