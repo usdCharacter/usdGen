@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/elementSet.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRecordTables.h"
 #include "usdGen/registries/token.h"
@@ -162,6 +163,9 @@ UsdGenTypeId UsdGenRegistrar::RegisterType(UsdGenTypeDef const &def)
     UsdGenTypeRegistry &types = UsdGenMutableTypeRegistry();
     if (_ops->IsFrozen() || types._frozen.load(std::memory_order_acquire) || !def.name ||
         !*def.name || types._count >= kUsdGenMaxTypes)
+        return UsdGenTypeId::Invalid;
+    if (def.layout && (def.layout->levels < 1 || def.layout->levels > kUsdGenMaxLevels ||
+                       def.layout->channels.size() >= kUsdGenNoSlot))
         return UsdGenTypeId::Invalid;
     UsdGenCompileTokenScope scope;
     TfToken const name = UsdGenInternToken(def.name);

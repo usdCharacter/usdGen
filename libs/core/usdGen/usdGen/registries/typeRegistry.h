@@ -3,6 +3,7 @@
 // Input types the engine branches on (step 4: the map prim types).
 #pragma once
 #include "usdGen/export.h"
+#include "usdGen/api/ids.h"
 #include "usdGen/registries/handles.h"
 #include "pxr/base/tf/token.h"
 #include <atomic>
@@ -13,6 +14,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 struct UsdGenMapDesc;
+struct UsdGenElementLayout;
 class UsdGenTypeRegistry;
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
 UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;   // registrar-only
@@ -41,6 +43,10 @@ struct UsdGenTypeDef {
     char const *name = nullptr;          // e.g. UsdGenPtexMap
     uint32_t traits = 0;
     bool (*parseOptions)(UsdGenMapDesc const &, UsdGenMapOptions *, std::string *error) = nullptr;
+    /// Primitive types (UsdGenCurveSet, UsdGenRootSet): the element layout;
+    /// null for map and value types. Must outlive the registry.
+    UsdGenElementLayout const *layout = nullptr;
+    uint32_t limits[kUsdGenMaxLevels] = {};   // max items per parent; curves: {0, 4096, 0}
 };
 
 class USDGEN_CORE_API UsdGenTypeRegistry {
