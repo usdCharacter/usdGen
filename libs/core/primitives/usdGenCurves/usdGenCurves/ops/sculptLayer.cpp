@@ -53,8 +53,9 @@ struct UsdGenSculptLayerCapture final : public UsdGenCapture
     {
         return std::make_unique<UsdGenSculptLayerCapture>(*this);
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         // The id->span match and the span-vs-CV-count proof below track the
         // upstream topology only; deformed positions move freely beneath.
         return upstream.topologyVersion == upstreamTopologyVersion &&
@@ -241,10 +242,11 @@ UsdGenEpoch UsdGenSculptLayerOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
 
 bool UsdGenSculptLayerOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params;
     auto &cap = *static_cast<UsdGenSculptLayerCapture *>(out);
     auto fail = [&](std::string const &message) {
@@ -335,8 +337,10 @@ bool UsdGenSculptLayerOp::Capture(
 void UsdGenSculptLayerOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenSculptLayerCapture const &>(captureIn);
     float *px = view->px, *py = view->py, *pz = view->pz;
     auto const *inPx = view->inPx, *inPy = view->inPy, *inPz = view->inPz;

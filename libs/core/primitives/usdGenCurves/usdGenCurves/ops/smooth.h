@@ -18,6 +18,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
+class UsdGenCurveChunk;   // usdGenCurves/types/curveSet.h
+
 namespace smoothP {
 enum : UsdGenParamSlot {
     kInput, kSurface, kSeed, kMode, kSearchRadius, kNumNeighbors,
@@ -37,15 +39,15 @@ public:
     bool Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag) override;
     UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const override;
     bool Capture(UsdGenCaptureContext const &ctx,
-                 UsdGenCurveBuffer const &upstream,
+                 UsdGenOpInputs const &in,
                  UsdGenCapture *out,
                  UsdGenDiagnostics *diag) override;
     void Evaluate(UsdGenEvalContext const &ctx,
                   UsdGenCapture const &capture,
-                  UsdGenLegacyChunkView *view) const override;
+                  UsdGenChunkView const &chunk) const override;
     std::unique_ptr<UsdGenCapture> CreateCapture() const override;
     uint32_t PlanesTouched() const override;
-    void EvaluateBox(UsdGenEvalContext const &ctx, UsdGenLegacyChunkView *view) const;
+    void EvaluateBox(UsdGenEvalContext const &ctx, UsdGenCurveChunk const *view) const;
 };
 
 class UsdGenRegistrar;

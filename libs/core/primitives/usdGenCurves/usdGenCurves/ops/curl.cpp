@@ -12,6 +12,7 @@
 // validates.
 #include "usdGen/ops/curl.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
@@ -131,10 +132,11 @@ UsdGenEpoch UsdGenCurlOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenCurlOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     auto &cap = *static_cast<UsdGenCurlCapture *>(out);
     std::string clumpError;
     auto const *prior = dynamic_cast<UsdGenCurlCapture const *>(ctx.previousCapture);
@@ -214,8 +216,10 @@ bool UsdGenCurlOp::Capture(
 void UsdGenCurlOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     auto const &cap = static_cast<UsdGenCurlCapture const &>(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const radiusField =

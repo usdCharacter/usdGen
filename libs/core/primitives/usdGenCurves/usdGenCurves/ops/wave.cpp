@@ -12,6 +12,7 @@
 // changing its frequency or root frame would override authored wave shape.
 #include "usdGen/ops/wave.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
@@ -100,10 +101,11 @@ UsdGenEpoch UsdGenWaveOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenWaveOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     TF_UNUSED(out);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
@@ -164,8 +166,10 @@ bool UsdGenWaveOp::Capture(
 void UsdGenWaveOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     TF_UNUSED(captureIn);
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const freqUField =

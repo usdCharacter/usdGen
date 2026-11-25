@@ -4,6 +4,7 @@
 // host, never alongside the documentation renderer. No absolute timing gates.
 #include "usdGen/clumpMotion.h"
 #include "usdGen/ops/wind.h"
+#include "usdGenCurves/types/curveBridge.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -76,6 +77,13 @@ size_t PlaneBytes(UsdGenCurveBuffer const& b) {
 bool Equal(UsdGenCurveBuffer const& a,UsdGenCurveBuffer const& b) {
     return a.px==b.px && a.py==b.py && a.pz==b.pz;
 }
+bool Capture(UsdGenWindOp& op, UsdGenCaptureContext const& cc, UsdGenCurveBuffer const& buffer,
+             UsdGenCapture* out, UsdGenDiagnostics* diag) {
+    UsdGenCurveBufferSetView set; set.Bind(buffer);
+    UsdGenCurveBuffer const* legacy[1]={&buffer};
+    UsdGenOpInputs in; in.sets=&set.View(); in.count=1; in.legacy=legacy;
+    return op.Capture(cc,in,out,diag);
+}
 void Evaluate(UsdGenWindOp const& op, UsdGenCapture const& capture,
               UsdGenEvalContext const& ctx, UsdGenCurveBuffer const& input,
               UsdGenCurveBuffer* output, bool reverse=false) {
@@ -87,7 +95,7 @@ void Evaluate(UsdGenWindOp const& op, UsdGenCapture const& capture,
         v.inPz=input.pz.cdata()+ch.firstCv; v.px=output->px.data()+ch.firstCv;
         v.py=output->py.data()+ch.firstCv; v.pz=output->pz.data()+ch.firstCv;
         v.hairT=output->hairT.data()+ch.firstCv; v.curveId=input.curveId.cdata()+ch.firstCurve;
-        op.Evaluate(ctx,capture,&v);
+        static_cast<UsdGenOp const&>(op).Evaluate(ctx,capture,&v);   // old family: wraps into the new
     }
 }
 }
@@ -116,7 +124,7 @@ int main(int argc,char** argv) {
         for(int run=0;run<7;++run) {
             capture=op.CreateCapture();
             auto start=Clock::now();
-            if(!op.Capture(cc,input,capture.get(),&diag)) { std::fprintf(stderr,"capture failed %s\n",test.name); return 1; }
+            if(!Capture(op,cc,input,capture.get(),&diag)) { std::fprintf(stderr,"capture failed %s\n",test.name); return 1; }
             cold.push_back(Milliseconds(start));
         }
         // Moving upstream points invalidate Wind's value-version capture while
@@ -126,10 +134,10 @@ int main(int argc,char** argv) {
             animated.valueVersion=uint64_t(run+1);
             animated.py[animated.totalCvs-1]=input.py[input.totalCvs-1]+float(run+1)*.001f;
             auto start=Clock::now();
-            if(!op.Capture(cc,animated,capture.get(),&diag)) return 1;
+            if(!Capture(op,cc,animated,capture.get(),&diag)) return 1;
             recapture.push_back(Milliseconds(start));
         }
-        if(!op.Capture(cc,input,capture.get(),&diag)) return 1;
+        if(!Capture(op,cc,input,capture.get(),&diag)) return 1;
         for(int run=0;run<11;++run) {
             auto start=Clock::now(); auto copy=capture->Clone();
             clone.push_back(Milliseconds(start));

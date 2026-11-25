@@ -15,6 +15,7 @@
 // ~12.5 ms at 8 threads on this host (MEASURED, fbmbench, M1 integration).
 #include "usdGen/ops/noise.h"
 #include "usdGenCurves/types/curveCapture.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGen/clumpMotion.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
@@ -81,8 +82,9 @@ struct UsdGenNoiseCapture final : public UsdGenCapturePayload
         upstreamCvs = 0;
         return true;
     }
-    bool ValidForTopology(UsdGenCurveBuffer const &upstream) const override
+    bool ValidForTopology(UsdGenElementSetView const &in) const override
     {
+        UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in);
         return upstream.topologyVersion == upstreamTopologyVersion &&
                upstream.totalCvs == upstreamCvs;
     }
@@ -219,10 +221,11 @@ UsdGenEpoch UsdGenNoiseOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
 
 bool UsdGenNoiseOp::Capture(
     UsdGenCaptureContext const &ctx,
-    UsdGenCurveBuffer const &upstream,
+    UsdGenOpInputs const &in,
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
+    UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     auto &cap = *static_cast<UsdGenNoiseCapture *>(out);
     std::string clumpError;
@@ -423,8 +426,10 @@ bool UsdGenNoiseOp::Capture(
 void UsdGenNoiseOp::Evaluate(
     UsdGenEvalContext const &ctx,
     UsdGenCapture const &captureIn,
-    UsdGenLegacyChunkView *view) const
+    UsdGenChunkView const &chunk) const
 {
+    UsdGenCurveChunk curve(chunk);
+    UsdGenCurveChunk const *view = &curve;
     UsdGenNoiseCapture const &cap =
         static_cast<UsdGenNoiseCapture const &>(captureIn);
     if (cap.perCv.empty()) return;
