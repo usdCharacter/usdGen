@@ -3537,6 +3537,14 @@ set_tests_properties(testUsdGenRegistrarLoad testUsdGenRegistrarLoadDefaults PRO
     LABELS "T0;registries"
     ENVIRONMENT_MODIFICATION "USDGEN_EXTENSIONS=unset:")
 
+# Step 6.5: the engine builds and runs without any primitive (links usdGen only).
+add_executable(testUsdGenEngineBare tests/core/testUsdGenEngineBare.cpp)
+target_link_libraries(testUsdGenEngineBare PRIVATE usdGen)
+add_test(NAME testUsdGenEngineBare COMMAND testUsdGenEngineBare)
+set_tests_properties(testUsdGenEngineBare PROPERTIES
+    LABELS "T0;registries"
+    ENVIRONMENT_MODIFICATION "USDGEN_EXTENSIONS=unset:")
+
 # Step 4 gate 4: an exec-phase intern fails the cook (warns with checks off).
 add_executable(testUsdGenTokenChecks tests/testUsdGenTokenChecks.cpp)
 target_link_libraries(testUsdGenTokenChecks PRIVATE usdGenTestUtils)
