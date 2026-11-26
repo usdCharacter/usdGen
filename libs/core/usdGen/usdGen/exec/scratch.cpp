@@ -42,6 +42,25 @@ void FreeBlock(UsdGenScratchArena::Block *b) noexcept
 
 UsdGenScratchArena &UsdGenScratchArena::ForThread() { return t_arena; }
 
+UsdGenScratchArena::Block *UsdGenScratchArena::NewBaseBlock() { return NewBlock(kMinBlock, nullptr); }
+
+void UsdGenScratchArena::FreeBaseBlock(Block *block) noexcept
+{
+    if (block) FreeBlock(block);
+}
+
+void UsdGenScratchArena::AdoptBaseBlock(Block *block) noexcept
+{
+    if (!block) return;
+    if (_block || _spare) {
+        FreeBlock(block);
+        return;
+    }
+    block->prev = nullptr;
+    _block = block;
+    _top = 0;
+}
+
 void *UsdGenScratchArena::Alloc(std::size_t bytes, std::size_t align)
 {
     std::size_t at = (_top + align - 1) & ~(align - 1);

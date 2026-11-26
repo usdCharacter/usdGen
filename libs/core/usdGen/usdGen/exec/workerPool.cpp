@@ -5,6 +5,7 @@
 #include "usdGen/executionRuntimeInternal.h"
 #include "usdGen/fastCores.h"
 #include "usdGen/parkingWord.h"
+#include "usdGen/exec/scratch.h"
 #include "usdGen/taskScheduler.h"
 
 #include <algorithm>
@@ -101,9 +102,16 @@ struct UsdGenWorkerPool::State {
     // (workers float). Read once: affinity is process-stable in practice.
     std::vector<int> pinCpus;
     int workers = 0;
+    // Each worker's scratch base block, allocated by the constructor and
+    // adopted (slot cleared) by the worker as it starts. Allocated lazily
+    // instead, a worker that dynamic claiming kept away from every scratch
+    // user through the warm-up cooks would allocate inside a warm one.
+    std::vector<UsdGenScratchArena::Block *> scratchBlocks;
 
     void WorkerMain(int id)
     {
+        UsdGenScratchArena::ForThread().AdoptBaseBlock(scratchBlocks[size_t(id)]);
+        scratchBlocks[size_t(id)] = nullptr;
 #if defined(__linux__) && !defined(__ANDROID__)
         // One worker per fast CPU: pinning the whole set lets the
         // scheduler stack workers on a few cores for longer than a
@@ -214,6 +222,9 @@ UsdGenWorkerPool::UsdGenWorkerPool(int workers) : _workers(workers)
     _state->workers = workers;
     _state->spinUs = SpinBudgetUs();
     _state->pinCpus = FastCoreList(workers);
+    _state->scratchBlocks.resize(size_t(workers));
+    for (UsdGenScratchArena::Block *&block : _state->scratchBlocks)
+        block = UsdGenScratchArena::NewBaseBlock();
     _state->threads.reserve(size_t(workers));
     for (int i = 0; i < workers; ++i)
         _state->threads.emplace_back(&State::WorkerMain, _state, i);
@@ -232,6 +243,8 @@ UsdGenWorkerPool::~UsdGenWorkerPool()
         return;
     }
     for (std::thread &t : _state->threads) t.join();
+    for (UsdGenScratchArena::Block *block : _state->scratchBlocks)
+        UsdGenScratchArena::FreeBaseBlock(block);
     delete _state;
 }
 
