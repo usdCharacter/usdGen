@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // A prim the engine names without a path (step 7.2): a host node, or a prim
-// the host publishes under one (<node>/__usdGenRender/<role name>).
+// the host publishes under one (its render namespace, then the role name).
 // usdGenUsd/publishPaths.h composes the path.
 #ifndef USDGEN_API_PRIM_REF_H
 #define USDGEN_API_PRIM_REF_H

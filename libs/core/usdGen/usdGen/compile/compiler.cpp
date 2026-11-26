@@ -300,7 +300,7 @@ bool ValidateMapBinding(UsdGenMapBinding const &binding,
     }
     // Empty relationship is deliberately accepted for direct typed clients
     // and maps-only compatibility descriptors. `usdGen:regionMap` is the
-    // categorical Ptex owner-map slot of CurveSource surfaceCage; the
+    // categorical Ptex owner-map slot of one source op's surface cage; the
     // operator admission layer enforces that it is used only there.
     if (binding.relationship.IsEmpty()) return true;
     // The op's declared map slots (UsdGenOpDef::mapSlots); the operators
@@ -417,7 +417,7 @@ bool IndexedSuffix(std::string const &name, char const *prefix, int *index)
 
 /// Indexed plane runs (4a) for nodes whose op has hooks.indexedPlanes, one
 /// namespace per UsdGenOpDef::indexedPlaneFamily, in compiled topological
-/// order. Authored curve-set planes <family><n> reserve n (imports); a
+/// order. Authored input channels <family><n> reserve n (imports); a
 /// pinned run takes its indices, an auto run the first free consecutive
 /// ones. Disabled nodes reserve too, so a toggle renumbers nothing.
 bool AllocateIndexedPlanes(UsdGenGraphSpec const &desc, PVec<int> const &order,
@@ -668,7 +668,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphSpec const &newDesc, Us
         // state (capture, buffer, chunk + dirty bytes) moved over by
         // _Build. The runtime partition is re-established by the first
         // commit once a generator installs its topology — a recompile
-        // cannot know the live curve count of an unpopulated output, so it
+        // cannot know the live element count of an unpopulated output, so it
         // must not call Repartition() here (that would wipe the moved
         // chunk/dirty state and capture flags).
         for (auto &np : out->_nodes) np->captureNeeded = false;
@@ -964,8 +964,8 @@ void UsdGenCompiler::_Build(
     std::vector<UsdGenResolvedMapValue> resolvedMapValues;
     PHashMap<UsdGenNodeKey, uint32_t, UsdGenNodeKeyHash> referenceByPath;
     PHashMap<UsdGenNodeKey, uint32_t, UsdGenNodeKeyHash> mapByPath;
-    // Inputs whose kind materializes a reference set (curves: the guide and
-    // clump-centre sets), through the kind's InputDesc hook.
+    // Inputs whose kind materializes a reference set, through the kind's
+    // InputDesc hook.
     UsdGenTypeRegistry const &inputTypes = UsdGenTypeRegistry::Get();
     for (UsdGenInputRecord const &record : desc.inputs) {
         if (record.kind == UsdGenTypeId::Invalid) continue;
@@ -975,7 +975,8 @@ void UsdGenCompiler::_Build(
             UsdGenRef<const UsdGenElementSet> probe;
             std::string ignored;
             if (input->materialize(record, &probe, &ignored) && !probe) continue;
-            result.errors.push_back("UsdGenCompiler: duplicate reference curve set '" +
+            result.errors.push_back(std::string("UsdGenCompiler: duplicate reference ") +
+                                    (input->displayName ? input->displayName : "input") + " '" +
                                     desc.Label(record.key) + "'");
             return;
         }
@@ -985,7 +986,7 @@ void UsdGenCompiler::_Build(
             result.errors.push_back("UsdGenCompiler: " + error);
             return;
         }
-        if (!set) continue;   // nothing to materialize (a CurveSource's rails)
+        if (!set) continue;   // nothing to materialize for this record
         auto shared = std::make_shared<UsdGenReferenceSet>();
         shared->generation = record.generation;
         shared->set = std::move(set);
@@ -1025,7 +1026,7 @@ void UsdGenCompiler::_Build(
         if (!hasExternalInputs) {
             // A reference-role producer cannot silently omit its declared
             // slots.  This is the only empty-input rule; every nonempty
-            // reference, curve, or map path continues through the complete
+            // reference, input set, or map path continues through the complete
             // duplicate/target/typed-binding validation below.
             if (contract.lane == UsdGenLane::Reference &&
                 contract.referenceInputArity != 0) {
@@ -1340,7 +1341,7 @@ void UsdGenCompiler::_Build(
                     moved->inputs.push_back(static_cast<UsdGenNodeId>(topoOfDesc[edgeIds[size_t(k)]]));
                 // Preserve authored edge order.  Unary operators do not give
                 // that order semantic meaning, but ordered fan-in operators
-                // (UsdGenWidthBlend) use inputs[0] as left and inputs[1] as
+                // (a binary blend) use inputs[0] as left and inputs[1] as
                 // right and must retain it through recompile.
                 moved->input = moved->inputs.empty() ? kUsdGenInvalidNode : moved->inputs.front();
                 fillDescendants(pos, &moved->descendants);
@@ -1620,7 +1621,7 @@ void UsdGenCompiler::_Build(
         // so they keep serving the old geometry. Every expression-bound node
         // rebuilds on every recompile (sameNodeDesc), so a length-paint
         // repaint rebuilt Grow and the groom stayed unchanged until a
-        // density edit changed the curve count under the whole chain.
+        // density edit changed the element count under the whole chain.
         // A rebuilt node also takes its predecessor's partition storage; the
         // first commit repartitions into it.
         if (lendFrom >= 0 && size_t(lendFrom) < oldNodes.size() &&
@@ -1651,7 +1652,7 @@ void UsdGenCompiler::_Build(
         node.referenceValues.clear();
         node.mapValues.clear();
         // Everything a connected expression samples (geoSampler/ptex inputs):
-        // an edit there re-evaluates this node, like a curve or map edit.
+        // an edit there re-evaluates this node, like an input set or map edit.
         node.geometryRefs.clear();
         UsdGenParamEvaluatorDef const &evaluator = UsdGenOpRegistry::Get().ParamEvaluator();
         if (evaluator.bindingDependencies) {

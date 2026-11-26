@@ -44,7 +44,7 @@ struct UsdGenExecutionInputGeneration {
 };
 
 /// Canonical, immutable-after-publication input version tuple.  Source and
-/// reference entries are curve-set identities; map and surface entries are
+/// reference entries are input-set identities; map and surface entries are
 /// their corresponding descriptor identities.  Relationship-only references
 /// with no payload generation are retained at generation zero so a changed
 /// target still changes the plan/cache identity.

@@ -4,7 +4,7 @@
 #pragma once
 #include "usdGen/api/span.h"
 #include "usdGen/registries/handles.h"
-#include "usdGen/expressions/context.h"   // expr::Domain, expr::ScalarType
+#include "usdGen/api/valueShape.h"        // expr::Domain, expr::ScalarType
 #include "usdGen/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
 
 #include "pxr/base/tf/span.h"
@@ -125,7 +125,7 @@ using UsdGenOpCreateFn = std::unique_ptr<UsdGenOp> (*)(UsdGenOpRecord const &, v
 /// Filled by assignment inside one register function and copied by
 /// RegisterOp. Every char const* is a literal or lives as long as the process.
 struct UsdGenOpDef {
-    char const *name = nullptr;          // C1 schema type, e.g. UsdGenLength
+    char const *name = nullptr;          // C1 schema type name
     char const *displayName = nullptr;   // diagnostics, e.g. "Length"
     UsdGenOpCreateFn create = nullptr;
     void *createContext = nullptr;

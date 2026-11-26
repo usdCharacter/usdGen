@@ -7,7 +7,7 @@
 //    graph's scheduled work owner; it runs there or inside a parallel region
 //    over independent nodes in the private arena (R22).
 //  * The record's parameter decls are the node's mapped property set (S14).
-//  * Cross-curve reads come from capture data plus reference buffers, never
+//  * Cross-element reads come from capture data plus reference buffers, never
 //    from another chunk (I3).
 //  * Kernels live in usdGenMath as free functions over raw pointers, compiled
 //    -ffp-contract=off, deterministic reductions.
@@ -244,8 +244,8 @@ private:
 };
 
 /// Opaque per-node capture payload; operators derive their own concrete
-/// payload types (curve generators: UsdGenCurveCapture, usdGenCurves/types/
-/// curveCapture.h). Lifetime: owned by the compiled node, keyed by the
+/// payload types (generators: their primitive's capture type). Lifetime:
+/// owned by the compiled node, keyed by the
 /// node's capture epoch (03 §3.4).
 struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptures
 {
@@ -297,7 +297,7 @@ struct UsdGenOpInputs
 
 struct UsdGenCaptureContext
 {
-    UsdGenGraphSpec const *desc = nullptr;   // surfaces, maps, density scales
+    UsdGenGraphSpec const *desc = nullptr;   // surfaces, maps, density multipliers
     // Prior committed payload for read-only reuse during a recapture. It
     // remains owned by the node until Capture succeeds and commits.
     UsdGenCapture const *previousCapture = nullptr;
@@ -388,7 +388,7 @@ public:
     // ---- capture: topology-dependent, cached by epoch (03 §3.4) --------------
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
     /// Fill *out (derive the concrete payload). A generator (countChanges != 0)
-    /// also produces its output topology (UsdGenCurveCapture::MutableBuffer).
+    /// also produces its output topology (its primitive's capture buffer).
     virtual bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
                          UsdGenCapture *out, UsdGenDiagnostics *diag) = 0;
 
@@ -397,15 +397,15 @@ public:
                           UsdGenChunkView const &chunk) const = 0;
 
     /// Allocate the concrete capture payload for this operator. The payload
-    /// owns its per-curve results; generators additionally fill
-    /// UsdGenCurveCapture::MutableBuffer() (OwnsBuffer() == true).
+    /// owns its per-element results; generators additionally fill their
+    /// primitive's capture buffer.
     virtual std::unique_ptr<UsdGenCapture> CreateCapture() const
     {
         return std::make_unique<UsdGenCapture>();
     }
 
-    /// Plane bitmask (03 §8.5 envelope + tile-change tracking): which CV
-    /// planes Evaluate() may write for this operator type.
+    /// Plane bitmask (03 §8.5 envelope + tile-change tracking): which item
+    /// planes (Position, Width, Parameter roles) Evaluate() may write.
     static constexpr uint32_t kPlanePoints = 1u << 0;
     static constexpr uint32_t kPlaneWidths = 1u << 1;
     static constexpr uint32_t kPlaneHairT  = 1u << 2;

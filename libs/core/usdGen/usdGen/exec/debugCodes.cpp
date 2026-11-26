@@ -13,7 +13,7 @@ TF_REGISTRY_FUNCTION(TfDebug)
     TF_DEBUG_ENVIRONMENT_SYMBOL(USDGEN_INGRESS,
         "usdGen: groom scene index notices and description captures");
     TF_DEBUG_ENVIRONMENT_SYMBOL(USDGEN_FUR,
-        "usdGen: one line per fur optical-depth bake (grid, voxel size, CVs)");
+        "usdGen: one line per fur optical-depth bake (grid, voxel size, items)");
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

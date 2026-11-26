@@ -34,7 +34,7 @@ struct AllocatorPolicy {
 #if defined(__GLIBC__)
         if (std::getenv("USDGEN_ALLOCATOR_DEFAULTS"))
             return;
-        // 64MB covers churn planes to ~4M roots/CVs (16MB at bench scale);
+        // 64MB covers churn planes to ~4M items (16MB at bench scale);
         // larger blocks keep the mmap path (spread VMAs, released on free).
         if (!std::getenv("MALLOC_MMAP_THRESHOLD_"))
             ::mallopt(M_MMAP_THRESHOLD, 64 << 20);

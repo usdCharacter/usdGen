@@ -136,7 +136,7 @@ struct UsdGenCompiledNode : UsdGenPooled
     bool                   limitSurfaceUv = false; // hooks.emitsLimitSurfaceUv at compile
     // kUsdGenOpRemapsVertexPlanes or hooks.remapsVertexPlanes, at compile.
     bool                   remapsVertexPlanes = false;
-    // Plane slots resolved per run by the scheduler; negative: curve rate.
+    // Plane slots resolved per run by the scheduler; negative: element rate.
     std::array<int16_t, kUsdGenMaxExtraPlaneSlots> outPlaneIndex{}, inPlaneIndex{};
     // Connected parameters evaluated for this node, once per cook, over its
     // INPUT geometry; null when no evaluator is registered.
@@ -152,7 +152,7 @@ struct UsdGenCompiledNode : UsdGenPooled
     std::vector<TfToken> inputPrimvars;
     UsdGenSurfaceId        surface = 0;
     bool                   hasSurface = false;
-    std::vector<UsdGenNodeKey> inputRefs;            // usdGen:curves/guides/frozen:curves targets
+    std::vector<UsdGenNodeKey> inputRefs;            // UsdGenOpNode::inputSets targets
     std::vector<UsdGenNodeKey> mapRefs;              // legacy flat map targets
     std::vector<UsdGenMapBinding> mapBindingRefs; // typed authored map slots
     // Prims a connected expression reads through its input:<name>
@@ -203,8 +203,8 @@ public:
     /// Bumps the capture epoch of every node whose UsdGenOpNode::maps names this prim
     /// (asset path edit, ReloadMaps(), textureGeneration bump). §3.6, UsdGenDirtyMap.
     void DirtyMap(UsdGenNodeKey mapPrim, uint64_t generation = UINT64_MAX);
-    /// Bumps the capture epoch of every node whose UsdGenOpNode::curves names this prim
-    /// (a C3 BasisCurves changed: guide edit, re-freeze, re-import). §3.6, §4.5.
+    /// Bumps the capture epoch of every node whose UsdGenOpNode::inputSets names this
+    /// input (its content changed: an edit, a re-freeze, a re-import). §3.6, §4.5.
     void DirtyInput(UsdGenNodeKey inputIdentity,
                      uint64_t generation = UINT64_MAX);
     /// Re-captures every node whose connected expressions sample this prim
@@ -235,8 +235,8 @@ public:
 
     UsdGenGraphSpec const &Spec() const noexcept { return *_desc; }
     /// Spec() in Default space. Operators evaluate in Default space until a
-    /// UsdGenDeform: every node upstream of the first deform on its path sees
-    /// this view, the deform and everything after it see Spec(). Here a
+    /// deforming op: every node upstream of the first one on its path sees
+    /// this view, that op and everything after it see Spec(). Here a
     /// surface with authored rest data (UsdGenRestAPI) reads its Default-time
     /// rest as its current points -- one shutter sample at the desc time, no
     /// velocities -- and its surfaceGeneration follows only that rest content,
@@ -270,7 +270,7 @@ public:
     /// Re-partition every node's chunks + the group set after a topology
     /// change, through the output layout's partition and groups hooks. A
     /// node's sub-item layout comes from its effective set when known (a
-    /// generator upstream of a CV-changing node keeps its own cv/curve);
+    /// generator upstream of an item-count-changing node keeps its own stride);
     /// `fallbackStride` items per element stand in for a set not populated
     /// yet. Returns true when the layout (element count, chunk count or any
     /// node's chunk spans) changed; unchanged nodes keep their chunk and

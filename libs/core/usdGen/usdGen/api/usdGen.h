@@ -22,9 +22,9 @@ namespace usdGen {
 /// only through the USDGEN_CORE_API macro (see usdGen/export.h).
 USDGEN_CORE_API std::string GetVersionString();
 
-/// Chunk size: the engine's dirty/parallel unit is 512 curves (S23).
+/// Chunk size: the engine's dirty/parallel unit is 512 elements (S23).
 constexpr int kDefaultChunkSize = 512;
-/// Default tile target for published basisCurves (02-schema.md §2.15).
+/// Default publication group target (02-schema.md §2.15).
 constexpr int kDefaultTileTarget = 64;
 
 }  // namespace usdGen

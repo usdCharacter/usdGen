@@ -540,7 +540,7 @@ _PresentationScalars _BuildPresentationScalars(
     return result;
 }
 
-// CUDA admission permits at most one CurveSource root-binding surface and
+// CUDA admission permits at most one source root-binding surface and
 // ExecuteCudaGraph rejects a named binding that is absent from desc.surfaces.
 // Return no dependency for the valid empty/no-binding case; never invent one.
 UsdGenNodeKey _CudaSourceDependencySurface(UsdGenGraphSpec const &desc)
@@ -2054,7 +2054,7 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
         UsdGenNodeStats& s = out[entry.first];
         s.type = n.record ? n.record->Name() : TfToken(); s.key = n.desc ? n.desc->key : UsdGenNodeKey();
         s.captureMs = entry.second.captureMs; s.lastEvalMs = entry.second.evalMs;
-        s.meanEvalMs = entry.second.evalMs; s.curvesOut = _graph.NodeOutput(n.id).Count(1);
+        s.meanEvalMs = entry.second.evalMs; s.elementsOut = _graph.NodeOutput(n.id).Count(1);
         for (UsdGenChunkDirtyBits bit : n.chunkDirty) if (bit) ++s.chunksDirty;
         s.chunksTotal = n.chunks.size();
     }

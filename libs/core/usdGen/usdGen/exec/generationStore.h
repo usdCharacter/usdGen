@@ -29,7 +29,7 @@ namespace usdGen {
 /// intentionally separate from UsdGenDeviceGeneration: the device payload is
 /// geometry/tool data, while these values are the immutable descriptor
 /// snapshot that a renderer needs to publish that payload.  No geometry or
-/// per-curve host mirror is retained here.
+/// per-element host mirror is retained here.
 struct UsdGenDevicePresentationMetadata
 {
     UsdGenNodeKey description;   // the host composes the render namespace under it

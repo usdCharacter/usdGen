@@ -122,7 +122,7 @@ UsdGenOpId UsdGenRegistrar::RegisterOp(UsdGenOpDef const &def)
             tables->digest.push_back(UsdGenParamSlot(s));
         tables->paramNames.push_back(param);
     }
-    // "usdGen:x" finds x unless a decl spells "usdGen:x" itself (CurveSource
+    // "usdGen:x" finds x unless a decl spells "usdGen:x" itself (an op
     // declares both useRest and usdGen:useRest).
     for (size_t s = 0; s < n; ++s) {
         char const *const declName = def.params[s].name;

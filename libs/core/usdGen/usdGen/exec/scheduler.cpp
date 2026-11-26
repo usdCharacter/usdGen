@@ -4,7 +4,7 @@
 // frontiers. Each frontier captures and repartitions serially, prepares all
 // COW payloads serially, then sweeps its flattened node/chunk work in parallel:
 //   - reference lane (03 §1.5): reference-role nodes run first, with
-//     immutable resolved CurveSet/map values supplied to their capture;
+//     immutable resolved reference/map values supplied to their capture;
 //     this CPU slice does not implement chaining from a reference node's
 //     produced geometry into another reference node;
 //   - re-capture when the capture epoch moved (03 §3.4); generators install
@@ -65,7 +65,7 @@ int ResolveThreadLimit(int requested)
     // (EV-001/EV-008) is the floor; on heterogeneous Linux with more fast
     // cores than that, the arena spans every fast core — pinning engages
     // by construction (workers == fast cores), and compute-bound passes
-    // (the fp64 RBF kernel scales linearly to the fast count) gain while
+    // (the fp64 RBF kernel grows linearly with the fast count) gain while
     // bandwidth-bound passes keep at least their old width. Undetectable,
     // homogeneous, or disabled topologies keep 8, and
     // `USDGEN_THREAD_LIMIT` above wins and skips all of this.
@@ -571,16 +571,16 @@ struct NodeSweepPayload
     PositionSlots inPos;     // the input table's Position slots
 };
 
-/// Chunk-local bases of every slot of 'set': level-2 channels at cvBase,
-/// the others at curveBase (the old view's rule, constant channels included).
-void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t curveBase,
-                   size_t cvBase, void const **table)
+/// Chunk-local bases of every slot of 'set': level-2 channels at itemBase,
+/// the others at elementBase (constant channels included).
+void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t elementBase,
+                   size_t itemBase, void const **table)
 {
     for (uint32_t s = 0; s < slots; ++s) {
         void const *column = set.columns[s];
         if (!column) { table[s] = nullptr; continue; }
         UsdGenChannelDesc const &d = (*set.channels)[s];
-        size_t const element = d.level >= 2 ? cvBase : curveBase;
+        size_t const element = d.level >= 2 ? itemBase : elementBase;
         table[s] = static_cast<char const *>(column) +
                    element * d.arity * UsdGenScalarBytes(d.scalar);
     }
@@ -985,7 +985,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
     // deeper non-deform writer, a partial sweep, unaliased planes, a
     // mid-run repartition — falls back to the point pass, so the union
     // only runs when every check against the current buffers passes. A
-    // deform that does not record pays one predictable branch per CV, so
+    // deform that does not record pays one predictable branch per item, so
     // unselected graphs keep their old timing.
     int extentWriter = -1;
     size_t extentChunks = 0;
@@ -1198,8 +1198,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
         }
 
         // 02 §6.3: a disabled operator contributes nothing of its own. A
-        // disabled GENERATOR publishes an empty curve set, so the description
-        // publishes no curves; every other disabled operator passes its
+        // disabled GENERATOR publishes an empty set, so the description
+        // publishes nothing; every other disabled operator passes its
         // upstream through as a CoW alias in prepareEvaluation below.
         if (!node.enabled) {
             job->reCaptured = false;
@@ -1272,15 +1272,15 @@ UsdGenRunResult UsdGenScheduler::_Run(
             node.captureEpoch = captureIdentity;
             node.captureNeeded = false;
 
-            // Generators and CV-repartitioning stylers (Resample) publish a new
-            // CV layout from Capture; the chunk plan must follow it. CurveCount
-            // stylers (Length) do not own a buffer and keep the upstream plan.
+            // Generators and item-repartitioning ops publish a new item layout
+            // from Capture; the chunk plan must follow it. Element-count ops
+            // that do not own a buffer keep the upstream plan.
             // Repartition unconditionally: its own keep-check is the single
-            // comparator (a pre-check on chunk COUNT misses 20->10 curves at
+            // comparator (a pre-check on chunk COUNT misses 20->10 elements at
             // 1 chunk, leaving stale spans that sweep out of bounds), and it
             // early-outs with no writes and no topology change when the layout
-            // already matches. No totalCurves > 0 gate either: a generator
-            // re-capturing to ZERO curves must still repartition, or its stale
+            // already matches. No element-count > 0 gate either: a generator
+            // re-capturing to ZERO elements must still repartition, or its stale
             // chunk plan sweeps dead chunks against empty buffers.
             if (node.record->Has(kUsdGenOpGenerator) ||
                 node.countChanges == UsdGenCountsAtLevel(2)) {
@@ -1291,9 +1291,9 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     result.topologyChanged = true;
             } else if (job->reCaptured && node.chunks.empty() && hasUp) {
                 UsdGenCompiledNode const &upN = graph.Node(node.input);
-                uint32_t const upCurves = graph.NodeOutput(node.input).Count(1);
-                if (!upN.chunks.empty() && upCurves > 0 &&
-                    graph.Repartition(upCurves, upN.chunks[0].stride[1]))
+                uint32_t const upElements = graph.NodeOutput(node.input).Count(1);
+                if (!upN.chunks.empty() && upElements > 0 &&
+                    graph.Repartition(upElements, upN.chunks[0].stride[1]))
                     result.topologyChanged = true;
             }
         }

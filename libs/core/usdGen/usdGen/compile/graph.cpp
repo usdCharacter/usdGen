@@ -453,16 +453,16 @@ void UsdGenGraph::DirtyGeometry(UsdGenNodeKey prim)
 }
 
 // Effective set for a node: a pure passthrough node (no topo fx) presents
-// its input's set — topology, cv totals and offsets — so stale downstream
+// its input's set — topology, item totals and offsets — so stale downstream
 // totals never override a changed upstream layout; a topo fx regenerates
-// curves and owns the layout again. Traced through passthrough inputs only;
+// elements and owns the layout again. Traced through passthrough inputs only;
 // depth guards against accidental cycles in the input chain.
 static UsdGenElementSet const &_EffSet(UsdGenGraph const &g,
                                        UsdGenNodeId id, int depth)
 {
     UsdGenCompiledNode const &n = g.Node(id);
-    // Length's static CurveCount classification covers its whole family,
-    // but the current non-owning capture only repositions existing CVs.
+    // An op that follows its input until owning (kUsdGenOpFollowsInputUntilOwning)
+    // declares counts it may change, but its non-owning capture only moves items.
     // Follow its input before capture too: its initially empty output must
     // not turn a ragged source into the partition's uniform fallback.
     // An actual owning capture remains an authoritative topology boundary.
@@ -521,7 +521,7 @@ bool UsdGenGraph::Repartition(uint32_t elements, uint32_t fallbackStride)
     for (size_t ni = 0; ni < _nodes.size(); ++ni) {
         if (!_nodes[ni]) continue;
         UsdGenCompiledNode &n = *_nodes[ni];
-        // Per-node sub-item layout: prefer the node's actual curve data (its
+        // Per-node sub-item layout: prefer the node's actual element data (its
         // effective set, possibly a pure passthrough input's) over the
         // fallback stride. Ragged sets carry their offsets verbatim (stride
         // 0, first item from the offsets).
@@ -535,8 +535,8 @@ bool UsdGenGraph::Repartition(uint32_t elements, uint32_t fallbackStride)
                          UsdGenSpan<UsdGenChunkRange>(_rangeScratch.data(), nChunks));
         // Keep existing chunks only if the count matches and EVERY chunk
         // still has the desired element span AND sub-item span (a 10->20
-        // root recook keeps 1 chunk and the same cv/curve, so comparing cv
-        // fields alone keeps a stale curve span that under-emits tiles when
+        // root recook keeps 1 chunk and the same items per element, so comparing
+        // item fields alone keeps a stale element span that under-emits groups when
         // growing -- or over-reads buffers when shrinking).
         bool keep = !n.chunks.empty() && n.chunks.size() == nChunks;
         for (uint32_t c = 0; keep && c < nChunks; ++c) {

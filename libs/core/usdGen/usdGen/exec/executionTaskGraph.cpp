@@ -35,7 +35,7 @@ struct RegistryKey {
 
 // Dispatcher state has one writer at a time: a lane. Producers push messages
 // on a Treiber stack; whoever wins `laneBusy` handles every queued message,
-// releases the lane and rechecks, so no message is stranded and nobody waits.
+// releases the lane and rechecks, so no message is left behind and nobody waits.
 // Ready tasks and completion callbacks run on this graph's own scheduler
 // (maxActiveTasks workers). Drain parks on the pending job count.
 struct UsdGenExecutionTaskGraph::Impl : std::enable_shared_from_this<Impl> {

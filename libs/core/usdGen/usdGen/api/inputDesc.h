@@ -34,7 +34,7 @@ enum UsdGenInputSlotFlag : uint8_t {
 
 /// One attribute a host reads into one channel of the input record.
 struct UsdGenInputSlot {
-    UsdGenToken attribute;     // "points", "curveVertexCounts", "usdGen:curveId"
+    UsdGenToken attribute;     // the authored attribute name, e.g. "points"
     UsdGenSlot channel = kUsdGenNoSlot;  // kUsdGenNoSlot for kUsdGenInputCounts
     uint8_t level = 0;         // kUsdGenInputCounts: the level these counts define
     uint8_t flags = 0;
@@ -68,12 +68,11 @@ protected:
 /// arity), so a malformed input reaches the compiler's checks unchanged.
 struct UsdGenInputDesc {
     UsdGenTypeId kind = UsdGenTypeId::Invalid;   // registered type with the record layout
-    UsdGenToken schemaType;                       // "BasisCurves", "Mesh"
+    UsdGenToken schemaType;                       // the prim schema type, e.g. "Mesh"
     UsdGenSpan<const UsdGenInputSlot> slots;
     UsdGenSpan<const UsdGenToken> attributes;     // values, in record.values order
     UsdGenToken dynamicPrimvarPrefix;             // authored planes; empty = none
-    /// Optional engine-side derivation run at compile (curves: the reference
-    /// set). True with a null 'out' when the record has none; false sets 'error'.
+    /// Optional engine-side derivation run at compile (a reference set). True with a null 'out' when the record has none; false sets 'error'.
     bool (*materialize)(UsdGenInputRecord const &, UsdGenRef<const UsdGenElementSet> *out,
                         std::string *error) = nullptr;
     /// Optional intake fix-up run when a spec enters the compiler (maps:
@@ -81,6 +80,8 @@ struct UsdGenInputDesc {
     void (*intake)(UsdGenInputRecord &) = nullptr;
 
     UsdGenInputRole role = UsdGenInputRole::None;
+    /// Diagnostics noun for a record ("surface"); null: "input".
+    char const *displayName = nullptr;
     /// Compile-time checks of one record; false appends to 'errors'.
     bool (*validate)(UsdGenGraphSpec const &, UsdGenInputRecord const &,
                      std::vector<std::string> *errors) = nullptr;

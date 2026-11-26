@@ -282,6 +282,7 @@ UsdGenTypeId UsdGenRegisterCurveSetInputKind(UsdGenRegistrar &r)
     fresh->input.slots = UsdGenSpan<const UsdGenInputSlot>(fresh->slots, kUsdGenCurveInputSlots);
     fresh->input.attributes = UsdGenSpan<const UsdGenToken>(fresh->attributes, kUsdGenCurveValues);
     fresh->input.materialize = &MaterializeReference;
+    fresh->input.displayName = "curve set";
     fresh->input.validate = &ValidateRecord;
     fresh->input.digest = &DigestRecord;
     fresh->input.lane = &RecordLane;

@@ -50,7 +50,7 @@ inline bool operator!=(UsdGenEpoch const &a, UsdGenEpoch const &b)
 
 
 /// Bit L of UsdGenOpDef::countChanges: the op may change the element count at
-/// level L (R14). Curve sets: level 1 = curves, level 2 = CVs.
+/// level L (R14): level 1 elements, level 2 their items.
 constexpr uint8_t UsdGenCountsAtLevel(unsigned level) noexcept
 {
     return static_cast<uint8_t>(1u << level);
@@ -72,7 +72,7 @@ enum class UsdGenLane : uint8_t { Chunked, Reference };
 constexpr uint32_t UsdGenDirtyNone          = 0u;
 constexpr uint32_t UsdGenDirtyParameter     = 1u << 0;  // re-evaluate node chunks + descendants
 constexpr uint32_t UsdGenDirtyCapture       = 1u << 1;  // bump capture epoch, re-capture node + descendants
-constexpr uint32_t UsdGenDirtyTopology      = 1u << 2;  // curve/CV/published-prim-count change; re-allocate, no digest
+constexpr uint32_t UsdGenDirtyTopology      = 1u << 2;  // element/item/published-prim-count change; re-allocate, no digest
 constexpr uint32_t UsdGenDirtySurfacePoints = 1u << 3;  // deformed points of a bound surface
 constexpr uint32_t UsdGenDirtySurfaceXform  = 1u << 4;
 constexpr uint32_t UsdGenDirtySurfaceTopo   = 1u << 5;  // surface resync
@@ -118,18 +118,18 @@ inline int ClampChunkSize(int chunkSize)
 // Tile arithmetic (ADR §9 R21 verbatim; 03-execution-engine.md §1.4)
 //
 //   chunkSize     = USDGEN_CHUNK_SIZE                      # default 512, clamped [128,1024]
-//   nChunks       = ceil(maxCurves / chunkSize)
+//   nChunks       = ceil(maxElements / chunkSize)
 //   chunksPerTile = max(1, ceil(nChunks / tileTarget))      # tileTarget default 64
 //   nTiles        = min(nChunks, clamp(ceil(nChunks / chunksPerTile), 32, 256))
 //
-// Worked example (frozen in C2): 100 000 curves, chunkSize 512, tileTarget 64
-//   => nChunks = 196, chunksPerTile = 4, nTiles = 49, ~2 048 curves/tile.
+// Worked example (frozen in C2): 100 000 elements, chunkSize 512, tileTarget 64
+//   => nChunks = 196, chunksPerTile = 4, nTiles = 49, ~2 048 elements/tile.
 // ---------------------------------------------------------------------------
-inline int ComputeNumChunks(int maxCurves, int chunkSize = kUsdGenDefaultChunkSize)
+inline int ComputeNumChunks(int maxElements, int chunkSize = kUsdGenDefaultChunkSize)
 {
     const int cs = ClampChunkSize(chunkSize);
-    if (maxCurves <= 0) return 0;
-    return (maxCurves + cs - 1) / cs;
+    if (maxElements <= 0) return 0;
+    return (maxElements + cs - 1) / cs;
 }
 
 inline int ComputeChunksPerTile(int nChunks, int tileTarget = kUsdGenTileTargetDefault)

@@ -22,9 +22,9 @@ UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;   // registrar-only
 
 enum UsdGenTypeTrait : uint32_t {
     kUsdGenTypeMap               = 1u << 0,
-    kUsdGenTypeMapPaintSnapshot  = 1u << 1,   // graph.cpp:199, sessionCooker.cpp:467, cpuParameters.cpp:422, strandUtil.cpp:407
+    kUsdGenTypeMapPaintSnapshot  = 1u << 1,   // a surface primvar snapshot (paint)
     kUsdGenTypeMapPtex           = 1u << 2,   // surfaceCageSource.cpp:154, valuePreview.cpp:368, regionMap.h:31
-    kUsdGenTypeMapImage          = 1u << 3,   // strandUtil.cpp:415
+    kUsdGenTypeMapImage          = 1u << 3,   // decoded image pixels
     kUsdGenTypeMapExprSampleable = 1u << 4,   // cpuParameters.cpp:418 (ptex() accepts it)
     /// A primitive whose elements convert one-to-one to the default primitive
     /// (one item each): the compiler admits it into ops that take the default.
@@ -50,11 +50,11 @@ struct UsdGenTypeDef {
     char const *name = nullptr;          // e.g. UsdGenPtexMap
     uint32_t traits = 0;
     bool (*parseOptions)(UsdGenMapInputView const &, UsdGenMapOptions *, std::string *error) = nullptr;
-    /// Primitive types (UsdGenCurveSet, UsdGenRootSet): the element layout;
+    /// Primitive types: the element layout;
     /// null for map and value types. Must outlive the registry.
     UsdGenElementLayout const *layout = nullptr;
-    uint32_t limits[kUsdGenMaxLevels] = {};   // max items per parent; curves: {0, 4096, 0}
-    /// Input kinds (UsdGenCurveSetInput, ...): how a host fills a record of
+    uint32_t limits[kUsdGenMaxLevels] = {};   // max items per parent per level; 0: none
+    /// Input kinds: how a host fills a record of
     /// this type ('layout' is the record's). Must outlive the registry.
     UsdGenInputDesc const *input = nullptr;
 };

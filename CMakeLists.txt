@@ -435,9 +435,9 @@ set(USDGEN_ENGINE_INCLUDE_DIRS
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan>
     $<BUILD_INTERFACE:${USDGEN_SHIM_DIR}>)
 # Primitive roots: each primitive target publishes its own. usdGen keeps
-# them public until 6.5: engine headers (opDef.h, graphSpec.h) still include
-# usdGenExpr/expressions/context.h, and the backends compiled into usdGen
-# read primitive headers until step 8.
+# them public until step 8: the backends compiled into usdGen read primitive
+# headers (the engine itself includes none since 6.5; gate
+# testUsdGenNoPrimitiveInEngine).
 set(USDGEN_PRIMITIVE_INCLUDE_DIRS
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenSurface>
@@ -543,18 +543,17 @@ function(_usdgen_add_primitive _name _root)
     endif()
 endfunction()
 
-# Primitive sources that stay compiled into usdGen: engine files (compiler,
-# graph, scheduler, executionCache, sessionCooker) and the CUDA/Vulkan
-# backends still call them directly. 6.5 (engine) and step 8 (backends) move
-# those calls behind registered hooks; then this list empties. Everything
-# else in a primitive folder builds into that primitive's DLL.
+# Primitive sources that stay compiled into usdGen: the CUDA/Vulkan backends
+# still call them directly (the engine reaches them only through registered
+# hooks since 6.5). Step 8 moves the backends out; then this list empties.
+# Everything else in a primitive folder builds into that primitive's DLL.
 set(USDGEN_ENGINE_RESIDENT_PRIMITIVE_SOURCES
-    # input kinds and their views (compiler, graph, cache, cooker, backends)
+    # input kinds, their views and engine hooks (backends read the views)
     libs/core/primitives/usdGenSurface/usdGenSurface/surfaceInput.cpp
     libs/core/primitives/usdGenSurface/usdGenSurface/maps/mapInput.cpp
     libs/core/primitives/usdGenCurves/usdGenCurves/types/curveSetInput.cpp
     libs/core/primitives/usdGenExpr/usdGenExpr/exprInput.cpp
-    # CurveSet layout/view (graph, scheduler), limit-surface digest (cooker)
+    # CurveSet layout/view and limit surface (backends)
     libs/core/primitives/usdGenCurves/usdGenCurves/types/curveSet.cpp
     libs/core/primitives/usdGenSurface/usdGenSurface/limitSurface.cpp
     # CUDA/Vulkan backends (step 8)

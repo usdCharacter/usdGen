@@ -21,7 +21,7 @@ struct UsdGenChunkRange {
     uint32_t count[kUsdGenMaxLevels]  = {};      // allocated items at each level
     uint32_t stride[kUsdGenMaxLevels] = {};      // items per parent when uniform, 0 when ragged; [0] unused
     uint32_t live = 0;                           // elements surviving decimation (<= count[0])
-    uint16_t group = 0;                          // publication group (a C2 tile for curves)
+    uint16_t group = 0;                          // publication group (a C2 tile)
     uint16_t domain = 0;                         // surface id for surface-rooted primitives
     friend bool operator==(UsdGenChunkRange const &a, UsdGenChunkRange const &b) noexcept
     {

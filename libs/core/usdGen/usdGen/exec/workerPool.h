@@ -50,7 +50,7 @@ public:
     /// exception, if any, after every chunk completed.
     /// claimChunk is the indices per atomic claim (0 selects the default
     /// heuristic, currently ~4): smaller chunks de-quantize big-body
-    /// regions (a 40-index quantum strands up to a full chunk per worker
+    /// regions (a 40-index quantum idles up to a full chunk per worker
     /// past the last full round), while the default preserves locality
     /// for small locality-sensitive bodies.
     void ParallelFor(size_t count, void (*body)(size_t, void *), void *payload,

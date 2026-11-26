@@ -249,7 +249,7 @@ void UsdGenWorkerPool::ParallelFor(size_t count, void (*body)(size_t, void *),
     // Claim chunks of ~4 indices: a stacked worker's straggler bound is
     // one chunk, and the fetch_add traffic is one op per chunk. An
     // explicit claimChunk overrides the heuristic for callers whose
-    // bodies are big enough that the quantum strands measurable wall.
+    // bodies are big enough that the quantum leaves measurable wall idle.
     _state->body = body;
     _state->payload = payload;
     _state->count = count;
