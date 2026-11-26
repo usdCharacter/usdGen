@@ -1,5 +1,7 @@
 #include "usdGen/cudaScatterInput.h"
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/ops/scatter.h"
+#include "usdGenSurface/types/rootSet.h"
 
 #include "usdGen/cudaStages.h"
 #include "usdGen/op.h"
@@ -382,9 +384,10 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (!op->Capture(context, UsdGenOpInputs{}, capture.get(), &diagnostics))   // a source: no input
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     diagnostics.errors.empty() ? "Scatter Capture failed" : diagnostics.errors.front(), reason);
-    UsdGenCurveBuffer const& roots = static_cast<UsdGenCurveCapture const &>(*capture).Buffer();
+    // The roots through the RootSet view; the buffer is only the adoption source below.
+    UsdGenRootSetView const roots = UsdGenScatterRoots(*capture);
     size_t const n = roots.totalCurves;
-    if (roots.totalCvs != n || roots.px.size() != n || roots.py.size() != n ||
+    if (!roots.valid || roots.px.size() != n || roots.py.size() != n ||
         roots.pz.size() != n || roots.curveId.size() != n || roots.rootPrim.size() != n ||
         roots.rootUV.size() != n || roots.rootT.size() != n || roots.rootB.size() != n ||
         roots.rootN.size() != n)
@@ -422,9 +425,9 @@ CudaScatterInputStatus PrepareCudaScatterInput(
         prep->rootN.adopt(std::move(mut.rootN));
     }
     if (n) {
-        float const* px = roots.px.cdata();
-        float const* py = roots.py.cdata();
-        float const* pz = roots.pz.cdata();
+        float const* px = roots.px.data();
+        float const* py = roots.py.data();
+        float const* pz = roots.pz.data();
         int const transposeWorkers = UsdGenParallelForConcurrency();
         size_t const transposeChunks =
             (transposeWorkers > 1 && n > 32768)
