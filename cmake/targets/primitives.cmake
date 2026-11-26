@@ -42,11 +42,12 @@ set(_usdgen_curves_hosted
     libs/core/primitives/usdGenExpr/usdGenExpr/ops/exprOp.cpp)
 list(TRANSFORM _usdgen_curves_hosted PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 _usdgen_add_primitive(usdGenSurface usdGenSurface ${_usdgen_curves_hosted})
+usdgen_opensubdiv_target(_usdgen_osd_cpu)
 target_link_libraries(usdGenSurface
     PUBLIC usdGen
     # attributeBake.cpp writes Ptex files: its own PtexWriter copy, no state
     # shared with usdGen's reader cache.
-    PRIVATE usdGenMath arch work trace pxOsd usdGen_ptex ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath arch work trace ${_usdgen_osd_cpu} usdGen_ptex ${CMAKE_DL_LIBS})
 target_include_directories(usdGenSurface PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves)
 _usdgen_add_primitive(usdGenExpr usdGenExpr ${_usdgen_curves_hosted})
 target_link_libraries(usdGenExpr

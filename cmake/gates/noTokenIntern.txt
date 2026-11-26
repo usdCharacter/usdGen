@@ -2,5 +2,4 @@
 # Counts may only go down. The target is an empty file.
 libs/core/primitives/usdGenCurves/usdGenCurves/curveLoader.cpp 44
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 15
-libs/core/primitives/usdGenSurface/usdGenSurface/limitSurface.cpp 6
 libs/core/usdGen/usdGen/registries/token.cpp 1

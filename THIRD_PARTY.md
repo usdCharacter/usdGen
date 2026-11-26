@@ -28,7 +28,7 @@ relicense. Link against an OpenUSD build you supply (`USD` or
 
 ## RTXCR hair evaluator
 
-`usdGenShaders/resources/shaders/usdGenHairStrandsRtxcr.glslfx` contains a
+`libs/hosts/usdGenHydra/primitives/curves/shaders/resources/shaders/usdGenHairStrandsRtxcr.glslfx` contains a
 GLSL adaptation of `HairFarFieldBCSDF.hlsli` and selected functions from
 `HairMaterial.hlsli`, `utils/RtxcrMath.hlsli`, and
 `utils/RtxcrHairBsdfHelper.hlsli`, and `utils/RtxcrBsdf.hlsli` in

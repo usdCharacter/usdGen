@@ -108,8 +108,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 2
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkAdmission.h 1

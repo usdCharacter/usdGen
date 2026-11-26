@@ -8,6 +8,7 @@
 #include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/publish/furOcclusion.h"
 #include "usdGenCurves/publish/valuePreview.h"
+#include "usdGen/api/publishDesc.h"
 #include "usdGenCurves/rbfAnimation.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -19,6 +20,7 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/registries/typeRegistry.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 
@@ -32,7 +34,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -87,10 +88,25 @@ TfToken const kHairColorRamp = UsdGenInternToken("hairColorRamp");
 TfToken const kHairRandomHue = UsdGenInternToken("hairRandomHue");
 TfToken const kHairRandomValue = UsdGenInternToken("hairRandomValue");
 
+/// The preview colours of one cook, indexed like the terminal buffer.
+struct UsdGenPreviewColors
+{
+    bool active = false;
+    bool perCv = false;            // one colour per CV, else one per curve
+    std::vector<GfVec3f> colors;   // linear
+    uint64_t digest = 0;           // 0 exactly when inactive
+};
+
+// The CurveSet's publish hooks (curvePublishDesc.cpp); null before registration.
+UsdGenPublishDesc const *CurvePublishDesc()
+{
+    return UsdGenTypeRegistry::Get().Def(UsdGenCurveSetType()).publish;
+}
+
 // What the publisher keeps across one cooker's cooks.
 struct _State final : UsdGenPublisherState
 {
-    UsdGenValuePreview preview;
+    std::unique_ptr<UsdGenPublishHookState> hooks;   // the publish hooks' state
     UsdGenPreviewColors colors;     // the last build's usdGen:preview colours
     // Identity of the fur density volume's non-tile inputs (occluder meshes,
     // grid parameters): the tile COW check alone cannot see them change.
@@ -107,6 +123,41 @@ struct TileInputs
     UsdGenSpan<const UsdGenChunkRange> chunks;
     UsdGenPreviewColors const &colors;
 };
+
+// Colours of the previewed values, indexed like the terminal buffer.
+void PreviewColors(UsdGenGraphSpec const &spec, UsdGenCurveSetView const &term,
+                   UsdGenPreviewValues const &values, UsdGenPreviewColors *out)
+{
+    out->active = values.active;
+    out->perCv = false;
+    out->colors.clear();
+    out->digest = 0;
+    if (!values.active) return;
+    UsdGenPreviewSpec const &preview = spec.preview;
+    out->perCv = values.level == 2;
+    size_t const elements = out->perCv ? term.totalCvs : term.totalCurves;
+    out->colors.assign(elements, UsdGenPreviewMissingColor());
+    unsigned const k = values.components;
+    if (k) {
+        for (size_t i = 0; i < elements && (i + 1) * k <= values.values.size(); ++i) {
+            if (!values.present.empty() && (i >= values.present.size() || !values.present[i]))
+                continue;
+            out->colors[i] =
+                UsdGenPreviewColor(preview.colorMap, preview.range, values.values.data() + i * k, k);
+        }
+    }
+    auto mix = [](uint64_t h, uint64_t value) {
+        return h ^ (value + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
+    };
+    uint64_t digest = mix(1469598103934665603ULL, out->perCv ? 2u : 1u);
+    digest = mix(digest, preview.shading.Hash());
+    for (GfVec3f const &c : out->colors) {
+        uint32_t bits[3];
+        std::memcpy(bits, c.data(), sizeof(bits));
+        digest = mix(mix(mix(digest, bits[0]), bits[1]), bits[2]);
+    }
+    out->digest = digest | 1u;
+}
 
 void Phase(UsdGenPublishContext const &ctx, char const *name,
            size_t rebuilt = SIZE_MAX, size_t total = 0)
@@ -806,11 +857,13 @@ UsdGenRef<const UsdGenPublication> BuildPublication(UsdGenPublishContext const &
 
     // usdGen:preview recolours every tile, including those whose geometry
     // this cook did not touch.
+    UsdGenPublishDesc const *const publish = CurvePublishDesc();
     {
-        std::vector<std::string> previewWarnings;
-        state.colors = state.preview.Build(spec, *ctx.graph, term, ctx.frame, &previewWarnings);
-        if (ctx.diag)
-            for (std::string const &warning : previewWarnings) ctx.diag->Warn(warning);
+        UsdGenPreviewValues values;
+        if (!publish || !publish->previewValues ||
+            !publish->previewValues(ctx, state.hooks.get(), &values, ctx.diag))
+            values = UsdGenPreviewValues{};
+        PreviewColors(spec, term, values, &state.colors);
     }
     gen.colorDigest = state.colors.digest;
     // ...and so does usdGen:look, which is baked into every tile's
@@ -986,15 +1039,14 @@ UsdGenRef<const UsdGenPublication> BuildPublication(UsdGenPublishContext const &
         // tiles were transformed into.
         // A GeomSubset surface carries its whole parent mesh, which occludes
         // whole and once, however many subsets of it the groom binds.
-        UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(spec);
-        occlusion.occluders.reserve(surfaceRecords.size());
-        std::set<UsdGenNodeKey> occludingMeshes;
-        for (UsdGenInputRecord const &surfaceRecord : surfaceRecords) {
-            UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(surfaceRecord);
-            if (surface.points.empty() || surface.faceVertexIndices.empty())
-                continue;
-            if (!occludingMeshes.insert(UsdGenSurfaceMeshKey(surface)).second)
-                continue;
+        occlusion.occluders.reserve(UsdGenSurfaceInputs(spec).size());
+        UsdGenTypeId const surfaceKind = UsdGenSurfaceInputKind();
+        for (uint32_t i = 0; publish && publish->occluder; ++i) {
+            UsdGenNodeKey const key = publish->occluder(ctx, i);
+            if (!key.IsValid()) break;
+            UsdGenInputRecord const *const surfaceRecord = spec.FindInput(surfaceKind, key);
+            if (!surfaceRecord) continue;
+            UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(*surfaceRecord);
             UsdGenFurOccluder occluder;
             occluder.points.assign(surface.points.begin(), surface.points.end());
             occluder.faceVertexCounts.assign(surface.faceVertexCounts.begin(),
@@ -1257,7 +1309,10 @@ size_t Bytes(UsdGenPublication const &publication)
 
 std::unique_ptr<UsdGenPublisherState> CreateState()
 {
-    return std::make_unique<_State>();
+    auto state = std::make_unique<_State>();
+    UsdGenPublishDesc const *const publish = CurvePublishDesc();
+    if (publish && publish->createState) state->hooks.reset(publish->createState());
+    return state;
 }
 
 }  // namespace

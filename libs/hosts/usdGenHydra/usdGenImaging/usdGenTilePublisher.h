@@ -120,7 +120,7 @@ public:
     /// The `material` prim data source for MaterialPath(): one node named
     /// `surface` whose nodeIdentifier is DefaultMaterialIdentifier()
     /// (bind by identifier, never an asset path — see
-    /// usdGenShaders/resources/hairLook.usda), wired to the `glslfx`
+    /// libs/hosts/usdGenHydra/primitives/curves/shaders/resources/hairLook.usda), wired to the `glslfx`
     /// render context's `surface` terminal, plus a universal-context
     /// fallback network (UsdPreviewSurface reading displayColor through
     /// a primvar reader) for hdMoonray and every other non-Storm

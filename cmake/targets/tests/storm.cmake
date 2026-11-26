@@ -12,7 +12,7 @@
 #                               pxr, no GL -- numpy only.
 #   testUsdGenHairStrandsDefs   Sdr parse + registry discovery of the two new
 #                               defs, and that the three C5 defs survive. The
-#                               counterpart of usdGenShaders/test/checkC5.py,
+#                               counterpart of libs/hosts/usdGenHydra/primitives/curves/shaders/test/checkC5.py,
 #                               kept separate so C5 keeps asserting exactly
 #                               three files with exactly 21 inputs.
 #   testUsdGenHairStrandsRender a real Storm draw: differential checks that
@@ -35,7 +35,7 @@ if(_usdgen_test_python)
 
     add_test(NAME testUsdGenHairEnergy
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_energy.py")
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_energy.py")
     set_tests_properties(testUsdGenHairEnergy PROPERTIES
         LABELS "T1;shaders;gate:L-2" TIMEOUT 300
         FAIL_REGULAR_EXPRESSION "FAIL|Traceback"
@@ -71,7 +71,7 @@ if(_usdgen_test_python)
     # the build selects -- the table ships in both.
     add_test(NAME testUsdGenHairMarschnerTable
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/tabulate_hair_marschner.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/tabulate_hair_marschner.py"
             --check)
     set_tests_properties(testUsdGenHairMarschnerTable PROPERTIES
         LABELS "T1;shaders" TIMEOUT 600
@@ -80,7 +80,7 @@ if(_usdgen_test_python)
 
     add_test(NAME testUsdGenHairStrandsDefs
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_strands_defs.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_strands_defs.py"
             --model "${_usdgen_hair_model}"
             --built "${_usdgen_shader_resources}/shaders")
     set_tests_properties(testUsdGenHairStrandsDefs PROPERTIES
@@ -91,7 +91,7 @@ if(_usdgen_test_python)
 
     add_test(NAME testUsdGenScalpShadowDef
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_scalp_shadow.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_scalp_shadow.py"
             --no-render)
     set_tests_properties(testUsdGenScalpShadowDef PROPERTIES
         LABELS "T1;shaders;shadows" TIMEOUT 180
@@ -102,7 +102,7 @@ if(_usdgen_test_python)
     # GPU-bound, so T2 and RUN_SERIAL like the other Storm tests.
     add_test(NAME testUsdGenScalpShadowRender
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_scalp_shadow.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_scalp_shadow.py"
             --usdrecord "${USD_INSTALL_DIR}/bin/usdrecord")
     set_tests_properties(testUsdGenScalpShadowRender PROPERTIES
         LABELS "T2;shaders;shadows" TIMEOUT 600 RUN_SERIAL TRUE
@@ -113,7 +113,7 @@ if(_usdgen_test_python)
     # GPU-bound, so T2 and RUN_SERIAL like the other Storm tests.
     add_test(NAME testUsdGenHairRtxcrNumerics
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_rtxcr.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_rtxcr.py"
             --usdrecord "${USD_INSTALL_DIR}/bin/usdrecord")
     set_tests_properties(testUsdGenHairRtxcrNumerics PROPERTIES
         LABELS "T2;shaders" TIMEOUT 180 RUN_SERIAL TRUE
@@ -124,7 +124,7 @@ if(_usdgen_test_python)
     if(_usdgen_hair_model STREQUAL "rtxcr")
         add_test(NAME testUsdGenHairRtxcrViewport
             COMMAND "${_usdgen_test_python}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_rtxcr_viewport.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_rtxcr_viewport.py"
                 --testusdview "${USD_INSTALL_DIR}/bin/testusdview")
         set_tests_properties(testUsdGenHairRtxcrViewport PROPERTIES
             LABELS "T2;shaders;usdview" TIMEOUT 300 RUN_SERIAL TRUE
@@ -135,7 +135,7 @@ if(_usdgen_test_python)
 
     add_test(NAME testUsdGenHairStrandsRender
         COMMAND "${_usdgen_test_python}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test/check_hair_strands_render.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_strands_render.py"
             --usdrecord "${USD_INSTALL_DIR}/bin/usdrecord"
             --model "${_usdgen_hair_model}")
     set_tests_properties(testUsdGenHairStrandsRender PROPERTIES
@@ -150,7 +150,7 @@ endif()
 if(NOT WIN32)
     add_executable(testUsdGenStormLook tests/testUsdGenStormLook.cpp)
     target_link_libraries(testUsdGenStormLook PRIVATE usdGenTestUtilsHd)
-    target_include_directories(testUsdGenStormLook PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test)
+    target_include_directories(testUsdGenStormLook PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test)
 endif()
 usdgen_add_unix_only_test(testUsdGenStormLook testUsdGenStormLook ${PROJECT_SOURCE_DIR})
 set_tests_properties(testUsdGenStormLook PROPERTIES
@@ -160,7 +160,7 @@ if(NOT WIN32)
     add_executable(benchUsdGenStorm tests/perf/benchUsdGenStorm.cpp)
     target_link_libraries(benchUsdGenStorm PRIVATE usdGenTestUtilsHd)
     target_include_directories(benchUsdGenStorm PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test)
+        ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test)
 endif()
 usdgen_add_unix_only_test(benchUsdGenStorm benchUsdGenStorm
     --scene ${CMAKE_CURRENT_SOURCE_DIR}/usd/fixtures/g3_head100k.usda
@@ -211,7 +211,7 @@ foreach(_t testUsdGenStormTangent testUsdGenStormHgiResource
     if(NOT WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/${_t}.cpp")
         add_executable(${_t} tests/${_t}.cpp)
         target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
-        target_include_directories(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/test)
+        target_include_directories(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test)
         set(_usdgen_storm_cmd ${_t} ${PROJECT_SOURCE_DIR})
         set(_usdgen_storm_props SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     elseif(WIN32)

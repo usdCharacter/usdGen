@@ -4,7 +4,7 @@
 // L-2 halves: (a) the three shipped glslfx defs must be registered in Sdr with
 // their full input set (the same check checkC5.py runs, re-asserted here so the
 // gate is self-contained), (b) sceneA must render through Storm headless (EGL
-// device platform via usdGenShaders/test/eglctx.h, PW-2 harness) with zero GL
+// device platform via libs/hosts/usdGenHydra/primitives/curves/shaders/test/eglctx.h, PW-2 harness) with zero GL
 // errors, (c) a 256x256 render must match tests/golden/stormLook_A.png within
 // plan/10 §5.4 tolerance (mean abs diff <= 2/255, < 0.5% pixels > 8/255).
 // Goldens are NEVER auto-written by this test (plan/10 §5.4): regeneration is
@@ -273,7 +273,7 @@ int main(int argc, char **argv)
     // --- scene generation (make_scene.py owns the geometry + materials) ---
     ::setenv("USDGEN_SHADER_SCENES", scratch.c_str(), 1);
     const std::string gen = "python3 '" + srcDir +
-                            "/usdGenShaders/test/make_scene.py' >/dev/null 2>&1";
+                            "/libs/hosts/usdGenHydra/primitives/curves/shaders/test/make_scene.py' >/dev/null 2>&1";
     check(std::system(gen.c_str()) == 0, "make_scene.py generated scenes");
     const std::string sceneA = scratch + "/sceneA_asset.usda";
     const std::string sceneAId = scratch + "/sceneA_id.usda";
@@ -293,7 +293,7 @@ int main(int argc, char **argv)
                   .c_str());
     }
     // ... and of the two the host renderer-parity strand defs (plan/16 WS1), which carry
-    // their own 19-input contract. usdGenShaders/test/check_hair_strands_defs.py
+    // their own 19-input contract. libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_strands_defs.py
     // checks their names, defaults and primvars in full; this only proves that
     // adding them did not break discovery in the same process as the C5 three.
     for (const char *id : {"UsdGenHairStrands", "UsdGenHairStrandsTranslucent"}) {

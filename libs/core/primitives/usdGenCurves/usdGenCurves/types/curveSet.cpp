@@ -182,7 +182,7 @@ void Take(VtArray<T> *dst, UsdGenSpan<const T> src)
 
 }  // namespace
 
-UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &r)
+UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &r, UsdGenPublishDesc const *publish)
 {
     if (CurveSetState const *s = gCurveSet.load(std::memory_order_acquire)) return s->type;
     CurveSetState *fresh = new CurveSetState;   // startup; never freed (the registry points at it)
@@ -215,6 +215,7 @@ UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &r)
     def.traits = kUsdGenTypeDefaultPrimitive;
     def.layout = &fresh->layout;
     def.limits[1] = kUsdGenMaxCvsPerCurve;
+    def.publish = publish;
     UsdGenTypeId const id = r.RegisterType(def);
     if (id == UsdGenTypeId::Invalid) {
         delete fresh;

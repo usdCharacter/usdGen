@@ -111,6 +111,20 @@ if(NOT TARGET usd)
     find_package(pxr REQUIRED CONFIG PATHS "${USD_INSTALL_DIR}" NO_DEFAULT_PATH)
 endif()
 
+# The OpenSubdiv CPU library the pxr prefix provides: OpenSubdiv::osdCPU
+# (Linux, shared) or OpenSubdiv::osdCPU_static (Windows). Libraries that call
+# Far/Bfr link it directly instead of through pxOsd.
+function(usdgen_opensubdiv_target _out)
+    if(TARGET OpenSubdiv::osdCPU)
+        set(${_out} OpenSubdiv::osdCPU PARENT_SCOPE)
+    elseif(TARGET OpenSubdiv::osdCPU_static)
+        set(${_out} OpenSubdiv::osdCPU_static PARENT_SCOPE)
+    else()
+        message(FATAL_ERROR "usdGen: no OpenSubdiv::osdCPU or OpenSubdiv::osdCPU_static "
+            "target; OpenUSD must be built with OpenSubdiv (USD_INSTALL_DIR=${USD_INSTALL_DIR})")
+    endif()
+endfunction()
+
 # Threads are used by the expression frontend. No system zlib is required:
 # requiring one made a standard Windows build_usd.py OpenUSD prefix unusable
 # because that prefix intentionally omits zlib when no USD feature needs it.

@@ -11,7 +11,7 @@
 // keeps its OFF default and tiles bind through the glslfx terminal.
 //
 // This test rebuilds the three PW-4 scenes (same seed-7 groom family, same
-// Key+Rim lights and camera as usdGenShaders/test/make_scene.py, glslfx
+// Key+Rim lights and camera as libs/hosts/usdGenHydra/primitives/curves/shaders/test/make_scene.py, glslfx
 // leg via the shipped usdGenHairPreviewPrimvar.glslfx sourceAsset) and
 // asserts: all three render clean and lit, dual-terminal matches
 // glslfx-only within AA-level tolerance, dual-terminal is far from
@@ -200,7 +200,7 @@ int main(int argc, char** argv)
     }
     const std::string gen = "python3 '" + scratch + "/gen_l1.py' '" +
                             scratch + "' '" + srcDir +
-                            "/usdGenShaders/resources/shaders' >/dev/null 2>&1";
+                            "/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/shaders' >/dev/null 2>&1";
     check(std::system(gen.c_str()) == 0, "L-1 scenes generated");
     const std::string glslfxOnly = scratch + "/mat_glslfx_only.usda";
     const std::string mtlxOnly = scratch + "/mat_mtlx_only.usda";

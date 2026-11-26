@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
 
     ::setenv("USDGEN_SHADER_SCENES", scratch.c_str(), 1);
     const std::string gen = "python3 '" + srcDir +
-                            "/usdGenShaders/test/make_scene.py' >/dev/null 2>&1";
+                            "/libs/hosts/usdGenHydra/primitives/curves/shaders/test/make_scene.py' >/dev/null 2>&1";
     check(std::system(gen.c_str()) == 0, "make_scene.py generated scenes");
     const std::string sceneA = scratch + "/sceneA_asset.usda";
 
