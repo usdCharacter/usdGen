@@ -1706,6 +1706,32 @@ void UsdGenScatterOp::Evaluate(
     TF_UNUSED(ctx); TF_UNUSED(capture); TF_UNUSED(chunk);
 }
 
+UsdGenRootSetView UsdGenScatterRoots(UsdGenCapture const &capture) noexcept
+{
+    UsdGenCurveBuffer const &b = UsdGenCaptureBuffer(capture);
+    auto span = [](auto const &a) {
+        using T = typename std::decay_t<decltype(a)>::value_type;
+        return UsdGenSpan<const T>(a.cdata(), a.size());
+    };
+    UsdGenRootSetView v;
+    v.totalCurves = b.totalCurves;
+    v.topologyVersion = b.topologyVersion;
+    v.valueVersion = b.valueVersion;
+    v.valid = b.totalCvs == b.totalCurves;   // one CV per root
+    if (v.valid) {
+        v.px = span(b.px);
+        v.py = span(b.py);
+        v.pz = span(b.pz);
+    }
+    v.curveId = span(b.curveId);
+    v.rootPrim = span(b.rootPrim);
+    v.rootUV = span(b.rootUV);
+    v.rootT = span(b.rootT);
+    v.rootN = span(b.rootN);
+    v.rootB = span(b.rootB);
+    return v;
+}
+
 UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
 {
     UsdGenOpDef d;
@@ -1715,6 +1741,7 @@ UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
     d.countChanges = UsdGenCountsAtLevel(1);
     d.lane = UsdGenLane::Chunked;
     d.geometryInputArity = 0;
+    d.outputType = UsdGenRootSetTypeName();
     d.traits = kUsdGenOpGenerator;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferenceInputs);

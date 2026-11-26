@@ -103,6 +103,22 @@ TfToken const &UsdGenOpRecord::Token(uint16_t i) const noexcept
 {
     return _tables && i < _tables->tokens.size() ? _tables->tokens[i] : kNoToken;
 }
+TfToken const &UsdGenOpRecord::OutputType() const noexcept
+{
+    return _tables ? _tables->outputType : kNoToken;
+}
+TfSpan<const TfToken> UsdGenOpRecord::InputTypes() const noexcept
+{
+    return _tables ? SpanOf(_tables->inputTypes) : TfSpan<const TfToken>();
+}
+bool UsdGenOpRecord::AcceptsInput(TfToken const &producerType) const noexcept
+{
+    TfSpan<const TfToken> const accepted = InputTypes();
+    if (accepted.empty()) return producerType.IsEmpty();
+    for (TfToken const &t : accepted)
+        if (t == producerType) return true;
+    return false;
+}
 
 // ---- UsdGenOpRegistry -------------------------------------------------------
 

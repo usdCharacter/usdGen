@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "growVkPlan.h"
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/ops/scatter.h"
+#include "usdGenSurface/types/rootSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/op.h"
 #include "usdGenCurves/types/curveCapture.h"
@@ -158,17 +160,22 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
             ctx.surface = static_cast<UsdGenSurfaceId>(surface - surfaces.begin()); ctx.seed = uint32_t(node.seed);
             // A source: no input.
             if (!capture || (node.enabled && !op->Capture(ctx,UsdGenOpInputs{},capture.get(),diag))) return Fail(diag,"Scatter capture failed");
-            auto const& roots = static_cast<UsdGenCurveCapture const &>(*capture).Buffer();
+            UsdGenRootSetView const roots = UsdGenScatterRoots(*capture);
             size_t const n = node.enabled ? roots.totalCurves : 0;
-            if (n > UINT32_MAX / 2 || (n && (roots.totalCvs != n || roots.curveId.size() != n ||
+            if (n > UINT32_MAX / 2 || (n && (!roots.valid || roots.curveId.size() != n ||
                 roots.rootPrim.size()!=n || roots.rootUV.size()!=n || roots.rootT.size()!=n || roots.rootB.size()!=n || roots.rootN.size()!=n)))
                 return Fail(diag,"invalid captured roots");
             UsdGenNodeKey const curvesKey = desc.DeriveKey(node.key, vk.capturedRoots);
             UsdGenCurveSetData curves;
             curves.role = UsdGenLane::Chunked; curves.curveRole = et.hair;
             curves.curveVertexCounts = VtIntArray(n,2); curves.points.resize(2*n); curves.rest.resize(2*n);
-            curves.widths = VtFloatArray(2*n,desc.defaultWidth); curves.curveId = n ? roots.curveId : VtArray<uint64_t>();
-            curves.skinPrim = n ? roots.rootPrim : VtIntArray(); curves.skinPrimUv = n ? roots.rootUV : VtVec2fArray(); curves.rootFrame.resize(n);
+            curves.widths = VtFloatArray(2*n,desc.defaultWidth);
+            if (n) {
+                curves.curveId.assign(roots.curveId.begin(), roots.curveId.end());
+                curves.skinPrim.assign(roots.rootPrim.begin(), roots.rootPrim.end());
+                curves.skinPrimUv.assign(roots.rootUV.begin(), roots.rootUV.end());
+            }
+            curves.rootFrame.resize(n);
             for (size_t i=0;i<n;++i) {
                 auto const root = GfVec3f(roots.px[i],roots.py[i],roots.pz[i]);
                 curves.points[2*i] = curves.points[2*i+1] = curves.rest[2*i] = curves.rest[2*i+1] = root;

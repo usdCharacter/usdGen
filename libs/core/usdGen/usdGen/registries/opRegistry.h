@@ -47,6 +47,10 @@ public:
     TfSpan<const UsdGenPlane> OutputPlanes() const noexcept;                // static outputs only
     TfSpan<const TfToken> MapRelationships() const noexcept;
     TfToken const &Token(uint16_t i) const noexcept;                        // Def().tokens[i]
+    /// Typed ports (interned names; empty: the default primitive).
+    TfToken const &OutputType() const noexcept;
+    TfSpan<const TfToken> InputTypes() const noexcept;                      // empty: the default only
+    bool AcceptsInput(TfToken const &producerType) const noexcept;
 
 private:
     friend class UsdGenRegistrar;

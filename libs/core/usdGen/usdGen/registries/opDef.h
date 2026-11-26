@@ -129,6 +129,11 @@ struct UsdGenOpDef {
     uint8_t countChanges = 0;                // bit L: element counts at level L may change
     UsdGenLane lane = UsdGenLane::Chunked;
     uint8_t geometryInputArity = 1;
+    /// Typed geometry ports by registered type name; null is the default
+    /// primitive. Every geometry input accepts inputTypes (empty: the default
+    /// only; a null entry adds the default). The compiler rejects other edges.
+    char const *outputType = nullptr;
+    TfSpan<char const *const> inputTypes;
     uint32_t traits = 0;
     TfSpan<const UsdGenParamDecl> params;
     TfSpan<char const *const> referenceInputs;      // was ReferenceInputs(), op.h:344

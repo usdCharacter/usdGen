@@ -9,6 +9,7 @@
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/types/rootSet.h"
 
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/grow.h"
@@ -110,6 +111,7 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterSurfaceInputKind(r);
     UsdGenRegisterMapInputKind(r);
     UsdGenRegisterExprInputKinds(r);
+    UsdGenRegisterRootSetType(r);   // last: older ids keep their values
     UsdGenCudaKernelOps cuda;
     cuda.scatter = k.scatter;
     cuda.grow = k.grow;

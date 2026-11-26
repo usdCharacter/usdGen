@@ -1107,6 +1107,43 @@ void UsdGenCompiler::_Build(
             }
         }
     }
+    // Typed ports: every geometry edge carries a type its consumer accepts
+    // (undeclared: the default primitive), or a type registered as converting
+    // one-to-one to the default into a consumer that takes the default.
+    // Declared types must be registered.
+    {
+        UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+        auto typeText = [](TfToken const &t) {
+            return t.IsEmpty() ? std::string("the default primitive") : t.GetString();
+        };
+        for (int i = 0; i < n; ++i) {
+            UsdGenOpRecord const &consumer = *descRecord[size_t(i)];
+            TfToken const &declared = consumer.OutputType();
+            if (!declared.IsEmpty() && types.Find(declared) == UsdGenTypeId::Invalid) {
+                result.errors.push_back("UsdGenCompiler: operator '" + desc.Label(desc.nodes[i].key) +
+                    "' (type '" + desc.nodes[i].type.GetString() + "') produces unregistered type '" +
+                    declared.GetString() + "'");
+                return;
+            }
+            for (int k = edgeOff[size_t(i)]; k < edgeOff[size_t(i) + 1]; ++k) {
+                int const producer = edgeIds[size_t(k)];
+                TfToken const &produced = descRecord[size_t(producer)]->OutputType();
+                if (consumer.AcceptsInput(produced)) continue;
+                if (!produced.IsEmpty() && consumer.AcceptsInput(TfToken()) &&
+                    types.Has(types.Find(produced), kUsdGenTypeConvertsToDefault))
+                    continue;
+                std::string accepted;
+                for (TfToken const &t : consumer.InputTypes())
+                    accepted += (accepted.empty() ? "" : " or ") + typeText(t);
+                if (accepted.empty()) accepted = typeText(TfToken());
+                result.errors.push_back("UsdGenCompiler: operator '" + desc.Label(desc.nodes[i].key) +
+                    "' (type '" + desc.nodes[i].type.GetString() + "') cannot take input '" +
+                    desc.Label(desc.nodes[size_t(producer)].key) + "': it produces " + typeText(produced) +
+                    "; this input accepts " + accepted);
+                return;
+            }
+        }
+    }
 
     // Fully validate and materialize external descriptor values BEFORE an
     // incremental build moves the old graph's nodes/descriptor.  A malformed
