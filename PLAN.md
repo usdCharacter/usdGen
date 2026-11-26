@@ -210,7 +210,22 @@ Left over:
 - **6.5:** the scheduler finds static channels by role (Position, Width, Parameter, Rest, per element), not by curve slot; undeclared emitted channels take the layout's `namedChannel` hook; evaluation failures the op's `failureMessage` hook; an unrun node's output the registered default primitive (`kUsdGenTypeDefaultPrimitive`). Input kinds register `UsdGenInputDesc` roles (Surface, Map) and hooks (validate, digest, lane, authoredChannels, surface ids and Default-space variants, resolveMap, paintSource); the evaluator def gains validateInputs, validateBindings, bindingDependencies (`usdGenExpr/exprValidate.cpp`). `expr::Domain/ScalarType/ValueShape` live in `api/valueShape.h`. Spec names: `UsdGenOpNode::inputSets`, `UsdGenGraphSpec::basis`; the engine tokens drop curves, perCurve and the render namespace (hosts own them). Gate `testUsdGenNoPrimitiveInEngine`; `testUsdGenEngineBare` links usdGen only, loads no extension, and compiles and commits a primitive-free op.
 - Goldens, contracts and cook digests byte-identical; warm cook and param edit 0 / 0.
 
-Bench: not run in this row (conservative test policy); the milestone verifier runs compareBench.
+Milestone verification (steps 7 and 6, Windows): clean configure and full build, serial `ctest -L '^(T0|T1)$'`: 441 run, 423 pass, 14 skipped, 4 failed. `testUsdGenScenePublication` fails as on main; `testUsdGenPomadeCommit` TN-4 and `testPomadeSoakSmoke` (latency, device-wide memory) are load noise (Soak passed alone; TN-4 got 10.2 ms with CPU at 100%). `testUsdGenRbfDeform` was a real failure: since 7.2 the fixtures lowered without a `NodeKeyMap`, so every `Recompile` copied the rest column, its address moved, and Deform's identity-keyed driver selection never hit; the fixtures now lower through a host key map, assertions unchanged. A CUDA-off, Vulkan-off tree configures; the CUDA/Vulkan-plumbed engine TUs (compiler, scheduler, session, sessionCooker, sessionBackendExecutor, deviceGeneration, registrar, cudaExecution, cudaParameters, cudaSurfaceInput, registerCurves{Cuda,Vulkan}) compile in it.
+
+`benchUsdGenRestructure` lowers its two GraphDescs once, before the measured regions, through one key map: since 7.2 `compile.cold` and `cook.paramEdit` had timed the host's SdfPath lowering too (mapless, so every column copied; 0.94 ms compile, 58 allocations per edit), which the main column never paid.
+
+Bench, main (b741e6c) against steps 7+6, same Windows machine, 4 threads, medians of 5 alternating rounds. The machine was NOT idle (CPU at 93-100%: other worktrees building and running usdRig ctest suites), so absolute times run above the step-5 table; compare ratios to main.
+
+| Metric | main | steps 7+6 |
+|---|---|---|
+| Cold cook, 100k curves | 192.0 ms | 180.0 ms |
+| Warm recook | 172.8 ms | 163.9 ms |
+| Param-edit recook | 144.9 ms | 6.4 ms |
+| Hydra publish | 927.5 ms | 427.9 ms |
+| Hydra pull | 0.56 ms | 0.51 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 |
+
+Against main, warm recook is 0.95 (step 5: 1.00), param edit 0.044 (0.040), Hydra publish 0.46 (0.42; step 4 idle 0.45). No clear regression at this load; rerun on an idle machine before reading the last two.
 
 Left over:
 
@@ -240,6 +255,7 @@ Left over:
 | `asset`, `opaque`, `group` and `pathExpression` rows have no default in the table (their C++ types live in sdf); a value preview of an expression output declared with one of them now gets an empty `$value` literal instead of Sdf's default. Such outputs have no evaluable shape either way | step 11 (Value) |
 | A value type a plugin registers with `SdfSchema` at run time is unknown to the table (`ValueShapeFromNativeType` returns an invalid shape); the stage builder still decodes `SdfValueTypeName` directly | when a plugin needs it |
 | `VtValue`, `TfToken` and Gf types remain in core headers (`graphSpec.h` and others; `noPxrIncludes.txt`) | 11 |
+| `usdGenUsd::Lower`/`Compile`/`Recompile` without a `NodeKeyMap` use a fresh map, so no column cache: every lowering copies every input column and identity-keyed caches (Deform's driver selection, rest digests) miss. Hosts pass their map; many tests and benches do not | when it matters (or make the mapless overloads take a map) |
 
 ### 8. Generic GPU backends
 
