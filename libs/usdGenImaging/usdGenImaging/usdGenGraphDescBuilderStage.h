@@ -8,7 +8,7 @@
 #ifndef USDGEN_IMAGING_GRAPH_DESC_BUILDER_STAGE_H
 #define USDGEN_IMAGING_GRAPH_DESC_BUILDER_STAGE_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/graphDesc.h"
 
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/sceneIndex.h"

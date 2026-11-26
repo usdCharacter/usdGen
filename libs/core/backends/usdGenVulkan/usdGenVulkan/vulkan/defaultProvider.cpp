@@ -283,7 +283,7 @@ public:
     ~DefaultVulkanSessionProvider() override { Shutdown(); }
 
     UsdGenSessionDevicePlanHandle Compile(
-        UsdGenGraphDesc const& desc,
+        UsdGenGraphSpec const& desc,
         UsdGenDiagnostics* diagnostics) const override {
         return inner_ ? inner_->Compile(desc, diagnostics) : nullptr;
     }

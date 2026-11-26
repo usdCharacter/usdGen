@@ -138,7 +138,7 @@ bool ValidateCounts(int const* counts, size_t n, size_t* corners) {
     return true;
 }
 
-CudaScatterInputStatus ValidateSurface(UsdGenSurfaceDesc const& surface,
+CudaScatterInputStatus ValidateSurface(UsdGenSurfaceInput const& surface,
                                        std::string* reason) {
     if (surface.faceVertexCounts.empty()) {
         if (!surface.faceVertexIndices.empty())
@@ -286,18 +286,18 @@ void RecycleConvertShell(gpu::ScatterGrowRoots const* roots)
 } // namespace
 
 CudaScatterInputStatus PrepareCudaScatterInput(
-    UsdGenGraphDesc const& desc, SdfPath const& scatterPath,
+    UsdGenGraphSpec const& desc, UsdGenNodeKey scatterPath,
     std::shared_ptr<const gpu::ScatterGrowRoots>* out, std::string* reason) {
     if (reason) reason->clear();
-    if (!out || scatterPath.IsEmpty())
+    if (!out || !scatterPath.IsValid())
         return Fail(CudaScatterInputStatus::InvalidArgument,
                     "Scatter input needs an output owner and node path", reason);
     auto nodeIt = std::find_if(desc.nodes.begin(), desc.nodes.end(),
-        [&](UsdGenNodeDesc const& node) { return node.path == scatterPath; });
+        [&](UsdGenOpNode const& node) { return node.key == scatterPath; });
     if (nodeIt == desc.nodes.end() || !UsdGenIsCudaStage(*nodeIt, UsdGenCudaStage::Scatter))
         return Fail(CudaScatterInputStatus::InvalidArgument,
                     "Scatter input path does not resolve to a Scatter node", reason);
-    UsdGenNodeDesc const& node = *nodeIt;
+    UsdGenOpNode const& node = *nodeIt;
     // 02 §6.3: a disabled generator publishes an EMPTY curve set, so the
     // description publishes no curves. Every operator downstream of the empty
     // root set is a no-op, which is exactly the CPU lane's behaviour. Any
@@ -307,7 +307,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     {
         bool generatorDisabled = false;
-        for (UsdGenNodeDesc const& candidate : desc.nodes) {
+        for (UsdGenOpNode const& candidate : desc.nodes) {
             if (candidate.enabled) continue;
             UsdGenOpId const id = registry.Find(candidate.type);
             generatorDisabled = generatorDisabled || (id != UsdGenOpId::Invalid &&
@@ -338,7 +338,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                         param.name.GetString() + "'", reason);
     }
     auto surfaceIt = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceDesc const& surface) { return surface.path == node.surfaces.front(); });
+        [&](UsdGenSurfaceInput const& surface) { return surface.key == node.surfaces.front(); });
     if (surfaceIt == desc.surfaces.end())
         return Fail(CudaScatterInputStatus::InvalidSurface,
                     "Scatter input cannot resolve its surface path", reason);

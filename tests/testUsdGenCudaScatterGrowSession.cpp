@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/graph.h"
@@ -62,14 +63,14 @@ static bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(desc, &graph).ok) return false;
+    if (!usdGenUsd::Compile(compiler, desc, &graph).ok) return false;
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto result = scheduler.Run(graph, context, 1);
     for (auto const& error : result.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     if (result.diagnostics.HasErrors()) return false;
-    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    *output = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     return true;
 }
 
@@ -148,7 +149,7 @@ int main(int argc, char** argv) {
         CHECK(reference.totalCurves == 300 && reference.totalCvs == 1500);
         CHECK(!std::is_sorted(reference.curveId.cbegin(), reference.curveId.cend()));
         UsdGenDiagnostics diagnostics;
-        auto plan = CompileCudaGraph(desc, &diagnostics);
+        auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
         for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         CHECK(plan && !diagnostics.HasErrors());
         if (argc == 2) {
@@ -205,7 +206,7 @@ int main(int argc, char** argv) {
         }
         auto rejects = [](UsdGenGraphDesc const& candidate) {
             UsdGenDiagnostics errors;
-            auto rejected = CompileCudaGraph(candidate, &errors);
+            auto rejected = CompileCudaGraph(usdGenUsd::Lower(candidate), &errors);
             return !rejected && errors.HasErrors();
         };
         auto malformed = desc;
@@ -244,7 +245,7 @@ int main(int argc, char** argv) {
         }
         UsdGenSession session;
         session.SetDevicePublicationEnabled(true);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto first = session.Commit(1, UsdGenCommitReason::SetTime);
         for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -333,7 +334,7 @@ int main(int argc, char** argv) {
             UsdGenCurveBuffer angularReference;
             CHECK(CpuReference(angular,&angularReference));
             UsdGenDiagnostics angularDiagnostics;
-            auto angularPlan=CompileCudaGraph(angular,&angularDiagnostics);
+            auto angularPlan=CompileCudaGraph(usdGenUsd::Lower(angular),&angularDiagnostics);
             CHECK(angularPlan&&!angularDiagnostics.HasErrors());
             auto angularWorkspace=CreateCudaExecutionWorkspace(-1,&angularDiagnostics);
             CHECK(angularWorkspace);
@@ -349,7 +350,7 @@ int main(int argc, char** argv) {
                 for(size_t curve=0;curve!=lengths.size();++curve)
                     CHECK(Near(lengths[curve],baselineLengths[curve]));
             }
-            angularSession.SetGraphDesc(angular);
+            usdGenUsd::SetGraphDesc(angularSession, angular);
             auto angularPublished=angularSession.Commit(static_cast<double>(10+variant),UsdGenCommitReason::SetTime);
             CHECK(angularPublished&&angularPublished->device&&
                   !angularSession.LastDiagnostics().HasErrors()&&
@@ -407,7 +408,7 @@ int main(int argc, char** argv) {
         auto oldPoints = points;
         auto oldTopology = first->device->Geometry().topologyVersion;
         desc.nodes[1].params[1].value = VtValue(4.0f);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second != first && second->device && !session.LastDiagnostics().HasErrors());
         auto current = gpu::AcquireGeometry(second->device, stream);
@@ -419,7 +420,7 @@ int main(int argc, char** argv) {
         // Rejected authored controls must preserve the accepted generation.
         auto invalid = desc;
         invalid.nodes[1].params.push_back({TfToken("lift"), VtValue(91.0f), false});
-        session.SetGraphDesc(invalid);
+        usdGenUsd::SetGraphDesc(session, invalid);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
 
@@ -427,7 +428,7 @@ int main(int argc, char** argv) {
         // mutate leases. Use a fresh descriptor to avoid a completed cache hit.
         auto failedPublication = desc;
         failedPublication.nodes[1].params[1].value = VtValue(6.0f);
-        session.SetGraphDesc(failedPublication);
+        usdGenUsd::SetGraphDesc(session, failedPublication);
         failNextCudaFinalizationRelayAllocationForTesting();
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
@@ -435,7 +436,7 @@ int main(int argc, char** argv) {
         CHECK(std::memcmp(points.data(), oldPoints.data(), points.size() * sizeof(float3)) == 0);
 
         desc.nodes[0].params[0].value = VtValue(0.0f);
-        auto emptyPlan = CompileCudaGraph(desc, &diagnostics);
+        auto emptyPlan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
         CHECK(emptyPlan);
         auto emptyMetadata = GetCudaExecutionPlanMetadata(*emptyPlan);
         CHECK(emptyMetadata && emptyMetadata->MemoryEstimate().memoryAvailable);
@@ -446,7 +447,7 @@ int main(int argc, char** argv) {
         CHECK(emptyMetadata->MemoryEstimate().concurrentPeakBytes >=
               sizeof(uint32_t) + 2 * sizeof(int) +
               emptyMetadata->Tasks()[1].estimate.scratchPeakBytes);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto empty = session.Commit(5, UsdGenCommitReason::SetTime);
         CHECK(empty && empty != second && empty->device && !session.LastDiagnostics().HasErrors());
         auto emptyLease = gpu::AcquireGeometry(empty->device, stream);

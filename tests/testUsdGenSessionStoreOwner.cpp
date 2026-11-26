@@ -1,5 +1,6 @@
 // Session-store owner serialization and snapshot/lifetime contract tests.
 #include "usdGenImaging/usdGenImagingSession.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/generationStore.h"
 
 #include <atomic>

@@ -29,7 +29,7 @@
 #include "usdGenImaging/api.h"
 #include "usdGenImaging/staticToken.h"
 #include "usdGen/curveBuffer.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/graphDesc.h"
 
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/dataSource.h"
@@ -57,13 +57,23 @@ public:
     /// visibility, materialBindings, primOrigin, __dependencies).
     /// Block datasources for velocities/accelerations outside motion P1.
     /// Hard-asserts points.size() == sum(curveVertexCounts) per tile (SI-1).
+    /// The scene paths a tile names by key: its own prim, its material,
+    /// primOrigin and the __dependencies surface.
+    struct TilePaths {
+        SdfPath prim, material, origin, dependency;
+    };
+    /// Resolves a tile's keys through the cooked spec's host data (a
+    /// generation's or a progress tile's 'host'); empty paths without it.
+    static TilePaths ResolveTilePaths(usdGen::UsdGenTilePublication const &tile,
+                                      std::shared_ptr<const void> const &host);
     static HdContainerDataSourceHandle BuildTileDataSource(
-        usdGen::UsdGenTilePublication const &tile);
+        usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host);
     /// Generation-stamped variant (StormSurgery P0 contract): stamps a
     /// prim-level `generation` int with the publication snapshot id. The
     /// legacy overload above stays unstamped (SI-1 callers).
     static HdContainerDataSourceHandle BuildTileDataSource(
-        usdGen::UsdGenTilePublication const &tile, int64_t generation);
+        usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host,
+        int64_t generation);
 
     /// The C2 data source for a guide prim (06 §4.2): basisCurves,
     /// purpose = guide, primvars/usdGen:role = "guide".
@@ -199,8 +209,8 @@ public:
     /// source for ScalpShadowMaskPath(): the same mesh, bound to
     /// `maskMaterial`, whose shader pushes its depth back by half the lift.
     static HdContainerDataSourceHandle BuildScalpShadowDataSource(
-        usdGen::UsdGenScalpShadowPublication const &cap, int64_t generation,
-        bool mask = false, SdfPath const &maskMaterial = SdfPath());
+        usdGen::UsdGenScalpShadowPublication const &cap, SdfPath const &description,
+        int64_t generation, bool mask = false, SdfPath const &maskMaterial = SdfPath());
 
     /// The `material` data source for ScalpShadowMaterialPath(), carrying the
     /// look's hair colour so light hair leaves a tinted shadow. `maskLevels`

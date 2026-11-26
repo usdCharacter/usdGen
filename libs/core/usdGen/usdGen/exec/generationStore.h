@@ -29,16 +29,15 @@ namespace usdGen {
 /// per-curve host mirror is retained here.
 struct UsdGenDevicePresentationMetadata
 {
-    SdfPath description;
-    SdfPath renderNamespace;
+    UsdGenNodeKey description;   // the host composes the render namespace under it
     GfMatrix4d xformMatrix{1.0};
     TfToken purpose;
     TfToken visibility;
-    SdfPath materialPath;
+    UsdGenPrimRef material;
     TfToken materialPurpose = UsdGenTokens().allPurpose;
     int refineLevel = 2;
-    SdfPath primOrigin;
-    SdfPath dependencySurface;
+    UsdGenPrimRef origin;
+    UsdGenPrimRef dependency;
 };
 
 struct UsdGenGeneration
@@ -62,6 +61,9 @@ struct UsdGenGeneration
     // descriptor snapshot as `device`, never from a later scene read.
     std::optional<UsdGenDevicePresentationMetadata> devicePresentation;
     std::shared_ptr<const UsdGenRbfAnimationBinding> animationBinding;
+    // The cooked spec's opaque host data (UsdGenGraphSpec::host): the host
+    // names the keys above through it.
+    std::shared_ptr<const void> host;
 };
 using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;
 

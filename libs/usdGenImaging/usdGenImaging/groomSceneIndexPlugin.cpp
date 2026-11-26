@@ -9,6 +9,7 @@
 #include "usdGen/sharedCell.h"
 #include "usdGenImaging/cleanupQueue.h"
 #include "usdGenImaging/rbfAnimation.h"
+#include "usdGenUsd/publishPaths.h"
 #include "pxr/imaging/hd/extComputationSchema.h"
 #include "pxr/imaging/hd/extComputationPrimvarsSchema.h"
 #include "pxr/imaging/hd/extentSchema.h"
@@ -97,6 +98,15 @@ using Dirtied = HdSceneIndexObserver::DirtiedPrimEntries;
 using TileMap = std::map<SdfPath, HdContainerDataSourceHandle>;
 std::atomic<uint64_t> s_testCommandCapacity{4096};
 std::atomic<uint64_t> s_testSequenceCapacity{4096};
+// The path of a prim a cook published: through the cooked spec's table, or
+// under 'description' when the publication carries none (test hooks).
+SdfPath PublishedPath(usdGen::UsdGenPrimRef const& prim, std::shared_ptr<const void> const& host,
+                      SdfPath const& description) {
+    if (usdGenUsd::PathTable const* table = usdGenUsd::Paths(host))
+        return usdGenUsd::PrimPath(prim, table);
+    return prim.node == usdGenUsd::KeyOf(description)
+        ? usdGenUsd::PrimPath(prim, description) : SdfPath();
+}
 SdfPath RenderPath(SdfPath const& description) {
     return description.AppendChild(TfToken("__usdGenRender"));
 }
@@ -1069,10 +1079,10 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                 shown.inputs = inputs;
                 if (!merged.IsEmpty()) {
                     shown.shadow = Publisher::BuildScalpShadowDataSource(
-                        merged, owner.generation);
+                        merged, owner.description, owner.generation);
                     if (levels > 1)
                         shown.mask = Publisher::BuildScalpShadowDataSource(
-                            merged, owner.generation, true,
+                            merged, owner.description, owner.generation, true,
                             Publisher::ScalpShadowMaskMaterialPath(owner.description));
                 }
             }
@@ -1368,9 +1378,11 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         auto fresh = std::make_shared<TileMap>();
         const auto render = RenderPath(g->description);
         for (auto const& tile : generation.tiles) {
-            if (!tile.primPath.HasPrefix(render)) return; // old description namespace
-            fresh->emplace(tile.primPath,
-                ::usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tile, generation.id));
+            SdfPath const tilePath = PublishedPath(tile.prim, generation.host, g->description);
+            if (!tilePath.HasPrefix(render)) return; // old description namespace
+            fresh->emplace(tilePath,
+                ::usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(
+                    tile, generation.host, generation.id));
         }
         // The scalp-shadow cap lives beside the tiles, not in the TileMap:
         // it is a mesh, and the notice diff treats the two prim types
@@ -1378,7 +1390,8 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         std::shared_ptr<const usdGen::UsdGenScalpShadowPublication> freshScalp;
         uint64_t freshScalpDigest = 0;
         if (!generation.scalpShadow.IsEmpty() &&
-            generation.scalpShadow.primPath.HasPrefix(render)) {
+            PublishedPath(generation.scalpShadow.prim, generation.host, g->description)
+                .HasPrefix(render)) {
             // A copy shares the generation's immutable arrays.
             freshScalp = std::make_shared<const usdGen::UsdGenScalpShadowPublication>(
                 generation.scalpShadow);
@@ -1397,7 +1410,8 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                 HdDataSourceLocatorSet locators;
                 if (g->generation + 1 != generation.id) locators.insert(HdDataSourceLocator());
                 else for (auto const& report : payload.report.tiles) {
-                    if (report.primPath != tile.first) continue;
+                    if (PublishedPath(report.prim, generation.host, g->description) != tile.first)
+                        continue;
                     for (auto const& loc : ::usdGenImaging::UsdGenTilePublisher::NoticesFor(report).all())
                         locators.insert(loc);
                 }
@@ -1412,7 +1426,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         g->publishedFrame = generation.frame;
         g->tiles = std::move(fresh);
         g->animation = progressiveRenderer && generation.scalpShadow.IsEmpty() ? ::usdGenImaging::BuildRbfAnimation(
-            generation.animationBinding, generation.tiles.empty()
+            generation.animationBinding, generation.host, generation.tiles.empty()
                 ? GfMatrix4d(1.0) : generation.tiles.front().xformMatrix) : nullptr;
         g->animationNeedsSettle = false;
         g->progressBaseline.reset();
@@ -1468,10 +1482,11 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         for (auto const& tile : *payload.tiles) {
             if (!tile || tile->epoch != payload.epoch ||
                 tile->sequence <= g->progressSequence ||
-                !tile->tile.primPath.HasPrefix(render)) continue;
-            (*fresh)[tile->tile.primPath] =
+                !PublishedPath(tile->tile.prim, tile->host, g->description).HasPrefix(render))
+                continue;
+            (*fresh)[PublishedPath(tile->tile.prim, tile->host, g->description)] =
                 ::usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(
-                    tile->tile, g->generation + 1);
+                    tile->tile, tile->host, g->generation + 1);
         }
         g->progressSequence = payload.sequence;
         g->tiles = std::move(fresh);
@@ -3254,8 +3269,8 @@ bool UsdGenGroomSceneIndex::_TestStaleProgressRejected(SdfPath const& root) cons
             auto tile = std::make_shared<usdGen::UsdGenSession::TileProgress>();
             tile->epoch = (std::max)(uint64_t{1}, g->progressEpoch + 1);
             tile->sequence = 1;
-            tile->tile.primPath = RenderPath(g->description).AppendChild(
-                TfToken("tile_0000"));
+            tile->tile.prim = usdGen::UsdGenPrimRef{usdGenUsd::KeyOf(g->description),
+                                                    usdGen::UsdGenPublishRole::Tile, 0};
             Session::ProgressPayload payload;
             payload.epoch = tile->epoch;
             payload.sequence = tile->sequence;

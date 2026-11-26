@@ -1,6 +1,7 @@
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/gpu/generation.h"
 #include <cmath>
@@ -55,7 +56,7 @@ static bool Read(gpu::CudaGeometryLease const& lease, std::vector<float3>* point
 int main() {
     cudaStream_t stream = nullptr; CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) == cudaSuccess);
     UsdGenSession session; session.SetDevicePublicationEnabled(true);
-    auto desc = MakeDesc(); session.SetGraphDesc(desc);
+    auto desc = MakeDesc(); usdGenUsd::SetGraphDesc(session, desc);
     auto first = session.Commit(1, UsdGenCommitReason::SetTime);
     if (!first) for (auto const& e : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", e.c_str());
     CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -85,10 +86,10 @@ int main() {
         useRestBinding.nativeType = TfToken("bool"); useRestBinding.destinationShape = Scalar(expr::ScalarType::Bool);
         useRestBinding.domain = expr::Domain::Groom; useRestBinding.literal = VtValue(false);
         useRestDesc.nodes[0].expressionBindings.push_back(useRestBinding);
-        useRestSession.SetGraphDesc(useRestDesc);
+        usdGenUsd::SetGraphDesc(useRestSession, useRestDesc);
         auto enabledRest = useRestSession.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(enabledRest && enabledRest->device && !useRestSession.LastDiagnostics().HasErrors());
-        useRestSession.SetGraphDesc(useRestDesc);
+        usdGenUsd::SetGraphDesc(useRestSession, useRestDesc);
         CHECK(useRestSession.Commit(2, UsdGenCommitReason::SetTime) == enabledRest &&
               useRestSession.LastDiagnostics().HasErrors());
     }
@@ -99,7 +100,7 @@ int main() {
     {
         UsdGenSession resampleSession;
         resampleSession.SetDevicePublicationEnabled(true);
-        resampleSession.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(resampleSession, desc);
         auto resampleBase = resampleSession.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(resampleBase && resampleBase->device && !resampleSession.LastDiagnostics().HasErrors());
         auto retainedResampleLease = gpu::AcquireGeometry(resampleBase->device, stream);
@@ -108,7 +109,7 @@ int main() {
         CHECK(baseStats.size() == 1 && baseStats[0].bindCount == 1);
         auto resampleFour = desc;
         resampleFour.nodes[0].params.push_back({TfToken("resampleTo"), VtValue(4), false});
-        resampleSession.SetGraphDesc(resampleFour);
+        usdGenUsd::SetGraphDesc(resampleSession, resampleFour);
         auto four = resampleSession.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(four && four != resampleBase && four->device && !resampleSession.LastDiagnostics().HasErrors());
         auto fourLease = gpu::AcquireGeometry(four->device, stream); CHECK(fourLease);
@@ -129,7 +130,7 @@ int main() {
           ids == std::vector<uint64_t>({3,7}));
         auto resampleThree = resampleFour;
         resampleThree.nodes[0].params.front().value = VtValue(3);
-        resampleSession.SetGraphDesc(resampleThree);
+        usdGenUsd::SetGraphDesc(resampleSession, resampleThree);
         auto three = resampleSession.Commit(3, UsdGenCommitReason::SetTime);
         CHECK(three && three != four && three->device && !resampleSession.LastDiagnostics().HasErrors());
         auto threeLease = gpu::AcquireGeometry(three->device, stream); CHECK(threeLease);
@@ -142,7 +143,7 @@ int main() {
     } // resample leases/session complete before the shared stream is destroyed
 
     auto animated = desc; for (auto& p : animated.surfaces[0].points) p[0] += 1.f;
-    session.SetGraphDesc(animated); auto second = session.Commit(2, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, animated); auto second = session.Commit(2, UsdGenCommitReason::SetTime);
     CHECK(second && second->device && second != first && !session.LastDiagnostics().HasErrors());
     auto stats2 = session.CudaBindingStats();
     CHECK(stats2.size() == 1 && stats2[0].identity == identity && stats2[0].bindCount == 1 && stats2[0].solveCount == 2);
@@ -152,13 +153,13 @@ int main() {
           std::fabs(points[0].z - .2f) < 2e-3f && ids == std::vector<uint64_t>({3,7}));
 
     // Scrubbing back changes the solve inputs but reuses the same rest bind.
-    session.SetGraphDesc(desc); auto scrubbed = session.Commit(1, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, desc); auto scrubbed = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(scrubbed && scrubbed != second && !session.LastDiagnostics().HasErrors());
     auto scrubStats = session.CudaBindingStats();
     CHECK(scrubStats.size() == 1 && scrubStats[0].identity == identity && scrubStats[0].bindCount == 1);
     auto affine = desc;
     for (auto& p : affine.surfaces[0].points) { p[0] *= 2.f; p[1] *= .5f; }
-    session.SetGraphDesc(affine); auto affineGeneration = session.Commit(2, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, affine); auto affineGeneration = session.Commit(2, UsdGenCommitReason::SetTime);
     CHECK(affineGeneration && affineGeneration != scrubbed && !session.LastDiagnostics().HasErrors());
     auto affineLease = gpu::AcquireGeometry(affineGeneration->device, stream); CHECK(affineLease);
     CHECK(Read(affineLease, &points, &widths, &ids, stream));
@@ -171,7 +172,7 @@ int main() {
               std::fabs(points[i].z - affineExpected[i].z) < 2e-3f);
 
     auto restChanged = animated; restChanged.surfaces[0].restPoints[0][0] += .25f;
-    session.SetGraphDesc(restChanged); auto third = session.Commit(3, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, restChanged); auto third = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(third && third->device && third != scrubbed && !session.LastDiagnostics().HasErrors());
     auto stats3 = session.CudaBindingStats();
     CHECK(stats3.size() == 1 && stats3[0].identity != identity && stats3[0].bindCount == 1);
@@ -203,7 +204,7 @@ int main() {
         "/LockRootsExpr", "lockRoots", expr::Domain::Primitive, expr::ScalarType::Bool, "bool", VtValue(false)));
     controlled.nodes[2].expressionBindings.push_back(bindScalar(
         "/PointMaskExpr", "mask", expr::Domain::Point, expr::ScalarType::Float32, "float", VtValue(.5f)));
-    session.SetGraphDesc(controlled); auto controlledFirst = session.Commit(1, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, controlled); auto controlledFirst = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(controlledFirst && controlledFirst != third && !session.LastDiagnostics().HasErrors());
     auto controlledStats1 = session.CudaBindingStats();
     CHECK(controlledStats1.size() == 1 && controlledStats1[0].sampleCount == 4);
@@ -218,7 +219,7 @@ int main() {
           controlledStats2[0].bindCount == controlledStats1[0].bindCount + 1);
     auto nonAffine = controlled;
     nonAffine.surfaces[0].points[4][2] += .7f;
-    session.SetGraphDesc(nonAffine); auto nonAffineGeneration = session.Commit(3, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, nonAffine); auto nonAffineGeneration = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(nonAffineGeneration && nonAffineGeneration != controlledSecond && !session.LastDiagnostics().HasErrors());
     auto nonAffineLease = gpu::AcquireGeometry(nonAffineGeneration->device, stream); CHECK(nonAffineLease);
     CHECK(Read(nonAffineLease, &points, &widths, &ids, stream));
@@ -233,7 +234,7 @@ int main() {
     unlocked.expressions[1].source = "$primIndex < 0";
     UsdGenSession unlockedSession;
     unlockedSession.SetDevicePublicationEnabled(true);
-    unlockedSession.SetGraphDesc(unlocked);
+    usdGenUsd::SetGraphDesc(unlockedSession, unlocked);
     auto unlockedGeneration = unlockedSession.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(unlockedGeneration && unlockedGeneration->device && !unlockedSession.LastDiagnostics().HasErrors());
     auto unlockedLease = gpu::AcquireGeometry(unlockedGeneration->device, stream); CHECK(unlockedLease);
@@ -247,28 +248,28 @@ int main() {
     unlockedLease = {};
     auto lastGood = nonAffineGeneration;
     auto bad = restChanged; bad.surfaces[0].restPoints[0][1] = std::numeric_limits<float>::quiet_NaN();
-    session.SetGraphDesc(bad); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
+    usdGenUsd::SetGraphDesc(session, bad); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     auto mismatch = restChanged;
     mismatch.curveSets[0].worldMatrix.SetTranslate(GfVec3d(1,0,0));
-    session.SetGraphDesc(mismatch); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
+    usdGenUsd::SetGraphDesc(session, mismatch); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     mismatch = restChanged;
     mismatch.nodes[0].surfaces[0] = SdfPath("/WrongSurface");
-    session.SetGraphDesc(mismatch); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
+    usdGenUsd::SetGraphDesc(session, mismatch); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     auto alreadyDeformed = restChanged;
     alreadyDeformed.nodes[0].params.push_back({TfToken("useRest"), VtValue(false), false});
-    session.SetGraphDesc(alreadyDeformed); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
+    usdGenUsd::SetGraphDesc(session, alreadyDeformed); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     CHECK(Read(lease, &points, &widths, &ids, stream));
     CHECK(std::fabs(points[0].x - .8f) < 2e-3f && ids == std::vector<uint64_t>({3,7}));
     bad = restChanged; bad.surfaces[0].restPoints = {{0,0,0},{1,0,0},{0,1,0},{0,0,0},{1,1,0}};
-    session.SetGraphDesc(bad); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
+    usdGenUsd::SetGraphDesc(session, bad); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     auto doubleDeform = restChanged; auto extra = doubleDeform.nodes[2]; extra.path = SdfPath("/Ops/Deform2"); extra.inputs = {doubleDeform.nodes[3].path};
     doubleDeform.nodes.push_back(extra); doubleDeform.terminal = extra.path;
-    session.SetGraphDesc(doubleDeform); CHECK(session.Commit(5, UsdGenCommitReason::SetTime) == lastGood);
+    usdGenUsd::SetGraphDesc(session, doubleDeform); CHECK(session.Commit(5, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     controlledLease = {}; affineLease = {}; nonAffineLease = {};
     lease2 = {}; lease = {}; CHECK(cudaStreamDestroy(stream) == cudaSuccess);

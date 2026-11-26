@@ -529,11 +529,11 @@ def Scope "Groom"
             auto const graph = probe->Engine()->Graph();
             auto const generation = probe->Engine()->Generation();
             std::printf("progressive diagnostic: terminal=%s tileTarget=%d nodes=%zu generationTiles=%zu\n",
-                graph.desc.terminal.GetText(), graph.desc.tileTarget,
-                graph.desc.nodes.size(), generation ? generation->tiles.size() : 0);
-            for (auto const& node : graph.desc.nodes)
+                graph.spec.Label(graph.spec.terminal).c_str(), graph.spec.tileTarget,
+                graph.spec.nodes.size(), generation ? generation->tiles.size() : 0);
+            for (auto const& node : graph.spec.nodes)
                 std::printf("progressive node: %s %s\n",
-                    node.path.GetText(), node.type.GetText());
+                    graph.spec.Label(node.key).c_str(), node.type.GetText());
             for (auto const& error : probe->Engine()->LastDiagnostics().errors)
                 std::printf("progressive error: %s\n", error.c_str());
         } else std::printf("progressive diagnostic: no session attached\n");

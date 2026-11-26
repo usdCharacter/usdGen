@@ -346,7 +346,7 @@ uint32_t UsdGenScatterOp::PlanesTouched() const
 }
 
 uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
-    UsdGenSurfaceDesc const &surface)
+    UsdGenSurfaceInput const &surface)
 {
     auto same = [](auto const &a, auto const &b) {
         return a.size() == b.size() && (a.empty() || a.cdata() == b.cdata());
@@ -449,7 +449,7 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     feed("maps", uint64_t(ctx.mapCount));
     for (uint32_t i = 0; i < ctx.mapCount; ++i)
         if (ctx.maps && ctx.maps[i]) feed("mapIdentity", ctx.maps[i]->identity);
-    UsdGenGraphDesc const *desc = ctx.desc;
+    UsdGenGraphSpec const *desc = ctx.desc;
     if (desc && ctx.surface < desc->surfaces.size()) {
         auto const &surface = desc->surfaces[ctx.surface];
         auto array = [&](char const *name, auto &cache, auto const &values) {
@@ -494,7 +494,7 @@ bool UsdGenScatterOp::Capture(
     UsdGenDiagnostics *diag)
 {
     TF_UNUSED(in);
-    UsdGenGraphDesc const *desc = ctx.desc;
+    UsdGenGraphSpec const *desc = ctx.desc;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!desc) {
         if (diag) diag->Error("UsdGenScatter::Capture: no graph description");
@@ -504,7 +504,7 @@ bool UsdGenScatterOp::Capture(
         if (diag) diag->Error("UsdGenScatter::Capture: no bound usdGen:surface");
         return false;
     }
-    UsdGenSurfaceDesc const &surf = desc->surfaces[ctx.surface];
+    UsdGenSurfaceInput const &surf = desc->surfaces[ctx.surface];
     scatter::ModeConfig modes;
     {
         std::string modeError;
@@ -524,7 +524,7 @@ bool UsdGenScatterOp::Capture(
         modeBuf.extraCv.clear();
         if ((surf.faceVertexCounts.empty() || surf.restPoints.empty()) && diag)
             diag->Warn(std::string("UsdGenScatter::Capture: surface '") +
-                       surf.path.GetText() + "' has no topology");
+                       UsdGenLabel(ctx.desc, surf.key) + "' has no topology");
         return scatter::CaptureModes(ctx, modes, surf, &modeBuf, diag);
     }
     int const level=p ? p->GetInt(kSubdivisionLevel,0) : 0;
@@ -547,7 +547,7 @@ bool UsdGenScatterOp::Capture(
     }
     if (surf.faceVertexCounts.empty() || surf.restPoints.empty()) {
         if (diag) diag->Warn(std::string("UsdGenScatter::Capture: surface '") +
-                             surf.path.GetText() + "' has no topology; 0 roots");
+                             UsdGenLabel(ctx.desc, surf.key) + "' has no topology; 0 roots");
     }
 
     // Face list: whole mesh or the GeomSubset restriction (R15). An empty

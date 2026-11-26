@@ -69,8 +69,8 @@ GfVec3f GatherRootLocal(VtVec3fArray const& points, VtIntArray const& indices,
 
 } // namespace
 
-bool CompileSurfaceVkDeform(UsdGenCurveSetDesc const& source,
-                            UsdGenSurfaceDesc const& surface, int budget,
+bool CompileSurfaceVkDeform(UsdGenCurveSetInput const& source,
+                            UsdGenSurfaceInput const& surface, int budget,
                             VulkanDeformControls* out,
                             UsdGenDiagnostics* diagnostics) {
     if (!out) return Fail(diagnostics, "Deform surface binding output is null");

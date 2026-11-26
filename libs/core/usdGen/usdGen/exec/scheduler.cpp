@@ -567,9 +567,12 @@ void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t curve
 // A prepared node job owns the small vectors whose addresses are published in
 // its EvalContext.  Preparation happens on the commit thread; arena workers
 // only consume the immutable context and write this node's disjoint chunks.
-std::string NodeLabel(UsdGenCompiledNode const &node)
+std::string NodeLabel(UsdGenGraph const &graph, UsdGenCompiledNode const &node)
 {
-    return node.desc ? node.desc->path.GetName() : std::string("?");
+    if (!node.desc) return std::string("?");
+    std::string const label = graph.Spec().Label(node.desc->key);
+    size_t const slash = label.rfind('/');
+    return slash == std::string::npos ? label : label.substr(slash + 1);
 }
 
 struct NodeExecution
@@ -1012,8 +1015,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
     }
 
     // Operators evaluate in Default space until a deform: a deform, and every
-    // node reading one's output, sees the posed surfaces (graph.Desc()); every
-    // other node sees their Default-time rest (graph.RestDesc()), so a posed
+    // node reading one's output, sees the posed surfaces (graph.Spec()); every
+    // other node sees their Default-time rest (graph.RestSpec()), so a posed
     // surface re-captures only the deform and what follows it. Nodes are in
     // topological order; the loop repeats only if an input ever follows its
     // reader.
@@ -1030,8 +1033,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             if (posed) { poseSpace[size_t(pos)] = 1; changed = true; }
         }
     }
-    auto spaceDesc = [&](int pos) -> UsdGenGraphDesc const & {
-        return poseSpace[size_t(pos)] ? graph.Desc() : graph.RestDesc();
+    auto spaceDesc = [&](int pos) -> UsdGenGraphSpec const & {
+        return poseSpace[size_t(pos)] ? graph.Spec() : graph.RestSpec();
     };
 
     // Each frontier is dependency-ready and therefore may share one flattened
@@ -1051,7 +1054,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (UsdGenNodeId input : node.inputs) {
             if (input >= static_cast<UsdGenNodeId>(graph.NodeCount())) {
                 nodeDiag.Error("UsdGen: invalid compiled geometry input on '" +
-                               node.desc->path.GetString() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
                 break;
             }
             job->inputSets.push_back(OutputOrEmpty(graph, graph.Node(input))->View());
@@ -1069,7 +1072,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (uint32_t value : node.referenceValues) {
             if (value >= graphReferences.size() || !graphReferences[value].value) {
                 nodeDiag.Error("UsdGen: missing compiled reference value on '" +
-                               node.desc->path.GetString() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
                 break;
             }
             job->resolvedReferences.push_back(&graphReferences[value]);
@@ -1079,7 +1082,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (uint32_t value : node.mapValues) {
             if (value >= graphMaps.size()) {
                 nodeDiag.Error("UsdGen: missing compiled map value on '" +
-                               node.desc->path.GetString() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
                 break;
             }
             job->resolvedMaps.push_back(&graphMaps[value]);
@@ -1143,7 +1146,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // node's INPUT geometry and before its capture identity is taken --
         // the same ordering CudaParameterEvaluator has on the device lane.
         {
-            double const rate = graph.Desc().timeCodesPerSecond;
+            double const rate = graph.Spec().timeCodesPerSecond;
             double const seconds = std::isfinite(rate) && rate > 0.0
                 ? evalCtx.time / rate : evalCtx.time;
             std::vector<std::string> expressionErrors;
@@ -1155,7 +1158,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 for (auto const &message : expressionErrors)
                     nodeDiag.Error("UsdGen: " + message);
             for (auto const &message : node.expressions.TakeWarnings())
-                nodeDiag.Warn("UsdGen: " + node.desc->path.GetString() + ": " + message);
+                nodeDiag.Warn("UsdGen: " + graph.Spec().Label(node.desc->key) + ": " + message);
             // A groom-domain usdGen:enabled drives the node's own gate. With
             // nothing connected the authored value stands.
             double enabled = 0.0;
@@ -1193,11 +1196,11 @@ UsdGenRunResult UsdGenScheduler::_Run(
 
         if (op.ReadsTime(node.paramView) &&
             (!node.hasEvaluationTime || node.lastEvaluationTime != evalCtx.time ||
-             node.lastTimeCodesPerSecond != graph.Desc().timeCodesPerSecond))
+             node.lastTimeCodesPerSecond != graph.Spec().timeCodesPerSecond))
             graph.MarkNode(static_cast<UsdGenNodeId>(pos), UsdGenDirtyParameter);
         node.hasEvaluationTime = true;
         node.lastEvaluationTime = evalCtx.time;
-        node.lastTimeCodesPerSecond = graph.Desc().timeCodesPerSecond;
+        node.lastTimeCodesPerSecond = graph.Spec().timeCodesPerSecond;
 
         UsdGenEpoch const captureIdentity =
             WithExternalValueIdentity(op.CaptureDigest(cctx), node, graph);
@@ -1233,7 +1236,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     node.spareCapture = std::move(replaced);
             } else if (cap) {
                 nodeDiag.Error(std::string("UsdGen: capture failed on '") +
-                               node.desc->path.GetText() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
             }
             node.captureEpoch = captureIdentity;
             node.captureNeeded = false;
@@ -1283,7 +1286,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // remain reusable during playback.
         if (node.enabled && node.record->Has(kUsdGenOpReadsTime) &&
             (node.lastEvalTime != evalCtx.time ||
-             node.lastEvalRate != graph.Desc().timeCodesPerSecond))
+             node.lastEvalRate != graph.Spec().timeCodesPerSecond))
             graph.DirtyValue(node.id);
         job->evalAll = node.paramValueDigest != node.lastParamDigest ||
                        job->expressionsChanged;
@@ -1643,7 +1646,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         : 0.0;
                     TfDebug::Helper().Msg(
                         "usdGen schedule  %-12s %-18s %-22s prepare %8.2f ms  eval %4zu/%-4zu chunks %8.2f ms%s\n",
-                        NodeLabel(node).c_str(),
+                        NodeLabel(graph, node).c_str(),
                         node.desc ? node.desc->type.GetText() : "?",
                         job.reCaptured ? job.recaptureReason
                             : node.enabled ? "capture reused" : "disabled",
@@ -1653,7 +1656,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 completed[size_t(frontier[j])] = 1;
                 if (node.record->Has(kUsdGenOpReadsTime) && node.enabled) {
                     node.lastEvalTime = evalCtx.time;
-                    node.lastEvalRate = graph.Desc().timeCodesPerSecond;
+                    node.lastEvalRate = graph.Spec().timeCodesPerSecond;
                 }
                 --remaining;
             }

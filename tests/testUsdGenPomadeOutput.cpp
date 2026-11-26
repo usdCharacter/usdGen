@@ -6,6 +6,7 @@
 // runtime density must not cause Pomade to rebake it.
 
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -168,14 +169,14 @@ Cooked CookOutput(UsdStagePtr const &stage, SdfPath const &description)
     }
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         result.diagnostic = compiled.errors.empty() ? "compile failed" : compiled.errors.front();
         return result;
     }
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         result.diagnostic = "scheduler failed";
@@ -183,7 +184,7 @@ Cooked CookOutput(UsdStagePtr const &stage, SdfPath const &description)
             result.diagnostic += ": " + error;
         return result;
     }
-    UsdGenNodeId const terminal = graph.NodeIdForPath(desc.terminal);
+    UsdGenNodeId const terminal = usdGenUsd::NodeIdForPath(graph, desc.terminal);
     if (terminal == kUsdGenInvalidNode) {
         result.diagnostic = "missing terminal";
         return result;

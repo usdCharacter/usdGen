@@ -15,6 +15,7 @@
 
 #include "usdGenImaging/api.h"
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"

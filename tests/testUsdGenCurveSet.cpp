@@ -14,7 +14,7 @@
 
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/compile/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/registrar.h"
 
@@ -340,7 +340,7 @@ void PartitionCaseRun(PartitionCase const &k)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const result = compiler.Compile(MakeDesc(k.tileTarget), &graph);
+    UsdGenCompileResult const result = usdGenUsd::Compile(compiler, MakeDesc(k.tileTarget), &graph);
     Check(result.ok && graph.NodeCount() == 2, "partition fixture compiles");
     if (!result.ok) return;
     UsdGenCurveBuffer const fixture = MakeBuffer(k.curves, k.cvp, false, false);

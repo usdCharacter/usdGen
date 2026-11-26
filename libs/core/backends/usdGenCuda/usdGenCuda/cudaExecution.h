@@ -2,7 +2,7 @@
 #define USDGEN_CUDA_EXECUTION_H
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/executionPlan.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 
 #include <cstddef>
@@ -14,7 +14,7 @@
 namespace usdGen {
 // CUDA backend admission is explicit and shared by compilation/execution.
 // Unsupported operators/configurations are errors, never CPU fallbacks.
-bool ValidateCudaGraph(UsdGenGraphDesc const&, UsdGenDiagnostics*);
+bool ValidateCudaGraph(UsdGenGraphSpec const&, UsdGenDiagnostics*);
 class UsdGenCudaExecutionPlan;
 class UsdGenCudaExecutionJob;
 struct ExecutionState;
@@ -22,14 +22,14 @@ struct OperatorRelayService;
 struct FinalizationRelayService;
 // Immutable CPU programs, LUTs and authored input snapshot; no device state.
 std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
-    UsdGenGraphDesc const&, UsdGenDiagnostics*);
+    UsdGenGraphSpec const&, UsdGenDiagnostics*);
 // Versioned backend capability declaration and the exact immutable metadata
 // snapshot captured by a successfully compiled CUDA plan.
 UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexcept;
 std::shared_ptr<const UsdGenExecutionPlanMetadata> GetCudaExecutionPlanMetadata(
     UsdGenCudaExecutionPlan const&) noexcept;
 struct UsdGenCudaBindingStats {
-    SdfPath path;
+    UsdGenNodeKey key;
     uint64_t identity = 0, bindCount = 0, solveCount = 0;
     size_t sampleCount = 0;
 };

@@ -12,7 +12,7 @@
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -236,7 +236,7 @@ int main()
         UsdGenGraphDesc d = MakeG3();
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        UsdGenCompileResult const r = compiler.Compile(d, &graph);
+        UsdGenCompileResult const r = usdGenUsd::Compile(compiler, d, &graph);
         if (!r.ok) {
             std::printf("FAIL: compile at %d threads: ", threads);
             for (auto const &e : r.errors) std::printf("%s ", e.c_str());
@@ -245,7 +245,7 @@ int main()
         }
         UsdGenScheduler scheduler(threads);
         UsdGenEvalContext ctx;
-        ctx.desc = &graph.Desc();
+        ctx.desc = &graph.Spec();
         ctx.time = d.time;
         UsdGenRunResult const res = scheduler.Run(graph, ctx, /*gen=*/1);
         if (res.diagnostics.HasErrors()) {

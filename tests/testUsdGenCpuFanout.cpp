@@ -10,7 +10,7 @@
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -241,7 +241,7 @@ FanoutResult RunFanout(UsdGenGraphDesc const &desc,
     FanoutResult result;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "fan-out graph compiles");
     if (!compiled.ok) {
         for (auto const &error : compiled.errors)
@@ -251,7 +251,7 @@ FanoutResult RunFanout(UsdGenGraphDesc const &desc,
 
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(), "fan-out graph executes without diagnostics");
     if (run.diagnostics.HasErrors()) {
@@ -262,13 +262,13 @@ FanoutResult RunFanout(UsdGenGraphDesc const &desc,
 
     auto const terminalView = OutputView(graph);
     UsdGenCurveBuffer const terminal = OutputBuffer(graph);
-    auto const siblingView = NodeView(graph, graph.NodeIdForPath(
+    auto const siblingView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/" + siblingName)));
-    UsdGenCurveBuffer const sibling = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const sibling = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/" + siblingName)));
-    auto const sourceView = NodeView(graph, graph.NodeIdForPath(
+    auto const sourceView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/source")));
-    UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const source = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/source")));
     result.terminal.assign(terminal.width.begin(), terminal.width.end());
     result.sibling.assign(sibling.width.begin(), sibling.width.end());
@@ -480,16 +480,16 @@ void TestGrowNamedPlaneTopologyOwnership()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok,
           "Grow named-plane topology fixture compiles");
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "Grow named-plane topology fixture establishes source output");
 
-    UsdGenNodeId const sourceId = graph.NodeIdForPath(source.path);
-    UsdGenNodeId const growId = graph.NodeIdForPath(grow.path);
+    UsdGenNodeId const sourceId = usdGenUsd::NodeIdForPath(graph, source.path);
+    UsdGenNodeId const growId = usdGenUsd::NodeIdForPath(graph, grow.path);
     {
         UsdGenCurveBuffer planes = NodeBuffer(graph, sourceId);
         InstallGrowExtraPlanes(&planes);
@@ -571,7 +571,8 @@ void TestGrowWidthFallbackCapture()
     roots.curveId = VtArray<uint64_t>{11, 12};
     roots.px = roots.py = roots.pz = VtFloatArray(2, 0.0f);
     UsdGenCaptureContext context;
-    context.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered574 = usdGenUsd::Lower(desc);
+    context.desc = &lowered574;
     context.params = &params;
 
     auto fallbackCapture = grow.CreateCapture();
@@ -887,7 +888,7 @@ void TestGrowAzimuth()
     node.params[3].value=VtValue(0.f); node.params[4].value=VtValue(0.f);
     UsdGenCpuParameters expressions; bool changed=false;
     std::vector<std::string> expressionErrors;
-    Check(expressions.Evaluate(desc,node,UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
+    Check(expressions.Evaluate(usdGenUsd::Lower(desc),usdGenUsd::Lower(node),UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
           "Grow primitive azimuth expression evaluates");
     params.expressions=&expressions;
     auto connected=capture();
@@ -896,14 +897,14 @@ void TestGrowAzimuth()
           "Grow consumes a distinct connected azimuth at each root");
     node.expressionBindings[0].destination=TfToken("azimuthRandom");
     desc.expressions[0].source="$index % 2";
-    Check(expressions.Evaluate(desc,node,UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
+    Check(expressions.Evaluate(usdGenUsd::Lower(desc),usdGenUsd::Lower(node),UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
           "Grow primitive azimuthRandom expression evaluates");
     auto connectedRandom=capture();
     Check(UsdGenCaptureBuffer(*connectedRandom).rest[1] == UsdGenCaptureBuffer(*zero).rest[1] &&
           UsdGenCaptureBuffer(*connectedRandom).rest[3] == UsdGenCaptureBuffer(*random).rest[3],
           "Grow consumes connected azimuthRandom independently per root");
     desc.expressions[0].source="1.1";
-    Check(expressions.Evaluate(desc,node,UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
+    Check(expressions.Evaluate(usdGenUsd::Lower(desc),usdGenUsd::Lower(node),UsdGenCurveSetView::Of(roots),0,0,21,&changed,&expressionErrors),
           "Out-of-range expression is evaluated before Grow validates it");
     auto invalidConnected=grow.CreateCapture();
     Check(!grow.Capture(context,UsdGenBufferInputs(roots),invalidConnected.get(),&diag),
@@ -935,15 +936,15 @@ void TestScatterGrowDefaultWidthThroughScheduler()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok,
           "Scatter->Grow default-width scheduler fixture compiles");
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(),
           "Scatter->Grow default-width scheduler fixture executes");
-    UsdGenCurveBuffer const scatter = NodeBuffer(graph, graph.NodeIdForPath(scatterPath));
+    UsdGenCurveBuffer const scatter = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, scatterPath));
     UsdGenCurveBuffer const output = OutputBuffer(graph);
     Check(scatter.width.empty() && output.totalCvs > 0 &&
               output.width == VtFloatArray(output.totalCvs, desc.defaultWidth),
@@ -961,25 +962,25 @@ void TestScatterDensityValidation()
                     std::string::npos;
             });
     };
-    auto negative = compiler.Compile(MakeScatterValidationDesc(-1.0), &graph);
+    auto negative = usdGenUsd::Compile(compiler, MakeScatterValidationDesc(-1.0), &graph);
     Check(negative.ok, "negative Scatter density reaches capture validation");
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto negativeRun = scheduler.Run(graph, context, 1);
     Check(negativeRun.diagnostics.HasErrors() && hasDensityError(negativeRun.diagnostics),
           "Scatter rejects negative density before root allocation");
-    auto nonfinite = compiler.Compile(MakeScatterValidationDesc(
+    auto nonfinite = usdGenUsd::Compile(compiler, MakeScatterValidationDesc(
         std::numeric_limits<double>::quiet_NaN()), &graph);
     Check(nonfinite.ok, "non-finite Scatter density reaches capture validation");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto nonfiniteRun = scheduler.Run(graph, context, 1);
     Check(nonfiniteRun.diagnostics.HasErrors() && hasDensityError(nonfiniteRun.diagnostics),
           "Scatter rejects non-finite density before root allocation");
 
-    auto overflow = compiler.Compile(MakeScatterValidationDesc(1.0e20), &graph);
+    auto overflow = usdGenUsd::Compile(compiler, MakeScatterValidationDesc(1.0e20), &graph);
     Check(overflow.ok, "Scatter cardinality-overflow fixture compiles before capture");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto const run = scheduler.Run(graph, context, 1);
     Check(run.diagnostics.HasErrors() && !run.diagnostics.errors.empty() &&
               run.diagnostics.errors.front().find("root count exceeds uint32 cardinality") !=
@@ -1050,20 +1051,20 @@ void TestAuthoredSourcePlanes()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "authored named-plane source fixture compiles");
     if (!compiled.ok) return;
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(), "authored named-plane source executes on CPU");
     if (run.diagnostics.HasErrors()) return;
     auto const sourceBufferView = NodeView(graph, 
-        graph.NodeIdForPath(source.path));
+        usdGenUsd::NodeIdForPath(graph, source.path));
     UsdGenCurveBuffer const sourceBuffer = NodeBuffer(graph, 
-        graph.NodeIdForPath(source.path));
-    UsdGenNodeId writerId = graph.NodeIdForPath(writer.path);
+        usdGenUsd::NodeIdForPath(graph, source.path));
+    UsdGenNodeId writerId = usdGenUsd::NodeIdForPath(graph, writer.path);
     auto const writerBufferView = NodeView(graph, writerId);
     UsdGenCurveBuffer const writerBuffer = NodeBuffer(graph, writerId);
     VtFloatArray const expectedPoint = VtFloatArray{
@@ -1083,7 +1084,7 @@ void TestAuthoredSourcePlanes()
           "source materializes point, primitive, and groom authored planes");
     if (!sourcePlanesMaterialized) return;
     Check(sourceBufferView.ExtraCv(0).f.cdata() !=
-              graph.Desc().curveSets[0].authoredPlanes[0].floatValues.cdata(),
+              graph.Spec().curveSets[0].authoredPlanes[0].floatValues.cdata(),
           "resampled source plane materializes private COW storage");
     Check(writerBuffer.extraCv.size() == 1 && writerBufferView.ExtraCv(0).f.cdata() ==
               sourceBufferView.ExtraCv(0).f.cdata(),
@@ -1093,27 +1094,27 @@ void TestAuthoredSourcePlanes()
     // is unchanged. Its capture digest must still invalidate stale authored
     // COW aliases when a payload changes or the authored planes disappear.
     desc.curveSets[0].authoredPlanes[1].intValues[0] = 42;
-    compiled = compiler.Recompile(desc, &graph);
+    compiled = usdGenUsd::Recompile(compiler, desc, &graph);
     Check(compiled.ok, "authored plane value edit recompiles incrementally");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     run = scheduler.Run(graph, context, 2);
     auto const editedView = NodeView(graph, 
-        graph.NodeIdForPath(source.path));
+        usdGenUsd::NodeIdForPath(graph, source.path));
     UsdGenCurveBuffer const edited = NodeBuffer(graph, 
-        graph.NodeIdForPath(source.path));
+        usdGenUsd::NodeIdForPath(graph, source.path));
     Check(!run.diagnostics.HasErrors() && edited.extraCurve.size() == 2 &&
               edited.extraCurve[0].i[0] == 42,
           "incremental capture refreshes changed authored COW payload");
 
     desc.curveSets[0].authoredPlanes.clear();
-    compiled = compiler.Recompile(desc, &graph);
+    compiled = usdGenUsd::Recompile(compiler, desc, &graph);
     Check(compiled.ok, "authored plane removal recompiles incrementally");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     run = scheduler.Run(graph, context, 3);
     auto const removedView = NodeView(graph, 
-        graph.NodeIdForPath(source.path));
+        usdGenUsd::NodeIdForPath(graph, source.path));
     UsdGenCurveBuffer const removed = NodeBuffer(graph, 
-        graph.NodeIdForPath(source.path));
+        usdGenUsd::NodeIdForPath(graph, source.path));
     Check(!run.diagnostics.HasErrors() && removed.extraCv.empty() &&
               removed.extraCurve.empty(),
           "incremental capture removes stale authored COW planes");
@@ -1137,15 +1138,15 @@ void TestAuthoredPlaneValidation()
     desc.curveSets.push_back(curves);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult result = compiler.Compile(desc, &graph);
+    UsdGenCompileResult result = usdGenUsd::Compile(compiler, desc, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("arity outside [1,16]") != std::string::npos,
           "invalid authored plane arity fails closed during compile");
     UsdGenGraph retained;
-    Check(compiler.Compile(MakeFanout("terminal", "sibling", {0, 1, 2}),
+    Check(usdGenUsd::Compile(compiler, MakeFanout("terminal", "sibling", {0, 1, 2}),
                            &retained).ok,
           "valid graph seeds transactional authored-plane validation fixture");
-    result = compiler.Recompile(desc, &retained);
+    result = usdGenUsd::Recompile(compiler, desc, &retained);
     Check(!result.ok && retained.NodeCount() == 3,
           "invalid authored plane recompile preserves prior graph transactionally");
 
@@ -1155,7 +1156,7 @@ void TestAuthoredPlaneValidation()
     valid.name = TfToken("duplicate");
     valid.floatValues = VtFloatArray(8, 1.0f);
     duplicate.curveSets[0].authoredPlanes = {valid, valid};
-    result = compiler.Compile(duplicate, &graph);
+    result = usdGenUsd::Compile(compiler, duplicate, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("empty or duplicate authored plane") != std::string::npos,
           "duplicate authored plane names fail closed during compile");
@@ -1168,7 +1169,7 @@ void TestAuthoredPlaneValidation()
     wrongType.domain = UsdGenAuthoredPlaneDomain::Primitive;
     wrongType.intValues = VtIntArray{1};
     wrongCardinality.curveSets[0].authoredPlanes.push_back(wrongType);
-    result = compiler.Compile(wrongCardinality, &graph);
+    result = usdGenUsd::Compile(compiler, wrongCardinality, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("invalid type or cardinality") != std::string::npos,
           "authored plane type/cardinality mismatch fails closed during compile");
@@ -1179,7 +1180,7 @@ void TestAuthoredPlaneValidation()
     collision.name = TfToken("widths");
     collision.floatValues = VtFloatArray(8, 1.0f);
     reserved.curveSets[0].authoredPlanes.push_back(collision);
-    result = compiler.Compile(reserved, &graph);
+    result = usdGenUsd::Compile(compiler, reserved, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("reserved C3 channel") != std::string::npos,
           "authored plane cannot shadow a standard C3 channel");
@@ -1206,16 +1207,16 @@ void TestExtraPlaneCowAndTopologyRefresh()
     UsdGenGraphDesc desc = MakeExtraPlaneFanout();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "extra-plane fan-out compiles");
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "extra-plane fan-out compiles");
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "extra-plane fan-out establishes source topology");
 
-    auto sourceId = graph.NodeIdForPath(SdfPath("/fanout/source"));
-    auto cvId = graph.NodeIdForPath(SdfPath("/fanout/cvWriter"));
-    auto curveId = graph.NodeIdForPath(SdfPath("/fanout/curveWriter"));
+    auto sourceId = usdGenUsd::NodeIdForPath(graph, SdfPath("/fanout/source"));
+    auto cvId = usdGenUsd::NodeIdForPath(graph, SdfPath("/fanout/cvWriter"));
+    auto curveId = usdGenUsd::NodeIdForPath(graph, SdfPath("/fanout/curveWriter"));
     {
         UsdGenCurveBuffer planes = NodeBuffer(graph, sourceId);
         InstallExtraPlanes(&planes);
@@ -1249,14 +1250,14 @@ void TestExtraPlaneCowAndTopologyRefresh()
     for (auto& node : desc.nodes)
         if (node.path == SdfPath("/fanout/source"))
             node.params.front().value = VtValue(6);
-    Check(compiler.Recompile(desc, &graph).ok,
+    Check(usdGenUsd::Recompile(compiler, desc, &graph).ok,
           "extra-plane fan-out recompiles changed source topology");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 3).diagnostics.HasErrors(),
           "extra-plane fan-out refreshes changed source topology");
-    sourceId = graph.NodeIdForPath(SdfPath("/fanout/source"));
-    cvId = graph.NodeIdForPath(SdfPath("/fanout/cvWriter"));
-    curveId = graph.NodeIdForPath(SdfPath("/fanout/curveWriter"));
+    sourceId = usdGenUsd::NodeIdForPath(graph, SdfPath("/fanout/source"));
+    cvId = usdGenUsd::NodeIdForPath(graph, SdfPath("/fanout/cvWriter"));
+    curveId = usdGenUsd::NodeIdForPath(graph, SdfPath("/fanout/curveWriter"));
     {
         UsdGenCurveBuffer planes = NodeBuffer(graph, sourceId);
         InstallExtraPlanes(&planes);
@@ -1319,11 +1320,11 @@ void TestCowAliasesRefreshAfterTopologyRevision()
         "terminal", "sibling", {0, 1, 2});
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok,
           "COW refresh fixture compiles its initial topology");
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "COW refresh fixture evaluates its initial topology");
 
@@ -1338,23 +1339,23 @@ void TestCowAliasesRefreshAfterTopologyRevision()
     surface.restPoints.push_back(GfVec3f(2, 0, 2));
     surface.restPoints.push_back(GfVec3f(2, 0, 3));
     surface.points = surface.restPoints;
-    Check(compiler.Compile(desc, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok,
           "COW refresh fixture recompiles a changed source topology");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "COW refresh fixture evaluates the changed source topology");
 
-    auto const sourceView = NodeView(graph, graph.NodeIdForPath(
+    auto const sourceView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/source")));
-    UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const source = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/source")));
-    auto const terminalView = NodeView(graph, graph.NodeIdForPath(
+    auto const terminalView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/terminal")));
-    UsdGenCurveBuffer const terminal = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const terminal = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/terminal")));
-    auto const siblingView = NodeView(graph, graph.NodeIdForPath(
+    auto const siblingView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/sibling")));
-    UsdGenCurveBuffer const sibling = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const sibling = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/sibling")));
     Check(source.totalCurves == 3 && terminal.totalCurves == 3 &&
               sibling.totalCurves == 3 && source.totalCvs == 12 &&
@@ -1401,9 +1402,9 @@ void TestUnaryFanInRejected()
     retainedSource.path = retained.terminal;
     retainedSource.type = TfToken("UsdGenCurveSource");
     retained.nodes = {retainedSource};
-    Check(compiler.Compile(retained, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, retained, &graph).ok,
           "valid destination graph is seeded before rejection");
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(!compiled.ok, "multi-input use of unary Width is rejected at compile");
     Check(compiled.errors.size() == 1,
           "unary fan-in rejection emits one deterministic diagnostic");
@@ -1414,8 +1415,8 @@ void TestUnaryFanInRejected()
               "unary fan-in diagnostic names operator, type, contract and actual arity");
     }
     Check(graph.NodeCount() == 1 &&
-              graph.NodeIdForPath(retained.terminal) != UsdGenGraph::InvalidNode &&
-              graph.Desc().description == retained.description,
+              usdGenUsd::NodeIdForPath(graph, retained.terminal) != UsdGenGraph::InvalidNode &&
+              graph.Spec().description == usdGenUsd::KeyOf(retained.description),
           "failed fan-in compile leaves the prior destination graph untouched");
 
     UsdGenGraphDesc missingInput;
@@ -1426,7 +1427,7 @@ void TestUnaryFanInRejected()
     missingWidth.type = TfToken("UsdGenWidth");
     missingInput.nodes = {missingWidth};
     UsdGenGraph missingGraph;
-    UsdGenCompileResult const missing = compiler.Compile(missingInput, &missingGraph);
+    UsdGenCompileResult const missing = usdGenUsd::Compile(compiler, missingInput, &missingGraph);
     Check(!missing.ok && missing.errors.size() == 1 &&
               missing.errors.front() ==
                   "UsdGenCompiler: operator '/missing/width' (type 'UsdGenWidth') "
@@ -1445,7 +1446,7 @@ void TestUnaryFanInRejected()
     sourceWithInput.nodes = {secondSource, firstSource};
     UsdGenGraph sourceGraph;
     UsdGenCompileResult const sourceResult =
-        compiler.Compile(sourceWithInput, &sourceGraph);
+        usdGenUsd::Compile(compiler, sourceWithInput, &sourceGraph);
     Check(!sourceResult.ok && sourceResult.errors.size() == 1 &&
               sourceResult.errors.front() ==
                   "UsdGenCompiler: operator '/sourceInput/second' "
@@ -1470,7 +1471,7 @@ void TestUnaryFanInRejected()
         consumer.inputs = {left.path, right.path};
         malformed.nodes = {consumer, left, right};
         UsdGenGraph rejected;
-        UsdGenCompileResult const result = compiler.Compile(malformed, &rejected);
+        UsdGenCompileResult const result = usdGenUsd::Compile(compiler, malformed, &rejected);
         std::string const expected =
             "UsdGenCompiler: operator '" + consumer.path.GetString() +
             "' (type '" + type +
@@ -1529,31 +1530,31 @@ void TestOrderedWidthBlend()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "ordered WidthBlend graph compiles");
     if (!compiled.ok) return;
-    UsdGenNodeId const mergeId = graph.NodeIdForPath(desc.terminal);
+    UsdGenNodeId const mergeId = usdGenUsd::NodeIdForPath(graph, desc.terminal);
     UsdGenCompiledNode const &compiledMerge = graph.Node(mergeId);
     Check(compiledMerge.inputs.size() == 2 &&
-              compiledMerge.inputs[0] == graph.NodeIdForPath(left.path) &&
-              compiledMerge.inputs[1] == graph.NodeIdForPath(right.path),
+              compiledMerge.inputs[0] == usdGenUsd::NodeIdForPath(graph, left.path) &&
+              compiledMerge.inputs[1] == usdGenUsd::NodeIdForPath(graph, right.path),
           "WidthBlend preserves authored left/right input order after Kahn sort");
 
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(),
           "ordered WidthBlend executes without diagnostics");
     if (run.diagnostics.HasErrors()) return;
     auto const leftBufferView = NodeView(graph, 
-        graph.NodeIdForPath(left.path));
+        usdGenUsd::NodeIdForPath(graph, left.path));
     UsdGenCurveBuffer const leftBuffer = NodeBuffer(graph, 
-        graph.NodeIdForPath(left.path));
+        usdGenUsd::NodeIdForPath(graph, left.path));
     auto const rightBufferView = NodeView(graph, 
-        graph.NodeIdForPath(right.path));
+        usdGenUsd::NodeIdForPath(graph, right.path));
     UsdGenCurveBuffer const rightBuffer = NodeBuffer(graph, 
-        graph.NodeIdForPath(right.path));
+        usdGenUsd::NodeIdForPath(graph, right.path));
     auto const mergedView = OutputView(graph);
     UsdGenCurveBuffer const merged = OutputBuffer(graph);
     bool values = merged.width.size() == 8;
@@ -1581,10 +1582,10 @@ void TestOrderedWidthBlend()
     // canonicalized set of dependencies.
     desc.nodes[0].inputs = {right.path, left.path};
     UsdGenGraph swapped;
-    UsdGenCompileResult const swappedCompile = compiler.Compile(desc, &swapped);
+    UsdGenCompileResult const swappedCompile = usdGenUsd::Compile(compiler, desc, &swapped);
     Check(swappedCompile.ok, "swapped WidthBlend graph compiles");
     if (!swappedCompile.ok) return;
-    context.desc = &swapped.Desc();
+    context.desc = &swapped.Spec();
     UsdGenRunResult const swappedRun = scheduler.Run(swapped, context, 2);
     Check(!swappedRun.diagnostics.HasErrors(),
           "swapped WidthBlend executes without diagnostics");
@@ -1602,7 +1603,7 @@ void TestOrderedWidthBlend()
     // operation as fan-in.
     auto expectRejected = [&](UsdGenGraphDesc malformed, char const *message) {
         UsdGenGraph rejected;
-        UsdGenCompileResult const result = compiler.Compile(malformed, &rejected);
+        UsdGenCompileResult const result = usdGenUsd::Compile(compiler, malformed, &rejected);
         Check(!result.ok, message);
     };
     UsdGenGraphDesc disabled = desc;
@@ -1633,13 +1634,13 @@ void TestDependencyReadyHeldFanout()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok,
           "held dependency-ready fan-out graph compiles");
     if (graph.NodeCount() == 0) return;
 
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     HeldEvalGate gate;
     g_heldEvalGate = &gate;
     UsdGenRunResult run;
@@ -1668,17 +1669,17 @@ void TestDependencyReadyHeldFanout()
           "dependency-ready held fan-out completes without diagnostics");
     if (run.diagnostics.HasErrors()) return;
 
-    auto const sourceView = NodeView(graph, graph.NodeIdForPath(
+    auto const sourceView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/source")));
-    UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const source = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/source")));
-    auto const leftView = NodeView(graph, graph.NodeIdForPath(
+    auto const leftView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/heldLeft")));
-    UsdGenCurveBuffer const left = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const left = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/heldLeft")));
-    auto const rightView = NodeView(graph, graph.NodeIdForPath(
+    auto const rightView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/heldRight")));
-    UsdGenCurveBuffer const right = NodeBuffer(graph, graph.NodeIdForPath(
+    UsdGenCurveBuffer const right = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/fanout/heldRight")));
     Check(!left.width.empty() && !right.width.empty() &&
               leftView.width.cdata() != rightView.width.cdata() &&

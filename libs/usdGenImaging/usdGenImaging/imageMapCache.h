@@ -4,7 +4,7 @@
 #ifndef USDGEN_IMAGING_IMAGE_MAP_CACHE_H
 #define USDGEN_IMAGING_IMAGE_MAP_CACHE_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/graphDesc.h"
 #include "usdGen/imagePayload.h"
 
 #include <cstdint>

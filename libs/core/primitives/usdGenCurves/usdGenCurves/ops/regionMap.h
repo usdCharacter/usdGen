@@ -19,16 +19,16 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
     *mapped=false; regions->clear();
     if (!ctx.params || !ctx.params->node || !ctx.desc) return true;
     auto const &node=*ctx.params->node;
-    SdfPath target;
+    UsdGenNodeKey target;
     for (auto const &binding:node.mapBindings) if (binding.relationship.GetString()=="usdGen:regionMap") {
-        if (!target.IsEmpty()) { *error="regionMap requires exactly one target"; return false; }
+        if (target.IsValid()) { *error="regionMap requires exactly one target"; return false; }
         target=binding.map;
     }
-    if (target.IsEmpty()) return true;
+    if (!target.IsValid()) return true;
     *mapped=true;
     auto fail=[&](std::string const &s) { *error="regionMap: "+s;return false; };
     auto map=std::find_if(ctx.desc->maps.begin(),ctx.desc->maps.end(),
-        [&](UsdGenMapDesc const &m) { return m.path==target; });
+        [&](UsdGenMapInput const &m) { return m.key==target; });
     if (map==ctx.desc->maps.end() || !UsdGenMapHas(*map,kUsdGenTypeMapPtex) || map->resolvedAssetPath.empty())
         return fail("target must be a resolved UsdGenPtexMap");
     UsdGenPtexMapOptions options;options.filter="nearest";options.channelCount=1;

@@ -5,7 +5,7 @@
 // header.
 #include "usdGen/vulkan/vkStages.h"
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/ops/curveSource.h"
 #include "usdGen/ops/deform.h"
 #include "usdGen/ops/grow.h"

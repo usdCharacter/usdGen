@@ -16,6 +16,7 @@
 // bundle slot, knot-mask zeros at crossings, flyaways keyed by strandIndex,
 // no-guide pass-through, determinism (repeat cooks, 1 vs 4 threads).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
@@ -219,14 +220,14 @@ static Result Cook(Scene const &scene, int threads = 2)
     UsdGenGraphDesc const desc = MakeDesc(scene);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors) std::printf("  compile: %s\n", e.c_str());
         return r;
     }
     UsdGenScheduler scheduler(threads);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());

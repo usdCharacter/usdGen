@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecutionQueue.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionResources.h"
@@ -115,7 +116,7 @@ struct ResetFinalizationRelayCapacity {
 
 int main() {
     UsdGenDiagnostics diagnostics;
-    auto desc = Desc(); auto plan = CompileCudaGraph(desc,&diagnostics);
+    auto desc = Desc(); auto plan = CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
     CHECK(plan && !diagnostics.HasErrors());
     auto planMetadata = GetCudaExecutionPlanMetadata(*plan);
     // Length/RBF has only partial compile-time byte accounting (runtime CUB
@@ -177,7 +178,7 @@ int main() {
         };
         addControl("/QueueSourceUseRest","$frame < 3","useRest",TfToken("bool"),expr::ScalarType::Bool,VtValue(true));
         addControl("/QueueSourceResample","$frame < 2 ? 0 : 4","resampleTo",TfToken("int"),expr::ScalarType::Int32,VtValue(0));
-        auto controlsPlan=CompileCudaGraph(controlsDesc,&diagnostics); CHECK(controlsPlan);
+        auto controlsPlan=CompileCudaGraph(usdGenUsd::Lower(controlsDesc),&diagnostics); CHECK(controlsPlan);
         struct SourceGate { void (*arm)(); void (*wait)(); void (*release)(); };
         SourceGate const controlGates[] = {
             {armCudaSourceAsyncContextCallbackGateForTesting,waitCudaSourceAsyncContextCallbackGateForTesting,releaseCudaSourceAsyncContextCallbackGateForTesting},
@@ -202,7 +203,7 @@ int main() {
         auto invalidControls=controlsDesc;
         for (auto& expression : invalidControls.expressions)
             if (expression.path==SdfPath("/QueueSourceResample")) expression.source="$frame / 0";
-        auto invalidControlsPlan=CompileCudaGraph(invalidControls,&diagnostics); CHECK(invalidControlsPlan);
+        auto invalidControlsPlan=CompileCudaGraph(usdGenUsd::Lower(invalidControls),&diagnostics); CHECK(invalidControlsPlan);
         auto const controlsLastGood=held.Snapshot(); std::atomic<int> invalidCalls{0}; std::atomic<bool> invalidDone{false};
         CHECK(held.Submit(invalidControlsPlan,1,[&](uint64_t, auto outcome, auto const& d) {
             if (outcome==UsdGenExecutionPipeline::Outcome::Failed && d.HasErrors()) ++invalidCalls;
@@ -218,7 +219,7 @@ int main() {
 
         auto resampleDesc=Desc();
         resampleDesc.nodes.front().params.push_back({TfToken("resampleTo"),VtValue(4),false});
-        auto resamplePlan=CompileCudaGraph(resampleDesc,&diagnostics); CHECK(resamplePlan);
+        auto resamplePlan=CompileCudaGraph(usdGenUsd::Lower(resampleDesc),&diagnostics); CHECK(resamplePlan);
         std::atomic<int> resampleCalls{0}, resampleCompletionCalls{0}, resampleOutcome{-1};
         std::atomic<bool> resampleDone{false};
         armCudaSourceAsyncResampleCallbackGateForTesting(); ReleaseResampleGate releaseResampleGate;
@@ -314,7 +315,7 @@ int main() {
     // Holding each native callback must free the sole runtime worker for
     // unrelated CPU work without publishing the candidate early.
     {
-        auto widthPlan = CompileCudaGraph(WidthDesc(), &diagnostics); CHECK(widthPlan);
+        auto widthPlan = CompileCudaGraph(usdGenUsd::Lower(WidthDesc()), &diagnostics); CHECK(widthPlan);
         UsdGenExecutionRuntime oneWorker(1);
         UsdGenCudaExecutionQueue widthQueue(oneWorker, -1, &diagnostics); CHECK(widthQueue.Valid());
         UsdGenExecutionPipeline probe(oneWorker);
@@ -495,7 +496,7 @@ int main() {
     // count/scatter proofs.  Holding each one must leave the sole runtime
     // worker available and cannot publish a candidate before that proof.
     {
-        auto lengthPlan = CompileCudaGraph(LengthDesc(), &diagnostics); CHECK(lengthPlan);
+        auto lengthPlan = CompileCudaGraph(usdGenUsd::Lower(LengthDesc()), &diagnostics); CHECK(lengthPlan);
         auto lengthMetadata = GetCudaExecutionPlanMetadata(*lengthPlan);
         CHECK(lengthMetadata && !lengthMetadata->MemoryEstimate().memoryAvailable);
         UsdGenExecutionRuntime oneWorker(1);
@@ -665,7 +666,7 @@ int main() {
     // bounds status, then tile metadata/topology readback. Each releases the
     // single runtime worker and must retain the previous public snapshot.
     {
-        auto finalPlan = CompileCudaGraph(LengthDesc(), &diagnostics); CHECK(finalPlan);
+        auto finalPlan = CompileCudaGraph(usdGenUsd::Lower(LengthDesc()), &diagnostics); CHECK(finalPlan);
         UsdGenExecutionRuntime oneWorker(1);
         UsdGenCudaExecutionQueue finalQueue(oneWorker, -1, &diagnostics); CHECK(finalQueue.Valid());
         UsdGenExecutionPipeline probe(oneWorker);
@@ -839,7 +840,7 @@ int main() {
     {
         auto resampleDesc=Desc();
         resampleDesc.nodes.front().params.push_back({TfToken("resampleTo"),VtValue(4),false});
-        auto resamplePlan=CompileCudaGraph(resampleDesc,&diagnostics); CHECK(resamplePlan);
+        auto resamplePlan=CompileCudaGraph(usdGenUsd::Lower(resampleDesc),&diagnostics); CHECK(resamplePlan);
         UsdGenExecutionRuntime faultRuntime(1);
         auto exerciseResampleFault=[&](bool nativeCallback) -> int {
             UsdGenCudaExecutionQueue fault(faultRuntime,-1,&diagnostics); CHECK(fault.Valid());
@@ -915,7 +916,7 @@ int main() {
             a1->bindings[0].bindCount == 1 && b1->bindings[0].bindCount == 1);
         retained = a1;
 
-        auto posed = CompileCudaGraph(Desc(2),&diagnostics); CHECK(posed);
+        auto posed = CompileCudaGraph(usdGenUsd::Lower(Desc(2)),&diagnostics); CHECK(posed);
         CHECK(a.Submit(posed,2,completion)); a.Drain();
         auto a2 = a.Snapshot(); CHECK(a2 != a1 && Root(a2->generation,2.2f,reader));
         CHECK(a2->bindings[0].identity == a1->bindings[0].identity &&
@@ -950,7 +951,7 @@ int main() {
         CHECK(!a.Submit(posed,std::numeric_limits<double>::quiet_NaN()));
         auto invalidValues = Desc();
         invalidValues.expressions[0].source = "$P[0] / ($P[0] - $P[0])";
-        auto invalidPlan = CompileCudaGraph(invalidValues,&diagnostics); CHECK(invalidPlan);
+        auto invalidPlan = CompileCudaGraph(usdGenUsd::Lower(invalidValues),&diagnostics); CHECK(invalidPlan);
         CHECK(a.Submit(invalidPlan,2,
             [&](uint64_t, auto outcome, auto const& d) {
                 rejected = outcome == UsdGenExecutionPipeline::Outcome::Failed && d.HasErrors();

@@ -4,6 +4,7 @@
 // resolved to the record's slots (what the compiler hands an op).
 #pragma once
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
 
 #include <string>
@@ -18,14 +19,16 @@ inline usdGen::UsdGenOpRecord const &OpRecord(char const *type)
     return registry.Record(registry.Find(PXR_NS::TfToken(type)));
 }
 
-/// A view over `node` resolved against `record`. Set() again after the
-/// node's parameter vector reallocates; in-place value edits need nothing.
+/// A view over `node` resolved against `record`: lowered copies of the
+/// host node and graph, with each resolved slot pointing back into the host
+/// node's params, so in-place value edits show as they always did. Set()
+/// again after the node's parameter vector reallocates.
 class OpView {
 public:
     OpView(usdGen::UsdGenOpRecord const &record, usdGen::UsdGenNodeDesc const *node,
            usdGen::UsdGenGraphDesc const *desc = nullptr)
+        : _srcDesc(desc)
     {
-        _view.desc = desc;
         _view.op = &record;
         _view.slots = _slots;
         Set(node);
@@ -34,13 +37,24 @@ public:
     OpView &operator=(OpView const &) = delete;
     void Set(usdGen::UsdGenNodeDesc const *node)
     {
-        _view.node = node;
-        if (node) usdGen::UsdGenResolveParams(*_view.op, *node, _slots);
+        if (_srcDesc) _spec = usdGenUsd::Lower(*_srcDesc);
+        _view.desc = _srcDesc ? &_spec : nullptr;
+        _view.node = nullptr;
+        if (!node) return;
+        _node = usdGenUsd::Lower(*node);
+        _view.node = &_node;
+        usdGen::UsdGenResolveParams(*_view.op, _node, _slots);
+        for (usdGen::UsdGenResolvedParam &slot : _slots)
+            if (slot.authored)
+                slot.authored = &node->params[size_t(slot.authored - _node.params.data())];
     }
     usdGen::UsdGenParamView const &View() const { return _view; }
     usdGen::UsdGenParamView &View() { return _view; }
 
 private:
+    usdGen::UsdGenGraphDesc const *_srcDesc = nullptr;
+    usdGen::UsdGenOpNode _node;
+    usdGen::UsdGenGraphSpec _spec;
     usdGen::UsdGenResolvedParam _slots[usdGen::kUsdGenMaxParamsPerOp];
     usdGen::UsdGenParamView _view;
 };

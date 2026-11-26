@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionResources.h"
@@ -66,11 +67,11 @@ static UsdGenGraphDesc Fixture(bool branching) {
 static bool Reference(UsdGenGraphDesc d, UsdGenCurveBuffer* result) {
     d.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler; UsdGenGraph graph;
-    if (!compiler.Compile(d, &graph).ok) return false;
-    UsdGenScheduler scheduler(2); UsdGenEvalContext ctx; ctx.desc = &graph.Desc();
+    if (!usdGenUsd::Compile(compiler, d, &graph).ok) return false;
+    UsdGenScheduler scheduler(2); UsdGenEvalContext ctx; ctx.desc = &graph.Spec();
     auto evaluated = scheduler.Run(graph, ctx, 1);
     if (evaluated.diagnostics.HasErrors()) return false;
-    *result = NodeBuffer(graph, graph.NodeIdForPath(d.terminal));
+    *result = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, d.terminal));
     return true;
 }
 
@@ -98,7 +99,7 @@ int main() {
         UsdGenCurveBuffer reference;
         CHECK(Reference(desc,&reference));
         UsdGenDiagnostics diagnostics;
-        auto plan=CompileCudaGraph(desc,&diagnostics);
+        auto plan=CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
         for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
         CHECK(plan && !diagnostics.HasErrors());
         auto metadata=GetCudaExecutionPlanMetadata(*plan);
@@ -117,7 +118,7 @@ int main() {
             }
         }
         CHECK(metadata->MemoryEstimate().memoryAvailable && metadata->MemoryEstimate().conservativeUpperBound);
-        UsdGenSession session; session.SetDevicePublicationEnabled(true); session.SetGraphDesc(desc);
+        UsdGenSession session; session.SetDevicePublicationEnabled(true); usdGenUsd::SetGraphDesc(session, desc);
         auto first=session.Commit(1,UsdGenCommitReason::SetTime);
         for(auto const& e:session.LastDiagnostics().errors) std::fprintf(stderr,"%s\n",e.c_str());
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -172,7 +173,7 @@ int main() {
         else if(branching) std::swap(desc.nodes[0].inputs[0],desc.nodes[0].inputs[1]);
         else desc.nodes[0].params[0].value=VtValue(.6f);
         CHECK(Reference(desc,&reference));
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto second=session.Commit(2,UsdGenCommitReason::SetTime);
         CHECK(second && second!=first && second->device && !session.LastDiagnostics().HasErrors());
         auto current=gpu::AcquireGeometry(second->device,stream); CHECK(current);
@@ -187,7 +188,7 @@ int main() {
         if(variant==2) {
             desc.defaultWidth=.125f;
             CHECK(Reference(desc,&reference));
-            session.SetGraphDesc(desc);
+            usdGenUsd::SetGraphDesc(session, desc);
             auto fallbackEdit=session.Commit(3,UsdGenCommitReason::SetTime);
             CHECK(fallbackEdit && fallbackEdit!=second && fallbackEdit->device && !session.LastDiagnostics().HasErrors());
             auto edited=gpu::AcquireGeometry(fallbackEdit->device,stream); CHECK(edited);
@@ -205,7 +206,7 @@ int main() {
             CHECK(scatter!=small.nodes.end());
             scatter->params[0].value=VtValue(density);
             CHECK(Reference(small,&reference));
-            session.SetGraphDesc(small);
+            usdGenUsd::SetGraphDesc(session, small);
             auto smallGeneration=session.Commit(density==0?5:4,UsdGenCommitReason::SetTime);
             for(auto const& e:session.LastDiagnostics().errors) std::fprintf(stderr,"%s\n",e.c_str());
             CHECK(smallGeneration && smallGeneration!=second && smallGeneration->device && !session.LastDiagnostics().HasErrors());

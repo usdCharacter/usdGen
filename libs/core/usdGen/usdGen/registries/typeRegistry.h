@@ -13,7 +13,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
-struct UsdGenMapDesc;
+struct UsdGenMapInput;
 struct UsdGenElementLayout;
 class UsdGenTypeRegistry;
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
@@ -42,7 +42,7 @@ struct UsdGenMapOptions {
 struct UsdGenTypeDef {
     char const *name = nullptr;          // e.g. UsdGenPtexMap
     uint32_t traits = 0;
-    bool (*parseOptions)(UsdGenMapDesc const &, UsdGenMapOptions *, std::string *error) = nullptr;
+    bool (*parseOptions)(UsdGenMapInput const &, UsdGenMapOptions *, std::string *error) = nullptr;
     /// Primitive types (UsdGenCurveSet, UsdGenRootSet): the element layout;
     /// null for map and value types. Must outlive the registry.
     UsdGenElementLayout const *layout = nullptr;

@@ -28,7 +28,7 @@
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -118,7 +118,7 @@ int main()
     UsdGenGraphDesc const desc = MakeRaggedDesc();
     UsdGenCompiler  compiler;
     UsdGenGraph     graph;
-    UsdGenCompileResult const cr = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const cr = usdGenUsd::Compile(compiler, desc, &graph);
     if (!cr.ok) {
         std::printf("compile failed:");
         for (auto const &e : cr.errors) std::printf(" %s", e.c_str());
@@ -130,7 +130,7 @@ int main()
 
     UsdGenScheduler scheduler(8);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = desc.time;
 
     // ---- first eval: full run over the ragged topology -------------------
@@ -157,7 +157,7 @@ int main()
     Check(out->px.size() == 12 && out->py.size() == 12 && out->pz.size() == 12,
           "position planes sized to 12 CVs");
 
-    UsdGenNodeId const deform = graph.NodeIdForPath(SdfPath("/ragged/deform"));
+    UsdGenNodeId const deform = usdGenUsd::NodeIdForPath(graph, SdfPath("/ragged/deform"));
     bool chunksRagged = !graph.Chunks(deform).empty();
     int  covered = 0;
     for (UsdGenChunkRange const &cd : graph.Chunks(deform)) {

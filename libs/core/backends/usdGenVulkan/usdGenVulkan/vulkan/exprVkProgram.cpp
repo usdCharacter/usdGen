@@ -254,7 +254,7 @@ bool Literal(VtValue const& value, expr::ValueShape const& shape,
 } // namespace
 
 ExprVkCompileStatus ExprVkCompileBinding(
-    UsdGenGraphDesc const& graph, UsdGenExpressionBinding const& binding,
+    UsdGenGraphSpec const& graph, UsdGenParamBinding const& binding,
     bool allowValue, bool allowTime, ExprVkCompiledBinding* out,
     std::vector<std::string>* diagnostics) {
     if (!out) {
@@ -265,17 +265,17 @@ ExprVkCompileStatus ExprVkCompileBinding(
         Error(diagnostics, binding.destination.GetString() + ": " + message);
         return status;
     };
-    if (binding.destination.IsEmpty() || binding.expression.IsEmpty())
+    if (binding.destination.IsEmpty() || !binding.expression.IsValid())
         return fail(ExprVkCompileStatus::InvalidArgument, "empty expression destination/path");
     auto expression = std::find_if(graph.expressions.begin(), graph.expressions.end(),
-        [&](auto const& candidate) { return candidate.path == binding.expression; });
+        [&](auto const& candidate) { return candidate.key == binding.expression; });
     if (expression == graph.expressions.end())
         return fail(ExprVkCompileStatus::CompileError, "missing expression");
     UsdGenExpressionOutputDesc const* result =
         UsdGenFindExpressionOutput(*expression, binding.output);
     if (!result)
         return fail(ExprVkCompileStatus::CompileError, binding.output.IsEmpty()
-            ? "connection to prim " + binding.expression.GetString() +
+            ? "connection to prim " + graph.Label(binding.expression) +
                   " declaring no outputs:result and no single outputs:* attribute"
             : "missing expression output");
     if (binding.domain != Domain::Groom && binding.domain != Domain::Primitive &&
@@ -322,7 +322,7 @@ ExprVkCompileStatus ExprVkCompileBinding(
 }
 
 ExprVkCompileStatus ExprVkCompileNodeBindings(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     bool allowValue, bool allowTime,
     std::vector<ExprVkCompiledBinding>* out,
     std::vector<std::string>* diagnostics) {

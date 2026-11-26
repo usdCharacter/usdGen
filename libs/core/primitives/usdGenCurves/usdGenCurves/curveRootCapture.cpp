@@ -49,7 +49,7 @@ bool ValidBindingCoordinates(int face, GfVec2f const &uv)
     return face >= 0 && Finite(uv) && uv[0] >= 0.0f && uv[1] >= 0.0f;
 }
 
-bool ValidSurfaceBinding(UsdGenSurfaceDesc const *surface, int face,
+bool ValidSurfaceBinding(UsdGenSurfaceInput const *surface, int face,
                          GfVec2f const &uv)
 {
     if (!ValidBindingCoordinates(face, uv)) return false;
@@ -119,8 +119,8 @@ bool Add(size_t a, size_t b, size_t *out)
 } // namespace
 
 bool UsdGenCaptureCurveRoots(
-    UsdGenCurveSetDesc const &source,
-    UsdGenSurfaceDesc const *surface,
+    UsdGenCurveSetInput const &source,
+    UsdGenSurfaceInput const *surface,
     TfToken rebind,
     UsdGenCurveRootCaptureResult *out,
     std::string *error,

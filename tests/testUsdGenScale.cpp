@@ -8,6 +8,7 @@
 //       scale:knots ramp, the per-curve scaleRandom draw, identity at zero
 //       effect, one connected-expression cook, and fail-closed validation.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
@@ -123,7 +124,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors)
             std::printf("  compile: %s\n", e.c_str());
@@ -131,7 +132,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors)

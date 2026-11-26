@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -133,11 +134,19 @@ int main()
 {
     UsdGenGraphDesc desc = Description();
     UsdGenExecutionInputVersions versions =
-        UsdGenExecutionInputVersions::FromDescription(desc);
+        UsdGenExecutionInputVersions::FromDescription(usdGenUsd::Lower(desc));
     Check(versions.sources.size() == 2 && versions.references.size() == 1 &&
               versions.maps.size() == 1 && versions.surfaces.size() == 1,
           "description produces exact source/reference/map/surface buckets");
-    Check(versions.sources.front().generation == 7 &&
+    // Canonical order is by key; find each input by its path's key.
+    auto generationOf = [](std::vector<UsdGenExecutionInputGeneration> const &values,
+                           char const *path) -> uint64_t {
+        for (auto const &value : values)
+            if (value.identity == usdGenUsd::KeyOf(SdfPath(path))) return value.generation;
+        return ~uint64_t(0);
+    };
+    Check(generationOf(versions.sources, "/cache/groomA/hair") == 7 &&
+              generationOf(versions.sources, "/cache/groomA/hair2") == 8 &&
               versions.references.front().generation == 9 &&
               versions.maps.front().generation == 13 &&
               versions.surfaces.front().generation == 41,
@@ -145,29 +154,29 @@ int main()
     UsdGenGraphDesc aliased = desc;
     aliased.nodes[1].references = {SdfPath("/cache/groomA/guides")};
     auto aliasedVersions =
-        UsdGenExecutionInputVersions::FromDescription(aliased);
+        UsdGenExecutionInputVersions::FromDescription(usdGenUsd::Lower(aliased));
     Check(aliasedVersions.references.size() == 1 &&
               aliasedVersions.references.front().generation == 9,
           "relationship-only reference aliases coalesce with payload generation");
     UsdGenGraphDesc contradictory = desc;
     contradictory.maps.push_back(contradictory.maps.front());
     contradictory.maps.back().textureGeneration = 99;
-    Check(!UsdGenExecutionInputVersions::FromDescription(contradictory).IsValid(),
+    Check(!UsdGenExecutionInputVersions::FromDescription(usdGenUsd::Lower(contradictory)).IsValid(),
           "contradictory duplicate identities are rejected from cache admission");
     UsdGenGraphDesc reorderedDesc = desc;
     std::reverse(reorderedDesc.curveSets.begin(), reorderedDesc.curveSets.end());
     UsdGenExecutionInputVersions reordered =
-        UsdGenExecutionInputVersions::FromDescription(reorderedDesc);
+        UsdGenExecutionInputVersions::FromDescription(usdGenUsd::Lower(reorderedDesc));
     Check(reordered == versions && reordered.Hash() == versions.Hash(),
           "equal canonical tuples have equal hashes");
-    Check(versions.UpdateMap(SdfPath("/cache/groomA/mask"), 14) &&
-              versions != UsdGenExecutionInputVersions::FromDescription(desc),
+    Check(versions.UpdateMap(usdGenUsd::KeyOf(SdfPath("/cache/groomA/mask")), 14) &&
+              versions != UsdGenExecutionInputVersions::FromDescription(usdGenUsd::Lower(desc)),
           "map generation change changes tuple identity");
 
     UsdGenExecutionContext cuda{
         UsdGenDeviceBackend::Cuda, 8, 2, 17};
     auto key = UsdGenExecutionCacheKey::Make(
-        desc.description, {11, 22}, versions, cuda, 99, 24.0);
+        usdGenUsd::KeyOf(desc.description), {11, 22}, versions, cuda, 99, 24.0);
     Check(key.IsValid(), "valid input tuple produces an admissible cache key");
     auto unknownContext = key;
     unknownContext.context.backend = UsdGenDeviceBackend::Unknown;
@@ -183,7 +192,7 @@ int main()
     Check(same != key, "backend identity partitions cache keys");
     same = key; same.context.evaluationContext = UsdGenContext::Render;
     Check(same != key, "interactive and render contexts partition cache keys");
-    same = key; same.inputs.UpdateSurface(desc.surfaces.front().path, 42);
+    same = key; same.inputs.UpdateSurface(usdGenUsd::KeyOf(desc.surfaces.front().path), 42);
     Check(same != key, "surface generation partitions cache keys");
     same = key; same.frameBits = key.frameBits ^ 1;
     Check(same != key, "sample identity partitions cache keys");
@@ -582,7 +591,7 @@ int main()
           "evicted payload destruction occurs after releasing the cache lock");
 
     auto stale = keyA;
-    stale.inputs.UpdateMap(desc.maps.front().path, 999);
+    stale.inputs.UpdateMap(usdGenUsd::KeyOf(desc.maps.front().path), 999);
     Check(!replacement.Lookup(stale),
           "stale input-generation tuple does not hit a cached value");
     auto otherContext = keyA;
@@ -610,7 +619,7 @@ int main()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "cache dirty graph compiles");
     if (!compiled.ok) {
         for (auto const& error : compiled.errors)
@@ -619,16 +628,16 @@ int main()
     }
     Check(graph.InputVersions().maps.front().generation == 13,
           "compiled graph captures immutable input versions");
-    graph.DirtyMap(desc.maps.front().path, 14);
-    auto sourceNode = graph.NodeIdForPath(
+    graph.DirtyMap(usdGenUsd::KeyOf(desc.maps.front().path), 14);
+    auto sourceNode = usdGenUsd::NodeIdForPath(graph, 
         SdfPath("/cache/groomA/source"));
-    auto mapNode = graph.NodeIdForPath(desc.terminal);
+    auto mapNode = usdGenUsd::NodeIdForPath(graph, desc.terminal);
     Check(graph.InputVersions().maps.front().generation == 14 &&
               graph.Node(sourceNode).captureNeeded &&
               graph.Node(mapNode).captureNeeded,
           "map dirty updates version and invalidates consumer and descendant captures");
     Check(graph.AnyDirty(), "map dirty remains observable");
-    graph.DirtyInput(desc.curveSets[2].path, 10);
+    graph.DirtyInput(usdGenUsd::KeyOf(desc.curveSets[2].path), 10);
     Check(graph.InputVersions().references.front().generation == 10 &&
               graph.Node(mapNode).captureNeeded,
           "curve dirty updates reference generation without clearing existing dirt");
@@ -642,7 +651,7 @@ int main()
     UsdGenSessionCooker cooker(2, 1024 * 1024);
     auto cookedDesc = std::make_shared<const UsdGenGraphDesc>(desc);
     UsdGenGenerationConstPtr first = cooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
     Check(first && first->id == 0 &&
               cooker.Stats().executionCacheMisses == 1,
@@ -657,7 +666,7 @@ int main()
               "accepted cooker publication seeds bounded immutable cache");
     UsdGenStats const afterAdmission = cooker.Stats();
     UsdGenGenerationConstPtr second = cooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, first, afterAdmission, false, 1, 2, -1);
     Check(second && second->id == 1 && !cooker.TakeCacheCandidate() &&
               cooker.Stats().executionCacheHits == 1 &&
@@ -674,7 +683,7 @@ int main()
     UsdGenSessionCooker leaderCooker(2, 1024 * 1024, sharedCpuDomain);
     UsdGenSessionCooker followerCooker(2, 1024 * 1024, sharedCpuDomain);
     auto sharedLeader = leaderCooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 6.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 6.0,
         UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
     auto sharedLeaderCandidate = leaderCooker.TakeCacheCandidate();
     Check(sharedLeader && !sharedLeader->tiles.empty() && sharedLeaderCandidate &&
@@ -684,7 +693,7 @@ int main()
     if (!sharedLeader || sharedLeader->tiles.empty() || !sharedLeaderCandidate)
         return 1;
     auto sharedFollower = followerCooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 6.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 6.0,
         UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
     Check(sharedFollower && sharedFollower != sharedLeader &&
               sharedFollower->tiles.size() == sharedLeader->tiles.size() &&
@@ -695,7 +704,7 @@ int main()
               followerCooker.Stats().executionCacheMisses == 0,
           "exact shared CPU tuple creates a fresh wrapper over immutable COW payload data");
     auto oldEpochOutput = leaderCooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 7.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 7.0,
         UsdGenCommitReason::NoticeBatchEnd, sharedLeader, leaderCooker.Stats(),
         false, 1, 2, -1);
     auto oldEpochCandidate = leaderCooker.TakeCacheCandidate();
@@ -711,7 +720,7 @@ int main()
               sharedCpuDomain->Size() == 0,
           "domain invalidation rejects both a completed cooker's deferred session action and cache admission");
     auto freshEpochOutput = leaderCooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 7.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 7.0,
         UsdGenCommitReason::NoticeBatchEnd, oldEpochOutput, leaderCooker.Stats(),
         false, 1, 3, -1);
     auto freshEpochPublication = leaderCooker.TakePublicationFence();
@@ -729,7 +738,7 @@ int main()
     // graph baseline so a later miss cannot incrementally reuse stale data.
     UsdGenStats afterFirstHit = cooker.Stats();
     UsdGenGenerationConstPtr rebuiltHit = cooker.Cook(
-        cookedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, second, afterFirstHit, false,
         2, 3, -1);
     Check(rebuiltHit && rebuiltHit->id == 2 &&
@@ -743,7 +752,7 @@ int main()
     auto valueChangedDesc = std::make_shared<const UsdGenGraphDesc>(
         std::move(valueChanged));
     UsdGenGenerationConstPtr third = cooker.Cook(
-        valueChangedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*valueChangedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, rebuiltHit, {}, false, 3, 4, -1);
     auto changedCandidate = cooker.TakeCacheCandidate();
     Check(third && changedCandidate && cooker.ExecutionCacheSize() == 1,
@@ -759,7 +768,7 @@ int main()
     auto mapChangedDesc = std::make_shared<const UsdGenGraphDesc>(
         std::move(mapChanged));
     UsdGenGenerationConstPtr mapResult = cooker.Cook(
-        mapChangedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*mapChangedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, third, {}, false, 4, 5, -1);
     Check(mapResult && cooker.TakeCacheCandidate(),
           "resolved map parameter change misses exact cache identity");
@@ -769,7 +778,7 @@ int main()
     auto densityChangedDesc = std::make_shared<const UsdGenGraphDesc>(
         std::move(densityChanged));
     UsdGenGenerationConstPtr densityResult = cooker.Cook(
-        densityChangedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*densityChangedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, mapResult, {}, false, 5, 6, -1);
     Check(densityResult && cooker.TakeCacheCandidate(),
           "paint-density change misses exact cache identity (no stale roots)");
@@ -784,7 +793,7 @@ int main()
     paintBase.maps.push_back(paint);
     auto paintBaseDesc = std::make_shared<const UsdGenGraphDesc>(paintBase);
     UsdGenGenerationConstPtr paintResult = cooker.Cook(
-        paintBaseDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*paintBaseDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, densityResult, {}, false,
         6, 7, -1);
     Check(paintResult && cooker.TakeCacheCandidate(),
@@ -795,7 +804,7 @@ int main()
     auto paintChangedDesc = std::make_shared<const UsdGenGraphDesc>(
         std::move(paintChanged));
     UsdGenGenerationConstPtr paintChangedResult = cooker.Cook(
-        paintChangedDesc, UsdGenContext::Interactive, false, {}, 1.0,
+        usdGenUsd::LowerShared(*paintChangedDesc), UsdGenContext::Interactive, false, {}, 1.0,
         UsdGenCommitReason::NoticeBatchEnd, paintResult, {}, false,
         7, 8, -1);
     Check(paintChangedResult && cooker.TakeCacheCandidate(),
@@ -840,7 +849,7 @@ int main()
             std::make_shared<const UsdGenGraphDesc>(std::move(big));
         UsdGenSessionCooker bigCooker(0, 256u * 1024u * 1024u);
         UsdGenGenerationConstPtr bigFirst = bigCooker.Cook(
-            bigDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            usdGenUsd::LowerShared(*bigDesc), UsdGenContext::Interactive, false, {}, 0.0,
             UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
         auto bigCandidate = bigCooker.TakeCacheCandidate();
         Check(bigFirst && !bigFirst->tiles.empty() && bigCandidate,
@@ -851,7 +860,7 @@ int main()
         // (the lookup key predates the compiled node digests), so
         // admission lands on the second identical cook; the third hits.
         UsdGenGenerationConstPtr bigSecond = bigCooker.Cook(
-            bigDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            usdGenUsd::LowerShared(*bigDesc), UsdGenContext::Interactive, false, {}, 0.0,
             UsdGenCommitReason::NoticeBatchEnd, bigFirst, bigCooker.Stats(),
             false, 1, 2, -1);
         auto bigCandidate2 = bigCooker.TakeCacheCandidate();
@@ -860,7 +869,7 @@ int main()
                   bigCooker.ExecutionCacheSize() == 1,
               "second big-key cook admits its cache entry");
         UsdGenGenerationConstPtr bigThird = bigCooker.Cook(
-            bigDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            usdGenUsd::LowerShared(*bigDesc), UsdGenContext::Interactive, false, {}, 0.0,
             UsdGenCommitReason::NoticeBatchEnd, bigSecond, bigCooker.Stats(),
             false, 2, 3, -1);
         Check(bigThird && !bigCooker.TakeCacheCandidate() &&
@@ -871,7 +880,7 @@ int main()
         auto bigFlippedDesc =
             std::make_shared<const UsdGenGraphDesc>(std::move(bigFlipped));
         UsdGenGenerationConstPtr bigFourth = bigCooker.Cook(
-            bigFlippedDesc, UsdGenContext::Interactive, false, {}, 0.0,
+            usdGenUsd::LowerShared(*bigFlippedDesc), UsdGenContext::Interactive, false, {}, 0.0,
             UsdGenCommitReason::NoticeBatchEnd, bigThird, bigCooker.Stats(),
             false, 3, 4, -1);
         Check(bigFourth && bigCooker.TakeCacheCandidate() &&

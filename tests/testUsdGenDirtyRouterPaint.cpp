@@ -7,6 +7,7 @@
 // paint ref; a bare coarse container dirty keeps the pre-existing
 // SurfacePoints route; unrelated surfaces and primvars stay quiet.
 #include "usdGenImaging/usdGenDirtyRouter.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -126,14 +127,14 @@ int main()
     // 1. The compiled snapshot resolves paint maps from both ref lists.
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(Desc(), &graph);
+    auto compiled = usdGenUsd::Compile(compiler, Desc(), &graph);
     for (auto const &e : compiled.errors) std::fprintf(stderr, "%s\n", e.c_str());
     CHECK(compiled.ok);
     auto snapshot = graph.RoutingSnapshot();
     CHECK(snapshot->nodes.size() == 2);
     UsdGenGraphRoutingNode const *grow = nullptr;
     for (auto const &node : snapshot->nodes)
-        if (node.path == SdfPath("/Grow")) grow = &node;
+        if (usdGenUsd::PathOf(usdGenUsd::Paths(*snapshot), node.key) == SdfPath("/Grow")) grow = &node;
     CHECK(grow != nullptr);
     CHECK(grow->paintRefs.size() == 2);
     bool sawLength = false, sawWidth = false;

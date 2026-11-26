@@ -11,6 +11,7 @@
 // XZ plane, root normal +Y) -> GuideInterpolate with a reference guide set.
 // Expected values are computed by hand from the reference rules.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/ops/guideBlend.h"
@@ -147,7 +148,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, bool quiet
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         if (!quiet)
             for (auto const &e : compiled.errors) std::printf("  compile: %s\n", e.c_str());
@@ -155,7 +156,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, bool quiet
     }
     UsdGenScheduler scheduler(4);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         if (!quiet)

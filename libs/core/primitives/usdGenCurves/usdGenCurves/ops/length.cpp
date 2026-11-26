@@ -323,7 +323,7 @@ bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &c
 
     // usdGen:lengthMap: the product of every bound mask, sampled at the root
     // (closest point on the rest surface to the strand's rest root).
-    std::vector<UsdGenMapDesc const *> const maps =
+    std::vector<UsdGenMapInput const *> const maps =
         strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount,
                           rec.Token(kTokLengthMap));
     if (!maps.empty()) {
@@ -340,7 +340,7 @@ bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &c
                 strand::ClosestHit const hit = bvh.Closest(opUtil::RestPoint(upstream, spans[c]));
                 if (!hit.hit) continue;
                 float m = 1.0f;
-                for (UsdGenMapDesc const *map : maps)
+                for (UsdGenMapInput const *map : maps)
                     m *= strand::SampleMaskMap(*map, bvh, hit.triangle, hit.bary, 1.0f);
                 strands.mask[c] = strand::Clamp01(m);
             }

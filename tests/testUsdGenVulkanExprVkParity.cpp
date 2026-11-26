@@ -35,6 +35,7 @@
 // evidence and reports NVIDIA as retry-pending.
 
 #include "usdGen/vulkan/exprVkApply.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/exprVkContext.h"
 #include "usdGen/vulkan/exprVkEvaluate.h"
 #include "usdGen/vulkan/exprVkParameters.h"
@@ -766,7 +767,7 @@ void CompareFloat64(Lane& lane, std::string const& label, std::string const& sou
         domain, VtValue(literal), "double", expr::ScalarType::Float64, 1, "width");
     vulkan::ExprVkCompiledBinding compiled;
     std::vector<std::string> diagnostics;
-    if (vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled, &diagnostics) !=
+    if (vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled, &diagnostics) !=
         vulkan::ExprVkCompileStatus::Ok) {
         Check(false, label + ": compiles - " +
                 (diagnostics.empty() ? std::string() : diagnostics.front()));
@@ -1037,7 +1038,7 @@ void StoreTypes(Lane& lane) {
             MakeBinding(D::Point, c.literal, c.native, c.type, 1, "width");
         vulkan::ExprVkCompiledBinding compiled;
         std::vector<std::string> diagnostics;
-        if (vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled,
+        if (vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled,
                                          &diagnostics) !=
             vulkan::ExprVkCompileStatus::Ok) {
             Check(false, label + ": compiles");
@@ -1139,7 +1140,7 @@ void StoreTypes(Lane& lane) {
         vulkan::ExprVkCompiledBinding compiled;
         std::vector<std::string> diagnostics;
         bool const compiledOk =
-            vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled,
+            vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled,
                                          &diagnostics) == vulkan::ExprVkCompileStatus::Ok;
         bool invalid = false;
         if (compiledOk) {
@@ -1289,7 +1290,7 @@ void WidthApply(Lane& lane, VkNative& native,
             MakeBinding(domain, literal, nativeType, scalar, 1, destination);
         vulkan::ExprVkCompiledBinding compiled;
         std::vector<std::string> diagnostics;
-        if (vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled,
+        if (vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled,
                                          &diagnostics) !=
             vulkan::ExprVkCompileStatus::Ok)
             return false;
@@ -1506,7 +1507,7 @@ void ExprOpApply(Lane& lane, VkNative& native,
             BindingGraph(source, nativeType, scalar, components, domain, literal);
         UsdGenExpressionBinding binding =
             MakeBinding(domain, literal, nativeType, scalar, components, destination);
-        return vulkan::ExprVkCompileBinding(graph, binding, true, true, out) ==
+        return vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, out) ==
             vulkan::ExprVkCompileStatus::Ok;
     };
     auto runOp = [&](std::shared_ptr<const vulkan::ChargedBuffer> field,
@@ -1645,7 +1646,7 @@ void ErrorPaths(Lane& lane, vulkan::ExprVkContextPipeline* contextPipeline) {
                                                       "width");
         vulkan::ExprVkCompiledBinding compiled;
         bool const compiledOk =
-            vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled) ==
+            vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled) ==
             vulkan::ExprVkCompileStatus::Ok;
         bool invalid = false;
         if (compiledOk) {
@@ -1667,7 +1668,7 @@ void ErrorPaths(Lane& lane, vulkan::ExprVkContextPipeline* contextPipeline) {
                                                       expr::ScalarType::Float64, 1,
                                                       "width");
         vulkan::ExprVkCompiledBinding compiled;
-        Check(vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled) ==
+        Check(vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled) ==
                 vulkan::ExprVkCompileStatus::CompileError,
             "error/syntax: CompileError");
     }
@@ -1681,7 +1682,7 @@ void ErrorPaths(Lane& lane, vulkan::ExprVkContextPipeline* contextPipeline) {
                                                       expr::ScalarType::Float64, 1,
                                                       "width");
         vulkan::ExprVkCompiledBinding compiled;
-        Check(vulkan::ExprVkCompileBinding(graph, binding, true, true, &compiled) ==
+        Check(vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), true, true, &compiled) ==
                 vulkan::ExprVkCompileStatus::UnsupportedType,
             "error/sampler: UnsupportedType");
     }
@@ -1695,13 +1696,13 @@ void ErrorPaths(Lane& lane, vulkan::ExprVkContextPipeline* contextPipeline) {
                                                       expr::ScalarType::Float32, 1,
                                                       "width");
         vulkan::ExprVkCompiledBinding compiled;
-        Check(vulkan::ExprVkCompileBinding(graph, binding, false, true, &compiled) ==
+        Check(vulkan::ExprVkCompileBinding(usdGenUsd::Lower(graph), usdGenUsd::Lower(binding), false, true, &compiled) ==
                 vulkan::ExprVkCompileStatus::CompileError,
             "error/exprop-value: CompileError");
         UsdGenGraphDesc timeGraph = BindingGraph("$frame + 1", "float",
                                                  expr::ScalarType::Float32, 1,
                                                  expr::Domain::Point, VtValue(0.0f));
-        Check(vulkan::ExprVkCompileBinding(timeGraph, binding, true, false, &compiled) ==
+        Check(vulkan::ExprVkCompileBinding(usdGenUsd::Lower(timeGraph), usdGenUsd::Lower(binding), true, false, &compiled) ==
                 vulkan::ExprVkCompileStatus::CompileError,
             "error/exprop-time: CompileError");
     }

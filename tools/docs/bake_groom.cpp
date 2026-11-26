@@ -4,6 +4,7 @@
 // offline renderers. The compiler and scheduler are the same CPU cook tested
 // by testUsdGenGroomExamples; this tool never synthesizes strand geometry.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -118,7 +119,7 @@ int main(int argc, char **argv) try {
         std::fprintf(stderr, "validation: %s\n", warning.c_str());
     usdGen::UsdGenCompiler compiler;
     usdGen::UsdGenGraph graph;
-    auto const compiled = compiler.Compile(desc, &graph);
+    auto const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &error : compiled.errors) std::fprintf(stderr, "compile: %s\n", error.c_str());
         return 1;

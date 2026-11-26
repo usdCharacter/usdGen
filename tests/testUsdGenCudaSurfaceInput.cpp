@@ -1,4 +1,5 @@
 #include "pxr/base/gf/vec2f.h"
+#include "usdGenUsd/lower.h"
 #include "cudaSurfaceInput.h"
 #include <cstdio>
 #include <limits>
@@ -15,7 +16,7 @@ int main() {
     source.faceVertexIndices = {0, 1, 2, 0, 2, 3, 4};
     CudaSurfacePrepared prepared;
     std::vector<std::string> diagnostics;
-    if (PrepareCudaSurface(source, 8, &prepared, &diagnostics) != CudaSurfacePreparationStatus::Ok) {
+    if (PrepareCudaSurface(usdGenUsd::Lower(source), 8, &prepared, &diagnostics) != CudaSurfacePreparationStatus::Ok) {
         std::fprintf(stderr, "valid surface rejected\n"); return 1;
     }
     if (prepared.restPoints.size() != 5 || prepared.currentPoints.size() != 5 ||
@@ -28,7 +29,7 @@ int main() {
     normalSource.restNormals = {{0, 0, 1}};
     normalSource.restNormalDomain = UsdGenSurfaceNormalDomain::Constant;
     CudaSurfacePrepared normalPrepared;
-    if (PrepareCudaSurface(normalSource, 8, &normalPrepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(normalSource), 8, &normalPrepared, nullptr) !=
             CudaSurfacePreparationStatus::Ok ||
         normalPrepared.restNormalDomain != UsdGenSurfaceNormalDomain::Constant ||
         normalPrepared.restNormals.size() != 1 ||
@@ -37,7 +38,7 @@ int main() {
     }
     normalSource.restNormals = {{0, 0, 1}, {0, 1, 0}};
     normalSource.restNormalDomain = UsdGenSurfaceNormalDomain::Uniform;
-    if (PrepareCudaSurface(normalSource, 8, &normalPrepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(normalSource), 8, &normalPrepared, nullptr) !=
             CudaSurfacePreparationStatus::Ok ||
         normalPrepared.restNormals.size() != 2 ||
         normalPrepared.restNormalDomain != UsdGenSurfaceNormalDomain::Uniform) {
@@ -46,7 +47,7 @@ int main() {
     normalSource.restNormals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1},
                                 {0, 0, 1}, {0, 0, 1}};
     normalSource.restNormalDomain = UsdGenSurfaceNormalDomain::Vertex;
-    if (PrepareCudaSurface(normalSource, 8, &normalPrepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(normalSource), 8, &normalPrepared, nullptr) !=
             CudaSurfacePreparationStatus::Ok ||
         normalPrepared.restNormals.size() != 5 ||
         normalPrepared.restNormalDomain != UsdGenSurfaceNormalDomain::Vertex) {
@@ -55,7 +56,7 @@ int main() {
     normalSource.restNormals = {{0, 0, 1}, {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
                                 {0, 0, 1}, {0, 0, 1}, {0, 0, 1}};
     normalSource.restNormalDomain = UsdGenSurfaceNormalDomain::FaceVarying;
-    if (PrepareCudaSurface(normalSource, 8, &normalPrepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(normalSource), 8, &normalPrepared, nullptr) !=
             CudaSurfacePreparationStatus::Ok ||
         normalPrepared.restNormals.size() != 7 ||
         normalPrepared.restNormalDomain != UsdGenSurfaceNormalDomain::FaceVarying) {
@@ -65,7 +66,7 @@ int main() {
     auto animated = source;
     animated.points[0] = GfVec3f(.25f, 0, 0);
     CudaSurfacePrepared animatedPrepared;
-    if (PrepareCudaSurface(animated, 8, &animatedPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
+    if (PrepareCudaSurface(usdGenUsd::Lower(animated), 8, &animatedPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
         !RestBindingMatches(prepared, animatedPrepared) ||
         animatedPrepared.currentPoints[0].x != .25f) {
         std::fprintf(stderr, "current animation changed persistent rest key\n"); return 1;
@@ -73,12 +74,12 @@ int main() {
     auto changedTopology = source;
     changedTopology.faceVertexIndices[0] = 4;
     CudaSurfacePrepared topologyPrepared;
-    if (PrepareCudaSurface(changedTopology, 8, &topologyPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
+    if (PrepareCudaSurface(usdGenUsd::Lower(changedTopology), 8, &topologyPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
         RestBindingMatches(prepared, topologyPrepared)) {
         std::fprintf(stderr, "topology did not invalidate rest key\n"); return 1;
     }
     CudaSurfacePrepared budgetPrepared;
-    if (PrepareCudaSurface(source, 9, &budgetPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
+    if (PrepareCudaSurface(usdGenUsd::Lower(source), 9, &budgetPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
         RestBindingMatches(prepared, budgetPrepared)) {
         std::fprintf(stderr, "sample budget did not invalidate rest key\n"); return 1;
     }
@@ -86,7 +87,7 @@ int main() {
     CudaSurfacePrepared sentinel = prepared;
     auto malformed = source;
     malformed.faceVertexIndices[0] = 99;
-    if (PrepareCudaSurface(malformed, 8, &prepared, &diagnostics) == CudaSurfacePreparationStatus::Ok ||
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, &diagnostics) == CudaSurfacePreparationStatus::Ok ||
         prepared.restPoints.size() != sentinel.restPoints.size() ||
         prepared.faceOffsets.size() != sentinel.faceOffsets.size() ||
         prepared.faceOffsets.back() != sentinel.faceOffsets.back()) {
@@ -99,8 +100,8 @@ int main() {
         subset.subsetFaces = {0};
         subset.isSubset = true;
         CudaSurfacePrepared subsetPrepared, wholePrepared;
-        if (PrepareCudaSurface(subset, 8, &subsetPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
-            PrepareCudaSurface(source, 8, &wholePrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
+        if (PrepareCudaSurface(usdGenUsd::Lower(subset), 8, &subsetPrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
+            PrepareCudaSurface(usdGenUsd::Lower(source), 8, &wholePrepared, nullptr) != CudaSurfacePreparationStatus::Ok ||
             subsetPrepared.faceOffsets != wholePrepared.faceOffsets ||
             subsetPrepared.faceVertexIndices != wholePrepared.faceVertexIndices ||
             subsetPrepared.restPoints.size() != wholePrepared.restPoints.size()) {
@@ -109,18 +110,18 @@ int main() {
     }
     malformed = source;
     malformed.restFromCurrentPoints = true;
-    if (PrepareCudaSurface(malformed, 8, &prepared, nullptr) != CudaSurfacePreparationStatus::UnsupportedFeature) return 1;
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, nullptr) != CudaSurfacePreparationStatus::UnsupportedFeature) return 1;
     malformed = source;
     malformed.worldMatrix[0][0] = 2.0;
-    if (PrepareCudaSurface(malformed, 8, &prepared, nullptr) != CudaSurfacePreparationStatus::UnsupportedFeature) return 1;
-    if (PrepareCudaSurface(source, 3, &prepared, nullptr) != CudaSurfacePreparationStatus::InvalidArgument) return 1;
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, nullptr) != CudaSurfacePreparationStatus::UnsupportedFeature) return 1;
+    if (PrepareCudaSurface(usdGenUsd::Lower(source), 3, &prepared, nullptr) != CudaSurfacePreparationStatus::InvalidArgument) return 1;
     malformed = source;
     malformed.faceVertexCounts[0] = 5;
-    if (PrepareCudaSurface(malformed, 8, &prepared, nullptr) != CudaSurfacePreparationStatus::InvalidTopology) return 1;
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, nullptr) != CudaSurfacePreparationStatus::InvalidTopology) return 1;
     malformed = source;
     malformed.restNormals = {{0, 0, 1}};
     malformed.restNormalDomain = UsdGenSurfaceNormalDomain::None;
-    if (PrepareCudaSurface(malformed, 8, &prepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, nullptr) !=
             CudaSurfacePreparationStatus::InvalidArgument ||
         prepared.restPoints.size() != sentinel.restPoints.size()) {
         std::fprintf(stderr, "normal None/cardinality mismatch was accepted or damaged output\n"); return 1;
@@ -128,12 +129,12 @@ int main() {
     malformed = source;
     malformed.restNormals = {{0, 0, 1}};
     malformed.restNormalDomain = UsdGenSurfaceNormalDomain::Uniform;
-    if (PrepareCudaSurface(malformed, 8, &prepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, nullptr) !=
         CudaSurfacePreparationStatus::InvalidArgument) return 1;
     malformed = source;
     malformed.restNormals = {{std::numeric_limits<float>::quiet_NaN(), 0, 1}};
     malformed.restNormalDomain = UsdGenSurfaceNormalDomain::Constant;
-    if (PrepareCudaSurface(malformed, 8, &prepared, nullptr) !=
+    if (PrepareCudaSurface(usdGenUsd::Lower(malformed), 8, &prepared, nullptr) !=
         CudaSurfacePreparationStatus::NonFiniteInput) return 1;
     return 0;
 }

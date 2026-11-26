@@ -4,7 +4,7 @@
 #ifndef USDGEN_SURFACE_ROOT_FRAMES_H
 #define USDGEN_SURFACE_ROOT_FRAMES_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include <cstdint>
 #include <string>
@@ -31,7 +31,7 @@ struct UsdGenSurfaceRootFrameResult
 /// Geometric/parameterisation degeneracy succeeds with valid=0/dropMask=1;
 /// callers compact every C3 channel using the corresponding source index.
 bool UsdGenBuildRestSurfaceRootFrames(
-    UsdGenSurfaceDesc const &surface,
+    UsdGenSurfaceInput const &surface,
     VtIntArray const &rootPrim,
     VtVec2fArray const &rootUV,
     UsdGenSurfaceRootFrameResult *out,

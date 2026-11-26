@@ -9,6 +9,7 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "usdGen/executionPipeline.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/vulkan/deviceContext.h"
@@ -78,7 +79,7 @@ class CountingProvider final : public UsdGenSessionDeviceProvider {
 public:
     explicit CountingProvider(std::shared_ptr<UsdGenSessionDeviceProvider> provider)
         : provider_(std::move(provider)) {}
-    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphDesc const& desc,
+    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const& desc,
                                           UsdGenDiagnostics* diagnostics) const override {
         return provider_->Compile(desc, diagnostics);
     }
@@ -199,20 +200,20 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const& error : compiled.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto run = scheduler.Run(graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     out->points.resize(buffer.totalCvs);
     out->rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
@@ -433,9 +434,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "Vulkan Session provider CPU six-plane oracle failed\n");
         return 1;
     }
-    leaderSession->SetGraphDesc(descriptor);
+    usdGenUsd::SetGraphDesc(*leaderSession, descriptor);
     leaderSession->SetDevicePublicationEnabled(true);
-    followerSession->SetGraphDesc(descriptor);
+    usdGenUsd::SetGraphDesc(*followerSession, descriptor);
     followerSession->SetDevicePublicationEnabled(true);
     auto gate = std::make_shared<Gate>();
     auto gateStarted = gate->started.get_future();
@@ -462,7 +463,7 @@ int main(int argc, char** argv) {
         // The synchronous descriptor mutation runs on this Session's owner,
         // cancels its exact parked registration, and supersedes its epoch.
         // No new commit is started and the shared leader remains blocked.
-        followerSession->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*followerSession, descriptor);
         CHECK(followerDoneFuture.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
         followerCompletion = followerDoneFuture.get();
         CHECK(followerCompletion.outcome == UsdGenExecutionPipeline::Outcome::Superseded);

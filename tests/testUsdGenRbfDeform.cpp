@@ -20,6 +20,7 @@
 // widths or colours, the drivers with the stage's own locators; the scene
 // globals' frame alone cooks nothing (the example reads no $frame).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGen/graph.h"
@@ -464,7 +465,7 @@ Cooked Cook(UsdStageRefPtr const &stage, double time,
     out.errors = desc.validationErrors;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         out.errors.insert(out.errors.end(), compiled.errors.begin(), compiled.errors.end());
         return out;
@@ -475,8 +476,8 @@ Cooked Cook(UsdStageRefPtr const &stage, double time,
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     out.errors.insert(out.errors.end(), run.diagnostics.errors.begin(), run.diagnostics.errors.end());
     if (run.diagnostics.HasErrors()) return out;
-    out.input = NodeBuffer(graph, graph.NodeIdForPath(input));
-    out.output = NodeBuffer(graph, graph.NodeIdForPath(deform));
+    out.input = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, input));
+    out.output = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, deform));
     out.ok = out.output.totalCurves > 0 && out.output.totalCvs == out.input.totalCvs &&
         out.output.totalCvs % out.output.totalCurves == 0;
     out.cvs = out.ok ? out.output.totalCvs / out.output.totalCurves : 0;
@@ -674,7 +675,8 @@ void CheckNonFiniteCapture()
     upstream.px[1] = 1e20f;  // the cubic kernel overflows float here
 
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered678 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered678;
     ctx.surface = 0;
     UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     UsdGenDeformOp op(registry.Record(registry.Find(TfToken("UsdGenDeform"))));
@@ -754,17 +756,17 @@ void CheckDeformChosenDigest()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "the digest fixture compiles");
     if (!compiled.ok) return;
-    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    UsdGenNodeId const deformId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
     auto *deformOp = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto runPose = [&]() -> bool {
-        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
-        ctx.desc = &graph.Desc();
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
         return rr.ok && !run.diagnostics.HasErrors();
     };
@@ -872,19 +874,19 @@ void CheckDefaultSpaceUntilDeform()
         }
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        UsdGenCompileResult const compiled = compiler.Compile(d, &graph);
+        UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, d, &graph);
         Check(compiled.ok, "the Default-space fixture compiles " + label);
         if (!compiled.ok) continue;
         UsdGenScheduler scheduler(2);
         UsdGenEvalContext ctx;
         uint64_t gen = 0;
         auto run = [&]() -> bool {
-            UsdGenCompileResult const rr = compiler.Recompile(d, &graph);
-            ctx.desc = &graph.Desc();
+            UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, d, &graph);
+            ctx.desc = &graph.Spec();
             UsdGenRunResult const result = scheduler.Run(graph, ctx, ++gen);
             return rr.ok && !result.diagnostics.HasErrors();
         };
-        UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/groom/clump"));
+        UsdGenNodeId const clumpId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/clump"));
         UsdGenNodeId const terminal = graph.TerminalNodeId();
         Check(run(), "the rest pose cooks " + label);
         UsdGenCurveBuffer const clumped = NodeBuffer(graph, clumpId);
@@ -930,16 +932,16 @@ void CheckDefaultSpaceUntilDeform()
     });
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(after, &graph).ok) { Check(false, "the pose-space fixture compiles"); return; }
+    if (!usdGenUsd::Compile(compiler, after, &graph).ok) { Check(false, "the pose-space fixture compiles"); return; }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto run = [&]() -> bool {
-        UsdGenCompileResult const rr = compiler.Recompile(after, &graph);
-        ctx.desc = &graph.Desc();
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, after, &graph);
+        ctx.desc = &graph.Spec();
         return rr.ok && !scheduler.Run(graph, ctx, ++gen).diagnostics.HasErrors();
     };
-    UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/groom/clump"));
+    UsdGenNodeId const clumpId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/clump"));
     Check(run(), "the pose-space fixture cooks its rest pose");
     UsdGenCapture const *restCapture = graph.Node(clumpId).capture.get();
     VtVec3fArray posed = after.surfaces[0].restPoints;
@@ -972,14 +974,14 @@ void CheckDeformEvaluateViewShapes()
     }
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "the view-shape fixture compiles");
-    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "the view-shape fixture compiles");
+    UsdGenNodeId const deformId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
     auto *op = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
-    UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
-    ctx.desc = &graph.Desc();
+    UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+    ctx.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
     Check(rr.ok && !run.diagnostics.HasErrors(), "the view-shape pose cooks");
     UsdGenCurveBuffer const term = NodeBuffer(graph, deformId);
@@ -1068,7 +1070,7 @@ void CheckDeformEvaluateViewShapes()
     maskNode.params.push_back(UsdGenParamValue{TfToken("mask"), VtValue(0.5), false});
     UsdGenGraphDesc const maskGraph;
     UsdGenOpRegistry const &maskRegistry = UsdGenOpRegistry::Get();
-    UsdGenStackParams maskStack(maskGraph, maskNode,
+    usdGenUsd::LoweredParams maskStack(maskGraph, maskNode,
         maskRegistry.Record(maskRegistry.Find(TfToken("UsdGenDeform"))));
     UsdGenParamView const &maskView = maskStack.View();
     UsdGenEvalContext maskCtx;
@@ -1657,7 +1659,7 @@ void CheckFusedTileExtents()
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     UsdGenGraphDesc desc = build(1.0);
-    if (!compiler.Compile(desc, &graph).ok) {
+    if (!usdGenUsd::Compile(compiler, desc, &graph).ok) {
         Check(false, "fused extents: the rest pose compiles"); return;
     }
     UsdGenScheduler scheduler(4);
@@ -1669,7 +1671,7 @@ void CheckFusedTileExtents()
     }
     desc = build(20.0);
     context.time = 20.0;
-    if (!compiler.Recompile(desc, &graph).ok) {
+    if (!usdGenUsd::Recompile(compiler, desc, &graph).ok) {
         Check(false, "fused extents: the pose recompiles"); return;
     }
     UsdGenRunResult const run = scheduler.Run(graph, context, ++gen);
@@ -1722,9 +1724,9 @@ void CheckCaptureDirectChained()
     desc.terminal = SdfPath("/groom/deform2");
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "chained direct: the fixture compiles");
-    UsdGenNodeId const d1 = graph.NodeIdForPath(SdfPath("/groom/deform"));
-    UsdGenNodeId const d2 = graph.NodeIdForPath(SdfPath("/groom/deform2"));
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "chained direct: the fixture compiles");
+    UsdGenNodeId const d1 = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
+    UsdGenNodeId const d2 = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform2"));
     if (d1 == kUsdGenInvalidNode || d2 == kUsdGenInvalidNode) {
         Check(false, "chained direct: both deforms compile");
         return;
@@ -1733,8 +1735,8 @@ void CheckCaptureDirectChained()
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto runPose = [&]() -> bool {
-        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
-        ctx.desc = &graph.Desc();
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
         return rr.ok && !run.diagnostics.HasErrors();
     };
@@ -1773,16 +1775,16 @@ void CheckCaptureDirectMaskReuse()
     UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "mask reuse: the fixture compiles");
-    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "mask reuse: the fixture compiles");
+    UsdGenNodeId const deformId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
     UsdGenNodeId const growId = graph.Node(deformId).input;
     auto *op = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto runPose = [&]() -> bool {
-        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
-        ctx.desc = &graph.Desc();
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
         return rr.ok && !run.diagnostics.HasErrors();
     };
@@ -1875,15 +1877,15 @@ void CheckCaptureDirectFailureRestore()
     UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "failure restore: the fixture compiles");
-    UsdGenNodeId const deformId = graph.NodeIdForPath(SdfPath("/groom/deform"));
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "failure restore: the fixture compiles");
+    UsdGenNodeId const deformId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
     UsdGenNodeId const growId = graph.Node(deformId).input;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto runPose = [&]() -> UsdGenRunResult {
-        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
-        ctx.desc = &graph.Desc();
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        ctx.desc = &graph.Spec();
         UsdGenRunResult run = scheduler.Run(graph, ctx, ++gen);
         if (!rr.ok) run.diagnostics.Error("recompile failed");
         return run;
@@ -1934,24 +1936,26 @@ void CheckCaptureDirectFailureRestore()
 void CheckResidentAnimation()
 {
     auto binding = std::make_shared<UsdGenRbfAnimationBinding>();
-    binding->surface = SdfPath("/surface");
+    usdGenUsd::PathRecorder keys;   // the cooked spec's path table, by hand
+    binding->surface = keys(SdfPath("/surface"));
     std::vector<GfVec3d> rest = Cloud(20, 59);
     std::string error;
     Check(binding->field.Bind(rest, &error) && binding->field.Solve(rest, &error),
           "resident animation: bind the rest driver field");
     UsdGenRbfAnimationTile tile;
-    tile.path = SdfPath("/groom/render/tile");
+    SdfPath const tilePath("/groom/render/tile");
+    tile.prim = UsdGenPrimRef{keys(tilePath)};
     tile.widthPadding = 0.025;
     for (auto p : Cloud(200, 81)) tile.restPoints.push_back(GfVec3f(p));
     binding->tiles.push_back(tile);
     UsdGenGraphDesc desc;
     desc.surfaces.resize(1);
-    desc.surfaces[0].path = binding->surface;
+    desc.surfaces[0].path = SdfPath("/surface");
     for (size_t i=0; i!=rest.size(); ++i) {
         binding->sampleIndices.push_back(i);
         desc.surfaces[0].points.push_back(GfVec3f(rest[i]));
     }
-    auto initial = usdGenImaging::BuildRbfAnimation(binding, GfMatrix4d(1));
+    auto initial = usdGenImaging::BuildRbfAnimation(binding, keys.Table(), GfMatrix4d(1));
     Check(bool(initial), "resident animation: build static renderer inputs");
     if (!initial) return;
     for (int pose=0; pose!=3; ++pose) {
@@ -1974,12 +1978,12 @@ void CheckResidentAnimation()
         auto scene = HdRetainedSceneIndex::New();
         for (auto const& entry : posed->computations)
             scene->AddPrims({{entry.first,TfToken("extComputation"),entry.second}});
-        scene->AddPrims({{tile.path,TfToken("basisCurves"),
-            HdOverlayContainerDataSource::New(posed->overlays.at(tile.path),
+        scene->AddPrims({{tilePath,TfToken("basisCurves"),
+            HdOverlayContainerDataSource::New(posed->overlays.at(tilePath),
                 HdRetainedContainerDataSource::New(HdPrimvarsSchema::GetSchemaToken(),
                     HdRetainedContainerDataSource::New()))}});
         auto pruned = HdSiExtComputationPrimvarPruningSceneIndex::New(scene);
-        auto ds = pruned->GetPrim(tile.path).dataSource;
+        auto ds = pruned->GetPrim(tilePath).dataSource;
         auto pv = HdPrimvarsSchema::GetFromParent(ds).GetPrimvar(TfToken("points")).GetPrimvarValue();
         VtValue value = pv ? pv->GetValue(0) : VtValue();
         Check(value.IsHolding<VtVec3fArray>(), "resident animation: Hydra resolves computed positions");
@@ -1987,7 +1991,7 @@ void CheckResidentAnimation()
         auto const& points = value.UncheckedGet<VtVec3fArray>();
         auto field = binding->field;
         Check(field.Solve(now,&error), "resident animation: reference field solves");
-        auto extent = HdExtentSchema::GetFromParent(posed->overlays.at(tile.path));
+        auto extent = HdExtentSchema::GetFromParent(posed->overlays.at(tilePath));
         GfRange3d box(extent.GetMin()->GetTypedValue(0), extent.GetMax()->GetTypedValue(0));
         bool exact = points.size() == tile.restPoints.size(), contained = exact;
         for (size_t i=0; exact && i!=points.size(); ++i) {

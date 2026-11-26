@@ -7,7 +7,7 @@
 #ifndef USDGEN_IMAGING_GRAPH_DESC_SHARED_H
 #define USDGEN_IMAGING_GRAPH_DESC_SHARED_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/graphDesc.h"
 
 #include "pxr/base/tf/token.h"
 

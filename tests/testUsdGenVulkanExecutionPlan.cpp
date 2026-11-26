@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/executionBackend.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/curveLoader.h"
@@ -118,7 +119,7 @@ void AddAuthoredPlane(UsdGenCurveSetDesc* curves, char const* name,
 
 bool Rejects(UsdGenGraphDesc const& desc) {
     UsdGenDiagnostics diagnostics;
-    return !CompileVulkanSourceWidthPlan(desc, &diagnostics) && diagnostics.HasErrors();
+    return !CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics) && diagnostics.HasErrors();
 }
 
 bool HasDependency(UsdGenExecutionTaskMetadata const& task, uint32_t predecessor,
@@ -135,14 +136,14 @@ int main() {
         auto noise = MakeRootedDesc();
         noise.nodes[1].type = TfToken("UsdGenNoise");
         noise.nodes[1].params.clear();
-        CHECK(CompileVulkanSourceWidthPlan(noise));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(noise)));
 
         auto weighted = noise;
         AddAuthoredPlane(&weighted.curveSets[0], "clumpWeight_0",
                          UsdGenAuthoredPlaneType::Float32,
                          UsdGenAuthoredPlaneDomain::Point, 1);
         UsdGenDiagnostics weightedDiagnostics;
-        CHECK(!CompileVulkanSourceWidthPlan(weighted, &weightedDiagnostics));
+        CHECK(!CompileVulkanSourceWidthPlan(usdGenUsd::Lower(weighted), &weightedDiagnostics));
         CHECK(std::any_of(weightedDiagnostics.errors.begin(),
                           weightedDiagnostics.errors.end(),
             [](std::string const &error) {
@@ -154,12 +155,12 @@ int main() {
         AddAuthoredPlane(&legacyIds.curveSets[0], "clumpId_0",
                          UsdGenAuthoredPlaneType::Int32,
                          UsdGenAuthoredPlaneDomain::Primitive, 1);
-        CHECK(CompileVulkanSourceWidthPlan(legacyIds));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(legacyIds)));
         for (char const *type : {"UsdGenCurl", "UsdGenBend", "UsdGenWind"}) {
             auto unsupported = weighted;
             unsupported.nodes[1].type = TfToken(type);
             UsdGenDiagnostics unsupportedDiagnostics;
-            CHECK(!CompileVulkanSourceWidthPlan(unsupported, &unsupportedDiagnostics) &&
+            CHECK(!CompileVulkanSourceWidthPlan(usdGenUsd::Lower(unsupported), &unsupportedDiagnostics) &&
                   unsupportedDiagnostics.HasErrors());
         }
     }
@@ -171,7 +172,7 @@ int main() {
         grow.params = {{TfToken("segments"),VtValue(5),false},
                        {TfToken("length"),VtValue(2.f),false}};
         c3.nodes = {c3.nodes.front(),grow}; c3.terminal = grow.path;
-        auto handle = CompileVulkanSourceWidthPlan(c3); CHECK(handle);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(c3)); CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Steps().size() == 1 && !plan->Steps()[0].emptyGenerator &&
               !plan->Steps()[0].disabled);
@@ -181,7 +182,7 @@ int main() {
         auto &scatter = scatterDesc.nodes.front();
         scatter.type = TfToken("UsdGenScatter"); scatter.curves.clear();
         scatter.params = {{TfToken("density"),VtValue(0.f),false}};
-        handle = CompileVulkanSourceWidthPlan(scatterDesc); CHECK(handle);
+        handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(scatterDesc)); CHECK(handle);
         plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Steps().size() == 1 && plan->Steps()[0].emptyGenerator &&
               !plan->Steps()[0].disabled);
@@ -190,15 +191,15 @@ int main() {
         auto inferred = MakeDesc();
         inferred.terminal = SdfPath();
         std::reverse(inferred.nodes.begin(), inferred.nodes.end());
-        auto handle = CompileVulkanSourceWidthPlan(inferred);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(inferred));
         CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
-        CHECK(plan->Descriptor()->terminal == SdfPath("/Groom/Ops/width"));
-        CHECK(plan->WidthNodePath() == plan->Descriptor()->terminal);
+        CHECK(plan->Descriptor()->terminal == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/width")));
+        CHECK(plan->WidthNodeKey() == plan->Descriptor()->terminal);
         auto sourceOnly = MakeDesc();
         sourceOnly.nodes.resize(1);
         sourceOnly.terminal = SdfPath();
-        CHECK(CompileVulkanSourceWidthPlan(sourceOnly));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(sourceOnly)));
         auto ambiguous = MakeDesc();
         auto sibling = ambiguous.nodes.back();
         sibling.path = SdfPath("/Groom/Ops/siblingWidth");
@@ -216,7 +217,7 @@ int main() {
         for (bool authoredFrames : {false, true}) {
             auto singular = authoredFrames ? MakeRootedDesc() : MakeDesc();
             singular.curveSets.front().worldMatrix[0][0] = 0.0;
-            auto handle = CompileVulkanSourceWidthPlan(singular);
+            auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(singular));
             CHECK(handle);
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
             UsdGenParamView params{plan->Descriptor().get(), &plan->Descriptor()->nodes.front()};
@@ -253,7 +254,7 @@ int main() {
         UsdGenRampDesc identity;
         identity.knots = {{0.f, 1.f}, {1.f, 1.f}};
         desc.nodes[0].ramps.push_back(identity);
-        auto handle = CompileVulkanSourceWidthPlan(desc);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc));
         CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Descriptor()->xformMatrix == desc.xformMatrix);
@@ -296,7 +297,7 @@ int main() {
             chain.nodes.push_back(stage);
         }
         chain.terminal = chain.nodes.back().path;
-        auto handle = CompileVulkanSourceWidthPlan(chain);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(chain));
         CHECK(handle && handle->Metadata()->Tasks().size() == 82);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Steps().size() == 80);
@@ -307,13 +308,13 @@ int main() {
         auto sourceOnly = MakeDesc();
         sourceOnly.nodes.resize(1);
         sourceOnly.terminal = sourceOnly.nodes.front().path;
-        auto handle = CompileVulkanSourceWidthPlan(sourceOnly);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(sourceOnly));
         CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Steps().size() == 1 && plan->Steps()[0].disabled);
         CHECK(handle->Metadata()->Operators().size() == 1);
         sourceOnly.nodes[0].params.push_back({TfToken("resampleTo"), VtValue(5), false});
-        handle = CompileVulkanSourceWidthPlan(sourceOnly);
+        handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(sourceOnly));
         CHECK(handle);
         plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Steps().size() == 1 &&
@@ -333,7 +334,7 @@ int main() {
         muted.nodes[1].enabled = false;
         muted.nodes[1].params[0].value = VtValue(9.f);
         UsdGenDiagnostics mutedDiagnostics;
-        auto mutedHandle = CompileVulkanSourceWidthPlan(muted, &mutedDiagnostics);
+        auto mutedHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(muted), &mutedDiagnostics);
         CHECK(mutedHandle && !mutedDiagnostics.HasErrors());
         auto mutedPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
             mutedHandle->Payload());
@@ -355,7 +356,7 @@ int main() {
         mutedLength.nodes.insert(mutedLength.nodes.begin() + 1, length);
         mutedLength.terminal = mutedLength.nodes.back().path;
         UsdGenDiagnostics lengthDiagnostics;
-        auto lengthHandle = CompileVulkanSourceWidthPlan(mutedLength, &lengthDiagnostics);
+        auto lengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(mutedLength), &lengthDiagnostics);
         CHECK(lengthHandle && !lengthDiagnostics.HasErrors());
         auto lengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
             lengthHandle->Payload());
@@ -364,7 +365,7 @@ int main() {
               lengthPlan->Steps()[0].kind == VulkanSourceWidthStage::Kind::LengthScale &&
               !lengthPlan->Steps()[1].disabled);
         mutedLength.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(.75f), false});
-        lengthHandle = CompileVulkanSourceWidthPlan(mutedLength, &lengthDiagnostics);
+        lengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(mutedLength), &lengthDiagnostics);
         CHECK(lengthHandle && !lengthDiagnostics.HasErrors());
         lengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(lengthHandle->Payload());
         CHECK(lengthPlan->Steps().size() == 3 && lengthPlan->Steps()[0].disabled &&
@@ -394,7 +395,7 @@ int main() {
         deformDesc.nodes = {deformDesc.nodes.front(), deform};
         deformDesc.terminal = deform.path;
         UsdGenDiagnostics messages;
-        auto handle = CompileVulkanSourceWidthPlan(deformDesc, &messages);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(deformDesc), &messages);
         CHECK(handle && !messages.HasErrors());
         auto movedDescription = deformDesc;
         movedDescription.xformMatrix.SetTranslate(GfVec3d(1, 2, 3));
@@ -416,7 +417,7 @@ int main() {
                        {TfToken("cullThreshold"), VtValue(.5f), false}};
         deformDesc.nodes.back().inputs = {cull.path};
         deformDesc.nodes.insert(deformDesc.nodes.begin() + 1, cull);
-        CHECK(CompileVulkanSourceWidthPlan(deformDesc));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(deformDesc)));
         auto width = MakeDesc().nodes.back(); width.inputs = {deform.path};
         deformDesc.nodes.push_back(width);
         auto repeated = deform; repeated.path = SdfPath("/Groom/Ops/deformAgain");
@@ -432,7 +433,7 @@ int main() {
     }
     auto desc = MakeDesc();
     UsdGenDiagnostics diagnostics;
-    auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+    auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
     CHECK(handle && !diagnostics.HasErrors());
     CHECK(handle->Backend() == UsdGenExecutionBackend::Vulkan);
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
@@ -442,8 +443,8 @@ int main() {
 #endif
 
     auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
-    CHECK(plan && plan->Descriptor() && plan->Descriptor().get() != &desc);
-    CHECK(plan->SourceNodePath() == desc.nodes[0].path && plan->WidthNodePath() == desc.nodes[1].path);
+    CHECK(plan && plan->Descriptor() && plan->Descriptor().get() != static_cast<void const *>(&desc));
+    CHECK(plan->SourceNodeKey() == usdGenUsd::KeyOf(desc.nodes[0].path) && plan->WidthNodeKey() == usdGenUsd::KeyOf(desc.nodes[1].path));
     CHECK(plan->CurveGeneration() == 19 && plan->TopologyVersion() == 19 && plan->ValueVersion() == 19);
     CHECK(plan->SourceControls().useRest && plan->SourceControls().hasAuthoredRest &&
           !plan->SourceControls().restFromCurrentPoints &&
@@ -465,16 +466,16 @@ int main() {
           metadata->Shape() == UsdGenExecutionPlanShape::LinearAuthoredChain &&
           metadata->TerminalTask() == 2 && metadata->Operators().size() == 2 &&
           metadata->Tasks().size() == 3 && metadata->Values().size() == 7);
-    CHECK(metadata->Operators()[0].path == SdfPath("/Groom/Ops/source") &&
+    CHECK(metadata->Operators()[0].key == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/source")) &&
           metadata->Operators()[0].authoredOrderKey == 0 &&
           metadata->Operators()[0].type == TfToken("UsdGenCurveSource") &&
-          metadata->Operators()[1].path == SdfPath("/Groom/Ops/width") &&
+          metadata->Operators()[1].key == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/width")) &&
           metadata->Operators()[1].authoredOrderKey == 1 &&
           metadata->Operators()[1].type == TfToken("UsdGenWidth"));
     auto const& source = metadata->Tasks()[0]; auto const& width = metadata->Tasks()[1];
     auto const& publication = metadata->Tasks()[2];
     CHECK(source.id == 0 && source.semanticNode == 0 && source.kind == UsdGenExecutionTaskKind::Source &&
-          source.path == SdfPath("/Groom/Ops/source") && source.resources.size() == 5 &&
+          source.key == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/source")) && source.resources.size() == 5 &&
           source.resources[0].resource == UsdGenExecutionDataKind::ElementGeometry &&
           source.resources[0].access == UsdGenExecutionResourceAccess::ReadWrite &&
           source.resources[0].inputValue == 0 && source.resources[0].outputValue == 1 &&
@@ -530,7 +531,7 @@ int main() {
     lengthDesc.nodes[1].inputs = {lengthNode.path};
     lengthDesc.nodes.insert(lengthDesc.nodes.begin() + 1, lengthNode);
     auto lengthDiagnostics = UsdGenDiagnostics{};
-    auto lengthHandle = CompileVulkanSourceWidthPlan(lengthDesc, &lengthDiagnostics);
+    auto lengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(lengthDesc), &lengthDiagnostics);
     if (!lengthHandle) for (auto const& error : lengthDiagnostics.errors)
         std::fprintf(stderr, "lengthHandle: %s\n", error.c_str());
     CHECK(lengthHandle);
@@ -538,7 +539,7 @@ int main() {
     randomLengthDesc.nodes[1].seed = -17;
     randomLengthDesc.nodes[1].params.push_back(
         {TfToken("length:random"), VtValue(GfVec2f(1.5f, .5f)), false});
-    auto randomLengthHandle = CompileVulkanSourceWidthPlan(randomLengthDesc);
+    auto randomLengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(randomLengthDesc));
     CHECK(randomLengthHandle);
     auto randomLengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(randomLengthHandle->Payload());
     CHECK(randomLengthPlan && randomLengthPlan->Steps()[0].randomLo == 1.5f &&
@@ -547,7 +548,7 @@ int main() {
     for (int seed : {std::numeric_limits<int>::min(), std::numeric_limits<int>::max()}) {
         auto seeded = randomLengthDesc;
         seeded.nodes[1].seed = seed;
-        auto seededHandle = CompileVulkanSourceWidthPlan(seeded);
+        auto seededHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(seeded));
         CHECK(seededHandle);
         auto seededPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(seededHandle->Payload());
         CHECK(seededPlan && seededPlan->Steps()[0].randomSeed == seed);
@@ -568,14 +569,14 @@ int main() {
     cullWidth.inputs = {cull.path};
     cullDesc.nodes = {cullDesc.nodes[0], cull, cullWidth}; cullDesc.terminal = cullWidth.path;
     diagnostics = {};
-    auto cullHandle = CompileVulkanSourceWidthPlan(cullDesc, &diagnostics);
+    auto cullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cullDesc), &diagnostics);
     CHECK(cullHandle && !diagnostics.HasErrors());
     auto cullMetadata = cullHandle->Metadata();
     CHECK(cullMetadata && cullMetadata->Tasks().size() == 4 && cullMetadata->Values().size() >= 9);
     auto findTask = [](std::shared_ptr<const UsdGenExecutionPlanMetadata> const& metadata,
                        char const* path) -> UsdGenExecutionTaskMetadata const* {
         auto found = std::find_if(metadata->Tasks().begin(), metadata->Tasks().end(),
-            [&](auto const& task) { return task.path == SdfPath(path); });
+            [&](auto const& task) { return task.key == usdGenUsd::KeyOf(SdfPath(path)); });
         return found == metadata->Tasks().end() ? nullptr : &*found;
     };
     auto const* cullTask = findTask(cullMetadata, "/Groom/Ops/cull");
@@ -626,7 +627,7 @@ int main() {
     cutExtendCull.nodes[1].params.push_back({TfToken("length:method"), VtValue(TfToken("cutExtend")), false});
     cutExtendCull.nodes[1].params.push_back({TfToken("rebuild"), VtValue(TfToken("keepParam")), false});
     diagnostics = {};
-    auto cutExtendCullHandle = CompileVulkanSourceWidthPlan(cutExtendCull, &diagnostics);
+    auto cutExtendCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cutExtendCull), &diagnostics);
     CHECK(cutExtendCullHandle && !diagnostics.HasErrors());
     auto cutExtendCullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(cutExtendCullHandle->Payload());
     CHECK(cutExtendCullPlan && cutExtendCullPlan->Steps()[0].kind == VulkanSourceWidthStage::Kind::LengthCull &&
@@ -636,7 +637,7 @@ int main() {
     scaleThreshold.nodes[1].params.push_back({TfToken("rebuild"), VtValue(TfToken("reparam")), false});
     scaleThreshold.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(.25f), false});
     diagnostics = {};
-    auto scaleThresholdHandle = CompileVulkanSourceWidthPlan(scaleThreshold, &diagnostics);
+    auto scaleThresholdHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(scaleThreshold), &diagnostics);
     CHECK(scaleThresholdHandle && !diagnostics.HasErrors());
     auto scaleThresholdPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(scaleThresholdHandle->Payload());
     CHECK(scaleThresholdPlan && scaleThresholdPlan->Steps().size() == 3 &&
@@ -656,27 +657,28 @@ int main() {
           scaleThresholdPlan->Steps()[1].randomSeed == -17);
     auto scaleThresholdMetadata = scaleThresholdHandle->Metadata();
     CHECK(scaleThresholdMetadata && scaleThresholdMetadata->Tasks().size() == 5);
-    CHECK(scaleThresholdPlan->LengthNodePath() == scaleThreshold.nodes[1].path);
+    CHECK(scaleThresholdPlan->LengthNodeKey() == usdGenUsd::KeyOf(scaleThreshold.nodes[1].path));
     CHECK(scaleThresholdMetadata->FindSemanticTask(1) &&
-          scaleThresholdMetadata->FindSemanticTask(1)->path == scaleThreshold.nodes[1].path &&
+          scaleThresholdMetadata->FindSemanticTask(1)->key == usdGenUsd::KeyOf(scaleThreshold.nodes[1].path) &&
           scaleThresholdMetadata->FindSemanticTask(1)->topologyBarrier);
     auto const* authoredLengthTask = findTask(scaleThresholdMetadata, "/Groom/Ops/length");
     auto finalCullTask = std::find_if(scaleThresholdMetadata->Tasks().begin(),
         scaleThresholdMetadata->Tasks().end(), [](auto const& task) {
-            return task.path == SdfPath("/Groom/Ops/length") &&
+            return task.key == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/length")) &&
                    task.kind == UsdGenExecutionTaskKind::Operator;
         });
     auto transformTask = std::find_if(scaleThresholdMetadata->Tasks().begin(),
-        scaleThresholdMetadata->Tasks().end(), [](auto const& task) {
+        scaleThresholdMetadata->Tasks().end(), [&](auto const& task) {
             return task.semanticNode == UINT32_MAX &&
                    task.type == TfToken("VulkanLengthTransform") &&
-                   task.path.GetString().find("__vulkanLengthTransform") != std::string::npos;
+                   scaleThresholdPlan->Descriptor()->Label(task.key).find("__vulkanLengthTransform") !=
+                       std::string::npos;
         });
     CHECK(authoredLengthTask && transformTask != scaleThresholdMetadata->Tasks().end() &&
           finalCullTask != scaleThresholdMetadata->Tasks().end() &&
-          transformTask->path != authoredLengthTask->path &&
+          transformTask->key != authoredLengthTask->key &&
           finalCullTask->semanticNode == 1 &&
-          finalCullTask->path == authoredLengthTask->path);
+          finalCullTask->key == authoredLengthTask->key);
     auto const* finalCullTopology = findUse(*finalCullTask,
         UsdGenExecutionDataKind::ElementTopology, UsdGenExecutionResourceAccess::ReadWrite);
     CHECK(finalCullTopology && finalCullTopology->inputValue != UINT32_MAX &&
@@ -701,23 +703,25 @@ int main() {
     collisionDesc.nodes.push_back(collision);
     collisionDesc.nodes[2].inputs = {collision.path};
     diagnostics = {};
-    auto collisionHandle = CompileVulkanSourceWidthPlan(collisionDesc, &diagnostics);
+    auto collisionHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(collisionDesc), &diagnostics);
     CHECK(collisionHandle && !diagnostics.HasErrors());
     auto collisionMetadata = collisionHandle->Metadata();
     CHECK(collisionMetadata);
+    auto collisionPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(collisionHandle->Payload());
     auto collisionFinalCull = std::find_if(collisionMetadata->Tasks().begin(),
         collisionMetadata->Tasks().end(), [](auto const& task) {
-            return task.path == SdfPath("/Groom/Ops/length") &&
+            return task.key == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/length")) &&
                    task.semanticNode == 1;
         });
     CHECK(collisionFinalCull != collisionMetadata->Tasks().end() &&
           std::count_if(collisionMetadata->Tasks().begin(), collisionMetadata->Tasks().end(),
-              [](auto const& task) {
+              [&](auto const& task) {
                   return task.semanticNode == UINT32_MAX &&
-                         task.path.GetString().find("__vulkanLengthTransform") != std::string::npos;
+                         collisionPlan->Descriptor()->Label(task.key).find("__vulkanLengthTransform") !=
+                             std::string::npos;
               }) == 1);
-    std::set<SdfPath> taskPaths;
-    for (auto const& task : collisionMetadata->Tasks()) CHECK(taskPaths.insert(task.path).second);
+    std::set<UsdGenNodeKey> taskPaths;
+    for (auto const& task : collisionMetadata->Tasks()) CHECK(taskPaths.insert(task.key).second);
     // Expanded native stages retain dependency ordering across the former
     // 64-stage limit, independently of the authored graph cardinality.
     auto boundary = MakeDesc();
@@ -733,11 +737,11 @@ int main() {
     }
     boundaryWidth.inputs = {previous}; boundary.nodes.push_back(boundaryWidth);
     boundary.terminal = boundaryWidth.path;
-    auto boundaryHandle = CompileVulkanSourceWidthPlan(boundary); CHECK(boundaryHandle);
+    auto boundaryHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(boundary)); CHECK(boundaryHandle);
     auto boundaryPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(boundaryHandle->Payload());
     CHECK(boundaryPlan->Steps().size() == 64 && boundaryPlan->IntermediateCount() == 63);
     boundary.nodes[32].params.back().value = VtValue(.25f);
-    boundaryHandle = CompileVulkanSourceWidthPlan(boundary); CHECK(boundaryHandle);
+    boundaryHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(boundary)); CHECK(boundaryHandle);
     boundaryPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(boundaryHandle->Payload());
     CHECK(boundaryPlan->Steps().size() == 65 && boundaryPlan->IntermediateCount() == 64);
     CHECK(boundaryHandle->Metadata()->Tasks().back().id == 66);
@@ -748,7 +752,7 @@ int main() {
     repeatedCull.nodes.insert(repeatedCull.nodes.end() - 1, cull2);
     repeatedCull.nodes.back().inputs = {cull2.path}; repeatedCull.terminal = repeatedCull.nodes.back().path;
     diagnostics = {};
-    auto repeatedHandle = CompileVulkanSourceWidthPlan(repeatedCull, &diagnostics);
+    auto repeatedHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(repeatedCull), &diagnostics);
     CHECK(repeatedHandle && !diagnostics.HasErrors());
     auto repeatedPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(repeatedHandle->Payload());
     CHECK(repeatedPlan && repeatedPlan->Steps().size() == 3 &&
@@ -784,7 +788,7 @@ int main() {
     branchEqual.nodes = {branchEqual.nodes[0], cull, branchEqual.nodes[2], rightWidth, branchBlend};
     branchEqual.terminal = branchBlend.path;
     diagnostics = {};
-    auto branchHandle = CompileVulkanSourceWidthPlan(branchEqual, &diagnostics);
+    auto branchHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(branchEqual), &diagnostics);
     CHECK(branchHandle && !diagnostics.HasErrors());
     auto branchMetadata = branchHandle->Metadata();
     CHECK(branchMetadata);
@@ -798,7 +802,7 @@ int main() {
     unequal.nodes[3].inputs = {rightCull.path};
     unequal.terminal = unequal.nodes.back().path;
     diagnostics = {};
-    auto unequalHandle = CompileVulkanSourceWidthPlan(unequal, &diagnostics);
+    auto unequalHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(unequal), &diagnostics);
     CHECK(unequalHandle && !diagnostics.HasErrors());
     auto unequalPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(unequalHandle->Payload());
     CHECK(unequalPlan && unequalPlan->Steps().back().requiresNonWidthProof);
@@ -829,14 +833,14 @@ int main() {
             use.producerTask == unequalRightWidth->id; });
     CHECK(rightWidthsIt != unequalBlend->resources.end() && rightWidthsIt->inputValue != UINT32_MAX);
     auto lengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(lengthHandle->Payload());
-    CHECK(lengthPlan->HasLength() && lengthPlan->LengthFactor() == 1.25f && lengthPlan->LengthNodePath() == lengthNode.path &&
+    CHECK(lengthPlan->HasLength() && lengthPlan->LengthFactor() == 1.25f && lengthPlan->LengthNodeKey() == usdGenUsd::KeyOf(lengthNode.path) &&
           lengthPlan->Steps()[0].kind == VulkanSourceWidthStage::Kind::LengthScale &&
           lengthPlan->Steps()[0].lengthMode == VulkanSourceWidthStage::LengthMode::Scale);
     auto cutExtendScale = lengthDesc;
     cutExtendScale.nodes[1].params.push_back({TfToken("length:method"), VtValue(TfToken("cutExtend")), false});
     cutExtendScale.nodes[1].params.push_back({TfToken("rebuild"), VtValue(TfToken("keepParam")), false});
     diagnostics = {};
-    auto cutExtendScaleHandle = CompileVulkanSourceWidthPlan(cutExtendScale, &diagnostics);
+    auto cutExtendScaleHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cutExtendScale), &diagnostics);
     CHECK(cutExtendScaleHandle && !diagnostics.HasErrors());
     auto cutExtendScalePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(cutExtendScaleHandle->Payload());
     CHECK(cutExtendScalePlan && cutExtendScalePlan->Steps()[0].lengthMethod ==
@@ -863,7 +867,7 @@ int main() {
     auto setDesc = lengthDesc;
     setDesc.nodes[1].params.push_back({TfToken("length:mode"), VtValue(TfToken("set")), false});
     diagnostics = {};
-    auto setHandle = CompileVulkanSourceWidthPlan(setDesc, &diagnostics);
+    auto setHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(setDesc), &diagnostics);
     CHECK(setHandle && !diagnostics.HasErrors());
     auto setPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(setHandle->Payload());
     CHECK(setPlan && setPlan->Steps().size() == 2 &&
@@ -874,7 +878,7 @@ int main() {
     cutExtendSet.nodes[1].params.push_back({TfToken("length:method"), VtValue(TfToken("cutExtend")), false});
     cutExtendSet.nodes[1].params.push_back({TfToken("rebuild"), VtValue(TfToken("keepParam")), false});
     diagnostics = {};
-    auto cutExtendSetHandle = CompileVulkanSourceWidthPlan(cutExtendSet, &diagnostics);
+    auto cutExtendSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cutExtendSet), &diagnostics);
     CHECK(cutExtendSetHandle && !diagnostics.HasErrors());
     auto cutExtendSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(cutExtendSetHandle->Payload());
     CHECK(cutExtendSetPlan && cutExtendSetPlan->Steps()[0].lengthMode == VulkanSourceWidthStage::LengthMode::Set &&
@@ -920,7 +924,7 @@ int main() {
     setThenCull.nodes[1].inputs = {setBeforeCull.path};
     setThenCull.nodes.insert(setThenCull.nodes.begin() + 1, setBeforeCull);
     diagnostics = {};
-    auto setThenCullHandle = CompileVulkanSourceWidthPlan(setThenCull, &diagnostics);
+    auto setThenCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(setThenCull), &diagnostics);
     CHECK(setThenCullHandle && !diagnostics.HasErrors());
     auto setThenCullMetadata = setThenCullHandle->Metadata();
     auto const* beforeSetTask = findTask(setThenCullMetadata, "/Groom/Ops/set");
@@ -943,7 +947,7 @@ int main() {
     cullThenSet.nodes.back().inputs = {setAfterCull.path};
     cullThenSet.nodes.insert(cullThenSet.nodes.end() - 1, setAfterCull);
     diagnostics = {};
-    auto cullThenSetHandle = CompileVulkanSourceWidthPlan(cullThenSet, &diagnostics);
+    auto cullThenSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cullThenSet), &diagnostics);
     CHECK(cullThenSetHandle && !diagnostics.HasErrors());
     auto cullThenSetMetadata = cullThenSetHandle->Metadata();
     auto const* priorCullTask = findTask(cullThenSetMetadata, "/Groom/Ops/cull");
@@ -965,7 +969,7 @@ int main() {
         node.params.push_back({TfToken("rebuild"), VtValue(TfToken("reparam")), false});
     }
     diagnostics = {};
-    auto reparamCullThenSetHandle = CompileVulkanSourceWidthPlan(reparamCullThenSet, &diagnostics);
+    auto reparamCullThenSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reparamCullThenSet), &diagnostics);
     CHECK(reparamCullThenSetHandle && !diagnostics.HasErrors());
     auto reparamCullThenSetMetadata = reparamCullThenSetHandle->Metadata();
     auto const* reparamCull = findTask(reparamCullThenSetMetadata, "/Groom/Ops/cull");
@@ -991,7 +995,7 @@ int main() {
     auto badSetRandom = setDesc;
     badSetRandom.nodes[1].params.push_back({TfToken("length:random"), VtValue(GfVec2f(1.5f, .5f)), false});
     diagnostics = {};
-    auto randomSetHandle = CompileVulkanSourceWidthPlan(badSetRandom, &diagnostics);
+    auto randomSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(badSetRandom), &diagnostics);
     CHECK(randomSetHandle && !diagnostics.HasErrors());
     auto randomSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(randomSetHandle->Payload());
     CHECK(randomSetPlan && randomSetPlan->Steps()[0].randomLo == 1.5f &&
@@ -1020,7 +1024,7 @@ int main() {
     auto setThreshold = setDesc;
     setThreshold.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(.25f), false});
     diagnostics = {};
-    auto setThresholdHandle = CompileVulkanSourceWidthPlan(setThreshold, &diagnostics);
+    auto setThresholdHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(setThreshold), &diagnostics);
     CHECK(setThresholdHandle && !diagnostics.HasErrors());
     auto setThresholdPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(setThresholdHandle->Payload());
     CHECK(setThresholdPlan && setThresholdPlan->Steps().size() == 3 &&
@@ -1031,7 +1035,7 @@ int main() {
     auto zeroDoubleThreshold = lengthDesc;
     zeroDoubleThreshold.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(0.0), false});
     diagnostics = {};
-    auto zeroDoubleHandle = CompileVulkanSourceWidthPlan(zeroDoubleThreshold, &diagnostics);
+    auto zeroDoubleHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(zeroDoubleThreshold), &diagnostics);
     CHECK(zeroDoubleHandle && !diagnostics.HasErrors());
     auto zeroDoublePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(zeroDoubleHandle->Payload());
     CHECK(zeroDoublePlan && zeroDoublePlan->Steps().size() == 2);
@@ -1044,7 +1048,7 @@ int main() {
     auto badSetRemaining = setDesc;
     badSetRemaining.nodes[1].params.push_back({TfToken("minRemainingLength"), VtValue(.25f), false});
     diagnostics = {};
-    auto minimumHandle = CompileVulkanSourceWidthPlan(badSetRemaining, &diagnostics);
+    auto minimumHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(badSetRemaining), &diagnostics);
     CHECK(minimumHandle && !diagnostics.HasErrors());
     auto minimumPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(minimumHandle->Payload());
     CHECK(minimumPlan && minimumPlan->Steps().size() == 2 &&
@@ -1060,7 +1064,7 @@ int main() {
           minimumTopology->producerTask == 0);
     auto minimumDoubleZero = setDesc;
     minimumDoubleZero.nodes[1].params.push_back({TfToken("minRemainingLength"), VtValue(0.0), false});
-    auto minimumDoubleZeroHandle = CompileVulkanSourceWidthPlan(minimumDoubleZero, &diagnostics);
+    auto minimumDoubleZeroHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(minimumDoubleZero), &diagnostics);
     CHECK(minimumDoubleZeroHandle);
     auto minimumDoubleZeroPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         minimumDoubleZeroHandle->Payload());
@@ -1069,7 +1073,7 @@ int main() {
     auto minimumThreshold = badSetRemaining;
     minimumThreshold.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(.25f), false});
     diagnostics = {};
-    auto minimumThresholdHandle = CompileVulkanSourceWidthPlan(minimumThreshold, &diagnostics);
+    auto minimumThresholdHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(minimumThreshold), &diagnostics);
     CHECK(minimumThresholdHandle && !diagnostics.HasErrors());
     auto minimumThresholdPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(minimumThresholdHandle->Payload());
     CHECK(minimumThresholdPlan && minimumThresholdPlan->Steps().size() == 3 &&
@@ -1080,7 +1084,7 @@ int main() {
     for (auto& parameter : cullMinimum.nodes[1].params)
         if (parameter.name == TfToken("minRemainingLength")) parameter.value = VtValue(.25f);
     diagnostics = {};
-    auto cullMinimumHandle = CompileVulkanSourceWidthPlan(cullMinimum, &diagnostics);
+    auto cullMinimumHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cullMinimum), &diagnostics);
     CHECK(cullMinimumHandle && !diagnostics.HasErrors());
     auto cullMinimumPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(cullMinimumHandle->Payload());
     CHECK(cullMinimumPlan && cullMinimumPlan->Steps().size() == 2 &&
@@ -1090,7 +1094,7 @@ int main() {
     for (auto& parameter : randomCull.nodes[1].params)
         if (parameter.name == TfToken("length:random"))
             parameter.value = VtValue(GfVec2f(1.5f, .5f));
-    auto randomCullHandle = CompileVulkanSourceWidthPlan(randomCull, &diagnostics);
+    auto randomCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(randomCull), &diagnostics);
     CHECK(randomCullHandle);
     auto randomCullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(randomCullHandle->Payload());
     CHECK(randomCullPlan && randomCullPlan->Steps().size() == 2 &&
@@ -1129,7 +1133,7 @@ int main() {
     auto badCutReparam = cutExtendScale;
     badCutReparam.nodes[1].params.back().value = VtValue(TfToken("reparam"));
     diagnostics = {};
-    auto reparamScaleHandle = CompileVulkanSourceWidthPlan(badCutReparam, &diagnostics);
+    auto reparamScaleHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(badCutReparam), &diagnostics);
     CHECK(reparamScaleHandle && !diagnostics.HasErrors());
     auto reparamScalePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(reparamScaleHandle->Payload());
     CHECK(reparamScalePlan && reparamScalePlan->Steps()[0].lengthRebuild ==
@@ -1137,7 +1141,7 @@ int main() {
     auto reparamSet = cutExtendSet;
     reparamSet.nodes[1].params.back().value = VtValue(TfToken("reparam"));
     diagnostics = {};
-    auto reparamSetHandle = CompileVulkanSourceWidthPlan(reparamSet, &diagnostics);
+    auto reparamSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reparamSet), &diagnostics);
     CHECK(reparamSetHandle && !diagnostics.HasErrors());
     auto reparamSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(reparamSetHandle->Payload());
     CHECK(reparamSetPlan && reparamSetPlan->Steps()[0].lengthMode == VulkanSourceWidthStage::LengthMode::Set &&
@@ -1145,7 +1149,7 @@ int main() {
     auto reparamCull = cutExtendCull;
     reparamCull.nodes[1].params.back().value = VtValue(TfToken("reparam"));
     diagnostics = {};
-    auto reparamCullHandle = CompileVulkanSourceWidthPlan(reparamCull, &diagnostics);
+    auto reparamCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reparamCull), &diagnostics);
     CHECK(reparamCullHandle && !diagnostics.HasErrors());
     auto reparamCullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(reparamCullHandle->Payload());
     CHECK(reparamCullPlan && reparamCullPlan->Steps()[0].kind == VulkanSourceWidthStage::Kind::LengthCull &&
@@ -1167,7 +1171,7 @@ int main() {
                            {TfToken("mask"), VtValue(.5f), false}};
         envelopeDesc.nodes[1].inputs = {envelope.path};
         envelopeDesc.nodes.insert(envelopeDesc.nodes.begin() + 1, envelope);
-        auto envelopeHandle = CompileVulkanSourceWidthPlan(envelopeDesc);
+        auto envelopeHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(envelopeDesc));
         CHECK(envelopeHandle);
         auto envelopePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(envelopeHandle->Payload());
         CHECK(envelopePlan && envelopePlan->Steps().size() == 2 &&
@@ -1176,7 +1180,7 @@ int main() {
               !envelopePlan->Steps()[0].lengthCullOnly);
         auto envelopeThreshold = envelopeDesc;
         envelopeThreshold.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(3.f), false});
-        auto envelopeThresholdHandle = CompileVulkanSourceWidthPlan(envelopeThreshold);
+        auto envelopeThresholdHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(envelopeThreshold));
         CHECK(envelopeThresholdHandle);
         auto envelopeThresholdPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(envelopeThresholdHandle->Payload());
         CHECK(envelopeThresholdPlan && envelopeThresholdPlan->Steps().size() == 3 &&
@@ -1185,7 +1189,7 @@ int main() {
 
         zeroEnvelopeThreshold.nodes[1].params[1].value = VtValue(0.f);
         zeroEnvelopeThreshold.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(3.f), false});
-        auto zeroEnvelopeThresholdHandle = CompileVulkanSourceWidthPlan(zeroEnvelopeThreshold);
+        auto zeroEnvelopeThresholdHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(zeroEnvelopeThreshold));
         CHECK(zeroEnvelopeThresholdHandle);
         auto zeroEnvelopeThresholdPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
             zeroEnvelopeThresholdHandle->Payload());
@@ -1194,7 +1198,7 @@ int main() {
         auto envelopeCull = envelopeDesc;
         envelopeCull.nodes[1].params = {{TfToken("length:mode"), VtValue(TfToken("cull")), false},
                                         {TfToken("mask"), VtValue(.5f), false}};
-        auto envelopeCullHandle = CompileVulkanSourceWidthPlan(envelopeCull);
+        auto envelopeCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(envelopeCull));
         CHECK(envelopeCullHandle);
         auto envelopeCullMetadata = envelopeCullHandle->Metadata();
         auto envelopeCullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(envelopeCullHandle->Payload());
@@ -1210,7 +1214,7 @@ int main() {
               envelopeCullMetadata->Tasks()[2].topologyBarrier);
         auto neutralCull = envelopeCull;
         neutralCull.nodes[1].params[1] = {TfToken("mask"), VtValue(1.f), false};
-        auto neutralCullHandle = CompileVulkanSourceWidthPlan(neutralCull);
+        auto neutralCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(neutralCull));
         CHECK(neutralCullHandle);
         auto neutralCullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(neutralCullHandle->Payload());
         CHECK(neutralCullPlan && neutralCullPlan->Steps().size() == 2 &&
@@ -1231,7 +1235,7 @@ int main() {
     }
     auto reversed = MakeDesc();
     std::swap(reversed.nodes[0], reversed.nodes[1]);
-    CHECK(CompileVulkanSourceWidthPlan(reversed));
+    CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reversed)));
     auto const& memory = metadata->MemoryEstimate();
     // These are checked descriptor byte components, not a claim about native
     // Vulkan allocation/admission before an executor has been registered.
@@ -1244,37 +1248,37 @@ int main() {
     auto profileDesc = MakeDesc();
     profileDesc.nodes[1].params.push_back({TfToken("width:knots"), VtValue(VtVec2fArray{}), false});
     profileDesc.nodes[1].params.push_back({TfToken("width:interpolation"), VtValue(TfToken("catmullRom")), false});
-    auto profileHandle = CompileVulkanSourceWidthPlan(profileDesc);
+    auto profileHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(profileDesc));
     CHECK(profileHandle);
     CHECK(std::static_pointer_cast<const VulkanSourceWidthPlan>(profileHandle->Payload())->Steps().size() == 1);
     for (auto token : {TfToken("taper"), TfToken("taperStart"), TfToken("rootScale"), TfToken("tipScale"), TfToken("label")}) {
         auto bad = MakeDesc();
         bad.nodes[1].params.push_back({token, VtValue(.5f), false});
-        CHECK(!CompileVulkanSourceWidthPlan(bad));
+        CHECK(!CompileVulkanSourceWidthPlan(usdGenUsd::Lower(bad)));
     }
     {
         auto bad = MakeDesc();
         bad.nodes[1].params.push_back({TfToken("width:interpolation"), VtValue(TfToken("linear")), false});
-        CHECK(CompileVulkanSourceWidthPlan(bad));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(bad)));
         auto knots = MakeDesc();
         knots.nodes[1].params.push_back({TfToken("width:knots"), VtValue(VtVec2fArray{{0.f, 1.f}}), false});
-        auto knotHandle=CompileVulkanSourceWidthPlan(knots);
+        auto knotHandle=CompileVulkanSourceWidthPlan(usdGenUsd::Lower(knots));
         CHECK(knotHandle);
         auto knotPlan=std::static_pointer_cast<const VulkanSourceWidthPlan>(knotHandle->Payload());
         CHECK(knotPlan->Steps()[0].width.extended && knotPlan->Steps()[0].width.profile[0]==1.0f);
         knots.nodes[1].params.back().value=VtValue(VtVec2fArray{{-.1f,1.f}});
-        CHECK(!CompileVulkanSourceWidthPlan(knots));
+        CHECK(!CompileVulkanSourceWidthPlan(usdGenUsd::Lower(knots)));
     }
 
     auto fanout = MakeFanoutDesc();
-    auto fanoutHandle = CompileVulkanSourceWidthPlan(fanout);
+    auto fanoutHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(fanout));
     CHECK(fanoutHandle);
     auto fanoutPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(fanoutHandle->Payload());
     CHECK(fanoutPlan && fanoutPlan->Steps().size() == 3 && fanoutPlan->IntermediateCount() == 2);
     CHECK(fanoutPlan->Steps()[0].kind == VulkanSourceWidthStage::Kind::Width &&
-          fanoutPlan->Steps()[0].input == 0 && fanoutPlan->Steps()[0].path == fanout.nodes[2].path);
+          fanoutPlan->Steps()[0].input == 0 && fanoutPlan->Steps()[0].key == usdGenUsd::KeyOf(fanout.nodes[2].path));
     CHECK(fanoutPlan->Steps()[1].kind == VulkanSourceWidthStage::Kind::Width &&
-          fanoutPlan->Steps()[1].input == 0 && fanoutPlan->Steps()[1].path == fanout.nodes[3].path);
+          fanoutPlan->Steps()[1].input == 0 && fanoutPlan->Steps()[1].key == usdGenUsd::KeyOf(fanout.nodes[3].path));
     CHECK(fanoutPlan->Steps()[2].kind == VulkanSourceWidthStage::Kind::WidthBlend &&
           fanoutPlan->Steps()[2].input == 2 && fanoutPlan->Steps()[2].rightInput == 1 &&
           fanoutPlan->Steps()[2].blend == .25f);
@@ -1285,7 +1289,7 @@ int main() {
     changedPoints.params = {{TfToken("length:value"), VtValue(1.0), false}};
     wrongOrigins.nodes[2].inputs = {changedPoints.path};
     wrongOrigins.nodes.push_back(changedPoints);
-    auto proofHandle = CompileVulkanSourceWidthPlan(wrongOrigins);
+    auto proofHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(wrongOrigins));
     CHECK(proofHandle);
     auto proofPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(proofHandle->Payload());
     CHECK(proofPlan && proofPlan->Steps().back().requiresNonWidthProof);
@@ -1303,7 +1307,7 @@ int main() {
                 std::string name = "authored_" + std::to_string(unsigned(type)) + "_" +
                     std::to_string(unsigned(domain)) + "_" + std::to_string(arity);
                 AddAuthoredPlane(&named.curveSets[0], name.c_str(), type, domain, arity);
-                CHECK(CompileVulkanSourceWidthPlan(named));
+                CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(named)));
             }
         }
     }
@@ -1366,7 +1370,7 @@ int main() {
                      UsdGenAuthoredPlaneDomain::Primitive, 1);
     AddAuthoredPlane(&namedFanout.curveSets[0], "constant4", UsdGenAuthoredPlaneType::Float32,
                      UsdGenAuthoredPlaneDomain::Groom, 4);
-    auto namedHandle = CompileVulkanSourceWidthPlan(namedFanout); CHECK(namedHandle);
+    auto namedHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(namedFanout)); CHECK(namedHandle);
     auto namedMetadata = namedHandle->Metadata(); CHECK(namedMetadata);
     CHECK(namedMetadata->Tasks().size() == 5 &&
           namedMetadata->Values().size() == fanoutHandle->Metadata()->Values().size() &&
@@ -1403,7 +1407,7 @@ int main() {
             // Phase 2 maps: width legacy maps are carried (never sampled),
             // exactly like CUDA ValidateWidth. Rejecting would diverge.
             UsdGenDiagnostics mapDiagnostics;
-            auto mapHandle = CompileVulkanSourceWidthPlan(bad, &mapDiagnostics);
+            auto mapHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(bad), &mapDiagnostics);
             CHECK(mapHandle && !mapDiagnostics.HasErrors());
         } else {
             CHECK(Rejects(bad));
@@ -1429,12 +1433,12 @@ int main() {
     auto empty = MakeDesc();
     empty.curveSets[0].curveVertexCounts.clear(); empty.curveSets[0].points.clear();
     empty.curveSets[0].rest.clear(); empty.curveSets[0].widths.clear(); empty.curveSets[0].curveId.clear();
-    CHECK(CompileVulkanSourceWidthPlan(empty));
+    CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(empty)));
 
     // A resolved single surface plus authored root channels is a structural
     // admission fact.  Compilation does not inspect face/UV geometry.
     auto rooted = MakeRootedDesc();
-    auto rootedHandle = CompileVulkanSourceWidthPlan(rooted);
+    auto rootedHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(rooted));
     CHECK(rootedHandle);
     auto rootedPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(rootedHandle->Payload());
     CHECK(rootedPlan && rootedPlan->HasRootBindings());
@@ -1480,7 +1484,7 @@ int main() {
         if (variant == 4) matrix[0][0] = -1;
         affine.curveSets[0].worldMatrix = matrix;
         affine.surfaces[0].worldMatrix = matrix;
-        auto handle = CompileVulkanSourceWidthPlan(affine); CHECK(handle);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(affine)); CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Source().worldMatrix == matrix &&
               plan->Descriptor()->surfaces[0].worldMatrix == matrix);
@@ -1513,7 +1517,7 @@ int main() {
         surface.path = SdfPath("/Groom/UnusedSurface");
         surface.worldMatrix = GfMatrix4d(0.0);
         unrelated.surfaces.push_back(surface);
-        CHECK(CompileVulkanSourceWidthPlan(unrelated));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(unrelated)));
     }
 
     // Structural relationship/frame/cardinality errors fail closed.  A
@@ -1533,14 +1537,14 @@ int main() {
         // perspective components, not this translation, invalidate them.
         auto translated = MakeRootedDesc();
         translated.curveSets[0].rootFrame[0][3][0] = 1.0;
-        CHECK(CompileVulkanSourceWidthPlan(translated));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(translated)));
         auto bad = MakeRootedDesc();
         bad.curveSets[0].skinPrimUv.clear();
         CHECK(Rejects(bad));
         bad.nodes[0].params.back().value = VtValue(TfToken("onError"));
-        CHECK(CompileVulkanSourceWidthPlan(bad));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(bad)));
         bad.nodes[0].params.back().value = VtValue(TfToken("always"));
-        CHECK(CompileVulkanSourceWidthPlan(bad));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(bad)));
     }
     for (TfToken const& policy : {TfToken("onError"), TfToken("always")}) {
         auto unbound = MakeDesc();
@@ -1551,7 +1555,7 @@ int main() {
         auto geometric = MakeRootedDesc();
         geometric.surfaces[0].faceVertexIndices = {0, 0, 0};
         geometric.curveSets[0].skinPrimUv[0] = GfVec2f(9, 9);
-        CHECK(CompileVulkanSourceWidthPlan(geometric));
+        CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(geometric)));
     }
     CHECK(!std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload())->HasRootBindings());
 
@@ -1563,39 +1567,39 @@ int main() {
     std::shared_ptr<const UsdGenExecutionPlanHandle> injected;
     auto input = MakeDesc();
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
-    CHECK(compiler.Compile(input, &graph).ok);
+    CHECK(usdGenUsd::Compile(compiler, input, &graph).ok);
 #else
-    CHECK(!compiler.Compile(input, &graph).ok);
+    CHECK(!usdGenUsd::Compile(compiler, input, &graph).ok);
 #endif
     unsigned calls = 0;
-    auto compile = [&](UsdGenGraphDesc const& exact, UsdGenDiagnostics* messages) {
+    auto compile = [&](UsdGenGraphSpec const& exact, UsdGenDiagnostics* messages) {
         ++calls;
         return CompileVulkanSourceWidthPlan(exact, messages);
     };
-    CHECK(compiler.CompileInjectedDevice(input, &graph, compile, &injected).ok);
+    CHECK(usdGenUsd::CompileInjectedDevice(compiler, input, &graph, compile, &injected).ok);
     CHECK(calls == 1 && injected && graph.NodeCount() == 2);
-    CHECK(graph.Desc().executionBackend == UsdGenExecutionBackend::Vulkan);
-    CHECK(graph.NodeIdForPath(input.terminal) == 1);
+    CHECK(graph.Spec().executionBackend == UsdGenExecutionBackend::Vulkan);
+    CHECK(usdGenUsd::NodeIdForPath(graph, input.terminal) == 1);
     CHECK(NodeBuffer(graph, 0).totalCvs == 0 && NodeBuffer(graph, 1).totalCvs == 0);
     auto retained = injected;
     auto rejected = input;
     rejected.nodes[1].params.push_back({TfToken("taper"), VtValue(1.1f), false});
-    CHECK(!compiler.CompileInjectedDevice(rejected, &graph, compile, &injected).ok);
-    CHECK(injected == retained && graph.NodeCount() == 2 && graph.Desc().nodes[1].params.size() == 2);
+    CHECK(!usdGenUsd::CompileInjectedDevice(compiler, rejected, &graph, compile, &injected).ok);
+    CHECK(injected == retained && graph.NodeCount() == 2 && graph.Spec().nodes[1].params.size() == 2);
     // Even a faulty provider cannot bypass common operator/graph checks.
     rejected = input;
     rejected.nodes[1].type = TfToken("MissingInjectedKernel");
     auto staleProvider = [retained](auto const&, auto*) { return retained; };
-    CHECK(!compiler.CompileInjectedDevice(rejected, &graph, staleProvider, &injected).ok);
+    CHECK(!usdGenUsd::CompileInjectedDevice(compiler, rejected, &graph, staleProvider, &injected).ok);
     CHECK(injected == retained && graph.NodeCount() == 2);
     rejected = input;
     rejected.executionBackend = UsdGenExecutionBackend::CpuReference;
-    CHECK(!compiler.CompileInjectedDevice(rejected, &graph, compile, &injected).ok);
-    CHECK(!compiler.CompileInjectedDevice(input, &graph, {}, &injected).ok);
+    CHECK(!usdGenUsd::CompileInjectedDevice(compiler, rejected, &graph, compile, &injected).ok);
+    CHECK(!usdGenUsd::CompileInjectedDevice(compiler, input, &graph, {}, &injected).ok);
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
-    CHECK(compiler.Compile(input, &graph).ok);
+    CHECK(usdGenUsd::Compile(compiler, input, &graph).ok);
 #else
-    CHECK(!compiler.Compile(input, &graph).ok);
+    CHECK(!usdGenUsd::Compile(compiler, input, &graph).ok);
 #endif
     CHECK(injected == retained && graph.NodeCount() == 2);
     return 0;

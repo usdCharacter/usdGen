@@ -6,7 +6,7 @@
 #ifndef USDGEN_TESTS_GOLDEN_GRAPHS_H
 #define USDGEN_TESTS_GOLDEN_GRAPHS_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"

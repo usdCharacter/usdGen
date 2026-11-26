@@ -5,6 +5,7 @@
 #include "pxr/base/gf/half.h"
 #include "cudaParameters.h"
 #include "usdGen/executionResources.h"
+#include "usdGenUsd/lower.h"
 #include "gpu/curveSource.h"
 #include <atomic>
 #include <cstdio>
@@ -50,7 +51,7 @@ int main() {
     binding.destinationShape.components = 1; binding.literal = VtValue(0.5f);
     node.expressionBindings.push_back(binding);
     CudaParameterPlan plan; std::vector<std::string> diagnostics;
-    auto status = CudaParameterPlan::Compile(graph, node, &plan, &diagnostics);
+    auto status = CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(node), &plan, &diagnostics);
     if (status != CudaParameterStatus::Ok || plan.Bindings().size() != 1 || !plan.Fields().empty() || plan.Find(TfToken("width"))) {
         std::fprintf(stderr, "parameter plan compile failed (%d)\n", int(status));
         for (auto const& message : diagnostics) std::fprintf(stderr, "  %s\n", message.c_str());
@@ -64,18 +65,18 @@ int main() {
         node.expressionBindings.push_back(b);
     }
     CudaParameterPlan mixed;
-    if (CudaParameterPlan::Compile(graph, node, &mixed, &diagnostics) != CudaParameterStatus::Ok ||
+    if (CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(node), &mixed, &diagnostics) != CudaParameterStatus::Ok ||
         mixed.Bindings().size() != 4) {
         std::fprintf(stderr, "mixed-domain parameter plan compile failed\n"); return 1;
     }
     auto malformed = node;
     malformed.expressionBindings.back().destinationShape.isArray = true;
-    if (CudaParameterPlan::Compile(graph, malformed, &mixed, &diagnostics) != CudaParameterStatus::UnsupportedType) {
+    if (CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(malformed), &mixed, &diagnostics) != CudaParameterStatus::UnsupportedType) {
         std::fprintf(stderr, "malformed parameter shape was accepted\n"); return 1;
     }
     auto wrongLiteral = node;
     wrongLiteral.expressionBindings[0].literal = VtValue(double(.5));
-    check(CudaParameterPlan::Compile(graph, wrongLiteral, &mixed, &diagnostics) == CudaParameterStatus::UnsupportedType,
+    check(CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(wrongLiteral), &mixed, &diagnostics) == CudaParameterStatus::UnsupportedType,
           "reject non-native float literal");
     auto hugeInteger = binding;
     hugeInteger.destination = TfToken("largeInt");
@@ -89,17 +90,17 @@ int main() {
     graph.expressions.push_back(intExpression);
     hugeInteger.expression = intExpression.path;
     UsdGenNodeDesc intNode; intNode.expressionBindings.push_back(hugeInteger);
-    check(CudaParameterPlan::Compile(graph, intNode, &mixed, &diagnostics) == CudaParameterStatus::UnsupportedType,
+    check(CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(intNode), &mixed, &diagnostics) == CudaParameterStatus::UnsupportedType,
           "reject int64 literal beyond exact double range");
     UsdGenNodeDesc duplicateNode;
     auto duplicateA = binding; duplicateA.destination = TfToken("width");
     auto duplicateB = binding; duplicateB.destination = TfToken("usdGen:width");
     duplicateNode.expressionBindings = {duplicateA, duplicateB};
-    check(CudaParameterPlan::Compile(graph, duplicateNode, &mixed, &diagnostics) == CudaParameterStatus::InvalidArgument,
+    check(CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(duplicateNode), &mixed, &diagnostics) == CudaParameterStatus::InvalidArgument,
           "reject canonical duplicate destinations");
     auto badOutputGraph = graph;
     badOutputGraph.expressions.front().outputs.front().shape.elementCount = 2;
-    check(CudaParameterPlan::Compile(badOutputGraph, node, &mixed, &diagnostics) == CudaParameterStatus::InvalidArgument,
+    check(CudaParameterPlan::Compile(usdGenUsd::Lower(badOutputGraph), usdGenUsd::Lower(node), &mixed, &diagnostics) == CudaParameterStatus::InvalidArgument,
           "reject output element-count mismatch");
 
     auto addExpression = [&](char const* path, char const* source) {
@@ -129,7 +130,7 @@ int main() {
     runtimeNode.expressionBindings.back().nativeType = TfToken("bool");
     runtimeNode.expressionBindings.back().literal = VtValue(false);
     CudaParameterPlan runtimePlan;
-    if (CudaParameterPlan::Compile(graph, runtimeNode, &runtimePlan, &diagnostics) != CudaParameterStatus::Ok) {
+    if (CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(runtimeNode), &runtimePlan, &diagnostics) != CudaParameterStatus::Ok) {
         std::fprintf(stderr, "runtime parameter plan compile failed\n");
         for (auto const& message : diagnostics) std::fprintf(stderr, "  %s\n", message.c_str());
         return 1;
@@ -155,7 +156,7 @@ int main() {
         std::fprintf(stderr, "curve source setup failed\n"); return 2;
     }
     std::shared_ptr<const CudaParameterProgram> immutableProgram;
-    check(CudaParameterProgram::Compile(graph, runtimeNode, &immutableProgram,
+    check(CudaParameterProgram::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(runtimeNode), &immutableProgram,
                                         &diagnostics) == CudaParameterStatus::Ok &&
               immutableProgram && immutableProgram->Bindings().size() == 4,
           "compile immutable CUDA parameter program");
@@ -565,7 +566,7 @@ int main() {
     invalidBinding.literal = VtValue(0.f);
     invalidNode.expressionBindings.push_back(invalidBinding);
     std::shared_ptr<const CudaParameterProgram> invalidProgram;
-    check(CudaParameterProgram::Compile(invalidGraph, invalidNode, &invalidProgram, &diagnostics) ==
+    check(CudaParameterProgram::Compile(usdGenUsd::Lower(invalidGraph), usdGenUsd::Lower(invalidNode), &invalidProgram, &diagnostics) ==
               CudaParameterStatus::Ok,
           "compile runtime-invalid staged expression");
     CudaParameterEvaluator invalidValue;
@@ -636,7 +637,7 @@ int main() {
     floatBinding.literal = VtValue(GfVec2f(2.f, -3.f));
     typedNode.expressionBindings.push_back(floatBinding);
     CudaParameterPlan typedPlan;
-    check(CudaParameterPlan::Compile(graph, typedNode, &typedPlan, &diagnostics) == CudaParameterStatus::Ok,
+    check(CudaParameterPlan::Compile(usdGenUsd::Lower(graph), usdGenUsd::Lower(typedNode), &typedPlan, &diagnostics) == CudaParameterStatus::Ok,
           "compile half and vector literal plan");
     if (typedPlan.Bindings().size() == 3 &&
         typedPlan.Evaluate(curveSource.view(), {}, {}, stream, &diagnostics) == CudaParameterStatus::Ok) {

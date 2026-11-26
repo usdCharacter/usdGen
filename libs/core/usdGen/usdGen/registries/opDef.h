@@ -18,10 +18,10 @@ namespace usdGen {
 class UsdGenOp;
 class UsdGenOpRecord;
 struct UsdGenParamView;
-struct UsdGenGraphDesc;
-struct UsdGenNodeDesc;
+struct UsdGenGraphSpec;
+struct UsdGenOpNode;
 struct UsdGenRbfAnimationBinding;
-struct UsdGenSurfaceDesc;
+struct UsdGenSurfaceInput;
 
 /// Dirty class of one parameter (02 §6). Structural == Merkle digest term.
 enum class UsdGenParamClass : uint8_t { Structural, Topology, Capture, Value };
@@ -73,9 +73,9 @@ struct UsdGenIndexedPlaneRequest {
 
 /// Facts the engine computes for the animation-binding hook (4a).
 struct UsdGenAnimationBindingQuery {
-    UsdGenNodeDesc const *terminalDesc = nullptr;
+    UsdGenOpNode const *terminalDesc = nullptr;
     UsdGenParamView const *terminalParams = nullptr;
-    UsdGenSurfaceDesc const *surface = nullptr;   // null: terminal binds no surface
+    UsdGenSurfaceInput const *surface = nullptr;   // null: terminal binds no surface
     uint32_t terminalInputCount = 0;
     bool terminalHasOutputPlanes = false;
     bool graphStatic = false;            // no ReadsTime op, no expression binding, no animated param
@@ -84,7 +84,7 @@ struct UsdGenAnimationBindingQuery {
 
 struct UsdGenOpHooks {
     /// Compile-time node validation beyond arity (WidthBlend, compiler.cpp:1294-1319).
-    bool (*validateNode)(UsdGenGraphDesc const &, UsdGenNodeDesc const &,
+    bool (*validateNode)(UsdGenGraphSpec const &, UsdGenOpNode const &,
                          UsdGenParamView const &, std::string *error) = nullptr;
     /// 4a. Indexed plane run this node needs.
     UsdGenIndexedPlaneRequest (*indexedPlanes)(UsdGenParamView const &) = nullptr;

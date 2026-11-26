@@ -33,7 +33,7 @@
 #include "usdGen/curveBuffer.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/maps/attributeInstance.h"
 #include "usdGen/maps/attributeMap.h"
 #include "usdGen/op.h"
@@ -255,7 +255,8 @@ bool RunCaptureOnce(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *roots,
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
     UsdGenCurveBuffer empty;
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered258 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered258;
     ctx.params = &params;
     ctx.surface = 0;
     ctx.seed = uint32_t(node.seed);
@@ -287,7 +288,8 @@ int RunScatterCapture(Options const &opts, UsdGenGraphDesc const &desc)
         std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
         UsdGenCurveBuffer empty;
         UsdGenCaptureContext ctx;
-        ctx.desc = &desc;
+        usdGen::UsdGenGraphSpec const lowered290 = usdGenUsd::Lower(desc);
+        ctx.desc = &lowered290;
         ctx.params = &params;
         ctx.surface = 0;
         ctx.seed = uint32_t(node.seed);
@@ -318,7 +320,8 @@ int RunScatterDigest(Options const &opts, UsdGenGraphDesc const &desc)
     UsdGenParamView const &params = paramsView.View();
     UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered321 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered321;
     ctx.params = &params;
     ctx.surface = 0;
     ctx.seed = uint32_t(node.seed);
@@ -716,7 +719,7 @@ int RunSessionCook(Options const &opts, UsdGenGraphDesc const &desc)
         auto shared = std::make_shared<const UsdGenGraphDesc>(d);
         auto const t0 = std::chrono::steady_clock::now();
         UsdGenGenerationConstPtr gen = cooker.Cook(
-            shared, UsdGenContext::Interactive, false, {}, 0.0,
+            usdGenUsd::LowerShared(*shared), UsdGenContext::Interactive, false, {}, 0.0,
             UsdGenCommitReason::NoticeBatchEnd, prev, stats, false, epoch,
             epoch + 1, -1);
         auto const t1 = std::chrono::steady_clock::now();
@@ -784,7 +787,7 @@ int RunCuda(Options const &opts, UsdGenGraphDesc const &desc)
         std::shared_ptr<const gpu::ScatterGrowRoots> out;
         auto const t0 = std::chrono::steady_clock::now();
         CudaScatterInputStatus const st = PrepareCudaScatterInput(
-            desc, SdfPath("/groom/scatter"), &out, &reason);
+            usdGenUsd::Lower(desc), usdGenUsd::KeyOf(SdfPath("/groom/scatter")), &out, &reason);
         auto const t1 = std::chrono::steady_clock::now();
         if (st != CudaScatterInputStatus::Ok) {
             std::printf("cuda_input error: %s\n", reason.c_str());
@@ -890,7 +893,7 @@ int RunCudaValidate(Options const &opts, UsdGenGraphDesc const &desc)
 {
     std::string reason;
     std::shared_ptr<const gpu::ScatterGrowRoots> roots;
-    if (PrepareCudaScatterInput(desc, SdfPath("/groom/scatter"), &roots,
+    if (PrepareCudaScatterInput(usdGenUsd::Lower(desc), usdGenUsd::KeyOf(SdfPath("/groom/scatter")), &roots,
                                 &reason) != CudaScatterInputStatus::Ok) {
         std::printf("cuda_validate error: %s\n", reason.c_str());
         return 1;

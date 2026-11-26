@@ -8,6 +8,7 @@
 // word, and a 64-thread Submit/Visible run against one Session. Tracked
 // values live in a never-reused poisoned arena, so reading a freed one fails.
 #include "usdGen/epoch.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionResources.h"
@@ -152,10 +153,10 @@ void SharedCellStress()
 UsdGenExecutionCacheKey BaseKey()
 {
     UsdGenExecutionInputVersions inputs;
-    inputs.sources.push_back({SdfPath("/stress/hair"), 1});
+    inputs.sources.push_back({usdGenUsd::KeyOf(SdfPath("/stress/hair")), 1});
     UsdGenExecutionContext context{UsdGenDeviceBackend::CpuReference, 0, -1, 0,
                                    UsdGenContext::Interactive};
-    return UsdGenExecutionCacheKey::Make(SdfPath("/stress"), {1, 2}, inputs, context, 0, 1.0);
+    return UsdGenExecutionCacheKey::Make(usdGenUsd::KeyOf(SdfPath("/stress")), {1, 2}, inputs, context, 0, 1.0);
 }
 
 void CacheStoreStress()
@@ -569,7 +570,7 @@ UsdGenGraphDesc SessionDesc()
 void SessionSubmitVisibleStress()
 {
     UsdGenSession session;
-    session.SetGraphDesc(SessionDesc());
+    usdGenUsd::SetGraphDesc(session, SessionDesc());
     auto first = session.CommitSnapshot(0.0, UsdGenCommitReason::NoticeBatchEnd);
     Check(first && first->generation && !first->diagnostics.HasErrors(),
           "session: the baseline cook publishes");

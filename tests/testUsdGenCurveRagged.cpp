@@ -19,7 +19,7 @@
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -112,7 +112,7 @@ struct Harness {
     explicit Harness(int resampleTo, float defaultWidth = 0.01f)
         : desc(MakeRaggedCurveDesc(resampleTo, defaultWidth))
     {
-        UsdGenCompileResult const cr = compiler.Compile(desc, &graph);
+        UsdGenCompileResult const cr = usdGenUsd::Compile(compiler, desc, &graph);
         if (!cr.ok) {
             std::printf("compile failed:");
             for (auto const &e : cr.errors) std::printf(" %s", e.c_str());
@@ -122,7 +122,7 @@ struct Harness {
         }
         UsdGenScheduler scheduler(8);
         UsdGenEvalContext ctx;
-        ctx.desc = &graph.Desc();
+        ctx.desc = &graph.Spec();
         ctx.time = desc.time;
         UsdGenRunResult const run = scheduler.Run(graph, ctx, 1);
         if (run.diagnostics.HasErrors()) {
@@ -135,14 +135,14 @@ struct Harness {
 
     UsdGenCurveBuffer Terminal() const { return OutputBuffer(graph); }
     UsdGenCurveBuffer Source() const {
-        return NodeBuffer(graph, graph.NodeIdForPath(SdfPath("/curveRagged/src")));
+        return NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, SdfPath("/curveRagged/src")));
     }
     UsdGenRef<const UsdGenElementSet> SourceSet() const {
         return UsdGenRef<const UsdGenElementSet>(
-            &graph.NodeOutput(graph.NodeIdForPath(SdfPath("/curveRagged/src"))));
+            &graph.NodeOutput(usdGenUsd::NodeIdForPath(graph, SdfPath("/curveRagged/src"))));
     }
     UsdGenSpan<const UsdGenChunkRange> TerminalChunks() const {
-        return graph.Chunks(graph.NodeIdForPath(desc.terminal));
+        return graph.Chunks(usdGenUsd::NodeIdForPath(graph, desc.terminal));
     }
 };
 
@@ -223,11 +223,11 @@ int main()
               "default width: surface source and terminal use description fallback");
 
         h.desc.defaultWidth = 0.5f;
-        UsdGenCompileResult const recomp = h.compiler.Recompile(h.desc, &h.graph);
+        UsdGenCompileResult const recomp = usdGenUsd::Recompile(h.compiler, h.desc, &h.graph);
         Check(recomp.ok, "default width: changed fallback recompiles");
         UsdGenScheduler scheduler(8);
         UsdGenEvalContext ctx;
-        ctx.desc = &h.graph.Desc();
+        ctx.desc = &h.graph.Spec();
         ctx.time = h.desc.time;
         UsdGenRunResult const run = scheduler.Run(h.graph, ctx, 2);
         Check(!run.diagnostics.HasErrors(),
@@ -242,9 +242,9 @@ int main()
                  std::numeric_limits<float>::quiet_NaN(),
                  std::numeric_limits<float>::infinity()}) {
             h.desc.defaultWidth = invalidWidth;
-            UsdGenCompileResult const invalid = h.compiler.Recompile(h.desc, &h.graph);
+            UsdGenCompileResult const invalid = usdGenUsd::Recompile(h.compiler, h.desc, &h.graph);
             Check(invalid.ok, "default width: invalid value reaches capture validation");
-            ctx.desc = &h.graph.Desc();
+            ctx.desc = &h.graph.Spec();
             UsdGenRunResult const rejected = scheduler.Run(h.graph, ctx, 3);
             Check(rejected.diagnostics.HasErrors(),
                   "default width: non-finite/negative fallback is rejected");

@@ -17,7 +17,7 @@
 #ifndef USDGEN_AUTHORED_PLANE_CONVERT_H
 #define USDGEN_AUTHORED_PLANE_CONVERT_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

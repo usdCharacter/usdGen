@@ -20,7 +20,7 @@
 #include "usdGen/allocCounter.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -195,7 +195,7 @@ void EngineBench(int threads, int runs)
         UsdGenCompiler c;
         UsdGenGraph g;
         auto t0 = Clock::now();
-        UsdGenCompileResult const cr = c.Compile(a, &g);
+        UsdGenCompileResult const cr = usdGenUsd::Compile(c, a, &g);
         auto t1 = Clock::now();
         if (!cr.ok) {
             std::printf("compile failed:");
@@ -205,7 +205,7 @@ void EngineBench(int threads, int runs)
         }
         compile.v.push_back(Ms(t0, t1));
         UsdGenEvalContext ctx;
-        ctx.desc = &g.Desc();
+        ctx.desc = &g.Spec();
         t0 = Clock::now();
         UsdGenRunResult const first = sched.Run(g, ctx, ++gen);
         t1 = Clock::now();
@@ -229,8 +229,8 @@ void EngineBench(int threads, int runs)
             UsdGenGraphDesc const &next = (i % 2 == 0) ? b : a;
             uint64_t const a0 = Allocs();
             t0 = Clock::now();
-            UsdGenCompileResult const rr = c.Recompile(next, &g);
-            ctx.desc = &g.Desc();
+            UsdGenCompileResult const rr = usdGenUsd::Recompile(c, next, &g);
+            ctx.desc = &g.Spec();
             if (rr.ok) sched.Run(g, ctx, ++gen);
             t1 = Clock::now();
             editAllocs.v.push_back(double(Allocs() - a0));

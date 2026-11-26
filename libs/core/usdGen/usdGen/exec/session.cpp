@@ -45,10 +45,10 @@ void Merge(UsdGenPendingDirty& into, UsdGenPendingDirty const& pending) {
 UsdGenSessionGraphSnapshot GraphInfo(UsdGenSessionCooker const& cooker) {
     UsdGenSessionGraphSnapshot info;
     info.nodeCount = cooker.NodeCount();
-    info.desc = cooker.GraphDesc();
+    info.spec = cooker.GraphSpec();
     info.cudaPlan = cooker.CudaPlan();
-    for (auto const& node : info.desc.nodes)
-        info.nodeIds[node.path] = cooker.NodeIdForPath(node.path);
+    for (auto const& node : info.spec.nodes)
+        info.nodeIds[node.key] = cooker.NodeIdForKey(node.key);
     return info;
 }
 
@@ -160,7 +160,7 @@ struct DeviceReturnRelay : std::enable_shared_from_this<DeviceReturnRelay> {
 struct UsdGenSession::State {
     // Command-owner state. The executor/cooker below is accessed only by the
     // serialized work node and closures retained by that node.
-    std::shared_ptr<const UsdGenGraphDesc> desc = std::make_shared<const UsdGenGraphDesc>();
+    std::shared_ptr<const UsdGenGraphSpec> desc = std::make_shared<const UsdGenGraphSpec>();
     UsdGenContext context = UsdGenContext::Interactive;
     UsdGenPendingDirty pending;
     std::atomic<bool> dirty{false};
@@ -215,7 +215,7 @@ struct UsdGenSession::State {
                                             coalescedControls.end(), control),
                                 coalescedControls.end());
     }
-    void SetDesc(std::shared_ptr<const UsdGenGraphDesc> value) {
+    void SetDesc(std::shared_ptr<const UsdGenGraphSpec> value) {
         Invalidate();
         desc = std::move(value);
         pending = UsdGenPendingDirty{};
@@ -387,8 +387,8 @@ int UsdGenSession::CaptureCallerDevice() noexcept {
 bool UsdGenSession::NeedsCommit() const noexcept {
     return _state->dirty.load(std::memory_order_acquire);
 }
-bool UsdGenSession::PostGraphDesc(UsdGenGraphDesc desc) {
-    auto value = std::make_shared<const UsdGenGraphDesc>(std::move(desc));
+bool UsdGenSession::PostGraphSpec(UsdGenGraphSpec spec) {
+    auto value = std::make_shared<const UsdGenGraphSpec>(std::move(spec));
     return _state->pipeline.PostCommand([this, value] { _state->SetDesc(value); });
 }
 bool UsdGenSession::PostContext(UsdGenContext context) {
@@ -412,8 +412,8 @@ bool UsdGenSession::PostDeviceContextLost(
         _state->RecordDeviceContextLost(backend, deviceIndex);
     });
 }
-void UsdGenSession::SetGraphDesc(UsdGenGraphDesc const& desc) {
-    auto value = std::make_shared<const UsdGenGraphDesc>(desc);
+void UsdGenSession::SetGraphSpec(UsdGenGraphSpec const& spec) {
+    auto value = std::make_shared<const UsdGenGraphSpec>(spec);
     _state->pipeline.InvokeOwner([this, value] { _state->SetDesc(value); });
 }
 void UsdGenSession::SetContext(UsdGenContext context) {
@@ -520,9 +520,9 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
         auto& state = *_state;
         try {
             // These optional mutations and the baseline capture are one owner
-            // command.  Do not route them through PostGraphDesc/PostContext:
+            // command.  Do not route them through PostGraphSpec/PostContext:
             // another command could otherwise split this request in two.
-            if (request.desc) state.SetDesc(request.desc);
+            if (request.spec) state.SetDesc(request.spec);
             if (request.context) state.SetContext(*request.context);
             if (request.devicePublication)
                 state.SetDevicePublication(*request.devicePublication);

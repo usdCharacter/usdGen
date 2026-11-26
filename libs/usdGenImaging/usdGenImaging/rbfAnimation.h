@@ -3,7 +3,8 @@
 #ifndef USDGEN_IMAGING_RBF_ANIMATION_H
 #define USDGEN_IMAGING_RBF_ANIMATION_H
 #include "usdGen/rbfAnimation.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "pxr/base/gf/range3d.h"
 #include "pxr/imaging/hd/dataSource.h"
 #include <map>
@@ -16,10 +17,12 @@ struct RbfAnimation {
     std::map<SdfPath, HdContainerDataSourceHandle> computations, overlays;
     std::map<SdfPath, GfRange3d> restBounds;
     SdfPath coefficientsPath;
+    std::vector<SdfPath> tilePaths;        // per binding tile
+    std::shared_ptr<const void> host;      // the cooked spec's path table
 };
 std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
     std::shared_ptr<const usdGen::UsdGenRbfAnimationBinding> const& binding,
-    GfMatrix4d const& xform);
+    std::shared_ptr<const void> const& host, GfMatrix4d const& xform);
 std::shared_ptr<const RbfAnimation> PoseRbfAnimation(
     RbfAnimation const& previous, usdGen::UsdGenGraphDesc const& desc);
 }

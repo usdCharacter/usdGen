@@ -5,6 +5,7 @@
 // bit-exact positions/uv/frames, including the overflow-fan recompute
 // (ntri > 2), restricted capture, flip, and error parity.
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
@@ -113,7 +114,7 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
                       std::string *error = nullptr)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    usdGenUsd::LoweredParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenParamView const &params = stackParams.View();
     UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
@@ -123,7 +124,8 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
     if (!cap)
         return false;
     UsdGenCaptureContext ctx;
-    ctx.desc = &d;
+    usdGen::UsdGenGraphSpec const lowered127 = usdGenUsd::Lower(d);
+    ctx.desc = &lowered127;
     ctx.params = &params;
     ctx.surface = 0;
     ctx.seed = uint32_t(node.seed);

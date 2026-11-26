@@ -1517,10 +1517,10 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     }
     if(!first) return out;
     UsdGenScalpShadowPublication const& lead=*first->cap;
-    out.primPath=lead.primPath;
+    out.prim=lead.prim;
     out.purpose=lead.purpose;
     out.visibility=lead.visibility;
-    out.materialPath=lead.materialPath;
+    out.material=lead.material;
     out.latticeKey=lead.latticeKey;
     out.lift=lead.lift;
     if(used.size()==1) {

@@ -5,6 +5,7 @@
 #ifndef USDGEN_CURVE_BUFFER_H
 #define USDGEN_CURVE_BUFFER_H
 
+#include "usdGen/api/primRef.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/types.h"
@@ -16,7 +17,6 @@
 #include "pxr/base/gf/vec3d.h"
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/vt/array.h"
-#include "pxr/usd/sdf/path.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -439,7 +439,7 @@ struct UsdGenTileView
 struct UsdGenTilePublication
 {
     UsdGenTileId  tile = 0;
-    SdfPath       primPath;                   // <description>/__usdGenRender/tile_NNNN (4-digit zero pad)
+    UsdGenPrimRef prim;                       // <description>/__usdGenRender/tile_NNNN (4-digit zero pad)
 
     // --- topology (C2) ---
     VtIntArray    curveVertexCounts;          // basisCurves/topology/curveVertexCounts
@@ -472,10 +472,10 @@ struct UsdGenTilePublication
     // xform/resetXformStack = true (constant), never a payload.
     TfToken       purpose;                    // inherited by hand from the description
     TfToken       visibility;                 // inherited by hand from the description
-    SdfPath       materialPath;               // description's Material
+    UsdGenPrimRef material;                   // description's Material (or the preview material)
     TfToken       materialPurpose = UsdGenTokens().allPurpose; // the empty-token container child
-    SdfPath       primOrigin;                 // the description prim; absolute outside prototypes
-    SdfPath       dependencySurface;          // __dependencies: dependedOnPrimPath
+    UsdGenPrimRef origin;                     // the description prim; absolute outside prototypes
+    UsdGenPrimRef dependency;                 // __dependencies: dependedOnPrimPath
 };
 
 /// The scalp-shadow cap: the haired part of a groom's emitting surface,
@@ -493,7 +493,7 @@ struct UsdGenTilePublication
 /// <owner description>/__usdGenRender/scalpShadow.
 struct UsdGenScalpShadowPublication
 {
-    SdfPath       primPath;
+    UsdGenPrimRef prim;
     VtVec3fArray  points;                     // mesh/points, world space
     VtVec3fArray  normals;                    // primvars/normals, vertex
     VtIntArray    faceVertexCounts;           // all 3
@@ -505,7 +505,7 @@ struct UsdGenScalpShadowPublication
     GfVec3d       extentMin{0.0}, extentMax{0.0};
     TfToken       purpose;
     TfToken       visibility;
-    SdfPath       materialPath;               // the synthetic scalp-shadow material
+    UsdGenPrimRef material;                   // the synthetic scalp-shadow material
     // Content identity: the scene index dirties the prim when this changes and
     // shares the previous immutable arrays when it does not.
     uint64_t      digest = 0;
@@ -528,8 +528,8 @@ struct UsdGenScalpShadowPublication
 /// M6-only; empty in M1 (UsdGenInstance publishes instancers instead of tiles).
 struct UsdGenInstancerPublication
 {
-    SdfPath       primPath;                   // <description>/__usdGenRender/inst_<opName>
-    std::vector<SdfPath> prototypes;          // instancerTopology/prototypes (namespace children)
+    UsdGenPrimRef prim;                       // <description>/__usdGenRender/inst_NNNN
+    std::vector<UsdGenPrimRef> prototypes;    // instancerTopology/prototypes (namespace children)
     std::vector<VtIntArray> instanceIndices;  // instancerTopology/instanceIndices, one per prototype
     VtBoolArray   mask;                       // instancerTopology/mask; empty == all true
 };
@@ -540,10 +540,10 @@ struct UsdGenPrimSetSignature
 {
     int           tileCount = 0;
     int           instancerCount = 0;
-    std::vector<std::string> primPaths;       // sorted
-    // per prim path (parallel to primPaths): sorted list of published primvar names
+    std::vector<UsdGenPrimRef> prims;         // sorted
+    // per prim (parallel to prims): sorted list of published primvar names
     std::vector<std::vector<std::string>> primvarNames;
-    // per prim path (parallel to primPaths): prim type string
+    // per prim (parallel to prims): prim type string
     std::vector<std::string> primTypes;
 
     bool operator==(UsdGenPrimSetSignature const &rhs) const;
@@ -553,7 +553,7 @@ struct UsdGenPrimSetSignature
 struct UsdGenTileDirty
 {
     UsdGenTileId tile = 0;
-    SdfPath      primPath;
+    UsdGenPrimRef prim;
     bool         removed = false;            // -> PrimsRemoved
     bool         added   = false;            // -> PrimsAdded
     bool         pointsDirty = false;        // -> primvars/points/primvarValue + extent/min|max

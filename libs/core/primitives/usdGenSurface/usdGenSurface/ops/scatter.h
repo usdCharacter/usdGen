@@ -47,7 +47,7 @@ private:
     // array digests above; memoize it keyed on the same buffer identities
     // plus the scheme tokens (a miss recomputes exactly as before).
     struct SubdivisionDigestCache {
-        uint64_t Digest(UsdGenSurfaceDesc const &surface);
+        uint64_t Digest(UsdGenSurfaceInput const &surface);
         VtIntArray counts_, indices_, holes_, creaseIndices_, creaseLengths_,
             cornerIndices_;
         VtFloatArray creaseSharpnesses_, cornerSharpnesses_;

@@ -38,10 +38,10 @@ UsdGenCompiledNode const &UsdGenGraph::Node(UsdGenNodeId id) const
     return *_nodes[id];
 }
 
-UsdGenNodeDesc const &UsdGenGraph::NodeDesc(UsdGenNodeId id) const
+UsdGenOpNode const &UsdGenGraph::OpNode(UsdGenNodeId id) const
 {
     if (id >= _nodes.size() || !_nodes[id] || !_nodes[id]->desc) {
-        throw std::out_of_range("UsdGenGraph::NodeDesc: invalid node id");
+        throw std::out_of_range("UsdGenGraph::OpNode: invalid node id");
     }
     return *_nodes[id]->desc;
 }
@@ -79,7 +79,7 @@ private:
     uint64_t _h = 1469598103934665603ULL;
 };
 
-uint64_t RestSurfaceGeneration(UsdGenSurfaceDesc const &surface)
+uint64_t RestSurfaceGeneration(UsdGenSurfaceInput const &surface)
 {
     RestContentHash h;
     h.Mix(0x5265737453726675ULL);   // distinct from any posed generation domain
@@ -95,7 +95,7 @@ uint64_t RestSurfaceGeneration(UsdGenSurfaceDesc const &surface)
     return h.Value();
 }
 
-std::array<uint64_t, 3> RestSourceKey(UsdGenSurfaceDesc const &surface)
+std::array<uint64_t, 3> RestSourceKey(UsdGenSurfaceInput const &surface)
 {
     return {surface.surfaceGeneration,
             uint64_t(reinterpret_cast<uintptr_t>(surface.points.cdata())),
@@ -104,10 +104,10 @@ std::array<uint64_t, 3> RestSourceKey(UsdGenSurfaceDesc const &surface)
 
 }  // namespace
 
-UsdGenGraphDesc const &UsdGenGraph::RestDesc() const
+UsdGenGraphSpec const &UsdGenGraph::RestSpec() const
 {
     if (!_desc) {
-        if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphDesc>();
+        if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphSpec>();
         return *_restDesc;
     }
     bool fresh = _restDesc && _restSource == _desc.get() &&
@@ -117,10 +117,10 @@ UsdGenGraphDesc const &UsdGenGraph::RestDesc() const
     if (fresh) return *_restDesc;
 
     // Copy-assign into the retained view: its vectors keep their capacity.
-    if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphDesc>();
-    UsdGenGraphDesc *rest = _restDesc.get();
+    if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphSpec>();
+    UsdGenGraphSpec *rest = _restDesc.get();
     *rest = *_desc;
-    for (UsdGenSurfaceDesc &surface : rest->surfaces) {
+    for (UsdGenSurfaceInput &surface : rest->surfaces) {
         if (surface.restFromCurrentPoints || surface.restPoints.empty() ||
             surface.restPoints.size() != surface.points.size())
             continue;   // no authored rest: Default space is the current geometry
@@ -133,7 +133,7 @@ UsdGenGraphDesc const &UsdGenGraph::RestDesc() const
         surface.surfaceGeneration = RestSurfaceGeneration(surface);
     }
     _restSourceKeys.clear();
-    for (UsdGenSurfaceDesc const &surface : _desc->surfaces)
+    for (UsdGenSurfaceInput const &surface : _desc->surfaces)
         _restSourceKeys.push_back(RestSourceKey(surface));
     _restSource = _desc.get();
     return *_restDesc;
@@ -158,11 +158,12 @@ UsdGenGraph::RoutingSnapshot() const
     snapshot->terminal = _terminal;
     if (_desc) {
         snapshot->description = _desc->description;
-        snapshot->surfacePaths.reserve(_desc->surfaces.size());
-        snapshot->meshPaths.reserve(_desc->surfaces.size());
+        snapshot->host = _desc->host;
+        snapshot->surfaceKeys.reserve(_desc->surfaces.size());
+        snapshot->meshKeys.reserve(_desc->surfaces.size());
         for (auto const &surface : _desc->surfaces) {
-            snapshot->surfacePaths.push_back(surface.path);
-            snapshot->meshPaths.push_back(UsdGenSurfaceMeshPath(surface));
+            snapshot->surfaceKeys.push_back(surface.key);
+            snapshot->meshKeys.push_back(UsdGenSurfaceMeshKey(surface));
         }
     }
     snapshot->nodes.reserve(_nodes.size());
@@ -188,7 +189,7 @@ UsdGenGraph::RoutingSnapshot() const
         // not routed, or whose primvar is empty, keeps the map-prim row
         // as its only route.
         if (_desc) {
-            std::vector<SdfPath> paintCandidates;
+            std::vector<UsdGenNodeKey> paintCandidates;
             paintCandidates.reserve(node.mapRefs.size() +
                                     node.geometryRefs.size());
             paintCandidates.insert(paintCandidates.end(), node.mapRefs.begin(),
@@ -196,14 +197,14 @@ UsdGenGraph::RoutingSnapshot() const
             paintCandidates.insert(paintCandidates.end(),
                                    node.geometryRefs.begin(),
                                    node.geometryRefs.end());
-            for (SdfPath const &mapRef : paintCandidates) {
+            for (UsdGenNodeKey const mapRef : paintCandidates) {
                 for (auto const &map : _desc->maps) {
-                    if (map.path != mapRef) continue;
+                    if (map.key != mapRef) continue;
                     if (!UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) break;
                     if (map.paintPrimvar.IsEmpty()) break;
                     for (size_t s = 0;
-                         s < snapshot->meshPaths.size(); ++s) {
-                        if (snapshot->meshPaths[s] != map.paintSurface)
+                         s < snapshot->meshKeys.size(); ++s) {
+                        if (snapshot->meshKeys[s] != map.paintSurface)
                             continue;
                         UsdGenPaintRoutingRef ref;
                         ref.surface = static_cast<UsdGenSurfaceId>(s);
@@ -224,7 +225,7 @@ UsdGenGraph::RoutingSnapshot() const
             }
         }
         if (node.desc) {
-            copy.path = node.desc->path;
+            copy.key = node.desc->key;
         }
         if (node.record) {
             // Routed decls: Value class vs the rest, in declaration order.
@@ -242,10 +243,10 @@ UsdGenGraph::RoutingSnapshot() const
     return snapshot;
 }
 
-UsdGenNodeId UsdGenGraph::NodeIdForPath(SdfPath const &path) const
+UsdGenNodeId UsdGenGraph::NodeIdForKey(UsdGenNodeKey key) const
 {
-    auto it = _nodeByPath.find(path);
-    return it == _nodeByPath.end() ? InvalidNode : it->second;
+    auto it = _nodeByKey.find(key);
+    return it == _nodeByKey.end() ? InvalidNode : it->second;
 }
 
 UsdGenElementSet const &UsdGenGraph::Output() const
@@ -355,7 +356,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
     if (generation != UINT64_MAX && _desc &&
         surface < _desc->surfaces.size())
         _inputVersions.UpdateSurface(
-            _desc->surfaces[surface].path, generation);
+            _desc->surfaces[surface].key, generation);
     // Hop 4: surface-major chunk order -> the chunks binding `surface` are a
     // contiguous range on every node; OR `bits` into them and into the
     // owning nodes + strict descendants.
@@ -400,14 +401,14 @@ void UsdGenGraph::DirtyChunks(UsdGenNodeId id, TfSpan<const UsdGenChunkId> chunk
     }
 }
 
-void UsdGenGraph::DirtyMap(SdfPath const &mapPrim, uint64_t generation)
+void UsdGenGraph::DirtyMap(UsdGenNodeKey mapPrim, uint64_t generation)
 {
     if (generation != UINT64_MAX)
         _inputVersions.UpdateMap(mapPrim, generation);
     for (auto &nPtr : _nodes) {
         if (!nPtr) continue;
         auto &n = *nPtr;
-        for (SdfPath const &m : n.mapRefs)
+        for (UsdGenNodeKey const m : n.mapRefs)
             if (m == mapPrim) {
                 // MarkNode propagates both capture and value dirt to every
                 // strict descendant; map edits cannot leave a stale child
@@ -418,14 +419,14 @@ void UsdGenGraph::DirtyMap(SdfPath const &mapPrim, uint64_t generation)
     }
 }
 
-void UsdGenGraph::DirtyInput(SdfPath const &inputIdentity, uint64_t generation)
+void UsdGenGraph::DirtyInput(UsdGenNodeKey inputIdentity, uint64_t generation)
 {
     if (generation != UINT64_MAX)
         _inputVersions.UpdateInput(inputIdentity, generation);
     for (auto &nPtr : _nodes) {
         if (!nPtr) continue;
         auto &n = *nPtr;
-        for (SdfPath const &c : n.inputRefs)
+        for (UsdGenNodeKey const c : n.inputRefs)
             if (c == inputIdentity) {
                 MarkNode(n.id, UsdGenDirtyCapture);
                 break;
@@ -433,12 +434,12 @@ void UsdGenGraph::DirtyInput(SdfPath const &inputIdentity, uint64_t generation)
     }
 }
 
-void UsdGenGraph::DirtyGeometry(SdfPath const &prim)
+void UsdGenGraph::DirtyGeometry(UsdGenNodeKey prim)
 {
     for (auto &nPtr : _nodes) {
         if (!nPtr) continue;
-        for (SdfPath const &ref : nPtr->geometryRefs)
-            if (ref.HasPrefix(prim)) {
+        for (UsdGenNodeKey const ref : nPtr->geometryRefs)
+            if (ref == prim) {
                 MarkNode(nPtr->id, UsdGenDirtyCapture);
                 break;
             }

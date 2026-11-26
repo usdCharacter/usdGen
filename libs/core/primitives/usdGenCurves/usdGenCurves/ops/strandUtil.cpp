@@ -358,7 +358,7 @@ GfVec3f TriangleBvh::Position(int triangle, GfVec3f const &bary) const
            _points[size_t(t.v[2])] * bary[2];
 }
 
-void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *bvh)
+void BuildSurfaceBvh(UsdGenSurfaceInput const &surface, bool rest, TriangleBvh *bvh)
 {
     VtVec3fArray const &pts = (rest && !surface.restPoints.empty()) ? surface.restPoints
                                                                     : surface.points;
@@ -399,7 +399,7 @@ void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *b
     bvh->Build(pts, tris, std::move(normals), std::move(uvs));
 }
 
-float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triangle,
+float SampleMaskMap(UsdGenMapInput const &map, TriangleBvh const &bvh, int triangle,
                     GfVec3f const &bary, float fallback)
 {
     if (triangle < 0 || size_t(triangle) >= bvh.Triangles().size()) return fallback;
@@ -437,17 +437,17 @@ float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triang
     return fallback;
 }
 
-std::vector<UsdGenMapDesc const *> BoundMaps(UsdGenGraphDesc const *desc,
-                                             UsdGenMapBindingDesc const *bindings,
+std::vector<UsdGenMapInput const *> BoundMaps(UsdGenGraphSpec const *desc,
+                                             UsdGenMapBinding const *bindings,
                                              uint32_t bindingCount,
                                              TfToken const &relationship)
 {
-    std::vector<UsdGenMapDesc const *> out;
+    std::vector<UsdGenMapInput const *> out;
     if (!desc || !bindings) return out;
     for (uint32_t i = 0; i < bindingCount; ++i) {
         if (bindings[i].relationship != relationship) continue;
-        for (UsdGenMapDesc const &m : desc->maps)
-            if (m.path == bindings[i].map) { out.push_back(&m); break; }
+        for (UsdGenMapInput const &m : desc->maps)
+            if (m.key == bindings[i].map) { out.push_back(&m); break; }
     }
     return out;
 }

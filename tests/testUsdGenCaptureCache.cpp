@@ -1,5 +1,6 @@
 // Exact read-count, value, topology and diagnostic oracles for node capture.
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/lower.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
 #include "pxr/imaging/hd/retainedSceneIndex.h"
 #include "pxr/base/gf/vec3f.h"

@@ -1,4 +1,5 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"

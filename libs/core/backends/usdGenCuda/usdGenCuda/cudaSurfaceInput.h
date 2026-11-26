@@ -2,7 +2,7 @@
 #define USDGEN_CUDA_SURFACE_INPUT_H
 
 #include "gpu/curveGeometry.h"
-#include "usdGen/compile/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -10,7 +10,7 @@
 namespace usdGen {
 
 struct CudaSurfaceBindingKey {
-    SdfPath path;
+    UsdGenNodeKey surface;
     VtVec3fArray restPoints;
     VtVec3fArray restNormals;
     UsdGenSurfaceNormalDomain restNormalDomain = UsdGenSurfaceNormalDomain::None;
@@ -34,7 +34,7 @@ enum class CudaSurfacePreparationStatus {
 };
 
 CudaSurfacePreparationStatus PrepareCudaSurface(
-    UsdGenSurfaceDesc const&, uint32_t sampleBudget,
+    UsdGenSurfaceInput const&, uint32_t sampleBudget,
     CudaSurfacePrepared*, std::vector<std::string>* diagnostics = nullptr);
 
 bool RestBindingMatches(CudaSurfacePrepared const&, CudaSurfacePrepared const&);

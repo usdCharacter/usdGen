@@ -6,6 +6,7 @@
 // device publication (the asynchronous relay path). Prints medians in ms.
 //   benchUsdGenCudaCook [--density N] [--runs N]
 #include "usdGen/cudaExecution.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
 
 #include <cuda_runtime.h>
@@ -84,7 +85,7 @@ int main(int argc, char** argv) {
     };
     UsdGenGraphDesc desc = Desc(density);
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(desc, &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
     if (!plan) { std::fprintf(stderr, "compile failed\n"); return 1; }
     auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     if (!workspace) { std::fprintf(stderr, "workspace failed\n"); return 1; }
@@ -109,7 +110,7 @@ int main(int argc, char** argv) {
     {
         UsdGenSession s;
         s.SetDevicePublicationEnabled(true);
-        s.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(s, desc);
         for (int run = 0; run != runs + 3; ++run) {
             auto const t0 = Clock::now();
             auto gen = s.Commit(1.0 + run, UsdGenCommitReason::SetTime);

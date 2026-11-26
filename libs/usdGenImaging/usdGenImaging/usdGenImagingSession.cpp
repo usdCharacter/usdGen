@@ -78,6 +78,9 @@ struct UsdGenImagingSession::State {
     // Last accepted descriptor remains immutable and available for explicit
     // map reload even after `staged` transfers to the core owner.
     std::shared_ptr<const usdGen::UsdGenGraphDesc> currentDesc;
+    // Node keys of every descriptor this session lowered: stable across
+    // descriptor edits, so the engine's keyed caches survive them.
+    usdGenUsd::NodeKeyMap keys;
     struct Subscription {
         int token;
         std::function<void(CommitPayload const&)> terminal;
@@ -300,7 +303,7 @@ struct UsdGenImagingSession::State {
         // Retain our staged descriptor until the core owner accepts it. This
         // lets a public retry preserve the exact graph after core admission
         // rejects a saturated request.
-        input.desc = staged;
+        input.spec = staged ? usdGenUsd::LowerShared(*staged, &keys) : nullptr;
         input.devicePublication = request.devicePublication;
         input.callerDevice = callerDevice;
         ++outstanding;

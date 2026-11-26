@@ -24,7 +24,7 @@ GfMatrix4d Frame(GfVec3f t, GfVec3f b, GfVec3f n) {
     frame.SetRow(2, GfVec4d(n[0],n[1],n[2],0));
     return frame;
 }
-bool SurfaceValid(UsdGenSurfaceDesc const& surface) {
+bool SurfaceValid(UsdGenSurfaceInput const& surface) {
     if (!surface.uv.empty() && surface.uv.size() != surface.restPoints.size()) return false;
     size_t corners = 0;
     for (int count : surface.faceVertexCounts) {
@@ -42,7 +42,7 @@ bool SurfaceValid(UsdGenSurfaceDesc const& surface) {
     return !surface.restFromCurrentPoints;
 }
 } // namespace
-bool ValidateVulkanGrow(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node,
+bool ValidateVulkanGrow(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
     CurveGrowPipeline::Controls* output, UsdGenDiagnostics* diag) {
     if (!output || !node.mode.IsEmpty() || node.inputs.size() != 1 || !node.references.empty() ||
         !node.curves.empty() || !node.expressionBindings.empty() || !node.ramps.empty())
@@ -92,14 +92,14 @@ bool ValidateVulkanGrow(UsdGenGraphDesc const& desc, UsdGenNodeDesc const& node,
     for(int k=0;k<3;++k) c.literalDirection[k] = vector[k];
     *output = c; return true;
 }
-bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc* output, UsdGenDiagnostics* diag) {
+bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec* output, UsdGenDiagnostics* diag) {
     if (!output) return false;
-    UsdGenGraphDesc desc = input;
+    UsdGenGraphSpec desc = input;
     UsdGenEngineTokens const& et = UsdGenTokens();
     UsdGenVulkanTokens const& vk = UsdGenVkTokens();
     // Lowered sources become the op whose Vulkan stage is CurveSource.
     UsdGenVulkanKernel const source = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
-    auto const lowerToSource = [&](UsdGenNodeDesc& node, bool useRest) {
+    auto const lowerToSource = [&](UsdGenOpNode& node, bool useRest) {
         node.type = source.record->Name(); node.opId = source.record->Id();
         node.params = {{source.Param(vulkanP::kCsUseRest),VtValue(useRest),false},
                        {source.Param(vulkanP::kCsRebind),VtValue(vk.never),false}};
@@ -112,7 +112,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
                 !node.params.empty() || !node.ramps.empty() || !node.expressionBindings.empty() || !node.mode.IsEmpty())
                 return Fail(diag, "ReferenceSource requires one authored reference");
             auto curves = std::find_if(desc.curveSets.begin(),desc.curveSets.end(),
-                [&](auto const& value) { return value.path == node.references.front(); });
+                [&](auto const& value) { return value.key == node.references.front(); });
             if (curves == desc.curveSets.end() || curves->role != UsdGenLane::Reference)
                 return Fail(diag, "unresolved ReferenceSource");
             curves->role = UsdGenLane::Chunked; curves->curveRole = et.hair;
@@ -136,7 +136,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
                 if (!valid) return Fail(diag,"unsupported Scatter control " + p.name.GetString());
             }
             auto surface = std::find_if(desc.surfaces.begin(),desc.surfaces.end(),
-                [&](auto const& value){return value.path == node.surfaces.front();});
+                [&](auto const& value){return value.key == node.surfaces.front();});
             if (surface == desc.surfaces.end() || !SurfaceValid(*surface)) return Fail(diag,"invalid rest surface");
             auto op = UsdGenOpRegistry::Get().Create(kernel.record->Id());
             if (!op) return Fail(diag,"Scatter bind failed");
@@ -154,7 +154,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
             if (n > UINT32_MAX / 2 || (n && (roots.totalCvs != n || roots.curveId.size() != n ||
                 roots.rootPrim.size()!=n || roots.rootUV.size()!=n || roots.rootT.size()!=n || roots.rootB.size()!=n || roots.rootN.size()!=n)))
                 return Fail(diag,"invalid captured roots");
-            UsdGenCurveSetDesc curves; curves.path = node.path.AppendChild(vk.capturedRoots);
+            UsdGenCurveSetInput curves; curves.key = desc.DeriveKey(node.key, vk.capturedRoots);
             curves.role = UsdGenLane::Chunked; curves.curveRole = et.hair;
             curves.curveVertexCounts = VtIntArray(n,2); curves.points.resize(2*n); curves.rest.resize(2*n);
             curves.widths = VtFloatArray(2*n,desc.defaultWidth); curves.curveId = n ? roots.curveId : VtArray<uint64_t>();
@@ -164,19 +164,19 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphDesc const& input, UsdGenGraphDesc
                 curves.points[2*i] = curves.points[2*i+1] = curves.rest[2*i] = curves.rest[2*i+1] = root;
                 curves.rootFrame[i] = Frame(roots.rootT[i],roots.rootB[i],roots.rootN[i]);
             }
-            node.enabled = true; node.curves = {curves.path}; node.surfaces.clear();
+            node.enabled = true; node.curves = {curves.key}; node.surfaces.clear();
             lowerToSource(node, true);
             desc.curveSets.push_back(std::move(curves));
         }
     }
     *output = std::move(desc); return true;
 }
-bool IsVulkanCapturedScatter(UsdGenCurveSetDesc const& source) noexcept {
-    return source.path.GetNameToken() == UsdGenVkTokens().capturedRoots;
+bool IsVulkanCapturedScatter(UsdGenGraphSpec const& desc, UsdGenCurveSetInput const& source) noexcept {
+    return desc.DerivedName(source.key) == UsdGenVkTokens().capturedRoots;
 }
-bool CaptureVulkanScatterSource(UsdGenCurveSetDesc const& source, uint64_t topology,
-    uint64_t value, UsdGenCurveBuffer* output) {
-    if (!output || !IsVulkanCapturedScatter(source)) return false;
+bool CaptureVulkanScatterSource(UsdGenGraphSpec const& desc, UsdGenCurveSetInput const& source,
+    uint64_t topology, uint64_t value, UsdGenCurveBuffer* output) {
+    if (!output || !IsVulkanCapturedScatter(desc, source)) return false;
     UsdGenCurveBuffer b; b.totalCurves = uint32_t(source.curveVertexCounts.size());
     b.totalCvs = uint32_t(source.points.size()); b.topologyVersion = topology; b.valueVersion = value;
     b.px.resize(b.totalCvs); b.py.resize(b.totalCvs); b.pz.resize(b.totalCvs); b.hairT.resize(b.totalCvs);

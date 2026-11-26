@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/curveLoader.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/lengthScalePipeline.h"
 #include "usdGen/vulkan/nonWidthComparePipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
@@ -68,10 +69,11 @@ static UsdGenGraphDesc RootedC3() {
 // Keep the capture boundary shared with the production CurveSource: these
 // tests deliberately do not manufacture a post-loader Vulkan input.
 static bool LoadRootedC3(UsdGenGraphDesc const& desc, UsdGenCurveBuffer* out) {
-    UsdGenParamView params{const_cast<UsdGenGraphDesc*>(&desc), &desc.nodes[0]};
-    UsdGenCaptureContext capture; capture.desc = &desc; capture.params = &params;
+    usdGen::UsdGenGraphSpec const lowered = usdGenUsd::Lower(desc);
+    UsdGenParamView params{&lowered, &lowered.nodes[0]};
+    UsdGenCaptureContext capture; capture.desc = &lowered; capture.params = &params;
     UsdGenDiagnostics diagnostics;
-    return UsdGenCurveLoader::Load(capture, desc.curveSets[0], out, &diagnostics) &&
+    return UsdGenCurveLoader::Load(capture, lowered.curveSets[0], out, &diagnostics) &&
         !diagnostics.HasErrors();
 }
 

@@ -110,7 +110,7 @@ GfVec3d GeometricNormal(std::vector<GfVec3d> const &p, Patch const &patch)
     return n;
 }
 
-bool NormalShape(UsdGenSurfaceDesc const &surface, size_t indexCount,
+bool NormalShape(UsdGenSurfaceInput const &surface, size_t indexCount,
                  std::string *error)
 {
     size_t expected = 0;
@@ -132,7 +132,7 @@ bool NormalShape(UsdGenSurfaceDesc const &surface, size_t indexCount,
     return true;
 }
 
-GfVec3d AuthoredNormal(UsdGenSurfaceDesc const &surface, size_t face,
+GfVec3d AuthoredNormal(UsdGenSurfaceInput const &surface, size_t face,
                         Patch const &patch, std::vector<GfVec3d> const &points,
                         std::vector<uint32_t> const &indices)
 {
@@ -180,7 +180,7 @@ bool UsdGenValidateAuthoredRootFrame(GfMatrix4d const &m)
 }
 
 bool UsdGenBuildRestSurfaceRootFrames(
-    UsdGenSurfaceDesc const &surface, VtIntArray const &rootPrim,
+    UsdGenSurfaceInput const &surface, VtIntArray const &rootPrim,
     VtVec2fArray const &rootUV, UsdGenSurfaceRootFrameResult *out,
     std::string *error)
 {

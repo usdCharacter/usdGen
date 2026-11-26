@@ -13,7 +13,7 @@
 #include "usdGen/session.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/compiler.h"
 #include "usdGenImaging/usdGenEngineBridge.h"
 #include "usdGenImaging/usdGenImagingSession.h"
@@ -168,7 +168,7 @@ int main()
     UsdGenGraphDesc const desc = MakeDoubleGraph();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compileR = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compileR = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compileR.ok) {
         std::printf("compile failed:\n");
         for (auto const &e : compileR.errors) std::printf(" %s", e.c_str());
@@ -178,7 +178,7 @@ int main()
 
     UsdGenScheduler scheduler(8);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = desc.time;
 
     // ---- First commit: compile + evaluate ----
@@ -243,9 +243,9 @@ int main()
                   "republished generation ids equal (zero-based, first = 0)");
             Check(p1.generation->frame == p2.generation->frame,
                   "republished frames identical");
-            Check(p1.generation->signature.primPaths ==
-                      p2.generation->signature.primPaths &&
-                      !p1.generation->signature.primPaths.empty(),
+            Check(p1.generation->signature.prims ==
+                      p2.generation->signature.prims &&
+                      !p1.generation->signature.prims.empty(),
                   "republished prim sets identical and non-empty");
             Check(p1.generation->tiles.size() == p2.generation->tiles.size(),
                   "republished tile counts identical");
@@ -272,12 +272,12 @@ int main()
     // Failed compilation and execution retain an actual nonempty generation,
     // including on the next trigger without restaging the rejected descriptor.
     UsdGenSession failureSession(2);
-    failureSession.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(failureSession, desc);
     auto previous = failureSession.Commit(1, UsdGenCommitReason::SetTime);
     Check(previous && !previous->tiles.empty(), "failure regression seeds nonempty publication");
     auto rejected = desc;
     rejected.nodes.back().type = TfToken("UsdGenMissingKernelTest");
-    failureSession.SetGraphDesc(rejected);
+    usdGenUsd::SetGraphDesc(failureSession, rejected);
     Check(failureSession.Commit(2, UsdGenCommitReason::SetTime) == previous,
           "failed compilation preserves publication");
     Check(failureSession.LastDiagnostics().HasErrors(), "compile diagnostics remain observable");
@@ -291,13 +291,13 @@ int main()
     failing.inputs = {desc.terminal};
     rejected.nodes.push_back(failing);
     rejected.terminal = failing.path;
-    failureSession.SetGraphDesc(rejected);
+    usdGenUsd::SetGraphDesc(failureSession, rejected);
     Check(failureSession.Commit(4, UsdGenCommitReason::SetTime) == previous,
           "execution diagnostics block partially computed publication");
     Check(failureSession.LastDiagnostics().HasErrors(), "execution diagnostics remain observable");
     Check(failureSession.Commit(5, UsdGenCommitReason::SetTime) == previous,
           "execution failure cannot publish on retry");
-    failureSession.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(failureSession, desc);
     auto recovered = failureSession.Commit(6, UsdGenCommitReason::SetTime);
     Check(previous && recovered && recovered->id == previous->id + 1 && recovered->frame == 6,
           "recovery publishes exactly one new generation after failed attempts");

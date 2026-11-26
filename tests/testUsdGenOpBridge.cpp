@@ -12,7 +12,7 @@
 #include "usdGen/compile/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/compile/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/exec/allocCounter.h"
 #include "usdGen/exec/scheduler.h"
 #include "usdGen/registries/op.h"
@@ -162,11 +162,11 @@ void TestProbe()
     UsdGenScheduler scheduler(4);
     Cooked cooked;
     UsdGenCompiler compiler;
-    cooked.compiled = compiler.Compile(MakeDesc(kProbeType), &cooked.graph).ok;
+    cooked.compiled = usdGenUsd::Compile(compiler, MakeDesc(kProbeType), &cooked.graph).ok;
     Check(cooked.compiled, std::string(kProbeType) + " compiles");
     if (!cooked.compiled) return;
     UsdGenEvalContext ctx;
-    ctx.desc = &cooked.graph.Desc();
+    ctx.desc = &cooked.graph.Spec();
     cooked.result = scheduler.Run(cooked.graph, ctx, 1);
     Check(!cooked.result.diagnostics.HasErrors(), "the probe cooks");
 
@@ -187,7 +187,7 @@ void TestProbe()
     // Direct calls: Capture over UsdGenBufferInputs, Evaluate over a test chunk.
     UsdGenOp &op = *cooked.graph.Node(probe).op;
     UsdGenCaptureContext cctx;
-    cctx.desc = &cooked.graph.Desc();
+    cctx.desc = &cooked.graph.Spec();
     UsdGenDiagnostics diag;
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
     bool const captured = op.Capture(cctx, UsdGenBufferInputs(grow), cap.get(), &diag);

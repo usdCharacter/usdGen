@@ -58,10 +58,10 @@ bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
    *hasSource = false;
    if (!ctx.desc || !ctx.params || !ctx.params->node ||
        ctx.params->node->curves.empty()) return true;
-   SdfPath const &path = ctx.params->node->curves.front();
+   UsdGenNodeKey const path = ctx.params->node->curves.front();
    auto curveSet = std::find_if(ctx.desc->curveSets.begin(),
                                 ctx.desc->curveSets.end(),
-                                [&](UsdGenCurveSetDesc const &candidate) { return candidate.path == path; });
+                                [&](UsdGenCurveSetInput const &candidate) { return candidate.key == path; });
    if (curveSet == ctx.desc->curveSets.end()) return true;
    // A plain CurveSource relationship may carry no named planes (many
    // existing descriptors omit the optional CurveSet topology). Only an
@@ -221,32 +221,28 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          feed("value", param.value.GetHash());
       }
       feed("curveRelationships", p->node->curves.size());
-      for (SdfPath const &path : p->node->curves) {
-         std::string const text = path.GetString();
-         bytes(text.data(), text.size());
+      for (UsdGenNodeKey const path : p->node->curves) {
+         bytes(&path.value, sizeof(path.value));
       }
       feed("surfaceRelationships", p->node->surfaces.size());
-      for (SdfPath const &path : p->node->surfaces) {
-         std::string const text = path.GetString();
-         bytes(text.data(), text.size());
+      for (UsdGenNodeKey const path : p->node->surfaces) {
+         bytes(&path.value, sizeof(path.value));
       }
       feed("mapBindings", p->node->mapBindings.size());
-      for (UsdGenMapBindingDesc const &binding : p->node->mapBindings) {
-         std::string const map = binding.map.GetString();
+      for (UsdGenMapBinding const &binding : p->node->mapBindings) {
          std::string const relationship = binding.relationship.GetString();
-         bytes(map.data(), map.size());
+         bytes(&binding.map.value, sizeof(binding.map.value));
          bytes(relationship.data(), relationship.size());
       }
       // Legacy direct descriptors may still use maps without typed bindings.
       feed("maps", p->node->maps.size());
-      for (SdfPath const &path : p->node->maps) {
-         std::string const text = path.GetString();
-         bytes(text.data(), text.size());
+      for (UsdGenNodeKey const path : p->node->maps) {
+         bytes(&path.value, sizeof(path.value));
       }
       if (ctx.desc) {
-         auto digestMap = [&](SdfPath const &path) {
+         auto digestMap = [&](UsdGenNodeKey path) {
             auto const map = std::find_if(ctx.desc->maps.begin(), ctx.desc->maps.end(),
-                [&](UsdGenMapDesc const &candidate) { return candidate.path == path; });
+                [&](UsdGenMapInput const &candidate) { return candidate.key == path; });
             if (map == ctx.desc->maps.end()) { feed("missingMap", 1); return; }
             std::string const type = map->type.GetString();
             bytes(type.data(), type.size());
@@ -261,9 +257,9 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
             }
          };
          if (!p->node->mapBindings.empty()) {
-            for (UsdGenMapBindingDesc const &binding : p->node->mapBindings)
+            for (UsdGenMapBinding const &binding : p->node->mapBindings)
                digestMap(binding.map);
-         } else for (SdfPath const &path : p->node->maps) {
+         } else for (UsdGenNodeKey const path : p->node->maps) {
             digestMap(path);
          }
       }
@@ -272,10 +268,10 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
    // Hash its complete payload so a descriptor-only recompile recaptures into
    // fresh COW storage without changing an older published generation.
    if (ctx.desc && p && p->node && p->node->curves.size() == 1) {
-      SdfPath const &path = p->node->curves.front();
+      UsdGenNodeKey const path = p->node->curves.front();
       auto const found = std::find_if(ctx.desc->curveSets.begin(),
-          ctx.desc->curveSets.end(), [&](UsdGenCurveSetDesc const &candidate) {
-             return candidate.path == path;
+          ctx.desc->curveSets.end(), [&](UsdGenCurveSetInput const &candidate) {
+             return candidate.key == path;
           });
       if (found == ctx.desc->curveSets.end()) {
          feed("missingCurveSet", 1);
@@ -306,7 +302,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          bool const cageMode = p->GetToken(kInterpolationMode, none) != none;
          auto const bound = p->node->surfaces.size() == 1
              ? std::find_if(ctx.desc->surfaces.begin(), ctx.desc->surfaces.end(),
-                 [&](UsdGenSurfaceDesc const &s) { return s.path == p->node->surfaces.front(); })
+                 [&](UsdGenSurfaceInput const &s) { return s.key == p->node->surfaces.front(); })
              : ctx.desc->surfaces.end();
          if (!cageMode && bound != ctx.desc->surfaces.end()) {
             GfMatrix4d const relative = bound->worldMatrix * found->worldMatrix.GetInverse();
@@ -384,9 +380,9 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
    // not only its face count.  Every consumed channel therefore participates
    // in capture identity even when an adapter forgot to bump its generation.
    if (ctx.desc && p && p->node && p->node->surfaces.size() == 1) {
-      SdfPath const &path = p->node->surfaces.front();
+      UsdGenNodeKey const path = p->node->surfaces.front();
       auto const found = std::find_if(ctx.desc->surfaces.begin(), ctx.desc->surfaces.end(),
-          [&](UsdGenSurfaceDesc const &candidate) { return candidate.path == path; });
+          [&](UsdGenSurfaceInput const &candidate) { return candidate.key == path; });
       if (found == ctx.desc->surfaces.end()) feed("missingSurface", 1);
       else {
          // The general generation includes posed points and sample times,
@@ -459,17 +455,17 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
       if (ctx.params->node->curves.size() != 1) {
          if (diag) diag->Error(
              "UsdGenCurveSource::Capture: node '" +
-             ctx.params->node->path.GetString() +
+             ctx.desc->Label(ctx.params->node->key) +
              "' must bind exactly one authored C3 curve target");
          return false;
       }
-      SdfPath const &path = ctx.params->node->curves.front();
+      UsdGenNodeKey const path = ctx.params->node->curves.front();
       auto const found = std::find_if(ctx.desc->curveSets.begin(), ctx.desc->curveSets.end(),
-          [&](UsdGenCurveSetDesc const &candidate) { return candidate.path == path; });
+          [&](UsdGenCurveSetInput const &candidate) { return candidate.key == path; });
       if (found == ctx.desc->curveSets.end()) {
          if (diag) diag->Error("UsdGenCurveSource::Capture: node '" +
-                               ctx.params->node->path.GetString() +
-                               "' bound C3 target '" + path.GetString() +
+                               ctx.desc->Label(ctx.params->node->key) +
+                               "' bound C3 target '" + ctx.desc->Label(path) +
                                "' was not found");
          return false;
       }
@@ -482,8 +478,8 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
          if (diag) diag->Error("UsdGenCurveSource::Capture: interpolationMode must be none or surfaceCage");
          return false;
       }
-      UsdGenCurveSetDesc transient;
-      UsdGenCurveSetDesc const *source = &*found;
+      UsdGenCurveSetInput transient;
+      UsdGenCurveSetInput const *source = &*found;
       if (interpolationMode == Record().Token(kTokSurfaceCage)) {
          std::string error;
          if (!UsdGenBuildSurfaceCageCurveSet(*ctx.desc, *ctx.params->node,
@@ -506,10 +502,10 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
       if (diag) diag->Error("UsdGenCurveSource::Capture: no bound usdGen:surface");
       return false;
    }
-   UsdGenSurfaceDesc const &surf = ctx.desc->surfaces[ctx.surface];
+   UsdGenSurfaceInput const &surf = ctx.desc->surfaces[ctx.surface];
    if (surf.faceVertexCounts.empty() || surf.restPoints.empty()) {
       if (diag) diag->Warn(std::string("UsdGenCurveSource::Capture: surface '") +
-                           surf.path.GetText() + "' has no topology; 0 roots");
+                           ctx.desc->Label(surf.key) + "' has no topology; 0 roots");
       UsdGenCurveSourceCapture &cap = *static_cast<UsdGenCurveSourceCapture *>(out);
       UsdGenCurveBuffer &buf = cap.MutableBuffer();
       buf.topologyVersion += 1;

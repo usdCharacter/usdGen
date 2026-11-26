@@ -13,6 +13,7 @@
 // Fixture dir arrives as USDGEN_TEST_FIXTURE_DIR (absolute source path).
 
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 #include "usdGen/imagePayload.h"
 

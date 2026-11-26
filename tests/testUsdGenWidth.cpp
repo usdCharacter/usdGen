@@ -16,7 +16,7 @@
 #include "bufferOpCalls.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/curveBuffer.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/array.h"
@@ -64,7 +64,7 @@ std::vector<float> RunWidth(std::vector<UsdGenParamValue> const &params,
     // A direct-kernel fixture: slots resolved as the compiler does.
     UsdGenGraphDesc desc;
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
-    UsdGenStackParams const stack(desc, node, ops.Record(ops.Find(node.type)));
+    usdGenUsd::LoweredParams const stack(desc, node, ops.Record(ops.Find(node.type)));
     UsdGenParamView const &view = stack.View();
 
     UsdGenDiagnostics diag;

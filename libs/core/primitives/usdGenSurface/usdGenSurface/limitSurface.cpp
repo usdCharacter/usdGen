@@ -39,7 +39,7 @@ GfVec2d InverseBilinear(GfVec2d const& p, GfVec2d const& a, GfVec2d const& b,
     }
     return GfVec2d(std::clamp(u,0.0,1.0),std::clamp(v,0.0,1.0));
 }
-PxOsdMeshTopology Topology(UsdGenSurfaceDesc const& s) {
+PxOsdMeshTopology Topology(UsdGenSurfaceInput const& s) {
     PxOsdSubdivTags tags(s.interpolateBoundary, s.faceVaryingLinearInterpolation,
         s.creaseMethod, s.triangleSubdivisionRule, s.creaseIndices, s.creaseLengths,
         s.creaseSharpnesses, s.cornerIndices, s.cornerSharpnesses);
@@ -78,7 +78,7 @@ void FeedSubdivArray(uint64_t &h, Array const& values) {
 }
 // Tags, holes, creases, corners: the subdivision inputs OUTSIDE the two
 // face arrays. Shared by both entry points so the coverage cannot drift.
-void FeedSubdivTags(uint64_t &h, UsdGenSurfaceDesc const& s) {
+void FeedSubdivTags(uint64_t &h, UsdGenSurfaceInput const& s) {
     FeedSubdivText(h, s.subdivisionScheme);
     FeedSubdivText(h, s.orientation);
     FeedSubdivText(h, s.interpolateBoundary);
@@ -92,7 +92,7 @@ void FeedSubdivTags(uint64_t &h, UsdGenSurfaceDesc const& s) {
     FeedSubdivArray(h, s.cornerIndices);
     FeedSubdivArray(h, s.cornerSharpnesses);
 }
-void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceDesc const& s) {
+void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceInput const& s) {
     FeedSubdivArray(h, s.faceVertexCounts);
     FeedSubdivArray(h, s.faceVertexIndices);
 }
@@ -104,18 +104,18 @@ void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceDesc const& s) {
 // is deterministic across processes (values stay internal keys, never
 // persisted). Sizes mix between fields so no two distinct field sequences
 // concatenate ambiguously.
-uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceDesc const& s) {
+uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceInput const& s) {
     uint64_t h = UsdGenDigestOffset;
     FeedSubdivTags(h, s);
     FeedSubdivTopology(h, s);
     return h;
 }
-uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceDesc const& s) {
+uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceInput const& s) {
     uint64_t h = UsdGenDigestOffset;
     FeedSubdivTags(h, s);
     return h;
 }
-bool UsdGenLimitSurface::Build(UsdGenSurfaceDesc const& s, int level, std::string* error) {
+bool UsdGenLimitSurface::Build(UsdGenSurfaceInput const& s, int level, std::string* error) {
     _state.reset();
     auto fail=[&](char const* e){if(error)*error=e;return false;};
     if(level<1 || level>6) return fail("subdivisionLevel must be in [1,6]");
@@ -245,7 +245,7 @@ UsdGenCollisionLimitSurface::UsdGenCollisionLimitSurface(
 UsdGenCollisionLimitSurface& UsdGenCollisionLimitSurface::operator=(
     UsdGenCollisionLimitSurface&&) noexcept = default;
 
-bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceDesc const& s,
+bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceInput const& s,
                                         std::string* error) {
     _state.reset();
     auto fail = [&](std::string const& why) {

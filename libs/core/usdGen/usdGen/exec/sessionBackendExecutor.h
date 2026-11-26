@@ -17,7 +17,7 @@ namespace usdGen {
 struct UsdGenSessionBackendRequest {
     UsdGenExecutionRuntime *runtime = nullptr;
     UsdGenExecutionPipeline::Cancellation cancellation;
-    std::shared_ptr<const UsdGenGraphDesc> desc;
+    std::shared_ptr<const UsdGenGraphSpec> desc;
     UsdGenContext context = UsdGenContext::Interactive;
     bool devicePublicationEnabled = false;
     UsdGenPendingDirty pending;

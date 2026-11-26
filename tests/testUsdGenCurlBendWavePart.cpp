@@ -7,6 +7,7 @@
 //       compiles, one wrong-destination and one wrong-domain binding fail);
 //   (3) deterministic CPU cooks over small hand-built topologies (fixed seeds).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
@@ -124,7 +125,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors)
             std::printf("  compile: %s\n", e.c_str());
@@ -132,7 +133,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors)
@@ -226,7 +227,7 @@ static void ExpectFail(UsdGenGraphDesc const &desc, char const *label,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult r = compiler.Compile(desc, &graph);
+    UsdGenCompileResult r = usdGenUsd::Compile(compiler, desc, &graph);
     bool const specific =
         std::any_of(r.errors.begin(), r.errors.end(),
                     [&](std::string const &message) {
@@ -251,7 +252,7 @@ static void CheckExpressionTargets()
         AddBinding(valid, opPath, exprPath, "$value", TfToken("float"),
                    FloatShape(), TfToken("radius"), expr::Domain::Point,
                    VtValue(0.1f));
-        Check(compiler.Compile(valid, &graph).ok,
+        Check(usdGenUsd::Compile(compiler, valid, &graph).ok,
               "a point-domain radius connection compiles on Curl");
         UsdGenGraphDesc foreign = OpDesc("UsdGenCurl", false);
         AddBinding(foreign, opPath, exprPath, "$value", TfToken("float"),
@@ -272,7 +273,7 @@ static void CheckExpressionTargets()
         AddBinding(valid, opPath, exprPath, "$value", TfToken("float"),
                    FloatShape(), TfToken("angle"), expr::Domain::Point,
                    VtValue(0.0f));
-        Check(compiler.Compile(valid, &graph).ok,
+        Check(usdGenUsd::Compile(compiler, valid, &graph).ok,
               "a point-domain angle connection compiles on Bend");
         UsdGenGraphDesc foreign = OpDesc("UsdGenBend", false);
         AddBinding(foreign, opPath, exprPath, "$value", TfToken("float"),
@@ -294,7 +295,7 @@ static void CheckExpressionTargets()
         AddBinding(valid, opPath, exprPath, "$value", TfToken("float"),
                    FloatShape(), TfToken("amplitudeU"), expr::Domain::Point,
                    VtValue(0.0f));
-        Check(compiler.Compile(valid, &graph).ok,
+        Check(usdGenUsd::Compile(compiler, valid, &graph).ok,
               "a point-domain amplitudeU connection compiles on Wave");
         UsdGenGraphDesc foreign = OpDesc("UsdGenWave", false);
         AddBinding(foreign, opPath, exprPath, "$value", TfToken("float"),
@@ -315,7 +316,7 @@ static void CheckExpressionTargets()
         AddBinding(valid, opPath, exprPath, "$value", TfToken("float"),
                    FloatShape(), TfToken("part:strength"),
                    expr::Domain::Primitive, VtValue(1.0f));
-        Check(compiler.Compile(valid, &graph).ok,
+        Check(usdGenUsd::Compile(compiler, valid, &graph).ok,
               "a primitive-domain part:strength connection compiles on Part");
         UsdGenGraphDesc foreign = OpDesc("UsdGenPart", true);
         AddBinding(foreign, opPath, exprPath, "$value", TfToken("float"),
@@ -337,7 +338,7 @@ static void CheckExpressionTargets()
         AddBinding(valid, opPath, exprPath, "$value", TfToken("float"),
                    FloatShape(), TfToken("lift"), expr::Domain::Primitive,
                    VtValue(0.0f));
-        Check(compiler.Compile(valid, &graph).ok,
+        Check(usdGenUsd::Compile(compiler, valid, &graph).ok,
               "a primitive-domain lift connection compiles on Grow");
         UsdGenGraphDesc pointLift = OpDesc("UsdGenGrow", false);
         AddBinding(pointLift, opPath, exprPath, "$value", TfToken("float"),
@@ -653,7 +654,7 @@ static void CheckCudaImportedClumpAdmission()
                                 SdfPath("/cudaClump/source"), 7));
     desc.terminal = SdfPath("/cudaClump/noise");
     UsdGenDiagnostics diagnostics;
-    Check(!ValidateCudaGraph(desc, &diagnostics),
+    Check(!ValidateCudaGraph(usdGenUsd::Lower(desc), &diagnostics),
           "CUDA rejects imported clump-weighted Noise at admission");
     auto hasClumpError = [](UsdGenDiagnostics const &d) {
         return std::any_of(d.errors.begin(), d.errors.end(),
@@ -671,7 +672,7 @@ static void CheckCudaImportedClumpAdmission()
     idOnly.floatValues.clear();
     idOnly.intValues = {0};
     diagnostics = {};
-    ValidateCudaGraph(desc, &diagnostics);
+    ValidateCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
     Check(!hasClumpError(diagnostics), "legacy clump IDs do not trigger motion rejection");
 }
 

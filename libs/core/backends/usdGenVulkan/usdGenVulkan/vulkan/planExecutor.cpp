@@ -25,7 +25,7 @@ namespace {
 
 // The parameter token for an evaluated destination: the destination itself
 // without "usdGen:", else the op's declared spelling of local.
-TfToken ParamToken(UsdGenNodeDesc const &node, TfToken const &destination,
+TfToken ParamToken(UsdGenOpNode const &node, TfToken const &destination,
                    std::string const &local) {
     if (destination.GetString() == local)
         return destination;
@@ -56,8 +56,8 @@ bool Capture(VulkanSourceWidthPlan const &plan, uint64_t topologyVersion,
             return false;
         auto const node =
             std::find_if(plan.Descriptor()->nodes.begin(), plan.Descriptor()->nodes.end(),
-                         [&](UsdGenNodeDesc const &candidate) {
-                             return candidate.path == plan.SourceNodePath();
+                         [&](UsdGenOpNode const &candidate) {
+                             return candidate.key == plan.SourceNodeKey();
                          });
         if (node == plan.Descriptor()->nodes.end())
             return false;
@@ -90,8 +90,8 @@ bool Capture(VulkanSourceWidthPlan const &plan, uint64_t topologyVersion,
                                           plan.SourceControls().maxCurves,
                                           plan.SourceControls().maxCvs, &result, &diagnostics))
                 return false;
-        } else if (IsVulkanCapturedScatter(plan.Source())) {
-            if (!CaptureVulkanScatterSource(plan.Source(), topologyVersion, sourceValueVersion,
+        } else if (IsVulkanCapturedScatter(*plan.Descriptor(), plan.Source())) {
+            if (!CaptureVulkanScatterSource(*plan.Descriptor(), plan.Source(), topologyVersion, sourceValueVersion,
                                             &result))
                 return false;
         } else if (!UsdGenCurveLoader::Load(context, plan.Source(), &result, &diagnostics))
@@ -141,11 +141,11 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                                               : plan->ValueVersion() + 1;
     }
 
-    UsdGenGraphDesc structuralDescriptor;
+    UsdGenGraphSpec structuralDescriptor;
     std::vector<size_t> structuralNodes;
     size_t structuralCursor = 0;
     bool sourceResampleDisabled = false;
-    std::map<SdfPath, std::vector<float>> capturedRootTargets;
+    std::map<UsdGenNodeKey, std::vector<float>> capturedRootTargets;
     bool BeginCapture() {
         auto relay = shared_from_this();
         UsdGenExecutionTaskGraph::Job task;
@@ -164,7 +164,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                              continue;
                          auto const &nodes = relay->plan->Descriptor()->nodes;
                          auto node = std::find_if(nodes.begin(), nodes.end(), [&](auto const &n) {
-                             return n.path == stage.path;
+                             return n.key == stage.key;
                          });
                          UsdGenDiagnostics diagnostics;
                          std::vector<float> targets;
@@ -174,7 +174,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                              finish({}, Failure("Vulkan dense source root target capture failed"));
                              return;
                          }
-                         relay->capturedRootTargets.emplace(stage.path, std::move(targets));
+                         relay->capturedRootTargets.emplace(stage.key, std::move(targets));
                      }
                  }
                  finish([relay, source = std::move(
@@ -241,7 +241,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
         }
         size_t index = structuralNodes[structuralCursor];
         auto &node = structuralDescriptor.nodes[index];
-        UsdGenNodeDesc structural = node;
+        UsdGenOpNode structural = node;
         structural.expressionBindings.clear();
         auto local = [](TfToken const &name) {
             auto text = name.GetString();
@@ -413,7 +413,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                                         : 24.0;
                 stage.expressionControls.frame = frame;
                 stage.expressionControls.time = frame / rate;
-                auto targets = capturedRootTargets.find(stage.path);
+                auto targets = capturedRootTargets.find(stage.key);
                 if (targets != capturedRootTargets.end()) {
                     stage.deform.rootTargets = std::move(targets->second);
                     auto const &ids = jobInfo.nativeJob.source.source.curveId;

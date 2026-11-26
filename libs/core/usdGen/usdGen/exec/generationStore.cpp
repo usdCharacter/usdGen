@@ -77,7 +77,7 @@ bool UsdGenPrimSetSignature::operator==(
 {
     return tileCount == rhs.tileCount &&
            instancerCount == rhs.instancerCount &&
-           primPaths == rhs.primPaths &&
+           prims == rhs.prims &&
            primvarNames == rhs.primvarNames &&
            primTypes == rhs.primTypes;
 }
@@ -86,18 +86,18 @@ namespace {
 
 // Per-prim primvar-name list from a signature; null when the path is new.
 std::vector<std::string> const *
-_namesFor(UsdGenPrimSetSignature const &sig, std::string const &path)
+_namesFor(UsdGenPrimSetSignature const &sig, UsdGenPrimRef const &prim)
 {
-    for (size_t i = 0; i < sig.primPaths.size(); ++i)
-        if (sig.primPaths[i] == path)
+    for (size_t i = 0; i < sig.prims.size(); ++i)
+        if (sig.prims[i] == prim)
             return &sig.primvarNames[i];
     return nullptr;
 }
 
 // next-names minus prev-names, both kept sorted by the builder.
 std::vector<TfToken>
-_newPrimvars(UsdGenPrimSetSignature const &prev, std::string const &prevPath,
-             UsdGenPrimSetSignature const &next, std::string const &nextPath)
+_newPrimvars(UsdGenPrimSetSignature const &prev, UsdGenPrimRef const &prevPath,
+             UsdGenPrimSetSignature const &next, UsdGenPrimRef const &nextPath)
 {
     std::vector<std::string> const *a = _namesFor(prev, prevPath);
     std::vector<std::string> const *b = _namesFor(next, nextPath);
@@ -135,18 +135,18 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
             (i >= prev.tiles.size() || next.tiles[j].tile < prev.tiles[i].tile))
         {   // prim appears only in next -> added.
             td.tile = next.tiles[j].tile;
-            td.primPath = next.tiles[j].primPath;
+            td.prim = next.tiles[j].prim;
             td.added = true;
             td.pointsDirty = true;   // fresh prim: everything is new content
-            td.newPrimvars = _newPrimvars(prev.signature, td.primPath.GetAsString(),
-                                          next.signature, td.primPath.GetAsString());
+            td.newPrimvars = _newPrimvars(prev.signature, td.prim,
+                                          next.signature, td.prim);
             ++j;
         }
         else if (i < prev.tiles.size() &&
                  (j >= next.tiles.size() || prev.tiles[i].tile < next.tiles[j].tile))
         {   // prim disappears -> removed.
             td.tile = prev.tiles[i].tile;
-            td.primPath = prev.tiles[i].primPath;
+            td.prim = prev.tiles[i].prim;
             td.removed = true;
             ++i;
         }
@@ -154,7 +154,7 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
             UsdGenTilePublication const &a = prev.tiles[i];
             UsdGenTilePublication const &b = next.tiles[j];
             td.tile = b.tile;
-            td.primPath = b.primPath;
+            td.prim = b.prim;
             td.pointsDirty = _changed(a.points, b.points);
             td.widthsDirty = _changed(a.widths, b.widths);
             td.xformDirty  = !(a.xformMatrix == b.xformMatrix);
@@ -207,8 +207,7 @@ UsdGenDirtyReport UsdGenGenerationStore::Diff(
             // Primvar-set growth not visible in payloads (e.g. empty->empty)
             // still comes from the signatures.
             std::vector<TfToken> sigNew =
-                _newPrimvars(prev.signature, std::string(a.primPath.GetAsString()),
-                             next.signature, std::string(b.primPath.GetAsString()));
+                _newPrimvars(prev.signature, a.prim, next.signature, b.prim);
             for (TfToken const &t : sigNew) {
                 if (std::find(td.newPrimvars.begin(), td.newPrimvars.end(), t)
                     == td.newPrimvars.end())

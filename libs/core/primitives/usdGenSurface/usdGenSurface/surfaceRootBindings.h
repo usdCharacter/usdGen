@@ -4,7 +4,7 @@
 #ifndef USDGEN_SURFACE_ROOT_BINDINGS_H
 #define USDGEN_SURFACE_ROOT_BINDINGS_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -39,13 +39,13 @@ class UsdGenRestSurfaceBindingCache final
 {
 public:
     static std::shared_ptr<const UsdGenRestSurfaceBindingCache> Create(
-        UsdGenSurfaceDesc const &surface, std::string *error = nullptr);
+        UsdGenSurfaceInput const &surface, std::string *error = nullptr);
 
     UsdGenRestSurfaceBindingCache(UsdGenRestSurfaceBindingCache const &) = default;
     UsdGenRestSurfaceBindingCache &operator=(UsdGenRestSurfaceBindingCache const &) = default;
     ~UsdGenRestSurfaceBindingCache();
 
-    bool Matches(UsdGenSurfaceDesc const &surface) const;
+    bool Matches(UsdGenSurfaceInput const &surface) const;
     bool Bind(VtVec3fArray const &sourceRestRoots,
               GfMatrix4d const &sourceWorldMatrix,
               UsdGenSurfaceRootBindingResult *out,
@@ -78,7 +78,7 @@ private:
 /// quad solve with no converged candidate succeeds with an explicit unresolved
 /// entry, allowing a loader to apply its rebind/drop policy transactionally.
 bool UsdGenBuildRestSurfaceRootBindings(
-    UsdGenSurfaceDesc const &surface,
+    UsdGenSurfaceInput const &surface,
     VtVec3fArray const &sourceRestRoots,
     GfMatrix4d const &sourceWorldMatrix,
     UsdGenSurfaceRootBindingResult *out,

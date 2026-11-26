@@ -142,7 +142,7 @@ struct Surface
     bool HasUv() const { return !cornerUv.empty(); }
     GfVec3f const &P(size_t t, int k) const { return points[size_t(tris[t].v[k])]; }
 
-    void Build(UsdGenSurfaceDesc const &s)
+    void Build(UsdGenSurfaceInput const &s)
     {
         points = s.restPoints;
         VtIntArray const &counts = s.faceVertexCounts;
@@ -978,7 +978,7 @@ void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
 }
 
 bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
-                  UsdGenSurfaceDesc const &surface, UsdGenCurveBuffer *buf,
+                  UsdGenSurfaceInput const &surface, UsdGenCurveBuffer *buf,
                   UsdGenDiagnostics *diag, ModeStats *stats)
 {
     ModeStats local;
@@ -1067,7 +1067,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
     st.placed = uint32_t(roots.size());
 
     // Density-map thinning (emit filter): never renumbers strands.
-    std::vector<UsdGenMapDesc const *> const maps = strand::BoundMaps(
+    std::vector<UsdGenMapInput const *> const maps = strand::BoundMaps(
         ctx.desc, ctx.mapBindings, ctx.mapBindingCount, config.names.densityMap);
     std::vector<uint32_t> survivors;
     survivors.reserve(roots.size());
@@ -1076,7 +1076,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
         Root const &r = roots[i];
         if (!maps.empty()) {
             float m = 1.0f;
-            for (UsdGenMapDesc const *map : maps)
+            for (UsdGenMapInput const *map : maps)
                 m *= s.bvhBuilt ? strand::SampleMaskMap(*map, s.bvh, r.tri, r.sampleBary, 1.0f)
                                 : 1.0f;
             bool const keep = m > 0.0f &&
@@ -1181,7 +1181,7 @@ struct RandomPathFilter::Impl
 {
     Surface surface;
     Proximity prox;
-    std::vector<UsdGenMapDesc const *> maps;
+    std::vector<UsdGenMapInput const *> maps;
     bool active = false;
 };
 
@@ -1189,7 +1189,7 @@ RandomPathFilter::RandomPathFilter() : _impl(new Impl) {}
 RandomPathFilter::~RandomPathFilter() = default;
 
 bool RandomPathFilter::Init(UsdGenCaptureContext const &ctx, ModeConfig const &config,
-                            UsdGenSurfaceDesc const &surface, UsdGenDiagnostics *diag)
+                            UsdGenSurfaceInput const &surface, UsdGenDiagnostics *diag)
 {
     Impl &im = *_impl;
     im = Impl();
@@ -1223,7 +1223,7 @@ bool RandomPathFilter::Keep(GfVec3f const &pos, uint64_t curveId) const
     strand::ClosestHit const hit = im.surface.bvh.Closest(pos);
     if (!hit.hit) return true;
     float m = 1.0f;
-    for (UsdGenMapDesc const *map : im.maps)
+    for (UsdGenMapInput const *map : im.maps)
         m *= strand::SampleMaskMap(*map, im.surface.bvh, hit.triangle, hit.bary, 1.0f);
     return m > 0.0f && (m >= 0.999f || UsdGenHash01(curveId, kSaltScatterThin) <= m);
 }

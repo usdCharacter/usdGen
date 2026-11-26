@@ -10,7 +10,7 @@
 //   * Attribute-cook digest stability/sensitivity lives in
 //     testUsdGenAttributeInstance (it exercises the same lane helper).
 #include "usdGen/digest.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/ops/scatter.h"
 #include "usdGenOpFixture.h"
@@ -116,7 +116,8 @@ UsdGenEpoch ScatterDigest(UsdGenGraphDesc const &desc)
     usdGenTest::OpView paramsView(usdGenTest::OpRecord("UsdGenScatter"), &desc.nodes[0], &desc);
     UsdGenParamView const &params = paramsView.View();
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered119 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered119;
     ctx.params = &params;
     ctx.surface = 0;
     ctx.seed = uint32_t(desc.nodes[0].seed);

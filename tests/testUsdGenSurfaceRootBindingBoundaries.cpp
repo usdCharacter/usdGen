@@ -1,4 +1,5 @@
 #include "usdGen/surfaceRootBindings.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootFrames.h"
 
 #include <cmath>
@@ -31,14 +32,14 @@ UsdGenSurfaceDesc Ngon()
 bool Bind(UsdGenSurfaceDesc const &surface, VtVec3fArray const &roots,
           UsdGenSurfaceRootBindingResult *result, std::string *error)
 {
-    return UsdGenBuildRestSurfaceRootBindings(surface, roots, GfMatrix4d(1.0), result, error);
+    return UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(surface), roots, GfMatrix4d(1.0), result, error);
 }
 
 bool Reconstructs(UsdGenSurfaceDesc const &surface, VtVec3fArray const &roots,
                   UsdGenSurfaceRootBindingResult const &bindings, std::string *error)
 {
     UsdGenSurfaceRootFrameResult frames;
-    if (!UsdGenBuildRestSurfaceRootFrames(surface, bindings.rootPrim, bindings.rootUV,
+    if (!UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(surface), bindings.rootPrim, bindings.rootUV,
                                           &frames, error)) return false;
     if (frames.valid.size() != roots.size()) return false;
     for (size_t i = 0; i != roots.size(); ++i)

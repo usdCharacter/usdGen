@@ -3,6 +3,7 @@
 // private HdSt provider.
 #include "usdGen/curveBuffer.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenUsd/lower.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/array.h"
@@ -51,7 +52,8 @@ int
 main()
 {
     usdGen::UsdGenTilePublication tile;
-    tile.primPath = SdfPath("/stock/tile_0000");
+    usdGenUsd::PathRecorder keys;   // the cooked spec's path table, by hand
+    tile.prim = usdGen::UsdGenPrimRef{keys(SdfPath("/stock/tile_0000"))};
     tile.curveVertexCounts = VtIntArray{2, 3};
     tile.points = VtVec3fArray{
         GfVec3f(0.0f, 0.0f, 0.0f), GfVec3f(0.0f, 1.0f, 0.0f),
@@ -60,7 +62,7 @@ main()
     tile.widths = VtFloatArray{0.1f, 0.2f, 0.3f, 0.4f, 0.5f};
 
     HdContainerDataSourceHandle const root =
-        usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tile);
+        usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tile, keys.Table());
     HdContainerDataSourceHandle const basis =
         ContainerChild(root, TfToken("basisCurves"));
     HdContainerDataSourceHandle const topology =

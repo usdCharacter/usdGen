@@ -1,6 +1,6 @@
 // usdGen engine — compiler implementation (03-execution-engine.md §3).
 //
-// Compile() walks UsdGenGraphDesc::nodes and compiler-owned dependency edges
+// Compile() walks UsdGenGraphSpec::nodes and compiler-owned dependency edges
 // derived from the composed hierarchy by the descriptor builder; Kahn sort
 // with namespace tie-break; cycle detection (compile error
 // naming the offending pair); dense node ids in topological order;
@@ -91,7 +91,7 @@ int _CountTrailingZeros64(uint64_t value) noexcept
 #endif
 }
 
-bool ValidateAuthoredPlanes(UsdGenGraphDesc const &desc,
+bool ValidateAuthoredPlanes(UsdGenGraphSpec const &desc,
                             UsdGenCompileResult &result)
 {
     constexpr char const *kReservedNames[] = {
@@ -103,13 +103,13 @@ bool ValidateAuthoredPlanes(UsdGenGraphDesc const &desc,
         return false;
     };
     bool ok = true;
-    for (UsdGenCurveSetDesc const &curveSet : desc.curveSets) {
+    for (UsdGenCurveSetInput const &curveSet : desc.curveSets) {
         size_t pointCount = 0;
         for (int count : curveSet.curveVertexCounts) {
             if (count < 0 || pointCount > std::numeric_limits<size_t>::max() -
                                   static_cast<size_t>(count)) {
                 result.errors.push_back("UsdGenCompiler: curve set '" +
-                    curveSet.path.GetString() + "' has invalid topology for authored planes");
+                    desc.Label(curveSet.key) + "' has invalid topology for authored planes");
                 ok = false;
                 pointCount = 0;
                 break;
@@ -121,7 +121,7 @@ bool ValidateAuthoredPlanes(UsdGenGraphDesc const &desc,
             bool const validName = !plane.name.IsEmpty() && names.insert(plane.name).second;
             if (!validName) {
                 result.errors.push_back("UsdGenCompiler: curve set '" +
-                    curveSet.path.GetString() + "' has an empty or duplicate authored plane '" +
+                    desc.Label(curveSet.key) + "' has an empty or duplicate authored plane '" +
                     plane.name.GetString() + "'");
                 ok = false;
                 continue;
@@ -129,14 +129,14 @@ bool ValidateAuthoredPlanes(UsdGenGraphDesc const &desc,
             if (reserved(plane.name)) {
                 result.errors.push_back("UsdGenCompiler: authored plane '" +
                     plane.name.GetString() + "' on curve set '" +
-                    curveSet.path.GetString() +
+                    desc.Label(curveSet.key) +
                     "' collides with a reserved C3 channel");
                 ok = false;
                 continue;
             }
             if (plane.arity < 1 || plane.arity > kUsdGenMaxExtraPlaneSlots) {
                 result.errors.push_back("UsdGenCompiler: authored plane '" +
-                    plane.name.GetString() + "' on curve set '" + curveSet.path.GetString() +
+                    plane.name.GetString() + "' on curve set '" + desc.Label(curveSet.key) +
                     "' has arity outside [1,16]");
                 ok = false;
                 continue;
@@ -180,14 +180,14 @@ bool ValidateAuthoredPlanes(UsdGenGraphDesc const &desc,
     return ok;
 }
 
-bool BindExtraPlaneSlots(UsdGenOpRecord const &record, UsdGenCompiledNode *node,
-                         UsdGenCompileResult *result)
+bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &record,
+                         UsdGenCompiledNode *node, UsdGenCompileResult *result)
 {
     auto bindNames = [&](TfSpan<const TfToken> names, std::vector<TfToken> *slots,
                          char const *direction) {
         if (names.size() > kUsdGenMaxExtraPlaneSlots) {
             result->errors.push_back(std::string("UsdGenCompiler: operator '") +
-                node->desc->path.GetString() + "' declares too many " +
+                desc.Label(node->desc->key) + "' declares too many " +
                 direction + " primvar slots");
             return false;
         }
@@ -198,7 +198,7 @@ bool BindExtraPlaneSlots(UsdGenOpRecord const &record, UsdGenCompiledNode *node,
             if (name.IsEmpty() ||
                 std::find(slots->begin(), slots->end(), name) != slots->end()) {
                 result->errors.push_back(std::string("UsdGenCompiler: operator '") +
-                    node->desc->path.GetString() + "' declares an empty or duplicate " +
+                    desc.Label(node->desc->key) + "' declares an empty or duplicate " +
                     direction + " primvar slot");
                 return false;
             }
@@ -211,7 +211,7 @@ bool BindExtraPlaneSlots(UsdGenOpRecord const &record, UsdGenCompiledNode *node,
                     char const *direction) {
         if (planes.size() > kUsdGenMaxExtraPlaneSlots) {
             result->errors.push_back(std::string("UsdGenCompiler: operator '") +
-                node->desc->path.GetString() + "' declares too many " +
+                desc.Label(node->desc->key) + "' declares too many " +
                 direction + " primvar slots");
             return false;
         }
@@ -261,7 +261,7 @@ bool SamePlaneSlots(UsdGenOpRecord const &record, UsdGenCompiledNode const &node
     return out && SameSlots(record.InputPlanes(), node.inputPrimvars);
 }
 
-bool ValidateExpressionBindings(UsdGenGraphDesc const &desc,
+bool ValidateExpressionBindings(UsdGenGraphSpec const &desc,
                                 UsdGenCompileResult &result,
                                 bool injectedDevice = false)
 {
@@ -285,63 +285,63 @@ bool ValidateExpressionBindings(UsdGenGraphDesc const &desc,
             ok = false;
         }
     }
-    PSet<SdfPath> expressionPaths;
-    PSet<SdfPath> geometryPaths, mapPaths;
+    PSet<UsdGenNodeKey> expressionPaths;
+    PSet<UsdGenNodeKey> geometryPaths, mapPaths;
     for (auto const &g : desc.geometries) {
-        if (g.path.IsEmpty() || !geometryPaths.insert(g.path).second) {
-            result.errors.push_back("invalid or duplicate expression geometry " + g.path.GetString());
+        if (!g.key.IsValid() || !geometryPaths.insert(g.key).second) {
+            result.errors.push_back("invalid or duplicate expression geometry " + desc.Label(g.key));
             ok = false;
         }
     }
-    for (auto const &m : desc.maps) mapPaths.insert(m.path);
+    for (auto const &m : desc.maps) mapPaths.insert(m.key);
     for (auto const &e : desc.expressions) {
-        if (e.path.IsEmpty() || e.source.empty() || !expressionPaths.insert(e.path).second) {
+        if (!e.key.IsValid() || e.source.empty() || !expressionPaths.insert(e.key).second) {
             result.errors.push_back("expression has missing path or source"); ok = false;
         }
         PSet<TfToken> inputNames;
         for (auto const &input : e.inputs) {
             if (input.name.IsEmpty() || !inputNames.insert(input.name).second) {
-                result.errors.push_back("expression " + e.path.GetString() +
+                result.errors.push_back("expression " + desc.Label(e.key) +
                     " has an empty or duplicate input:" + input.name.GetString());
                 ok = false;
             }
-            for (SdfPath const &g : input.geometries)
+            for (UsdGenNodeKey const g : input.geometries)
                 if (!geometryPaths.count(g)) {
-                    result.errors.push_back("expression " + e.path.GetString() + " input:" +
-                        input.name.GetString() + " names unresolved geometry " + g.GetString());
+                    result.errors.push_back("expression " + desc.Label(e.key) + " input:" +
+                        input.name.GetString() + " names unresolved geometry " + desc.Label(g));
                     ok = false;
                 }
-            for (SdfPath const &m : input.maps)
+            for (UsdGenNodeKey const m : input.maps)
                 if (!mapPaths.count(m)) {
-                    result.errors.push_back("expression " + e.path.GetString() + " input:" +
-                        input.name.GetString() + " names unresolved map " + m.GetString());
+                    result.errors.push_back("expression " + desc.Label(e.key) + " input:" +
+                        input.name.GetString() + " names unresolved map " + desc.Label(m));
                     ok = false;
                 }
         }
         PSet<TfToken> seen;
         for (auto const &o : e.outputs)
-            if (o.name.IsEmpty() || o.nativeType.IsEmpty() || !seen.insert(o.name).second) { result.errors.push_back("expression " + e.path.GetString() + " has invalid or duplicate output"); ok = false; }
+            if (o.name.IsEmpty() || o.nativeType.IsEmpty() || !seen.insert(o.name).second) { result.errors.push_back("expression " + desc.Label(e.key) + " has invalid or duplicate output"); ok = false; }
     }
     for (auto const &node : desc.nodes) {
         PSet<TfToken> destinations;
         // Both lanes run an expression evaluator, so a connected parameter is
         // no longer backend-gated. What each op admits is its record's decls.
-        if (!UsdGenValidateExpressionBindings(node, &result.errors)) ok = false;
+        if (!UsdGenValidateExpressionBindings(node, &desc, &result.errors)) ok = false;
         for (auto const &b : node.expressionBindings) {
-            auto ei = std::find_if(desc.expressions.begin(), desc.expressions.end(), [&](auto const &e){ return e.path == b.expression; });
-            if (ei == desc.expressions.end()) { result.errors.push_back("expression binding references missing expression " + b.expression.GetString()); ok = false; continue; }
+            auto ei = std::find_if(desc.expressions.begin(), desc.expressions.end(), [&](auto const &e){ return e.key == b.expression; });
+            if (ei == desc.expressions.end()) { result.errors.push_back("expression binding references missing expression " + desc.Label(b.expression)); ok = false; continue; }
             // An empty output is a connection to the expression PRIM; it
             // resolves to outputs:result, or to a single declared output.
             UsdGenExpressionOutputDesc const *oi =
                 UsdGenFindExpressionOutput(*ei, b.output);
             if (!oi) {
                 result.errors.push_back(b.output.IsEmpty()
-                    ? "expression binding connects to prim " + b.expression.GetString() +
+                    ? "expression binding connects to prim " + desc.Label(b.expression) +
                           " which declares no outputs:result and no single outputs:* attribute"
                     : "expression binding references missing or ambiguous output " + b.output.GetString());
                 ok = false; continue;
             }
-            if (!destinations.insert(b.destination).second) { result.errors.push_back("duplicate expression consumer " + node.path.GetString() + "." + b.destination.GetString()); ok = false; }
+            if (!destinations.insert(b.destination).second) { result.errors.push_back("duplicate expression consumer " + desc.Label(node.key) + "." + b.destination.GetString()); ok = false; }
             if (!(b.domain == expr::Domain::Groom || b.domain == expr::Domain::Primitive || b.domain == expr::Domain::Point)) { result.errors.push_back("invalid expression evaluation domain"); ok = false; }
             if (b.destination.IsEmpty() || b.nativeType.IsEmpty()) { result.errors.push_back("expression binding has empty destination or native type"); ok = false; }
             // Hydra transports native property names; direct descriptor
@@ -398,9 +398,9 @@ uint64_t Fnv1aToken(uint64_t h, TfToken const &t)
                     static_cast<int64_t>(t.Hash()));
 }
 
-uint64_t MapValueIdentity(UsdGenMapDesc const &map)
+uint64_t MapValueIdentity(UsdGenMapInput const &map)
 {
-    uint64_t h = Fnv1aCstr(1469598103934665603ULL, map.path.GetText());
+    uint64_t h = Fnv1aI64(1469598103934665603ULL, static_cast<int64_t>(map.key.value));
     h = Fnv1aToken(h, map.type);
     h = Fnv1aCstr(h, map.resolvedAssetPath.c_str());
     h = Fnv1aI64(h, static_cast<int64_t>(map.textureGeneration));
@@ -408,8 +408,8 @@ uint64_t MapValueIdentity(UsdGenMapDesc const &map)
     // file: a repaint changes only paintValues, so they are the identity a
     // direct map-slot consumer re-captures on (the execution-cache key in
     // sessionCooker.cpp folds the same fields).
-    if (!map.paintValues.empty() || !map.paintSurface.IsEmpty()) {
-        h = Fnv1aCstr(h, map.paintSurface.GetText());
+    if (!map.paintValues.empty() || map.paintSurface.IsValid()) {
+        h = Fnv1aI64(h, static_cast<int64_t>(map.paintSurface.value));
         h = Fnv1aToken(h, map.paintPrimvar);
         h = Fnv1aToken(h, map.paintInterpolation);
         h = Fnv1aI64(h, static_cast<int64_t>(map.paintValues.size()));
@@ -440,13 +440,13 @@ uint64_t MapValueIdentity(UsdGenMapDesc const &map)
 // source-compatible input surface, but when both forms are present they must
 // describe the same ordered target sequence.
 template <class Bindings>
-bool EffectiveMapBindings(UsdGenNodeDesc const &node, Bindings *out,
+bool EffectiveMapBindings(UsdGenOpNode const &node, Bindings *out,
                           std::string *error)
 {
     out->clear();
     if (node.mapBindings.empty()) {
         out->reserve(node.maps.size());
-        for (SdfPath const &path : node.maps)
+        for (UsdGenNodeKey const path : node.maps)
             out->push_back({path, TfToken()});
         return true;
     }
@@ -466,10 +466,10 @@ bool EffectiveMapBindings(UsdGenNodeDesc const &node, Bindings *out,
     return true;
 }
 
-bool ValidateMapBinding(UsdGenMapBindingDesc const &binding,
+bool ValidateMapBinding(UsdGenMapBinding const &binding,
                         UsdGenOpRecord const &record, std::string *error)
 {
-    if (binding.map.IsEmpty()) {
+    if (!binding.map.IsValid()) {
         *error = "binding has an empty map target";
         return false;
     }
@@ -489,18 +489,18 @@ bool ValidateMapBinding(UsdGenMapBindingDesc const &binding,
     return true;
 }
 
-bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
+bool BuildReferenceValue(UsdGenGraphSpec const &desc, UsdGenCurveSetInput const &curves,
                          UsdGenResolvedReferenceValue *out,
                          std::string *error)
 {
-    if (curves.path.IsEmpty()) {
+    if (!curves.key.IsValid()) {
         *error = "reference curve set has an empty path";
         return false;
     }
     uint64_t totalCvs = 0;
     for (int count : curves.curveVertexCounts) {
         if (count < 0) {
-            *error = "reference curve set '" + curves.path.GetString() +
+            *error = "reference curve set '" + desc.Label(curves.key) +
                 "' has a negative curve vertex count";
             return false;
         }
@@ -517,7 +517,7 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
          curves.skinPrimUv.size() != curves.curveVertexCounts.size()) ||
         (!curves.rootFrame.empty() &&
          curves.rootFrame.size() != curves.curveVertexCounts.size())) {
-        *error = "reference curve set '" + curves.path.GetString() +
+        *error = "reference curve set '" + desc.Label(curves.key) +
             "' has inconsistent topology/value array sizes";
         return false;
     }
@@ -529,7 +529,7 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
     for (GfVec3f const &rest : curves.rest) {
         if (!std::isfinite(rest[0]) || !std::isfinite(rest[1]) ||
             !std::isfinite(rest[2])) {
-            *error = "reference curve set '" + curves.path.GetString() +
+            *error = "reference curve set '" + desc.Label(curves.key) +
                 "' has non-finite rest points";
             return false;
         }
@@ -606,7 +606,7 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
             plane.interpolation = tokens.constant;
             break;
         default:
-            *error = "reference curve set '" + curves.path.GetString() +
+            *error = "reference curve set '" + desc.Label(curves.key) +
                 "' has an invalid authored plane domain";
             return false;
         }
@@ -617,7 +617,7 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
             plane.type = tokens.int_;
             plane.i = authored.intValues;
         } else {
-            *error = "reference curve set '" + curves.path.GetString() +
+            *error = "reference curve set '" + desc.Label(curves.key) +
                 "' has an invalid authored plane type";
             return false;
         }
@@ -635,15 +635,15 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
     value->set = UsdGenCurveSetFromBuffer(buffer, buffer.topologyVersion,
                                           buffer.valueVersion, true);
     if (!value->set) {
-        *error = "reference curve set '" + curves.path.GetString() +
+        *error = "reference curve set '" + desc.Label(curves.key) +
             "' is not a consistent curve set";
         return false;
     }
     value->set->Export();
-    out->path = curves.path;
+    out->key = curves.key;
     out->curveGeneration = curves.curveGeneration;
-    out->identity = Fnv1aI64(Fnv1aCstr(1469598103934665603ULL,
-                                       curves.path.GetText()),
+    out->identity = Fnv1aI64(Fnv1aI64(1469598103934665603ULL,
+                                       static_cast<int64_t>(curves.key.value)),
                               static_cast<int64_t>(curves.curveGeneration));
     out->value = std::move(value);
     return true;
@@ -656,13 +656,13 @@ bool BuildReferenceValue(UsdGenCurveSetDesc const &curves,
 /// sorted input paths, sorted reference/map/surface relationship targets,
 /// and the children's digests.
 UsdGenEpoch ComputeNodeDigest(
-    UsdGenNodeDesc const &nd,
+    UsdGenOpNode const &nd,
     uint64_t typeSeed,
     UsdGenOpRecord const *record,
-    TfSpan<const SdfPath> inputPaths,
-    TfSpan<const SdfPath> refPaths,
-    TfSpan<const UsdGenMapBindingDesc> mapBindings,
-    TfSpan<const std::pair<SdfPath, UsdGenEpoch>> childDigests)
+    TfSpan<const UsdGenNodeKey> inputPaths,
+    TfSpan<const UsdGenNodeKey> refPaths,
+    TfSpan<const UsdGenMapBinding> mapBindings,
+    TfSpan<const std::pair<UsdGenNodeKey, UsdGenEpoch>> childDigests)
 {
     uint64_t h0 = 1469598103934665603ULL;
     uint64_t h1 = 1469598103934665603ULL;
@@ -673,10 +673,10 @@ UsdGenEpoch ComputeNodeDigest(
 
     mix(0xa5a5a5a5ULL ^ typeSeed);
     mix(0x00020002ULL ^ Fnv1aToken(0, nd.mode));
-    for (SdfPath const &p : inputPaths) mix(0x00050005ULL ^ Fnv1aCstr(0, p.GetText()));
-    for (SdfPath const &p : refPaths)   mix(0x00060006ULL ^ Fnv1aCstr(0, p.GetText()));
-    for (UsdGenMapBindingDesc const &binding : mapBindings) {
-        mix(0x00060007ULL ^ Fnv1aCstr(0, binding.map.GetText()));
+    for (UsdGenNodeKey const p : inputPaths) mix(0x00050005ULL ^ p.value);
+    for (UsdGenNodeKey const p : refPaths)   mix(0x00060006ULL ^ p.value);
+    for (UsdGenMapBinding const &binding : mapBindings) {
+        mix(0x00060007ULL ^ binding.map.value);
         mix(0x00060009ULL ^ Fnv1aToken(0, binding.relationship));
     }
     // Digest terms: authored params named exactly like a Structural slot.
@@ -692,7 +692,7 @@ UsdGenEpoch ComputeNodeDigest(
             }
         }
     }
-    for (SdfPath const &p : inputPaths) {
+    for (UsdGenNodeKey const p : inputPaths) {
         for (auto const &kv : childDigests)
             if (kv.first == p) { mix(kv.second[0] ^ (kv.second[1] << 1)); break; }
     }
@@ -715,7 +715,7 @@ UsdGenParamSlot ExactSlot(UsdGenOpRecord const &record, TfToken const &name)
 /// Value-class digest (skip-signature term, 03 §3.2): enabled, then every
 /// authored param except routed non-Value decls and an undeclared seed.
 /// Unknown params feed it: value-dirty is the safe superset.
-uint64_t ParamValueDigest(UsdGenNodeDesc const &nd, UsdGenOpRecord const &record)
+uint64_t ParamValueDigest(UsdGenOpNode const &nd, UsdGenOpRecord const &record)
 {
     TfToken const &seed = UsdGenTokens().seed;
     uint64_t vh = 1469598103934665603ULL;
@@ -756,7 +756,7 @@ bool IndexedSuffix(std::string const &name, char const *prefix, int *index)
 /// order. Authored curve-set planes <family><n> reserve n (imports); a
 /// pinned run takes its indices, an auto run the first free consecutive
 /// ones. Disabled nodes reserve too, so a toggle renumbers nothing.
-bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
+bool AllocateIndexedPlanes(UsdGenGraphSpec const &desc, PVec<int> const &order,
                            PVec<UsdGenOpRecord const *> const &descRecord,
                            PVec<int> *bases, PVec<int> *counts,
                            UsdGenCompileResult &result)
@@ -776,13 +776,13 @@ bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
             seen = other && std::strcmp(other, family) == 0;
         }
         if (seen) continue;
-        PMap<int, SdfPath> owner;
+        PMap<int, UsdGenNodeKey> owner;
         if (*family) {
-            for (UsdGenCurveSetDesc const &curves : desc.curveSets) {
+            for (UsdGenCurveSetInput const &curves : desc.curveSets) {
                 for (UsdGenAuthoredPlaneDesc const &plane : curves.authoredPlanes) {
                     int index = 0;
                     if (IndexedSuffix(plane.name.GetString(), family, &index))
-                        owner.emplace(index, curves.path);
+                        owner.emplace(index, curves.key);
                 }
             }
         }
@@ -791,7 +791,7 @@ bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
             int const di = order[k];
             char const *const f = familyOf(di);
             if (!f || std::strcmp(f, family) != 0) continue;
-            UsdGenNodeDesc const &nd = desc.nodes[size_t(di)];
+            UsdGenOpNode const &nd = desc.nodes[size_t(di)];
             UsdGenOpRecord const &record = *descRecord[size_t(di)];
             UsdGenIndexedPlaneRequest request;
             {
@@ -806,7 +806,7 @@ bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
                 (pinned >= 0 && pinned > std::numeric_limits<int>::max() - count) ||
                 nextAuto > std::numeric_limits<int>::max() - count) {
                 result.errors.push_back(std::string("UsdGenCompiler: invalid ") + display +
-                                        " level range on '" + nd.path.GetString() + "'");
+                                        " level range on '" + desc.Label(nd.key) + "'");
                 return false;
             }
             int base = pinned >= 0 ? pinned : nextAuto;
@@ -815,7 +815,7 @@ bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
                 for (;;) {
                     if (base > std::numeric_limits<int>::max() - count) {
                         result.errors.push_back(std::string("UsdGenCompiler: no free ") +
-                            display + " level range on '" + nd.path.GetString() + "'");
+                            display + " level range on '" + desc.Label(nd.key) + "'");
                         return false;
                     }
                     bool occupied = false;
@@ -830,12 +830,12 @@ bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
             nextAuto = std::max(nextAuto, base + count);
             for (int offset = 0; offset < count; ++offset) {
                 int const index = base + offset;
-                auto const inserted = owner.emplace(index, nd.path);
+                auto const inserted = owner.emplace(index, nd.key);
                 if (!inserted.second) {
                     result.errors.push_back("UsdGenCompiler: " + std::string(family) +
                         std::to_string(index) + " is emitted by both '" +
-                        inserted.first->second.GetString() + "' and '" +
-                        nd.path.GetString() + "'");
+                        desc.Label(inserted.first->second) + "' and '" +
+                        desc.Label(nd.key) + "'");
                     return false;
                 }
             }
@@ -846,8 +846,8 @@ bool AllocateIndexedPlanes(UsdGenGraphDesc const &desc, PVec<int> const &order,
 
 /// Points the node's view at its desc entry and re-resolves its slots;
 /// every compile path calls it, reused nodes included.
-void BindParams(UsdGenCompiledNode &node, UsdGenGraphDesc const *desc,
-                UsdGenNodeDesc const *nd, UsdGenOpRecord const *record,
+void BindParams(UsdGenCompiledNode &node, UsdGenGraphSpec const *desc,
+                UsdGenOpNode const *nd, UsdGenOpRecord const *record,
                 int indexedBase, int indexedCount)
 {
     node.opId = record ? record->Id() : UsdGenOpId::Invalid;
@@ -876,11 +876,11 @@ void BindParams(UsdGenCompiledNode &node, UsdGenGraphDesc const *desc,
 /// parameters of `record`. Such an edit keeps the compiled node: its
 /// structure, slots and capture inputs are unchanged. Expression-bound
 /// nodes never qualify (their program identity is not digested yet).
-bool ValueOnlyEdit(UsdGenNodeDesc const &a, UsdGenNodeDesc const &b,
+bool ValueOnlyEdit(UsdGenOpNode const &a, UsdGenOpNode const &b,
                    UsdGenOpRecord const &record)
 {
     if (!a.expressionBindings.empty() || !b.expressionBindings.empty()) return false;
-    if (a.path != b.path || a.type != b.type || a.mode != b.mode ||
+    if (a.key != b.key || a.type != b.type || a.mode != b.mode ||
         a.enabled != b.enabled || a.seed != b.seed || a.inputs != b.inputs ||
         a.references != b.references || a.curves != b.curves ||
         a.surfaces != b.surfaces || a.maps != b.maps ||
@@ -917,7 +917,7 @@ bool ValueOnlyEdit(UsdGenNodeDesc const &a, UsdGenNodeDesc const &b,
 
 // ---------------------------------------------------------------------------
 
-UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphDesc const &desc, UsdGenGraph *out)
+UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphSpec const &desc, UsdGenGraph *out)
 {
     TRACE_FUNCTION();
     UsdGenCompileResult result;
@@ -934,7 +934,7 @@ UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphDesc const &desc, UsdGenG
     if (result.errors.empty()) {
         *out = std::move(candidate);
         out->_inputVersions =
-            UsdGenExecutionInputVersions::FromDescription(out->Desc());
+            UsdGenExecutionInputVersions::FromDescription(out->Spec());
         result.ok = true;
         // Fresh compile: every node re-captures; all chunks value-dirty so
         // the first commit evaluates the whole chain.
@@ -948,7 +948,7 @@ UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphDesc const &desc, UsdGenG
 }
 
 UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
-    UsdGenGraphDesc const& desc, UsdGenGraph* out,
+    UsdGenGraphSpec const& desc, UsdGenGraph* out,
     DevicePlanCompiler const& compile,
     std::shared_ptr<const UsdGenExecutionPlanHandle>* plan)
 {
@@ -973,7 +973,7 @@ UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
     UsdGenGraph candidate;
     _Build(desc, &candidate, nullptr, result);
     if (!result.errors.empty()) return result;
-    candidate._inputVersions = UsdGenExecutionInputVersions::FromDescription(candidate.Desc());
+    candidate._inputVersions = UsdGenExecutionInputVersions::FromDescription(candidate.Spec());
     for (auto& node : candidate._nodes) {
         node->captureNeeded = true;
         std::fill(node->chunkDirty.begin(), node->chunkDirty.end(), UsdGenDirtyParameter);
@@ -984,7 +984,7 @@ UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
     return result;
 }
 
-UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, UsdGenGraph *out)
+UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphSpec const &newDesc, UsdGenGraph *out)
 {
     // CUDA programs are immutable per descriptor. Compile transactionally so
     // a failed edit cannot invalidate the last usable program or generation.
@@ -996,7 +996,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, Us
     if (result.errors.empty()) {
         result.ok = true;
         result.graphIntact = true;
-        UsdGenExecutionInputVersions::FromDescription(out->Desc(), &out->_inputVersions);
+        UsdGenExecutionInputVersions::FromDescription(out->Spec(), &out->_inputVersions);
         // Rebuilt nodes re-capture; digest-stable nodes keep their runtime
         // state (capture, buffer, chunk + dirty bytes) moved over by
         // _Build. The runtime partition is re-established by the first
@@ -1019,7 +1019,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphDesc const &newDesc, Us
 }
 
 void UsdGenCompiler::_Build(
-    UsdGenGraphDesc const &desc,
+    UsdGenGraphSpec const &desc,
     UsdGenGraph *out,
     UsdGenGraph const *reuse,
     UsdGenCompileResult &result)
@@ -1033,7 +1033,7 @@ void UsdGenCompiler::_Build(
         result.errors.push_back("UsdGenCompiler: graph has no operator nodes");
         return;
     }
-    if (desc.terminal.IsEmpty()) {
+    if (!desc.terminal.IsValid()) {
         result.errors.push_back("UsdGenCompiler: graph has no terminal operator");
         return;
     }
@@ -1041,18 +1041,18 @@ void UsdGenCompiler::_Build(
     // desc index by path (namespace order == desc.nodes' order, S26).
     // Sorted vector, not unordered_map (E-6): one allocation + sort instead
     // of ~200 per-insert map-node mallocs; binary search per lookup.
-    // SdfPath::operator< orders by full path.
-    PVec<std::pair<SdfPath, int>> descIdxByPath;
+    // Ordered by key value (a lookup table; the order means nothing).
+    PVec<std::pair<UsdGenNodeKey, int>> descIdxByPath;
     descIdxByPath.reserve(desc.nodes.size());
     for (size_t i = 0; i < desc.nodes.size(); ++i) {
-        descIdxByPath.emplace_back(desc.nodes[i].path, static_cast<int>(i));
+        descIdxByPath.emplace_back(desc.nodes[i].key, static_cast<int>(i));
     }
     std::sort(descIdxByPath.begin(), descIdxByPath.end(),
               [](auto const &a, auto const &b) { return a.first < b.first; });
-    auto findDescIdx = [&](SdfPath const &p) {
+    auto findDescIdx = [&](UsdGenNodeKey p) {
         auto it = std::lower_bound(
             descIdxByPath.begin(), descIdxByPath.end(), p,
-            [](std::pair<SdfPath, int> const &e, SdfPath const &v) { return e.first < v; });
+            [](std::pair<UsdGenNodeKey, int> const &e, UsdGenNodeKey v) { return e.first < v; });
         return (it != descIdxByPath.end() && !(p < it->first)) ? it
             : descIdxByPath.end();
     };
@@ -1060,7 +1060,7 @@ void UsdGenCompiler::_Build(
     if (termIt == descIdxByPath.end()) {
         result.errors.push_back(
             std::string("UsdGenCompiler: terminal '") +
-            desc.terminal.GetText() + "' is not an operator prim in the graph");
+            desc.Label(desc.terminal) + "' is not an operator prim in the graph");
         return;
     }
 
@@ -1076,12 +1076,12 @@ void UsdGenCompiler::_Build(
     PVec<int> inDeg(n, 0);
     for (int i = 0; i < n; ++i) {
         for (int k = edgeOff[size_t(i)]; k < edgeOff[size_t(i) + 1]; ++k) {
-            SdfPath const &in = desc.nodes[i].inputs[size_t(k - edgeOff[size_t(i)])];
+            UsdGenNodeKey const in = desc.nodes[i].inputs[size_t(k - edgeOff[size_t(i)])];
             auto it = findDescIdx(in);
             if (it == descIdxByPath.end()) {
                 result.errors.push_back(
-                    std::string("UsdGenCompiler: usdGen:input target '") + in.GetText() +
-                    "' of '" + desc.nodes[i].path.GetText() + "' is not in the graph");
+                    std::string("UsdGenCompiler: usdGen:input target '") + desc.Label(in) +
+                    "' of '" + desc.Label(desc.nodes[i].key) + "' is not in the graph");
                 return;
             }
             edgeIds[size_t(k)] = it->second;
@@ -1131,7 +1131,7 @@ void UsdGenCompiler::_Build(
             if (inDeg[i] > 0) {
                 result.errors.push_back(
                     std::string("UsdGenCompiler: input cycle involving '") +
-                    desc.nodes[i].path.GetText() + "'");
+                    desc.Label(desc.nodes[i].key) + "'");
                 break;
             }
         }
@@ -1218,11 +1218,11 @@ void UsdGenCompiler::_Build(
     };
     PVec<StaticOperatorContract> operatorContracts(desc.nodes.size());
     for (size_t nodeIndex = 0; nodeIndex != desc.nodes.size(); ++nodeIndex) {
-        UsdGenNodeDesc const& node = desc.nodes[nodeIndex];
+        UsdGenOpNode const& node = desc.nodes[nodeIndex];
         UsdGenOpRecord const *const record = descRecord[nodeIndex];
         if (!record || !record->Def().create) {
             result.errors.push_back("UsdGenCompiler: no kernel registered for '" +
-                node.type.GetString() + "' (prim " + node.path.GetString() + ")");
+                node.type.GetString() + "' (prim " + desc.Label(node.key) + ")");
             return;
         }
         StaticOperatorContract& contract = operatorContracts[nodeIndex];
@@ -1231,7 +1231,7 @@ void UsdGenCompiler::_Build(
         contract.lane = record->Def().lane;
         if (node.inputs.size() != contract.geometryInputArity) {
             std::ostringstream message;
-            message << "UsdGenCompiler: operator '" << node.path.GetText()
+            message << "UsdGenCompiler: operator '" << desc.Label(node.key)
                     << "' (type '" << node.type.GetText() << "') requires exactly "
                     << contract.geometryInputArity << " geometry input"
                     << (contract.geometryInputArity == 1 ? "" : "s") << "; found "
@@ -1258,42 +1258,42 @@ void UsdGenCompiler::_Build(
     // reference/map edit must leave the prior graph usable.
     std::vector<UsdGenResolvedReferenceValue> resolvedReferenceValues;
     std::vector<UsdGenResolvedMapValue> resolvedMapValues;
-    PHashMap<SdfPath, uint32_t, SdfPath::Hash> referenceByPath;
-    PHashMap<SdfPath, uint32_t, SdfPath::Hash> mapByPath;
-    for (UsdGenCurveSetDesc const &curves : desc.curveSets) {
+    PHashMap<UsdGenNodeKey, uint32_t, UsdGenNodeKeyHash> referenceByPath;
+    PHashMap<UsdGenNodeKey, uint32_t, UsdGenNodeKeyHash> mapByPath;
+    for (UsdGenCurveSetInput const &curves : desc.curveSets) {
         if (curves.role != UsdGenLane::Reference) continue;
-        if (referenceByPath.count(curves.path)) {
+        if (referenceByPath.count(curves.key)) {
             result.errors.push_back("UsdGenCompiler: duplicate reference curve set '" +
-                                    curves.path.GetString() + "'");
+                                    desc.Label(curves.key) + "'");
             return;
         }
         UsdGenResolvedReferenceValue value;
         std::string error;
-        if (!BuildReferenceValue(curves, &value, &error)) {
+        if (!BuildReferenceValue(desc, curves, &value, &error)) {
             result.errors.push_back("UsdGenCompiler: " + error);
             return;
         }
-        referenceByPath.emplace(curves.path,
+        referenceByPath.emplace(curves.key,
                                 static_cast<uint32_t>(resolvedReferenceValues.size()));
         resolvedReferenceValues.push_back(std::move(value));
     }
-    for (UsdGenMapDesc const &map : desc.maps) {
-        if (map.path.IsEmpty() || mapByPath.count(map.path)) {
+    for (UsdGenMapInput const &map : desc.maps) {
+        if (!map.key.IsValid() || mapByPath.count(map.key)) {
             result.errors.push_back("UsdGenCompiler: invalid or duplicate map descriptor '" +
-                                    map.path.GetString() + "'");
+                                    desc.Label(map.key) + "'");
             return;
         }
         UsdGenResolvedMapValue value;
-        value.path = map.path;
+        value.key = map.key;
         value.type = map.type;
         value.resolvedAssetPath = map.resolvedAssetPath;
         value.textureGeneration = map.textureGeneration;
         value.identity = MapValueIdentity(map);
-        mapByPath.emplace(map.path, static_cast<uint32_t>(resolvedMapValues.size()));
+        mapByPath.emplace(map.key, static_cast<uint32_t>(resolvedMapValues.size()));
         resolvedMapValues.push_back(std::move(value));
     }
     for (size_t nodeIndex = 0; nodeIndex != desc.nodes.size(); ++nodeIndex) {
-        UsdGenNodeDesc const& node = desc.nodes[nodeIndex];
+        UsdGenOpNode const& node = desc.nodes[nodeIndex];
         StaticOperatorContract const& contract = operatorContracts[nodeIndex];
         bool const hasExternalInputs = !node.references.empty() ||
             !node.curves.empty() || !node.maps.empty() ||
@@ -1305,30 +1305,30 @@ void UsdGenCompiler::_Build(
             // duplicate/target/typed-binding validation below.
             if (contract.lane == UsdGenLane::Reference &&
                 contract.referenceInputArity != 0) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
                     "' has 0 resolved reference values but its operator declares " +
                     std::to_string(contract.referenceInputArity) + " reference slots");
                 return;
             }
             continue;
         }
-        PSet<SdfPath> references;
-        auto addReference = [&](SdfPath const &path) {
+        PSet<UsdGenNodeKey> references;
+        auto addReference = [&](UsdGenNodeKey path) {
             if (!references.insert(path).second) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
-                    "' declares duplicate reference value '" + path.GetString() + "'");
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
+                    "' declares duplicate reference value '" + desc.Label(path) + "'");
                 return false;
             }
             if (!referenceByPath.count(path)) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
-                    "' references unresolved reference value '" + path.GetString() + "'");
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
+                    "' references unresolved reference value '" + desc.Label(path) + "'");
                 return false;
             }
             return true;
         };
-        for (SdfPath const &path : node.references)
+        for (UsdGenNodeKey const path : node.references)
             if (!addReference(path)) return;
-        for (SdfPath const &path : node.curves)
+        for (UsdGenNodeKey const path : node.curves)
             if (referenceByPath.count(path) && !addReference(path)) return;
         // Preserve the reference-free incremental fast path: factory
         // existence and the complete version-resolved static contract were
@@ -1337,7 +1337,7 @@ void UsdGenCompiler::_Build(
         // probe, exactly like geometry input arity.
         if (!references.empty()) {
             if (references.size() != contract.referenceInputArity) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
                     "' has " + std::to_string(references.size()) +
                     " resolved reference values but its operator declares " +
                     std::to_string(contract.referenceInputArity) + " reference slots");
@@ -1345,34 +1345,34 @@ void UsdGenCompiler::_Build(
             }
         } else if (contract.lane == UsdGenLane::Reference &&
                    contract.referenceInputArity != 0) {
-            result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
+            result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
                 "' has 0 resolved reference values but its operator declares " +
                 std::to_string(contract.referenceInputArity) + " reference slots");
             return;
         }
-        PVec<UsdGenMapBindingDesc> bindings;
+        PVec<UsdGenMapBinding> bindings;
         std::string bindingError;
         if (!EffectiveMapBindings(node, &bindings, &bindingError)) {
-            result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
+            result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
                 "' has ambiguous map bindings: " + bindingError);
             return;
         }
-        PSet<SdfPath> maps;
-        for (UsdGenMapBindingDesc const &binding : bindings) {
-            SdfPath const &path = binding.map;
+        PSet<UsdGenNodeKey> maps;
+        for (UsdGenMapBinding const &binding : bindings) {
+            UsdGenNodeKey const path = binding.map;
             if (!ValidateMapBinding(binding, *descRecord[nodeIndex], &bindingError)) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
                     "' has ambiguous map binding: " + bindingError);
                 return;
             }
             if (!maps.insert(path).second) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
-                    "' declares duplicate map binding '" + path.GetString() + "'");
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
+                    "' declares duplicate map binding '" + desc.Label(path) + "'");
                 return;
             }
             if (!mapByPath.count(path)) {
-                result.errors.push_back("UsdGenCompiler: node '" + node.path.GetString() +
-                    "' references unresolved map value '" + path.GetString() + "'");
+                result.errors.push_back("UsdGenCompiler: node '" + desc.Label(node.key) +
+                    "' references unresolved map value '" + desc.Label(path) + "'");
                 return;
             }
         }
@@ -1382,12 +1382,12 @@ void UsdGenCompiler::_Build(
     // allocs (vectors + VtValue holders per param). Scalars always copy.
     // Entry identity is by path; equality is field-wise (no allocs on hit).
     // Correctness: nodes read their desc entry read-only through desc/paramView.
-    auto sameNodeDesc = [](UsdGenNodeDesc const &a, UsdGenNodeDesc const &b) {
+    auto sameNodeDesc = [](UsdGenOpNode const &a, UsdGenOpNode const &b) {
         // Until expression program identity participates in incremental
         // digests, copy connected descriptors instead of reusing stale source
         // bindings/literals. This is conservative, not a semantic fallback.
         if (!a.expressionBindings.empty() || !b.expressionBindings.empty()) return false;
-        if (a.path != b.path || a.type != b.type || a.mode != b.mode ||
+        if (a.key != b.key || a.type != b.type || a.mode != b.mode ||
             a.enabled != b.enabled ||
             a.seed != b.seed || a.inputs != b.inputs ||
             a.references != b.references || a.curves != b.curves ||
@@ -1421,21 +1421,21 @@ void UsdGenCompiler::_Build(
     // node or descriptor entry moves. Reused nodes keep slots that already
     // bound. A failure here leaves *out untouched.
     if (reuse == out && out->_desc) {
-        UsdGenGraphDesc const &prev = *out->_desc;
+        UsdGenGraphSpec const &prev = *out->_desc;
         for (int di = 0; di < n; ++di) {
-            UsdGenNodeDesc const &nd = desc.nodes[size_t(di)];
-            UsdGenNodeDesc const *old = nullptr;
-            if (size_t(di) < prev.nodes.size() && prev.nodes[size_t(di)].path == nd.path)
+            UsdGenOpNode const &nd = desc.nodes[size_t(di)];
+            UsdGenOpNode const *old = nullptr;
+            if (size_t(di) < prev.nodes.size() && prev.nodes[size_t(di)].key == nd.key)
                 old = &prev.nodes[size_t(di)];
             for (size_t j = 0; !old && j < prev.nodes.size(); ++j)
-                if (prev.nodes[j].path == nd.path) old = &prev.nodes[j];
+                if (prev.nodes[j].key == nd.key) old = &prev.nodes[j];
             bool const kept = old && sameNodeDesc(*old, nd);
             if (kept) continue;
             UsdGenOpRecord const &record = *descRecord[size_t(di)];
             std::unique_ptr<UsdGenOp> probe = ops.Create(record.Id());
             if (!probe) {
                 result.errors.push_back("UsdGenCompiler: no kernel registered for '" +
-                    nd.type.GetString() + "' (prim " + nd.path.GetString() + ")");
+                    nd.type.GetString() + "' (prim " + desc.Label(nd.key) + ")");
                 return;
             }
             UsdGenCompiledNode scratch;
@@ -1443,7 +1443,7 @@ void UsdGenCompiler::_Build(
             BindParams(scratch, &desc, &nd, &record, indexedBases[size_t(di)],
                        indexedCounts[size_t(di)]);
             probe->Configure({scratch.paramView, scratch.indexedPlaneBase});
-            if (!BindExtraPlaneSlots(record, &scratch, &result)) return;
+            if (!BindExtraPlaneSlots(desc, record, &scratch, &result)) return;
         }
     }
     // The previous graph's nodes, in the graph's retained vector so its
@@ -1457,7 +1457,7 @@ void UsdGenCompiler::_Build(
     // descIdx → node index over the OLD graph (E-6): the merge and the node
     // loop map by position, with a linear path scan only for reorder misses
     // (rare) — no index vector, no sort, no per-lookup searches on the hit
-    // path. SdfPath::operator== is an integer compare (no strings).
+    // key. UsdGenNodeKey::operator== is an integer compare.
     PVec<size_t> nodeByDesc;
     if (reuse && reuse != out) {
         // Defensive: Recompile always passes out as reuse; a foreign graph
@@ -1473,7 +1473,7 @@ void UsdGenCompiler::_Build(
                 size_t(oldNodes[i]->descIdx) < nodeByDesc.size())
                 nodeByDesc[size_t(oldNodes[i]->descIdx)] = i;
     }
-    UsdGenGraphDesc *oldDescPtr = (reuse && out->_desc) ? out->_desc.get() : nullptr;
+    UsdGenGraphSpec *oldDescPtr = (reuse && out->_desc) ? out->_desc.get() : nullptr;
     PVec<char> descChanged(desc.nodes.size(), 1);
     // oldNodeForNewDesc[di] = old node index, or -1 (recorded by the merge,
     // so the node loop needs no per-node searches on the hit path).
@@ -1484,14 +1484,15 @@ void UsdGenCompiler::_Build(
     PVec<int> oldNodeAtPath(desc.nodes.size(), -1);
     // entries copy from the input. Entry ORDER follows the input (S26).
     // Identity is positional (nodeByDesc) with a linear-scan fallback.
-    static_assert(sizeof(UsdGenGraphDesc) ==
-                      512 + sizeof(std::vector<UsdGenGeometryDesc>) + sizeof(UsdGenPreviewDesc),
-        "UsdGenGraphDesc changed size: update the Recompile shell merge below");
+    static_assert(sizeof(UsdGenGraphSpec) ==
+                      512 + sizeof(std::vector<UsdGenGeometryInput>) + sizeof(UsdGenPreviewSpec) +
+                      sizeof(std::vector<UsdGenNodeLabel>) + sizeof(std::shared_ptr<const void>),
+        "UsdGenGraphSpec changed size: update the Recompile shell merge below");
     {
         // Double-buffered: the descriptor from two compiles back is
         // overwritten field by field, so its vectors' capacity is reused.
-        std::unique_ptr<UsdGenGraphDesc> fresh = std::move(out->_spareDesc);
-        if (!fresh) fresh = std::make_unique<UsdGenGraphDesc>();
+        std::unique_ptr<UsdGenGraphSpec> fresh = std::move(out->_spareDesc);
+        if (!fresh) fresh = std::make_unique<UsdGenGraphSpec>();
         fresh->description = desc.description;
         fresh->terminal = desc.terminal;
         fresh->curveSets = desc.curveSets;
@@ -1506,7 +1507,9 @@ void UsdGenCompiler::_Build(
         fresh->xformMatrix = desc.xformMatrix;
         fresh->purpose = desc.purpose;
         fresh->visibility = desc.visibility;
-        fresh->materialPath = desc.materialPath;
+        fresh->material = desc.material;
+        fresh->labels = desc.labels;
+        fresh->host = desc.host;
         fresh->defaultWidth = desc.defaultWidth;
         fresh->tileTarget = desc.tileTarget;
         fresh->curveBasis = desc.curveBasis;
@@ -1519,18 +1522,18 @@ void UsdGenCompiler::_Build(
             size_t const oldSize = oldDescPtr->nodes.size();
             for (size_t i = 0; i < desc.nodes.size(); ++i) {
                 // Positional pre-check (E-6): appends/param-edits keep
-                // namespace order — one pointer-fast SdfPath == instead of
+                // namespace order — one integer key == instead of
                 // a binary search on the hit path.
                 size_t o = oldSize;  // sentinel: linear-scan fallback below
                 size_t on = oldSize; // old NODE index for oldNodeForNewDesc
-                if (i < oldSize && oldDescPtr->nodes[i].path == desc.nodes[i].path) {
+                if (i < oldSize && oldDescPtr->nodes[i].key == desc.nodes[i].key) {
                     o = i;
                     if (i < nodeByDesc.size() && nodeByDesc[i] != SIZE_MAX) on = nodeByDesc[i];
                 } else {
                     // Reorder miss (rare): linear path scan with integer
-                    // SdfPath compares; node index rides nodeByDesc.
+                    // key compares; node index rides nodeByDesc.
                     for (size_t j = 0; j < oldSize; ++j) {
-                        if (oldDescPtr->nodes[j].path == desc.nodes[i].path) {
+                        if (oldDescPtr->nodes[j].key == desc.nodes[i].key) {
                             o = j;
                             if (j < nodeByDesc.size() && nodeByDesc[j] != SIZE_MAX)
                                 on = nodeByDesc[j];
@@ -1555,7 +1558,7 @@ void UsdGenCompiler::_Build(
         out->_spareDesc = std::move(out->_desc);
         out->_desc = std::move(fresh);
         UsdGenResolveDescIds(out->_desc.get());
-        // RestDesc() keys its cache on the descriptor's address, which the
+        // RestSpec() keys its cache on the descriptor's address, which the
         // double buffer reuses: drop the cache with the descriptor.
         out->_restSource = nullptr;
     }
@@ -1567,7 +1570,7 @@ void UsdGenCompiler::_Build(
     out->_mapValues = std::move(resolvedMapValues);
     out->_nodes.clear();
     out->_nodes.resize(n);
-    out->_nodeByPath.clear();
+    out->_nodeByKey.clear();
     out->_terminal = terminalId;
     out->_chunkSize = kUsdGenDefaultChunkSize;   // USDGEN_CHUNK_SIZE (S23)
     out->_tileTarget = desc.tileTarget;
@@ -1575,11 +1578,11 @@ void UsdGenCompiler::_Build(
     PVec<char> digestChanged(n, 0);
     for (int pos = 0; pos < n; ++pos) {
         int const di = order[pos];
-        UsdGenNodeDesc const &nd = desc.nodes[di];
+        UsdGenOpNode const &nd = desc.nodes[di];
         UsdGenOpRecord const *const record = descRecord[size_t(di)];
         int const indexedBase = indexedBases[size_t(di)];
         int const indexedCount = indexedCounts[size_t(di)];
-        UsdGenNodeDesc const *const newNd = &out->_desc->nodes[di];
+        UsdGenOpNode const *const newNd = &out->_desc->nodes[di];
         // A node whose indexed run moved binds different plane names.
         bool const indexedSlotsChanged = oldNodeForNewDesc[di] >= 0 &&
             oldNodes[size_t(oldNodeForNewDesc[di])] &&
@@ -1622,7 +1625,7 @@ void UsdGenCompiler::_Build(
                 moved->input = moved->inputs.empty() ? kUsdGenInvalidNode : moved->inputs.front();
                 fillDescendants(pos, &moved->descendants);
                 digests[pos] = moved->structuralDigest;
-                out->_nodeByPath[nd.path] = moved->id;
+                out->_nodeByKey[nd.key] = moved->id;
                 out->_nodes[pos] = std::move(moved);
                 continue;
             }
@@ -1665,7 +1668,7 @@ void UsdGenCompiler::_Build(
                     digests[pos] = moved->structuralDigest;
                     digestChanged[pos] = 0;
                     result.valueEdited.push_back(moved->id);
-                    out->_nodeByPath[nd.path] = moved->id;
+                    out->_nodeByKey[nd.key] = moved->id;
                     out->_nodes[pos] = std::move(moved);
                     continue;
                 }
@@ -1680,23 +1683,23 @@ void UsdGenCompiler::_Build(
         if (!oldNodes.empty() && oldNodeForNewDesc[di] >= 0) {
             UsdGenCompiledNode &old0 = *oldNodes[size_t(oldNodeForNewDesc[di])];
             if (old0.record == record) {
-                PVec<SdfPath> inputPaths0(nd.inputs.begin(), nd.inputs.end());
+                PVec<UsdGenNodeKey> inputPaths0(nd.inputs.begin(), nd.inputs.end());
                 if (!record->Has(kUsdGenOpGeometryInputsOrdered))
                     std::sort(inputPaths0.begin(), inputPaths0.end());
-                PVec<SdfPath> refPaths0(nd.references.begin(), nd.references.end());
-                PVec<UsdGenMapBindingDesc> bindings0;
+                PVec<UsdGenNodeKey> refPaths0(nd.references.begin(), nd.references.end());
+                PVec<UsdGenMapBinding> bindings0;
                 std::string bindingError0;
                 if (!EffectiveMapBindings(nd, &bindings0, &bindingError0)) {
-                    result.errors.push_back("UsdGenCompiler: node '" + nd.path.GetString() +
+                    result.errors.push_back("UsdGenCompiler: node '" + desc.Label(nd.key) +
                         "' has ambiguous map bindings: " + bindingError0);
                     return;
                 }
-                for (UsdGenMapBindingDesc const &binding : bindings0)
+                for (UsdGenMapBinding const &binding : bindings0)
                     refPaths0.push_back(binding.map);
                 refPaths0.insert(refPaths0.end(), nd.surfaces.begin(), nd.surfaces.end());
                 std::sort(refPaths0.begin(), refPaths0.end());
-                PVec<std::pair<SdfPath, UsdGenEpoch>> childDigests0;
-                for (SdfPath const &p : inputPaths0) {
+                PVec<std::pair<UsdGenNodeKey, UsdGenEpoch>> childDigests0;
+                for (UsdGenNodeKey const p : inputPaths0) {
                     auto const it = findDescIdx(p);
                     if (it != descIdxByPath.end())
                         childDigests0.emplace_back(p, digests[topoOfDesc[it->second]]);
@@ -1724,7 +1727,7 @@ void UsdGenCompiler::_Build(
                     moved->paramValueDigest = ParamValueDigest(nd, *record);
                     digests[pos] = dg0;
                     digestChanged[pos] = 0;
-                    out->_nodeByPath[nd.path] = moved->id;
+                    out->_nodeByKey[nd.key] = moved->id;
                     out->_nodes[pos] = std::move(moved);
                     continue;
                 }
@@ -1758,7 +1761,7 @@ void UsdGenCompiler::_Build(
         if (!op) {
             result.errors.push_back(
                 "UsdGenCompiler: no kernel registered for '" +
-                nd.type.GetString() + "' (prim " + nd.path.GetText() + ")");
+                nd.type.GetString() + "' (prim " + desc.Label(nd.key) + ")");
             return;
         }
         node->op = std::move(op);
@@ -1767,35 +1770,35 @@ void UsdGenCompiler::_Build(
         // parameters.
         BindParams(*node, out->_desc.get(), newNd, record, indexedBase, indexedCount);
         node->op->Configure({node->paramView, node->indexedPlaneBase});
-        if (!BindExtraPlaneSlots(*record, node.get(), &result)) return;
+        if (!BindExtraPlaneSlots(desc, *record, node.get(), &result)) return;
 
         node->countChanges = record->Def().countChanges;
         node->lane = record->Def().lane;
         node->enabled = nd.enabled;
 
         // Input edges (dense ids).
-        for (SdfPath const &in : nd.inputs) {
+        for (UsdGenNodeKey const in : nd.inputs) {
             auto const it = findDescIdx(in);
             if (it != descIdxByPath.end())
                 node->inputs.push_back(static_cast<UsdGenNodeId>(topoOfDesc[it->second]));
         }
-        // Keep dense IDs in the same authored order as UsdGenNodeDesc::inputs;
+        // Keep dense IDs in the same authored order as UsdGenOpNode::inputs;
         // WidthBlend's ordered operands depend on this correspondence.
         node->input = node->inputs.empty() ? kUsdGenInvalidNode : node->inputs.front();
 
         // Relationship targets.
         node->inputRefs = nd.curves;
-        PVec<UsdGenMapBindingDesc> bindings;
+        PVec<UsdGenMapBinding> bindings;
         std::string bindingError;
         if (!EffectiveMapBindings(nd, &bindings, &bindingError)) {
-            result.errors.push_back("UsdGenCompiler: node '" + nd.path.GetString() +
+            result.errors.push_back("UsdGenCompiler: node '" + desc.Label(nd.key) +
                 "' has ambiguous map bindings: " + bindingError);
             return;
         }
         node->mapBindingRefs.assign(bindings.begin(), bindings.end());
         node->mapRefs.clear();
         node->mapRefs.reserve(bindings.size());
-        for (UsdGenMapBindingDesc const &binding : bindings)
+        for (UsdGenMapBinding const &binding : bindings)
             node->mapRefs.push_back(binding.map);
         if (!nd.surfaces.empty()) {
             node->hasSurface = true;
@@ -1806,16 +1809,16 @@ void UsdGenCompiler::_Build(
         fillDescendants(pos, &node->descendants);
 
         // Structural digest (ADR §4.2.1 term list).
-        PVec<SdfPath> inputPaths(nd.inputs.begin(), nd.inputs.end());
+        PVec<UsdGenNodeKey> inputPaths(nd.inputs.begin(), nd.inputs.end());
         if (!record->Has(kUsdGenOpGeometryInputsOrdered))
             std::sort(inputPaths.begin(), inputPaths.end());
-        PVec<SdfPath> refPaths(nd.references.begin(), nd.references.end());
-        for (UsdGenMapBindingDesc const &binding : bindings)
+        PVec<UsdGenNodeKey> refPaths(nd.references.begin(), nd.references.end());
+        for (UsdGenMapBinding const &binding : bindings)
             refPaths.push_back(binding.map);
         refPaths.insert(refPaths.end(), nd.surfaces.begin(), nd.surfaces.end());
         std::sort(refPaths.begin(), refPaths.end());
-        PVec<std::pair<SdfPath, UsdGenEpoch>> childDigests;
-        for (SdfPath const &p : inputPaths) {
+        PVec<std::pair<UsdGenNodeKey, UsdGenEpoch>> childDigests;
+        for (UsdGenNodeKey const p : inputPaths) {
             auto const it = findDescIdx(p);
             if (it != descIdxByPath.end())
                 childDigests.emplace_back(p, digests[topoOfDesc[it->second]]);
@@ -1915,7 +1918,7 @@ void UsdGenCompiler::_Build(
             node->topologyVersion = prior.topologyVersion;
             node->valueVersion = prior.valueVersion;
         }
-        out->_nodeByPath[nd.path] = node->id;
+        out->_nodeByKey[nd.key] = node->id;
         out->_nodes[pos] = std::move(node);
     }
 
@@ -1930,18 +1933,18 @@ void UsdGenCompiler::_Build(
         // Everything a connected expression samples (geoSampler/ptex inputs):
         // an edit there re-evaluates this node, like a curve or map edit.
         node.geometryRefs.clear();
-        for (UsdGenExpressionBinding const &binding : node.desc->expressionBindings) {
-            for (UsdGenExpressionDesc const &expression : out->_desc->expressions) {
-                if (expression.path != binding.expression) continue;
-                for (UsdGenExpressionInputDesc const &input : expression.inputs) {
-                    auto add = [&node](SdfPath const &path) {
+        for (UsdGenParamBinding const &binding : node.desc->expressionBindings) {
+            for (UsdGenExpressionInput const &expression : out->_desc->expressions) {
+                if (expression.key != binding.expression) continue;
+                for (UsdGenExpressionSlot const &input : expression.inputs) {
+                    auto add = [&node](UsdGenNodeKey path) {
                         if (std::find(node.geometryRefs.begin(), node.geometryRefs.end(), path) ==
                             node.geometryRefs.end())
                             node.geometryRefs.push_back(path);
                     };
-                    for (SdfPath const &path : input.targets) add(path);
-                    for (SdfPath const &path : input.geometries) add(path);
-                    for (SdfPath const &path : input.maps) add(path);
+                    for (UsdGenNodeKey const path : input.targets) add(path);
+                    for (UsdGenNodeKey const path : input.geometries) add(path);
+                    for (UsdGenNodeKey const path : input.maps) add(path);
                 }
             }
         }
@@ -1953,53 +1956,53 @@ void UsdGenCompiler::_Build(
             // inputs case; stale resolved handles were cleared above.
             continue;
         }
-        PSet<SdfPath> seenReferences;
-        auto addReference = [&](SdfPath const &path) {
+        PSet<UsdGenNodeKey> seenReferences;
+        auto addReference = [&](UsdGenNodeKey path) {
             if (!seenReferences.insert(path).second) {
                 result.errors.push_back("UsdGenCompiler: node '" +
-                    node.desc->path.GetString() + "' declares duplicate reference value '" +
-                    path.GetString() + "'");
+                    desc.Label(node.desc->key) + "' declares duplicate reference value '" +
+                    desc.Label(path) + "'");
                 return false;
             }
             auto const it = referenceByPath.find(path);
             if (it == referenceByPath.end()) {
                 result.errors.push_back("UsdGenCompiler: node '" +
-                    node.desc->path.GetString() + "' references unresolved reference value '" +
-                    path.GetString() + "'");
+                    desc.Label(node.desc->key) + "' references unresolved reference value '" +
+                    desc.Label(path) + "'");
                 return false;
             }
             node.referenceValues.push_back(it->second);
             return true;
         };
-        for (SdfPath const &path : node.desc->references)
+        for (UsdGenNodeKey const path : node.desc->references)
             if (!addReference(path)) return;
-        for (SdfPath const &path : node.inputRefs)
+        for (UsdGenNodeKey const path : node.inputRefs)
             if (referenceByPath.count(path) && !addReference(path)) return;
 
         TfSpan<const TfToken> const declaredReferences = node.record->ReferenceInputs();
         if ((!node.referenceValues.empty() || node.lane == UsdGenLane::Reference) &&
             node.referenceValues.size() != declaredReferences.size()) {
             result.errors.push_back("UsdGenCompiler: node '" +
-                node.desc->path.GetString() + "' has " +
+                desc.Label(node.desc->key) + "' has " +
                 std::to_string(node.referenceValues.size()) +
                 " resolved reference values but its operator declares " +
                 std::to_string(declaredReferences.size()) + " reference slots");
             return;
         }
-        PSet<SdfPath> seenMaps;
-        for (UsdGenMapBindingDesc const &binding : node.mapBindingRefs) {
-            SdfPath const &path = binding.map;
+        PSet<UsdGenNodeKey> seenMaps;
+        for (UsdGenMapBinding const &binding : node.mapBindingRefs) {
+            UsdGenNodeKey const path = binding.map;
             if (!seenMaps.insert(path).second) {
                 result.errors.push_back("UsdGenCompiler: node '" +
-                    node.desc->path.GetString() + "' declares duplicate map binding '" +
-                    path.GetString() + "'");
+                    desc.Label(node.desc->key) + "' declares duplicate map binding '" +
+                    desc.Label(path) + "'");
                 return;
             }
             auto const it = mapByPath.find(path);
             if (it == mapByPath.end()) {
                 result.errors.push_back("UsdGenCompiler: node '" +
-                    node.desc->path.GetString() + "' references unresolved map value '" +
-                    path.GetString() + "'");
+                    desc.Label(node.desc->key) + "' references unresolved map value '" +
+                    desc.Label(path) + "'");
                 return;
             }
             node.mapValues.push_back(it->second);
@@ -2007,9 +2010,9 @@ void UsdGenCompiler::_Build(
     }
 
     // Surface id assignment: index desc.surfaces; bind node->surface.
-    PHashMap<SdfPath, UsdGenSurfaceId, SdfPath::Hash> surfaceIdByPath;
+    PHashMap<UsdGenNodeKey, UsdGenSurfaceId, UsdGenNodeKeyHash> surfaceIdByPath;
     for (size_t s = 0; s < out->_desc->surfaces.size(); ++s) {
-        surfaceIdByPath[out->_desc->surfaces[s].path] =
+        surfaceIdByPath[out->_desc->surfaces[s].key] =
             static_cast<UsdGenSurfaceId>(s);
         out->_desc->surfaces[s].id = static_cast<UsdGenSurfaceId>(s);
     }
@@ -2018,15 +2021,15 @@ void UsdGenCompiler::_Build(
         auto const it = surfaceIdByPath.find(np->desc->surfaces.front());
         np->surface = (it != surfaceIdByPath.end()) ? it->second : 0;
     }
-    std::pair<SdfPath, UsdGenEpoch> const terminalDigest{desc.terminal, digests[terminalId]};
+    std::pair<UsdGenNodeKey, UsdGenEpoch> const terminalDigest{desc.terminal, digests[terminalId]};
     result.structuralDigest = ComputeNodeDigest(
         out->_desc->nodes[termIt->second], kTerminalTypeSeed, nullptr,
-        TfSpan<const SdfPath>(&desc.terminal, 1), {}, {},
-        TfSpan<const std::pair<SdfPath, UsdGenEpoch>>(&terminalDigest, 1));
+        TfSpan<const UsdGenNodeKey>(&desc.terminal, 1), {}, {},
+        TfSpan<const std::pair<UsdGenNodeKey, UsdGenEpoch>>(&terminalDigest, 1));
 }
 
 
-void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDesc const &node,
+void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
                          UsdGenResolvedParam *out)
 {
     uint16_t const count = rec.ParamCount();

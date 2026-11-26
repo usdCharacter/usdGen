@@ -66,7 +66,7 @@ public:
 
     /// Called solely by the serial work owner. `desc` is the exact immutable
     /// command snapshot, never an alias to command-owner mutable input.
-    UsdGenGenerationConstPtr Cook(std::shared_ptr<const UsdGenGraphDesc> desc,
+    UsdGenGenerationConstPtr Cook(std::shared_ptr<const UsdGenGraphSpec> desc,
         UsdGenContext context, bool devicePublicationEnabled,
         UsdGenPendingDirty pending, double frame, UsdGenCommitReason reason,
         UsdGenGenerationConstPtr previous, UsdGenStats publishedStats,
@@ -77,12 +77,12 @@ public:
     // Begins a real source -> operator* -> final CUDA task graph. The caller
     // must retain this cooker through completion (the session pipeline does).
     void CookCudaAsync(UsdGenExecutionRuntime&, UsdGenExecutionPipeline::Cancellation const&,
-        std::shared_ptr<const UsdGenGraphDesc>, UsdGenContext, bool,
+        std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext, bool,
         UsdGenPendingDirty, double, UsdGenCommitReason, UsdGenGenerationConstPtr,
         UsdGenStats, bool, uint64_t, int, CudaCompletion,
         CoalescedHooks hooks = {});
     void CookDeviceAsync(UsdGenExecutionRuntime&, UsdGenExecutionPipeline::Cancellation const&,
-        std::shared_ptr<const UsdGenGraphDesc>, UsdGenContext, bool,
+        std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext, bool,
         UsdGenPendingDirty, double, UsdGenCommitReason, UsdGenGenerationConstPtr,
         UsdGenStats, bool, uint64_t, int,
         std::shared_ptr<UsdGenSessionDeviceProvider>, DeviceReturnBinder,
@@ -93,7 +93,7 @@ public:
     std::vector<UsdGenCudaBindingStats> CudaBindingStats() const;
     std::unordered_map<UsdGenNodeId, UsdGenNodeStats> NodeStats() const;
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> Routing() const;
-    UsdGenGraphDesc GraphDesc() const;
+    UsdGenGraphSpec GraphSpec() const;
     std::shared_ptr<const UsdGenCudaExecutionPlan> CudaPlan() const;
     struct ExecutionCacheCandidate {
         UsdGenExecutionCacheKey key;
@@ -131,9 +131,9 @@ public:
         return _executionCacheDomain ? _executionCacheDomain->Size() : 0;
     }
     int NodeCount() const noexcept { return _graph.NodeCount(); }
-    UsdGenNodeId NodeIdForPath(SdfPath const& path) const { return _graph.NodeIdForPath(path); }
+    UsdGenNodeId NodeIdForKey(UsdGenNodeKey key) const { return _graph.NodeIdForKey(key); }
 private:
-    bool _Prepare(std::shared_ptr<const UsdGenGraphDesc>, UsdGenContext,
+    bool _Prepare(std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext,
                   bool devicePublicationEnabled, UsdGenPendingDirty&,
                   UsdGenGenerationConstPtr previous, UsdGenStats publishedStats,
                   bool invalidateValues, uint64_t previousPublishedWorkerEpoch,
@@ -155,8 +155,8 @@ private:
     UsdGenCompiler _compiler;
     UsdGenDirtyReport _lastReport;
     UsdGenDiagnostics _lastDiagnostics;
-    UsdGenGraphDesc _desc;
-    std::shared_ptr<const UsdGenGraphDesc> _descIdentity;
+    UsdGenGraphSpec _desc;
+    std::shared_ptr<const UsdGenGraphSpec> _descIdentity;
     UsdGenGraph _graph;
     std::unique_ptr<UsdGenCudaExecutionWorkspace> _cudaWorkspace;
     std::shared_ptr<UsdGenSessionDeviceProvider> _deviceProvider;
@@ -165,7 +165,7 @@ private:
     // later command-owner acceptance action.
     std::optional<UsdGenSessionDeviceIdentity> _acceptedDeviceIdentity;
     std::optional<UsdGenSessionDeviceIdentity> _activeDeviceIdentity;
-    SdfPath _cudaWorkspaceDescription;
+    UsdGenNodeKey _cudaWorkspaceDescription;
     uint64_t _lastDeviceContextLossSerial = 0;
     // Written on the work lane, read from any thread.
     struct _BindingStats : UsdGenRefCounted {

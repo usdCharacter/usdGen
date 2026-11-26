@@ -1,4 +1,5 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/cudaParameters.h"
 #include "usdGen/executionResources.h"
@@ -357,7 +358,7 @@ struct ReleaseFinalizationGate {
 
 int main() {
     UsdGenDiagnostics diagnostics;
-    auto plan=CompileCudaGraph(Desc(),&diagnostics); CHECK(plan && !diagnostics.HasErrors());
+    auto plan=CompileCudaGraph(usdGenUsd::Lower(Desc()),&diagnostics); CHECK(plan && !diagnostics.HasErrors());
     auto planMetadata = GetCudaExecutionPlanMetadata(*plan);
     // Length/RBF estimates intentionally retain their known components but
     // are not conservative admission bounds (scan/cuSOLVER cardinalities are
@@ -409,7 +410,7 @@ int main() {
     // a complete linear Source/Length/Width plan before it submits work.
     auto literalLengthDesc = LiteralLengthDesc();
     diagnostics = {};
-    auto literalLengthPlan = CompileCudaGraph(literalLengthDesc, &diagnostics);
+    auto literalLengthPlan = CompileCudaGraph(usdGenUsd::Lower(literalLengthDesc), &diagnostics);
     CHECK(literalLengthPlan && !diagnostics.HasErrors());
     auto literalLengthMetadata = GetCudaExecutionPlanMetadata(*literalLengthPlan);
     CHECK(literalLengthMetadata &&
@@ -468,8 +469,8 @@ int main() {
     twoResampledLengthsDesc.nodes.push_back(std::move(secondLength));
     twoResampledLengthsDesc.terminal = twoResampledLengthsDesc.nodes.back().path;
     diagnostics = {};
-    auto oneResampledLengthPlan = CompileCudaGraph(oneResampledLengthDesc, &diagnostics);
-    auto twoResampledLengthsPlan = CompileCudaGraph(twoResampledLengthsDesc, &diagnostics);
+    auto oneResampledLengthPlan = CompileCudaGraph(usdGenUsd::Lower(oneResampledLengthDesc), &diagnostics);
+    auto twoResampledLengthsPlan = CompileCudaGraph(usdGenUsd::Lower(twoResampledLengthsDesc), &diagnostics);
     CHECK(oneResampledLengthPlan && twoResampledLengthsPlan && !diagnostics.HasErrors());
     diagnostics = {};
     auto rejectedOneResampledLength = ExecuteCudaGraph(
@@ -583,7 +584,7 @@ int main() {
     // private to each publication, including the all-cull zero-cardinality
     // result, and no Pending balance survives the synchronous boundary.
     auto partialLiteralDesc = LiteralLengthDesc(1);
-    auto partialLiteralPlan = CompileCudaGraph(partialLiteralDesc, &diagnostics);
+    auto partialLiteralPlan = CompileCudaGraph(usdGenUsd::Lower(partialLiteralDesc), &diagnostics);
     CHECK(partialLiteralPlan);
     diagnostics = {};
     auto partialLiteral = ExecuteCudaGraph(*partialLiteralPlan, *literalAdmissionWorkspace,
@@ -595,7 +596,7 @@ int main() {
           ResourceKindBytes(literalResources->Snapshot(),
               UsdGenExecutionResourceKind::Pending) == 0);
     auto allCullLiteralDesc = LiteralLengthDesc(2);
-    auto allCullLiteralPlan = CompileCudaGraph(allCullLiteralDesc, &diagnostics);
+    auto allCullLiteralPlan = CompileCudaGraph(usdGenUsd::Lower(allCullLiteralDesc), &diagnostics);
     CHECK(allCullLiteralPlan);
     diagnostics = {};
     auto allCullLiteral = ExecuteCudaGraph(*allCullLiteralPlan, *literalAdmissionWorkspace,
@@ -662,7 +663,7 @@ int main() {
     // readback/upload.  useRest declares the source space; it never replaces
     // loaded posed points with canonical rest.  Both buffers remain visible,
     // while alreadyDeformed records the selected space.
-    auto sourceControlPlan=CompileCudaGraph(SourceControlDesc(),&diagnostics); CHECK(sourceControlPlan);
+    auto sourceControlPlan=CompileCudaGraph(usdGenUsd::Lower(SourceControlDesc()),&diagnostics); CHECK(sourceControlPlan);
     auto sourceControlMetadata = GetCudaExecutionPlanMetadata(*sourceControlPlan);
     CHECK(sourceControlMetadata &&
           !sourceControlMetadata->MemoryEstimate().memoryAvailable &&
@@ -815,7 +816,7 @@ int main() {
         controlRetryOk.store(ok,std::memory_order_release); controlRetryDone.store(true,std::memory_order_release);
     }));
     CHECK(Wait(controlRetryDone) && controlRetryOk.load(std::memory_order_acquire));
-    auto emptyControlPlan=CompileCudaGraph(SourceControlDesc(true),&diagnostics); CHECK(emptyControlPlan);
+    auto emptyControlPlan=CompileCudaGraph(usdGenUsd::Lower(SourceControlDesc(true)),&diagnostics); CHECK(emptyControlPlan);
     auto emptyAsyncWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics);
     auto emptyLegacyWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(emptyAsyncWorkspace && emptyLegacyWorkspace);
     auto emptyControl=CreateCudaExecutionJob(emptyControlPlan,*emptyAsyncWorkspace,1,204,&diagnostics); CHECK(emptyControl);
@@ -832,7 +833,7 @@ int main() {
 
     // A dynamic useRest=false value is legal for source-only output but is
     // rejected once it would feed the rest-to-animated RBF stage.
-    auto invalidRestPlan=CompileCudaGraph(SourceControlDesc(false,true),&diagnostics); CHECK(invalidRestPlan);
+    auto invalidRestPlan=CompileCudaGraph(usdGenUsd::Lower(SourceControlDesc(false,true)),&diagnostics); CHECK(invalidRestPlan);
     auto invalidRestWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(invalidRestWorkspace);
     auto invalidRestJob=CreateCudaExecutionJob(invalidRestPlan,*invalidRestWorkspace,3,205,&diagnostics); CHECK(invalidRestJob);
     CHECK(!ExecuteCudaJobSource(*invalidRestJob));
@@ -859,22 +860,22 @@ int main() {
     auto invalidNegative=SourceControlDesc();
     for (auto& expression : invalidNegative.expressions)
         if (expression.path==SdfPath("/SourceResample")) expression.source="-1";
-    auto invalidNegativePlan=CompileCudaGraph(invalidNegative,&diagnostics); CHECK(invalidNegativePlan);
+    auto invalidNegativePlan=CompileCudaGraph(usdGenUsd::Lower(invalidNegative),&diagnostics); CHECK(invalidNegativePlan);
     CHECK(asyncSemanticFailure(invalidNegativePlan,1,207));
     auto invalidOne=invalidNegative;
     for (auto& expression : invalidOne.expressions)
         if (expression.path==SdfPath("/SourceResample")) expression.source="1";
-    auto invalidOnePlan=CompileCudaGraph(invalidOne,&diagnostics); CHECK(invalidOnePlan);
+    auto invalidOnePlan=CompileCudaGraph(usdGenUsd::Lower(invalidOne),&diagnostics); CHECK(invalidOnePlan);
     CHECK(asyncSemanticFailure(invalidOnePlan,1,208));
     auto invalidExpression=SourceControlDesc();
     for (auto& expression : invalidExpression.expressions)
         if (expression.path==SdfPath("/SourceResample")) expression.source="$frame / 0";
-    auto invalidExpressionPlan=CompileCudaGraph(invalidExpression,&diagnostics); CHECK(invalidExpressionPlan);
+    auto invalidExpressionPlan=CompileCudaGraph(usdGenUsd::Lower(invalidExpression),&diagnostics); CHECK(invalidExpressionPlan);
     CHECK(asyncSemanticFailure(invalidExpressionPlan,1,209));
 
     auto resampleDesc=Desc();
     resampleDesc.nodes.front().params.push_back({TfToken("resampleTo"),VtValue(4),false});
-    auto resamplePlan=CompileCudaGraph(resampleDesc,&diagnostics); CHECK(resamplePlan);
+    auto resamplePlan=CompileCudaGraph(usdGenUsd::Lower(resampleDesc),&diagnostics); CHECK(resamplePlan);
     auto resampleWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(resampleWorkspace);
     auto resampleJob=CreateCudaExecutionJob(resamplePlan,*resampleWorkspace,2,24,&diagnostics); CHECK(resampleJob);
     std::atomic<int> resampleCalls{0}; std::atomic<bool> resampleDone{false}, resampleOk{false};
@@ -1067,7 +1068,7 @@ int main() {
     // Width's asynchronous operator path first commits all expression-context
     // domains, then all expression programs, then Width itself.  The direct
     // staged result must be bit-for-bit equivalent to the synchronous graph.
-    auto widthPlan=CompileCudaGraph(WidthExpressionDesc(),&diagnostics); CHECK(widthPlan);
+    auto widthPlan=CompileCudaGraph(usdGenUsd::Lower(WidthExpressionDesc()),&diagnostics); CHECK(widthPlan);
     auto widthMetadata = GetCudaExecutionPlanMetadata(*widthPlan);
     CHECK(widthMetadata && !widthMetadata->MemoryEstimate().memoryAvailable &&
           !widthMetadata->MemoryEstimate().conservativeUpperBound);
@@ -1169,7 +1170,7 @@ int main() {
 
     // A terminally proven semantic expression error releases its slot and does
     // not poison the workspace; a subsequent valid Width is admitted.
-    auto invalidWidthPlan=CompileCudaGraph(WidthExpressionDesc(true),&diagnostics); CHECK(invalidWidthPlan);
+    auto invalidWidthPlan=CompileCudaGraph(usdGenUsd::Lower(WidthExpressionDesc(true)),&diagnostics); CHECK(invalidWidthPlan);
     auto semanticWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(semanticWorkspace);
     auto semantic=CreateCudaExecutionJob(invalidWidthPlan,*semanticWorkspace,2,70,&diagnostics,widthAsyncGeneration);
     CHECK(semantic && ExecuteCudaJobSource(*semantic) && ExecuteCudaJobOperator(*semantic,0));
@@ -1199,7 +1200,7 @@ int main() {
     auto literalInvalidDesc=Desc();
     literalInvalidDesc.nodes[2].params.clear();
     literalInvalidDesc.nodes[2].params.push_back({TfToken("width"), VtValue(-1.f), false});
-    auto literalInvalidPlan=CompileCudaGraph(literalInvalidDesc,&diagnostics); CHECK(literalInvalidPlan);
+    auto literalInvalidPlan=CompileCudaGraph(usdGenUsd::Lower(literalInvalidDesc),&diagnostics); CHECK(literalInvalidPlan);
     auto literalWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(literalWorkspace);
     auto literalInvalid=CreateCudaExecutionJob(literalInvalidPlan,*literalWorkspace,2,72,&diagnostics,widthAsyncGeneration);
     CHECK(literalInvalid && ExecuteCudaJobSource(*literalInvalid) && ExecuteCudaJobOperator(*literalInvalid,0));
@@ -1254,7 +1255,7 @@ int main() {
     // program proof, then conditionally publishes points+keep before the
     // scalar-count and exact-scatter compaction phases.  Its final generation
     // matches the synchronous graph without a host geometry readback.
-    auto lengthPlan=CompileCudaGraph(LengthExpressionDesc(),&diagnostics); CHECK(lengthPlan);
+    auto lengthPlan=CompileCudaGraph(usdGenUsd::Lower(LengthExpressionDesc()),&diagnostics); CHECK(lengthPlan);
     auto lengthMetadata = GetCudaExecutionPlanMetadata(*lengthPlan);
     CHECK(lengthMetadata && !lengthMetadata->MemoryEstimate().memoryAvailable &&
           !lengthMetadata->MemoryEstimate().conservativeUpperBound);
@@ -1292,7 +1293,7 @@ int main() {
 
     // Culling is topology-changing: one short curve is removed while every
     // surviving channel keeps its matching curve cardinality and root binding.
-    auto cullPlan=CompileCudaGraph(LengthExpressionDesc(true),&diagnostics); CHECK(cullPlan);
+    auto cullPlan=CompileCudaGraph(usdGenUsd::Lower(LengthExpressionDesc(true)),&diagnostics); CHECK(cullPlan);
     auto cullWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(cullWorkspace);
     auto cullSyncWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(cullSyncWorkspace);
     auto cullJob=prepareLength(cullPlan,cullWorkspace,82,widthAsyncGeneration); CHECK(cullJob);
@@ -1319,7 +1320,7 @@ int main() {
     auto allCullDesc=LengthExpressionDesc(true);
     for (auto& expression : allCullDesc.expressions)
         if (expression.path==SdfPath("/LengthPrimitive")) expression.source="$value + 100";
-    auto allCullPlan=CompileCudaGraph(allCullDesc,&diagnostics); CHECK(allCullPlan);
+    auto allCullPlan=CompileCudaGraph(usdGenUsd::Lower(allCullDesc),&diagnostics); CHECK(allCullPlan);
     auto allCullWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(allCullWorkspace);
     auto allCullJob=prepareLength(allCullPlan,allCullWorkspace,83,widthAsyncGeneration); CHECK(allCullJob);
     std::atomic<bool> allCullDone{false}, allCullOk{false};
@@ -1382,7 +1383,7 @@ int main() {
     auto badLengthDesc=LengthExpressionDesc();
     for (auto& expression : badLengthDesc.expressions)
         if (expression.path==SdfPath("/LengthPoint")) expression.source="$value - 2";
-    auto badLengthPlan=CompileCudaGraph(badLengthDesc,&diagnostics); CHECK(badLengthPlan);
+    auto badLengthPlan=CompileCudaGraph(usdGenUsd::Lower(badLengthDesc),&diagnostics); CHECK(badLengthPlan);
     auto badLengthWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(badLengthWorkspace);
     auto badLength=prepareLength(badLengthPlan,badLengthWorkspace,89,widthAsyncGeneration); CHECK(badLength);
     size_t const lengthSemanticQuarantined=cudaOperatorRelayQuarantinedCountForTesting();
@@ -1513,7 +1514,7 @@ int main() {
                                std::vector<UsdGenCudaBindingStats> const& b) {
         if (a.size()!=b.size()) return false;
         for (size_t i=0;i<a.size();++i)
-            if (a[i].path!=b[i].path || a[i].identity!=b[i].identity ||
+            if (a[i].key!=b[i].key || a[i].identity!=b[i].identity ||
                 a[i].bindCount!=b[i].bindCount || a[i].solveCount!=b[i].solveCount ||
                 a[i].sampleCount!=b[i].sampleCount) return false;
         return true;
@@ -1568,7 +1569,7 @@ int main() {
     auto changedRestDesc=Desc();
     changedRestDesc.surfaces.front().restPoints.back()[2]+=.25f;
     changedRestDesc.surfaces.front().points.back()[2]+=.25f;
-    auto changedRestPlan=CompileCudaGraph(changedRestDesc,&diagnostics); CHECK(changedRestPlan);
+    auto changedRestPlan=CompileCudaGraph(usdGenUsd::Lower(changedRestDesc),&diagnostics); CHECK(changedRestPlan);
     auto rejectedRebind=prepareAsyncRbf(changedRestPlan,rbfAsyncWorkspace,114,retriedRbfResult);
     CHECK(rejectedRebind && sameBindingStats(GetCudaBindingStats(*rbfAsyncWorkspace),retriedRbfStats));
     failNextCudaFinalizationRelayTopologyAllocationForTesting();
@@ -1584,7 +1585,7 @@ int main() {
           retriedRebindStats[0].identity!=retriedRbfStats[0].identity &&
           retriedRebindStats[0].bindCount==1 && retriedRebindStats[0].solveCount==1);
 
-    auto emptyRbfPlan=CompileCudaGraph(SourceControlDesc(true,true),&diagnostics); CHECK(emptyRbfPlan);
+    auto emptyRbfPlan=CompileCudaGraph(usdGenUsd::Lower(SourceControlDesc(true,true)),&diagnostics); CHECK(emptyRbfPlan);
     auto emptyRbfWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(emptyRbfWorkspace);
     auto emptyRbfJob=prepareAsyncRbf(emptyRbfPlan,emptyRbfWorkspace,116); CHECK(emptyRbfJob);
     std::shared_ptr<const UsdGenDeviceGeneration> emptyRbfResult;
@@ -1615,7 +1616,7 @@ int main() {
           sameTopologyDesc.nodes[2].inputs.front()==SdfPath("/Stages/Hair/Length") &&
           sameTopologyDesc.nodes[2].params.front().name==TfToken("width") &&
           sameTopologyDesc.nodes[2].params.front().value==VtValue(.08f));
-    auto sameTopologyPlan=CompileCudaGraph(sameTopologyDesc,&diagnostics); CHECK(sameTopologyPlan);
+    auto sameTopologyPlan=CompileCudaGraph(usdGenUsd::Lower(sameTopologyDesc),&diagnostics); CHECK(sameTopologyPlan);
     auto finalAsyncJob=prepareFinal(sameTopologyPlan,finalAsyncWorkspace,100,lengthAsyncGeneration); CHECK(finalAsyncJob);
     std::shared_ptr<const UsdGenDeviceGeneration> finalAsyncGeneration;
     std::atomic<int> finalCalls{0};
@@ -1803,7 +1804,7 @@ int main() {
     auto bad=CreateCudaExecutionJob(plan,*stagedWorkspace,3,3,&diagnostics); CHECK(bad);
     CHECK(!ExecuteCudaJobOperator(*bad,0)); CHECK(!ExecuteCudaJobSource(*bad));
     auto sourceDesc=Desc(); sourceDesc.nodes.resize(1); sourceDesc.terminal=sourceDesc.nodes.front().path;
-    auto sourcePlan=CompileCudaGraph(sourceDesc,&diagnostics); CHECK(sourcePlan);
+    auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(sourceDesc),&diagnostics); CHECK(sourcePlan);
     auto sourceOnly=CreateCudaExecutionJob(sourcePlan,*stagedWorkspace,3,3,&diagnostics); CHECK(sourceOnly);
     CHECK(CudaExecutionJobOperatorCount(*sourceOnly)==0 && ExecuteCudaJobSource(*sourceOnly));
     auto sourceGeneration=FinalizeCudaExecutionJob(*sourceOnly); CHECK(sourceGeneration);
@@ -1814,7 +1815,7 @@ int main() {
     auto& zeroSource=zeroSourceDesc.curveSets.front();
     zeroSource.curveVertexCounts.clear(); zeroSource.points.clear(); zeroSource.rest.clear();
     zeroSource.curveId.clear(); zeroSource.skinPrim.clear(); zeroSource.skinPrimUv.clear();
-    auto zeroSourcePlan=CompileCudaGraph(zeroSourceDesc,&diagnostics); CHECK(zeroSourcePlan);
+    auto zeroSourcePlan=CompileCudaGraph(usdGenUsd::Lower(zeroSourceDesc),&diagnostics); CHECK(zeroSourcePlan);
     auto zeroSourceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(zeroSourceWorkspace);
     auto zeroSourceJob=CreateCudaExecutionJob(zeroSourcePlan,*zeroSourceWorkspace,3,109,&diagnostics); CHECK(zeroSourceJob);
     CHECK(ExecuteCudaJobSource(*zeroSourceJob));
@@ -1859,7 +1860,7 @@ int main() {
     auto runAutoRootVariant = [&](UsdGenGraphDesc variant, uint64_t generation,
                                   uint64_t* peakOut) {
         diagnostics = {};
-        auto variantPlan = CompileCudaGraph(variant, &diagnostics);
+        auto variantPlan = CompileCudaGraph(usdGenUsd::Lower(variant), &diagnostics);
         if (!variantPlan || diagnostics.HasErrors()) return false;
         auto variantWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         if (!variantWorkspace) return false;

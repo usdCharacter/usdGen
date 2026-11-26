@@ -24,7 +24,7 @@
 #include "usdGen/compiler.h"
 #include "usdGen/generationStore.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -174,14 +174,14 @@ std::string CookScheduler(UsdGenGraphDesc const &desc, std::string const &label,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         PrintDiagnostics(label + " compile", compiled.errors);
         return "compile-failed";
     }
     UsdGenScheduler scheduler(kThreads);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = desc.time;
     UsdGenRunResult const run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
@@ -196,7 +196,7 @@ std::string CookScheduler(UsdGenGraphDesc const &desc, std::string const &label,
 void CookSession(UsdGenGraphDesc const &desc, std::string const &label, Rows *rows)
 {
     UsdGenSession session(kThreads);
-    session.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(session, desc);
     UsdGenGenerationConstPtr const gen = session.Commit(desc.time, UsdGenCommitReason::LiveOverride);
     PrintDiagnostics(label + " session", session.LastDiagnostics().errors);
     if (!gen) {

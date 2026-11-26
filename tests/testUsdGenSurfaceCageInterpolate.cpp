@@ -1,5 +1,6 @@
 // Pure runtime contract for sparse surface-cage C3 interpolation.
 #include "usdGen/surfaceCageInterpolate.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/surfaceCageSource.h"
 #include "usdGen/concaveMaterialRemap.h"
 
@@ -82,7 +83,7 @@ UsdGenSurfaceCageInput Input(UsdGenSurfaceDesc surface,
                               float rootScale = 1.0f)
 {
     UsdGenSurfaceCageInput input;
-    input.surface = std::move(surface);
+    input.surface = usdGenUsd::Lower(surface);
     input.densityMultiplier = 1.0f;
     input.ownerMap.texture = std::move(texture);
     input.ownerMap.options.filter = "nearest";
@@ -165,7 +166,7 @@ UsdGenSurfaceCageInput ConcaveInput(UsdGenSurfaceDesc surface,
                                     std::shared_ptr<const UsdGenPtexTexture> texture)
 {
     UsdGenSurfaceCageInput input;
-    input.surface = std::move(surface);
+    input.surface = usdGenUsd::Lower(surface);
     input.ownerMap.texture = std::move(texture);
     input.ownerMap.options.filter = "nearest";
     input.ownerMap.options.firstChannel = 0;
@@ -245,7 +246,8 @@ void CheckWorldMetricBridge(std::string const &mapFile)
 
     UsdGenGraphDesc desc;
     desc.defaultWidth = 0.2f;
-    UsdGenSurfaceDesc surface = input.surface;
+    UsdGenSurfaceDesc surface;
+    static_cast<UsdGenSurfaceData &>(surface) = input.surface;
     surface.path = SdfPath("/Scalp");
     surface.worldMatrix = world;
     desc.surfaces.push_back(surface);
@@ -315,12 +317,12 @@ void CheckWorldMetricBridge(std::string const &mapFile)
 
     uint64_t curves = 0, cvs = 0;
     std::string error;
-    bool const estimated = UsdGenEstimateSurfaceCageCurveSet(desc, node, sparse,
+    bool const estimated = UsdGenEstimateSurfaceCageCurveSet(usdGenUsd::Lower(desc), usdGenUsd::Lower(node), usdGenUsd::Lower(sparse),
                                                                &curves, &cvs, &error);
     Check(estimated && curves == 180 && cvs == 720,
           ("bridge measures transformed scalp area in world space: " + error).c_str());
-    UsdGenCurveSetDesc dense;
-    bool const built = UsdGenBuildSurfaceCageCurveSet(desc, node, sparse, &dense, &error);
+    UsdGenCurveSetInput dense;
+    bool const built = UsdGenBuildSurfaceCageCurveSet(usdGenUsd::Lower(desc), usdGenUsd::Lower(node), usdGenUsd::Lower(sparse), &dense, &error);
     bool worldRoots = built && !dense.points.empty() && dense.worldMatrix == GfMatrix4d(1.0);
     for (size_t begin = 0, curve = 0; worldRoots && curve != dense.curveVertexCounts.size(); ++curve) {
         GfVec3f const &root = dense.points[begin];

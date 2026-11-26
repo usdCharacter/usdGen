@@ -26,7 +26,7 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
 
 /// The closed descriptor ABI of the first binary value fan-in. Disabled
 /// operators bypass runtime Bind(), so the compiler runs this at compile.
-bool ValidateNode(UsdGenGraphDesc const &, UsdGenNodeDesc const &node,
+bool ValidateNode(UsdGenGraphSpec const &, UsdGenOpNode const &node,
                   UsdGenParamView const &view, std::string *error)
 {
     bool paramsOk = true;
@@ -134,7 +134,7 @@ std::unique_ptr<UsdGenCapture> UsdGenWidthBlendOp::CreateCapture() const
 bool UsdGenWidthBlendOp::Bind(UsdGenParamView const &params,
                               UsdGenDiagnostics *diag)
 {
-    UsdGenNodeDesc const *node = params.node;
+    UsdGenOpNode const *node = params.node;
     float weight = 1.0f;
     if (!ReadWeight(&params, &weight, diag)) return false;
     bool paramsOk = true;

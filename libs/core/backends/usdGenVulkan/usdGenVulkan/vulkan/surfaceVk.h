@@ -23,7 +23,7 @@
 
 #pragma once
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/vulkan/executionPlan.h"
 
 namespace usdGen::vulkan {
@@ -35,8 +35,8 @@ namespace usdGen::vulkan {
 // sampleCount/restSamples/posedSamples/rootTargets are written. Returns
 // false with a "Vulkan source-width plan: ..." diagnostic on rejection,
 // using the same messages as ValidateDeform where the check coincides.
-bool CompileSurfaceVkDeform(UsdGenCurveSetDesc const& source,
-                            UsdGenSurfaceDesc const& surface, int budget,
+bool CompileSurfaceVkDeform(UsdGenCurveSetInput const& source,
+                            UsdGenSurfaceInput const& surface, int budget,
                             VulkanDeformControls* out,
                             UsdGenDiagnostics* diagnostics);
 

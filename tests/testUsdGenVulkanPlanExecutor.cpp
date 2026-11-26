@@ -5,6 +5,7 @@
 // source/width executor.  CPU construction below is an independent oracle for
 // C3 canonicalization; GPU bytes are always read back from the publication.
 #include "usdGen/vulkan/planExecutor.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/vulkan/executionPlan.h"
 #include "usdGen/vulkan/deviceGenerationAdapter.h"
@@ -256,12 +257,12 @@ bool CpuReference(UsdGenGraphDesc desc, Oracle* expected) {
     if (!expected) return false;
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler; UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) return false;
-    UsdGenScheduler scheduler(2); UsdGenEvalContext context; context.desc = &graph.Desc();
+    UsdGenScheduler scheduler(2); UsdGenEvalContext context; context.desc = &graph.Spec();
     auto result = scheduler.Run(graph, context, 1);
     if (result.diagnostics.HasErrors()) return false;
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     Oracle output;
     output.points.resize(buffer.totalCvs); output.rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != output.points.size(); ++i)
@@ -698,7 +699,7 @@ int main(int argc, char** argv) {
                           {TfToken("minRemainingLength"), VtValue(3.0f), false}};
     minimumPlanDesc.nodes[1].inputs = {minimumNode.path};
     minimumPlanDesc.nodes.insert(minimumPlanDesc.nodes.begin() + 1, minimumNode);
-    auto minimumPlanHandle = CompileVulkanSourceWidthPlan(minimumPlanDesc, nullptr);
+    auto minimumPlanHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(minimumPlanDesc), nullptr);
     CHECK(minimumPlanHandle);
     auto minimumPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(minimumPlanHandle->Payload());
     CHECK(minimumPlan && minimumPlan->Steps().size() == 2 &&
@@ -725,19 +726,19 @@ int main(int argc, char** argv) {
     auto minimumSetDesc = minimumPlanDesc;
     for (auto& parameter : minimumSetDesc.nodes[1].params)
         if (parameter.name == TfToken("length:mode")) parameter.value = VtValue(TfToken("set"));
-    auto minimumSetHandle = CompileVulkanSourceWidthPlan(minimumSetDesc, nullptr); CHECK(minimumSetHandle);
+    auto minimumSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(minimumSetDesc), nullptr); CHECK(minimumSetHandle);
     minimumReject(std::static_pointer_cast<const VulkanSourceWidthPlan>(minimumSetHandle->Payload()));
     auto minimumCutDesc = minimumSetDesc;
     minimumCutDesc.nodes[1].params.push_back({TfToken("length:method"), VtValue(TfToken("cutExtend")), false});
-    auto minimumCutHandle = CompileVulkanSourceWidthPlan(minimumCutDesc, nullptr); CHECK(minimumCutHandle);
+    auto minimumCutHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(minimumCutDesc), nullptr); CHECK(minimumCutHandle);
     minimumReject(std::static_pointer_cast<const VulkanSourceWidthPlan>(minimumCutHandle->Payload()));
     minimumCutDesc.nodes[1].params.push_back({TfToken("rebuild"), VtValue(TfToken("reparam")), false});
-    auto minimumReparamHandle = CompileVulkanSourceWidthPlan(minimumCutDesc, nullptr); CHECK(minimumReparamHandle);
+    auto minimumReparamHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(minimumCutDesc), nullptr); CHECK(minimumReparamHandle);
     minimumReject(std::static_pointer_cast<const VulkanSourceWidthPlan>(minimumReparamHandle->Payload()));
     auto zeroMinimumDesc = minimumPlanDesc;
     for (auto& parameter : zeroMinimumDesc.nodes[1].params)
         if (parameter.name == TfToken("minRemainingLength")) parameter.value = VtValue(0.f);
-    auto zeroMinimumHandle = CompileVulkanSourceWidthPlan(zeroMinimumDesc, nullptr); CHECK(zeroMinimumHandle);
+    auto zeroMinimumHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(zeroMinimumDesc), nullptr); CHECK(zeroMinimumHandle);
     auto zeroMinimumPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(zeroMinimumHandle->Payload());
     auto zeroMinimumResult = SubmitAndWait(*owner, reparamExecutor, zeroMinimumPlan, context, 146,
                                            std::make_shared<unsigned>(146));
@@ -766,7 +767,7 @@ int main(int argc, char** argv) {
                         {TfToken("rebuild"), VtValue(TfToken(method == 2 ? "reparam" : "keepParam")), false},
                         {TfToken("minRemainingLength"), VtValue(floor), false},
                         {TfToken("length:random"), VtValue(GfVec2f(.5f, 1.5f)), false}};
-                    auto handle = CompileVulkanSourceWidthPlan(desc); CHECK(handle);
+                    auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc)); CHECK(handle);
                     auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
                     CHECK(plan && plan->Steps().size() == 2 &&
                           plan->Steps()[0].kind == VulkanSourceWidthStage::Kind::LengthScale);
@@ -803,7 +804,7 @@ int main(int argc, char** argv) {
         neutral.nodes[1].seed = -17;
         neutral.nodes[1].params.push_back(
             {TfToken("length:random"), VtValue(GfVec2f(1, 1)), false});
-        auto neutralHandle = CompileVulkanSourceWidthPlan(neutral); CHECK(neutralHandle);
+        auto neutralHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(neutral)); CHECK(neutralHandle);
         auto neutralPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(neutralHandle->Payload());
         auto reuse = SubmitAndWait(*owner, noRandom, neutralPlan, context, 147,
                                    std::make_shared<unsigned>(147));
@@ -834,7 +835,7 @@ int main(int argc, char** argv) {
                     {TfToken("minRemainingLength"), VtValue(3.f), false},
                     {TfToken("length:random"), VtValue(GfVec2f(.5f, 1.5f)), false},
                     {TfToken("mask"), VtValue(blend), false}};
-                auto handle = CompileVulkanSourceWidthPlan(desc); CHECK(handle);
+                auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc)); CHECK(handle);
                 auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
                 CHECK(plan && plan->Steps().size() == 2 &&
                       plan->Steps()[0].kind == VulkanSourceWidthStage::Kind::LengthScale);
@@ -870,7 +871,7 @@ int main(int argc, char** argv) {
         neutral.nodes[1].params.push_back(
             {TfToken("length:random"), VtValue(GfVec2f(.5f, 1.5f)), false});
         neutral.nodes[1].params.push_back({TfToken("mask"), VtValue(1.f), false});
-        auto neutralHandle = CompileVulkanSourceWidthPlan(neutral); CHECK(neutralHandle);
+        auto neutralHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(neutral)); CHECK(neutralHandle);
         auto neutralPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(neutralHandle->Payload());
         auto reuse = SubmitAndWait(*owner, noEnvelope, neutralPlan, context, 148,
                                    std::make_shared<unsigned>(148));
@@ -882,7 +883,7 @@ int main(int argc, char** argv) {
     // Capability/context admission rejects before retaining or scheduling work.
     CHECK(!VulkanPlanExecutor::Create({domain, {}, preparer}, &reason));
     auto firstDesc = MakeDescriptor(true, true, .25f, false, 17);
-    auto firstHandle = CompileVulkanSourceWidthPlan(firstDesc, nullptr); CHECK(firstHandle);
+    auto firstHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(firstDesc), nullptr); CHECK(firstHandle);
     auto first = std::static_pointer_cast<const VulkanSourceWidthPlan>(firstHandle->Payload()); CHECK(first);
     owner->InvokeOwner([&] { VulkanPlanExecutor::Request invalid; invalid.generation = 1;
         CHECK(!executor->Submit(first, std::move(invalid), {})); });
@@ -912,7 +913,7 @@ int main(int argc, char** argv) {
     lengthDesc.nodes[1].inputs = {lengthNode.path};
     lengthDesc.nodes.insert(lengthDesc.nodes.begin() + 1, lengthNode);
     AddAuthoredPlanes(&lengthDesc);
-    auto lengthHandle = CompileVulkanSourceWidthPlan(lengthDesc, nullptr); CHECK(lengthHandle);
+    auto lengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(lengthDesc), nullptr); CHECK(lengthHandle);
     auto lengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(lengthHandle->Payload()); CHECK(lengthPlan);
 
     // A literal Length `set` is a valid fixed-topology compiled plan, but
@@ -922,7 +923,7 @@ int main(int argc, char** argv) {
     auto lengthSetDesc = lengthDesc;
     lengthSetDesc.nodes[1].params.push_back(
         {TfToken("length:mode"), VtValue(TfToken("set")), false});
-    auto lengthSetHandle = CompileVulkanSourceWidthPlan(lengthSetDesc, nullptr);
+    auto lengthSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(lengthSetDesc), nullptr);
     CHECK(lengthSetHandle);
     auto lengthSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         lengthSetHandle->Payload());
@@ -963,7 +964,7 @@ int main(int argc, char** argv) {
         {TfToken("length:method"), VtValue(TfToken("cutExtend")), false});
     cutExtendScaleDesc.nodes[1].params.push_back(
         {TfToken("rebuild"), VtValue(TfToken("keepParam")), false});
-    auto cutExtendScaleHandle = CompileVulkanSourceWidthPlan(cutExtendScaleDesc, nullptr);
+    auto cutExtendScaleHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cutExtendScaleDesc), nullptr);
     CHECK(cutExtendScaleHandle);
     auto cutExtendScalePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         cutExtendScaleHandle->Payload());
@@ -975,7 +976,7 @@ int main(int argc, char** argv) {
     auto cutExtendSetDesc = cutExtendScaleDesc;
     cutExtendSetDesc.nodes[1].params.push_back(
         {TfToken("length:mode"), VtValue(TfToken("set")), false});
-    auto cutExtendSetHandle = CompileVulkanSourceWidthPlan(cutExtendSetDesc, nullptr);
+    auto cutExtendSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(cutExtendSetDesc), nullptr);
     CHECK(cutExtendSetHandle);
     auto cutExtendSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         cutExtendSetHandle->Payload());
@@ -1014,7 +1015,7 @@ int main(int argc, char** argv) {
     auto reparamScaleDesc = cutExtendScaleDesc;
     for (auto& param : reparamScaleDesc.nodes[1].params)
         if (param.name == TfToken("rebuild")) param.value = VtValue(TfToken("reparam"));
-    auto reparamScaleHandle = CompileVulkanSourceWidthPlan(reparamScaleDesc, nullptr);
+    auto reparamScaleHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reparamScaleDesc), nullptr);
     CHECK(reparamScaleHandle);
     auto reparamScalePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         reparamScaleHandle->Payload());
@@ -1024,7 +1025,7 @@ int main(int argc, char** argv) {
     auto reparamSetDesc = cutExtendSetDesc;
     for (auto& param : reparamSetDesc.nodes[1].params)
         if (param.name == TfToken("rebuild")) param.value = VtValue(TfToken("reparam"));
-    auto reparamSetHandle = CompileVulkanSourceWidthPlan(reparamSetDesc, nullptr);
+    auto reparamSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reparamSetDesc), nullptr);
     CHECK(reparamSetHandle);
     auto reparamSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         reparamSetHandle->Payload());
@@ -1075,7 +1076,7 @@ int main(int argc, char** argv) {
     auto radialReparamDesc = lengthDesc;
     radialReparamDesc.nodes[1].params.push_back(
         {TfToken("rebuild"), VtValue(TfToken("reparam")), false});
-    auto radialReparamHandle = CompileVulkanSourceWidthPlan(radialReparamDesc, nullptr);
+    auto radialReparamHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(radialReparamDesc), nullptr);
     CHECK(radialReparamHandle);
     auto radialReparamPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         radialReparamHandle->Payload());
@@ -1095,7 +1096,7 @@ int main(int argc, char** argv) {
     // lowering adds a real Cull stage requiring its own native capability.
     auto thresholdDesc = lengthDesc;
     thresholdDesc.nodes[1].params.push_back({TfToken("cullThreshold"), VtValue(.25f), false});
-    auto thresholdHandle = CompileVulkanSourceWidthPlan(thresholdDesc); CHECK(thresholdHandle);
+    auto thresholdHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(thresholdDesc)); CHECK(thresholdHandle);
     auto thresholdPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(thresholdHandle->Payload());
     CHECK(thresholdPlan && thresholdPlan->Steps().size() == 3 && thresholdPlan->IntermediateCount() == 2 &&
           thresholdPlan->Steps()[1].kind == VulkanSourceWidthStage::Kind::LengthCull);
@@ -1177,7 +1178,7 @@ int main(int argc, char** argv) {
     // compare module. Reject it at Submit admission, before source capture,
     // tickets/owner credits, resource allocation, or a completion callback.
     auto lengthBlendDesc = MakeLengthBlendDescriptor();
-    auto lengthBlendHandle = CompileVulkanSourceWidthPlan(lengthBlendDesc, nullptr);
+    auto lengthBlendHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(lengthBlendDesc), nullptr);
     CHECK(lengthBlendHandle);
     auto lengthBlendPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         lengthBlendHandle->Payload());
@@ -1204,7 +1205,7 @@ int main(int argc, char** argv) {
     // named payload survives the same Source -> Length -> WidthBlend path.
     auto namedLengthBlendDesc = MakeLengthBlendDescriptor();
     AddAuthoredPlanes(&namedLengthBlendDesc);
-    auto namedLengthBlendHandle = CompileVulkanSourceWidthPlan(namedLengthBlendDesc);
+    auto namedLengthBlendHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(namedLengthBlendDesc));
     CHECK(namedLengthBlendHandle);
     auto namedLengthBlendPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(
         namedLengthBlendHandle->Payload());
@@ -1224,7 +1225,7 @@ int main(int argc, char** argv) {
     for (int factor = 0; factor <= 1; ++factor) {
         auto boundary = lengthDesc;
         boundary.nodes[1].params[0].value = VtValue(double(factor));
-        auto handle = CompileVulkanSourceWidthPlan(boundary); CHECK(handle);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(boundary)); CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         auto result = SubmitAndWait(*owner, executor, plan, context, 120 + factor, std::make_shared<unsigned>(20 + factor));
         Oracle expected; CHECK(CpuReference(boundary, &expected));
@@ -1235,7 +1236,7 @@ int main(int argc, char** argv) {
 
     auto fanoutDesc = MakeFanoutDescriptor();
     AddAuthoredPlanes(&fanoutDesc);
-    auto fanoutHandle = CompileVulkanSourceWidthPlan(fanoutDesc, nullptr); CHECK(fanoutHandle);
+    auto fanoutHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(fanoutDesc), nullptr); CHECK(fanoutHandle);
     auto fanoutPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(fanoutHandle->Payload()); CHECK(fanoutPlan);
     CHECK(fanoutPlan->Steps().size() == 3 && fanoutPlan->IntermediateCount() == 2);
     auto fanoutResult = SubmitAndWait(*owner, executor, fanoutPlan, context, 109, std::make_shared<unsigned>(15));
@@ -1248,7 +1249,7 @@ int main(int argc, char** argv) {
     // gathering.  The two root channels are public; the captured T/B/N frame
     // must remain executor-private and therefore does not add public planes.
     auto boundDesc = MakeRootBoundDescriptor(true, TfToken("onError"));
-    auto boundHandle = CompileVulkanSourceWidthPlan(boundDesc, nullptr); CHECK(boundHandle);
+    auto boundHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(boundDesc), nullptr); CHECK(boundHandle);
     auto boundPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(boundHandle->Payload());
     CHECK(boundPlan && boundPlan->HasRootBindings());
     auto boundResult = SubmitAndWait(*owner, executor, boundPlan, context, 130,
@@ -1324,7 +1325,7 @@ int main(int argc, char** argv) {
     // `always` repairs bindings against the resolved rest surface.  It must
     // retain the same public root schema and canonical named-channel gather.
     auto reboundDesc = MakeRootBoundDescriptor(false, TfToken("always"));
-    auto reboundHandle = CompileVulkanSourceWidthPlan(reboundDesc, nullptr); CHECK(reboundHandle);
+    auto reboundHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(reboundDesc), nullptr); CHECK(reboundHandle);
     auto reboundPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(reboundHandle->Payload());
     CHECK(reboundPlan && reboundPlan->HasRootBindings());
     auto reboundResult = SubmitAndWait(*owner, executor, reboundPlan, context, 131,
@@ -1339,7 +1340,7 @@ int main(int argc, char** argv) {
     // order and all named planes must follow the two surviving stable IDs.
     auto droppedDesc = MakeRootBoundDescriptor(true, TfToken("never"));
     droppedDesc.curveSets.front().skinPrim[0] = -1; // ID 30 is dropped after source-order capture.
-    auto droppedHandle = CompileVulkanSourceWidthPlan(droppedDesc, nullptr); CHECK(droppedHandle);
+    auto droppedHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(droppedDesc), nullptr); CHECK(droppedHandle);
     auto droppedPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(droppedHandle->Payload());
     CHECK(droppedPlan && droppedPlan->HasRootBindings());
     auto droppedResult = SubmitAndWait(*owner, executor, droppedPlan, context, 132,
@@ -1359,7 +1360,7 @@ int main(int argc, char** argv) {
     boundLength.params = {{TfToken("length:value"), VtValue(1.25), false}};
     boundLengthDesc.nodes[1].inputs = {boundLength.path};
     boundLengthDesc.nodes.insert(boundLengthDesc.nodes.begin() + 1, boundLength);
-    auto boundLengthHandle = CompileVulkanSourceWidthPlan(boundLengthDesc, nullptr); CHECK(boundLengthHandle);
+    auto boundLengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(boundLengthDesc), nullptr); CHECK(boundLengthHandle);
     auto boundLengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(boundLengthHandle->Payload());
     CHECK(boundLengthPlan);
     auto boundLengthResult = SubmitAndWait(*owner, executor, boundLengthPlan, context, 133,
@@ -1379,7 +1380,7 @@ int main(int argc, char** argv) {
     boundBlend.params = {{TfToken("widthBlend:weight"), VtValue(.25f), false}};
     boundBlendDesc.nodes = {boundSource, boundBlend, boundRight, boundLeft};
     boundBlendDesc.terminal = boundBlend.path;
-    auto boundBlendHandle = CompileVulkanSourceWidthPlan(boundBlendDesc, nullptr); CHECK(boundBlendHandle);
+    auto boundBlendHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(boundBlendDesc), nullptr); CHECK(boundBlendHandle);
     auto boundBlendPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(boundBlendHandle->Payload());
     CHECK(boundBlendPlan);
     auto boundBlendResult = SubmitAndWait(*owner, executor, boundBlendPlan, context, 134,
@@ -1401,7 +1402,7 @@ int main(int argc, char** argv) {
     affineLength.params = {{TfToken("length:value"), VtValue(1.25), false}};
     affineDesc.nodes[1].inputs = {affineLength.path};
     affineDesc.nodes.insert(affineDesc.nodes.begin() + 1, affineLength);
-    auto affineHandle = CompileVulkanSourceWidthPlan(affineDesc, nullptr); CHECK(affineHandle);
+    auto affineHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(affineDesc), nullptr); CHECK(affineHandle);
     auto affinePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(affineHandle->Payload());
     CHECK(affinePlan && affinePlan->HasRootBindings() && affineDesc.curveSets.front().rootFrame.empty());
     auto affineResult = SubmitAndWait(*owner, executor, affinePlan, context, 136,
@@ -1446,7 +1447,7 @@ int main(int argc, char** argv) {
         {TfToken("noise:seed"), VtValue(12345), false}};
     noiseDesc.nodes[1].inputs = {noiseNode.path};
     noiseDesc.nodes.insert(noiseDesc.nodes.begin() + 1, noiseNode);
-    auto noiseHandle = CompileVulkanSourceWidthPlan(noiseDesc, nullptr); CHECK(noiseHandle);
+    auto noiseHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(noiseDesc), nullptr); CHECK(noiseHandle);
     auto noisePlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(noiseHandle->Payload());
     CHECK(noisePlan && noisePlan->HasRootBindings());
     noiseResult = SubmitAndWait(*owner, noiseExecutor, noisePlan, context, 141,
@@ -1455,7 +1456,7 @@ int main(int argc, char** argv) {
     // Baseline: the identical source with no noise op, published through the
     // main executor.  The points planes must differ once noise is admitted.
     auto plainDesc = MakeRootBoundDescriptor(true, TfToken("never"));
-    auto plainHandle = CompileVulkanSourceWidthPlan(plainDesc, nullptr); CHECK(plainHandle);
+    auto plainHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(plainDesc), nullptr); CHECK(plainHandle);
     auto plainPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(plainHandle->Payload());
     CHECK(plainPlan && plainPlan->HasRootBindings());
     plainResult = SubmitAndWait(*owner, executor, plainPlan, context, 140,
@@ -1480,7 +1481,7 @@ int main(int argc, char** argv) {
     auto secondDesc = MakeDescriptor(false, false, .5f, true, 18);
     // index identity deliberately ignores the authored (unsorted) IDs.
     secondDesc.nodes[0].params[1].value = VtValue(TfToken("index"));
-    auto secondHandle = CompileVulkanSourceWidthPlan(secondDesc, nullptr); CHECK(secondHandle);
+    auto secondHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(secondDesc), nullptr); CHECK(secondHandle);
     auto second = std::static_pointer_cast<const VulkanSourceWidthPlan>(secondHandle->Payload()); CHECK(second);
     auto secondResult = SubmitAndWait(*owner, executor, second, context, 102, std::make_shared<unsigned>(8));
     Oracle secondExpected; CHECK(CpuReference(secondDesc, &secondExpected));
@@ -1493,14 +1494,14 @@ int main(int argc, char** argv) {
     // deliberately ignored, rather than becoming a hidden validation path.
     auto shortIndexDesc = secondDesc;
     shortIndexDesc.curveSets.front().curveId = {999};
-    auto shortIndexHandle = CompileVulkanSourceWidthPlan(shortIndexDesc, nullptr); CHECK(shortIndexHandle);
+    auto shortIndexHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(shortIndexDesc), nullptr); CHECK(shortIndexHandle);
     auto shortIndex = std::static_pointer_cast<const VulkanSourceWidthPlan>(shortIndexHandle->Payload()); CHECK(shortIndex);
     auto shortIndexResult = SubmitAndWait(*owner, executor, shortIndex, context, 105, std::make_shared<unsigned>(11));
     Oracle shortIndexExpected; CHECK(CpuReference(shortIndexDesc, &shortIndexExpected));
     CheckPlanes(native, context, service, *owner, shortIndexResult.generation, shortIndexExpected);
     auto duplicateIndexDesc = secondDesc;
     duplicateIndexDesc.curveSets.front().curveId = {5, 5, 6};
-    auto duplicateIndexHandle = CompileVulkanSourceWidthPlan(duplicateIndexDesc, nullptr); CHECK(duplicateIndexHandle);
+    auto duplicateIndexHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(duplicateIndexDesc), nullptr); CHECK(duplicateIndexHandle);
     auto duplicateIndex = std::static_pointer_cast<const VulkanSourceWidthPlan>(duplicateIndexHandle->Payload()); CHECK(duplicateIndex);
     auto duplicateIndexResult = SubmitAndWait(*owner, executor, duplicateIndex, context, 106, std::make_shared<unsigned>(12));
     Oracle duplicateIndexExpected; CHECK(CpuReference(duplicateIndexDesc, &duplicateIndexExpected));
@@ -1510,14 +1511,14 @@ int main(int argc, char** argv) {
     auto emptyDesc = MakeDescriptor(false, false, .5f, true, 19);
     auto& empty = emptyDesc.curveSets.front(); empty.curveVertexCounts.clear(); empty.points.clear();
     empty.rest.clear(); empty.widths.clear(); empty.curveId.clear();
-    auto emptyHandle = CompileVulkanSourceWidthPlan(emptyDesc, nullptr); CHECK(emptyHandle);
+    auto emptyHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(emptyDesc), nullptr); CHECK(emptyHandle);
     auto emptyPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(emptyHandle->Payload()); CHECK(emptyPlan);
     auto emptyResult = SubmitAndWait(*owner, executor, emptyPlan, context, 103, std::make_shared<unsigned>(9));
     CHECK(emptyResult.generation->Geometry().elementCount == 0 && emptyResult.generation->Geometry().pointCount == 0);
 
     // Canonical empty C3 needs no rest sample even when useRest=true.
     auto badEmpty = emptyDesc; badEmpty.nodes[0].params[0].value = VtValue(true);
-    auto emptyRestHandle = CompileVulkanSourceWidthPlan(badEmpty, nullptr); CHECK(emptyRestHandle);
+    auto emptyRestHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(badEmpty), nullptr); CHECK(emptyRestHandle);
     auto emptyRest = std::static_pointer_cast<const VulkanSourceWidthPlan>(emptyRestHandle->Payload()); CHECK(emptyRest);
     auto emptyRestResult = SubmitAndWait(*owner, executor, emptyRest, context, 104, std::make_shared<unsigned>(10));
     CHECK(emptyRestResult.generation->Geometry().elementCount == 0 && emptyRestResult.generation->Geometry().pointCount == 0);

@@ -1,4 +1,5 @@
 #include "usdGen/executionBackend.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/sessionBackendExecutor.h"
 #include "usdGen/compiler.h"
 #include "usdGen/cudaExecution.h"
@@ -29,7 +30,7 @@ public:
     }
 
     std::shared_ptr<const UsdGenExecutionPlanHandle> Compile(
-        UsdGenGraphDesc const&, UsdGenDiagnostics*) const override { return {}; }
+        UsdGenGraphSpec const&, UsdGenDiagnostics*) const override { return {}; }
 
     std::shared_ptr<UsdGenExecutionBackendExecutor> CreateExecutor(
         std::shared_ptr<const UsdGenExecutionPlanHandle>,
@@ -40,7 +41,7 @@ class InvalidProbeAdapter final : public UsdGenExecutionBackendAdapter {
 public:
     UsdGenExecutionBackendContract Contract() const noexcept override { return {}; }
     std::shared_ptr<const UsdGenExecutionPlanHandle> Compile(
-        UsdGenGraphDesc const&, UsdGenDiagnostics*) const override { return {}; }
+        UsdGenGraphSpec const&, UsdGenDiagnostics*) const override { return {}; }
     std::shared_ptr<UsdGenExecutionBackendExecutor> CreateExecutor(
         std::shared_ptr<const UsdGenExecutionPlanHandle>,
         UsdGenExecutionRuntime&, UsdGenDiagnostics*) const override { return {}; }
@@ -194,7 +195,7 @@ int main() {
         auto requested = baseline;
         requested.executionBackend = UsdGenExecutionBackend::Metal;
         UsdGenGraph candidate;
-        UsdGenCompileResult result = UsdGenCompiler().Compile(requested, &candidate);
+        UsdGenCompileResult result = usdGenUsd::Compile(UsdGenCompiler(), requested, &candidate);
         bool precise = std::any_of(result.errors.begin(), result.errors.end(),
             [&](std::string const &error) {
                 return error.find("Metal execution backend factory is unavailable") !=
@@ -211,7 +212,7 @@ int main() {
         auto requested = baseline;
         requested.executionBackend = UsdGenExecutionBackend::Vulkan;
         UsdGenGraph candidate;
-        UsdGenCompileResult result = UsdGenCompiler().Compile(requested, &candidate);
+        UsdGenCompileResult result = usdGenUsd::Compile(UsdGenCompiler(), requested, &candidate);
         Check(result.ok, "Vulkan-enabled build compiles the Vulkan descriptor");
     }
 #else
@@ -219,7 +220,7 @@ int main() {
         auto requested = baseline;
         requested.executionBackend = UsdGenExecutionBackend::Vulkan;
         UsdGenGraph candidate;
-        UsdGenCompileResult result = UsdGenCompiler().Compile(requested, &candidate);
+        UsdGenCompileResult result = usdGenUsd::Compile(UsdGenCompiler(), requested, &candidate);
         bool precise = std::any_of(result.errors.begin(), result.errors.end(),
             [&](std::string const &error) {
                 return error.find("Vulkan execution backend factory is unavailable") !=

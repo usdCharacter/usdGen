@@ -15,6 +15,7 @@
 //   (4) CUDA-backend explicit rejection: Wind is CPU-only (no capability
 //       matrix row, like Clump), so ValidateCudaGraph refuses a Wind graph.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/clumpMotion.h"
@@ -128,7 +129,7 @@ static bool CookAt(UsdGenGraphDesc const &desc, double time, UsdGenCurveBuffer *
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors)
             std::printf("  compile: %s\n", e.c_str());
@@ -137,7 +138,7 @@ static bool CookAt(UsdGenGraphDesc const &desc, double time, UsdGenCurveBuffer *
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
     ctx.time = time;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors)
@@ -387,12 +388,12 @@ static void CheckLiveTimeOnOneGraph()
     desc.terminal = SdfPath("/wind/width");
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "Live Wind graph compiles");
     if (!compiled.ok) return;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     auto run = [&](double frame) {
         ctx.time = frame;
         return scheduler.Run(graph, ctx, uint64_t(frame) + 1);
@@ -428,9 +429,9 @@ static void CheckLiveTimeOnOneGraph()
     VtFloatArray const priorRatePz = OutputBuffer(graph).pz;
     std::vector<float> const priorRateZ(priorRatePz.begin(), priorRatePz.end());
     desc.timeCodesPerSecond = 12.0;
-    Check(compiler.Recompile(desc, &graph).ok,
+    Check(usdGenUsd::Recompile(compiler, desc, &graph).ok,
           "Live Wind timeCodesPerSecond edit recompiles");
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     auto rateChanged = run(24.0);
     animated = false;
     for (size_t i = 0; i < priorRateZ.size(); ++i)
@@ -657,13 +658,13 @@ static void CheckClumpMotion()
     UsdGenGraphDesc live = ClumpWindDesc(0.0f, 1.0f);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    bool const compiled = compiler.Compile(live, &graph).ok;
+    bool const compiled = usdGenUsd::Compile(compiler, live, &graph).ok;
     Check(compiled, "Live Clump-to-Wind graph compiles");
     if (!compiled) return;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
     context.time = 12.0;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "Live zero-cohesion Wind cook runs");
     UsdGenCurveBuffer const zeroLive = OutputBuffer(graph);
@@ -673,10 +674,10 @@ static void CheckClumpMotion()
     Check(zeroPx == legacy.px && zeroPy == legacy.py && zeroPz == legacy.pz,
           "Live zero-cohesion cook matches exact legacy output");
     live.nodes[1].params[3].value = VtValue(1.0f);
-    bool const recompiled = compiler.Recompile(live, &graph).ok;
+    bool const recompiled = usdGenUsd::Recompile(compiler, live, &graph).ok;
     Check(recompiled, "Clump amount edit recompiles live graph");
     if (!recompiled) return;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "Live positive-cohesion Wind recook runs");
     UsdGenCurveBuffer positiveLive = OutputBuffer(graph);
@@ -685,7 +686,7 @@ static void CheckClumpMotion()
           "Zero-to-positive live edit switches to clump motion");
     Check(PointsEqual(positiveLive, clumped),
           "Live positive-cohesion recook matches fresh positive cook");
-    UsdGenNodeId const clumpId = graph.NodeIdForPath(SdfPath("/wind/clump"));
+    UsdGenNodeId const clumpId = usdGenUsd::NodeIdForPath(graph, SdfPath("/wind/clump"));
     UsdGenPlane const *liveWeight = nullptr;
     UsdGenCurveBuffer const clumpOut = NodeBuffer(graph, clumpId);
     for (UsdGenPlane const &plane : clumpOut.extraCv)
@@ -998,7 +999,7 @@ static void CheckCudaRejectsWind()
     Check(GetCudaExecutionCapabilityMatrix().Find(TfToken("UsdGenWind")) == nullptr,
           "Wind has no CUDA capability row (CPU-only, like Clump)");
     UsdGenDiagnostics cudaDiag;
-    bool const admitted = ValidateCudaGraph(desc, &cudaDiag);
+    bool const admitted = ValidateCudaGraph(usdGenUsd::Lower(desc), &cudaDiag);
     bool namesWind = false, backendUnbuilt = false;
     for (auto const &e : cudaDiag.errors) {
         if (e.find("UsdGenWind") != std::string::npos) namesWind = true;
@@ -1026,18 +1027,18 @@ static void CheckIncrementalPlayback()
     desc.terminal = SdfPath("/width");
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "playback graph compiles");
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "playback graph compiles");
     if (!graph.NodeCount()) return;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = 0;
     Check(!scheduler.Run(graph, ctx, 1).diagnostics.HasErrors(), "initial playback pose cooks");
     // Graph buffers are mutable work storage; detach the saved point planes.
     auto initial = OutputBuffer(graph);
     initial.px.data(); initial.py.data(); initial.pz.data();
-    auto const source = graph.NodeIdForPath(SdfPath("/source"));
-    auto const windId = graph.NodeIdForPath(wind.path);
+    auto const source = usdGenUsd::NodeIdForPath(graph, SdfPath("/source"));
+    auto const windId = usdGenUsd::NodeIdForPath(graph, wind.path);
     auto const sourceVersion = NodeBuffer(graph, source).valueVersion;
     auto const capture = graph.Node(windId).capture.get();
     ctx.time = 240;

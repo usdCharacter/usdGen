@@ -21,7 +21,7 @@
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/ir.h"
 #include "usdGen/expressions/samplers.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/registries/typeRegistry.h"
 
@@ -42,15 +42,15 @@ class UsdGenOpRecord;
 /// The node's op record: the intake-resolved id, else a registry probe by
 /// type (descs built outside the compiler). Null for an unregistered type.
 /// Never interns.
-UsdGenOpRecord const *UsdGenNodeRecord(UsdGenNodeDesc const &node) noexcept;
+UsdGenOpRecord const *UsdGenNodeRecord(UsdGenOpNode const &node) noexcept;
 
 /// True when the node's op has the emitsLimitSurfaceUv hook and it fires
 /// for the node's authored params.
-bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node);
+bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphSpec const &desc, UsdGenOpNode const &node);
 
 /// Parses a map prim's usdGen:map:* params once (the map types'
 /// parseOptions). Unauthored or mistyped params keep their defaults.
-bool UsdGenParseMapOptions(UsdGenMapDesc const &map, UsdGenMapOptions *out,
+bool UsdGenParseMapOptions(UsdGenMapInput const &map, UsdGenMapOptions *out,
                            std::string *error);
 
 /// One connected destination's evaluated values, decoded from the typed
@@ -80,7 +80,7 @@ public:
     /// stale connected value. `changed` reports whether the published values
     /// differ from the previous evaluation (the caller uses it to force a
     /// re-capture and a chunk sweep).
-    bool Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+    bool Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                   UsdGenCurveSetView const &geometry, double frame, double time,
                   uint32_t seed, bool *changed,
                   std::vector<std::string> *diagnostics);
@@ -110,15 +110,15 @@ private:
     /// The resolved data behind one IROp::Sample slot of one binding.
     struct SamplerState {
         expr::IRSampler spec;
-        SdfPath expression;
+        UsdGenNodeKey expression;
         // Geometry
-        std::vector<SdfPath> geometries;
+        std::vector<UsdGenNodeKey> geometries;
         std::unique_ptr<expr::GeometrySampler> geometry;
         bool readsTime = false;          // the element expression reads $frame/$time
         double builtFrame = 0.0, builtTime = 0.0;
         bool built = false;
         // Ptex / Paint
-        SdfPath map;
+        UsdGenNodeKey map;
         bool paint = false;            // UsdGenPaintMap: read paintValues, no texture
         std::shared_ptr<const UsdGenPtexTexture> texture;
         int channel = 0;                 // index into the sampled window; -1 = luminance
@@ -128,7 +128,7 @@ private:
         size_t reportedMisses = 0;       // roots off the map, as last reported
     };
     struct Item {
-        UsdGenExpressionBinding binding;
+        UsdGenParamBinding binding;
         UsdGenParamSlot slot = kUsdGenNoParam;
         TfToken canonical;               // the destination without `usdGen:`
         expr::IRProgram ir;
@@ -136,12 +136,12 @@ private:
         std::vector<std::unique_ptr<SamplerState>> samplers;
         expr::CpuExpressionSamplers table;
     };
-    bool ResolveSamplers(UsdGenGraphDesc const &desc, UsdGenExpressionDesc const &expression,
+    bool ResolveSamplers(UsdGenGraphSpec const &desc, UsdGenExpressionInput const &expression,
                          Item *item, std::vector<std::string> *diagnostics);
-    bool PrepareSamplers(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+    bool PrepareSamplers(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                          UsdGenCurveSetView const &geometry, expr::Context const &controls,
                          Item *item, std::vector<std::string> *diagnostics);
-    bool Compile(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+    bool Compile(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                  std::vector<std::string> *diagnostics);
 
     uint64_t sourceDigest_ = 0;      // identity of the compiled bindings/sources

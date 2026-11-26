@@ -166,14 +166,14 @@ struct CudaParameterEvaluator::FreshCandidate {
 };
 
 CudaParameterStatus CudaParameterProgram::Compile(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     std::shared_ptr<const CudaParameterProgram>* output,
     std::vector<std::string>* diagnostics) {
     if (!output) {
         Error(diagnostics, "null parameter plan");
         return CudaParameterStatus::InvalidArgument;
     }
-    std::vector<UsdGenExpressionBinding> bindings;
+    std::vector<UsdGenParamBinding> bindings;
     std::vector<Item> items;
     std::set<std::string_view> destinations;
     UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
@@ -184,11 +184,11 @@ CudaParameterStatus CudaParameterProgram::Compile(
             Error(diagnostics, binding.destination.GetString() + ": " + message);
             return status;
         };
-        if (binding.destination.IsEmpty() || binding.expression.IsEmpty() ||
+        if (binding.destination.IsEmpty() || !binding.expression.IsValid() ||
             !destinations.insert(CanonicalName(binding.destination)).second)
             return fail(CudaParameterStatus::InvalidArgument, "empty or duplicate expression destination/path");
         auto expression = std::find_if(graph.expressions.begin(), graph.expressions.end(),
-            [&](auto const& candidate) { return candidate.path == binding.expression; });
+            [&](auto const& candidate) { return candidate.key == binding.expression; });
         if (expression == graph.expressions.end())
             return fail(CudaParameterStatus::CompileError, "missing expression");
         // An empty output is a connection to the expression PRIM; it resolves
@@ -197,7 +197,7 @@ CudaParameterStatus CudaParameterProgram::Compile(
             UsdGenFindExpressionOutput(*expression, binding.output);
         if (!result)
             return fail(CudaParameterStatus::CompileError, binding.output.IsEmpty()
-                ? "connection to prim " + binding.expression.GetString() +
+                ? "connection to prim " + graph.Label(binding.expression) +
                       " declaring no outputs:result and no single outputs:* attribute"
                 : "missing expression output");
         if (binding.domain != Domain::Groom && binding.domain != Domain::Primitive &&
@@ -844,7 +844,7 @@ CudaGroomScalarValue const* CudaGroomScalarReadback::Find(UsdGenParamSlot slot) 
 }
 
 CudaParameterStatus CudaParameterPlan::Compile(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     CudaParameterPlan* output, std::vector<std::string>* diagnostics)
 {
     if (!output) {

@@ -98,13 +98,13 @@ public:
     }
 
     void Print(double frame, std::string const &compile, char const *outcome,
-               SdfPath const &description) const
+               UsdGenGraphSpec const &spec) const
     {
         if (!_enabled) return;
         double const total = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - _start).count();
         TfDebug::Helper().Msg("usdGen commit    %s frame %g: %s; %s; total %.2f ms [ms: %s]\n",
-                              description.GetText(), frame, outcome,
+                              spec.DescriptionText(), frame, outcome,
                               compile.empty() ? "no compile" : compile.c_str(), total,
                               _text.c_str());
     }
@@ -314,14 +314,14 @@ void _CacheMixShape(uint64_t *hash, expr::ValueShape const &shape)
     _CacheMix(hash, static_cast<uint64_t>(shape.isArray));
 }
 
-void _CacheMixPaths(uint64_t *hash, std::vector<SdfPath> const &paths)
+void _CacheMixKeys(uint64_t *hash, std::vector<UsdGenNodeKey> const &keys)
 {
-    _CacheMix(hash, static_cast<uint64_t>(paths.size()));
-    for (SdfPath const &path : paths) _CacheMixText(hash, path.GetString());
+    _CacheMix(hash, static_cast<uint64_t>(keys.size()));
+    for (UsdGenNodeKey const key : keys) _CacheMix(hash, key.value);
 }
 
 UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
-                                UsdGenGraphDesc const &desc)
+                                UsdGenGraphSpec const &desc)
 {
     uint64_t h0 = 1469598103934665603ULL;
     uint64_t h1 = 1099511628211ULL;
@@ -331,7 +331,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     for (UsdGenNodeId id = 0; id != static_cast<UsdGenNodeId>(graph.NodeCount()); ++id) {
         UsdGenCompiledNode const &node = graph.Node(id);
         _CacheMixText(&h0, node.record ? node.record->Name().GetString() : std::string());
-        _CacheMixText(&h1, node.desc ? node.desc->path.GetString() : std::string());
+        _CacheMix(&h1, node.desc ? node.desc->key.value : 0);
         _CacheMix(&h1, node.structuralDigest[0]);
         _CacheMix(&h0, node.structuralDigest[1]);
         // structuralDigest intentionally excludes value/capture-class
@@ -340,18 +340,18 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
         // so a terminal value edit is a miss even when its plan is reusable.
         _CacheMix(&h1, node.paramValueDigest);
         if (node.desc) {
-            UsdGenNodeDesc const &nd = *node.desc;
+            UsdGenOpNode const &nd = *node.desc;
             _CacheMix(&h0, static_cast<uint64_t>(nd.enabled));
             _CacheMix(&h1, static_cast<uint64_t>(nd.seed));
             _CacheMixText(&h1, nd.mode.GetString());
-            _CacheMixPaths(&h1, nd.inputs);
-            _CacheMixPaths(&h0, nd.references);
-            _CacheMixPaths(&h1, nd.curves);
-            _CacheMixPaths(&h0, nd.surfaces);
-            _CacheMixPaths(&h1, nd.maps);
+            _CacheMixKeys(&h1, nd.inputs);
+            _CacheMixKeys(&h0, nd.references);
+            _CacheMixKeys(&h1, nd.curves);
+            _CacheMixKeys(&h0, nd.surfaces);
+            _CacheMixKeys(&h1, nd.maps);
             _CacheMix(&h0, static_cast<uint64_t>(nd.mapBindings.size()));
-            for (UsdGenMapBindingDesc const &binding : nd.mapBindings) {
-                _CacheMixText(&h0, binding.map.GetString());
+            for (UsdGenMapBinding const &binding : nd.mapBindings) {
+                _CacheMix(&h0, binding.map.value);
                 _CacheMixText(&h0, binding.relationship.GetString());
             }
             _CacheMix(&h0, static_cast<uint64_t>(nd.params.size()));
@@ -392,7 +392,8 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     _CacheMix(&h0, hueJitterBits);
     _CacheMix(&h1, valueJitterBits);
     _CacheMix(&h0, static_cast<uint64_t>(desc.look.jitterSeed));
-    _CacheMixText(&h1, desc.preview.source.GetString());
+    _CacheMix(&h1, desc.preview.source.value);
+    _CacheMixText(&h1, desc.preview.attribute.GetString());
     _CacheMixText(&h0, desc.preview.colorMap.GetString());
     _CacheMixText(&h1, desc.preview.evaluation.GetString());
     _CacheMixText(&h0, desc.preview.shading.GetString());
@@ -404,15 +405,15 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     _CacheMixMatrix(&h1, desc.xformMatrix);
     _CacheMixText(&h0, desc.purpose.GetString());
     _CacheMixText(&h1, desc.visibility.GetString());
-    _CacheMixText(&h0, desc.materialPath.GetString());
+    _CacheMix(&h0, desc.material.value);
     uint64_t timeBits = 0, cpsBits = 0;
     std::memcpy(&timeBits, &desc.time, sizeof(timeBits));
     std::memcpy(&cpsBits, &desc.timeCodesPerSecond, sizeof(cpsBits));
     _CacheMix(&h0, timeBits);
     _CacheMix(&h1, cpsBits);
     _CacheMix(&h0, static_cast<uint64_t>(desc.expressions.size()));
-    for (UsdGenExpressionDesc const &expression : desc.expressions) {
-        _CacheMixText(&h0, expression.path.GetString());
+    for (UsdGenExpressionInput const &expression : desc.expressions) {
+        _CacheMix(&h0, expression.key.value);
         _CacheMixText(&h1, expression.source);
         _CacheMix(&h0, static_cast<uint64_t>(expression.outputs.size()));
         for (UsdGenExpressionOutputDesc const &output : expression.outputs) {
@@ -421,18 +422,18 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMixShape(&h1, output.shape);
         }
         _CacheMix(&h0, static_cast<uint64_t>(expression.inputs.size()));
-        for (UsdGenExpressionInputDesc const &input : expression.inputs) {
+        for (UsdGenExpressionSlot const &input : expression.inputs) {
             _CacheMixText(&h1, input.name.GetString());
-            for (SdfPath const &path : input.targets) _CacheMixText(&h0, path.GetString());
-            for (SdfPath const &path : input.geometries) _CacheMixText(&h1, path.GetString());
-            for (SdfPath const &path : input.maps) _CacheMixText(&h0, path.GetString());
+            for (UsdGenNodeKey const key : input.targets) _CacheMix(&h0, key.value);
+            for (UsdGenNodeKey const key : input.geometries) _CacheMix(&h1, key.value);
+            for (UsdGenNodeKey const key : input.maps) _CacheMix(&h0, key.value);
         }
     }
     // Geometry an expression samples is an execution input exactly like a
     // curve set: its content moves the key.
     _CacheMix(&h1, static_cast<uint64_t>(desc.geometries.size()));
-    for (UsdGenGeometryDesc const &geometry : desc.geometries) {
-        _CacheMixText(&h0, geometry.path.GetString());
+    for (UsdGenGeometryInput const &geometry : desc.geometries) {
+        _CacheMix(&h0, geometry.key.value);
         _CacheMix(&h1, static_cast<uint64_t>(geometry.kind));
         _CacheMixArray(&h0, geometry.counts, &terms);
         _CacheMixArray(&h1, geometry.indices, &terms);
@@ -445,10 +446,10 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
         _CacheMixMatrix(&h0, geometry.worldMatrix);
         _CacheMix(&h1, geometry.generation);
     }
-    for (UsdGenNodeDesc const &node : desc.nodes) {
+    for (UsdGenOpNode const &node : desc.nodes) {
         _CacheMix(&h0, static_cast<uint64_t>(node.expressionBindings.size()));
-        for (UsdGenExpressionBinding const &binding : node.expressionBindings) {
-            _CacheMixText(&h1, binding.expression.GetString());
+        for (UsdGenParamBinding const &binding : node.expressionBindings) {
+            _CacheMix(&h1, binding.expression.value);
             _CacheMixText(&h0, binding.output.GetString());
             _CacheMixText(&h1, binding.nativeType.GetString());
             _CacheMixText(&h0, binding.destination.GetString());
@@ -457,8 +458,8 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMix(&h1, binding.literal.GetHash());
         }
     }
-    for (UsdGenMapDesc const &map : desc.maps) {
-        _CacheMixText(&h0, map.path.GetString());
+    for (UsdGenMapInput const &map : desc.maps) {
+        _CacheMix(&h0, map.key.value);
         _CacheMixText(&h1, map.type.GetString());
         _CacheMixText(&h0, map.resolvedAssetPath);
         _CacheMix(&h1, map.textureGeneration);
@@ -476,8 +477,8 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMix(&h1, static_cast<uint64_t>(param.animated));
         }
     }
-    for (UsdGenCurveSetDesc const &curve : desc.curveSets) {
-        _CacheMixText(&h0, curve.path.GetString());
+    for (UsdGenCurveSetInput const &curve : desc.curveSets) {
+        _CacheMix(&h0, curve.key.value);
         _CacheMix(&h1, static_cast<uint64_t>(curve.role));
         _CacheMixText(&h0, curve.curveRole.GetString());
         _CacheMixText(&h1, curve.type.GetString());
@@ -506,11 +507,11 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMixArray(&h1, plane.intValues, &terms);
         }
     }
-    for (UsdGenSurfaceDesc const &surface : desc.surfaces) {
+    for (UsdGenSurfaceInput const &surface : desc.surfaces) {
         // Tags-only subdivision cover: faceVertexCounts/faceVertexIndices
         // mix into this key directly below. Coverage is unchanged.
         _CacheMix(&h0, UsdGenSubdivisionTagsDigest(surface));
-        _CacheMixText(&h0, surface.path.GetString());
+        _CacheMix(&h0, surface.key.value);
         _CacheMix(&h1, surface.id);
         _CacheMix(&h0, static_cast<uint64_t>(surface.restNormalDomain));
         _CacheMix(&h1, static_cast<uint64_t>(surface.restFromCurrentPoints));
@@ -541,7 +542,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
 }
 
 uint64_t _ExecutionLayoutDigest(UsdGenGraph const &graph,
-                                UsdGenGraphDesc const &desc)
+                                UsdGenGraphSpec const &desc)
 {
     uint64_t hash = 1469598103934665603ULL;
     _CacheMix(&hash, static_cast<uint64_t>(graph.ChunkSize()));
@@ -549,12 +550,12 @@ uint64_t _ExecutionLayoutDigest(UsdGenGraph const &graph,
     _CacheMix(&hash, static_cast<uint64_t>(graph.ChunksPerTile()));
     _CacheMix(&hash, static_cast<uint64_t>(desc.tileTarget));
     for (auto const &surface : desc.surfaces) {
-        _CacheMixText(&hash, surface.path.GetString());
+        _CacheMix(&hash, surface.key.value);
         _CacheMix(&hash, surface.faceVertexCounts.size());
         _CacheMix(&hash, surface.restPoints.size());
     }
     for (auto const &curve : desc.curveSets) {
-        _CacheMixText(&hash, curve.path.GetString());
+        _CacheMix(&hash, curve.key.value);
         _CacheMix(&hash, curve.curveVertexCounts.size());
         _CacheMix(&hash, curve.points.size());
     }
@@ -562,7 +563,7 @@ uint64_t _ExecutionLayoutDigest(UsdGenGraph const &graph,
 }
 
 UsdGenExecutionContext _ExecutionCacheContext(
-    UsdGenGraphDesc const &desc, UsdGenContext evaluationContext,
+    UsdGenGraphSpec const &desc, UsdGenContext evaluationContext,
     int deviceIndex = -1, uint64_t deviceGeneration = 0)
 {
     uint32_t const capabilityVersion =
@@ -575,7 +576,7 @@ UsdGenExecutionContext _ExecutionCacheContext(
 }
 
 UsdGenExecutionCacheKey _MakeExecutionCacheKey(
-    UsdGenGraph const &graph, UsdGenGraphDesc const &desc,
+    UsdGenGraph const &graph, UsdGenGraphSpec const &desc,
     UsdGenExecutionContext context, double frame)
 {
     return UsdGenExecutionCacheKey::Make(
@@ -604,7 +605,6 @@ bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
                 _AddBytes(&total, plane.i.size(), sizeof(int));
         };
         if (!_AddBytes(&total, 1, sizeof(UsdGenTilePublication)) ||
-            !_AddBytes(&total, tile.primPath.GetString().size(), sizeof(char)) ||
             !_AddBytes(&total, tile.basis.size(), sizeof(char)) ||
             !_AddBytes(&total, tile.curveVertexCounts.size(), sizeof(int)) ||
             !_AddBytes(&total, tile.points.size(), sizeof(GfVec3f)) ||
@@ -636,24 +636,18 @@ bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
     }
     for (UsdGenInstancerPublication const &instancer : generation.instancers) {
         if (!_AddBytes(&total, 1, sizeof(UsdGenInstancerPublication)) ||
-            !_AddBytes(&total, instancer.primPath.GetString().size(), sizeof(char)) ||
-            !_AddBytes(&total, instancer.prototypes.size(), sizeof(SdfPath)) ||
+            !_AddBytes(&total, instancer.prototypes.size(), sizeof(UsdGenPrimRef)) ||
             !_AddBytes(&total, instancer.instanceIndices.size(), sizeof(VtIntArray)) ||
             !_AddBytes(&total, instancer.mask.size(), sizeof(bool)))
             return false;
-        for (SdfPath const &prototype : instancer.prototypes)
-            if (!_AddBytes(&total, prototype.GetString().size(), sizeof(char)))
-                return false;
         for (VtIntArray const &indices : instancer.instanceIndices)
             if (!_AddBytes(&total, indices.size(), sizeof(int))) return false;
     }
     if (!_AddBytes(&total, 1, sizeof(UsdGenPrimSetSignature)) ||
-        !_AddBytes(&total, generation.signature.primPaths.size(), sizeof(std::string)) ||
+        !_AddBytes(&total, generation.signature.prims.size(), sizeof(UsdGenPrimRef)) ||
         !_AddBytes(&total, generation.signature.primTypes.size(), sizeof(std::string)) ||
         !_AddBytes(&total, generation.signature.primvarNames.size(),
                    sizeof(std::vector<std::string>))) return false;
-    for (std::string const &path : generation.signature.primPaths)
-        if (!_AddBytes(&total, path.size(), sizeof(char))) return false;
     for (std::string const &type : generation.signature.primTypes)
         if (!_AddBytes(&total, type.size(), sizeof(char))) return false;
     for (auto const &names : generation.signature.primvarNames) {
@@ -676,107 +670,65 @@ bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
     return true;
 }
 
-SdfPath _RenderNamespace(SdfPath const &description)
-{
-    return description.AppendChild(UsdGenTokens().renderNamespace);
-}
-
-// tile_NNNN names, interned once per tile index for the process (a bounded
-// vocabulary, counted as compile interns like the engine tokens); published
-// by CAS, never freed. Indices past the table intern per call.
-constexpr size_t kTileNameCache = size_t(1) << 16;
-std::atomic<TfToken *> gTileNames[kTileNameCache];
-
-TfToken _InternTileName(UsdGenTileId tile)
-{
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "tile_%04d", static_cast<int>(tile));
-    UsdGenCompileTokenScope scope;
-    return UsdGenInternToken(buf);
-}
-
-TfToken _TileName(UsdGenTileId tile)
-{
-    size_t const index = size_t(tile);
-    if (index >= kTileNameCache) return _InternTileName(tile);
-    if (TfToken *name = gTileNames[index].load(std::memory_order_acquire)) return *name;
-    auto *fresh = new TfToken;
-    *fresh = _InternTileName(tile);
-    TfToken *winner = nullptr;
-    if (gTileNames[index].compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
-                                                  std::memory_order_acquire))
-        return *fresh;
-    delete fresh;
-    return *winner;
-}
-
 // Look constants published on tiles (addLookConstant below).
 TfToken const kHairTipColor = UsdGenInternToken("hairTipColor");
 TfToken const kHairColorRamp = UsdGenInternToken("hairColorRamp");
 TfToken const kHairRandomHue = UsdGenInternToken("hairRandomHue");
 TfToken const kHairRandomValue = UsdGenInternToken("hairRandomValue");
 
-// <description>/__usdGenRender/tile_NNNN — must stay byte-identical to the
-// imaging-side UsdGenTilePublisher::TilePath formula (06 §4.2).
-SdfPath _TilePath(SdfPath const &description, UsdGenTileId tile)
-{
-    return _RenderNamespace(description).AppendChild(_TileName(tile));
-}
-
 struct _PresentationScalars
 {
     GfMatrix4d xformMatrix{1.0};
     TfToken purpose;
     TfToken visibility;
-    SdfPath materialPath;
+    UsdGenPrimRef material;
     TfToken materialPurpose{UsdGenTokens().allPurpose};
     int refineLevel = 2;
-    SdfPath primOrigin;
-    SdfPath dependencySurface;
+    UsdGenPrimRef origin;
+    UsdGenPrimRef dependency;
 };
 
 _PresentationScalars _BuildPresentationScalars(
-    UsdGenGraphDesc const &desc, SdfPath const &dependencySurface)
+    UsdGenGraphSpec const &desc, UsdGenNodeKey dependencySurface)
 {
     _PresentationScalars result;
     result.xformMatrix = desc.xformMatrix;
     result.purpose = desc.purpose;
     result.visibility = desc.visibility;
-    result.materialPath = desc.materialPath;
-    result.primOrigin = desc.description;
-    result.dependencySurface = dependencySurface;
+    result.material = UsdGenPrimRef{desc.material};
+    result.origin = UsdGenPrimRef{desc.description};
+    result.dependency = UsdGenPrimRef{dependencySurface};
     return result;
 }
 
 // CUDA admission permits at most one CurveSource root-binding surface and
 // ExecuteCudaGraph rejects a named binding that is absent from desc.surfaces.
 // Return no dependency for the valid empty/no-binding case; never invent one.
-SdfPath _CudaSourceDependencySurface(UsdGenGraphDesc const &desc)
+UsdGenNodeKey _CudaSourceDependencySurface(UsdGenGraphSpec const &desc)
 {
     if (desc.nodes.empty() || desc.nodes.front().surfaces.size() != 1)
-        return SdfPath();
-    SdfPath const &candidate = desc.nodes.front().surfaces.front();
+        return UsdGenNodeKey();
+    UsdGenNodeKey const candidate = desc.nodes.front().surfaces.front();
     auto found = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceDesc const &surface) { return surface.path == candidate; });
-    return found == desc.surfaces.end() ? SdfPath() : found->path;
+        [&](UsdGenSurfaceInput const &surface) { return surface.key == candidate; });
+    return found == desc.surfaces.end() ? UsdGenNodeKey() : found->key;
 }
 
 UsdGenDevicePresentationMetadata _BuildDevicePresentation(
-    UsdGenGraphDesc const &desc)
+    UsdGenGraphSpec const &desc)
 {
     _PresentationScalars const scalars = _BuildPresentationScalars(
         desc, _CudaSourceDependencySurface(desc));
     UsdGenDevicePresentationMetadata result;
     result.description = desc.description;
-    result.renderNamespace = _RenderNamespace(desc.description);
     result.xformMatrix = scalars.xformMatrix;
     result.purpose = scalars.purpose;
     result.visibility = scalars.visibility;
-    result.materialPath = scalars.materialPath;
+    result.material = scalars.material;
     result.materialPurpose = scalars.materialPurpose;
     result.refineLevel = scalars.refineLevel;
-    result.primOrigin = scalars.primOrigin;
-    result.dependencySurface = scalars.dependencySurface;
+    result.origin = scalars.origin;
+    result.dependency = scalars.dependency;
     return result;
 }
 
@@ -1042,7 +994,7 @@ bool UsdGenSessionCooker::_ObserveExecutionCacheDomainEpoch()
     if (_cudaWorkspace) {
         _cudaWorkspace->MarkContextLost();
         _cudaWorkspace.reset();
-        _cudaWorkspaceDescription = SdfPath();
+        _cudaWorkspaceDescription = UsdGenNodeKey();
     }
     _observedCacheDomainEpoch = epoch;
     return true;
@@ -1081,7 +1033,7 @@ void UsdGenSessionCooker::_BeginCoalesced(
     if (hooks.registered) hooks.registered(domain, *registration);
 }
 
-bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphDesc> desc,
+bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
     UsdGenContext context, bool devicePublicationEnabled,
     UsdGenPendingDirty& pending, UsdGenGenerationConstPtr previous,
     UsdGenStats publishedStats, bool invalidateValues,
@@ -1186,6 +1138,7 @@ bool UsdGenSessionCooker::_FinalizeDevicePublication(
     generation.frame = frame;
     generation.device = std::move(device);
     generation.devicePresentation = _BuildDevicePresentation(_desc);
+    generation.host = _desc.host;
     auto prepared = _store.PreparePublication(std::move(generation));
     auto fence = domain->CapturePublicationFence(key);
     if (!fence || !domain->PublishIfCurrent(*fence, [this, &prepared] {
@@ -1232,7 +1185,7 @@ bool UsdGenSessionCooker::_InvalidatePoisonedCudaWorkspace()
         return false;
     }
     _cudaWorkspace.reset();
-    _cudaWorkspaceDescription = SdfPath();
+    _cudaWorkspaceDescription = UsdGenNodeKey();
     return true;
 }
 
@@ -1292,7 +1245,7 @@ void UsdGenSessionCooker::SetDeviceProvider(
 
 void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
     UsdGenExecutionPipeline::Cancellation const& cancellation,
-    std::shared_ptr<const UsdGenGraphDesc> desc, UsdGenContext context,
+    std::shared_ptr<const UsdGenGraphSpec> desc, UsdGenContext context,
     bool devicePublicationEnabled, UsdGenPendingDirty pending, double frame,
     UsdGenCommitReason reason, UsdGenGenerationConstPtr previous,
     UsdGenStats publishedStats, bool invalidateValues,
@@ -1580,7 +1533,7 @@ void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
 
 void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     UsdGenExecutionPipeline::Cancellation const& cancellation,
-    std::shared_ptr<const UsdGenGraphDesc> desc, UsdGenContext context,
+    std::shared_ptr<const UsdGenGraphSpec> desc, UsdGenContext context,
     bool devicePublicationEnabled, UsdGenPendingDirty pending, double frame,
     UsdGenCommitReason reason, UsdGenGenerationConstPtr previous,
     UsdGenStats publishedStats, bool invalidateValues,
@@ -1597,7 +1550,7 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     if (!_Prepare(std::move(desc), context, devicePublicationEnabled, pending,
                   std::move(previous), std::move(publishedStats), invalidateValues,
                   previousPublishedWorkerEpoch,
-                  [provider](UsdGenGraphDesc const& d, UsdGenDiagnostics* diag) {
+                  [provider](UsdGenGraphSpec const& d, UsdGenDiagnostics* diag) {
                       return provider->Compile(d, diag);
                   }, &plan)) { completion(_store.Get(), {}); return; }
     // Exec phase from here to the device result (registries/token.h).
@@ -1958,7 +1911,7 @@ bool UsdGenSessionCooker::CommitCacheCandidate(
 }
 
 UsdGenGenerationConstPtr UsdGenSessionCooker::Cook(
-    std::shared_ptr<const UsdGenGraphDesc> desc, UsdGenContext context,
+    std::shared_ptr<const UsdGenGraphSpec> desc, UsdGenContext context,
     bool devicePublicationEnabled, UsdGenPendingDirty pending, double frame,
     UsdGenCommitReason reason, UsdGenGenerationConstPtr previous,
 UsdGenStats publishedStats, bool invalidateValues,
@@ -2035,7 +1988,7 @@ UsdGenStats publishedStats, bool invalidateValues,
                 phases.Phase("cache hit publish");
                 phases.Print(frame, _traceCompile,
                              "cache hit (operators not run; next cook recompiles)",
-                             _desc.description);
+                             _desc);
                 return next;
             }
         }
@@ -2131,7 +2084,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         if (!_desc.preview.Active())
             _cudaPreviewWarned = false;
         else if (!std::exchange(_cudaPreviewWarned, true))
-            _lastDiagnostics.Warn("usdGen:preview: " + _desc.description.GetString() +
+            _lastDiagnostics.Warn("usdGen:preview: " + _desc.Label(_desc.description) +
                                   " runs on the CUDA lane, which cannot preview values; "
                                   "the look is shown");
         auto priorGeneration = _store.Get();
@@ -2150,6 +2103,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         // CUDA plan above.  Capture its presentation once with the device
         // payload; publishing must not consult a later graph descriptor.
         gen.devicePresentation = _BuildDevicePresentation(_desc);
+        gen.host = _desc.host;
         // Do not call the host scheduler or _BuildTilePublication for a
         // device generation. Tools retain this snapshot directly.
         auto prepared = _store.PreparePublication(std::move(gen));
@@ -2219,6 +2173,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         update->epoch = workEpoch;
         update->frame = frame;
         update->tile = tile;
+        update->host = _desc.host;
         if (superseded && superseded()) return;
         update->sequence = ++progressSequence;
         try { progress(std::move(update)); } catch (...) {
@@ -2312,6 +2267,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     UsdGenGenerationConstPtr prev = _store.Get();
     UsdGenGeneration gen;
     gen.frame = frame;
+    gen.host = _desc.host;
     gen.tiles.reserve(result.groups.size());
 
     // usdGen:preview recolours every tile, including those whose geometry
@@ -2511,11 +2467,11 @@ UsdGenStats publishedStats, bool invalidateValues,
         // A GeomSubset surface carries its whole parent mesh, which occludes
         // whole and once, however many subsets of it the groom binds.
         occlusion.occluders.reserve(_desc.surfaces.size());
-        std::set<SdfPath> occludingMeshes;
-        for (UsdGenSurfaceDesc const &surface : _desc.surfaces) {
+        std::set<UsdGenNodeKey> occludingMeshes;
+        for (UsdGenSurfaceInput const &surface : _desc.surfaces) {
             if (surface.points.empty() || surface.faceVertexIndices.empty())
                 continue;
-            if (!occludingMeshes.insert(UsdGenSurfaceMeshPath(surface)).second)
+            if (!occludingMeshes.insert(UsdGenSurfaceMeshKey(surface)).second)
                 continue;
             UsdGenFurOccluder occluder;
             occluder.points = surface.points;
@@ -2540,15 +2496,13 @@ UsdGenStats publishedStats, bool invalidateValues,
                                 occlusion, &_furVolumeKey, &gen.scalpShadow);
         if (!gen.scalpShadow.IsEmpty()) {
             _PresentationScalars const scalars = _BuildPresentationScalars(
-                _desc, SdfPath());
-            gen.scalpShadow.primPath =
-                _RenderNamespace(_desc.description).AppendChild(
-                    UsdGenTokens().scalpShadow);
+                _desc, UsdGenNodeKey());
+            gen.scalpShadow.prim =
+                UsdGenPrimRef{_desc.description, UsdGenPublishRole::ScalpShadow, 0};
             gen.scalpShadow.purpose = scalars.purpose;
             gen.scalpShadow.visibility = scalars.visibility;
-            gen.scalpShadow.materialPath =
-                _RenderNamespace(_desc.description).AppendChild(
-                    UsdGenTokens().materialScalpShadow);
+            gen.scalpShadow.material =
+                UsdGenPrimRef{_desc.description, UsdGenPublishRole::ScalpShadowMaterial, 0};
         }
     }
     phases.Phase("occlusion");
@@ -2571,11 +2525,11 @@ UsdGenStats publishedStats, bool invalidateValues,
             double(_desc.look.rootColor[0]), double(_desc.look.rootColor[1]),
             double(_desc.look.rootColor[2]));
     }
-    gen.signature.primPaths.reserve(gen.tiles.size());
+    gen.signature.prims.reserve(gen.tiles.size());
     gen.signature.primTypes.assign(gen.tiles.size(), "basisCurves");
     gen.signature.primvarNames.reserve(gen.tiles.size());
     for (UsdGenTilePublication const &t : gen.tiles) {
-        gen.signature.primPaths.push_back(t.primPath.GetString());
+        gen.signature.prims.push_back(t.prim);
         std::vector<std::string> names{"points", "widths", "hairT", "hairId"};
         if (!t.st.empty())            names.emplace_back("st");
         if (!t.displayColor.empty())  names.emplace_back("displayColor");
@@ -2634,7 +2588,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     }
 
     phases.Phase("cache bytes");
-    phases.Print(frame, _traceCompile, "cache miss, cooked", _desc.description);
+    phases.Print(frame, _traceCompile, "cache miss, cooked", _desc);
 
     // Remaining chunk dirt (skipped no-op nodes are clean; anything the
     // scheduler could not run stays dirty; 03 §5.4).
@@ -2648,7 +2602,7 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
     TF_UNUSED(prev);
     UsdGenTilePublication pub;
     pub.tile = tv.id;
-    pub.primPath = _TilePath(_desc.description, tv.id);
+    pub.prim = UsdGenPrimRef{_desc.description, UsdGenPublishRole::Tile, uint32_t(tv.id)};
     if (!_desc.curveBasis.IsEmpty())
         pub.basis = _desc.curveBasis.GetString();
     pub.refineLevel = 2;
@@ -2931,27 +2885,28 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
         pub.extentMax = GfVec3d(e.GetMax()[0], e.GetMax()[1], e.GetMax()[2]);
     }
 
-    SdfPath dependencySurface;
+    UsdGenNodeKey dependencySurface;
     if (hasDep) {
-        for (UsdGenSurfaceDesc const &s : _desc.surfaces)
-            if (s.id == depSurface) { dependencySurface = s.path; break; }
+        for (UsdGenSurfaceInput const &s : _desc.surfaces)
+            if (s.id == depSurface) { dependencySurface = s.key; break; }
     }
     _PresentationScalars const scalars = _BuildPresentationScalars(
         _desc, dependencySurface);
     pub.xformMatrix = scalars.xformMatrix;
     pub.purpose = scalars.purpose;
     pub.visibility = scalars.visibility;
-    pub.materialPath = scalars.materialPath;
+    pub.material = scalars.material;
     pub.materialPurpose = scalars.materialPurpose;
     if (_previewColors.active) {
         // The look's shader blends toward the tip colour; the preview shows
         // exactly the published displayColor, over any authored material.
-        pub.materialPath = UsdGenPreviewMaterialPath(_desc.description, _desc.preview.shading);
+        pub.material = UsdGenPrimRef{_desc.description,
+            UsdGenPreviewMaterialRole(_desc.preview.shading), 0};
         pub.materialPurpose = UsdGenTokens().allPurpose;
     }
     pub.refineLevel = scalars.refineLevel;
-    pub.primOrigin = scalars.primOrigin;
-    pub.dependencySurface = scalars.dependencySurface;
+    pub.origin = scalars.origin;
+    pub.dependency = scalars.dependency;
     return pub;
 }
 
@@ -2982,7 +2937,7 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
     UsdGenRbfAnimationBinding fields;
     if (!makeBinding(query, *terminal.op, &fields) || !query.surface) return {};
     auto binding = std::make_shared<UsdGenRbfAnimationBinding>(std::move(fields));
-    binding->surface = query.surface->path;
+    binding->surface = query.surface->key;
     auto restResult = result;
     restResult.terminalOutput = &_graph.NodeOutput(terminal.inputs.front());
     for (auto const& tv : result.groups) {
@@ -2991,7 +2946,7 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
         if (tile == tiles.end() || !_RefreshTilePoints(tv, restResult, *tile, &rest)) return {};
         double padding = 0;
         for (float width : tile->widths) padding = std::max(padding, double(width) * 0.5);
-        binding->tiles.push_back({tile->primPath, std::move(rest.points), padding});
+        binding->tiles.push_back({tile->prim, std::move(rest.points), padding});
     }
     return binding;
 }
@@ -3053,7 +3008,7 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
         if (entry.first >= static_cast<UsdGenNodeId>(_graph.NodeCount())) continue;
         UsdGenCompiledNode const& n = _graph.Node(entry.first);
         UsdGenNodeStats& s = out[entry.first];
-        s.type = n.record ? n.record->Name() : TfToken(); s.path = n.desc ? n.desc->path : SdfPath();
+        s.type = n.record ? n.record->Name() : TfToken(); s.key = n.desc ? n.desc->key : UsdGenNodeKey();
         s.captureMs = entry.second.captureMs; s.lastEvalMs = entry.second.evalMs;
         s.meanEvalMs = entry.second.evalMs; s.curvesOut = _graph.NodeOutput(n.id).Count(1);
         for (UsdGenChunkDirtyBits bit : n.chunkDirty) if (bit) ++s.chunksDirty;
@@ -3064,8 +3019,8 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
 
 std::shared_ptr<const UsdGenGraphRoutingSnapshot> UsdGenSessionCooker::Routing() const
 { return _graph.RoutingSnapshot(); }
-UsdGenGraphDesc UsdGenSessionCooker::GraphDesc() const
-{ return _graph.NodeCount() ? _graph.Desc() : _desc; }
+UsdGenGraphSpec UsdGenSessionCooker::GraphSpec() const
+{ return _graph.NodeCount() ? _graph.Spec() : _desc; }
 std::shared_ptr<const UsdGenCudaExecutionPlan> UsdGenSessionCooker::CudaPlan() const
 { return _graph.CudaPlan(); }
 

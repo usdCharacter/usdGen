@@ -32,6 +32,7 @@
 // when its backend is available; the test fails only on a run check, and the
 // summary banner states explicitly which parity legs were proven.
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/deviceContext.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/vulkan/chargedBuffer.h"
@@ -552,15 +553,15 @@ void HostAdmissionTables() {
 
 bool LoadDesc(UsdGenGraphDesc const& d, UsdGenCurveBuffer* out) {
     if (!out) return false;
-    UsdGenGraphDesc& mut = const_cast<UsdGenGraphDesc&>(d);
-    UsdGenParamView params{&mut, &mut.nodes[0]};
+    usdGen::UsdGenGraphSpec const lowered = usdGenUsd::Lower(d);
+    UsdGenParamView params{&lowered, &lowered.nodes[0]};
     UsdGenCaptureContext ctx;
-    ctx.desc = &d;
+    ctx.desc = &lowered;
     ctx.params = &params;
     ctx.seed = static_cast<uint32_t>(d.nodes[0].seed);
     UsdGenDiagnostics diag;
     UsdGenCurveBuffer result;
-    if (!UsdGenCurveLoader::Load(ctx, d.curveSets[0], &result, &diag))
+    if (!UsdGenCurveLoader::Load(ctx, lowered.curveSets[0], &result, &diag))
         return false;
     *out = std::move(result);
     return true;
@@ -1049,7 +1050,7 @@ struct CudaSourceLeg {
             if (!surface) return false;
         }
         std::string rootError;
-        if (!UsdGenCaptureCurveRoots(curves, surface, rebind, &captured,
+        if (!UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::Lower(*surface)) : nullptr), rebind, &captured,
                                      &rootError)) {
             std::fprintf(stderr, "csourceVk cuda capture: %s\n",
                          rootError.c_str());
@@ -1488,7 +1489,7 @@ bool SourceParity(char const* fixture, UsdGenGraphDesc const& d,
                 rebind = p.value.UncheckedGet<TfToken>();
         UsdGenCurveRootCaptureResult captured;
         std::string error;
-        CHECK(UsdGenCaptureCurveRoots(curves, surface, rebind, &captured,
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::Lower(*surface)) : nullptr), rebind, &captured,
                                        &error));
         std::vector<float> ot, ob, on;
         CHECK(FrameOracle(curves, captured, &ot, &ob, &on));

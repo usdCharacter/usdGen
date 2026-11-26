@@ -19,6 +19,7 @@
 //
 // Exit: 0 pass, 1 fail.
 #include "usdGen/sessionCooker.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -94,7 +95,7 @@ UsdGenGenerationConstPtr Cook(UsdGenSessionCooker *cooker,
                               int64_t id)
 {
     auto shared = std::make_shared<const UsdGenGraphDesc>(desc);
-    return cooker->Cook(shared, UsdGenContext::Interactive, false, {}, 1.0,
+    return cooker->Cook(usdGenUsd::LowerShared(*shared), UsdGenContext::Interactive, false, {}, 1.0,
                         UsdGenCommitReason::NoticeBatchEnd, previous,
                         cooker->Stats(), false, id, id + 1, -1);
 }
@@ -187,9 +188,11 @@ int main()
         // conditional on the binding -- this is the assertion that keeps it
         // that way.
         UsdGenTilePublication bound = tile;
-        bound.materialPath = SdfPath("/look/materials/myOwnHair");
+        usdGenUsd::PathRecorder keys;   // the cooked table plus the authored material
+        bound.prim.node = keys(usdGenUsd::PathOf(usdGenUsd::Paths(*gen), tile.prim.node));
+        bound.material = UsdGenPrimRef{keys(SdfPath("/look/materials/myOwnHair"))};
         HdContainerDataSourceHandle prim =
-            UsdGenTilePublisher::BuildTileDataSource(bound, 0);
+            UsdGenTilePublisher::BuildTileDataSource(bound, keys.Table(), 0);
         TfToken interp, role;
         VtValue value = Primvar(prim, "hairTipColor", &interp, &role);
         Check(value.IsHolding<VtVec3fArray>() &&

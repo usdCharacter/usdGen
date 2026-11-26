@@ -10,6 +10,7 @@
 // the math is wrong (counts, spacing, proximity radius, thinning fraction,
 // stable strand identity, determinism).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -133,7 +134,7 @@ bool Cook(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, std::string *error =
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(d, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, d, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors) {
             std::printf("  compile: %s\n", e.c_str());
@@ -143,7 +144,7 @@ bool Cook(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, std::string *error =
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     auto run = scheduler.Run(graph, ctx, 1);
     for (auto const &e : run.diagnostics.errors) {
         std::printf("  run: %s\n", e.c_str());
@@ -189,11 +190,12 @@ bool Direct(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, scatter::ModeStats
         return false;
     }
     UsdGenCaptureContext ctx;
-    ctx.desc = &d;
+    usdGen::UsdGenGraphSpec const lowered193 = usdGenUsd::Lower(d);
+    ctx.desc = &lowered193;
     ctx.params = &view;
     ctx.surface = 0;
     ctx.seed = uint32_t(d.nodes[0].seed);
-    ctx.mapBindings = d.nodes[0].mapBindings.data();
+    ctx.mapBindings = lowered193.nodes[0].mapBindings.data();
     ctx.mapBindingCount = uint32_t(d.nodes[0].mapBindings.size());
     UsdGenReferenceSet ref;
     UsdGenReferenceSet const *refs[1] = {&ref};
@@ -203,7 +205,7 @@ bool Direct(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, scatter::ModeStats
         ctx.referenceCount = 1;
     }
     UsdGenDiagnostics diag;
-    bool const ok = scatter::CaptureModes(ctx, cfg, d.surfaces[0], out, &diag, st);
+    bool const ok = scatter::CaptureModes(ctx, cfg, lowered193.surfaces[0], out, &diag, st);
     for (auto const &e : diag.errors) std::printf("  direct: %s\n", e.c_str());
     return ok && !diag.HasErrors();
 }

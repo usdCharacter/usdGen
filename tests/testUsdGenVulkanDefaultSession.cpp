@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Plain Session production-provider parity. Geometry readback is test-only.
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -73,11 +74,11 @@ using Oracle = std::vector<std::pair<std::string, std::vector<uint8_t>>>;
 Oracle CpuOracle(UsdGenGraphDesc desc) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler; UsdGenGraph graph;
-    CHECK(compiler.Compile(desc, &graph).ok);
-    UsdGenEvalContext evaluation; evaluation.desc = &graph.Desc();
+    CHECK(usdGenUsd::Compile(compiler, desc, &graph).ok);
+    UsdGenEvalContext evaluation; evaluation.desc = &graph.Spec();
     UsdGenScheduler scheduler(2);
     CHECK(!scheduler.Run(graph, evaluation, 1).diagnostics.HasErrors());
-    auto const& b = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    auto const& b = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     std::vector<GfVec3f> points(b.totalCvs);
     for (size_t i = 0; i != b.totalCvs; ++i) points[i] = {b.px[i], b.py[i], b.pz[i]};
     return {{"points", Bytes(points)},
@@ -176,7 +177,7 @@ int Lifecycle(std::string const& shaderPath) {
             descriptor.nodes[1].params[0].value = VtValue(1.25f + float(iteration) / 32.f);
             auto oracle = CpuOracle(descriptor);
             UsdGenSession session(2);
-            session.SetGraphDesc(descriptor);
+            usdGenUsd::SetGraphDesc(session, descriptor);
             session.SetDevicePublicationEnabled(true);
             auto snapshot = session.CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
             if (snapshot) for (auto const& error : snapshot->diagnostics.errors)
@@ -213,7 +214,7 @@ int main(int argc, char** argv) {
     if (argc == 3 && std::string(argv[2]) == "--lifecycle") return Lifecycle(argv[1]);
     auto descriptor = Descriptor();
     UsdGenSession session(2);
-    session.SetGraphDesc(descriptor); session.SetDevicePublicationEnabled(true);
+    usdGenUsd::SetGraphDesc(session, descriptor); session.SetDevicePublicationEnabled(true);
     ShaderDirectory("__usdGen_absent_default_shaders__");
     auto missing = session.CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(missing && missing->diagnostics.HasErrors() && !missing->generation && session.NeedsCommit());
@@ -236,7 +237,7 @@ int main(int argc, char** argv) {
     CHECK(old.context->shaderInt64Enabled() && old.context->timelineSemaphoreEnabled());
     ExactPlanes(old, oracle);
     UsdGenSession sibling(2);
-    sibling.SetGraphDesc(descriptor); sibling.SetDevicePublicationEnabled(true);
+    usdGenUsd::SetGraphDesc(sibling, descriptor); sibling.SetDevicePublicationEnabled(true);
     auto concurrent = sibling.CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(concurrent && !concurrent->diagnostics.HasErrors() && concurrent->generation->device);
     auto other = GetVulkanGenerationAccess(concurrent->generation->device); CHECK(other);

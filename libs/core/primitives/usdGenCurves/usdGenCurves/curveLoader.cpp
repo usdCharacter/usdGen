@@ -31,8 +31,8 @@ struct SourceDiagnosticContext {
     UsdGenDiagnostics *diag = nullptr;
     size_t errors = 0, warnings = 0;
     std::string source;
-    SourceDiagnosticContext(UsdGenDiagnostics *d, SdfPath const &path)
-        : diag(d), source(path.IsEmpty() ? std::string("<empty>") : path.GetString())
+    SourceDiagnosticContext(UsdGenDiagnostics *d, std::string label)
+        : diag(d), source(label.empty() ? std::string("<empty>") : std::move(label))
     {
         if (diag) { errors = diag->errors.size(); warnings = diag->warnings.size(); }
     }
@@ -157,7 +157,7 @@ bool ReadOptions(UsdGenCaptureContext const &ctx, Options *out,
     return true;
 }
 
-bool BuildSourcePlanes(UsdGenCurveSetDesc const &source,
+bool BuildSourcePlanes(UsdGenCurveSetInput const &source,
                        uint32_t totalCurves, uint32_t totalCvs,
                        std::vector<UsdGenPlane> *cv,
                        std::vector<UsdGenPlane> *curve,
@@ -316,13 +316,13 @@ bool ReorderSourcePlanes(UsdGenCurveBuffer const &source,
 }
 
 
-UsdGenSurfaceDesc const *FindSurface(UsdGenCaptureContext const &ctx)
+UsdGenSurfaceInput const *FindSurface(UsdGenCaptureContext const &ctx)
 {
     if (!ctx.desc || !ctx.params || !ctx.params->node || ctx.params->node->surfaces.size() != 1)
         return nullptr;
-    SdfPath const &path = ctx.params->node->surfaces.front();
+    UsdGenNodeKey const path = ctx.params->node->surfaces.front();
     auto const it = std::find_if(ctx.desc->surfaces.begin(), ctx.desc->surfaces.end(),
-        [&](UsdGenSurfaceDesc const &candidate) { return candidate.path == path; });
+        [&](UsdGenSurfaceInput const &candidate) { return candidate.key == path; });
     return it == ctx.desc->surfaces.end() ? nullptr : &*it;
 }
 
@@ -339,18 +339,18 @@ void PutFrame(GfMatrix4d const &frame, UsdGenCurveBuffer *out, size_t index)
 } // namespace
 
 bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
-                             UsdGenCurveSetDesc const &source,
+                             UsdGenCurveSetInput const &source,
                              UsdGenCurveBuffer *out,
                              UsdGenDiagnostics *diag,
                              std::shared_ptr<const UsdGenRestSurfaceBindingCache> *bindingCache)
 {
-    SourceDiagnosticContext const sourceContext(diag, source.path);
+    SourceDiagnosticContext const sourceContext(diag, UsdGenLabel(ctx.desc, source.key));
     if (!out || !ctx.desc) return Fail(diag, "no output buffer or graph description");
     if (!std::isfinite(ctx.desc->defaultWidth) || ctx.desc->defaultWidth < 0.0f)
         return Fail(diag, "description defaultWidth must be finite and >= 0");
     Options options;
     if (!ReadOptions(ctx, &options, diag)) return false;
-    if (source.path.IsEmpty() || source.role != UsdGenLane::Chunked ||
+    if (!source.key.IsValid() || source.role != UsdGenLane::Chunked ||
         source.curveRole != TfToken("hair"))
         return Fail(diag, "CurveSource requires a C3 hair BasisCurves source; guide/reference lanes are not implemented here");
     if (!Finite(source.worldMatrix))
@@ -429,7 +429,7 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
     for (size_t i = 1; i < allIdOrder.size(); ++i)
         if (ids[allIdOrder[i - 1]] == ids[allIdOrder[i]])
             return Fail(diag, "C3 contains duplicate stable curve ids");
-    UsdGenSurfaceDesc const *surface = FindSurface(ctx);
+    UsdGenSurfaceInput const *surface = FindSurface(ctx);
     bool const hasSurfaceRelationship = ctx.params && ctx.params->node &&
         !ctx.params->node->surfaces.empty();
     if (hasSurfaceRelationship &&

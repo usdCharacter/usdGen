@@ -11,7 +11,7 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/registrar.h"
@@ -318,14 +318,15 @@ void TestResolveDescIds()
     desc.maps.resize(2);
     desc.maps[0].type = TfToken("UsdGenPaintMap");
     desc.maps[1].type = TfToken("UsdGenNoMap");
-    UsdGenResolveDescIds(&desc);
+    UsdGenGraphSpec spec = usdGenUsd::Lower(desc);
+    UsdGenResolveDescIds(&spec);
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
-    Check(desc.nodes[0].opId == ops.Find(TfToken("UsdGenLength")) &&
-              desc.nodes[0].opId != UsdGenOpId::Invalid, "node opId");
-    Check(desc.nodes[1].opId == UsdGenOpId::Invalid, "unknown node opId");
-    Check(desc.maps[0].typeId == UsdGenTypeRegistry::Get().Find(TfToken("UsdGenPaintMap")) &&
-              desc.maps[0].typeId != UsdGenTypeId::Invalid, "map typeId");
-    Check(desc.maps[1].typeId == UsdGenTypeId::Invalid, "unknown map typeId");
+    Check(spec.nodes[0].opId == ops.Find(TfToken("UsdGenLength")) &&
+              spec.nodes[0].opId != UsdGenOpId::Invalid, "node opId");
+    Check(spec.nodes[1].opId == UsdGenOpId::Invalid, "unknown node opId");
+    Check(spec.maps[0].typeId == UsdGenTypeRegistry::Get().Find(TfToken("UsdGenPaintMap")) &&
+              spec.maps[0].typeId != UsdGenTypeId::Invalid, "map typeId");
+    Check(spec.maps[1].typeId == UsdGenTypeId::Invalid, "unknown map typeId");
 }
 
 UsdGenExpressionBinding Binding(char const *destination, char const *native,
@@ -352,45 +353,53 @@ void TestExpressionAdmission()
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenOpRecord const &r = ops.Record(g_reg.test);
     using S = expr::ScalarType;
+    // The node lowered in a graph of its own: messages name it by its label.
+    auto validate = [](UsdGenOpRecord const &rec, UsdGenNodeDesc const &n,
+                       std::vector<std::string> *errs) {
+        UsdGenGraphDesc d;
+        d.nodes = {n};
+        UsdGenGraphSpec const spec = usdGenUsd::Lower(d);
+        return UsdGenValidateExpressionBindings(rec, spec.nodes[0], &spec, errs);
+    };
     UsdGenNodeDesc node;
     node.path = SdfPath("/g/op");
     node.type = r.Name();
     std::vector<std::string> errors;
-    Check(UsdGenValidateExpressionBindings(r, node, &errors), "no bindings is fine");
+    Check(validate(r, node, &errors), "no bindings is fine");
 
     node.expressionBindings = {Binding("usdGen:test:value", "float", S::Float32, 1, D::Primitive),
                                Binding("enabled", "bool", S::Bool, 1, D::Groom)};
-    Check(UsdGenValidateExpressionBindings(r, node, &errors) && errors.empty(), "admitted bindings");
+    Check(validate(r, node, &errors) && errors.empty(), "admitted bindings");
 
     node.expressionBindings = {Binding("test:value", "float", S::Float32, 1, D::Point)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) &&
+    Check(!validate(r, node, &errors) &&
               HasError(errors, "RegTest test:value requires groom/primitive evaluation"),
           "point domain rejected");
     errors.clear();
     node.expressionBindings = {Binding("enabled", "bool", S::Bool, 1, D::Primitive)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) &&
+    Check(!validate(r, node, &errors) &&
               HasError(errors, "RegTest enabled requires groom evaluation"),
           "groom-only rejected");
     errors.clear();
     node.expressionBindings = {Binding("test:value", "int", S::Int32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) &&
+    Check(!validate(r, node, &errors) &&
               HasError(errors, "unsupported or incorrectly typed RegTest expression test:value"),
           "wrong type rejected");
     errors.clear();
     node.expressionBindings = {Binding("test:cull", "float", S::Float32, 1, D::Groom),
                                Binding("bogus", "float", S::Float32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) && errors.size() == 2 &&
+    Check(!validate(r, node, &errors) && errors.size() == 2 &&
               HasError(errors, "expression test:cull") && HasError(errors, "expression bogus"),
           "unconnectable and unknown rejected");
     errors.clear();
     node.expressionBindings = {Binding("test:value", "float", S::Float32, 1, D::Groom),
                                Binding("usdGen:test:value", "float", S::Float32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors), "duplicate destination rejected");
+    Check(!validate(r, node, &errors), "duplicate destination rejected");
     errors.clear();
     UsdGenOpRecord const &plain = ops.Record(g_reg.plain);
     node.type = plain.Name();
     node.expressionBindings = {Binding("x", "float", S::Float32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(plain, node, &errors) &&
+    Check(!validate(plain, node, &errors) &&
               HasError(errors, "operator UsdGenRegistriesPlainOp at /g/op does not accept "
                                "connected (expression) parameters"),
           "op without connectable params");
@@ -409,14 +418,14 @@ void TestRoutingMatchesCompiler()
         UsdGenGraphDesc const desc = usdGenGolden::MakeOpGraph(type, false);
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        if (!compiler.Compile(desc, &graph).ok) {
+        if (!usdGenUsd::Compile(compiler, desc, &graph).ok) {
             Check(false, type.GetString() + ": fixture compiles");
             continue;
         }
         auto const snapshot = graph.RoutingSnapshot();
         UsdGenGraphRoutingNode const *rn = nullptr;
         for (UsdGenGraphRoutingNode const &n : snapshot->nodes)
-            if (n.path == usdGenGolden::OpPath()) rn = &n;
+            if (usdGenUsd::PathOf(usdGenUsd::Paths(*snapshot), n.key) == usdGenGolden::OpPath()) rn = &n;
         if (!rn) { Check(false, type.GetString() + ": routing node"); continue; }
         UsdGenOpRecord const &r = ops.Record(id);
         auto const routing = r.Routing();
@@ -424,7 +433,7 @@ void TestRoutingMatchesCompiler()
         for (size_t i = 0; same && i < routing.size(); ++i)
             same = routing[i] == rn->paramRouting[i];
         Check(same, type.GetString() + ": record routing == compiled routing");
-        UsdGenNodeId const nodeId = graph.NodeIdForPath(usdGenGolden::OpPath());
+        UsdGenNodeId const nodeId = usdGenUsd::NodeIdForPath(graph, usdGenGolden::OpPath());
         Check(nodeId != kUsdGenInvalidNode && graph.Node(nodeId).opId == id &&
                   graph.Node(nodeId).record == &r, type.GetString() + ": compiled node ids");
         ++compared;

@@ -323,7 +323,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     gctx.smooth = s.smooth;
     float sceneLength = 1.0f;
     if (ctx.desc && ctx.surface < ctx.desc->surfaces.size()) {
-        UsdGenSurfaceDesc whole = ctx.desc->surfaces[ctx.surface];
+        UsdGenSurfaceInput whole = ctx.desc->surfaces[ctx.surface];
         whole.isSubset = false;
         whole.subsetFaces = VtIntArray();
         strand::BuildSurfaceBvh(whole, true, &scalp.bvh);

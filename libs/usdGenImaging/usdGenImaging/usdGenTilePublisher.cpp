@@ -7,6 +7,7 @@
 #include "usdGenImaging/usdGenTilePublisher.h"
 
 #include "usdGenImaging/usdGenTokens.h"
+#include "usdGenUsd/publishPaths.h"
 
 #include "pxr/base/tf/diagnostic.h"
 #include "pxr/base/tf/staticTokens.h"
@@ -191,7 +192,8 @@ _CurveOrVertexInterp(size_t n, size_t numCurves, size_t totalCvs,
 }
 
 HdContainerDataSourceHandle
-_Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
+_Assemble(usdGen::UsdGenTilePublication const &tile,
+          UsdGenTilePublisher::TilePaths const &paths, bool isGuide,
           TfToken const &guideRole, int64_t generation = -1)
 {
     size_t totalCvs = 0;
@@ -204,13 +206,13 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
         // engine drops empty tiles before Commit publishes them.
         TF_CODING_ERROR("usdGen tile %s: empty tile reached the publisher; "
                         "empty tiles must not be published (S27).",
-                        tile.primPath.GetText());
+                        paths.prim.GetText());
         return nullptr;
     }
     if (tile.points.size() != totalCvs) {
         TF_CODING_ERROR("usdGen tile %s: points.size() (%zu) != sum of "
                         "curveVertexCounts (%zu).",
-                        tile.primPath.GetText(),
+                        paths.prim.GetText(),
                         size_t(tile.points.size()), totalCvs);
     }
 
@@ -256,7 +258,7 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
              _Primvar(_Samp(tile.displayColor),
                       _CurveOrVertexInterp(tile.displayColor.size(),
                                            numCurves, totalCvs,
-                                           "displayColor", tile.primPath)));
+                                           "displayColor", paths.prim)));
     }
     if (!tile.bakeColor.empty()) {
         // Contract gap: UsdGenTilePublication carries the bake colours but
@@ -265,7 +267,7 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
              _Primvar(_Samp(tile.bakeColor),
                       _CurveOrVertexInterp(tile.bakeColor.size(),
                                            numCurves, totalCvs,
-                                           "bakeColor", tile.primPath)));
+                                           "bakeColor", paths.prim)));
     }
 
     // Engine-internal uniform planes (clumpId_<level>, guideIndex/guideWeight
@@ -390,10 +392,10 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
         // flat displayColor shading and the hair lobes never ran; bind the
         // synthetic <description>/__usdGenRender/material_storm instead
         // (C2 06 §4.4 slot, synthesized by UsdGenGroomSceneIndex::GetPrim).
-        bool const authored = !tile.materialPath.IsEmpty();
+        bool const authored = !paths.material.IsEmpty();
         SdfPath const path = authored
-            ? tile.materialPath
-            : UsdGenTilePublisher::DefaultMaterialPath(tile.primPath);
+            ? paths.material
+            : UsdGenTilePublisher::DefaultMaterialPath(paths.prim);
         // The app-facing allPurpose spelling maps to Hydra's empty-token
         // default binding child; the value is a MaterialBindingSchema.
         HdDataSourceBaseHandle binding = HdMaterialBindingSchema::Builder()
@@ -404,12 +406,12 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
                              authored ? tile.materialPurpose : TfToken())},
                         {binding}));
     }
-    if (!tile.primOrigin.IsEmpty()) {
+    if (!paths.origin.IsEmpty()) {
         _Add(&names, &values, TfToken("primOrigin"),
              _Container({TfToken("scenePath")},
-                        {HdDataSourceBaseHandle(_Samp(tile.primOrigin))}));
+                        {HdDataSourceBaseHandle(_Samp(paths.origin))}));
     }
-    if (!tile.dependencySurface.IsEmpty()) {
+    if (!paths.dependency.IsEmpty()) {
         // Exactly ONE __dependencies entry: the bound surface's points feed
         // our points (02 §1.7; HdDependencySchema field names verified).
         HdDataSourceLocator const pointsLoc(
@@ -418,7 +420,7 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
             HdDependencySchema::Builder()
                 .SetDependedOnPrimPath(
                     HdRetainedTypedSampledDataSource<SdfPath>::New(
-                        tile.dependencySurface))
+                        paths.dependency))
                 .SetDependedOnDataSourceLocator(
                     HdRetainedTypedSampledDataSource<HdDataSourceLocator>::New(
                         pointsLoc))
@@ -437,20 +439,36 @@ _Assemble(usdGen::UsdGenTilePublication const &tile, bool isGuide,
 }  // namespace
 
 /*static*/
-HdContainerDataSourceHandle
-UsdGenTilePublisher::BuildTileDataSource(
-    usdGen::UsdGenTilePublication const &tile)
+UsdGenTilePublisher::TilePaths
+UsdGenTilePublisher::ResolveTilePaths(usdGen::UsdGenTilePublication const &tile,
+                                      std::shared_ptr<const void> const &host)
 {
-    return _Assemble(tile, /*isGuide=*/false, TfToken());
+    usdGenUsd::PathTable const *table = usdGenUsd::Paths(host);
+    TilePaths paths;
+    paths.prim = usdGenUsd::PrimPath(tile.prim, table);
+    paths.material = usdGenUsd::PrimPath(tile.material, table);
+    paths.origin = usdGenUsd::PrimPath(tile.origin, table);
+    paths.dependency = usdGenUsd::PrimPath(tile.dependency, table);
+    return paths;
 }
 
 /*static*/
 HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildTileDataSource(
-    usdGen::UsdGenTilePublication const &tile, int64_t generation)
+    usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host)
+{
+    return _Assemble(tile, ResolveTilePaths(tile, host), /*isGuide=*/false, TfToken());
+}
+
+/*static*/
+HdContainerDataSourceHandle
+UsdGenTilePublisher::BuildTileDataSource(
+    usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host,
+    int64_t generation)
 {
     TRACE_FUNCTION();
-    return _Assemble(tile, /*isGuide=*/false, TfToken(), generation);
+    return _Assemble(tile, ResolveTilePaths(tile, host), /*isGuide=*/false, TfToken(),
+                     generation);
 }
 
 /*static*/
@@ -461,7 +479,7 @@ UsdGenTilePublisher::BuildGuideDataSource(
 {
     (void)setName;  // the set name lives in the prim path (GuidePath); the
                     // payload marker is primvars/usdGen:role = guide.
-    return _Assemble(guide, /*isGuide=*/true, TfToken("guide"));
+    return _Assemble(guide, TilePaths(), /*isGuide=*/true, TfToken("guide"));
 }
 
 /*static*/
@@ -908,8 +926,8 @@ UsdGenTilePublisher::ScalpShadowAlbedo(usdGen::UsdGenLookDesc const &look)
 /*static*/
 HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildScalpShadowDataSource(
-    usdGen::UsdGenScalpShadowPublication const &cap, int64_t generation,
-    bool mask, SdfPath const &maskMaterial)
+    usdGen::UsdGenScalpShadowPublication const &cap, SdfPath const &description,
+    int64_t generation, bool mask, SdfPath const &maskMaterial)
 {
     TRACE_FUNCTION();
     if (cap.IsEmpty()) return nullptr;
@@ -994,7 +1012,7 @@ UsdGenTilePublisher::BuildScalpShadowDataSource(
 
     HdDataSourceBaseHandle binding = HdMaterialBindingSchema::Builder()
         .SetPath(HdRetainedTypedSampledDataSource<SdfPath>::New(
-            mask ? maskMaterial : cap.materialPath))
+            mask ? maskMaterial : usdGenUsd::PrimPath(cap.material, description)))
         .Build();
     _Add(&names, &values, TfToken("materialBindings"),
          _Container({_HydraMaterialPurpose(TfToken())}, {binding}));

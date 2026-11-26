@@ -25,6 +25,7 @@
 #include "pxr/usd/usd/schemaRegistry.h"
 
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
@@ -347,14 +348,14 @@ int main()
     usdGenImaging::UsdGenDirtyRouter router;
     {
         usdGen::UsdGenGraph routingGraph;
-        auto routingResult = routingCompiler.Compile(routingDesc, &routingGraph);
+        auto routingResult = usdGenUsd::Compile(routingCompiler, routingDesc, &routingGraph);
         Check(routingResult.ok, "routing snapshot graph compiles");
         if (!routingResult.ok) retained.reset();
         else retained = routingGraph.RoutingSnapshot();
         if (retained) {
-            Check(retained && retained->description == routingDesc.description &&
+            Check(retained && retained->description == usdGenUsd::KeyOf(routingDesc.description) &&
                   retained->nodes.size() == 1 &&
-                  retained->nodes.front().path == routingDesc.nodes.front().path &&
+                  retained->nodes.front().key == usdGenUsd::KeyOf(routingDesc.nodes.front().path) &&
                   !retained->nodes.front().paramRouting.empty(),
                   "routing snapshot owns description/node/classification data");
             router.Rebuild(*retained);
@@ -365,7 +366,7 @@ int main()
             routingDesc.description = SdfPath("/replacement");
             routingDesc.terminal = SdfPath("/replacement/source");
             routingDesc.nodes.front().path = SdfPath("/replacement/source");
-            Check(routingCompiler.Compile(routingDesc, &routingGraph).ok,
+            Check(usdGenUsd::Compile(routingCompiler, routingDesc, &routingGraph).ok,
                   "mutable graph can be recompiled after snapshot capture");
         }
     }
@@ -387,13 +388,15 @@ int main()
     // frame-value deformation. It therefore re-captures every consuming
     // surface-bound node; current primvars:normals stays intentionally out
     // of this route until a separately specified current-normal feature.
+    usdGenUsd::PathRecorder routingKeys;   // the hand-built snapshot's path table
     usdGen::UsdGenGraphRoutingSnapshot surfaceRouting;
-    surfaceRouting.description = SdfPath("/routing");
+    surfaceRouting.description = routingKeys(SdfPath("/routing"));
     surfaceRouting.terminal = 37;
-    surfaceRouting.surfacePaths = {SdfPath("/routing/surface")};
+    surfaceRouting.surfaceKeys = {routingKeys(SdfPath("/routing/surface"))};
     surfaceRouting.nodes.push_back(usdGen::UsdGenGraphRoutingNode{
-        37, SdfPath("/routing/source"), TfToken("UsdGenCurveSource"),
+        37, routingKeys(SdfPath("/routing/source")), TfToken("UsdGenCurveSource"),
         {}, {}, {}, 0, true, {}, {}});
+    surfaceRouting.host = routingKeys.Table();
     router.Rebuild(surfaceRouting);
     auto const checkRestNormalRoute = [&](TfToken const &leaf,
                                           char const *what) {

@@ -80,19 +80,20 @@ private:
     std::atomic<bool> _frozen{false};
 };
 
-/// Fills UsdGenNodeDesc::opId and UsdGenMapDesc::typeId. Compile phase.
-USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphDesc *desc);
+/// Fills UsdGenOpNode::opId and UsdGenMapInput::typeId. Compile phase.
+USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphSpec *desc);
 
 /// Generic expression admission over the record's decls. Messages (substrings tests check today):
 ///   "unsupported or incorrectly typed <displayName> expression <param>"
 ///   "<displayName> <param> requires groom evaluation"
 ///   "<displayName> <param> requires groom/primitive evaluation"
 ///   "operator <name> at <path> does not accept connected (expression) parameters"
+/// 'spec' names the node in messages (its label).
 USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &,
-    UsdGenNodeDesc const &, std::vector<std::string> *errors);
+    UsdGenOpNode const &, UsdGenGraphSpec const *spec, std::vector<std::string> *errors);
 /// The same for a node whose record is looked up (opId, else its type); an
 /// unregistered type with bindings is rejected. Compile phase.
-USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenNodeDesc const &,
-    std::vector<std::string> *errors);
+USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpNode const &,
+    UsdGenGraphSpec const *spec, std::vector<std::string> *errors);
 
 }  // namespace usdGen

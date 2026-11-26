@@ -15,7 +15,7 @@
 #define USDGEN_OP_H
 
 #include "usdGen/cpuParameters.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/token.h"
@@ -42,7 +42,7 @@ class UsdGenWorkDispatcher;  // defined in usdGen/scheduler.h
 /// descriptor, scene index, or stage object.
 struct UsdGenResolvedReferenceValue
 {
-    SdfPath path;
+    UsdGenNodeKey key;
     uint64_t curveGeneration = 0;
     uint64_t identity = 0;
     std::shared_ptr<const UsdGenReferenceSet> value;
@@ -119,8 +119,8 @@ struct UsdGenResolvedParam
 
 struct UsdGenParamView
 {
-    UsdGenGraphDesc const *desc = nullptr;
-    UsdGenNodeDesc const  *node = nullptr;
+    UsdGenGraphSpec const *desc = nullptr;
+    UsdGenOpNode const  *node = nullptr;
     /// The node's op record and its resolved slots (op->ParamCount()
     /// entries); null for views built outside the compiler.
     UsdGenOpRecord const *op = nullptr;
@@ -247,7 +247,7 @@ private:
 
 /// Compile phase: resolve node.params into out[0, rec.ParamCount()). A param
 /// binds the slot declared with exactly its name; the first one wins.
-USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDesc const &node,
+USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
                                          UsdGenResolvedParam *out);
 
 /// Stack resolution for validators that have no compiled node. Compile
@@ -255,7 +255,7 @@ USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDe
 class UsdGenStackParams
 {
 public:
-    UsdGenStackParams(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+    UsdGenStackParams(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                       UsdGenOpRecord const &rec)
     {
         UsdGenResolveParams(rec, node, _slots);
@@ -326,7 +326,7 @@ struct UsdGenOpInputs
 
 struct UsdGenCaptureContext
 {
-    UsdGenGraphDesc const *desc = nullptr;   // surfaces, maps, density scales
+    UsdGenGraphSpec const *desc = nullptr;   // surfaces, maps, density scales
     // Prior committed payload for read-only reuse during a recapture. It
     // remains owned by the node until Capture succeeds and commits.
     UsdGenCapture const *previousCapture = nullptr;
@@ -339,7 +339,7 @@ struct UsdGenCaptureContext
     // Typed slots are carried by the compiled graph.  Sampling is deliberately
     // not implemented here; legacy maps/mapCount stay available to existing
     // CPU operators until a backend consumes the purpose-aware transport.
-    UsdGenMapBindingDesc const *mapBindings = nullptr;
+    UsdGenMapBinding const *mapBindings = nullptr;
     uint32_t              mapBindingCount = 0;
     UsdGenSurfaceId        surface = 0;
     uint32_t               seed = 0;
@@ -373,14 +373,14 @@ struct UsdGenEvalContext
 {
     double time = 0.0;
     double shutterOffset = 0.0;              // 0 in P0/P1 (03 §7)
-    UsdGenGraphDesc const *desc = nullptr;   // surface points already resolved to time+offset
+    UsdGenGraphSpec const *desc = nullptr;   // surface points already resolved to time+offset
     UsdGenParamView const *params = nullptr;
     UsdGenReferenceSet const **references = nullptr;
     UsdGenResolvedReferenceValue const **resolvedReferences = nullptr;
     uint32_t              referenceCount = 0;
     UsdGenResolvedMapValue const **maps = nullptr;
     uint32_t              mapCount = 0;
-    UsdGenMapBindingDesc const *mapBindings = nullptr;
+    UsdGenMapBinding const *mapBindings = nullptr;
     uint32_t              mapBindingCount = 0;
     uint32_t seed = 0;
     // Kernels cannot append diagnostics from parallel chunk workers.  They

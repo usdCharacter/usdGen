@@ -1,4 +1,5 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
@@ -241,18 +242,18 @@ UsdGenGraphDesc GrowLengthDesc(TfToken mode, float value, bool cutExtend = false
 bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     desc.executionBackend=UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler; UsdGenGraph graph;
-    auto compiled=compiler.Compile(desc,&graph);
+    auto compiled=usdGenUsd::Compile(compiler, desc,&graph);
     if(!compiled.ok) {
         std::fprintf(stderr,"CPU oracle compile failed terminal %s\n",desc.terminal.GetText());
         return false;
     }
-    UsdGenScheduler scheduler(2); UsdGenEvalContext context; context.desc=&graph.Desc();
+    UsdGenScheduler scheduler(2); UsdGenEvalContext context; context.desc=&graph.Spec();
     auto result=scheduler.Run(graph,context,1);
     if(result.diagnostics.HasErrors()) {
         for(auto const& error:result.diagnostics.errors) std::fprintf(stderr,"CPU oracle: %s\n",error.c_str());
         return false;
     }
-    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    *output = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     return true;
 }
 
@@ -763,7 +764,7 @@ bool CheckNoNamed(std::shared_ptr<const UsdGenDeviceGeneration> const& generatio
 
 bool CudaRejected(UsdGenGraphDesc const& desc) {
     UsdGenDiagnostics diagnostics;
-    auto plan=CompileCudaGraph(desc,&diagnostics);
+    auto plan=CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
     if (plan || !diagnostics.HasErrors()) {
         std::fprintf(stderr,"invalid CUDA composition was admitted\n");
         return false;
@@ -775,11 +776,11 @@ bool CudaRejected(UsdGenGraphDesc const& desc) {
 // must instead fail the execution-time GPU proof without publishing a value.
 bool CudaNonWidthRejected(UsdGenGraphDesc const& desc) {
     UsdGenDiagnostics diagnostics;
-    auto plan=CompileCudaGraph(desc,&diagnostics);
+    auto plan=CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
     if(!plan || diagnostics.HasErrors()) return false;
     UsdGenSession session;
     session.SetDevicePublicationEnabled(true);
-    session.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(session, desc);
     auto result=session.Commit(1,UsdGenCommitReason::SetTime);
     return (!result || !result->device) && session.LastDiagnostics().HasErrors();
 }
@@ -791,12 +792,12 @@ int main() {
     auto desc=Desc(); UsdGenCurveBuffer reference; CHECK(CpuReference(desc,&reference));
     CHECK(reference.curveId==VtArray<uint64_t>({7,40})&&reference.totalCvs==8);
     CHECK(reference.rest[0][0]!=reference.px[0]);
-    UsdGenDiagnostics diagnostics; auto plan=CompileCudaGraph(desc,&diagnostics);
+    UsdGenDiagnostics diagnostics; auto plan=CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
     for(auto const& error:diagnostics.errors) std::fprintf(stderr,"%s\n",error.c_str());
     CHECK(plan&&!diagnostics.HasErrors());
     auto metadata=GetCudaExecutionPlanMetadata(*plan);
     CHECK(metadata&&metadata->Tasks().size()>=4&&metadata->Operators().size()==desc.nodes.size());
-    UsdGenSession session; session.SetDevicePublicationEnabled(true); session.SetGraphDesc(desc);
+    UsdGenSession session; session.SetDevicePublicationEnabled(true); usdGenUsd::SetGraphDesc(session, desc);
     auto first=session.Commit(1,UsdGenCommitReason::SetTime);
     for(auto const& error:session.LastDiagnostics().errors) std::fprintf(stderr,"%s\n",error.c_str());
     CHECK(first&&first->device&&!session.LastDiagnostics().HasErrors());
@@ -873,7 +874,7 @@ int main() {
     auto edited=desc;
     auto left=std::find_if(edited.nodes.begin(),edited.nodes.end(),[](auto const& node){return node.path==SdfPath("/Ops/Left");});
     CHECK(left!=edited.nodes.end()); left->params[0].value=VtValue(.6f);
-    CHECK(CpuReference(edited,&reference)); session.SetGraphDesc(edited);
+    CHECK(CpuReference(edited,&reference)); usdGenUsd::SetGraphDesc(session, edited);
     auto second=session.Commit(2,UsdGenCommitReason::SetTime);
     CHECK(second&&second->device&&!session.LastDiagnostics().HasErrors()&&CheckGeneration(second->device,reference,stream));
     auto current=gpu::AcquireGeometry(second->device,stream); CHECK(current);
@@ -900,7 +901,7 @@ int main() {
     clumpWeight.floatValues = {0.f, 1.f, 1.f, 0.f, 1.f};
     importedClumpNoise.curveSets.front().authoredPlanes.push_back(clumpWeight);
     UsdGenDiagnostics importedClumpDiagnostics;
-    CHECK(!CompileCudaGraph(importedClumpNoise, &importedClumpDiagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(importedClumpNoise), &importedClumpDiagnostics));
     CHECK(std::any_of(importedClumpDiagnostics.errors.begin(),
                       importedClumpDiagnostics.errors.end(),
         [](std::string const &error) {
@@ -910,7 +911,7 @@ int main() {
     UsdGenCurveBuffer growNoiseReference;
     CHECK(GrowNoiseReference(growNoise,&growNoiseReference));
     UsdGenDiagnostics growNoiseDiagnostics;
-    auto growNoisePlan=CompileCudaGraph(growNoise,&growNoiseDiagnostics);
+    auto growNoisePlan=CompileCudaGraph(usdGenUsd::Lower(growNoise),&growNoiseDiagnostics);
     for(auto const& error:growNoiseDiagnostics.errors)
         std::fprintf(stderr,"grow-noise compile: %s\n",error.c_str());
     CHECK(growNoisePlan&&!growNoiseDiagnostics.HasErrors());
@@ -962,7 +963,7 @@ int main() {
     UsdGenCurveBuffer resampledGrowNoiseReference;
     CHECK(GrowNoiseReference(resampledGrowNoise,&resampledGrowNoiseReference));
     growNoiseDiagnostics={};
-    auto resampledGrowNoisePlan=CompileCudaGraph(resampledGrowNoise,
+    auto resampledGrowNoisePlan=CompileCudaGraph(usdGenUsd::Lower(resampledGrowNoise),
                                                   &growNoiseDiagnostics);
     CHECK(resampledGrowNoisePlan&&!growNoiseDiagnostics.HasErrors());
     auto resampledGrowNoiseDirect=ExecuteCudaGraph(*resampledGrowNoisePlan,
@@ -975,7 +976,7 @@ int main() {
     UsdGenCurveBuffer generatedRestReference;
     CHECK(GrowNoiseReference(generatedRestGrowNoise,&generatedRestReference));
     growNoiseDiagnostics={};
-    auto generatedRestPlan=CompileCudaGraph(generatedRestGrowNoise,
+    auto generatedRestPlan=CompileCudaGraph(usdGenUsd::Lower(generatedRestGrowNoise),
                                              &growNoiseDiagnostics);
     CHECK(generatedRestPlan&&!growNoiseDiagnostics.HasErrors());
     auto generatedRestDirect=ExecuteCudaGraph(*generatedRestPlan,
@@ -984,7 +985,7 @@ int main() {
           CheckGeneration(generatedRestDirect,generatedRestReference,stream));
     UsdGenSession generatedRestSession;
     generatedRestSession.SetDevicePublicationEnabled(true);
-    generatedRestSession.SetGraphDesc(generatedRestGrowNoise);
+    usdGenUsd::SetGraphDesc(generatedRestSession, generatedRestGrowNoise);
     auto generatedRestPublished=generatedRestSession.Commit(1,
         UsdGenCommitReason::SetTime);
     CHECK(generatedRestPublished&&generatedRestPublished->device&&
@@ -1003,7 +1004,7 @@ int main() {
         UsdGenCurveBuffer expected;
         CHECK(GrowNoiseReference(resampled,&expected));
         growNoiseDiagnostics={};
-        auto resampledPlan=CompileCudaGraph(resampled,&growNoiseDiagnostics);
+        auto resampledPlan=CompileCudaGraph(usdGenUsd::Lower(resampled),&growNoiseDiagnostics);
         CHECK(resampledPlan&&!growNoiseDiagnostics.HasErrors());
         auto directResampled=ExecuteCudaGraph(*resampledPlan,*growNoiseWorkspace,
             1,154+resampleTo,&growNoiseDiagnostics);
@@ -1011,7 +1012,7 @@ int main() {
               CheckGeneration(directResampled,expected,stream));
         UsdGenSession resampledSession;
         resampledSession.SetDevicePublicationEnabled(true);
-        resampledSession.SetGraphDesc(resampled);
+        usdGenUsd::SetGraphDesc(resampledSession, resampled);
         auto publishedResampled=resampledSession.Commit(1,UsdGenCommitReason::SetTime);
         CHECK(publishedResampled&&publishedResampled->device&&
               !resampledSession.LastDiagnostics().HasErrors()&&
@@ -1021,7 +1022,7 @@ int main() {
     UsdGenCurveBuffer emptyGrowNoiseReference;
     CHECK(GrowNoiseReference(emptyGrowNoise,&emptyGrowNoiseReference));
     growNoiseDiagnostics={};
-    auto emptyGrowNoisePlan=CompileCudaGraph(emptyGrowNoise,&growNoiseDiagnostics);
+    auto emptyGrowNoisePlan=CompileCudaGraph(usdGenUsd::Lower(emptyGrowNoise),&growNoiseDiagnostics);
     CHECK(emptyGrowNoisePlan&&!growNoiseDiagnostics.HasErrors());
     auto emptyGrowNoiseDirect=ExecuteCudaGraph(*emptyGrowNoisePlan,
         *growNoiseWorkspace,1,158,&growNoiseDiagnostics);
@@ -1029,7 +1030,7 @@ int main() {
           CheckGeneration(emptyGrowNoiseDirect,emptyGrowNoiseReference,stream));
     UsdGenSession emptyGrowNoiseSession;
     emptyGrowNoiseSession.SetDevicePublicationEnabled(true);
-    emptyGrowNoiseSession.SetGraphDesc(emptyGrowNoise);
+    usdGenUsd::SetGraphDesc(emptyGrowNoiseSession, emptyGrowNoise);
     auto emptyGrowNoisePublished=emptyGrowNoiseSession.Commit(1,
         UsdGenCommitReason::SetTime);
     CHECK(emptyGrowNoisePublished&&emptyGrowNoisePublished->device&&
@@ -1038,7 +1039,7 @@ int main() {
                           emptyGrowNoiseReference,stream));
     UsdGenSession growNoiseSession;
     growNoiseSession.SetDevicePublicationEnabled(true);
-    growNoiseSession.SetGraphDesc(growNoise);
+    usdGenUsd::SetGraphDesc(growNoiseSession, growNoise);
     auto growNoisePublished=growNoiseSession.Commit(1,UsdGenCommitReason::SetTime);
     for(auto const& error:growNoiseSession.LastDiagnostics().errors)
         std::fprintf(stderr,"grow-noise session: %s\n",error.c_str());
@@ -1060,7 +1061,7 @@ int main() {
     editedNoise->params[3].value=VtValue(.16f);
     UsdGenCurveBuffer editedGrowNoiseReference;
     CHECK(GrowNoiseReference(editedGrowNoise,&editedGrowNoiseReference));
-    growNoiseSession.SetGraphDesc(editedGrowNoise);
+    usdGenUsd::SetGraphDesc(growNoiseSession, editedGrowNoise);
     auto editedGrowNoisePublished=growNoiseSession.Commit(2,UsdGenCommitReason::SetTime);
     CHECK(editedGrowNoisePublished&&editedGrowNoisePublished->device&&
           !growNoiseSession.LastDiagnostics().HasErrors()&&
@@ -1113,7 +1114,7 @@ int main() {
         UsdGenCurveBuffer expected;
         CHECK(NoiseDagReference(noiseBeforeGrow,&expected));
         UsdGenDiagnostics reorderDiagnostics;
-        auto reorderPlan=CompileCudaGraph(noiseBeforeGrow,&reorderDiagnostics);
+        auto reorderPlan=CompileCudaGraph(usdGenUsd::Lower(noiseBeforeGrow),&reorderDiagnostics);
         auto reorderWorkspace=CreateCudaExecutionWorkspace(-1,&reorderDiagnostics);
         CHECK(reorderPlan&&reorderWorkspace&&!reorderDiagnostics.HasErrors());
         auto generation=ExecuteCudaGraph(*reorderPlan,*reorderWorkspace,1,169,&reorderDiagnostics);
@@ -1148,7 +1149,7 @@ int main() {
     UsdGenCurveBuffer positiveLengthReference;
     CHECK(GrowLengthScaleReference(positiveLength,.5f,&positiveLengthReference));
     UsdGenDiagnostics positiveLengthDiagnostics;
-    auto positiveLengthPlan=CompileCudaGraph(positiveLength,&positiveLengthDiagnostics);
+    auto positiveLengthPlan=CompileCudaGraph(usdGenUsd::Lower(positiveLength),&positiveLengthDiagnostics);
     CHECK(positiveLengthPlan&&!positiveLengthDiagnostics.HasErrors());
     auto positiveLengthWorkspace=CreateCudaExecutionWorkspace(-1,&positiveLengthDiagnostics);
     CHECK(positiveLengthWorkspace);
@@ -1158,7 +1159,7 @@ int main() {
           CheckGeneration(positiveLengthDirect,positiveLengthReference,stream));
     UsdGenSession positiveLengthSession;
     positiveLengthSession.SetDevicePublicationEnabled(true);
-    positiveLengthSession.SetGraphDesc(positiveLength);
+    usdGenUsd::SetGraphDesc(positiveLengthSession, positiveLength);
     auto positiveLengthPublished=positiveLengthSession.Commit(1,UsdGenCommitReason::SetTime);
     CHECK(positiveLengthPublished&&positiveLengthPublished->device&&
           !positiveLengthSession.LastDiagnostics().HasErrors()&&
@@ -1189,14 +1190,14 @@ int main() {
     UsdGenCurveBuffer cutExtendReference;
     CHECK(GrowLengthScaleReference(cutExtend,.5f,&cutExtendReference,true));
     positiveLengthDiagnostics={};
-    auto cutExtendPlan=CompileCudaGraph(cutExtend,&positiveLengthDiagnostics);
+    auto cutExtendPlan=CompileCudaGraph(usdGenUsd::Lower(cutExtend),&positiveLengthDiagnostics);
     CHECK(cutExtendPlan&&!positiveLengthDiagnostics.HasErrors());
     auto cutExtendDirect=ExecuteCudaGraph(*cutExtendPlan,*positiveLengthWorkspace,1,172,&positiveLengthDiagnostics);
     CHECK(cutExtendDirect&&!positiveLengthDiagnostics.HasErrors()&&
           CheckGeneration(cutExtendDirect,cutExtendReference,stream));
     UsdGenSession cutExtendSession;
     cutExtendSession.SetDevicePublicationEnabled(true);
-    cutExtendSession.SetGraphDesc(cutExtend);
+    usdGenUsd::SetGraphDesc(cutExtendSession, cutExtend);
     auto cutExtendPublished=cutExtendSession.Commit(1,UsdGenCommitReason::SetTime);
     CHECK(cutExtendPublished&&cutExtendPublished->device&&
           !cutExtendSession.LastDiagnostics().HasErrors()&&
@@ -1205,7 +1206,7 @@ int main() {
     UsdGenCurveBuffer allCullReference;
     CHECK(GrowLengthScaleReference(allCull,1,&allCullReference));
     UsdGenDiagnostics allCullDiagnostics;
-    auto allCullPlan=CompileCudaGraph(allCull,&allCullDiagnostics);
+    auto allCullPlan=CompileCudaGraph(usdGenUsd::Lower(allCull),&allCullDiagnostics);
     CHECK(allCullPlan&&!allCullDiagnostics.HasErrors());
     auto allCullDirect=ExecuteCudaGraph(*allCullPlan,*positiveLengthWorkspace,1,173,&allCullDiagnostics);
     CHECK(allCullDirect&&!allCullDiagnostics.HasErrors()&&
@@ -1224,7 +1225,7 @@ int main() {
     UsdGenCurveBuffer partialReference;
     CHECK(GrowLengthScaleReference(partialCull,1,&partialReference)&&partialReference.totalCurves==1);
     UsdGenDiagnostics partialDiagnostics;
-    auto partialPlan=CompileCudaGraph(partialCull,&partialDiagnostics);
+    auto partialPlan=CompileCudaGraph(usdGenUsd::Lower(partialCull),&partialDiagnostics);
     CHECK(partialPlan&&!partialDiagnostics.HasErrors());
     auto partialDirect=ExecuteCudaGraph(*partialPlan,*positiveLengthWorkspace,1,176,&partialDiagnostics);
     CHECK(partialDirect&&!partialDiagnostics.HasErrors()&&partialDirect->Geometry().elementCount==1&&
@@ -1239,13 +1240,13 @@ int main() {
         CHECK(Read(heldLease.Geometry().points,&beforePoints,stream)&&
               Read(heldLease.Geometry().restPoints,&beforeRest,stream)&&
               Read(heldLease.Geometry().widths,&beforeWidths,stream));
-        positiveLengthSession.SetGraphDesc(partialCull);
+        usdGenUsd::SetGraphDesc(positiveLengthSession, partialCull);
         auto partial=positiveLengthSession.Commit(2,UsdGenCommitReason::SetTime);
         CHECK(partial&&partial->device&&!positiveLengthSession.LastDiagnostics().HasErrors()&&
               CheckGeneration(partial->device,partialReference,stream));
         auto partialLease=gpu::AcquireGeometry(partial->device,stream); CHECK(partialLease);
         CHECK(partialLease.Geometry().points.data!=heldLease.Geometry().points.data);
-        positiveLengthSession.SetGraphDesc(allCull);
+        usdGenUsd::SetGraphDesc(positiveLengthSession, allCull);
         auto empty=positiveLengthSession.Commit(3,UsdGenCommitReason::SetTime);
         CHECK(empty&&empty->device&&!positiveLengthSession.LastDiagnostics().HasErrors()&&
               CheckGeneration(empty->device,allCullReference,stream)&&
@@ -1274,10 +1275,10 @@ int main() {
         UsdGenCurveBuffer expected;
         CHECK(GrowLengthScaleReference(quarter,.25f,&expected));
         UsdGenDiagnostics repeatDiagnostics;
-        auto repeatPlan=CompileCudaGraph(repeated,&repeatDiagnostics);CHECK(repeatPlan&&!repeatDiagnostics.HasErrors());
+        auto repeatPlan=CompileCudaGraph(usdGenUsd::Lower(repeated),&repeatDiagnostics);CHECK(repeatPlan&&!repeatDiagnostics.HasErrors());
         auto repeatDirect=ExecuteCudaGraph(*repeatPlan,*positiveLengthWorkspace,1,180,&repeatDiagnostics);
         CHECK(repeatDirect&&!repeatDiagnostics.HasErrors()&&CheckGeneration(repeatDirect,expected,stream));
-        UsdGenSession repeatSession;repeatSession.SetDevicePublicationEnabled(true);repeatSession.SetGraphDesc(repeated);
+        UsdGenSession repeatSession;repeatSession.SetDevicePublicationEnabled(true);usdGenUsd::SetGraphDesc(repeatSession, repeated);
         auto published=repeatSession.Commit(1,UsdGenCommitReason::SetTime);
         CHECK(published&&published->device&&!repeatSession.LastDiagnostics().HasErrors()&&
               CheckGeneration(published->device,expected,stream));
@@ -1291,7 +1292,7 @@ int main() {
         UsdGenCurveBuffer resampledReference;
         CHECK(GrowLengthScaleReference(resampledLength,.5f,&resampledReference));
         UsdGenDiagnostics resampledDiagnostics;
-        auto resampledPlan=CompileCudaGraph(resampledLength,&resampledDiagnostics);
+        auto resampledPlan=CompileCudaGraph(usdGenUsd::Lower(resampledLength),&resampledDiagnostics);
         CHECK(resampledPlan&&!resampledDiagnostics.HasErrors());
         auto resampledDirect=ExecuteCudaGraph(*resampledPlan,*positiveLengthWorkspace,
             1,174+resampleTo,&resampledDiagnostics);
@@ -1299,7 +1300,7 @@ int main() {
               CheckGeneration(resampledDirect,resampledReference,stream));
         UsdGenSession resampledLengthSession;
         resampledLengthSession.SetDevicePublicationEnabled(true);
-        resampledLengthSession.SetGraphDesc(resampledLength);
+        usdGenUsd::SetGraphDesc(resampledLengthSession, resampledLength);
         auto resampledPublished=resampledLengthSession.Commit(1,UsdGenCommitReason::SetTime);
         CHECK(resampledPublished&&resampledPublished->device&&
               !resampledLengthSession.LastDiagnostics().HasErrors()&&
@@ -1355,14 +1356,14 @@ int main() {
             if(variant==2) CHECK(expected.totalCurves==1);
             if(variant==3||variant==4||variant==6) CHECK(expected.totalCurves==0);
             UsdGenDiagnostics mixedCaseDiagnostics;
-            auto mixedCasePlan=CompileCudaGraph(mixedCaseDesc,&mixedCaseDiagnostics);
+            auto mixedCasePlan=CompileCudaGraph(usdGenUsd::Lower(mixedCaseDesc),&mixedCaseDiagnostics);
             for(auto const& error:mixedCaseDiagnostics.errors) std::fprintf(stderr,"mixed compile: %s\n",error.c_str());
             CHECK(mixedCasePlan&&!mixedCaseDiagnostics.HasErrors());
             auto mixedCaseWorkspace=CreateCudaExecutionWorkspace(-1,&mixedCaseDiagnostics);CHECK(mixedCaseWorkspace);
             auto mixedCaseDirect=ExecuteCudaGraph(*mixedCasePlan,*mixedCaseWorkspace,1,300+variant,&mixedCaseDiagnostics);
             for(auto const& error:mixedCaseDiagnostics.errors) std::fprintf(stderr,"mixed execute: %s\n",error.c_str());
             CHECK(mixedCaseDirect&&!mixedCaseDiagnostics.HasErrors()&&CheckGeneration(mixedCaseDirect,expected,stream));
-            mixedCaseSession.SetGraphDesc(mixedCaseDesc);
+            usdGenUsd::SetGraphDesc(mixedCaseSession, mixedCaseDesc);
             auto published=mixedCaseSession.Commit(static_cast<double>(1+variant),UsdGenCommitReason::SetTime);
             CHECK(published&&published->device&&!mixedCaseSession.LastDiagnostics().HasErrors()&&
                   CheckGeneration(published->device,expected,stream));
@@ -1624,14 +1625,14 @@ int main() {
             bool const sourceRootContract=!TerminalUsesOperator(dagDesc,TfToken("UsdGenGrow"));
             auto const expectedBasis=sourceRootContract&&dagDesc.curveSets.front().basis==TfToken("catmullRom")
                 ? UsdGenCurveLayoutBasis::CatmullRom : UsdGenCurveLayoutBasis::BSpline;
-            auto dagPlan=CompileCudaGraph(dagDesc,&dagDiagnostics);
+            auto dagPlan=CompileCudaGraph(usdGenUsd::Lower(dagDesc),&dagDiagnostics);
             for(auto const& error:dagDiagnostics.errors) std::fprintf(stderr,"Noise DAG compile: %s\n",error.c_str());
             CHECK(dagPlan&&!dagDiagnostics.HasErrors());
             auto dagMetadata=GetCudaExecutionPlanMetadata(*dagPlan);CHECK(dagMetadata);
             CHECK(dagMetadata->Shape()==UsdGenExecutionPlanShape::SourceRootedValueDag);
             auto const& tasks=dagMetadata->Tasks();
-            auto pre=std::find_if(tasks.begin(),tasks.end(),[](auto const& task){return task.path==SdfPath("/Dag/Pre");});
-            auto noise=std::find_if(tasks.begin(),tasks.end(),[](auto const& task){return task.path==SdfPath("/Dag/Noise");});
+            auto pre=std::find_if(tasks.begin(),tasks.end(),[](auto const& task){return task.key==usdGenUsd::KeyOf(SdfPath("/Dag/Pre"));});
+            auto noise=std::find_if(tasks.begin(),tasks.end(),[](auto const& task){return task.key==usdGenUsd::KeyOf(SdfPath("/Dag/Noise"));});
             CHECK(pre!=tasks.end());
             if(noise!=tasks.end()) {
             CHECK(noise->exclusiveWorkspace);
@@ -1644,7 +1645,7 @@ int main() {
             for(auto const& error:dagDiagnostics.errors) std::fprintf(stderr,"Noise DAG execute variant=%zu terminal=%s: %s\n",variant,dagDesc.terminal.GetText(),error.c_str());
             CHECK(dagDirect&&!dagDiagnostics.HasErrors()&&CheckGeneration(dagDirect,expected,stream,sourceRootContract));
             CHECK(UsdGenCurveLayoutBasisOf(dagDirect->Geometry().layoutMetadata)==expectedBasis);
-            dagSession.SetGraphDesc(dagDesc);
+            usdGenUsd::SetGraphDesc(dagSession, dagDesc);
             auto published=dagSession.Commit(static_cast<double>(1+variant),UsdGenCommitReason::SetTime);
             if(!published||!published->device||dagSession.LastDiagnostics().HasErrors()) {
                 std::fprintf(stderr,"Noise DAG Session variant=%zu terminal=%s\n",variant,dagDesc.terminal.GetText());
@@ -1698,7 +1699,7 @@ int main() {
             UsdGenCurveBuffer growOwnerReference;
             CHECK(NoiseDagReference(growOwnerDesc,&growOwnerReference));
             UsdGenSession ownerSession; ownerSession.SetDevicePublicationEnabled(true);
-            ownerSession.SetGraphDesc(growOwnerDesc);
+            usdGenUsd::SetGraphDesc(ownerSession, growOwnerDesc);
             auto growOwner=ownerSession.Commit(200,UsdGenCommitReason::SetTime);
             CHECK(growOwner&&growOwner->device&&!ownerSession.LastDiagnostics().HasErrors()&&
                   CheckGeneration(growOwner->device,growOwnerReference,stream));
@@ -1715,7 +1716,7 @@ int main() {
             sourceSideDesc.terminal=SdfPath("/Dag/SideRawWidth");
             UsdGenCurveBuffer sourceSideReference;
             CHECK(NoiseDagReference(sourceSideDesc,&sourceSideReference));
-            ownerSession.SetGraphDesc(sourceSideDesc);
+            usdGenUsd::SetGraphDesc(ownerSession, sourceSideDesc);
             auto sourceSide=ownerSession.Commit(201,UsdGenCommitReason::SetTime);
             CHECK(sourceSide&&sourceSide->device&&!ownerSession.LastDiagnostics().HasErrors()&&
                   CheckGeneration(sourceSide->device,sourceSideReference,stream,true)&&
@@ -1724,7 +1725,7 @@ int main() {
             transformedDesc.terminal=SdfPath("/Dag/Blend");
             UsdGenCurveBuffer transformedReference;
             CHECK(NoiseDagReference(transformedDesc,&transformedReference));
-            ownerSession.SetGraphDesc(transformedDesc);
+            usdGenUsd::SetGraphDesc(ownerSession, transformedDesc);
             auto transformed=ownerSession.Commit(202,UsdGenCommitReason::SetTime);
             CHECK(transformed&&transformed->device&&!ownerSession.LastDiagnostics().HasErrors()&&
                   CheckGeneration(transformed->device,transformedReference,stream));
@@ -1786,11 +1787,11 @@ int main() {
                 chainDesc.nodes[1].inputs={pre.path};chainDesc.nodes.insert(chainDesc.nodes.begin()+1,pre);
             }
             UsdGenCurveBuffer expected;CHECK(NoiseDagReference(chainDesc,&expected));
-            dagDiagnostics={};auto chainPlan=CompileCudaGraph(chainDesc,&dagDiagnostics);CHECK(chainPlan&&!dagDiagnostics.HasErrors());
+            dagDiagnostics={};auto chainPlan=CompileCudaGraph(usdGenUsd::Lower(chainDesc),&dagDiagnostics);CHECK(chainPlan&&!dagDiagnostics.HasErrors());
             CHECK(GetCudaExecutionPlanMetadata(*chainPlan)->Shape()==UsdGenExecutionPlanShape::SourceRootedUnaryDag);
             auto chainDirect=ExecuteCudaGraph(*chainPlan,*dagWorkspace,1,550+variant,&dagDiagnostics);
             CHECK(chainDirect&&!dagDiagnostics.HasErrors()&&CheckGeneration(chainDirect,expected,stream,true));
-            dagSession.SetGraphDesc(chainDesc);auto result=dagSession.Commit(100+variant,UsdGenCommitReason::SetTime);
+            usdGenUsd::SetGraphDesc(dagSession, chainDesc);auto result=dagSession.Commit(100+variant,UsdGenCommitReason::SetTime);
             CHECK(result&&result->device&&!dagSession.LastDiagnostics().HasErrors()&&
                   CheckGeneration(result->device,expected,stream,true));
         }
@@ -1803,10 +1804,10 @@ int main() {
     auto lifted=Desc(true); UsdGenCurveBuffer liftedReference;
     CHECK(CpuReference(lifted,&liftedReference)&&liftedReference.totalCvs==8);
     UsdGenDiagnostics liftedDiagnostics;
-    auto liftedPlan=CompileCudaGraph(lifted,&liftedDiagnostics);
+    auto liftedPlan=CompileCudaGraph(usdGenUsd::Lower(lifted),&liftedDiagnostics);
     for(auto const& error:liftedDiagnostics.errors) std::fprintf(stderr,"lifted compile: %s\n",error.c_str());
     CHECK(liftedPlan&&!liftedDiagnostics.HasErrors());
-    UsdGenSession liftedSession; liftedSession.SetDevicePublicationEnabled(true); liftedSession.SetGraphDesc(lifted);
+    UsdGenSession liftedSession; liftedSession.SetDevicePublicationEnabled(true); usdGenUsd::SetGraphDesc(liftedSession, lifted);
     auto liftedSessionResult=liftedSession.Commit(3,UsdGenCommitReason::SetTime);
     for(auto const& error:liftedSession.LastDiagnostics().errors) std::fprintf(stderr,"lifted session: %s\n",error.c_str());
     CHECK(liftedSessionResult&&liftedSessionResult->device&&!liftedSession.LastDiagnostics().HasErrors());
@@ -1825,11 +1826,11 @@ int main() {
     UsdGenCurveBuffer currentOnlyReference;
     CHECK(CpuReference(currentOnly,&currentOnlyReference));
     UsdGenDiagnostics currentOnlyDiagnostics;
-    auto currentOnlyPlan=CompileCudaGraph(currentOnly,&currentOnlyDiagnostics);
+    auto currentOnlyPlan=CompileCudaGraph(usdGenUsd::Lower(currentOnly),&currentOnlyDiagnostics);
     CHECK(currentOnlyPlan&&!currentOnlyDiagnostics.HasErrors());
     UsdGenSession currentOnlySession;
     currentOnlySession.SetDevicePublicationEnabled(true);
-    currentOnlySession.SetGraphDesc(currentOnly);
+    usdGenUsd::SetGraphDesc(currentOnlySession, currentOnly);
     auto currentOnlySessionResult=currentOnlySession.Commit(4,UsdGenCommitReason::SetTime);
     CHECK(currentOnlySessionResult&&currentOnlySessionResult->device&&
           !currentOnlySession.LastDiagnostics().HasErrors()&&
@@ -1850,10 +1851,10 @@ int main() {
     CHECK(CpuReference(empty,&emptyReference)&&emptyReference.totalCurves==0&&
           emptyReference.totalCvs==0);
     UsdGenDiagnostics emptyDiagnostics;
-    auto emptyPlan=CompileCudaGraph(empty,&emptyDiagnostics);
+    auto emptyPlan=CompileCudaGraph(usdGenUsd::Lower(empty),&emptyDiagnostics);
     CHECK(emptyPlan&&!emptyDiagnostics.HasErrors());
     UsdGenSession emptySession;
-    emptySession.SetDevicePublicationEnabled(true); emptySession.SetGraphDesc(empty);
+    emptySession.SetDevicePublicationEnabled(true); usdGenUsd::SetGraphDesc(emptySession, empty);
     auto emptySessionResult=emptySession.Commit(5,UsdGenCommitReason::SetTime);
     CHECK(emptySessionResult&&emptySessionResult->device&&
           !emptySession.LastDiagnostics().HasErrors()&&
@@ -1890,13 +1891,13 @@ int main() {
                     if(param.name==TfToken("resampleTo")) param.value=VtValue(2);
             UsdGenCurveBuffer expected; CHECK(CpuReference(terminalSource,&expected));
             sourceDiagnostics={};
-            auto sourcePlan=CompileCudaGraph(terminalSource,&sourceDiagnostics);
+            auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(terminalSource),&sourceDiagnostics);
             CHECK(sourcePlan&&!sourceDiagnostics.HasErrors());
             auto sourceDirect=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1,200+variant,&sourceDiagnostics,retainedSource);
             for(auto const& error:sourceDiagnostics.errors) std::fprintf(stderr,"%s\n",error.c_str());
             CHECK(sourceDirect&&!sourceDiagnostics.HasErrors()&&CheckGeneration(sourceDirect,expected,stream,true));
             CHECK(UsdGenCurveLayoutBasisOf(sourceDirect->Geometry().layoutMetadata)==UsdGenCurveLayoutBasis::CatmullRom);
-            sourceSession.SetGraphDesc(terminalSource);
+            usdGenUsd::SetGraphDesc(sourceSession, terminalSource);
             auto published=sourceSession.Commit(1,UsdGenCommitReason::SetTime);
             for(auto const& error:sourceSession.LastDiagnostics().errors) std::fprintf(stderr,"%s\n",error.c_str());
             CHECK(published&&published->device&&!sourceSession.LastDiagnostics().HasErrors()&&

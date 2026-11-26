@@ -146,7 +146,7 @@ add_test(NAME testUsdGenEngineNoCurveBuffer
 set_tests_properties(testUsdGenEngineNoCurveBuffer PROPERTIES LABELS "T0;build;gate;gate:engine-generic")
 
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
-target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen)
+target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)
 set_tests_properties(testUsdGenWarmAllocations PROPERTIES
     LABELS "T0;perf;gate;gate:zero-alloc" RUN_SERIAL TRUE)

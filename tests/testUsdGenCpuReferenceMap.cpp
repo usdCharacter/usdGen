@@ -3,6 +3,7 @@
 // finishes before ordinary curve work regardless of Kahn tie-break order.
 
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/imagePayload.h"
@@ -81,8 +82,8 @@ public:
         gReferenceIdentity = ctx.resolvedReferences[0]->identity;
         gMapGeneration = ctx.maps[0]->textureGeneration;
         gMapIdentity = ctx.maps[0]->identity;
-        return ctx.resolvedReferences[0]->path == SdfPath("/referenceMap/guidesA") &&
-            ctx.resolvedReferences[1]->path == SdfPath("/referenceMap/guidesB") &&
+        return ctx.resolvedReferences[0]->key == usdGenUsd::KeyOf(SdfPath("/referenceMap/guidesA")) &&
+            ctx.resolvedReferences[1]->key == usdGenUsd::KeyOf(SdfPath("/referenceMap/guidesB")) &&
             ctx.references[0]->generation == gReferenceGeneration &&
             UsdGenCurveSetView::Of(*ctx.references[0]).totalCurves == 2 &&
             UsdGenCurveSetView::Of(*ctx.references[0]).totalCvs == 4 &&
@@ -219,18 +220,18 @@ void ValidateRegistryContractReuse()
     UsdGenNodeDesc source;source.path=desc.terminal;source.type=type;
     desc.nodes={source};
     UsdGenCompiler compiler;UsdGenGraph graph;
-    Check(compiler.Compile(desc,&graph).ok,"contract probe source compiles");
+    Check(usdGenUsd::Compile(compiler, desc,&graph).ok,"contract probe source compiles");
     Check(gContractConstructions==probed+1,"fresh compilation creates only the executable operator");
     auto const* oldOp=graph.Node(0).op.get();
     auto const digest=graph.Node(0).structuralDigest;
-    Check(compiler.Recompile(desc,&graph).ok&&graph.Node(0).op.get()==oldOp&&
+    Check(usdGenUsd::Recompile(compiler, desc,&graph).ok&&graph.Node(0).op.get()==oldOp&&
           graph.Node(0).structuralDigest==digest&&gContractConstructions==probed+1,
           "unchanged recompile retains operator/digest without preflight factory calls");
 
     auto invalid=desc;UsdGenNodeDesc reference;
     reference.path=SdfPath("/contract/reference");reference.type=referenceType;
     reference.inputs={source.path};invalid.nodes.push_back(reference);invalid.terminal=reference.path;
-    auto result=compiler.Recompile(invalid,&graph);
+    auto result=usdGenUsd::Recompile(compiler, invalid,&graph);
     Check(!result.ok&&!result.errors.empty()&&
           result.errors.front()=="UsdGenCompiler: node '/contract/reference' has 0 resolved reference values but its operator declares 2 reference slots",
           "cached Reference role still rejects missing reference slots exactly");
@@ -241,7 +242,7 @@ void ValidateRegistryContractReuse()
     external.role=UsdGenLane::Reference;external.curveRole=TfToken("guide");
     external.curveVertexCounts={2};external.points={{0,0,0},{0,1,0}};
     invalid.curveSets={external};invalid.nodes.back().references={external.path};
-    result=compiler.Recompile(invalid,&graph);
+    result=usdGenUsd::Recompile(compiler, invalid,&graph);
     Check(!result.ok&&!result.errors.empty()&&
           result.errors.front()=="UsdGenCompiler: node '/contract/reference' has 1 resolved reference values but its operator declares 2 reference slots"&&
           graph.NodeCount()==1&&graph.Node(0).op.get()==oldOp&&gContractConstructions==probed+1,
@@ -254,17 +255,17 @@ void ValidateRegistryContractReuse()
     map.type=TfToken("UsdGenImageMap");map.textureGeneration=1;
     mapped.maps={map};mapped.nodes[0].maps={map.path};
     UsdGenGraph mapGraph;
-    Check(compiler.Compile(mapped,&mapGraph).ok&&mapGraph.Node(0).mapValues.size()==1,
+    Check(usdGenUsd::Compile(compiler, mapped,&mapGraph).ok&&mapGraph.Node(0).mapValues.size()==1,
           "legacy map takes the nonempty external binding path");
     mapped.nodes[0].maps.clear();
-    Check(compiler.Recompile(mapped,&mapGraph).ok&&
+    Check(usdGenUsd::Recompile(compiler, mapped,&mapGraph).ok&&
           mapGraph.Node(0).mapValues.empty()&&mapGraph.Node(0).referenceValues.empty(),
           "removing the last external binding clears compiled handles");
     mapped.nodes[0].mapBindings={{map.path, TfToken("usdGen:map")}};
-    Check(compiler.Recompile(mapped,&mapGraph).ok&&mapGraph.Node(0).mapValues.size()==1,
+    Check(usdGenUsd::Recompile(compiler, mapped,&mapGraph).ok&&mapGraph.Node(0).mapValues.size()==1,
           "typed-only map still takes the nonempty external binding path");
     mapped.nodes[0].mapBindings.clear();
-    Check(compiler.Recompile(mapped,&mapGraph).ok&&mapGraph.Node(0).mapValues.empty(),
+    Check(usdGenUsd::Recompile(compiler, mapped,&mapGraph).ok&&mapGraph.Node(0).mapValues.empty(),
           "removing the last typed binding clears compiled handles");
 }
 
@@ -331,7 +332,7 @@ void RunReferenceMapLowering()
     UsdGenGraphDesc desc = Fixture();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "reference/map CPU fixture compiles");
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "reference/map CPU fixture compiles");
     Check(graph.ReferenceValues().size() == 2 && graph.MapValues().size() == 2 &&
               graph.ReferenceValues()[0].value &&
               graph.ReferenceValues()[0].curveGeneration == 17 &&
@@ -347,8 +348,8 @@ void RunReferenceMapLowering()
         }
     }
     Check(referenceNode && referenceNode->mapBindingRefs.size() == 2 &&
-              referenceNode->mapBindingRefs[0].map == SdfPath("/referenceMap/mask") &&
-              referenceNode->mapBindingRefs[1].map == SdfPath("/referenceMap/tint"),
+              referenceNode->mapBindingRefs[0].map == usdGenUsd::KeyOf(SdfPath("/referenceMap/mask")) &&
+              referenceNode->mapBindingRefs[1].map == usdGenUsd::KeyOf(SdfPath("/referenceMap/tint")),
           "compiler preserves every typed map binding in authored order");
 
     UsdGenGraphDesc legacy = Fixture();
@@ -356,7 +357,7 @@ void RunReferenceMapLowering()
     legacy.nodes[1].maps = {SdfPath("/referenceMap/mask")};
     UsdGenGraph legacyGraph;
     UsdGenCompiledNode const *legacyReferenceNode = nullptr;
-    if (compiler.Compile(legacy, &legacyGraph).ok) {
+    if (usdGenUsd::Compile(compiler, legacy, &legacyGraph).ok) {
         for (size_t i = 0; i < static_cast<size_t>(legacyGraph.NodeCount()); ++i) {
             if (legacyGraph.Node(static_cast<UsdGenNodeId>(i)).record->Name() ==
                 TfToken("UsdGenTestReferenceProbe")) {
@@ -372,7 +373,7 @@ void RunReferenceMapLowering()
 
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "CPU reference lane executes without diagnostics");
     Check(gReferenceCaptures == 1 && gCurveCaptures == 1 &&
@@ -386,16 +387,16 @@ void RunReferenceMapLowering()
 
     desc.curveSets[0].curveGeneration = 18;
     desc.curveSets[0].points[0] = GfVec3f(3, 0, 0);
-    Check(compiler.Recompile(desc, &graph).ok, "reference generation edit recompiles");
-    context.desc = &graph.Desc();
+    Check(usdGenUsd::Recompile(compiler, desc, &graph).ok, "reference generation edit recompiles");
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "reference generation edit executes");
     Check(gReferenceCaptures == 2 && gReferenceGeneration == 18,
           "reference generation participates in capture identity");
 
     desc.maps[0].textureGeneration = 10;
-    Check(compiler.Recompile(desc, &graph).ok, "map generation edit recompiles");
-    context.desc = &graph.Desc();
+    Check(usdGenUsd::Recompile(compiler, desc, &graph).ok, "map generation edit recompiles");
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 3).diagnostics.HasErrors(),
           "map generation edit executes");
     Check(gReferenceCaptures == 3 && gMapGeneration == 10,
@@ -408,21 +409,21 @@ void ValidateFailures()
     UsdGenGraph graph;
     UsdGenGraphDesc duplicate = Fixture();
     duplicate.maps.push_back(duplicate.maps.front());
-    UsdGenCompileResult result = compiler.Compile(duplicate, &graph);
+    UsdGenCompileResult result = usdGenUsd::Compile(compiler, duplicate, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("duplicate map descriptor") != std::string::npos,
           "duplicate map values fail closed deterministically");
 
     UsdGenGraphDesc duplicateReference = Fixture();
     duplicateReference.curveSets.push_back(duplicateReference.curveSets.front());
-    result = compiler.Compile(duplicateReference, &graph);
+    result = usdGenUsd::Compile(compiler, duplicateReference, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("duplicate reference curve set") != std::string::npos,
           "duplicate reference values fail closed deterministically");
 
     UsdGenGraphDesc badRestSize = Fixture();
     badRestSize.curveSets[0].rest = VtVec3fArray{GfVec3f(0, 0, 0)};
-    result = compiler.Compile(badRestSize, &graph);
+    result = usdGenUsd::Compile(compiler, badRestSize, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("inconsistent topology/value array sizes") !=
                   std::string::npos,
@@ -432,7 +433,7 @@ void ValidateFailures()
     badRestFinite.curveSets[0].rest = VtVec3fArray{
         GfVec3f(std::numeric_limits<float>::quiet_NaN(), 0, 0),
         GfVec3f(0, 1, 0), GfVec3f(1, 0, 0), GfVec3f(1, 1, 0)};
-    result = compiler.Compile(badRestFinite, &graph);
+    result = usdGenUsd::Compile(compiler, badRestFinite, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("non-finite rest points") != std::string::npos,
           "reference rest finiteness fails closed deterministically");
@@ -440,7 +441,7 @@ void ValidateFailures()
     UsdGenGraphDesc missing = Fixture();
     missing.nodes[1].references = {SdfPath("/referenceMap/missing"),
                                    SdfPath("/referenceMap/guidesB")};
-    result = compiler.Compile(missing, &graph);
+    result = usdGenUsd::Compile(compiler, missing, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("unresolved reference value") != std::string::npos,
           "missing reference value fails closed deterministically");
@@ -448,7 +449,7 @@ void ValidateFailures()
     UsdGenGraphDesc duplicateNodeReference = Fixture();
     duplicateNodeReference.nodes[1].references = {
         SdfPath("/referenceMap/guidesA"), SdfPath("/referenceMap/guidesA")};
-    result = compiler.Compile(duplicateNodeReference, &graph);
+    result = usdGenUsd::Compile(compiler, duplicateNodeReference, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("duplicate reference value") != std::string::npos,
           "duplicate node reference slots fail closed deterministically");
@@ -457,14 +458,14 @@ void ValidateFailures()
     duplicateBinding.nodes[1].mapBindings.push_back(
         duplicateBinding.nodes[1].mapBindings.front());
     duplicateBinding.nodes[1].maps.push_back(SdfPath("/referenceMap/mask"));
-    result = compiler.Compile(duplicateBinding, &graph);
+    result = usdGenUsd::Compile(compiler, duplicateBinding, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("duplicate map binding") != std::string::npos,
           "ambiguous duplicate typed map binding fails closed");
 
     UsdGenGraphDesc disagreeingLegacy = Fixture();
     disagreeingLegacy.nodes[1].maps.pop_back();
-    result = compiler.Compile(disagreeingLegacy, &graph);
+    result = usdGenUsd::Compile(compiler, disagreeingLegacy, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("ambiguous map bindings") != std::string::npos,
           "disagreeing legacy and typed map transport fails closed");
@@ -472,21 +473,21 @@ void ValidateFailures()
     UsdGenGraphDesc malformedRelationship = Fixture();
     malformedRelationship.nodes[1].mapBindings[0].relationship =
         TfToken("usdGen:guides");
-    result = compiler.Compile(malformedRelationship, &graph);
+    result = usdGenUsd::Compile(compiler, malformedRelationship, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("is not a map relationship") != std::string::npos,
           "a non-map relationship token on a map binding fails closed");
 
     UsdGenGraphDesc cuda = Fixture();
     cuda.executionBackend = UsdGenExecutionBackend::Cuda;
-    result = compiler.Compile(cuda, &graph);
+    result = usdGenUsd::Compile(compiler, cuda, &graph);
     Check(!result.ok && !result.errors.empty(),
           "CUDA reference/map fixture remains fail-closed without device transport");
 
     UsdGenGraphDesc typedCuda = Fixture();
     typedCuda.executionBackend = UsdGenExecutionBackend::Cuda;
     typedCuda.nodes[1].maps.clear();
-    result = compiler.Compile(typedCuda, &graph);
+    result = usdGenUsd::Compile(compiler, typedCuda, &graph);
     Check(!result.ok && !result.errors.empty(),
           "CUDA rejects typed-only map bindings before device transport exists");
 }
@@ -497,38 +498,38 @@ void ValidateMapIdentityAndRecompileTransaction()
     UsdGenGraph graph;
     UsdGenGraphDesc first = Fixture();
     first.maps[0].params.push_back({TfToken("bias"), VtValue(0.25f), false});
-    Check(compiler.Compile(first, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, first, &graph).ok,
           "canonical map identity fixture compiles");
     uint64_t const canonicalIdentity = graph.MapValues()[0].identity;
 
     UsdGenGraphDesc reordered = first;
     std::swap(reordered.maps[0].params[0], reordered.maps[0].params[1]);
     UsdGenGraph reorderedGraph;
-    Check(compiler.Compile(reordered, &reorderedGraph).ok &&
+    Check(usdGenUsd::Compile(compiler, reordered, &reorderedGraph).ok &&
               reorderedGraph.MapValues()[0].identity == canonicalIdentity,
           "map identity is independent of authored parameter order");
 
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 1).diagnostics.HasErrors(),
           "valid graph executes before failed recompile");
     uint64_t const savedReferenceIdentity = graph.ReferenceValues()[0].identity;
     uint64_t const savedMapIdentity = graph.MapValues()[0].identity;
-    SdfPath const savedTerminal = graph.Desc().terminal;
+    UsdGenNodeKey const savedTerminal = graph.Spec().terminal;
 
     UsdGenGraphDesc invalid = first;
     invalid.maps.push_back(invalid.maps.front());
-    UsdGenCompileResult const failed = compiler.Recompile(invalid, &graph);
+    UsdGenCompileResult const failed = usdGenUsd::Recompile(compiler, invalid, &graph);
     Check(!failed.ok && !failed.errors.empty(),
           "invalid external descriptor rejects incremental recompile");
-    Check(graph.Desc().terminal == savedTerminal &&
+    Check(graph.Spec().terminal == savedTerminal &&
               graph.ReferenceValues().size() == 2 &&
               graph.ReferenceValues()[0].identity == savedReferenceIdentity &&
               graph.MapValues().size() == 2 &&
               graph.MapValues()[0].identity == savedMapIdentity,
           "failed external recompile preserves prior graph values");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "prior graph remains executable after failed external recompile");
 }
@@ -593,17 +594,17 @@ void ValidateReferenceProducerChain()
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     UsdGenGraphDesc desc = ReferenceChainFixture();
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(compiled.ok, "reference source chain compiles");
     if (!compiled.ok) return;
 
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(), "reference source chain executes");
-    UsdGenNodeId const sourceId = graph.NodeIdForPath(SdfPath("/referenceChain/reference"));
-    UsdGenNodeId const widthId = graph.NodeIdForPath(desc.terminal);
+    UsdGenNodeId const sourceId = usdGenUsd::NodeIdForPath(graph, SdfPath("/referenceChain/reference"));
+    UsdGenNodeId const widthId = usdGenUsd::NodeIdForPath(graph, desc.terminal);
     UsdGenCurveBuffer const source = NodeBuffer(graph, sourceId);
     UsdGenCurveBuffer const output = NodeBuffer(graph, widthId);
     Check(source.totalCurves == 2 && source.totalCvs == 4 &&
@@ -637,12 +638,12 @@ void ValidateReferenceProducerChain()
     desc.curveSets[0].curveGeneration = 32;
     desc.curveSets[0].points[0] = GfVec3f(9, 8, 7);
     desc.curveSets[0].rest[0] = GfVec3f(19, 18, 17);
-    Check(compiler.Recompile(desc, &graph).ok,
+    Check(usdGenUsd::Recompile(compiler, desc, &graph).ok,
           "reference generation edit recompiles producer chain");
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
           "reference generation edit executes producer chain");
-    UsdGenNodeId const newSourceId = graph.NodeIdForPath(SdfPath("/referenceChain/reference"));
+    UsdGenNodeId const newSourceId = usdGenUsd::NodeIdForPath(graph, SdfPath("/referenceChain/reference"));
     Check(oldView.ExtraCvCount() == 1 &&
               oldView.px[0] == oldPoint && oldView.rest[0] == oldRest &&
               VtFloatArray(oldView.ExtraCv(0).f.begin(), oldView.ExtraCv(0).f.end()) == oldPlane &&
@@ -652,7 +653,7 @@ void ValidateReferenceProducerChain()
 
     UsdGenGraphDesc invalid = desc;
     invalid.nodes[1].references = {SdfPath("/referenceChain/missing")};
-    UsdGenCompileResult const failed = compiler.Recompile(invalid, &graph);
+    UsdGenCompileResult const failed = usdGenUsd::Recompile(compiler, invalid, &graph);
     Check(!failed.ok && !failed.errors.empty() &&
               failed.errors.front().find("unresolved reference value") != std::string::npos,
           "reference source rejects an unresolved input deterministically");
@@ -662,7 +663,7 @@ void ValidateReferenceProducerChain()
     UsdGenGraphDesc missingSlot = desc;
     missingSlot.nodes[1].references.clear();
     UsdGenGraph rejected;
-    UsdGenCompileResult const missing = compiler.Compile(missingSlot, &rejected);
+    UsdGenCompileResult const missing = usdGenUsd::Compile(compiler, missingSlot, &rejected);
     Check(!missing.ok && !missing.errors.empty() &&
               missing.errors.front().find("has 0 resolved reference values") != std::string::npos,
           "reference source requires exactly one resolved input");

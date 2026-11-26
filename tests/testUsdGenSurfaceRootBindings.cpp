@@ -1,4 +1,5 @@
 #include "usdGen/surfaceRootBindings.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootFrames.h"
 #include "usdGen/curveRootCapture.h"
 
@@ -14,7 +15,7 @@ static bool Near(double a, double b) { return std::abs(a-b) < 1.e-5; }
 // Most numerical fixtures express roots in the same local space as the mesh.
 static bool UsdGenBuildRestSurfaceRootBindings(UsdGenSurfaceDesc const& surface,
     VtVec3fArray const& roots, UsdGenSurfaceRootBindingResult* result, std::string* error) {
-    return usdGen::UsdGenBuildRestSurfaceRootBindings(surface,roots,surface.worldMatrix,result,error);
+    return usdGen::UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(surface),roots,surface.worldMatrix,result,error);
 }
 
 static UsdGenSurfaceDesc OneParentFace(UsdGenSurfaceDesc const& surface, size_t face)
@@ -44,7 +45,7 @@ static bool MatchesExhaustiveParents(UsdGenSurfaceDesc const& surface,
     UsdGenSurfaceRootBindingResult combined;
     if (!UsdGenBuildRestSurfaceRootBindings(surface, roots, &combined, error)) return false;
     UsdGenSurfaceRootFrameResult combinedFrames;
-    if (!UsdGenBuildRestSurfaceRootFrames(surface, combined.rootPrim, combined.rootUV,
+    if (!UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(surface), combined.rootPrim, combined.rootUV,
                                           &combinedFrames, error)) return false;
     for (size_t root = 0; root != roots.size(); ++root) {
         double bestDistance2 = std::numeric_limits<double>::infinity();
@@ -56,7 +57,7 @@ static bool MatchesExhaustiveParents(UsdGenSurfaceDesc const& surface,
             UsdGenSurfaceRootFrameResult oneFrames;
             if (!UsdGenBuildRestSurfaceRootBindings(single, {roots[root]}, &one, error) ||
                 !one.valid[0] ||
-                !UsdGenBuildRestSurfaceRootFrames(single, one.rootPrim, one.rootUV,
+                !UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(single), one.rootPrim, one.rootUV,
                                                   &oneFrames, error) || !oneFrames.valid[0])
                 continue;
             double const d2 = Distance2(oneFrames.frames[0].GetRow3(3), roots[root]);
@@ -94,7 +95,7 @@ int main() {
     CHECK(Near(result.rootUV[2][0],.5) && Near(result.rootUV[2][1],.5));
     CHECK(roots == retainedRoots && roots.cdata() == retainedRoots.cdata());
     UsdGenSurfaceRootFrameResult frames;
-    CHECK(UsdGenBuildRestSurfaceRootFrames(surface,result.rootPrim,result.rootUV,&frames,&error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(surface),result.rootPrim,result.rootUV,&frames,&error));
     CHECK(Near(frames.frames[0][3][0],.2) && Near(frames.frames[0][3][1],.3) &&
           Near(frames.frames[0][3][2],0));
 
@@ -125,7 +126,7 @@ int main() {
     // projection. Translation is not silently ignored or applied twice.
     GfMatrix4d sourceTransform(1.0);
     sourceTransform.SetTranslate(GfVec3d(10.2,20.3,32));
-    CHECK(usdGen::UsdGenBuildRestSurfaceRootBindings(duplicate,{{0,0,0}},
+    CHECK(usdGen::UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(duplicate),{{0,0,0}},
         sourceTransform,&result,&error));
     CHECK(Near(result.rootUV[0][0],.2) && Near(result.rootUV[0][1],.3));
 
@@ -173,7 +174,7 @@ int main() {
     }
     CHECK(UsdGenBuildRestSurfaceRootBindings(quad,quadRoots,&result,&error));
     CHECK(result.unresolvedCount == 0 && result.rootPrim.size() == quadRoots.size());
-    CHECK(UsdGenBuildRestSurfaceRootFrames(quad,result.rootPrim,result.rootUV,&frames,&error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(quad),result.rootPrim,result.rootUV,&frames,&error));
     for (size_t i=0; i!=quadRoots.size(); ++i) {
         CHECK(result.valid[i]);
         for (int axis=0; axis!=3; ++axis)
@@ -196,7 +197,7 @@ int main() {
         fanRoots.push_back(ngon.restPoints[fan+1]*.2f + ngon.restPoints[fan+2]*.3f);
     CHECK(UsdGenBuildRestSurfaceRootBindings(ngon,fanRoots,&result,&error));
     CHECK(result.unresolvedCount == 0);
-    CHECK(UsdGenBuildRestSurfaceRootFrames(ngon,result.rootPrim,result.rootUV,&frames,&error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(ngon),result.rootPrim,result.rootUV,&frames,&error));
     for (size_t i=0; i!=fanRoots.size(); ++i) {
         CHECK(Near(result.rootUV[i][0],double(i)+.2));
         for (int axis=0; axis!=3; ++axis)
@@ -216,27 +217,27 @@ int main() {
         curves.rest = {{.1f,.2f,0},{.1f,.2f,1},{.3f,.2f,0},{.3f,.2f,1}};
         curves.skinPrim = {0,999}; curves.skinPrimUv = {{.6f,.1f},{.9f,.9f}};
         UsdGenCurveRootCaptureResult captured;
-        CHECK(UsdGenCaptureCurveRoots(curves,&surface,TfToken("onError"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("onError"),&captured,&error));
         CHECK(captured.rebound == 1 && captured.dropped == 0 &&
               captured.rootPrim == VtIntArray({0,0}) &&
               captured.rootUV[0] == curves.skinPrimUv[0] &&
               Near(captured.rootUV[1][0],.3) && Near(captured.rootUV[1][1],.2));
         auto old = captured;
-        CHECK(UsdGenCaptureCurveRoots(curves,&surface,TfToken("always"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("always"),&captured,&error));
         CHECK(captured.rebound == 2 && captured.dropped == 0 &&
               Near(captured.rootUV[0][0],.1) && Near(captured.rootUV[0][1],.2));
         CHECK(old.rootUV[0] == GfVec2f(.6f,.1f) && curves.skinPrim[1] == 999);
-        CHECK(UsdGenCaptureCurveRoots(curves,&surface,TfToken("never"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("never"),&captured,&error));
         CHECK(captured.dropped == 1 && captured.valid[0] && !captured.valid[1] &&
               captured.rootPrim[1] == -1 && captured.dropMask[1]);
         // Failed always-rebind must not retain the previous valid flags.
-        CHECK(UsdGenCaptureCurveRoots(curves,&collapsed,TfToken("always"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(collapsed)),TfToken("always"),&captured,&error));
         CHECK(captured.dropped == 2 && captured.rebound == 0);
         curves.rootFrame.assign(2,GfMatrix4d(1.0));
         curves.skinPrim.clear(); curves.skinPrimUv.clear();
-        CHECK(UsdGenCaptureCurveRoots(curves,&surface,TfToken("never"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("never"),&captured,&error));
         CHECK(captured.dropped == 2 && !captured.valid[0] && !captured.valid[1]);
-        CHECK(UsdGenCaptureCurveRoots(curves,&surface,TfToken("onError"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("onError"),&captured,&error));
         CHECK(captured.rebound == 2 && captured.dropped == 0);
         auto transformed = surface;
         transformed.restPoints = {{0,0,0},{0,0,1},{1,-1,0}};
@@ -244,14 +245,14 @@ int main() {
         curves.curveVertexCounts = {2};
         curves.points = {{0,0,0},{0,0,1}}; curves.rest = curves.points;
         curves.rootFrame.clear(); curves.skinPrim = {0}; curves.skinPrimUv = {{.2f,.3f}};
-        CHECK(UsdGenCaptureCurveRoots(curves,&transformed,TfToken("never"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(transformed)),TfToken("never"),&captured,&error));
         CHECK(captured.valid[0] && UsdGenValidateAuthoredRootFrame(captured.frames[0]));
         CHECK(Near(captured.frames[0][2][0],1/std::sqrt(5.0)) &&
               Near(captured.frames[0][2][1],2/std::sqrt(5.0)) &&
               Near(captured.frames[0][3][0],.6) && Near(captured.frames[0][3][1],-.3) &&
               Near(captured.frames[0][3][2],.2));
         auto empty = UsdGenCurveSetDesc{};
-        CHECK(UsdGenCaptureCurveRoots(empty,nullptr,TfToken("always"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(empty),nullptr,TfToken("always"),&captured,&error));
         CHECK(captured.valid.empty() && captured.dropped == 0);
     }
     std::puts("surface root binding tests passed");

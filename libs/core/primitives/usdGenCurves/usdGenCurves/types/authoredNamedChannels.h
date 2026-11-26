@@ -2,7 +2,7 @@
 #define USDGEN_AUTHORED_NAMED_CHANNELS_H
 
 #include "curveBuffer.h"
-#include "usdGen/compile/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include <algorithm>
 #include <cmath>
@@ -40,7 +40,7 @@ inline bool AuthoredNamedChannelElements(UsdGenAuthoredPlaneDesc const& plane,
 }
 } // namespace detail
 
-inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetDesc const& source, size_t totalCurves,
+inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetInput const& source, size_t totalCurves,
     size_t totalPoints, std::string* reason = nullptr) {
     std::set<TfToken> names;
     for (UsdGenAuthoredPlaneDesc const& plane : source.authoredPlanes) {
@@ -67,7 +67,7 @@ inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetDesc const& source, size
     return true;
 }
 
-inline bool GatherAuthoredNamedChannels(UsdGenCurveSetDesc const& source,
+inline bool GatherAuthoredNamedChannels(UsdGenCurveSetInput const& source,
     std::vector<uint32_t> const& sourceOffsets, std::vector<size_t> const& canonicalCurveOrder,
     UsdGenCurveBuffer* out, std::string* reason = nullptr) {
     if (!out || sourceOffsets.size() != canonicalCurveOrder.size() + 1 ||

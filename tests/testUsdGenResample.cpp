@@ -1,6 +1,7 @@
 // UsdGenResample contracts, expression targets, and CPU cooks: uniform and
 // keepParam resampling, mask hold, length restore, and cvCount validation.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/expressions/context.h"
@@ -78,7 +79,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors)
             std::printf("  compile: %s\n", e.c_str());
@@ -86,7 +87,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors)
@@ -181,22 +182,22 @@ static void CheckExpressionTargets()
     UsdGenGraphDesc valid = ResampleDesc(curves, params);
     AddBinding(valid, "$value", TfToken("float"), FloatShape(),
                TfToken("mask"), expr::Domain::Point, VtValue(1.0f));
-    Check(compiler.Compile(valid, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, valid, &graph).ok,
           "a point-domain mask connection compiles on Resample");
     UsdGenGraphDesc groomCount = ResampleDesc(curves, params);
     AddBinding(groomCount, "4", TfToken("int"), IntShape(),
                TfToken("cvCount"), expr::Domain::Groom, VtValue(4));
-    Check(compiler.Compile(groomCount, &graph).ok,
+    Check(usdGenUsd::Compile(compiler, groomCount, &graph).ok,
           "a groom-domain cvCount connection compiles on Resample");
     UsdGenGraphDesc pointCount = ResampleDesc(curves, params);
     AddBinding(pointCount, "$index", TfToken("int"), IntShape(),
                TfToken("cvCount"), expr::Domain::Point, VtValue(4));
-    UsdGenCompileResult r = compiler.Compile(pointCount, &graph);
+    UsdGenCompileResult r = usdGenUsd::Compile(compiler, pointCount, &graph);
     Check(!r.ok, "a point-domain Resample cvCount fails closed");
     UsdGenGraphDesc foreign = ResampleDesc(curves, params);
     AddBinding(foreign, "$value", TfToken("float"), FloatShape(),
                TfToken("width"), expr::Domain::Point, VtValue(0.1f));
-    UsdGenCompileResult rf = compiler.Compile(foreign, &graph);
+    UsdGenCompileResult rf = usdGenUsd::Compile(compiler, foreign, &graph);
     bool const specific = std::any_of(
         rf.errors.begin(), rf.errors.end(), [](std::string const &message) {
             return message.find("unsupported or incorrectly typed Resample") !=

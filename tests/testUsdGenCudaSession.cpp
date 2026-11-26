@@ -1,4 +1,5 @@
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/sessionCooker.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionResources.h"
@@ -313,7 +314,7 @@ int main() {
         groom.domain = UsdGenAuthoredPlaneDomain::Groom;
         groom.floatValues = {0.25f};
         desc.curveSets.front().authoredPlanes = {point, primitive, groom};
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto first = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors() &&
@@ -333,7 +334,7 @@ int main() {
               groomValue == std::vector<float>({0.25f}));
 
         desc.curveSets.front().authoredPlanes.front().floatValues[0] = 99.f;
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second->device && second != first);
         auto secondDensity = gpu::AcquireNamedChannel(second->device, "density", consumer);
@@ -376,7 +377,7 @@ int main() {
             {TfToken("cullThreshold"), VtValue(2.f), false}};
         desc.nodes.push_back(length);
         desc.terminal = length.path;
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto compacted = session.Commit(10, UsdGenCommitReason::SetTime);
         CHECK(compacted && compacted->device &&
@@ -404,7 +405,7 @@ int main() {
               groomValue == std::vector<float>({0.25f}));
 
         desc.curveSets.front().authoredPlanes.front().floatValues[2] = 33.f;
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto revised = session.Commit(11, UsdGenCommitReason::SetTime);
         CHECK(revised && revised->device && revised != compacted);
         auto revisedDensity = gpu::AcquireNamedChannel(
@@ -440,7 +441,7 @@ int main() {
         groom.floatValues = {0.25f};
         desc.curveSets.front().authoredPlanes = {point, primitive, groom};
         auto const originalDesc = desc;
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto first = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -462,7 +463,7 @@ int main() {
               groomValue == std::vector<float>({0.25f}));
 
         desc.curveSets.front().authoredPlanes.front().floatValues[0] = 99.f;
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second->device && second != first);
         auto secondDensity = gpu::AcquireNamedChannel(second->device, "density", consumer);
@@ -474,7 +475,7 @@ int main() {
 
         desc.curveSets.front().authoredPlanes.front().floatValues[0] = 55.f;
         failNextCudaSourceRelayNamedNativeCallbackForTesting();
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == second &&
               session.LastDiagnostics().HasErrors());
         CHECK(ReadNamed(secondDensity, consumer, &density) && density.size() == 8 &&
@@ -485,7 +486,7 @@ int main() {
         // context clears residency and advances compatibility identity, so it
         // cannot republish firstOwner even though that immutable COW owner and
         // its retained consumer lease remain valid.
-        session.SetGraphDesc(originalDesc);
+        usdGenUsd::SetGraphDesc(session, originalDesc);
         auto recovered = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(recovered && recovered->device && recovered != first &&
               !session.LastDiagnostics().HasErrors() &&
@@ -503,7 +504,7 @@ int main() {
         CHECK(cudaGetDevice(&device) == cudaSuccess && device >= 0);
         UsdGenSession session(1);
         auto desc = WidthChainDesc();
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto first = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -571,7 +572,7 @@ int main() {
     {
         auto desc = ReferenceSourceWidthDesc();
         UsdGenDiagnostics diagnostics;
-        auto plan = CompileCudaGraph(desc, &diagnostics);
+        auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
         CHECK(plan && !diagnostics.HasErrors());
         auto metadata = GetCudaExecutionPlanMetadata(*plan);
         CHECK(metadata && metadata->Operators().size() == 2 &&
@@ -579,17 +580,17 @@ int main() {
         auto const& sourceTask = metadata->Tasks()[0];
         auto const& widthTask = metadata->Tasks()[1];
         CHECK(sourceTask.kind == UsdGenExecutionTaskKind::Source &&
-              sourceTask.path == desc.nodes[0].path &&
+              sourceTask.key == usdGenUsd::KeyOf(desc.nodes[0].path) &&
               sourceTask.type == TfToken("UsdGenReferenceSource") &&
               sourceTask.dependencies.empty() &&
               widthTask.kind == UsdGenExecutionTaskKind::Operator &&
-              widthTask.path == desc.nodes[1].path &&
+              widthTask.key == usdGenUsd::KeyOf(desc.nodes[1].path) &&
               widthTask.type == TfToken("UsdGenWidth") &&
               widthTask.dependencies == std::vector<uint32_t>{0} &&
               metadata->Tasks()[2].dependencies == std::vector<uint32_t>({0, 1}));
 
         UsdGenSession session(1);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto first = session.Commit(3, UsdGenCommitReason::SetTime);
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -641,7 +642,7 @@ int main() {
         // remains readable and therefore cannot observe the replacement data.
         desc.curveSets.front().curveGeneration++;
         desc.curveSets.front().points.front() = GfVec3f(9, 8, 7);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto changed = session.Commit(3, UsdGenCommitReason::SetTime);
         CHECK(changed && changed->device && changed->device->Owner() != firstOwner &&
               session.Stats().executionCacheMisses == 2);
@@ -661,7 +662,7 @@ int main() {
         auto namedPlane = ReferenceSourceWidthDesc();
         namedPlane.curveSets.front().authoredPlanes.push_back(plane);
         diagnostics = {};
-        CHECK(!CompileCudaGraph(namedPlane, &diagnostics) && diagnostics.HasErrors());
+        CHECK(!CompileCudaGraph(usdGenUsd::Lower(namedPlane), &diagnostics) && diagnostics.HasErrors());
         auto multipleReferences = ReferenceSourceWidthDesc();
         auto anotherReference = multipleReferences.curveSets.front();
         anotherReference.path = SdfPath("/Reference/Other");
@@ -669,16 +670,16 @@ int main() {
         multipleReferences.nodes.front().references.push_back(
             SdfPath("/Reference/Other"));
         diagnostics = {};
-        CHECK(!CompileCudaGraph(multipleReferences, &diagnostics) && diagnostics.HasErrors());
+        CHECK(!CompileCudaGraph(usdGenUsd::Lower(multipleReferences), &diagnostics) && diagnostics.HasErrors());
         auto mapped = ReferenceSourceWidthDesc();
         mapped.nodes.front().maps = {SdfPath("/Maps/unsupported")};
         diagnostics = {};
-        CHECK(!CompileCudaGraph(mapped, &diagnostics) && diagnostics.HasErrors());
+        CHECK(!CompileCudaGraph(usdGenUsd::Lower(mapped), &diagnostics) && diagnostics.HasErrors());
         auto topologyChanging = ReferenceSourceWidthDesc();
         topologyChanging.nodes.front().params.push_back(
             {TfToken("resampleTo"), VtValue(3), false});
         diagnostics = {};
-        CHECK(!CompileCudaGraph(topologyChanging, &diagnostics) && diagnostics.HasErrors());
+        CHECK(!CompileCudaGraph(usdGenUsd::Lower(topologyChanging), &diagnostics) && diagnostics.HasErrors());
     }
     // The topology-trunk ReferenceSource path also runs through the
     // asynchronous Session task graph. Hold the source callback at the
@@ -688,7 +689,7 @@ int main() {
     {
         auto desc = ReferenceSourceLengthWidthDesc();
         UsdGenSession session(1);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         int device = -1;
         CHECK(cudaGetDevice(&device) == cudaSuccess);
@@ -729,7 +730,7 @@ int main() {
 
         desc.curveSets.front().curveGeneration++;
         desc.curveSets.front().points.front() = GfVec3f(91, 82, 73);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         UsdGenSession::CommitRequest secondRequest;
         secondRequest.frame = 12.0;
         secondRequest.reason = UsdGenCommitReason::SetTime;
@@ -767,7 +768,7 @@ int main() {
         UsdGenSession session;
         auto uniform = SourceDesc();
         uniform.nodes.front().params.push_back({TfToken("resampleTo"), VtValue(4), false});
-        session.SetGraphDesc(uniform);
+        usdGenUsd::SetGraphDesc(session, uniform);
         session.SetDevicePublicationEnabled(true);
         auto four = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(four && four->device);
@@ -786,14 +787,14 @@ int main() {
         auto const lastGood = four;
         auto invalid = uniform;
         invalid.nodes.front().params.front().value = VtValue(1);
-        session.SetGraphDesc(invalid);
+        usdGenUsd::SetGraphDesc(session, invalid);
         CHECK(session.Commit(2, UsdGenCommitReason::SetTime) == lastGood && session.LastDiagnostics().HasErrors());
         invalid.nodes.front().params.front().value = VtValue(-2);
-        session.SetGraphDesc(invalid);
+        usdGenUsd::SetGraphDesc(session, invalid);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == lastGood && session.LastDiagnostics().HasErrors());
         auto ragged = uniform;
         ragged.nodes.front().params.front().value = VtValue(0);
-        session.SetGraphDesc(ragged);
+        usdGenUsd::SetGraphDesc(session, ragged);
         auto zero = session.Commit(4, UsdGenCommitReason::SetTime);
         CHECK(zero && zero != lastGood);
         auto zeroLease = gpu::AcquireGeometry(zero->device, consumer);
@@ -820,17 +821,17 @@ int main() {
         // frame 2 evaluates to four and must win before source validation.
         desc.nodes.front().params.push_back({TfToken("resampleTo"), VtValue(1), false});
         desc.nodes.front().expressionBindings.push_back(binding);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto ragged = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(ragged && ragged->device && ragged->device->Geometry().pointCount == 5);
         auto uniform = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(uniform && uniform != ragged && uniform->device->Geometry().pointCount == 8);
         desc.expressions[0].source = "1";
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == uniform && session.LastDiagnostics().HasErrors());
         desc.expressions[0].source = "-2";
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == uniform && session.LastDiagnostics().HasErrors());
     }
     {
@@ -850,7 +851,7 @@ int main() {
         desc.nodes.front().expressionBindings.push_back(binding);
         {
             UsdGenSession literalSession; literalSession.SetDevicePublicationEnabled(true);
-            literalSession.SetGraphDesc(desc);
+            usdGenUsd::SetGraphDesc(literalSession, desc);
             auto literalRest = literalSession.Commit(1, UsdGenCommitReason::SetTime);
             auto literalCurrent = literalSession.Commit(2, UsdGenCommitReason::SetTime);
             CHECK(literalRest && literalCurrent && literalRest->device && literalCurrent->device &&
@@ -869,7 +870,7 @@ int main() {
         resampleBinding.nativeType = TfToken("int"); resampleBinding.destinationShape = ScalarShape(expr::ScalarType::Int32);
         resampleBinding.domain = expr::Domain::Groom; resampleBinding.literal = VtValue(4);
         desc.nodes.front().expressionBindings.push_back(resampleBinding);
-        session.SetGraphDesc(desc); session.SetDevicePublicationEnabled(true);
+        usdGenUsd::SetGraphDesc(session, desc); session.SetDevicePublicationEnabled(true);
         auto rootFor91 = [](gpu::CudaGeometryLease const& lease, bool rest = false) {
             auto geometry = lease.Geometry();
             auto const* channel = rest ? geometry.restPoints.data : geometry.points.data;
@@ -909,12 +910,12 @@ int main() {
         auto badType = desc;
         badType.nodes.front().expressionBindings[0].nativeType = TfToken("float");
         badType.nodes.front().expressionBindings[0].destinationShape = ScalarShape(expr::ScalarType::Float32);
-        session.SetGraphDesc(badType);
+        usdGenUsd::SetGraphDesc(session, badType);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == currentGeneration && session.LastDiagnostics().HasErrors());
         for (expr::Domain domain : {expr::Domain::Primitive, expr::Domain::Point}) {
             auto badDomain = desc;
             badDomain.nodes.front().expressionBindings[0].domain = domain;
-            session.SetGraphDesc(badDomain);
+            usdGenUsd::SetGraphDesc(session, badDomain);
             CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == currentGeneration && session.LastDiagnostics().HasErrors());
         }
     }
@@ -928,7 +929,7 @@ int main() {
         UsdGenSession::CommitRequest enable;
         enable.frame = 101.0;
         enable.reason = UsdGenCommitReason::SetTime;
-        enable.desc = desc;
+        enable.spec = desc ? usdGenUsd::LowerShared(*desc) : nullptr;
         enable.devicePublication = true;
         auto first = SubmitRequest(session, std::move(enable));
         CHECK(first->accepted && WaitFor(*first));
@@ -986,7 +987,7 @@ int main() {
     {
         UsdGenSession session;
         auto desc = SourceDesc();
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         CHECK(!session.Commit(1, UsdGenCommitReason::SetTime));
         CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
         session.SetDevicePublicationEnabled(true);
@@ -997,7 +998,7 @@ int main() {
         CHECK(!first->device->Geometry().alreadyDeformed);
         CHECK(first->tiles.empty() && first->guides.empty() && first->instancers.empty());
         CHECK(!session.LastDiagnostics().HasErrors() && !session.LastDiagnostics().warnings.empty());
-        CHECK(session.Graph().Desc().executionBackend == UsdGenExecutionBackend::Cuda);
+        CHECK(session.Graph().Spec().executionBackend == UsdGenExecutionBackend::Cuda);
         retained = gpu::AcquireGeometry(first->device, consumer);
         CHECK(retained && retained.Geometry().pointCount == 5);
         oldOwner = first->device->Owner();
@@ -1021,7 +1022,7 @@ int main() {
         CHECK(offsets == std::vector<uint32_t>({0,3,5}) && ids == std::vector<uint64_t>({37,91}));
 
         desc.curveSets[0].points[2] = GfVec3f(50,0,0);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second->device && second->id == 1 && second->device != first->device);
         first.reset();
@@ -1037,7 +1038,7 @@ int main() {
         }
         auto malformed = desc;
         malformed.curveSets[0].skinPrim[0] = 900;
-        session.SetGraphDesc(malformed);
+        usdGenUsd::SetGraphDesc(session, malformed);
         auto repaired = session.Commit(3, UsdGenCommitReason::SetTime);
         CHECK(repaired && repaired != second && repaired->device &&
               !session.LastDiagnostics().HasErrors());
@@ -1054,44 +1055,44 @@ int main() {
         second = repaired; // Subsequent malformed inputs retain this last-good capture.
         malformed = desc;
         malformed.curveSets[0].restFromCurrentPoints = true;
-        session.SetGraphDesc(malformed);
+        usdGenUsd::SetGraphDesc(session, malformed);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
         malformed = desc;
         malformed.curveSets[0].points.pop_back();
-        session.SetGraphDesc(malformed);
+        usdGenUsd::SetGraphDesc(session, malformed);
         CHECK(session.Commit(3, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == second);
         auto linear = desc;
         linear.curveSets[0].type = TfToken("linear");
-        session.SetGraphDesc(linear);
+        usdGenUsd::SetGraphDesc(session, linear);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
         auto varying = desc;
         varying.curveSets[0].widths = {.2f};
         varying.curveSets[0].widthsInterpolation = TfToken("varying");
-        session.SetGraphDesc(varying);
+        usdGenUsd::SetGraphDesc(session, varying);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
         auto unsupported = desc;
         unsupported.nodes[0].params.push_back({TfToken("useRest"), VtValue(std::string("false")), false});
-        session.SetGraphDesc(unsupported);
+        usdGenUsd::SetGraphDesc(session, unsupported);
         CHECK(session.Commit(5, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
         unsupported = desc;
         unsupported.nodes[0].type = TfToken("UsdGenNoise");
-        session.SetGraphDesc(unsupported);
+        usdGenUsd::SetGraphDesc(session, unsupported);
         CHECK(session.Commit(5, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(false);
         CHECK(session.Commit(6, UsdGenCommitReason::SetTime) == second);
         CHECK(session.LastDiagnostics().HasErrors());
         auto cache = desc;
         cache.nodes[0].params.push_back({TfToken("useRest"), VtValue(false), false});
         cache.curveSets[0].rest.clear();
-        session.SetGraphDesc(cache);
+        usdGenUsd::SetGraphDesc(session, cache);
         session.SetDevicePublicationEnabled(true);
         auto cacheGeneration = session.Commit(7, UsdGenCommitReason::SetTime);
         CHECK(cacheGeneration && cacheGeneration->id == second->id + 1 &&
@@ -1101,7 +1102,7 @@ int main() {
         emptyCurves.curveVertexCounts.clear(); emptyCurves.points.clear();
         emptyCurves.rest.clear(); emptyCurves.curveId.clear();
         emptyCurves.skinPrim.clear(); emptyCurves.skinPrimUv.clear();
-        session.SetGraphDesc(empty);
+        usdGenUsd::SetGraphDesc(session, empty);
         auto emptyGeneration = session.Commit(8, UsdGenCommitReason::SetTime);
         CHECK(emptyGeneration && emptyGeneration->id == cacheGeneration->id + 1 && emptyGeneration->device);
         auto emptyLease = gpu::AcquireGeometry(emptyGeneration->device, consumer);
@@ -1119,7 +1120,7 @@ int main() {
     {
         UsdGenSession session(1);
         auto desc = ImageWidthDesc();
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         UsdGenSession::CommitRequest request;
         request.frame = 1;
@@ -1149,7 +1150,7 @@ int main() {
         desc.maps.front().imagePayload = UsdGenImagePayload::Create(
             1, 1, 1, std::vector<float>{.25f},
             UsdGenImageRowOrientation::BottomUp);
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         request = {};
         request.frame = 1;
         request.reason = UsdGenCommitReason::SetTime;
@@ -1185,7 +1186,7 @@ int main() {
     {
         UsdGenSession session;
         auto desc = WidthChainDesc();
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         session.SetDevicePublicationEnabled(true);
         auto first = session.Commit(1, UsdGenCommitReason::SetTime);
         if (!first) for (auto const& error : session.LastDiagnostics().errors)
@@ -1250,21 +1251,21 @@ int main() {
         auto lastGood = third;
         auto malformed = desc;
         malformed.expressions[0].source = "$frame +";
-        session.SetGraphDesc(malformed);
+        usdGenUsd::SetGraphDesc(session, malformed);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
         CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
         CHECK(session.Graph().CudaPlan().get() == plan);
 
         auto runtimeBad = desc;
         runtimeBad.expressions[0].source = "$frame / ($frame - 4)";
-        session.SetGraphDesc(runtimeBad);
+        usdGenUsd::SetGraphDesc(session, runtimeBad);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
         CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
         // Compilation succeeded, so Graph()/CudaPlan() may now describe the
         // attempted program even though publication correctly retained the
         // last-good generation.
 
-        session.SetGraphDesc(desc);
+        usdGenUsd::SetGraphDesc(session, desc);
         auto recovered = session.Commit(5, UsdGenCommitReason::SetTime);
         CHECK(recovered && recovered->device && recovered != lastGood && recovered->frame == 5);
 
@@ -1279,7 +1280,7 @@ int main() {
         curves.curveId.clear();
         curves.skinPrim.clear();
         curves.skinPrimUv.clear();
-        session.SetGraphDesc(empty);
+        usdGenUsd::SetGraphDesc(session, empty);
         auto emptyGeneration = session.Commit(6, UsdGenCommitReason::SetTime);
         for (auto const& error : session.LastDiagnostics().errors)
             std::fprintf(stderr, "%s\n", error.c_str());
@@ -1311,7 +1312,7 @@ int main() {
         UsdGenSessionCooker cooker(2, 64u * 1024u * 1024u, cacheDomain);
         auto cudaDesc = std::make_shared<const UsdGenGraphDesc>(WidthChainDesc());
         auto first = cooker.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 1.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 1.0,
             UsdGenCommitReason::SetTime, {}, {}, false, 0, 1, device);
         auto firstCandidate = cooker.TakeCacheCandidate();
         CHECK(first && first->device && first->id == 0 &&
@@ -1358,7 +1359,7 @@ int main() {
                   revision->ExclusiveRetainedBytes());
 
         auto second = cooker.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 1.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 1.0,
             UsdGenCommitReason::SetTime, first, afterAdmission, false, 1, 2, device);
         CHECK(second && second != first && second->device && second->id == 1 &&
               second->device->Identity().generation == 1 &&
@@ -1372,7 +1373,7 @@ int main() {
         CHECK(!cooker.CommitCacheCandidate(*firstCandidate));
 
         auto frameMiss = cooker.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 2.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 2.0,
             UsdGenCommitReason::SetTime, second, {}, false, 2, 3, device);
         auto frameCandidate = cooker.TakeCacheCandidate();
         CHECK(frameMiss && frameMiss != second && frameMiss->device &&
@@ -1385,7 +1386,7 @@ int main() {
         auto changedDesc = std::make_shared<const UsdGenGraphDesc>(
             std::move(changed));
         auto parameterMiss = cooker.Cook(
-            changedDesc, UsdGenContext::Interactive, true, {}, 2.0,
+            usdGenUsd::LowerShared(*changedDesc), UsdGenContext::Interactive, true, {}, 2.0,
             UsdGenCommitReason::SetTime, frameMiss, {}, false, 3, 4, device);
         auto parameterCandidate = cooker.TakeCacheCandidate();
         CHECK(parameterMiss && parameterMiss != frameMiss &&
@@ -1418,7 +1419,7 @@ int main() {
         UsdGenSessionCooker follower(2, 64u * 1024u * 1024u, sharedDomain);
 
         auto first = leader.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 7.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 7.0,
             UsdGenCommitReason::SetTime, {}, {}, false, 0, 1, device);
         auto firstCandidate = leader.TakeCacheCandidate();
         CHECK(first && first->device && firstCandidate &&
@@ -1427,7 +1428,7 @@ int main() {
         auto const firstOwner = first->device->Owner();
 
         auto reused = follower.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 7.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 7.0,
             UsdGenCommitReason::SetTime, {}, {}, false, 0, 1, device);
         CHECK(reused && reused != first && reused->device &&
               reused->device != first->device &&
@@ -1448,7 +1449,7 @@ int main() {
         // must clear residency first and the stale candidate must not seed it
         // again, even though its producer generation remains current locally.
         auto pending = leader.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 8.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 8.0,
             UsdGenCommitReason::SetTime, first, leader.Stats(), false, 1, 2,
             device);
         auto staleCandidate = leader.TakeCacheCandidate();
@@ -1465,7 +1466,7 @@ int main() {
               retainedPoint.z == oldPoint.z);
 
         auto recovered = follower.Cook(
-            cudaDesc, UsdGenContext::Interactive, true, {}, 7.0,
+            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 7.0,
             UsdGenCommitReason::SetTime, reused, follower.Stats(), false, 1, 2,
             device);
         auto recoveredLease = recovered && recovered->device
@@ -1489,11 +1490,11 @@ int main() {
             UsdGenExecutionCacheDomainKey{
                 UsdGenDeviceBackend::Cuda, device, 0},
             64u * 1024u * 1024u);
-        auto sharedDesc = std::make_shared<const UsdGenGraphDesc>(WidthChainDesc());
+        auto sharedDesc = usdGenUsd::LowerShared(WidthChainDesc());
         UsdGenSession leader(2, 4096, sharedDomain);
         UsdGenSession follower(2, 4096, sharedDomain);
         UsdGenSession::CommitRequest leaderRequest;
-        leaderRequest.desc = sharedDesc;
+        leaderRequest.spec = sharedDesc;
         leaderRequest.devicePublication = true;
         leaderRequest.callerDevice = device;
         leaderRequest.frame = 17.0;
@@ -1528,13 +1529,13 @@ int main() {
             UsdGenExecutionCacheDomainKey{
                 UsdGenDeviceBackend::Cuda, device, 0},
             64u * 1024u * 1024u);
-        auto shutdownDesc = std::make_shared<const UsdGenGraphDesc>(WidthChainDesc());
+        auto shutdownDesc = usdGenUsd::LowerShared(WidthChainDesc());
         UsdGenSession leader(2, 4096, shutdownDomain);
         std::atomic<bool> followerCallback{false};
         armCudaSourceAsyncCallbackGateForTesting();
         SourceCallbackGateRelease releaseGate{true};
         UsdGenSession::CommitRequest leaderRequest;
-        leaderRequest.desc = shutdownDesc;
+        leaderRequest.spec = shutdownDesc;
         leaderRequest.devicePublication = true;
         leaderRequest.callerDevice = device;
         leaderRequest.frame = 18.0;
@@ -1544,7 +1545,7 @@ int main() {
         {
             UsdGenSession follower(2, 4096, shutdownDomain);
             UsdGenSession::CommitRequest request;
-            request.desc = shutdownDesc;
+            request.spec = shutdownDesc;
             request.devicePublication = true;
             request.callerDevice = device;
             request.frame = 18.0;

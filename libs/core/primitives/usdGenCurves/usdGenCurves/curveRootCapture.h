@@ -4,7 +4,7 @@
 #ifndef USDGEN_CURVE_ROOT_CAPTURE_H
 #define USDGEN_CURVE_ROOT_CAPTURE_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include <cstdint>
 #include <memory>
@@ -47,8 +47,8 @@ struct UsdGenCurveRootCaptureResult
 /// Per-root unresolved binding and geometric degeneracy are successful,
 /// explicit drop entries; no unresolved root is assigned face zero.
 bool UsdGenCaptureCurveRoots(
-    UsdGenCurveSetDesc const &source,
-    UsdGenSurfaceDesc const *surface,
+    UsdGenCurveSetInput const &source,
+    UsdGenSurfaceInput const *surface,
     TfToken rebind,
     UsdGenCurveRootCaptureResult *out,
     std::string *error = nullptr,

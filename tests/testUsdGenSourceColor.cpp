@@ -18,6 +18,7 @@
 // machinery that carries it through the graph, and the cooker's precedence.
 
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/base/gf/vec3f.h"

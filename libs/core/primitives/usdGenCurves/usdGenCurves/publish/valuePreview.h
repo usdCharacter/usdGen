@@ -20,13 +20,13 @@
 
 #include "usdGen/cpuParameters.h"
 #include "usdGen/curveBuffer.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
+#include "usdGen/api/primRef.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/tf/token.h"
-#include "pxr/usd/sdf/path.h"
 
 #include <cstdint>
 #include <string>
@@ -57,10 +57,10 @@ GfVec3f UsdGenPreviewColor(TfToken const &colorMap, GfVec2f const &range,
 /// The colour of a strand the source has no value for.
 GfVec3f UsdGenPreviewMissingColor();
 
+/// The synthetic material a previewing description's tiles bind:
 /// <description>/__usdGenRender/material_preview (lit) or
-/// material_preview_flat: the synthetic material a previewing description's
-/// tiles bind (served by UsdGenGroomSceneIndex).
-SdfPath UsdGenPreviewMaterialPath(SdfPath const &description, TfToken const &shading);
+/// material_preview_flat (served by UsdGenGroomSceneIndex; usdGenUsd names it).
+UsdGenPublishRole UsdGenPreviewMaterialRole(TfToken const &shading);
 
 class UsdGenValuePreview
 {
@@ -68,23 +68,23 @@ public:
     /// Resolves desc.preview against the compiled graph and colours
     /// `terminal`. Returns an inactive result when nothing is previewed. A new
     /// warning is appended to `warnings`; a repeat of the last one is not.
-    UsdGenPreviewColors Build(UsdGenGraphDesc const &desc, UsdGenGraph const &graph,
+    UsdGenPreviewColors Build(UsdGenGraphSpec const &desc, UsdGenGraph const &graph,
                               UsdGenCurveSetView const &terminal, double frame,
                               std::vector<std::string> *warnings);
 
 private:
     struct Values;
-    bool FromExpression(UsdGenGraphDesc const &desc, UsdGenCurveSetView const &terminal,
+    bool FromExpression(UsdGenGraphSpec const &desc, UsdGenCurveSetView const &terminal,
                         double frame, Values *values, std::string *warning);
-    bool FromMap(UsdGenGraphDesc const &desc, UsdGenCurveSetView const &terminal,
+    bool FromMap(UsdGenGraphSpec const &desc, UsdGenCurveSetView const &terminal,
                  double frame, Values *values, std::string *warning);
-    bool FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph const &graph,
+    bool FromAttribute(UsdGenGraphSpec const &desc, UsdGenGraph const &graph,
                        Values *values, std::string *warning);
-    bool Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+    bool Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                   UsdGenCurveSetView const &terminal, double frame, std::string *warning);
 
     UsdGenCpuParameters _parameters;   // expression and map previews
-    UsdGenGraphDesc _mapDesc;          // the private ptex("map") expression's world
+    UsdGenGraphSpec _mapDesc;          // the private ptex("map") expression's world
     std::vector<double> _scratch;
     std::string _lastWarning;
 };

@@ -1,4 +1,5 @@
 #include "usdGen/executionTaskGraph.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/session.h"
@@ -210,7 +211,7 @@ int main() {
     // external task holds before either Session destructor drains accepted work.
     UsdGenSession a(1), b(1); ReleaseHeldRoots releaseOnExit{roots};
     CHECK(HoldDispatcher(graph, roots));
-    a.SetGraphDesc(Desc()); b.SetGraphDesc(Desc()); a.SetDevicePublicationEnabled(true); b.SetDevicePublicationEnabled(true);
+    usdGenUsd::SetGraphDesc(a, Desc()); usdGenUsd::SetGraphDesc(b, Desc()); a.SetDevicePublicationEnabled(true); b.SetDevicePublicationEnabled(true);
     UsdGenSession::CommitRequest requestA; requestA.frame = 1; requestA.reason = UsdGenCommitReason::SetTime;
     UsdGenSession::CommitRequest requestB; requestB.frame = 2; requestB.reason = UsdGenCommitReason::SetTime;
     auto firstA = Submit(a, std::move(requestA)), firstB = Submit(b, std::move(requestB));
@@ -236,7 +237,7 @@ int main() {
     // source-rooted Width siblings become ready together; publication remains
     // held until the metadata join completes and selects the declared terminal.
     UsdGenSession dagSession(1);
-    dagSession.SetGraphDesc(WidthDagDesc());
+    usdGenUsd::SetGraphDesc(dagSession, WidthDagDesc());
     dagSession.SetDevicePublicationEnabled(true);
     armCudaOperatorAsyncWidthBranchGateForTesting(2);
     ReleaseWidthBranches releaseWidthBranches;
@@ -312,7 +313,7 @@ int main() {
         // native source-control phase instead of replaying the first result.
         request.frame=1.0 + 0.125 * sourceControlGateIndex++;
         request.reason=UsdGenCommitReason::SetTime;
-        request.desc=std::make_shared<UsdGenGraphDesc>(controlsDesc);
+        request.spec = usdGenUsd::LowerShared(controlsDesc);
         gate.arm(); ReleaseOperatorGate release{gate.release}; auto heldControl=Submit(a,std::move(request)); CHECK(heldControl);
         gate.wait(); std::atomic<bool> probeDone{false};
         CHECK(cpuProbe.Submit([&](auto const&) { probeDone.store(true,std::memory_order_release); return UsdGenExecutionPipeline::Publish{}; }));
@@ -330,7 +331,7 @@ int main() {
         if (expression.path==SdfPath("/SessionSourceResample")) expression.source="$frame / 0";
     auto const controlsLastGood=a.Snapshot(); UsdGenSession::CommitRequest invalidControlRequest;
     invalidControlRequest.frame=1; invalidControlRequest.reason=UsdGenCommitReason::SetTime;
-    invalidControlRequest.desc=std::make_shared<UsdGenGraphDesc>(std::move(invalidControls));
+    invalidControlRequest.spec = usdGenUsd::LowerShared(std::move(invalidControls));
     auto invalidControl=Submit(a,std::move(invalidControlRequest)); CHECK(invalidControl && Wait(invalidControl->done));
     CHECK(invalidControl->calls==1 && invalidControl->outcome==UsdGenExecutionPipeline::Outcome::Failed &&
           invalidControl->snapshot && invalidControl->snapshot->generation==controlsLastGood->generation &&
@@ -338,7 +339,7 @@ int main() {
           invalidControl->snapshot->diagnostics.HasErrors() && a.NeedsCommit() && cudaSourceRelayOccupiedCountForTesting()==0);
     UsdGenSession::CommitRequest controlRetryRequest;
     controlRetryRequest.frame=1; controlRetryRequest.reason=UsdGenCommitReason::SetTime;
-    controlRetryRequest.desc=std::make_shared<UsdGenGraphDesc>(controlsDesc);
+    controlRetryRequest.spec = usdGenUsd::LowerShared(controlsDesc);
     auto controlRetry=Submit(a,std::move(controlRetryRequest)); CHECK(controlRetry && Wait(controlRetry->done));
     CHECK(controlRetry->calls==1 && controlRetry->outcome==UsdGenExecutionPipeline::Outcome::Published &&
           controlRetry->snapshot->generation!=controlsLastGood->generation && !a.NeedsCommit());
@@ -350,7 +351,7 @@ int main() {
     ReleaseResampleGate releaseResampleGate;
     UsdGenSession::CommitRequest heldResampleRequest;
     heldResampleRequest.frame = 2.75; heldResampleRequest.reason = UsdGenCommitReason::SetTime;
-    heldResampleRequest.desc = std::make_shared<UsdGenGraphDesc>(std::move(resampleDesc));
+    heldResampleRequest.spec = usdGenUsd::LowerShared(std::move(resampleDesc));
     auto heldResample = Submit(a, std::move(heldResampleRequest)); CHECK(heldResample);
     waitCudaSourceAsyncResampleCallbackGateForTesting();
     std::atomic<bool> resampleProbeDone{false};
@@ -567,7 +568,7 @@ int main() {
     nonFiniteBinding.domain = expr::Domain::Point; nonFiniteBinding.literal = VtValue(.03f);
     malformedDesc.nodes[2].expressionBindings.push_back(nonFiniteBinding);
     UsdGenSession::CommitRequest badRequest; badRequest.frame = 5; badRequest.reason = UsdGenCommitReason::SetTime;
-    badRequest.desc = std::make_shared<UsdGenGraphDesc>(std::move(malformedDesc));
+    badRequest.spec = usdGenUsd::LowerShared(std::move(malformedDesc));
     roots = std::make_shared<HeldRoots>(); releaseOnExit.roots = roots;
     CHECK(HoldDispatcher(graph, roots));
     auto bad = Submit(a, std::move(badRequest));
@@ -582,7 +583,7 @@ int main() {
     CHECK(bad->snapshot->report.tiles.empty() && !bad->snapshot->report.surfaceXformDirty &&
           bad->snapshot->diagnostics.HasErrors() && a.NeedsCommit());
     UsdGenSession::CommitRequest retryRequest; retryRequest.frame = 6; retryRequest.reason = UsdGenCommitReason::SetTime;
-    retryRequest.desc = std::make_shared<UsdGenGraphDesc>(Desc());
+    retryRequest.spec = usdGenUsd::LowerShared(Desc());
     auto retry = Submit(a, std::move(retryRequest)); CHECK(retry && Wait(retry->done) && retry->calls == 1);
     CHECK(retry->outcome == UsdGenExecutionPipeline::Outcome::Published);
     CHECK(retry->snapshot && retry->snapshot->generation != beforeBad->generation);

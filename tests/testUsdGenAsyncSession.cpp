@@ -3,6 +3,7 @@
 // separation observable without a timing-dependent sleep.
 
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/session.h"
@@ -240,7 +241,7 @@ int main()
     for (unsigned i = 0; i != 8; ++i) {
         coldStarts.emplace_back([&, i] {
             UsdGenSession cold;
-            cold.SetGraphDesc(coldDesc);
+            usdGenUsd::SetGraphDesc(cold, coldDesc);
             auto snapshot = cold.CommitSnapshot(i, UsdGenCommitReason::NoticeBatchEnd);
             if (snapshot && snapshot->generation && !snapshot->diagnostics.HasErrors())
                 coldSuccess.fetch_add(1, std::memory_order_relaxed);
@@ -254,7 +255,7 @@ int main()
     // succeeds, even though a worker delivered an immutable provisional tile.
     {
         UsdGenSession progressive(4);
-        progressive.SetGraphDesc(MakeProgressDesc());
+        usdGenUsd::SetGraphDesc(progressive, MakeProgressDesc());
         HoldTileState::entered.store(false, std::memory_order_release);
         HoldTileState::release.store(false, std::memory_order_release);
         HoldTileState::fail.store(false, std::memory_order_release);
@@ -298,7 +299,7 @@ int main()
         for (auto& node : animated.nodes)
             if (node.type == TfToken("UsdGenWidth"))
                 node.params.front().value = VtValue(0.04f);
-        progressive.SetGraphDesc(animated);
+        usdGenUsd::SetGraphDesc(progressive, animated);
         std::atomic<unsigned> playbackTiles{0};
         terminal.store(false, std::memory_order_release);
         UsdGenSession::CommitRequest playback;
@@ -317,7 +318,7 @@ int main()
     }
     {
         UsdGenSession progressive(4);
-        progressive.SetGraphDesc(MakeProgressDesc());
+        usdGenUsd::SetGraphDesc(progressive, MakeProgressDesc());
         HoldTileState::entered.store(false, std::memory_order_release);
         HoldTileState::release.store(false, std::memory_order_release);
         HoldTileState::fail.store(true, std::memory_order_release);
@@ -347,7 +348,7 @@ int main()
     }
     {
         UsdGenSession progressive(4);
-        progressive.SetGraphDesc(MakeProgressDesc());
+        usdGenUsd::SetGraphDesc(progressive, MakeProgressDesc());
         HoldTileState::entered.store(false, std::memory_order_release);
         HoldTileState::release.store(false, std::memory_order_release);
         std::atomic<bool> firstTile{false}, oldTerminal{false}, newTerminal{false};
@@ -371,7 +372,7 @@ int main()
         auto replacement = MakeProgressDesc();
         replacement.nodes[3].params[0] =
             {TfToken("width"), VtValue(0.03f), false};
-        progressive.SetGraphDesc(replacement);
+        usdGenUsd::SetGraphDesc(progressive, replacement);
         UsdGenSession::CommitRequest newRequest;
         newRequest.frame = 4.0;
         Check(progressive.CommitAsync(std::move(newRequest),
@@ -402,7 +403,7 @@ int main()
     UsdGenSession::SnapshotPtr latestSnapshot;
     UsdGenSession session(4);
     UsdGenGraphDesc baselineDesc = MakeDesc(0.02f);
-    session.SetGraphDesc(baselineDesc);
+    usdGenUsd::SetGraphDesc(session, baselineDesc);
     auto baseline = session.CommitSnapshot(0.0, UsdGenCommitReason::NoticeBatchEnd);
     Check(baseline && baseline->generation && baseline->generation->id == 0,
           "initial scheduled snapshot publishes generation zero");
@@ -425,7 +426,7 @@ int main()
     HoldCaptureState::epoch.fetch_add(1, std::memory_order_acq_rel);
     UsdGenGraphDesc firstEdit = MakeDesc(0.03f);
     UsdGenGraphDesc latestEdit = MakeDesc(0.07f);
-    session.SetGraphDesc(firstEdit);
+    usdGenUsd::SetGraphDesc(session, firstEdit);
     Check(true, "first edit owner command accepted");
     bool firstSubmitted = session.CommitAsync(1.0, UsdGenCommitReason::NoticeBatchEnd,
         [&](UsdGenSession::SnapshotPtr, UsdGenExecutionPipeline::Outcome outcome) {
@@ -445,7 +446,7 @@ int main()
     }
     // SetGraphDesc is the short owner operation and must complete while the
     // worker remains held in Capture.
-    session.SetGraphDesc(latestEdit);
+    usdGenUsd::SetGraphDesc(session, latestEdit);
     Check(true, "latest same-path descriptor accepted while worker is blocked");
     bool latestSubmitted = session.CommitAsync(2.0, UsdGenCommitReason::NoticeBatchEnd,
         [&](UsdGenSession::SnapshotPtr snapshot,
@@ -472,7 +473,7 @@ int main()
               latestSnapshot->generation->id == baseline->generation->id + 1 &&
               latestSnapshot->generation->frame == 2.0,
           "latest descriptor publishes exactly next generation and frame");
-    Check(latestSnapshot && latestSnapshot->graphInfo.Desc().nodes.back().params.front().value ==
+    Check(latestSnapshot && latestSnapshot->graphInfo.Spec().nodes.back().params.front().value ==
               VtValue(0.07f),
           "published snapshot contains newest same-path descriptor");
     bool hasWidthGeometry = false;
@@ -488,7 +489,7 @@ int main()
           "latest publication contains evaluated Width geometry");
     Check(latestSnapshot->stats.commits == 2 && !session.NeedsCommit(),
           "superseded work consumes no public commit count or pending dirt");
-    Check(baseline->graphInfo.Desc().nodes.back().params.front().value == VtValue(0.02f) &&
+    Check(baseline->graphInfo.Spec().nodes.back().params.front().value == VtValue(0.02f) &&
           baseline->generation->id == 0,
           "retained initial snapshot is unchanged by replacement");
 
@@ -496,7 +497,7 @@ int main()
     // diagnostics; it must not replace the published generation.
     auto badDesc = latestEdit;
     badDesc.nodes.back().type = TfToken("UsdGenMissingAsyncKernel");
-    session.SetGraphDesc(badDesc);
+    usdGenUsd::SetGraphDesc(session, badDesc);
     auto rejected = session.CommitSnapshot(3.0, UsdGenCommitReason::NoticeBatchEnd);
     Check(rejected && rejected->generation == latestSnapshot->generation,
           "failed cook retains the last good generation");
@@ -517,7 +518,7 @@ int main()
 
     // Concurrent synchronous compatibility calls use independent await
     // boundaries and both complete without sharing an application lock.
-    session.SetGraphDesc(latestEdit);
+    usdGenUsd::SetGraphDesc(session, latestEdit);
     std::atomic<bool> syncStarted{false};
     UsdGenSession::SnapshotPtr syncA, syncB;
     std::thread a([&] {
@@ -579,7 +580,7 @@ int main()
         UsdGenSession::CommitRequest request;
         request.frame = frame;
         request.reason = UsdGenCommitReason::NoticeBatchEnd;
-        request.desc = std::move(desc);
+        request.spec = usdGenUsd::LowerShared(*desc);
         request.context = context;
         // This explicit value is important for an imaging owner relaying a
         // caller's device. CPU builds use -2 and intentionally ignore it.
@@ -591,8 +592,8 @@ int main()
                     ++requestPublications;
                     const bool matches = snapshot && snapshot->generation &&
                         snapshot->generation->frame == frame &&
-                        !snapshot->graphInfo.Desc().nodes.empty() &&
-                        snapshot->graphInfo.Desc().nodes.back().params.front().value ==
+                        !snapshot->graphInfo.Spec().nodes.empty() &&
+                        snapshot->graphInfo.Spec().nodes.back().params.front().value ==
                             VtValue(width);
                     if (!matches) requestMismatch.store(true, std::memory_order_release);
                 }
@@ -621,7 +622,7 @@ int main()
     // external commit observes it without entering a synchronous owner wait.
     std::atomic<bool> dirtyCallback{false};
     std::atomic<bool> dirtyPostAccepted{false};
-    auto node = session.Graph().NodeIdForPath(SdfPath("/async/width"));
+    auto node = usdGenUsd::NodeIdForPath(session.Graph(), SdfPath("/async/width"));
     Check(session.CommitAsync(12.0, UsdGenCommitReason::NoticeBatchEnd,
         [&](UsdGenSession::SnapshotPtr,
             UsdGenExecutionPipeline::Outcome outcome) {
@@ -646,7 +647,7 @@ int main()
     // two callback-safe edits and exposes the third rejection; the rejected
     // descriptor must not replace the dirty baseline before a later retry.
     UsdGenSession capped(1, 2);
-    capped.SetGraphDesc(MakeDesc(.01f));
+    usdGenUsd::SetGraphDesc(capped, MakeDesc(.01f));
     auto cappedInitial = capped.CommitSnapshot(0.0, UsdGenCommitReason::NoticeBatchEnd);
     std::atomic<bool> cappedCallback{false}, cappedFirst{false}, cappedSecond{false},
         cappedRejected{false};
@@ -657,7 +658,7 @@ int main()
                                   std::memory_order_release);
                 cappedSecond.store(capped.PostDevicePublicationEnabled(true),
                                    std::memory_order_release);
-                cappedRejected.store(!capped.PostGraphDesc(MakeDesc(.77f)),
+                cappedRejected.store(!usdGenUsd::PostGraphDesc(capped, MakeDesc(.77f)),
                                      std::memory_order_release);
             }
             cappedCallback.store(true, std::memory_order_release);
@@ -671,8 +672,8 @@ int main()
     Check(capped.NeedsCommit(), "rejected descriptor leaves the accepted dirty baseline pending");
     auto cappedRetry = capped.CommitSnapshot(2.0, UsdGenCommitReason::NoticeBatchEnd);
     const bool retainedDescriptor = cappedInitial && cappedRetry &&
-        cappedRetry->graphInfo.desc.nodes.size() == 4 &&
-        cappedRetry->graphInfo.desc.nodes.back().params.front().value.Get<float>() == .01f;
+        cappedRetry->graphInfo.spec.nodes.size() == 4 &&
+        cappedRetry->graphInfo.spec.nodes.back().params.front().value.Get<float>() == .01f;
     Check(retainedDescriptor,
           "retry retains the pre-rejection descriptor rather than a dropped edit");
 
@@ -682,7 +683,7 @@ int main()
     UsdGenSession::SnapshotPtr retainedAfterShutdown;
     {
         UsdGenSession closing(2);
-        closing.SetGraphDesc(MakeDesc(0.01f));
+        usdGenUsd::SetGraphDesc(closing, MakeDesc(0.01f));
         retainedAfterShutdown = closing.CommitSnapshot(0.0, UsdGenCommitReason::NoticeBatchEnd);
         for (unsigned i = 0; i != 32; ++i) {
             Check(closing.CommitAsync(i + 1.0, UsdGenCommitReason::NoticeBatchEnd,
@@ -707,8 +708,8 @@ int main()
     UsdGenSession coalescedLeader(2, 4096, coalescedDomain);
     UsdGenSession coalescedFollower(2, 4096, coalescedDomain);
     auto coalescedDesc = std::make_shared<const UsdGenGraphDesc>(MakeDesc(.031f));
-    coalescedLeader.SetGraphDesc(*coalescedDesc);
-    coalescedFollower.SetGraphDesc(*coalescedDesc);
+    usdGenUsd::SetGraphDesc(coalescedLeader, *coalescedDesc);
+    usdGenUsd::SetGraphDesc(coalescedFollower, *coalescedDesc);
     HoldCaptureState::entered.store(false, std::memory_order_release);
     HoldCaptureState::release.store(false, std::memory_order_release);
     HoldCaptureState::hold.store(true, std::memory_order_release);
@@ -764,8 +765,8 @@ int main()
         64u * 1024u * 1024u);
     UsdGenSession supersedeLeader(2, 4096, supersedeDomain);
     UsdGenSession supersedeFollower(2, 4096, supersedeDomain);
-    supersedeLeader.SetGraphDesc(*coalescedDesc);
-    supersedeFollower.SetGraphDesc(*coalescedDesc);
+    usdGenUsd::SetGraphDesc(supersedeLeader, *coalescedDesc);
+    usdGenUsd::SetGraphDesc(supersedeFollower, *coalescedDesc);
     HoldCaptureState::entered.store(false, std::memory_order_release);
     HoldCaptureState::release.store(false, std::memory_order_release);
     HoldCaptureState::hold.store(true, std::memory_order_release);

@@ -18,6 +18,7 @@
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
@@ -139,7 +140,7 @@ static bool CookDiag(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         if (errors) *errors = compiled.errors;
         for (auto const &e : compiled.errors)
@@ -148,7 +149,7 @@ static bool CookDiag(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (errors) *errors = run.diagnostics.errors;
     if (warnings) *warnings = run.diagnostics.warnings;
@@ -536,7 +537,7 @@ static void CheckCudaRejection()
     desc.executionBackend = UsdGenExecutionBackend::Cuda;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Check(!compiled.ok, "ExprOp graph is refused for the CUDA backend");
     // A CUDA-enabled build names the operator in the capability-matrix
     // rejection; a CPU-only build refuses the backend itself before ever

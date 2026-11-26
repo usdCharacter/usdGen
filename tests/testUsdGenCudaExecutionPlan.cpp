@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -265,10 +266,10 @@ int main() {
         noise.inputs = {sourceNoise.nodes.front().path};
         sourceNoise.nodes.push_back(noise); sourceNoise.terminal = noise.path;
         UsdGenDiagnostics admission;
-        CHECK(ValidateCudaGraph(sourceNoise,&admission));
+        CHECK(ValidateCudaGraph(usdGenUsd::Lower(sourceNoise),&admission));
         auto rejects = [&](UsdGenGraphDesc const& invalid) {
             UsdGenDiagnostics errors;
-            return !ValidateCudaGraph(invalid,&errors) && errors.HasErrors();
+            return !ValidateCudaGraph(usdGenUsd::Lower(invalid),&errors) && errors.HasErrors();
         };
         for (int variant = 0; variant != 7; ++variant) {
             auto invalid = sourceNoise;
@@ -286,21 +287,21 @@ int main() {
         auto repairable = sourceNoise;
         repairable.curveSets[0].skinPrim.clear();
         repairable.curveSets[0].skinPrimUv.clear();
-        CHECK(ValidateCudaGraph(repairable,&admission));
+        CHECK(ValidateCudaGraph(usdGenUsd::Lower(repairable),&admission));
         repairable = sourceNoise;
         repairable.curveSets[0].skinPrimUv[0] = GfVec2f(.8f,.8f);
-        CHECK(ValidateCudaGraph(repairable,&admission));
+        CHECK(ValidateCudaGraph(usdGenUsd::Lower(repairable),&admission));
         posed.nodes[0].params.push_back({TfToken("useRest"),VtValue(false),false});
-        CHECK(ValidateCudaGraph(posed,&admission));
+        CHECK(ValidateCudaGraph(usdGenUsd::Lower(posed),&admission));
         posed.curveSets[0].rest.clear();
         CHECK(rejects(posed));
         auto explicitFrames = sourceNoise;
         explicitFrames.curveSets[0].rootFrame = {GfMatrix4d(1.0)};
         explicitFrames.surfaces[0].restPoints.clear();
-        CHECK(ValidateCudaGraph(explicitFrames,&admission));
+        CHECK(ValidateCudaGraph(usdGenUsd::Lower(explicitFrames),&admission));
         auto degenerate = sourceNoise;
         degenerate.surfaces[0].restPoints[1] = degenerate.surfaces[0].restPoints[0];
-        CHECK(ValidateCudaGraph(degenerate,&admission));
+        CHECK(ValidateCudaGraph(usdGenUsd::Lower(degenerate),&admission));
         CHECK(sourceNoise.curveSets[0].rootFrame.empty() &&
               sourceNoise.curveSets[0].curveId == VtArray<uint64_t>({42}));
     }
@@ -317,7 +318,7 @@ int main() {
         noiseDesc.nodes.push_back(noise);
         noiseDesc.terminal = noise.path;
         UsdGenDiagnostics noiseDiagnostics;
-        auto noisePlan = CompileCudaGraph(noiseDesc, &noiseDiagnostics);
+        auto noisePlan = CompileCudaGraph(usdGenUsd::Lower(noiseDesc), &noiseDiagnostics);
         CHECK(noisePlan && !noiseDiagnostics.HasErrors());
         auto noiseMetadata = GetCudaExecutionPlanMetadata(*noisePlan);
         CHECK(noiseMetadata && noiseMetadata->Tasks().size() == 3);
@@ -379,7 +380,7 @@ int main() {
 
     auto desc = MakeDesc();
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(desc, &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
     if (!plan || diagnostics.HasErrors()) for (auto const& error : diagnostics.errors)
         std::fprintf(stderr, "compile diagnostic: %s\n", error.c_str());
     CHECK(plan && !diagnostics.HasErrors());
@@ -390,18 +391,18 @@ int main() {
         defaults.nodes.back().params.push_back(
             {TfToken("guideRegions"), VtValue(VtIntArray{}), false});
         UsdGenDiagnostics defaultDiagnostics;
-        CHECK(CompileCudaGraph(defaults, &defaultDiagnostics) &&
+        CHECK(CompileCudaGraph(usdGenUsd::Lower(defaults), &defaultDiagnostics) &&
               !defaultDiagnostics.HasErrors());
         for (VtValue const& invalid : {VtValue(VtIntArray{7}),
                                       VtValue(VtFloatArray{}), VtValue(7)}) {
             auto malformed = defaults;
             malformed.nodes.back().params.back().value = invalid;
             UsdGenDiagnostics rejected;
-            CHECK(!CompileCudaGraph(malformed, &rejected) && rejected.HasErrors());
+            CHECK(!CompileCudaGraph(usdGenUsd::Lower(malformed), &rejected) && rejected.HasErrors());
         }
         defaults.nodes.back().mode = TfToken("curveWrap");
         UsdGenDiagnostics modeDiagnostics;
-        CHECK(!CompileCudaGraph(defaults, &modeDiagnostics) &&
+        CHECK(!CompileCudaGraph(usdGenUsd::Lower(defaults), &modeDiagnostics) &&
               modeDiagnostics.HasErrors());
     }
     auto metadata = GetCudaExecutionPlanMetadata(*plan);
@@ -421,7 +422,7 @@ int main() {
 
     for (uint32_t i = 0; i != 4; ++i) {
         auto const& op = metadata->Operators()[i];
-        CHECK(op.path == desc.nodes[i].path && op.type == desc.nodes[i].type);
+        CHECK(op.key == usdGenUsd::KeyOf(desc.nodes[i].path) && op.type == desc.nodes[i].type);
         auto const* capability = matrix.Find(op.type);
         CHECK(op.authoredOrderKey == i &&
               capability && op.capabilityVersion == capability->capabilityVersion &&
@@ -430,7 +431,7 @@ int main() {
         auto const* task = metadata->FindTask(i);
         CHECK(task && task == metadata->FindSemanticTask(i));
         CHECK(task->id == i && task->semanticNode == i && task->authoredOrderKey == i &&
-              task->path == desc.nodes[i].path && task->type == desc.nodes[i].type);
+              task->key == usdGenUsd::KeyOf(desc.nodes[i].path) && task->type == desc.nodes[i].type);
         CHECK(task->kind == (i == 0 ? UsdGenExecutionTaskKind::Source :
                                      UsdGenExecutionTaskKind::Operator));
         CHECK(i == 0 ? DependenciesAre(*task, {}) :
@@ -535,7 +536,7 @@ int main() {
     CHECK(publication.id == 4 && publication.semanticNode == UINT32_MAX &&
           publication.authoredOrderKey == 4 &&
           publication.kind == UsdGenExecutionTaskKind::Publication &&
-          publication.path == desc.terminal && publication.type == TfToken("CudaPublication") &&
+          publication.key == usdGenUsd::KeyOf(desc.terminal) && publication.type == TfToken("CudaPublication") &&
           DependenciesAre(publication,{0,1,2,3}) && publication.topologyBarrier &&
           publication.exclusiveWorkspace && !publication.estimate.timeAvailable &&
           publication.estimate.estimatedMicroseconds == 0 &&
@@ -603,14 +604,14 @@ int main() {
     // non-width logical packet for the GPU proof.
     auto scatterGrowDag = MakeScatterGrowValueDagDesc();
     diagnostics = {};
-    auto scatterGrowPlan = CompileCudaGraph(scatterGrowDag, &diagnostics);
+    auto scatterGrowPlan = CompileCudaGraph(usdGenUsd::Lower(scatterGrowDag), &diagnostics);
     CHECK(scatterGrowPlan && !diagnostics.HasErrors());
     auto scatterGrowMetadata = GetCudaExecutionPlanMetadata(*scatterGrowPlan);
     auto taskAt = [&](char const* path) -> UsdGenExecutionTaskMetadata const* {
         if (!scatterGrowMetadata) return nullptr;
         auto found = std::find_if(scatterGrowMetadata->Tasks().begin(),
             scatterGrowMetadata->Tasks().end(), [&](auto const& task) {
-                return task.path == SdfPath(path);
+                return task.key == usdGenUsd::KeyOf(SdfPath(path));
             });
         return found == scatterGrowMetadata->Tasks().end() ? nullptr : &*found;
     };
@@ -672,7 +673,7 @@ int main() {
         selectedGrow.nodes.end());
     selectedGrow.terminal = SdfPath("/Ops/Grow");
     diagnostics = {};
-    auto selectedGrowPlan = CompileCudaGraph(selectedGrow, &diagnostics);
+    auto selectedGrowPlan = CompileCudaGraph(usdGenUsd::Lower(selectedGrow), &diagnostics);
     CHECK(selectedGrowPlan && !diagnostics.HasErrors());
     auto selectedGrowMetadata = GetCudaExecutionPlanMetadata(*selectedGrowPlan);
     CHECK(selectedGrowMetadata && selectedGrowMetadata->FindTask(
@@ -692,14 +693,14 @@ int main() {
     fusedDeform.params = {{TfToken("rbfSamples"), VtValue(5), false}};
     scatterDeform.nodes.push_back(fusedDeform); scatterDeform.terminal = fusedDeform.path;
     diagnostics = {};
-    auto scatterDeformPlan = CompileCudaGraph(scatterDeform, &diagnostics);
+    auto scatterDeformPlan = CompileCudaGraph(usdGenUsd::Lower(scatterDeform), &diagnostics);
     CHECK(scatterDeformPlan && !diagnostics.HasErrors());
     auto scatterDeformMetadata = GetCudaExecutionPlanMetadata(*scatterDeformPlan);
     auto findTask = [](std::shared_ptr<const UsdGenExecutionPlanMetadata> const& metadata,
                        char const* path) -> UsdGenExecutionTaskMetadata const* {
         if (!metadata) return nullptr;
         auto found = std::find_if(metadata->Tasks().begin(), metadata->Tasks().end(),
-            [&](auto const& task) { return task.path == SdfPath(path); });
+            [&](auto const& task) { return task.key == usdGenUsd::KeyOf(SdfPath(path)); });
         return found == metadata->Tasks().end() ? nullptr : &*found;
     };
     auto const* scatterDeformTask = findTask(scatterDeformMetadata, "/Ops/Deform");
@@ -729,7 +730,7 @@ int main() {
     independentDeform.nodes.push_back(secondIndependent);
     independentDeform.terminal = secondIndependent.path;
     diagnostics = {};
-    auto independentPlan = CompileCudaGraph(independentDeform, &diagnostics);
+    auto independentPlan = CompileCudaGraph(usdGenUsd::Lower(independentDeform), &diagnostics);
     CHECK(independentPlan && !diagnostics.HasErrors());
     auto independentMetadata = GetCudaExecutionPlanMetadata(*independentPlan);
     auto const* noiseDeformTask = findTask(independentMetadata, "/Ops/NoiseDeform");
@@ -745,7 +746,7 @@ int main() {
     secondDeform.inputs = {fusedDeform.path};
     doubleDeform.nodes.push_back(secondDeform); doubleDeform.terminal = secondDeform.path;
     diagnostics = {};
-    CHECK(!CompileCudaGraph(doubleDeform, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(doubleDeform), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported composition: a second rest-to-animated deformation would apply surface motion twice"));
     // Width may not bypass Grow to consume raw Scatter output.
@@ -754,14 +755,14 @@ int main() {
         [](UsdGenNodeDesc const& node) { return node.path == SdfPath("/Ops/Left"); });
     CHECK(rawWidth != rawScatter.nodes.end());
     rawWidth->inputs = {SdfPath("/Ops/Scatter")}; rawScatter.terminal = rawWidth->path;
-    diagnostics = {}; CHECK(!CompileCudaGraph(rawScatter, &diagnostics) && diagnostics.HasErrors());
+    diagnostics = {}; CHECK(!CompileCudaGraph(usdGenUsd::Lower(rawScatter), &diagnostics) && diagnostics.HasErrors());
 
     // Failed admission must classify the exact reason instead of collapsing
     // unsupported operators, configurations, and compositions together.
     auto unsupportedOperator = MakeDesc();
     unsupportedOperator.nodes[1].type = TfToken("UsdGenUnknownOperator");
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unsupportedOperator,&diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unsupportedOperator),&diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported operator: CUDA capability matrix has no implementation for UsdGenUnknownOperator"));
 
@@ -769,7 +770,7 @@ int main() {
     unsupportedConfiguration.nodes[2].params.push_back(
         {TfToken("mask"), VtValue(2.0f), false});
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unsupportedConfiguration,&diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unsupportedConfiguration),&diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported or malformed Length parameter mask"));
 
@@ -784,7 +785,7 @@ int main() {
     rbfSibling.inputs = {branchedRbf.nodes[1].path};
     branchedRbf.nodes.push_back(rbfSibling);
     diagnostics = {};
-    auto branchedRbfPlan = CompileCudaGraph(branchedRbf, &diagnostics);
+    auto branchedRbfPlan = CompileCudaGraph(usdGenUsd::Lower(branchedRbf), &diagnostics);
     CHECK(branchedRbfPlan && !diagnostics.HasErrors());
     auto branchedRbfMetadata = GetCudaExecutionPlanMetadata(*branchedRbfPlan);
     CHECK(branchedRbfMetadata &&
@@ -823,7 +824,7 @@ int main() {
     secondRbf.inputs = {doubleRbf.nodes[3].path};
     doubleRbf.nodes.push_back(secondRbf); doubleRbf.terminal = secondRbf.path;
     diagnostics = {};
-    CHECK(!CompileCudaGraph(doubleRbf,&diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(doubleRbf),&diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported composition: a second rest-to-animated deformation would apply surface motion twice"));
 
@@ -835,7 +836,7 @@ int main() {
     directCurveSurfaceSource.nodes.resize(1);
     directCurveSurfaceSource.terminal = directCurveSurfaceSource.nodes.front().path;
     diagnostics = {};
-    CHECK(CompileCudaGraph(directCurveSurfaceSource, &diagnostics));
+    CHECK(CompileCudaGraph(usdGenUsd::Lower(directCurveSurfaceSource), &diagnostics));
     CHECK(!diagnostics.HasErrors());
 
     // Only the explicit surfaceCage source boundary may consume its one
@@ -846,7 +847,7 @@ int main() {
     ordinarySourceMap.nodes.front().mapBindings = {
         {SdfPath("/Maps/ordinary"), TfToken("usdGen:map")}};
     diagnostics = {};
-    CHECK(!CompileCudaGraph(ordinarySourceMap, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(ordinarySourceMap), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unresolved ReferenceInputs/maps are not supported by CUDA at "
         "/Groom/Hair/Ops/ZSource (references=0, maps=1)"));
@@ -854,7 +855,7 @@ int main() {
     auto unresolvedReference = MakeDesc();
     unresolvedReference.nodes[1].references = {SdfPath("/Guides")};
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unresolvedReference, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unresolvedReference), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unresolved ReferenceInputs/maps are not supported by CUDA at "
         "/Groom/Hair/Ops/AWidth (references=1, maps=0)"));
@@ -862,7 +863,7 @@ int main() {
     auto unresolvedMap = MakeDesc();
     unresolvedMap.nodes[2].maps = {SdfPath("/Maps/lengthMask")};
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unresolvedMap, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unresolvedMap), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unresolved ReferenceInputs/maps are not supported by CUDA at "
         "/Groom/Hair/Ops/MLength (references=0, maps=1)"));
@@ -875,7 +876,7 @@ int main() {
     unresolvedFutureReferenceOperator.nodes[1].references = {SdfPath("/Guides")};
     unresolvedFutureReferenceOperator.nodes[1].maps = {SdfPath("/Maps/density")};
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unresolvedFutureReferenceOperator, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unresolvedFutureReferenceOperator), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unresolved ReferenceInputs/maps are not supported by CUDA at "
         "/Groom/Hair/Ops/AWidth (references=1, maps=1)"));
@@ -883,7 +884,7 @@ int main() {
     auto unsupportedNamedTopology = MakeDesc();
     unsupportedNamedTopology.nodes[1].type = TfToken("UsdGenTestTopologyNamedPlane");
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unsupportedNamedTopology, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unsupportedNamedTopology), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: named topology planes require CUDA execution-graph transport at "
         "/Groom/Hair/Ops/AWidth"));
@@ -891,7 +892,7 @@ int main() {
     auto unsupportedNamedValue = MakeDesc();
     unsupportedNamedValue.nodes[1].type = TfToken("UsdGenTestValueNamedPlane");
     diagnostics = {};
-    CHECK(!CompileCudaGraph(unsupportedNamedValue, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(unsupportedNamedValue), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: named primvar bindings require an explicit CUDA operator COW "
         "contract at /Groom/Hair/Ops/AWidth"));
@@ -904,7 +905,7 @@ int main() {
     staticResample.nodes.front().params.push_back(
         {TfToken("resampleTo"), VtValue(4), false});
     diagnostics = {};
-    auto staticResamplePlan = CompileCudaGraph(staticResample, &diagnostics);
+    auto staticResamplePlan = CompileCudaGraph(usdGenUsd::Lower(staticResample), &diagnostics);
     CHECK(staticResamplePlan && !diagnostics.HasErrors());
     auto staticResampleMetadata = GetCudaExecutionPlanMetadata(*staticResamplePlan);
     CHECK(staticResampleMetadata &&
@@ -940,7 +941,7 @@ int main() {
     namedResample.curveSets.front().authoredPlanes = {
         pointPlane, primitivePlane, groomPlane};
     diagnostics = {};
-    auto namedResamplePlan = CompileCudaGraph(namedResample, &diagnostics);
+    auto namedResamplePlan = CompileCudaGraph(usdGenUsd::Lower(namedResample), &diagnostics);
     CHECK(namedResamplePlan && !diagnostics.HasErrors());
     auto namedResampleMetadata = GetCudaExecutionPlanMetadata(*namedResamplePlan);
     CHECK(namedResampleMetadata);
@@ -964,7 +965,7 @@ int main() {
     density.floatValues = {1.f, 2.f};
     namedStaticResample.curveSets.front().authoredPlanes.push_back(density);
     diagnostics = {};
-    auto namedStaticPlan = CompileCudaGraph(namedStaticResample, &diagnostics);
+    auto namedStaticPlan = CompileCudaGraph(usdGenUsd::Lower(namedStaticResample), &diagnostics);
     CHECK(namedStaticPlan && !diagnostics.HasErrors());
     auto namedStaticMetadata = GetCudaExecutionPlanMetadata(*namedStaticPlan);
     auto const& baseSourceEstimate =
@@ -999,7 +1000,7 @@ int main() {
     binding.literal = VtValue(0);
     dynamic.nodes[0].expressionBindings.push_back(binding);
     diagnostics = {};
-    auto dynamicPlan = CompileCudaGraph(dynamic, &diagnostics);
+    auto dynamicPlan = CompileCudaGraph(usdGenUsd::Lower(dynamic), &diagnostics);
     CHECK(dynamicPlan && !diagnostics.HasErrors());
     auto dynamicMetadata = GetCudaExecutionPlanMetadata(*dynamicPlan);
     CHECK(dynamicMetadata && !dynamicMetadata->MemoryEstimate().memoryAvailable &&
@@ -1025,7 +1026,7 @@ int main() {
         expr::Domain::Point, TfToken("float"), expr::ScalarType::Float32,
         VtValue(.03f));
     diagnostics = {};
-    auto boundedPlan = CompileCudaGraph(boundedExpressions, &diagnostics);
+    auto boundedPlan = CompileCudaGraph(usdGenUsd::Lower(boundedExpressions), &diagnostics);
     CHECK(boundedPlan && !diagnostics.HasErrors());
     auto boundedMetadata = GetCudaExecutionPlanMetadata(*boundedPlan);
     CHECK(boundedMetadata && boundedMetadata->MemoryEstimate().memoryAvailable &&
@@ -1043,7 +1044,7 @@ int main() {
         if (variant != 1) automatic.curveSets[0].skinPrim.clear();
         if (variant != 2) automatic.curveSets[0].skinPrimUv.clear();
         diagnostics = {};
-        auto automaticPlan = CompileCudaGraph(automatic, &diagnostics);
+        auto automaticPlan = CompileCudaGraph(usdGenUsd::Lower(automatic), &diagnostics);
         CHECK(automaticPlan && !diagnostics.HasErrors());
         auto automaticMetadata = GetCudaExecutionPlanMetadata(*automaticPlan);
         CHECK(automaticMetadata && automaticMetadata->MemoryEstimate().memoryAvailable);
@@ -1061,7 +1062,7 @@ int main() {
     unboundEstimate.curveSets[0].skinPrim.clear();
     unboundEstimate.curveSets[0].skinPrimUv.clear();
     diagnostics = {};
-    auto unboundEstimatePlan = CompileCudaGraph(unboundEstimate, &diagnostics);
+    auto unboundEstimatePlan = CompileCudaGraph(usdGenUsd::Lower(unboundEstimate), &diagnostics);
     CHECK(unboundEstimatePlan && !diagnostics.HasErrors());
     auto unboundMetadata = GetCudaExecutionPlanMetadata(*unboundEstimatePlan);
     CHECK(unboundMetadata &&
@@ -1081,7 +1082,7 @@ int main() {
         expr::Domain::Primitive, TfToken("float"), expr::ScalarType::Float32,
         VtValue(.5f));
     diagnostics = {};
-    auto boundedLengthPlan = CompileCudaGraph(boundedLength, &diagnostics);
+    auto boundedLengthPlan = CompileCudaGraph(usdGenUsd::Lower(boundedLength), &diagnostics);
     CHECK(boundedLengthPlan && !diagnostics.HasErrors());
     auto boundedLengthMetadata = GetCudaExecutionPlanMetadata(*boundedLengthPlan);
     CHECK(boundedLengthMetadata &&
@@ -1100,7 +1101,7 @@ int main() {
         expr::Domain::Groom, TfToken("float"), expr::ScalarType::Float32,
         VtValue(1.f));
     diagnostics = {};
-    auto boundedRbfPlan = CompileCudaGraph(boundedRbf, &diagnostics);
+    auto boundedRbfPlan = CompileCudaGraph(usdGenUsd::Lower(boundedRbf), &diagnostics);
     CHECK(boundedRbfPlan && !diagnostics.HasErrors());
     auto boundedRbfMetadata = GetCudaExecutionPlanMetadata(*boundedRbfPlan);
     CHECK(boundedRbfMetadata &&
@@ -1110,7 +1111,7 @@ int main() {
         expr::Domain::Groom, TfToken("int"), expr::ScalarType::Int32,
         VtValue(5));
     diagnostics = {};
-    auto dynamicRbfPlan = CompileCudaGraph(boundedRbf, &diagnostics);
+    auto dynamicRbfPlan = CompileCudaGraph(usdGenUsd::Lower(boundedRbf), &diagnostics);
     CHECK(dynamicRbfPlan && !diagnostics.HasErrors());
     auto dynamicRbfMetadata = GetCudaExecutionPlanMetadata(*dynamicRbfPlan);
     CHECK(dynamicRbfMetadata &&
@@ -1119,7 +1120,7 @@ int main() {
     missingRbfRoots.nodes[1].expressionBindings.pop_back();
     missingRbfRoots.curveSets.front().skinPrimUv.clear();
     diagnostics = {};
-    auto missingRbfRootsPlan = CompileCudaGraph(missingRbfRoots, &diagnostics);
+    auto missingRbfRootsPlan = CompileCudaGraph(usdGenUsd::Lower(missingRbfRoots), &diagnostics);
     CHECK(missingRbfRootsPlan && !diagnostics.HasErrors());
     auto missingRbfRootsMetadata =
         GetCudaExecutionPlanMetadata(*missingRbfRootsPlan);
@@ -1137,7 +1138,7 @@ int main() {
     emptyCurves.skinPrim.clear();
     emptyCurves.skinPrimUv.clear();
     diagnostics = {};
-    auto emptyPlan = CompileCudaGraph(empty, &diagnostics);
+    auto emptyPlan = CompileCudaGraph(usdGenUsd::Lower(empty), &diagnostics);
     CHECK(emptyPlan && !diagnostics.HasErrors());
     auto emptyMetadata = GetCudaExecutionPlanMetadata(*emptyPlan);
     CHECK(emptyMetadata);

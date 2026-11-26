@@ -335,7 +335,7 @@ float ReferenceLength(UsdGenCaptureContext const &ctx, Settings const &s)
     if (s.referenceLength > 0.0f) {
         length = s.referenceLength;
     } else if (ctx.desc && ctx.surface < ctx.desc->surfaces.size()) {
-        UsdGenSurfaceDesc const &surface = ctx.desc->surfaces[ctx.surface];
+        UsdGenSurfaceInput const &surface = ctx.desc->surfaces[ctx.surface];
         VtVec3fArray const &points = surface.restPoints.empty() ? surface.points
                                                                 : surface.restPoints;
         if (!points.empty()) {

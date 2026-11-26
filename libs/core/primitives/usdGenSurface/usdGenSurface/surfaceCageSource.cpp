@@ -64,7 +64,7 @@ bool Number(VtValue const &value, double *out)
     return false;
 }
 
-bool Token(UsdGenMapDesc const &map, char const *name, std::string *out)
+bool Token(UsdGenMapInput const &map, char const *name, std::string *out)
 {
     UsdGenParamValue const *param = FindParam(map.params, name);
     if (!param) return false;
@@ -77,7 +77,7 @@ bool Token(UsdGenMapDesc const &map, char const *name, std::string *out)
     return false;
 }
 
-bool MapNumber(UsdGenMapDesc const &map, char const *name, double fallback,
+bool MapNumber(UsdGenMapInput const &map, char const *name, double fallback,
                double *out)
 {
     UsdGenParamValue const *param = FindParam(map.params, name);
@@ -93,7 +93,7 @@ struct Prepared
     uint64_t boundCurves = 0, boundCvs = 0;
 };
 
-bool GetUniformIntPlane(UsdGenCurveSetDesc const &sparse, char const *name,
+bool GetUniformIntPlane(UsdGenCurveSetInput const &sparse, char const *name,
                         bool required, VtIntArray *values, std::string *error)
 {
     UsdGenAuthoredPlaneDesc const *found = nullptr;
@@ -130,8 +130,8 @@ bool TransformPoint(GfMatrix4d const &matrix, GfVec3f const &source,
     return true;
 }
 
-bool Prepare(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-             UsdGenCurveSetDesc const &sparse, bool openMap,
+bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
+             UsdGenCurveSetInput const &sparse, bool openMap,
              Prepared *prepared, std::string *error)
 {
     if (!prepared) return Fail("surface-cage bridge has null prepared output", error);
@@ -141,7 +141,7 @@ bool Prepare(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     if (node.surfaces.size() != 1)
         return Fail("surface-cage requires exactly one bound surface", error);
     auto const surface = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceDesc const &candidate) { return candidate.path == node.surfaces.front(); });
+        [&](UsdGenSurfaceInput const &candidate) { return candidate.key == node.surfaces.front(); });
     if (surface == desc.surfaces.end())
         return Fail("surface-cage cannot resolve its bound rest surface", error);
     if (surface->restFromCurrentPoints || surface->restPoints.empty())
@@ -151,14 +151,14 @@ bool Prepare(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     if (!Finite(sparse.worldMatrix) || !Finite(surface->worldMatrix))
         return Fail("surface-cage source or surface transform is non-finite", error);
 
-    std::vector<UsdGenMapBindingDesc> const &bindings = node.mapBindings;
+    std::vector<UsdGenMapBinding> const &bindings = node.mapBindings;
     if (bindings.size() != 1 || bindings.front().relationship.GetString() != "usdGen:regionMap" ||
-        bindings.front().map.IsEmpty())
+        !bindings.front().map.IsValid())
         return Fail("surface-cage requires exactly one usdGen:regionMap binding", error);
     if (!node.maps.empty() && (node.maps.size() != 1 || node.maps.front() != bindings.front().map))
         return Fail("surface-cage regionMap and legacy map paths disagree", error);
     auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
-        [&](UsdGenMapDesc const &candidate) { return candidate.path == bindings.front().map; });
+        [&](UsdGenMapInput const &candidate) { return candidate.key == bindings.front().map; });
     if (map == desc.maps.end() || !UsdGenMapHas(*map, kUsdGenTypeMapPtex) ||
         map->resolvedAssetPath.empty())
         return Fail("surface-cage regionMap must resolve to a UsdGenPtexMap asset", error);
@@ -397,8 +397,8 @@ bool Prepare(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
 } // namespace
 
 bool UsdGenEstimateSurfaceCageCurveSet(
-    UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-    UsdGenCurveSetDesc const &sparse, uint64_t *curves, uint64_t *cvs,
+    UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
+    UsdGenCurveSetInput const &sparse, uint64_t *curves, uint64_t *cvs,
     std::string *error)
 {
     if (error) error->clear();
@@ -410,8 +410,8 @@ bool UsdGenEstimateSurfaceCageCurveSet(
 }
 
 bool UsdGenBuildSurfaceCageCurveSet(
-    UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-    UsdGenCurveSetDesc const &sparse, UsdGenCurveSetDesc *out,
+    UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
+    UsdGenCurveSetInput const &sparse, UsdGenCurveSetInput *out,
     std::string *error)
 {
     if (error) error->clear();
@@ -420,8 +420,8 @@ bool UsdGenBuildSurfaceCageCurveSet(
     if (!Prepare(desc, node, sparse, true, &prepared, error)) return false;
     UsdGenSurfaceCageResult dense;
     if (!UsdGenInterpolateSurfaceCage(prepared.input, &dense, error)) return false;
-    UsdGenCurveSetDesc candidate;
-    candidate.path = sparse.path;
+    UsdGenCurveSetInput candidate;
+    candidate.key = sparse.key;
     candidate.role = UsdGenLane::Chunked;
     candidate.curveRole = UsdGenTokens().hair;
     candidate.curveVertexCounts = std::move(dense.curveVertexCounts);

@@ -12,7 +12,7 @@
 #ifndef USDGEN_OPS_STRAND_UTIL_H
 #define USDGEN_OPS_STRAND_UTIL_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -282,7 +282,7 @@ private:
 /// faceVarying, else area-weighted vertex normals of the chosen points.
 /// Corner UVs come from `surface.uv` when it is vertex- (points) or
 /// faceVarying- (face-vertex) sized.
-void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *bvh);
+void BuildSurfaceBvh(UsdGenSurfaceInput const &surface, bool rest, TriangleBvh *bvh);
 
 /// Samples a mask map at a point on the surface the BVH was built from:
 ///   UsdGenPaintMap -> barycentric blend of its faceVarying `paintValues` at
@@ -292,14 +292,14 @@ void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *b
 ///                     0.299 R + 0.587 G + 0.114 B for 3+ channels, else
 ///                     channel 0.
 /// Returns `fallback` when the map has no usable payload. Clamped to [0,1].
-float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triangle,
+float SampleMaskMap(UsdGenMapInput const &map, TriangleBvh const &bvh, int triangle,
                     GfVec3f const &bary, float fallback = 1.0f);
 
 /// The map descriptors a node binds through `relationship` (e.g.
 /// "usdGen:densityMap"), resolved against the graph description, in
 /// authored order. Untyped legacy bindings (empty relationship) never match.
-std::vector<UsdGenMapDesc const *> BoundMaps(UsdGenGraphDesc const *desc,
-                                             UsdGenMapBindingDesc const *bindings,
+std::vector<UsdGenMapInput const *> BoundMaps(UsdGenGraphSpec const *desc,
+                                             UsdGenMapBinding const *bindings,
                                              uint32_t bindingCount,
                                              TfToken const &relationship);
 

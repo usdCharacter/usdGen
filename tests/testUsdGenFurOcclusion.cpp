@@ -1,6 +1,7 @@
 #include "usdGen/furOcclusion.h"
 #include "usdGen/generationStore.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenUsd/lower.h"
 #include "pxr/base/gf/rotation.h"
 #include "pxr/imaging/hd/primvarsSchema.h"
 #include <chrono>
@@ -39,7 +40,7 @@ float Reconstruct(GfVec3f const& positive,GfVec3f const& negative,GfVec3f const&
 }
 UsdGenTilePublication Make(int id,float x,int strands) {
     UsdGenTilePublication t;t.tile=static_cast<UsdGenTileId>(id);t.xformMatrix.SetIdentity();
-    t.primPath=SdfPath("/fur/tile_"+std::to_string(id));
+    t.prim=UsdGenPrimRef{usdGenUsd::KeyOf(SdfPath("/fur/tile_"+std::to_string(id)))};
     for(int i=0;i<strands;++i) {
         float z=float(i%20)/100-0.1f;
         float dx=float(i/20)/100;
@@ -52,7 +53,7 @@ UsdGenTilePublication Make(int id,float x,int strands) {
 // A two-CV probe with zero width: a receiver that adds no density of its own.
 UsdGenTilePublication Probe(int id,GfVec3f const& at,GfVec3f const& to) {
     UsdGenTilePublication t;t.tile=static_cast<UsdGenTileId>(id);t.xformMatrix.SetIdentity();
-    t.primPath=SdfPath("/fur/probe_"+std::to_string(id));
+    t.prim=UsdGenPrimRef{usdGenUsd::KeyOf(SdfPath("/fur/probe_"+std::to_string(id)))};
     t.points.push_back(at);t.points.push_back(to);
     t.curveVertexCounts.push_back(2);t.widths=VtFloatArray{0.f};return t;
 }
@@ -61,7 +62,7 @@ UsdGenTilePublication Probe(int id,GfVec3f const& at,GfVec3f const& to) {
 UsdGenTilePublication Slab(int id,int layers,float width,float spacing,
                            float y0,float dy,float length,float depth) {
     UsdGenTilePublication t;t.tile=static_cast<UsdGenTileId>(id);t.xformMatrix.SetIdentity();
-    t.primPath=SdfPath("/fur/slab_"+std::to_string(id));
+    t.prim=UsdGenPrimRef{usdGenUsd::KeyOf(SdfPath("/fur/slab_"+std::to_string(id)))};
     int const perLayer=int(depth/spacing);
     for(int j=0;j<layers;++j) for(int i=0;i<perLayer;++i) {
         float const z=-0.5f*depth+float(i)*spacing;
@@ -77,7 +78,7 @@ UsdGenTilePublication Slab(int id,int layers,float width,float spacing,
 // which makes them the wrong probe for a shadow cast straight down.
 UsdGenTilePublication Comb(int id,float x,int strands,float lean) {
     UsdGenTilePublication t;t.tile=static_cast<UsdGenTileId>(id);t.xformMatrix.SetIdentity();
-    t.primPath=SdfPath("/fur/comb_"+std::to_string(id));
+    t.prim=UsdGenPrimRef{usdGenUsd::KeyOf(SdfPath("/fur/comb_"+std::to_string(id)))};
     for(int i=0;i<strands;++i) {
         float const z=float(i%20)/100-0.1f;
         float const dx=float(i/20)/100;
@@ -103,7 +104,7 @@ UsdGenFurOccluder Quad(float y,float half,bool flip) {
 // the true optical depth along the rotated axis.
 UsdGenTilePublication HairShell(int id,int strands,unsigned seed) {
     UsdGenTilePublication t;t.tile=static_cast<UsdGenTileId>(id);t.xformMatrix.SetIdentity();
-    t.primPath=SdfPath("/fur/shell_"+std::to_string(id));
+    t.prim=UsdGenPrimRef{usdGenUsd::KeyOf(SdfPath("/fur/shell_"+std::to_string(id)))};
     unsigned state=seed;
     auto next=[&]{ state=state*1664525u+1013904223u; return float(state>>8)/float(1<<24); };
     for(int i=0;i<strands;++i) {
@@ -198,7 +199,7 @@ int main() try {
     auto report=UsdGenGenerationStore().Diff(a,b);
     Require(!report.tiles[0].pointsDirty,"shadow update does not dirty receiver points");
     Require(std::find(report.tiles[0].dirtyPrimvars.begin(),report.tiles[0].dirtyPrimvars.end(),TfToken("furTauP"))!=report.tiles[0].dirtyPrimvars.end(),"neighbor update dirties receiver optical depth");
-    auto ds=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tiles[0]);
+    auto ds=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tiles[0],nullptr);
     auto pv=HdPrimvarsSchema::GetFromParent(ds).GetPrimvar(TfToken("furTauP"));
     Require(pv.IsDefined()&&pv.GetInterpolation()->GetTypedValue(0)==TfToken("vertex"),"Hydra vertex transport");
     Require(pv.GetPrimvarValue()->GetValue(0).IsHolding<VtVec3fArray>(),"packed vec3 GPU transport");
@@ -408,7 +409,7 @@ int main() try {
         std::vector<UsdGenTilePublication> scene;
         UsdGenTilePublication grass;
         grass.tile=0;grass.xformMatrix.SetIdentity();
-        grass.primPath=SdfPath("/fur/tile_0");
+        grass.prim=UsdGenPrimRef{usdGenUsd::KeyOf(SdfPath("/fur/tile_0"))};
         int const side=35, cvs=8; float const length=0.35f;
         for(int i=0;i<side;++i) for(int j=0;j<side;++j) {
             GfVec3f const root(-0.5f+float(i)/float(side-1),0.f,
@@ -787,7 +788,7 @@ int main() try {
                         "furDensity appears as a new primvar");
         }
         {   // Hydra transport: a plain vertex float primvar, one value per CV.
-            auto litDs=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(lit[1]);
+            auto litDs=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(lit[1],nullptr);
             auto litPv=HdPrimvarsSchema::GetFromParent(litDs).GetPrimvar(TfToken("furDensity"));
             Require(litPv.IsDefined()&&litPv.GetInterpolation()->GetTypedValue(0)==TfToken("vertex"),
                     "furDensity Hydra vertex transport");
@@ -795,7 +796,7 @@ int main() try {
             Require(value.IsHolding<VtFloatArray>() &&
                     value.UncheckedGet<VtFloatArray>().size()==lit[1].points.size(),
                     "furDensity reaches Hydra as one float per CV");
-            auto plainDs=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(plain[1]);
+            auto plainDs=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(plain[1],nullptr);
             Require(!HdPrimvarsSchema::GetFromParent(plainDs).GetPrimvar(
                         TfToken("furDensity")).IsDefined(),"no furDensity primvar when off");
         }

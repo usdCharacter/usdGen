@@ -20,7 +20,7 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -146,7 +146,7 @@ int main()
     UsdGenGraphDesc const desc = MakeG3();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const r = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const r = usdGenUsd::Compile(compiler, desc, &graph);
     if (!r.ok) {
         std::printf("compile failed:");
         for (auto const &e : r.errors) std::printf(" %s", e.c_str());
@@ -155,15 +155,15 @@ int main()
     }
     Check(graph.NodeCount() == 5, "5-node G3 graph compiled");
 
-    UsdGenNodeId const scatter = graph.NodeIdForPath(SdfPath("/groom/scatter"));
-    UsdGenNodeId const grow    = graph.NodeIdForPath(SdfPath("/groom/grow"));
-    UsdGenNodeId const noise   = graph.NodeIdForPath(SdfPath("/groom/noise"));
-    UsdGenNodeId const length  = graph.NodeIdForPath(SdfPath("/groom/length"));
-    UsdGenNodeId const width   = graph.NodeIdForPath(SdfPath("/groom/width"));
+    UsdGenNodeId const scatter = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/scatter"));
+    UsdGenNodeId const grow    = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/grow"));
+    UsdGenNodeId const noise   = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/noise"));
+    UsdGenNodeId const length  = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/length"));
+    UsdGenNodeId const width   = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/width"));
 
     UsdGenScheduler scheduler(8);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = desc.time;
 
     UsdGenRunResult const full = scheduler.Run(graph, ctx, 1);

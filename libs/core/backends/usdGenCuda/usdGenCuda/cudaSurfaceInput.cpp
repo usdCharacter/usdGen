@@ -20,13 +20,13 @@ bool Identity(GfMatrix4d const& m) {
     return true;
 }
 bool SameKey(CudaSurfaceBindingKey const& a, CudaSurfaceBindingKey const& b) {
-    return a.path == b.path && a.restPoints == b.restPoints &&
+    return a.surface == b.surface && a.restPoints == b.restPoints &&
         a.restNormals == b.restNormals && a.restNormalDomain == b.restNormalDomain &&
         a.faceVertexCounts == b.faceVertexCounts &&
         a.faceVertexIndices == b.faceVertexIndices &&
         a.sampleBudget == b.sampleBudget;
 }
-bool ValidNormalShape(UsdGenSurfaceDesc const& source) {
+bool ValidNormalShape(UsdGenSurfaceInput const& source) {
     const size_t faceCount = source.faceVertexCounts.size();
     const size_t vertexCount = source.restPoints.size();
     const size_t faceVaryingCount = source.faceVertexIndices.size();
@@ -43,7 +43,7 @@ bool ValidNormalShape(UsdGenSurfaceDesc const& source) {
 } // namespace
 
 CudaSurfacePreparationStatus PrepareCudaSurface(
-    UsdGenSurfaceDesc const& source, uint32_t sampleBudget,
+    UsdGenSurfaceInput const& source, uint32_t sampleBudget,
     CudaSurfacePrepared* output, std::vector<std::string>* diagnostics) {
     if (!output) { Diag(diagnostics, "null CUDA surface output"); return CudaSurfacePreparationStatus::InvalidArgument; }
     auto fail = [&](CudaSurfacePreparationStatus status, char const* message) {
@@ -99,7 +99,7 @@ CudaSurfacePreparationStatus PrepareCudaSurface(
             offset += static_cast<uint64_t>(count);
             candidate.faceOffsets.push_back(static_cast<uint32_t>(offset));
         }
-        candidate.key = {source.path, source.restPoints, source.restNormals, source.restNormalDomain,
+        candidate.key = {source.key, source.restPoints, source.restNormals, source.restNormalDomain,
                          source.faceVertexCounts,
                          source.faceVertexIndices, sampleBudget};
         candidate.sampleBudget = sampleBudget;

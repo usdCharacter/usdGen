@@ -13,6 +13,7 @@
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
@@ -165,7 +166,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors)
             std::printf("  compile: %s\n", e.c_str());
@@ -173,7 +174,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (warnings) *warnings = run.diagnostics.warnings;
     if (errors) *errors = run.diagnostics.errors;
@@ -300,18 +301,18 @@ static void CheckColliderWorldTransforms()
 
     UsdGenCompiler compiler;
     UsdGenGraph liveGraph;
-    Check(compiler.Compile(raised, &liveGraph).ok,
+    Check(usdGenUsd::Compile(compiler, raised, &liveGraph).ok,
           "Animated collider graph compiles");
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext liveContext;
-    liveContext.desc = &liveGraph.Desc();
+    liveContext.desc = &liveGraph.Spec();
     Check(!scheduler.Run(liveGraph, liveContext, 1).diagnostics.HasErrors(),
           "Raised collider live cook runs");
     VtFloatArray const raisedPx = OutputBuffer(liveGraph).px;
     raised.surfaces.front().worldMatrix = GfMatrix4d(1.0);
-    Check(compiler.Recompile(raised, &liveGraph).ok,
+    Check(usdGenUsd::Recompile(compiler, raised, &liveGraph).ok,
           "Animated collider world transform recompiles");
-    liveContext.desc = &liveGraph.Desc();
+    liveContext.desc = &liveGraph.Spec();
     Check(!scheduler.Run(liveGraph, liveContext, 2).diagnostics.HasErrors(),
           "Moved collider live recook runs");
     Check(OutputBuffer(liveGraph).px != raisedPx ||
@@ -344,16 +345,16 @@ static void CheckColliderWorldTransforms()
     // The description itself can move while the collider stays fixed.
     // Its inverse changes the relative collider frame and must recapture.
     UsdGenGraph descLiveGraph;
-    Check(compiler.Compile(base, &descLiveGraph).ok,
+    Check(usdGenUsd::Compile(compiler, base, &descLiveGraph).ok,
           "Description-motion graph compiles");
-    liveContext.desc = &descLiveGraph.Desc();
+    liveContext.desc = &descLiveGraph.Spec();
     Check(!scheduler.Run(descLiveGraph, liveContext, 1).diagnostics.HasErrors(),
           "Description-motion initial cook runs");
     UsdGenGraphDesc movedDescription = base;
     movedDescription.xformMatrix.SetTranslate(GfVec3d(0, 2, 0));
-    Check(compiler.Recompile(movedDescription, &descLiveGraph).ok,
+    Check(usdGenUsd::Recompile(compiler, movedDescription, &descLiveGraph).ok,
           "Description world transform recompiles");
-    liveContext.desc = &descLiveGraph.Desc();
+    liveContext.desc = &descLiveGraph.Spec();
     Check(!scheduler.Run(descLiveGraph, liveContext, 2).diagnostics.HasErrors(),
           "Moved-description live recook runs");
     Check(SamePoints(OutputBuffer(descLiveGraph), plain),
@@ -1152,7 +1153,7 @@ static void CheckStiffSubdivisionHingeCycle()
 
     UsdGenLimitSurface limit;
     std::string why;
-    bool const oracleBuilt=limit.Build(shield,6,&why);
+    bool const oracleBuilt=limit.Build(usdGenUsd::Lower(shield),6,&why);
     Check(oracleBuilt,"stiff hinge-cycle independent Far oracle builds");
     if (!oracleBuilt) return;
     struct Tri { GfVec3d a,b,c; };
@@ -1358,20 +1359,20 @@ static void CheckDeepPenetrationCut()
     UsdGenGraph graph;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    bool toggleOk=compiler.Compile(toggle,&graph).ok;
-    context.desc=&graph.Desc();
+    bool toggleOk=usdGenUsd::Compile(compiler, toggle,&graph).ok;
+    context.desc=&graph.Spec();
     toggleOk &= !scheduler.Run(graph,context,1).diagnostics.HasErrors();
     UsdGenCurveBuffer first=OutputBuffer(graph);
     toggle.nodes.back().params[4].value=VtValue(TfToken("cutThenCollide"));
-    toggleOk &= compiler.Recompile(toggle,&graph).ok;
-    context.desc=&graph.Desc();
+    toggleOk &= usdGenUsd::Recompile(compiler, toggle,&graph).ok;
+    context.desc=&graph.Spec();
     toggleOk &= !scheduler.Run(graph,context,2).diagnostics.HasErrors();
     UsdGenCurveBuffer cutFresh;
     toggleOk &= Cook(toggle,&cutFresh) && SamePoints(OutputBuffer(graph),cutFresh) &&
                 CurveLength(OutputBuffer(graph),0,6)<CurveLength(first,0,6);
     toggle.nodes.back().params[4].value=VtValue(TfToken("collide"));
-    toggleOk &= compiler.Recompile(toggle,&graph).ok;
-    context.desc=&graph.Desc();
+    toggleOk &= usdGenUsd::Recompile(compiler, toggle,&graph).ok;
+    context.desc=&graph.Spec();
     toggleOk &= !scheduler.Run(graph,context,3).diagnostics.HasErrors();
     UsdGenCurveBuffer fresh;
     toggleOk &= Cook(toggle,&fresh) && SamePoints(OutputBuffer(graph),fresh) &&
@@ -2149,7 +2150,7 @@ static void CheckCudaRejectsCollide()
                                         {TfToken("pushAmount"), VtValue(1.0f), false}});
     desc.executionBackend = UsdGenExecutionBackend::Cuda;
     UsdGenDiagnostics diag;
-    auto plan = CompileCudaGraph(desc, &diag);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diag);
     Check(plan == nullptr, "CUDA planner rejects a Collide graph");
     Check(diag.HasErrors(), "CUDA planner reports the Collide rejection");
     if (diag.HasErrors()) {
@@ -2212,7 +2213,7 @@ static void CheckAnalyticLimitContact(double scale)
         }
     UsdGenCollisionLimitSurface limit;
     std::string why;
-    bool const built = limit.Build(s,&why);
+    bool const built = limit.Build(usdGenUsd::Lower(s),&why);
     Check(built,"regular curved Catmull-Clark patch builds");
     if (!built) return;
     double const u=.37,v=.41;
@@ -2279,7 +2280,7 @@ static void CheckClosedLimitBoundary(double scale)
     s.restPoints = s.points;
     UsdGenCollisionLimitSurface limit;
     std::string why;
-    bool const built = limit.Build(s,&why);
+    bool const built = limit.Build(usdGenUsd::Lower(s),&why);
     Check(built,"closed Catmull-Clark cube limit builds");
     if (!built) return;
     GfVec3d q,du,dv;
@@ -2315,7 +2316,7 @@ static void CheckCurvedLimitSegment()
     s.subdivisionScheme = TfToken("catmullClark");
     UsdGenCollisionLimitSurface limit;
     std::string why;
-    if (!limit.Build(s,&why)) {
+    if (!limit.Build(usdGenUsd::Lower(s),&why)) {
         Check(false,"curved closed segment fixture builds");
         return;
     }
@@ -2363,7 +2364,7 @@ static void CheckSubdivisionLimit()
     UsdGenSurfaceDesc grid = RaisedLimitGrid();
     UsdGenCollisionLimitSurface limit;
     std::string why;
-    Check(limit.Build(grid,&why), "Catmull-Clark posed limit builds");
+    Check(limit.Build(usdGenUsd::Lower(grid),&why), "Catmull-Clark posed limit builds");
     GfVec3d q, du, dv;
     Check(limit.Evaluate(0,0.5,0.5,&q,&du,&dv),
           "Catmull-Clark limit position and derivatives evaluate");
@@ -2392,7 +2393,7 @@ static void CheckSubdivisionLimit()
     nonquad.faceVertexIndices = {0,1,2,3,4};
     nonquad.points = {{0,0,0},{1,0,0},{1.5f,1,0},
                       {0.5f,1.5f,0},{-0.5f,1,0}};
-    Check(limit.Build(nonquad,&why),"Catmull-Clark non-quad builds");
+    Check(limit.Build(usdGenUsd::Lower(nonquad),&why),"Catmull-Clark non-quad builds");
     std::vector<GfVec2d> uv;
     std::vector<std::array<int,3>> facets;
     Check(limit.TessellateFace(0,2,&uv,&facets) && !facets.empty(),
@@ -2439,17 +2440,17 @@ static void CheckSubdivisionLimit()
     nonquad.subdivisionScheme = TfToken("loop");
     nonquad.faceVertexCounts = {3};
     nonquad.faceVertexIndices = {0,1,2};
-    Check(limit.Build(nonquad,&why) &&
+    Check(limit.Build(usdGenUsd::Lower(nonquad),&why) &&
           limit.Evaluate(0,0.2,0.2,&q,&du,&dv),
           "Loop triangle limit evaluates");
     nonquad.subdivisionScheme = TfToken("bilinear");
     nonquad.faceVertexCounts = {4};
     nonquad.faceVertexIndices = {0,1,2,3};
-    Check(limit.Build(nonquad,&why) &&
+    Check(limit.Build(usdGenUsd::Lower(nonquad),&why) &&
           limit.Evaluate(0,0.5,0.5,&q,&du,&dv),
           "bilinear quad limit evaluates");
     nonquad.holeIndices = {0};
-    Check(limit.Build(nonquad,&why) && !limit.HasFace(0),
+    Check(limit.Build(usdGenUsd::Lower(nonquad),&why) && !limit.HasFace(0),
           "all-hole limit is empty without restoring cage face");
 
     UsdGenCurveBuffer polygon;
@@ -2523,7 +2524,7 @@ static void CheckCutGrazingEntry()
         center/=double(oracleSurface.points.size());
         oracleSurface.worldMatrix=GfMatrix4d(1);
         UsdGenCollisionLimitSurface limit; std::string why;
-        bool ok=limit.Build(oracleSurface,&why);
+        bool ok=limit.Build(usdGenUsd::Lower(oracleSurface),&why);
         std::vector<std::pair<GfVec3d,GfVec3d>> planes;
         if (ok) for (size_t face=0;face<surface.faceVertexCounts.size();++face)
             for (int u=0;u<=32;++u) for (int v=0;v<=32;++v) {

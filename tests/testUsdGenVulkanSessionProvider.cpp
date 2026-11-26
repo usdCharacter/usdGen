@@ -9,6 +9,7 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "usdGen/executionPipeline.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/vulkan/deviceContext.h"
@@ -154,20 +155,20 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const& error : compiled.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto run = scheduler.Run(graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     out->points.resize(buffer.totalCvs);
     out->rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
@@ -356,21 +357,21 @@ int main(int argc, char** argv) {
         return 1;
     }
     UsdGenDiagnostics diagnostics;
-    auto plan = provider->Compile(descriptor, &diagnostics);
+    auto plan = provider->Compile(usdGenUsd::Lower(descriptor), &diagnostics);
     if (!plan || diagnostics.HasErrors()) return 1;
     // Live records consume the bounded provenance capacity. Releasing one
     // must reclaim its slot without evicting the earlier live handle.
-    auto dropped = provider->Compile(descriptor, &diagnostics);
+    auto dropped = provider->Compile(usdGenUsd::Lower(descriptor), &diagnostics);
     CHECK(dropped);
-    CHECK(!provider->Compile(descriptor, &diagnostics));
+    CHECK(!provider->Compile(usdGenUsd::Lower(descriptor), &diagnostics));
     dropped.reset();
-    auto reclaimed = provider->Compile(descriptor, &diagnostics);
+    auto reclaimed = provider->Compile(usdGenUsd::Lower(descriptor), &diagnostics);
     CHECK(reclaimed);
     // Reuse the second slot repeatedly while retaining `plan`; provenance
     // reclamation must remain bounded and must never displace that live plan.
     for (int i = 0; i != 16; ++i) {
         reclaimed.reset();
-        reclaimed = provider->Compile(descriptor, &diagnostics);
+        reclaimed = provider->Compile(usdGenUsd::Lower(descriptor), &diagnostics);
         CHECK(reclaimed);
     }
     reclaimed.reset();
@@ -386,7 +387,7 @@ int main(int argc, char** argv) {
             start.wait();
             for (int i = 0; i != 16; ++i) {
                 UsdGenDiagnostics local;
-                auto transient = provider->Compile(descriptor, &local);
+                auto transient = provider->Compile(usdGenUsd::Lower(descriptor), &local);
                 if (local.HasErrors()) { ++badDiagnostics; continue; }
                 if (transient) ++compiled;
                 else ++rejected;
@@ -396,7 +397,7 @@ int main(int argc, char** argv) {
     startPromise.set_value();
     for (auto& worker : compilers) worker.join();
     CHECK(!badDiagnostics && compiled + rejected == 64 && compiled);
-    auto postStress = provider->Compile(descriptor, &diagnostics);
+    auto postStress = provider->Compile(usdGenUsd::Lower(descriptor), &diagnostics);
     CHECK(postStress);
     postStress.reset();
     UsdGenExecutionPipeline::Cancellation cancellation;
@@ -405,7 +406,7 @@ int main(int argc, char** argv) {
     // launched with only the width shader. Revision shape is nevertheless a
     // provider admission contract and must reject before queue/native ingress.
     auto lengthDescriptor = MakeProviderLengthDescriptor();
-    auto lengthPlan = provider->Compile(lengthDescriptor, &diagnostics);
+    auto lengthPlan = provider->Compile(usdGenUsd::Lower(lengthDescriptor), &diagnostics);
     CHECK(lengthPlan && !diagnostics.HasErrors());
     auto const lengthLedger = fixture.context->resources()->Snapshot();
     std::vector<UsdGenExecutionPipeline::CommandTicket> heldCommandCredits;
@@ -484,7 +485,7 @@ int main(int argc, char** argv) {
         bad = request;
         // Matching backend metadata alone must not authorize a foreign
         // opaque payload or a plan not compiled by this exact provider.
-        bad.plan = CompileVulkanSourceWidthPlan(descriptor);
+        bad.plan = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(descriptor));
         CHECK(bad.plan && !provider->Submit(std::move(bad)));
         // `plan` predates an expired-slot replacement and remains an exact
         // provider-provenance handle, not merely a matching descriptor.

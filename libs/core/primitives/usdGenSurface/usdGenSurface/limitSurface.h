@@ -1,6 +1,6 @@
 #ifndef USDGEN_LIMIT_SURFACE_H
 #define USDGEN_LIMIT_SURFACE_H
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/export.h"
 #include "pxr/base/gf/vec2d.h"
 #include "pxr/base/gf/vec3d.h"
@@ -18,7 +18,7 @@ class USDGEN_CORE_API UsdGenLimitSurface {
 public:
     UsdGenLimitSurface();
     ~UsdGenLimitSurface();
-    bool Build(UsdGenSurfaceDesc const&, int isolationLevel, std::string* error);
+    bool Build(UsdGenSurfaceInput const&, int isolationLevel, std::string* error);
     // Quad faces only: (u,v) in [0,1]^2 from corner 0, u toward corner 1.
     bool Evaluate(int face, float u, float v, pxr::GfVec3f* p,
                   pxr::GfVec3f* du, pxr::GfVec3f* dv) const;
@@ -47,7 +47,7 @@ public:
     ~UsdGenCollisionLimitSurface();
     UsdGenCollisionLimitSurface(UsdGenCollisionLimitSurface&&) noexcept;
     UsdGenCollisionLimitSurface& operator=(UsdGenCollisionLimitSurface&&) noexcept;
-    bool Build(UsdGenSurfaceDesc const&, std::string* error);
+    bool Build(UsdGenSurfaceInput const&, std::string* error);
     bool HasFace(int face) const;
     bool Evaluate(int face, double u, double v, pxr::GfVec3d* p,
                   pxr::GfVec3d* du, pxr::GfVec3d* dv) const;
@@ -69,7 +69,7 @@ private:
 // faceVertexIndices. UsdGenSubdivisionTagsDigest covers everything EXCEPT
 // the two face arrays, for callers that already mix those arrays into the
 // same key (it must never be the sole topology cover).
-USDGEN_CORE_API uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceDesc const&);
-USDGEN_CORE_API uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceDesc const&);
+USDGEN_CORE_API uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceInput const&);
+USDGEN_CORE_API uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceInput const&);
 }
 #endif

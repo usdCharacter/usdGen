@@ -37,6 +37,7 @@
 // Usage: testUsdGenVulkanSurfaceVk deformEvaluate.spv deformApply.spv
 
 #include "usdGen/vulkan/surfaceVk.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/vulkan/executionPlan.h"
 #include "usdGen/vulkan/deviceContext.h"
@@ -227,7 +228,7 @@ bool CheckHelperCase(char const* label, GfMatrix4d const& sourceMatrix,
     out.lockRoots = true;
     out.mask = 1.0f;
     out.groomEnvelope = 1.0f;
-    bool const ok = CompileSurfaceVkDeform(source, surface, 100, &out, &diagnostics);
+    bool const ok = CompileSurfaceVkDeform(usdGenUsd::Lower(source), usdGenUsd::Lower(surface), 100, &out, &diagnostics);
     if (!ok || diagnostics.HasErrors()) {
         std::printf("      diagnostic: %s\n",
                     diagnostics.errors.empty() ? "<none>" : diagnostics.errors.front().c_str());
@@ -290,8 +291,8 @@ void PartA() {
         coherent.groomEnvelope = identity.groomEnvelope = 1.0f;
         auto plain = MakeSource();
         auto surf = MakeSurface();
-        bool const ok = CompileSurfaceVkDeform(source, surface, 100, &coherent, &d1) &&
-            CompileSurfaceVkDeform(plain, surf, 100, &identity, &d2) &&
+        bool const ok = CompileSurfaceVkDeform(usdGenUsd::Lower(source), usdGenUsd::Lower(surface), 100, &coherent, &d1) &&
+            CompileSurfaceVkDeform(usdGenUsd::Lower(plain), usdGenUsd::Lower(surf), 100, &identity, &d2) &&
             coherent.sampleCount == identity.sampleCount &&
             coherent.restSamples == identity.restSamples &&
             coherent.posedSamples == identity.posedSamples &&
@@ -304,7 +305,7 @@ void PartA() {
                            UsdGenSurfaceDesc surface, int budget, char const* needle) {
         UsdGenDiagnostics diagnostics;
         VulkanDeformControls out;
-        bool const ok = CompileSurfaceVkDeform(source, surface, budget, &out, &diagnostics);
+        bool const ok = CompileSurfaceVkDeform(usdGenUsd::Lower(source), usdGenUsd::Lower(surface), budget, &out, &diagnostics);
         bool found = false;
         for (auto const& error : diagnostics.errors)
             if (error.find(needle) != std::string::npos) found = true;
@@ -420,7 +421,7 @@ bool CompileForDevice(char const* label, GfMatrix4d const& sourceMatrix,
     out.lockRoots = true;
     out.mask = 1.0f;
     out.groomEnvelope = 1.0f;
-    if (!CompileSurfaceVkDeform(source, surface, 100, &out, &diagnostics) ||
+    if (!CompileSurfaceVkDeform(usdGenUsd::Lower(source), usdGenUsd::Lower(surface), 100, &out, &diagnostics) ||
         diagnostics.HasErrors()) {
         std::printf("      diagnostic: %s\n",
                     diagnostics.errors.empty() ? "<none>" : diagnostics.errors.front().c_str());
@@ -892,7 +893,7 @@ void CheckPlanCase(char const* label, GfMatrix4d const& sourceMatrix,
                    GfMatrix4d const& surfaceMatrix, bool expectHooked) {
     auto desc = MakeDeformDesc(sourceMatrix, surfaceMatrix);
     UsdGenDiagnostics diagnostics;
-    auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+    auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
     if (!handle || diagnostics.HasErrors()) {
         std::printf("      diagnostic: %s\n",
                     diagnostics.errors.empty() ? "<none>" : diagnostics.errors.front().c_str());
@@ -909,7 +910,7 @@ void CheckPlanCase(char const* label, GfMatrix4d const& sourceMatrix,
         want.lockRoots = true;
         want.mask = 1.0f;
         want.groomEnvelope = 1.0f;
-        ok = CompileSurfaceVkDeform(desc.curveSets[0], desc.surfaces[0], 100, &want, nullptr) &&
+        ok = CompileSurfaceVkDeform(usdGenUsd::Lower(desc.curveSets[0]), usdGenUsd::Lower(desc.surfaces[0]), 100, &want, nullptr) &&
             plan->Steps()[0].deform.restSamples == want.restSamples &&
             plan->Steps()[0].deform.posedSamples == want.posedSamples &&
             plan->Steps()[0].deform.rootTargets == want.rootTargets;

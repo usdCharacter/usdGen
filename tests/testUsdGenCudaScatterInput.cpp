@@ -1,4 +1,5 @@
 #include "usdGen/cudaScatterInput.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -32,11 +33,12 @@ static bool Direct(UsdGenGraphDesc const& d, UsdGenCurveBuffer* out) {
     UsdGenOpId const id=registry.Find(TfToken("UsdGenScatter"));
     auto op=registry.Create(id);
     if (!op) return false;
-    UsdGenStackParams const resolved(d,d.nodes.front(),registry.Record(id));
+    usdGenUsd::LoweredParams const resolved(d,d.nodes.front(),registry.Record(id));
     UsdGenParamView const &p=resolved.View();
     if (!op->Bind(p,&diag)) return false;
     auto capture=op->CreateCapture(); UsdGenCaptureContext c;
-    c.desc=&d; c.params=&p; c.surface=0; c.seed=uint32_t(d.nodes.front().seed); c.diag=&diag;
+    usdGen::UsdGenGraphSpec const lowered40 = usdGenUsd::Lower(d);
+    c.desc = &lowered40; c.params=&p; c.surface=0; c.seed=uint32_t(d.nodes.front().seed); c.diag=&diag;
     if (!op->Capture(c,UsdGenOpInputs{},capture.get(),&diag)) return false;   // a source: no input
     *out=UsdGenCaptureBuffer(*capture);
     return true;
@@ -47,7 +49,7 @@ static bool CheckThreadedValidation();
 int main() {
     auto d=Desc(); UsdGenCurveBuffer direct; CHECK(Direct(d,&direct));
     std::shared_ptr<const gpu::ScatterGrowRoots> roots; std::string reason;
-    CHECK(PrepareCudaScatterInput(d,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::Ok && roots);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(d),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::Ok && roots);
     CHECK(roots->positions.size()==direct.totalCurves && roots->stableIds.size()==direct.totalCurves);
     for(size_t i=0;i<roots->positions.size();++i) {
         CHECK(roots->positions[i].x==direct.px[i]&&roots->positions[i].y==direct.py[i]&&roots->positions[i].z==direct.pz[i]);
@@ -62,29 +64,29 @@ int main() {
     {
         auto disabled=d; disabled.nodes[0].enabled=false;
         std::shared_ptr<const gpu::ScatterGrowRoots> empty; std::string why;
-        CHECK(PrepareCudaScatterInput(disabled,SdfPath("/scatter"),&empty,&why)==CudaScatterInputStatus::Ok);
+        CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(disabled),usdGenUsd::KeyOf(SdfPath("/scatter")),&empty,&why)==CudaScatterInputStatus::Ok);
         CHECK(empty && empty->positions.empty() && empty->stableIds.empty());
     }
     auto preserved=roots; auto malformed=d; malformed.surfaces[0].faceVertexIndices.pop_back();
-    CHECK(PrepareCudaScatterInput(malformed,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::InvalidSurface && roots==preserved);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(malformed),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::InvalidSurface && roots==preserved);
     auto badDensity=d; badDensity.nodes[0].params[0].value=VtValue(8);
-    CHECK(PrepareCudaScatterInput(badDensity,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::Unsupported && roots==preserved);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(badDensity),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::Unsupported && roots==preserved);
     auto badUv=d; badUv.surfaces[0].uv[2]=GfVec2f(std::numeric_limits<float>::quiet_NaN(),0);
-    CHECK(PrepareCudaScatterInput(badUv,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::InvalidSurface && roots==preserved);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(badUv),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::InvalidSurface && roots==preserved);
     auto duplicateSubset=d; duplicateSubset.surfaces[0].subsetFaces={0,0};
-    CHECK(PrepareCudaScatterInput(duplicateSubset,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::InvalidSurface && roots==preserved);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(duplicateSubset),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::InvalidSurface && roots==preserved);
     auto zero=Desc(0.0); roots.reset();
-    CHECK(PrepareCudaScatterInput(zero,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::Ok && roots && roots->positions.empty());
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(zero),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::Ok && roots && roots->positions.empty());
     // Pool recycle pin: a full convert, released, then an empty convert
     // must read empty on EVERY plane. The n==0 path skips the guarded
     // assigns, so the recycled shell must be cleared on release; without
     // the clear this returns 1M stale positions alongside 0 stableIds.
     {
         std::shared_ptr<const gpu::ScatterGrowRoots> full; std::string why2;
-        CHECK(PrepareCudaScatterInput(d,SdfPath("/scatter"),&full,&why2)==CudaScatterInputStatus::Ok && full && !full->positions.empty());
+        CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(d),usdGenUsd::KeyOf(SdfPath("/scatter")),&full,&why2)==CudaScatterInputStatus::Ok && full && !full->positions.empty());
         full.reset();
         std::shared_ptr<const gpu::ScatterGrowRoots> empty2; std::string why3;
-        CHECK(PrepareCudaScatterInput(zero,SdfPath("/scatter"),&empty2,&why3)==CudaScatterInputStatus::Ok && empty2);
+        CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(zero),usdGenUsd::KeyOf(SdfPath("/scatter")),&empty2,&why3)==CudaScatterInputStatus::Ok && empty2);
         CHECK(empty2->positions.empty() && empty2->stableIds.empty() && empty2->rootPrim.empty() && empty2->rootUV.empty() && empty2->rootT.empty() && empty2->rootB.empty() && empty2->rootN.empty());
     }
     // Capture-shell recycle pin: a full capture, recycled, then an
@@ -94,7 +96,7 @@ int main() {
     // validation trips on the stale sizes (CaptureFailed, not Ok).
     {
         std::shared_ptr<const gpu::ScatterGrowRoots> fullCap; std::string whyCap;
-        CHECK(PrepareCudaScatterInput(d,SdfPath("/scatter"),&fullCap,&whyCap)==CudaScatterInputStatus::Ok && fullCap && !fullCap->positions.empty());
+        CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(d),usdGenUsd::KeyOf(SdfPath("/scatter")),&fullCap,&whyCap)==CudaScatterInputStatus::Ok && fullCap && !fullCap->positions.empty());
         fullCap.reset();
         auto emptySurf=d;
         emptySurf.surfaces[0].faceVertexCounts.clear();
@@ -102,7 +104,7 @@ int main() {
         emptySurf.surfaces[0].restPoints.clear();
         emptySurf.surfaces[0].uv.clear();
         std::shared_ptr<const gpu::ScatterGrowRoots> emptyCap; std::string whyEmpty;
-        CHECK(PrepareCudaScatterInput(emptySurf,SdfPath("/scatter"),&emptyCap,&whyEmpty)==CudaScatterInputStatus::Ok && emptyCap);
+        CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(emptySurf),usdGenUsd::KeyOf(SdfPath("/scatter")),&emptyCap,&whyEmpty)==CudaScatterInputStatus::Ok && emptyCap);
         CHECK(emptyCap->positions.empty() && emptyCap->stableIds.empty() && emptyCap->rootPrim.empty() && emptyCap->rootUV.empty() && emptyCap->rootT.empty() && emptyCap->rootB.empty() && emptyCap->rootN.empty());
     }
     // Scatter is a generator: it declares only density and flip, so any other
@@ -110,14 +112,14 @@ int main() {
     auto undeclared = d;
     undeclared.nodes[0].params.push_back({TfToken("mask"), VtValue(0.0f), false});
     auto emptyPreserved = roots;
-    CHECK(PrepareCudaScatterInput(undeclared, SdfPath("/scatter"), &roots, &reason) ==
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(undeclared), usdGenUsd::KeyOf(SdfPath("/scatter")), &roots, &reason) ==
           CudaScatterInputStatus::Unsupported && roots == emptyPreserved);
     auto mapped=d; mapped.nodes[0].maps.push_back(SdfPath("/ignored"));
-    CHECK(PrepareCudaScatterInput(mapped,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::Unsupported);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(mapped),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::Unsupported);
     auto level=d;level.nodes[0].params.push_back({TfToken("subdivisionLevel"),VtValue(0),false});
-    CHECK(PrepareCudaScatterInput(level,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::Ok);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(level),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::Ok);
     level.nodes[0].params.back().value=VtValue(3);
-    CHECK(PrepareCudaScatterInput(level,SdfPath("/scatter"),&roots,&reason)==CudaScatterInputStatus::Unsupported);
+    CHECK(PrepareCudaScatterInput(usdGenUsd::Lower(level),usdGenUsd::KeyOf(SdfPath("/scatter")),&roots,&reason)==CudaScatterInputStatus::Unsupported);
     CHECK(CheckThreadedValidation());
     std::puts("testUsdGenCudaScatterInput: PASS"); return 0;
 }
@@ -163,7 +165,7 @@ static ValidateVerdict RunVerdict(UsdGenGraphDesc const& d,
     ValidateVerdict v;
     auto run = [&] {
         std::shared_ptr<const gpu::ScatterGrowRoots> roots;
-        v.status = PrepareCudaScatterInput(d, SdfPath("/scatter"), &roots,
+        v.status = PrepareCudaScatterInput(usdGenUsd::Lower(d), usdGenUsd::KeyOf(SdfPath("/scatter")), &roots,
                                            &v.reason);
         if (v.status == CudaScatterInputStatus::Ok && roots)
             v.roots = roots->positions.size();

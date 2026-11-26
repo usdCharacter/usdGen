@@ -4,7 +4,7 @@
 #define USDGEN_OP_UTIL_H
 
 #include "usdGen/curveBuffer.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -209,17 +209,17 @@ inline GfVec3f RotateOnto(GfVec3f const &v, GfVec3f const &from, GfVec3f const &
 
 /// Rest area of the faces a node scatters on: a GeomSubset's faces of its
 /// parent mesh, or the whole mesh. 0 when there is no bound surface.
-inline double RestSurfaceArea(UsdGenGraphDesc const *desc, UsdGenSurfaceId surface, bool hasSurface)
+inline double RestSurfaceArea(UsdGenGraphSpec const *desc, UsdGenSurfaceId surface, bool hasSurface)
 {
     if (!desc || !hasSurface || surface >= desc->surfaces.size()) return 0.0;
-    UsdGenSurfaceDesc const *mesh = &desc->surfaces[surface];
+    UsdGenSurfaceInput const *mesh = &desc->surfaces[surface];
     VtIntArray const subset = mesh->subsetFaces;
     bool const restricted = UsdGenSurfaceRestricted(*mesh);
     if (mesh->faceVertexCounts.empty()) {
-        SdfPath const parent = mesh->path.GetParentPath();
+        UsdGenNodeKey const parent = mesh->owner;
         mesh = nullptr;
         for (auto const &candidate : desc->surfaces)
-            if (candidate.path == parent) { mesh = &candidate; break; }
+            if (parent.IsValid() && candidate.key == parent) { mesh = &candidate; break; }
         if (!mesh) return 0.0;
     }
     VtVec3fArray const &points = mesh->restPoints.empty() ? mesh->points : mesh->restPoints;

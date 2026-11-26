@@ -9,7 +9,7 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
@@ -135,14 +135,14 @@ int main(int argc, char **argv)
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(MakeDesc(), &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, MakeDesc(), &graph);
     Check(compiled.ok, "graph compiles");
     if (!compiled.ok) return 1;
     Check(UsdGenOpRegistry::Get().IsFrozen(), "the first compile froze the registries");
 
     UsdGenScheduler scheduler(4);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     uint64_t gen = 0;
     auto run = [&](Intern intern) {
         g_intern.store(intern);

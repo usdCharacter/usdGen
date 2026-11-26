@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenImaging/rbfAnimation.h"
+#include "usdGenUsd/publishPaths.h"
 #include "pxr/imaging/hd/extComputationContext.h"
 #include "pxr/imaging/hd/extComputationCpuCallback.h"
 #include "pxr/imaging/hd/extComputationInputComputationSchema.h"
@@ -219,8 +220,9 @@ bool Pose(RbfAnimation* result, usdGen::rbf::CubicField const& field, GfMatrix4d
     HdDataSourceBaseHandle const inputs[] = {Value(Flatten(Coefficients(field))),Value(int(FloatSafe(domain,field)))};
     result->computations[result->coefficientsPath] = Container(HdExtComputationSchema::GetSchemaToken(),
         HdExtComputationSchema::Builder().SetInputValues(HdRetainedContainerDataSource::New(2,inputNames,inputs)).Build());
-    for (auto const& tile : result->binding->tiles) {
-        auto const extent = Bounds(result->restBounds.at(tile.path), field);
+    for (size_t t = 0; t != result->binding->tiles.size(); ++t) {
+        SdfPath const& tilePath = result->tilePaths[t];
+        auto const extent = Bounds(result->restBounds.at(tilePath), field);
         for (int k=0; k!=3; ++k)
             if (!std::isfinite(extent.GetMin()[k]) || !std::isfinite(extent.GetMax()[k]) ||
                 std::abs(extent.GetMin()[k]) > std::numeric_limits<float>::max() ||
@@ -228,7 +230,7 @@ bool Pose(RbfAnimation* result, usdGen::rbf::CubicField const& field, GfMatrix4d
         auto primvar = HdExtComputationPrimvarSchema::Builder()
             .SetInterpolation(HdExtComputationPrimvarSchema::BuildInterpolationDataSource(HdPrimvarSchemaTokens->vertex))
             .SetRole(HdExtComputationPrimvarSchema::BuildRoleDataSource(HdPrimvarSchemaTokens->point))
-            .SetSourceComputation(HdRetainedTypedSampledDataSource<SdfPath>::New(tile.path.AppendChild(computeName)))
+            .SetSourceComputation(HdRetainedTypedSampledDataSource<SdfPath>::New(tilePath.AppendChild(computeName)))
             .SetSourceComputationOutputName(HdRetainedTypedSampledDataSource<TfToken>::New(HdTokens->points))
             .SetValueType(HdRetainedTypedSampledDataSource<HdTupleType>::New({HdTypeFloatVec3,1})).Build();
         TfToken const names[] = {HdPrimvarsSchema::GetSchemaToken(), HdExtComputationPrimvarsSchema::GetSchemaToken(),
@@ -238,41 +240,48 @@ bool Pose(RbfAnimation* result, usdGen::rbf::CubicField const& field, GfMatrix4d
             HdExtentSchema::Builder().SetMin(HdRetainedTypedSampledDataSource<GfVec3d>::New(extent.GetMin()))
                 .SetMax(HdRetainedTypedSampledDataSource<GfVec3d>::New(extent.GetMax())).Build(),
             HdXformSchema::Builder().SetMatrix(HdRetainedTypedSampledDataSource<GfMatrix4d>::New(xform)).Build()};
-        result->overlays[tile.path] = HdRetainedContainerDataSource::New(4,names,values);
+        result->overlays[tilePath] = HdRetainedContainerDataSource::New(4,names,values);
     }
     return true;
 }
 }
 std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
-    std::shared_ptr<const usdGen::UsdGenRbfAnimationBinding> const& binding, GfMatrix4d const& xform) {
+    std::shared_ptr<const usdGen::UsdGenRbfAnimationBinding> const& binding,
+    std::shared_ptr<const void> const& host, GfMatrix4d const& xform) {
     if (!binding || binding->tiles.empty()) return {};
     auto result = std::make_shared<RbfAnimation>();
     result->binding = binding;
-    result->coefficientsPath = binding->tiles.front().path.GetParentPath().AppendChild(TfToken("usdGenAnimationCoefficients"));
+    result->host = host;
+    for (auto const& tile : binding->tiles)
+        result->tilePaths.push_back(usdGenUsd::PrimPath(tile.prim, usdGenUsd::Paths(host)));
+    if (result->tilePaths.front().IsEmpty()) return {};
+    result->coefficientsPath = result->tilePaths.front().GetParentPath().AppendChild(TfToken("usdGenAnimationCoefficients"));
     auto const& field = binding->field;
     auto const rest = Flatten(field.Samples());
     auto const origin = field.Centre();
-    for (auto const& tile : binding->tiles) {
+    for (size_t t = 0; t != binding->tiles.size(); ++t) {
+        auto const& tile = binding->tiles[t];
+        SdfPath const& tilePath = result->tilePaths[t];
         GfRange3d bounds;
         for (auto const& p : tile.restPoints) bounds.UnionWith(GfVec3d(p));
         // Conservative width padding; the exact authored padding is retained
         // in the binding and is independent of pose.
         bounds.SetMin(bounds.GetMin()-GfVec3d(tile.widthPadding));
         bounds.SetMax(bounds.GetMax()+GfVec3d(tile.widthPadding));
-        result->restBounds.emplace(tile.path, bounds);
+        result->restBounds.emplace(tilePath, bounds);
         TfToken const names[] = {base,samples,centre,scale};
         HdDataSourceBaseHandle const values[] = {Value(tile.restPoints),Value(rest),Value(VtDoubleArray{origin[0],origin[1],origin[2]}),
             Value(field.Scale())};
-        result->computations[tile.path.AppendChild(inputsName)] = Container(HdExtComputationSchema::GetSchemaToken(),
+        result->computations[tilePath.AppendChild(inputsName)] = Container(HdExtComputationSchema::GetSchemaToken(),
             HdExtComputationSchema::Builder().SetInputValues(HdRetainedContainerDataSource::New(4,names,values)).Build());
-        result->computations[tile.path.AppendChild(computeName)] = Compute(tile.path,result->coefficientsPath,tile.restPoints.size(),int(field.SampleCount()));
+        result->computations[tilePath.AppendChild(computeName)] = Compute(tilePath,result->coefficientsPath,tile.restPoints.size(),int(field.SampleCount()));
     }
     if (!Pose(result.get(),field,xform)) return {};
     return result;
 }
 std::shared_ptr<const RbfAnimation> PoseRbfAnimation(RbfAnimation const& previous, usdGen::UsdGenGraphDesc const& desc) {
     auto const& binding = *previous.binding;
-    auto surface = std::find_if(desc.surfaces.begin(),desc.surfaces.end(),[&](auto const& s) {return s.path==binding.surface;});
+    auto surface = std::find_if(desc.surfaces.begin(),desc.surfaces.end(),[&](auto const& s) {return usdGenUsd::KeyFor(usdGenUsd::Paths(previous.host), s.path)==binding.surface;});
     if (surface == desc.surfaces.end()) return {};
     auto field = binding.field;
     GfMatrix4d const relative = surface->worldMatrix * desc.xformMatrix.GetInverse();

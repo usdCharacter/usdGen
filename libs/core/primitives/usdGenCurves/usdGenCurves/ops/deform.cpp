@@ -215,11 +215,11 @@ inline uint32_t NonFiniteBits(float f0, float f1, float f2)
         ((u2 & kExpMask) == kExpMask);
 }
 
-UsdGenCurveSetDesc const *FindCurves(UsdGenGraphDesc const *desc, SdfPath const &path)
+UsdGenCurveSetInput const *FindCurves(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
 {
     if (!desc) return nullptr;
-    for (UsdGenCurveSetDesc const &curves : desc->curveSets)
-        if (curves.path == path) return &curves;
+    for (UsdGenCurveSetInput const &curves : desc->curveSets)
+        if (curves.key == path) return &curves;
     return nullptr;
 }
 
@@ -237,9 +237,9 @@ inline GfVec3d XformSurfacePoint(GfMatrix4d const &relative, bool affine, GfVec3
 /// Where the drivers' points live relative to the description: their prim's
 /// world matrix, brought into the description's space. A transform animation
 /// moves rest and pose together; animate the points to deform.
-GfMatrix4d DriverToGroom(UsdGenGraphDesc const *desc, SdfPath const &path)
+GfMatrix4d DriverToGroom(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
 {
-    UsdGenCurveSetDesc const *curves = FindCurves(desc, path);
+    UsdGenCurveSetInput const *curves = FindCurves(desc, path);
     return curves ? curves->worldMatrix * desc->xformMatrix.GetInverse() : GfMatrix4d(1.0);
 }
 
@@ -307,14 +307,14 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         MixArray(&d, b.pz.cdata(), b.pz.size() * sizeof(float));
         d.Mix(referenceRestDigest_.Digest(value->value->set, b.rest.cdata(),
                                           b.rest.size() * sizeof(GfVec3f)));
-        GfMatrix4d const m = DriverToGroom(ctx.desc, value->path);
+        GfMatrix4d const m = DriverToGroom(ctx.desc, value->key);
         MixArray(&d, m.GetArray(), 16 * sizeof(double));
     }
     return d.Epoch(0x446566726dull);
 }
 
 bool UsdGenDeformOp::MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext const &ctx,
-                                     UsdGenSurfaceDesc const &surface) const
+                                     UsdGenSurfaceInput const &surface) const
 {
     UsdGenParamView const *p = ctx.params;
     if (p && p->node && p->node->mode == p->op->Token(kTokCurveWrap)) return false;
@@ -397,7 +397,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         std::string driverLabel;
         // Subset sources for the re-selection path below, set by whichever
         // driver branch runs.
-        UsdGenSurfaceDesc const *surfaceSrc = nullptr;
+        UsdGenSurfaceInput const *surfaceSrc = nullptr;
         GfMatrix4d surfaceRelative;
         bool surfaceAffine = true;
         UsdGenCurveSetView driverView;   // outlives the branch: guideSrc points here
@@ -410,7 +410,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             if (!ctx.desc || ctx.surface >= ctx.desc->surfaces.size())
                 return fail("surface-driven RBF requires one bound usdGen:surface");
             auto const &surface = ctx.desc->surfaces[ctx.surface];
-            driverLabel = "usdGen:surface " + surface.path.GetString();
+            driverLabel = "usdGen:surface " + ctx.desc->Label(surface.key);
             if (surface.restFromCurrentPoints || surface.restPoints.empty())
                 return fail(driverLabel + " requires Default-time rest points and UsdGenRestAPI");
             if (surface.points.size() != surface.restPoints.size())
@@ -457,7 +457,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             }
         } else {
             UsdGenResolvedReferenceValue const &reference = *ctx.resolvedReferences[0];
-            driverLabel = "usdGen:guides " + reference.path.GetString();
+            driverLabel = "usdGen:guides " + UsdGenLabel(ctx.desc, reference.key);
             driverView = UsdGenCurveSetView::Of(*reference.value);
             UsdGenCurveSetView const &drivers = driverView;
             if (wrap && drivers.totalCurves != 1 && !regionMapped)
@@ -472,20 +472,20 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                         if (guideRegions[g]<0 || std::find(guideRegions.begin(),guideRegions.begin()+g,guideRegions[g])!=guideRegions.begin()+g)
                             return fail("guideRegions must contain unique nonnegative region IDs");
                 }
-                auto const *curves = FindCurves(ctx.desc, reference.path);
+                auto const *curves = FindCurves(ctx.desc, reference.key);
                 if (curves && curves->wrap == p->op->Token(kTokPeriodic))
                     return fail("curveWrap requires an open, non-periodic center curve");
             }
-            if (UsdGenCurveSetDesc const *curves = FindCurves(ctx.desc, reference.path);
+            if (UsdGenCurveSetInput const *curves = FindCurves(ctx.desc, reference.key);
                 curves && curves->restFromCurrentPoints)
-                return fail("usdGen:guides " + reference.path.GetString() +
+                return fail("usdGen:guides " + UsdGenLabel(ctx.desc, reference.key) +
                             " has no rest pose to bind; apply UsdGenCurveAPI to it (its rest is "
                             "primvars:rest, else the Default-time points)");
             if (drivers.px.size() != drivers.totalCvs || drivers.py.size() != drivers.totalCvs ||
                 drivers.pz.size() != drivers.totalCvs)
                 return fail("the driver curves' point planes do not match their CV count");
             guideSrc = &drivers;
-            guideToGroom = DriverToGroom(ctx.desc, reference.path);
+            guideToGroom = DriverToGroom(ctx.desc, reference.key);
             driverRest.resize(drivers.totalCvs);
             for (size_t i = 0; i < drivers.totalCvs; ++i)
                 driverRest[i] = guideToGroom.Transform(GfVec3d(opUtil::RestPoint(drivers, i)));
@@ -972,7 +972,7 @@ namespace {
 bool MakeAnimationBinding(UsdGenAnimationBindingQuery const &q, UsdGenOp const &op,
                           UsdGenRbfAnimationBinding *out)
 {
-    UsdGenNodeDesc const *n = q.terminalDesc;
+    UsdGenOpNode const *n = q.terminalDesc;
     UsdGenParamView const *p = q.terminalParams;
     if (!n || !p || !p->op || !out || !n->enabled) return false;
     if (!n->mode.IsEmpty() && n->mode != p->op->Token(kTokRbf)) return false;

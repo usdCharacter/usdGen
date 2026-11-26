@@ -106,7 +106,7 @@ private:
    // degenerate (Capture fails there too; the full hash keeps the
    // failure cadence what it was).
    bool MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext const &ctx,
-                       UsdGenSurfaceDesc const &surface) const;
+                       UsdGenSurfaceInput const &surface) const;
    mutable uint64_t chosenDigestHits_ = 0;
 };
 

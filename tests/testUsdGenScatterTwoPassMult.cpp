@@ -12,6 +12,7 @@
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
@@ -77,7 +78,7 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
                       std::string *error = nullptr)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    usdGenUsd::LoweredParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenParamView const &params = stackParams.View();
     UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
@@ -87,7 +88,8 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out,
     if (!cap)
         return false;
     UsdGenCaptureContext ctx;
-    ctx.desc = &d;
+    usdGen::UsdGenGraphSpec const lowered91 = usdGenUsd::Lower(d);
+    ctx.desc = &lowered91;
     ctx.params = &params;
     ctx.surface = 0;
     ctx.seed = uint32_t(node.seed);
