@@ -77,6 +77,18 @@ add_test(NAME testUsdGenNoSdfBelowHosts
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoSdfBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
+# Step 10 (gate 10a): no pxr/usd or pxr/imaging include below the hosts
+# (limitSurface.cpp calls OpenSubdiv Far directly). Empty baseline.
+add_test(NAME testUsdGenNoPxrUsdImagingBelowHosts
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-pxr-usd-imaging-below-hosts
+        "-DDIRS=${_usdgen_below_dirs}"
+        "-DPATTERN=#[ ]*include[ ]*[<\"]pxr/(usd|imaging)/"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noPxrUsdImagingBelowHosts.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoPxrUsdImagingBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
+
 foreach(_t usdGen usdGenMath)
     if(NOT TARGET ${_t})
         continue()
