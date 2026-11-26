@@ -8,7 +8,7 @@
 #include "usdGen/compiler.h"
 #include "usdGen/curveLoader.h"
 #include "usdGen/op.h"
-#include "usdGen/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
 
 #include <algorithm>
 #include <cmath>

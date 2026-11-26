@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "vulkanReadbackFixture.h"
-#include "usdGen/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
 
 #include <cstring>
 #include <fstream>

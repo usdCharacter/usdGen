@@ -92,34 +92,16 @@ set(_usdgen_vulkan_sources
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/queueTimeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/externalRetirement.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceGeneration.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceGenerationAdapter.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/publicationJob.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/planExecutor.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sessionProvider.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/defaultProvider.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceWidthJob.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/lengthScalePipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/lengthCompactionPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/widthBlendPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/nonWidthComparePipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/topologyPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/pointOverridePipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/curveGrowPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/scatterGrowPipeline.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/compile/program.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/exec/shaderLibrary.cpp)
+# Surface and expression pipelines: they move to usdGen{Surface,Expr}/vulkan
+# at 8.6e. Until then they build into usdGenCurvesVulkan, their only consumer.
+set(_usdgen_vulkan_pending_surface_expr_sources
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFramesPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFrameGatherPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/noisePipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deformPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkBinding.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkDeformPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/widthPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/resampleVkPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/mapVkImage.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/styleVkPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/picktileVk.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkEvaluate.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkContext.cpp
@@ -128,11 +110,7 @@ set(_usdgen_vulkan_sources
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkRun.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkStructural.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPack.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPlan.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/compile/program.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/exec/shaderLibrary.cpp)
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPack.cpp)
 if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_TESTS))
     # Vendored header fallback when VULKAN_SDK is unset (mirrors the
     # auto-probe; cache hint, never ENV, so the host loader stays visible).
@@ -147,14 +125,12 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     endif()
     _usdgen_hint_vulkan_loader()
     find_package(Vulkan 1.2 REQUIRED)
-    # usdGenVulkan (SHARED, step 8.2): the Vulkan runtime and, until step 8.6,
-    # the curve pipelines. The registry loads it after the primitives
+    # usdGenVulkan (SHARED, step 8.2): the Vulkan runtime. The registry loads it after the primitives
     # (USDGEN_DEFAULT_EXTENSIONS); its usdGenRegister adds the Vulkan kernel
     # rows and registers the "vulkan" backend, unavailable without the
     # runtime (test-only builds), where tests inject a provider. One DSO holds the canonical UUID registry.
     add_library(usdGenVulkan SHARED ${_usdgen_vulkan_sources}
         libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp
-        libs/core/backends/usdGenVulkan/usdGenVulkan/registerCurvesVulkan.cpp
         libs/core/backends/usdGenVulkan/usdGenVulkan/register.cpp)
     # The primitives by name, not usdGenWithPrimitives: that target depends on
     # this one so every consumer of the engine finds it built.
@@ -184,7 +160,8 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     # without sources yet makes no target.
     file(GLOB_RECURSE _usdgen_curves_vulkan_sources
         "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/*.cpp")
-    add_library(usdGenCurvesVulkan SHARED ${_usdgen_curves_vulkan_sources})
+    add_library(usdGenCurvesVulkan SHARED ${_usdgen_curves_vulkan_sources}
+        ${_usdgen_vulkan_pending_surface_expr_sources})
     target_link_libraries(usdGenCurvesVulkan
         PUBLIC usdGen
         PRIVATE usdGenVulkan usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
@@ -201,7 +178,11 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     # RTLD_LOCAL dlopen finds libusdGenVulkan.so beside it in an install.
     set_target_properties(usdGenCurvesVulkan PROPERTIES
         POSITION_INDEPENDENT_CODE ON
+        WINDOWS_EXPORT_ALL_SYMBOLS ON
         INSTALL_RPATH "$ORIGIN")
+    target_include_directories(usdGenCurvesVulkan PUBLIC
+        ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
+        "$<INSTALL_INTERFACE:include>")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
         target_link_options(usdGenCurvesVulkan PRIVATE "LINKER:--exclude-libs,ALL")
     endif()
@@ -212,10 +193,13 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
         LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")
     # Test link lines name these; both are usdGenVulkan.
+    # The curve pipelines live in usdGenCurvesVulkan, which tests use directly.
     add_library(usdGenVulkanNative INTERFACE)
-    target_link_libraries(usdGenVulkanNative INTERFACE usdGenVulkan)
+    target_link_libraries(usdGenVulkanNative INTERFACE usdGenVulkan
+        $<BUILD_INTERFACE:usdGenCurvesVulkan>)
     add_library(usdGenVulkanFactory INTERFACE)
-    target_link_libraries(usdGenVulkanFactory INTERFACE usdGenVulkan)
+    target_link_libraries(usdGenVulkanFactory INTERFACE usdGenVulkan
+        $<BUILD_INTERFACE:usdGenCurvesVulkan>)
     find_program(USDGEN_GLSLANG_EXECUTABLE NAMES glslangValidator glslang glslc
         HINTS "$ENV{VULKAN_SDK}/bin" "${CMAKE_CURRENT_SOURCE_DIR}/.vulkan-toolchain/root/usr/bin" REQUIRED)
     find_program(USDGEN_SPIRV_VAL_EXECUTABLE NAMES spirv-val
@@ -230,8 +214,12 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         set(_usdgen_vulkan_glsl_flags -V --target-env vulkan1.2)
     endif()
     set(_usdgen_vulkan_spirv_files)
-    function(_usdgen_compile_vulkan_shader _tag _file)
-        set(_shader "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/${_file}.comp")
+    set(_usdgen_vulkan_curve_shader_dir
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/shaders")
+    set(_usdgen_vulkan_runtime_shader_dir
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders")
+    function(_usdgen_compile_vulkan_shader _dir _tag _file)
+        set(_shader "${_dir}/${_file}.comp")
         set(_spv "${CMAKE_CURRENT_BINARY_DIR}/vulkan/${_file}.spv")
         add_custom_command(OUTPUT "${_spv}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/vulkan"
@@ -244,62 +232,63 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         list(APPEND _usdgen_vulkan_spirv_files "${_spv}")
         set(_usdgen_vulkan_spirv_files "${_usdgen_vulkan_spirv_files}" PARENT_SCOPE)
     endfunction()
-    _usdgen_compile_vulkan_shader(width width)
-    _usdgen_compile_vulkan_shader(length lengthScale)
-    _usdgen_compile_vulkan_shader(blend widthBlend)
-    _usdgen_compile_vulkan_shader(compare nonWidthCompare)
-    _usdgen_compile_vulkan_shader(compaction lengthCompaction)
-    _usdgen_compile_vulkan_shader(set lengthSet)
-    _usdgen_compile_vulkan_shader(topo topologyCompare)
-    _usdgen_compile_vulkan_shader(po pointOverride)
-    _usdgen_compile_vulkan_shader(grow curveGrow)
-    _usdgen_compile_vulkan_shader(scatter_grow scatterGrow)
-    _usdgen_compile_vulkan_shader(rfval rootFramesValidate)
-    _usdgen_compile_vulkan_shader(rfbuild rootFrames)
-    _usdgen_compile_vulkan_shader(rfgather rootFrameGather)
-    _usdgen_compile_vulkan_shader(noise_validate noiseValidate)
-    _usdgen_compile_vulkan_shader(noise_generate noiseGenerate)
-    _usdgen_compile_vulkan_shader(deform_evaluate deformEvaluate)
-    _usdgen_compile_vulkan_shader(deform_apply deformApply)
-    _usdgen_compile_vulkan_shader(deform_evaluate_verify deformEvaluateVerify)
-    _usdgen_compile_vulkan_shader(deform_evaluate_fill deformEvaluateFill)
-    _usdgen_compile_vulkan_shader(deform_evaluate_cached deformEvaluateCached)
-    _usdgen_compile_vulkan_shader(overlap widthOverlapWitness)
-    _usdgen_compile_vulkan_shader(resample_vk resampleVk)
-    _usdgen_compile_vulkan_shader(mapvk_sample mapVkSample)
-    _usdgen_compile_vulkan_shader(rbfvk_extent rbfVkExtent)
-    _usdgen_compile_vulkan_shader(rbfvk_gram rbfVkGram)
-    _usdgen_compile_vulkan_shader(rbfvk_build_matrix rbfVkBuildMatrix)
-    _usdgen_compile_vulkan_shader(rbfvk_lu rbfVkLu)
-    _usdgen_compile_vulkan_shader(rbfvk_rhs rbfVkRhs)
-    _usdgen_compile_vulkan_shader(rbfvk_trisolve rbfVkTriSolve)
-    _usdgen_compile_vulkan_shader(rbfvk_evaluate rbfVkEvaluate)
-    _usdgen_compile_vulkan_shader(rbfvk_apply rbfVkApply)
-    _usdgen_compile_vulkan_shader(rbfvk_verify rbfVkVerify)
-    _usdgen_compile_vulkan_shader(rbfvk_fill rbfVkFill)
-    _usdgen_compile_vulkan_shader(rbfvk_evaluate_cached rbfVkEvaluateCached)
-    _usdgen_compile_vulkan_shader(picktile_pick picktileVkPick)
-    _usdgen_compile_vulkan_shader(picktile_footprint picktileVkFootprint)
-    _usdgen_compile_vulkan_shader(picktile_tiles picktileVkTiles)
-    _usdgen_compile_vulkan_shader(picktile_bounds picktileVkBounds)
-    _usdgen_compile_vulkan_shader(picktile_indices picktileVkIndices)
-    _usdgen_compile_vulkan_shader(exprvk_evaluate exprVkEvaluate)
-    _usdgen_compile_vulkan_shader(exprvk_context exprVkContext)
-    _usdgen_compile_vulkan_shader(exprvk_width exprVkWidth)
-    _usdgen_compile_vulkan_shader(exprvk_exprop exprVkExprOp)
-    _usdgen_compile_vulkan_shader(exprvk_pack exprVkPack)
-    _usdgen_compile_vulkan_shader(cut_extend lengthCutExtend)
-    _usdgen_compile_vulkan_shader(reparam lengthReparam)
-    _usdgen_compile_vulkan_shader(minimum lengthMinimum)
-    _usdgen_compile_vulkan_shader(literal_v1 lengthLiteralV1)
-    _usdgen_compile_vulkan_shader(envelope_v1 lengthEnvelopeV1
-        "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/float32Envelope.glsl")
-    _usdgen_compile_vulkan_shader(device_v1 lengthDeviceV1)
-    _usdgen_compile_vulkan_shader(stylevk_ramp styleVkWidthRamp)
-    _usdgen_compile_vulkan_shader(stylevk_length styleVkLength)
-    _usdgen_compile_vulkan_shader(stylevk_grow styleVkGrow)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} width width)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} length lengthScale)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} blend widthBlend)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} compare nonWidthCompare)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} compaction lengthCompaction)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} set lengthSet)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} topo topologyCompare)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} po pointOverride)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} grow curveGrow)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} scatter_grow scatterGrow)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} rfval rootFramesValidate)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} rfbuild rootFrames)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} rfgather rootFrameGather)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} noise_validate noiseValidate)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} noise_generate noiseGenerate)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} deform_evaluate deformEvaluate)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} deform_apply deformApply)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} deform_evaluate_verify deformEvaluateVerify)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} deform_evaluate_fill deformEvaluateFill)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} deform_evaluate_cached deformEvaluateCached)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} overlap widthOverlapWitness)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} resample_vk resampleVk)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} mapvk_sample mapVkSample)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_extent rbfVkExtent)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_gram rbfVkGram)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_build_matrix rbfVkBuildMatrix)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_lu rbfVkLu)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_rhs rbfVkRhs)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_trisolve rbfVkTriSolve)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_evaluate rbfVkEvaluate)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_apply rbfVkApply)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_verify rbfVkVerify)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_fill rbfVkFill)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} rbfvk_evaluate_cached rbfVkEvaluateCached)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_pick picktileVkPick)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_footprint picktileVkFootprint)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_tiles picktileVkTiles)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_bounds picktileVkBounds)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_indices picktileVkIndices)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} exprvk_evaluate exprVkEvaluate)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} exprvk_context exprVkContext)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} exprvk_width exprVkWidth)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} exprvk_exprop exprVkExprOp)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_runtime_shader_dir} exprvk_pack exprVkPack)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} cut_extend lengthCutExtend)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} reparam lengthReparam)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} minimum lengthMinimum)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} literal_v1 lengthLiteralV1)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} envelope_v1 lengthEnvelopeV1
+        "${_usdgen_vulkan_curve_shader_dir}/float32Envelope.glsl")
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} device_v1 lengthDeviceV1)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} stylevk_ramp styleVkWidthRamp)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} stylevk_length styleVkLength)
+    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} stylevk_grow styleVkGrow)
     add_custom_target(usdGenVulkanShaders ALL DEPENDS ${_usdgen_vulkan_spirv_files})
     add_dependencies(usdGenVulkan usdGenVulkanShaders)
+    add_dependencies(usdGenCurvesVulkan usdGenVulkanShaders)
     if(USDGEN_ENABLE_VULKAN_RUNTIME)
         install(FILES ${_usdgen_vulkan_spirv_files} DESTINATION share/usdGen/vulkan)
     endif()

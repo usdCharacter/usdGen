@@ -7,7 +7,7 @@
 // missing-ID rejection, quarantine pinning.
 // argv: <rootFrameGather.spv> [--quarantine]
 
-#include "usdGen/vulkan/rootFrameGatherPipeline.h"
+#include "usdGenVulkan/vulkan/rootFrameGatherPipeline.h"
 #include "vulkanNativeFixture.h"
 
 #include <cmath>

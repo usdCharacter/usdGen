@@ -19,9 +19,9 @@
 // skipped; the test exits 77 only when no GPU backend is available at all,
 // so CUDA-only, Vulkan-only, and dual-backend builds all stay green.
 
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/noisePipeline.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/noisePipeline.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"

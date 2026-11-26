@@ -28,9 +28,9 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
-#include "usdGen/vulkan/executionPlan.h"
-#include "usdGen/vulkan/picktileVk.h"
-#include "usdGen/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/picktileVk.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
 
 #ifdef USDGEN_ENABLE_CUDA
 #include "gpu/generation.h"

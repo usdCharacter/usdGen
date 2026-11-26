@@ -31,7 +31,7 @@ libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkApply.cpp 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkContext.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkEvaluate.cpp 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/noisePipeline.cpp 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/pointOverridePipeline.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFramesPipeline.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise_gpu.cu 1
+libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/noisePipeline.cpp 1
+libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/pointOverridePipeline.cpp 1

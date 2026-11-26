@@ -6,10 +6,10 @@
 // publication must expose metadata and owners, never geometry bytes.
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
-#include "usdGen/vulkan/sourceGeneration.h"
-#include "usdGen/vulkan/deviceGenerationAdapter.h"
-#include "usdGen/vulkan/completionService.h"
-#include "usdGen/vulkan/externalRetirement.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
+#include "usdGenVulkan/vulkan/completionService.h"
+#include "usdGenVulkan/vulkan/externalRetirement.h"
 #include "usdGen/deviceGeneration.h"
 #include "vulkanNativeFixture.h"
 

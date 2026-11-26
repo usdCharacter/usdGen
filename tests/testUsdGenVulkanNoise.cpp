@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/noisePipeline.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/noisePipeline.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"

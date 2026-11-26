@@ -7,10 +7,7 @@ libs/base/usdGenMath/usdGenMath/rbf.h 1
 libs/base/usdGenMath/version.cpp 3
 libs/core/backends/usdGenCuda/usdGenCuda/cudaParameters.cpp 13
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.h 4
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/csourceVkCapture.h 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.cpp 3
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp 13
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkPlan.h 3
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/bend.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardGeometry.h 3
@@ -52,6 +49,9 @@ libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 3
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 4
+libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkCapture.h 1
+libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/executionPlan.cpp 3
+libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/rbfVkPlan.h 3
 libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp 15
 libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.h 1
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/valueShape.cpp 20

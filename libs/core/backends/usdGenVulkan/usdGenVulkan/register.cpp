@@ -1,12 +1,12 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// usdGenVulkan's registration: the Vulkan kernel rows of the built-in curve
-// ops and the "vulkan" backend (unavailable without the runtime). Loaded after
-// usdGenCurves (USDGEN_DEFAULT_EXTENSIONS), whose op ids the rows attach to.
+// usdGenVulkan's registration: the "vulkan" backend (unavailable without the
+// runtime). The primitives' kernel rows and programs register from their own
+// modules, loaded after this one (USDGEN_DEFAULT_EXTENSIONS).
 #include "usdGenVulkan/export.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGenVulkan/vulkan/defaultProvider.h"
-#include "usdGenVulkan/vulkan/vkStages.h"
+#include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenCurves/ops/kernelOps.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/registrar.h"
@@ -75,17 +75,4 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
     def.unavailableReason = kNoRuntime;
 #endif
     gVulkanBackend.store(r.RegisterBackend(def), std::memory_order_release);
-    UsdGenCurvesKernelOps const &ops = UsdGenCurvesBuiltinKernelOps();
-    UsdGenVulkanKernelOps k;
-    k.curveSource = ops.curveSource;
-    k.referenceSource = ops.referenceSource;
-    k.scatter = ops.scatter;
-    k.grow = ops.grow;
-    k.width = ops.width;
-    k.length = ops.length;
-    k.widthBlend = ops.widthBlend;
-    k.noise = ops.noise;
-    k.deform = ops.deform;
-    k.resample = ops.resample;
-    UsdGenRegisterVulkanKernels(r, k);
 }

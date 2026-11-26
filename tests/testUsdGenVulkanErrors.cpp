@@ -4,7 +4,7 @@
 // Host-independent coverage for usdGen/vulkan/errors.h: every documented
 // enumerant renders its canonical name, unknown values fall back without an
 // empty diagnostic, and the one-line format keeps the numeric code.
-#include "usdGen/vulkan/errors.h"
+#include "usdGenVulkan/vulkan/errors.h"
 
 #include <cstdio>
 #include <string>

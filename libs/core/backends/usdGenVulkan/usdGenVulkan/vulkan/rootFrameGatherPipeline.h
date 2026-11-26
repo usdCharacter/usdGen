@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "usdGen/vulkan/chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 
 #include <functional>
 #include <memory>

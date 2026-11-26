@@ -4,7 +4,7 @@
 #define USDGEN_TEST_VULKAN_READBACK_H
 
 #include "vulkanNativeFixture.h"
-#include "usdGen/vulkan/chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include <algorithm>
 #include <cstring>
 

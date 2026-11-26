@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/nonWidthComparePipeline.h"
-#include "usdGen/vulkan/lengthScalePipeline.h"
-#include "usdGen/vulkan/sourceGeneration.h"
-#include "usdGen/vulkan/widthBlendPipeline.h"
-#include "usdGen/vulkan/widthPipeline.h"
+#include "usdGenCurves/vulkan/nonWidthComparePipeline.h"
+#include "usdGenCurves/vulkan/lengthScalePipeline.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/widthBlendPipeline.h"
+#include "usdGenCurves/vulkan/widthPipeline.h"
 #include "vulkanNativeFixture.h"
 
 #include <algorithm>

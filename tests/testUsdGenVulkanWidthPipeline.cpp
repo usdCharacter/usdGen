@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/widthPipeline.h"
+#include "usdGenCurves/vulkan/widthPipeline.h"
 #include "vulkanNativeFixture.h"
 #include <cstring>
 #include <fstream>

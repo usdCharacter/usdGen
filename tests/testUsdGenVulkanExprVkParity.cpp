@@ -34,14 +34,14 @@
 // 5x with 60s waits: tenant load), then falls back to llvmpipe as secondary
 // evidence and reports NVIDIA as retry-pending.
 
-#include "usdGen/vulkan/exprVkApply.h"
+#include "usdGenVulkan/vulkan/exprVkApply.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/vulkan/exprVkContext.h"
-#include "usdGen/vulkan/exprVkEvaluate.h"
-#include "usdGen/vulkan/exprVkParameters.h"
-#include "usdGen/vulkan/exprVkPlan.h"
-#include "usdGen/vulkan/exprVkProgram.h"
-#include "usdGen/vulkan/widthPipeline.h"
+#include "usdGenVulkan/vulkan/exprVkContext.h"
+#include "usdGenVulkan/vulkan/exprVkEvaluate.h"
+#include "usdGenVulkan/vulkan/exprVkParameters.h"
+#include "usdGenVulkan/vulkan/exprVkPlan.h"
+#include "usdGenVulkan/vulkan/exprVkProgram.h"
+#include "usdGenCurves/vulkan/widthPipeline.h"
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/frontend.h"
 

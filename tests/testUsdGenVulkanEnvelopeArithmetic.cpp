@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/lengthScalePipeline.h"
+#include "usdGenCurves/vulkan/lengthScalePipeline.h"
 #include "vulkanReadbackFixture.h"
 #include <cfenv>
 #include <cmath>

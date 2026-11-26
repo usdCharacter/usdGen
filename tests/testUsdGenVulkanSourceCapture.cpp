@@ -7,7 +7,7 @@
 #include "usdGen/curveLoader.h"
 #include "usdGen/curveRootCapture.h"
 #include "usdGen/op.h"
-#include "usdGen/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
 
 #include <cmath>
 #include <cstdio>

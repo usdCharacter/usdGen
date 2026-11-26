@@ -6,7 +6,7 @@
 // Reserve/Mark/Arm/delivery/Retire ordering, close-pending failure routing,
 // and idle-close shutdown against a real timeline device.
 #include "vulkanNativeFixture.h"
-#include "usdGen/vulkan/completionService.h"
+#include "usdGenVulkan/vulkan/completionService.h"
 
 #include <atomic>
 #include <stdexcept>

@@ -38,15 +38,15 @@
 // USDGEN_RBFVK_RETRY_SECONDS override the retry schedule for iteration
 // only (defaults 5 and 60).
 
-#include "usdGen/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/deformPipeline.h"
-#include "usdGen/vulkan/deformRbfHost.h"
-#include "usdGen/vulkan/rbfVkBinding.h"
-#include "usdGen/vulkan/rbfVkDeformPipeline.h"
-#include "usdGen/vulkan/rbfVkPlan.h"
-#include "usdGen/vulkan/surfaceVk.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/deformPipeline.h"
+#include "usdGenCurves/vulkan/deformRbfHost.h"
+#include "usdGenCurves/vulkan/rbfVkBinding.h"
+#include "usdGenCurves/vulkan/rbfVkDeformPipeline.h"
+#include "usdGenCurves/vulkan/rbfVkPlan.h"
+#include "usdGenVulkan/vulkan/surfaceVk.h"
 #include "usdGenMath/rbf.h"
 
 #include "vulkanNativeFixture.h"

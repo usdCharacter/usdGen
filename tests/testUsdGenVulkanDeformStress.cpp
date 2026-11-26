@@ -8,9 +8,9 @@
 // timeline. Half the poses use the synchronous Begin, half Launch + Poll
 // (the non-blocking proof stage); some candidates are dropped mid-proof.
 // Every output must match the single-thread reference bit for bit.
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/deformPipeline.h"
-#include "usdGen/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/deformPipeline.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"

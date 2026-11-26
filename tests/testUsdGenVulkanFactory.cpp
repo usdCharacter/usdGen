@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/deviceFactory.h"
-#include "usdGen/vulkan/chargedBuffer.h"
+#include "usdGenVulkan/vulkan/deviceFactory.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include "vulkanNativeFixture.h"
 
 #include <algorithm>

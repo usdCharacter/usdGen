@@ -11,7 +11,7 @@
 //   --start-fail  a producer that arrives while another thread's lane start
 //                 is about to fail must not be admitted without a lane: its
 //                 callback runs (it starts the lane itself) or it is rejected.
-#include "usdGen/vulkan/externalRetirement.h"
+#include "usdGenVulkan/vulkan/externalRetirement.h"
 
 #include <atomic>
 #include <chrono>
