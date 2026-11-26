@@ -16,6 +16,7 @@ namespace usdGen {
 struct UsdGenMapInputView;
 struct UsdGenElementLayout;
 struct UsdGenInputDesc;
+struct UsdGenPublishDesc;
 class UsdGenTypeRegistry;
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
 UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;   // registrar-only
@@ -57,6 +58,9 @@ struct UsdGenTypeDef {
     /// Input kinds: how a host fills a record of
     /// this type ('layout' is the record's). Must outlive the registry.
     UsdGenInputDesc const *input = nullptr;
+    /// Primitive types: how hosts publish them (api/publishDesc.h); the
+    /// engine never reads it. Must outlive the registry.
+    UsdGenPublishDesc const *publish = nullptr;
 };
 
 class USDGEN_CORE_API UsdGenTypeRegistry {
