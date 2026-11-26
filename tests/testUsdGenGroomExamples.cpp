@@ -14,6 +14,7 @@
 //   * retargeting the expression's input:guideCurves recooks them;
 //   * retargeting a UsdGenPtexMap's file recooks the clumps.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/maps/ptexMap.h"
@@ -21,7 +22,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/usd/sdf/path.h"
@@ -75,7 +76,7 @@ Cooked Cook(UsdStageRefPtr const &stage, char const *description, std::string co
         std::printf("  validation: %s\n", error.c_str());
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(result.desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, result.desc, &graph);
     if (!compiled.ok) {
         Check(false, label + ": compile");
         for (auto const &error : compiled.errors) std::printf("  %s\n", error.c_str());

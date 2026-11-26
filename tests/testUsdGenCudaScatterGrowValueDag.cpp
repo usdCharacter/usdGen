@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecutionQueue.h"
 #include "usdGen/gpu/generation.h"
 
@@ -158,7 +159,7 @@ static int RbfCases(cudaStream_t stream) {
     surface.faceVertexIndices.insert(surface.faceVertexIndices.end(),{0,1,4});
     surface.uv.push_back(GfVec2f(0,1));
     UsdGenDiagnostics diagnostics;
-    auto sourcePlan=CompileCudaGraph(sourceDesc,&diagnostics); CHECK(sourcePlan);
+    auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(sourceDesc),&diagnostics); CHECK(sourcePlan);
     auto sourceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(sourceWorkspace);
     auto source=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1.,1,&diagnostics); CHECK(source);
     Packet original; CHECK(Capture(source,&original,stream));
@@ -198,13 +199,13 @@ static int RbfCases(cudaStream_t stream) {
     };
     auto sameStats=[](auto const& a,auto const& b) {
         if(a.size()!=b.size()) return false;
-        for(size_t i=0;i<a.size();++i) if(a[i].path!=b[i].path || a[i].identity!=b[i].identity ||
+        for(size_t i=0;i<a.size();++i) if(a[i].key!=b[i].key || a[i].identity!=b[i].identity ||
             a[i].bindCount!=b[i].bindCount || a[i].solveCount!=b[i].solveCount || a[i].sampleCount!=b[i].sampleCount) return false;
         return true;
     };
     for(int variant=0;variant<8;++variant) {
         std::fprintf(stderr,"ScatterGrow RBF variant %d\n",variant); diagnostics={};
-        auto desc=compose(sourceDesc,variant); auto plan=CompileCudaGraph(desc,&diagnostics);
+        auto desc=compose(sourceDesc,variant); auto plan=CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
         if(variant==7) { CHECK(!plan && diagnostics.HasErrors()); continue; }
         for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
         CHECK(plan && !diagnostics.HasErrors());
@@ -228,7 +229,7 @@ static int RbfCases(cudaStream_t stream) {
         }
         for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
         CHECK(actual && !diagnostics.HasErrors());
-        auto oraclePlan=CompileCudaGraph(compose(AsC3(sourceDesc,original),variant),&diagnostics); CHECK(oraclePlan);
+        auto oraclePlan=CompileCudaGraph(usdGenUsd::Lower(compose(AsC3(sourceDesc,original),variant)),&diagnostics); CHECK(oraclePlan);
         auto oracleWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(oracleWorkspace);
         auto expected=ExecuteCudaGraph(*oraclePlan,*oracleWorkspace,1.,100,&diagnostics); CHECK(expected);
         Packet a,b,old; CHECK(Capture(actual,&a,stream) && Capture(expected,&b,stream) && Same(a,b));
@@ -273,7 +274,7 @@ static int RbfCases(cudaStream_t stream) {
     }
     std::fprintf(stderr,"ScatterGrow RBF empty source\n");
     for(auto& node:sourceDesc.nodes) if(node.type==TfToken("UsdGenScatter")) node.params[0].value=VtValue(0.f);
-    diagnostics={}; auto emptyPlan=CompileCudaGraph(compose(sourceDesc,0),&diagnostics); CHECK(emptyPlan);
+    diagnostics={}; auto emptyPlan=CompileCudaGraph(usdGenUsd::Lower(compose(sourceDesc,0)),&diagnostics); CHECK(emptyPlan);
     auto emptyWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(emptyWorkspace);
     auto empty=ExecuteCudaGraph(*emptyPlan,*emptyWorkspace,1.,300,&diagnostics);
     CHECK(empty && empty->Geometry().alreadyDeformed && empty->Geometry().pointCount==0 && empty->Geometry().elementCount==0);
@@ -292,7 +293,7 @@ int main(int argc,char** argv) {
     }
     {
         auto sourceDesc=Source(); UsdGenDiagnostics diagnostics;
-        auto sourcePlan=CompileCudaGraph(sourceDesc,&diagnostics); CHECK(sourcePlan);
+        auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(sourceDesc),&diagnostics); CHECK(sourcePlan);
         auto sourceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(sourceWorkspace);
         auto source=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1.,1,&diagnostics); CHECK(source);
         Packet original; CHECK(Capture(source,&original,stream));
@@ -301,7 +302,7 @@ int main(int argc,char** argv) {
         for(int variant=0;variant!=7;++variant) {
             std::fprintf(stderr,"ScatterGrowValueDag variant %d\n",variant);
             diagnostics={}; auto desc=Descendants(sourceDesc,variant);
-            auto plan=CompileCudaGraph(desc,&diagnostics);
+            auto plan=CompileCudaGraph(usdGenUsd::Lower(desc),&diagnostics);
             for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
             CHECK(plan && !diagnostics.HasErrors());
             auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(workspace);
@@ -325,7 +326,7 @@ int main(int argc,char** argv) {
             for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
             CHECK(actual && !diagnostics.HasErrors());
             auto referenceDesc=Descendants(AsC3(sourceDesc,original),variant);
-            auto referencePlan=CompileCudaGraph(referenceDesc,&diagnostics); CHECK(referencePlan);
+            auto referencePlan=CompileCudaGraph(usdGenUsd::Lower(referenceDesc),&diagnostics); CHECK(referencePlan);
             auto referenceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(referenceWorkspace);
             auto expected=ExecuteCudaGraph(*referencePlan,*referenceWorkspace,1.,100,&diagnostics);
             for(auto const& e:diagnostics.errors) std::fprintf(stderr,"oracle: %s\n",e.c_str());

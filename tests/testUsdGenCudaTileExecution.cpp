@@ -1,5 +1,7 @@
 // End-to-end CUDA session tile publication: Source -> Length(cull) -> Width.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
 #include "usdGen/gpu/generation.h"
 
@@ -132,9 +134,9 @@ int main()
     UsdGenSession session;
     session.SetDevicePublicationEnabled(true);
     auto desc = MakeDesc(1100, 1.0f, .1f);
-    session.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(session, desc);
     auto first = session.Commit(1, UsdGenCommitReason::SetTime);
-    CHECK(first && first->device && first->tiles.empty() &&
+    CHECK(first && first->device && usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() &&
           !session.LastDiagnostics().HasErrors());
     auto const& initialTiles = first->device->Geometry().tiles;
     CHECK(SameTiles(initialTiles, {{0, 0, 512, 0, 1024},
@@ -202,9 +204,9 @@ int main()
 
     auto wider = desc;
     wider.nodes[2].params[0].value = VtValue(.2f);
-    session.SetGraphDesc(wider);
+    usdGenUsd::SetGraphDesc(session, wider);
     auto second = session.Commit(2, UsdGenCommitReason::SetTime);
-    CHECK(second && second != first && second->device && second->tiles.empty() &&
+    CHECK(second && second != first && second->device && usdGen::UsdGenCurvePublicationOf(*second).tiles.empty() &&
           !session.LastDiagnostics().HasErrors());
     CHECK(second->device->Geometry().topologyVersion == topology &&
           SameTiles(second->device->Geometry().tiles, initialTiles));
@@ -224,14 +226,14 @@ int main()
 
     auto catmull = wider;
     catmull.curveSets[0].basis = TfToken("catmullRom");
-    session.SetGraphDesc(catmull);
+    usdGenUsd::SetGraphDesc(session, catmull);
     auto third = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(third && third->device &&
           UsdGenCurveLayoutBasisOf(third->device->Geometry().layoutMetadata) == UsdGenCurveLayoutBasis::CatmullRom &&
           third->device->Geometry().topologyVersion != topology);
     auto catmullWidth = catmull;
     catmullWidth.nodes[2].params[0].value = VtValue(.3f);
-    session.SetGraphDesc(catmullWidth);
+    usdGenUsd::SetGraphDesc(session, catmullWidth);
     auto fourth = session.Commit(4, UsdGenCommitReason::SetTime);
     CHECK(fourth && fourth->device &&
           fourth->device->Geometry().topologyVersion ==
@@ -241,9 +243,9 @@ int main()
 
     auto allCulled = catmullWidth;
     allCulled.nodes[1].params[1].value = VtValue(4.0f);
-    session.SetGraphDesc(allCulled);
+    usdGenUsd::SetGraphDesc(session, allCulled);
     auto empty = session.Commit(5, UsdGenCommitReason::SetTime);
-    CHECK(empty && empty != second && empty->device && empty->tiles.empty() &&
+    CHECK(empty && empty != second && empty->device && usdGen::UsdGenCurvePublicationOf(*empty).tiles.empty() &&
           !session.LastDiagnostics().HasErrors());
     auto const& emptyTiles = empty->device->Geometry().tiles;
     CHECK(emptyTiles.size() == 3);
@@ -261,7 +263,7 @@ int main()
 
     auto invalid = allCulled;
     invalid.nodes[1].params[0].value = VtValue(TfToken("not-a-length-mode"));
-    session.SetGraphDesc(invalid);
+    usdGenUsd::SetGraphDesc(session, invalid);
     CHECK(session.Commit(6, UsdGenCommitReason::SetTime) == empty);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit() &&
           SameTiles(empty->device->Geometry().tiles, emptyTiles));
@@ -271,18 +273,18 @@ int main()
     UsdGenSession denseSession;
     denseSession.SetDevicePublicationEnabled(true);
     auto dense = MakeDesc(17000, .1f, .1f, 64);
-    denseSession.SetGraphDesc(dense);
+    usdGenUsd::SetGraphDesc(denseSession, dense);
     auto dense64 = denseSession.Commit(5, UsdGenCommitReason::SetTime);
-    CHECK(dense64 && dense64->device && dense64->tiles.empty() &&
+    CHECK(dense64 && dense64->device && usdGen::UsdGenCurvePublicationOf(*dense64).tiles.empty() &&
           !denseSession.LastDiagnostics().HasErrors());
     auto const& tiles64 = dense64->device->Geometry().tiles;
     CHECK(tiles64.size() == 34 && CoversEveryCurve(tiles64, 17000, 34000));
     uint64_t const denseTopology = dense64->device->Geometry().topologyVersion;
     auto dense32Desc = dense;
     dense32Desc.tileTarget = 32;
-    denseSession.SetGraphDesc(dense32Desc);
+    usdGenUsd::SetGraphDesc(denseSession, dense32Desc);
     auto dense32 = denseSession.Commit(6, UsdGenCommitReason::SetTime);
-    CHECK(dense32 && dense32 != dense64 && dense32->device && dense32->tiles.empty() &&
+    CHECK(dense32 && dense32 != dense64 && dense32->device && usdGen::UsdGenCurvePublicationOf(*dense32).tiles.empty() &&
           !denseSession.LastDiagnostics().HasErrors());
     auto const& tiles32 = dense32->device->Geometry().tiles;
     CHECK(tiles32.size() == 32 && CoversEveryCurve(tiles32, 17000, 34000) &&

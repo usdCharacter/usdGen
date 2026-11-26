@@ -10,10 +10,11 @@
 //   * follow the AUTHORED literal, so usdGen:width is still $value;
 //   * change when the expression source is edited on the stage.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"
 #include "pxr/usd/usd/attribute.h"
@@ -57,7 +58,7 @@ bool Cook(UsdStageRefPtr const &stage, UsdGenCurveBuffer *out, std::string const
     }
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         Check(false, label + ": compile the expression graph on the CPU lane");
         for (auto const &error : compiled.errors) std::printf("  %s\n", error.c_str());

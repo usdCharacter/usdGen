@@ -21,6 +21,7 @@
 // in every build. Exits 77 when either backend is unavailable, after running
 // the available Vulkan oracle checks. Available-device failures fail the test.
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/resampleVkPipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/vulkan/executionPlan.h"
@@ -334,7 +335,7 @@ static bool NeutralResampleControl() {
     desc.nodes = {source, width};
     desc.terminal = width.path;
     UsdGenDiagnostics diagnostics;
-    auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+    auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
     return handle && !diagnostics.HasErrors();
 }
 } // namespace

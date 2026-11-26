@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecutionQueue.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/gpu/generation.h"
@@ -102,7 +103,7 @@ bool SameStats(std::vector<UsdGenCudaBindingStats> const& a,
                std::vector<UsdGenCudaBindingStats> const& b) {
     if (a.size() != b.size()) return false;
     for (size_t i = 0; i != a.size(); ++i)
-        if (a[i].path != b[i].path || a[i].identity != b[i].identity ||
+        if (a[i].key != b[i].key || a[i].identity != b[i].identity ||
             a[i].bindCount != b[i].bindCount ||
             a[i].solveCount != b[i].solveCount ||
             a[i].sampleCount != b[i].sampleCount) return false;
@@ -113,7 +114,7 @@ bool SameStatsAccounting(std::vector<UsdGenCudaBindingStats> const& a,
                          std::vector<UsdGenCudaBindingStats> const& b) {
     if (a.size() != b.size()) return false;
     for (size_t i = 0; i != a.size(); ++i)
-        if (a[i].path != b[i].path || a[i].bindCount != b[i].bindCount ||
+        if (a[i].key != b[i].key || a[i].bindCount != b[i].bindCount ||
             a[i].solveCount != b[i].solveCount ||
             a[i].sampleCount != b[i].sampleCount) return false;
     return true;
@@ -519,7 +520,7 @@ int SynchronousTransactions(
     // Its clean retry installs a fresh identity and resets that binding's
     // counters, exactly as the queued transaction does.
     UsdGenDiagnostics changedRestCompileDiagnostics;
-    auto changedRestPlan = CompileCudaGraph(ChangedRestDesc(),
+    auto changedRestPlan = CompileCudaGraph(usdGenUsd::Lower(ChangedRestDesc()),
                                             &changedRestCompileDiagnostics);
     CHECK(changedRestPlan && !changedRestCompileDiagnostics.HasErrors());
     failNextCudaSynchronousFinalizationForTesting();
@@ -540,7 +541,7 @@ int SynchronousTransactions(
     // A budget change is likewise part of the cache key. Failed finalization
     // retains the old identity; retry accepts the four-sample binding once.
     UsdGenDiagnostics budgetCompileDiagnostics;
-    auto budgetPlan = CompileCudaGraph(ChangedBudgetDesc(), &budgetCompileDiagnostics);
+    auto budgetPlan = CompileCudaGraph(usdGenUsd::Lower(ChangedBudgetDesc()), &budgetCompileDiagnostics);
     CHECK(budgetPlan && !budgetCompileDiagnostics.HasErrors());
     failNextCudaSynchronousFinalizationForTesting();
     UsdGenDiagnostics budgetFailureDiagnostics;
@@ -686,10 +687,10 @@ static int ValueDagTransactions() {
             reference.nodes = {source, left, expectedWidth}; reference.terminal = expectedWidth.path;
         }
         UsdGenDiagnostics diagnostics;
-        auto plan = CompileCudaGraph(dag, &diagnostics);
+        auto plan = CompileCudaGraph(usdGenUsd::Lower(dag), &diagnostics);
         if (!plan) for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         CHECK(plan && !diagnostics.HasErrors());
-        auto referencePlan = CompileCudaGraph(reference, &diagnostics); CHECK(referencePlan);
+        auto referencePlan = CompileCudaGraph(usdGenUsd::Lower(reference), &diagnostics); CHECK(referencePlan);
         auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         auto referenceWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         CHECK(workspace && referenceWorkspace);
@@ -767,7 +768,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::string(argv[1]) == "--value-dag") return ValueDagTransactions();
     CHECK(argc == 1);
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(RbfDesc(), &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(RbfDesc()), &diagnostics);
     CHECK(plan && !diagnostics.HasErrors());
     auto metadata = GetCudaExecutionPlanMetadata(*plan);
     CHECK(metadata && !metadata->MemoryEstimate().memoryAvailable &&

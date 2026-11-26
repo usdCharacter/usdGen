@@ -4,7 +4,8 @@
 #define USDGEN_CURVE_LOADER_H
 
 #include "usdGen/curveBuffer.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 #include <memory>
 
@@ -21,7 +22,7 @@ class UsdGenCurveLoader final
 {
 public:
     static bool Load(UsdGenCaptureContext const &ctx,
-                     UsdGenCurveSetDesc const &source,
+                     UsdGenCurveSetInputView const &source,
                      UsdGenCurveBuffer *out,
                      UsdGenDiagnostics *diag,
                      std::shared_ptr<const UsdGenRestSurfaceBindingCache> *bindingCache = nullptr);

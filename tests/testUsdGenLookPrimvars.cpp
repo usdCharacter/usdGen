@@ -18,7 +18,9 @@
 //   (d) a look-only edit rebuilds the tiles (nothing else would announce it).
 //
 // Exit: 0 pass, 1 fail.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/sessionCooker.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -94,7 +96,7 @@ UsdGenGenerationConstPtr Cook(UsdGenSessionCooker *cooker,
                               int64_t id)
 {
     auto shared = std::make_shared<const UsdGenGraphDesc>(desc);
-    return cooker->Cook(shared, UsdGenContext::Interactive, false, {}, 1.0,
+    return cooker->Cook(usdGenUsd::LowerShared(*shared), UsdGenContext::Interactive, false, {}, 1.0,
                         UsdGenCommitReason::NoticeBatchEnd, previous,
                         cooker->Stats(), false, id, id + 1, -1);
 }
@@ -139,11 +141,11 @@ int main()
     {
         UsdGenSessionCooker cooker(2, 1024 * 1024);
         UsdGenGenerationConstPtr gen = Cook(&cooker, Description(), {}, 0);
-        if (!gen || gen->tiles.empty()) {
+        if (!gen || usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty()) {
             std::fprintf(stderr, "FAIL: the fixture published no tiles\n");
             return 1;
         }
-        UsdGenTilePublication const &tile = gen->tiles.front();
+        UsdGenTilePublication const &tile = usdGen::UsdGenCurvePublicationOf(*gen).tiles.front();
         Check(!Plane(tile, "hairTipColor") && !Plane(tile, "hairColorRamp") &&
                   !Plane(tile, "hairRandomHue") && !Plane(tile, "hairRandomValue"),
               "an unauthored look publishes no look primvars");
@@ -164,11 +166,11 @@ int main()
     {
         UsdGenSessionCooker cooker(2, 1024 * 1024);
         UsdGenGenerationConstPtr gen = Cook(&cooker, authored, {}, 0);
-        if (!gen || gen->tiles.empty()) {
+        if (!gen || usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty()) {
             std::fprintf(stderr, "FAIL: the authored fixture published no tiles\n");
             return 1;
         }
-        UsdGenTilePublication const &tile = gen->tiles.front();
+        UsdGenTilePublication const &tile = usdGen::UsdGenCurvePublicationOf(*gen).tiles.front();
         UsdGenPlane const *tipPlane = Plane(tile, "hairTipColor");
         Check(tipPlane && tipPlane->interpolation == TfToken("constant") &&
                   tipPlane->arity == 3 && tipPlane->f.size() == 3 &&
@@ -187,9 +189,11 @@ int main()
         // conditional on the binding -- this is the assertion that keeps it
         // that way.
         UsdGenTilePublication bound = tile;
-        bound.materialPath = SdfPath("/look/materials/myOwnHair");
+        usdGenUsd::PathRecorder keys;   // the cooked table plus the authored material
+        bound.prim.node = keys(usdGenUsd::PathOf(usdGenUsd::Paths(*gen), tile.prim.node));
+        bound.material = UsdGenPrimRef{keys(SdfPath("/look/materials/myOwnHair"))};
         HdContainerDataSourceHandle prim =
-            UsdGenTilePublisher::BuildTileDataSource(bound, 0);
+            UsdGenTilePublisher::BuildTileDataSource(bound, keys.Table(), 0);
         TfToken interp, role;
         VtValue value = Primvar(prim, "hairTipColor", &interp, &role);
         Check(value.IsHolding<VtVec3fArray>() &&
@@ -222,12 +226,12 @@ int main()
         UsdGenGraphDesc edited = authored;
         edited.look.tipColor = GfVec3f(0.9f, 0.1f, 0.1f);
         UsdGenGenerationConstPtr second = Cook(&cooker, edited, first, 1);
-        bool const ok = first && second && !first->tiles.empty() &&
-                        !second->tiles.empty();
-        Check(ok && first->colorDigest != second->colorDigest,
+        bool const ok = first && second && !usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() &&
+                        !usdGen::UsdGenCurvePublicationOf(*second).tiles.empty();
+        Check(ok && usdGen::UsdGenCurvePublicationOf(*first).colorDigest != usdGen::UsdGenCurvePublicationOf(*second).colorDigest,
               "a look edit changes the tile-rebuild digest");
         if (ok) {
-            UsdGenPlane const *p = Plane(second->tiles.front(), "hairTipColor");
+            UsdGenPlane const *p = Plane(usdGen::UsdGenCurvePublicationOf(*second).tiles.front(), "hairTipColor");
             Check(p && p->f.size() == 3 && std::fabs(p->f[0] - 0.9f) < 1e-6f,
                   "the rebuilt tile carries the edited tip colour");
         }

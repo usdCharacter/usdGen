@@ -3,6 +3,7 @@
 
 #include "usdGen/executionRuntimeInternal.h"
 #include "usdGen/parkingWord.h"
+#include "usdGen/compile/types.h"
 
 #include <algorithm>
 #include <array>
@@ -34,11 +35,9 @@ uint64_t MixU64(uint64_t hash, uint64_t value) noexcept
     return hash;
 }
 
-uint64_t MixPath(uint64_t hash, SdfPath const& path) noexcept
+uint64_t MixKey(uint64_t hash, UsdGenNodeKey key) noexcept
 {
-    std::string const text = path.GetString();
-    hash = MixU64(hash, static_cast<uint64_t>(text.size()));
-    return Mix(hash, text.data(), text.size());
+    return MixU64(hash, key.value);
 }
 
 void Canonicalize(std::vector<UsdGenExecutionInputGeneration>* values)
@@ -78,14 +77,14 @@ uint64_t HashValues(uint64_t hash,
     hash = MixU64(hash, tag);
     hash = MixU64(hash, static_cast<uint64_t>(values.size()));
     for (auto const& value : values) {
-        hash = MixPath(hash, value.identity);
+        hash = MixKey(hash, value.identity);
         hash = MixU64(hash, value.generation);
     }
     return hash;
 }
 
 bool Update(std::vector<UsdGenExecutionInputGeneration>* values,
-            SdfPath const& identity, uint64_t generation) noexcept
+            UsdGenNodeKey identity, uint64_t generation) noexcept
 {
     bool found = false;
     for (auto& value : *values) {
@@ -100,7 +99,7 @@ bool Update(std::vector<UsdGenExecutionInputGeneration>* values,
 } // namespace
 
 UsdGenExecutionInputVersions UsdGenExecutionInputVersions::FromDescription(
-    UsdGenGraphDesc const& desc)
+    UsdGenGraphSpec const& desc)
 {
     UsdGenExecutionInputVersions result;
     FromDescription(desc, &result);
@@ -108,7 +107,7 @@ UsdGenExecutionInputVersions UsdGenExecutionInputVersions::FromDescription(
 }
 
 void UsdGenExecutionInputVersions::FromDescription(
-    UsdGenGraphDesc const& desc, UsdGenExecutionInputVersions* out)
+    UsdGenGraphSpec const& desc, UsdGenExecutionInputVersions* out)
 {
     // Refilled in place: a recompile keeps the vectors' capacity.
     UsdGenExecutionInputVersions& result = *out;
@@ -117,18 +116,29 @@ void UsdGenExecutionInputVersions::FromDescription(
     result.maps.clear();
     result.surfaces.clear();
     result.valid = true;
-    for (auto const& curve : desc.curveSets) {
-        auto& bucket = curve.role == UsdGenLane::Reference
-            ? result.references : result.sources;
-        bucket.push_back({curve.path, curve.curveGeneration});
+    // Kinds with a lane are sources or references; the map and surface
+    // roles have their own runs. Coalesce sorts each run.
+    UsdGenTypeId const mapKind = UsdGenInputKindWithRole(UsdGenInputRole::Map);
+    UsdGenTypeId const surfaceKind = UsdGenInputKindWithRole(UsdGenInputRole::Surface);
+    for (UsdGenInputRecord const& record : desc.inputs) {
+        if (record.kind == UsdGenTypeId::Invalid) continue;
+        if (record.kind == mapKind) {
+            result.maps.push_back({record.key, record.generation});
+            continue;
+        }
+        if (record.kind == surfaceKind) {
+            result.surfaces.push_back({record.key, record.generation});
+            continue;
+        }
+        UsdGenInputDesc const* input = UsdGenFindInputDesc(record.kind);
+        UsdGenLane lane = UsdGenLane::Chunked;
+        if (!input || !input->lane || !input->lane(record, &lane)) continue;
+        (lane == UsdGenLane::Reference ? result.references : result.sources)
+            .push_back({record.key, record.generation});
     }
     for (auto const& node : desc.nodes)
         for (auto const& reference : node.references)
             result.references.push_back({reference, 0});
-    for (auto const& map : desc.maps)
-        result.maps.push_back({map.path, map.textureGeneration});
-    for (auto const& surface : desc.surfaces)
-        result.surfaces.push_back({surface.path, surface.surfaceGeneration});
     Coalesce(&result.sources, &result.valid);
     Coalesce(&result.references, &result.valid);
     Coalesce(&result.maps, &result.valid);
@@ -146,32 +156,32 @@ uint64_t UsdGenExecutionInputVersions::Hash() const noexcept
 }
 
 bool UsdGenExecutionInputVersions::UpdateInput(
-    SdfPath const& identity, uint64_t generation) noexcept
+    UsdGenNodeKey identity, uint64_t generation) noexcept
 {
     return Update(&sources, identity, generation) |
         Update(&references, identity, generation);
 }
 
 bool UsdGenExecutionInputVersions::UpdateMap(
-    SdfPath const& identity, uint64_t generation) noexcept
+    UsdGenNodeKey identity, uint64_t generation) noexcept
 {
     return Update(&maps, identity, generation);
 }
 
 bool UsdGenExecutionInputVersions::UpdateSurface(
-    SdfPath const& identity, uint64_t generation) noexcept
+    UsdGenNodeKey identity, uint64_t generation) noexcept
 {
     return Update(&surfaces, identity, generation);
 }
 
 UsdGenExecutionCacheKey UsdGenExecutionCacheKey::Make(
-    SdfPath description, UsdGenEpoch planDigest,
+    UsdGenNodeKey description, UsdGenEpoch planDigest,
     UsdGenExecutionInputVersions inputs,
     UsdGenExecutionContext context,
     uint64_t layoutDigest, double frame) noexcept
 {
     UsdGenExecutionCacheKey result;
-    result.description = std::move(description);
+    result.description = description;
     result.planDigest = planDigest;
     result.inputs = std::move(inputs);
     result.context = context;
@@ -182,7 +192,7 @@ UsdGenExecutionCacheKey UsdGenExecutionCacheKey::Make(
 
 uint64_t UsdGenExecutionCacheKey::Hash() const noexcept
 {
-    uint64_t hash = MixPath(1469598103934665603ULL, description);
+    uint64_t hash = MixKey(1469598103934665603ULL, description);
     hash = MixU64(hash, planDigest[0]);
     hash = MixU64(hash, planDigest[1]);
     hash = MixU64(hash, layoutDigest);

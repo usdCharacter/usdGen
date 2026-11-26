@@ -5,7 +5,6 @@
 # Retired by step 12; testUsdGenNoShimIncludes ratchets the old spellings down.
 usdGen/allocCounter.h usdGen/exec/allocCounter.h
 usdGen/authoredNamedChannels.h usdGenCurves/types/authoredNamedChannels.h
-usdGen/authoredPlaneConvert.h usdGenCurves/types/authoredPlaneConvert.h
 usdGen/clumpMotion.h usdGenCurves/clumpMotion.h
 usdGen/compiler.h usdGen/compile/compiler.h
 usdGen/concaveMaterialRemap.h usdGenCurves/publish/concaveMaterialRemap.h
@@ -85,7 +84,6 @@ usdGen/gpu/width.h usdGenCuda/gpu/width.h
 usdGen/gpu/widthBlend.h usdGenCuda/gpu/widthBlend.h
 usdGen/gpu/widthOverlapWitness.h usdGenCuda/gpu/widthOverlapWitness.h
 usdGen/graph.h usdGen/compile/graph.h
-usdGen/graphDesc.h usdGen/compile/graphDesc.h
 usdGen/imagePayload.h usdGenSurface/imagePayload.h
 usdGen/limitSurface.h usdGenSurface/limitSurface.h
 usdGen/maps/attributeBake.h usdGenSurface/maps/attributeBake.h

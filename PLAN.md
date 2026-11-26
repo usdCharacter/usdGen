@@ -48,7 +48,8 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoLocks` (locks, atomic shared_ptr, TBB) | empty | empty |
 | `testUsdGenNoGuardedStatics` | 4 (usdGenMath ramp.cpp) | empty |
 | `testUsdGenNoPxrIncludes` | see `noPxrIncludes.txt` | empty under libs/core |
-| `testUsdGenNoPxrLink_usdGen` | tf gf vt sdf arch js plug ts ar work trace hio pxOsd | none |
+| `testUsdGenNoPxrLink_usdGen` | tf gf vt arch js plug ts ar work trace hio pxOsd | none |
+| `testUsdGenNoSdfBelowHosts` (no `Sdf*`, no `pxr/usd/sdf` under libs/base, libs/core) | empty | empty |
 | `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
 | `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted); 0 interns each | 0 / 0 |
 | `testUsdGenNoOpNameLiterals` | empty | empty |
@@ -57,7 +58,8 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
 | `testUsdGenNoShimIncludes` (old include spellings) | see `noShimIncludes.txt` | empty at step 12 |
 | `testUsdGenCookGoldens`, `testUsdGenOutputGoldens`, `testUsdGenOpContracts` | byte-identical | never regenerated without a reviewed output change |
-| `testUsdGenEngineNoCurveBuffer` | compiler.cpp 2 (7.3a), generationStore.h 1 (6.3) | empty at 6.3, then the 6.5 gate subsumes it |
+| `testUsdGenEngineNoCurveBuffer` | empty | empty (subsumed by the 6.5 gate) |
+| `testUsdGenNoPrimitiveInEngine` (op names, primitive words, basisCurves, render namespace, CUDA/Vulkan/primitive includes in libs/core/usdGen; comments count) | 9 hits in 6 files, step-8 plumbing only (`noPrimitiveInEngine.txt`) | empty at step 8 |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
 
@@ -189,8 +191,8 @@ Left over:
 |---|---|
 | `compiler.cpp` `BuildReferenceValue` builds a curve buffer (gate baseline) | 7.3a |
 | `generationStore.h` includes `curveBuffer.h` for the publication types, so `session.*`, `sessionCooker.cpp` and `executionCache.cpp` still see it (gate baseline) | 6.3 |
-| Scheduler, compiler, graph and sessionCooker name `UsdGenCurveSetView` and include `usdGenCurves/types/curveSet.h` | 6 (6.5 source gate) |
-| `UsdGenPlane` (tokens for interpolation/type, VtArray payload) is still the registry's plane layout; the brief's `UsdGenChannelDesc` replaces it | 6 |
+| ~~Scheduler, compiler, graph and sessionCooker name `UsdGenCurveSetView` and include `usdGenCurves/types/curveSet.h`~~ | done in 6.5 |
+| `UsdGenPlane` (tokens for interpolation/type, VtArray payload) is still the registry's plane layout; the brief's `UsdGenChannelDesc` replaces it | 11 (not done in 6) |
 | Device channels by `std::string` (`cudaGeneration.cpp` `NamedChannel`) | 8 |
 | `UsdGenWorkerPool` is not merged into `UsdGenTaskScheduler`. Perf item; needs its own bench first (task latency, `ParallelFor` throughput, warm-cook time at 100k) | 8 |
 | Re-capture allocations outside `testUsdGenWarmAllocations` (per warm re-capture at 10k curves): Clump about 920 (`PickCentres` hash, membership vectors), GuideInterpolate about 1300 (`Delaunay2D`, `BuildGuides`, clumpRef kd-tree), Collide about 20000 (`ValidateColliderMesh` edge map, BVH), Twist and Frizz `Compute` vectors | 6 (usdGenCurves owns the ops) |
@@ -199,23 +201,61 @@ Left over:
 | `Recompile` rebuilds every reference value (about 8 allocations per edit with one reference set) | 7 (reuse by NodeKey and generation) |
 | Op registry, Ptex cache and cache-domain table are made on first use; there is no `Engine::Create` | 12 |
 
-### 6. Split the primitives
+### 6. Split the primitives. Done (ran after 7, see D1)
 
-- **Goal:** `libs/core/primitives/usdGenSurface` (scatter emits a RootSet; `ops/scatter.h:24` today), `usdGenCurves` (types and 30 ops), `usdGenExpr`. Each is a DLL that exports `usdGenRegister`.
-- **Gate:** add the source gate: usdGen fails on any op token, primitive word (curve, CV, strand, feather, scale), basisCurves, `__usdGenRender`, or CUDA/Vulkan header.
-- **Done:** the source gate passes and the engine builds without any primitive.
-- **Depends on:** 4a and 5.
+- **6.1:** `registries/paramEvaluator.h`: connected parameters behind `UsdGenParamEvaluatorState` (usdGenExpr's `UsdGenCpuParameters`); registrar `RegisterParamEvaluator`, `RegisterPublisher`, `UsdGenEngineEnsureInitialized`.
+- **6.2:** `usdGenSurface/types/rootSet.*`: Scatter outputs a RootSet; typed geometry ports and the compiler edge check; CUDA and Vulkan scatter inputs read `UsdGenRootSetView`.
+- **6.3:** publication behind `UsdGenPublisherDef` (`usdGenCurves/publish/curvePublisher.*`, `curvePublication.h`); `UsdGenGeneration::publication` is type-erased; hosts read `UsdGenCurvePublicationOf`.
+- **6.4:** `usdGenSurface`, `usdGenExpr`, `usdGenCurves` are SHARED targets with `usdGenRegister`; the registry build loads them from usdGen's directory (`USDGEN_EXTENSIONS` overrides); hosts and tests link `usdGenWithPrimitives`.
+- **6.5:** the scheduler finds static channels by role (Position, Width, Parameter, Rest, per element), not by curve slot; undeclared emitted channels take the layout's `namedChannel` hook; evaluation failures the op's `failureMessage` hook; an unrun node's output the registered default primitive (`kUsdGenTypeDefaultPrimitive`). Input kinds register `UsdGenInputDesc` roles (Surface, Map) and hooks (validate, digest, lane, authoredChannels, surface ids and Default-space variants, resolveMap, paintSource); the evaluator def gains validateInputs, validateBindings, bindingDependencies (`usdGenExpr/exprValidate.cpp`). `expr::Domain/ScalarType/ValueShape` live in `api/valueShape.h`. Spec names: `UsdGenOpNode::inputSets`, `UsdGenGraphSpec::basis`; the engine tokens drop curves, perCurve and the render namespace (hosts own them). Gate `testUsdGenNoPrimitiveInEngine`; `testUsdGenEngineBare` links usdGen only, loads no extension, and compiles and commits a primitive-free op.
+- Goldens, contracts and cook digests byte-identical; warm cook and param edit 0 / 0.
 
-### 7. GraphSpec and NodeKey replace SdfPath
+Milestone verification (steps 7 and 6, Windows): clean configure and full build, serial `ctest -L '^(T0|T1)$'`: 441 run, 423 pass, 14 skipped, 4 failed. `testUsdGenScenePublication` fails as on main; `testUsdGenPomadeCommit` TN-4 and `testPomadeSoakSmoke` (latency, device-wide memory) are load noise (Soak passed alone; TN-4 got 10.2 ms with CPU at 100%). `testUsdGenRbfDeform` was a real failure: since 7.2 the fixtures lowered without a `NodeKeyMap`, so every `Recompile` copied the rest column, its address moved, and Deform's identity-keyed driver selection never hit; the fixtures now lower through a host key map, assertions unchanged. A CUDA-off, Vulkan-off tree configures; the CUDA/Vulkan-plumbed engine TUs (compiler, scheduler, session, sessionCooker, sessionBackendExecutor, deviceGeneration, registrar, cudaExecution, cudaParameters, cudaSurfaceInput, registerCurves{Cuda,Vulkan}) compile in it.
 
-- **Goal:** no SdfPath in plans, ops, caches or the Vulkan plans.
-- **Work:**
-  - Add InputDesc.
-  - Move the builders into usdGenUsd, driven by it.
-  - Drop sdf from usdGen's link line.
-  - 20 headers in usdGen mention SdfPath today.
-- **Done:** sdf is gone from `noPxrLink_usdGen.txt`.
-- **Depends on:** 5.
+`benchUsdGenRestructure` lowers its two GraphDescs once, before the measured regions, through one key map: since 7.2 `compile.cold` and `cook.paramEdit` had timed the host's SdfPath lowering too (mapless, so every column copied; 0.94 ms compile, 58 allocations per edit), which the main column never paid.
+
+Bench, main (b741e6c) against steps 7+6, same Windows machine, 4 threads, medians of 5 alternating rounds. The machine was NOT idle (CPU at 93-100%: other worktrees building and running usdRig ctest suites), so absolute times run above the step-5 table; compare ratios to main.
+
+| Metric | main | steps 7+6 |
+|---|---|---|
+| Cold cook, 100k curves | 192.0 ms | 180.0 ms |
+| Warm recook | 172.8 ms | 163.9 ms |
+| Param-edit recook | 144.9 ms | 6.4 ms |
+| Hydra publish | 927.5 ms | 427.9 ms |
+| Hydra pull | 0.56 ms | 0.51 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 |
+
+Against main, warm recook is 0.95 (step 5: 1.00), param edit 0.044 (0.040), Hydra publish 0.46 (0.42; step 4 idle 0.45). No clear regression at this load; rerun on an idle machine before reading the last two.
+
+Left over:
+
+| What | Where it goes |
+|---|---|
+| `noPrimitiveInEngine.txt`: CUDA plan include in compiler.cpp, session.h, sessionCooker.cpp; `cuda_runtime_api.h` in session.cpp; the Vulkan default provider in sessionBackendExecutor.cpp; the curve device layout check in exec/device/deviceGeneration.cpp (9 hits) | 8 |
+| Primitive sources compiled into usdGen for the backends (`USDGEN_ENGINE_RESIDENT_PRIMITIVE_SOURCES`); usdGen keeps the primitive include roots PUBLIC | 8 |
+| Hosts link usdGenCurves for publication (`UsdGenCurvePublicationOf`) | 9 |
+| The look block (`UsdGenLookDesc`, `basis`) is still engine spec data; `look.bakeMode` is empty unless a host fills the schema fallback (`UsdGenSchemaLook`) | 9 |
+| The engine still knows surfaces and maps as roles (`UsdGenOpNode::surfaces/maps`, surface ids, resolved map values) | 10/11 |
+| An empty GraphSpec still fails to compile ("no operator nodes"); the bare-engine test compiles a primitive-free op instead | design call |
+| Execution cache keys come from per-kind digest hooks in record order: equality-only values changed, never persisted | none |
+| `UsdGenPlane` (tokens, VtArray payload) is still the op registry's plane layout | 11 |
+| Re-capture allocations, non-`Recyclable` non-owning captures, `UsdGenBuildClumpMotion` plane copies (step-5 leftovers) | not done in 6; usdGenCurves |
+
+### 7. GraphSpec and NodeKey replace SdfPath. Done
+
+- **7.1:** `api/nodeKey.h`; `libs/hosts/usdGenUsd` with `NodeKeyMap` (SdfPath to node keys, collision re-probe, `KeysUnder`).
+- **7.2:** the engine runs on `UsdGenGraphSpec` and node keys; `graphDesc.h` is host-only; `api/inputDesc.h`.
+- **7.3a/b:** input records replace typed spec inputs; the builders, image maps and schema live under `libs/hosts/usdGenUsd`, the imaging library under `libs/hosts/usdGenHydra`.
+- **7.4:** `usdGenExpr/expressions/valueShape.h` holds a closed value-type table (`FindValueType`, `ValueShapeFromValueType`, `ValueTypeDefault`): Sdf's type names plus the legacy names `SdfSchema` still resolves, with tuple dimensions and Sdf's defaults. `testUsdGenValueTypeTable` (usdGenUsd) checks every registered name and alias against `SdfSchema`. The `SdfValueTypeName` helpers (`ValueShapeFromSdfType`, `FixedArrayElementCount`) moved to `usdGenUsd/resolve/sdfValueShape.h`. sdf is off usdGen's link line and out of `noPxrLink_usdGen.txt`; gate `testUsdGenNoSdfBelowHosts` (no `Sdf*` and no `pxr/usd/sdf` under libs/base and libs/core, comment lines excepted) has an empty baseline.
+
+Left over:
+
+| What | Where it goes |
+|---|---|
+| `asset`, `opaque`, `group` and `pathExpression` rows have no default in the table (their C++ types live in sdf); a value preview of an expression output declared with one of them now gets an empty `$value` literal instead of Sdf's default. Such outputs have no evaluable shape either way | step 11 (Value) |
+| A value type a plugin registers with `SdfSchema` at run time is unknown to the table (`ValueShapeFromNativeType` returns an invalid shape); the stage builder still decodes `SdfValueTypeName` directly | when a plugin needs it |
+| `VtValue`, `TfToken` and Gf types remain in core headers (`graphSpec.h` and others; `noPxrIncludes.txt`) | 11 |
+| `usdGenUsd::Lower`/`Compile`/`Recompile` without a `NodeKeyMap` use a fresh map, so no column cache: every lowering copies every input column and identity-keyed caches (Deform's driver selection, rest digests) miss. Hosts pass their map; many tests and benches do not | when it matters (or make the mapless overloads take a map) |
 
 ### 8. Generic GPU backends
 
@@ -268,6 +308,6 @@ Left over:
 ## Order and parallelism
 
 ```
-4 -> 4a -> 5 -> 6 -> 7 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14
+4 -> 4a -> 5 -> 7 -> 6 -> 9 -> 10 -> 11 -> 12 -> 13 -> 14
                └─> 8 (after 6)
 ```

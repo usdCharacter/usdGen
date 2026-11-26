@@ -1,4 +1,5 @@
 #include "usdGen/gpu/tools.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include <cmath>
 #include <cstdio>
@@ -226,7 +227,7 @@ int main() {
         CHECK(changed->device->Geometry().topologyVersion != topology);
         CHECK(!tool.UpdateIndexed({indices.data(),1},{replacements.data(),1})); tool.Close();
         CHECK(tool.Begin());
-        engine->SetGraphDesc(desc); // pending edits alone invalidate release
+        usdGenUsd::SetGraphDesc(*engine, desc); // pending edits alone invalidate release
         CHECK(!tool.Close() && engine->NeedsCommit());
         imaging->Commit(UsdGenCommitReason::NoticeBatchEnd);
         CHECK(rival.Begin() && rival.Cancel());
@@ -246,7 +247,7 @@ int main() {
     {
         UsdGenSession empty;
         empty.SetDevicePublicationEnabled(true);
-        empty.SetGraphDesc(EmptyDesc());
+        usdGenUsd::SetGraphDesc(empty, EmptyDesc());
         auto firstEmpty = empty.Commit(0, UsdGenCommitReason::SetTime);
         CHECK(firstEmpty && firstEmpty->device &&
               firstEmpty->device->Geometry().pointCount == 0 &&

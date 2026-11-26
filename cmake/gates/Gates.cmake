@@ -64,6 +64,19 @@ add_test(NAME testUsdGenNoPxrIncludes
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPxrIncludes PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
+# Step 7: no Sdf type or sdf include below the hosts (SdfPath is a host
+# NodeKey map, Sdf value types are usdGenExpr's closed table). Empty baseline.
+add_test(NAME testUsdGenNoSdfBelowHosts
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-sdf-below-hosts
+        "-DDIRS=${_usdgen_below_dirs}"
+        "-DPATTERN=Sdf[A-Z_]|pxr/usd/sdf/"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noSdfBelowHosts.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoSdfBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
+
 foreach(_t usdGen usdGenMath)
     if(NOT TARGET ${_t})
         continue()
@@ -131,9 +144,9 @@ set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenNoTokenIntern
     testUsdGenEngineNoOpCoupling PROPERTIES LABELS "T0;build;gate;gate:registries")
 
 # Step 5.6: the engine works on element sets; the curve builder buffer, its
-# chunk and tile types and curveBuffer.h stay out of libs/core/usdGen except
-# the files the baseline names (BuildReferenceValue until 7.3a, publication
-# types until 6.3). Comment lines are no hit.
+# chunk and tile types and curveBuffer.h stay out of libs/core/usdGen. The
+# baseline is empty since 6.3 (publication behind UsdGenPublisherDef; hosts
+# read usdGenCurves/publish until step 9). Comment lines are no hit.
 add_test(NAME testUsdGenEngineNoCurveBuffer
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -145,8 +158,25 @@ add_test(NAME testUsdGenEngineNoCurveBuffer
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenEngineNoCurveBuffer PROPERTIES LABELS "T0;build;gate;gate:engine-generic")
 
+# Step 6.5: the engine (libs/core/usdGen) names no op, primitive word,
+# basisCurves, render namespace, or CUDA/Vulkan/primitive header. Comments
+# count. CMake regex has no word boundary, hence the explicit classes. The
+# baseline holds only the backend plumbing step 8 moves out; it subsumes
+# testUsdGenEngineNoCurveBuffer.
+set(USDGEN_PRIMITIVE_IN_ENGINE_PATTERN
+    "UsdGen(Scatter|Grow|Noise|Length|Width|WidthBlend|CurveSource|Deform|ReferenceSource|Clump|GuideInterpolate|Curl|Bend|Wave|Part|Direction|Smooth|Resample|Scale|Straighten|Displace|SculptLayer|Wind|ExprOp|Freeze|Collide|Braid|Twist|Trim|Frizz|TieClump|CardSource)([^A-Za-z]|$)|[Cc]urves?|(^|[^A-Za-z])CVs?([^A-Za-z]|$)|[Cc]v(s|Count|Offsets|Span)|[Ss]trands?|[Ff]eathers?|(^|[^A-Za-z])[Ss]cales([^A-Za-z]|$)|basisCurves|__usdGenRender|#[ ]*include[ ]*[<\"](cuda|usdGenCuda/|usdGenVulkan/|usdGenCurves/|usdGenSurface/|usdGenExpr/|usdGen/(cuda|gpu/|vulkan/|ops/|expressions/))")
+add_test(NAME testUsdGenNoPrimitiveInEngine
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-primitive-in-engine
+        -DDIRS=libs/core/usdGen
+        "-DPATTERN=${USDGEN_PRIMITIVE_IN_ENGINE_PATTERN}"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noPrimitiveInEngine.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoPrimitiveInEngine PROPERTIES LABELS "T0;build;gate;gate:engine-generic")
+
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
-target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen)
+target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)
 set_tests_properties(testUsdGenWarmAllocations PROPERTIES
     LABELS "T0;perf;gate;gate:zero-alloc" RUN_SERIAL TRUE)

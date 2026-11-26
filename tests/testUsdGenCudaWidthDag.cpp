@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/cudaExecutionQueue.h"
@@ -268,7 +269,7 @@ bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto const compile = compiler.Compile(desc, &graph);
+    auto const compile = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compile.ok) {
         std::fprintf(stderr, "CPU reference compile failed for %s\n",
                      desc.terminal.GetText());
@@ -278,7 +279,7 @@ bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto result = scheduler.Run(graph, context, 1);
     if (result.diagnostics.HasErrors()) {
         std::fprintf(stderr, "CPU reference scheduler failed for %s\n",
@@ -287,7 +288,7 @@ bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
             std::fprintf(stderr, "  %s\n", error.c_str());
         return false;
     }
-    *output = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    *output = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     return true;
 }
 
@@ -460,7 +461,7 @@ bool CheckSourcePayload(std::shared_ptr<const UsdGenDeviceGeneration> const& gen
 UsdGenExecutionTaskMetadata const* TaskByPath(
     UsdGenExecutionPlanMetadata const& metadata, char const* path) {
     auto found = std::find_if(metadata.Tasks().begin(), metadata.Tasks().end(),
-        [&](auto const& task) { return task.path == SdfPath(path); });
+        [&](auto const& task) { return task.key == usdGenUsd::KeyOf(SdfPath(path)); });
     return found == metadata.Tasks().end() ? nullptr : &*found;
 }
 
@@ -625,7 +626,7 @@ int main() {
     // literal leaves the incoming widths bit-identical.
     {
         auto connectedDesc = MaskExpressionDesc(true);
-        auto connectedPlan = CompileCudaGraph(connectedDesc, &diagnostics);
+        auto connectedPlan = CompileCudaGraph(usdGenUsd::Lower(connectedDesc), &diagnostics);
         for (auto const& e : diagnostics.errors) std::fprintf(stderr, "%s\n", e.c_str());
         CHECK(connectedPlan && !diagnostics.HasErrors());
         auto maskWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
@@ -650,7 +651,7 @@ int main() {
 
         auto zeroDesc = MaskExpressionDesc(false);
         diagnostics = {};
-        auto zeroPlan = CompileCudaGraph(zeroDesc, &diagnostics);
+        auto zeroPlan = CompileCudaGraph(usdGenUsd::Lower(zeroDesc), &diagnostics);
         CHECK(zeroPlan && !diagnostics.HasErrors());
         auto zeroGeneration = ExecuteCudaGraph(*zeroPlan, *maskWorkspace, 1.0,
                                                4202, &diagnostics);
@@ -664,7 +665,7 @@ int main() {
     diagnostics = {};
     auto desc = FanoutDesc();
     diagnostics = {};
-    auto plan = CompileCudaGraph(desc, &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
     CHECK(plan && !diagnostics.HasErrors());
     auto metadata = GetCudaExecutionPlanMetadata(*plan);
     CHECK(metadata && metadata->Shape() == UsdGenExecutionPlanShape::SourceRootedUnaryDag);
@@ -714,7 +715,7 @@ int main() {
     // channel.  Its output is another immutable width-only COW value.
     auto blendDesc = WidthBlendDesc();
     diagnostics = {};
-    auto blendPlan = CompileCudaGraph(blendDesc, &diagnostics);
+    auto blendPlan = CompileCudaGraph(usdGenUsd::Lower(blendDesc), &diagnostics);
     CHECK(blendPlan && !diagnostics.HasErrors());
     auto blendMetadata = GetCudaExecutionPlanMetadata(*blendPlan);
     auto const* blendTask = blendMetadata
@@ -766,7 +767,7 @@ int main() {
     // private overlay while the source generation remains retained.
     auto referenceDesc = ReferenceWidthDesc();
     diagnostics = {};
-    auto referencePlan = CompileCudaGraph(referenceDesc, &diagnostics);
+    auto referencePlan = CompileCudaGraph(usdGenUsd::Lower(referenceDesc), &diagnostics);
     CHECK(referencePlan && !diagnostics.HasErrors());
     auto referenceMetadata = GetCudaExecutionPlanMetadata(*referencePlan);
     CHECK(referenceMetadata &&
@@ -795,7 +796,7 @@ int main() {
     auto editedReferenceDesc = ReferenceWidthDesc(.5f);
     diagnostics = {};
     auto editedReferencePlan = CompileCudaGraph(
-        editedReferenceDesc, &diagnostics);
+        usdGenUsd::Lower(editedReferenceDesc), &diagnostics);
     CHECK(editedReferencePlan && !diagnostics.HasErrors());
     auto editedReferenceGeneration = ExecuteCudaGraph(
         *editedReferencePlan, *referenceWorkspace, 1.0, 101, &diagnostics,
@@ -813,7 +814,7 @@ int main() {
     auto referenceLengthDesc = ReferenceLengthWidthDesc();
     diagnostics = {};
     auto referenceLengthPlan = CompileCudaGraph(
-        referenceLengthDesc, &diagnostics);
+        usdGenUsd::Lower(referenceLengthDesc), &diagnostics);
     CHECK(referenceLengthPlan && !diagnostics.HasErrors());
     auto referenceLengthMetadata = GetCudaExecutionPlanMetadata(
         *referenceLengthPlan);
@@ -876,7 +877,7 @@ int main() {
     referenceLengthOnly.nodes.resize(2);
     referenceLengthOnly.terminal = referenceLengthOnly.nodes.back().path;
     diagnostics = {};
-    CHECK(!CompileCudaGraph(referenceLengthOnly, &diagnostics) &&
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(referenceLengthOnly), &diagnostics) &&
           diagnostics.HasErrors());
     auto referenceMultipleLengths = ReferenceLengthWidthDesc();
     auto secondReferenceLength = Length(
@@ -900,7 +901,7 @@ int main() {
     referenceMisplacedWidth.nodes.push_back(sourceWidth);
     referenceMisplacedWidth.terminal = sourceWidth.path;
     diagnostics = {};
-    auto referenceSourceBranchPlan = CompileCudaGraph(referenceMisplacedWidth,
+    auto referenceSourceBranchPlan = CompileCudaGraph(usdGenUsd::Lower(referenceMisplacedWidth),
                                                        &diagnostics);
     CHECK(referenceSourceBranchPlan && !diagnostics.HasErrors());
     UsdGenCurveBuffer referenceSourceBranch;
@@ -923,7 +924,7 @@ int main() {
     auto referenceLengthTerminal = referenceMisplacedWidth;
     referenceLengthTerminal.terminal = SdfPath("/Dag/ReferenceLengthWidth");
     diagnostics = {};
-    auto referenceLengthBranchPlan = CompileCudaGraph(referenceLengthTerminal,
+    auto referenceLengthBranchPlan = CompileCudaGraph(usdGenUsd::Lower(referenceLengthTerminal),
                                                        &diagnostics);
     CHECK(referenceLengthBranchPlan && !diagnostics.HasErrors());
     // This scale fixture preserves cardinality. Build the topology result
@@ -981,7 +982,7 @@ int main() {
     // after Length has published its independent topology generation.
     UsdGenSession referenceBranchSession;
     referenceBranchSession.SetDevicePublicationEnabled(true);
-    referenceBranchSession.SetGraphDesc(referenceMisplacedWidth);
+    usdGenUsd::SetGraphDesc(referenceBranchSession, referenceMisplacedWidth);
     auto referenceSourcePublished = referenceBranchSession.Commit(
         1, UsdGenCommitReason::SetTime);
     CHECK(referenceSourcePublished && referenceSourcePublished->device &&
@@ -989,7 +990,7 @@ int main() {
           CheckSourcePayload(referenceSourcePublished->device,
                              referenceSourceBranch, referenceBranchReader) &&
           hasNoPublishedFrames(referenceSourcePublished->device));
-    referenceBranchSession.SetGraphDesc(referenceLengthTerminal);
+    usdGenUsd::SetGraphDesc(referenceBranchSession, referenceLengthTerminal);
     auto referenceLengthPublished = referenceBranchSession.Commit(
         2, UsdGenCommitReason::SetTime);
     CHECK(referenceLengthPublished && referenceLengthPublished->device &&
@@ -1001,7 +1002,7 @@ int main() {
           hasNoPublishedFrames(referenceLengthPublished->device) &&
           hasNoPublishedFrames(referenceSourcePublished->device));
     diagnostics = {};
-    auto referenceMultiplePlan=CompileCudaGraph(referenceMultipleLengths,&diagnostics);
+    auto referenceMultiplePlan=CompileCudaGraph(usdGenUsd::Lower(referenceMultipleLengths),&diagnostics);
     CHECK(referenceMultiplePlan&&!diagnostics.HasErrors());
     auto referenceMultipleExpected=referenceLengthBranch;
     for(uint32_t curve=0;curve<referenceMultipleExpected.totalCurves;++curve) {
@@ -1022,7 +1023,7 @@ int main() {
     CHECK(referenceMultipleDirect&&!diagnostics.HasErrors()&&
           CheckSourcePayload(referenceMultipleDirect,referenceMultipleExpected,referenceBranchReader)&&
           hasNoPublishedFrames(referenceMultipleDirect));
-    referenceBranchSession.SetGraphDesc(referenceMultipleLengths);
+    usdGenUsd::SetGraphDesc(referenceBranchSession, referenceMultipleLengths);
     auto referenceMultiplePublished=referenceBranchSession.Commit(3,UsdGenCommitReason::SetTime);
     CHECK(referenceMultiplePublished&&referenceMultiplePublished->device&&
           !referenceBranchSession.LastDiagnostics().HasErrors()&&
@@ -1038,14 +1039,14 @@ int main() {
     referenceLength.nodes[1].params.push_back(
         {TfToken("length:value"), VtValue(.5f), false});
     diagnostics = {};
-    CHECK(!CompileCudaGraph(referenceLength, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(referenceLength), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: UsdGenReferenceSource CUDA lowering requires one or more Width consumers"));
     auto referenceTerminal = ReferenceWidthDesc();
     referenceTerminal.nodes.resize(1);
     referenceTerminal.terminal = referenceTerminal.nodes.front().path;
     diagnostics = {};
-    CHECK(!CompileCudaGraph(referenceTerminal, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(referenceTerminal), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: UsdGenReferenceSource CUDA lowering requires one or more Width consumers"));
     auto referencePlanes = ReferenceWidthDesc();
@@ -1057,13 +1058,13 @@ int main() {
     plane.floatValues = {1.f, 1.f};
     referencePlanes.curveSets.front().authoredPlanes.push_back(plane);
     diagnostics = {};
-    CHECK(!CompileCudaGraph(referencePlanes, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(referencePlanes), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: UsdGenReferenceSource requires one authored reference curve set without named planes at /Dag/ReferenceSource"));
     auto referenceRootFrames = ReferenceWidthDesc();
     referenceRootFrames.curveSets.front().rootFrame.push_back(GfMatrix4d(1.0));
     diagnostics = {};
-    CHECK(!CompileCudaGraph(referenceRootFrames, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(referenceRootFrames), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: UsdGenReferenceSource rootFrame bindings are not supported by CUDA at /Dag/ReferenceSource"));
 
@@ -1134,7 +1135,7 @@ int main() {
     // Recompiling the same shuffled descriptor yields the same normalized
     // task order and dependency edges.
     UsdGenDiagnostics repeatDiagnostics;
-    auto repeatPlan = CompileCudaGraph(desc, &repeatDiagnostics);
+    auto repeatPlan = CompileCudaGraph(usdGenUsd::Lower(desc), &repeatDiagnostics);
     CHECK(repeatPlan && !repeatDiagnostics.HasErrors());
     auto repeatMetadata = GetCudaExecutionPlanMetadata(*repeatPlan);
     CHECK(repeatMetadata && repeatMetadata->Tasks().size() == metadata->Tasks().size());
@@ -1147,7 +1148,7 @@ int main() {
           repeatMetadata->MemoryEstimate().conservativeUpperBound ==
               metadata->MemoryEstimate().conservativeUpperBound);
     for (size_t i = 0; i != metadata->Tasks().size(); ++i) {
-        CHECK(metadata->Tasks()[i].path == repeatMetadata->Tasks()[i].path &&
+        CHECK(metadata->Tasks()[i].key == repeatMetadata->Tasks()[i].key &&
               metadata->Tasks()[i].dependencies == repeatMetadata->Tasks()[i].dependencies);
     }
 
@@ -1228,7 +1229,7 @@ int main() {
     staticResampleDesc.nodes = {staticResampleSource, staticResampleWidth};
     staticResampleDesc.terminal = staticResampleWidth.path;
     diagnostics = {};
-    auto staticResamplePlan = CompileCudaGraph(staticResampleDesc, &diagnostics);
+    auto staticResamplePlan = CompileCudaGraph(usdGenUsd::Lower(staticResampleDesc), &diagnostics);
     CHECK(staticResamplePlan && !diagnostics.HasErrors());
     auto staticResampleMetadata = GetCudaExecutionPlanMetadata(*staticResamplePlan);
     CHECK(staticResampleMetadata &&
@@ -1349,7 +1350,7 @@ int main() {
     serialDesc.nodes = {Source(), serialParent, serialChild};
     serialDesc.terminal = serialChild.path;
     UsdGenDiagnostics serialDiagnostics;
-    auto serialPlan = CompileCudaGraph(serialDesc, &serialDiagnostics);
+    auto serialPlan = CompileCudaGraph(usdGenUsd::Lower(serialDesc), &serialDiagnostics);
     CHECK(serialPlan && !serialDiagnostics.HasErrors());
     UsdGenCudaExecutionQueue serialQueue(runtime, -1, &serialDiagnostics);
     CHECK(serialQueue.Valid());
@@ -1388,7 +1389,7 @@ int main() {
     nestedDesc.nodes = {child, parent, Source(), nestedSibling};
     nestedDesc.terminal = child.path;
     diagnostics = {};
-    auto nestedPlan = CompileCudaGraph(nestedDesc, &diagnostics);
+    auto nestedPlan = CompileCudaGraph(usdGenUsd::Lower(nestedDesc), &diagnostics);
     CHECK(nestedPlan && !diagnostics.HasErrors());
     auto nested = GetCudaExecutionPlanMetadata(*nestedPlan);
     CHECK(nested && nested->Shape() == UsdGenExecutionPlanShape::SourceRootedUnaryDag);
@@ -1465,7 +1466,7 @@ int main() {
     auto failingDesc = FanoutDesc();
     AddRuntimeFailure(&failingDesc, SdfPath("/Dag/Sibling"));
     diagnostics = {};
-    auto failingPlan = CompileCudaGraph(failingDesc, &diagnostics);
+    auto failingPlan = CompileCudaGraph(usdGenUsd::Lower(failingDesc), &diagnostics);
     CHECK(failingPlan && !diagnostics.HasErrors());
     auto failed = ExecuteCudaGraph(*failingPlan, *workspace, 2.0, 3,
                                    &diagnostics, generation);
@@ -1492,7 +1493,7 @@ int main() {
     sourceOnly.nodes = {Source()};
     sourceOnly.terminal = sourceOnly.nodes.front().path;
     diagnostics = {};
-    auto sourceOnlyPlan = CompileCudaGraph(sourceOnly, &diagnostics);
+    auto sourceOnlyPlan = CompileCudaGraph(usdGenUsd::Lower(sourceOnly), &diagnostics);
     CHECK(sourceOnlyPlan && !diagnostics.HasErrors());
     auto sourceOnlyMetadata = GetCudaExecutionPlanMetadata(*sourceOnlyPlan);
     CHECK(sourceOnlyMetadata && sourceOnlyMetadata->Tasks().size() == 2 &&
@@ -1504,7 +1505,7 @@ int main() {
     // privately own only their replacement width planes.
     auto topologyDesc = TopologyFanoutDesc();
     diagnostics = {};
-    auto topologyPlan = CompileCudaGraph(topologyDesc, &diagnostics);
+    auto topologyPlan = CompileCudaGraph(usdGenUsd::Lower(topologyDesc), &diagnostics);
     CHECK(topologyPlan && !diagnostics.HasErrors());
     auto topologyMetadata = GetCudaExecutionPlanMetadata(*topologyPlan);
     CHECK(topologyMetadata &&
@@ -1649,7 +1650,7 @@ int main() {
         &failingTopologyDesc, SdfPath("/Dag/TopologySibling"));
     diagnostics = {};
     auto failingTopologyPlan =
-        CompileCudaGraph(failingTopologyDesc, &diagnostics);
+        CompileCudaGraph(usdGenUsd::Lower(failingTopologyDesc), &diagnostics);
     CHECK(failingTopologyPlan && !diagnostics.HasErrors());
     auto const beforeFailingTopology = resourcePool->Snapshot();
     auto failedTopology = ExecuteCudaGraph(*failingTopologyPlan,
@@ -1707,7 +1708,7 @@ int main() {
     CHECK(topologyBlendReference.totalCurves == 2 &&
           topologyBlendReference.totalCvs == 7);
     diagnostics = {};
-    auto topologyBlendPlan = CompileCudaGraph(topologyBlendDesc, &diagnostics);
+    auto topologyBlendPlan = CompileCudaGraph(usdGenUsd::Lower(topologyBlendDesc), &diagnostics);
     CHECK(topologyBlendPlan && !diagnostics.HasErrors());
     auto topologyBlendMetadata = GetCudaExecutionPlanMetadata(*topologyBlendPlan);
     auto const* topologyBlendSource = topologyBlendMetadata
@@ -1747,7 +1748,7 @@ int main() {
     // that COW publishes fresh widths without rewriting its compacted source.
     UsdGenSession topologyBlendSession;
     topologyBlendSession.SetDevicePublicationEnabled(true);
-    topologyBlendSession.SetGraphDesc(topologyBlendDesc);
+    usdGenUsd::SetGraphDesc(topologyBlendSession, topologyBlendDesc);
     auto topologyBlendFirst = topologyBlendSession.Commit(
         1.0, UsdGenCommitReason::SetTime);
     CHECK(topologyBlendFirst && topologyBlendFirst->device &&
@@ -1765,7 +1766,7 @@ int main() {
     CHECK(LengthTopologyReference(swappedTopologyBlendDesc,
                        &swappedTopologyBlendReference));
     diagnostics = {};
-    auto swappedTopologyBlendPlan = CompileCudaGraph(swappedTopologyBlendDesc,
+    auto swappedTopologyBlendPlan = CompileCudaGraph(usdGenUsd::Lower(swappedTopologyBlendDesc),
                                                       &diagnostics);
     auto swappedTopologyBlendDirect = swappedTopologyBlendPlan
         ? ExecuteCudaGraph(*swappedTopologyBlendPlan, *topologyBlendWorkspace,
@@ -1777,7 +1778,7 @@ int main() {
         auto oldLease = gpu::AcquireGeometry(topologyBlendFirst->device,
                                               topologyBlendReader);
         CHECK(oldLease);
-        topologyBlendSession.SetGraphDesc(swappedTopologyBlendDesc);
+        usdGenUsd::SetGraphDesc(topologyBlendSession, swappedTopologyBlendDesc);
         auto topologyBlendSecond = topologyBlendSession.Commit(
             2.0, UsdGenCommitReason::SetTime);
         CHECK(topologyBlendSecond && topologyBlendSecond->device &&
@@ -1816,7 +1817,7 @@ int main() {
         UsdGenCurveBuffer lengthReference;
         CHECK(LengthTopologyReference(lengthCase, &lengthReference));
         diagnostics = {};
-        auto lengthPlan = CompileCudaGraph(lengthCase, &diagnostics);
+        auto lengthPlan = CompileCudaGraph(usdGenUsd::Lower(lengthCase), &diagnostics);
         CHECK(lengthPlan && !diagnostics.HasErrors());
         auto lengthGeneration = ExecuteCudaGraph(*lengthPlan,
             *topologyBlendWorkspace, 1.0, 31, &diagnostics,
@@ -1827,7 +1828,7 @@ int main() {
                   topologyBlendReader));
         UsdGenSession lengthSession;
         lengthSession.SetDevicePublicationEnabled(true);
-        lengthSession.SetGraphDesc(lengthCase);
+        usdGenUsd::SetGraphDesc(lengthSession, lengthCase);
         auto lengthPublished = lengthSession.Commit(
             1.0, UsdGenCommitReason::SetTime);
         CHECK(lengthPublished && lengthPublished->device &&
@@ -1845,7 +1846,7 @@ int main() {
     CHECK(LengthTopologyReference(topologyPredecessorDesc, &topologyPredecessorReference));
     diagnostics = {};
     auto topologyPredecessorPlan = CompileCudaGraph(
-        topologyPredecessorDesc, &diagnostics);
+        usdGenUsd::Lower(topologyPredecessorDesc), &diagnostics);
     auto topologyPredecessorMetadata = topologyPredecessorPlan
         ? GetCudaExecutionPlanMetadata(*topologyPredecessorPlan) : nullptr;
     CHECK(topologyPredecessorPlan && !diagnostics.HasErrors() &&
@@ -1888,14 +1889,14 @@ int main() {
             CHECK(CpuReference(sourceDesc, &expected));
             CHECK(expected.totalCurves == 3 && expected.totalCvs == (variant == 3 ? 6u : 9u));
             diagnostics = {};
-            auto sourcePlan = CompileCudaGraph(sourceDesc, &diagnostics);
+            auto sourcePlan = CompileCudaGraph(usdGenUsd::Lower(sourceDesc), &diagnostics);
             CHECK(sourcePlan && !diagnostics.HasErrors());
             auto direct = ExecuteCudaGraph(*sourcePlan, *sourceWorkspace, 1, 50 + variant,
                 &diagnostics, retained);
             for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
             CHECK(direct && !diagnostics.HasErrors() && CheckSourcePayload(direct, expected, reader));
             UsdGenSession session;
-            session.SetDevicePublicationEnabled(true); session.SetGraphDesc(sourceDesc);
+            session.SetDevicePublicationEnabled(true); usdGenUsd::SetGraphDesc(session, sourceDesc);
             auto published = session.Commit(1, UsdGenCommitReason::SetTime);
             for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
             CHECK(published && published->device && !session.LastDiagnostics().HasErrors() &&
@@ -1932,7 +1933,7 @@ int main() {
             if (node.type == TfToken("UsdGenCurveSource"))
                 node.params.push_back({TfToken("resampleTo"), VtValue(2), false});
         diagnostics = {};
-        auto plainPlan = CompileCudaGraph(downsample, &diagnostics);
+        auto plainPlan = CompileCudaGraph(usdGenUsd::Lower(downsample), &diagnostics);
         CHECK(plainPlan && !diagnostics.HasErrors());
         auto baseJob = CreateCudaExecutionJob(plainPlan, *topologyBlendWorkspace,
             1, 40, &diagnostics);
@@ -1947,7 +1948,7 @@ int main() {
         named.arity = 1;
         named.floatValues = {0,1,2,3,4,5,6,7,8};
         downsample.curveSets.front().authoredPlanes.push_back(named);
-        auto namedPlan = CompileCudaGraph(downsample, &diagnostics);
+        auto namedPlan = CompileCudaGraph(usdGenUsd::Lower(downsample), &diagnostics);
         CHECK(namedPlan && !diagnostics.HasErrors());
         auto namedJob = CreateCudaExecutionJob(namedPlan, *topologyBlendWorkspace,
             1, 41, &diagnostics);
@@ -1961,7 +1962,7 @@ int main() {
     auto twoInputs = FanoutDesc();
     twoInputs.nodes[0].inputs.push_back(SdfPath("/Dag/Sibling"));
     diagnostics = {};
-    CHECK(!CompileCudaGraph(twoInputs, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(twoInputs), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported composition: CUDA unary Width requires exactly one geometry input"));
 
@@ -1970,28 +1971,28 @@ int main() {
     secondSource.path = SdfPath("/Dag/SecondSource");
     multipleSources.nodes.push_back(std::move(secondSource));
     diagnostics = {};
-    CHECK(!CompileCudaGraph(multipleSources, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(multipleSources), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: CUDA graph requires exactly one CurveSource"));
 
     auto missingInput = FanoutDesc();
     missingInput.nodes[2].inputs = {SdfPath("/Dag/Missing")};
     diagnostics = {};
-    CHECK(!CompileCudaGraph(missingInput, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(missingInput), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: invalid authoring: CUDA Width input does not name a graph node"));
 
     auto disconnected = FanoutDesc();
     disconnected.nodes[2].inputs = {disconnected.nodes[2].path};
     diagnostics = {};
-    CHECK(!CompileCudaGraph(disconnected, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(disconnected), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: invalid authoring: CUDA Width graph contains a cycle or is not source-rooted"));
 
     auto ambiguousTerminal = FanoutDesc();
     ambiguousTerminal.terminal = SdfPath();
     diagnostics = {};
-    CHECK(!CompileCudaGraph(ambiguousTerminal, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(ambiguousTerminal), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported composition: branched CUDA Width graphs require an explicit terminal"));
 
@@ -2004,7 +2005,7 @@ int main() {
     branchedLength.nodes = {Source(), length, widthSibling};
     branchedLength.terminal = length.path;
     diagnostics = {};
-    auto branchedLengthPlan = CompileCudaGraph(branchedLength, &diagnostics);
+    auto branchedLengthPlan = CompileCudaGraph(usdGenUsd::Lower(branchedLength), &diagnostics);
     CHECK(branchedLengthPlan && !diagnostics.HasErrors());
     UsdGenCurveBuffer branchedLengthReference;
     CHECK(CpuReference(branchedLength, &branchedLengthReference));
@@ -2045,7 +2046,7 @@ int main() {
     rbfDag.nodes = {rbfBlend, rbfRight, rbfLength, Source(), rbfLeft, rbfWidth};
     rbfDag.terminal = rbfBlend.path;
     diagnostics = {};
-    auto rbfDagPlan = CompileCudaGraph(rbfDag, &diagnostics);
+    auto rbfDagPlan = CompileCudaGraph(usdGenUsd::Lower(rbfDag), &diagnostics);
     CHECK(rbfDagPlan && !diagnostics.HasErrors());
     auto rbfDagMetadata = GetCudaExecutionPlanMetadata(*rbfDagPlan);
     auto rbfSourceTask = rbfDagMetadata ? TaskByPath(*rbfDagMetadata, "/Dag/Source") : nullptr;
@@ -2086,7 +2087,7 @@ int main() {
         }), rbfLeftTerminal.nodes.end());
     rbfLeftTerminal.terminal = rbfLeft.path;
     diagnostics = {};
-    auto rbfLeftTerminalPlan = CompileCudaGraph(rbfLeftTerminal, &diagnostics);
+    auto rbfLeftTerminalPlan = CompileCudaGraph(usdGenUsd::Lower(rbfLeftTerminal), &diagnostics);
     CHECK(rbfLeftTerminalPlan && !diagnostics.HasErrors());
     auto rbfLeftTerminalMetadata = GetCudaExecutionPlanMetadata(*rbfLeftTerminalPlan);
     auto rbfLeftTerminalTask = rbfLeftTerminalMetadata
@@ -2110,14 +2111,14 @@ int main() {
     doubleRbf.nodes = {Source(), doubleWidth, firstRbf, secondRbf};
     doubleRbf.terminal = secondRbf.path;
     diagnostics = {};
-    CHECK(!CompileCudaGraph(doubleRbf, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(doubleRbf), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported composition: a second rest-to-animated deformation would apply surface motion twice"));
 
     auto missingBlendInput = WidthBlendDesc();
     missingBlendInput.nodes.front().inputs.pop_back();
     diagnostics = {};
-    CHECK(!CompileCudaGraph(missingBlendInput, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(missingBlendInput), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: unsupported composition: CUDA WidthBlend requires exactly two ordered geometry inputs"));
 
@@ -2125,13 +2126,13 @@ int main() {
     duplicateBlendInput.nodes.front().inputs[1] =
         duplicateBlendInput.nodes.front().inputs[0];
     diagnostics = {};
-    CHECK(!CompileCudaGraph(duplicateBlendInput, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(duplicateBlendInput), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: invalid authoring: CUDA WidthBlend requires two distinct graph inputs"));
 
     auto invalidBlendWeight = WidthBlendDesc(1.25f);
     diagnostics = {};
-    CHECK(!CompileCudaGraph(invalidBlendWeight, &diagnostics));
+    CHECK(!CompileCudaGraph(usdGenUsd::Lower(invalidBlendWeight), &diagnostics));
     CHECK(DiagnosticIs(diagnostics,
         "CUDA: WidthBlend requires a finite usdGen:widthBlend:weight in [0,1] and no auxiliary inputs"));
 
@@ -2149,14 +2150,14 @@ int main() {
           }) && blendGeneration->Owner());
     auto leftEndpointDesc = WidthBlendDesc(0.0f);
     diagnostics = {};
-    auto leftEndpointPlan = CompileCudaGraph(leftEndpointDesc, &diagnostics);
+    auto leftEndpointPlan = CompileCudaGraph(usdGenUsd::Lower(leftEndpointDesc), &diagnostics);
     auto leftEndpoint = leftEndpointPlan ? ExecuteCudaGraph(*leftEndpointPlan,
         *workspace, 1.0, 901, &diagnostics, blendGeneration) : nullptr;
     CHECK(leftEndpoint && !diagnostics.HasErrors() &&
           AllWidthsAre(leftEndpoint, .2f));
     auto rightEndpointDesc = WidthBlendDesc(1.0f);
     diagnostics = {};
-    auto rightEndpointPlan = CompileCudaGraph(rightEndpointDesc, &diagnostics);
+    auto rightEndpointPlan = CompileCudaGraph(usdGenUsd::Lower(rightEndpointDesc), &diagnostics);
     auto rightEndpoint = rightEndpointPlan ? ExecuteCudaGraph(*rightEndpointPlan,
         *workspace, 1.0, 902, &diagnostics, leftEndpoint) : nullptr;
     CHECK(rightEndpoint && !diagnostics.HasErrors() &&
@@ -2165,7 +2166,7 @@ int main() {
     swappedBlendDesc.nodes.front().inputs = {SdfPath("/Dag/BlendRight"),
                                              SdfPath("/Dag/BlendLeft")};
     diagnostics = {};
-    auto swappedBlendPlan = CompileCudaGraph(swappedBlendDesc, &diagnostics);
+    auto swappedBlendPlan = CompileCudaGraph(usdGenUsd::Lower(swappedBlendDesc), &diagnostics);
     auto swappedBlend = swappedBlendPlan ? ExecuteCudaGraph(*swappedBlendPlan,
         *workspace, 1.0, 903, &diagnostics, rightEndpoint) : nullptr;
     CHECK(swappedBlend && !diagnostics.HasErrors() &&
@@ -2218,7 +2219,7 @@ int main() {
                   ResourceKindBytes(cacheAfterFirst, UsdGenExecutionResourceKind::Cache));
         auto graphKeyChangeDesc = WidthBlendDesc(.5f);
         diagnostics = {};
-        auto graphKeyChangePlan = CompileCudaGraph(graphKeyChangeDesc, &diagnostics);
+        auto graphKeyChangePlan = CompileCudaGraph(usdGenUsd::Lower(graphKeyChangeDesc), &diagnostics);
         CHECK(graphKeyChangePlan && !diagnostics.HasErrors());
         auto graphKeyChange = ExecuteCudaGraph(*graphKeyChangePlan, *graphWorkspace, 1.0,
                                                 912, &diagnostics, graphReplay);
@@ -2275,7 +2276,7 @@ int main() {
         CHECK(CpuReference(equalDesc, &equalReference) &&
               equalReference.chunks.empty());
         diagnostics = {};
-        auto equalPlan = CompileCudaGraph(equalDesc, &diagnostics);
+        auto equalPlan = CompileCudaGraph(usdGenUsd::Lower(equalDesc), &diagnostics);
         CHECK(equalPlan && !diagnostics.HasErrors());
         auto equalMetadata=GetCudaExecutionPlanMetadata(*equalPlan);CHECK(equalMetadata);
         auto mergeTask=TaskByPath(*equalMetadata,"/Dag/CrossOriginBlend");
@@ -2298,7 +2299,7 @@ int main() {
               CheckSourcePayload(equalGeneration, equalReference, crossOriginReader));
         UsdGenSession equalSession;
         equalSession.SetDevicePublicationEnabled(true);
-        equalSession.SetGraphDesc(equalDesc);
+        usdGenUsd::SetGraphDesc(equalSession, equalDesc);
         auto equalPublished = equalSession.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(equalPublished && equalPublished->device &&
               !equalSession.LastDiagnostics().HasErrors() &&
@@ -2306,7 +2307,7 @@ int main() {
 
         auto unequalDesc = CrossOriginWidthBlendDesc(.5f);
         diagnostics = {};
-        auto unequalPlan = CompileCudaGraph(unequalDesc, &diagnostics);
+        auto unequalPlan = CompileCudaGraph(usdGenUsd::Lower(unequalDesc), &diagnostics);
         CHECK(unequalPlan && !diagnostics.HasErrors());
         auto rejected = ExecuteCudaGraph(*unequalPlan, *workspace, 1.0,
                                          921, &diagnostics, equalGeneration);
@@ -2320,10 +2321,10 @@ int main() {
               CheckSourcePayload(equalGeneration,equalReference,crossOriginReader));
         UsdGenSession unequalSession;
         unequalSession.SetDevicePublicationEnabled(true);
-        unequalSession.SetGraphDesc(equalDesc);
+        usdGenUsd::SetGraphDesc(unequalSession, equalDesc);
         auto prior = unequalSession.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(prior && prior->device && !unequalSession.LastDiagnostics().HasErrors());
-        unequalSession.SetGraphDesc(unequalDesc);
+        usdGenUsd::SetGraphDesc(unequalSession, unequalDesc);
         auto failedPublication = unequalSession.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(failedPublication == prior && unequalSession.LastDiagnostics().HasErrors() &&
               prior->device && CheckSourcePayload(prior->device, equalReference, crossOriginReader));
@@ -2355,11 +2356,11 @@ int main() {
         }
         UsdGenCurveBuffer expected;
         CHECK(CpuReference(provenanceDesc,&expected) && expected.chunks.empty());
-        diagnostics={};auto provenancePlan=CompileCudaGraph(provenanceDesc,&diagnostics);CHECK(provenancePlan && !diagnostics.HasErrors());
+        diagnostics={};auto provenancePlan=CompileCudaGraph(usdGenUsd::Lower(provenanceDesc),&diagnostics);CHECK(provenancePlan && !diagnostics.HasErrors());
         auto localWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics);CHECK(localWorkspace);
         auto result=ExecuteCudaGraph(*provenancePlan,*localWorkspace,1,930+variant,&diagnostics);
         CHECK(result && !diagnostics.HasErrors() && CheckSourcePayload(result,expected,crossOriginReader));
-        UsdGenSession session;session.SetDevicePublicationEnabled(true);session.SetGraphDesc(provenanceDesc);
+        UsdGenSession session;session.SetDevicePublicationEnabled(true);usdGenUsd::SetGraphDesc(session, provenanceDesc);
         auto published=session.Commit(1,UsdGenCommitReason::SetTime);
         CHECK(published && published->device && !session.LastDiagnostics().HasErrors() &&
               CheckSourcePayload(published->device,expected,crossOriginReader));
@@ -2373,14 +2374,14 @@ int main() {
         auto quarantineDesc=CrossOriginWidthBlendDesc();
         UsdGenCurveBuffer reference; CHECK(CpuReference(quarantineDesc,&reference));
         UsdGenSession session; session.SetDevicePublicationEnabled(true);
-        session.SetGraphDesc(quarantineDesc);
+        usdGenUsd::SetGraphDesc(session, quarantineDesc);
         auto prior=session.Commit(1,UsdGenCommitReason::SetTime);
         CHECK(prior && prior->device && !session.LastDiagnostics().HasErrors());
         auto changed=quarantineDesc;
         for(auto& node:changed.nodes) if(node.path==SdfPath("/Dag/EqualRightWidth"))
             node.params[0].value=VtValue(.9f);
         auto const quarantined=cudaOperatorRelayQuarantinedCountForTesting();
-        session.SetGraphDesc(changed); inject();
+        usdGenUsd::SetGraphDesc(session, changed); inject();
         CHECK(session.Commit(2,UsdGenCommitReason::SetTime)==prior);
         CHECK(session.LastDiagnostics().HasErrors() &&
               cudaOperatorRelayQuarantinedCountForTesting()==quarantined+1);

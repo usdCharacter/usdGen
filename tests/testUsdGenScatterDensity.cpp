@@ -4,7 +4,9 @@
 // nothing; scales multiply; malformed multipliers fail closed; and the
 // multiplier joins the capture digest so a repaint recooks instead of
 // reading back cached pre-stroke roots.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -47,11 +49,11 @@ static UsdGenGraphDesc Desc() {
 static bool Run(UsdGenGraphDesc const& d, UsdGenCurveBuffer* result) {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(d, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, d, &graph);
     if (!compiled.ok) return false;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     auto run = scheduler.Run(graph, ctx, 1);
     for (auto const& e : run.diagnostics.errors)
         std::fprintf(stderr, "%s\n", e.c_str());
@@ -77,14 +79,14 @@ static bool ReRun(UsdGenGraphDesc const& d0, UsdGenGraphDesc const& d1,
                   UsdGenCurveBuffer* result, bool* plansEmpty) {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(d0, &graph).ok) return false;
+    if (!usdGenUsd::Compile(compiler, d0, &graph).ok) return false;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     auto run0 = scheduler.Run(graph, ctx, 1);
     if (run0.diagnostics.HasErrors()) return false;
-    if (!compiler.Recompile(d1, &graph).ok) return false;
-    ctx.desc = &graph.Desc();
+    if (!usdGenUsd::Recompile(compiler, d1, &graph).ok) return false;
+    ctx.desc = &graph.Spec();
     auto run1 = scheduler.Run(graph, ctx, 1);
     for (auto const& e : run1.diagnostics.errors)
         std::fprintf(stderr, "%s\n", e.c_str());
@@ -111,13 +113,13 @@ int main() {
         auto cook = [&](float m0, float m1, size_t want) {
             d.surfaces[0].densityMultiplier = {m0, m1};
             auto shared = std::make_shared<const UsdGenGraphDesc>(d);
-            UsdGenGenerationConstPtr gen = cooker.Cook(shared,
+            UsdGenGenerationConstPtr gen = cooker.Cook(usdGenUsd::LowerShared(*shared),
                 UsdGenContext::Interactive, false, {}, 0.0,
                 UsdGenCommitReason::NoticeBatchEnd, prev, stats,
                 false, epoch, epoch + 1, -1);
             if (!gen) return false;
             size_t curves = 0;
-            for (auto const& tile : gen->tiles)
+            for (auto const& tile : usdGen::UsdGenCurvePublicationOf(*gen).tiles)
                 curves += tile.curveVertexCounts.size();
             auto candidate = cooker.TakeCacheCandidate();
             if (candidate) cooker.CommitCacheCandidate(*candidate);
@@ -167,11 +169,13 @@ int main() {
         auto a = Desc(), b = Desc();
         b.surfaces[0].densityMultiplier = {1.0f, 0.5f};
         UsdGenCaptureContext ctxA, ctxB;
-        ctxA.desc = &a; ctxB.desc = &b;
+        usdGen::UsdGenGraphSpec const specA = usdGenUsd::Lower(a), specB = usdGenUsd::Lower(b);
+        ctxA.desc = &specA; ctxB.desc = &specB;
         CHECK(op.CaptureDigest(ctxA) != op.CaptureDigest(ctxB));
         auto c = Desc();
         UsdGenCaptureContext ctxC;
-        ctxC.desc = &c;
+        usdGen::UsdGenGraphSpec const lowered175 = usdGenUsd::Lower(c);
+        ctxC.desc = &lowered175;
         CHECK(op.CaptureDigest(ctxA) == op.CaptureDigest(ctxC));
     }
     {

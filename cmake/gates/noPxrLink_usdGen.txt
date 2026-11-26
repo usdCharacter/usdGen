@@ -2,7 +2,6 @@
 tf
 gf
 vt
-sdf
 arch
 js
 plug

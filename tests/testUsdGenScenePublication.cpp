@@ -1,5 +1,6 @@
 // Integration coverage for per-scene publication ownership.  The target is
 // registered by the integration owner.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGen/op.h"
@@ -529,11 +530,11 @@ def Scope "Groom"
             auto const graph = probe->Engine()->Graph();
             auto const generation = probe->Engine()->Generation();
             std::printf("progressive diagnostic: terminal=%s tileTarget=%d nodes=%zu generationTiles=%zu\n",
-                graph.desc.terminal.GetText(), graph.desc.tileTarget,
-                graph.desc.nodes.size(), generation ? generation->tiles.size() : 0);
-            for (auto const& node : graph.desc.nodes)
+                graph.spec.Label(graph.spec.terminal).c_str(), graph.spec.tileTarget,
+                graph.spec.nodes.size(), generation ? usdGen::UsdGenCurvePublicationOf(*generation).tiles.size() : 0);
+            for (auto const& node : graph.spec.nodes)
                 std::printf("progressive node: %s %s\n",
-                    node.path.GetText(), node.type.GetText());
+                    graph.spec.Label(node.key).c_str(), node.type.GetText());
             for (auto const& error : probe->Engine()->LastDiagnostics().errors)
                 std::printf("progressive error: %s\n", error.c_str());
         } else std::printf("progressive diagnostic: no session attached\n");
@@ -563,7 +564,7 @@ def Scope "Groom"
     if (scene.owner) scene.owner->Synchronize();
     if (moonrayOwner) moonrayOwner->Synchronize();
     Check(session && session->Engine()->Generation() &&
-              session->Engine()->Generation()->tiles.size() > 1,
+              usdGen::UsdGenCurvePublicationOf(*session->Engine()->Generation()).tiles.size() > 1,
           "terminal publication completes the remaining tiles");
     Check(moonray->GetPrim(first).primType == TfToken("basisCurves"),
           "Moonray policy publishes complete geometry after terminal success");

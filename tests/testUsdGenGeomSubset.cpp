@@ -18,8 +18,9 @@
 // run under ctest, which supplies it.
 
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -190,7 +191,7 @@ bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::string *erro
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto const compiled = compiler.Compile(desc, &graph);
+    auto const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (warnings) *warnings = compiled.warnings;
     if (!compiled.ok) {
         *error = compiled.errors.empty() ? "compile failed" : compiled.errors.front();
@@ -198,7 +199,7 @@ bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::string *erro
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto const run = scheduler.Run(graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         *error = run.diagnostics.errors.empty() ? "run failed" : run.diagnostics.errors.front();

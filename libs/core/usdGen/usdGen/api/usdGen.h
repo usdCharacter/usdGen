@@ -1,7 +1,7 @@
 // usdGen — engine core public header.
 //
 // M0: minimal surface. The full graph / operator / element-set model
-// (UsdGenGraphDesc, UsdGenOp, chunk/tile layout, digests, dirty router) lands
+// (UsdGenGraphSpec, UsdGenOp, chunk/tile layout, digests, dirty router) lands
 // in M1 (03-execution-engine.md). This header exists so the `usdGen` target has
 // a stable public identity and a version symbol, and so `usdGenImaging` /
 // `usdGenSchema` can link against the target.
@@ -22,9 +22,9 @@ namespace usdGen {
 /// only through the USDGEN_CORE_API macro (see usdGen/export.h).
 USDGEN_CORE_API std::string GetVersionString();
 
-/// Chunk size: the engine's dirty/parallel unit is 512 curves (S23).
+/// Chunk size: the engine's dirty/parallel unit is 512 elements (S23).
 constexpr int kDefaultChunkSize = 512;
-/// Default tile target for published basisCurves (02-schema.md §2.15).
+/// Default publication group target (02-schema.md §2.15).
 constexpr int kDefaultTileTarget = 64;
 
 }  // namespace usdGen

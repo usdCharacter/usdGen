@@ -20,7 +20,7 @@
 #include "usdGen/allocCounter.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -187,6 +187,11 @@ void EngineBench(int threads, int runs)
 {
     Stat compile, coldCook, warm, edit, warmAllocs, editAllocs;
     UsdGenGraphDesc const a = MakeG3(0.05), b = MakeG3(0.06);
+    // Lowered once, outside the measured regions, through one key map as a host
+    // does: the engine metrics time Compile/Recompile and Run, as they did on
+    // GraphDesc before step 7, not the host's SdfPath-to-key lowering.
+    usdGenUsd::NodeKeyMap keys;
+    UsdGenGraphSpec const specA = usdGenUsd::Lower(a, keys), specB = usdGenUsd::Lower(b, keys);
     UsdGenScheduler sched(threads);
     UsdGenEngineAllocCounting(true);
     uint64_t gen = 0;
@@ -195,7 +200,7 @@ void EngineBench(int threads, int runs)
         UsdGenCompiler c;
         UsdGenGraph g;
         auto t0 = Clock::now();
-        UsdGenCompileResult const cr = c.Compile(a, &g);
+        UsdGenCompileResult const cr = c.Compile(specA, &g);
         auto t1 = Clock::now();
         if (!cr.ok) {
             std::printf("compile failed:");
@@ -205,7 +210,7 @@ void EngineBench(int threads, int runs)
         }
         compile.v.push_back(Ms(t0, t1));
         UsdGenEvalContext ctx;
-        ctx.desc = &g.Desc();
+        ctx.desc = &g.Spec();
         t0 = Clock::now();
         UsdGenRunResult const first = sched.Run(g, ctx, ++gen);
         t1 = Clock::now();
@@ -226,11 +231,11 @@ void EngineBench(int threads, int runs)
         }
         // Parameter edit: one value-class change, incremental recompile + run.
         for (int i = 0; i < 3; ++i) {
-            UsdGenGraphDesc const &next = (i % 2 == 0) ? b : a;
+            UsdGenGraphSpec const &next = (i % 2 == 0) ? specB : specA;
             uint64_t const a0 = Allocs();
             t0 = Clock::now();
             UsdGenCompileResult const rr = c.Recompile(next, &g);
-            ctx.desc = &g.Desc();
+            ctx.desc = &g.Spec();
             if (rr.ok) sched.Run(g, ctx, ++gen);
             t1 = Clock::now();
             editAllocs.v.push_back(double(Allocs() - a0));

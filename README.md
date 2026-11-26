@@ -7,8 +7,8 @@ The intended result is a set of plugins and tools a studio pipeline can build, i
 ## What ships in this repository
 
 - **Engine** (`libs/usdGen`, `libs/usdGenMath`). A stage-free operator graph. Example scenes exercise scatter, grow, noise, length, width, clumping, guide interpolation, curve import, and deformation.
-- **Hydra** (`libs/usdGenImaging`, `plugin/usdGenImaging`). A groom scene index that publishes curve tiles into Hydra, including Storm shading and optional instanced fur.
-- **Schema** (`libs/usdGenSchema`, `plugin/usdGenSchema`). Codeless `usdGen:` types. The checked-in resources are generated from `libs/usdGenSchema/schema.usda`.
+- **Hydra** (`libs/hosts/usdGenHydra/usdGenImaging`, `plugin/usdGenImaging`). A groom scene index that publishes curve tiles into Hydra, including Storm shading and optional instanced fur.
+- **Schema** (`libs/hosts/usdGenUsd/schema`, with the checked-in `resources/`). Codeless `usdGen:` types. The checked-in resources are generated from `libs/hosts/usdGenUsd/schema/schema.usda`.
 - **Pomade** (`libs/usdGenPomade`, `plugin/usdGenPomadeTools`). A usdview tool for hierarchical groom authoring: tubes, fills, guides, and a commit back to USD. See [docs/pomade-tool.md](docs/pomade-tool.md).
 - **Expression editor** (`plugin/usdGenTools`). A usdview dock for SeExpr on `usdGen:expr:source`.
 - **Shaders** (`usdGenShaders`). Storm materials for strand shading and self-shadowing. See [docs/storm-fur.md](docs/storm-fur.md).

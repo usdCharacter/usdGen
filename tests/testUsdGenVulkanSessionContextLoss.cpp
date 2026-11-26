@@ -9,6 +9,7 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "usdGen/executionPipeline.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/vulkan/deviceContext.h"
@@ -156,20 +157,20 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const& error : compiled.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto run = scheduler.Run(graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     out->points.resize(buffer.totalCvs);
     out->rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
@@ -335,9 +336,9 @@ int main(int argc, char** argv) {
     auto descriptor = MakeProviderDescriptor();
     SixPlaneOracle oracle;
     CHECK(BuildCpuReference(descriptor, &oracle));
-    firstSession->SetGraphDesc(descriptor);
+    usdGenUsd::SetGraphDesc(*firstSession, descriptor);
     firstSession->SetDevicePublicationEnabled(true);
-    secondSession->SetGraphDesc(descriptor);
+    usdGenUsd::SetGraphDesc(*secondSession, descriptor);
     secondSession->SetDevicePublicationEnabled(true);
     auto first = firstSession->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     auto second = secondSession->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
@@ -363,7 +364,7 @@ int main(int argc, char** argv) {
     CHECK(cacheDomain->Epoch() > beforeCache);
     CHECK(cacheDomain->Size() == 0);
     UsdGenDiagnostics rejected;
-    CHECK(!provider->Compile(descriptor, &rejected));
+    CHECK(!provider->Compile(usdGenUsd::Lower(descriptor), &rejected));
     auto failedSecond = secondSession->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(failedSecond && failedSecond->diagnostics.HasErrors());
     CHECK(failedSecond->generation == second->generation);
@@ -413,7 +414,7 @@ int main(int argc, char** argv) {
         CHECK(!CreateUsdGenDeviceSession(2, 8, cacheDomain, replacementProvider));
         auto replacementSession = CreateUsdGenDeviceSession(2, 8, replacementCache, replacementProvider);
         CHECK(replacementSession);
-        replacementSession->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*replacementSession, descriptor);
         replacementSession->SetDevicePublicationEnabled(true);
         auto fresh = replacementSession->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(fresh && !fresh->diagnostics.HasErrors() && fresh->generation && fresh->generation->device);

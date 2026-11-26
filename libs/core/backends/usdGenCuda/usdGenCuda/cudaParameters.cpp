@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "cudaParameters.h"
+#include "usdGenExpr/exprInput.h"
 #include "usdGen/gpu/cudaCompat.h"
 #include "usdGen/gpu/cudaCompletionLane.h"
 #include "usdGen/expressions/frontend.h"
@@ -166,14 +167,14 @@ struct CudaParameterEvaluator::FreshCandidate {
 };
 
 CudaParameterStatus CudaParameterProgram::Compile(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     std::shared_ptr<const CudaParameterProgram>* output,
     std::vector<std::string>* diagnostics) {
     if (!output) {
         Error(diagnostics, "null parameter plan");
         return CudaParameterStatus::InvalidArgument;
     }
-    std::vector<UsdGenExpressionBinding> bindings;
+    std::vector<UsdGenParamBinding> bindings;
     std::vector<Item> items;
     std::set<std::string_view> destinations;
     UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
@@ -184,20 +185,21 @@ CudaParameterStatus CudaParameterProgram::Compile(
             Error(diagnostics, binding.destination.GetString() + ": " + message);
             return status;
         };
-        if (binding.destination.IsEmpty() || binding.expression.IsEmpty() ||
+        if (binding.destination.IsEmpty() || !binding.expression.IsValid() ||
             !destinations.insert(CanonicalName(binding.destination)).second)
             return fail(CudaParameterStatus::InvalidArgument, "empty or duplicate expression destination/path");
-        auto expression = std::find_if(graph.expressions.begin(), graph.expressions.end(),
-            [&](auto const& candidate) { return candidate.path == binding.expression; });
-        if (expression == graph.expressions.end())
+        UsdGenInputRecord const* expressionRecord = UsdGenFindExpressionInput(graph, binding.expression);
+        if (!expressionRecord)
             return fail(CudaParameterStatus::CompileError, "missing expression");
+        UsdGenExpressionInputView const expressionView = UsdGenExpressionInputView::Of(*expressionRecord);
+        UsdGenExpressionInputView const* expression = &expressionView;
         // An empty output is a connection to the expression PRIM; it resolves
         // to outputs:result, or to a single declared output.
         UsdGenExpressionOutputDesc const* result =
             UsdGenFindExpressionOutput(*expression, binding.output);
         if (!result)
             return fail(CudaParameterStatus::CompileError, binding.output.IsEmpty()
-                ? "connection to prim " + binding.expression.GetString() +
+                ? "connection to prim " + graph.Label(binding.expression) +
                       " declaring no outputs:result and no single outputs:* attribute"
                 : "missing expression output");
         if (binding.domain != Domain::Groom && binding.domain != Domain::Primitive &&
@@ -214,7 +216,7 @@ CudaParameterStatus CudaParameterProgram::Compile(
         if (!Literal(binding.literal, binding.destinationShape, &item.literal))
             return fail(CudaParameterStatus::UnsupportedType,
                 "literal must have the exact finite native type; int64/uint64 currently limited to 2^53");
-        auto compiled = expr::Frontend::Compile(expression->source,
+        auto compiled = expr::Frontend::Compile(std::string(expression->source),
             {binding.domain, binding.destinationShape.scalar, binding.destinationShape.components});
         if (!compiled.ok) {
             for (auto const& message : compiled.diagnostics)
@@ -844,7 +846,7 @@ CudaGroomScalarValue const* CudaGroomScalarReadback::Find(UsdGenParamSlot slot) 
 }
 
 CudaParameterStatus CudaParameterPlan::Compile(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     CudaParameterPlan* output, std::vector<std::string>* diagnostics)
 {
     if (!output) {

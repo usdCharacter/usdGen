@@ -1,7 +1,7 @@
 #ifndef USDGEN_CUDA_SCATTER_INPUT_H
 #define USDGEN_CUDA_SCATTER_INPUT_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/gpu/scatterGrow.h"
 
 #include <memory>
@@ -22,7 +22,7 @@ enum class CudaScatterInputStatus {
 };
 
 CudaScatterInputStatus PrepareCudaScatterInput(
-    UsdGenGraphDesc const& desc, SdfPath const& scatterPath,
+    UsdGenGraphSpec const& desc, UsdGenNodeKey scatterKey,
     std::shared_ptr<const gpu::ScatterGrowRoots>* out,
     std::string* reason = nullptr);
 

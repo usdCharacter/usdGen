@@ -59,16 +59,16 @@ struct UsdGenDeviceContextLoss
 struct UsdGenSessionGraphSnapshot
 {
     int nodeCount = 0;
-    UsdGenGraphDesc desc;
+    UsdGenGraphSpec spec;
     std::shared_ptr<const UsdGenCudaExecutionPlan> cudaPlan;
-    std::unordered_map<SdfPath, UsdGenNodeId, SdfPath::Hash> nodeIds;
+    std::unordered_map<UsdGenNodeKey, UsdGenNodeId, UsdGenNodeKeyHash> nodeIds;
 
     int NodeCount() const noexcept { return nodeCount; }
-    UsdGenNodeId NodeIdForPath(SdfPath const& path) const {
-        auto found = nodeIds.find(path);
+    UsdGenNodeId NodeIdForKey(UsdGenNodeKey key) const {
+        auto found = nodeIds.find(key);
         return found == nodeIds.end() ? kUsdGenInvalidNode : found->second;
     }
-    UsdGenGraphDesc const& Desc() const noexcept { return desc; }
+    UsdGenGraphSpec const& Spec() const noexcept { return spec; }
     std::shared_ptr<const UsdGenCudaExecutionPlan> const& CudaPlan() const noexcept {
         return cudaPlan;
     }
@@ -81,7 +81,8 @@ struct UsdGenSessionGraphSnapshot
 struct UsdGenSessionSnapshot
 {
     UsdGenGenerationConstPtr generation;
-    UsdGenDirtyReport report;
+    // The publisher's diff against the previous generation; null when empty.
+    UsdGenRef<const UsdGenPublication> report;
     UsdGenDiagnostics diagnostics;
     UsdGenStats stats;
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> routing;
@@ -98,7 +99,7 @@ struct UsdGenSessionCommitRequest
 {
     double frame = 0.0;
     UsdGenCommitReason reason = UsdGenCommitReason::NoticeBatchEnd;
-    std::shared_ptr<const UsdGenGraphDesc> desc;
+    std::shared_ptr<const UsdGenGraphSpec> spec;
     std::optional<UsdGenContext> context;
     // Captured by an upstream owner when it must relay the original caller's
     // CUDA device. Absent means capture at this Session API boundary.
@@ -120,7 +121,8 @@ public:
         uint64_t epoch = 0;
         uint64_t sequence = 0;
         double frame = 0.0;
-        UsdGenTilePublication tile;
+        UsdGenRef<const UsdGenPublication> tile;   // one group
+        std::shared_ptr<const void> host;   // the cooked spec's host data
     };
     using TileProgressPtr = std::shared_ptr<const TileProgress>;
     using TileProgressCallback = std::function<void(TileProgressPtr)>;
@@ -143,14 +145,14 @@ public:
 
     // External synchronous adapters. They cooperatively invoke the short
     // command owner and must not be called from a pipeline callback.
-    void SetGraphDesc(UsdGenGraphDesc const&);
+    void SetGraphSpec(UsdGenGraphSpec const&);
     void SetContext(UsdGenContext);
     void SetDevicePublicationEnabled(bool);
 
     // Primary callback-safe mutation API: enqueue a command and return.
     // False means bounded command admission rejected the mutation; callers
     // must retain/retry their authoritative input at a later boundary.
-    bool PostGraphDesc(UsdGenGraphDesc);
+    bool PostGraphSpec(UsdGenGraphSpec);
     bool PostContext(UsdGenContext);
     bool PostDevicePublicationEnabled(bool);
     bool PostDirty(UsdGenPendingDirty);
@@ -203,9 +205,9 @@ public:
         auto snapshot = Snapshot();
         return snapshot ? snapshot->generation : nullptr;
     }
-    UsdGenDirtyReport LastReport() const {
+    UsdGenRef<const UsdGenPublication> LastReport() const {
         auto snapshot = Snapshot();
-        return snapshot ? snapshot->report : UsdGenDirtyReport{};
+        return snapshot ? snapshot->report : UsdGenRef<const UsdGenPublication>();
     }
     UsdGenDiagnostics LastDiagnostics() const {
         auto snapshot = Snapshot();

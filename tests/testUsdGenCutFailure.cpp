@@ -6,7 +6,7 @@
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -195,7 +195,7 @@ bool Same(OutputSnapshot const &a, OutputSnapshot const &b)
 bool Compile(UsdGenGraphDesc const &desc, UsdGenGraph *graph)
 {
     UsdGenCompiler compiler;
-    UsdGenCompileResult const result = compiler.Compile(desc, graph);
+    UsdGenCompileResult const result = usdGenUsd::Compile(compiler, desc, graph);
     if (!result.ok)
         for (std::string const &error : result.errors)
             std::printf("compile error: %s\n", error.c_str());
@@ -209,7 +209,7 @@ OutputSnapshot FreshOutput(UsdGenGraphDesc const &desc)
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
     context.time = 7.0;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     g_failEnabled.store(false, std::memory_order_release);
     g_evaluations.store(0, std::memory_order_release);
     UsdGenRunResult const run = scheduler.Run(graph, context, 2);
@@ -229,7 +229,7 @@ void TestTransactionalFailure(bool unequalDepth)
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
     context.time = 7.0;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     int callbacks = 0;
     OutputSnapshot published;
     auto completed = [&](UsdGenChunkGroup const &, UsdGenElementSet const &set) {
@@ -261,14 +261,14 @@ void TestTransactionalFailure(bool unequalDepth)
     if (terminal == desc.nodes.end() || terminal->params.empty()) return;
     terminal->params.front().value = VtValue(0.75f);
     UsdGenCompiler compiler;
-    UsdGenCompileResult const recompiled = compiler.Recompile(desc, &graph);
+    UsdGenCompileResult const recompiled = usdGenUsd::Recompile(compiler, desc, &graph);
     Check(recompiled.ok,
           unequalDepth ? "unequal-depth value edit recompiles"
                        : "equal-depth value edit recompiles");
     if (!recompiled.ok) return;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
 
-    graph.MarkNode(graph.NodeIdForPath(SdfPath("/cutFailure/failure")),
+    graph.MarkNode(usdGenUsd::NodeIdForPath(graph, SdfPath("/cutFailure/failure")),
                    UsdGenDirtyParameter);
     callbacks = 0;
     g_evaluations.store(0, std::memory_order_release);

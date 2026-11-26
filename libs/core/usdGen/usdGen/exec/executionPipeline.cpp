@@ -384,7 +384,7 @@ struct UsdGenExecutionPipeline::Impl {
             // Schedule one successor, never poll or retry in a loop. Store
             // scheduled, then load latest; the producer stores latest, then
             // loads scheduled: both sides fence, or each can miss the other
-            // and strand the newest command.
+            // and leave the newest command behind.
             std::atomic_thread_fence(std::memory_order_seq_cst);
             if (mailbox->latest.HasValue()) {
                 bool expected = false;

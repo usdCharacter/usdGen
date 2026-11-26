@@ -3,6 +3,8 @@
 //
 // usdGen — strand math shared by the whole-strand operators. See strandUtil.h.
 #include "usdGen/ops/strandUtil.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/maps/mapInput.h"
 
 #include "usdGen/imagePayload.h"
 
@@ -116,34 +118,6 @@ void ResnapRoot(float *p, size_t n, GfVec3f const &delta)
 
 // ---------------------------------------------------------------------------
 
-void FanTriangulate(VtIntArray const &counts, VtIntArray const &indices,
-                    std::vector<FanTriangle> *out, VtIntArray const *faces)
-{
-    out->clear();
-    std::vector<int> faceStart(counts.size() + 1, 0);
-    for (size_t f = 0; f < counts.size(); ++f)
-        faceStart[f + 1] = faceStart[f] + std::max(0, counts[f]);
-    auto emit = [&](int f) {
-        if (f < 0 || size_t(f) >= counts.size()) return;
-        int const k = counts[f];
-        int const c0 = faceStart[size_t(f)];
-        if (k < 3 || size_t(c0 + k) > indices.size()) return;
-        for (int j = 1; j + 1 < k; ++j) {
-            FanTriangle t;
-            t.face = f;
-            t.corner[0] = c0; t.corner[1] = c0 + j; t.corner[2] = c0 + j + 1;
-            t.v[0] = indices[size_t(t.corner[0])];
-            t.v[1] = indices[size_t(t.corner[1])];
-            t.v[2] = indices[size_t(t.corner[2])];
-            out->push_back(t);
-        }
-    };
-    if (faces) {
-        for (int f : *faces) emit(f);
-    } else {
-        for (size_t f = 0; f < counts.size(); ++f) emit(int(f));
-    }
-}
 
 namespace {
 
@@ -358,17 +332,17 @@ GfVec3f TriangleBvh::Position(int triangle, GfVec3f const &bary) const
            _points[size_t(t.v[2])] * bary[2];
 }
 
-void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *bvh)
+void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleBvh *bvh)
 {
-    VtVec3fArray const &pts = (rest && !surface.restPoints.empty()) ? surface.restPoints
-                                                                    : surface.points;
+    UsdGenSpan<const GfVec3f> const pts = (rest && !surface.restPoints.empty())
+        ? surface.restPoints : surface.points;
     std::vector<FanTriangle> tris;
     bool const restricted = UsdGenSurfaceRestricted(surface);
     FanTriangulate(surface.faceVertexCounts, surface.faceVertexIndices, &tris,
                    restricted ? &surface.subsetFaces : nullptr);
     std::vector<GfVec3f> normals;
     if (rest && !surface.restNormals.empty()) {
-        VtVec3fArray const &rn = surface.restNormals;
+        UsdGenSpan<const GfVec3f> const rn = surface.restNormals;
         bool const vertex = surface.restNormalDomain == UsdGenSurfaceNormalDomain::Vertex &&
                             rn.size() == pts.size();
         bool const faceVarying = surface.restNormalDomain == UsdGenSurfaceNormalDomain::FaceVarying &&
@@ -382,7 +356,7 @@ void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *b
         }
     }
     std::vector<GfVec2f> uvs;
-    VtVec2fArray const &uv = surface.uv;
+    UsdGenSpan<const GfVec2f> const uv = surface.uv;
     if (!uv.empty()) {
         bool const vertex = uv.size() == pts.size();
         bool const faceVarying = uv.size() == surface.faceVertexIndices.size();
@@ -396,16 +370,17 @@ void BuildSurfaceBvh(UsdGenSurfaceDesc const &surface, bool rest, TriangleBvh *b
                 }
         }
     }
-    bvh->Build(pts, tris, std::move(normals), std::move(uvs));
+    // The BVH owns its points: it outlives the input record.
+    bvh->Build(VtVec3fArray(pts.begin(), pts.end()), tris, std::move(normals), std::move(uvs));
 }
 
-float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triangle,
+float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int triangle,
                     GfVec3f const &bary, float fallback)
 {
     if (triangle < 0 || size_t(triangle) >= bvh.Triangles().size()) return fallback;
     FanTriangle const &t = bvh.Triangles()[size_t(triangle)];
     if (UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) {
-        VtFloatArray const &v = map.paintValues;
+        UsdGenSpan<const float> const v = map.paintValues;
         for (int k = 0; k < 3; ++k)
             if (t.corner[k] < 0 || size_t(t.corner[k]) >= v.size()) return fallback;
         float const value = v[size_t(t.corner[0])] * bary[0] + v[size_t(t.corner[1])] * bary[1] +
@@ -437,17 +412,17 @@ float SampleMaskMap(UsdGenMapDesc const &map, TriangleBvh const &bvh, int triang
     return fallback;
 }
 
-std::vector<UsdGenMapDesc const *> BoundMaps(UsdGenGraphDesc const *desc,
-                                             UsdGenMapBindingDesc const *bindings,
-                                             uint32_t bindingCount,
-                                             TfToken const &relationship)
+std::vector<UsdGenMapInputView> BoundMaps(UsdGenGraphSpec const *desc,
+                                         UsdGenMapBinding const *bindings,
+                                         uint32_t bindingCount,
+                                         TfToken const &relationship)
 {
-    std::vector<UsdGenMapDesc const *> out;
+    std::vector<UsdGenMapInputView> out;
     if (!desc || !bindings) return out;
     for (uint32_t i = 0; i < bindingCount; ++i) {
         if (bindings[i].relationship != relationship) continue;
-        for (UsdGenMapDesc const &m : desc->maps)
-            if (m.path == bindings[i].map) { out.push_back(&m); break; }
+        if (UsdGenInputRecord const *m = UsdGenFindMapInput(*desc, bindings[i].map))
+            out.push_back(UsdGenMapInputView::Of(*m));
     }
     return out;
 }

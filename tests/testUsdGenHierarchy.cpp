@@ -1,7 +1,8 @@
 // Hierarchy topology contract: composed reverse-sibling post-order is the
 // entire operator stack.  Deliberately authored legacy edges below are
 // malicious/no-op inputs and must not affect the derived graph.
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 
 #include "pxr/pxr.h"

@@ -12,6 +12,7 @@
 //   (4) run-twice determinism;
 //   (5) the CUDA backend explicitly rejects a sculpt graph.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/cudaExecution.h"
@@ -106,7 +107,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors)
             std::printf("  compile: %s\n", e.c_str());
@@ -114,7 +115,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors)
@@ -527,7 +528,7 @@ static void CheckCudaRejection()
     std::vector<GfVec3f> six(6, GfVec3f(0, 0, 0.1f));
     UsdGenGraphDesc desc = SculptDesc(LayerParams({41}, {0, 6}, six));
     UsdGenDiagnostics errors;
-    Check(!ValidateCudaGraph(desc, &errors) && errors.HasErrors(),
+    Check(!ValidateCudaGraph(usdGenUsd::Lower(desc), &errors) && errors.HasErrors(),
           "SculptLayer graph is explicitly rejected by the CUDA backend");
     Check(GetCudaExecutionCapabilityMatrix().Find(TfToken("UsdGenSculptLayer")) == nullptr,
           "SculptLayer has no CUDA capability-matrix row");

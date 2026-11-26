@@ -16,7 +16,9 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
@@ -53,11 +55,11 @@ bool SnapshotConsistent(UsdGenGenerationConstPtr const &g)
 {
     if (!g) { ReportBad("null generation pointer"); return false; }
     if (g->id < 0) { ReportBad("negative generation id"); return false; }
-    if (g->tiles.size() != size_t(g->signature.tileCount)) {
+    if (usdGen::UsdGenCurvePublicationOf(*g).tiles.size() != size_t(usdGen::UsdGenCurvePublicationOf(*g).signature.tileCount)) {
         ReportBad("tileCount != tiles.size() at gen " + std::to_string(g->id));
         return false;
     }
-    for (UsdGenTilePublication const &t : g->tiles) {
+    for (UsdGenTilePublication const &t : usdGen::UsdGenCurvePublicationOf(*g).tiles) {
         size_t sum = 0;
         for (int c : t.curveVertexCounts) {
             if (c <= 0) { ReportBad("non-positive curveVertexCount"); return false; }
@@ -149,14 +151,14 @@ int main()
     constexpr int kGenerations = 100;
 
     UsdGenSession session(8);
-    session.SetGraphDesc(MakeG3());
+    usdGenUsd::SetGraphDesc(session, MakeG3());
     UsdGenGenerationConstPtr const g0 =
         session.Commit(0.0, UsdGenCommitReason::NoticeBatchEnd);
     if (!g0 || g0->id != 0) {
         std::printf("FAIL: seed commit did not publish generation 0\n");
         return 1;
     }
-    UsdGenNodeId const noise = session.Graph().NodeIdForPath(SdfPath("/groom/noise"));
+    UsdGenNodeId const noise = usdGenUsd::NodeIdForPath(session.Graph(), SdfPath("/groom/noise"));
 
     std::atomic<bool> stop{false};
 

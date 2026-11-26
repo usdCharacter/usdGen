@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/imagePayload.h"
@@ -102,7 +103,7 @@ int main(int argc, char** argv) {
         }
     }
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(desc, &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
     CHECK(plan);
     auto metadata = GetCudaExecutionPlanMetadata(*plan);
     CHECK(metadata && ((withLength || culledNoiseGrow) ? metadata->MemoryEstimate().runtimeRefinementAvailable
@@ -173,7 +174,7 @@ int main(int argc, char** argv) {
     if (predecessorGrow) {
         auto predecessorDesc = desc;
         predecessorDesc.terminal = SdfPath("/Noise");
-        predecessorPlan = CompileCudaGraph(predecessorDesc, &predecessorDiagnostics);
+        predecessorPlan = CompileCudaGraph(usdGenUsd::Lower(predecessorDesc), &predecessorDiagnostics);
         CHECK(predecessorPlan);
         predecessorWorkspace = CreateCudaExecutionWorkspace(device, &predecessorDiagnostics);
         CHECK(predecessorWorkspace);

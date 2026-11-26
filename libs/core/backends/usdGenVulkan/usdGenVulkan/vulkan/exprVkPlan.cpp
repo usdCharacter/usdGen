@@ -33,7 +33,7 @@ bool ReadFloatParam(UsdGenParamValue const &param, float *value) {
     *value = param.value.UncheckedGet<float>();
     return std::isfinite(*value);
 }
-ExprVkCompileStatus ToBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+ExprVkCompileStatus ToBindings(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                                std::vector<ExprVkStageBinding> *out,
                                std::vector<std::string> *diagnostics) {
     std::vector<ExprVkCompiledBinding> compiled;
@@ -57,7 +57,7 @@ ExprVkCompileStatus ToBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc const
 }
 } // namespace
 
-bool ExprVkCompileStageBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool ExprVkCompileStageBindings(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                                 std::vector<ExprVkStageBinding> *out,
                                 std::vector<std::string> *diagnostics) {
     if (!out) {
@@ -65,7 +65,7 @@ bool ExprVkCompileStageBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc cons
         return false;
     }
     std::vector<std::string> errors;
-    if (!UsdGenValidateExpressionBindings(node, &errors)) {
+    if (!UsdGenValidateExpressionBindings(node, &desc, &errors)) {
         for (auto const &message : errors)
             Error(diagnostics, message);
         return false;
@@ -75,9 +75,9 @@ bool ExprVkCompileStageBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc cons
     return true;
 }
 
-bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                              ExprVkWidthData *out, std::vector<std::string> *diagnostics) {
-    if (!out || !node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty()) {
+    if (!out || !node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty()) {
         Error(diagnostics, "Width has unsupported mode/input configuration");
         return false;
     }
@@ -167,7 +167,7 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
     return true;
 }
 
-bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool ExprVkValidateExprOpNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                               ExprVkExprOpData *out, std::vector<std::string> *diagnostics) {
     if (!out) {
         Error(diagnostics, "null ExprOp data");
@@ -175,7 +175,7 @@ bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const 
     }
     // expr:maps (node.maps) still rejects: sampler calls have no Vulkan
     // transport and maps are the image-map gap's surface.
-    if (!node.references.empty() || !node.curves.empty() || !node.surfaces.empty() ||
+    if (!node.references.empty() || !node.inputSets.empty() || !node.surfaces.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.ramps.empty()) {
         Error(diagnostics, "UsdGenExprOp has unsupported input configuration");
         return false;
@@ -322,7 +322,7 @@ bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const 
     data.bindings.push_back(std::move(source));
     if (!node.expressionBindings.empty()) {
         std::vector<std::string> errors;
-        if (!UsdGenValidateExpressionBindings(node, &errors)) {
+        if (!UsdGenValidateExpressionBindings(node, &desc, &errors)) {
             for (auto const &message : errors)
                 Error(diagnostics, message);
             return false;
@@ -353,13 +353,13 @@ bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const 
     return true;
 }
 
-expr::Context ExprVkPlanControls(UsdGenGraphDesc const &desc, int32_t seed, expr::Domain domain) {
+expr::Context ExprVkPlanControls(UsdGenGraphSpec const &desc, int32_t seed, expr::Domain domain) {
     expr::Context controls;
     controls.frame = desc.time;
     double const tcps = desc.timeCodesPerSecond > 0.0 ? desc.timeCodesPerSecond : 24.0;
     controls.time = desc.time / tcps;
     controls.seed = seed;
-    controls.descId = expr::DescriptionId(desc.description.GetText());
+    controls.descId = expr::DescriptionId(desc.DescriptionText());
     controls.domain = domain;
     return controls;
 }

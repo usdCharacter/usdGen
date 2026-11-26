@@ -9,7 +9,7 @@
 // Tier T0: engine core only (no Hydra, no stage — gate B-1).
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -128,7 +128,7 @@ int main(int argc, char **argv)
    UsdGenGraphDesc const desc = MakeG3();
    UsdGenCompiler compiler;
    UsdGenGraph graph;
-   UsdGenCompileResult const r = compiler.Compile(desc, &graph);
+   UsdGenCompileResult const r = usdGenUsd::Compile(compiler, desc, &graph);
    if (!r.ok) {
        std::printf("compile failed: ");
        for (auto const &e : r.errors) std::printf("%s ", e.c_str());
@@ -138,7 +138,7 @@ int main(int argc, char **argv)
 
    UsdGenScheduler scheduler(8);
    UsdGenEvalContext ctx;
-   ctx.desc = &graph.Desc();
+   ctx.desc = &graph.Spec();
    ctx.time = desc.time;
 
    // Full run (capture + every chunk evaluated).
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
        std::printf("\n");
        return 1;
    }
-   UsdGenNodeId const noise = graph.NodeIdForPath(SdfPath("/groom/noise"));
+   UsdGenNodeId const noise = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/noise"));
    uint32_t const nChunks = static_cast<uint32_t>(graph.Chunks(noise).size());
    UsdGenChunkId const cA = nChunks / 2;
    UsdGenChunkId const dirtyChunks[2] = {cA, cA + 1};

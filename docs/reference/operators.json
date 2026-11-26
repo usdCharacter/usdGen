@@ -60,7 +60,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatter.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -166,7 +166,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/grow.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -300,7 +300,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/guideInterpolate.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/guide-interpolate-plane.usda",
@@ -360,7 +360,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/referenceSource.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -499,7 +499,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/cuda-length-network.usda",
@@ -662,7 +662,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/clump.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -788,7 +788,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -904,7 +904,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/length.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/cuda-length-network.usda",
@@ -992,7 +992,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/width.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -1181,7 +1181,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1274,7 +1274,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/smooth.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1349,7 +1349,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/resample.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1438,7 +1438,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/scale.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1557,7 +1557,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/felt/felt_sphere.usda",
@@ -1663,7 +1663,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/bend.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1728,7 +1728,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/straighten.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1823,7 +1823,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/displace.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1902,7 +1902,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/wave.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1976,7 +1976,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.cpp",
-        "libs/usdGenSchema/schema.usda",
+        "libs/hosts/usdGenUsd/schema/schema.usda",
         "tools/docs/utility_fixtures.cpp"
       ],
       "examples": [
@@ -2068,7 +2068,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenExpr/usdGenExpr/ops/exprOp.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -2181,7 +2181,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/sculptLayer.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -2276,7 +2276,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/cuda-rbf-network.usda",
@@ -2410,7 +2410,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/collide.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/docs/operators/collide.usda"
@@ -2552,7 +2552,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/docs/operators/wind-clumped.usda",
@@ -2636,7 +2636,7 @@
       ],
       "source": [
         "libs/core/primitives/usdGenCurves/usdGenCurves/ops/freeze.cpp",
-        "libs/usdGenSchema/schema.usda",
+        "libs/hosts/usdGenUsd/schema/schema.usda",
         "tools/docs/utility_fixtures.cpp"
       ],
       "examples": [
@@ -2787,9 +2787,9 @@
         "Unavailable: there is no registered UsdGenInstance kernel."
       ],
       "source": [
-        "libs/usdGenSchema/schema.usda",
+        "libs/hosts/usdGenUsd/schema/schema.usda",
         "libs/usdGen/usdGen/opRegistry.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",

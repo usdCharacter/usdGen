@@ -1,4 +1,5 @@
 #include "usdGen/limitSurface.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
@@ -29,8 +30,8 @@ static UsdGenGraphDesc Desc(UsdGenSurfaceDesc const& s,int level) {
     d.nodes={n};d.terminal=n.path;return d;
 }
 static bool Run(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out,int threads=2) {
-    UsdGenCompiler compiler;UsdGenGraph graph;if(!compiler.Compile(d,&graph).ok)return false;
-    UsdGenScheduler scheduler(threads);UsdGenEvalContext ctx;ctx.desc=&graph.Desc();
+    UsdGenCompiler compiler;UsdGenGraph graph;if(!usdGenUsd::Compile(compiler, d,&graph).ok)return false;
+    UsdGenScheduler scheduler(threads);UsdGenEvalContext ctx;ctx.desc=&graph.Spec();
     auto run=scheduler.Run(graph,ctx,1);if(run.diagnostics.HasErrors())return false;
     *out=OutputBuffer(graph);return true;
 }
@@ -53,7 +54,8 @@ static bool RunDirect(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out) {
     UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));UsdGenDiagnostics diag;
     if(!op.Bind(params,&diag))return false;
     auto cap=op.CreateCapture();if(!cap)return false;
-    UsdGenCaptureContext ctx;ctx.desc=&d;ctx.params=&params;ctx.surface=0;
+    usdGen::UsdGenGraphSpec const lowered57 = usdGenUsd::Lower(d);
+    UsdGenCaptureContext ctx;ctx.desc = &lowered57;ctx.params=&params;ctx.surface=0;
     ctx.seed=uint32_t(node.seed);ctx.diag=&diag;
     UsdGenCurveBuffer empty;
     if(!op.Capture(ctx,UsdGenBufferInputs(empty),cap.get(),&diag))return false;
@@ -87,7 +89,7 @@ static int MixedTopology() {
     auto s=MixedSurface();std::string error;
     std::vector<int> start(s.faceVertexCounts.size()+1,0);
     for(size_t f=0;f<s.faceVertexCounts.size();++f)start[f+1]=start[f]+s.faceVertexCounts[f];
-    UsdGenLimitSurface limit;CHECK(limit.Build(s,3,&error));
+    UsdGenLimitSurface limit;CHECK(limit.Build(usdGenUsd::Lower(s),3,&error));
     GfVec3f p,du,dv,q,qu,qv;
     int const anyTri[3]={0,1,2};
     CHECK(!limit.Evaluate(0,.5f,.5f,&p,&du,&dv));   // (u,v) addressing is for quads
@@ -158,7 +160,7 @@ static int MixedTopology() {
         UsdGenSurfaceDesc g;g.path=SdfPath("/Penta");g.subdivisionScheme=TfToken("catmullClark");
         for(int k=0;k<5;++k){double a=2*3.14159265358979*k/5;g.restPoints.push_back(GfVec3f(float(std::cos(a)),float(std::sin(a)*1.3),float(.2*k)));}
         g.faceVertexCounts={5};g.faceVertexIndices={0,1,2,3,4};g.points=g.restPoints;
-        UsdGenLimitSurface pl;CHECK(pl.Build(g,3,&error));
+        UsdGenLimitSurface pl;CHECK(pl.Build(usdGenUsd::Lower(g),3,&error));
         int const tri0[3]={0,1,2},tri1[3]={0,2,3},edge23[3]={2,3,0};
         GfVec3f a,b;
         CHECK(pl.EvaluateCagePoint(0,tri0,GfVec3f(0,0,1),&a,&du,&dv));   // corner 2 from two fan triangles
@@ -240,7 +242,7 @@ static bool SameRoots(UsdGenCurveBuffer const& a,UsdGenCurveBuffer const& b) {
 }
 int main() {
     auto s=Surface();std::string error;
-    UsdGenLimitSurface limit;CHECK(limit.Build(s,3,&error));
+    UsdGenLimitSurface limit;CHECK(limit.Build(usdGenUsd::Lower(s),3,&error));
     GfVec3f p,du,dv;CHECK(limit.Evaluate(4,.3f,.4f,&p,&du,&dv));
     CHECK(std::abs(p[0]-.3)<1e-5 && std::abs(p[1]-.4)<1e-5);
     // Independent analytic uniform bicubic B-spline, not cage interpolation.
@@ -260,14 +262,14 @@ int main() {
     CHECK(a.px==b.px);for(size_t i=0;i<a.totalCurves;++i)CHECK((a.rootN[i]+b.rootN[i]).GetLength()<1e-6);
     auto holes=s;holes.holeIndices={4};CHECK(Run(Desc(holes,3),&b));CHECK(b.totalCurves==0);
     auto tags=s;tags.cornerIndices={5};tags.cornerSharpnesses={4};
-    CHECK(UsdGenSubdivisionDigest(s)!=UsdGenSubdivisionDigest(tags));
+    CHECK(UsdGenSubdivisionDigest(usdGenUsd::Lower(s))!=UsdGenSubdivisionDigest(usdGenUsd::Lower(tags)));
     // The subdivision digest covers every topology input: each token and
     // each array below moves it (values are internal keys, never golden).
     {
-        uint64_t const base = UsdGenSubdivisionDigest(s);
-        CHECK(UsdGenSubdivisionDigest(s) == base);
+        uint64_t const base = UsdGenSubdivisionDigest(usdGenUsd::Lower(s));
+        CHECK(UsdGenSubdivisionDigest(usdGenUsd::Lower(s)) == base);
         auto moved = [&](UsdGenSurfaceDesc m) {
-            return UsdGenSubdivisionDigest(m) != base;
+            return UsdGenSubdivisionDigest(usdGenUsd::Lower(m)) != base;
         };
         auto t = s; t.subdivisionScheme = TfToken("loop"); CHECK(moved(t));
         t = s; t.orientation = TfToken("leftHanded"); CHECK(moved(t));
@@ -287,10 +289,10 @@ int main() {
     // The tags digest covers everything except the two face arrays: tags
     // move it, face edits must not (callers mix those arrays themselves).
     {
-        uint64_t const base = UsdGenSubdivisionTagsDigest(s);
-        CHECK(UsdGenSubdivisionTagsDigest(s) == base);
+        uint64_t const base = UsdGenSubdivisionTagsDigest(usdGenUsd::Lower(s));
+        CHECK(UsdGenSubdivisionTagsDigest(usdGenUsd::Lower(s)) == base);
         auto tmoved = [&](UsdGenSurfaceDesc m) {
-            return UsdGenSubdivisionTagsDigest(m) != base;
+            return UsdGenSubdivisionTagsDigest(usdGenUsd::Lower(m)) != base;
         };
         auto t = s; t.subdivisionScheme = TfToken("loop"); CHECK(tmoved(t));
         t = s; t.orientation = TfToken("leftHanded"); CHECK(tmoved(t));
@@ -307,22 +309,25 @@ int main() {
         t = s; t.faceVertexCounts[0] = 3; CHECK(!tmoved(t));
         t = s; t.faceVertexIndices[0] = 7; CHECK(!tmoved(t));
     }
-    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));auto d0=Desc(s,3),d1=Desc(tags,3);UsdGenCaptureContext c0,c1;c0.desc=&d0;c1.desc=&d1;
+    UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));auto d0=Desc(s,3),d1=Desc(tags,3);UsdGenCaptureContext c0,c1;
+    usdGen::UsdGenGraphSpec sp0=usdGenUsd::Lower(d0),sp1=usdGenUsd::Lower(d1);c0.desc=&sp0;c1.desc=&sp1;
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     // Pose and parent motion are downstream deformation inputs, not rest
     // scatter inputs. Rest/topology/UV/paint edits must still invalidate.
-    d1=d0;d1.surfaces[0].points[0]+=GfVec3f(0,0,3);
-    d1.surfaces[0].worldMatrix.SetTranslate(GfVec3d(2,0,0));
-    d1.surfaces[0].surfaceGeneration=99;
-    d1.surfaces[0].samples.push_back({42,d1.surfaces[0].points});
+    // Input records are immutable: edit the host desc and lower again.
+    auto e=d0;e.surfaces[0].points[0]+=GfVec3f(0,0,3);
+    e.surfaces[0].worldMatrix.SetTranslate(GfVec3d(2,0,0));
+    e.surfaces[0].surfaceGeneration=99;
+    e.surfaces[0].samples.push_back({42,e.surfaces[0].points});
+    sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)==op.CaptureDigest(c1));
-    d1.surfaces[0].restPoints[0]+=GfVec3f(0,0,1);
+    e.surfaces[0].restPoints[0]+=GfVec3f(0,0,1);sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    d1=d0;d1.surfaces[0].subsetFaces={3};
+    e=d0;e.surfaces[0].subsetFaces={3};sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    d1=d0;d1.surfaces[0].uv.push_back(GfVec2f(.2f,.3f));
+    e=d0;e.surfaces[0].uv.push_back(GfVec2f(.2f,.3f));sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    d1=d0;d1.surfaces[0].densityMultiplier.assign(9,.5f);
+    e=d0;e.surfaces[0].densityMultiplier.assign(9,.5f);sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     CHECK(Run(Desc(s,0),&b));CHECK(b.totalCurves!=a.totalCurves);
     // Shuffled multi-face subset at level 0: every root lands on a
@@ -364,8 +369,8 @@ int main() {
     }
     CHECK(!Run(Desc(s,7),&b));
     tags=s;tags.subdivisionScheme=TfToken("none");CHECK(!Run(Desc(tags,3),&b));
-    tags=s;tags.creaseIndices={0,1};tags.creaseLengths={2};tags.creaseSharpnesses={3};CHECK(limit.Build(tags,3,&error));
-    tags.creaseIndices={999,1};CHECK(!limit.Build(tags,3,&error));
+    tags=s;tags.creaseIndices={0,1};tags.creaseLengths={2};tags.creaseSharpnesses={3};CHECK(limit.Build(usdGenUsd::Lower(tags),3,&error));
+    tags.creaseIndices={999,1};CHECK(!limit.Build(usdGenUsd::Lower(tags),3,&error));
     if(MixedTopology())return 1;
     std::puts("limit scatter: analytic positions/normals, UVs, deterministic IDs, holes, orientation, tags, invalid inputs, "
               "mixed triangle/quad/n-gon limit continuity and generation-mode roots on the limit surface passed");

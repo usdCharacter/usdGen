@@ -20,7 +20,8 @@
 // "set <prim> strands=<n>" per operator, and the card render-mesh size of all
 // cards ("mesh vertices=<v> indices=<i>"). --dump writes one line per strand:
 // <prim> <curveId hex> <strandIndex> <cardIndex> <root xyz> <tip xyz>.
-#include "usdGen/authoredPlaneConvert.h"
+#include "usdGenUsd/resolve/authoredPlaneConvert.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -126,7 +127,7 @@ struct Geometry
     card::Context ctx;
     Geometry()
     {
-        strand::BuildSurfaceBvh(surface, true, &bvh);
+        strand::BuildSurfaceBvh(usdGenUsd::Lower(surface), true, &bvh);
         ctx.scalp = &bvh;
         ctx.bboxCentre = GfVec3f(0.1f, 0.0f, 0.0f);
         ctx.cards = &cards;
@@ -474,7 +475,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::strin
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors) {
             std::printf("  compile: %s\n", e.c_str());
@@ -484,7 +485,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out, std::strin
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors) {
@@ -805,7 +806,7 @@ static int Harness(std::string const &usda, std::string const &dumpPath)
                 continue;
             }
             strand::TriangleBvh bvh;
-            strand::BuildSurfaceBvh(surface, true, &bvh);
+            strand::BuildSurfaceBvh(usdGenUsd::Lower(surface), true, &bvh);
             card::Context ctx;
             ctx.scalp = &bvh;
             ctx.cards = &cards;

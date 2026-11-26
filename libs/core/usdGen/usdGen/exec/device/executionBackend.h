@@ -122,7 +122,7 @@ public:
     virtual ~UsdGenExecutionBackendAdapter() = default;
     virtual UsdGenExecutionBackendContract Contract() const noexcept = 0;
     virtual std::shared_ptr<const UsdGenExecutionPlanHandle> Compile(
-        UsdGenGraphDesc const&, UsdGenDiagnostics*) const = 0;
+        UsdGenGraphSpec const&, UsdGenDiagnostics*) const = 0;
     virtual std::shared_ptr<UsdGenExecutionBackendExecutor> CreateExecutor(
         std::shared_ptr<const UsdGenExecutionPlanHandle>,
         UsdGenExecutionRuntime&, UsdGenDiagnostics*) const = 0;

@@ -7,17 +7,17 @@
 //    graph's scheduled work owner; it runs there or inside a parallel region
 //    over independent nodes in the private arena (R22).
 //  * The record's parameter decls are the node's mapped property set (S14).
-//  * Cross-curve reads come from capture data plus reference buffers, never
+//  * Cross-element reads come from capture data plus reference buffers, never
 //    from another chunk (I3).
 //  * Kernels live in usdGenMath as free functions over raw pointers, compiled
 //    -ffp-contract=off, deterministic reductions.
 #ifndef USDGEN_OP_H
 #define USDGEN_OP_H
 
-#include "usdGen/cpuParameters.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/exec/chunkView.h"
@@ -42,8 +42,8 @@ class UsdGenWorkDispatcher;  // defined in usdGen/scheduler.h
 /// descriptor, scene index, or stage object.
 struct UsdGenResolvedReferenceValue
 {
-    SdfPath path;
-    uint64_t curveGeneration = 0;
+    UsdGenNodeKey key;
+    uint64_t generation = 0;
     uint64_t identity = 0;
     std::shared_ptr<const UsdGenReferenceSet> value;
 };
@@ -74,41 +74,6 @@ inline bool UsdGenCookInternFails(UsdGenCookTokenCheck const &check, UsdGenDiagn
     return fail;
 }
 
-/// This node's resolved parameters and ramps, handed in by the scheduler at
-/// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the
-/// adapter does the S11 encoding, the kernel does the LUT (257 entries).
-///
-/// 26.08 VtValue note: there is no GetAsSafe/SafeGet; the getters below use
-/// IsHolding<T>() + UncheckedGet<T>() with the C1 default as fallback.
-/// A parameter that may be a literal or a connected expression. `Value` is the
-/// ONE indexing rule, and it is the rule gpu::ReadScalar/ReadBool/ReadInt
-/// implement: a groom-domain result broadcasts, a primitive-domain result
-/// indexes by ABSOLUTE curve index, a point-domain result by ABSOLUTE CV
-/// index. Operators pass `view->desc->firstCurve + c` and
-/// `view->desc->firstCv + o`, exactly as they already do for whole-buffer
-/// capture payloads.
-struct UsdGenParamField
-{
-    double literal = 0.0;
-    double const *values = nullptr;
-    size_t count = 0;
-    uint32_t components = 1;
-    expr::Domain domain = expr::Domain::Groom;
-    bool connected = false;
-
-    double Value(size_t curve, size_t point, uint32_t component = 0) const
-    {
-        if (!connected || !values || component >= components) return literal;
-        const size_t index = domain == expr::Domain::Primitive ? curve
-            : domain == expr::Domain::Point ? point : size_t(0);
-        if (index >= count) return literal;
-        return values[index * components + component];
-    }
-    /// True when every element carries the same value, so a kernel may hoist
-    /// the read out of its inner loop.
-    bool Uniform() const { return !connected || domain == expr::Domain::Groom; }
-};
-
 /// One declared parameter resolved at compile (UsdGenResolveParams).
 struct UsdGenResolvedParam
 {
@@ -117,17 +82,23 @@ struct UsdGenResolvedParam
     int32_t enumIndex = -1;                       // decl enumerant index; -1 none/unmatched
 };
 
+/// This node's resolved parameters and ramps, handed in by the scheduler at
+/// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the
+/// adapter does the S11 encoding, the kernel does the LUT (257 entries).
+///
+/// 26.08 VtValue note: there is no GetAsSafe/SafeGet; the getters below use
+/// IsHolding<T>() + UncheckedGet<T>() with the C1 default as fallback.
 struct UsdGenParamView
 {
-    UsdGenGraphDesc const *desc = nullptr;
-    UsdGenNodeDesc const  *node = nullptr;
+    UsdGenGraphSpec const *desc = nullptr;
+    UsdGenOpNode const  *node = nullptr;
     /// The node's op record and its resolved slots (op->ParamCount()
     /// entries); null for views built outside the compiler.
     UsdGenOpRecord const *op = nullptr;
     UsdGenResolvedParam const *slots = nullptr;
     /// This node's evaluated connected parameters, or null when the node has
     /// none (or when the caller is a validator that never evaluates them).
-    UsdGenCpuParameters const *expressions = nullptr;
+    UsdGenParamEvaluatorState const *expressions = nullptr;
 
     // ---- by slot ---------------------------------------------------------------
     UsdGenResolvedParam const *Slot(UsdGenParamSlot s) const noexcept
@@ -139,7 +110,7 @@ struct UsdGenParamView
         UsdGenResolvedParam const *r = Slot(s);
         return r && r->authored;
     }
-    UsdGenExpressionValue const *Expression(UsdGenParamSlot s) const noexcept
+    UsdGenEvaluatedParam const *Expression(UsdGenParamSlot s) const noexcept
     {
         return expressions && Slot(s) ? expressions->FindSlot(s) : nullptr;
     }
@@ -199,14 +170,14 @@ private:
     {
         return p && (p->value.IsHolding<TfToken>() || p->value.IsHolding<std::string>());
     }
-    static bool GroomValue(UsdGenExpressionValue const *value, double *out) noexcept
+    static bool GroomValue(UsdGenEvaluatedParam const *value, double *out) noexcept
     {
-        if (!value || value->domain != expr::Domain::Groom || value->values.empty())
+        if (!value || value->level != 0 || value->values.empty())
             return false;
         *out = value->values.front();
         return true;
     }
-    static UsdGenParamField Field(double literal, UsdGenExpressionValue const *value) noexcept
+    static UsdGenParamField Field(double literal, UsdGenEvaluatedParam const *value) noexcept
     {
         UsdGenParamField field;
         field.literal = literal;
@@ -215,7 +186,7 @@ private:
         field.values = value->values.data();
         field.count = value->count;
         field.components = value->components;
-        field.domain = value->domain;
+        field.level = value->level;
         return field;
     }
     static double DoubleLiteral(UsdGenParamValue const *p, double fallback) noexcept
@@ -247,7 +218,7 @@ private:
 
 /// Compile phase: resolve node.params into out[0, rec.ParamCount()). A param
 /// binds the slot declared with exactly its name; the first one wins.
-USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDesc const &node,
+USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
                                          UsdGenResolvedParam *out);
 
 /// Stack resolution for validators that have no compiled node. Compile
@@ -255,7 +226,7 @@ USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenNodeDe
 class UsdGenStackParams
 {
 public:
-    UsdGenStackParams(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+    UsdGenStackParams(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                       UsdGenOpRecord const &rec)
     {
         UsdGenResolveParams(rec, node, _slots);
@@ -273,8 +244,8 @@ private:
 };
 
 /// Opaque per-node capture payload; operators derive their own concrete
-/// payload types (curve generators: UsdGenCurveCapture, usdGenCurves/types/
-/// curveCapture.h). Lifetime: owned by the compiled node, keyed by the
+/// payload types (generators: their primitive's capture type). Lifetime:
+/// owned by the compiled node, keyed by the
 /// node's capture epoch (03 §3.4).
 struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptures
 {
@@ -326,7 +297,7 @@ struct UsdGenOpInputs
 
 struct UsdGenCaptureContext
 {
-    UsdGenGraphDesc const *desc = nullptr;   // surfaces, maps, density scales
+    UsdGenGraphSpec const *desc = nullptr;   // surfaces, maps, density multipliers
     // Prior committed payload for read-only reuse during a recapture. It
     // remains owned by the node until Capture succeeds and commits.
     UsdGenCapture const *previousCapture = nullptr;
@@ -339,7 +310,7 @@ struct UsdGenCaptureContext
     // Typed slots are carried by the compiled graph.  Sampling is deliberately
     // not implemented here; legacy maps/mapCount stay available to existing
     // CPU operators until a backend consumes the purpose-aware transport.
-    UsdGenMapBindingDesc const *mapBindings = nullptr;
+    UsdGenMapBinding const *mapBindings = nullptr;
     uint32_t              mapBindingCount = 0;
     UsdGenSurfaceId        surface = 0;
     uint32_t               seed = 0;
@@ -359,28 +330,28 @@ struct UsdGenCaptureContext
     UsdGenChunkExtent     *chunkExtentSlots = nullptr;
     size_t                 chunkExtentCount = 0;
     // The node's previous-run point planes (writable) for capture-direct
-    // output, plus their CV count. Set only by UsdGenScheduler::Run when
+    // output, plus their level-2 item count. Set only by UsdGenScheduler::Run when
     // the planes exactly match the node's current totals; a capture that
     // writes direct must additionally verify the count against its own
     // upstream, the planes' mutual distinctness, and that they do not
     // alias the upstream planes. Null everywhere else (including
     // progressive cooks, which keep the sweep path).
     float                 *outPx = nullptr, *outPy = nullptr, *outPz = nullptr;
-    size_t                 outPlaneCvs = 0;
+    size_t                 outPlaneItems = 0;
 };
 
 struct UsdGenEvalContext
 {
     double time = 0.0;
     double shutterOffset = 0.0;              // 0 in P0/P1 (03 §7)
-    UsdGenGraphDesc const *desc = nullptr;   // surface points already resolved to time+offset
+    UsdGenGraphSpec const *desc = nullptr;   // surface points already resolved to time+offset
     UsdGenParamView const *params = nullptr;
     UsdGenReferenceSet const **references = nullptr;
     UsdGenResolvedReferenceValue const **resolvedReferences = nullptr;
     uint32_t              referenceCount = 0;
     UsdGenResolvedMapValue const **maps = nullptr;
     uint32_t              mapCount = 0;
-    UsdGenMapBindingDesc const *mapBindings = nullptr;
+    UsdGenMapBinding const *mapBindings = nullptr;
     uint32_t              mapBindingCount = 0;
     uint32_t seed = 0;
     // Kernels cannot append diagnostics from parallel chunk workers.  They
@@ -417,7 +388,7 @@ public:
     // ---- capture: topology-dependent, cached by epoch (03 §3.4) --------------
     virtual UsdGenEpoch CaptureDigest(UsdGenCaptureContext const &ctx) const = 0;
     /// Fill *out (derive the concrete payload). A generator (countChanges != 0)
-    /// also produces its output topology (UsdGenCurveCapture::MutableBuffer).
+    /// also produces its output topology (its primitive's capture buffer).
     virtual bool Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs const &in,
                          UsdGenCapture *out, UsdGenDiagnostics *diag) = 0;
 
@@ -426,15 +397,15 @@ public:
                           UsdGenChunkView const &chunk) const = 0;
 
     /// Allocate the concrete capture payload for this operator. The payload
-    /// owns its per-curve results; generators additionally fill
-    /// UsdGenCurveCapture::MutableBuffer() (OwnsBuffer() == true).
+    /// owns its per-element results; generators additionally fill their
+    /// primitive's capture buffer.
     virtual std::unique_ptr<UsdGenCapture> CreateCapture() const
     {
         return std::make_unique<UsdGenCapture>();
     }
 
-    /// Plane bitmask (03 §8.5 envelope + tile-change tracking): which CV
-    /// planes Evaluate() may write for this operator type.
+    /// Plane bitmask (03 §8.5 envelope + tile-change tracking): which item
+    /// planes (Position, Width, Parameter roles) Evaluate() may write.
     static constexpr uint32_t kPlanePoints = 1u << 0;
     static constexpr uint32_t kPlaneWidths = 1u << 1;
     static constexpr uint32_t kPlaneHairT  = 1u << 2;

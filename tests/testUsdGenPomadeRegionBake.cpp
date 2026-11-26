@@ -30,7 +30,7 @@
 #include "usdGenPomade/pomadeScalp.h"
 
 #include "usdGen/cpuParameters.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/ops/opUtil.h"
 
 #include "pxr/base/gf/vec2f.h"
@@ -281,7 +281,7 @@ void CheckBakeAndExpression()
     usdGen::UsdGenCpuParameters parameters;
     bool changed = false;
     std::vector<std::string> errors;
-    bool const ok = parameters.Evaluate(desc, desc.nodes[0], usdGen::UsdGenCurveSetView::Of(strands), 0, 0, 0,
+    bool const ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), usdGen::UsdGenCurveSetView::Of(strands), 0, 0, 0,
                                         &changed, &errors);
     Check(ok, "bake: the ptex() expression evaluates" +
                       (errors.empty() ? "" : ": " + errors[0]));
@@ -856,7 +856,7 @@ void CheckLevelChannels()
     usdGen::UsdGenCpuParameters parameters;
     bool changed = false;
     std::vector<std::string> errors;
-    bool const ok = parameters.Evaluate(desc, desc.nodes[0], usdGen::UsdGenCurveSetView::Of(strands), 0, 0, 0,
+    bool const ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), usdGen::UsdGenCurveSetView::Of(strands), 0, 0, 0,
                                         &changed, &errors);
     Check(ok, "levels: the level-2 ptex() expression evaluates" +
                   (errors.empty() ? "" : ": " + errors[0]));

@@ -405,7 +405,7 @@ def main() -> None:
         "baker": runtime["baker_sha256"],
         "usd": runtime["usd_sha256"],
         "pxosd": runtime["pxosd_sha256"],
-        "schema": root / "plugin/usdGenSchema/resources/generatedSchema.usda",
+        "schema": root / "libs/hosts/usdGenUsd/schema/resources/generatedSchema.usda",
         "loadedSchema": root / "build/usd/usdGenSchema/resources/generatedSchema.usda",
         "helper": helper_path,
         "source": source_scene,

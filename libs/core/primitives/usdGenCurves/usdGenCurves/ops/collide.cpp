@@ -22,6 +22,7 @@
 // still hard-errors on every one of those states; the Evaluate fallbacks
 // only cover a literal edited after capture and can never write NaN.
 #include "usdGen/ops/collide.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/limitSurface.h"
 
@@ -195,12 +196,13 @@ GfVec3d UnitNormal(GfVec3d const &a, GfVec3d const &b, GfVec3d const &c)
     return (l > 0.0 && Finite(l)) ? n / l : GfVec3d(0.0, 0.0, 1.0);
 }
 
-bool FindSurface(UsdGenGraphDesc const *desc, SdfPath const &path,
+bool FindSurface(UsdGenGraphSpec const *desc, UsdGenNodeKey path,
                  uint32_t *index)
 {
     if (!desc) return false;
-    for (uint32_t i = 0; i < desc->surfaces.size(); ++i) {
-        if (desc->surfaces[i].path == path) {
+    UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*desc);
+    for (uint32_t i = 0; i < surfaces.size(); ++i) {
+        if (surfaces[i].key == path) {
             *index = i;
             return true;
         }
@@ -497,7 +499,7 @@ bool ClosestOnHitFacet(UsdGenCollideCapture const &cap,
 }
 
 bool BuildLimitProxy(UsdGenCollideCollider *c,
-                     UsdGenSurfaceDesc const &mesh, std::string *error)
+                     UsdGenSurfaceInputView const &mesh, std::string *error)
 {
     auto surface = std::make_shared<UsdGenCollisionLimitSurface>();
     if (!surface->Build(mesh, error)) return false;
@@ -909,7 +911,7 @@ bool InsideLimit(UsdGenCollideCollider const &c, GfVec3d const &p,
 // allocates. A hit with non-finite distance is impossible after Capture
 // validated the meshes (the desc is immutable within a run); the guard
 // below keeps it from ever producing NaN output regardless.
-ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
+ClosestHit ClosestOnColliders(UsdGenGraphSpec const *desc,
                               UsdGenCollideCapture const &cap, GfVec3d const &p,
                               double maxOffset = std::numeric_limits<double>::infinity())
 {
@@ -917,7 +919,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
     if (!desc) return best;
     for (size_t ci = 0; ci < cap.colliders.size(); ++ci) {
         UsdGenCollideCollider const &collider = cap.colliders[ci];
-        if (!collider.hasFaces || collider.geometry >= desc->surfaces.size())
+        if (!collider.hasFaces || collider.geometry >= UsdGenSurfaceInputs(*desc).size())
             continue;
         if (collider.limit && !collider.bvh.empty() &&
             Finite(maxOffset) && maxOffset >= 0.0 &&
@@ -937,7 +939,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
             continue;
         }
         double winding = 0.0;
-        UsdGenSurfaceDesc const &surf = desc->surfaces[collider.geometry];
+        UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, collider.geometry);
         size_t const F = surf.faceVertexCounts.size();
         if (collider.points.empty() || surf.faceVertexIndices.empty()) continue;
         size_t fi = 0;  // merge cursor over the sorted restricted faces
@@ -998,7 +1000,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphDesc const *desc,
 // Signed depth for one closed collider: positive inside, negative outside.
 // The distance and classification use the same refined limit/polygon query
 // as contact resolution, so cut detection never substitutes proxy depth.
-bool SignedDepthOnClosed(UsdGenGraphDesc const *desc,
+bool SignedDepthOnClosed(UsdGenGraphSpec const *desc,
                          UsdGenCollideCapture const &cap, size_t ci,
                          GfVec3d const &p, double *depth, GfVec3d *boundary)
 {
@@ -1006,7 +1008,7 @@ bool SignedDepthOnClosed(UsdGenGraphDesc const *desc,
         return false;
     UsdGenCollideCollider const &collider = cap.colliders[ci];
     if (!collider.closed || !collider.hasFaces ||
-        collider.geometry >= desc->surfaces.size())
+        collider.geometry >= UsdGenSurfaceInputs(*desc).size())
         return false;
     ClosestHit local;
     local.collider = ci;
@@ -1020,7 +1022,7 @@ bool SignedDepthOnClosed(UsdGenGraphDesc const *desc,
         return true;
     }
     double winding = 0.0;
-    UsdGenSurfaceDesc const &surf = desc->surfaces[collider.geometry];
+    UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, collider.geometry);
     size_t fi=0,off=0;
     for (size_t f=0;f<surf.faceVertexCounts.size();++f) {
         int const corners=surf.faceVertexCounts[f];
@@ -1068,7 +1070,7 @@ void PublishEvalFailure(UsdGenEvalContext const &ctx,uint32_t code)
                current,code,std::memory_order_release,std::memory_order_relaxed)) {}
 }
 
-GfVec3d OutwardAtBoundary(UsdGenGraphDesc const *desc,
+GfVec3d OutwardAtBoundary(UsdGenGraphSpec const *desc,
                           UsdGenCollideCapture const &cap,
                           ClosestHit const &hit, GfVec3d const &p)
 {
@@ -1092,7 +1094,7 @@ GfVec3d OutwardAtBoundary(UsdGenGraphDesc const *desc,
     return normal;
 }
 
-GfVec3d HitDirection(UsdGenGraphDesc const *desc,
+GfVec3d HitDirection(UsdGenGraphSpec const *desc,
                      UsdGenCollideCapture const &cap,
                      ClosestHit const &hit, GfVec3d const &p,
                      bool inside)
@@ -1199,7 +1201,7 @@ bool RefineLimitCrossing(UsdGenCollideCollider const &collider,
 // The geometric intersection catches off-center crossings that sampling the
 // midpoint misses. A boundary hit at the starting CV does not count; a later
 // exit hit does, so a boundary-to-opposite-side segment is caught.
-ClosestHit FirstClosedSegmentHit(UsdGenGraphDesc const *desc,
+ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                                 UsdGenCollideCapture const &cap,
                                 GfVec3d const &start, GfVec3d const &end,
                                 bool completePolygonHit=false)
@@ -1210,7 +1212,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphDesc const *desc,
     for (size_t ci = 0; ci < cap.colliders.size(); ++ci) {
         UsdGenCollideCollider const &collider = cap.colliders[ci];
         if (!collider.hasFaces || !collider.closed ||
-            collider.geometry >= desc->surfaces.size())
+            collider.geometry >= UsdGenSurfaceInputs(*desc).size())
             continue;
         if (collider.limit) {
             for (auto const &face : collider.faceCandidates) {
@@ -1343,7 +1345,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphDesc const *desc,
             }
             continue;
         }
-        UsdGenSurfaceDesc const &surf = desc->surfaces[collider.geometry];
+        UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, collider.geometry);
         size_t fi = 0, off = 0;
         for (size_t f = 0; f < surf.faceVertexCounts.size(); ++f) {
             int const n = surf.faceVertexCounts[f];
@@ -1396,43 +1398,43 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphDesc const *desc,
 // list (empty == whole mesh). Every malformed shape fails closed; exactly
 // degenerate triangles are skipped with a warning, and a collider with no
 // valid triangle at all fails closed.
-bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
-                          UsdGenSurfaceDesc const &geometry,
+bool ValidateColliderMesh(std::string const &label, UsdGenSurfaceInputView const &entry,
+                          UsdGenSurfaceInputView const &geometry,
                           std::vector<int> *faces, bool *hasFaces,
                           bool *closed, std::string *error, std::string *warning)
 {
     if (geometry.points.empty()) {
-        *error = "collider surface '" + path.GetString() + "' has no points";
+        *error = "collider surface '" + label + "' has no points";
         return false;
     }
     if (geometry.faceVertexCounts.empty()) {
-        *error = "collider surface '" + path.GetString() + "' has no topology";
+        *error = "collider surface '" + label + "' has no topology";
         return false;
     }
     size_t corners = 0;
     for (int n : geometry.faceVertexCounts) {
         if (n < 0) {
-            *error = "collider surface '" + path.GetString() +
+            *error = "collider surface '" + label +
                      "' has a negative faceVertexCounts entry";
             return false;
         }
         corners += size_t(n);
     }
     if (corners != geometry.faceVertexIndices.size()) {
-        *error = "collider surface '" + path.GetString() +
+        *error = "collider surface '" + label +
                  "' has a faceVertexCounts/faceVertexIndices mismatch";
         return false;
     }
     for (GfVec3f const &v : geometry.points) {
         if (!Finite(v[0]) || !Finite(v[1]) || !Finite(v[2])) {
-            *error = "collider surface '" + path.GetString() +
+            *error = "collider surface '" + label +
                      "' has non-finite points";
             return false;
         }
     }
     for (int v : geometry.faceVertexIndices) {
         if (v < 0 || size_t(v) >= geometry.points.size()) {
-            *error = "collider surface '" + path.GetString() +
+            *error = "collider surface '" + label +
                      "' has a faceVertexIndices entry out of range";
             return false;
         }
@@ -1444,7 +1446,7 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
         faces->erase(std::unique(faces->begin(), faces->end()), faces->end());
         for (int f : *faces) {
             if (f < 0 || size_t(f) >= geometry.faceVertexCounts.size()) {
-                *error = "collider surface '" + path.GetString() +
+                *error = "collider surface '" + label +
                          "' names subset face " + std::to_string(f) +
                          " outside its mesh";
                 return false;
@@ -1453,7 +1455,7 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
         // Collider faces empty == whole mesh downstream: an empty GeomSubset
         // must not widen to its parent.
         if (faces->empty()) {
-            *error = "collider subset '" + path.GetString() + "' names no face";
+            *error = "collider subset '" + label + "' names no face";
             return false;
         }
     }
@@ -1463,7 +1465,7 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
     holes.erase(std::unique(holes.begin(), holes.end()), holes.end());
     for (int f : holes) {
         if (f < 0 || size_t(f) >= geometry.faceVertexCounts.size()) {
-            *error = "collider surface '" + path.GetString() +
+            *error = "collider surface '" + label +
                      "' names hole face " + std::to_string(f) +
                      " outside its mesh";
             return false;
@@ -1512,12 +1514,12 @@ bool ValidateColliderMesh(SdfPath const &path, UsdGenSurfaceDesc const &entry,
         for (int f : *faces) scanFace(size_t(f));
     }
     if (!valid) {
-        *error = "collider surface '" + path.GetString() +
+        *error = "collider surface '" + label +
                  "' has no valid triangle";
         return false;
     }
     if (skipped) {
-        *warning = "collider surface '" + path.GetString() + "' skips " +
+        *warning = "collider surface '" + label + "' skips " +
                    std::to_string(skipped) + " degenerate triangle(s)";
     }
     // A selected polygon soup defines a solid only when its directed
@@ -1557,11 +1559,11 @@ std::unique_ptr<UsdGenCapture> UsdGenCollideOp::CreateCapture() const
 {
     return std::make_unique<UsdGenCollideCapture>();
 }
-void BuildRelaxBvh(UsdGenSurfaceDesc const &geometry, std::vector<int> const &faces,
+void BuildRelaxBvh(UsdGenSurfaceInputView const &geometry, std::vector<int> const &faces,
                    strand::TriangleBvh *bvh)
 {
     std::vector<strand::FanTriangle> all, kept;
-    VtIntArray restricted(faces.begin(), faces.end());
+    UsdGenSpan<const int> const restricted(faces.data(), faces.size());
     strand::FanTriangulate(geometry.faceVertexCounts, geometry.faceVertexIndices, &all,
                            faces.empty() ? nullptr : &restricted);
     kept.reserve(all.size());
@@ -1572,7 +1574,8 @@ void BuildRelaxBvh(UsdGenSurfaceDesc const &geometry, std::vector<int> const &fa
         double const l = GfCross(b - a, c - a).GetLength();
         if (l > 0.0 && Finite(l)) kept.push_back(t);
     }
-    bvh->Build(geometry.points, kept);
+    // The BVH owns its points: it outlives the input record.
+    bvh->Build(VtVec3fArray(geometry.points.begin(), geometry.points.end()), kept);
 }
 
 // --- relax ------------------------------------------------------------------
@@ -1784,7 +1787,7 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     }
     d.Mix(ctx.upstreamGeneration);
     d.Mix(uint64_t(ctx.seed));
-    auto mixSurface = [&](UsdGenSurfaceDesc const &s) {
+    auto mixSurface = [&](UsdGenSurfaceInputView const &s) {
         d.Mix(s.subdivisionScheme); d.Mix(s.orientation);
         d.Mix(s.interpolateBoundary);
         d.Mix(s.faceVaryingLinearInterpolation);
@@ -1810,14 +1813,14 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
             for (int col = 0; col < 4; ++col)
                 d.Mix(ctx.desc->xformMatrix[row][col]);
     if (ctx.desc && p && p->node) {
-        for (SdfPath const &path : p->node->surfaces) {
+        for (UsdGenNodeKey const path : p->node->surfaces) {
             uint32_t entry = 0;
             if (!FindSurface(ctx.desc, path, &entry)) {
                 d.Mix(uint64_t(~0ull));
                 continue;
             }
             d.Mix(uint64_t(entry));
-            UsdGenSurfaceDesc const &e = ctx.desc->surfaces[entry];
+            UsdGenSurfaceInputView const &e = UsdGenSurfaceAt(*ctx.desc, entry);
             d.Mix(e.surfaceGeneration);
             mixSurface(e);
             for (int row = 0; row < 4; ++row)
@@ -1826,12 +1829,12 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
             d.Mix(uint64_t(e.subsetFaces.size()));
             if (e.faceVertexCounts.empty() && !e.subsetFaces.empty()) {
                 uint32_t parent = 0;
-                if (FindSurface(ctx.desc, path.GetParentPath(), &parent)) {
-                    d.Mix(ctx.desc->surfaces[parent].surfaceGeneration);
-                    mixSurface(ctx.desc->surfaces[parent]);
+                if (FindSurface(ctx.desc, e.owner, &parent)) {
+                    d.Mix(UsdGenSurfaceAt(*ctx.desc, parent).surfaceGeneration);
+                    mixSurface(UsdGenSurfaceAt(*ctx.desc, parent));
                     for (int row = 0; row < 4; ++row)
                         for (int col = 0; col < 4; ++col)
-                            d.Mix(ctx.desc->surfaces[parent].worldMatrix[row][col]);
+                            d.Mix(UsdGenSurfaceAt(*ctx.desc, parent).worldMatrix[row][col]);
                 } else
                     d.Mix(uint64_t(~0ull) - 1);
             }
@@ -1840,8 +1843,8 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     return d.Epoch(0x436F6C6C6964ull);
 }
 
-void UsdGenCollideOp::WarnOnce(UsdGenDiagnostics *diag, SdfPath const &path,
-                               UsdGenSurfaceDesc const &mesh,
+void UsdGenCollideOp::WarnOnce(UsdGenDiagnostics *diag, std::string const &label,
+                               UsdGenSurfaceInputView const &mesh,
                                std::vector<int> const &faces,
                                std::string const &message) const
 {
@@ -1850,7 +1853,7 @@ void UsdGenCollideOp::WarnOnce(UsdGenDiagnostics *diag, SdfPath const &path,
     auto mixText = [&](std::string const &s) {
         for (unsigned char c : s) d.Mix(uint64_t(c));
     };
-    mixText(path.GetString());
+    mixText(label);
     mixText(message);
     d.Mix(mesh.subdivisionScheme);
     d.Mix(mesh.orientation); d.Mix(mesh.interpolateBoundary);
@@ -1927,21 +1930,22 @@ bool UsdGenCollideOp::Capture(
         if (diag) diag->Error("UsdGenCollide: description world matrix must be invertible");
         return false;
     }
-    for (SdfPath const &path : p->node->surfaces) {
+    for (UsdGenNodeKey const path : p->node->surfaces) {
+        auto const label = [&] { return ctx.desc->Label(path); };
         uint32_t entry = 0;
         if (!FindSurface(ctx.desc, path, &entry)) {
             if (diag) diag->Error("UsdGenCollide: collider surface '" +
-                                  path.GetString() + "' is not in the description");
+                                  label() + "' is not in the description");
             return false;
         }
-        UsdGenSurfaceDesc const &e = ctx.desc->surfaces[entry];
+        UsdGenSurfaceInputView const &e = UsdGenSurfaceAt(*ctx.desc, entry);
         // A GeomSubset stub carries subsetFaces only; its parent mesh carries
         // the geometry (builder R15 pools; opUtil::RestSurfaceArea precedent).
         uint32_t geometry = entry;
         if (e.faceVertexCounts.empty() && !e.subsetFaces.empty()) {
-            if (!FindSurface(ctx.desc, path.GetParentPath(), &geometry)) {
+            if (!FindSurface(ctx.desc, e.owner, &geometry)) {
                 if (diag) diag->Error("UsdGenCollide: collider subset '" +
-                                      path.GetString() +
+                                      label() +
                                       "' has no parent mesh in the description");
                 return false;
             }
@@ -1949,7 +1953,7 @@ bool UsdGenCollideOp::Capture(
         UsdGenCollideCollider collider;
         collider.geometry = geometry;
         std::string error, warning;
-        if (!ValidateColliderMesh(path, e, ctx.desc->surfaces[geometry],
+        if (!ValidateColliderMesh(label(), e, UsdGenSurfaceAt(*ctx.desc, geometry),
                                   &collider.faces, &collider.hasFaces,
                                   &collider.closed,
                                   &error, &warning)) {
@@ -1957,16 +1961,16 @@ bool UsdGenCollideOp::Capture(
             return false;
         }
         if (!warning.empty() && diag) diag->Warn("UsdGenCollide: " + warning);
-        auto const &mesh = ctx.desc->surfaces[geometry];
+        auto const &mesh = UsdGenSurfaceAt(*ctx.desc, geometry);
         if (!affine(mesh.worldMatrix)) {
-            if (diag) diag->Error("UsdGenCollide: collider '" + path.GetString() +
+            if (diag) diag->Error("UsdGenCollide: collider '" + label() +
                                   "' world matrix must be finite and affine");
             return false;
         }
         GfMatrix4d const colliderToGroom = mesh.worldMatrix * worldToGroom;
         double const colliderDeterminant = colliderToGroom.GetDeterminant();
         if (!Finite(colliderDeterminant) || colliderDeterminant == 0.0) {
-            if (diag) diag->Error("UsdGenCollide: collider '" + path.GetString() +
+            if (diag) diag->Error("UsdGenCollide: collider '" + label() +
                                   "' world matrix must be invertible");
             return false;
         }
@@ -1977,7 +1981,7 @@ bool UsdGenCollideOp::Capture(
         for (int row = 0; row < 4; ++row)
             for (int col = 0; col < 4; ++col)
                 if (!Finite(colliderToGroom[row][col])) {
-                    if (diag) diag->Error("UsdGenCollide: collider '" + path.GetString() +
+                    if (diag) diag->Error("UsdGenCollide: collider '" + label() +
                                           "' relative world matrix must be finite");
                     return false;
                 }
@@ -1985,7 +1989,7 @@ bool UsdGenCollideOp::Capture(
         for (GfVec3f const &local : mesh.points) {
             GfVec3d const point = colliderToGroom.Transform(GfVec3d(local));
             if (!Finite(point[0]) || !Finite(point[1]) || !Finite(point[2])) {
-                if (diag) diag->Error("UsdGenCollide: collider '" + path.GetString() +
+                if (diag) diag->Error("UsdGenCollide: collider '" + label() +
                                       "' has non-finite transformed points");
                 return false;
             }
@@ -2022,8 +2026,8 @@ bool UsdGenCollideOp::Capture(
         TfToken const scheme = mesh.subdivisionScheme;
         UsdGenOpRecord const &rec = *p->op;
         if (scheme == rec.Token(kTokNone)) {
-            WarnOnce(diag, path, mesh, collider.faces,
-                "UsdGenCollide: collider '" + path.GetString() +
+            WarnOnce(diag, label(), mesh, collider.faces,
+                "UsdGenCollide: collider '" + label() +
                 "' subdivisionScheme=none: authored polygon surface; "
                 "using polygon collision");
         } else if (scheme == rec.Token(kTokCatmullClark) ||
@@ -2037,15 +2041,15 @@ bool UsdGenCollideOp::Capture(
                     reason.rfind("invalid face size",0) == 0;
                 if (!fallback) {
                     if (diag) diag->Error("UsdGenCollide: collider '" +
-                        path.GetString() + "' subdivisionScheme=" +
+                        label() + "' subdivisionScheme=" +
                         scheme.GetString() + ": " + reason);
                     return false;
                 }
                 collider.limit.reset();
                 collider.triangles.clear(); collider.bvh.clear();
-                WarnOnce(diag, path, mesh, collider.faces,
+                WarnOnce(diag, label(), mesh, collider.faces,
                     "UsdGenCollide: collider '" +
-                    path.GetString() + "' subdivisionScheme=" +
+                    label() + "' subdivisionScheme=" +
                     scheme.GetString() + ": " + reason +
                     "; using polygon collision");
             } else if (!mesh.holeIndices.empty()) {
@@ -2053,9 +2057,9 @@ bool UsdGenCollideOp::Capture(
                 collider.closed = false;
             }
         } else {
-            WarnOnce(diag, path, mesh, collider.faces,
+            WarnOnce(diag, label(), mesh, collider.faces,
                 "UsdGenCollide: collider '" +
-                path.GetString() + "' subdivisionScheme=" +
+                label() + "' subdivisionScheme=" +
                 scheme.GetString() + ": unsupported subdivision scheme; "
                 "using polygon collision");
         }
@@ -2096,7 +2100,7 @@ bool UsdGenCollideOp::Capture(
     if (cap.relax) {
         cap.relaxBvhs.resize(cap.colliders.size());
         for (size_t i = 0; i < cap.colliders.size(); ++i)
-            BuildRelaxBvh(ctx.desc->surfaces[cap.colliders[i].geometry],
+            BuildRelaxBvh(UsdGenSurfaceAt(*ctx.desc, cap.colliders[i].geometry),
                           cap.colliders[i].faces, &cap.relaxBvhs[i]);
     }
     // Every connected value is scanned, so a non-finite expression fails
@@ -2932,6 +2936,15 @@ bool RemapsVertexPlanes(UsdGenParamView const &params)
 {
     return params.op && DeepMode(params) == params.op->Token(kTokCutThenCollide);
 }
+
+/// Evaluate's failure codes (PublishEvalFailure).
+char const *FailureMessage(uint32_t code)
+{
+    if (code == 1) return "UsdGenCollide: closed-surface depth query failed";
+    if (code == 2)
+        return "UsdGenCollide: cut depth search exceeded its deterministic resource budget";
+    return nullptr;
+}
 }  // namespace
 
 UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
@@ -2947,6 +2960,7 @@ UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
     d.tokens = UsdGenSpan(kTokens);
     d.hooks.emittedPlanes = &EmittedPlanes;
     d.hooks.remapsVertexPlanes = &RemapsVertexPlanes;
+    d.hooks.failureMessage = &FailureMessage;
     return r.RegisterOp(d);
 }
 

@@ -6,11 +6,12 @@
 // Covers usdGen:mask specifically, because that is the operator envelope the
 // UsdGenMaskAPI block was replaced with, but the resolution is generic.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/base/vt/value.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
@@ -184,7 +185,7 @@ int main()
                 binding.output = TfToken();
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        UsdGenCompileResult const result = compiler.Compile(ambiguous, &graph);
+        UsdGenCompileResult const result = usdGenUsd::Compile(compiler, ambiguous, &graph);
         bool named = false;
         for (std::string const &error : result.errors)
             named = named ||

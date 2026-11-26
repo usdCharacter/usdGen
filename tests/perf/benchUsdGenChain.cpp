@@ -9,7 +9,7 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
@@ -185,12 +185,12 @@ int main(int argc, char **argv)
         // (reads UsdGenRunResult::nodeStats; feeds the E-1 breakdown).
         UsdGenCompiler c;
         UsdGenGraph g;
-        if (!c.Compile(MakeG3(), &g).ok) {
+        if (!usdGenUsd::Compile(c, MakeG3(), &g).ok) {
             std::printf("perop: compile failed\n");
             return 1;
         }
         UsdGenEvalContext ctx;
-        ctx.desc = &g.Desc();
+        ctx.desc = &g.Spec();
         UsdGenScheduler s8(8);
         uint64_t gen = 0;
         s8.Run(g, ctx, ++gen);
@@ -212,14 +212,14 @@ int main(int argc, char **argv)
     {
         UsdGenCompiler c;
         UsdGenGraph g;
-        UsdGenCompileResult const r = c.Compile(MakeG3(), &g);
+        UsdGenCompileResult const r = usdGenUsd::Compile(c, MakeG3(), &g);
         if (!r.ok) {
             std::printf("E-1: compile failed:");
             for (auto const &e : r.errors) std::printf(" %s", e.c_str());
             std::printf("\n");
             return 1;
         }
-        ctx.desc = &g.Desc();
+        ctx.desc = &g.Spec();
         UsdGenScheduler s8(8), s1(1);
         uint64_t gen = 0;
         s8.Run(g, ctx, ++gen);
@@ -260,7 +260,7 @@ int main(int argc, char **argv)
         }
         UsdGenCompiler c;
         UsdGenGraph g;
-        UsdGenCompileResult const r = c.Compile(base, &g);
+        UsdGenCompileResult const r = usdGenUsd::Compile(c, base, &g);
         if (!r.ok) {
             std::printf("E-6: compile failed:");
             for (auto const &e : r.errors) std::printf(" %s", e.c_str());
@@ -270,9 +270,9 @@ int main(int argc, char **argv)
         std::vector<double> ts;
         bool rebuiltOnce = true;
         for (int i = 0; i < 9; ++i) {
-            c.Recompile(base, &g);   // back to 200 nodes (untimed half)
+            usdGenUsd::Recompile(c, base, &g);   // back to 200 nodes (untimed half)
             auto t0 = std::chrono::steady_clock::now();
-            UsdGenCompileResult const rr = c.Recompile(grown, &g);
+            UsdGenCompileResult const rr = usdGenUsd::Recompile(c, grown, &g);
             ts.push_back(std::chrono::duration<double, std::milli>(
                              std::chrono::steady_clock::now() - t0).count());
             rebuiltOnce = rebuiltOnce && rr.ok && rr.rebuilt.size() == 1;
@@ -287,14 +287,14 @@ int main(int argc, char **argv)
         UsdGenScheduler s8(8), s1(1);
         UsdGenGraph gA, gB;
         UsdGenCompiler cA, cB;
-        if (!cA.Compile(MakeG3(), &gA).ok || !cB.Compile(MakeG3(), &gB).ok) {
+        if (!usdGenUsd::Compile(cA, MakeG3(), &gA).ok || !usdGenUsd::Compile(cB, MakeG3(), &gB).ok) {
             std::printf("E-8: compile failed\n");
             return 1;
         }
         UsdGenEvalContext ctxA;
-        ctxA.desc = &gA.Desc();
+        ctxA.desc = &gA.Spec();
         UsdGenEvalContext ctxB;
-        ctxB.desc = &gB.Desc();
+        ctxB.desc = &gB.Spec();
         UsdGenRunResult rA = s1.Run(gA, ctxA, 1);
         UsdGenRunResult rB = s8.Run(gB, ctxB, 1);
         UsdGenCurveBuffer const a = UsdGenCurveBufferFromSet(*rA.terminalOutput);

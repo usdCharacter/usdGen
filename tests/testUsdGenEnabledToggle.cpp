@@ -6,7 +6,8 @@
 // This test drives the same builder the viewport uses (BuildGraphDescFromStage)
 // so an edit that never reaches the engine is caught here rather than in a
 // render.
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 
 #include "usdGen/compiler.h"
@@ -111,7 +112,7 @@ bool Cook(UsdStageRefPtr const &stage, UsdGenCurveBuffer *out, uint64_t generati
         stage, SdfPath("/World/Groom/Fur"));
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    usdGen::UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    usdGen::UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &error : compiled.errors)
             std::printf("      compile: %s\n", error.c_str());
@@ -119,7 +120,7 @@ bool Cook(UsdStageRefPtr const &stage, UsdGenCurveBuffer *out, uint64_t generati
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     usdGen::UsdGenRunResult const run = scheduler.Run(graph, context, generation);
     if (run.diagnostics.HasErrors()) {
         for (auto const &error : run.diagnostics.errors)

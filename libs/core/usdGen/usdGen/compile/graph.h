@@ -49,37 +49,39 @@ struct UsdGenPaintRoutingRef
 struct UsdGenGraphRoutingNode
 {
     UsdGenNodeId id = kUsdGenInvalidNode;
-    SdfPath path;
+    UsdGenNodeKey key;
     TfToken type;
     std::vector<TfToken> topologyParameters;
     std::vector<TfToken> valueParameters;
     std::vector<std::pair<TfToken, uint32_t>> paramRouting;
     UsdGenSurfaceId surface = 0;
     bool hasSurface = false;
-    std::vector<SdfPath> inputRefs;
-    std::vector<SdfPath> mapRefs;
-    std::vector<UsdGenMapBindingDesc> mapBindingRefs;
-    std::vector<SdfPath> geometryRefs;
+    std::vector<UsdGenNodeKey> inputRefs;
+    std::vector<UsdGenNodeKey> mapRefs;
+    std::vector<UsdGenMapBinding> mapBindingRefs;
+    std::vector<UsdGenNodeKey> geometryRefs;
     std::vector<UsdGenPaintRoutingRef> paintRefs;
 };
 
 struct UsdGenGraphRoutingSnapshot
 {
-    SdfPath description;
-    /// Per desc.surfaces entry: the bound target, and the Mesh prim whose
+    UsdGenNodeKey description;
+    /// Per surface input: the bound target, and the Mesh prim whose
     /// points, topology and primvars it reads. They differ only for a
     /// GeomSubset target, whose own prim carries just indices and type (R15).
-    std::vector<SdfPath> surfacePaths;
-    std::vector<SdfPath> meshPaths;
+    std::vector<UsdGenNodeKey> surfaceKeys;
+    std::vector<UsdGenNodeKey> meshKeys;
     std::vector<UsdGenGraphRoutingNode> nodes;
     UsdGenNodeId terminal = kUsdGenInvalidNode;
+    /// The compiled spec's opaque host data (UsdGenGraphSpec::host).
+    std::shared_ptr<const void> host;
 };
 
 /// One compiled node. Owns its UsdGenOp, its output set, its capture, its
 /// chunk dirty bytes and its digests (03 §3.2).
 struct UsdGenCompiledNode : UsdGenPooled
 {
-    UsdGenNodeDesc const *desc = nullptr;         // points into the graph's desc copy
+    UsdGenOpNode const *desc = nullptr;         // points into the graph's desc copy
     int                  descIdx = -1;            // index of that desc in graph Desc().nodes
 
     UsdGenNodeId           id = kUsdGenInvalidNode;
@@ -134,11 +136,12 @@ struct UsdGenCompiledNode : UsdGenPooled
     bool                   limitSurfaceUv = false; // hooks.emitsLimitSurfaceUv at compile
     // kUsdGenOpRemapsVertexPlanes or hooks.remapsVertexPlanes, at compile.
     bool                   remapsVertexPlanes = false;
-    // Plane slots resolved per run by the scheduler; negative: curve rate.
+    // Plane slots resolved per run by the scheduler; negative: element rate.
     std::array<int16_t, kUsdGenMaxExtraPlaneSlots> outPlaneIndex{}, inPlaneIndex{};
-    // Connected (expression) parameters evaluated for this node, once per
-    // cook, over its INPUT geometry. paramView.expressions points here.
-    UsdGenCpuParameters    expressions;
+    // Connected parameters evaluated for this node, once per cook, over its
+    // INPUT geometry; null when no evaluator is registered.
+    // paramView.expressions points here.
+    std::unique_ptr<UsdGenParamEvaluatorState> expressions;
     uint64_t               lastExpressionDigest = 0;  // the digest last evaluated
     std::vector<std::pair<TfToken, uint32_t>> paramRouting;  // param name -> UsdGenDirtyBits
     std::vector<UsdGenNodeId> descendants;       // strict descendants, topological order
@@ -149,12 +152,12 @@ struct UsdGenCompiledNode : UsdGenPooled
     std::vector<TfToken> inputPrimvars;
     UsdGenSurfaceId        surface = 0;
     bool                   hasSurface = false;
-    std::vector<SdfPath>   inputRefs;            // usdGen:curves/guides/frozen:curves targets
-    std::vector<SdfPath>   mapRefs;              // legacy flat map targets
-    std::vector<UsdGenMapBindingDesc> mapBindingRefs; // typed authored map slots
+    std::vector<UsdGenNodeKey> inputRefs;            // UsdGenOpNode::inputSets targets
+    std::vector<UsdGenNodeKey> mapRefs;              // legacy flat map targets
+    std::vector<UsdGenMapBinding> mapBindingRefs; // typed authored map slots
     // Prims a connected expression reads through its input:<name>
     // relationships (targets, the gprims and maps they resolve to).
-    std::vector<SdfPath>   geometryRefs;
+    std::vector<UsdGenNodeKey> geometryRefs;
     std::vector<uint32_t>  referenceValues;       // indices into graph immutable reference values
     std::vector<uint32_t>  mapValues;             // indices into graph immutable map values
     bool                   captureNeeded = false; // set by the session, cleared by the capture step
@@ -197,16 +200,17 @@ public:
     void DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
                       uint64_t generation = UINT64_MAX);
     void DirtyChunks(NodeId id, TfSpan<const UsdGenChunkId> chunks);
-    /// Bumps the capture epoch of every node whose UsdGenNodeDesc::maps names this prim
+    /// Bumps the capture epoch of every node whose UsdGenOpNode::maps names this prim
     /// (asset path edit, ReloadMaps(), textureGeneration bump). §3.6, UsdGenDirtyMap.
-    void DirtyMap(SdfPath const &mapPrim, uint64_t generation = UINT64_MAX);
-    /// Bumps the capture epoch of every node whose UsdGenNodeDesc::curves names this prim
-    /// (a C3 BasisCurves changed: guide edit, re-freeze, re-import). §3.6, §4.5.
-    void DirtyInput(SdfPath const &inputIdentity,
+    void DirtyMap(UsdGenNodeKey mapPrim, uint64_t generation = UINT64_MAX);
+    /// Bumps the capture epoch of every node whose UsdGenOpNode::inputSets names this
+    /// input (its content changed: an edit, a re-freeze, a re-import). §3.6, §4.5.
+    void DirtyInput(UsdGenNodeKey inputIdentity,
                      uint64_t generation = UINT64_MAX);
     /// Re-captures every node whose connected expressions sample this prim
-    /// (geoSampler()/ptex() inputs), or a descendant of it.
-    void DirtyGeometry(SdfPath const &prim);
+    /// (geoSampler()/ptex() inputs). Exact key: the host expands a dirtied
+    /// prim to the keys under it (usdGenUsd NodeKeyMap::KeysUnder).
+    void DirtyGeometry(UsdGenNodeKey prim);
 
     /// Immutable-after-publication input generations captured by the last
     /// compiled descriptor. Dirty routing updates this tuple before marking
@@ -229,19 +233,19 @@ public:
     /// True when any node carries a dirty byte the next commit must consume.
     bool AnyDirty() const noexcept;
 
-    UsdGenGraphDesc const &Desc() const noexcept { return *_desc; }
-    /// Desc() in Default space. Operators evaluate in Default space until a
-    /// UsdGenDeform: every node upstream of the first deform on its path sees
-    /// this view, the deform and everything after it see Desc(). Here a
+    UsdGenGraphSpec const &Spec() const noexcept { return *_desc; }
+    /// Spec() in Default space. Operators evaluate in Default space until a
+    /// deforming op: every node upstream of the first one on its path sees
+    /// this view, that op and everything after it see Spec(). Here a
     /// surface with authored rest data (UsdGenRestAPI) reads its Default-time
     /// rest as its current points -- one shutter sample at the desc time, no
     /// velocities -- and its surfaceGeneration follows only that rest content,
     /// so animating the surface re-captures nothing upstream of a deform. A
     /// surface without authored rest is unchanged. Built on first use after
     /// the descriptor or any surface's content changes; commit thread only.
-    UsdGenGraphDesc const &RestDesc() const;
+    UsdGenGraphSpec const &RestSpec() const;
     std::shared_ptr<const UsdGenCudaExecutionPlan> const& CudaPlan() const noexcept { return _cudaPlan; }
-    UsdGenNodeDesc const &NodeDesc(NodeId id) const;
+    UsdGenOpNode const &OpNode(NodeId id) const;
     /// Immutable descriptor-value identities resolved during compilation.
     TfSpan<const UsdGenResolvedReferenceValue> ReferenceValues() const;
     TfSpan<const UsdGenResolvedMapValue> MapValues() const;
@@ -259,14 +263,14 @@ public:
     int ChunksPerTile() const noexcept { return _chunksPerTile; }
     int NumGroups() const noexcept { return int(_groups.size()); }
     NodeId TerminalNodeId() const noexcept { return _terminal; }
-    UsdGenNodeId NodeIdForPath(SdfPath const &path) const;
+    UsdGenNodeId NodeIdForKey(UsdGenNodeKey key) const;
     /// OR bits into node id's chunks (all of them) and propagate the value
     /// bits to every strict descendant (03 §5.2 hop 3).
     void MarkNode(NodeId id, uint32_t bits);
     /// Re-partition every node's chunks + the group set after a topology
     /// change, through the output layout's partition and groups hooks. A
     /// node's sub-item layout comes from its effective set when known (a
-    /// generator upstream of a CV-changing node keeps its own cv/curve);
+    /// generator upstream of an item-count-changing node keeps its own stride);
     /// `fallbackStride` items per element stand in for a set not populated
     /// yet. Returns true when the layout (element count, chunk count or any
     /// node's chunk spans) changed; unchanged nodes keep their chunk and
@@ -275,16 +279,25 @@ public:
 private:
     void _PropagateDescendantBits(uint32_t bits, std::vector<bool> const &descendants);
 
-    std::unique_ptr<UsdGenGraphDesc> _desc;  // owned copy taken at Compile
+    std::unique_ptr<UsdGenGraphSpec> _desc;  // owned copy taken at Compile
     // The previous descriptor, overwritten by the next Recompile, and the
     // node vector Recompile swaps out: both keep capacity across compiles.
-    std::unique_ptr<UsdGenGraphDesc> _spareDesc;
+    std::unique_ptr<UsdGenGraphSpec> _spareDesc;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _retiredNodes;
-    // RestDesc()'s view and the source it was built from: the descriptor, and
+    // RestSpec()'s view and the source it was built from: the descriptor, and
     // per surface its generation and its points' and rest's buffers.
-    mutable std::unique_ptr<UsdGenGraphDesc> _restDesc;
-    mutable UsdGenGraphDesc const *_restSource = nullptr;
+    mutable std::unique_ptr<UsdGenGraphSpec> _restDesc;
+    mutable UsdGenGraphSpec const *_restSource = nullptr;
     mutable std::vector<std::array<uint64_t, 3>> _restSourceKeys;
+    // Recent Default-space surface records, keyed by the posed record's
+    // columns (held) and content: a recompile that keeps an input reuses its
+    // rest record without allocating.
+    struct RestRecord {
+        UsdGenRef<const UsdGenElementSet> posed;
+        uint64_t generation = 0;
+        UsdGenInputRecord rest;
+    };
+    mutable std::vector<RestRecord> _restRecords;
     std::shared_ptr<const UsdGenCudaExecutionPlan> _cudaPlan;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _nodes; // indexed by id
     UsdGenPoolVector<UsdGenChunkGroup> _groups;  // terminal publication groups
@@ -293,8 +306,8 @@ private:
     std::vector<UsdGenResolvedReferenceValue> _referenceValues;
     std::vector<UsdGenResolvedMapValue> _mapValues;
     UsdGenNodeId      _terminal = InvalidNode;
-    std::unordered_map<SdfPath, UsdGenNodeId, SdfPath::Hash, std::equal_to<SdfPath>,
-                       UsdGenPoolAllocator<std::pair<const SdfPath, UsdGenNodeId>>> _nodeByPath;
+    std::unordered_map<UsdGenNodeKey, UsdGenNodeId, UsdGenNodeKeyHash, std::equal_to<UsdGenNodeKey>,
+                       UsdGenPoolAllocator<std::pair<const UsdGenNodeKey, UsdGenNodeId>>> _nodeByKey;
     int _chunkSize = kUsdGenDefaultChunkSize;
     int _tileTarget = kUsdGenTileTargetDefault;
     int _chunksPerTile = 1;

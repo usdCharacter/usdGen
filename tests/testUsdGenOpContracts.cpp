@@ -17,7 +17,7 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 
@@ -90,7 +90,7 @@ char const *TopoFx(uint8_t countChanges)
 
 UsdGenCompiledNode const *OpNode(UsdGenGraph const &graph)
 {
-    UsdGenNodeId const id = graph.NodeIdForPath(usdGenGolden::OpPath());
+    UsdGenNodeId const id = usdGenUsd::NodeIdForPath(graph, usdGenGolden::OpPath());
     return id == kUsdGenInvalidNode ? nullptr : &graph.Node(id);
 }
 
@@ -109,7 +109,7 @@ std::string Configured(UsdGenGraphDesc const &desc)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(desc, &graph).ok) return "compile-failed";
+    if (!usdGenUsd::Compile(compiler, desc, &graph).ok) return "compile-failed";
     UsdGenCompiledNode const *node = OpNode(graph);
     if (!node || !node->op) return "no-node";
     std::vector<std::string> outputs;
@@ -121,7 +121,7 @@ bool Digest(UsdGenGraphDesc const &desc, UsdGenEpoch *out)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(desc, &graph).ok) return false;
+    if (!usdGenUsd::Compile(compiler, desc, &graph).ok) return false;
     UsdGenCompiledNode const *node = OpNode(graph);
     if (!node) return false;
     *out = node->structuralDigest;
@@ -154,7 +154,10 @@ std::string Admission(TfToken const &type, std::string const &name, Native const
         b.domain = domains[d];
         node.expressionBindings.push_back(b);
         std::vector<std::string> errors;
-        out += UsdGenValidateExpressionBindings(node, &errors) ? letters[d] : '-';
+        UsdGenGraphDesc d1;
+        d1.nodes = {node};
+        UsdGenGraphSpec const spec = usdGenUsd::Lower(d1);
+        out += UsdGenValidateExpressionBindings(spec.nodes[0], &spec, &errors) ? letters[d] : '-';
     }
     return out;
 }
@@ -183,11 +186,11 @@ void Snapshot(TfToken const &type, std::ostringstream &os)
     if (base.nodes.empty()) { Fail(T + ": no fixture graph"); return; }
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(base, &graph).ok) { Fail(T + ": fixture graph does not compile"); return; }
+    if (!usdGenUsd::Compile(compiler, base, &graph).ok) { Fail(T + ": fixture graph does not compile"); return; }
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> const routing = graph.RoutingSnapshot();
     UsdGenGraphRoutingNode const *rn = nullptr;
     for (UsdGenGraphRoutingNode const &n : routing->nodes)
-        if (n.path == usdGenGolden::OpPath()) rn = &n;
+        if (usdGenUsd::PathOf(usdGenUsd::Paths(*routing), n.key) == usdGenGolden::OpPath()) rn = &n;
     if (!rn) { Fail(T + ": no routing node"); return; }
     os << T << " routedType " << rn->type.GetString() << '\n';
     std::vector<std::string> topo, value, route;

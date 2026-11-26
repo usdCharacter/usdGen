@@ -1,5 +1,5 @@
 # The brush tool's link to the engine: a ctypes binding to the usdGenImaging
-# attribute-brush C ABI (libs/usdGenImaging/usdGenImaging/usdGenBrushApi.h).
+# attribute-brush C ABI (libs/hosts/usdGenHydra/usdGenImaging/usdGenBrushApi.h).
 #
 # The mesh pick, the dab kernel with its footprint spill, the cross-face
 # smooth, corner extraction, preview colours and the viewport overlay all run

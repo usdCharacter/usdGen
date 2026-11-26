@@ -29,13 +29,15 @@
 
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/compile/graphDesc.h"
+#include "usdGenUsd/lower.h"
+#include "usdGenUsd/publishPaths.h"
 #include "usdGen/exec/generationStore.h"
 #include "usdGen/exec/scheduler.h"
 #include "usdGen/exec/session.h"
 #include "usdGen/registries/op.h"
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/types/curveBuffer.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -188,8 +190,10 @@ void HashExtent(Fnv128 *h, GfVec3d const &lo, GfVec3d const &hi)
 /// Field-major digests of a tile list: each field hashes every tile in
 /// published order (tile id and index first), so a row names the field.
 void AddTiles(Rows *out, std::string const &step, char const *what,
-              std::vector<UsdGenTilePublication> const &tiles)
+              UsdGenGeneration const &gen, std::vector<UsdGenTilePublication> const &tiles)
 {
+    // Paths as the host names them (the engine publishes keys).
+    auto path = [&gen](UsdGenPrimRef const &prim) { return usdGenUsd::PrimPath(gen, prim).GetString(); };
     size_t curves = 0, cvs = 0;
     for (UsdGenTilePublication const &t : tiles) {
         curves += t.curveVertexCounts.size();
@@ -201,7 +205,7 @@ void AddTiles(Rows *out, std::string const &step, char const *what,
     if (tiles.empty()) return;
     using Field = std::function<void(Fnv128 *, UsdGenTilePublication const &)>;
     std::pair<char const *, Field> const fields[] = {
-        {"path", [](Fnv128 *h, UsdGenTilePublication const &t) { h->Str(t.primPath.GetString()); }},
+        {"path", [&](Fnv128 *h, UsdGenTilePublication const &t) { h->Str(path(t.prim)); }},
         {"curveVertexCounts", [](Fnv128 *h, UsdGenTilePublication const &t) { h->Arr(t.curveVertexCounts); }},
         {"points", [](Fnv128 *h, UsdGenTilePublication const &t) { h->Arr(t.points); }},
         {"widths", [](Fnv128 *h, UsdGenTilePublication const &t) { h->Arr(t.widths); }},
@@ -213,16 +217,16 @@ void AddTiles(Rows *out, std::string const &step, char const *what,
         {"velocities", [](Fnv128 *h, UsdGenTilePublication const &t) { h->Arr(t.velocities); }},
         {"extraUniform", [](Fnv128 *h, UsdGenTilePublication const &t) { HashPlanes(h, t.extraUniform); }},
         {"extent", [](Fnv128 *h, UsdGenTilePublication const &t) { HashExtent(h, t.extentMin, t.extentMax); }},
-        {"presentation", [](Fnv128 *h, UsdGenTilePublication const &t) {
+        {"presentation", [&](Fnv128 *h, UsdGenTilePublication const &t) {
              h->Str(t.basis);
              h->U64(uint64_t(int64_t(t.refineLevel)));
              HashMatrix(h, t.xformMatrix);
              h->Str(t.purpose.GetString());
              h->Str(t.visibility.GetString());
-             h->Str(t.materialPath.GetString());
+             h->Str(path(t.material));
              h->Str(t.materialPurpose.GetString());
-             h->Str(t.primOrigin.GetString());
-             h->Str(t.dependencySurface.GetString());
+             h->Str(path(t.origin));
+             h->Str(path(t.dependency));
          }},
     };
     for (auto const &f : fields) {
@@ -243,7 +247,8 @@ void AddTiles(Rows *out, std::string const &step, char const *what,
     out->Add(p + ".extraNames", names.empty() ? "-" : names);
 }
 
-void AddScalp(Rows *out, std::string const &step, UsdGenScalpShadowPublication const &s)
+void AddScalp(Rows *out, std::string const &step, UsdGenGeneration const &gen,
+              UsdGenScalpShadowPublication const &s)
 {
     if (s.IsEmpty()) {
         out->Add(step + " scalp", "empty");
@@ -256,11 +261,11 @@ void AddScalp(Rows *out, std::string const &step, UsdGenScalpShadowPublication c
     geo.Arr(s.faceVertexIndices);
     geo.Arr(s.latticeIds);
     HashPlanes(&planes, s.extraUniform);
-    meta.Str(s.primPath.GetString());
+    meta.Str(usdGenUsd::PrimPath(gen, s.prim).GetString());
     HashExtent(&meta, s.extentMin, s.extentMax);
     meta.Str(s.purpose.GetString());
     meta.Str(s.visibility.GetString());
-    meta.Str(s.materialPath.GetString());
+    meta.Str(usdGenUsd::PrimPath(gen, s.material).GetString());
     meta.U64(s.digest);
     meta.U64(s.latticeKey);
     meta.Bytes(&s.lift, sizeof(s.lift));
@@ -273,30 +278,31 @@ void AddScalp(Rows *out, std::string const &step, UsdGenScalpShadowPublication c
 
 void AddGeneration(Rows *out, std::string const &step, UsdGenGeneration const &gen)
 {
-    AddTiles(out, step, "tiles", gen.tiles);
-    AddTiles(out, step, "guides", gen.guides);
-    AddScalp(out, step, gen.scalpShadow);
+    UsdGenCurvePublication const &pub = UsdGenCurvePublicationOf(gen);
+    AddTiles(out, step, "tiles", gen, pub.tiles);
+    AddTiles(out, step, "guides", gen, pub.guides);
+    AddScalp(out, step, gen, pub.scalpShadow);
     Fnv128 inst;
-    inst.U64(gen.instancers.size());
-    for (UsdGenInstancerPublication const &i : gen.instancers) {
-        inst.Str(i.primPath.GetString());
+    inst.U64(pub.instancers.size());
+    for (UsdGenInstancerPublication const &i : pub.instancers) {
+        inst.Str(usdGenUsd::PrimPath(gen, i.prim).GetString());
         inst.U64(i.prototypes.size());
-        for (SdfPath const &p : i.prototypes) inst.Str(p.GetString());
+        for (UsdGenPrimRef const &p : i.prototypes) inst.Str(usdGenUsd::PrimPath(gen, p).GetString());
         inst.U64(i.instanceIndices.size());
         for (VtIntArray const &a : i.instanceIndices) inst.Arr(a);
         inst.U64(i.mask.size());
         for (bool b : i.mask) inst.Byte(b ? 1 : 0);
     }
-    out->Add(step + " instancers", "n=" + std::to_string(gen.instancers.size()) + " " + inst.Hex());
+    out->Add(step + " instancers", "n=" + std::to_string(pub.instancers.size()) + " " + inst.Hex());
     Fnv128 sig;
-    sig.U64(uint64_t(int64_t(gen.signature.tileCount)));
-    sig.U64(uint64_t(int64_t(gen.signature.instancerCount)));
-    for (std::string const &s : gen.signature.primPaths) sig.Str(s);
-    for (auto const &names : gen.signature.primvarNames) {
+    sig.U64(uint64_t(int64_t(pub.signature.tileCount)));
+    sig.U64(uint64_t(int64_t(pub.signature.instancerCount)));
+    for (UsdGenPrimRef const &s : pub.signature.prims) sig.Str(usdGenUsd::PrimPath(gen, s).GetString());
+    for (auto const &names : pub.signature.primvarNames) {
         sig.U64(names.size());
         for (std::string const &s : names) sig.Str(s);
     }
-    for (std::string const &s : gen.signature.primTypes) sig.Str(s);
+    for (std::string const &s : pub.signature.primTypes) sig.Str(s);
     out->Add(step + " signature", sig.Hex());
     // colorDigest is left out: it mixes TfToken::Hash (pointer-derived).
 }
@@ -498,7 +504,7 @@ void CookTerminal(UsdGenGraphDesc const &desc, std::string const &step, std::str
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         PrintDiagnostics(label + " compile", compiled.errors);
         rows->Add(step + " terminal", "compile-failed");
@@ -506,7 +512,7 @@ void CookTerminal(UsdGenGraphDesc const &desc, std::string const &step, std::str
     }
     UsdGenScheduler scheduler(g_threads);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = desc.time;
     UsdGenRunResult const run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
@@ -522,7 +528,7 @@ void CookTerminal(UsdGenGraphDesc const &desc, std::string const &step, std::str
 void Step(UsdGenSession *session, UsdGenGraphDesc const &desc, std::string const &step,
           UsdGenCommitReason reason, std::string const &label, Rows *rows)
 {
-    session->SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(*session, desc);
     UsdGenSession::SnapshotPtr const snap = session->CommitSnapshot(desc.time, reason);
     if (snap) PrintDiagnostics(label + " " + step, snap->diagnostics.errors);
     bool const failed = !snap || snap->diagnostics.HasErrors();

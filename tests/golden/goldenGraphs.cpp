@@ -4,6 +4,7 @@
 // In-code golden graphs. Every array is a closed-form function of its
 // indices so the descriptors are identical on every run and platform.
 #include "golden/goldenGraphs.h"
+#include "usdGenUsd/lower.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/vec2f.h"

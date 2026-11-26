@@ -1,4 +1,5 @@
 #include "usdGen/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/taskScheduler.h"
 
@@ -450,7 +451,7 @@ bool DecodeTriangleBinding(VtVec3fArray const &restPoints,
 
 struct UsdGenRestSurfaceBindingCache::Impl
 {
-    SdfPath path;
+    UsdGenNodeKey key;
     UsdGenSurfaceId id = 0;
     bool restFromCurrentPoints = false;
     GfMatrix4d worldMatrix{1.0}, worldInverse{1.0};
@@ -471,7 +472,7 @@ UsdGenRestSurfaceBindingCache::UsdGenRestSurfaceBindingCache(
 UsdGenRestSurfaceBindingCache::~UsdGenRestSurfaceBindingCache() = default;
 
 std::shared_ptr<const UsdGenRestSurfaceBindingCache>
-UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceDesc const &surface,
+UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceInputView const &surface,
                                       std::string *error)
 {
     if (error) error->clear();
@@ -523,16 +524,15 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceDesc const &surface,
 
     try {
         auto impl = std::make_shared<Impl>();
-        impl->path = surface.path;
+        impl->key = surface.key;
         impl->id = surface.id;
         impl->restFromCurrentPoints = surface.restFromCurrentPoints;
         impl->worldMatrix = surface.worldMatrix;
         impl->worldInverse = inverse;
-        // VtArray assignment is an intentional COW snapshot: later descriptor
-        // writes detach rather than changing the cache's immutable view.
-        impl->restPoints = surface.restPoints;
-        impl->faceVertexCounts = surface.faceVertexCounts;
-        impl->faceVertexIndices = surface.faceVertexIndices;
+        // A copy: the cache outlives the input record it was built from.
+        impl->restPoints.assign(surface.restPoints.begin(), surface.restPoints.end());
+        impl->faceVertexCounts.assign(surface.faceVertexCounts.begin(), surface.faceVertexCounts.end());
+        impl->faceVertexIndices.assign(surface.faceVertexIndices.begin(), surface.faceVertexIndices.end());
         impl->faceOffsets.assign(surface.faceVertexCounts.size() + 1, 0);
         for (size_t face = 0; face != surface.faceVertexCounts.size(); ++face)
             impl->faceOffsets[face + 1] = impl->faceOffsets[face] +
@@ -561,7 +561,7 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceDesc const &surface,
         if (!impl->centroids.points.empty())
             impl->index = std::make_unique<CentroidIndex>(
                 3, impl->centroids, nanoflann::KDTreeSingleIndexAdaptorParams(10));
-        impl->bytesOwned = sizeof(Impl) + impl->path.GetString().size() +
+        impl->bytesOwned = sizeof(Impl) +
             impl->restPoints.size() * sizeof(GfVec3f) +
             impl->faceVertexCounts.size() * sizeof(int) +
             impl->faceVertexIndices.size() * sizeof(int) +
@@ -576,14 +576,25 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceDesc const &surface,
     }
 }
 
-bool UsdGenRestSurfaceBindingCache::Matches(UsdGenSurfaceDesc const &surface) const
+namespace {
+
+template <class T>
+bool SameValues(UsdGenSpan<const T> a, VtArray<T> const &b)
 {
-    return _impl && surface.path == _impl->path && surface.id == _impl->id &&
+    return a.size() == b.size() &&
+        (a.cdata() == b.cdata() || std::equal(a.begin(), a.end(), b.cdata()));
+}
+
+}  // namespace
+
+bool UsdGenRestSurfaceBindingCache::Matches(UsdGenSurfaceInputView const &surface) const
+{
+    return _impl && surface.key == _impl->key && surface.id == _impl->id &&
         surface.restFromCurrentPoints == _impl->restFromCurrentPoints &&
         surface.worldMatrix == _impl->worldMatrix &&
-        surface.restPoints == _impl->restPoints &&
-        surface.faceVertexCounts == _impl->faceVertexCounts &&
-        surface.faceVertexIndices == _impl->faceVertexIndices;
+        SameValues(surface.restPoints, _impl->restPoints) &&
+        SameValues(surface.faceVertexCounts, _impl->faceVertexCounts) &&
+        SameValues(surface.faceVertexIndices, _impl->faceVertexIndices);
 }
 
 size_t UsdGenRestSurfaceBindingCache::BytesOwned() const noexcept
@@ -771,7 +782,7 @@ bool UsdGenRestSurfaceBindingCache::Bind(
 }
 
 bool UsdGenBuildRestSurfaceRootBindings(
-    UsdGenSurfaceDesc const &surface, VtVec3fArray const &sourceRestRoots,
+    UsdGenSurfaceInputView const &surface, VtVec3fArray const &sourceRestRoots,
     GfMatrix4d const &sourceWorldMatrix, UsdGenSurfaceRootBindingResult *out,
     std::string *error)
 {

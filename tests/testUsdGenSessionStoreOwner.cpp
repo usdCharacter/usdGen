@@ -1,5 +1,7 @@
 // Session-store owner serialization and snapshot/lifetime contract tests.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenImaging/usdGenImagingSession.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/generationStore.h"
 
 #include <atomic>
@@ -394,7 +396,7 @@ int main(int argc, char **argv)
     if (inherited) {
         inherited->StageAndCommit(MakeFrameProbe(), usdGen::UsdGenCommitReason::NoticeBatchEnd);
         auto generation = inherited->LatestGeneration();
-        Check(generation && generation->frame == 42.0 && !generation->tiles.empty(),
+        Check(generation && generation->frame == 42.0 && !usdGen::UsdGenCurvePublicationOf(*generation).tiles.empty(),
               "new attachment executes at the inherited store frame");
     }
     store.Detach(inheritedKey);

@@ -2,6 +2,7 @@
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/gf/matrix4d.h"
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/cudaExecution.h"
 
@@ -128,7 +129,7 @@ int main() {
         grow.params={{TfToken("segments"),VtValue(6),false},{TfToken("length"),VtValue(2.0),false},
                      {TfToken("direction"),VtValue(TfToken("surfaceNormal")),false}};
         staged.nodes={source,length,grow}; staged.terminal=grow.path;
-        UsdGenDiagnostics d; auto plan=CompileCudaGraph(staged,&d); CHECK(plan&&!d.HasErrors());
+        UsdGenDiagnostics d; auto plan=CompileCudaGraph(usdGenUsd::Lower(staged),&d); CHECK(plan&&!d.HasErrors());
         auto ws=CreateCudaExecutionWorkspace(-1,&d); CHECK(ws); auto job=CreateCudaExecutionJob(plan,*ws,1,83,&d); CHECK(job);
         std::promise<bool> p; auto f=p.get_future(); CHECK(ExecuteCudaJobSourceAsync(job,[&](bool ok){p.set_value(ok);})&&f.wait_for(std::chrono::seconds(10))==std::future_status::ready&&f.get());
         for(size_t i=0;i<2;++i){std::promise<bool> q;auto r=q.get_future();CHECK(ExecuteCudaJobOperatorAsync(job,i,[&](bool ok){q.set_value(ok);})&&r.wait_for(std::chrono::seconds(10))==std::future_status::ready&&r.get());}
@@ -163,7 +164,7 @@ int main() {
         auto length=mixed.nodes[1]; length.path=SdfPath("/Ops/SourceLength"); length.inputs={source.path};
         auto noise=mixed.nodes[2]; noise.inputs={source.path};
         mixed.nodes={source,growA,growB,length,noise}; mixed.terminal=growB.path;
-        UsdGenDiagnostics mixedDiagnostics; auto mixedPlan=CompileCudaGraph(mixed,&mixedDiagnostics);
+        UsdGenDiagnostics mixedDiagnostics; auto mixedPlan=CompileCudaGraph(usdGenUsd::Lower(mixed),&mixedDiagnostics);
         CHECK(mixedPlan&&!mixedDiagnostics.HasErrors());
         auto mixedWorkspace=CreateCudaExecutionWorkspace(-1,&mixedDiagnostics);CHECK(mixedWorkspace);
         auto mixedJob=CreateCudaExecutionJob(mixedPlan,*mixedWorkspace,1,82,&mixedDiagnostics);CHECK(mixedJob);
@@ -203,7 +204,7 @@ int main() {
         auto noise = mixed.nodes[2]; noise.inputs = {source.path};
         mixed.nodes = {source, lengthA, lengthB, noise}; mixed.terminal = noise.path;
         UsdGenDiagnostics mixedDiagnostics;
-        auto mixedPlan = CompileCudaGraph(mixed, &mixedDiagnostics);
+        auto mixedPlan = CompileCudaGraph(usdGenUsd::Lower(mixed), &mixedDiagnostics);
         CHECK(mixedPlan && !mixedDiagnostics.HasErrors());
         auto mixedWorkspace = CreateCudaExecutionWorkspace(-1, &mixedDiagnostics);
         CHECK(mixedWorkspace);
@@ -261,7 +262,7 @@ int main() {
         auto noise = mixed.nodes[2]; noise.inputs = {source.path};
         mixed.nodes = {source, noise, length}; mixed.terminal = length.path;
         UsdGenDiagnostics mixedDiagnostics;
-        auto mixedPlan = CompileCudaGraph(mixed, &mixedDiagnostics);
+        auto mixedPlan = CompileCudaGraph(usdGenUsd::Lower(mixed), &mixedDiagnostics);
         CHECK(mixedPlan && !mixedDiagnostics.HasErrors());
         auto mixedWorkspace = CreateCudaExecutionWorkspace(-1, &mixedDiagnostics);
         CHECK(mixedWorkspace);
@@ -309,7 +310,7 @@ int main() {
         width.inputs = {source.path};
         branched.nodes = {source, length, width}; branched.terminal = width.path;
         UsdGenDiagnostics branchDiagnostics;
-        auto branchPlan = CompileCudaGraph(branched, &branchDiagnostics);
+        auto branchPlan = CompileCudaGraph(usdGenUsd::Lower(branched), &branchDiagnostics);
         CHECK(branchPlan && !branchDiagnostics.HasErrors());
         auto branchWorkspace = CreateCudaExecutionWorkspace(-1, &branchDiagnostics);
         CHECK(branchWorkspace);
@@ -371,7 +372,7 @@ int main() {
         noiseB.path = SdfPath("/Ops/NoiseB");
         sibling.nodes = {source, noiseA, noiseB}; sibling.terminal = noiseB.path;
         UsdGenDiagnostics siblingDiagnostics;
-        auto siblingPlan = CompileCudaGraph(sibling, &siblingDiagnostics);
+        auto siblingPlan = CompileCudaGraph(usdGenUsd::Lower(sibling), &siblingDiagnostics);
         CHECK(siblingPlan && !siblingDiagnostics.HasErrors());
         auto siblingWorkspace = CreateCudaExecutionWorkspace(-1, &siblingDiagnostics);
         CHECK(siblingWorkspace);
@@ -421,7 +422,7 @@ int main() {
         noiseB.path = SdfPath("/Ops/NoiseB");
         sibling.nodes = {source, length, noiseA, noiseB}; sibling.terminal = noiseB.path;
         UsdGenDiagnostics siblingDiagnostics;
-        auto siblingPlan = CompileCudaGraph(sibling, &siblingDiagnostics);
+        auto siblingPlan = CompileCudaGraph(usdGenUsd::Lower(sibling), &siblingDiagnostics);
         CHECK(siblingPlan && !siblingDiagnostics.HasErrors());
         auto siblingWorkspace = CreateCudaExecutionWorkspace(-1, &siblingDiagnostics);
         CHECK(siblingWorkspace);
@@ -474,7 +475,7 @@ int main() {
         derived.curveSets[0].rootFrame.clear();
         derived.curveSets[0].skinPrim.clear();
         derived.curveSets[0].skinPrimUv.clear();
-        framesSession.SetGraphDesc(derived);
+        usdGenUsd::SetGraphDesc(framesSession, derived);
         auto generated = framesSession.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(generated && generated->device && !framesSession.LastDiagnostics().HasErrors());
         auto generatedLease = gpu::AcquireGeometry(generated->device, stream);
@@ -485,7 +486,7 @@ int main() {
             cudaStreamSynchronize(stream) == cudaSuccess);
         auto authored = derived;
         authored.curveSets[0].rootFrame.assign(3, GfMatrix4d(1.0));
-        framesSession.SetGraphDesc(authored);
+        usdGenUsd::SetGraphDesc(framesSession, authored);
         auto explicitGeneration = framesSession.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(explicitGeneration && explicitGeneration != generated &&
               !framesSession.LastDiagnostics().HasErrors());
@@ -498,7 +499,7 @@ int main() {
         // Missing real rest must not silently use posed points for Noise.
         auto missingRest = derived;
         missingRest.curveSets[0].rest.clear();
-        framesSession.SetGraphDesc(missingRest);
+        usdGenUsd::SetGraphDesc(framesSession, missingRest);
         CHECK(framesSession.Commit(1, UsdGenCommitReason::SetTime) == explicitGeneration &&
               framesSession.LastDiagnostics().HasErrors());
         CHECK(cudaMemcpyAsync(retainedPoints.data(), generatedLease.Geometry().points.data,
@@ -510,7 +511,7 @@ int main() {
     UsdGenSession session;
     session.SetDevicePublicationEnabled(true);
     auto baseline = MakeDesc(false);
-    session.SetGraphDesc(baseline);
+    usdGenUsd::SetGraphDesc(session, baseline);
     auto good = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(good && good->device && !session.LastDiagnostics().HasErrors());
     auto lease = gpu::AcquireGeometry(good->device, stream);
@@ -521,7 +522,7 @@ int main() {
     CHECK(ids == std::vector<uint64_t>({11,99})); // ID 42 was the sorted-middle cull oracle.
 
     auto noise = MakeDesc(true);
-    session.SetGraphDesc(noise);
+    usdGenUsd::SetGraphDesc(session, noise);
     auto cooked = session.Commit(1, UsdGenCommitReason::SetTime);
     if (!cooked || cooked == good || !cooked->device ||
         session.LastDiagnostics().HasErrors())
@@ -549,7 +550,7 @@ int main() {
     // indexing would incorrectly feed ID 42's edited frame to ID 99.
     auto culledFrameEdit = noise;
     culledFrameEdit.curveSets[0].rootFrame[1] = GfMatrix4d(1.0);
-    session.SetGraphDesc(culledFrameEdit);
+    usdGenUsd::SetGraphDesc(session, culledFrameEdit);
     auto culledFrameGeneration = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(culledFrameGeneration && !session.LastDiagnostics().HasErrors());
     auto culledFrameLease = gpu::AcquireGeometry(culledFrameGeneration->device, stream);
@@ -564,7 +565,7 @@ int main() {
     // generation and its device lease remain live as a COW snapshot.
     auto survivorFrameEdit = culledFrameEdit;
     survivorFrameEdit.curveSets[0].rootFrame[0] = GfMatrix4d(1.0);
-    session.SetGraphDesc(survivorFrameEdit);
+    usdGenUsd::SetGraphDesc(session, survivorFrameEdit);
     auto survivorFrameGeneration = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(survivorFrameGeneration && !session.LastDiagnostics().HasErrors());
     auto survivorFrameLease = gpu::AcquireGeometry(survivorFrameGeneration->device, stream);
@@ -577,7 +578,7 @@ int main() {
     CHECK(std::memcmp(survivorFramePoints.data() + 2, cookedPoints.data() + 2,
                       2*sizeof(float3)) != 0);
 
-    session.SetGraphDesc(noise);
+    usdGenUsd::SetGraphDesc(session, noise);
     auto frameTwo = session.Commit(2, UsdGenCommitReason::SetTime);
     CHECK(frameTwo && frameTwo != cooked && !session.LastDiagnostics().HasErrors());
     auto frameTwoLease = gpu::AcquireGeometry(frameTwo->device, stream);
@@ -594,7 +595,7 @@ int main() {
     std::vector<float3> const loaded{{1,0,0},{1,.5f,0},{9,0,0},{9,.5f,0}};
     auto disabled = noise;
     disabled.nodes[2].params[0].value = VtValue(false);
-    session.SetGraphDesc(disabled);
+    usdGenUsd::SetGraphDesc(session, disabled);
     auto disabledGeneration = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(disabledGeneration && !session.LastDiagnostics().HasErrors());
     auto disabledLease = gpu::AcquireGeometry(disabledGeneration->device, stream);
@@ -605,7 +606,7 @@ int main() {
           std::memcmp(identityPoints.data(), loaded.data(), loaded.size()*sizeof(float3)) == 0);
     auto blendZero = noise;
     blendZero.nodes[2].params.push_back({TfToken("mask"), VtValue(0.0f), false});
-    session.SetGraphDesc(blendZero);
+    usdGenUsd::SetGraphDesc(session, blendZero);
     auto identityGeneration = session.Commit(4, UsdGenCommitReason::SetTime);
     CHECK(identityGeneration && !session.LastDiagnostics().HasErrors());
     auto identityLease = gpu::AcquireGeometry(identityGeneration->device, stream);
@@ -617,7 +618,7 @@ int main() {
 
     auto badType = noise;
     badType.nodes[2].expressionBindings[1].nativeType = TfToken("float");
-    session.SetGraphDesc(badType);
+    usdGenUsd::SetGraphDesc(session, badType);
     CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == identityGeneration &&
           session.LastDiagnostics().HasErrors());
     lease = {}; cookedLease = {}; culledFrameLease = {}; survivorFrameLease = {};

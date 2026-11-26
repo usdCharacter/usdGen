@@ -5,12 +5,14 @@
 //
 //     extern "C" void usdGenRegister(usdGen::UsdGenRegistrar &);
 //
-// (or usdGenRegister_<lib> when linked statically). Registries freeze on the
+// (and usdGenRegister_<lib> for a static link). Registries freeze on the
 // first compile; after that every lookup reads immutable state.
 #pragma once
 #include "usdGen/export.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/paramEvaluator.h"
+#include "usdGen/registries/publisher.h"
 #include "usdGen/registries/typeRegistry.h"
 #include <string>
 
@@ -26,6 +28,11 @@ public:
     UsdGenOpId RegisterOp(UsdGenOpDef const &);
     UsdGenTypeId RegisterType(UsdGenTypeDef const &);
     bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
+    /// One per engine; false on a second one, a missing create, or after freeze.
+    bool RegisterParamEvaluator(UsdGenParamEvaluatorDef const &);
+    /// One per primitive type; false on a second one for the type, an
+    /// unregistered type, a missing build, or after freeze.
+    bool RegisterPublisher(UsdGenPublisherDef const &);
 private:
     friend bool UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
     friend class UsdGenOpRegistry;
@@ -38,7 +45,12 @@ USDGEN_CORE_API bool UsdGenLoadExtension(std::string const &path, std::string *e
 USDGEN_CORE_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
 
-}  // namespace usdGen
+/// Builds the registries: loads the extensions named by USDGEN_EXTENSIONS
+/// (paths, ';' on Windows, ':' elsewhere), else the default primitive
+/// libraries CMake names (USDGEN_*_FILE) from usdGen's own directory, and
+/// calls each usdGenRegister in that order. Idempotent and lock-free; every registry lookup calls it
+/// implicitly. False with 'error' when an extension failed to load. Freezing
+/// stays with the first compile, so extensions and tests can register after it.
+USDGEN_CORE_API bool UsdGenEngineEnsureInitialized(std::string *error = nullptr);
 
-/// Built-in ops, map types and kernels: ops/registerCurves.cpp.
-extern "C" USDGEN_CORE_API void usdGenRegister_usdGenCurves(usdGen::UsdGenRegistrar &);
+}  // namespace usdGen

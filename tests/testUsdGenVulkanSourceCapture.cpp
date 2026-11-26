@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/curveLoader.h"
 #include "usdGen/curveRootCapture.h"
 #include "usdGen/op.h"
@@ -113,16 +114,17 @@ UsdGenGraphDesc RaggedRootedFixture()
 
 bool Load(UsdGenGraphDesc const& d, UsdGenCurveBuffer* out, UsdGenDiagnostics* diag)
 {
-    UsdGenParamView params{const_cast<UsdGenGraphDesc*>(&d), &d.nodes[0]};
-    UsdGenCaptureContext ctx; ctx.desc = &d; ctx.params = &params;
-    return UsdGenCurveLoader::Load(ctx, d.curveSets[0], out, diag);
+    usdGen::UsdGenGraphSpec const lowered = usdGenUsd::Lower(d);
+    UsdGenParamView params{&lowered, &lowered.nodes[0]};
+    UsdGenCaptureContext ctx; ctx.desc = &lowered; ctx.params = &params;
+    return UsdGenCurveLoader::Load(ctx, UsdGenCurveSetInputs(lowered)[0], out, diag);
 }
 
 bool Capture(UsdGenCurveSetDesc const& c, UsdGenSurfaceDesc const* s, char const* policy,
              UsdGenCurveRootCaptureResult* out)
 {
     std::string error;
-    return UsdGenCaptureCurveRoots(c, s, TfToken(policy), out, &error);
+    return UsdGenCaptureCurveRoots(usdGenUsd::Lower(c), (s ? usdGenUsd::Addr(UsdGenSurfaceInputView(usdGenUsd::Lower(*s))) : nullptr), TfToken(policy), out, &error);
 }
 
 bool Near(double a, double b, double tolerance = 2.0e-6)
@@ -149,12 +151,12 @@ int main()
 {
     auto d = Fixture();
     UsdGenDiagnostics diagnostics;
-    auto handle = CompileVulkanSourceWidthPlan(d, &diagnostics);
+    auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(d), &diagnostics);
     CHECK(handle && !diagnostics.HasErrors());
     auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
-    CHECK(plan && plan->HasRootBindings() && plan->Source().path == SdfPath("/Groom/C3"));
+    CHECK(plan && plan->HasRootBindings() && plan->Source().key == usdGenUsd::KeyOf(SdfPath("/Groom/C3")));
     CHECK(plan->SourceControls().rebind == TfToken("never"));
-    CHECK(plan->Descriptor().get() != &d && plan->Source().curveId == VtArray<uint64_t>({42,7,19}));
+    CHECK(plan->Descriptor().get() != static_cast<void const *>(&d) && VtArray<uint64_t>(plan->Source().curveId.begin(), plan->Source().curveId.end()) == VtArray<uint64_t>({42,7,19}));
 
     UsdGenCurveBuffer loaded;
     CHECK(Load(d, &loaded, &diagnostics));
@@ -291,13 +293,13 @@ int main()
     CHECK(Load(empty, &emptyOut, &diagnostics));
     CHECK(emptyOut.totalCurves == 3 && emptyOut.rootPrim.empty() && emptyOut.rootUV.empty() &&
           emptyOut.rootT.empty() && emptyOut.hairT.size() == 9);
-    CHECK(CompileVulkanSourceWidthPlan(empty));
+    CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(empty)));
 
     // Independent rooted-ragged source oracle: invalid middle root is dropped
     // before canonical stable-ID sorting (old curve 2/id20, then old 0/id30).
     auto ragged = RaggedRootedFixture();
     auto raggedBefore = ragged;
-    CHECK(CompileVulkanSourceWidthPlan(ragged));
+    CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(ragged)));
     UsdGenCurveBuffer raggedOut;
     CHECK(Load(ragged, &raggedOut, &diagnostics));
     CHECK(raggedOut.totalCurves == 2 && raggedOut.totalCvs == 7 &&

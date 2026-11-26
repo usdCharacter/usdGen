@@ -19,6 +19,7 @@
 // concentric-disk slot around the members' mean root, radii sqrt(3) W and
 // sqrt(3) D), and the projection sort tie-break (strandIndex order).
 #include "usdGen/ops/braid.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
@@ -334,10 +335,10 @@ float ReferenceLength(UsdGenCaptureContext const &ctx, Settings const &s)
     float length = 0.0f;
     if (s.referenceLength > 0.0f) {
         length = s.referenceLength;
-    } else if (ctx.desc && ctx.surface < ctx.desc->surfaces.size()) {
-        UsdGenSurfaceDesc const &surface = ctx.desc->surfaces[ctx.surface];
-        VtVec3fArray const &points = surface.restPoints.empty() ? surface.points
-                                                                : surface.restPoints;
+    } else if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size()) {
+        UsdGenSurfaceInputView const &surface = UsdGenSurfaceAt(*ctx.desc, ctx.surface);
+        UsdGenSpan<const GfVec3f> const points = surface.restPoints.empty() ? surface.points
+                                                                            : surface.restPoints;
         if (!points.empty()) {
             GfVec3f lo = points[0], hi = points[0];
             for (GfVec3f const &q : points)

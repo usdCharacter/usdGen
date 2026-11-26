@@ -28,7 +28,7 @@ struct ExprVkStageBinding {
     uint32_t components = 1;
     expr::IRProgram ir;
     std::vector<double> literal;
-    SdfPath expression;
+    UsdGenNodeKey expression;
     TfToken output;
 };
 
@@ -51,14 +51,14 @@ struct ExprVkExprOpData {
 
 // Compiles node.expressionBindings after the op record's admission
 // (UsdGenValidateExpressionBindings, the one rule for every lane).
-bool ExprVkCompileStageBindings(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool ExprVkCompileStageBindings(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                                 std::vector<ExprVkStageBinding> *out,
                                 std::vector<std::string> *diagnostics);
 
 // Width with optional expression bindings: literal controls validate exactly
 // as the literal lane, and width/mask floats plus replace/enabled bools may
 // be connected (the op record's admission; enabled is groom-only).
-bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                              ExprVkWidthData *out, std::vector<std::string> *diagnostics);
 
 // UsdGenExprOp: expr:source/expr:returnType/mode validate as Bind does,
@@ -66,12 +66,12 @@ bool ExprVkValidateWidthNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &
 // compiles sampler-free without $value/$frame/$time (the Capture refusals),
 // and mask/enabled accept connections (the ValidateExprOp allowlist).
 // expr:maps still rejects: maps are the image-map gap's surface.
-bool ExprVkValidateExprOpNode(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool ExprVkValidateExprOpNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                               ExprVkExprOpData *out, std::vector<std::string> *diagnostics);
 
 // Frame/time controls for expression evaluation, derived from the
 // descriptor: frame is desc.time (timeCodes), time is seconds.
-expr::Context ExprVkPlanControls(UsdGenGraphDesc const &desc, int32_t seed, expr::Domain domain);
+expr::Context ExprVkPlanControls(UsdGenGraphSpec const &desc, int32_t seed, expr::Domain domain);
 
 } // namespace usdGen::vulkan
 

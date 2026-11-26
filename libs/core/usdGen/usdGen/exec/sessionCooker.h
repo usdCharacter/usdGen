@@ -7,7 +7,7 @@
 #include "usdGen/executionCache.h"
 #include "usdGen/sessionDeviceProvider.h"
 #include "usdGen/scheduler.h"
-#include "usdGen/valuePreview.h"
+#include "usdGen/registries/publisher.h"
 
 #include <memory>
 #include <functional>
@@ -66,7 +66,7 @@ public:
 
     /// Called solely by the serial work owner. `desc` is the exact immutable
     /// command snapshot, never an alias to command-owner mutable input.
-    UsdGenGenerationConstPtr Cook(std::shared_ptr<const UsdGenGraphDesc> desc,
+    UsdGenGenerationConstPtr Cook(std::shared_ptr<const UsdGenGraphSpec> desc,
         UsdGenContext context, bool devicePublicationEnabled,
         UsdGenPendingDirty pending, double frame, UsdGenCommitReason reason,
         UsdGenGenerationConstPtr previous, UsdGenStats publishedStats,
@@ -77,23 +77,23 @@ public:
     // Begins a real source -> operator* -> final CUDA task graph. The caller
     // must retain this cooker through completion (the session pipeline does).
     void CookCudaAsync(UsdGenExecutionRuntime&, UsdGenExecutionPipeline::Cancellation const&,
-        std::shared_ptr<const UsdGenGraphDesc>, UsdGenContext, bool,
+        std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext, bool,
         UsdGenPendingDirty, double, UsdGenCommitReason, UsdGenGenerationConstPtr,
         UsdGenStats, bool, uint64_t, int, CudaCompletion,
         CoalescedHooks hooks = {});
     void CookDeviceAsync(UsdGenExecutionRuntime&, UsdGenExecutionPipeline::Cancellation const&,
-        std::shared_ptr<const UsdGenGraphDesc>, UsdGenContext, bool,
+        std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext, bool,
         UsdGenPendingDirty, double, UsdGenCommitReason, UsdGenGenerationConstPtr,
         UsdGenStats, bool, uint64_t, int,
         std::shared_ptr<UsdGenSessionDeviceProvider>, DeviceReturnBinder,
         CudaCompletion, CoalescedHooks hooks = {});
-    UsdGenDirtyReport Report() const { return _lastReport; }
+    UsdGenRef<const UsdGenPublication> Report() const { return _lastReport; }
     UsdGenDiagnostics Diagnostics() const { return _lastDiagnostics; }
     UsdGenStats Stats() const { return _stats; }
     std::vector<UsdGenCudaBindingStats> CudaBindingStats() const;
     std::unordered_map<UsdGenNodeId, UsdGenNodeStats> NodeStats() const;
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> Routing() const;
-    UsdGenGraphDesc GraphDesc() const;
+    UsdGenGraphSpec GraphSpec() const;
     std::shared_ptr<const UsdGenCudaExecutionPlan> CudaPlan() const;
     struct ExecutionCacheCandidate {
         UsdGenExecutionCacheKey key;
@@ -131,9 +131,9 @@ public:
         return _executionCacheDomain ? _executionCacheDomain->Size() : 0;
     }
     int NodeCount() const noexcept { return _graph.NodeCount(); }
-    UsdGenNodeId NodeIdForPath(SdfPath const& path) const { return _graph.NodeIdForPath(path); }
+    UsdGenNodeId NodeIdForKey(UsdGenNodeKey key) const { return _graph.NodeIdForKey(key); }
 private:
-    bool _Prepare(std::shared_ptr<const UsdGenGraphDesc>, UsdGenContext,
+    bool _Prepare(std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext,
                   bool devicePublicationEnabled, UsdGenPendingDirty&,
                   UsdGenGenerationConstPtr previous, UsdGenStats publishedStats,
                   bool invalidateValues, uint64_t previousPublishedWorkerEpoch,
@@ -153,10 +153,10 @@ private:
     void _BeginCoalesced(std::shared_ptr<UsdGenExecutionCacheDomain> const&,
                          UsdGenExecutionCacheKey const&, CoalescedHooks const&);
     UsdGenCompiler _compiler;
-    UsdGenDirtyReport _lastReport;
+    UsdGenRef<const UsdGenPublication> _lastReport;
     UsdGenDiagnostics _lastDiagnostics;
-    UsdGenGraphDesc _desc;
-    std::shared_ptr<const UsdGenGraphDesc> _descIdentity;
+    UsdGenGraphSpec _desc;
+    std::shared_ptr<const UsdGenGraphSpec> _descIdentity;
     UsdGenGraph _graph;
     std::unique_ptr<UsdGenCudaExecutionWorkspace> _cudaWorkspace;
     std::shared_ptr<UsdGenSessionDeviceProvider> _deviceProvider;
@@ -165,7 +165,7 @@ private:
     // later command-owner acceptance action.
     std::optional<UsdGenSessionDeviceIdentity> _acceptedDeviceIdentity;
     std::optional<UsdGenSessionDeviceIdentity> _activeDeviceIdentity;
-    SdfPath _cudaWorkspaceDescription;
+    UsdGenNodeKey _cudaWorkspaceDescription;
     uint64_t _lastDeviceContextLossSerial = 0;
     // Written on the work lane, read from any thread.
     struct _BindingStats : UsdGenRefCounted {
@@ -174,26 +174,21 @@ private:
     UsdGenAtomicRef<_BindingStats> _cudaBindingStats{UsdGenMakeRef<_BindingStats>()};
     void _PublishCudaBindingStats(std::vector<UsdGenCudaBindingStats> stats);
     UsdGenScheduler _scheduler;
-    // usdGen:preview:* colours of the cook in progress (CPU lane only).
-    UsdGenValuePreview _preview;
-    UsdGenPreviewColors _previewColors;
+    // The terminal type's publisher and the state it keeps across cooks.
+    UsdGenPublisherDef const *_publisher = nullptr;
+    std::unique_ptr<UsdGenPublisherState> _publisherState;
     bool _cudaPreviewWarned = false;
     // USDGEN_COMMIT: why and how long the current cook compiled ("" = no compile).
     std::string _traceCompile;
     // A cook failed part-way: the next compile starts from scratch.
     bool _graphUntrusted = false;
-    // Identity of the fur density volume's non-tile inputs (occluder meshes,
-    // grid parameters): the tile COW check alone cannot see them change.
-    uint64_t _furVolumeKey = 0;
-    // Occluder work reused across bakes (furOcclusion.h); made on first use.
-    std::shared_ptr<class UsdGenFurOcclusionCache> _furCache;
-    // The published baseline is not this graph's last run: rebuild every tile.
+    // The published baseline is not this graph's last run: rebuild every group.
     bool _rebuildAllTiles = false;
-    // The published generation's tiles carry every channel but the points of
-    // the graph's current terminal buffer: it was built from this graph, and
-    // no node that writes more than points has run since. A cook whose nodes
-    // again wrote only points (a deform over an unchanged upstream) then
-    // refreshes just the tiles' points (_RefreshTilePoints).
+    // The published publication carries every channel but the points of the
+    // graph's current terminal: it was built from this graph, and no node
+    // that writes more than points has run since. A cook whose nodes again
+    // wrote only points (a deform over an unchanged upstream) then lets the
+    // publisher refresh just the points (UsdGenPublishContext::pointsOnly).
     bool _tileChannelsSettled = false;
     UsdGenGenerationStore _store;
     size_t _executionCacheBytes = kDefaultExecutionCacheBytes;
@@ -227,16 +222,8 @@ private:
     // become the publication baseline, its state must not suppress a later
     // cook relative to that baseline.
     uint64_t _lastCookedEpoch = 0;
-    UsdGenTilePublication _BuildTilePublication(UsdGenChunkGroup const&, UsdGenRunResult const&,
-                                                UsdGenGenerationConstPtr const&);
-    /// `previous` with its points regathered from the terminal buffer, every
-    /// other channel shared. False (and `out` untouched) when the tile's
-    /// curve layout no longer matches `previous`.
-    bool _RefreshTilePoints(UsdGenChunkGroup const&, UsdGenRunResult const&,
-                            UsdGenTilePublication const& previous,
-                            UsdGenTilePublication *out) const;
-    std::shared_ptr<const UsdGenRbfAnimationBinding> _BuildAnimationBinding(
-        UsdGenRunResult const&, std::vector<UsdGenTilePublication> const&) const;
+    /// The publisher of `terminal`'s type, with its state made on first use.
+    UsdGenPublisherDef const *_SelectPublisher(UsdGenElementSet const &terminal);
 };
 } // namespace usdGen
 #endif

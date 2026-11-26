@@ -11,7 +11,8 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
+#include "usdGenUsd/publishPaths.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/registrar.h"
@@ -107,10 +108,23 @@ struct Registered {
     UsdGenTypeId type = UsdGenTypeId::Invalid;
     UsdGenTypeId typeDuplicate = UsdGenTypeId::Invalid;
     bool kernel = false, kernelDuplicate = true, kernelBadOp = true;
+    bool evaluatorDuplicate = true, evaluatorNoCreate = true;
+    bool publisher = false, publisherDuplicate = true, publisherBadType = true,
+         publisherNoBuild = true;
     UsdGenRegistrar *saved = nullptr;    // a copy, for post-freeze calls
 } g_reg;
 
 std::vector<UsdGenParamDecl> g_many;
+
+UsdGenRef<const UsdGenPublication> BuildNothing(UsdGenPublishContext const &)
+{
+    return {};
+}
+
+std::unique_ptr<UsdGenParamEvaluatorState> CreateNoEvaluator()
+{
+    return nullptr;
+}
 
 void RegisterTestLibrary(UsdGenRegistrar &r)
 {
@@ -164,12 +178,31 @@ void RegisterTestLibrary(UsdGenRegistrar &r)
     g_reg.kernel = r.RegisterKernel(g_reg.test, UsdGenBackendId(0), k);
     g_reg.kernelDuplicate = r.RegisterKernel(g_reg.test, UsdGenBackendId(0), k);
     g_reg.kernelBadOp = r.RegisterKernel(UsdGenOpId(kUsdGenMaxOps - 1), UsdGenBackendId(0), k);
+
+    UsdGenParamEvaluatorDef evaluator;
+    g_reg.evaluatorNoCreate = r.RegisterParamEvaluator(evaluator);
+    evaluator.create = &CreateNoEvaluator;
+    g_reg.evaluatorDuplicate = r.RegisterParamEvaluator(evaluator);   // usdGenExpr's is first
+
+    UsdGenPublisherDef publisher;
+    publisher.primitive = g_reg.type;
+    g_reg.publisherNoBuild = r.RegisterPublisher(publisher);
+    publisher.build = &BuildNothing;
+    g_reg.publisher = r.RegisterPublisher(publisher);
+    g_reg.publisherDuplicate = r.RegisterPublisher(publisher);
+    publisher.primitive = UsdGenTypeId(kUsdGenMaxTypes - 1);
+    g_reg.publisherBadType = r.RegisterPublisher(publisher);
     g_reg.saved = new UsdGenRegistrar(r);
 }
 
 void TestRegistration()
 {
+    std::string error = "unset";
+    Check(UsdGenEngineEnsureInitialized(&error) && error.empty(), "UsdGenEngineEnsureInitialized");
+    Check(UsdGenEngineEnsureInitialized(), "UsdGenEngineEnsureInitialized is idempotent");
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    Check(ops.ParamEvaluator().create != nullptr, "usdGenExpr registers the parameter evaluator");
+    Check(UsdGenCreateParamEvaluatorState() != nullptr, "an evaluator state is made");
     Check(ops.Count() == 32, "32 built-in ops registered, got " + std::to_string(ops.Count()));
     Check(!ops.IsFrozen(), "registry is open before the first compile");
     Check(UsdGenRegisterStatic(&RegisterTestLibrary), "UsdGenRegisterStatic");
@@ -186,6 +219,15 @@ void TestRegistration()
           "type registers once");
     Check(g_reg.kernel && !g_reg.kernelDuplicate && !g_reg.kernelBadOp,
           "kernel registers once, only for a registered op");
+    Check(!g_reg.evaluatorNoCreate && !g_reg.evaluatorDuplicate,
+          "one parameter evaluator, with a create");
+    Check(ops.ParamEvaluator().create != &CreateNoEvaluator, "the first evaluator stays");
+    Check(g_reg.publisher && !g_reg.publisherDuplicate && !g_reg.publisherBadType &&
+              !g_reg.publisherNoBuild,
+          "publisher registers once, only for a registered type, with a build");
+    UsdGenPublisherDef const *found = UsdGenFindPublisher(g_reg.type);
+    Check(found && found->build == &BuildNothing, "UsdGenFindPublisher");
+    Check(!UsdGenFindPublisher(UsdGenTypeId::Invalid), "no publisher for Invalid");
 }
 
 void TestDenseHandles()
@@ -318,14 +360,16 @@ void TestResolveDescIds()
     desc.maps.resize(2);
     desc.maps[0].type = TfToken("UsdGenPaintMap");
     desc.maps[1].type = TfToken("UsdGenNoMap");
-    UsdGenResolveDescIds(&desc);
+    UsdGenGraphSpec spec = usdGenUsd::Lower(desc);
+    UsdGenResolveDescIds(&spec);
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
-    Check(desc.nodes[0].opId == ops.Find(TfToken("UsdGenLength")) &&
-              desc.nodes[0].opId != UsdGenOpId::Invalid, "node opId");
-    Check(desc.nodes[1].opId == UsdGenOpId::Invalid, "unknown node opId");
-    Check(desc.maps[0].typeId == UsdGenTypeRegistry::Get().Find(TfToken("UsdGenPaintMap")) &&
-              desc.maps[0].typeId != UsdGenTypeId::Invalid, "map typeId");
-    Check(desc.maps[1].typeId == UsdGenTypeId::Invalid, "unknown map typeId");
+    Check(spec.nodes[0].opId == ops.Find(TfToken("UsdGenLength")) &&
+              spec.nodes[0].opId != UsdGenOpId::Invalid, "node opId");
+    Check(spec.nodes[1].opId == UsdGenOpId::Invalid, "unknown node opId");
+    UsdGenMapInputView const map0 = UsdGenMapInputs(spec)[0], map1 = UsdGenMapInputs(spec)[1];
+    Check(map0.typeId == UsdGenTypeRegistry::Get().Find(TfToken("UsdGenPaintMap")) &&
+              map0.typeId != UsdGenTypeId::Invalid, "map typeId");
+    Check(map1.typeId == UsdGenTypeId::Invalid, "unknown map typeId");
 }
 
 UsdGenExpressionBinding Binding(char const *destination, char const *native,
@@ -352,45 +396,53 @@ void TestExpressionAdmission()
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenOpRecord const &r = ops.Record(g_reg.test);
     using S = expr::ScalarType;
+    // The node lowered in a graph of its own: messages name it by its label.
+    auto validate = [](UsdGenOpRecord const &rec, UsdGenNodeDesc const &n,
+                       std::vector<std::string> *errs) {
+        UsdGenGraphDesc d;
+        d.nodes = {n};
+        UsdGenGraphSpec const spec = usdGenUsd::Lower(d);
+        return UsdGenValidateExpressionBindings(rec, spec.nodes[0], &spec, errs);
+    };
     UsdGenNodeDesc node;
     node.path = SdfPath("/g/op");
     node.type = r.Name();
     std::vector<std::string> errors;
-    Check(UsdGenValidateExpressionBindings(r, node, &errors), "no bindings is fine");
+    Check(validate(r, node, &errors), "no bindings is fine");
 
     node.expressionBindings = {Binding("usdGen:test:value", "float", S::Float32, 1, D::Primitive),
                                Binding("enabled", "bool", S::Bool, 1, D::Groom)};
-    Check(UsdGenValidateExpressionBindings(r, node, &errors) && errors.empty(), "admitted bindings");
+    Check(validate(r, node, &errors) && errors.empty(), "admitted bindings");
 
     node.expressionBindings = {Binding("test:value", "float", S::Float32, 1, D::Point)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) &&
+    Check(!validate(r, node, &errors) &&
               HasError(errors, "RegTest test:value requires groom/primitive evaluation"),
           "point domain rejected");
     errors.clear();
     node.expressionBindings = {Binding("enabled", "bool", S::Bool, 1, D::Primitive)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) &&
+    Check(!validate(r, node, &errors) &&
               HasError(errors, "RegTest enabled requires groom evaluation"),
           "groom-only rejected");
     errors.clear();
     node.expressionBindings = {Binding("test:value", "int", S::Int32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) &&
+    Check(!validate(r, node, &errors) &&
               HasError(errors, "unsupported or incorrectly typed RegTest expression test:value"),
           "wrong type rejected");
     errors.clear();
     node.expressionBindings = {Binding("test:cull", "float", S::Float32, 1, D::Groom),
                                Binding("bogus", "float", S::Float32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors) && errors.size() == 2 &&
+    Check(!validate(r, node, &errors) && errors.size() == 2 &&
               HasError(errors, "expression test:cull") && HasError(errors, "expression bogus"),
           "unconnectable and unknown rejected");
     errors.clear();
     node.expressionBindings = {Binding("test:value", "float", S::Float32, 1, D::Groom),
                                Binding("usdGen:test:value", "float", S::Float32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(r, node, &errors), "duplicate destination rejected");
+    Check(!validate(r, node, &errors), "duplicate destination rejected");
     errors.clear();
     UsdGenOpRecord const &plain = ops.Record(g_reg.plain);
     node.type = plain.Name();
     node.expressionBindings = {Binding("x", "float", S::Float32, 1, D::Groom)};
-    Check(!UsdGenValidateExpressionBindings(plain, node, &errors) &&
+    Check(!validate(plain, node, &errors) &&
               HasError(errors, "operator UsdGenRegistriesPlainOp at /g/op does not accept "
                                "connected (expression) parameters"),
           "op without connectable params");
@@ -409,14 +461,14 @@ void TestRoutingMatchesCompiler()
         UsdGenGraphDesc const desc = usdGenGolden::MakeOpGraph(type, false);
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        if (!compiler.Compile(desc, &graph).ok) {
+        if (!usdGenUsd::Compile(compiler, desc, &graph).ok) {
             Check(false, type.GetString() + ": fixture compiles");
             continue;
         }
         auto const snapshot = graph.RoutingSnapshot();
         UsdGenGraphRoutingNode const *rn = nullptr;
         for (UsdGenGraphRoutingNode const &n : snapshot->nodes)
-            if (n.path == usdGenGolden::OpPath()) rn = &n;
+            if (usdGenUsd::PathOf(usdGenUsd::Paths(*snapshot), n.key) == usdGenGolden::OpPath()) rn = &n;
         if (!rn) { Check(false, type.GetString() + ": routing node"); continue; }
         UsdGenOpRecord const &r = ops.Record(id);
         auto const routing = r.Routing();
@@ -424,7 +476,7 @@ void TestRoutingMatchesCompiler()
         for (size_t i = 0; same && i < routing.size(); ++i)
             same = routing[i] == rn->paramRouting[i];
         Check(same, type.GetString() + ": record routing == compiled routing");
-        UsdGenNodeId const nodeId = graph.NodeIdForPath(usdGenGolden::OpPath());
+        UsdGenNodeId const nodeId = usdGenUsd::NodeIdForPath(graph, usdGenGolden::OpPath());
         Check(nodeId != kUsdGenInvalidNode && graph.Node(nodeId).opId == id &&
                   graph.Node(nodeId).record == &r, type.GetString() + ": compiled node ids");
         ++compared;
@@ -436,8 +488,8 @@ void TestInterner()
 {
     TfToken const vertex("vertex");
     Check(UsdGenTokens().vertex == vertex && UsdGenTokens().float_ == TfToken("float") &&
-              UsdGenTokens().renderNamespace == TfToken("__usdGenRender"),
-          "engine tokens");
+              usdGenUsd::RenderNamespace(SdfPath("/D")) == SdfPath("/D/__usdGenRender"),
+          "engine tokens and the host's render namespace");
     Check(UsdGenTokenChecksEnabled(), "token checks on by default");
     uint64_t const total = UsdGenTotalInternCount(), exec = UsdGenExecInternCount();
     UsdGenCookTokenCheck const check;
@@ -468,6 +520,10 @@ void TestFrozen()
     Check(g_reg.saved->RegisterType(t) == UsdGenTypeId::Invalid, "RegisterType after freeze");
     Check(!g_reg.saved->RegisterKernel(g_reg.plain, UsdGenBackendId(0), UsdGenKernelDef{}),
           "RegisterKernel after freeze");
+    UsdGenPublisherDef publisher;
+    publisher.primitive = UsdGenTypeId(0);   // registered, no publisher yet
+    publisher.build = &BuildNothing;
+    Check(!g_reg.saved->RegisterPublisher(publisher), "RegisterPublisher after freeze");
     Check(ops.Count() == count, "nothing registered after freeze");
     UsdGenFreezeRegistries();   // idempotent
     TestInterner();

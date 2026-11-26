@@ -6,7 +6,7 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 
 #include <bitset>
@@ -14,6 +14,7 @@
 namespace usdGen {
 
 void UsdGenReadTokenCheckSetting() noexcept;   // token.cpp
+void UsdGenLoadDefaultExtensions(UsdGenRegistrar &, std::string *error);   // registrar.cpp
 UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
 
 namespace {
@@ -103,6 +104,22 @@ TfToken const &UsdGenOpRecord::Token(uint16_t i) const noexcept
 {
     return _tables && i < _tables->tokens.size() ? _tables->tokens[i] : kNoToken;
 }
+TfToken const &UsdGenOpRecord::OutputType() const noexcept
+{
+    return _tables ? _tables->outputType : kNoToken;
+}
+TfSpan<const TfToken> UsdGenOpRecord::InputTypes() const noexcept
+{
+    return _tables ? SpanOf(_tables->inputTypes) : TfSpan<const TfToken>();
+}
+bool UsdGenOpRecord::AcceptsInput(TfToken const &producerType) const noexcept
+{
+    TfSpan<const TfToken> const accepted = InputTypes();
+    if (accepted.empty()) return producerType.IsEmpty();
+    for (TfToken const &t : accepted)
+        if (t == producerType) return true;
+    return false;
+}
 
 // ---- UsdGenOpRegistry -------------------------------------------------------
 
@@ -111,8 +128,9 @@ UsdGenOpRegistry::UsdGenOpRegistry()
     UsdGenReadTokenCheckSetting();
     (void)UsdGenTokens();
     (void)UsdGenMutableTypeRegistry();
+    // The default extensions, in id order.
     UsdGenRegistrar r(*this);
-    usdGenRegister_usdGenCurves(r);
+    UsdGenLoadDefaultExtensions(r, &_initError);
 }
 
 // Built on first use and published by CAS; a thread that loses the race
@@ -157,13 +175,17 @@ std::unique_ptr<UsdGenOp> UsdGenOpRegistry::Create(UsdGenOpId id) const
 
 // ---- intake ------------------------------------------------------------------
 
-void UsdGenResolveDescIds(UsdGenGraphDesc *desc)
+void UsdGenResolveDescIds(UsdGenGraphSpec *desc)
 {
     if (!desc) return;
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenTypeRegistry const &types = UsdGenMutableTypeRegistry();
-    for (UsdGenNodeDesc &node : desc->nodes) node.opId = ops.Find(node.type);
-    for (UsdGenMapDesc &map : desc->maps) map.typeId = types.Find(map.type);
+    for (UsdGenOpNode &node : desc->nodes) node.opId = ops.Find(node.type);
+    for (UsdGenInputRecord &record : desc->inputs) {
+        if (record.kind == UsdGenTypeId::Invalid) continue;
+        UsdGenInputDesc const *input = types.Def(record.kind).input;
+        if (input && input->intake) input->intake(record);
+    }
 }
 
 // ---- expression admission ------------------------------------------------------
@@ -187,7 +209,8 @@ std::string DomainList(expr::Domain domains)
 }  // namespace
 
 bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &record,
-                                      UsdGenNodeDesc const &node,
+                                      UsdGenOpNode const &node,
+                                      UsdGenGraphSpec const *spec,
                                       std::vector<std::string> *errors)
 {
     if (node.expressionBindings.empty()) return true;
@@ -200,14 +223,14 @@ bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &record,
         connectable = connectable || decl.expr.domains != expr::Domain::None;
     if (!connectable)
         return reject("operator " + record.Name().GetString() + " at " +
-                      node.path.GetString() +
+                      UsdGenLabel(spec, node.key) +
                       " does not accept connected (expression) parameters");
 
     char const *const display = record.Def().displayName ? record.Def().displayName
                                                          : record.Name().GetText();
     std::bitset<kUsdGenMaxParamsPerOp> seen;
     bool ok = true;
-    for (UsdGenExpressionBinding const &binding : node.expressionBindings) {
+    for (UsdGenParamBinding const &binding : node.expressionBindings) {
         UsdGenParamSlot const slot = record.FindParam(binding.destination);
         std::string name = binding.destination.GetString();
         if (slot != kUsdGenNoParam) name = record.Def().params[slot].name;
@@ -242,7 +265,8 @@ bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &record,
     return ok;
 }
 
-bool UsdGenValidateExpressionBindings(UsdGenNodeDesc const &node,
+bool UsdGenValidateExpressionBindings(UsdGenOpNode const &node,
+                                      UsdGenGraphSpec const *spec,
                                       std::vector<std::string> *errors)
 {
     if (node.expressionBindings.empty()) return true;
@@ -254,11 +278,11 @@ bool UsdGenValidateExpressionBindings(UsdGenNodeDesc const &node,
     if (id == UsdGenOpId::Invalid) {
         if (errors)
             errors->push_back("operator " + node.type.GetString() + " at " +
-                              node.path.GetString() +
+                              UsdGenLabel(spec, node.key) +
                               " does not accept connected (expression) parameters");
         return false;
     }
-    return UsdGenValidateExpressionBindings(ops.Record(id), node, errors);
+    return UsdGenValidateExpressionBindings(ops.Record(id), node, spec, errors);
 }
 
 }  // namespace usdGen

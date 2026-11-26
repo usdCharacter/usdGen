@@ -9,6 +9,7 @@
 // each case pins its shape premise from the reference morton keys plus the
 // full sort contract (sorted, stable, exact permutation).
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
@@ -75,7 +76,7 @@ static UsdGenGraphDesc Desc(UsdGenSurfaceDesc const &s, double density,
 static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
 {
     UsdGenNodeDesc const &node = d.nodes[0];
-    UsdGenStackParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
+    usdGenUsd::LoweredParams stackParams(d, node, usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenParamView const &params = stackParams.View();
     UsdGenScatterOp op(usdGenTest::OpRecord("UsdGenScatter"));
     UsdGenDiagnostics diag;
@@ -85,7 +86,8 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
     if (!cap)
         return false;
     UsdGenCaptureContext ctx;
-    ctx.desc = &d;
+    usdGen::UsdGenGraphSpec const lowered89 = usdGenUsd::Lower(d);
+    ctx.desc = &lowered89;
     ctx.params = &params;
     ctx.surface = 0;
     ctx.seed = uint32_t(node.seed);

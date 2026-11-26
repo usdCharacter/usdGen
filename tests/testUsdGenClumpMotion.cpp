@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/clumpMotion.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -213,7 +214,7 @@ int main() {
           "one membership cannot split across center IDs");
 
     UsdGenCompiler compiler; UsdGenGraph graph;
-    auto valid = compiler.Compile(Chain(2), &graph);
+    auto valid = usdGenUsd::Compile(compiler, Chain(2), &graph);
     Check(valid.ok, "multi-level auto Clumps compile without overlap");
     if (valid.ok) {
         Check(graph.Node(1).outputPrimvars.front() ==
@@ -221,7 +222,7 @@ int main() {
               TfToken("clumpId_2"), "second auto Clump follows all prior levels");
     }
     UsdGenGraph invalidGraph;
-    auto invalid = compiler.Compile(Chain(2, 1), &invalidGraph);
+    auto invalid = usdGenUsd::Compile(compiler, Chain(2, 1), &invalidGraph);
     Check(!invalid.ok && !invalid.errors.empty(), "pinned overlapping levels fail compile");
     UsdGenGraphDesc imported = Chain(1);
     imported.nodes[0].type = TfToken("UsdGenCurveSource");
@@ -261,7 +262,7 @@ int main() {
     sourceCurves.authoredPlanes = {id, center, centerId, weight};
     imported.curveSets.push_back(std::move(sourceCurves));
     UsdGenGraph importedGraph;
-    auto importedResult = compiler.Compile(imported, &importedGraph);
+    auto importedResult = usdGenUsd::Compile(compiler, imported, &importedGraph);
     Check(importedResult.ok, "imported quartet and auto Clumps compile");
     if (importedResult.ok)
         Check(importedGraph.Node(1).outputPrimvars.front() == TfToken("clumpId_1") &&
@@ -270,7 +271,7 @@ int main() {
     if (importedResult.ok) {
         UsdGenScheduler scheduler(2);
         UsdGenEvalContext context;
-        context.desc = &importedGraph.Desc();
+        context.desc = &importedGraph.Spec();
         auto run = scheduler.Run(importedGraph, context, 1);
         for (auto const &diagnostic : run.diagnostics.errors)
             std::printf("  imported cook: %s\n", diagnostic.c_str());
@@ -288,7 +289,7 @@ int main() {
     }
     imported.nodes[1].params.push_back({TfToken("clump:level"), VtValue(0), false});
     UsdGenGraph importedCollision;
-    auto collision = compiler.Compile(imported, &importedCollision);
+    auto collision = usdGenUsd::Compile(compiler, imported, &importedCollision);
     Check(!collision.ok && !collision.errors.empty(),
           "pinned Clump cannot replace an imported level");
     int const top = std::numeric_limits<int>::max();
@@ -298,7 +299,7 @@ int main() {
     boundary.nodes[2].params.push_back(
         {TfToken("clump:levels"), VtValue(4), false});
     UsdGenGraph boundaryGraph;
-    auto boundaryValid = compiler.Compile(boundary, &boundaryGraph);
+    auto boundaryValid = usdGenUsd::Compile(compiler, boundary, &boundaryGraph);
     Check(boundaryValid.ok && boundaryGraph.Node(2).outputPrimvars.front() ==
           TfToken("clumpId_" + std::to_string(top - 4)),
           "highest representable auto Clump range compiles");
@@ -310,7 +311,7 @@ int main() {
     reserved.authoredPlanes.push_back(std::move(highId));
     boundary.curveSets.push_back(std::move(reserved));
     UsdGenGraph overflowGraph;
-    auto overflow = compiler.Compile(boundary, &overflowGraph);
+    auto overflow = usdGenUsd::Compile(compiler, boundary, &overflowGraph);
     Check(!overflow.ok && !overflow.errors.empty(),
           "auto Clump rejects occupied range at integer boundary");
     return failures ? 1 : 0;

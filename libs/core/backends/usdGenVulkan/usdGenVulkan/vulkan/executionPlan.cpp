@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/vulkan/executionPlan.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "csourceVkCapture.h"
 #include "exprVkPlan.h"
 #include "growVkPlan.h"
@@ -92,21 +94,22 @@ bool IsIdentityMask(UsdGenParamValue const &param) {
     return param.name == UsdGenTokens().mask && param.value == VtValue(1.0f);
 }
 
-bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                    UsdGenCurveSetDesc const **source, VulkanSourceControls *controls,
+bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
+                    UsdGenCurveSetInputView *source, VulkanSourceControls *controls,
                     UsdGenDiagnostics *diagnostics) {
     using namespace vulkanP;
     UsdGenEngineTokens const &et = UsdGenTokens();
     UsdGenVulkanTokens const &vk = UsdGenVkTokens();
     UsdGenVulkanKernel const cs = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
     if (IsVulkanSurfaceCage(node)) {
-        if (node.curves.size() != 1)
+        if (node.inputSets.size() != 1)
             return Fail(diagnostics, "surfaceCage requires one sparse cage");
-        auto found =
-            std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-                         [&](auto const &item) { return item.path == node.curves.front(); });
-        if (found == desc.curveSets.end() ||
-            !ValidateVulkanSurfaceCage(desc, node, *found, &controls->maxCurves, &controls->maxCvs,
+        UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
+        if (!foundRecord)
+            return Fail(diagnostics, "surfaceCage requires one sparse cage");
+        UsdGenCurveSetInputView const foundView = UsdGenCurveSetInputView::Of(*foundRecord);
+        UsdGenCurveSetInputView const *found = &foundView;
+        if (!ValidateVulkanSurfaceCage(desc, node, *found, &controls->maxCurves, &controls->maxCvs,
                                        diagnostics))
             return false;
         controls->surfaceCage = true;
@@ -122,7 +125,7 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                 controls->resampleTo = target;
             }
         }
-        *source = &*found;
+        *source = *found;
         return true;
     }
     if (!node.mode.IsEmpty() || !node.inputs.empty() || !node.references.empty() ||
@@ -134,11 +137,13 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
                 return k[1] != 1.0f || !std::isfinite(k[0]);
             }))
             return Fail(diagnostics, "non-identity source ramps are not supported");
-    if (node.curves.size() != 1)
+    if (node.inputSets.size() != 1)
         return Fail(diagnostics, "CurveSource requires exactly one C3 curve target");
-    auto found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-                              [&](auto const &item) { return item.path == node.curves.front(); });
-    if (found == desc.curveSets.end() || found->role != UsdGenLane::Chunked ||
+    UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
+    UsdGenCurveSetInputView const foundView =
+        foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
+    UsdGenCurveSetInputView const *found = &foundView;
+    if (!foundRecord || found->role != UsdGenLane::Chunked ||
         found->curveRole != et.hair)
         return Fail(diagnostics, "CurveSource target must be one resolved C3 hair curve set");
     // Current/rest points stay source-local. Only constructing absent root
@@ -152,18 +157,17 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     if (node.surfaces.size() > 1)
         return Fail(diagnostics, "CurveSource permits at most one rest surface");
     if (node.surfaces.size() == 1) {
-        if (node.surfaces.front().IsEmpty())
+        if (!node.surfaces.front().IsValid())
             return Fail(diagnostics, "CurveSource rest surface relationship is empty");
+        UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(desc);
         size_t const resolved = std::count_if(
-            desc.surfaces.begin(), desc.surfaces.end(),
-            [&](UsdGenSurfaceDesc const &item) { return item.path == node.surfaces.front(); });
+            surfaces.begin(), surfaces.end(),
+            [&](UsdGenInputRecord const &item) { return item.key == node.surfaces.front(); });
         if (resolved != 1)
             return Fail(diagnostics,
                         "CurveSource rest surface relationship is unresolved or ambiguous");
-        auto const surface = std::find_if(
-            desc.surfaces.begin(), desc.surfaces.end(),
-            [&](UsdGenSurfaceDesc const &item) { return item.path == node.surfaces.front(); });
-        if (!IsFiniteInvertibleAffine(surface->worldMatrix))
+        UsdGenInputRecord const *surface = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+        if (!IsFiniteInvertibleAffine(UsdGenSurfaceInputView::Of(*surface).worldMatrix))
             return Fail(diagnostics, "CurveSource rest surface worldMatrix must be "
                                      "finite, affine and invertible");
     }
@@ -323,18 +327,18 @@ bool ValidateSource(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     if (!found->rootFrame.empty() && found->rootFrame.size() != found->curveVertexCounts.size())
         return Fail(diagnostics, "C3 authored rootFrame cardinality disagrees with curves");
     for (GfMatrix4d const &frame : found->rootFrame)
-        if (!IsVulkanCapturedScatter(*found) && !UsdGenValidateAuthoredRootFrame(frame))
+        if (!IsVulkanCapturedScatter(desc, *found) && !UsdGenValidateAuthoredRootFrame(frame))
             return Fail(diagnostics, "C3 authored rootFrame violates the affine "
                                      "orthonormal frame contract");
-    *source = &*found;
+    *source = *found;
     return true;
 }
 
-bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
+bool ValidateLength(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
                     UsdGenDiagnostics *diagnostics) {
     // C1 rework removed the node-level mute: `usdGen:mask` is the one
     // envelope control and it feeds the stage envelope directly.
-    if (!node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.surfaces.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.ramps.empty())
         return Fail(diagnostics, "Length requires literal identity-envelope scale, "
@@ -447,11 +451,11 @@ bool ValidateLength(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
     return true;
 }
 
-bool ValidateNoise(UsdGenNodeDesc const &node, VulkanLiteralNoiseControls *out,
+bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
                    UsdGenDiagnostics *diagnostics) {
     // Literal-only lane: no references/curves/surfaces/maps/expressions/ramps.
     // Magnitude ramps are excluded (the pipeline uses a flat 257-entry profile).
-    if (!node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty())
         return Fail(diagnostics, "Noise requires literal configuration");
     std::set<TfToken> seen;
@@ -534,7 +538,7 @@ bool ValidateNoise(UsdGenNodeDesc const &node, VulkanLiteralNoiseControls *out,
 
 // Barycentric (triangle) / bilinear (quad) interpolation of a surface face at
 // a UV coordinate — mirrors the CUDA GatherRoots kernel exactly.
-GfVec3f RootPosition(UsdGenSurfaceDesc const &surface, std::vector<uint32_t> const &faceStart,
+GfVec3f RootPosition(UsdGenSurfaceInputView const &surface, std::vector<uint32_t> const &faceStart,
                      int faceIdx, GfVec2f const &uv) {
     auto const &indices = surface.faceVertexIndices;
     auto const &pts = surface.points;
@@ -551,10 +555,10 @@ GfVec3f RootPosition(UsdGenSurfaceDesc const &surface, std::vector<uint32_t> con
     return a * (u0 * v0) + b * (u * v0) + c * (u * v) + d * (u0 * v);
 }
 
-bool ValidateDeform(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
-                    UsdGenCurveSetDesc const *source, VulkanDeformControls *out,
+bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
+                    UsdGenCurveSetInputView const *source, VulkanDeformControls *out,
                     UsdGenDiagnostics *diagnostics) {
-    if (!source || node.surfaces.size() != 1 || !node.references.empty() || !node.curves.empty() ||
+    if (!source || node.surfaces.size() != 1 || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.ramps.empty())
         return Fail(diagnostics,
                     "Deform requires one pose surface and no references/maps/expressions");
@@ -600,10 +604,13 @@ bool ValidateDeform(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
         return true;
     }
 
-    UsdGenSurfaceDesc const *surface = nullptr;
-    for (auto const &item : desc.surfaces)
-        if (item.path == node.surfaces.front())
-            surface = &item;
+    UsdGenInputRecord const *surfaceRecord = nullptr;
+    for (UsdGenInputRecord const &item : UsdGenSurfaceInputs(desc))
+        if (item.key == node.surfaces.front())
+            surfaceRecord = &item;
+    UsdGenSurfaceInputView const surfaceView =
+        surfaceRecord ? UsdGenSurfaceInputView::Of(*surfaceRecord) : UsdGenSurfaceInputView{};
+    UsdGenSurfaceInputView const *surface = surfaceRecord ? &surfaceView : nullptr;
     if (!surface || surface->restPoints.empty() ||
         surface->points.size() != surface->restPoints.size() || surface->faceVertexCounts.empty())
         return Fail(diagnostics, "Deform pose surface is invalid");
@@ -662,12 +669,12 @@ bool ValidateDeform(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
     return true;
 }
 
-bool ValidateResample(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
+bool ValidateResample(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
                       UsdGenDiagnostics *diagnostics) {
     // Indexed-CV (keepParam) subset only: uniform arc-length resampling,
     // mask blending and length restore have no Vulkan lowering and must
     // fail closed, never run silently as indexed interpolation.
-    if (!node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.surfaces.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.expressionBindings.empty() || !node.ramps.empty())
         return Fail(diagnostics, "Resample requires literal keepParam configuration");
@@ -719,7 +726,7 @@ bool ValidateResample(UsdGenNodeDesc const &node, VulkanSourceWidthStage *stage,
     return true;
 }
 
-bool Estimate(UsdGenCurveSetDesc const &source, bool rootBindings, int resampleTo, uint64_t *bytes,
+bool Estimate(UsdGenCurveSetInputView const &source, bool rootBindings, int resampleTo, uint64_t *bytes,
               uint64_t *widthBytes, uint64_t capacityCurves = 0, uint64_t capacityPoints = 0) {
     uint64_t authoredPoints = capacityPoints ? capacityPoints : source.points.size(),
              curves = capacityCurves ? capacityCurves : source.curveVertexCounts.size(), total = 0,
@@ -758,7 +765,7 @@ bool Estimate(UsdGenCurveSetDesc const &source, bool rootBindings, int resampleT
     *bytes = total;
     return true;
 }
-bool ResampledEstimate(UsdGenCurveSetDesc const &source, bool rootBindings, uint32_t target,
+bool ResampledEstimate(UsdGenCurveSetInputView const &source, bool rootBindings, uint32_t target,
                        uint64_t *bytes, uint64_t capacityCurves = 0) {
     // Upper bound for any Resample stage output packet. Curves never grow
     // downstream on this lane (no Grow/Scatter admitted), so every resample
@@ -809,27 +816,27 @@ bool ResampledEstimate(UsdGenCurveSetDesc const &source, bool rootBindings, uint
 }
 } // namespace
 
-VulkanSourceWidthPlan::VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphDesc> descriptor,
-                                             UsdGenCurveSetDesc source, SdfPath sourcePath,
-                                             SdfPath widthPath, VulkanSourceControls sourceControls,
+VulkanSourceWidthPlan::VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphSpec> descriptor,
+                                             UsdGenCurveSetInputView source, UsdGenNodeKey sourcePath,
+                                             UsdGenNodeKey widthPath, VulkanSourceControls sourceControls,
                                              VulkanLiteralWidthControls width, uint64_t generation,
                                              uint64_t topology, uint64_t value,
                                              bool rootBindings) noexcept
     : descriptor_(std::move(descriptor)), source_(std::move(source)),
-      sourceNodePath_(std::move(sourcePath)), widthNodePath_(std::move(widthPath)),
+      sourceNodeKey_(sourcePath), widthNodeKey_(widthPath),
       sourceControls_(std::move(sourceControls)), width_(width), curveGeneration_(generation),
       topologyVersion_(topology), valueVersion_(value), hasRootBindings_(rootBindings) {}
 
 std::shared_ptr<const UsdGenExecutionPlanHandle>
-CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics *diagnostics) {
+CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics *diagnostics) {
     // Plan building is compile phase (synthetic path names intern).
     UsdGenCompileTokenScope tokenScope;
-    UsdGenGraphDesc normalized;
+    UsdGenGraphSpec normalized;
     if (!NormalizeVulkanGeneratorGraph(original, &normalized, diagnostics))
         return {};
     auto const &desc = normalized;
     if (!desc.validationErrors.empty() || desc.executionBackend != UsdGenExecutionBackend::Vulkan ||
-        desc.nodes.empty() || desc.nodes.size() >= size_t(UINT32_MAX) || desc.curveSets.empty() ||
+        desc.nodes.empty() || desc.nodes.size() >= size_t(UINT32_MAX) || UsdGenCurveSetInputs(desc).empty() ||
         !IsFiniteMatrix(desc.xformMatrix) || !IsFinite(desc.defaultWidth) || desc.defaultWidth < 0) {
         Fail(diagnostics, "requires a single-source Vulkan graph within the native index domain");
         return {};
@@ -841,23 +848,23 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     for (size_t i = 0; i < desc.nodes.size(); ++i)
         kernels[i] = UsdGenVulkanKernelOf(desc.nodes[i].type);
     size_t sourceIndex = desc.nodes.size(), terminalIndex = desc.nodes.size();
-    std::set<SdfPath> paths;
+    std::set<UsdGenNodeKey> paths;
     for (size_t i = 0; i < desc.nodes.size(); ++i) {
         auto const &node = desc.nodes[i];
-        if (node.path.IsEmpty() || !paths.insert(node.path).second) {
+        if (!node.key.IsValid() || !paths.insert(node.key).second) {
             Fail(diagnostics, "node paths must be unique and nonempty");
             return {};
         }
-        if (node.path == desc.terminal)
+        if (node.key == desc.terminal)
             terminalIndex = i;
     }
-    if (!desc.terminal.IsEmpty() && terminalIndex == desc.nodes.size()) {
+    if (!!desc.terminal.IsValid() && terminalIndex == desc.nodes.size()) {
         Fail(diagnostics, "missing terminal");
         return {};
     }
-    auto indexFor = [&](SdfPath const &path) {
+    auto indexFor = [&](UsdGenNodeKey path) {
         for (size_t i = 0; i < desc.nodes.size(); ++i)
-            if (desc.nodes[i].path == path)
+            if (desc.nodes[i].key == path)
                 return i;
         return desc.nodes.size();
     };
@@ -874,7 +881,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             consumed[j] = true;
         }
     }
-    if (desc.terminal.IsEmpty()) {
+    if (!desc.terminal.IsValid()) {
         for (size_t i = 0; i < desc.nodes.size(); ++i) {
             if (consumed[i])
                 continue;
@@ -889,7 +896,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             return {};
         }
         // Retain the inferred selection for source capture and publication.
-        normalized.terminal = desc.nodes[terminalIndex].path;
+        normalized.terminal = desc.nodes[terminalIndex].key;
     }
     std::vector<bool> reachable(desc.nodes.size(), false);
     std::vector<size_t> pending{terminalIndex};
@@ -918,10 +925,11 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         Fail(diagnostics, "missing selected source");
         return {};
     }
-    UsdGenCurveSetDesc const *source = nullptr;
+    UsdGenCurveSetInputView sourceView;
+    UsdGenCurveSetInputView const *source = &sourceView;
     VulkanSourceControls sourceControls;
     auto const &sourceNode = desc.nodes[sourceIndex];
-    if (!ValidateSource(desc, sourceNode, &source, &sourceControls, diagnostics))
+    if (!ValidateSource(desc, sourceNode, &sourceView, &sourceControls, diagnostics))
         return {};
     // Imported CurveSource planes can contain a baked native Clump quartet
     // without a Clump node in this graph. Vulkan Noise currently transports
@@ -987,20 +995,16 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         internalStages.push_back(internal);
         return true;
     };
-    auto uniqueTransformPath = [&](SdfPath const &parent,
+    auto uniqueTransformPath = [&](UsdGenNodeKey parent,
                                    char const *stem = "__vulkanLengthTransform") {
-        // The graph's existing admission predicate accepts nonempty paths;
-        // a property path cannot parent a synthetic child.  Anchor such an
-        // internal-only task at root instead of weakening that graph rule.
-        SdfPath const anchor = (parent.IsPrimPath() || parent == SdfPath::AbsoluteRootPath())
-                                   ? parent
-                                   : SdfPath::AbsoluteRootPath();
-        SdfPath path;
+        // A synthetic child of the authored node, keyed like the host keys
+        // <parent>/<stem>N; the ordinal advances past a taken key.
+        UsdGenNodeKey key;
         do {
-            path = anchor.AppendChild(
+            key = normalized.DeriveKey(parent,
                 UsdGenInternToken(std::string(stem) + std::to_string(syntheticPathOrdinal++)));
-        } while (!paths.insert(path).second);
-        return path;
+        } while (!paths.insert(key).second);
+        return key;
     };
     // Source resampleTo lowers to an implicit leading internal Resample
     // stage (same internal-stage machinery as Length transforms): it
@@ -1009,7 +1013,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     if (sourceControls.resampleTo > 0) {
         VulkanSourceWidthStage sourceResample;
         sourceResample.kind = VulkanSourceWidthStage::Kind::Resample;
-        sourceResample.path = uniqueTransformPath(sourceNode.path, "__vulkanResampleTransform");
+        sourceResample.key = uniqueTransformPath(sourceNode.key, "__vulkanResampleTransform");
         sourceResample.input = 0;
         sourceResample.resampleTarget = uint32_t(sourceControls.resampleTo);
         if (!appendStage(std::move(sourceResample), sourceIndex, true)) {
@@ -1024,7 +1028,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         // no operator work and preserves the source generation verbatim.
         VulkanSourceWidthStage alias;
         alias.disabled = true;
-        alias.path = uniqueTransformPath(sourceNode.path, "__vulkanSourceAlias");
+        alias.key = uniqueTransformPath(sourceNode.key, "__vulkanSourceAlias");
         if (!appendStage(std::move(alias), sourceIndex, true))
             return {};
     }
@@ -1051,7 +1055,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         nodeIsDeform[ready] = nodeIsDeform[inputs[ready][0]];
         VulkanSourceWidthStage stage;
         stage.enabledLiteral = node.enabled;
-        stage.path = node.path;
+        stage.key = node.key;
         stage.input = nodeValue[inputs[ready][0]];
         if (kernel.Is(Stage::Width)) {
             ExprVkWidthData widthData;
@@ -1096,7 +1100,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             if (inputs[ready].size() != 2 || inputs[ready][0] == inputs[ready][1] ||
                 !node.enabled || !paramsOk || !node.mode.IsEmpty() || !node.ramps.empty() ||
                 !node.expressionBindings.empty() || !node.references.empty() ||
-                !node.curves.empty() || !node.surfaces.empty() || !node.maps.empty() ||
+                !node.inputSets.empty() || !node.surfaces.empty() || !node.maps.empty() ||
                 !node.mapBindings.empty()) {
                 Fail(diagnostics, "WidthBlend requires two ordered inputs and literal blend");
                 return {};
@@ -1147,8 +1151,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             if (sourceControls.surfaceCage) {
                 // Dense roots are captured later. Fit planning depends only on
                 // the pose surface, in the dense source's identity space.
-                UsdGenCurveSetDesc fittingSource;
-                fittingSource.worldMatrix = GfMatrix4d(1.0);
+                UsdGenCurveSetInputView fittingSource;   // identity worldMatrix
                 if (!ValidateDeform(desc, node, &fittingSource, &stage.deform, diagnostics))
                     return {};
             } else if (!ValidateDeform(desc, node, source, &stage.deform, diagnostics))
@@ -1170,7 +1173,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             // CUDA fuses Scatter->Grow into a generator, where a disabled
             // Grow empties the root set. Its ordinary C3 Grow operator still
             // executes the native controls independently of node.enabled.
-            stage.emptyGenerator = !node.enabled && IsVulkanCapturedScatter(*source);
+            stage.emptyGenerator = !node.enabled && IsVulkanCapturedScatter(desc, *source);
             stage.disabled = false;
         } else if (kernel.Is(Stage::Resample)) {
             stage.kind = VulkanSourceWidthStage::Kind::Resample;
@@ -1205,12 +1208,12 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             cull.disabled = stage.disabled;
             cull.enabledLiteral = stage.enabledLiteral;
             cull.lengthKeepInput = true;
-            cull.path = stage.path;
+            cull.key = stage.key;
             cull.input = uint32_t(steps.size() + 1);
             stage.lengthCullOnly = stage.kind == VulkanSourceWidthStage::Kind::LengthCull;
             stage.kind = VulkanSourceWidthStage::Kind::LengthScale;
             stage.lengthDeviceControls = true;
-            stage.path = uniqueTransformPath(node.path);
+            stage.key = uniqueTransformPath(node.key);
             if (!appendStage(std::move(stage), ready, true) ||
                 !appendStage(std::move(cull), ready, false)) {
                 Fail(diagnostics, "expanded Vulkan stage count exceeds the native index domain");
@@ -1224,7 +1227,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             VulkanSourceWidthStage cull;
             cull.kind = VulkanSourceWidthStage::Kind::LengthCull;
             cull.disabled = stage.disabled;
-            cull.path = stage.path;
+            cull.key = stage.key;
             cull.input = uint32_t(steps.size() + 1);
             cull.factor = stage.factor;
             cull.lengthMode = stage.lengthMode;
@@ -1237,7 +1240,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             cull.lengthBlend = stage.lengthBlend;
             cull.lengthMaskAmount = stage.lengthMaskAmount;
             cull.cullThreshold = stage.cullThreshold;
-            stage.path = uniqueTransformPath(node.path);
+            stage.key = uniqueTransformPath(node.key);
             stage.cullThreshold = 0.0f;
             if (!appendStage(std::move(stage), ready, true) ||
                 !appendStage(std::move(cull), ready, false)) {
@@ -1252,7 +1255,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             cull.input = uint32_t(steps.size() + 1);
             cull.lengthCullOnly = false;
             stage.kind = VulkanSourceWidthStage::Kind::LengthScale;
-            stage.path = uniqueTransformPath(node.path);
+            stage.key = uniqueTransformPath(node.key);
             stage.cullThreshold = 0.0f;
             stage.lengthCullOnly = true;
             if (!appendStage(std::move(stage), ready, true) ||
@@ -1314,9 +1317,9 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
             return {};
         }
     }
-    auto capture = std::make_shared<UsdGenGraphDesc>(desc);
+    auto capture = std::make_shared<UsdGenGraphSpec>(desc);
     auto payload = std::shared_ptr<VulkanSourceWidthPlan>(new VulkanSourceWidthPlan(
-        capture, *source, sourceNode.path, desc.terminal, sourceControls,
+        capture, *source, sourceNode.key, desc.terminal, sourceControls,
         VulkanLiteralWidthControls{}, source->curveGeneration, source->curveGeneration,
         source->curveGeneration, hasRootBindings));
     payload->steps_ = steps;
@@ -1327,7 +1330,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         if ((stage.kind == VulkanSourceWidthStage::Kind::LengthScale ||
              stage.kind == VulkanSourceWidthStage::Kind::LengthCull) &&
             !internalStages[i] && !payload->HasLength()) {
-            payload->lengthNodePath_ = stage.path;
+            payload->lengthNodeKey_ = stage.key;
             payload->lengthFactor_ = stage.factor;
         }
     }
@@ -1384,7 +1387,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     sourceTask.semanticNode = uint32_t(sourceIndex);
     sourceTask.authoredOrderKey = uint32_t(sourceIndex);
     sourceTask.kind = UsdGenExecutionTaskKind::Source;
-    sourceTask.path = sourceNode.path;
+    sourceTask.key = sourceNode.key;
     sourceTask.type = original.nodes[sourceIndex].type;
     sourceTask.exclusiveWorkspace = false;
     sourceTask.resources = {{K::ElementGeometry, A::ReadWrite, UINT32_MAX, 0, 1},
@@ -1397,7 +1400,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
     sourceTask.estimate = {0, bytes, 0, 0, false, false, false, 0};
     tasks.push_back(std::move(sourceTask));
     std::vector<UsdGenCompiledOperatorCapability> operators{
-        {sourceNode.path, original.nodes[sourceIndex].type, uint32_t(sourceIndex), 1,
+        {sourceNode.key, original.nodes[sourceIndex].type, uint32_t(sourceIndex), 1,
          uint32_t(UsdGenCapabilityCopyOnWriteWrites |
                   (sourceNode.expressionBindings.empty() ? UsdGenCapabilityNone
                                                          : UsdGenCapabilityExpressions)),
@@ -1418,7 +1421,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         task.semanticNode = internalStages[i] ? UINT32_MAX : uint32_t(authoredIndices[i]);
         task.authoredOrderKey = uint32_t(authoredIndices[i]);
         task.kind = UsdGenExecutionTaskKind::Operator;
-        task.path = stage.path;
+        task.key = stage.key;
         task.type = !internalStages[i] ? authored.type
                     : stage.kind == VulkanSourceWidthStage::Kind::Resample
                         ? vk.resampleTransform
@@ -1531,7 +1534,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &original, UsdGenDiagnostics 
         bundles.push_back(out);
         if (!internalStages[i])
             operators.push_back(
-                {stage.path, authored.type, uint32_t(authoredIndices[i]), 1,
+                {stage.key, authored.type, uint32_t(authoredIndices[i]), 1,
                  uint32_t(UsdGenCapabilityCopyOnWriteWrites |
                           (authored.expressionBindings.empty() ? UsdGenCapabilityNone
                                                                : UsdGenCapabilityExpressions)),

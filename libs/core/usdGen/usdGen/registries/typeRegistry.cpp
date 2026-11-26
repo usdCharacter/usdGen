@@ -48,6 +48,13 @@ UsdGenTypeDef const &UsdGenTypeRegistry::Def(UsdGenTypeId id) const noexcept
     return UsdGenIndex(id) < _count ? _defs[UsdGenIndex(id)] : kNoTypeDef;
 }
 
+UsdGenTypeId UsdGenTypeRegistry::DefaultPrimitive() const noexcept
+{
+    for (uint32_t i = 0; i < _count; ++i)
+        if ((_defs[i].traits & kUsdGenTypeDefaultPrimitive) && _defs[i].layout) return UsdGenTypeId(i);
+    return UsdGenTypeId::Invalid;
+}
+
 TfToken const &UsdGenTypeRegistry::Name(UsdGenTypeId id) const noexcept
 {
     return UsdGenIndex(id) < _count ? _names[UsdGenIndex(id)] : kNoTypeName;

@@ -4,7 +4,7 @@
 // usdGen — Vulkan expression programs: host-side compile, pack and split.
 //
 // This is the Vulkan counterpart of cudaParameters.cpp's Compile: it resolves
-// each UsdGenExpressionBinding against UsdGenGraphDesc::expressions, decodes
+// each UsdGenParamBinding against UsdGenGraphSpec::expressions, decodes
 // the $value literal, compiles the SeExpr source through expr::Frontend, and
 // refuses sampler programs, exactly as the CUDA lane does. It then packs the
 // IR into the exprVkEvaluate.comp program-buffer encoding and splits programs
@@ -21,7 +21,7 @@
 #define USDGEN_VULKAN_EXPR_VK_PROGRAM_H
 
 #include "usdGen/expressions/ir.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -49,7 +49,7 @@ struct ExprVkEncoding {
 enum class ExprVkCompileStatus { Ok, InvalidArgument, CompileError, UnsupportedType };
 
 struct ExprVkCompiledBinding {
-    UsdGenExpressionBinding binding;
+    UsdGenParamBinding binding;
     expr::IRProgram ir;
     std::vector<double> literal;
 };
@@ -61,13 +61,13 @@ struct ExprVkCompiledBinding {
 // mirror the UsdGenExprOp capture refusals ($value/$frame/$time); parameter
 // bindings pass true/true.
 ExprVkCompileStatus ExprVkCompileBinding(
-    UsdGenGraphDesc const& graph, UsdGenExpressionBinding const& binding,
+    UsdGenGraphSpec const& graph, UsdGenParamBinding const& binding,
     bool allowValue, bool allowTime, ExprVkCompiledBinding* out,
     std::vector<std::string>* diagnostics = nullptr);
 
 // Compiles every binding on node (duplicate canonical destinations refuse).
 ExprVkCompileStatus ExprVkCompileNodeBindings(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     bool allowValue, bool allowTime,
     std::vector<ExprVkCompiledBinding>* out,
     std::vector<std::string>* diagnostics = nullptr);

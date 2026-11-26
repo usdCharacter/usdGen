@@ -66,8 +66,8 @@ enum class UsdGenDeviceStatus : uint8_t {
 };
 
 /// Opaque layout descriptor for a device generation: three bytes the owning
-/// primitive interprets (curves: type, basis, wrap; see
-/// usdGenCurves/types/curveDeviceLayout.h).  All zero means unspecified, the
+/// primitive interprets (its published type, basis and wrap).  All zero
+/// means unspecified, the
 /// state for consumers that do not opt into device rendering.
 struct UsdGenDeviceLayoutMetadata
 {

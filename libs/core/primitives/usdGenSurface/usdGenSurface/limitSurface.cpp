@@ -1,4 +1,5 @@
 #include "usdGen/limitSurface.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/digest.h"
 #include "pxr/imaging/pxOsd/meshTopology.h"
 #include "pxr/imaging/pxOsd/refinerFactory.h"
@@ -39,14 +40,16 @@ GfVec2d InverseBilinear(GfVec2d const& p, GfVec2d const& a, GfVec2d const& b,
     }
     return GfVec2d(std::clamp(u,0.0,1.0),std::clamp(v,0.0,1.0));
 }
-PxOsdMeshTopology Topology(UsdGenSurfaceDesc const& s) {
+template <class T>
+VtArray<T> Vt(UsdGenSpan<const T> s) { return VtArray<T>(s.begin(), s.end()); }
+PxOsdMeshTopology Topology(UsdGenSurfaceInputView const& s) {
     PxOsdSubdivTags tags(s.interpolateBoundary, s.faceVaryingLinearInterpolation,
-        s.creaseMethod, s.triangleSubdivisionRule, s.creaseIndices, s.creaseLengths,
-        s.creaseSharpnesses, s.cornerIndices, s.cornerSharpnesses);
+        s.creaseMethod, s.triangleSubdivisionRule, Vt(s.creaseIndices), Vt(s.creaseLengths),
+        Vt(s.creaseSharpnesses), Vt(s.cornerIndices), Vt(s.cornerSharpnesses));
     // Evaluate in authored corner order. Left-handedness changes the normal,
     // not Ptex's corner coordinate convention.
     return PxOsdMeshTopology(s.subdivisionScheme, TfToken("rightHanded"),
-        s.faceVertexCounts, s.faceVertexIndices, s.holeIndices, tags);
+        Vt(s.faceVertexCounts), Vt(s.faceVertexIndices), Vt(s.holeIndices), tags);
 }
 struct Vertex {
     GfVec3f p{0};
@@ -78,7 +81,7 @@ void FeedSubdivArray(uint64_t &h, Array const& values) {
 }
 // Tags, holes, creases, corners: the subdivision inputs OUTSIDE the two
 // face arrays. Shared by both entry points so the coverage cannot drift.
-void FeedSubdivTags(uint64_t &h, UsdGenSurfaceDesc const& s) {
+void FeedSubdivTags(uint64_t &h, UsdGenSurfaceInputView const& s) {
     FeedSubdivText(h, s.subdivisionScheme);
     FeedSubdivText(h, s.orientation);
     FeedSubdivText(h, s.interpolateBoundary);
@@ -92,7 +95,7 @@ void FeedSubdivTags(uint64_t &h, UsdGenSurfaceDesc const& s) {
     FeedSubdivArray(h, s.cornerIndices);
     FeedSubdivArray(h, s.cornerSharpnesses);
 }
-void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceDesc const& s) {
+void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceInputView const& s) {
     FeedSubdivArray(h, s.faceVertexCounts);
     FeedSubdivArray(h, s.faceVertexIndices);
 }
@@ -104,18 +107,18 @@ void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceDesc const& s) {
 // is deterministic across processes (values stay internal keys, never
 // persisted). Sizes mix between fields so no two distinct field sequences
 // concatenate ambiguously.
-uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceDesc const& s) {
+uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceInputView const& s) {
     uint64_t h = UsdGenDigestOffset;
     FeedSubdivTags(h, s);
     FeedSubdivTopology(h, s);
     return h;
 }
-uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceDesc const& s) {
+uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceInputView const& s) {
     uint64_t h = UsdGenDigestOffset;
     FeedSubdivTags(h, s);
     return h;
 }
-bool UsdGenLimitSurface::Build(UsdGenSurfaceDesc const& s, int level, std::string* error) {
+bool UsdGenLimitSurface::Build(UsdGenSurfaceInputView const& s, int level, std::string* error) {
     _state.reset();
     auto fail=[&](char const* e){if(error)*error=e;return false;};
     if(level<1 || level>6) return fail("subdivisionLevel must be in [1,6]");
@@ -160,7 +163,7 @@ bool UsdGenLimitSurface::Build(UsdGenSurfaceDesc const& s, int level, std::strin
     }
     state->patches->ComputeLocalPointValues(state->values.data(),state->values.data()+total);
     state->map=std::make_unique<OpenSubdiv::Far::PatchMap>(*state->patches);
-    state->holes=s.holeIndices;
+    state->holes=Vt(s.holeIndices);
     OpenSubdiv::Far::PtexIndices const ptex(*refiner);
     state->faceSize.assign(s.faceVertexCounts.begin(),s.faceVertexCounts.end());
     state->ptexBase.resize(s.faceVertexCounts.size());
@@ -245,7 +248,7 @@ UsdGenCollisionLimitSurface::UsdGenCollisionLimitSurface(
 UsdGenCollisionLimitSurface& UsdGenCollisionLimitSurface::operator=(
     UsdGenCollisionLimitSurface&&) noexcept = default;
 
-bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceDesc const& s,
+bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceInputView const& s,
                                         std::string* error) {
     _state.reset();
     auto fail = [&](std::string const& why) {

@@ -28,7 +28,7 @@
 #ifndef USDGEN_MAPS_ATTRIBUTE_MAP_H
 #define USDGEN_MAPS_ATTRIBUTE_MAP_H
 
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -61,7 +61,7 @@ enum class UsdGenAttributeMapInterp {
     Bilinear,
 };
 
-class USDGEN_CORE_API UsdGenAttributeMap final {
+class USDGEN_SURFACE_API UsdGenAttributeMap final {
 public:
     // Returns null and sets *error (when non-null) for an invalid spec: no
     // faces, a non-power-of-two or out-of-range resolution, channels outside
@@ -173,12 +173,12 @@ struct UsdGenBrushDab {
 // The dab weight at `dist` from the centre for a dab of `radius` (both in
 // face-uv units): 1 inside hardness * radius, the falloff curve from there to
 // the rim, 0 past it. Shared by the texel kernel and the corner smoother.
-USDGEN_CORE_API float UsdGenBrushWeight(UsdGenBrushFalloff falloff, float hardness,
+USDGEN_SURFACE_API float UsdGenBrushWeight(UsdGenBrushFalloff falloff, float hardness,
                                         double dist, double radius);
 
 // Applies one validated dab to a live map in place: the move kernel the
 // stroke replays and the brush ABI stamps footprint entries with.
-USDGEN_CORE_API void UsdGenApplyBrushDab(UsdGenAttributeMap *map,
+USDGEN_SURFACE_API void UsdGenApplyBrushDab(UsdGenAttributeMap *map,
                                          UsdGenBrushDab const &dab);
 
 // Non-accumulating stroke application (a DCC's model). Along a move the
@@ -197,7 +197,7 @@ USDGEN_CORE_API void UsdGenApplyBrushDab(UsdGenAttributeMap *map,
 // overlap a texel, only on the strongest one. Add keeps accumulating (that
 // is its point) and ends the segment, as does any change of mode, target or
 // channel: the next segment starts from the map as it then is.
-class USDGEN_CORE_API UsdGenBrushAccumulator final {
+class USDGEN_SURFACE_API UsdGenBrushAccumulator final {
 public:
     // `map` is the live map the accumulator writes; it must outlive this.
     explicit UsdGenBrushAccumulator(UsdGenAttributeMap *map);
@@ -217,7 +217,7 @@ private:
     std::unique_ptr<State> state_;
 };
 
-class USDGEN_CORE_API UsdGenBrushStroke final {
+class USDGEN_SURFACE_API UsdGenBrushStroke final {
 public:
     // The base is the press-time snapshot: Preview/Commit recompute from it,
     // so it must stay alive (and unmutated) for the stroke's lifetime.

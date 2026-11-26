@@ -18,6 +18,7 @@
 //       bound surface, determinism;
 //   (4) Width bezier profile (set and multiply).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/graph.h"
@@ -199,14 +200,14 @@ bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors) std::printf("  compile: %s\n", e.c_str());
         return false;
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors) std::printf("  run: %s\n", e.c_str());
@@ -713,12 +714,13 @@ void TestWidth()
     node.params = {Param("width:profile:mode", VtValue(TfToken("bezier"))),
                    Param("width:root", VtValue(1.0f)), Param("width:mid", VtValue(0.5f)),
                    Param("width:midShift", VtValue(0.5f)), Param("width:tip", VtValue(0.2f))};
+    UsdGenOpNode const lowered = usdGenUsd::Lower(node);
     UsdGenParamView view;
-    view.node = &node;
+    view.node = &lowered;
     float lut[5] = {-1, -1, -1, -1, -1};
     ok = UsdGenWidthBezierLut(view, lut, 5);
     for (int i = 0; ok && i < 5; ++i) ok = Near(lut[i], f[i], 1e-7f);
-    UsdGenNodeDesc rampNode;
+    UsdGenOpNode rampNode;
     UsdGenParamView rampView;
     rampView.node = &rampNode;
     Check(ok && !UsdGenWidthBezierLut(rampView, lut, 5) && lut[0] == 1.0f,

@@ -20,6 +20,8 @@ struct UsdGenOpRecord::Tables {
     std::vector<UsdGenPlane> inputPlanes, outputPlanes;
     std::vector<TfToken> mapRelationships;
     std::vector<TfToken> tokens;
+    TfToken outputType;                              // empty: the default primitive
+    std::vector<TfToken> inputTypes;                 // an empty entry: the default
 };
 
 }  // namespace usdGen

@@ -3,6 +3,7 @@
 // Informational timings; correctness failures are always fatal. Run on a quiet
 // host, never alongside the documentation renderer. No absolute timing gates.
 #include "usdGen/clumpMotion.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/ops/wind.h"
 #include "../bufferOpCalls.h"
 #include <algorithm>
@@ -108,9 +109,11 @@ int main(int argc,char** argv) {
         {TfToken("billowHighStrength"),VtValue(.05),false}};
     UsdGenOpRegistry const& registry=UsdGenOpRegistry::Get();
     UsdGenOpRecord const& windRecord=registry.Record(registry.Find(TfToken("UsdGenWind")));
-    UsdGenStackParams stack(desc,node,windRecord); UsdGenParamView const& params=stack.View();
-    UsdGenCaptureContext cc; cc.desc=&desc; cc.params=&params; cc.seed=42;
-    UsdGenEvalContext ec; ec.desc=&desc; ec.params=&params; ec.seed=42; ec.time=17;
+    usdGenUsd::LoweredParams stack(desc,node,windRecord); UsdGenParamView const& params=stack.View();
+    usdGen::UsdGenGraphSpec const lowered113 = usdGenUsd::Lower(desc);
+    UsdGenCaptureContext cc; cc.desc = &lowered113; cc.params=&params; cc.seed=42;
+    usdGen::UsdGenGraphSpec const lowered114 = usdGenUsd::Lower(desc);
+    UsdGenEvalContext ec; ec.desc = &lowered114; ec.params=&params; ec.seed=42; ec.time=17;
     UsdGenWindOp op(windRecord); UsdGenCurveBuffer legacy;
     int failures=0;
     struct Case { char const* name; int levels; float weight; };

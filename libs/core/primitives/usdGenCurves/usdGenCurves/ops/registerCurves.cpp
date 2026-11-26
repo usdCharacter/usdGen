@@ -1,44 +1,54 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// Built-in curve ops and map types (the future usdGenCurves, step 6). The op
-// registry's constructor calls this; registration order is id order.
+// usdGenCurves' registration: built-in ops, map types, input kinds and
+// kernels. The op registry loads the primitives (Surface, Expr, Curves) and
+// calls each usdGenRegister; registration order is id order, so this file
+// keeps registering the Surface and Expr items it registered before the
+// split (their ids and the input-kind run order stay unchanged).
 #include "usdGen/registries/registrar.h"
-#include "usdGen/cudaStages.h"
+#include "usdGenCurves/export.h"
+#include "usdGenCuda/cudaStages.h"
+#include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenExpr/exprInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/types/rootSet.h"
 
-#include "usdGen/ops/scatter.h"
-#include "usdGen/ops/grow.h"
-#include "usdGen/ops/noise.h"
-#include "usdGen/ops/length.h"
-#include "usdGen/ops/width.h"
-#include "usdGen/ops/widthBlend.h"
-#include "usdGen/ops/curveSource.h"
-#include "usdGen/ops/deform.h"
-#include "usdGen/ops/referenceSource.h"
-#include "usdGen/ops/clump.h"
-#include "usdGen/ops/guideInterpolate.h"
-#include "usdGen/ops/curl.h"
-#include "usdGen/ops/bend.h"
-#include "usdGen/ops/wave.h"
-#include "usdGen/ops/part.h"
-#include "usdGen/ops/direction.h"
-#include "usdGen/ops/smooth.h"
-#include "usdGen/ops/resample.h"
-#include "usdGen/ops/scale.h"
-#include "usdGen/ops/straighten.h"
-#include "usdGen/ops/displace.h"
-#include "usdGen/ops/sculptLayer.h"
-#include "usdGen/ops/wind.h"
-#include "usdGen/ops/exprOp.h"
-#include "usdGen/ops/freeze.h"
-#include "usdGen/ops/collide.h"
-#include "usdGen/ops/braid.h"
-#include "usdGen/ops/twist.h"
-#include "usdGen/ops/trim.h"
-#include "usdGen/ops/frizz.h"
-#include "usdGen/ops/tieClump.h"
-#include "usdGen/ops/cardSource.h"
-#include "usdGen/vulkan/vkStages.h"
+#include "usdGenSurface/ops/scatter.h"
+#include "usdGenCurves/ops/grow.h"
+#include "usdGenCurves/ops/noise.h"
+#include "usdGenCurves/ops/length.h"
+#include "usdGenCurves/ops/width.h"
+#include "usdGenCurves/ops/widthBlend.h"
+#include "usdGenCurves/ops/curveSource.h"
+#include "usdGenCurves/ops/deform.h"
+#include "usdGenCurves/ops/referenceSource.h"
+#include "usdGenCurves/ops/clump.h"
+#include "usdGenCurves/ops/guideInterpolate.h"
+#include "usdGenCurves/ops/curl.h"
+#include "usdGenCurves/ops/bend.h"
+#include "usdGenCurves/ops/wave.h"
+#include "usdGenCurves/ops/part.h"
+#include "usdGenCurves/ops/direction.h"
+#include "usdGenCurves/ops/smooth.h"
+#include "usdGenCurves/ops/resample.h"
+#include "usdGenCurves/ops/scale.h"
+#include "usdGenCurves/ops/straighten.h"
+#include "usdGenCurves/ops/displace.h"
+#include "usdGenCurves/ops/sculptLayer.h"
+#include "usdGenCurves/ops/wind.h"
+#include "usdGenExpr/ops/exprOp.h"
+#include "usdGenCurves/ops/freeze.h"
+#include "usdGenCurves/ops/collide.h"
+#include "usdGenCurves/ops/braid.h"
+#include "usdGenCurves/ops/twist.h"
+#include "usdGenCurves/ops/trim.h"
+#include "usdGenCurves/ops/frizz.h"
+#include "usdGenCurves/ops/tieClump.h"
+#include "usdGenCurves/ops/cardSource.h"
+#include "usdGenVulkan/vulkan/vkStages.h"
 
 using namespace usdGen;
 
@@ -63,9 +73,18 @@ void RegisterMapTypes(UsdGenRegistrar &r)
 
 }  // namespace
 
+extern "C" USDGEN_CURVES_API void usdGenRegister_usdGenCurves(UsdGenRegistrar &r);
+extern "C" USDGEN_CURVES_API void usdGenRegister(UsdGenRegistrar &r);
+
+extern "C" void usdGenRegister(UsdGenRegistrar &r)
+{
+    usdGenRegister_usdGenCurves(r);
+}
+
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
     UsdGenRegisterCurveSetType(r);   // first: op defs name its type
+    UsdGenRegisterCurvePublisher(r);
     UsdGenVulkanKernelOps k;
     k.scatter = UsdGenRegisterScatterOp(r);
     k.grow = UsdGenRegisterGrowOp(r);
@@ -100,6 +119,13 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterTieClumpOp(r);
     UsdGenRegisterCardSourceOp(r);
     RegisterMapTypes(r);
+    // Input kinds after every older type, so their ids keep their values;
+    // a spec's inputs run in this (kind) order.
+    UsdGenRegisterCurveSetInputKind(r);
+    UsdGenRegisterSurfaceInputKind(r);
+    UsdGenRegisterMapInputKind(r);
+    UsdGenRegisterExprInputKinds(r);
+    UsdGenRegisterRootSetType(r);   // last: older ids keep their values
     UsdGenCudaKernelOps cuda;
     cuda.scatter = k.scatter;
     cuda.grow = k.grow;

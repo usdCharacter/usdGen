@@ -19,7 +19,8 @@
 #define USDGEN_OPS_SCATTER_MODES_H
 
 #include "usdGen/curveBuffer.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 
 #include "pxr/pxr.h"
@@ -109,7 +110,7 @@ float RootHash01(uint64_t index, int tri, int vertex, GfVec3f const &pos, GfVec3
 /// Builds the generator's output into `buf` (roots, frames, Morton order,
 /// planes strandIndex/strandSeed). `stats` is optional.
 bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
-                  UsdGenSurfaceDesc const &surface, UsdGenCurveBuffer *buf,
+                  UsdGenSurfaceInputView const &surface, UsdGenCurveBuffer *buf,
                   UsdGenDiagnostics *diag, ModeStats *stats = nullptr);
 
 /// Density-map / guide-proximity thinning for the default random + perFace
@@ -125,7 +126,7 @@ public:
 
     /// False (with a diagnostic) on malformed inputs.
     bool Init(UsdGenCaptureContext const &ctx, ModeConfig const &config,
-              UsdGenSurfaceDesc const &surface, UsdGenDiagnostics *diag);
+              UsdGenSurfaceInputView const &surface, UsdGenDiagnostics *diag);
     bool Active() const;
     /// Keeps a root when it lies within the guide-proximity region and the
     /// density-map product m passes `m > 0 && (m >= 0.999 || h <= m)`, with h

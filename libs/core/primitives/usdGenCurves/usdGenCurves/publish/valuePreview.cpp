@@ -1,8 +1,11 @@
 #include "usdGen/valuePreview.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenExpr/exprInput.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 
-#include "usdGen/expressions/valueShape.h"
+#include "usdGenExpr/expressions/valueShape.h"
 #include "usdGen/graph.h"
 
 #include "pxr/base/gf/half.h"
@@ -16,7 +19,6 @@
 #include "pxr/base/gf/vec4f.h"
 #include "pxr/base/gf/vec4h.h"
 #include "pxr/base/gf/vec4i.h"
-#include "pxr/usd/sdf/schema.h"
 
 #include <algorithm>
 #include <cmath>
@@ -49,8 +51,6 @@ using Domain = expr::Domain;
 TfToken const kPreviewDestination = UsdGenInternToken("usdGenPreview");
 TfToken const kColorRgb = UsdGenInternToken("rgb"), kColorIds = UsdGenInternToken("ids"),
     kColorGray = UsdGenInternToken("gray"), kColorViridis = UsdGenInternToken("viridis");
-TfToken const kMaterialLit = UsdGenInternToken("material_preview"),
-    kMaterialFlat = UsdGenInternToken("material_preview_flat");
 TfToken const kShadingFlat = UsdGenInternToken("flat");
 TfToken const kGroom = UsdGenInternToken("groom"), kPoint = UsdGenInternToken("point");
 TfToken const kMapInput = UsdGenInternToken("map");
@@ -220,23 +220,23 @@ std::vector<size_t> MatchCurves(UsdGenCurveSetView const &from, UsdGenCurveSetVi
 
 /// The surface every operator of the description roots on (ADR R15), which is
 /// what ptex() needs to place a strand root on a face.
-SdfPathVector RootSurfaces(UsdGenGraphDesc const &desc)
+std::vector<UsdGenNodeKey> RootSurfaces(UsdGenGraphSpec const &desc)
 {
-    for (UsdGenNodeDesc const &node : desc.nodes)
+    for (UsdGenOpNode const &node : desc.nodes)
         if (!node.surfaces.empty()) return node.surfaces;
     return {};
 }
 
-UsdGenNodeDesc PreviewNode(UsdGenGraphDesc const &desc)
+UsdGenOpNode PreviewNode(UsdGenGraphSpec const &desc)
 {
-    UsdGenNodeDesc node;
-    node.path = desc.description;
+    UsdGenOpNode node;
+    node.key = desc.description;
     // No op type: the preview evaluates bindings only.
     node.surfaces = RootSurfaces(desc);
     return node;
 }
 
-void SetParam(UsdGenMapDesc *map, TfToken const &name, VtValue value)
+void SetParam(UsdGenMapData *map, TfToken const &name, VtValue value)
 {
     for (UsdGenParamValue &param : map->params) {
         if (param.name == name) {
@@ -247,7 +247,7 @@ void SetParam(UsdGenMapDesc *map, TfToken const &name, VtValue value)
     map->params.push_back({name, std::move(value), false});
 }
 
-void EraseParam(UsdGenMapDesc *map, char const *name)
+void EraseParam(UsdGenMapData *map, char const *name)
 {
     map->params.erase(std::remove_if(map->params.begin(), map->params.end(),
                                      [&](UsdGenParamValue const &p) { return p.name == name; }),
@@ -260,6 +260,17 @@ std::string Join(std::vector<std::string> const &messages)
     for (std::string const &message : messages) {
         if (!text.empty()) text += "; ";
         text += message;
+    }
+    return text;
+}
+
+/// The previewed source's text: its prim, then '.' and the attribute.
+std::string SourceText(UsdGenGraphSpec const &desc)
+{
+    std::string text = desc.Label(desc.preview.source);
+    if (!desc.preview.attribute.IsEmpty()) {
+        text += '.';
+        text += desc.preview.attribute.GetString();
     }
     return text;
 }
@@ -302,14 +313,13 @@ GfVec3f UsdGenPreviewMissingColor()
     return GfVec3f(0.02f, 0.02f, 0.02f);
 }
 
-SdfPath UsdGenPreviewMaterialPath(SdfPath const &description, TfToken const &shading)
+UsdGenPublishRole UsdGenPreviewMaterialRole(TfToken const &shading)
 {
-    TfToken const &lit = kMaterialLit, &flat = kMaterialFlat;
-    return description.AppendChild(UsdGenTokens().renderNamespace)
-        .AppendChild(shading == kShadingFlat ? flat : lit);
+    return shading == kShadingFlat ? UsdGenPublishRole::PreviewMaterialFlat
+                                   : UsdGenPublishRole::PreviewMaterial;
 }
 
-bool UsdGenValuePreview::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc const &node,
+bool UsdGenValuePreview::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                                   UsdGenCurveSetView const &terminal, double frame,
                                   std::string *message)
 {
@@ -325,17 +335,19 @@ bool UsdGenValuePreview::Evaluate(UsdGenGraphDesc const &desc, UsdGenNodeDesc co
     return ok;
 }
 
-bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
+bool UsdGenValuePreview::FromExpression(UsdGenGraphSpec const &desc,
                                         UsdGenCurveSetView const &terminal, double frame,
                                         Values *values, std::string *warning)
 {
-    UsdGenPreviewDesc const &preview = desc.preview;
-    auto const expression = std::find_if(desc.expressions.begin(), desc.expressions.end(),
-        [&](UsdGenExpressionDesc const &e) { return e.path == preview.source; });
+    UsdGenPreviewSpec const &preview = desc.preview;
+    UsdGenInputRecord const *expressionRecord = UsdGenFindExpressionInput(desc, preview.source);
+    UsdGenExpressionInputView const expressionView = expressionRecord
+        ? UsdGenExpressionInputView::Of(*expressionRecord) : UsdGenExpressionInputView{};
+    UsdGenExpressionInputView const *expression = &expressionView;
     UsdGenExpressionOutputDesc const *output =
         UsdGenFindExpressionOutput(*expression, TfToken());
     if (!output) {
-        *warning = preview.source.GetString() +
+        *warning = SourceText(desc) +
             " declares no outputs:result, and not exactly one other output";
         return false;
     }
@@ -349,9 +361,9 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
         return false;
     }
 
-    UsdGenNodeDesc node = PreviewNode(desc);
-    UsdGenExpressionBinding binding;
-    binding.expression = expression->path;
+    UsdGenOpNode node = PreviewNode(desc);
+    UsdGenParamBinding binding;
+    binding.expression = expression->key;
     binding.output = output->name;
     binding.nativeType = output->nativeType;
     binding.destination = PreviewDestination();
@@ -359,7 +371,7 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
     binding.domain = domain;
     // $value is the literal of the attribute an expression drives; a preview
     // drives nothing, so it reads zero of the output's own type.
-    binding.literal = SdfSchema::GetInstance().FindType(output->nativeType).GetDefaultValue();
+    binding.literal = expr::ValueTypeDefault(expr::FindValueType(output->nativeType));
     node.expressionBindings.push_back(std::move(binding));
 
     std::string message;
@@ -369,7 +381,7 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
     }
     UsdGenExpressionValue const *value = _parameters.Find(PreviewDestination());
     if (!value) {
-        *warning = preview.source.GetString() + " produced no value";
+        *warning = SourceText(desc) + " produced no value";
         return false;
     }
     *warning = message;
@@ -381,23 +393,26 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphDesc const &desc,
     return true;
 }
 
-bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
+bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
                                  UsdGenCurveSetView const &terminal, double frame,
                                  Values *values, std::string *warning)
 {
-    UsdGenPreviewDesc const &preview = desc.preview;
-    auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
-        [&](UsdGenMapDesc const &m) { return m.path == preview.source; });
+    UsdGenPreviewSpec const &preview = desc.preview;
+    UsdGenInputRecord const *mapRecord = UsdGenFindMapInput(desc, preview.source);
+    UsdGenMapInputView const mapView =
+        mapRecord ? UsdGenMapInputView::Of(*mapRecord) : UsdGenMapInputView{};
+    UsdGenMapInputView const *map = &mapView;
     if (!UsdGenMapHas(*map, kUsdGenTypeMapPtex)) {
-        *warning = preview.source.GetString() + " is a " + map->type.GetString() +
+        *warning = SourceText(desc) + " is a " + map->type.GetString() +
             "; only a UsdGenPtexMap can be previewed";
         return false;
     }
     // ptex("map") in a world of its own: the description's surfaces and
     // placement, and a copy of the map the expression's input targets.
     _mapDesc.description = desc.description;
+    _mapDesc.labels = desc.labels;
     _mapDesc.xformMatrix = desc.xformMatrix;
-    _mapDesc.surfaces = desc.surfaces;
+    UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(desc);
     _mapDesc.timeCodesPerSecond = desc.timeCodesPerSecond;
     expr::ValueShape const floatShape = expr::ValueShapeFromNativeType(UsdGenTokens().float_);
 
@@ -407,12 +422,12 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
     for (int attempt = preview.colorMap == kColorRgb ? 0 : 1; attempt < 2; ++attempt) {
         bool const colour = attempt == 0;
         unsigned const channels = colour ? 3u : 1u;
-        _mapDesc.maps.clear();
-        _mapDesc.expressions.clear();
-        UsdGenNodeDesc node = PreviewNode(desc);
+        _mapDesc.inputs.assign(surfaces.begin(), surfaces.end());
+        UsdGenOpNode node = PreviewNode(desc);
         for (unsigned k = 0; k < channels; ++k) {
-            UsdGenMapDesc copy = *map;
-            copy.path = map->path.AppendChild(kPreviewChannels[k]);
+            UsdGenMapData copy;
+            UsdGenCopyMapData(*map, &copy);
+            UsdGenNodeKey const copyKey = _mapDesc.DeriveKey(map->key, kPreviewChannels[k]);
             if (colour) {
                 SetParam(&copy, kMapChannel, VtValue(kRgbChannels[k]));
                 SetParam(&copy, kMapFirstChannel, VtValue(0));
@@ -421,13 +436,12 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
                 EraseParam(&copy, "map:offset");
                 EraseParam(&copy, "map:clamp");
             }
-            UsdGenExpressionDesc expression;
-            expression.path = copy.path;
+            UsdGenExpressionData expression;
             expression.source = "ptex(\"map\")";
-            expression.inputs.push_back({kMapInput, {copy.path}, {}, {copy.path}});
+            expression.inputs.push_back({kMapInput, {copyKey}, {}, {copyKey}});
             expression.outputs.push_back({UsdGenTokens().result, UsdGenTokens().float_, floatShape});
-            UsdGenExpressionBinding binding;
-            binding.expression = copy.path;
+            UsdGenParamBinding binding;
+            binding.expression = copyKey;
             binding.output = UsdGenTokens().result;
             binding.nativeType = UsdGenTokens().float_;
             binding.destination = kPreviewChannels[k];
@@ -435,9 +449,10 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
             binding.domain = Domain::Primitive;
             binding.literal = VtValue(0.0f);
             node.expressionBindings.push_back(std::move(binding));
-            _mapDesc.maps.push_back(std::move(copy));
-            _mapDesc.expressions.push_back(std::move(expression));
+            _mapDesc.inputs.push_back(UsdGenMapRecord(copy, copyKey, map->paintSurface, TfToken()));
+            _mapDesc.inputs.push_back(UsdGenExpressionRecord(expression, copyKey, TfToken()));
         }
+        _mapDesc.SortInputs();
         std::string message;
         if (!Evaluate(_mapDesc, node, terminal, frame, &message)) {
             if (colour) {
@@ -452,13 +467,13 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
         for (unsigned k = 0; k < channels; ++k) {
             UsdGenExpressionValue const *value = _parameters.Find(kPreviewChannels[k]);
             if (!value || value->count != curves) {
-                *warning = preview.source.GetString() + " produced no value per strand";
+                *warning = SourceText(desc) + " produced no value per strand";
                 return false;
             }
             for (size_t c = 0; c < curves; ++c) _scratch[c * channels + k] = value->values[c];
         }
         *warning = colourFailure.empty() ? message
-            : preview.source.GetString() + " cannot be shown as rgb (" + colourFailure +
+            : SourceText(desc) + " cannot be shown as rgb (" + colourFailure +
               "); showing its usdGen:map:channel instead";
         values->domain = Domain::Primitive;
         values->components = channels;
@@ -470,41 +485,43 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphDesc const &desc,
     return false;
 }
 
-bool UsdGenValuePreview::FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph const &graph,
+bool UsdGenValuePreview::FromAttribute(UsdGenGraphSpec const &desc, UsdGenGraph const &graph,
                                        Values *values, std::string *warning)
 {
-    SdfPath const &source = desc.preview.source;
-    SdfPath const operatorPath = source.GetPrimPath();
-    TfToken const &attribute = source.GetNameToken();
+    UsdGenNodeKey const operatorKey = desc.preview.source;
+    TfToken const &attribute = desc.preview.attribute;
     std::string_view const name = CanonicalText(attribute);
     for (int id = 0; id < graph.NodeCount(); ++id) {
         UsdGenCompiledNode const &node = graph.Node(id);
-        if (!node.desc || node.desc->path != operatorPath) continue;
+        if (!node.desc || node.desc->key != operatorKey) continue;
         // Connected values were evaluated over the operator's INPUT strands.
         values->input = UsdGenCurveSetView::Of(
             graph.NodeOutput(node.inputs.empty() ? node.id : node.inputs.front()));
         UsdGenCurveSetView const &input = values->input;
         bool const connected = std::any_of(
             node.desc->expressionBindings.begin(), node.desc->expressionBindings.end(),
-            [&](UsdGenExpressionBinding const &b) {
+            [&](UsdGenParamBinding const &b) {
                 return CanonicalText(b.destination) == name;
             });
         if (connected) {
-            UsdGenExpressionValue const *value = node.expressions.Find(attribute);
+            UsdGenEvaluatedParam const *value =
+                node.expressions ? node.expressions->Find(attribute) : nullptr;
             if (!value || value->values.empty()) {
-                *warning = source.GetString() +
+                *warning = SourceText(desc) +
                     " is connected to an expression that did not evaluate";
                 return false;
             }
-            size_t const expected = value->domain == Domain::Primitive ? input.totalCurves
-                : value->domain == Domain::Point ? input.totalCvs : 1;
+            Domain const domain = value->level == 1 ? Domain::Primitive
+                : value->level >= 2 ? Domain::Point : Domain::Groom;
+            size_t const expected = domain == Domain::Primitive ? input.totalCurves
+                : domain == Domain::Point ? input.totalCvs : 1;
             if (value->count != expected) {
-                *warning = source.GetString() + " was evaluated over " +
+                *warning = SourceText(desc) + " was evaluated over " +
                     std::to_string(value->count) + " elements, but the operator's input has " +
                     std::to_string(expected);
                 return false;
             }
-            values->domain = value->domain;
+            values->domain = domain;
             values->components = value->components;
             values->count = value->count;
             values->data = value->values.data();
@@ -514,7 +531,7 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph 
         for (UsdGenParamValue const &param : node.desc->params) {
             if (std::string_view(param.name.GetString()) != name) continue;
             if (!LiteralValues(param.value, &_scratch)) {
-                *warning = source.GetString() + " holds a " + param.value.GetTypeName() +
+                *warning = SourceText(desc) + " holds a " + param.value.GetTypeName() +
                     ", which has no colour";
                 return false;
             }
@@ -525,22 +542,22 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphDesc const &desc, UsdGenGraph 
             values->geometry = &input;
             return true;
         }
-        *warning = source.GetString() + " has no value on this operator";
+        *warning = SourceText(desc) + " has no value on this operator";
         return false;
     }
-    *warning = operatorPath.GetString() + " is not an operator of " +
-        desc.description.GetString();
+    *warning = desc.Label(operatorKey) + " is not an operator of " +
+        desc.Label(desc.description);
     return false;
 }
 
-UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphDesc const &desc,
+UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphSpec const &desc,
                                               UsdGenGraph const &graph,
                                               UsdGenCurveSetView const &terminal,
                                               double frame,
                                               std::vector<std::string> *warnings)
 {
     UsdGenPreviewColors out;
-    UsdGenPreviewDesc const &preview = desc.preview;
+    UsdGenPreviewSpec const &preview = desc.preview;
     if (!preview.Active()) {
         _lastWarning.clear();
         return out;
@@ -550,18 +567,16 @@ UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphDesc const &desc,
     Values values;
     std::string warning;
     bool ok = false;
-    SdfPath const &source = preview.source;
-    auto const isExpression = [&](UsdGenExpressionDesc const &e) { return e.path == source; };
-    auto const isMap = [&](UsdGenMapDesc const &m) { return m.path == source; };
-    if (source.IsPropertyPath()) {
+    UsdGenNodeKey const source = preview.source;
+    if (!preview.attribute.IsEmpty()) {
         ok = FromAttribute(desc, graph, &values, &warning);
-    } else if (std::any_of(desc.expressions.begin(), desc.expressions.end(), isExpression)) {
+    } else if (UsdGenFindExpressionInput(desc, source)) {
         ok = FromExpression(desc, terminal, frame, &values, &warning);
-    } else if (std::any_of(desc.maps.begin(), desc.maps.end(), isMap)) {
+    } else if (UsdGenFindMapInput(desc, source)) {
         ok = FromMap(desc, terminal, frame, &values, &warning);
     } else {
-        warning = source.GetString() + " is not a UsdGenExpression under " +
-            desc.description.GetString() + "/Expressions, a UsdGenPtexMap, or an operator "
+        warning = SourceText(desc) + " is not a UsdGenExpression under " +
+            desc.Label(desc.description) + "/Expressions, a UsdGenPtexMap, or an operator "
             "attribute of this description";
     }
 
@@ -610,7 +625,7 @@ UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphDesc const &desc,
                 }
             }
             if (matched < match.size() && warning.empty())
-                warning = source.GetString() + ": " + std::to_string(match.size() - matched) +
+                warning = SourceText(desc) + ": " + std::to_string(match.size() - matched) +
                     " of " + std::to_string(match.size()) +
                     " published strands have no counterpart where the value was evaluated";
         }

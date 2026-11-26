@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "exprVkProgram.h"
+#include "usdGenExpr/exprInput.h"
 
 #include "usdGen/expressions/exprMath.h"
 #include "usdGen/expressions/frontend.h"
@@ -254,7 +255,7 @@ bool Literal(VtValue const& value, expr::ValueShape const& shape,
 } // namespace
 
 ExprVkCompileStatus ExprVkCompileBinding(
-    UsdGenGraphDesc const& graph, UsdGenExpressionBinding const& binding,
+    UsdGenGraphSpec const& graph, UsdGenParamBinding const& binding,
     bool allowValue, bool allowTime, ExprVkCompiledBinding* out,
     std::vector<std::string>* diagnostics) {
     if (!out) {
@@ -265,17 +266,18 @@ ExprVkCompileStatus ExprVkCompileBinding(
         Error(diagnostics, binding.destination.GetString() + ": " + message);
         return status;
     };
-    if (binding.destination.IsEmpty() || binding.expression.IsEmpty())
+    if (binding.destination.IsEmpty() || !binding.expression.IsValid())
         return fail(ExprVkCompileStatus::InvalidArgument, "empty expression destination/path");
-    auto expression = std::find_if(graph.expressions.begin(), graph.expressions.end(),
-        [&](auto const& candidate) { return candidate.path == binding.expression; });
-    if (expression == graph.expressions.end())
+    UsdGenInputRecord const* expressionRecord = UsdGenFindExpressionInput(graph, binding.expression);
+    if (!expressionRecord)
         return fail(ExprVkCompileStatus::CompileError, "missing expression");
+    UsdGenExpressionInputView const expressionView = UsdGenExpressionInputView::Of(*expressionRecord);
+    UsdGenExpressionInputView const* expression = &expressionView;
     UsdGenExpressionOutputDesc const* result =
         UsdGenFindExpressionOutput(*expression, binding.output);
     if (!result)
         return fail(ExprVkCompileStatus::CompileError, binding.output.IsEmpty()
-            ? "connection to prim " + binding.expression.GetString() +
+            ? "connection to prim " + graph.Label(binding.expression) +
                   " declaring no outputs:result and no single outputs:* attribute"
             : "missing expression output");
     if (binding.domain != Domain::Groom && binding.domain != Domain::Primitive &&
@@ -291,7 +293,7 @@ ExprVkCompileStatus ExprVkCompileBinding(
     if (!Literal(binding.literal, binding.destinationShape, &item.literal))
         return fail(ExprVkCompileStatus::UnsupportedType,
             "literal must have the exact finite native type; int64/uint64 currently limited to 2^53");
-    auto compiled = expr::Frontend::Compile(expression->source,
+    auto compiled = expr::Frontend::Compile(std::string(expression->source),
         {binding.domain, binding.destinationShape.scalar, binding.destinationShape.components});
     if (!compiled.ok) {
         for (auto const& message : compiled.diagnostics)
@@ -322,7 +324,7 @@ ExprVkCompileStatus ExprVkCompileBinding(
 }
 
 ExprVkCompileStatus ExprVkCompileNodeBindings(
-    UsdGenGraphDesc const& graph, UsdGenNodeDesc const& node,
+    UsdGenGraphSpec const& graph, UsdGenOpNode const& node,
     bool allowValue, bool allowTime,
     std::vector<ExprVkCompiledBinding>* out,
     std::vector<std::string>* diagnostics) {

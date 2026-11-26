@@ -7,7 +7,7 @@
 //   TF_DEBUG=USDGEN_INGRESS    groom scene index: dirty notices received,
 //                              which grooms re-capture, capture cost
 //   TF_DEBUG=USDGEN_FUR        one line per fur optical-depth bake: grid,
-//                              voxel size, CVs, work split
+//                              voxel size, items, work split
 //
 // Codes may be combined (TF_DEBUG="USDGEN_*"). The engine also emits
 // TRACE_SCOPE events for the same stages: record them with

@@ -3,7 +3,7 @@
 
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/curveLoader.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 
 #include <array>
@@ -41,9 +41,10 @@ static VulkanPreparedSource::Plane const* Find(VulkanPreparedSource const& sourc
 
 static bool LoadAffine(UsdGenGraphDesc const& desc, UsdGenCurveBuffer* out,
                        UsdGenDiagnostics* diagnostics) {
-    UsdGenParamView params{const_cast<UsdGenGraphDesc*>(&desc), &desc.nodes.front()};
-    UsdGenCaptureContext context; context.desc = &desc; context.params = &params;
-    return UsdGenCurveLoader::Load(context, desc.curveSets.front(), out, diagnostics);
+    usdGen::UsdGenGraphSpec const lowered = usdGenUsd::Lower(desc);
+    UsdGenParamView params{&lowered, &lowered.nodes.front()};
+    UsdGenCaptureContext context; context.desc = &lowered; context.params = &params;
+    return UsdGenCurveLoader::Load(context, UsdGenCurveSetInputs(lowered).front(), out, diagnostics);
 }
 
 static UsdGenGraphDesc AffineDesc() {

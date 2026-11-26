@@ -1,7 +1,7 @@
 #ifndef USDGEN_FUR_OCCLUSION_H
 #define USDGEN_FUR_OCCLUSION_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/publish/curvePublication.h"
 
 #include <memory>
 

@@ -29,7 +29,7 @@ static UsdGenExecutionTaskMetadata HazardTask(uint32_t id, uint64_t authoredOrde
     task.semanticNode = id;
     task.authoredOrderKey = authoredOrder;
     task.kind = UsdGenExecutionTaskKind::Operator;
-    task.path = SdfPath("/hazards/task" + std::to_string(id));
+    task.key = usdGen::UsdGenNodeKey{uint64_t(id) + 1};
     task.type = TfToken("UsdGenTestOperator");
     task.exclusiveWorkspace = false;
     return task;

@@ -9,6 +9,7 @@
 //     re-resolves when the sampled geometry changes;
 //   * ptex() reads a UsdGenPtexMap at the strand root, or a UsdGenPaintMap (bilinear at the root's face-local uv).
 #include "usdGen/cpuParameters.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
@@ -379,7 +380,7 @@ void CheckParameters()
     bool changed = false;
     std::vector<std::string> errors;
     UsdGenCurveBuffer const strands = Strands();
-    bool ok = parameters.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
+    bool ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
     Check(ok, "a geoSampler binding evaluates" + (errors.empty() ? "" : ": " + errors[0]));
     auto const *value = parameters.Find(TfToken("region"));
     Check(value && value->values.size() == 2 && value->values[0] == 0 && value->values[1] == 2,
@@ -390,14 +391,14 @@ void CheckParameters()
     desc.geometries[0].points[5] = GfVec3f(0.3f, 1, 0);
     desc.geometries[0].generation = 2;
     errors.clear();
-    ok = parameters.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
+    ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
     value = parameters.Find(TfToken("region"));
     Check(ok && changed && value && value->values[0] == 2 && value->values[1] == 1,
           "a guide edit changes the sampled region and reports the change");
 
     // A world matrix on the guides moves them into the groom's space.
     desc.geometries[0].worldMatrix.SetTranslate(GfVec3d(10, 0, 0));
-    ok = parameters.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
+    ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
     value = parameters.Find(TfToken("region"));
     Check(ok && value && value->values[1] == 0, "sampled geometry follows its world matrix");
 
@@ -405,7 +406,7 @@ void CheckParameters()
     UsdGenGraphDesc missing = Description("geoSampler(\"guides\", \"$index\")");
     UsdGenCpuParameters other;
     errors.clear();
-    Check(!other.Evaluate(missing, missing.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(!other.Evaluate(usdGenUsd::Lower(missing), usdGenUsd::Lower(missing.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "an unknown input fails the evaluation");
     bool named = false;
     for (auto const &e : errors) named = named || e.find("no input:guides relationship") != std::string::npos;
@@ -415,7 +416,7 @@ void CheckParameters()
     UsdGenGraphDesc wrongKind = Description("ptex(\"guideCurves\")");
     UsdGenCpuParameters third;
     errors.clear();
-    Check(!third.Evaluate(wrongKind, wrongKind.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(!third.Evaluate(usdGenUsd::Lower(wrongKind), usdGenUsd::Lower(wrongKind.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "ptex() on a geometry input fails");
 }
 
@@ -467,7 +468,7 @@ void CheckPtexParameters()
     UsdGenCpuParameters parameters;
     bool changed = false;
     std::vector<std::string> errors;
-    bool const ok = parameters.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
+    bool const ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
     Check(ok, "a ptex binding evaluates" + (errors.empty() ? "" : ": " + errors[0]));
     auto const *value = parameters.Find(TfToken("region"));
     Check(value && value->values.size() == 2 && Near(value->values[0], 1.5) &&
@@ -495,7 +496,7 @@ void CheckPtexParameters()
         limitDesc.nodes[0].inputs={scatter.path};limitDesc.nodes.push_back(scatter);
         auto limitStrands=strands;limitStrands.rootUV={{.875f,.375f},{.125f,.625f}};
         UsdGenCpuParameters sampled;
-        Check(sampled.Evaluate(limitDesc,limitDesc.nodes[0],UsdGenCurveSetView::Of(limitStrands),0,0,0,&changed,&errors),"evaluate exact limit UV Ptex");
+        Check(sampled.Evaluate(usdGenUsd::Lower(limitDesc),usdGenUsd::Lower(limitDesc.nodes[0]),UsdGenCurveSetView::Of(limitStrands),0,0,0,&changed,&errors),"evaluate exact limit UV Ptex");
         auto const* samples=sampled.Find(TfToken("region"));
         Check(samples && samples->values.size()==2 && Near(samples->values[0],2.75) && Near(samples->values[1],1.25),"Ptex uses retained limit UV, not projected cage position");
         std::error_code ignored;fs::remove(varyingFile,ignored);
@@ -505,7 +506,7 @@ void CheckPtexParameters()
     desc.maps[0].resolvedAssetPath = (fs::temp_directory_path() / "noSuchMap.ptx").string();
     desc.maps[0].params.push_back({TfToken("map:default"), VtValue(0.5f), false});
     UsdGenCpuParameters fallback;
-    Check(fallback.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(fallback.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "a missing map still evaluates");
     value = fallback.Find(TfToken("region"));
     Check(value && Near(value->values[0], 0.5) && Near(value->values[1], 0.5),
@@ -517,7 +518,7 @@ void CheckPtexParameters()
     strands.rootPrim = VtIntArray();
     UsdGenCpuParameters noRoots;
     errors.clear();
-    Check(!noRoots.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(!noRoots.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "strands without root faces fail a ptex() read");
     std::error_code ignored;
     fs::remove(file, ignored);
@@ -559,7 +560,7 @@ void CheckPaintParameters()
     UsdGenCpuParameters parameters;
     bool changed = false;
     std::vector<std::string> errors;
-    bool const ok = parameters.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
+    bool const ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
     Check(ok, "a paint binding evaluates" + (errors.empty() ? "" : ": " + errors[0]));
     auto const *value = parameters.Find(TfToken("region"));
     Check(value && value->values.size() == 2 &&
@@ -572,7 +573,7 @@ void CheckPaintParameters()
     desc.maps[0].params.push_back({TfToken("map:default"), VtValue(0.5f), false});
     UsdGenCpuParameters fallback;
     errors.clear();
-    Check(fallback.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(fallback.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "an empty paint payload still evaluates");
     value = fallback.Find(TfToken("region"));
     Check(value && Near(value->values[0], 0.5) && Near(value->values[1], 0.5),
@@ -584,7 +585,7 @@ void CheckPaintParameters()
     desc.maps[0].paintSurface = SdfPath("/Groom/OtherSkin");
     UsdGenCpuParameters wrongSurface;
     errors.clear();
-    Check(!wrongSurface.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(!wrongSurface.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "paint for another surface fails the read");
     bool named = false;
     for (auto const &e : errors) named = named || e.find("not the root surface") != std::string::npos;
@@ -601,7 +602,7 @@ void CheckPaintParameters()
         onSubset.nodes[0].surfaces = {onSubset.surfaces[0].path};
         UsdGenCpuParameters subsetParameters;
         errors.clear();
-        Check(subsetParameters.Evaluate(onSubset, onSubset.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0,
+        Check(subsetParameters.Evaluate(usdGenUsd::Lower(onSubset), usdGenUsd::Lower(onSubset.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0,
                                         &changed, &errors),
               "paint on a subset's parent mesh evaluates" +
                   (errors.empty() ? "" : ": " + errors[0]));
@@ -616,7 +617,7 @@ void CheckPaintParameters()
     desc.maps[0].paintValues = VtFloatArray{0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 2.0f, 2.0f};
     UsdGenCpuParameters shortPayload;
     errors.clear();
-    Check(!shortPayload.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(!shortPayload.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "a short paint payload fails the read");
     named = false;
     for (auto const &e : errors) named = named || e.find("paint values for") != std::string::npos;
@@ -627,7 +628,7 @@ void CheckPaintParameters()
     desc.maps[0].params.push_back({TfToken("map:channel"), VtValue(TfToken("g")), false});
     UsdGenCpuParameters badChannel;
     errors.clear();
-    Check(!badChannel.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(!badChannel.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "a paint read on channel g fails");
     named = false;
     for (auto const &e : errors) named = named || e.find("scalar paint snapshot") != std::string::npos;
@@ -638,7 +639,7 @@ void CheckPaintParameters()
     strands.rootPrim = VtIntArray{0, 99};
     UsdGenCpuParameters strayRoot;
     errors.clear();
-    Check(strayRoot.Evaluate(desc, desc.nodes[0], UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
+    Check(strayRoot.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors),
           "a stray root face still evaluates" + (errors.empty() ? "" : ": " + errors[0]));
     value = strayRoot.Find(TfToken("region"));
     Check(value && Near(value->values[0], 1.8166667, 1e-4) && Near(value->values[1], 0.5),

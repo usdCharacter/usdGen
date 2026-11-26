@@ -6,6 +6,7 @@
 #define USDGEN_VULKAN_EXECUTION_PLAN_H
 
 #include "curveGrowPipeline.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "exprVkProgram.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/vulkan/vkStages.h"
@@ -86,7 +87,7 @@ struct VulkanSourceWidthStage {
     // Value 0 is Source; stage i publishes value i+1. Binary inputs retain
     // their authored left/right order even when the stage list is sorted.
     uint32_t input = 0, rightInput = 0;
-    SdfPath path;
+    UsdGenNodeKey key;
     VulkanLiteralWidthControls width;
     std::vector<ExprVkCompiledBinding> expressionBindings;
     expr::Context expressionControls;
@@ -139,17 +140,17 @@ struct VulkanSourceControls {
 // historical class name is retained for compatibility with linear callers.
 class VulkanSourceWidthPlan final {
   public:
-    std::shared_ptr<const UsdGenGraphDesc> const &Descriptor() const noexcept {
+    std::shared_ptr<const UsdGenGraphSpec> const &Descriptor() const noexcept {
         return descriptor_;
     }
-    UsdGenCurveSetDesc const &Source() const noexcept { return source_; }
-    SdfPath const &SourceNodePath() const noexcept { return sourceNodePath_; }
-    SdfPath const &WidthNodePath() const noexcept { return widthNodePath_; }
+    UsdGenCurveSetInputView const &Source() const noexcept { return source_; }
+    UsdGenNodeKey SourceNodeKey() const noexcept { return sourceNodeKey_; }
+    UsdGenNodeKey WidthNodeKey() const noexcept { return widthNodeKey_; }
     VulkanSourceControls const &SourceControls() const noexcept { return sourceControls_; }
     VulkanLiteralWidthControls const &Width() const noexcept { return width_; }
-    bool HasLength() const noexcept { return !lengthNodePath_.IsEmpty(); }
+    bool HasLength() const noexcept { return lengthNodeKey_.IsValid(); }
     float LengthFactor() const noexcept { return lengthFactor_; }
-    SdfPath const &LengthNodePath() const noexcept { return lengthNodePath_; }
+    UsdGenNodeKey LengthNodeKey() const noexcept { return lengthNodeKey_; }
     std::vector<VulkanSourceWidthStage> const &Steps() const noexcept { return steps_; }
     size_t IntermediateCount() const noexcept { return steps_.empty() ? 0 : steps_.size() - 1; }
     uint64_t CurveGeneration() const noexcept { return curveGeneration_; }
@@ -164,16 +165,16 @@ class VulkanSourceWidthPlan final {
 
   private:
     friend std::shared_ptr<const UsdGenExecutionPlanHandle>
-    CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &, UsdGenDiagnostics *);
-    VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphDesc>, UsdGenCurveSetDesc, SdfPath,
-                          SdfPath, VulkanSourceControls, VulkanLiteralWidthControls, uint64_t,
+    CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &, UsdGenDiagnostics *);
+    VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphSpec>, UsdGenCurveSetInputView, UsdGenNodeKey,
+                          UsdGenNodeKey, VulkanSourceControls, VulkanLiteralWidthControls, uint64_t,
                           uint64_t, uint64_t, bool) noexcept;
-    std::shared_ptr<const UsdGenGraphDesc> descriptor_;
-    UsdGenCurveSetDesc source_;
-    SdfPath sourceNodePath_, widthNodePath_;
+    std::shared_ptr<const UsdGenGraphSpec> descriptor_;
+    UsdGenCurveSetInputView source_;   // holds its record's columns; descriptor_ holds the rest
+    UsdGenNodeKey sourceNodeKey_, widthNodeKey_;
     VulkanSourceControls sourceControls_;
     VulkanLiteralWidthControls width_;
-    SdfPath lengthNodePath_;
+    UsdGenNodeKey lengthNodeKey_;
     float lengthFactor_ = 1.0f;
     std::vector<VulkanSourceWidthStage> steps_;
     uint64_t curveGeneration_ = 0, topologyVersion_ = 0, valueVersion_ = 0;
@@ -187,7 +188,7 @@ class VulkanSourceWidthPlan final {
 // Joins across distinct Length lineages require native non-width equality
 // proof; other operator families are not admitted.
 std::shared_ptr<const UsdGenExecutionPlanHandle>
-CompileVulkanSourceWidthPlan(UsdGenGraphDesc const &, UsdGenDiagnostics * = nullptr);
+CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &, UsdGenDiagnostics * = nullptr);
 
 } // namespace usdGen::vulkan
 

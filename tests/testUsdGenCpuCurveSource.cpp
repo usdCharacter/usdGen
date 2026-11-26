@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/imagePayload.h"
@@ -77,7 +78,7 @@ template<class T> static bool Read(gpu::DeviceView<const T> input,
 static bool CudaParity(UsdGenGraphDesc d, UsdGenCurveBuffer const& cpu) {
     d.executionBackend = UsdGenExecutionBackend::Cuda;
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(d, &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(d), &diagnostics);
     if (!plan) {
         for (auto const& e : diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
         return false;
@@ -150,11 +151,11 @@ static bool Run(UsdGenGraphDesc const& d, UsdGenCurveBuffer* result,
                 bool printErrors = true) {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(d, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, d, &graph);
     if (!compiled.ok) return false;
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     auto run = scheduler.Run(graph, ctx, 1);
     if (printErrors) for (auto const& e : run.diagnostics.errors)
         std::fprintf(stderr, "%s\n", e.c_str());
@@ -245,9 +246,9 @@ int main() {
         {
             UsdGenCompiler frameCompiler;
             UsdGenGraph frameGraph;
-            CHECK(frameCompiler.Compile(derived,&frameGraph).ok);
+            CHECK(usdGenUsd::Compile(frameCompiler, derived,&frameGraph).ok);
             UsdGenScheduler frameScheduler(2);
-            UsdGenEvalContext frameCtx; frameCtx.desc = &frameGraph.Desc();
+            UsdGenEvalContext frameCtx; frameCtx.desc = &frameGraph.Spec();
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,1).diagnostics.HasErrors());
             auto const frozen = OutputView(frameGraph);
             auto posed = derived;
@@ -256,8 +257,8 @@ int main() {
             posed.surfaces[0].worldMatrix.SetTranslate(GfVec3d(.4,0,0));
             posed.curveSets[0].worldMatrix = posed.surfaces[0].worldMatrix;
             posed.surfaces[0].samples.push_back({38,posed.surfaces[0].points});
-            CHECK(frameCompiler.Recompile(posed,&frameGraph).ok);
-            frameCtx.desc = &frameGraph.Desc();
+            CHECK(usdGenUsd::Recompile(frameCompiler, posed,&frameGraph).ok);
+            frameCtx.desc = &frameGraph.Spec();
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,2).diagnostics.HasErrors());
             // Rest root capture survives changing posed points/sample times;
             // reusing its COW storage proves generation was not rerun.
@@ -268,8 +269,8 @@ int main() {
             recaptured.surfaces[0].restNormals = {{0,1,1}};
             // Deliberately no surfaceGeneration change: actual payload edits
             // must invalidate the source capture independently of that hint.
-            CHECK(frameCompiler.Recompile(recaptured,&frameGraph).ok);
-            frameCtx.desc = &frameGraph.Desc();
+            CHECK(usdGenUsd::Recompile(frameCompiler, recaptured,&frameGraph).ok);
+            frameCtx.desc = &frameGraph.Spec();
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,3).diagnostics.HasErrors());
             CHECK(OutputBuffer(frameGraph).rootN != priorNormals &&
                   priorNormals == VtVec3fArray(2,GfVec3f(0,0,1)));
@@ -317,11 +318,11 @@ int main() {
     {
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        CHECK(compiler.Compile(styled,&graph).ok);
+        CHECK(usdGenUsd::Compile(compiler, styled,&graph).ok);
         UsdGenScheduler scheduler(2);
-        UsdGenEvalContext ctx; ctx.desc = &graph.Desc();
+        UsdGenEvalContext ctx; ctx.desc = &graph.Spec();
         CHECK(!scheduler.Run(graph,ctx,1).diagnostics.HasErrors());
-        auto const source = NodeView(graph, graph.NodeIdForPath(d.terminal));
+        auto const source = NodeView(graph, usdGenUsd::NodeIdForPath(graph, d.terminal));
         CHECK(OutputView(graph).rest.cdata() == source.rest.cdata());
         CHECK(OutputView(graph).width.cdata() != source.width.cdata());
     }
@@ -337,14 +338,14 @@ int main() {
         grown.nodes.push_back(grow); grown.terminal = grow.path;
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        CHECK(compiler.Compile(grown,&graph).ok);
+        CHECK(usdGenUsd::Compile(compiler, grown,&graph).ok);
         UsdGenScheduler scheduler(2);
-        UsdGenEvalContext ctx; ctx.desc = &graph.Desc();
+        UsdGenEvalContext ctx; ctx.desc = &graph.Spec();
         auto run = scheduler.Run(graph,ctx,1);
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr,"%s\n",error.c_str());
         CHECK(!run.diagnostics.HasErrors());
-        auto const sourceView = NodeView(graph, graph.NodeIdForPath(d.terminal));
-        auto const source = NodeBuffer(graph, graph.NodeIdForPath(d.terminal));
+        auto const sourceView = NodeView(graph, usdGenUsd::NodeIdForPath(graph, d.terminal));
+        auto const source = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, d.terminal));
         auto const output = OutputBuffer(graph);
         CHECK(output.totalCvs == 8 && output.rest.size() == 8);
         CHECK(output.px[0] == 120 && output.px[4] == 110);
@@ -403,18 +404,18 @@ int main() {
     // authored payload, and old published arrays remain immutable COW data.
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    CHECK(compiler.Compile(d, &graph).ok);
+    CHECK(usdGenUsd::Compile(compiler, d, &graph).ok);
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     CHECK(!scheduler.Run(graph, ctx, 1).diagnostics.HasErrors());
     UsdGenRef<const UsdGenElementSet> const oldSet(&graph.Output());
     auto const old = UsdGenCurveSetView::Of(*oldSet);
     d.curveSets[0].rest[3][0] = 30;
     d.curveSets[0].points[3][0] = 130;
     d.curveSets[0].widths[3] = .9f;
-    CHECK(compiler.Recompile(d, &graph).ok);
-    ctx.desc = &graph.Desc();
+    CHECK(usdGenUsd::Recompile(compiler, d, &graph).ok);
+    ctx.desc = &graph.Spec();
     CHECK(!scheduler.Run(graph, ctx, 2).diagnostics.HasErrors());
     CHECK(OutputView(graph).px.front() == 130 && OutputView(graph).width.front() == .9f);
     CHECK(OutputView(graph).rest.front()[0] == 30);
@@ -426,8 +427,8 @@ int main() {
     // Failures must not overwrite a caller's last-good source value.
     auto good = OutputBuffer(graph);
     d.curveSets[0].curveId = {7,7};
-    CHECK(compiler.Recompile(d, &graph).ok);
-    ctx.desc = &graph.Desc();
+    CHECK(usdGenUsd::Recompile(compiler, d, &graph).ok);
+    ctx.desc = &graph.Spec();
     CHECK(scheduler.Run(graph,ctx,3).diagnostics.HasErrors());
     CHECK(OutputBuffer(graph).px == good.px && OutputBuffer(graph).width == good.width &&
           OutputBuffer(graph).rest == good.rest);

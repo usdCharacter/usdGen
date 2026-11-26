@@ -9,6 +9,7 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "usdGen/executionPipeline.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/vulkan/deviceContext.h"
@@ -230,20 +231,20 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     desc.executionBackend = UsdGenExecutionBackend::CpuReference;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const& error : compiled.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto run = scheduler.Run(graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const& error : run.diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     out->points.resize(buffer.totalCvs);
     out->rest.assign(buffer.rest.begin(), buffer.rest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
@@ -437,7 +438,7 @@ struct HeldDeviceReturn {
 struct HoldingProvider final : UsdGenSessionDeviceProvider {
     std::shared_ptr<UsdGenSessionDeviceProvider> inner;
     std::shared_ptr<HeldDeviceReturn> held;
-    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphDesc const& desc,
+    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const& desc,
                                          UsdGenDiagnostics* diagnostics) const override {
         return inner->Compile(desc, diagnostics);
     }
@@ -465,7 +466,7 @@ struct CullRevisionProvider final : UsdGenSessionDeviceProvider {
     std::shared_ptr<UsdGenSessionDeviceProvider> inner;
     std::atomic<bool> corruptTopology{false};
     std::atomic<size_t> topologyOrdinal{SIZE_MAX};
-    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphDesc const& desc,
+    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const& desc,
                                          UsdGenDiagnostics* diagnostics) const override {
         return inner->Compile(desc, diagnostics);
     }
@@ -813,7 +814,7 @@ int main(int argc, char** argv) {
         observers.admissionClosed = [&] { closedPromise.set_value(); };
         auto losingSession = CreateUsdGenDeviceSession(2, 8, cacheDomain, wrapper, observers);
         CHECK(losingSession);
-        losingSession->SetGraphDesc(MakeProviderDescriptor());
+        usdGenUsd::SetGraphDesc(*losingSession, MakeProviderDescriptor());
         losingSession->SetDevicePublicationEnabled(true);
         std::atomic<unsigned> terminals{0};
         std::promise<UsdGenExecutionPipeline::Outcome> terminalPromise;
@@ -881,7 +882,7 @@ int main(int argc, char** argv) {
         controls.push_back({TfToken("cullThreshold"), VtValue(1.5f), false});
         session->SetDevicePublicationEnabled(true);
         auto commitChecked = [&](UsdGenGraphDesc const& desc, SixPlaneOracle const& oracle) {
-            session->SetGraphDesc(desc);
+            usdGenUsd::SetGraphDesc(*session, desc);
             auto snapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
             CHECK(snapshot && !snapshot->diagnostics.HasErrors() && snapshot->generation &&
                   snapshot->generation->device);
@@ -976,7 +977,7 @@ int main(int argc, char** argv) {
         auto badRevisionDesc = descriptor;
         badRevisionDesc.nodes[1].params.back().value = VtValue(1.25f);
         cullProvider->corruptTopology = true;
-        session->SetGraphDesc(badRevisionDesc);
+        usdGenUsd::SetGraphDesc(*session, badRevisionDesc);
         auto wrongTopology = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(wrongTopology && wrongTopology->diagnostics.HasErrors() &&
               wrongTopology->generation == cached->generation && session->NeedsCommit());
@@ -1009,7 +1010,7 @@ int main(int argc, char** argv) {
             CHECK(joinedOracle.stableIds == firstOracle.stableIds);
             auto unequal = branch;
             unequal.nodes[3].params.back().value = VtValue(.5f);
-            session->SetGraphDesc(unequal);
+            usdGenUsd::SetGraphDesc(*session, unequal);
             auto rejectedJoin = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
             CHECK(rejectedJoin && rejectedJoin->diagnostics.HasErrors() &&
                   rejectedJoin->generation == joined->generation && session->NeedsCommit());
@@ -1099,7 +1100,7 @@ int main(int argc, char** argv) {
                 auto& zeroCurves = zeroCurrent.curveSets.front();
                 zeroCurves.points = {{0,0,0},{0,0,0},{0,0,0}};
                 zeroCurves.rest = zeroCurves.points;
-                session->SetGraphDesc(zeroCurrent);
+                usdGenUsd::SetGraphDesc(*session, zeroCurrent);
                 auto rejectedZero = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                 CHECK(rejectedZero && rejectedZero->diagnostics.HasErrors() &&
                       rejectedZero->generation == extendSnapshot->generation && session->NeedsCommit());
@@ -1171,7 +1172,7 @@ int main(int argc, char** argv) {
                     auto equalCutJoin = commitChecked(cutDag, cutOracle);
                     auto unequalCutJoin = cutDag;
                     unequalCutJoin.nodes[4].params[0].value = VtValue(2.f);
-                    session->SetGraphDesc(unequalCutJoin);
+                    usdGenUsd::SetGraphDesc(*session, unequalCutJoin);
                     auto rejectedCutJoin = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                     CHECK(rejectedCutJoin && rejectedCutJoin->diagnostics.HasErrors() &&
                           rejectedCutJoin->generation == equalCutJoin->generation && session->NeedsCommit());
@@ -1290,7 +1291,7 @@ int main(int argc, char** argv) {
                 auto zeroCurrent = reparamDesc;
                 zeroCurrent.curveSets.front().points = {{0,0,0},{0,0,0},{0,0,0}};
                 zeroCurrent.curveSets.front().rest = zeroCurrent.curveSets.front().points;
-                session->SetGraphDesc(zeroCurrent);
+                usdGenUsd::SetGraphDesc(*session, zeroCurrent);
                 auto failedZero = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                 CHECK(failedZero && failedZero->diagnostics.HasErrors() &&
                       failedZero->generation == restoredReparam->generation && session->NeedsCommit());
@@ -1424,7 +1425,7 @@ int main(int argc, char** argv) {
                 auto zeroCurrent = minimumDesc;
                 zeroCurrent.curveSets.front().points = {{0,0,0},{0,0,0},{0,0,0}};
                 zeroCurrent.curveSets.front().rest = zeroCurrent.curveSets.front().points;
-                session->SetGraphDesc(zeroCurrent);
+                usdGenUsd::SetGraphDesc(*session, zeroCurrent);
                 auto failedZero = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                 CHECK(failedZero && failedZero->diagnostics.HasErrors() &&
                       failedZero->generation == restoredSame->generation && session->NeedsCommit());
@@ -1624,7 +1625,7 @@ int main(int argc, char** argv) {
                 zeroLiteral.curveSets.front().points = {{0,0,0},{0,0,0},{0,0,0}};
                 zeroLiteral.curveSets.front().rest = zeroLiteral.curveSets.front().points;
                 zeroLiteral.nodes[1].params[4].value = VtValue(1.f);
-                session->SetGraphDesc(zeroLiteral);
+                usdGenUsd::SetGraphDesc(*session, zeroLiteral);
                 auto failedLiteral = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                 CHECK(failedLiteral && failedLiteral->diagnostics.HasErrors() &&
                       failedLiteral->generation == restoredLiteral->generation && session->NeedsCommit());
@@ -1745,7 +1746,7 @@ int main(int argc, char** argv) {
                 zeroEnvelope.curveSets.front().rest = zeroEnvelope.curveSets.front().points;
                 zeroEnvelope.nodes[1].params[4].value = VtValue(1.f);
                 cullProvider->topologyOrdinal = 1;
-                session->SetGraphDesc(zeroEnvelope);
+                usdGenUsd::SetGraphDesc(*session, zeroEnvelope);
                 auto failedEnvelope = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                 CHECK(failedEnvelope && failedEnvelope->diagnostics.HasErrors() &&
                       failedEnvelope->generation == restoreEnvelope->generation && session->NeedsCommit());
@@ -1851,7 +1852,7 @@ int main(int argc, char** argv) {
                 auto mismatch = compoundDag;
                 mismatch.nodes[3].params[0].value = VtValue(.25f);
                 mismatch.nodes[3].params.back().value = VtValue(.4f);
-                session->SetGraphDesc(mismatch);
+                usdGenUsd::SetGraphDesc(*session, mismatch);
                 auto rejected = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
                 CHECK(rejected && rejected->diagnostics.HasErrors() &&
                       rejected->generation == joined->generation && session->NeedsCommit());
@@ -1901,7 +1902,7 @@ int main(int argc, char** argv) {
         }
         auto invalid = descriptor;
         invalid.nodes.back().type = TfToken("UnsupportedVulkanOperator");
-        session->SetGraphDesc(invalid);
+        usdGenUsd::SetGraphDesc(*session, invalid);
         auto failed = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(failed && failed->diagnostics.HasErrors() && failed->generation == cached->generation);
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
@@ -1975,7 +1976,7 @@ int main(int argc, char** argv) {
             }
         }
     }
-    session->SetGraphDesc(descriptor);
+    usdGenUsd::SetGraphDesc(*session, descriptor);
     session->SetDevicePublicationEnabled(true);
     if (admissionRollbackMode) {
         // Exhaust native ingress by retaining exact-owner tickets, not by
@@ -2013,7 +2014,7 @@ int main(int argc, char** argv) {
         rootMutation.nodes.front().params[1].value = VtValue(TfToken("always"));
         CHECK(rootMutation.curveSets.front().curveGeneration == descriptor.curveSets.front().curveGeneration);
         SixPlaneOracle rootMutationOracle; CHECK(BuildCpuReference(rootMutation, &rootMutationOracle));
-        session->SetGraphDesc(rootMutation);
+        usdGenUsd::SetGraphDesc(*session, rootMutation);
         auto rootMutationSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(rootMutationSnapshot && !rootMutationSnapshot->diagnostics.HasErrors() &&
               rootMutationSnapshot->generation && rootMutationSnapshot->generation->device);
@@ -2024,7 +2025,7 @@ int main(int argc, char** argv) {
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
                     *fixture.queueOwner, sessionSnapshot->generation->device, oracle);
         fixture.queueOwner->InvokeOwner([&] { rootMutationSnapshot.reset(); });
-        session->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*session, descriptor);
     }
     auto changed = descriptor;
     // Keep the source generation constant and change only the final Width or
@@ -2037,7 +2038,7 @@ int main(int argc, char** argv) {
     CHECK(changed.curveSets[0].curveGeneration == descriptor.curveSets[0].curveGeneration);
     SixPlaneOracle changedOracle;
     CHECK(BuildCpuReference(changed, &changedOracle));
-    session->SetGraphDesc(changed);
+    usdGenUsd::SetGraphDesc(*session, changed);
     auto changedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(changedSnapshot && !changedSnapshot->diagnostics.HasErrors());
     CHECK(changedSnapshot->generation && changedSnapshot->generation->device);
@@ -2050,7 +2051,7 @@ int main(int argc, char** argv) {
 
     // Returning to the identical descriptor uses the real Session cache,
     // retaining native ownership and immutable value revisions.
-    session->SetGraphDesc(descriptor);
+    usdGenUsd::SetGraphDesc(*session, descriptor);
     auto cachedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(cachedSnapshot && !cachedSnapshot->diagnostics.HasErrors());
     CHECK(cachedSnapshot->generation && cachedSnapshot->generation->device);
@@ -2082,7 +2083,7 @@ int main(int argc, char** argv) {
             offset += size_t(count);
         }
         curves.rest = curves.points;
-        session->SetGraphDesc(degenerate);
+        usdGenUsd::SetGraphDesc(*session, degenerate);
         auto failedSet = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(failedSet && failedSet->diagnostics.HasErrors() &&
               failedSet->generation == cachedSnapshot->generation && session->NeedsCommit());
@@ -2094,7 +2095,7 @@ int main(int argc, char** argv) {
             for (auto& param : node.params) if (param.name == TfToken("length:value"))
                 param.value = VtValue(0.f);
         SixPlaneOracle zeroOracle; CHECK(BuildCpuReference(zeroTarget, &zeroOracle));
-        session->SetGraphDesc(zeroTarget);
+        usdGenUsd::SetGraphDesc(*session, zeroTarget);
         auto zeroSet = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(zeroSet && !zeroSet->diagnostics.HasErrors() && zeroSet->generation && zeroSet->generation->device);
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
@@ -2102,7 +2103,7 @@ int main(int argc, char** argv) {
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
                     *fixture.queueOwner, cachedSnapshot->generation->device, oracle);
         fixture.queueOwner->InvokeOwner([&] { failedSet.reset(); zeroSet.reset(); });
-        session->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*session, descriptor);
         cachedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(cachedSnapshot && !cachedSnapshot->diagnostics.HasErrors() && cachedSnapshot->generation);
     }
@@ -2120,7 +2121,7 @@ int main(int argc, char** argv) {
               matrixMutation.curveSets.front().rest == sourceRest);
         SixPlaneOracle matrixOracle;
         CHECK(BuildCpuReference(matrixMutation, &matrixOracle));
-        session->SetGraphDesc(matrixMutation);
+        usdGenUsd::SetGraphDesc(*session, matrixMutation);
         auto matrixSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(matrixSnapshot && !matrixSnapshot->diagnostics.HasErrors() &&
               matrixSnapshot->generation && matrixSnapshot->generation->device);
@@ -2132,7 +2133,7 @@ int main(int argc, char** argv) {
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
                     *fixture.queueOwner, cachedSnapshot->generation->device, oracle);
         fixture.queueOwner->InvokeOwner([&] { matrixSnapshot.reset(); });
-        session->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*session, descriptor);
         cachedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(cachedSnapshot && !cachedSnapshot->diagnostics.HasErrors() &&
               cachedSnapshot->generation && cachedSnapshot->generation->device);
@@ -2175,7 +2176,7 @@ int main(int argc, char** argv) {
             }
             SixPlaneOracle expected;
             CHECK(BuildCpuReference(dag, &expected));
-            session->SetGraphDesc(dag);
+            usdGenUsd::SetGraphDesc(*session, dag);
             auto result = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
             CHECK(result && !result->diagnostics.HasErrors() && result->generation && result->generation->device);
             CheckPlanes(fixture.native, fixture.context, fixture.completion,
@@ -2194,7 +2195,7 @@ int main(int argc, char** argv) {
             separateOrigins.nodes.insert(separateOrigins.nodes.begin() + 2, secondLength);
             SixPlaneOracle expected;
             CHECK(BuildCpuReference(separateOrigins, &expected));
-            session->SetGraphDesc(separateOrigins);
+            usdGenUsd::SetGraphDesc(*session, separateOrigins);
             auto equalSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
             CHECK(equalSnapshot && !equalSnapshot->diagnostics.HasErrors() &&
                   equalSnapshot->generation && equalSnapshot->generation->device);
@@ -2203,7 +2204,7 @@ int main(int argc, char** argv) {
 
             auto unequalOrigins = separateOrigins;
             unequalOrigins.nodes[2].params[0].value = VtValue(0.75f);
-            session->SetGraphDesc(unequalOrigins);
+            usdGenUsd::SetGraphDesc(*session, unequalOrigins);
             auto unequalSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
             CHECK(unequalSnapshot && unequalSnapshot->diagnostics.HasErrors());
             CHECK(unequalSnapshot->generation == equalSnapshot->generation);
@@ -2231,7 +2232,7 @@ int main(int argc, char** argv) {
             }
         }
         ++emptyCurves.curveGeneration;
-        session->SetGraphDesc(emptyDag);
+        usdGenUsd::SetGraphDesc(*session, emptyDag);
         auto emptySnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(emptySnapshot && !emptySnapshot->diagnostics.HasErrors() &&
               emptySnapshot->generation && emptySnapshot->generation->device);
@@ -2248,7 +2249,7 @@ int main(int argc, char** argv) {
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
                     *fixture.queueOwner, sessionSnapshot->generation->device, oracle);
         fixture.queueOwner->InvokeOwner([&] { emptySnapshot.reset(); });
-        session->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*session, descriptor);
         cachedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(cachedSnapshot && cachedSnapshot->generation && !cachedSnapshot->diagnostics.HasErrors());
     }
@@ -2260,7 +2261,7 @@ int main(int argc, char** argv) {
         auto rebound = MakeProviderRootDescriptor(lengthMode, false, TfToken("always"));
         SixPlaneOracle reboundOracle; CHECK(BuildCpuReference(rebound, &reboundOracle));
         CHECK(reboundOracle.rootPrim.size() == reboundOracle.stableIds.size());
-        session->SetGraphDesc(rebound);
+        usdGenUsd::SetGraphDesc(*session, rebound);
         auto reboundSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(reboundSnapshot && !reboundSnapshot->diagnostics.HasErrors() &&
               reboundSnapshot->generation && reboundSnapshot->generation->device);
@@ -2281,7 +2282,7 @@ int main(int argc, char** argv) {
         for (auto const& plane : droppedOracle.named)
             if (plane.metadata.domain == UsdGenDeviceDomain::Groom) CHECK(!plane.bytes.empty());
             else CHECK(plane.bytes.empty() && plane.metadata.elementCount == 0);
-        session->SetGraphDesc(dropped);
+        usdGenUsd::SetGraphDesc(*session, dropped);
         auto droppedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(droppedSnapshot && !droppedSnapshot->diagnostics.HasErrors() &&
               droppedSnapshot->generation && droppedSnapshot->generation->device);
@@ -2289,7 +2290,7 @@ int main(int argc, char** argv) {
         CheckPlanes(fixture.native, fixture.context, fixture.completion,
                     *fixture.queueOwner, droppedSnapshot->generation->device, droppedOracle);
         fixture.queueOwner->InvokeOwner([&] { reboundSnapshot.reset(); droppedSnapshot.reset(); });
-        session->SetGraphDesc(descriptor);
+        usdGenUsd::SetGraphDesc(*session, descriptor);
         cachedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
         CHECK(cachedSnapshot && !cachedSnapshot->diagnostics.HasErrors() &&
               cachedSnapshot->generation && cachedSnapshot->generation->device);
@@ -2297,7 +2298,7 @@ int main(int argc, char** argv) {
 
     auto unsupported = descriptor;
     unsupported.nodes.back().type = TfToken("UnsupportedVulkanOperator");
-    session->SetGraphDesc(unsupported);
+    usdGenUsd::SetGraphDesc(*session, unsupported);
     auto failedSnapshot = session->CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(failedSnapshot && failedSnapshot->diagnostics.HasErrors());
     CHECK(failedSnapshot->generation == cachedSnapshot->generation);

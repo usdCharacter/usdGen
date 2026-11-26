@@ -19,7 +19,7 @@ Open [the manual](../../docs/site/index.html) in a browser. The build writes a p
 operator under `docs/site/operators/`, plus the getting started, character
 groom, and gallery pages. It requires no Python packages beyond the standard
 library. The checker compares the operator inventory with
-`libs/usdGenSchema/schema.usda` and `libs/usdGen/usdGen/opRegistry.cpp`, checks
+`libs/hosts/usdGenUsd/schema/schema.usda` and `libs/usdGen/usdGen/opRegistry.cpp`, checks
 operator parameter and source references, and checks the generated pages and
 local media paths. It does not evaluate a groom or judge image quality.
 

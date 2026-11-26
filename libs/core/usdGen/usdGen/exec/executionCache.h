@@ -8,7 +8,7 @@
 #define USDGEN_EXECUTION_CACHE_H
 
 #include "usdGen/deviceGeneration.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/epoch.h"
 
 #include <cstdint>
@@ -32,7 +32,7 @@ namespace usdGen {
 struct UsdGenGeneration;   // generationStore.h; the Store holds it by shared_ptr
 
 struct UsdGenExecutionInputGeneration {
-    SdfPath identity;
+    UsdGenNodeKey identity;
     uint64_t generation = 0;
 
     bool operator==(UsdGenExecutionInputGeneration const& rhs) const noexcept {
@@ -44,7 +44,7 @@ struct UsdGenExecutionInputGeneration {
 };
 
 /// Canonical, immutable-after-publication input version tuple.  Source and
-/// reference entries are curve-set identities; map and surface entries are
+/// reference entries are input-set identities; map and surface entries are
 /// their corresponding descriptor identities.  Relationship-only references
 /// with no payload generation are retained at generation zero so a changed
 /// target still changes the plan/cache identity.
@@ -60,9 +60,9 @@ struct UsdGenExecutionInputVersions {
     bool valid = true;
 
     static UsdGenExecutionInputVersions FromDescription(
-        UsdGenGraphDesc const& desc);
+        UsdGenGraphSpec const& desc);
     /// The same, refilling *out in place (its vectors keep their capacity).
-    static void FromDescription(UsdGenGraphDesc const& desc,
+    static void FromDescription(UsdGenGraphSpec const& desc,
                                 UsdGenExecutionInputVersions* out);
 
     bool operator==(UsdGenExecutionInputVersions const& rhs) const noexcept {
@@ -83,9 +83,9 @@ struct UsdGenExecutionInputVersions {
     // Dirty routing updates are intentionally explicit and return whether an
     // existing identity was found. Unknown targets can still be represented
     // by callers by appending a generation-zero entry before publication.
-    bool UpdateInput(SdfPath const& identity, uint64_t generation) noexcept;
-    bool UpdateMap(SdfPath const& identity, uint64_t generation) noexcept;
-    bool UpdateSurface(SdfPath const& identity, uint64_t generation) noexcept;
+    bool UpdateInput(UsdGenNodeKey identity, uint64_t generation) noexcept;
+    bool UpdateMap(UsdGenNodeKey identity, uint64_t generation) noexcept;
+    bool UpdateSurface(UsdGenNodeKey identity, uint64_t generation) noexcept;
 };
 
 /// Backend/device/capability context is deliberately separate from the
@@ -119,7 +119,7 @@ struct UsdGenExecutionContext {
 /// sample identity, including signed zero and NaN payloads, without making
 /// floating-point equality part of the contract.
 struct UsdGenExecutionCacheKey {
-    SdfPath description;
+    UsdGenNodeKey description;
     UsdGenEpoch planDigest{};
     uint64_t layoutDigest = 0;
     uint64_t frameBits = 0;
@@ -127,7 +127,7 @@ struct UsdGenExecutionCacheKey {
     UsdGenExecutionInputVersions inputs;
 
     static UsdGenExecutionCacheKey Make(
-        SdfPath description, UsdGenEpoch planDigest,
+        UsdGenNodeKey description, UsdGenEpoch planDigest,
         UsdGenExecutionInputVersions inputs,
         UsdGenExecutionContext context,
         uint64_t layoutDigest, double frame) noexcept;

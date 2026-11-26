@@ -32,7 +32,7 @@
 #include "usdGen/compiler.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/rbfField.h"
@@ -598,7 +598,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < 9; ++i) {
             UsdGenGraph g;
             double t0 = NowMs();
-            UsdGenCompileResult const r = compiler.Compile(base, &g);
+            UsdGenCompileResult const r = usdGenUsd::Compile(compiler, base, &g);
             tCompile.push_back(NowMs() - t0);
             if (!r.ok) {
                 std::printf("D1 compile failed:");
@@ -616,39 +616,39 @@ int main(int argc, char **argv)
     UsdGenGraphDesc desc = base;
     PoseSurface(&desc.surfaces[0], 0);
     ctx.desc = nullptr;
-    UsdGenCompileResult const warm = compiler.Recompile(desc, &graph);
-    ctx.desc = &graph.Desc();
+    UsdGenCompileResult const warm = usdGenUsd::Recompile(compiler, desc, &graph);
+    ctx.desc = &graph.Spec();
     if (!warm.ok || scheduler.Run(graph, ctx, ++gen).diagnostics.HasErrors()) {
         std::printf("D1 warmup run failed\n");
         return 1;
     }
     // Repeatability: the same pose twice must be bitwise identical.
     auto terminalChecksum = [&]() {
-        UsdGenCurveSetView const t = UsdGenCurveSetView::Of(graph.NodeOutput(graph.NodeIdForPath(desc.terminal)));
+        UsdGenCurveSetView const t = UsdGenCurveSetView::Of(graph.NodeOutput(usdGenUsd::NodeIdForPath(graph, desc.terminal)));
         uint64_t h = Fnv1a(t.px.cdata(), t.px.size() * sizeof(float));
         h ^= Fnv1a(t.py.cdata(), t.py.size() * sizeof(float)) * 1099511628211ULL;
         h ^= Fnv1a(t.pz.cdata(), t.pz.size() * sizeof(float)) * 1099511628211ULL;
         return h;
     };
     uint64_t const repeat0 = terminalChecksum();
-    compiler.Recompile(desc, &graph);
-    ctx.desc = &graph.Desc();
+    usdGenUsd::Recompile(compiler, desc, &graph);
+    ctx.desc = &graph.Spec();
     scheduler.Run(graph, ctx, ++gen);
     if (terminalChecksum() != repeat0) {
         std::printf("D1 repeatability FAIL: same pose cooked different bits\n");
         return 1;
     }
     std::printf("  curves=%u cvs=%u\n",
-                graph.NodeOutput(graph.NodeIdForPath(desc.terminal)).Count(1),
-                graph.NodeOutput(graph.NodeIdForPath(desc.terminal)).Count(2));
+                graph.NodeOutput(usdGenUsd::NodeIdForPath(graph, desc.terminal)).Count(1),
+                graph.NodeOutput(usdGenUsd::NodeIdForPath(graph, desc.terminal)).Count(2));
 
     std::vector<double> tCommit, tDeformCapture, tDeformEval;
     uint64_t lastChecksum = 0;
     for (int i = 1; i <= 9; ++i) {
         PoseSurface(&desc.surfaces[0], i);
         double t0 = NowMs();
-        UsdGenCompileResult const rr = compiler.Recompile(desc, &graph);
-        ctx.desc = &graph.Desc();
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
         tCommit.push_back(NowMs() - t0);
         if (!rr.ok || run.diagnostics.HasErrors()) {

@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
@@ -61,16 +62,16 @@ int Run(double factor, bool empty = false) {
     auto desc = MakeDescriptor(factor, empty);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     CHECK(compiled.ok);
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     auto run = scheduler.Run(graph, context, 1);
     CHECK(!run.diagnostics.HasErrors());
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     if (empty) {
-        UsdGenCurveBuffer const source = NodeBuffer(graph, graph.NodeIdForPath(desc.nodes.front().path));
+        UsdGenCurveBuffer const source = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.nodes.front().path));
         std::fprintf(stderr, "empty Length: curves=%u cvs=%u offsets=%zu sourceOffsets=%zu\n",
             buffer.totalCurves, buffer.totalCvs, buffer.cvOffsets.size(), source.cvOffsets.size());
         CHECK(buffer.totalCurves == 0 && buffer.totalCvs == 0);
@@ -102,13 +103,13 @@ int main() {
     auto desc = MakeDescriptor(1.25);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    auto compiled = compiler.Compile(desc, &graph);
+    auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     CHECK(compiled.ok);
     UsdGenScheduler scheduler(2);
-    UsdGenEvalContext context; context.desc = &graph.Desc();
+    UsdGenEvalContext context; context.desc = &graph.Spec();
     auto run = scheduler.Run(graph, context, 1);
     CHECK(!run.diagnostics.HasErrors());
-    UsdGenCurveBuffer const buffer = NodeBuffer(graph, graph.NodeIdForPath(desc.terminal));
+    UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     CHECK(buffer.totalCvs == 9 && buffer.cvOffsets.size() == 4 &&
           buffer.cvOffsets[0] == 0 && buffer.cvOffsets[1] == 2 &&
           buffer.cvOffsets[2] == 6 && buffer.cvOffsets[3] == 9);

@@ -5,6 +5,7 @@
 #pragma once
 #include "usdGen/export.h"
 #include "usdGen/registries/opDef.h"
+#include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/compile/types.h"        // UsdGenPlane
 #include "pxr/base/tf/token.h"
 #include <atomic>
@@ -46,6 +47,10 @@ public:
     TfSpan<const UsdGenPlane> OutputPlanes() const noexcept;                // static outputs only
     TfSpan<const TfToken> MapRelationships() const noexcept;
     TfToken const &Token(uint16_t i) const noexcept;                        // Def().tokens[i]
+    /// Typed ports (interned names; empty: the default primitive).
+    TfToken const &OutputType() const noexcept;
+    TfSpan<const TfToken> InputTypes() const noexcept;                      // empty: the default only
+    bool AcceptsInput(TfToken const &producerType) const noexcept;
 
 private:
     friend class UsdGenRegistrar;
@@ -59,7 +64,8 @@ private:
 
 class USDGEN_CORE_API UsdGenOpRegistry {
 public:
-    /// Built with the built-ins on first use and published by CAS.
+    /// Built with the default extensions on first use (UsdGenEngineEnsureInitialized)
+    /// and published by CAS.
     static UsdGenOpRegistry const &Get() noexcept;
     bool IsFrozen() const noexcept { return _frozen.load(std::memory_order_acquire); }
     uint32_t Count() const noexcept { return _count; }
@@ -67,6 +73,10 @@ public:
     UsdGenOpId Find(TfToken const &name) const noexcept;
     UsdGenOpRecord const &Record(UsdGenOpId id) const noexcept { return _records[UsdGenIndex(id)]; }
     std::unique_ptr<UsdGenOp> Create(UsdGenOpId id) const;
+    /// First default-extension load failure; empty when all loaded.
+    std::string const &InitError() const noexcept { return _initError; }
+    /// The registered connected-parameter evaluator; create null when none.
+    UsdGenParamEvaluatorDef const &ParamEvaluator() const noexcept { return _paramEvaluator; }
 
 private:
     friend class UsdGenRegistrar;
@@ -77,22 +87,26 @@ private:
     uint32_t _count = 0;
     struct NameSlot { TfToken name; UsdGenOpId id = UsdGenOpId::Invalid; };
     NameSlot _byName[2 * kUsdGenMaxOps];
+    UsdGenParamEvaluatorDef _paramEvaluator;
+    std::string _initError;              // first extension load failure
     std::atomic<bool> _frozen{false};
 };
 
-/// Fills UsdGenNodeDesc::opId and UsdGenMapDesc::typeId. Compile phase.
-USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphDesc *desc);
+/// Fills UsdGenOpNode::opId and runs every input record's intake hook (maps:
+/// their type id). Compile phase.
+USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphSpec *desc);
 
 /// Generic expression admission over the record's decls. Messages (substrings tests check today):
 ///   "unsupported or incorrectly typed <displayName> expression <param>"
 ///   "<displayName> <param> requires groom evaluation"
 ///   "<displayName> <param> requires groom/primitive evaluation"
 ///   "operator <name> at <path> does not accept connected (expression) parameters"
+/// 'spec' names the node in messages (its label).
 USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &,
-    UsdGenNodeDesc const &, std::vector<std::string> *errors);
+    UsdGenOpNode const &, UsdGenGraphSpec const *spec, std::vector<std::string> *errors);
 /// The same for a node whose record is looked up (opId, else its type); an
 /// unregistered type with bindings is rejected. Compile phase.
-USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenNodeDesc const &,
-    std::vector<std::string> *errors);
+USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpNode const &,
+    UsdGenGraphSpec const *spec, std::vector<std::string> *errors);
 
 }  // namespace usdGen

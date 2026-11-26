@@ -1,4 +1,7 @@
 #include "usdGen/cudaScatterInput.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/ops/scatter.h"
+#include "usdGenSurface/types/rootSet.h"
 
 #include "usdGen/cudaStages.h"
 #include "usdGen/op.h"
@@ -138,7 +141,7 @@ bool ValidateCounts(int const* counts, size_t n, size_t* corners) {
     return true;
 }
 
-CudaScatterInputStatus ValidateSurface(UsdGenSurfaceDesc const& surface,
+CudaScatterInputStatus ValidateSurface(UsdGenSurfaceInputView const& surface,
                                        std::string* reason) {
     if (surface.faceVertexCounts.empty()) {
         if (!surface.faceVertexIndices.empty())
@@ -286,18 +289,18 @@ void RecycleConvertShell(gpu::ScatterGrowRoots const* roots)
 } // namespace
 
 CudaScatterInputStatus PrepareCudaScatterInput(
-    UsdGenGraphDesc const& desc, SdfPath const& scatterPath,
+    UsdGenGraphSpec const& desc, UsdGenNodeKey scatterPath,
     std::shared_ptr<const gpu::ScatterGrowRoots>* out, std::string* reason) {
     if (reason) reason->clear();
-    if (!out || scatterPath.IsEmpty())
+    if (!out || !scatterPath.IsValid())
         return Fail(CudaScatterInputStatus::InvalidArgument,
                     "Scatter input needs an output owner and node path", reason);
     auto nodeIt = std::find_if(desc.nodes.begin(), desc.nodes.end(),
-        [&](UsdGenNodeDesc const& node) { return node.path == scatterPath; });
+        [&](UsdGenOpNode const& node) { return node.key == scatterPath; });
     if (nodeIt == desc.nodes.end() || !UsdGenIsCudaStage(*nodeIt, UsdGenCudaStage::Scatter))
         return Fail(CudaScatterInputStatus::InvalidArgument,
                     "Scatter input path does not resolve to a Scatter node", reason);
-    UsdGenNodeDesc const& node = *nodeIt;
+    UsdGenOpNode const& node = *nodeIt;
     // 02 §6.3: a disabled generator publishes an EMPTY curve set, so the
     // description publishes no curves. Every operator downstream of the empty
     // root set is a no-op, which is exactly the CPU lane's behaviour. Any
@@ -307,7 +310,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenOpRegistry const &registry = UsdGenOpRegistry::Get();
     {
         bool generatorDisabled = false;
-        for (UsdGenNodeDesc const& candidate : desc.nodes) {
+        for (UsdGenOpNode const& candidate : desc.nodes) {
             if (candidate.enabled) continue;
             UsdGenOpId const id = registry.Find(candidate.type);
             generatorDisabled = generatorDisabled || (id != UsdGenOpId::Invalid &&
@@ -321,7 +324,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (!node.mode.IsEmpty())
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter has no usdGen:mode property; it is always random", reason);
-    if (!node.inputs.empty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.inputs.empty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.expressionBindings.empty() ||
         !node.ramps.empty())
         return Fail(CudaScatterInputStatus::Unsupported,
@@ -337,9 +340,10 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                         "Scatter input has unsupported, duplicate, or animated parameter '" +
                         param.name.GetString() + "'", reason);
     }
-    auto surfaceIt = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceDesc const& surface) { return surface.path == node.surfaces.front(); });
-    if (surfaceIt == desc.surfaces.end())
+    UsdGenInputRecord const* surfaceItRecord = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+    UsdGenSurfaceInputView const surfaceItView = surfaceItRecord ? UsdGenSurfaceInputView::Of(*surfaceItRecord) : UsdGenSurfaceInputView{};
+    UsdGenSurfaceInputView const* surfaceIt = surfaceItRecord ? &surfaceItView : nullptr;
+    if (!surfaceIt)
         return Fail(CudaScatterInputStatus::InvalidSurface,
                     "Scatter input cannot resolve its surface path", reason);
     CudaScatterInputStatus validated = ValidateSurface(*surfaceIt, reason);
@@ -374,15 +378,16 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenCaptureContext context;
     context.desc = &desc;
     context.params = &resolved.View();
-    context.surface = static_cast<UsdGenSurfaceId>(surfaceIt - desc.surfaces.begin());
+    context.surface = static_cast<UsdGenSurfaceId>(surfaceItRecord - UsdGenSurfaceInputs(desc).data());
     context.seed = static_cast<uint32_t>(node.seed);
     context.diag = &diagnostics;
     if (!op->Capture(context, UsdGenOpInputs{}, capture.get(), &diagnostics))   // a source: no input
         return Fail(CudaScatterInputStatus::CaptureFailed,
                     diagnostics.errors.empty() ? "Scatter Capture failed" : diagnostics.errors.front(), reason);
-    UsdGenCurveBuffer const& roots = static_cast<UsdGenCurveCapture const &>(*capture).Buffer();
+    // The roots through the RootSet view; the buffer is only the adoption source below.
+    UsdGenRootSetView const roots = UsdGenScatterRoots(*capture);
     size_t const n = roots.totalCurves;
-    if (roots.totalCvs != n || roots.px.size() != n || roots.py.size() != n ||
+    if (!roots.valid || roots.px.size() != n || roots.py.size() != n ||
         roots.pz.size() != n || roots.curveId.size() != n || roots.rootPrim.size() != n ||
         roots.rootUV.size() != n || roots.rootT.size() != n || roots.rootB.size() != n ||
         roots.rootN.size() != n)
@@ -420,9 +425,9 @@ CudaScatterInputStatus PrepareCudaScatterInput(
         prep->rootN.adopt(std::move(mut.rootN));
     }
     if (n) {
-        float const* px = roots.px.cdata();
-        float const* py = roots.py.cdata();
-        float const* pz = roots.pz.cdata();
+        float const* px = roots.px.data();
+        float const* py = roots.py.data();
+        float const* pz = roots.pz.data();
         int const transposeWorkers = UsdGenParallelForConcurrency();
         size_t const transposeChunks =
             (transposeWorkers > 1 && n > 32768)

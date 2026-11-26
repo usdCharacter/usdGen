@@ -21,15 +21,16 @@
 #include "golden/goldenGraphs.h"
 #include "nodeSets.h"
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/compiler.h"
 #include "usdGen/generationStore.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/session.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -174,14 +175,14 @@ std::string CookScheduler(UsdGenGraphDesc const &desc, std::string const &label,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         PrintDiagnostics(label + " compile", compiled.errors);
         return "compile-failed";
     }
     UsdGenScheduler scheduler(kThreads);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     ctx.time = desc.time;
     UsdGenRunResult const run = scheduler.Run(graph, ctx, 1);
     if (run.diagnostics.HasErrors()) {
@@ -196,7 +197,7 @@ std::string CookScheduler(UsdGenGraphDesc const &desc, std::string const &label,
 void CookSession(UsdGenGraphDesc const &desc, std::string const &label, Rows *rows)
 {
     UsdGenSession session(kThreads);
-    session.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(session, desc);
     UsdGenGenerationConstPtr const gen = session.Commit(desc.time, UsdGenCommitReason::LiveOverride);
     PrintDiagnostics(label + " session", session.LastDiagnostics().errors);
     if (!gen) {
@@ -204,7 +205,7 @@ void CookSession(UsdGenGraphDesc const &desc, std::string const &label, Rows *ro
         return;
     }
     std::vector<UsdGenTilePublication const *> tiles;
-    for (UsdGenTilePublication const &t : gen->tiles) tiles.push_back(&t);
+    for (UsdGenTilePublication const &t : usdGen::UsdGenCurvePublicationOf(*gen).tiles) tiles.push_back(&t);
     std::sort(tiles.begin(), tiles.end(), [](auto const *a, auto const *b) { return a->tile < b->tile; });
     uint64_t counts = kFnvOffset, points = kFnvOffset, widths = kFnvOffset;
     size_t curves = 0, cvs = 0;

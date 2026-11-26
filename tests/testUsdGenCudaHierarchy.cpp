@@ -1,8 +1,10 @@
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/sdf/types.h"
 #include "pxr/usd/usdGeom/mesh.h"
@@ -75,11 +77,11 @@ int main() {
     CHECK(useRestDesc.validationErrors.empty() && useRestDesc.nodes[0].expressionBindings.size() == 1);
     UsdGenSession session;
     session.SetDevicePublicationEnabled(true);
-    session.SetGraphDesc(useRestDesc);
+    usdGenUsd::SetGraphDesc(session, useRestDesc);
     auto generation = session.Commit(24, UsdGenCommitReason::SetTime);
     if (session.LastDiagnostics().HasErrors())
         for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
-    CHECK(generation && generation->device && generation->tiles.empty());
+    CHECK(generation && generation->device && usdGen::UsdGenCurvePublicationOf(*generation).tiles.empty());
     CHECK(!generation->device->Geometry().alreadyDeformed);
     auto lease = gpu::AcquireGeometry(generation->device, nullptr);
     CHECK(lease && lease.Geometry().pointCount == 5);
@@ -111,11 +113,11 @@ int main() {
     CHECK(rbfDesc.validationErrors.empty());
     CHECK(rbfDesc.surfaces.size() == 1 && rbfDesc.surfaces[0].restPoints.size() == 5 &&
           rbfDesc.surfaces[0].restPoints[0][0] == 0 && !rbfDesc.surfaces[0].restFromCurrentPoints);
-    session.SetGraphDesc(rbfDesc);
+    usdGenUsd::SetGraphDesc(session, rbfDesc);
     auto deformed = session.Commit(24, UsdGenCommitReason::SetTime);
     for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(!session.LastDiagnostics().HasErrors());
-    CHECK(deformed && deformed != currentGeneration && deformed->device && deformed->tiles.empty());
+    CHECK(deformed && deformed != currentGeneration && deformed->device && usdGen::UsdGenCurvePublicationOf(*deformed).tiles.empty());
     CHECK(deformed->device->Geometry().alreadyDeformed);
     auto deformedLease = gpu::AcquireGeometry(deformed->device, nullptr);
     CHECK(deformedLease && deformedLease.Geometry().pointCount == 5);
@@ -144,7 +146,7 @@ int main() {
     CHECK(editedDesc.validationErrors.empty() && editedDesc.surfaces.size() == 1);
     CHECK(editedDesc.surfaces[0].restPoints == newRest &&
           editedDesc.surfaces[0].points == rbfDesc.surfaces[0].points);
-    session.SetGraphDesc(editedDesc);
+    usdGenUsd::SetGraphDesc(session, editedDesc);
     auto edited = session.Commit(24, UsdGenCommitReason::SetTime);
     CHECK(edited && edited != deformed && !session.LastDiagnostics().HasErrors());
     auto editedBinding = session.CudaBindingStats();
@@ -195,7 +197,7 @@ int main() {
     rbfIndices.stageSceneIndex->ApplyPendingUpdates();
     auto invalidDesc = usdGenImaging::BuildGraphDescFromHydra(
         *rbfIndices.finalSceneIndex, SdfPath("/Groom/hair"));
-    session.SetGraphDesc(invalidDesc);
+    usdGenUsd::SetGraphDesc(session, invalidDesc);
     CHECK(session.Commit(24, UsdGenCommitReason::SetTime) == edited);
     CHECK(session.LastDiagnostics().HasErrors());
     rbfIndices.finalSceneIndex->RemoveObserver(observer);
@@ -230,7 +232,7 @@ int main() {
     auto resampleDesc = usdGenImaging::BuildGraphDescFromHydra(
         *lengthIndices.finalSceneIndex, SdfPath("/Character/Groom/hair"));
     CHECK(resampleDesc.validationErrors.empty() && resampleDesc.nodes[0].expressionBindings.size() == 1);
-    session.SetGraphDesc(resampleDesc);
+    usdGenUsd::SetGraphDesc(session, resampleDesc);
     auto resampleRagged = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(resampleRagged && resampleRagged->device);
     auto resampleUniform = session.Commit(2, UsdGenCommitReason::SetTime);
@@ -284,7 +286,7 @@ int main() {
                 }
         return output && binding;
     };
-    session.SetGraphDesc(lengthDesc);
+    usdGenUsd::SetGraphDesc(session, lengthDesc);
     auto culled = session.Commit(1, UsdGenCommitReason::SetTime);
     for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(culled && culled != edited && culled->device && !session.LastDiagnostics().HasErrors());
@@ -313,7 +315,7 @@ int main() {
     auto const scaledLiteralHydraDesc = usdGenImaging::BuildGraphDescFromHydra(
         *lengthIndices.finalSceneIndex, SdfPath("/Character/Groom/hair"));
     CHECK(scaledLiteralHydraDesc.validationErrors.empty());
-    session.SetGraphDesc(scaledLiteralHydraDesc);
+    usdGenUsd::SetGraphDesc(session, scaledLiteralHydraDesc);
     auto scaledLength = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(scaledLength && scaledLength != culled && scaledLength->device &&
           !session.LastDiagnostics().HasErrors());
@@ -339,7 +341,7 @@ int main() {
     CHECK(randomStageDesc.validationErrors.empty() &&
           randomHydraDesc.validationErrors.empty());
     CHECK(hasRandomTransport(randomStageDesc) && hasRandomTransport(randomHydraDesc));
-    session.SetGraphDesc(randomHydraDesc);
+    usdGenUsd::SetGraphDesc(session, randomHydraDesc);
     auto randomLength = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(randomLength && randomLength != scaledLength && randomLength->device &&
           !session.LastDiagnostics().HasErrors());
@@ -373,7 +375,7 @@ int main() {
     CHECK(lengthNotice.seen);
     auto emptyLengthDesc = usdGenImaging::BuildGraphDescFromHydra(
         *lengthIndices.finalSceneIndex, SdfPath("/Character/Groom/hair"));
-    session.SetGraphDesc(emptyLengthDesc);
+    usdGenUsd::SetGraphDesc(session, emptyLengthDesc);
     auto emptyLength = session.Commit(1, UsdGenCommitReason::SetTime);
     CHECK(emptyLength && emptyLength != culled && emptyLength->device && !session.LastDiagnostics().HasErrors());
     auto emptyLengthLease = gpu::AcquireGeometry(emptyLength->device, nullptr);

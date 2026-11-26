@@ -13,6 +13,7 @@
 // (review M-3 / engine rule E-8). Roots are Morton-sorted by rest position so
 // chunk placement is surface-major (plan/04 :641).
 #include "usdGen/ops/scatter.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/digest.h"
@@ -346,12 +347,14 @@ uint32_t UsdGenScatterOp::PlanesTouched() const
 }
 
 uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
-    UsdGenSurfaceDesc const &surface)
+    UsdGenSurfaceInputView const &surface)
 {
     auto same = [](auto const &a, auto const &b) {
         return a.size() == b.size() && (a.empty() || a.cdata() == b.cdata());
     };
-    if (valid_ && same(surface.faceVertexCounts, counts_) &&
+    // owner_ holds the keyed columns, so equal addresses mean equal bytes.
+    if (valid_ && owner_ &&
+        same(surface.faceVertexCounts, counts_) &&
         same(surface.faceVertexIndices, indices_) &&
         same(surface.holeIndices, holes_) &&
         same(surface.creaseIndices, creaseIndices_) &&
@@ -367,6 +370,7 @@ uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
         surface.creaseMethod == creaseMethod_ &&
         surface.triangleSubdivisionRule == triangleSubdivisionRule_)
         return digest_;
+    owner_ = surface.data;
     counts_ = surface.faceVertexCounts;
     indices_ = surface.faceVertexIndices;
     holes_ = surface.holeIndices;
@@ -383,7 +387,7 @@ uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
     creaseMethod_ = surface.creaseMethod;
     triangleSubdivisionRule_ = surface.triangleSubdivisionRule;
     digest_ = UsdGenSubdivisionDigest(surface);
-    valid_ = true;
+    valid_ = bool(owner_);
     return digest_;
 }
 
@@ -441,7 +445,7 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
             feed("referenceIdentity", ctx.resolvedReferences[i]->identity);
-            feed("referenceGeneration", ctx.resolvedReferences[i]->curveGeneration);
+            feed("referenceGeneration", ctx.resolvedReferences[i]->generation);
         } else if (ctx.references && ctx.references[i]) {
             feed("referenceGeneration", ctx.references[i]->generation);
         }
@@ -449,15 +453,15 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     feed("maps", uint64_t(ctx.mapCount));
     for (uint32_t i = 0; i < ctx.mapCount; ++i)
         if (ctx.maps && ctx.maps[i]) feed("mapIdentity", ctx.maps[i]->identity);
-    UsdGenGraphDesc const *desc = ctx.desc;
-    if (desc && ctx.surface < desc->surfaces.size()) {
-        auto const &surface = desc->surfaces[ctx.surface];
+    UsdGenGraphSpec const *desc = ctx.desc;
+    if (desc && ctx.surface < UsdGenSurfaceInputs(*desc).size()) {
+        auto const &surface = UsdGenSurfaceAt(*desc, ctx.surface);
         auto array = [&](char const *name, auto &cache, auto const &values) {
             // Word-at-a-time FNV-1a (opUtil::Digest::MixBytes): one round
             // per 8 bytes instead of one per byte. The epoch values differ
             // from byte mixing, but epochs are only compared for equality
             // within a process.
-            feed(name, cache.Digest(values));
+            feed(name, cache.Digest(surface.data, values));
             feed(name, uint64_t(values.size()));
         };
         array("restPoints", restPointsDigest_, surface.restPoints);
@@ -473,9 +477,9 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
         // The paint primvar edits no generation, so the multiplier content
         // itself joins the digest: without this a paint stroke would read
         // back the cached pre-stroke roots.
-        auto const &mult = desc->surfaces[ctx.surface].densityMultiplier;
+        auto const &mult = surface.densityMultiplier;
         feed("densityMultSize", uint64_t(mult.size()));
-        feed("densityMult", densityMultDigest_.Digest(mult));
+        feed("densityMult", densityMultDigest_.Digest(surface.data, mult));
         scatter::ModeConfig modes;
         std::string modeError;
         if (scatter::ReadModeConfig(p, &modes, &modeError) && modes.GenerationPath()) {
@@ -494,17 +498,17 @@ bool UsdGenScatterOp::Capture(
     UsdGenDiagnostics *diag)
 {
     TF_UNUSED(in);
-    UsdGenGraphDesc const *desc = ctx.desc;
+    UsdGenGraphSpec const *desc = ctx.desc;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!desc) {
         if (diag) diag->Error("UsdGenScatter::Capture: no graph description");
         return false;
     }
-    if (ctx.surface >= desc->surfaces.size()) {
+    if (ctx.surface >= UsdGenSurfaceInputs(*desc).size()) {
         if (diag) diag->Error("UsdGenScatter::Capture: no bound usdGen:surface");
         return false;
     }
-    UsdGenSurfaceDesc const &surf = desc->surfaces[ctx.surface];
+    UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, ctx.surface);
     scatter::ModeConfig modes;
     {
         std::string modeError;
@@ -524,7 +528,7 @@ bool UsdGenScatterOp::Capture(
         modeBuf.extraCv.clear();
         if ((surf.faceVertexCounts.empty() || surf.restPoints.empty()) && diag)
             diag->Warn(std::string("UsdGenScatter::Capture: surface '") +
-                       surf.path.GetText() + "' has no topology");
+                       UsdGenLabel(ctx.desc, surf.key) + "' has no topology");
         return scatter::CaptureModes(ctx, modes, surf, &modeBuf, diag);
     }
     int const level=p ? p->GetInt(kSubdivisionLevel,0) : 0;
@@ -547,7 +551,7 @@ bool UsdGenScatterOp::Capture(
     }
     if (surf.faceVertexCounts.empty() || surf.restPoints.empty()) {
         if (diag) diag->Warn(std::string("UsdGenScatter::Capture: surface '") +
-                             surf.path.GetText() + "' has no topology; 0 roots");
+                             UsdGenLabel(ctx.desc, surf.key) + "' has no topology; 0 roots");
     }
 
     // Face list: whole mesh or the GeomSubset restriction (R15). An empty
@@ -1702,6 +1706,32 @@ void UsdGenScatterOp::Evaluate(
     TF_UNUSED(ctx); TF_UNUSED(capture); TF_UNUSED(chunk);
 }
 
+UsdGenRootSetView UsdGenScatterRoots(UsdGenCapture const &capture) noexcept
+{
+    UsdGenCurveBuffer const &b = UsdGenCaptureBuffer(capture);
+    auto span = [](auto const &a) {
+        using T = typename std::decay_t<decltype(a)>::value_type;
+        return UsdGenSpan<const T>(a.cdata(), a.size());
+    };
+    UsdGenRootSetView v;
+    v.totalCurves = b.totalCurves;
+    v.topologyVersion = b.topologyVersion;
+    v.valueVersion = b.valueVersion;
+    v.valid = b.totalCvs == b.totalCurves;   // one CV per root
+    if (v.valid) {
+        v.px = span(b.px);
+        v.py = span(b.py);
+        v.pz = span(b.pz);
+    }
+    v.curveId = span(b.curveId);
+    v.rootPrim = span(b.rootPrim);
+    v.rootUV = span(b.rootUV);
+    v.rootT = span(b.rootT);
+    v.rootN = span(b.rootN);
+    v.rootB = span(b.rootB);
+    return v;
+}
+
 UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
 {
     UsdGenOpDef d;
@@ -1711,6 +1741,7 @@ UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &r)
     d.countChanges = UsdGenCountsAtLevel(1);
     d.lane = UsdGenLane::Chunked;
     d.geometryInputArity = 0;
+    d.outputType = UsdGenRootSetTypeName();
     d.traits = kUsdGenOpGenerator;
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferenceInputs);

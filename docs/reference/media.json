@@ -249,7 +249,7 @@
       "image": "docs/site/media/instance.svg",
       "caption": "Reserved schema type with no registered kernel. The diagram shows its declared prototype controls.",
       "renderer": "Source diagram",
-      "source": "libs/usdGenSchema/schema.usda",
+      "source": "libs/hosts/usdGenUsd/schema/schema.usda",
       "generator": "tools/render_operator_diagrams.py",
       "provenance": "Schematic of the source contract; this is not a rendered operator result.",
       "imageSha256": "9dbe337d64769ea2bc1413cb26d36638c4574a171ee417c5b85d9dc671466b4a"

@@ -4,7 +4,7 @@
 #pragma once
 #include "usdGen/api/span.h"
 #include "usdGen/registries/handles.h"
-#include "usdGen/expressions/context.h"   // expr::Domain, expr::ScalarType
+#include "usdGen/api/valueShape.h"        // expr::Domain, expr::ScalarType
 #include "usdGen/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
 
 #include "pxr/base/tf/span.h"
@@ -18,10 +18,10 @@ namespace usdGen {
 class UsdGenOp;
 class UsdGenOpRecord;
 struct UsdGenParamView;
-struct UsdGenGraphDesc;
-struct UsdGenNodeDesc;
+struct UsdGenGraphSpec;
+struct UsdGenOpNode;
 struct UsdGenRbfAnimationBinding;
-struct UsdGenSurfaceDesc;
+struct UsdGenInputRecord;
 
 /// Dirty class of one parameter (02 §6). Structural == Merkle digest term.
 enum class UsdGenParamClass : uint8_t { Structural, Topology, Capture, Value };
@@ -73,9 +73,9 @@ struct UsdGenIndexedPlaneRequest {
 
 /// Facts the engine computes for the animation-binding hook (4a).
 struct UsdGenAnimationBindingQuery {
-    UsdGenNodeDesc const *terminalDesc = nullptr;
+    UsdGenOpNode const *terminalDesc = nullptr;
     UsdGenParamView const *terminalParams = nullptr;
-    UsdGenSurfaceDesc const *surface = nullptr;   // null: terminal binds no surface
+    UsdGenInputRecord const *surface = nullptr;    // null: terminal binds no surface
     uint32_t terminalInputCount = 0;
     bool terminalHasOutputPlanes = false;
     bool graphStatic = false;            // no ReadsTime op, no expression binding, no animated param
@@ -84,7 +84,7 @@ struct UsdGenAnimationBindingQuery {
 
 struct UsdGenOpHooks {
     /// Compile-time node validation beyond arity (WidthBlend, compiler.cpp:1294-1319).
-    bool (*validateNode)(UsdGenGraphDesc const &, UsdGenNodeDesc const &,
+    bool (*validateNode)(UsdGenGraphSpec const &, UsdGenOpNode const &,
                          UsdGenParamView const &, std::string *error) = nullptr;
     /// 4a. Indexed plane run this node needs.
     UsdGenIndexedPlaneRequest (*indexedPlanes)(UsdGenParamView const &) = nullptr;
@@ -98,6 +98,9 @@ struct UsdGenOpHooks {
     /// 4a. Fill sampleIndices and field; false: no binding.
     bool (*makeAnimationBinding)(UsdGenAnimationBindingQuery const &, UsdGenOp const &,
                                  UsdGenRbfAnimationBinding *out) = nullptr;
+    /// The diagnostic for a nonzero UsdGenEvalContext::failureCode; null:
+    /// the generic "operator evaluation failed".
+    char const *(*failureMessage)(uint32_t code) = nullptr;
 };
 
 enum UsdGenOpTrait : uint32_t {
@@ -122,13 +125,18 @@ using UsdGenOpCreateFn = std::unique_ptr<UsdGenOp> (*)(UsdGenOpRecord const &, v
 /// Filled by assignment inside one register function and copied by
 /// RegisterOp. Every char const* is a literal or lives as long as the process.
 struct UsdGenOpDef {
-    char const *name = nullptr;          // C1 schema type, e.g. UsdGenLength
+    char const *name = nullptr;          // C1 schema type name
     char const *displayName = nullptr;   // diagnostics, e.g. "Length"
     UsdGenOpCreateFn create = nullptr;
     void *createContext = nullptr;
     uint8_t countChanges = 0;                // bit L: element counts at level L may change
     UsdGenLane lane = UsdGenLane::Chunked;
     uint8_t geometryInputArity = 1;
+    /// Typed geometry ports by registered type name; null is the default
+    /// primitive. Every geometry input accepts inputTypes (empty: the default
+    /// only; a null entry adds the default). The compiler rejects other edges.
+    char const *outputType = nullptr;
+    TfSpan<char const *const> inputTypes;
     uint32_t traits = 0;
     TfSpan<const UsdGenParamDecl> params;
     TfSpan<char const *const> referenceInputs;      // was ReferenceInputs(), op.h:344

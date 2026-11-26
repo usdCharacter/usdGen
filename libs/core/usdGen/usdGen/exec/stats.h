@@ -9,7 +9,7 @@
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
-#include "pxr/usd/sdf/path.h"
+#include "usdGen/api/nodeKey.h"
 
 #include <array>
 #include <cstdint>
@@ -37,9 +37,9 @@ struct UsdGenCommitTiming
 struct UsdGenNodeStats
 {
     TfToken  type;
-    SdfPath  path;
+    UsdGenNodeKey key;     // the operator (the host maps it back for display)
     double   captureMs = 0.0, lastEvalMs = 0.0, meanEvalMs = 0.0;
-    uint64_t curvesIn = 0, curvesOut = 0;
+    uint64_t elementsIn = 0, elementsOut = 0;
     uint64_t chunksDirty = 0, chunksTotal = 0;
     uint64_t bytesOwned = 0;
     uint64_t captureHits = 0, captureMisses = 0;

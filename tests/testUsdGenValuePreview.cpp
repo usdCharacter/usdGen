@@ -24,10 +24,12 @@
 #include "pxr/imaging/hd/sceneIndexObserver.h"
 
 #include "usdGen/op.h"
+#include "usdGenUsd/lower.h"
+#include "usdGenUsd/publishPaths.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/valuePreview.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
 
 #include "pxr/usd/sdf/path.h"
@@ -229,7 +231,9 @@ void CheckColorMaps()
     Check(Distinct({UsdGenPreviewColor(heat, unit, &zero, 1), UsdGenPreviewColor(heat, unit, &half, 1),
                     UsdGenPreviewColor(heat, unit, &one, 1)}) == 3, "heat varies across the range");
     for (bool const flat : {false, true})
-        Check(UsdGenPreviewMaterialPath(kDescription, TfToken(flat ? "flat" : "lit")) ==
+        Check(usdGenUsd::PrimPath(UsdGenPrimRef{usdGenUsd::KeyOf(kDescription),
+                                  UsdGenPreviewMaterialRole(TfToken(flat ? "flat" : "lit")), 0},
+                                  kDescription) ==
                   usdGenImaging::UsdGenTilePublisher::PreviewMaterialPath(kDescription, flat),
               std::string("engine and publisher agree on the ") + (flat ? "flat" : "lit") +
                   " preview material path");

@@ -14,7 +14,7 @@
 
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/types.h"
@@ -129,7 +129,7 @@ int main()
     UsdGenGraph graph;
 
     double t0 = NowMs();
-    UsdGenCompileResult const r0 = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const r0 = usdGenUsd::Compile(compiler, desc, &graph);
     double t1 = NowMs();
     Check(r0.ok, "compile of 200-node groom graph succeeds");
     if (!r0.ok) {
@@ -162,21 +162,21 @@ int main()
     // genuine 200 -> 201 append with exactly one rebuild.
     {
         double p0 = NowMs();
-        UsdGenCompileResult const rp = compiler.Recompile(desc2, &graph);
+        UsdGenCompileResult const rp = usdGenUsd::Recompile(compiler, desc2, &graph);
         double p1 = NowMs();
         std::printf("[info] priming recompile (200 -> 201 nodes): %.3f ms\n", p1 - p0);
         if (!rp.ok) {
             for (auto const &e : rp.errors) std::printf("  error: %s\n", e.c_str());
             return 1;
         }
-        UsdGenCompileResult const rw = compiler.Recompile(desc, &graph);
+        UsdGenCompileResult const rw = usdGenUsd::Recompile(compiler, desc, &graph);
         if (!rw.ok) {
             for (auto const &e : rw.errors) std::printf("  error: %s\n", e.c_str());
             return 1;
         }
     }
     t0 = NowMs();
-    UsdGenCompileResult const r1 = compiler.Recompile(desc2, &graph);
+    UsdGenCompileResult const r1 = usdGenUsd::Recompile(compiler, desc2, &graph);
     t1 = NowMs();
     double const ms = t1 - t0;
 
@@ -220,7 +220,7 @@ int main()
         UsdGenGraphDesc digestDesc = MakeChain(5);
         UsdGenGraph digestGraph;
         UsdGenCompiler digestCompiler;
-        UsdGenCompileResult const initial = digestCompiler.Compile(digestDesc, &digestGraph);
+        UsdGenCompileResult const initial = usdGenUsd::Compile(digestCompiler, digestDesc, &digestGraph);
         Check(initial.ok, "value-digest regression baseline compiles");
         if (initial.ok) {
             uint64_t const stableSourceDigest = digestGraph.Node(0).paramValueDigest;
@@ -230,7 +230,7 @@ int main()
             UsdGenOp const *const oldWidthOp = digestGraph.Node(4).op.get();
             digestDesc.nodes[4].params[0].value = VtValue(0.04);
             UsdGenCompileResult const changed =
-                digestCompiler.Recompile(digestDesc, &digestGraph);
+                usdGenUsd::Recompile(digestCompiler, digestDesc, &digestGraph);
             Check(changed.ok && changed.rebuilt.empty() &&
                       changed.valueEdited.size() == 1 && changed.valueEdited[0] == 4 &&
                       digestGraph.Node(4).op.get() == oldWidthOp,
@@ -255,7 +255,7 @@ int main()
                                std::string const &expected,
                                std::string const &what) {
         UsdGenGraph rejected;
-        UsdGenCompileResult const r = compiler.Compile(invalid, &rejected);
+        UsdGenCompileResult const r = usdGenUsd::Compile(compiler, invalid, &rejected);
         Check(!r.ok && r.errors.size() == 1 && r.errors.front() == expected, what);
         if (!r.errors.empty() && r.errors.front() != expected)
             std::printf("  actual: %s\n", r.errors.front().c_str());

@@ -236,7 +236,7 @@ bool UsdGenExprOp::Capture(
             if (ctx.maps && ctx.mapCount) {
                 message += "; usdGen:expr:maps targets:";
                 for (uint32_t i = 0; i < ctx.mapCount; ++i)
-                    if (ctx.maps[i]) message += " " + ctx.maps[i]->path.GetString();
+                    if (ctx.maps[i]) message += " " + UsdGenLabel(ctx.desc, ctx.maps[i]->key);
             } else {
                 message += "; usdGen:expr:maps names no maps";
             }
@@ -314,7 +314,7 @@ bool UsdGenExprOp::Capture(
     expr::Context controls;
     controls.seed = static_cast<int32_t>(ctx.seed);
     controls.descId = ctx.desc
-        ? expr::DescriptionId(ctx.desc->description.GetText()) : 0;
+        ? expr::DescriptionId(ctx.desc->DescriptionText()) : 0;
     controls.domain = domain;
     expr::CpuExpressionContext context;
     std::string contextError;

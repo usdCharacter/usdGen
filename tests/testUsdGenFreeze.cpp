@@ -20,6 +20,7 @@
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
@@ -144,7 +145,7 @@ static bool CookFull(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         *errors = compiled.errors;
         for (auto const &e : compiled.errors)
@@ -153,7 +154,7 @@ static bool CookFull(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out,
     }
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run = scheduler.Run(graph, ctx, 1);
     *errors = run.diagnostics.errors;
     *warnings = run.diagnostics.warnings;
@@ -410,17 +411,17 @@ static void CheckImmunitySameGraph()
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "immunity fixture compiles");
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "immunity fixture compiles");
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run1 = scheduler.Run(graph, ctx, 1);
     Check(!run1.diagnostics.HasErrors(), "immunity fixture first run cooks");
     if (run1.diagnostics.HasErrors()) return;
     FrozenCopy const first = SnapshotOf(OutputBuffer(graph));
 
-    UsdGenNodeId const sourceId = graph.NodeIdForPath(SdfPath("/freeze/source"));
-    UsdGenNodeId const freezeId = graph.NodeIdForPath(SdfPath("/freeze/op"));
+    UsdGenNodeId const sourceId = usdGenUsd::NodeIdForPath(graph, SdfPath("/freeze/source"));
+    UsdGenNodeId const freezeId = usdGenUsd::NodeIdForPath(graph, SdfPath("/freeze/op"));
     Check(sourceId != UsdGenGraph::InvalidNode &&
               freezeId != UsdGenGraph::InvalidNode,
           "immunity fixture node ids resolve");
@@ -478,10 +479,11 @@ static UsdGenEpoch DigestFor(UsdGenFreezeOp &op, UsdGenGraphDesc const &desc,
                              size_t nodeIndex, uint32_t seed,
                              uint64_t upstreamGeneration)
 {
-    UsdGenStackParams stack(desc, desc.nodes[nodeIndex], FreezeRecord());
+    usdGenUsd::LoweredParams stack(desc, desc.nodes[nodeIndex], FreezeRecord());
     UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered485 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered485;
     ctx.params = &view;
     ctx.seed = seed;
     ctx.upstreamGeneration = upstreamGeneration;
@@ -518,10 +520,11 @@ static void CheckDigestImmunity()
 
     // ValidForTopology never invalidates on upstream revisions.
     std::unique_ptr<UsdGenCapture> cap = op.CreateCapture();
-    UsdGenStackParams stack(desc, desc.nodes[1], FreezeRecord());
+    usdGenUsd::LoweredParams stack(desc, desc.nodes[1], FreezeRecord());
     UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered525 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered525;
     ctx.params = &view;
     UsdGenCurveBuffer upstream;
     upstream.totalCurves = 2;
@@ -550,10 +553,11 @@ static void CheckAliasingKernel()
     UsdGenFreezeOp op(FreezeRecord());
     UsdGenGraphDesc desc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
-    UsdGenStackParams stack(desc, desc.nodes[1], FreezeRecord());
+    usdGenUsd::LoweredParams stack(desc, desc.nodes[1], FreezeRecord());
     UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
-    ctx.desc = &desc;
+    usdGen::UsdGenGraphSpec const lowered557 = usdGenUsd::Lower(desc);
+    ctx.desc = &lowered557;
     ctx.params = &view;
     UsdGenCurveBuffer upstream;
     upstream.totalCurves = 2;
@@ -624,9 +628,10 @@ static void CheckAliasingKernel()
     // Live captures own nothing.
     UsdGenGraphDesc liveDesc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("live")), false}}, false);
-    UsdGenStackParams liveStack(liveDesc, liveDesc.nodes[1], FreezeRecord());
+    usdGenUsd::LoweredParams liveStack(liveDesc, liveDesc.nodes[1], FreezeRecord());
     UsdGenParamView const &liveView = liveStack.View();
-    ctx.desc = &liveDesc;
+    usdGen::UsdGenGraphSpec const lowered630 = usdGenUsd::Lower(liveDesc);
+    ctx.desc = &lowered630;
     ctx.params = &liveView;
     std::unique_ptr<UsdGenCapture> liveCap = op.CreateCapture();
     UsdGenDiagnostics liveDiag;
@@ -651,10 +656,10 @@ static void CheckDeterminism()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(compiler.Compile(desc, &graph).ok, "determinism fixture compiles");
+    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "determinism fixture compiles");
     UsdGenScheduler scheduler(2);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     UsdGenRunResult run1 = scheduler.Run(graph, ctx, 1);
     FrozenCopy const retained = SnapshotOf(OutputBuffer(graph));
     UsdGenRunResult run2 = scheduler.Run(graph, ctx, 2);
@@ -744,7 +749,7 @@ static void CheckMissingInputFailsClosed()
     desc.nodes.back().inputs.clear();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult r = compiler.Compile(desc, &graph);
+    UsdGenCompileResult r = usdGenUsd::Compile(compiler, desc, &graph);
     bool const specific = AnyContains(r.errors, "requires exactly 1 geometry input");
     Check(!r.ok && specific, "freeze with no chain input fails closed at compile");
     if (r.ok || !specific)
@@ -762,7 +767,7 @@ static void CheckExpressionRejected()
                expr::Domain::Point, VtValue(1.0f));
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult r = compiler.Compile(desc, &graph);
+    UsdGenCompileResult r = usdGenUsd::Compile(compiler, desc, &graph);
     bool const specific =
         AnyContains(r.errors, "does not accept connected (expression) parameters");
     Check(!r.ok && specific, "connected expression on Freeze fails closed");
@@ -786,10 +791,11 @@ static void CheckBadDefaultWidthFailsClosed()
     UsdGenGraphDesc kernelDesc = FreezeDesc(
         {{TfToken("frozen:mode"), VtValue(TfToken("frozen")), false}}, false);
     kernelDesc.defaultWidth = std::numeric_limits<float>::quiet_NaN();
-    UsdGenStackParams stack(kernelDesc, kernelDesc.nodes[1], FreezeRecord());
+    usdGenUsd::LoweredParams stack(kernelDesc, kernelDesc.nodes[1], FreezeRecord());
     UsdGenParamView const &view = stack.View();
     UsdGenCaptureContext ctx;
-    ctx.desc = &kernelDesc;
+    usdGen::UsdGenGraphSpec const lowered793 = usdGenUsd::Lower(kernelDesc);
+    ctx.desc = &lowered793;
     ctx.params = &view;
     UsdGenCurveBuffer widthless;
     widthless.totalCurves = 2;
@@ -882,7 +888,7 @@ static void CheckCudaRejection()
           "CUDA capability matrix has no UsdGenFreeze row");
     UsdGenGraphDesc desc = CudaFreezeDesc();
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(desc, &diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
     Check(!plan, "CUDA planner refuses a Freeze graph");
     if (matrix.Available()) {
         bool const exact = diagnostics.errors.size() == 1 &&

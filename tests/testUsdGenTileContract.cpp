@@ -21,10 +21,12 @@
 //
 // Timing-soft (plan 09): nothing here is budget-gated.
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
+#include "usdGenUsd/publishPaths.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -282,7 +284,7 @@ void CheckPartitionBoundaries()
     desc.tileTarget = 32;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult result = compiler.Compile(desc, &graph);
+    UsdGenCompileResult result = usdGenUsd::Compile(compiler, desc, &graph);
     Check(result.ok, "boundary partition fixture compiles");
     if (!result.ok) return;
     for (int nChunks : {33, 34, 65}) {
@@ -324,7 +326,7 @@ void CheckPartitionBoundaries()
     }
     desc.tileTarget = 64;
     UsdGenGraph canonical;
-    result = compiler.Compile(desc, &canonical);
+    result = usdGenUsd::Compile(compiler, desc, &canonical);
     Check(result.ok && canonical.Repartition(100000, 4),
           "canonical 100k repartition reports layout");
     Check(canonical.Groups().size() == 49,
@@ -343,7 +345,7 @@ int main()
 
     SdfPath const descPath("/groom");
     UsdGenSession session;
-    session.SetGraphDesc(MakeGroomDesc(descPath));
+    usdGenUsd::SetGraphDesc(session, MakeGroomDesc(descPath));
     UsdGenGenerationConstPtr gen =
         session.Commit(0.0, UsdGenCommitReason::LiveOverride);
     Check(bool(gen), "first commit publishes a generation");
@@ -358,7 +360,7 @@ int main()
          refines = true, extents = true, paths = true, xforms = true,
          inherit = true, idArrays = true;
     size_t countMismatch = 0;
-    for (auto const &pub : gen->tiles) {
+    for (auto const &pub : usdGen::UsdGenCurvePublicationOf(*gen).tiles) {
         size_t const curves = size_t(pub.curveVertexCounts.size());
         size_t const pts = SumCounts(pub.curveVertexCounts);
         totalCurves += curves;
@@ -409,18 +411,21 @@ int main()
         }
         if ((mn - pub.extentMin).GetLength() > 1e-4 ||
             (mx - pub.extentMax).GetLength() > 1e-4) extents = false;
-        if (!TilePathRegexCheck(descPath, pub.tile).empty()) paths = false;
+        if (!TilePathRegexCheck(descPath, pub.tile).empty() ||
+            usdGenUsd::PrimPath(*gen, pub.prim) != UsdGenTilePublisher::TilePath(descPath, pub.tile))
+            paths = false;
         if (!(pub.xformMatrix == GfMatrix4d(1.0))) xforms = false;
         if (pub.purpose != TfToken("render") || pub.visibility != TfToken("invisible") ||
-            pub.materialPath != descPath.AppendChild(TfToken("look")).AppendChild(TfToken("material")))
+            usdGenUsd::PrimPath(*gen, pub.material) !=
+                descPath.AppendChild(TfToken("look")).AppendChild(TfToken("material")))
             inherit = false;
-        if (pub.primOrigin != descPath) inherit = false;   // pickTarget == description
+        if (usdGenUsd::PrimPath(*gen, pub.origin) != descPath) inherit = false;   // pickTarget == description
     }
-    Check(!gen->tiles.empty(), "published at least one tile");
+    Check(!usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty(), "published at least one tile");
     Check(totalCurves >= size_t(kCurveCount),
           "tile curve set covers >= 32768 curves (got " + std::to_string(totalCurves) + ")");
-    Check(gen->tiles.size() <= size_t(64),
-          "tile count <= tileTarget 64 (got " + std::to_string(gen->tiles.size()) + ")");
+    Check(usdGen::UsdGenCurvePublicationOf(*gen).tiles.size() <= size_t(64),
+          "tile count <= tileTarget 64 (got " + std::to_string(usdGen::UsdGenCurvePublicationOf(*gen).tiles.size()) + ")");
     Check(si1, "SI-1: points.size() == sum(curveVertexCounts) on every tile"
                " (mismatches: " + std::to_string(countMismatch) + ")");
     Check(uniformSizes, "uniform primvars sized curveCount on every tile");
@@ -436,13 +441,13 @@ int main()
     Check(inherit, "purpose/visibility/material/primOrigin inherited by hand (C2)");
 
     // ---- Publisher-built data sources: HdType + C2 child-name set -------
-    if (!gen->tiles.empty()) {
-        UsdGenTilePublication const &pub = gen->tiles[0];
+    if (!usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty()) {
+        UsdGenTilePublication const &pub = usdGen::UsdGenCurvePublicationOf(*gen).tiles[0];
         // T0 scope: BuildTileDataSource is the pure data-source assembler,
         // so the observable surface here is the container tree the scene
         // index would hand Hydra. The prim-type token (basisCurves) is a
         // property of HdSceneIndexPrim, asserted in the T1 imaging test.
-        HdContainerDataSourceHandle c = UsdGenTilePublisher::BuildTileDataSource(pub);
+        HdContainerDataSourceHandle c = UsdGenTilePublisher::BuildTileDataSource(pub, gen->host);
         Check(bool(c), "BuildTileDataSource returns a container");
         if (c) {
             std::set<std::string> names = ChildNames(c);
@@ -529,7 +534,7 @@ int main()
                 HdMaterialBindingsSchema::GetFromParent(c);
             auto materialPath = bindings.GetMaterialBinding().GetPath();
             Check(bindings.IsDefined() && materialPath &&
-                      materialPath->GetTypedValue(0) == pub.materialPath,
+                      materialPath->GetTypedValue(0) == usdGenUsd::PrimPath(*gen, pub.material),
                   "materialBindings default empty-token child carries path");
             {
                 // Previously untested branch: with NO authored material the
@@ -538,10 +543,10 @@ int main()
                 // never ran. It now binds the synthetic default material in
                 // the 06 §4.4 material_storm slot.
                 UsdGenTilePublication unbound = pub;
-                unbound.materialPath = SdfPath();
+                unbound.material = UsdGenPrimRef();
                 unbound.materialPurpose = TfToken();
                 HdContainerDataSourceHandle cu =
-                    UsdGenTilePublisher::BuildTileDataSource(unbound);
+                    UsdGenTilePublisher::BuildTileDataSource(unbound, gen->host);
                 HdMaterialBindingsSchema unboundBindings =
                     HdMaterialBindingsSchema::GetFromParent(cu);
                 auto unboundPath = unboundBindings.GetMaterialBinding().GetPath();
@@ -550,7 +555,7 @@ int main()
                 Check(unboundBindings.IsDefined() && unboundPath &&
                           unboundPath->GetTypedValue(0) == expected,
                       "unbound tile binds <desc>/__usdGenRender/material_storm");
-                Check(UsdGenTilePublisher::DefaultMaterialPath(unbound.primPath)
+                Check(UsdGenTilePublisher::DefaultMaterialPath(usdGenUsd::PrimPath(*gen, unbound.prim))
                           == expected,
                       "DefaultMaterialPath(tile) == MaterialPath(description)");
                 Check(bool(UsdGenTilePublisher::BuildDefaultMaterialDataSource()),
@@ -574,10 +579,10 @@ int main()
             emptyPurpose.materialPurpose = TfToken();
             HdMaterialBindingsSchema emptyBindings =
                 HdMaterialBindingsSchema::GetFromParent(
-                    UsdGenTilePublisher::BuildTileDataSource(emptyPurpose));
+                    UsdGenTilePublisher::BuildTileDataSource(emptyPurpose, gen->host));
             auto emptyPath = emptyBindings.GetMaterialBinding().GetPath();
             Check(emptyBindings.IsDefined() && emptyPath &&
-                      emptyPath->GetTypedValue(0) == pub.materialPath,
+                      emptyPath->GetTypedValue(0) == usdGenUsd::PrimPath(*gen, pub.material),
                   "empty app material purpose uses Hydra default binding");
             // Purpose: omitted when the publication carries none (unauthored
             // description purpose) so Hydra resolves the geometry render tag;
@@ -593,7 +598,7 @@ int main()
                 UsdGenTilePublication authored = pub;
                 authored.purpose = TfToken("render");
                 HdContainerDataSourceHandle ca =
-                    UsdGenTilePublisher::BuildTileDataSource(authored);
+                    UsdGenTilePublisher::BuildTileDataSource(authored, gen->host);
                 HdContainerDataSourceHandle pa = HdContainerDataSource::Cast(
                     ca ? ca->Get(TfToken("purpose")) : nullptr);
                 Check(bool(pa) &&
@@ -603,7 +608,7 @@ int main()
                 UsdGenTilePublication bare = pub;
                 bare.purpose = TfToken();
                 HdContainerDataSourceHandle cb =
-                    UsdGenTilePublisher::BuildTileDataSource(bare);
+                    UsdGenTilePublisher::BuildTileDataSource(bare, gen->host);
                 Check(cb && ChildNames(cb).count("purpose") == 0,
                       "no purpose container when publication purpose is empty "
                       "(-> geometry render tag)");
@@ -612,7 +617,7 @@ int main()
     }
 
     // ---- Determinism: identical inputs -> identical published values -----
-    session.SetGraphDesc(MakeGroomDesc(descPath));
+    usdGenUsd::SetGraphDesc(session, MakeGroomDesc(descPath));
     UsdGenGenerationConstPtr gen2 =
         session.Commit(0.0, UsdGenCommitReason::LiveOverride);
     Check(bool(gen2), "second commit publishes");
@@ -620,18 +625,19 @@ int main()
         Check(gen2->id > gen->id,
               "generation id strictly increases (" + std::to_string(gen->id) +
                   " -> " + std::to_string(gen2->id) + ")");
-        bool identical = gen2->tiles.size() == gen->tiles.size();
+        bool identical = usdGen::UsdGenCurvePublicationOf(*gen2).tiles.size() == usdGen::UsdGenCurvePublicationOf(*gen).tiles.size();
         bool dsIdentical = true;
         if (identical) {
-            for (size_t i = 0; i < gen->tiles.size() && identical; ++i) {
-                UsdGenTilePublication const &a = gen->tiles[i];
-                UsdGenTilePublication const &b = gen2->tiles[i];
-                identical = a.tile == b.tile && a.primPath == b.primPath &&
+            for (size_t i = 0; i < usdGen::UsdGenCurvePublicationOf(*gen).tiles.size() && identical; ++i) {
+                UsdGenTilePublication const &a = usdGen::UsdGenCurvePublicationOf(*gen).tiles[i];
+                UsdGenTilePublication const &b = usdGen::UsdGenCurvePublicationOf(*gen2).tiles[i];
+                identical = a.tile == b.tile &&
+                    usdGenUsd::PrimPath(*gen, a.prim) == usdGenUsd::PrimPath(*gen2, b.prim) &&
                     a.points == b.points && a.curveVertexCounts == b.curveVertexCounts;
                 HdContainerDataSourceHandle da =
-                    UsdGenTilePublisher::BuildTileDataSource(a);
+                    UsdGenTilePublisher::BuildTileDataSource(a, gen->host);
                 HdContainerDataSourceHandle db =
-                    UsdGenTilePublisher::BuildTileDataSource(b);
+                    UsdGenTilePublisher::BuildTileDataSource(b, gen2->host);
                 if (da && db && !ValuesIdentical(HdDataSourceBaseHandle(da),
                                                  HdDataSourceBaseHandle(db)))
                     dsIdentical = false;
@@ -641,13 +647,13 @@ int main()
         Check(dsIdentical, "re-commit data sources compare value-identical");
     }
 
-    if (gen2 && !gen2->tiles.empty() && !gen->tiles.empty()) {
+    if (gen2 && !usdGen::UsdGenCurvePublicationOf(*gen2).tiles.empty() && !usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty()) {
         // Additive overload (06 §4.1): the container can carry a prim-level
         // `generation` int source with the snapshot id.
         HdContainerDataSourceHandle ca =
-            UsdGenTilePublisher::BuildTileDataSource(gen->tiles[0]);
+            UsdGenTilePublisher::BuildTileDataSource(usdGen::UsdGenCurvePublicationOf(*gen).tiles[0], gen->host);
         HdContainerDataSourceHandle cb =
-            UsdGenTilePublisher::BuildTileDataSource(gen2->tiles[0], int64_t(gen2->id));
+            UsdGenTilePublisher::BuildTileDataSource(usdGen::UsdGenCurvePublicationOf(*gen2).tiles[0], gen2->host, int64_t(gen2->id));
         if (ca && cb) {
             VtValue sv = LeafValue(cb->Get(TfToken("generation")));
             bool stampOk = (sv.IsHolding<int>() &&
@@ -708,7 +714,7 @@ int main()
 
         // §5.1 row 1: points -> bare leaf + extent/min + extent/max.
         UsdGenTileDirty pointsOnly;
-        pointsOnly.primPath = descPath;
+        pointsOnly.prim = UsdGenPrimRef{usdGenUsd::KeyOf(descPath), UsdGenPublishRole::Tile, 0};
         pointsOnly.pointsDirty = true;
         auto nPts = UsdGenTilePublisher::NoticesFor(pointsOnly).all();
         Check(has(nPts, { pv, pts, val }) && has(nPts, { ext, mn }) &&
@@ -721,7 +727,7 @@ int main()
         // ADDITIONAL dirtyPrimvars entry; the publisher must surface the
         // widths leaf alongside points, never as a container sentinel.
         UsdGenTileDirty pointsPlusWidths;
-        pointsPlusWidths.primPath = descPath;
+        pointsPlusWidths.prim = UsdGenPrimRef{usdGenUsd::KeyOf(descPath), UsdGenPublishRole::Tile, 0};
         pointsPlusWidths.pointsDirty = true;
         pointsPlusWidths.dirtyPrimvars = { wdt };
         auto nW = UsdGenTilePublisher::NoticesFor(pointsPlusWidths).all();
@@ -730,7 +736,7 @@ int main()
 
         // A widths-only delta must NOT invalidate points (whole-prim scatter).
         UsdGenTileDirty widthsOnly;
-        widthsOnly.primPath = descPath;
+        widthsOnly.prim = UsdGenPrimRef{usdGenUsd::KeyOf(descPath), UsdGenPublishRole::Tile, 0};
         widthsOnly.widthsDirty = true;
         widthsOnly.dirtyPrimvars = { TfToken("st") };
         auto nw = UsdGenTilePublisher::NoticesFor(widthsOnly).all();
@@ -745,7 +751,7 @@ int main()
         // make Storm build the container). An added tile carries its whole
         // new-primvar set in newPrimvars.
         UsdGenTileDirty added;
-        added.primPath = descPath;
+        added.prim = UsdGenPrimRef{usdGenUsd::KeyOf(descPath), UsdGenPublishRole::Tile, 0};
         added.added = true;
         added.newPrimvars = { TfToken("st"), TfToken("displayColor") };
         auto nAdd = UsdGenTilePublisher::NoticesFor(added);
@@ -764,7 +770,7 @@ int main()
         // xform-only delta: the tile's own xform/matrix and nothing else
         // (§5.1: Hydra dirtiness is per prim, never hierarchical).
         UsdGenTileDirty xformOnly;
-        xformOnly.primPath = descPath;
+        xformOnly.prim = UsdGenPrimRef{usdGenUsd::KeyOf(descPath), UsdGenPublishRole::Tile, 0};
         xformOnly.xformDirty = true;
         auto nx = UsdGenTilePublisher::NoticesFor(xformOnly).all();
         Check(has(nx, { TfToken("xform"), TfToken("matrix") }) &&
@@ -832,22 +838,22 @@ int main()
         bulkDesc.nodes.pop_back();  // drop the guideIndex writer
         bulkDesc.terminal = descPath.AppendChild(TfToken("grow"));
         UsdGenSession bulkSession;
-        bulkSession.SetGraphDesc(std::move(bulkDesc));
+        usdGenUsd::SetGraphDesc(bulkSession, std::move(bulkDesc));
         UsdGenGenerationConstPtr bulkGen =
             bulkSession.Commit(0.0, UsdGenCommitReason::LiveOverride);
         Check(bool(bulkGen), "bulk-terminal commit publishes a generation");
-        Check(bulkGen && bulkGen->tiles.size() == gen->tiles.size(),
+        Check(bulkGen && usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles.size() == usdGen::UsdGenCurvePublicationOf(*gen).tiles.size(),
               "bulk and serial commits publish the same tile count (bulk " +
-                  std::to_string(bulkGen ? bulkGen->tiles.size() : 0) +
-                  ", serial " + std::to_string(gen->tiles.size()) + ")");
+                  std::to_string(bulkGen ? usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles.size() : 0) +
+                  ", serial " + std::to_string(usdGen::UsdGenCurvePublicationOf(*gen).tiles.size()) + ")");
         bool coresEqual = bulkGen &&
-            bulkGen->tiles.size() == gen->tiles.size();
+            usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles.size() == usdGen::UsdGenCurvePublicationOf(*gen).tiles.size();
         if (coresEqual) {
-            for (size_t i = 0; i < gen->tiles.size(); ++i) {
-                UsdGenTilePublication const &a = gen->tiles[i];
-                UsdGenTilePublication const &b = bulkGen->tiles[i];
+            for (size_t i = 0; i < usdGen::UsdGenCurvePublicationOf(*gen).tiles.size(); ++i) {
+                UsdGenTilePublication const &a = usdGen::UsdGenCurvePublicationOf(*gen).tiles[i];
+                UsdGenTilePublication const &b = usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles[i];
                 coresEqual = coresEqual && a.tile == b.tile &&
-                    a.primPath == b.primPath &&
+                    usdGenUsd::PrimPath(*gen, a.prim) == usdGenUsd::PrimPath(*bulkGen, b.prim) &&
                     a.curveVertexCounts == b.curveVertexCounts &&
                     a.points == b.points && a.widths == b.widths &&
                     a.hairT == b.hairT && a.hairId == b.hairId &&

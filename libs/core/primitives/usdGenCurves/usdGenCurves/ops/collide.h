@@ -58,6 +58,7 @@
 #define USDGEN_OP_COLLIDE_H
 
 #include "usdGen/op.h"
+#include "usdGenSurface/surfaceInput.h"
 #include <array>
 #include <atomic>
 #include "usdGen/registries/handles.h"
@@ -90,8 +91,8 @@ private:
     // Warning identity is topology-based, so posed animation and transforms
     // cannot flood Play with the same polygon fallback diagnostic.
     mutable std::array<std::atomic<uint64_t>, 256> _warned{};
-    void WarnOnce(UsdGenDiagnostics *, SdfPath const &,
-                  UsdGenSurfaceDesc const &, std::vector<int> const &,
+    void WarnOnce(UsdGenDiagnostics *, std::string const &label,
+                  UsdGenSurfaceInputView const &, std::vector<int> const &,
                   std::string const &) const;
 };
 

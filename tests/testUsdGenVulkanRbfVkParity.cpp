@@ -39,6 +39,7 @@
 // only (defaults 5 and 60).
 
 #include "usdGen/vulkan/deviceContext.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/chargedBuffer.h"
 #include "usdGen/vulkan/deformPipeline.h"
 #include "usdGen/vulkan/deformRbfHost.h"
@@ -377,7 +378,7 @@ int main(int argc, char** argv) {
         auto fx = MakeRooted();
         VulkanDeformControls out;
         UsdGenDiagnostics diag;
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         CHECK(out.sampleCount == 6);
         CHECK(out.restSamples.size() == 18 && out.posedSamples.size() == 18);
         for (int i = 0; i < 18; ++i) {
@@ -397,7 +398,7 @@ int main(int argc, char** argv) {
         fx.desc.curveSets[0].worldMatrix[3][0] = 5.0;
         VulkanDeformControls out;
         UsdGenDiagnostics diag;
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         CHECK(out.sampleCount == 6);
         for (int i = 0; i < 6; ++i) {
             CHECK(std::fabs(out.restSamples[3 * i] - (fx.desc.surfaces[0].restPoints[i][0] - 5.0f)) < 1e-6f);
@@ -414,7 +415,7 @@ int main(int argc, char** argv) {
         fx.desc.surfaces[0].worldMatrix[3][1] = -2.0;
         VulkanDeformControls out;
         UsdGenDiagnostics diag;
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         CHECK(out.sampleCount == 6);
         for (int i = 0; i < 6; ++i) {
             CHECK(std::fabs(out.restSamples[3 * i] - fx.desc.surfaces[0].restPoints[i][0]) < 1e-6f);
@@ -436,10 +437,10 @@ int main(int argc, char** argv) {
         fx.deform.params = {{TfToken("rbfSamples"), VtValue(3), false}};
         VulkanDeformControls out;
         UsdGenDiagnostics diag;
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         CHECK(out.sampleCount == 3);
         fx.deform.params = {{TfToken("rbfSamples"), VtValue(101), false}};
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         CHECK(out.sampleCount == 6); // all 6 unique vertices selected
         std::puts("P0d (bake budgets 3/101): PASS");
     }
@@ -454,7 +455,7 @@ int main(int argc, char** argv) {
         fx.deform.params = {{TfToken("rbfSamples"), VtValue(101), false}};
         VulkanDeformControls out;
         UsdGenDiagnostics diag;
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         CHECK(out.sampleCount == 101);
         std::puts("P0e (bake 101 of 125): PASS");
     }
@@ -463,7 +464,7 @@ int main(int argc, char** argv) {
         auto expectReject = [](RootedFixture fx, char const* needle) {
             VulkanDeformControls out;
             UsdGenDiagnostics diag;
-            bool ok = RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag);
+            bool ok = RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag);
             if (ok || !diag.HasErrors()) return false;
             for (auto const& e : diag.errors)
                 if (e.find(needle) != std::string::npos) return true;
@@ -499,7 +500,7 @@ int main(int argc, char** argv) {
         w[1][0] = -1.0; w[1][1] = 0.0;
         VulkanDeformControls out;
         UsdGenDiagnostics diag;
-        CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &out, &diag));
+        CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &out, &diag));
         // rest (1,0,0) is sample 1; rest and posed must both be
         // R*(1,0,0) = (0,1,0) under the surfaceVk convention.
         CHECK(std::fabs(out.restSamples[3] - 0.0f) < 1e-6f);
@@ -517,11 +518,11 @@ int main(int argc, char** argv) {
         auto crossCheck = [](RootedFixture fx, char const* tag) {
             VulkanDeformControls rbf, surf;
             UsdGenDiagnostics dr, ds;
-            if (!RbfVkValidateDeformGap(fx.desc, fx.deform,
-                                        &fx.desc.curveSets[0], &rbf, &dr))
+            if (!RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform),
+                                        usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &rbf, &dr))
                 return false;
-            if (!CompileSurfaceVkDeform(fx.desc.curveSets[0],
-                                        fx.desc.surfaces[0], 100, &surf, &ds))
+            if (!CompileSurfaceVkDeform(usdGenUsd::Lower(fx.desc.curveSets[0]),
+                                        usdGenUsd::Lower(fx.desc.surfaces[0]), 100, &surf, &ds))
                 return false;
             if (rbf.sampleCount != surf.sampleCount) return false;
             if (rbf.restSamples.size() != surf.restSamples.size()) return false;
@@ -1576,7 +1577,7 @@ int main(int argc, char** argv) {
             fx.deform.params = {{TfToken("rbfSamples"), VtValue(101), false}};
             VulkanDeformControls baked;
             UsdGenDiagnostics diag;
-            CHECK(RbfVkValidateDeformGap(fx.desc, fx.deform, &fx.desc.curveSets[0], &baked, &diag));
+            CHECK(RbfVkValidateDeformGap(usdGenUsd::Lower(fx.desc), usdGenUsd::Lower(fx.deform), usdGenUsd::Addr(usdGenUsd::View(fx.desc.curveSets[0])), &baked, &diag));
             CHECK(baked.sampleCount == 101);
             // Pose the baked drivers with the affine map (keeps 3D span).
             std::vector<float> posed(baked.posedSamples.size());

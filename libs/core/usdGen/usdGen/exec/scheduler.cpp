@@ -4,7 +4,7 @@
 // frontiers. Each frontier captures and repartitions serially, prepares all
 // COW payloads serially, then sweeps its flattened node/chunk work in parallel:
 //   - reference lane (03 §1.5): reference-role nodes run first, with
-//     immutable resolved CurveSet/map values supplied to their capture;
+//     immutable resolved reference/map values supplied to their capture;
 //     this CPU slice does not implement chaining from a reference node's
 //     produced geometry into another reference node;
 //   - re-capture when the capture epoch moved (03 §3.4); generators install
@@ -27,7 +27,6 @@
 #include "usdGen/types.h"
 #include "usdGen/api/writeSet.h"
 #include "usdGen/exec/epoch.h"
-#include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/range3f.h"
@@ -66,7 +65,7 @@ int ResolveThreadLimit(int requested)
     // (EV-001/EV-008) is the floor; on heterogeneous Linux with more fast
     // cores than that, the arena spans every fast core — pinning engages
     // by construction (workers == fast cores), and compute-bound passes
-    // (the fp64 RBF kernel scales linearly to the fast count) gain while
+    // (the fp64 RBF kernel grows linearly with the fast count) gain while
     // bandwidth-bound passes keep at least their old width. Undetectable,
     // homogeneous, or disabled topologies keep 8, and
     // `USDGEN_THREAD_LIMIT` above wins and skips all of this.
@@ -80,36 +79,6 @@ UsdGenElementSet const *OutputOrEmpty(UsdGenGraph const &graph, UsdGenCompiledNo
     return node.output ? node.output.Get() : &graph.EmptyOutput();
 }
 
-bool HasPrefix(std::string const &s, char const *prefix)
-{
-    return s.rfind(prefix, 0) == 0;
-}
-
-/// Legacy first-producer layouts by name, for ops still registered through
-/// the legacy adapter (no declared output planes). Text compares only; S4-4
-/// (outputPlanes) and 4a-1 (emittedPlanes) delete it.
-UsdGenPlane LegacyOutputPlane(TfToken const &name)
-{
-    std::string const &s = name.GetString();
-    auto const &tk = UsdGenTokens();
-    UsdGenPlane plane;
-    plane.name = name;
-    plane.interpolation = tk.uniform;
-    plane.type = tk.float_;
-    if (s == "guideIndex" || s == "partId" || HasPrefix(s, "clumpId_") ||
-        HasPrefix(s, "clumpCenterId_"))
-        plane.type = tk.int_;
-    if (HasPrefix(s, "clumpCenter_")) plane.arity = 3;
-    if (HasPrefix(s, "clumpCenterId_")) plane.arity = 2;
-    // Whole-strand identities are ints; the braid knot mask is per CV.
-    if (s == "primaryGuide" || s == "nearestGuide" || s == "strandSeed" ||
-        s == "strandIndex" || s == "mirrorSign")
-        plane.type = tk.int_;
-    if (HasPrefix(s, "clumpWeight_") || s == "braidKnotMask") plane.interpolation = tk.vertex;
-    if (s == "guideIndex" || s == "guideWeight") plane.arity = 3;
-    return plane;
-}
-
 /// The emitting op's declared layout for `name`, if it declares one.
 UsdGenPlane const *DeclaredOutputPlane(UsdGenOpRecord const *record, TfToken const &name)
 {
@@ -119,32 +88,7 @@ UsdGenPlane const *DeclaredOutputPlane(UsdGenOpRecord const *record, TfToken con
     return nullptr;
 }
 
-/// A first producer's layout (R24): the op's declaration, else the legacy
-/// table. A later writer takes the upstream plane's layout instead.
-UsdGenPlane DefaultOutputPlane(UsdGenOpRecord const *record, TfToken const &name)
-{
-    if (UsdGenPlane const *declared = DeclaredOutputPlane(record, name)) {
-        UsdGenPlane plane;
-        plane.name = name;
-        plane.interpolation = declared->interpolation;
-        plane.type = declared->type;
-        plane.arity = declared->arity;
-        return plane;
-    }
-    return LegacyOutputPlane(name);
-}
-
-/// A plane whose layout the emitting op fixes regardless of upstream.
-bool IsFixedLayoutPlane(UsdGenOpRecord const *record, TfToken const &name)
-{
-    if (!record || !record->Has(kUsdGenOpFixedOutputPlaneLayout)) return false;
-    if (DeclaredOutputPlane(record, name)) return true;
-    std::string const &s = name.GetString();   // legacy clump families
-    return HasPrefix(s, "clumpId_") || HasPrefix(s, "clumpCenter_") ||
-           HasPrefix(s, "clumpCenterId_") || HasPrefix(s, "clumpWeight_");
-}
-
-/// A plane descriptor as a channel (the CurveSet converter's mapping).
+/// A plane descriptor as a channel.
 UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p)
 {
     auto const &tk = UsdGenTokens();
@@ -155,6 +99,84 @@ UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p)
     d.scalar = p.type == tk.int_ ? UsdGenScalar::I32 : UsdGenScalar::F32;
     d.flags = p.arity > 1 ? uint8_t(kUsdGenChannelPacked) : uint8_t(0);
     return d;
+}
+
+/// A first producer's layout (R24): the op's declaration, else the layout's
+/// named-channel hook, else one float per element. A later writer takes the
+/// upstream channel's layout instead.
+UsdGenChannelDesc DefaultOutputChannel(UsdGenOpRecord const *record,
+                                       UsdGenElementLayout const &layout, TfToken const &name)
+{
+    if (UsdGenPlane const *declared = DeclaredOutputPlane(record, name)) return PlaneDesc(*declared);
+    UsdGenChannelDesc d;
+    bool fixed = false;
+    if (layout.namedChannel && layout.namedChannel(name, &d, &fixed)) {
+        d.name = name;
+        return d;
+    }
+    d = UsdGenChannelDesc{};
+    d.name = name;
+    d.level = 1;
+    return d;
+}
+
+/// A channel whose layout the emitting op fixes regardless of upstream.
+bool IsFixedLayoutPlane(UsdGenOpRecord const *record, UsdGenElementLayout const &layout,
+                        TfToken const &name)
+{
+    if (!record || !record->Has(kUsdGenOpFixedOutputPlaneLayout)) return false;
+    if (DeclaredOutputPlane(record, name)) return true;
+    UsdGenChannelDesc d;
+    bool fixed = false;
+    return layout.namedChannel && layout.namedChannel(name, &d, &fixed) && fixed;
+}
+
+/// A static channel that is per element: not a writable plane, not rest.
+bool IsElementChannel(UsdGenChannelDesc const &d)
+{
+    switch (d.role) {
+    case UsdGenChannelRole::Position:
+    case UsdGenChannelRole::Width:
+    case UsdGenChannelRole::Parameter:
+    case UsdGenChannelRole::Rest: return false;
+    default: return true;
+    }
+}
+
+/// The static Position slots of 'table' by component, else kUsdGenNoSlot.
+struct PositionSlots
+{
+    UsdGenSlot s[3] = {kUsdGenNoSlot, kUsdGenNoSlot, kUsdGenNoSlot};
+};
+PositionSlots PositionsOf(UsdGenChannelTable const *table)
+{
+    PositionSlots p;
+    if (!table) return p;
+    for (UsdGenSlot s = 0; s < table->StaticCount(); ++s) {
+        UsdGenChannelDesc const &d = (*table)[s];
+        if (d.role == UsdGenChannelRole::Position && d.component < 3 &&
+            p.s[d.component] == kUsdGenNoSlot)
+            p.s[d.component] = s;
+    }
+    return p;
+}
+
+/// A set's Position columns and level-2 offsets (empty when absent).
+struct PointColumns
+{
+    UsdGenSpan<const float> p[3];
+    UsdGenSpan<const uint32_t> offsets;   // count[1]+1 entries; empty: uniform
+};
+PointColumns PointColumnsOf(UsdGenElementSetView const &v)
+{
+    PointColumns c;
+    if (!v.channels || !v.columns || !v.values) return c;
+    PositionSlots const pos = PositionsOf(v.channels);
+    for (int k = 0; k < 3; ++k)
+        if (pos.s[k] != kUsdGenNoSlot && v.Has(pos.s[k]))
+            c.p[k] = {v.Column<float>(pos.s[k]), size_t(v.Values(pos.s[k]))};
+    if (v.offsets[2]) c.offsets = {v.offsets[2], size_t(v.count[1]) + 1};
+    return c;
 }
 
 /// A dynamic (named, non-static) channel of 'table', or kUsdGenNoSlot.
@@ -272,7 +294,7 @@ void SealOutput(UsdGenCompiledNode &node, UsdGenElementSet const &topology,
 }
 
 /// Installs an owning capture's output as the node's output: the capture's
-/// columns, plus the input's per-curve channels the capture leaves out.
+/// columns, plus the input's per-element static channels the capture leaves out.
 void InstallCaptureOutput(UsdGenCompiledNode &node, UsdGenElementSet const *up)
 {
     UsdGenElementSet const &cap = *node.captureOutput;
@@ -283,10 +305,9 @@ void InstallCaptureOutput(UsdGenCompiledNode &node, UsdGenElementSet const *up)
     node.topologyVersion = ++node.topologySeq;
     UsdGenWriteSet ws = UsdGenWriteSet::Derive(node.captureOutput, {});
     if (up) {
-        for (UsdGenSlot s : {UsdGenSlot(kUsdGenCurveId), UsdGenSlot(kUsdGenCurveRootPrim),
-                             UsdGenSlot(kUsdGenCurveRootUV), UsdGenSlot(kUsdGenCurveRootT),
-                             UsdGenSlot(kUsdGenCurveRootN), UsdGenSlot(kUsdGenCurveRootB)})
-            if (!cap.Has(s) && up->Has(s)) ws.Share(s, *up, s);
+        UsdGenChannelTable const &t = cap.Channels();
+        for (UsdGenSlot s = 0; s < t.StaticCount(); ++s)
+            if (IsElementChannel(t[s]) && !cap.Has(s) && up->Has(s)) ws.Share(s, *up, s);
     }
     ws.Plan({});
     ws.SetVersionsExact(node.topologyVersion, node.valueVersion);
@@ -305,7 +326,7 @@ void PassThroughOutput(UsdGenCompiledNode &node, UsdGenElementSet const &up)
 
 /// Commit-thread preparation of one node's output before its evaluate
 /// sweep (S24). The topology follows the input (or the owning capture);
-/// per-curve channels and rest are aliases of the input's (re-aliased every
+/// per-element channels and rest are aliases of the input's (re-aliased every
 /// commit, so a stale shared column never outlives its source); a channel
 /// the op WRITES is the node's own storage at full size, kept from the last
 /// run (sparse sweeps leave clean chunks as they were) unless it no longer
@@ -319,8 +340,8 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
     UsdGenElementSet const *prior = OutputOrEmpty(graph, node);
     bool const owns = hasUp && !generator && node.capture && node.captureOutput;
 
-    // Topology FIRST: the CV count of the sizing below is the node's
-    // EFFECTIVE count.
+    // Topology FIRST: the level-2 item count of the sizing below is the
+    // node's EFFECTIVE count.
     UsdGenElementSet const *topology = prior;
     uint64_t topologyVersion = node.topologyVersion;
     if (hasUp && !generator) {
@@ -339,11 +360,11 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
         }
     }
 
-    uint32_t const nCurves = topology->Count(1);
-    uint32_t const cvp = node.chunks.empty() ? 0 : node.chunks[0].stride[1];
+    uint32_t const nElements = topology->Count(1);
+    uint32_t const perElement = node.chunks.empty() ? 0 : node.chunks[0].stride[1];
     UsdGenSpan<const uint32_t> const offs = topology->Offsets(2);
-    uint32_t const nCvs = (cvp == 0 && !offs.empty() && size_t(nCurves) < offs.size())
-        ? offs[nCurves] : nCurves * cvp;
+    uint32_t const nItems = (perElement == 0 && !offs.empty() && size_t(nElements) < offs.size())
+        ? offs[nElements] : nElements * perElement;
 
     // The channel table: the input's, plus the planes this op emits (and,
     // for a remapper, owns) -- unless a generator or an owning capture that
@@ -359,10 +380,10 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
         for (TfToken const &name : node.outputPrimvars) {
             UsdGenSlot const source = DynamicSlot(inT, name);
             UsdGenSlot const old = DynamicSlot(oldT, name);
-            bool const nativeClump = IsFixedLayoutPlane(node.record, name);
+            bool const fixedLayout = IsFixedLayoutPlane(node.record, inT->Layout(), name);
             UsdGenChannelDesc d;
-            if (nativeClump || (source == kUsdGenNoSlot && old == kUsdGenNoSlot))
-                d = PlaneDesc(DefaultOutputPlane(node.record, name));
+            if (fixedLayout || (source == kUsdGenNoSlot && old == kUsdGenNoSlot))
+                d = DefaultOutputChannel(node.record, inT->Layout(), name);
             else
                 d = source != kUsdGenNoSlot ? (*inT)[source] : (*oldT)[old];
             size_t const values = size_t(d.level >= 2 ? topology->Count(2) : topology->Count(1)) *
@@ -407,49 +428,50 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
     UsdGenChannelTable const &t = *table;
     S.plans.assign(t.Size(), ColumnPlan{});
 
-    // Built-in CV planes: a plane the OP WRITES is this node's own storage
+    // Static channels by role. Position, Width and Parameter are the planes
+    // an op may write: a plane the OP WRITES is this node's own storage
     // (sharing would make the kernel write the input); a plane the op
     // passes through aliases the input's.
     uint32_t const planes = op.PlanesTouched();
     auto prep = [&](UsdGenSlot s, bool write) {
         uint32_t const have = ValuesOf(prior, s);
         if (write) {
-            bool const fresh = have != nCvs ||
+            bool const fresh = have != nItems ||
                 (hasUp && have && ColumnOf(prior, s) == ColumnOf(up, s));
             S.plans[s] = PlanOwn(fresh ? nullptr : prior, s);
-        } else if (hasUp && ValuesOf(up, s) == nCvs) {
+        } else if (hasUp && ValuesOf(up, s) == nItems) {
             S.plans[s] = PlanShare(up, s);
         } else if (!hasUp && generator) {
-            // Source generators own the presence of optional planes (Scatter
-            // has no width; inventing one would change Grow's fallback).
+            // Source generators own the presence of optional planes (a
+            // source without widths keeps none; inventing one would change
+            // a consumer's fallback).
             S.plans[s] = PlanKeep(prior, s);
-        } else if (have != nCvs) {
+        } else if (have != nItems) {
             S.plans[s] = PlanOwn(nullptr, s);
         } else {
             S.plans[s] = PlanKeep(prior, s);
         }
     };
-    prep(kUsdGenCurvePx, planes & UsdGenOp::kPlanePoints);
-    prep(kUsdGenCurvePy, planes & UsdGenOp::kPlanePoints);
-    prep(kUsdGenCurvePz, planes & UsdGenOp::kPlanePoints);
-    prep(kUsdGenCurveWidth, planes & UsdGenOp::kPlaneWidths);
-    prep(kUsdGenCurveHairT, planes & UsdGenOp::kPlaneHairT);
-
-    // Rest is an immutable C3 transport channel: every topology-preserving
-    // operator aliases the input's. Captures that repartition CVs (Grow,
-    // Resample, GuideInterpolate, frozen Freeze) author their own.
+    // Rest is an immutable transport channel: every topology-preserving
+    // operator aliases the input's; captures that repartition items author
+    // their own. Other static channels are per element: aliases of the
+    // input (an owning capture keeps the ones it authored and inherits the rest).
     bool const captureAuthorsRest = owns && node.record->Has(kUsdGenOpCaptureOwnsRestAndPlanes);
-    S.plans[kUsdGenCurveRest] = hasUp && !generator && !captureAuthorsRest
-        ? PlanShare(up, kUsdGenCurveRest) : PlanKeep(prior, kUsdGenCurveRest);
-
-    // Per-curve channels: aliases of the input (an owning capture keeps the
-    // ones it authored and inherits the rest).
-    for (UsdGenSlot s : {UsdGenSlot(kUsdGenCurveId), UsdGenSlot(kUsdGenCurveRootPrim),
-                         UsdGenSlot(kUsdGenCurveRootUV), UsdGenSlot(kUsdGenCurveRootT),
-                         UsdGenSlot(kUsdGenCurveRootN), UsdGenSlot(kUsdGenCurveRootB)}) {
-        if (!hasUp || generator) S.plans[s] = PlanKeep(prior, s);
-        else if (owns && prior->Has(s)) S.plans[s] = PlanKeep(prior, s);
-        else S.plans[s] = PlanShare(up, s);
+    for (UsdGenSlot s = 0; s < t.StaticCount(); ++s) {
+        switch (t[s].role) {
+        case UsdGenChannelRole::Position: prep(s, planes & UsdGenOp::kPlanePoints); break;
+        case UsdGenChannelRole::Width: prep(s, planes & UsdGenOp::kPlaneWidths); break;
+        case UsdGenChannelRole::Parameter: prep(s, planes & UsdGenOp::kPlaneHairT); break;
+        case UsdGenChannelRole::Rest:
+            S.plans[s] = hasUp && !generator && !captureAuthorsRest
+                ? PlanShare(up, s) : PlanKeep(prior, s);
+            break;
+        default:
+            if (!hasUp || generator) S.plans[s] = PlanKeep(prior, s);
+            else if (owns && prior->Has(s)) S.plans[s] = PlanKeep(prior, s);
+            else S.plans[s] = PlanShare(up, s);
+            break;
+        }
     }
 
     // Named planes: emitted and remapped ones are the node's own; the rest
@@ -482,7 +504,7 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
     for (uint32_t index : node.referenceValues) {
         if (index >= references.size()) { mix(UINT64_MAX); continue; }
         mix(references[index].identity);
-        mix(references[index].curveGeneration);
+        mix(references[index].generation);
     }
     TfSpan<const UsdGenResolvedMapValue> const maps = graph.MapValues();
     for (uint32_t index : node.mapValues) {
@@ -494,7 +516,7 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
     // are on the CUDA lane: editing usdGen:expr:source, re-pointing a
     // connection or moving the geometry the expression samples changes this
     // digest, which re-captures the node and dirties its chunks.
-    mix(node.expressions.Digest());
+    mix(node.expressions ? node.expressions->Digest() : 0);
     return digest;
 }
 /// Group dirty bits: the roles a run wrote (UsdGenChunkGroup::dirtyRoles).
@@ -545,19 +567,20 @@ struct NodeSweepPayload
     uint32_t outSlots = 0, inSlots = 0, in2Slots = 0;
     size_t tableChunks = 0;
     bool pointsIn = false;   // input points go to point writers
-    bool widthIn = false;    // and input px alone to width writers
+    bool widthIn = false;    // and the input's first position alone to width writers
+    PositionSlots inPos;     // the input table's Position slots
 };
 
-/// Chunk-local bases of every slot of 'set': level-2 channels at cvBase,
-/// the others at curveBase (the old view's rule, constant channels included).
-void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t curveBase,
-                   size_t cvBase, void const **table)
+/// Chunk-local bases of every slot of 'set': level-2 channels at itemBase,
+/// the others at elementBase (constant channels included).
+void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t elementBase,
+                   size_t itemBase, void const **table)
 {
     for (uint32_t s = 0; s < slots; ++s) {
         void const *column = set.columns[s];
         if (!column) { table[s] = nullptr; continue; }
         UsdGenChannelDesc const &d = (*set.channels)[s];
-        size_t const element = d.level >= 2 ? cvBase : curveBase;
+        size_t const element = d.level >= 2 ? itemBase : elementBase;
         table[s] = static_cast<char const *>(column) +
                    element * d.arity * UsdGenScalarBytes(d.scalar);
     }
@@ -567,9 +590,12 @@ void FillSlotTable(UsdGenElementSetView const &set, uint32_t slots, size_t curve
 // A prepared node job owns the small vectors whose addresses are published in
 // its EvalContext.  Preparation happens on the commit thread; arena workers
 // only consume the immutable context and write this node's disjoint chunks.
-std::string NodeLabel(UsdGenCompiledNode const &node)
+std::string NodeLabel(UsdGenGraph const &graph, UsdGenCompiledNode const &node)
 {
-    return node.desc ? node.desc->path.GetName() : std::string("?");
+    if (!node.desc) return std::string("?");
+    std::string const label = graph.Spec().Label(node.desc->key);
+    size_t const slash = label.rfind('/');
+    return slash == std::string::npos ? label : label.substr(slash + 1);
 }
 
 struct NodeExecution
@@ -693,21 +719,21 @@ void SweepChunk(size_t index, void *payload)
     UsdGenChunkRange const *upC2 = (pl.up2 && pl.up2->chunks.size() == node.chunks.size())
         ? &pl.up2->chunks[index] : nullptr;
 
-    uint32_t nCvs = cd.count[0] * cd.stride[1];
+    uint32_t nItems = cd.count[0] * cd.stride[1];
     if (cd.stride[1] == 0 && nOffs) {
-        // Ragged span [firstCurve, firstCurve+curveCount) from topology offsets.
+        // Ragged span [first, first+count) from topology offsets.
         size_t const f = cd.first[0];
         if (f + cd.count[0] < nOffs)
-            nCvs = uint32_t(offs[f + cd.count[0]] - offs[f]);
+            nItems = uint32_t(offs[f + cd.count[0]] - offs[f]);
     }
     size_t const base = cd.first[1];
     size_t const upBase = upC ? upC->first[1] : 0;
 
     UsdGenChunkRange range = cd;
-    range.count[1] = nCvs;
+    range.count[1] = nItems;
     UsdGenChunkView chunk{};
     chunk.range = &range;
-    // Ragged offsets stay absolute, pointer at the chunk's first curve; null
+    // Ragged offsets stay absolute, pointer at the chunk's first element; null
     // on the uniform fast path.
     if (cd.stride[1] == 0 && nOffs && size_t(cd.first[0]) < nOffs)
         chunk.offsets[2] = offs + cd.first[0];
@@ -726,10 +752,12 @@ void SweepChunk(size_t index, void *payload)
     if (pl.inSet && index < pl.tableChunks) {
         void const **in = pl.inTables.data() + index * pl.inSlots;
         FillSlotTable(*pl.inSet, pl.inSlots, chunk.inFirst[1], upBase, in);
-        // Input points go to point writers; input px alone to width writers.
-        if (!pl.pointsIn && pl.inSlots > kUsdGenCurvePz) {
-            if (!pl.widthIn) in[kUsdGenCurvePx] = nullptr;
-            in[kUsdGenCurvePy] = in[kUsdGenCurvePz] = nullptr;
+        // Input points go to point writers; the first position alone to width writers.
+        UsdGenSlot const *ip = pl.inPos.s;
+        if (!pl.pointsIn && ip[0] != kUsdGenNoSlot && ip[1] != kUsdGenNoSlot &&
+            ip[2] != kUsdGenNoSlot && pl.inSlots > std::max({ip[0], ip[1], ip[2]})) {
+            if (!pl.widthIn) in[ip[0]] = nullptr;
+            in[ip[1]] = in[ip[2]] = nullptr;
         }
         chunk.in = in;
         chunk.inChannels = pl.inSet->channels;
@@ -770,7 +798,7 @@ struct InterleavePayload
 {
     UsdGenGraph *graph;
     UsdGenCompiledNode const *tn;
-    UsdGenCurveSetView term;
+    PointColumns term;
     std::vector<char> *touched;
     bool widthsFlag;
     // Fused extents: per-chunk records from the recording sweep, consumed
@@ -792,14 +820,15 @@ void InterleaveTile(size_t index, void *payload)
     // Terminal node owns the chunk partition the tiles index into.
     if (pl.tn->chunks.size() < tv.firstChunk + tv.chunkCount) return;
 
-    UsdGenCurveSetView const &term = pl.term;
+    PointColumns const &term = pl.term;
     GfRange3f extent;
-    uint64_t liveCurves = 0, liveCvs = 0;
-    float const *tpx = term.px.empty() ? nullptr : term.px.cdata();
-    float const *tpy = term.py.empty() ? nullptr : term.py.cdata();
-    float const *tpz = term.pz.empty() ? nullptr : term.pz.cdata();
-    size_t const nPx = term.px.size();
-    bool const ragged = !term.cvOffsets.empty();
+    uint64_t liveElements = 0, liveItems = 0;
+    float const *tpx = term.p[0].empty() ? nullptr : term.p[0].cdata();
+    float const *tpy = term.p[1].empty() ? nullptr : term.p[1].cdata();
+    float const *tpz = term.p[2].empty() ? nullptr : term.p[2].cdata();
+    size_t const nPx = term.p[0].size();
+    UsdGenSpan<const uint32_t> const &offsets = term.offsets;
+    bool const ragged = !offsets.empty();
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
         UsdGenChunkRange const &cd = pl.tn->chunks[tv.firstChunk + i];
         if (pl.extents) {
@@ -812,34 +841,32 @@ void InterleaveTile(size_t index, void *payload)
             if (ragged && cd.stride[1] == 0) {
                 for (uint32_t c = 0; c < cd.live; ++c) {
                     size_t const g = size_t(cd.first[0]) + c;
-                    if (g + 1 >= term.cvOffsets.size()) break;
-                    uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
-                    uint32_t const len =
-                        static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
-                    ++liveCurves;
-                    liveCvs += len;
+                    if (g + 1 >= offsets.size()) break;
+                    uint32_t const p0 = offsets[g];
+                    uint32_t const len = offsets[g + 1] - p0;
+                    ++liveElements;
+                    liveItems += len;
                 }
             } else {
-                liveCurves += cd.live;
-                liveCvs += uint64_t(cd.live) * cd.stride[1];
+                liveElements += cd.live;
+                liveItems += uint64_t(cd.live) * cd.stride[1];
             }
             UsdGenChunkExtent const &e = pl.extents[tv.firstChunk + i];
             extent.UnionWith(GfRange3f(GfVec3f(e.min[0], e.min[1], e.min[2]),
                                        GfVec3f(e.max[0], e.max[1], e.max[2])));
             continue;
         }
-        // Ragged path (03 §1.3): per-curve CV spans come from cvOffsets, not
-        // liveCount*cvCount (cvCount == 0 on the ragged path). g indexes the
-        // absolute curve so cvOffsets[g] is valid.
+        // Ragged path (03 §1.3): per-element item spans come from the
+        // offsets, not live*stride (stride == 0 on the ragged path). g
+        // indexes the absolute element so offsets[g] is valid.
         if (ragged && cd.stride[1] == 0) {
             for (uint32_t c = 0; c < cd.live; ++c) {
                 size_t const g = size_t(cd.first[0]) + c;
-                if (g + 1 >= term.cvOffsets.size()) break;
-                uint32_t const p0 = static_cast<uint32_t>(term.cvOffsets[g]);
-                uint32_t const len =
-                    static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
-                ++liveCurves;
-                liveCvs += len;
+                if (g + 1 >= offsets.size()) break;
+                uint32_t const p0 = offsets[g];
+                uint32_t const len = offsets[g + 1] - p0;
+                ++liveElements;
+                liveItems += len;
                 if (!tpx || !tpy || !tpz) continue;
                 for (uint32_t v = 0; v < len; ++v) {
                     size_t const p = size_t(p0) + v;
@@ -849,8 +876,8 @@ void InterleaveTile(size_t index, void *payload)
             }
             continue;
         }
-        liveCurves += cd.live;
-        liveCvs += uint64_t(cd.live) * cd.stride[1];
+        liveElements += cd.live;
+        liveItems += uint64_t(cd.live) * cd.stride[1];
         if (!tpx || !tpy || !tpz) continue;
         for (uint32_t c = 0; c < cd.live; ++c) {
             size_t const o = size_t(cd.first[1]) + size_t(c) * cd.stride[1];
@@ -865,8 +892,8 @@ void InterleaveTile(size_t index, void *payload)
         tv.extentMin[k] = extent.GetMin()[k];
         tv.extentMax[k] = extent.GetMax()[k];
     }
-    tv.live[0] = static_cast<uint32_t>(liveCurves);
-    tv.live[1] = static_cast<uint32_t>(liveCvs);
+    tv.live[0] = static_cast<uint32_t>(liveElements);
+    tv.live[1] = static_cast<uint32_t>(liveItems);
     tv.dirtyRoles = kPositionDirty | (pl.widthsFlag ? kWidthDirty : 0u);
 }
 
@@ -958,7 +985,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
     // deeper non-deform writer, a partial sweep, unaliased planes, a
     // mid-run repartition — falls back to the point pass, so the union
     // only runs when every check against the current buffers passes. A
-    // deform that does not record pays one predictable branch per CV, so
+    // deform that does not record pays one predictable branch per item, so
     // unselected graphs keep their old timing.
     int extentWriter = -1;
     size_t extentChunks = 0;
@@ -1012,8 +1039,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
     }
 
     // Operators evaluate in Default space until a deform: a deform, and every
-    // node reading one's output, sees the posed surfaces (graph.Desc()); every
-    // other node sees their Default-time rest (graph.RestDesc()), so a posed
+    // node reading one's output, sees the posed surfaces (graph.Spec()); every
+    // other node sees their Default-time rest (graph.RestSpec()), so a posed
     // surface re-captures only the deform and what follows it. Nodes are in
     // topological order; the loop repeats only if an input ever follows its
     // reader.
@@ -1030,8 +1057,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             if (posed) { poseSpace[size_t(pos)] = 1; changed = true; }
         }
     }
-    auto spaceDesc = [&](int pos) -> UsdGenGraphDesc const & {
-        return poseSpace[size_t(pos)] ? graph.Desc() : graph.RestDesc();
+    auto spaceDesc = [&](int pos) -> UsdGenGraphSpec const & {
+        return poseSpace[size_t(pos)] ? graph.Spec() : graph.RestSpec();
     };
 
     // Each frontier is dependency-ready and therefore may share one flattened
@@ -1051,7 +1078,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (UsdGenNodeId input : node.inputs) {
             if (input >= static_cast<UsdGenNodeId>(graph.NodeCount())) {
                 nodeDiag.Error("UsdGen: invalid compiled geometry input on '" +
-                               node.desc->path.GetString() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
                 break;
             }
             job->inputSets.push_back(OutputOrEmpty(graph, graph.Node(input))->View());
@@ -1069,7 +1096,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (uint32_t value : node.referenceValues) {
             if (value >= graphReferences.size() || !graphReferences[value].value) {
                 nodeDiag.Error("UsdGen: missing compiled reference value on '" +
-                               node.desc->path.GetString() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
                 break;
             }
             job->resolvedReferences.push_back(&graphReferences[value]);
@@ -1079,7 +1106,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         for (uint32_t value : node.mapValues) {
             if (value >= graphMaps.size()) {
                 nodeDiag.Error("UsdGen: missing compiled map value on '" +
-                               node.desc->path.GetString() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
                 break;
             }
             job->resolvedMaps.push_back(&graphMaps[value]);
@@ -1117,20 +1144,20 @@ UsdGenRunResult UsdGenScheduler::_Run(
             // the node's own (its delta arena): the arena preparation below
             // keeps them in place, or copies them when it moves.
             UsdGenElementSet const *prior = node.output.Get();
-            uint32_t const cvs = prior ? prior->Count(2) : 0u;
-            bool const outSized = cvs > 0 &&
-                prior->OwnsColumn(kUsdGenCurvePx) && prior->OwnsColumn(kUsdGenCurvePy) &&
-                prior->OwnsColumn(kUsdGenCurvePz) &&
-                prior->Column<float>(kUsdGenCurvePx).size() == cvs &&
-                prior->Column<float>(kUsdGenCurvePy).size() == cvs &&
-                prior->Column<float>(kUsdGenCurvePz).size() == cvs;
-            auto column = [&](UsdGenSlot s) {
-                return outSized ? const_cast<float *>(prior->Column<float>(s).data()) : nullptr;
+            uint32_t const items = prior ? prior->Count(2) : 0u;
+            PositionSlots const positions = PositionsOf(prior ? &prior->Channels() : nullptr);
+            bool outSized = items > 0;
+            for (int k = 0; outSized && k < 3; ++k)
+                outSized = positions.s[k] != kUsdGenNoSlot && prior->OwnsColumn(positions.s[k]) &&
+                    prior->Column<float>(positions.s[k]).size() == items;
+            auto column = [&](int k) {
+                return outSized
+                    ? const_cast<float *>(prior->Column<float>(positions.s[k]).data()) : nullptr;
             };
-            cctx.outPx = column(kUsdGenCurvePx);
-            cctx.outPy = column(kUsdGenCurvePy);
-            cctx.outPz = column(kUsdGenCurvePz);
-            cctx.outPlaneCvs = outSized ? size_t(cvs) : 0;
+            cctx.outPx = column(0);
+            cctx.outPy = column(1);
+            cctx.outPz = column(2);
+            cctx.outPlaneItems = outSized ? size_t(items) : 0;
             cctx.chunks = node.chunks.empty() ? nullptr : node.chunks.data();
             cctx.chunkCount = node.chunks.size();
             if (pos == extentWriter && extentWriter >= 0) {
@@ -1143,19 +1170,26 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // node's INPUT geometry and before its capture identity is taken --
         // the same ordering CudaParameterEvaluator has on the device lane.
         {
-            double const rate = graph.Desc().timeCodesPerSecond;
+            double const rate = graph.Spec().timeCodesPerSecond;
             double const seconds = std::isfinite(rate) && rate > 0.0
                 ? evalCtx.time / rate : evalCtx.time;
-            std::vector<std::string> expressionErrors;
-            if (!node.expressions.Evaluate(spaceDesc(pos), *node.desc,
-                                           UsdGenCurveSetView::Of(up ? up->View() : UsdGenElementSetView{}),
-                                           evalCtx.time, seconds, cctx.seed,
-                                           &job->expressionsChanged,
-                                           &expressionErrors))
-                for (auto const &message : expressionErrors)
-                    nodeDiag.Error("UsdGen: " + message);
-            for (auto const &message : node.expressions.TakeWarnings())
-                nodeDiag.Warn("UsdGen: " + node.desc->path.GetString() + ": " + message);
+            UsdGenDiagnostics expressionDiag;
+            if (node.expressions) {
+                if (!node.expressions->Evaluate(spaceDesc(pos), *node.desc,
+                                                up ? up->View() : UsdGenElementSetView{},
+                                                evalCtx.time, seconds, cctx.seed,
+                                                &job->expressionsChanged, &expressionDiag))
+                    for (auto const &message : expressionDiag.errors)
+                        nodeDiag.Error("UsdGen: " + message);
+                node.expressions->TakeWarnings(&expressionDiag);
+            } else {
+                job->expressionsChanged = false;
+                if (!node.desc->expressionBindings.empty())
+                    nodeDiag.Error("UsdGen: " + graph.Spec().Label(node.desc->key) +
+                                   ": connected parameters need a registered evaluator");
+            }
+            for (auto const &message : expressionDiag.warnings)
+                nodeDiag.Warn("UsdGen: " + graph.Spec().Label(node.desc->key) + ": " + message);
             // A groom-domain usdGen:enabled drives the node's own gate. With
             // nothing connected the authored value stands.
             double enabled = 0.0;
@@ -1164,8 +1198,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
         }
 
         // 02 §6.3: a disabled operator contributes nothing of its own. A
-        // disabled GENERATOR publishes an empty curve set, so the description
-        // publishes no curves; every other disabled operator passes its
+        // disabled GENERATOR publishes an empty set, so the description
+        // publishes nothing; every other disabled operator passes its
         // upstream through as a CoW alias in prepareEvaluation below.
         if (!node.enabled) {
             job->reCaptured = false;
@@ -1193,11 +1227,11 @@ UsdGenRunResult UsdGenScheduler::_Run(
 
         if (op.ReadsTime(node.paramView) &&
             (!node.hasEvaluationTime || node.lastEvaluationTime != evalCtx.time ||
-             node.lastTimeCodesPerSecond != graph.Desc().timeCodesPerSecond))
+             node.lastTimeCodesPerSecond != graph.Spec().timeCodesPerSecond))
             graph.MarkNode(static_cast<UsdGenNodeId>(pos), UsdGenDirtyParameter);
         node.hasEvaluationTime = true;
         node.lastEvaluationTime = evalCtx.time;
-        node.lastTimeCodesPerSecond = graph.Desc().timeCodesPerSecond;
+        node.lastTimeCodesPerSecond = graph.Spec().timeCodesPerSecond;
 
         UsdGenEpoch const captureIdentity =
             WithExternalValueIdentity(op.CaptureDigest(cctx), node, graph);
@@ -1233,20 +1267,20 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     node.spareCapture = std::move(replaced);
             } else if (cap) {
                 nodeDiag.Error(std::string("UsdGen: capture failed on '") +
-                               node.desc->path.GetText() + "'");
+                               graph.Spec().Label(node.desc->key) + "'");
             }
             node.captureEpoch = captureIdentity;
             node.captureNeeded = false;
 
-            // Generators and CV-repartitioning stylers (Resample) publish a new
-            // CV layout from Capture; the chunk plan must follow it. CurveCount
-            // stylers (Length) do not own a buffer and keep the upstream plan.
+            // Generators and item-repartitioning ops publish a new item layout
+            // from Capture; the chunk plan must follow it. Element-count ops
+            // that do not own a buffer keep the upstream plan.
             // Repartition unconditionally: its own keep-check is the single
-            // comparator (a pre-check on chunk COUNT misses 20->10 curves at
+            // comparator (a pre-check on chunk COUNT misses 20->10 elements at
             // 1 chunk, leaving stale spans that sweep out of bounds), and it
             // early-outs with no writes and no topology change when the layout
-            // already matches. No totalCurves > 0 gate either: a generator
-            // re-capturing to ZERO curves must still repartition, or its stale
+            // already matches. No element-count > 0 gate either: a generator
+            // re-capturing to ZERO elements must still repartition, or its stale
             // chunk plan sweeps dead chunks against empty buffers.
             if (node.record->Has(kUsdGenOpGenerator) ||
                 node.countChanges == UsdGenCountsAtLevel(2)) {
@@ -1257,9 +1291,9 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     result.topologyChanged = true;
             } else if (job->reCaptured && node.chunks.empty() && hasUp) {
                 UsdGenCompiledNode const &upN = graph.Node(node.input);
-                uint32_t const upCurves = graph.NodeOutput(node.input).Count(1);
-                if (!upN.chunks.empty() && upCurves > 0 &&
-                    graph.Repartition(upCurves, upN.chunks[0].stride[1]))
+                uint32_t const upElements = graph.NodeOutput(node.input).Count(1);
+                if (!upN.chunks.empty() && upElements > 0 &&
+                    graph.Repartition(upElements, upN.chunks[0].stride[1]))
                     result.topologyChanged = true;
             }
         }
@@ -1283,12 +1317,12 @@ UsdGenRunResult UsdGenScheduler::_Run(
         // remain reusable during playback.
         if (node.enabled && node.record->Has(kUsdGenOpReadsTime) &&
             (node.lastEvalTime != evalCtx.time ||
-             node.lastEvalRate != graph.Desc().timeCodesPerSecond))
+             node.lastEvalRate != graph.Spec().timeCodesPerSecond))
             graph.DirtyValue(node.id);
         job->evalAll = node.paramValueDigest != node.lastParamDigest ||
                        job->expressionsChanged;
         node.lastParamDigest = node.paramValueDigest;
-        node.lastExpressionDigest = node.expressions.Digest();
+        node.lastExpressionDigest = node.expressions ? node.expressions->Digest() : 0;
         for (UsdGenChunkDirtyBits b : node.chunkDirty)
             job->anyChunkDirty |= (b & UsdGenDirtyParameter) != 0;
 
@@ -1407,6 +1441,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
             pl.in2Tables.resize(pl.tableChunks * pl.in2Slots);
             pl.pointsIn = (pl.planes & UsdGenOp::kPlanePoints) != 0;
             pl.widthIn = (pl.planes & UsdGenOp::kPlaneWidths) != 0;
+            pl.inPos = PositionsOf(inTable);
         }
         // Capture-direct: this run's capture wrote the output planes, so
         // no sweep to run. Freshness comes from the re-capture flag, never
@@ -1562,10 +1597,10 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     std::memory_order_acquire);
                 if (!failure) continue;
                 std::string message = "UsdGen: operator evaluation failed";
-                if (failure == 1)
-                    message = "UsdGenCollide: closed-surface depth query failed";
-                else if (failure == 2)
-                    message = "UsdGenCollide: cut depth search exceeded its deterministic resource budget";
+                UsdGenOpRecord const *record = graph.Node(frontier[size_t(&job - jobs.data())]).record;
+                if (char const *const text = record && record->Def().hooks.failureMessage
+                        ? record->Def().hooks.failureMessage(failure) : nullptr)
+                    message = text;
                 aggregated.Error(std::move(message));
                 result.diagnostics = std::move(aggregated);
                 return result;
@@ -1643,7 +1678,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         : 0.0;
                     TfDebug::Helper().Msg(
                         "usdGen schedule  %-12s %-18s %-22s prepare %8.2f ms  eval %4zu/%-4zu chunks %8.2f ms%s\n",
-                        NodeLabel(node).c_str(),
+                        NodeLabel(graph, node).c_str(),
                         node.desc ? node.desc->type.GetText() : "?",
                         job.reCaptured ? job.recaptureReason
                             : node.enabled ? "capture reused" : "disabled",
@@ -1653,14 +1688,14 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 completed[size_t(frontier[j])] = 1;
                 if (node.record->Has(kUsdGenOpReadsTime) && node.enabled) {
                     node.lastEvalTime = evalCtx.time;
-                    node.lastEvalRate = graph.Desc().timeCodesPerSecond;
+                    node.lastEvalRate = graph.Spec().timeCodesPerSecond;
                 }
                 --remaining;
             }
         }
     }
     UsdGenElementSet const &termSet = graph.Output();
-    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(termSet);
+    PointColumns const term = PointColumnsOf(termSet.View());
     UsdGenCompiledNode const &tn = graph.Node(graph.TerminalNodeId());
     UsdGenOp const *termOp = tn.op.get();
 
@@ -1674,16 +1709,16 @@ UsdGenRunResult UsdGenScheduler::_Run(
     UsdGenChunkExtent const *fusedExtents = nullptr;
     if (extentWriter >= 0 && extentSwept) {
         UsdGenCompiledNode const &wn = graph.Node(UsdGenNodeId(extentWriter));
-        UsdGenCurveSetView const written = UsdGenCurveSetView::Of(*OutputOrEmpty(graph, wn));
+        PointColumns const written = PointColumnsOf(OutputOrEmpty(graph, wn)->View());
         auto sameBacking = [](auto const &a, auto const &b) {
             return a.size() == b.size() && (a.empty() || a.cdata() == b.cdata());
         };
         bool ok = tn.chunks.size() == extentChunks &&
                   wn.chunks.size() == extentChunks &&
-                  sameBacking(term.px, written.px) &&
-                  sameBacking(term.py, written.py) &&
-                  sameBacking(term.pz, written.pz) &&
-                  sameBacking(term.cvOffsets, written.cvOffsets);
+                  sameBacking(term.p[0], written.p[0]) &&
+                  sameBacking(term.p[1], written.p[1]) &&
+                  sameBacking(term.p[2], written.p[2]) &&
+                  sameBacking(term.offsets, written.offsets);
         for (size_t i = 0; ok && i < extentChunks; ++i) {
             UsdGenChunkRange const &tc = tn.chunks[i];
             UsdGenChunkRange const &wc = wn.chunks[i];

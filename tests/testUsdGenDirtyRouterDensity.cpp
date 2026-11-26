@@ -7,6 +7,7 @@
 #include "usdGen/graph.h"
 #include "usdGen/session.h"
 #include "usdGen/types.h"
+#include "usdGenUsd/lower.h"
 
 #include "pxr/imaging/hd/dataSourceLocator.h"
 
@@ -19,18 +20,22 @@ using namespace usdGen;
 
 namespace {
 
+// Keys the hand-built snapshots name prims by (the router reads the table).
+usdGenUsd::PathRecorder gKeys;
+
 UsdGenGraphRoutingSnapshot Snapshot()
 {
     UsdGenGraphRoutingSnapshot snap;
-    snap.description = SdfPath("/Groom");
-    snap.surfacePaths.push_back(SdfPath("/Scalp"));
+    snap.description = gKeys(SdfPath("/Groom"));
+    snap.surfaceKeys.push_back(gKeys(SdfPath("/Scalp")));
     UsdGenGraphRoutingNode node;
     node.id = 0;
-    node.path = SdfPath("/Groom/scatter");
+    node.key = gKeys(SdfPath("/Groom/scatter"));
     node.surface = 0;
     node.hasSurface = true;
     snap.nodes.push_back(node);
     snap.terminal = 0;
+    snap.host = gKeys.Table();
     return snap;
 }
 
@@ -126,8 +131,9 @@ int main()
     // subset's own indices/type (bare and prefixed) re-capture the node.
     {
         UsdGenGraphRoutingSnapshot snap = Snapshot();
-        snap.surfacePaths = {SdfPath("/Scalp/crown")};
-        snap.meshPaths = {SdfPath("/Scalp")};
+        snap.surfaceKeys = {gKeys(SdfPath("/Scalp/crown"))};
+        snap.meshKeys = {gKeys(SdfPath("/Scalp"))};
+        snap.host = gKeys.Table();
         usdGenImaging::UsdGenDirtyRouter subsetRouter;
         subsetRouter.Rebuild(snap);
 

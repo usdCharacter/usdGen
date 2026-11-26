@@ -21,6 +21,7 @@
 // sites upstream. The widthOverlapWitness port itself is proven by the
 // dedicated device test, not here.
 #include "usdGen/executionBackend.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -135,7 +136,7 @@ UsdGenGraphDesc WithMiddleOp(UsdGenGraphDesc desc, TfToken const& type) {
 bool RejectsWith(UsdGenGraphDesc const& desc, char const* needle,
                  std::string* firstError = nullptr) {
     UsdGenDiagnostics diagnostics;
-    auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+    auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
     if (handle || !diagnostics.HasErrors()) return false;
     if (firstError && !diagnostics.errors.empty())
         *firstError = diagnostics.errors.front();
@@ -184,7 +185,7 @@ int main() {
     // feature away from one of these accepted plans.
     {
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(MakeDesc(), &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(MakeDesc()), &diagnostics);
         Check(handle && !diagnostics.HasErrors(), "control: literal source-width plan accepts");
     }
     {
@@ -197,7 +198,7 @@ int main() {
         desc.nodes[1].inputs = {deform.path};
         desc.nodes.insert(desc.nodes.begin() + 1, deform);
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         if (ok) {
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -221,12 +222,12 @@ int main() {
         desc.nodes = {desc.nodes[0], cull, cullWidth};
         desc.terminal = cullWidth.path;
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         uint32_t cullTask = UINT32_MAX;
         if (ok) {
             for (auto const& task : handle->Metadata()->Tasks())
-                if (task.path == SdfPath("/Groom/Ops/cull")) {
+                if (task.key == usdGenUsd::KeyOf(SdfPath("/Groom/Ops/cull"))) {
                     ok = task.topologyBarrier;
                     cullTask = task.id;
                 }
@@ -246,7 +247,7 @@ int main() {
         auto desc = MakeDesc();
         desc.nodes[0].params.push_back({TfToken("resampleTo"), VtValue(0), false});
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         Check(handle && !diagnostics.HasErrors(), "control: neutral resampleTo=0 accepts");
     }
 
@@ -256,7 +257,7 @@ int main() {
         auto desc = MakeDesc();
         desc.expressions.push_back(UsdGenExpressionDesc{});
         UsdGenDiagnostics diagnostics;
-        Check(CompileVulkanSourceWidthPlan(desc,&diagnostics) && !diagnostics.HasErrors(),
+        Check(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc),&diagnostics) && !diagnostics.HasErrors(),
               "expression: unused definitions are carried");
     }
     {
@@ -284,7 +285,7 @@ int main() {
         binding.destinationShape=output.shape;binding.domain=expr::Domain::Point;
         binding.literal=VtValue(.125f);desc.nodes[1].expressionBindings.push_back(binding);
         desc.nodes[1].params.push_back({TfToken("width:knots"),VtValue(VtVec2fArray{{0,1},{1,.5f}}),false});
-        UsdGenDiagnostics diagnostics;auto handle=CompileVulkanSourceWidthPlan(desc,&diagnostics);
+        UsdGenDiagnostics diagnostics;auto handle=CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc),&diagnostics);
         bool ok=handle&&!diagnostics.HasErrors();
         if(ok){auto plan=std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
             ok=plan->Steps()[0].width.extended&&plan->Steps()[0].expressionBindings.size()==1&&
@@ -340,7 +341,7 @@ int main() {
         desc.nodes[1].params = {{TfToken("cvCount"), VtValue(4), false},
             {TfToken("distribution"), VtValue(TfToken("keepParam")), false}};
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         if (ok) {
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -387,7 +388,7 @@ int main() {
         auto desc = MakeDesc();
         desc.nodes[0].params.push_back({TfToken("resampleTo"), VtValue(8), false});
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         if (ok) {
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -436,7 +437,7 @@ int main() {
         auto desc = MakeDesc();
         desc.maps.push_back(UsdGenMapDesc{});
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         // No bindings anywhere: no ImageMaps slot (lazy CUDA parity) and the
         // terminal Width controls are untouched by the carried maps.
@@ -452,7 +453,7 @@ int main() {
         auto desc = MakeDesc();
         desc.nodes[1].maps.push_back(SdfPath("/Groom/Map"));
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         // Legacy-only maps add no task edge (CUDA adds the ImageMaps read
         // for mapBindings only).
@@ -466,7 +467,7 @@ int main() {
         auto desc = MakeDesc();
         desc.nodes[1].mapBindings.push_back({SdfPath("/Groom/Map"), TfToken("sample")});
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         bool slot = false, edge = false;
         if (ok) {
@@ -474,7 +475,7 @@ int main() {
                 slot = slot || (value.resource == UsdGenExecutionDataKind::ImageMaps &&
                     value.storage == UsdGenExecutionValueStorage::ExternalImmutable);
             for (auto const& task : handle->Metadata()->Tasks()) {
-                if (task.path != SdfPath("/Groom/Ops/width")) continue;
+                if (task.key != usdGenUsd::KeyOf(SdfPath("/Groom/Ops/width"))) continue;
                 for (auto const& use : task.resources)
                     edge = edge || (use.resource == UsdGenExecutionDataKind::ImageMaps &&
                         use.access == UsdGenExecutionResourceAccess::Read);
@@ -495,7 +496,7 @@ int main() {
         desc.nodes[0].params.push_back({TfToken("regionMapChannel"), VtValue(0), false});
         desc.nodes[0].params.push_back({TfToken("expectMapGeneration"), VtValue(uint64_t(7)), false});
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         Check(handle && !diagnostics.HasErrors(), "maps: source map params accept");
     }
 
@@ -515,7 +516,7 @@ int main() {
         desc.nodes.insert(desc.nodes.begin() + 1, deform);
         desc.curveSets[0].worldMatrix[3][0] = 5.0;
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         if (ok) {
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -548,7 +549,7 @@ int main() {
         desc.nodes.insert(desc.nodes.begin() + 1, deform);
         desc.surfaces[0].worldMatrix[3][1] = -2.0;
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         if (ok) {
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -594,7 +595,7 @@ int main() {
         desc.nodes.insert(desc.nodes.begin() + 1, deform);
         {
             UsdGenDiagnostics diagnostics;
-            auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+            auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
             auto const* stage = FindDeformStage(handle);
             Check(handle && !diagnostics.HasErrors() && stage && stage->deform.devicePath &&
                       stage->deform.sampleCount == 3,
@@ -613,7 +614,7 @@ int main() {
         desc.nodes.insert(desc.nodes.begin() + 1, deform);
         {
             UsdGenDiagnostics diagnostics;
-            auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+            auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
             auto const* stage = FindDeformStage(handle);
             Check(handle && !diagnostics.HasErrors() && stage && stage->deform.devicePath &&
                       stage->deform.sampleCount == 6,
@@ -641,7 +642,7 @@ int main() {
         big.nodes[1].inputs = {deformBig.path};
         big.nodes.insert(big.nodes.begin() + 1, deformBig);
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(big, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(big), &diagnostics);
         auto const* stage = FindDeformStage(handle);
         Check(handle && !diagnostics.HasErrors() && stage && stage->deform.devicePath &&
                   stage->deform.sampleCount == 101,
@@ -683,7 +684,7 @@ int main() {
         desc.curveSets[0].skinPrimUv = {{.2f, .2f}};
         desc.nodes[0].params.back().value = VtValue(TfToken("onError"));
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         Check(handle && !diagnostics.HasErrors(),
               "source: surface-free rebind=onError accepts with authored frames");
     }
@@ -702,7 +703,7 @@ int main() {
     // and the plan value taxonomy carries no pick/tile/index values.
     {
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(MakeDesc(), &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(MakeDesc()), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         std::set<UsdGenExecutionDataKind> kinds;
         if (ok)
@@ -811,7 +812,7 @@ int main() {
         auto desc = MakeDesc();
         desc.nodes[0].params.push_back({TfToken("resampleTo"), VtValue(8), false});
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         uint32_t resampleTask = UINT32_MAX;
         if (ok) {
@@ -850,7 +851,7 @@ int main() {
         desc.nodes = {desc.nodes[0], cull, cullWidth};
         desc.terminal = cullWidth.path;
         UsdGenDiagnostics diagnostics;
-        auto handle = CompileVulkanSourceWidthPlan(desc, &diagnostics);
+        auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
         bool ok = handle && !diagnostics.HasErrors();
         if (ok) {
             auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());

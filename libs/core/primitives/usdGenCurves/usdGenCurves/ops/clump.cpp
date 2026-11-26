@@ -57,6 +57,7 @@
 // count) and sub-clumps (usdGen:clump:sub:*, sector centres projected onto
 // the bound surface).
 #include "usdGen/ops/clump.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/clumpModes.h"
@@ -432,13 +433,13 @@ UsdGenEpoch UsdGenClumpOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     }
     d.Mix(uint64_t(ctx.seed));
     d.Mix(ctx.upstreamGeneration);
-    if (ctx.desc && ctx.surface < ctx.desc->surfaces.size())
-        d.Mix(ctx.desc->surfaces[ctx.surface].surfaceGeneration);
+    if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size())
+        d.Mix(UsdGenSurfaceAt(*ctx.desc, ctx.surface).surfaceGeneration);
     // The guide set (usdGen:guides) feeds the guides / guideSeeded modes.
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
             d.Mix(ctx.resolvedReferences[i]->identity);
-            d.Mix(ctx.resolvedReferences[i]->curveGeneration);
+            d.Mix(ctx.resolvedReferences[i]->generation);
         } else if (ctx.references && ctx.references[i]) {
             d.Mix(ctx.references[i]->generation);
         }
@@ -569,7 +570,7 @@ bool UsdGenClumpOp::Capture(
     };
 
     double area = opUtil::RestSurfaceArea(ctx.desc, ctx.surface, ctx.desc &&
-        ctx.surface < ctx.desc->surfaces.size());
+        ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size());
     if (!(area > 0.0)) {
         // No bound surface: the roots' bounding box stands in for the area.
         GfRange3d box;
@@ -790,9 +791,9 @@ bool UsdGenClumpOp::Capture(
         }
         if (s.subEnabled && s.sub.count > 1) {
             strand::TriangleBvh bvh;
-            bool const bound = ctx.desc && ctx.surface < ctx.desc->surfaces.size() &&
+            bool const bound = ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size() &&
                 (!p || !p->node || !p->node->surfaces.empty());
-            if (bound) strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], false, &bvh);
+            if (bound) strand::BuildSurfaceBvh(UsdGenSurfaceAt(*ctx.desc, ctx.surface), false, &bvh);
             clumpRef::ApplySubClumps(order, liveRoots.data(), &shape, spans, &member, flyaway,
                                      s.sub, baseWeight, bound && !bvh.Empty() ? &bvh : nullptr);
         }

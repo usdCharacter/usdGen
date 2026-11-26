@@ -50,7 +50,7 @@ std::shared_ptr<VulkanSessionProvider> VulkanSessionProvider::Create(
 }
 
 UsdGenSessionDevicePlanHandle VulkanSessionProvider::Compile(
-    UsdGenGraphDesc const& desc, UsdGenDiagnostics* diagnostics) const {
+    UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnostics) const {
     if (closing_.load(std::memory_order_acquire) || lost_.load(std::memory_order_acquire)) return {};
     auto handle = CompileVulkanSourceWidthPlan(desc, diagnostics);
     if (!handle) return {};

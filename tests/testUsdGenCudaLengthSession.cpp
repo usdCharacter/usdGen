@@ -1,6 +1,7 @@
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/session.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/gpu/generation.h"
 #include <cmath>
 #include <cstdio>
@@ -96,7 +97,7 @@ int main() {
     groomPlane.domain = UsdGenAuthoredPlaneDomain::Groom;
     groomPlane.floatValues = {.5f};
     desc.curveSets[0].authoredPlanes = {pointPlane, primitivePlane, groomPlane};
-    session.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(session, desc);
     auto first = session.Commit(1, UsdGenCommitReason::SetTime);
     if (!first) for (auto const& e : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", e.c_str());
     CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
@@ -140,13 +141,13 @@ int main() {
     }
 
     auto malformed = desc; malformed.nodes[1].params[0].value = VtValue(TfToken("unknown"));
-    session.SetGraphDesc(malformed); CHECK(session.Commit(2, UsdGenCommitReason::SetTime) == first);
+    usdGenUsd::SetGraphDesc(session, malformed); CHECK(session.Commit(2, UsdGenCommitReason::SetTime) == first);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     CHECK(Read(firstLease, &points, &widths, &ids, stream) && ids == std::vector<uint64_t>({10,20}));
 
     auto translated = desc;
     for (auto& p : translated.surfaces[0].points) p[0] += 1.f;
-    session.SetGraphDesc(translated); auto translatedGeneration = session.Commit(3, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, translated); auto translatedGeneration = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(translatedGeneration && translatedGeneration != first && !session.LastDiagnostics().HasErrors());
     auto translatedLease = gpu::AcquireGeometry(translatedGeneration->device, stream); CHECK(translatedLease);
     CHECK(Read(translatedLease, &points, &widths, &ids, stream));
@@ -154,7 +155,7 @@ int main() {
           std::fabs(points[3].x - 1.2f) < 2e-3f);
 
     auto allRemoved = desc; allRemoved.nodes[1].params[1].value = VtValue(1000.0f);
-    session.SetGraphDesc(allRemoved); auto empty = session.Commit(3, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, allRemoved); auto empty = session.Commit(3, UsdGenCommitReason::SetTime);
     CHECK(empty && empty != translatedGeneration && !session.LastDiagnostics().HasErrors());
     auto emptyLease = gpu::AcquireGeometry(empty->device, stream); CHECK(emptyLease);
     CHECK(Read(emptyLease, &points, &widths, &ids, stream));
@@ -186,7 +187,7 @@ int main() {
     scaleBinding.nativeType = TfToken("float"); scaleBinding.destinationShape = {expr::ScalarType::Float32,1,1,1,1,false};
     scaleBinding.domain = expr::Domain::Point; scaleBinding.literal = VtValue(.5f);
     scaled.nodes[1].expressionBindings.push_back(scaleBinding);
-    session.SetGraphDesc(scaled); auto scaledGeneration = session.Commit(4, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, scaled); auto scaledGeneration = session.Commit(4, UsdGenCommitReason::SetTime);
     CHECK(scaledGeneration && scaledGeneration != empty && !session.LastDiagnostics().HasErrors());
     auto scaledLease = gpu::AcquireGeometry(scaledGeneration->device, stream); CHECK(scaledLease);
     CHECK(Read(scaledLease, &points, &widths, &ids, stream));
@@ -201,7 +202,7 @@ int main() {
     keepParam.nodes[1].params[2].value = VtValue(.3f);
     keepParam.nodes[1].params.push_back({TfToken("length:method"), VtValue(TfToken("cutExtend")), false});
     keepParam.nodes[1].params.push_back({TfToken("rebuild"), VtValue(TfToken("keepParam")), false});
-    session.SetGraphDesc(keepParam); auto cut = session.Commit(5, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, keepParam); auto cut = session.Commit(5, UsdGenCommitReason::SetTime);
     CHECK(cut && cut != scaledGeneration && !session.LastDiagnostics().HasErrors());
     auto cutLease = gpu::AcquireGeometry(cut->device, stream); CHECK(cutLease);
     CHECK(Read(cutLease, &points, &widths, &ids, stream));
@@ -210,7 +211,7 @@ int main() {
     CHECK(std::fabs(points[1].y - .6f) < 2e-3f && std::fabs(points[2].z - .3f) < 2e-3f);
     auto reparam = keepParam;
     reparam.nodes[1].params.back().value = VtValue(TfToken("reparam"));
-    session.SetGraphDesc(reparam); auto redistributed = session.Commit(6, UsdGenCommitReason::SetTime);
+    usdGenUsd::SetGraphDesc(session, reparam); auto redistributed = session.Commit(6, UsdGenCommitReason::SetTime);
     CHECK(redistributed && redistributed != cut && !session.LastDiagnostics().HasErrors());
     auto redistributedLease = gpu::AcquireGeometry(redistributed->device, stream); CHECK(redistributedLease);
     CHECK(Read(redistributedLease, &points, &widths, &ids, stream));
@@ -228,7 +229,7 @@ int main() {
     secondLength.inputs = {twice.nodes[1].path};
     twice.nodes.insert(twice.nodes.begin() + 2, secondLength);
     twice.nodes[3].inputs = {secondLength.path};
-    session.SetGraphDesc(twice);
+    usdGenUsd::SetGraphDesc(session, twice);
     auto twiceGeneration = session.Commit(7, UsdGenCommitReason::SetTime);
     CHECK(twiceGeneration && twiceGeneration != redistributed && !session.LastDiagnostics().HasErrors());
     auto twiceLease = gpu::AcquireGeometry(twiceGeneration->device, stream); CHECK(twiceLease);
@@ -252,7 +253,7 @@ int main() {
     thresholdBinding.domain = expr::Domain::Groom;
     thresholdBinding.literal = VtValue(.45f);
     timed.nodes[1].expressionBindings.push_back(thresholdBinding);
-    session.SetGraphDesc(timed);
+    usdGenUsd::SetGraphDesc(session, timed);
     auto timedFirst = session.Commit(9, UsdGenCommitReason::SetTime);
     CHECK(timedFirst && timedFirst != twiceGeneration && !session.LastDiagnostics().HasErrors());
     auto timedLease = gpu::AcquireGeometry(timedFirst->device, stream); CHECK(timedLease);
@@ -266,7 +267,7 @@ int main() {
     auto randomField = scaled;
     randomField.expressions[1].source = "[2,2]";
     randomField.nodes[1].expressionBindings.push_back(desc.nodes[1].expressionBindings[1]);
-    session.SetGraphDesc(randomField);
+    usdGenUsd::SetGraphDesc(session, randomField);
     auto randomGeneration = session.Commit(11, UsdGenCommitReason::SetTime);
     CHECK(randomGeneration && randomGeneration != timedSecond && !session.LastDiagnostics().HasErrors());
     auto randomLease = gpu::AcquireGeometry(randomGeneration->device, stream); CHECK(randomLease);

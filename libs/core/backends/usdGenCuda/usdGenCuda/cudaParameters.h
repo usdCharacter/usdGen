@@ -5,7 +5,7 @@
 #include "gpu/expressionContext.h"
 #include "gpu/expression.h"
 #include "usdGen/executionPlan.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/registries/handles.h"
 
 #include <memory>
@@ -41,11 +41,11 @@ enum class CudaParameterStatus {
 class CudaParameterProgram {
 public:
     static CudaParameterStatus Compile(
-        UsdGenGraphDesc const&, UsdGenNodeDesc const&,
+        UsdGenGraphSpec const&, UsdGenOpNode const&,
         std::shared_ptr<const CudaParameterProgram>*,
         std::vector<std::string>* diagnostics = nullptr);
 
-    std::vector<UsdGenExpressionBinding> const& Bindings() const {
+    std::vector<UsdGenParamBinding> const& Bindings() const {
         return bindings_;
     }
     // Exact fresh-candidate delta: context, literals, typed outputs, device
@@ -55,12 +55,12 @@ public:
 
 private:
     struct Item {
-        UsdGenExpressionBinding binding;
+        UsdGenParamBinding binding;
         UsdGenParamSlot slot = kUsdGenNoParam;
         expr::IRProgram ir;
         std::vector<double> literal;
     };
-    std::vector<UsdGenExpressionBinding> bindings_;
+    std::vector<UsdGenParamBinding> bindings_;
     std::vector<Item> items_;
 
     friend class CudaParameterEvaluator;
@@ -200,7 +200,7 @@ void failNextCudaGroomScalarReadbackCopyAfterOneForTesting();
 class CudaParameterPlan {
 public:
     static CudaParameterStatus Compile(
-        UsdGenGraphDesc const&, UsdGenNodeDesc const&, CudaParameterPlan*,
+        UsdGenGraphSpec const&, UsdGenOpNode const&, CudaParameterPlan*,
         std::vector<std::string>* diagnostics = nullptr);
     CudaParameterStatus Evaluate(
         gpu::DeviceCurveGeometryView, gpu::ExpressionGeometryChannels,
@@ -209,7 +209,7 @@ public:
         UsdGenExecutionMemoryReservation* reservation = nullptr,
         UsdGenExecutionResourceKind kind = UsdGenExecutionResourceKind::Cache);
 
-    std::vector<UsdGenExpressionBinding> const& Bindings() const {
+    std::vector<UsdGenParamBinding> const& Bindings() const {
         return program_ ? program_->Bindings() : emptyBindings_;
     }
     std::vector<CudaParameterField> const& Fields() const {
@@ -221,7 +221,7 @@ private:
     std::shared_ptr<const CudaParameterProgram> program_;
     std::unique_ptr<CudaParameterEvaluator> evaluator_;
     // Always empty: the answer for an unbound plan, without a function-local static.
-    std::vector<UsdGenExpressionBinding> emptyBindings_;
+    std::vector<UsdGenParamBinding> emptyBindings_;
     std::vector<CudaParameterField> emptyFields_;
 };
 } // namespace usdGen

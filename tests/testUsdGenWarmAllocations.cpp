@@ -19,7 +19,7 @@
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -223,10 +223,10 @@ UsdGenCurveBuffer FreshCook(UsdGenGraphDesc const &desc)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(desc, &graph).ok) return {};
+    if (!usdGenUsd::Compile(compiler, desc, &graph).ok) return {};
     UsdGenScheduler scheduler(4);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     scheduler.Run(graph, ctx, 1);
     return OutputBuffer(graph);
 }
@@ -279,15 +279,17 @@ int Gate(char const *name, UsdGenGraphDesc const &a, UsdGenGraphDesc const &b, i
          std::vector<char const *> const &recaptured = {})
 {
     std::printf("== %s\n", name);
+    // The host lowers once; the measured edit is the engine's Recompile.
+    UsdGenGraphSpec const specA = usdGenUsd::Lower(a), specB = usdGenUsd::Lower(b);
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    if (!compiler.Compile(a, &graph).ok) {
+    if (!usdGenUsd::Compile(compiler, a, &graph).ok) {
         std::printf("FAIL: compile\n");
         return 1;
     }
     UsdGenScheduler scheduler(4);
     UsdGenEvalContext ctx;
-    ctx.desc = &graph.Desc();
+    ctx.desc = &graph.Spec();
     uint64_t gen = 0;
     auto fullDirty = [&] {
         for (int i = 0; i < graph.NodeCount(); ++i)
@@ -298,12 +300,12 @@ int Gate(char const *name, UsdGenGraphDesc const &a, UsdGenGraphDesc const &b, i
     for (int i = 0; i < 2; ++i) {
         fullDirty();
         scheduler.Run(graph, ctx, ++gen);
-        compiler.Recompile(i % 2 ? a : b, &graph);
-        ctx.desc = &graph.Desc();
+        compiler.Recompile(i % 2 ? specA : specB, &graph);
+        ctx.desc = &graph.Spec();
         scheduler.Run(graph, ctx, ++gen);
     }
-    compiler.Recompile(a, &graph);
-    ctx.desc = &graph.Desc();
+    compiler.Recompile(specA, &graph);
+    ctx.desc = &graph.Spec();
     scheduler.Run(graph, ctx, ++gen);
 
     fullDirty();
@@ -315,17 +317,17 @@ int Gate(char const *name, UsdGenGraphDesc const &a, UsdGenGraphDesc const &b, i
     });
     std::vector<UsdGenCapture const *> captures;
     for (char const *path : recaptured)
-        captures.push_back(graph.Node(graph.NodeIdForPath(SdfPath(path))).capture.get());
+        captures.push_back(graph.Node(usdGenUsd::NodeIdForPath(graph, SdfPath(path))).capture.get());
     uint64_t const edit = Counted("edit", [&] {
         uint64_t const before = UsdGenTotalInternCount();
-        compiler.Recompile(b, &graph);
-        ctx.desc = &graph.Desc();
+        compiler.Recompile(specB, &graph);
+        ctx.desc = &graph.Spec();
         scheduler.Run(graph, ctx, ++gen);
         editInterns = UsdGenTotalInternCount() - before;
     });
     int failures = 0;
     for (size_t i = 0; i < recaptured.size(); ++i) {
-        UsdGenCompiledNode const &node = graph.Node(graph.NodeIdForPath(SdfPath(recaptured[i])));
+        UsdGenCompiledNode const &node = graph.Node(usdGenUsd::NodeIdForPath(graph, SdfPath(recaptured[i])));
         if (!node.capture || node.capture.get() == captures[i]) {
             std::printf("FAIL: %s did not re-capture in the param edit\n", recaptured[i]);
             ++failures;
@@ -365,8 +367,8 @@ int Gate(char const *name, UsdGenGraphDesc const &a, UsdGenGraphDesc const &b, i
             ++failures;
         }
     }
-    compiler.Recompile(a, &graph);
-    ctx.desc = &graph.Desc();
+    usdGenUsd::Recompile(compiler, a, &graph);
+    ctx.desc = &graph.Spec();
     scheduler.Run(graph, ctx, ++gen);
     if (!SameOutput(OutputBuffer(graph), FreshCook(a)) ||
         SameOutput(FreshCook(a), FreshCook(b))) {

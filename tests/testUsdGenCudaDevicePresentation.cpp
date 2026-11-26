@@ -1,6 +1,9 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
 // with the accepted device generation, including tool point revisions.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenUsd/lower.h"
+#include "usdGenUsd/publishPaths.h"
 #include "usdGen/gpu/tools.h"
 #include "usdGen/session.h"
 
@@ -65,17 +68,34 @@ static UsdGenGraphDesc MakeDesc()
     return desc;
 }
 
+// The presentation's keys named through the generation's path table.
+struct PresentationPaths {
+    SdfPath description, renderNamespace, materialPath, primOrigin, dependencySurface;
+};
+
+static PresentationPaths Paths(UsdGenGeneration const &generation)
+{
+    UsdGenDevicePresentationMetadata const &m = *generation.devicePresentation;
+    PresentationPaths out;
+    out.description = usdGenUsd::PrimPath(generation, UsdGenPrimRef{m.description});
+    out.renderNamespace = usdGenUsd::RenderNamespace(out.description);
+    out.materialPath = usdGenUsd::PrimPath(generation, m.material);
+    out.primOrigin = usdGenUsd::PrimPath(generation, m.origin);
+    out.dependencySurface = usdGenUsd::PrimPath(generation, m.dependency);
+    return out;
+}
+
+// Same keys name the same paths (the render namespace follows the description).
 static bool SamePresentation(UsdGenDevicePresentationMetadata const &a,
                              UsdGenDevicePresentationMetadata const &b)
 {
     return a.description == b.description &&
-        a.renderNamespace == b.renderNamespace &&
         a.xformMatrix == b.xformMatrix &&
         a.purpose == b.purpose && a.visibility == b.visibility &&
-        a.materialPath == b.materialPath &&
+        a.material == b.material &&
         a.materialPurpose == b.materialPurpose &&
-        a.refineLevel == b.refineLevel && a.primOrigin == b.primOrigin &&
-        a.dependencySurface == b.dependencySurface;
+        a.refineLevel == b.refineLevel && a.origin == b.origin &&
+        a.dependency == b.dependency;
 }
 
 static bool Read(CudaGeometryLease const& lease, std::vector<float3>* points,
@@ -95,40 +115,42 @@ int main()
     UsdGenSession session;
     session.SetDevicePublicationEnabled(true);
     auto desc = MakeDesc();
-    session.SetGraphDesc(desc);
+    usdGenUsd::SetGraphDesc(session, desc);
     auto first = session.Commit(1.0, UsdGenCommitReason::SetTime);
     CHECK(first && first->device && first->devicePresentation &&
-          first->tiles.empty() && !session.LastDiagnostics().HasErrors());
+          usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() && !session.LastDiagnostics().HasErrors());
     auto const initial = *first->devicePresentation;
-    CHECK(initial.description == desc.description &&
-          initial.renderNamespace == SdfPath("/Groom/Presentation/__usdGenRender") &&
+    PresentationPaths const initialPaths = Paths(*first);
+    CHECK(initialPaths.description == desc.description &&
+          initialPaths.renderNamespace == SdfPath("/Groom/Presentation/__usdGenRender") &&
           initial.xformMatrix == desc.xformMatrix &&
           initial.purpose == TfToken("render") && initial.visibility == TfToken("invisible") &&
-          initial.materialPath == SdfPath("/Looks/HairA") &&
+          initialPaths.materialPath == SdfPath("/Looks/HairA") &&
           initial.materialPurpose == TfToken("allPurpose") && initial.refineLevel == 2 &&
-          initial.primOrigin == desc.description &&
-          initial.dependencySurface == SdfPath("/Scalp"));
+          initialPaths.primOrigin == desc.description &&
+          initialPaths.dependencySurface == SdfPath("/Scalp"));
 
     auto changed = desc;
     changed.xformMatrix.SetTranslate(GfVec3d(-4.0, 5.0, 6.0));
     changed.purpose = TfToken("proxy");
     changed.visibility = TfToken("inherited");
     changed.materialPath = SdfPath("/Looks/HairB");
-    session.SetGraphDesc(changed);
+    usdGenUsd::SetGraphDesc(session, changed);
     auto second = session.Commit(2.0, UsdGenCommitReason::SetTime);
     CHECK(second && second != first && second->device && second->devicePresentation &&
           !session.LastDiagnostics().HasErrors());
     auto const changedPresentation = *second->devicePresentation;
-    CHECK(changedPresentation.description == changed.description &&
-          changedPresentation.renderNamespace == initial.renderNamespace &&
+    PresentationPaths const changedPaths = Paths(*second);
+    CHECK(changedPaths.description == changed.description &&
+          changedPaths.renderNamespace == initialPaths.renderNamespace &&
           changedPresentation.xformMatrix == changed.xformMatrix &&
           changedPresentation.purpose == changed.purpose &&
           changedPresentation.visibility == changed.visibility &&
-          changedPresentation.materialPath == changed.materialPath &&
+          changedPaths.materialPath == changed.materialPath &&
           changedPresentation.materialPurpose == TfToken("allPurpose") &&
           changedPresentation.refineLevel == 2 &&
-          changedPresentation.primOrigin == changed.description &&
-          changedPresentation.dependencySurface == SdfPath("/Scalp"));
+          changedPaths.primOrigin == changed.description &&
+          changedPaths.dependencySurface == SdfPath("/Scalp"));
     // Retained immutable generations must retain their own descriptor epoch.
     CHECK(SamePresentation(*first->devicePresentation, initial));
 

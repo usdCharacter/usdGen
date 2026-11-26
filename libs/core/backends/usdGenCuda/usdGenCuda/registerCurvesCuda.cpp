@@ -5,7 +5,7 @@
 #include "usdGen/cudaStages.h"
 
 #include "usdGen/executionPlan.h"
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/registrar.h"
 
@@ -99,12 +99,12 @@ UsdGenKernelDef const *UsdGenCudaKernel(UsdGenOpId op) noexcept
                                      : UsdGenBackendRegistry::Get().Find(op, kUsdGenCudaBackend);
 }
 
-UsdGenKernelDef const *UsdGenCudaKernel(UsdGenNodeDesc const &node) noexcept
+UsdGenKernelDef const *UsdGenCudaKernel(UsdGenOpNode const &node) noexcept
 {
     return UsdGenCudaKernel(UsdGenOpRegistry::Get().Find(node.type));
 }
 
-bool UsdGenIsCudaStage(UsdGenNodeDesc const &node, UsdGenCudaStage stage) noexcept
+bool UsdGenIsCudaStage(UsdGenOpNode const &node, UsdGenCudaStage stage) noexcept
 {
     UsdGenKernelDef const *k = UsdGenCudaKernel(node);
     return k && k->stage == uint16_t(stage);

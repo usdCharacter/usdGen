@@ -13,6 +13,7 @@
 // --hash prints the reference groomer's output hash (FNV-1a over points, counts,
 // lengths, clump ids in generation order) for comparison with its build log.
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -20,7 +21,7 @@
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "pxr/usdImaging/usdImaging/sceneIndices.h"
 #include "pxr/usdImaging/usdImaging/stageSceneIndex.h"
 
@@ -186,7 +187,7 @@ int main(int argc, char **argv)
         }
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+        UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
         if (!compiled.ok) {
             ++failures;
             std::printf("%s: COMPILE FAILED\n", path.c_str());
@@ -195,7 +196,7 @@ int main(int argc, char **argv)
         }
         UsdGenScheduler scheduler = UsdGenScheduler(threads);
         UsdGenEvalContext ctx;
-        ctx.desc = &graph.Desc();
+        ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, 1);
         double const ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t0).count();

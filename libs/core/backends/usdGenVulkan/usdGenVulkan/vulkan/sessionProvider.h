@@ -37,7 +37,7 @@ public:
     static std::shared_ptr<VulkanSessionProvider> Create(CreateInfo,
                                                           std::string* reason = nullptr);
 
-    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphDesc const&,
+    UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const&,
                                            UsdGenDiagnostics*) const override;
     UsdGenSessionDeviceIdentity Identity() const noexcept override;
     bool NotifyContextLost(UsdGenSessionDeviceIdentity const&) noexcept override;

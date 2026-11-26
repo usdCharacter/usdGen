@@ -3,7 +3,7 @@
 #ifndef USDGEN_EXECUTION_PLAN_H
 #define USDGEN_EXECUTION_PLAN_H
 
-#include "usdGen/graphDesc.h"
+#include "usdGen/api/graphSpec.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -250,7 +250,7 @@ struct UsdGenExecutionTaskMetadata {
     uint32_t semanticNode = UINT32_MAX;
     uint64_t authoredOrderKey = 0;
     UsdGenExecutionTaskKind kind = UsdGenExecutionTaskKind::Operator;
-    SdfPath path;
+    UsdGenNodeKey key;
     TfToken type;
     // Input to dependency lowering.  Direct semantic ordering is inferred
     // from ResourceUse::inputValue; only a publication lifetime join may be
@@ -530,7 +530,7 @@ private:
 };
 
 struct UsdGenCompiledOperatorCapability {
-    SdfPath path;
+    UsdGenNodeKey key;
     TfToken type;
     uint64_t authoredOrderKey = 0;
     uint32_t capabilityVersion = 0;

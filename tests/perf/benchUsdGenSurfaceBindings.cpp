@@ -9,7 +9,7 @@
 // Create+Bind is reported separately as a cold metric and is not folded into
 // those limits.  Timing failures remain informational unless USDGEN_GATE=1.
 
-#include "usdGen/graphDesc.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootBindings.h"
 
 #include "pxr/pxr.h"
@@ -216,7 +216,7 @@ bool RunCase(Fixture const &fixture, size_t rootCount, tbb::task_arena &arena,
     UsdGenSurfaceRootBindingResult coldResult;
     auto const coldStart = std::chrono::steady_clock::now();
     arena.execute([&] {
-        coldCache = UsdGenRestSurfaceBindingCache::Create(fixture.surface, &error);
+        coldCache = UsdGenRestSurfaceBindingCache::Create(usdGenUsd::Lower(fixture.surface), &error);
         coldOk = coldCache && coldCache->Bind(fixture.roots, GfMatrix4d(1.0),
                                                &coldResult, &error);
     });
@@ -227,7 +227,7 @@ bool RunCase(Fixture const &fixture, size_t rootCount, tbb::task_arena &arena,
         return false;
     }
 
-    auto cache = UsdGenRestSurfaceBindingCache::Create(fixture.surface, &error);
+    auto cache = UsdGenRestSurfaceBindingCache::Create(usdGenUsd::Lower(fixture.surface), &error);
     if (!cache) {
         std::fprintf(stderr, "%s warm Create failed: %s\n",
                      fixture.quads ? "quad" : "triangle", error.c_str());

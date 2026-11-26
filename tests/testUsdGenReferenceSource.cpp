@@ -9,13 +9,14 @@
 // consumes the pulled geometry, and an empty reference fails closed.
 
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/tf/token.h"
@@ -249,7 +250,7 @@ void CheckCook(UsdGenGraphDesc const &desc, bool checkNative = false)
 {
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (std::string const &e : compiled.errors)
             std::printf("compile error: %s\n", e.c_str());
@@ -259,15 +260,15 @@ void CheckCook(UsdGenGraphDesc const &desc, bool checkNative = false)
 
     UsdGenScheduler scheduler(1);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run = scheduler.Run(graph, context, 1);
     Check(!run.diagnostics.HasErrors(), "reference stack executes");
     if (run.diagnostics.HasErrors()) return;
 
     UsdGenNodeId const sourceId =
-        graph.NodeIdForPath(kDescription.AppendPath(SdfPath("Ops/source")));
+        usdGenUsd::NodeIdForPath(graph, kDescription.AppendPath(SdfPath("Ops/source")));
     UsdGenNodeId const widthId =
-        graph.NodeIdForPath(kDescription.AppendPath(SdfPath("Ops/width")));
+        usdGenUsd::NodeIdForPath(graph, kDescription.AppendPath(SdfPath("Ops/width")));
     Check(sourceId != kUsdGenInvalidNode && widthId != kUsdGenInvalidNode,
           "both stack nodes compiled");
     if (sourceId == kUsdGenInvalidNode || widthId == kUsdGenInvalidNode) return;
@@ -337,7 +338,7 @@ int main()
           "malformed baked Clump int2 metadata reports a builder error");
     UsdGenCompiler malformedCompiler;
     UsdGenGraph malformedGraph;
-    Check(!malformedCompiler.Compile(malformed, &malformedGraph).ok,
+    Check(!usdGenUsd::Compile(malformedCompiler, malformed, &malformedGraph).ok,
           "malformed baked Clump metadata fails closed at compile");
 
     // Fail closed: no reference target, no silent empty stack.
@@ -348,7 +349,7 @@ int main()
           "an unauthored reference leaves the lane empty");
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const rejected = compiler.Compile(missing, &graph);
+    UsdGenCompileResult const rejected = usdGenUsd::Compile(compiler, missing, &graph);
     Check(!rejected.ok && !rejected.errors.empty() &&
               rejected.errors.front().find("0 resolved reference values") !=
                   std::string::npos,

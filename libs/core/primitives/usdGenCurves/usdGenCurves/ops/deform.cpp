@@ -22,6 +22,8 @@
 // re-captures on every frame it moves; the factorization is kept while the
 // rest samples do not change. Evaluate applies usdGen:mask.
 #include "usdGen/ops/deform.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/curveWrap.h"
 #include "usdGen/ops/regionMap.h"
@@ -215,12 +217,9 @@ inline uint32_t NonFiniteBits(float f0, float f1, float f2)
         ((u2 & kExpMask) == kExpMask);
 }
 
-UsdGenCurveSetDesc const *FindCurves(UsdGenGraphDesc const *desc, SdfPath const &path)
+UsdGenInputRecord const *FindCurves(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
 {
-    if (!desc) return nullptr;
-    for (UsdGenCurveSetDesc const &curves : desc->curveSets)
-        if (curves.path == path) return &curves;
-    return nullptr;
+    return desc ? UsdGenFindCurveSetInput(*desc, path) : nullptr;
 }
 
 /// A posed surface point into current groom space. Affine matrices project
@@ -237,10 +236,11 @@ inline GfVec3d XformSurfacePoint(GfMatrix4d const &relative, bool affine, GfVec3
 /// Where the drivers' points live relative to the description: their prim's
 /// world matrix, brought into the description's space. A transform animation
 /// moves rest and pose together; animate the points to deform.
-GfMatrix4d DriverToGroom(UsdGenGraphDesc const *desc, SdfPath const &path)
+GfMatrix4d DriverToGroom(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
 {
-    UsdGenCurveSetDesc const *curves = FindCurves(desc, path);
-    return curves ? curves->worldMatrix * desc->xformMatrix.GetInverse() : GfMatrix4d(1.0);
+    UsdGenInputRecord const *curves = FindCurves(desc, path);
+    return curves ? UsdGenCurveSetInputView::Of(*curves).worldMatrix * desc->xformMatrix.GetInverse()
+                  : GfMatrix4d(1.0);
 }
 
 }  // namespace
@@ -255,7 +255,7 @@ bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diag
         return fail("UsdGenDeform mode must be empty (RBF) or curveWrap");
     bool const cuda = params.desc &&
         params.desc->executionBackend == UsdGenExecutionBackend::Cuda;
-    bool const guided = !params.node->curves.empty() || !params.node->references.empty();
+    bool const guided = !params.node->inputSets.empty() || !params.node->references.empty();
     if (params.node->mode == rec.Token(kTokCurveWrap) && (cuda || !guided))
         return fail("UsdGenDeform curveWrap requires guide curves on the CPU lane");
     if (params.node->mode.IsEmpty()) {
@@ -266,7 +266,7 @@ bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diag
     if (cuda && guided)
         return fail("UsdGenDeform: guide-driven RBF (usdGen:guides) runs on the CPU lane; "
                     "the CUDA lane samples the bound surface");
-    if (!cuda && !guided && (!params.desc || params.desc->surfaces.empty()))
+    if (!cuda && !guided && (!params.desc || UsdGenSurfaceInputs(*params.desc).empty()))
         return fail("UsdGenDeform: requires usdGen:guides or a bound usdGen:surface");
     return true;
 }
@@ -283,12 +283,12 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         d.Mix(p->GetValue(kGuideRegions, VtValue()));
     }
     d.Mix(ctx.upstreamGeneration);
-    if (ctx.referenceCount == 0 && ctx.desc && ctx.surface < ctx.desc->surfaces.size()) {
-        auto const &surface = ctx.desc->surfaces[ctx.surface];
+    if (ctx.referenceCount == 0 && ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size()) {
+        auto const &surface = UsdGenSurfaceAt(*ctx.desc, ctx.surface);
         // Memoized: the rest points are static while the posed points move.
         // This folds one word instead of the sequential byte mix, so the
         // epoch values differ from before; epochs compare for equality only.
-        d.Mix(restDigest_.Digest(surface.restPoints));
+        d.Mix(restDigest_.Digest(surface.data, surface.restPoints));
         if (!MixChosenPosed(&d, ctx, surface))
             MixArray(&d, surface.points.cdata(), surface.points.size() * sizeof(GfVec3f));
         d.Mix(uint64_t(surface.restFromCurrentPoints));
@@ -307,14 +307,14 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         MixArray(&d, b.pz.cdata(), b.pz.size() * sizeof(float));
         d.Mix(referenceRestDigest_.Digest(value->value->set, b.rest.cdata(),
                                           b.rest.size() * sizeof(GfVec3f)));
-        GfMatrix4d const m = DriverToGroom(ctx.desc, value->path);
+        GfMatrix4d const m = DriverToGroom(ctx.desc, value->key);
         MixArray(&d, m.GetArray(), 16 * sizeof(double));
     }
     return d.Epoch(0x446566726dull);
 }
 
 bool UsdGenDeformOp::MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext const &ctx,
-                                     UsdGenSurfaceDesc const &surface) const
+                                     UsdGenSurfaceInputView const &surface) const
 {
     UsdGenParamView const *p = ctx.params;
     if (p && p->node && p->node->mode == p->op->Token(kTokCurveWrap)) return false;
@@ -327,7 +327,7 @@ bool UsdGenDeformOp::MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext cons
     // so the same hit here hashes exactly what the capture will read.
     auto const &rp = surface.restPoints;
     bool const hit = surfaceValid_ && surfaceBudget_ == size_t(budget) &&
-        rp.size() == surfaceRestRef_.size() &&
+        surfaceRestOwner_ && rp.size() == surfaceRestRef_.size() &&
         (rp.empty() || rp.cdata() == surfaceRestRef_.cdata());
     if (!hit || surface.points.size() != rp.size()) return false;
     if (surfaceSelection_.size() < 4) return false;
@@ -397,7 +397,8 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         std::string driverLabel;
         // Subset sources for the re-selection path below, set by whichever
         // driver branch runs.
-        UsdGenSurfaceDesc const *surfaceSrc = nullptr;
+        UsdGenSurfaceInputView surfaceView;   // outlives the branch: surfaceSrc points here
+        UsdGenSurfaceInputView const *surfaceSrc = nullptr;
         GfMatrix4d surfaceRelative;
         bool surfaceAffine = true;
         UsdGenCurveSetView driverView;   // outlives the branch: guideSrc points here
@@ -407,10 +408,11 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         std::vector<size_t> chosen;
         bool subsetsReady = false;
         if (surfaceDriven) {
-            if (!ctx.desc || ctx.surface >= ctx.desc->surfaces.size())
+            if (!ctx.desc || ctx.surface >= UsdGenSurfaceInputs(*ctx.desc).size())
                 return fail("surface-driven RBF requires one bound usdGen:surface");
-            auto const &surface = ctx.desc->surfaces[ctx.surface];
-            driverLabel = "usdGen:surface " + surface.path.GetString();
+            surfaceView = UsdGenSurfaceAt(*ctx.desc, ctx.surface);
+            UsdGenSurfaceInputView const &surface = surfaceView;
+            driverLabel = "usdGen:surface " + ctx.desc->Label(surface.key);
             if (surface.restFromCurrentPoints || surface.restPoints.empty())
                 return fail(driverLabel + " requires Default-time rest points and UsdGenRestAPI");
             if (surface.points.size() != surface.restPoints.size())
@@ -439,7 +441,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                 // Identical NaN bits still hit.
                 auto const &rp = surface.restPoints;
                 bool const hit = surfaceValid_ && surfaceBudget_ == size_t(budget) &&
-                    rp.size() == surfaceRestRef_.size() &&
+                    surfaceRestOwner_ && rp.size() == surfaceRestRef_.size() &&
                     (rp.empty() || rp.cdata() == surfaceRestRef_.cdata());
                 if (hit) {
                     chosen = surfaceSelection_;
@@ -457,7 +459,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             }
         } else {
             UsdGenResolvedReferenceValue const &reference = *ctx.resolvedReferences[0];
-            driverLabel = "usdGen:guides " + reference.path.GetString();
+            driverLabel = "usdGen:guides " + UsdGenLabel(ctx.desc, reference.key);
             driverView = UsdGenCurveSetView::Of(*reference.value);
             UsdGenCurveSetView const &drivers = driverView;
             if (wrap && drivers.totalCurves != 1 && !regionMapped)
@@ -472,20 +474,20 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                         if (guideRegions[g]<0 || std::find(guideRegions.begin(),guideRegions.begin()+g,guideRegions[g])!=guideRegions.begin()+g)
                             return fail("guideRegions must contain unique nonnegative region IDs");
                 }
-                auto const *curves = FindCurves(ctx.desc, reference.path);
-                if (curves && curves->wrap == p->op->Token(kTokPeriodic))
+                UsdGenInputRecord const *curves = FindCurves(ctx.desc, reference.key);
+                if (curves && UsdGenCurveSetInputView::Of(*curves).wrap == p->op->Token(kTokPeriodic))
                     return fail("curveWrap requires an open, non-periodic center curve");
             }
-            if (UsdGenCurveSetDesc const *curves = FindCurves(ctx.desc, reference.path);
-                curves && curves->restFromCurrentPoints)
-                return fail("usdGen:guides " + reference.path.GetString() +
+            if (UsdGenInputRecord const *curves = FindCurves(ctx.desc, reference.key);
+                curves && UsdGenCurveSetInputView::Of(*curves).restFromCurrentPoints)
+                return fail("usdGen:guides " + UsdGenLabel(ctx.desc, reference.key) +
                             " has no rest pose to bind; apply UsdGenCurveAPI to it (its rest is "
                             "primvars:rest, else the Default-time points)");
             if (drivers.px.size() != drivers.totalCvs || drivers.py.size() != drivers.totalCvs ||
                 drivers.pz.size() != drivers.totalCvs)
                 return fail("the driver curves' point planes do not match their CV count");
             guideSrc = &drivers;
-            guideToGroom = DriverToGroom(ctx.desc, reference.path);
+            guideToGroom = DriverToGroom(ctx.desc, reference.key);
             driverRest.resize(drivers.totalCvs);
             for (size_t i = 0; i < drivers.totalCvs; ++i)
                 driverRest[i] = guideToGroom.Transform(GfVec3d(opUtil::RestPoint(drivers, i)));
@@ -530,6 +532,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                 : rbf::SelectSamples(driverRest, size_t(budget), epsilon);
             if (surfaceDriven) {
                 surfaceRestRef_ = surfaceSrc->restPoints;
+                surfaceRestOwner_ = surfaceSrc->data;
                 surfaceSelection_ = chosen;
                 surfaceBudget_ = size_t(budget);
                 surfaceValid_ = true;
@@ -628,7 +631,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         maskField.Uniform() && maskField.Value(0, 0) == 1.0;
     bool const direct = !wrap && maskUniformOne && R > 0 && totalCvs > 0 &&
         ctx.outPx != nullptr && ctx.outPy != nullptr && ctx.outPz != nullptr &&
-        ctx.outPlaneCvs == totalCvs &&
+        ctx.outPlaneItems == totalCvs &&
         ctx.outPx != ctx.outPy && ctx.outPy != ctx.outPz && ctx.outPx != ctx.outPz &&
         ctx.outPx != upstream.px.cdata() && ctx.outPy != upstream.py.cdata() &&
         ctx.outPz != upstream.pz.cdata();
@@ -972,11 +975,11 @@ namespace {
 bool MakeAnimationBinding(UsdGenAnimationBindingQuery const &q, UsdGenOp const &op,
                           UsdGenRbfAnimationBinding *out)
 {
-    UsdGenNodeDesc const *n = q.terminalDesc;
+    UsdGenOpNode const *n = q.terminalDesc;
     UsdGenParamView const *p = q.terminalParams;
     if (!n || !p || !p->op || !out || !n->enabled) return false;
     if (!n->mode.IsEmpty() && n->mode != p->op->Token(kTokRbf)) return false;
-    if (q.terminalInputCount != 1 || !n->curves.empty() || !n->references.empty() ||
+    if (q.terminalInputCount != 1 || !n->inputSets.empty() || !n->references.empty() ||
         !n->expressionBindings.empty() || !n->maps.empty() || !n->mapBindings.empty() ||
         !q.surface || p->GetBool(kLockRoots, true) || p->GetDouble(kMask, 1.0) != 1.0 ||
         q.terminalHasOutputPlanes)

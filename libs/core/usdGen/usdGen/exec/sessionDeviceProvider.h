@@ -86,7 +86,7 @@ struct UsdGenSessionDeviceRequest {
 class UsdGenSessionDeviceProvider {
 public:
     virtual ~UsdGenSessionDeviceProvider() = default;
-    virtual UsdGenSessionDevicePlanHandle Compile(UsdGenGraphDesc const&,
+    virtual UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const&,
                                                    UsdGenDiagnostics*) const = 0;
     virtual UsdGenSessionDeviceIdentity Identity() const noexcept = 0;
     // Advances the provider's epoch only when `lost` exactly identifies its

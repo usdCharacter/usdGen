@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/expressions/context.h"
 #include <cstdio>
 #include <algorithm>
@@ -27,17 +28,18 @@ int main()
     baseline.terminal = baselineNode.path;
     baseline.expressions.push_back({SdfPath("/existing/unusedExpression"), "4*2",
         {{TfToken("result"),TfToken("float"),FloatShape()}}});
-    Check(compiler.Compile(baseline, &graph).ok, "seed a real existing graph");
-    Check(graph.Desc().expressions.size() == 1 &&
-          graph.Desc().expressions[0].source == "4*2", "compiler retains expression program descriptors");
-    Check(graph.Desc().defaultWidth == baseline.defaultWidth,
+    Check(usdGenUsd::Compile(compiler, baseline, &graph).ok, "seed a real existing graph");
+    Check(UsdGenExpressionInputs(graph.Spec()).size() == 1 &&
+          UsdGenExpressionInputView(UsdGenExpressionInputs(graph.Spec())[0]).source == "4*2",
+          "compiler retains expression program descriptors");
+    Check(graph.Spec().defaultWidth == baseline.defaultWidth,
           "compiler retains description width fallback");
     if (failures) return failures;
     auto preservesGraph = [&]() {
         return graph.NodeCount() == 2 &&
-            graph.Desc().description == baseline.description &&
-            graph.Desc().terminal == baseline.terminal &&
-            graph.NodeIdForPath(baselineNode.path) != UsdGenGraph::InvalidNode;
+            graph.Spec().description == usdGenUsd::KeyOf(baseline.description) &&
+            graph.Spec().terminal == usdGenUsd::KeyOf(baseline.terminal) &&
+            usdGenUsd::NodeIdForPath(graph, baselineNode.path) != UsdGenGraph::InvalidNode;
     };
     UsdGenGraphDesc valid;
     valid.description = SdfPath("/groom");
@@ -54,26 +56,26 @@ int main()
     // compiles on EVERY backend. It is compiled into its own graph so the
     // preservesGraph() invariant below still describes the seeded graph.
     UsdGenGraph cpuGraph;
-    auto first = compiler.Compile(valid, &cpuGraph);
+    auto first = usdGenUsd::Compile(compiler, valid, &cpuGraph);
     Check(first.ok, "connected binding compiles on the CPU reference backend");
     Check(preservesGraph(), "a separate compilation leaves the existing graph intact");
     auto unknown = baseline;
     unknown.nodes[0].type = TfToken("UsdGenUnregisteredTestOperator");
-    Check(!compiler.Compile(unknown,&graph).ok && preservesGraph(),
+    Check(!usdGenUsd::Compile(compiler, unknown,&graph).ok && preservesGraph(),
           "failed fresh compilation leaves graph contents intact");
-    Check(!compiler.Recompile(unknown,&graph).ok && preservesGraph(),
+    Check(!usdGenUsd::Recompile(compiler, unknown,&graph).ok && preservesGraph(),
           "failed incremental compilation leaves graph contents intact");
     auto invalidBackend = baseline;
     invalidBackend.executionBackend = static_cast<UsdGenExecutionBackend>(255);
-    Check(!compiler.Compile(invalidBackend,&graph).ok && preservesGraph(),
+    Check(!usdGenUsd::Compile(compiler, invalidBackend,&graph).ok && preservesGraph(),
           "invalid backend cannot become CPU reference execution");
     auto invalidTransport = baseline;
     invalidTransport.validationErrors = {"malformed authored enabled"};
-    Check(!compiler.Compile(invalidTransport,&graph).ok && preservesGraph(),
+    Check(!usdGenUsd::Compile(compiler, invalidTransport,&graph).ok && preservesGraph(),
           "typed transport errors cannot become default parameters");
 
     auto expectFail = [&](UsdGenGraphDesc d, char const *label, char const *reason) {
-        UsdGenCompileResult r=compiler.Compile(d,&graph);
+        UsdGenCompileResult r=usdGenUsd::Compile(compiler, d,&graph);
         bool specific = std::any_of(r.errors.begin(), r.errors.end(),
             [&](std::string const &message) { return message.find(reason) != std::string::npos; });
         Check(!r.ok && specific, label);
@@ -121,12 +123,12 @@ int main()
     grow.nodes[0].type = TfToken("UsdGenGrow");
     grow.nodes[0].expressionBindings[0].destination = TfToken("lift");
     grow.nodes[0].expressionBindings[0].domain = expr::Domain::Primitive;
-    Check(compiler.Compile(grow, &cpuGraph).ok,
+    Check(usdGenUsd::Compile(compiler, grow, &cpuGraph).ok,
           "a primitive-domain usdGen:lift connection compiles on Grow");
     for(char const* name : {"azimuth", "azimuthRandom"}) {
         auto azimuth = grow;
         azimuth.nodes[0].expressionBindings[0].destination = TfToken(name);
-        Check(compiler.Compile(azimuth, &cpuGraph).ok,
+        Check(usdGenUsd::Compile(compiler, azimuth, &cpuGraph).ok,
               "a primitive-domain azimuth control connection compiles on Grow");
         azimuth.nodes[0].expressionBindings[0].domain = expr::Domain::Point;
         expectFail(azimuth, "point-domain Grow azimuth fails closed",
@@ -143,7 +145,7 @@ int main()
     auto maskPrimitive = valid;
     maskPrimitive.nodes[0].expressionBindings[0].destination = TfToken("usdGen:mask");
     maskPrimitive.nodes[0].expressionBindings[0].domain = expr::Domain::Primitive;
-    Check(compiler.Compile(maskPrimitive, &cpuGraph).ok,
+    Check(usdGenUsd::Compile(compiler, maskPrimitive, &cpuGraph).ok,
           "a primitive-domain usdGen:mask connection compiles");
 
     std::printf("testUsdGenExpressionBindings: %s\n", failures ? "FAILED" : "PASS");

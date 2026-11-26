@@ -11,7 +11,7 @@
 namespace usdGen {
 
 class UsdGenRegistrar;
-struct UsdGenNodeDesc;
+struct UsdGenOpNode;
 
 /// One per CUDA capability row; UsdGenKernelDef::stage.
 enum class UsdGenCudaStage : uint16_t {
@@ -67,8 +67,8 @@ constexpr UsdGenBackendId kUsdGenCudaBackend = UsdGenBackendId(1);
 /// The CUDA row of an op or of a node's op; null when CUDA cannot run it.
 /// Never interns.
 UsdGenKernelDef const *UsdGenCudaKernel(UsdGenOpId) noexcept;
-UsdGenKernelDef const *UsdGenCudaKernel(UsdGenNodeDesc const &) noexcept;
-bool UsdGenIsCudaStage(UsdGenNodeDesc const &, UsdGenCudaStage) noexcept;
+UsdGenKernelDef const *UsdGenCudaKernel(UsdGenOpNode const &) noexcept;
+bool UsdGenIsCudaStage(UsdGenOpNode const &, UsdGenCudaStage) noexcept;
 /// The op slot behind a backend parameter index; kUsdGenNoParam if none.
 UsdGenParamSlot UsdGenCudaSlot(UsdGenKernelDef const *, uint16_t index) noexcept;
 

@@ -1,4 +1,5 @@
 #include "usdGen/surfaceRootBindings.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/curveRootCapture.h"
 #include "usdGen/curveLoader.h"
 #ifdef USDGEN_TEST_CUDA_BINDING_CACHE
@@ -44,27 +45,27 @@ int main() {
     auto d = Desc();
     auto surface = d.surfaces[0];
     std::string error;
-    auto cache = UsdGenRestSurfaceBindingCache::Create(surface,&error);
-    CHECK(cache && cache->Matches(surface) && cache->BytesOwned() > 0);
+    auto cache = UsdGenRestSurfaceBindingCache::Create(usdGenUsd::Lower(surface),&error);
+    CHECK(cache && cache->Matches(usdGenUsd::Lower(surface)) && cache->BytesOwned() > 0);
     auto posed = surface;
     posed.points[0][2] = 10;
     posed.restNormalDomain = UsdGenSurfaceNormalDomain::Constant;
     posed.restNormals = {{0,1,1}};
-    CHECK(cache->Matches(posed)); // neither field affects spatial search.
+    CHECK(cache->Matches(usdGenUsd::Lower(posed))); // neither field affects spatial search.
     auto generationChanged = posed;
     ++generationChanged.surfaceGeneration;
-    CHECK(cache->Matches(generationChanged)); // broad posed dirty hint is not identity.
+    CHECK(cache->Matches(usdGenUsd::Lower(generationChanged))); // broad posed dirty hint is not identity.
     auto changed = surface;
     changed.restPoints[1][0] = 2;
-    CHECK(!cache->Matches(changed)); // no generation bump needed.
+    CHECK(!cache->Matches(usdGenUsd::Lower(changed))); // no generation bump needed.
     changed = surface; ++changed.surfaceGeneration;
-    CHECK(cache->Matches(changed)); // no generation-only invalidation.
+    CHECK(cache->Matches(usdGenUsd::Lower(changed))); // no generation-only invalidation.
     changed = surface; changed.faceVertexIndices[0] = 1;
-    CHECK(!cache->Matches(changed));
+    CHECK(!cache->Matches(usdGenUsd::Lower(changed)));
     changed = surface; changed.worldMatrix.SetTranslate(GfVec3d(1,0,0));
-    CHECK(!cache->Matches(changed));
+    CHECK(!cache->Matches(usdGenUsd::Lower(changed)));
     changed = surface; changed.restFromCurrentPoints = true;
-    CHECK(!cache->Matches(changed));
+    CHECK(!cache->Matches(usdGenUsd::Lower(changed)));
 
     std::atomic<bool> good{true};
     std::array<std::thread,4> readers;
@@ -134,7 +135,7 @@ int main() {
 
     auto degenerate = surface;
     degenerate.restPoints.assign(3, GfVec3f(0));
-    auto degenerateCache = UsdGenRestSurfaceBindingCache::Create(degenerate, &error);
+    auto degenerateCache = UsdGenRestSurfaceBindingCache::Create(usdGenUsd::Lower(degenerate), &error);
     CHECK(degenerateCache);
     UsdGenSurfaceRootBindingResult unresolved;
     CHECK(degenerateCache->Bind(parallelRoots, GfMatrix4d(1.0), &unresolved, &error));
@@ -145,18 +146,18 @@ int main() {
 
     std::shared_ptr<const UsdGenRestSurfaceBindingCache> slot;
     UsdGenCurveRootCaptureResult roots;
-    CHECK(UsdGenCaptureCurveRoots(d.curveSets[0],&surface,TfToken("always"),&roots,&error,&slot));
+    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("always"),&roots,&error,&slot));
     auto old = slot;
-    CHECK(old && old->Matches(surface));
-    CHECK(UsdGenCaptureCurveRoots(d.curveSets[0],&posed,TfToken("always"),&roots,&error,&slot));
+    CHECK(old && old->Matches(usdGenUsd::Lower(surface)));
+    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(posed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot == old);
     changed = surface; changed.restPoints[1][0] = 2;
-    CHECK(UsdGenCaptureCurveRoots(d.curveSets[0],&changed,TfToken("always"),&roots,&error,&slot));
+    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(changed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot != old && std::fabs(roots.rootUV[0][0]-.1f)<1.e-6f);
     auto current = slot;
     auto oldRoots = roots;
     changed.faceVertexIndices[0] = 99;
-    CHECK(!UsdGenCaptureCurveRoots(d.curveSets[0],&changed,TfToken("always"),&roots,&error,&slot));
+    CHECK(!UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(changed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot == current && roots.rootUV.cdata() == oldRoots.rootUV.cdata());
     UsdGenSurfaceRootBindingResult retained;
     CHECK(old->Bind({{.2f,.3f,2}},GfMatrix4d(1.0),&retained,&error));
@@ -164,12 +165,13 @@ int main() {
 
     // A failure after successful root capture must not replace the loader's
     // prior cache or prior geometry (named-plane validation happens later).
-    UsdGenParamView params; params.desc = &d; params.node = &d.nodes[0];
-    UsdGenCaptureContext ctx; ctx.desc = &d; ctx.params = &params;
+    usdGen::UsdGenGraphSpec const lowered168 = usdGenUsd::Lower(d);
+    UsdGenParamView params; params.desc = &lowered168; params.node = &lowered168.nodes[0];
+    UsdGenCaptureContext ctx; ctx.desc = &lowered168; ctx.params = &params;
     UsdGenCurveBuffer output;
     UsdGenDiagnostics diagnostics;
     slot.reset();
-    CHECK(UsdGenCurveLoader::Load(ctx,d.curveSets[0],&output,&diagnostics,&slot));
+    CHECK(UsdGenCurveLoader::Load(ctx,usdGenUsd::Lower(d.curveSets[0]),&output,&diagnostics,&slot));
     old = slot;
     auto priorOutput = output;
     d.surfaces[0].restPoints[1][0] = 2;
@@ -177,7 +179,7 @@ int main() {
     malformed.name = TfToken("bad"); malformed.domain = UsdGenAuthoredPlaneDomain::Point;
     malformed.type = UsdGenAuthoredPlaneType::Float32; malformed.arity = 1;
     d.curveSets[0].authoredPlanes = {malformed};
-    CHECK(!UsdGenCurveLoader::Load(ctx,d.curveSets[0],&output,&diagnostics,&slot));
+    CHECK(!UsdGenCurveLoader::Load(ctx,usdGenUsd::Lower(d.curveSets[0]),&output,&diagnostics,&slot));
     CHECK(slot == old && output.px.cdata() == priorOutput.px.cdata());
 
 #ifdef USDGEN_TEST_CUDA_BINDING_CACHE
@@ -188,7 +190,7 @@ int main() {
     auto workspace = CreateCudaExecutionWorkspace(-1,&diagnostics);
     auto other = CreateCudaExecutionWorkspace(-1,&diagnostics);
     CHECK(workspace && other);
-    auto plan = CompileCudaGraph(d,&diagnostics);
+    auto plan = CompileCudaGraph(usdGenUsd::Lower(d),&diagnostics);
     CHECK(plan);
     auto first = ExecuteCudaGraph(*plan,*workspace,1,1,&diagnostics);
     CHECK(first && !diagnostics.HasErrors());
@@ -201,7 +203,7 @@ int main() {
     auto lease = gpu::AcquireGeometry(first,nullptr);
     CHECK(lease && lease.RootUV().size == 1);
     d.surfaces[0].restPoints[1][0] = 2;
-    plan = CompileCudaGraph(d,&diagnostics);
+    plan = CompileCudaGraph(usdGenUsd::Lower(d),&diagnostics);
     CHECK(plan);
     auto refreshed = ExecuteCudaGraph(*plan,*workspace,3,3,&diagnostics);
     CHECK(refreshed && identity != getCudaRestSurfaceBindingCacheIdentityForTesting(*workspace));

@@ -1,4 +1,5 @@
 #include "usdGen/surfaceRootFrames.h"
+#include "usdGenUsd/lower.h"
 
 #include <cmath>
 #include <cstdio>
@@ -67,7 +68,7 @@ bool CompareNativeCuda(UsdGenSurfaceDesc const &surface, VtIntArray const &roots
 {
     UsdGenSurfaceRootFrameResult host;
     std::string error;
-    if (!UsdGenBuildRestSurfaceRootFrames(surface, roots, uv, &host, &error)) {
+    if (!UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(surface), roots, uv, &host, &error)) {
         std::fprintf(stderr, "host root-frame construction failed: %s\n", error.c_str());
         return false;
     }
@@ -151,7 +152,7 @@ int main() {
     auto s = Surface();
     UsdGenSurfaceRootFrameResult frames;
     std::string error;
-    CHECK(UsdGenBuildRestSurfaceRootFrames(s, {0,1,2},
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0,1,2},
         {{.25f,.5f}, {.25f,.5f}, {1.25f,.5f}}, &frames, &error));
     CHECK(frames.dropped == 0 && frames.valid.size() == 3);
     for (auto const& frame : frames.frames)
@@ -160,7 +161,7 @@ int main() {
     CHECK(Near(frames.frames[1][3][0], .5) && Near(frames.frames[1][3][1], 1));
     CHECK(Near(frames.frames[2][3][0], .5) && Near(frames.frames[2][3][1], 1.5));
     CHECK(Near(frames.frames[0][0][0], 1) && Near(frames.frames[0][2][2], 1));
-    CHECK(UsdGenBuildRestSurfaceRootFrames(s, {0}, {{.6f,.4f}}, &frames, &error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0}, {{.6f,.4f}}, &frames, &error));
     CHECK(frames.valid[0]);
 #ifdef USDGEN_TEST_CUDA_ROOT_FRAME_PARITY
     CHECK(CompareNativeCuda(CudaSurface(), {0}, {{.6f,.4f}}));
@@ -171,7 +172,7 @@ int main() {
     s.subsetFaces = {2};
     s.worldMatrix.SetTranslate(GfVec3d(100,200,300));
     for (auto& p : s.points) p[2] = 50;
-    CHECK(UsdGenBuildRestSurfaceRootFrames(s, {0}, {{.25f,.5f}}, &frames, &error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0}, {{.25f,.5f}}, &frames, &error));
     CHECK(Near(frames.frames[0][3][0], .5) && Near(frames.frames[0][3][2], 0));
     for (auto domain : {UsdGenSurfaceNormalDomain::Constant,
                         UsdGenSurfaceNormalDomain::Uniform,
@@ -182,7 +183,7 @@ int main() {
             domain == UsdGenSurfaceNormalDomain::Uniform ? 3 :
             domain == UsdGenSurfaceNormalDomain::Vertex ? 5 : 12;
         s.restNormals.assign(size, GfVec3f(0,1,1));
-        CHECK(UsdGenBuildRestSurfaceRootFrames(s, {0,1,2},
+        CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0,1,2},
             {{.25f,.5f},{.25f,.5f},{1.25f,.5f}}, &frames, &error));
         CHECK(frames.dropped == 0);
         for (auto const& f : frames.frames) {
@@ -198,7 +199,7 @@ int main() {
         varying.restNormalDomain = UsdGenSurfaceNormalDomain::Vertex;
         varying.restNormals = {{0,0,1},{0,1,1},{0,2,1},{0,3,1},{0,4,1}};
         UsdGenSurfaceRootFrameResult interpolated;
-        CHECK(UsdGenBuildRestSurfaceRootFrames(varying,{0},{{.25f,.5f}},&interpolated,&error));
+        CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(varying),{0},{{.25f,.5f}},&interpolated,&error));
         CHECK(Near(interpolated.frames[0][2][1],1.25/std::sqrt(2.5625)) &&
               Near(interpolated.frames[0][2][2],1/std::sqrt(2.5625)));
 #ifdef USDGEN_TEST_CUDA_ROOT_FRAME_PARITY
@@ -216,7 +217,7 @@ int main() {
     }
     auto reject = [&](UsdGenSurfaceDesc const& invalid, VtIntArray prim,
                       VtVec2fArray uv) {
-        return !UsdGenBuildRestSurfaceRootFrames(invalid, prim, uv, &frames, &error) &&
+        return !UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(invalid), prim, uv, &frames, &error) &&
             !error.empty() && frames.frames == oldFrames;
     };
     CHECK(reject(s, {0}, {{.8f,.8f}}));
@@ -237,12 +238,12 @@ int main() {
 
     // Degenerate geometry produces explicit drop bits, never identity frames.
     s = Surface(); s.restPoints[1] = s.restPoints[0];
-    CHECK(UsdGenBuildRestSurfaceRootFrames(s, {0,1}, {{0,0},{.5f,.5f}}, &frames, &error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0,1}, {{0,0},{.5f,.5f}}, &frames, &error));
     CHECK(frames.dropped == 1 && frames.dropMask[0] == 1 && frames.valid[0] == 0 &&
           frames.frames[0] == GfMatrix4d(0.0) && frames.valid[1] == 1);
     // A collapsed quad derivative falls back to the first projected edge.
     s = Surface(); s.restPoints[3] = s.restPoints[2];
-    CHECK(UsdGenBuildRestSurfaceRootFrames(s, {1}, {{0,1}}, &frames, &error));
+    CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {1}, {{0,1}}, &frames, &error));
     CHECK(frames.valid[0] && UsdGenValidateAuthoredRootFrame(frames.frames[0]));
 
     GfMatrix4d authored(1);

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 // End-to-end parity through the two production Session executors. Device
 // readback below is confined to the test; no host geometry oracle is published.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/vulkan/defaultProvider.h"
@@ -316,7 +318,7 @@ DeviceGeneration Commit(UsdGenSession& session, double frame) {
     CHECK(snapshot);
     for (auto const& error : snapshot->diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(!snapshot->diagnostics.HasErrors() && snapshot->generation && snapshot->generation->device);
-    CHECK(snapshot->generation->tiles.empty()); return snapshot->generation->device;
+    CHECK(usdGen::UsdGenCurvePublicationOf(*snapshot->generation).tiles.empty()); return snapshot->generation->device;
 }
 struct Pair {
     UsdGenSession cuda{2}, vulkan{2};
@@ -326,8 +328,8 @@ struct Pair {
     void Set(UsdGenGraphDesc desc) {
         std::fprintf(stderr, "Session parity terminal: %s\n", desc.terminal.GetText());
         cuda.SetDevicePublicationEnabled(true); vulkan.SetDevicePublicationEnabled(true);
-        desc.executionBackend = UsdGenExecutionBackend::Cuda; cuda.SetGraphDesc(desc);
-        desc.executionBackend = UsdGenExecutionBackend::Vulkan; vulkan.SetGraphDesc(desc);
+        desc.executionBackend = UsdGenExecutionBackend::Cuda; usdGenUsd::SetGraphDesc(cuda, desc);
+        desc.executionBackend = UsdGenExecutionBackend::Vulkan; usdGenUsd::SetGraphDesc(vulkan, desc);
     }
     Packet Run(double frame = 1, float tolerance = 0, bool generatedRest = false) {
         std::fprintf(stderr, "Session parity frame: %g\n", frame);
