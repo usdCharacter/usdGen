@@ -17,6 +17,9 @@ file(GLOB_RECURSE _imaging_sources
     "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra/usdGenImaging/*.cpp"
     "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra/usdGenImaging/*.h")
 list(APPEND _active_files ${_imaging_sources})
+# The root CMakeLists.txt includes its target files from cmake/targets.
+file(GLOB_RECURSE _cmake_targets "${USDGEN_SOURCE_DIR}/cmake/targets/*.cmake")
+list(APPEND _active_files ${_cmake_targets})
 
 string(CONCAT _retired_pattern
     "USDGEN_TEST_STORM_POST_COMMIT|USDGEN_PATCHED_OPENUSD_SOURCE|"
