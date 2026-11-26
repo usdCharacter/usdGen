@@ -195,7 +195,8 @@ int main() {
         auto requested = baseline;
         requested.executionBackend = UsdGenExecutionBackend::Metal;
         UsdGenGraph candidate;
-        UsdGenCompileResult result = usdGenUsd::Compile(UsdGenCompiler(), requested, &candidate);
+        UsdGenCompiler compiler;
+        UsdGenCompileResult result = usdGenUsd::Compile(compiler, requested, &candidate);
         bool precise = std::any_of(result.errors.begin(), result.errors.end(),
             [&](std::string const &error) {
                 return error.find("Metal execution backend factory is unavailable") !=
@@ -212,7 +213,8 @@ int main() {
         auto requested = baseline;
         requested.executionBackend = UsdGenExecutionBackend::Vulkan;
         UsdGenGraph candidate;
-        UsdGenCompileResult result = usdGenUsd::Compile(UsdGenCompiler(), requested, &candidate);
+        UsdGenCompiler compiler;
+        UsdGenCompileResult result = usdGenUsd::Compile(compiler, requested, &candidate);
         Check(result.ok, "Vulkan-enabled build compiles the Vulkan descriptor");
     }
 #else
@@ -220,7 +222,8 @@ int main() {
         auto requested = baseline;
         requested.executionBackend = UsdGenExecutionBackend::Vulkan;
         UsdGenGraph candidate;
-        UsdGenCompileResult result = usdGenUsd::Compile(UsdGenCompiler(), requested, &candidate);
+        UsdGenCompiler compiler;
+        UsdGenCompileResult result = usdGenUsd::Compile(compiler, requested, &candidate);
         bool precise = std::any_of(result.errors.begin(), result.errors.end(),
             [&](std::string const &error) {
                 return error.find("Vulkan execution backend factory is unavailable") !=
