@@ -116,13 +116,11 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     add_library(usdGenVulkan SHARED ${_usdgen_vulkan_sources}
         libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp
         libs/core/backends/usdGenVulkan/usdGenVulkan/register.cpp)
-    # The primitives by name, not usdGenWithPrimitives: that target depends on
-    # this one so every consumer of the engine finds it built.
+    # usdGen and the Vulkan SDK only (gate testUsdGenNoDisallowedLink_usdGenVulkan).
     target_link_libraries(usdGenVulkan
         PUBLIC usdGen Vulkan::Vulkan Threads::Threads
-        PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+        PRIVATE ${CMAKE_DL_LIBS})
     target_include_directories(usdGenVulkan PUBLIC
-        ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan>
         "$<INSTALL_INTERFACE:include>")
     set_target_properties(usdGenVulkan PROPERTIES

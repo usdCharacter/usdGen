@@ -14,6 +14,7 @@
 // per-frame SeExpr FBM over 800 k CVs measures ~100 ms single-thread /
 // ~12.5 ms at 8 threads on this host (MEASURED, fbmbench, M1 integration).
 #include "usdGen/ops/noise.h"
+#include "usdGenCurves/ops/noiseGpuHook.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/clumpMotion.h"
@@ -27,6 +28,7 @@
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -108,21 +110,19 @@ void HashVec3(uint32_t seed, uint64_t curveId, float out[3])
 
 }  // namespace
 
-#ifdef USDGEN_USE_GPU_NOISE
-// GPU path for Capture (CUDA1b; noise_gpu.cu). Returns false if the
-// device, a transfer, or the launch fails — Capture then falls through
-// to the CPU loop below.
-bool UsdGenNoiseCaptureGPU(const float *base,
-                           const float *cvT,
-                           float frequency,
-                           int octaves,
-                           float lacunarity,
-                           float gain,
-                           int nCurves,
-                           int nCV,
-                           float *field,
-                           float *perCurve);
-#endif
+namespace {
+
+// GPU path for Capture (CUDA1b; cuda/noise_gpu.cu), set by usdGenCurvesCuda
+// at registration. It returns false if the device, a transfer, or the
+// launch fails — Capture then falls through to the CPU loop below.
+std::atomic<UsdGenNoiseCaptureGpuFn> gNoiseCaptureGpu{nullptr};
+
+}  // namespace
+
+void UsdGenSetNoiseCaptureGpu(UsdGenNoiseCaptureGpuFn fn) noexcept
+{
+    gNoiseCaptureGpu.store(fn, std::memory_order_release);
+}
 
 namespace {
 
@@ -298,7 +298,6 @@ bool UsdGenNoiseOp::Capture(
     cap.perCv.resize(nCv);
     cap.perCurve.resize(nCurve);
 
-    #ifdef USDGEN_USE_GPU_NOISE
     // CUDA path (CUDA1b): the kernel pins the same field as the CPU
     // loop below — one thread per curve; the host precomputes the
     // rest-pinned base positions and the per-CV t-values.
@@ -306,7 +305,8 @@ bool UsdGenNoiseOp::Capture(
     // with a fixed stride, so ragged buffers take the CPU fill below.
     // Without the !ragged test a ragged buffer passed the old gate with
     // the bogus mean cvCount = nCv/nCurve — false positive, wrong field.
-    if (!clumpActive && cvCount > 0 && !ragged && frequencyField.Uniform() && correlationField.Uniform() &&
+    UsdGenNoiseCaptureGpuFn const captureGpu = gNoiseCaptureGpu.load(std::memory_order_acquire);
+    if (captureGpu && !clumpActive && cvCount > 0 && !ragged && frequencyField.Uniform() && correlationField.Uniform() &&
         lacunarityField.Uniform() && gainField.Uniform() && octavesField.Uniform()) {
         const float frequency = static_cast<float>(frequencyField.Value(0, 0));
         const float correlation = std::clamp(
@@ -330,13 +330,12 @@ bool UsdGenNoiseOp::Capture(
                 ? hairT[i]
                 : (cvCount > 1 ? float(j) / float(cvCount - 1) : 0.0f);
         }
-        if (UsdGenNoiseCaptureGPU(base.data(), cvT.data(), frequency, octaves,
-                                  lacunarity, gain, int(nCurve), cvCount,
-                                  cap.perCv.data(), cap.perCurve.data())) {
+        if (captureGpu(base.data(), cvT.data(), frequency, octaves,
+                       lacunarity, gain, int(nCurve), cvCount,
+                       cap.perCv.data(), cap.perCurve.data())) {
             return true;
         }
     }
-    #endif
 
     // Pin the fBm field: sample positions are rest-pinned (I3) —
     //   pos[c, i] = rootRest[c] * correlation + (1 - correlation) * h_c

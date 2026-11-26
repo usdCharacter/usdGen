@@ -1,5 +1,6 @@
 #include "usdGenCurves/cuda/curveTileBounds.h"
 #include "usdGenCuda/gpu/cudaCompat.h"
+#include "usdGenCuda/gpu/deviceBufferImpl.h"
 
 #include <math_constants.h>
 #include <climits>
@@ -235,5 +236,8 @@ cudaError_t BuildCurveTileBounds(CurveTileBoundsOptions options,
         workspace, output);
     return cudaGetLastError();
 }
+
+// The runtime instantiates only element types it knows.
+template class DeviceBuffer<CurveTileBoundsScratch>;
 
 } // namespace usdGen::gpu

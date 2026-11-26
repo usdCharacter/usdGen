@@ -6,8 +6,6 @@
 #include "usdGenVulkan/export.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGenVulkan/vulkan/defaultProvider.h"
-#include "usdGenCurves/vulkan/vkStages.h"
-#include "usdGenCurves/ops/kernelOps.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/registrar.h"
 

@@ -3,7 +3,7 @@
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp 2
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu 1
+libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBufferImpl.h 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecution.cpp 36
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaParameters.cpp 1
@@ -16,6 +16,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/cuda/deformCurves.cu 4
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/length.cu 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/namedChannelTopology.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/noise.cu 6
+libs/core/primitives/usdGenCurves/usdGenCurves/cuda/noise_gpu.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/picking.cu 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/pointOverride.cu 5
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/rbf.cu 6
@@ -23,7 +24,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/cuda/scatterGrow.cu 4
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/styleOps.cu 4
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/topology.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/width.cu 4
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise_gpu.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/noisePipeline.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/pointOverridePipeline.cpp 1
 libs/core/primitives/usdGenExpr/usdGenExpr/cuda/expression.cu 3

@@ -1,5 +1,6 @@
 #include "usdGenCurves/cuda/curveTiles.h"
 #include "usdGenCuda/gpu/cudaCompat.h"
+#include "usdGenCuda/gpu/deviceBufferImpl.h"
 
 #include <algorithm>
 #include <limits>
@@ -238,5 +239,8 @@ cudaError_t BuildCurveTiles(CurveTileInput input,
     }
     return cudaSuccess;
 }
+
+// The runtime instantiates only element types it knows.
+template class DeviceBuffer<CurveTileSpan>;
 
 } // namespace usdGen::gpu

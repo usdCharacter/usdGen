@@ -6,15 +6,17 @@
 # ---------------------------------------------------------------------------
 # CUDA foundations and legacy optional GPU noise
 # ---------------------------------------------------------------------------
-# SeExpr2::FBM<3,1,false,float> (noise.cpp:181-277) gains a CUDA kernel
-# (noise_gpu.cu, landed by a later step). Default OFF: without it no CUDA
-# compiler, toolkit, or language is involved, so configure stays green on
-# GPU-less CI hosts.
+# UsdGenNoiseOp::Capture's CUDA path (usdGenCurves/cuda/noise_gpu.cu) is
+# compiled into usdGenCurvesCuda; USE_GPU_NOISE makes its registration set
+# the hook (ops/noiseGpuHook.h). Default OFF: Capture stays on the CPU.
 option(USE_GPU_NOISE
-    "Build the CUDA noise kernel for usdGen noise ops (requires CUDA toolchain)" OFF)
+    "Route usdGen noise capture through the CUDA kernel (requires USDGEN_ENABLE_CUDA)" OFF)
 option(USDGEN_ENABLE_CUDA
     "Build persistent CUDA buffers and RBF execution (requires CUDA toolkit)" OFF)
-if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
+if(USE_GPU_NOISE AND NOT USDGEN_ENABLE_CUDA)
+    message(FATAL_ERROR "USE_GPU_NOISE requires USDGEN_ENABLE_CUDA (the kernel lives in usdGenCurvesCuda)")
+endif()
+if(USDGEN_ENABLE_CUDA)
     include(CheckLanguage)
     check_language(CUDA)
     if(NOT CMAKE_CUDA_COMPILER)
@@ -116,14 +118,6 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
     # frozen at creation: pin the property explicitly.
     set_target_properties(usdGen PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
     message(STATUS "usdGen CUDA: ${CUDAToolkit_VERSION} (${CMAKE_CUDA_COMPILER}), arch sm_${USDGEN_CUDA_ARCH}")
-    # The kernel lands at libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise_gpu.cu (CUDA1b); wire
-    # it into usdGen the moment the file exists (hook stays inert until then).
-    if(USE_GPU_NOISE)
-        target_sources(usdGenCurves PRIVATE libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise_gpu.cu)
-        set_target_properties(usdGenCurves PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
-        # Enables the #ifdef USDGEN_USE_GPU_NOISE branch in noise.cpp (04 §2.9).
-        target_compile_definitions(usdGenCurves PRIVATE USDGEN_USE_GPU_NOISE)
-    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -148,14 +142,12 @@ if(NOT USDGEN_ENABLE_CUDA)
     list(REMOVE_ITEM _usdgen_cuda_cpp_sources ${_usdgen_cuda_runtime_only})
 endif()
 add_library(usdGenCuda SHARED ${_usdgen_cuda_cpp_sources})
-# The primitives by name, not usdGenWithPrimitives: that target depends on
-# this one so every consumer of the engine finds it built.
+# usdGen and the CUDA SDK only (gate testUsdGenNoDisallowedLink_usdGenCuda).
 target_link_libraries(usdGenCuda
     PUBLIC usdGen
-    PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch work trace ${CMAKE_DL_LIBS})
+    PRIVATE ${CMAKE_DL_LIBS})
 # Bare "gpu/X.h" spellings resolve against the backend folder.
 target_include_directories(usdGenCuda PUBLIC
-    ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda>
     $<INSTALL_INTERFACE:include>)
@@ -175,9 +167,6 @@ if(USDGEN_ENABLE_CUDA)
     # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
     # on toolkits older than 12.8.
     target_link_libraries(usdGenCuda PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver)
-    # The kernels still include pxr/ headers (step 8 removes them).
-    target_include_directories(usdGenCuda SYSTEM PUBLIC
-        $<TARGET_PROPERTY:tf,INTERFACE_INCLUDE_DIRECTORIES>)
     target_compile_definitions(usdGenCuda PRIVATE USDGEN_ENABLE_CUDA)
     set_target_properties(usdGenCuda PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
     # The imaging interop reads channels through the neutral device owner
@@ -222,6 +211,9 @@ add_library(usdGenCurvesCuda SHARED ${_usdgen_curves_cuda_sources})
 target_link_libraries(usdGenCurvesCuda
     PUBLIC usdGenCuda usdGen
     PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+target_include_directories(usdGenCurvesCuda PUBLIC
+    ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
+    "$<INSTALL_INTERFACE:include>")
 set_target_properties(usdGenCurvesCuda PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     WINDOWS_EXPORT_ALL_SYMBOLS ON
@@ -232,17 +224,19 @@ endif()
 set(USDGEN_SURFACE_EXPR_CUDA_HOST usdGenCurvesCuda)
 if(USDGEN_ENABLE_CUDA)
     target_compile_definitions(usdGenCurvesCuda PRIVATE USDGEN_ENABLE_CUDA)
+    if(USE_GPU_NOISE)
+        target_compile_definitions(usdGenCurvesCuda PRIVATE USDGEN_USE_GPU_NOISE)
+    endif()
     set_target_properties(usdGenCurvesCuda PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
     foreach(_usdgen_gpu_object usdGenSurface usdGenExpr)
         _usdgen_glob_gpu_folder(_usdgen_gpu_object_sources
             libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/cuda)
         if(_usdgen_gpu_object_sources)
             add_library(${_usdgen_gpu_object}Cuda OBJECT ${_usdgen_gpu_object_sources})
-            # Includes of usdGenCuda by property, not by link: the interim host
-            # below is usdGenCuda itself and a link would make a target cycle.
             target_link_libraries(${_usdgen_gpu_object}Cuda PRIVATE
                 usdGen ${_usdgen_gpu_object} CUDA::cudart)
             target_include_directories(${_usdgen_gpu_object}Cuda PRIVATE
+                ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
                 $<TARGET_PROPERTY:usdGenCuda,INTERFACE_INCLUDE_DIRECTORIES>)
             target_compile_definitions(${_usdgen_gpu_object}Cuda PRIVATE USDGEN_ENABLE_CUDA)
             set_target_properties(${_usdgen_gpu_object}Cuda PROPERTIES
