@@ -1,8 +1,8 @@
 #ifndef USDGEN_GPU_EXPRESSION_H
 #define USDGEN_GPU_EXPRESSION_H
 
-#include "deviceBuffer.h"
-#include "usdGen/expressions/ir.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
+#include "usdGenExpr/expressions/ir.h"
 
 namespace usdGen::gpu {
 

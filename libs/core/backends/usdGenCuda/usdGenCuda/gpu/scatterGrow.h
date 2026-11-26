@@ -2,7 +2,7 @@
 #define USDGEN_GPU_SCATTER_GROW_H
 
 #include "curveGeometry.h"
-#include "imageSampler.h"
+#include "usdGenSurface/cuda/imageSampler.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"

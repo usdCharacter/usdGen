@@ -2,7 +2,7 @@
 #define USDGEN_GPU_NOISE_H
 
 #include "width.h"
-#include "rootFrames.h"
+#include "usdGenSurface/cuda/rootFrames.h"
 
 #include <cstdint>
 

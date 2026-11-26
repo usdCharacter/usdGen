@@ -7,7 +7,7 @@
 #include <vector>
 
 #ifdef USDGEN_TEST_CUDA_ROOT_FRAME_PARITY
-#include "gpu/rootFrames.h"
+#include "usdGenSurface/cuda/rootFrames.h"
 #include <cuda_runtime.h>
 #endif
 

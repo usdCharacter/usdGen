@@ -172,19 +172,16 @@ if(USDGEN_ENABLE_CUDA)
     target_sources(usdGenCuda PRIVATE
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/rbf.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGeometry.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveSource.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGrow.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/expressionContext.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deformCurves.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/styleOps.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/width.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthBlend.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthOverlapWitness.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/surfaceBinding.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/length.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveCompaction.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveResample.cu
@@ -196,11 +193,8 @@ if(USDGEN_ENABLE_CUDA)
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveIndices.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTiles.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTileBounds.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrames.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrameGather.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/noise.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu)
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/noise.cu)
     # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
     # on toolkits older than 12.8.
     target_link_libraries(usdGenCuda PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver)
@@ -238,6 +232,7 @@ function(_usdgen_glob_gpu_folder _out _folder)
         "${CMAKE_CURRENT_SOURCE_DIR}/${_folder}/*.cu")
     set(${_out} "${_found}" PARENT_SCOPE)
 endfunction()
+set(USDGEN_SURFACE_EXPR_CUDA_HOST usdGenCuda)
 if(USDGEN_ENABLE_CUDA)
     _usdgen_glob_gpu_folder(_usdgen_curves_cuda_sources
         libs/core/primitives/usdGenCurves/usdGenCurves/cuda)
@@ -250,11 +245,19 @@ if(USDGEN_ENABLE_CUDA)
             libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/cuda)
         if(_usdgen_gpu_object_sources)
             add_library(${_usdgen_gpu_object}Cuda OBJECT ${_usdgen_gpu_object_sources})
-            target_link_libraries(${_usdgen_gpu_object}Cuda PRIVATE usdGenCuda ${_usdgen_gpu_object})
+            # Includes of usdGenCuda by property, not by link: the interim host
+            # below is usdGenCuda itself and a link would make a target cycle.
+            target_link_libraries(${_usdgen_gpu_object}Cuda PRIVATE
+                usdGen ${_usdgen_gpu_object} CUDA::cudart)
+            target_include_directories(${_usdgen_gpu_object}Cuda PRIVATE
+                $<TARGET_PROPERTY:usdGenCuda,INTERFACE_INCLUDE_DIRECTORIES>)
+            target_compile_definitions(${_usdgen_gpu_object}Cuda PRIVATE USDGEN_ENABLE_CUDA)
             set_target_properties(${_usdgen_gpu_object}Cuda PROPERTIES
                 POSITION_INDEPENDENT_CODE ON
                 CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
-            target_sources(usdGenCurvesCuda PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Cuda>)
+            # Interim (until 8.6b moves the callers into usdGenCurvesCuda): the
+            # kernels' callers still live in usdGenCuda, so the objects link there.
+            target_sources(${USDGEN_SURFACE_EXPR_CUDA_HOST} PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Cuda>)
         endif()
     endforeach()
     set_target_properties(usdGenCurvesCuda PROPERTIES

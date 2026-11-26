@@ -1,10 +1,10 @@
-#include "expression.h"
-#include "cudaCompletionLane.h"
-#include "cudaCompat.h"
+#include "usdGenExpr/cuda/expression.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompat.h"
 // The interpreter itself lives in expressions/irExec.h and is compiled for the
 // device here and for the host by expressions/cpuEvaluator.cpp. Do not add a
 // second copy of any IR semantics to this file.
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include <climits>
 #include <cmath>

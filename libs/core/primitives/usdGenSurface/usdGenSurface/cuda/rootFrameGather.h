@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_ROOT_FRAME_GATHER_H
 #define USDGEN_GPU_ROOT_FRAME_GATHER_H
 
-#include "rootFrames.h"
+#include "usdGenSurface/cuda/rootFrames.h"
 
 #include <cstdint>
 #include <string>

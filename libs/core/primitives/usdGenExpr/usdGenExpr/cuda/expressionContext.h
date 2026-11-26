@@ -1,8 +1,8 @@
 #ifndef USDGEN_GPU_EXPRESSION_CONTEXT_H
 #define USDGEN_GPU_EXPRESSION_CONTEXT_H
 
-#include "curveGeometry.h"
-#include "expression.h"
+#include "usdGenCuda/gpu/curveGeometry.h"
+#include "usdGenExpr/cuda/expression.h"
 
 namespace usdGen::gpu {
 

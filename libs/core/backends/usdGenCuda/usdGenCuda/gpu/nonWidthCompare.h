@@ -2,7 +2,7 @@
 #define USDGEN_GPU_NON_WIDTH_COMPARE_H
 
 #include "curveGeometry.h"
-#include "rootFrames.h"
+#include "usdGenSurface/cuda/rootFrames.h"
 #include "usdGen/deviceGeneration.h"
 
 #include <memory>

@@ -52,7 +52,7 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "gpu/deformCurves.h"
 #include "gpu/rbf.h"
-#include "gpu/surfaceBinding.h"
+#include "usdGenSurface/cuda/surfaceBinding.h"
 
 #include <cuda_runtime.h>
 #endif

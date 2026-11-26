@@ -16,10 +16,7 @@ libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp 2
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGrow.cu 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.h 1
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu 1
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/generation.h 1
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/nonWidthCompare.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.cu 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/styleOps.h 1

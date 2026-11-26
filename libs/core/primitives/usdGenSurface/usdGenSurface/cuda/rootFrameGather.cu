@@ -1,6 +1,6 @@
-#include "rootFrameGather.h"
-#include "cudaCompletionLane.h"
-#include "cudaCompat.h"
+#include "usdGenSurface/cuda/rootFrameGather.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompat.h"
 
 #include <algorithm>
 #include <utility>

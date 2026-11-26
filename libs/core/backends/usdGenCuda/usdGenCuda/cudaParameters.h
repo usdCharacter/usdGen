@@ -2,8 +2,8 @@
 #define USDGEN_CUDA_PARAMETERS_H
 #ifdef USDGEN_ENABLE_CUDA
 
-#include "gpu/expressionContext.h"
-#include "gpu/expression.h"
+#include "usdGenExpr/cuda/expressionContext.h"
+#include "usdGenExpr/cuda/expression.h"
 #include "usdGen/executionPlan.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/registries/handles.h"
