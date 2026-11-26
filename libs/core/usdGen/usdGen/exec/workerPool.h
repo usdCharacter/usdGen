@@ -20,7 +20,7 @@
 // the caller after every worker finished its chunk (TBB would cancel
 // pending siblings instead; no body throws today outside OOM).
 //
-// One pool per owner (a scheduler, a Vulkan pipeline): concurrent
+// One pool per owner (a scheduler, a device pipeline): concurrent
 // ParallelFor on the same pool from two threads is not supported, exactly
 // like concurrent use of one TBB arena from two masters is not attempted.
 // Bodies must not re-enter the pool (no nested ParallelFor); nothing does.

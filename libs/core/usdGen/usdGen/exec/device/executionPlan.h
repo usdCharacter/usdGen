@@ -94,7 +94,7 @@ enum class UsdGenExecutionDataKind : uint8_t {
     SurfaceGeometry,
     ParameterValues,
     // An immutable decoded ImageMap payload. It has no physical workspace
-    // hazard; CUDA Width candidates make private device uploads from it.
+    // hazard; device Width candidates make private device uploads from it.
     ImageMaps,
     TerminalGeneration
 };
@@ -108,7 +108,7 @@ enum class UsdGenExecutionResourceAccess : uint8_t { Read, Write, ReadWrite };
 // authored-order-key / task-id only as the ready-set tie-break. Values that
 // are immutable or task-private must not be declared here at all: their
 // logical producer/consumer edges are sufficient and keep sibling CoW work
-// concurrent. This contract deliberately has no CUDA, Metal, or Vulkan handle
+// concurrent. This contract deliberately has no native device handle
 // types.
 enum class UsdGenExecutionResourceHazardAccess : uint8_t {
     Read, Write, ReadWrite
@@ -119,7 +119,7 @@ struct UsdGenExecutionResourceHazard {
         UsdGenExecutionDataKind::ExecutionWorkspace;
     // Backend-neutral physical allocation/lane identity scoped to a compiled
     // plan.  Equal DataKind values only conflict when this identity also
-    // matches; CUDA's single workspace lane currently uses the default zero.
+    // matches; a single-workspace device lane uses the default zero.
     uint32_t identity = 0;
     UsdGenExecutionResourceHazardAccess access =
         UsdGenExecutionResourceHazardAccess::Read;
@@ -153,7 +153,7 @@ struct UsdGenExecutionResourceUse {
 };
 
 // Describes the storage guarantee behind a logical resource version.  The
-// current CUDA linear executor deliberately reports workspace aliasing; a
+// current linear device executor deliberately reports workspace aliasing; a
 // future fan-out lowering must publish immutable versions instead of merely
 // adding dependency edges around the shared mutable lane.
 enum class UsdGenExecutionValueStorage : uint8_t {
@@ -201,7 +201,7 @@ struct UsdGenExecutionCheckedBytes {
 };
 
 struct UsdGenExecutionTaskEstimate {
-    // Explicit usdGen-owned payload accounting only. CUDA events, driver and
+    // Explicit usdGen-owned payload accounting only. Native events, driver and
     // library-internal allocations are intentionally outside this contract.
     // Persistent task-owned workspace or cache. This intentionally excludes
     // the task's logical output value.
@@ -540,7 +540,7 @@ struct UsdGenCompiledOperatorCapability {
 };
 
 enum class UsdGenExecutionPlanShape : uint8_t {
-    // Explicitly records the current CUDA limitation.  It must not be
+    // Explicitly records the linear device executor's limitation.  It must not be
     // interpreted as proof that arbitrary semantic fan-in is executable.
     LinearAuthoredChain,
     // One source and unary operators.  Immutable value versions allow an

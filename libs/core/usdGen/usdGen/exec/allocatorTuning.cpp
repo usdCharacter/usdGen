@@ -12,7 +12,7 @@
 // munmap/mmap round-trip, the page-table teardown and the fresh faults.
 // Bit-identical: allocation placement only, no value impact. Retention is
 // about one churn cycle (~100-200MB at bench scale), the same class as the
-// thread-local pools; the fully-pooled paths (CUDA convert, ValidateRoots
+// thread-local pools; the fully-pooled paths (device convert, ValidateRoots
 // temps) are unaffected either way.
 //
 // Precedence: an explicitly-set MALLOC_MMAP_THRESHOLD_ /
@@ -45,7 +45,7 @@ struct AllocatorPolicy {
 };
 
 // Load-time: libusdGen is linked by every usdGen consumer (engine sessions,
-// CUDA/Vulkan input builders, usdGenImaging, benches, tests), so one static
+// device input builders, usdGenImaging, benches, tests), so one static
 // initializer covers all entries. libc-only (B-1 clean): getenv + mallopt.
 AllocatorPolicy const g_allocatorPolicy;
 

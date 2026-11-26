@@ -148,9 +148,8 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     # usdGenVulkan (SHARED, step 8.2): the Vulkan runtime and, until step 8.6,
     # the curve pipelines. The registry loads it after the primitives
     # (USDGEN_DEFAULT_EXTENSIONS); its usdGenRegister adds the Vulkan kernel
-    # rows and, with the runtime on, registers the "vulkan" backend. Without
-    # the runtime (test-only builds) the backend stays unregistered and tests
-    # inject a provider. One DSO holds the canonical UUID registry.
+    # rows and registers the "vulkan" backend, unavailable without the
+    # runtime (test-only builds), where tests inject a provider. One DSO holds the canonical UUID registry.
     add_library(usdGenVulkan SHARED ${_usdgen_vulkan_sources}
         libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp
         libs/core/backends/usdGenVulkan/usdGenVulkan/registerCurvesVulkan.cpp

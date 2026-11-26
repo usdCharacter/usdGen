@@ -52,7 +52,7 @@ public:
     /// Runs the normal structural/routing compilation, but obtains the native
     /// plan from this exact descriptor without changing global availability.
     /// No source capture or CPU geometry evaluation occurs. Both outputs stay
-    /// untouched on failure. Currently restricted to the Vulkan provider route.
+    /// untouched on failure. Used by the injected-provider route.
     using DevicePlanCompiler = std::function<
         std::shared_ptr<const UsdGenExecutionPlanHandle>(
             UsdGenGraphSpec const&, UsdGenDiagnostics*)>;

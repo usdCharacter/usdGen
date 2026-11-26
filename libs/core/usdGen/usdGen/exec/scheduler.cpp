@@ -513,7 +513,7 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
         mix(maps[index].textureGeneration);
     }
     // Connected parameters are a capture input on this lane exactly as they
-    // are on the CUDA lane: editing usdGen:expr:source, re-pointing a
+    // are on the device lane: editing usdGen:expr:source, re-pointing a
     // connection or moving the geometry the expression samples changes this
     // digest, which re-captures the node and dirties its chunks.
     mix(node.expressions ? node.expressions->Digest() : 0);
@@ -1168,7 +1168,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
 
         // Connected parameters are evaluated ONCE per cook, here, over this
         // node's INPUT geometry and before its capture identity is taken --
-        // the same ordering CudaParameterEvaluator has on the device lane.
+        // the same ordering the device lane's parameter evaluator has.
         {
             double const rate = graph.Spec().timeCodesPerSecond;
             double const seconds = std::isfinite(rate) && rate > 0.0

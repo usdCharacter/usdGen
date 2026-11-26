@@ -74,7 +74,7 @@ public:
     using Publish = std::function<void()>;
     // Work captures immutable input values. Return a short publication action
     // owning the completed output; it executes only for the accepted epoch.
-    // Work may inspect Cancellation between dependent tasks. CUDA work must
+    // Work may inspect Cancellation between dependent tasks. Device work must
     // explicitly bind its device and retain buffers until device completion.
     using Work = std::function<Publish(Cancellation const&)>;
     using Completion = std::function<void(uint64_t, Outcome, std::exception_ptr)>;

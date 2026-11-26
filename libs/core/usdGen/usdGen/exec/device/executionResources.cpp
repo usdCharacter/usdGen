@@ -14,7 +14,7 @@ constexpr bool IsAllocationKind(UsdGenExecutionResourceKind kind) noexcept {
     return KindIndex(kind) < KindIndex(UsdGenExecutionResourceKind::Pending);
 }
 // Process-lifetime device registry: a fixed open-addressing table whose slots
-// are claimed by CAS and never freed. CUDA allocations can outlive shutdown
+// are claimed by CAS and never freed. Device allocations can outlive shutdown
 // while their contexts are being torn down, and a quarantined charge must not
 // vanish. Constant-initialized and trivially destructible: nothing runs at
 // DLL detach.

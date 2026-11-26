@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — lock-free publication of a std::shared_ptr, the one helper for
-// every module (engine, Vulkan, CUDA, Hydra host). Replaces
+// every module (engine, device backends, Hydra host). Replaces
 // std::atomic_load/store/exchange on shared_ptr and atomic<shared_ptr> (a
 // hidden lock in MSVC and libstdc++):
 //
