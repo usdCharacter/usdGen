@@ -395,12 +395,12 @@ if(USDGEN_ENABLE_CUDA)
         LABELS "T1;cuda;operators;noise;session;cow" TIMEOUT 120
         RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaRootFrames tests/testUsdGenCudaRootFrames.cpp)
-    target_link_libraries(testUsdGenCudaRootFrames PRIVATE usdGenCuda usdGen gf)
+    target_link_libraries(testUsdGenCudaRootFrames PRIVATE usdGenCurvesCuda usdGen gf)
     add_test(NAME testUsdGenCudaRootFrames COMMAND testUsdGenCudaRootFrames)
     set_tests_properties(testUsdGenCudaRootFrames PROPERTIES
         LABELS "T1;cuda;root-frames" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaRootFrameGather tests/testUsdGenCudaRootFrameGather.cpp)
-    target_link_libraries(testUsdGenCudaRootFrameGather PRIVATE usdGenCuda usdGen)
+    target_link_libraries(testUsdGenCudaRootFrameGather PRIVATE usdGenCurvesCuda usdGen)
     add_test(NAME testUsdGenCudaRootFrameGather COMMAND testUsdGenCudaRootFrameGather)
     set_tests_properties(testUsdGenCudaRootFrameGather PROPERTIES
         LABELS "T1;cuda;root-frames" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
