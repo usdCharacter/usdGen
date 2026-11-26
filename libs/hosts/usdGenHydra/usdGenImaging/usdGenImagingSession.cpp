@@ -8,7 +8,7 @@
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGen/sharedCell.h"
 #include "usdGenImaging/cleanupQueue.h"
-#include "usdGenImaging/imageMapCache.h"
+#include "usdGenUsd/resolve/imageMapCache.h"
 
 #include "usdGen/epoch.h"
 #include "usdGen/generationStore.h"

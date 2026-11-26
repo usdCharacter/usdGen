@@ -3,14 +3,14 @@
 // This translation unit is the offline UsdStage oracle. It is deliberately
 // separate from the production Hydra builder so the production object has no
 // UsdStage dependencies (B-2/V2-11).
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
-#include "usdGenImaging/expressionConnection.h"
-#include "usdGenImaging/imageMapCache.h"
-#include "usdGenImaging/usdGenGraphDescShared.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/expressionConnection.h"
+#include "usdGenUsd/resolve/imageMapCache.h"
+#include "usdGenUsd/walk/usdGenGraphDescShared.h"
 
-#include "usdGen/authoredPlaneConvert.h"
-#include "usdGen/expressions/valueShape.h"
-#include "usdGen/executionBackend.h"
+#include "usdGenUsd/resolve/authoredPlaneConvert.h"
+#include "usdGenExpr/expressions/valueShape.h"
+#include "usdGen/exec/device/executionBackend.h"
 
 #include "pxr/base/tf/diagnostic.h"
 #include "pxr/base/vt/array.h"
@@ -886,7 +886,7 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
               });
 
     // Generic transport: primvars:usdGen:plane:<name> -> authored plane
-    // <name> (usdGen/authoredPlaneConvert.h). Indexed primvars are flattened.
+    // <name> (usdGenUsd/resolve/authoredPlaneConvert.h). Indexed primvars are flattened.
     {
         size_t points = 0;
         for (int count : out->curveVertexCounts) points += size_t(std::max(count, 0));

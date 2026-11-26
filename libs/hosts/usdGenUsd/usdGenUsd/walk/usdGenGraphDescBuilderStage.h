@@ -9,13 +9,11 @@
 #define USDGEN_IMAGING_GRAPH_DESC_BUILDER_STAGE_H
 
 #include "usdGenUsd/graphDesc.h"
+#include "usdGenUsd/walk/buildOptions.h"
 
 #include "pxr/pxr.h"
-#include "pxr/imaging/hd/sceneIndex.h"
 #include "pxr/usd/sdf/path.h"
 #include "pxr/usd/usd/stage.h"
-
-#include "usdGenImaging/usdGenGraphDescBuilder.h"  // UsdGenGraphDescBuildOptions
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

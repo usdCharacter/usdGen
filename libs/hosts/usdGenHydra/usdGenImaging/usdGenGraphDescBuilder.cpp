@@ -7,11 +7,11 @@
 // honored by sweeping every usdGen:* attribute of every participating prim
 // into UsdGenNodeDesc::params, whether or not a dedicated field exists.
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/imageMapCache.h"
-#include "usdGenImaging/usdGenGraphDescShared.h"
-#include "usdGenImaging/usdGenTokens.h"
+#include "usdGenUsd/resolve/imageMapCache.h"
+#include "usdGenUsd/walk/usdGenGraphDescShared.h"
+#include "usdGenUsd/walk/usdGenTokens.h"
 
-#include "usdGen/authoredPlaneConvert.h"
+#include "usdGenUsd/resolve/authoredPlaneConvert.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/expressions/valueShape.h"
 
@@ -1085,7 +1085,7 @@ _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
     std::sort(out->authoredPlanes.begin(), out->authoredPlanes.end(),
         [](auto const &a, auto const &b) { return a.name < b.name; });
     // Generic transport: primvars:usdGen:plane:<name> -> authored plane
-    // <name> (usdGen/authoredPlaneConvert.h), flattened like the stage path.
+    // <name> (usdGenUsd/resolve/authoredPlaneConvert.h), flattened like the stage path.
     {
         size_t points = 0;
         for (int count : out->curveVertexCounts) points += size_t(std::max(count, 0));

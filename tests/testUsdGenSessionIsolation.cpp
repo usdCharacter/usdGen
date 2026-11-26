@@ -1,6 +1,6 @@
 // Session-key and lifecycle contract checks (stage-free imaging store).
 #include "usdGenImaging/usdGenImagingSession.h"
-#include "usdGenImaging/imageMapCache.h"
+#include "usdGenUsd/resolve/imageMapCache.h"
 
 #include <cstdio>
 

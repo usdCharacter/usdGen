@@ -36,7 +36,7 @@
 #include "usdGen/exec/session.h"
 #include "usdGen/registries/op.h"
 #include "usdGenCurves/types/curveBuffer.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"

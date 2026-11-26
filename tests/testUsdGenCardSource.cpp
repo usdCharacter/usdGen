@@ -20,7 +20,7 @@
 // "set <prim> strands=<n>" per operator, and the card render-mesh size of all
 // cards ("mesh vertices=<v> indices=<i>"). --dump writes one line per strand:
 // <prim> <curveId hex> <strandIndex> <cardIndex> <root xyz> <tip xyz>.
-#include "usdGen/authoredPlaneConvert.h"
+#include "usdGenUsd/resolve/authoredPlaneConvert.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"

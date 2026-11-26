@@ -12,7 +12,7 @@
 #ifndef USDGEN_IMAGING_TOKENS_H
 #define USDGEN_IMAGING_TOKENS_H
 
-#include "usdGenImaging/staticToken.h"
+#include "usdGenUsd/walk/staticToken.h"
 #include "pxr/base/tf/token.h"
 #include "pxr/pxr.h"
 

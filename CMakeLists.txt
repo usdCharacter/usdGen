@@ -512,13 +512,15 @@ endif()
 # keys (step 7). Links usdGen + sdf + usd; nothing in libs/core links it.
 # ---------------------------------------------------------------------------
 file(GLOB_RECURSE USDGEN_USD_SOURCES libs/hosts/usdGenUsd/usdGenUsd/*.cpp)
+# The stage builder is fenced to T0/offline/tests: usdGenTestUtilsHd compiles it.
+list(FILTER USDGEN_USD_SOURCES EXCLUDE REGEX "usdGenGraphDescBuilderStage\\.cpp$")
 add_library(usdGenUsd SHARED ${USDGEN_USD_SOURCES})
 target_include_directories(usdGenUsd PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenUsd
     PUBLIC usdGen sdf tf
-    PRIVATE usd)
+    PRIVATE usd hio)
 set_target_properties(usdGenUsd PROPERTIES
     CXX_VISIBILITY_PRESET default
     WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -539,7 +541,6 @@ target_link_libraries(usdGenSchema
 # usdGenImaging (SHARED — scene-index plugins + adapters)
 # ---------------------------------------------------------------------------
 file(GLOB_RECURSE USDGEN_IMAGING_SOURCES libs/hosts/usdGenHydra/usdGenImaging/*.cpp)
-list(FILTER USDGEN_IMAGING_SOURCES EXCLUDE REGEX "usdGenGraphDescBuilderStage\\.cpp$")
 add_library(usdGenImaging SHARED ${USDGEN_IMAGING_SOURCES})
 target_include_directories(usdGenImaging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra>
@@ -613,7 +614,7 @@ file(GLOB_RECURSE USDGEN_TESTUTILS_HD_SOURCES
     testutils/usdGenTestUtilsHd/*.cpp)
 add_library(usdGenTestUtilsHd STATIC ${USDGEN_TESTUTILS_HD_SOURCES})
 target_sources(usdGenTestUtilsHd PRIVATE
-    libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilderStage.cpp)
+    libs/hosts/usdGenUsd/usdGenUsd/walk/usdGenGraphDescBuilderStage.cpp)
 target_include_directories(usdGenTestUtilsHd PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/testutils")
 target_link_libraries(usdGenTestUtilsHd PUBLIC

@@ -34,7 +34,7 @@
 #include "pxr/usd/usdGeom/primvarsAPI.h"
 #include "pxr/usd/usdGeom/subset.h"
 
-#include "usdGenImaging/usdGenTokens.h"
+#include "usdGenUsd/walk/usdGenTokens.h"
 
 #include <atomic>
 #include <cstdint>

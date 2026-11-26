@@ -5,7 +5,7 @@ Status: **binding** for `tools/sisir/cards.py` (authoring) and `ops/cardSource.c
 re-implement it (see §5).
 
 Transport: every `primvars:usdGen:plane:<name>` primvar on a BasisCurves prim arrives as plane
-`<name>` on that curve set's buffer (`usdGen/authoredPlaneConvert.h`). `uniform` interpolation →
+`<name>` on that curve set's buffer (`usdGenUsd/resolve/authoredPlaneConvert.h`). `uniform` interpolation →
 one value per curve. Supported value types: `int[]`, `bool[]` (→ int), `float[]`, `double[]`
 (→ float32), `float2[]/float3[]/float4[]`. **There is no 64-bit integer plane**, so u64 ids are
 split into lo/hi int32 bit patterns.

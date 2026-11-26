@@ -253,8 +253,6 @@ libs/hosts/usdGenHydra/usdGenImaging/cleanupQueue.h 1
 libs/hosts/usdGenHydra/usdGenImaging/cudaGlComputation.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/cudaGlComputation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 6
-libs/hosts/usdGenHydra/usdGenImaging/imageMapCache.cpp 2
-libs/hosts/usdGenHydra/usdGenImaging/imageMapCache.h 1
 libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/rbfAnimation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/testHook.cpp 1
@@ -263,8 +261,7 @@ libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.h 1
-libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 4
-libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilderStage.cpp 3
+libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 3
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.cpp 5
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.h 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenInstancer.cpp 1
@@ -298,7 +295,7 @@ tests/testUsdGenAttributeInstance.cpp 2
 tests/testUsdGenAttributeMap.cpp 1
 tests/testUsdGenAttributePreview.cpp 2
 tests/testUsdGenBraid.cpp 4
-tests/testUsdGenCardSource.cpp 7
+tests/testUsdGenCardSource.cpp 6
 tests/testUsdGenClumpModes.cpp 8
 tests/testUsdGenClumpMotion.cpp 5
 tests/testUsdGenCollide.cpp 7
