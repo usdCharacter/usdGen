@@ -756,7 +756,11 @@ void CheckDeformChosenDigest()
 
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
+    // The host's key map: its column cache keeps an unchanged rest buffer's
+    // address across lowerings, as a host builder's does, so the
+    // identity-keyed driver selection hits.
+    usdGenUsd::NodeKeyMap keys;
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph, &keys);
     Check(compiled.ok, "the digest fixture compiles");
     if (!compiled.ok) return;
     UsdGenNodeId const deformId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
@@ -765,7 +769,7 @@ void CheckDeformChosenDigest()
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto runPose = [&]() -> bool {
-        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph, &keys);
         ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
         return rr.ok && !run.diagnostics.HasErrors();
@@ -1775,7 +1779,11 @@ void CheckCaptureDirectMaskReuse()
     UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "mask reuse: the fixture compiles");
+    // The host's key map: its column cache keeps an unchanged rest buffer's
+    // address across lowerings, as a host builder's does, so the
+    // identity-keyed driver selection hits.
+    usdGenUsd::NodeKeyMap keys;
+    Check(usdGenUsd::Compile(compiler, desc, &graph, &keys).ok, "mask reuse: the fixture compiles");
     UsdGenNodeId const deformId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/deform"));
     UsdGenNodeId const growId = graph.Node(deformId).input;
     auto *op = static_cast<UsdGenDeformOp *>(graph.Node(deformId).op.get());
@@ -1783,7 +1791,7 @@ void CheckCaptureDirectMaskReuse()
     UsdGenEvalContext ctx;
     uint64_t gen = 0;
     auto runPose = [&]() -> bool {
-        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph);
+        UsdGenCompileResult const rr = usdGenUsd::Recompile(compiler, desc, &graph, &keys);
         ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, ++gen);
         return rr.ok && !run.diagnostics.HasErrors();
