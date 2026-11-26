@@ -130,7 +130,9 @@ set(_usdgen_vulkan_sources
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkStructural.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPack.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPlan.cpp)
+    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPlan.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/compile/program.cpp
+    libs/core/backends/usdGenVulkan/usdGenVulkan/exec/shaderLibrary.cpp)
 if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_TESTS))
     # Vendored header fallback when VULKAN_SDK is unset (mirrors the
     # auto-probe; cache hint, never ENV, so the host loader stays visible).
@@ -174,6 +176,41 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     endif()
     add_dependencies(usdGenWithPrimitives usdGenVulkan)
     list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenVulkan)
+    # Primitive Vulkan targets (step 8.6a), each sourced by GLOB_RECURSE of
+    # its folder so a git mv moves membership (reconfigure after one):
+    # SHARED usdGenCurvesVulkan (usdGenCurves/vulkan/) and OBJECT
+    # usdGenSurfaceVulkan, usdGenExprVulkan (usdGen{Surface,Expr}/vulkan/,
+    # linked into usdGenCurvesVulkan, their only consumer). An OBJECT folder
+    # without sources yet makes no target.
+    file(GLOB_RECURSE _usdgen_curves_vulkan_sources
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/*.cpp")
+    add_library(usdGenCurvesVulkan SHARED ${_usdgen_curves_vulkan_sources})
+    target_link_libraries(usdGenCurvesVulkan
+        PUBLIC usdGen
+        PRIVATE usdGenVulkan usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+    foreach(_usdgen_gpu_object usdGenSurface usdGenExpr)
+        file(GLOB_RECURSE _usdgen_gpu_object_sources
+            "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/vulkan/*.cpp")
+        if(_usdgen_gpu_object_sources)
+            add_library(${_usdgen_gpu_object}Vulkan OBJECT ${_usdgen_gpu_object_sources})
+            target_link_libraries(${_usdgen_gpu_object}Vulkan PRIVATE usdGenVulkan ${_usdgen_gpu_object})
+            set_target_properties(${_usdgen_gpu_object}Vulkan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+            target_sources(usdGenCurvesVulkan PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Vulkan>)
+        endif()
+    endforeach()
+    # RTLD_LOCAL dlopen finds libusdGenVulkan.so beside it in an install.
+    set_target_properties(usdGenCurvesVulkan PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        INSTALL_RPATH "$ORIGIN")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
+        target_link_options(usdGenCurvesVulkan PRIVATE "LINKER:--exclude-libs,ALL")
+    endif()
+    add_dependencies(usdGenWithPrimitives usdGenCurvesVulkan)
+    # Loaded after usdGenVulkan: its usdGenRegister names the "vulkan" backend.
+    list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCurvesVulkan)
+    install(TARGETS usdGenCurvesVulkan
+        RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+        LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")
     # Test link lines name these; both are usdGenVulkan.
     add_library(usdGenVulkanNative INTERFACE)
     target_link_libraries(usdGenVulkanNative INTERFACE usdGenVulkan)

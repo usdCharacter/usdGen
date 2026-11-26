@@ -37,7 +37,7 @@
 #include "usdGen/executionCache.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/sessionDeviceProvider.h"
-#include "pxr/base/arch/symbols.h"
+#include "usdGenVulkan/exec/shaderLibrary.h"
 
 #include <vulkan/vulkan.h>
 
@@ -73,39 +73,12 @@ struct DefaultNative {
     }
 };
 
-bool LoadSpirvFile(char const* path, std::vector<uint32_t>* words) {
-    if (!path || !*path || !words) return false;
-    std::ifstream file(path, std::ios::binary);
-    std::vector<char> raw((std::istreambuf_iterator<char>(file)), {});
-    if (raw.empty() || raw.size() % sizeof(uint32_t) != 0) return false;
-    words->resize(raw.size() / sizeof(uint32_t));
-    std::memcpy(words->data(), raw.data(), raw.size());
-    return true;
-}
-
-// Installed shaders live in share/usdGen/vulkan; build-tree shaders live in
-// <build>/vulkan. USDGEN_VULKAN_SHADER_DIR overrides both (tests).
-std::string ShaderDir() {
-    if (char const* env = std::getenv("USDGEN_VULKAN_SHADER_DIR"))
-        if (*env) return env;
-    // Resolve beside this library so installed and relocated applications
-    // do not depend on their working directory or the build workstation.
-    static char locationAnchor;
-    std::string library;
-    if (pxr::ArchGetAddressInfo(&locationAnchor, &library, nullptr, nullptr, nullptr)) {
-        auto const parent = std::filesystem::path(library).parent_path();
-        for (auto const& dir : {parent / "vulkan",
-                parent / USDGEN_VULKAN_SHADER_RELATIVE_DIR}) {
-            std::ifstream file(dir / "width.spv", std::ios::binary);
-            if (file.good()) return dir.lexically_normal().string();
-        }
-    }
-    return {};
-}
-
-bool LoadShader(std::string const& dir, char const* name,
+// Copies a library module's words; false when the library has none.
+bool LoadShader(ShaderLibrary const& library, char const* name,
                 std::vector<uint32_t>* words) {
-    return LoadSpirvFile((dir + "/" + name).c_str(), words);
+    if (!library.Has(name)) return false;
+    *words = library.Words(name);
+    return true;
 }
 
 int DeviceScore(VkPhysicalDeviceType type) noexcept {
@@ -442,63 +415,65 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
     // Load shaders before touching the device: a missing width module fails
     // with no Vulkan state at all (safe on any thread), and optional
     // modules only narrow later pipeline admission.
-    std::string const dir = ShaderDir();
+    // Every registered Vulkan program's SPIR-V, resolved next to its module.
+    ShaderLibrary library;
+    library.AddRegisteredPrograms();
     std::vector<uint32_t> widthSpv;
-    if (!LoadShader(dir, "width.spv", &widthSpv)) {
+    if (!LoadShader(library, "width", &widthSpv)) {
         SetReason(reason, "Vulkan default provider cannot load width.spv");
         return {};
     }
     std::vector<uint32_t> scale, set, cut, reparam, minimum, literal, envelope, lengthDevice;
-    bool const hasScale = LoadShader(dir, "lengthScale.spv", &scale);
-    bool const hasSet = LoadShader(dir, "lengthSet.spv", &set);
-    bool const hasCut = LoadShader(dir, "lengthCutExtend.spv", &cut);
-    bool const hasReparam = LoadShader(dir, "lengthReparam.spv", &reparam);
-    bool const hasMinimum = LoadShader(dir, "lengthMinimum.spv", &minimum);
-    bool const hasLiteral = LoadShader(dir, "lengthLiteralV1.spv", &literal);
-    bool const hasEnvelope = LoadShader(dir, "lengthEnvelopeV1.spv", &envelope);
-    bool const hasLengthDevice = LoadShader(dir, "lengthDeviceV1.spv", &lengthDevice);
+    bool const hasScale = LoadShader(library, "lengthScale", &scale);
+    bool const hasSet = LoadShader(library, "lengthSet", &set);
+    bool const hasCut = LoadShader(library, "lengthCutExtend", &cut);
+    bool const hasReparam = LoadShader(library, "lengthReparam", &reparam);
+    bool const hasMinimum = LoadShader(library, "lengthMinimum", &minimum);
+    bool const hasLiteral = LoadShader(library, "lengthLiteralV1", &literal);
+    bool const hasEnvelope = LoadShader(library, "lengthEnvelopeV1", &envelope);
+    bool const hasLengthDevice = LoadShader(library, "lengthDeviceV1", &lengthDevice);
     std::vector<uint32_t> blendSpv, compareSpv, compactSpv;
-    bool const hasBlend = LoadShader(dir, "widthBlend.spv", &blendSpv);
-    bool const hasCompare = LoadShader(dir, "nonWidthCompare.spv", &compareSpv);
-    bool const hasCompact = LoadShader(dir, "lengthCompaction.spv", &compactSpv);
+    bool const hasBlend = LoadShader(library, "widthBlend", &blendSpv);
+    bool const hasCompare = LoadShader(library, "nonWidthCompare", &compareSpv);
+    bool const hasCompact = LoadShader(library, "lengthCompaction", &compactSpv);
     std::vector<uint32_t> noiseValidateSpv, noiseGenerateSpv;
     bool const hasNoise =
-        LoadShader(dir, "noiseValidate.spv", &noiseValidateSpv) &&
-        LoadShader(dir, "noiseGenerate.spv", &noiseGenerateSpv);
+        LoadShader(library, "noiseValidate", &noiseValidateSpv) &&
+        LoadShader(library, "noiseGenerate", &noiseGenerateSpv);
     std::vector<uint32_t> resampleSpv;
-    bool const hasResample = LoadShader(dir, "resampleVk.spv", &resampleSpv);
+    bool const hasResample = LoadShader(library, "resampleVk", &resampleSpv);
     std::vector<uint32_t> exprContextSpv, exprEvaluateSpv, exprWidthSpv, exprPackSpv, growSpv;
-    bool const hasExprContext = LoadShader(dir, "exprVkContext.spv", &exprContextSpv);
-    bool const hasExprEvaluate = LoadShader(dir, "exprVkEvaluate.spv", &exprEvaluateSpv);
-    bool const hasExprWidth = LoadShader(dir, "exprVkWidth.spv", &exprWidthSpv);
-    bool const hasExprPack = LoadShader(dir, "exprVkPack.spv", &exprPackSpv);
-    bool const hasGrow = LoadShader(dir, "curveGrow.spv", &growSpv);
+    bool const hasExprContext = LoadShader(library, "exprVkContext", &exprContextSpv);
+    bool const hasExprEvaluate = LoadShader(library, "exprVkEvaluate", &exprEvaluateSpv);
+    bool const hasExprWidth = LoadShader(library, "exprVkWidth", &exprWidthSpv);
+    bool const hasExprPack = LoadShader(library, "exprVkPack", &exprPackSpv);
+    bool const hasGrow = LoadShader(library, "curveGrow", &growSpv);
     // Phase 2 picktiles: optional tile-span/bounds finalization; missing
     // shaders only disable the tile stage (publications carry no tiles).
     std::vector<uint32_t> tilesSpv, boundsSpv;
-    bool const hasTiles = LoadShader(dir, "picktileVkTiles.spv", &tilesSpv) &&
-        LoadShader(dir, "picktileVkBounds.spv", &boundsSpv);
+    bool const hasTiles = LoadShader(library, "picktileVkTiles", &tilesSpv) &&
+        LoadShader(library, "picktileVkBounds", &boundsSpv);
     // Phase-2 RBF device path (rbfVk hook): optional modules; missing
     // shaders narrow all Deform admission (see planExecutor.cpp).
     std::vector<uint32_t> rbfVkExtentSpv, rbfVkGramSpv, rbfVkBuildMatrixSpv, rbfVkLuSpv,
         rbfVkRhsSpv, rbfVkTriSolveSpv, rbfVkEvaluateSpv, rbfVkApplySpv;
     bool const hasRbfVk =
-        LoadShader(dir, "rbfVkExtent.spv", &rbfVkExtentSpv) &&
-        LoadShader(dir, "rbfVkGram.spv", &rbfVkGramSpv) &&
-        LoadShader(dir, "rbfVkBuildMatrix.spv", &rbfVkBuildMatrixSpv) &&
-        LoadShader(dir, "rbfVkLu.spv", &rbfVkLuSpv) &&
-        LoadShader(dir, "rbfVkRhs.spv", &rbfVkRhsSpv) &&
-        LoadShader(dir, "rbfVkTriSolve.spv", &rbfVkTriSolveSpv) &&
-        LoadShader(dir, "rbfVkEvaluate.spv", &rbfVkEvaluateSpv) &&
-        LoadShader(dir, "rbfVkApply.spv", &rbfVkApplySpv);
+        LoadShader(library, "rbfVkExtent", &rbfVkExtentSpv) &&
+        LoadShader(library, "rbfVkGram", &rbfVkGramSpv) &&
+        LoadShader(library, "rbfVkBuildMatrix", &rbfVkBuildMatrixSpv) &&
+        LoadShader(library, "rbfVkLu", &rbfVkLuSpv) &&
+        LoadShader(library, "rbfVkRhs", &rbfVkRhsSpv) &&
+        LoadShader(library, "rbfVkTriSolve", &rbfVkTriSolveSpv) &&
+        LoadShader(library, "rbfVkEvaluate", &rbfVkEvaluateSpv) &&
+        LoadShader(library, "rbfVkApply", &rbfVkApplySpv);
     // R-cache programs: optional, never gating. Missing shaders only
     // disable the RbfVkBinding evaluate cache (direct evaluation, as
     // before); the binding rejects a partial set at Create.
     std::vector<uint32_t> rbfVkVerifySpv, rbfVkFillSpv, rbfVkEvaluateCachedSpv;
     bool const hasRbfVkEvalCache =
-        LoadShader(dir, "rbfVkVerify.spv", &rbfVkVerifySpv) &&
-        LoadShader(dir, "rbfVkFill.spv", &rbfVkFillSpv) &&
-        LoadShader(dir, "rbfVkEvaluateCached.spv", &rbfVkEvaluateCachedSpv);
+        LoadShader(library, "rbfVkVerify", &rbfVkVerifySpv) &&
+        LoadShader(library, "rbfVkFill", &rbfVkFillSpv) &&
+        LoadShader(library, "rbfVkEvaluateCached", &rbfVkEvaluateCachedSpv);
     if (!hasRbfVkEvalCache) {
         rbfVkVerifySpv.clear();
         rbfVkFillSpv.clear();

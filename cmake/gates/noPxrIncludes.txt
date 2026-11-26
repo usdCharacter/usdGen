@@ -8,7 +8,6 @@ libs/base/usdGenMath/version.cpp 3
 libs/core/backends/usdGenCuda/usdGenCuda/cudaParameters.cpp 13
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.h 4
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/csourceVkCapture.h 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/defaultProvider.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.cpp 3
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp 13
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkPlan.h 3
