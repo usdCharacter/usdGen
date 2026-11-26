@@ -1,4 +1,5 @@
 #include "gpu/curveGrow.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"
 #include "usdGenMath/hash.h"
 
@@ -56,7 +57,7 @@ int main(int argc, char** argv) {
     CHECK(cudaGetDeviceCount(&count)==cudaSuccess); if (!count) return 77;
     CHECK(cudaGetDevice(&device)==cudaSuccess);
     CHECK(ConfigureCudaExecutionResources(device, {size_t{8} << 20, 0}));
-    auto pool=FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda,device}); CHECK(pool);
+    auto pool=FindUsdGenExecutionResourcePool({usdGen::UsdGenCudaBackendId(),device}); CHECK(pool);
     auto const baseline=pool->Snapshot();
     cudaStream_t stream=nullptr; CHECK(cudaStreamCreate(&stream)==cudaSuccess);
     if (argc == 2 && std::string(argv[1]) == "--quarantine") {

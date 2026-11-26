@@ -2,8 +2,7 @@
 //
 // These are value contracts only.  They deliberately contain no native
 // allocation, queue, event, or backend handle, so a cache entry can be
-// compared before a device is acquired and shared by CUDA, Metal, and Vulkan
-// adapters.
+// compared before a device is acquired and shared by every device adapter.
 #ifndef USDGEN_EXECUTION_CACHE_H
 #define USDGEN_EXECUTION_CACHE_H
 
@@ -92,7 +91,7 @@ struct UsdGenExecutionInputVersions {
 /// semantic input tuple. A CPU cache entry can therefore be compared without
 /// pretending it is portable across incompatible device contexts.
 struct UsdGenExecutionContext {
-    UsdGenDeviceBackend backend = UsdGenDeviceBackend::Unknown;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     uint32_t capabilityVersion = 0;
     int32_t deviceIndex = -1;
     // Compatibility/context epoch for the selected device runtime. This is
@@ -141,7 +140,7 @@ struct UsdGenExecutionCacheKey {
         return !(*this == rhs);
     }
     bool IsValid() const noexcept {
-        return context.backend != UsdGenDeviceBackend::Unknown && inputs.IsValid();
+        return context.backend != UsdGenBackendId::Invalid && inputs.IsValid();
     }
     uint64_t Hash() const noexcept;
 };
@@ -378,11 +377,11 @@ private:
 /// backend reset a logical miss immediately; the store's State carries the
 /// epoch, so a stale insert can never land after the clear.
 struct UsdGenExecutionCacheDomainKey {
-    UsdGenDeviceBackend backend = UsdGenDeviceBackend::Unknown;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     int32_t deviceIndex = -1;
-    // Stable adapter/context identity. CUDA's current primary-context path
-    // uses zero; Metal/Vulkan adapters must provide their logical-device or
-    // context identity when they create a shared domain.
+    // Stable adapter/context identity. A primary-context path uses zero; an
+    // adapter owning logical contexts provides its logical-device or context
+    // identity when it creates a shared domain.
     uint64_t contextIdentity = 0;
 
     bool operator==(UsdGenExecutionCacheDomainKey const& rhs) const noexcept {

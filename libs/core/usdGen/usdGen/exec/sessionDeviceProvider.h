@@ -26,7 +26,7 @@ using UsdGenSessionDevicePlanHandle = std::shared_ptr<const UsdGenExecutionPlanH
 // UUID is the factory's physical-device/pool identity; contextEpoch is bumped
 // for every accepted context-loss event before a replacement context is used.
 struct UsdGenSessionDeviceIdentity {
-    UsdGenDeviceBackend backend = UsdGenDeviceBackend::Unknown;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     int32_t deviceIndex = -1;
     uint32_t capabilityVersion = 0;
     std::array<uint8_t, 16> physicalDeviceUuid{};

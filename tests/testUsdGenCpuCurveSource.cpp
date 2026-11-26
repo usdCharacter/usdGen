@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
@@ -76,7 +77,7 @@ template<class T> static bool Read(gpu::DeviceView<const T> input,
 }
 
 static bool CudaParity(UsdGenGraphDesc d, UsdGenCurveBuffer const& cpu) {
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenDiagnostics diagnostics;
     auto plan = CompileCudaGraph(usdGenUsd::Lower(d), &diagnostics);
     if (!plan) {

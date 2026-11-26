@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
@@ -30,7 +31,7 @@ static UsdGenNodeDesc Width(char const* path, char const* input, float value) {
 static UsdGenGraphDesc Fixture(bool branching) {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Groom/Generated");
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     d.defaultWidth = .025f;
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/Scalp");
@@ -65,7 +66,7 @@ static UsdGenGraphDesc Fixture(bool branching) {
 }
 
 static bool Reference(UsdGenGraphDesc d, UsdGenCurveBuffer* result) {
-    d.executionBackend = UsdGenExecutionBackend::CpuReference;
+    d.executionBackend = kUsdGenBackendCpu;
     UsdGenCompiler compiler; UsdGenGraph graph;
     if (!usdGenUsd::Compile(compiler, d, &graph).ok) return false;
     UsdGenScheduler scheduler(2); UsdGenEvalContext ctx; ctx.desc = &graph.Spec();
@@ -148,7 +149,7 @@ int main() {
         // Leave exactly peak-1 bytes available in the ledger. Neither entry
         // point may submit work or alter any category when admission fails.
         int device=-1; CHECK(cudaGetDevice(&device)==cudaSuccess);
-        UsdGenExecutionResourceDevice key{UsdGenExecutionResourceBackend::Cuda,device};
+        UsdGenExecutionResourceDevice key{usdGenTestUtils::Backend("cuda"),device};
         if(auto retirement=FindUsdGenExecutionRetirementService(key)) retirement->Drain();
         auto pool=FindUsdGenExecutionResourcePool(key); CHECK(pool);
         auto baseline=pool->Snapshot();

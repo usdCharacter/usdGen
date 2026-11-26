@@ -4,6 +4,7 @@
 // graph that ran inside the cooker until step 8.3, behind the provider
 // boundary. The cooker owns compilation, the cache and publication.
 #include "usdGenCuda/cudaSessionProvider.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGenCuda/bindingReport.h"
 #include "usdGenCuda/cudaExecution.h"
 #include "usdGen/exec/executionTaskGraph.h"
@@ -64,7 +65,7 @@ public:
                 std::vector<UsdGenExecutionValueMetadata>{}, 0);
         std::string reason;
         auto handle = UsdGenExecutionPlanHandle::Create(
-            UsdGenExecutionBackend::Cuda, std::move(metadata), std::move(plan), &reason);
+            UsdGenCudaBackendId(), std::move(metadata), std::move(plan), &reason);
         if (!handle) diag->Error("CUDA plan handle: " + reason);
         return handle;
     }
@@ -72,7 +73,7 @@ public:
     UsdGenSessionDeviceIdentity Identity() const noexcept override
     {
         UsdGenSessionDeviceIdentity identity;
-        identity.backend = UsdGenDeviceBackend::Cuda;
+        identity.backend = UsdGenCudaBackendId();
         identity.deviceIndex = _workspace ? _workspace->DeviceIndex() : -1;
         identity.capabilityVersion = kUsdGenCudaCapabilityVersion;
         return identity;
@@ -82,7 +83,7 @@ public:
     // the cache domain. Called on the cook lane between cooks.
     bool NotifyContextLost(UsdGenSessionDeviceIdentity const &lost) noexcept override
     {
-        if (!_workspace || lost.backend != UsdGenDeviceBackend::Cuda ||
+        if (!_workspace || lost.backend != UsdGenCudaBackendId() ||
             (lost.deviceIndex >= 0 && lost.deviceIndex != _workspace->DeviceIndex()))
             return false;
         _workspace->MarkContextLost();

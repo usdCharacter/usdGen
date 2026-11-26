@@ -1,4 +1,5 @@
 #include "usdGen/gpu/tools.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include <cmath>
@@ -16,7 +17,7 @@ using namespace usdGen::gpu;
 static UsdGenGraphDesc Desc() {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Groom/Hair");
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc surface; surface.path = SdfPath("/Scalp");
     surface.restPoints = {{0,0,0},{1,0,0},{0,1,0}}; surface.points = surface.restPoints;
     surface.faceVertexCounts = {3}; surface.faceVertexIndices = {0,1,2};

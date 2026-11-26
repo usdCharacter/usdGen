@@ -1,4 +1,5 @@
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
@@ -22,7 +23,7 @@ constexpr auto kTimeout = std::chrono::seconds(10);
 
 static UsdGenGraphDesc Desc() {
     UsdGenGraphDesc desc; desc.description = SdfPath("/SessionStages");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc surface; surface.path = SdfPath("/Scalp");
     surface.restPoints = {{0,0,0},{1,0,0},{0,1,0}}; surface.points = surface.restPoints;
     surface.faceVertexCounts = {3}; surface.faceVertexIndices = {0,1,2}; desc.surfaces.push_back(surface);

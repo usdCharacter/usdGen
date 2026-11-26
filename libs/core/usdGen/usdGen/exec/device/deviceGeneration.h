@@ -1,11 +1,13 @@
 // usdGen engine — immutable device-generation handoff.
 //
-// This header deliberately contains no CUDA, Hydra, or VtArray types.  A
+// This header deliberately contains no native, Hydra, or VtArray types.  A
 // backend owner supplies the native allocation and synchronization details;
 // the generation is only the immutable identity/shape contract shared by the
 // engine, tools, and a renderer adapter.
 #ifndef USDGEN_DEVICE_GENERATION_H
 #define USDGEN_DEVICE_GENERATION_H
+
+#include "usdGen/registries/handles.h"
 
 #include <array>
 #include <cstddef>
@@ -15,15 +17,6 @@
 #include <vector>
 
 namespace usdGen {
-
-enum class UsdGenDeviceBackend : uint8_t {
-    Unknown = 0,
-    Cuda = 1,
-    Metal = 2,
-    Vulkan = 3,
-    CpuReference = 4,
-    Other = 255
-};
 
 enum class UsdGenDeviceValueType : uint8_t {
     Float32 = 0,
@@ -92,7 +85,7 @@ using UsdGenDeviceStream = uintptr_t;
 
 struct UsdGenDeviceIdentity
 {
-    UsdGenDeviceBackend backend = UsdGenDeviceBackend::Unknown;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     int32_t deviceIndex = -1;
     uint64_t generation = 0;
 };

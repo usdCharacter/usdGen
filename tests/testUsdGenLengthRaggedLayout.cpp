@@ -17,7 +17,7 @@ namespace {
 UsdGenGraphDesc MakeDescriptor(double factor, bool empty = false) {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/LengthRagged");
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/LengthRagged/curves");

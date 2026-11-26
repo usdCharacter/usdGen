@@ -1,4 +1,5 @@
 #include "usdGen/executionRetirement.h"
+#include "testBackend.h"
 
 #include <atomic>
 #include <chrono>
@@ -88,7 +89,7 @@ struct NestedPayload final : UsdGenExecutionRetirementPayload {
 };
 std::shared_ptr<UsdGenExecutionRetirementService> Service(int device, size_t capacity) {
     return GetOrCreateUsdGenExecutionRetirementService(
-        {UsdGenExecutionResourceBackend::Cuda, device}, {capacity});
+        {usdGenTestUtils::kTestBackendA, device}, {capacity});
 }
 }
 
@@ -97,7 +98,7 @@ int main() {
     // successful worker-side destroy.
     auto service = Service(719320, 1);
     CHECK(service && !GetOrCreateUsdGenExecutionRetirementService(
-        {UsdGenExecutionResourceBackend::Cuda, 719320}, {2}));
+        {usdGenTestUtils::kTestBackendA, 719320}, {2}));
     Counts early;
     auto ticket = service->TryReserve(); CHECK(ticket && !service->TryReserve());
     auto signal = ticket->MakeSignal();
@@ -359,8 +360,8 @@ int main() {
     // The exported process/DSO gate closes both a preexisting service and
     // future registry creation for that backend.
     auto backend = Service(719337, 1); CHECK(backend);
-    QuiesceUsdGenExecutionRetirementBackend(UsdGenExecutionResourceBackend::Cuda);
-    CHECK(!IsUsdGenExecutionRetirementBackendOpen(UsdGenExecutionResourceBackend::Cuda));
+    QuiesceUsdGenExecutionRetirementBackend(usdGenTestUtils::kTestBackendA);
+    CHECK(!IsUsdGenExecutionRetirementBackendOpen(usdGenTestUtils::kTestBackendA));
     CHECK(!backend->TryReserve());
     CHECK(!Service(719336, 1));
     return 0;

@@ -1,4 +1,5 @@
 #include "usdGen/gpu/curveGrow.h"
+#include "testBackend.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/gpu/deviceResources.h"
 #include "usdGen/executionRetirement.h"
@@ -59,7 +60,7 @@ int main() {
     int device = -1;
     if (cudaGetDevice(&device) != cudaSuccess) return 77;
     CHECK(ConfigureCudaExecutionResources(device, {size_t{8} << 20, 0}));
-    auto key = UsdGenExecutionResourceDevice{UsdGenExecutionResourceBackend::Cuda, device};
+    auto key = UsdGenExecutionResourceDevice{usdGenTestUtils::Backend("cuda"), device};
     auto pool = FindUsdGenExecutionResourcePool(key);
     auto retirement = GetOrCreateUsdGenExecutionRetirementService(key, {64});
     CHECK(pool && retirement);

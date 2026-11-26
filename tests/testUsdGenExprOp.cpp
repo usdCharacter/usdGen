@@ -18,6 +18,7 @@
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
@@ -534,7 +535,7 @@ static void CheckCudaRejection()
           "ExprOp has no CUDA capability row (CPU-only, like Clump)");
     UsdGenGraphDesc desc = ExprDesc(
         {{TfToken("expr:source"), VtValue(std::string("[$t, 0, 0]")), false}});
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     UsdGenCompileResult compiled = usdGenUsd::Compile(compiler, desc, &graph);

@@ -250,7 +250,7 @@ UsdGenGraphDesc Base()
     desc.defaultWidth = 0.01f;
     desc.tileTarget = 4;
     desc.time = 0.0;
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     return desc;
 }
 

@@ -3,6 +3,7 @@
 // finishes before ordinary curve work regardless of Kahn tie-break order.
 
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
@@ -479,13 +480,13 @@ void ValidateFailures()
           "a non-map relationship token on a map binding fails closed");
 
     UsdGenGraphDesc cuda = Fixture();
-    cuda.executionBackend = UsdGenExecutionBackend::Cuda;
+    cuda.executionBackend = usdGenTestUtils::Backend("cuda");
     result = usdGenUsd::Compile(compiler, cuda, &graph);
     Check(!result.ok && !result.errors.empty(),
           "CUDA reference/map fixture remains fail-closed without device transport");
 
     UsdGenGraphDesc typedCuda = Fixture();
-    typedCuda.executionBackend = UsdGenExecutionBackend::Cuda;
+    typedCuda.executionBackend = usdGenTestUtils::Backend("cuda");
     typedCuda.nodes[1].maps.clear();
     result = usdGenUsd::Compile(compiler, typedCuda, &graph);
     Check(!result.ok && !result.errors.empty(),

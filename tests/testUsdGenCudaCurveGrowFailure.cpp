@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/gpu/generation.h"
@@ -24,11 +25,11 @@ int main(int argc, char** argv) {
     int device = -1;
     if (cudaGetDevice(&device) != cudaSuccess) return 77;
     CHECK(gpu::ConfigureCudaExecutionResources(device, {size_t{8} << 20, 0}));
-    auto pool = FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda, device});
+    auto pool = FindUsdGenExecutionResourcePool({usdGenTestUtils::Backend("cuda"), device});
     CHECK(pool);
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/GrowFailure");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Hair"); curves.role = UsdGenLane::Chunked;
     curves.curveRole = TfToken("hair"); curves.curveVertexCounts = {2};

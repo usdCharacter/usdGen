@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Plain Session production-provider parity. Geometry readback is test-only.
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -44,7 +45,7 @@ void ClearShaderDirectory() {
 UsdGenGraphDesc Descriptor() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/DefaultSession");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/DefaultSession/curves");
     curves.role = UsdGenLane::Chunked;
@@ -73,7 +74,7 @@ template<class T> std::vector<uint8_t> Bytes(std::vector<T> const& values) {
 }
 using Oracle = std::vector<std::pair<std::string, std::vector<uint8_t>>>;
 Oracle CpuOracle(UsdGenGraphDesc desc) {
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     UsdGenCompiler compiler; UsdGenGraph graph;
     CHECK(usdGenUsd::Compile(compiler, desc, &graph).ok);
     UsdGenEvalContext evaluation; evaluation.desc = &graph.Spec();
@@ -251,7 +252,7 @@ int main(int argc, char** argv) {
             reinterpret_cast<UsdGenDeviceStream>(old.context->computeQueue()));
         CHECK(retained);
     });
-    session.NotifyDeviceContextLost(UsdGenDeviceBackend::Vulkan, old.context->physicalIndex());
+    session.NotifyDeviceContextLost(usdGenTestUtils::Backend("vulkan"), old.context->physicalIndex());
     auto lost = session.CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
     CHECK(lost && lost->diagnostics.HasErrors() && lost->generation == first->generation && session.NeedsCommit());
     CHECK(!GetVulkanGenerationAccess(old.generation));

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/vulkan/executionPlan.h"
+#include "usdGenVulkan/backendId.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "csourceVkCapture.h"
@@ -835,7 +836,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
     if (!NormalizeVulkanGeneratorGraph(original, &normalized, diagnostics))
         return {};
     auto const &desc = normalized;
-    if (!desc.validationErrors.empty() || desc.executionBackend != UsdGenExecutionBackend::Vulkan ||
+    if (!desc.validationErrors.empty() || desc.executionBackend != UsdGenVulkanBackendId() ||
         desc.nodes.empty() || desc.nodes.size() >= size_t(UINT32_MAX) || UsdGenCurveSetInputs(desc).empty() ||
         !IsFiniteMatrix(desc.xformMatrix) || !IsFinite(desc.defaultWidth) || desc.defaultWidth < 0) {
         Fail(diagnostics, "requires a single-source Vulkan graph within the native index domain");
@@ -1569,7 +1570,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
         hasBlend ? UsdGenExecutionPlanShape::SourceRootedValueDag
                  : UsdGenExecutionPlanShape::LinearAuthoredChain,
         std::move(operators), std::move(tasks), std::move(values), finalTask + 1, memory);
-    auto handle = UsdGenExecutionPlanHandle::Create(UsdGenExecutionBackend::Vulkan, metadata,
+    auto handle = UsdGenExecutionPlanHandle::Create(UsdGenVulkanBackendId(), metadata,
                                                     payload, &reason);
     if (!handle)
         Fail(diagnostics, reason);

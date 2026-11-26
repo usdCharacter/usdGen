@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/executionBackend.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
@@ -26,7 +27,7 @@ namespace {
 UsdGenGraphDesc MakeDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Groom/C3");
@@ -435,11 +436,11 @@ int main() {
     UsdGenDiagnostics diagnostics;
     auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
     CHECK(handle && !diagnostics.HasErrors());
-    CHECK(handle->Backend() == UsdGenExecutionBackend::Vulkan);
+    CHECK(handle->Backend() == usdGenTestUtils::Backend("vulkan"));
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
-    CHECK(GetUsdGenExecutionBackendContract(UsdGenExecutionBackend::Vulkan).Available());
+    CHECK(GetUsdGenExecutionBackendContract(usdGenTestUtils::Backend("vulkan")).Available());
 #else
-    CHECK(!GetUsdGenExecutionBackendContract(UsdGenExecutionBackend::Vulkan).Available());
+    CHECK(!GetUsdGenExecutionBackendContract(usdGenTestUtils::Backend("vulkan")).Available());
 #endif
 
     auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -1581,7 +1582,7 @@ int main() {
     };
     CHECK(usdGenUsd::CompileInjectedDevice(compiler, input, &graph, compile, &injected).ok);
     CHECK(calls == 1 && injected && graph.NodeCount() == 2);
-    CHECK(graph.Spec().executionBackend == UsdGenExecutionBackend::Vulkan);
+    CHECK(graph.Spec().executionBackend == usdGenTestUtils::Backend("vulkan"));
     CHECK(usdGenUsd::NodeIdForPath(graph, input.terminal) == 1);
     CHECK(NodeBuffer(graph, 0).totalCvs == 0 && NodeBuffer(graph, 1).totalCvs == 0);
     auto retained = injected;
@@ -1596,7 +1597,7 @@ int main() {
     CHECK(!usdGenUsd::CompileInjectedDevice(compiler, rejected, &graph, staleProvider, &injected).ok);
     CHECK(injected == retained && graph.NodeCount() == 2);
     rejected = input;
-    rejected.executionBackend = UsdGenExecutionBackend::CpuReference;
+    rejected.executionBackend = kUsdGenBackendCpu;
     CHECK(!usdGenUsd::CompileInjectedDevice(compiler, rejected, &graph, compile, &injected).ok);
     CHECK(!usdGenUsd::CompileInjectedDevice(compiler, input, &graph, {}, &injected).ok);
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME

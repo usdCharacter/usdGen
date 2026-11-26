@@ -37,6 +37,7 @@
 // Usage: testUsdGenVulkanSurfaceVk deformEvaluate.spv deformApply.spv
 
 #include "usdGen/vulkan/surfaceVk.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/vulkan/executionPlan.h"
@@ -855,7 +856,7 @@ UsdGenGraphDesc MakeDeformDesc(GfMatrix4d const& sourceMatrix,
                                GfMatrix4d const& surfaceMatrix) {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
     auto curves = MakeSource();
     curves.worldMatrix = sourceMatrix;
     desc.curveSets.push_back(curves);

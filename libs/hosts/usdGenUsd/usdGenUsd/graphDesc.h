@@ -151,7 +151,7 @@ struct UsdGenGraphDesc
     TfToken  curveBasis = UsdGenTokens().bspline;      // usdGen:curve:basis (C2)
     double   time = 0.0;
     double   timeCodesPerSecond = 24.0; // USD default; expressions expose seconds
-    UsdGenExecutionBackend executionBackend = UsdGenExecutionBackend::CpuReference;
+    UsdGenBackendId executionBackend = kUsdGenBackendCpu;   // UsdGenFindBackend at lowering
     std::vector<std::string> validationErrors;
 };
 

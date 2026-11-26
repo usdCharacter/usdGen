@@ -1,4 +1,5 @@
 #include "usdGen/gpu/deviceBuffer.h"
+#include "testBackend.h"
 #include "usdGen/gpu/deviceResources.h"
 
 #include <cstdio>
@@ -17,7 +18,7 @@ int main() {
     float const sentinel = 7.25f;
     CHECK(cudaMemcpy(buffer.data(), &sentinel, sizeof(sentinel), cudaMemcpyHostToDevice) == cudaSuccess);
     auto resources = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, device});
+        {usdGenTestUtils::Backend("cuda"), device});
     CHECK(resources && resources->Snapshot().usedBytes == 33 * sizeof(float));
     auto const pointer = buffer.data();
     auto moved = std::move(buffer);

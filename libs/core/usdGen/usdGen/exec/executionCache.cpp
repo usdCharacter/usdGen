@@ -640,7 +640,7 @@ std::atomic<DomainRegistry*> gDomainRegistry{nullptr};
 std::shared_ptr<UsdGenExecutionCacheDomain> UsdGenExecutionCacheDomain::AcquireShared(
     UsdGenExecutionCacheDomainKey key, size_t maxBytes)
 {
-    if (key.backend == UsdGenDeviceBackend::Unknown || maxBytes == 0)
+    if (key.backend == UsdGenBackendId::Invalid || maxBytes == 0)
         return {};
     std::shared_ptr<UsdGenExecutionCacheDomain> fresh;
     for (;;) {

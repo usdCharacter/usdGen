@@ -46,7 +46,7 @@ public:
     /// A Session owns one executor/cooker across descriptor changes. Routing
     /// is selected from each immutable request rather than freezing the first
     /// descriptor's backend and losing its last-good/store/cache state.
-    virtual bool CanRoute(UsdGenExecutionBackend) const noexcept = 0;
+    virtual bool CanRoute(UsdGenBackendId) const noexcept = 0;
     virtual void Submit(UsdGenSessionBackendRequest) = 0;
     /// Called only after the Session pipeline has shut down and all retained
     /// async completion closures have drained.

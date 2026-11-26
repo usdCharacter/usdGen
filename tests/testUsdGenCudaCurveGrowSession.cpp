@@ -1,4 +1,5 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
@@ -130,7 +131,7 @@ UsdGenGraphDesc Desc(bool resampleAndLift = false, bool namedPlanes = true,
                      bool emptySource = false, bool withNoise = false) {
     UsdGenGraphDesc desc;
     desc.description=SdfPath("/Groom/C3Grow");
-    desc.executionBackend=UsdGenExecutionBackend::Cuda;
+    desc.executionBackend=usdGenTestUtils::Backend("cuda");
     desc.defaultWidth=.125f;
     UsdGenCurveSetDesc curves;
     curves.path=SdfPath("/Hair"); curves.role=UsdGenLane::Chunked;
@@ -240,7 +241,7 @@ UsdGenGraphDesc GrowLengthDesc(TfToken mode, float value, bool cutExtend = false
 }
 
 bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
-    desc.executionBackend=UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend=kUsdGenBackendCpu;
     UsdGenCompiler compiler; UsdGenGraph graph;
     auto compiled=usdGenUsd::Compile(compiler, desc,&graph);
     if(!compiled.ok) {

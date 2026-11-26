@@ -1,4 +1,5 @@
 #include "pxr/base/gf/vec2f.h"
+#include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/gf/matrix4d.h"
 #include "usdGen/session.h"
@@ -36,7 +37,7 @@ static UsdGenExpressionBinding Bind(char const* expression, char const* destinat
 static UsdGenGraphDesc MakeDesc(bool withNoise) {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/Description");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     desc.defaultWidth = .02f;
 
     UsdGenSurfaceDesc surface;

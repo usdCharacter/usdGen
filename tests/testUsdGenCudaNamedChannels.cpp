@@ -1,4 +1,5 @@
 #include "usdGen/executionResources.h"
+#include "testBackend.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/gpu/cudaRetirement.h"
 #include "usdGen/gpu/generation.h"
@@ -96,7 +97,7 @@ int main() {
     if (cudaGetDevice(&device) != cudaSuccess) return 77;
     CHECK(ConfigureCudaExecutionResources(device, {size_t{8} << 20, 0}));
     UsdGenExecutionResourceDevice const key{
-        UsdGenExecutionResourceBackend::Cuda, device};
+        usdGenTestUtils::Backend("cuda"), device};
     auto resources = FindUsdGenExecutionResourcePool(key);
     CHECK(resources);
     auto retirement = GetOrCreateUsdGenExecutionRetirementService(key, {32});

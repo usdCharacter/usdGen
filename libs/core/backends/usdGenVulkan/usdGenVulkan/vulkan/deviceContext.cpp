@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "deviceContext.h"
+#include "usdGenVulkan/backendId.h"
 
 #include <algorithm>
 #include <iterator>
@@ -63,7 +64,7 @@ std::shared_ptr<DeviceContext> DeviceContext::Create(CreateInfo const& info, VkR
         auto const& family = families[info.computeQueueFamily];
         if (!family.queueCount || !(family.queueFlags & VK_QUEUE_COMPUTE_BIT)) return {};
         auto pool = GetOrCreateUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Vulkan, info.resourceDeviceId}, info.resources);
+            {UsdGenVulkanBackendId(), info.resourceDeviceId}, info.resources);
         if (!pool) return {};
         auto context = std::shared_ptr<DeviceContext>(new DeviceContext(info, std::move(pool)));
         // Idle device memory kept for reuse: a quarter of the budget, at

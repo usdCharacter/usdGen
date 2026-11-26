@@ -1,5 +1,6 @@
 // End-to-end CUDA session tile publication: Source -> Length(cull) -> Width.
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
@@ -39,7 +40,7 @@ static UsdGenGraphDesc MakeDesc(size_t curves, float threshold, float width,
 {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Groom/Description");
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     d.defaultWidth = width;
     d.tileTarget = tileTarget;
 

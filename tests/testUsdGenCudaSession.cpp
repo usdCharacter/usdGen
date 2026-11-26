@@ -1,4 +1,5 @@
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/sessionCooker.h"
@@ -28,7 +29,7 @@ static bool DrainCudaRetirement() {
     int device = -1;
     if (cudaGetDevice(&device) != cudaSuccess) return false;
     auto service = FindUsdGenExecutionRetirementService(
-        {UsdGenExecutionResourceBackend::Cuda, device});
+        {usdGenTestUtils::Backend("cuda"), device});
     if (!service) return false;
     service->Drain();
     return true;
@@ -37,7 +38,7 @@ static bool DrainCudaRetirement() {
 // The registered CUDA backend's Session provider.
 static std::shared_ptr<UsdGenSessionDeviceProvider> CudaProvider() {
     UsdGenBackendDef const* def =
-        UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(UsdGenExecutionBackend::Cuda)));
+        UsdGenGetBackend(usdGenTestUtils::Backend("cuda"));
     std::string reason;
     return def && def->createProvider ? def->createProvider({}, &reason) : nullptr;
 }
@@ -81,7 +82,7 @@ static UsdGenGenerationConstPtr CookCuda(UsdGenSessionCooker& cooker,
 static UsdGenGraphDesc SourceDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/Description");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     desc.defaultWidth = .025f;
     UsdGenNodeDesc node;
     node.path = desc.description.AppendChild(TfToken("Ops")).AppendChild(TfToken("Source"));
@@ -208,7 +209,7 @@ static UsdGenGraphDesc ReferenceSourceWidthDesc()
 {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/ReferenceSource");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     desc.defaultWidth = .025f;
 
     UsdGenCurveSetDesc reference;
@@ -572,10 +573,10 @@ int main() {
               session.Stats().executionCacheMisses == 1 &&
               session.Stats().executionCacheAdmissions == 1);
 
-        // Loss signals are backend-scoped. A Vulkan notification cannot
-        // invalidate the active CUDA context, and the exact tuple still hits.
-        CHECK(!session.PostDeviceContextLost(UsdGenDeviceBackend::Unknown, device));
-        CHECK(session.PostDeviceContextLost(UsdGenDeviceBackend::Vulkan, device));
+        // Loss signals are backend-scoped. Another backend's notification
+        // cannot invalidate the active CUDA context, and the exact tuple still hits.
+        CHECK(!session.PostDeviceContextLost(UsdGenBackendId::Invalid, device));
+        CHECK(session.PostDeviceContextLost(usdGenTestUtils::kTestBackendB, device));
         auto backendFiltered = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(backendFiltered && backendFiltered->device &&
               backendFiltered->device->Owner() == oldOwner &&
@@ -589,7 +590,7 @@ int main() {
         auto inFlight = SubmitRequest(session, std::move(request));
         CHECK(inFlight && inFlight->accepted);
         waitCudaSourceAsyncCallbackGateForTesting();
-        session.NotifyDeviceContextLost(UsdGenDeviceBackend::Cuda, device);
+        session.NotifyDeviceContextLost(usdGenTestUtils::Backend("cuda"), device);
         CHECK(!inFlight->done.load(std::memory_order_acquire) &&
               session.NeedsCommit());
         releaseGate.Release();
@@ -742,7 +743,7 @@ int main() {
         int device = -1;
         CHECK(cudaGetDevice(&device) == cudaSuccess);
         auto pool = FindUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Cuda, device});
+            {usdGenTestUtils::Backend("cuda"), device});
         CHECK(pool);
         auto const before = pool->Snapshot();
 
@@ -1046,7 +1047,7 @@ int main() {
         CHECK(!first->device->Geometry().alreadyDeformed);
         CHECK(usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() && usdGen::UsdGenCurvePublicationOf(*first).guides.empty() && usdGen::UsdGenCurvePublicationOf(*first).instancers.empty());
         CHECK(!session.LastDiagnostics().HasErrors() && !session.LastDiagnostics().warnings.empty());
-        CHECK(session.Graph().Spec().executionBackend == UsdGenExecutionBackend::Cuda);
+        CHECK(session.Graph().Spec().executionBackend == usdGenTestUtils::Backend("cuda"));
         retained = gpu::AcquireGeometry(first->device, consumer);
         CHECK(retained && retained.Geometry().pointCount == 5);
         oldOwner = first->device->Owner();
@@ -1355,7 +1356,7 @@ int main() {
         int device = -1;
         CHECK(cudaGetDevice(&device) == cudaSuccess && device >= 0);
         auto cacheDomain = std::make_shared<UsdGenExecutionCacheDomain>(
-            UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::Cuda, device, 0},
+            UsdGenExecutionCacheDomainKey{usdGenTestUtils::Backend("cuda"), device, 0},
             64u * 1024u * 1024u);
         auto cookerProvider = CudaProvider();
         CHECK(cookerProvider != nullptr);
@@ -1454,7 +1455,7 @@ int main() {
         CHECK(cudaGetDevice(&device) == cudaSuccess && device >= 0);
         auto sharedDomain = std::make_shared<UsdGenExecutionCacheDomain>(
             UsdGenExecutionCacheDomainKey{
-                UsdGenDeviceBackend::Cuda, device, 0x434f575f43414348ull},
+                usdGenTestUtils::Backend("cuda"), device, 0x434f575f43414348ull},
             64u * 1024u * 1024u);
         auto cudaDesc = std::make_shared<const UsdGenGraphDesc>(WidthChainDesc());
         auto leaderProvider = CudaProvider();
@@ -1523,7 +1524,7 @@ int main() {
         CHECK(cudaGetDevice(&device) == cudaSuccess && device >= 0);
         auto sharedDomain = std::make_shared<UsdGenExecutionCacheDomain>(
             UsdGenExecutionCacheDomainKey{
-                UsdGenDeviceBackend::Cuda, device, 0},
+                usdGenTestUtils::Backend("cuda"), device, 0},
             64u * 1024u * 1024u);
         auto sharedDesc = usdGenUsd::LowerShared(WidthChainDesc());
         UsdGenSession leader(2, 4096, sharedDomain);
@@ -1562,7 +1563,7 @@ int main() {
         CHECK(cudaGetDevice(&device) == cudaSuccess && device >= 0);
         auto shutdownDomain = std::make_shared<UsdGenExecutionCacheDomain>(
             UsdGenExecutionCacheDomainKey{
-                UsdGenDeviceBackend::Cuda, device, 0},
+                usdGenTestUtils::Backend("cuda"), device, 0},
             64u * 1024u * 1024u);
         auto shutdownDesc = usdGenUsd::LowerShared(WidthChainDesc());
         UsdGenSession leader(2, 4096, shutdownDomain);

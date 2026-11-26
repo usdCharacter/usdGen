@@ -1,4 +1,5 @@
 #include "gpu/topology.h"
+#include "usdGenCuda/backendId.h"
 #include "gpu/deviceBuffer.h"
 #include "usdGen/executionResources.h"
 
@@ -74,7 +75,7 @@ int main() {
     int resourceDevice = -1;
     check(cudaGetDevice(&resourceDevice) == cudaSuccess, "get resource device");
     auto resourcePool = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, resourceDevice});
+        {usdGen::UsdGenCudaBackendId(), resourceDevice});
     check(bool(resourcePool), "find CUDA resource pool");
     auto const baseline = resourcePool ? resourcePool->Snapshot() :
         UsdGenExecutionResourceSnapshot{};

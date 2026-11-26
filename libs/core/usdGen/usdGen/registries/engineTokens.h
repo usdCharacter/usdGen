@@ -20,8 +20,6 @@ struct UsdGenEngineTokens {
     TfToken allPurpose, none, displayColor,
         hairT, hairId, st, bakeColor, velocities, scalpShadow, materialScalpShadow,
         result;
-    // backend names (executionBackend.cpp:141-148)
-    TfToken cpu, cpuReference, cuda, metal, vulkan;
     // S4-3 (Core-B): varying rate; desc defaults (graphDesc.h surface, look, preview)
     TfToken varying, rightHanded, edgeAndCorner, cornersPlus1, catmullClark,
         heat, primitive, lit;

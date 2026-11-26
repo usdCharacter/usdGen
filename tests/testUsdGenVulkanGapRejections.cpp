@@ -21,6 +21,7 @@
 // sites upstream. The widthOverlapWitness port itself is proven by the
 // dedicated device test, not here.
 #include "usdGen/executionBackend.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -66,7 +67,7 @@ void Check(bool ok, char const* label) {
 UsdGenGraphDesc MakeDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
 
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Groom/C3");
@@ -764,7 +765,7 @@ int main() {
         // the tile/index builders cannot silently consume Vulkan channels.
         auto owner = std::make_shared<VulkanIdentityOwner>();
         UsdGenDeviceGeneration::CreateInfo info;
-        info.identity.backend = UsdGenDeviceBackend::Vulkan;
+        info.identity.backend = usdGenTestUtils::Backend("vulkan");
         info.identity.deviceIndex = 0;
         info.identity.generation = 7;
         info.owner = owner;

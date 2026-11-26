@@ -1,4 +1,5 @@
 #include "pxr/base/gf/vec2f.h"
+#include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
@@ -12,7 +13,7 @@ using namespace usdGen;
 
 static UsdGenGraphDesc MakeDesc() {
     UsdGenGraphDesc d; d.description = SdfPath("/Groom/Description");
-    d.executionBackend = UsdGenExecutionBackend::Cuda; d.defaultWidth = .025f;
+    d.executionBackend = usdGenTestUtils::Backend("cuda"); d.defaultWidth = .025f;
     UsdGenSurfaceDesc surface; surface.path = SdfPath("/Scalp"); surface.worldMatrix.SetIdentity();
     surface.restPoints = {{0,0,0},{1,0,0},{0,1,0},{0,0,1},{1,1,1}};
     surface.points = surface.restPoints; surface.faceVertexCounts = {3,3,3};

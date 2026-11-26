@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -68,7 +69,7 @@ void RegisterNamedPlaneProbes(UsdGenRegistrar &r)
 static UsdGenGraphDesc MakeDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/Hair");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
 
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/Scalp");
@@ -128,7 +129,7 @@ static UsdGenGraphDesc MakeDesc() {
 static UsdGenGraphDesc MakeScatterGrowValueDagDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/Generated");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/Scalp");
     surface.restPoints = {{0,0,0}, {1,0,0}, {1,1,0}, {0,1,0}};

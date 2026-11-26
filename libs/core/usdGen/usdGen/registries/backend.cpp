@@ -1,10 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/registries/backend.h"
-#include "usdGen/exec/device/executionBackend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
-#include "usdGen/registries/token.h"
 #include "usdGen/registries/typeRegistry.h"
 
 #include <atomic>
@@ -23,9 +21,6 @@ enum : uint32_t { kFree = 0, kWriting = 1, kReady = 2 };
 std::atomic<uint32_t> gState[kUsdGenMaxBackends] = {};
 UsdGenBackendDef gDefs[kUsdGenMaxBackends];
 std::atomic<void const *> gPrograms[kUsdGenMaxBackends][kUsdGenMaxTypes] = {};
-
-// First slot of a name no legacy enumerant spells.
-constexpr uint32_t kFirstOpenSlot = 5;
 
 // Builds the registries unless this thread is building them (a library's
 // usdGenRegister may look a backend up).
@@ -60,21 +55,10 @@ UsdGenBackendId UsdGenRegistrar::RegisterBackend(UsdGenBackendDef const &def)
         std::strcmp(def.name, "cpu") == 0 || std::strcmp(def.name, "cpuReference") == 0 ||
         FindSlot(def.name) != kUsdGenMaxBackends)
         return UsdGenBackendId::Invalid;
-    // Until step 8.4 a handle equals the UsdGenExecutionBackend value its
-    // name parses to, so kernel rows keyed by that value stay valid.
-    UsdGenExecutionBackend legacy;
-    {
-        UsdGenCompileTokenScope scope;
-        legacy = ParseUsdGenExecutionBackend(UsdGenInternToken(def.name));
-    }
+    // Dense from 1 in load order (USDGEN_DEFAULT_EXTENSIONS).
     uint32_t slot = kUsdGenMaxBackends;
-    if (legacy != UsdGenExecutionBackend::Invalid) {
-        uint32_t const fixed = uint32_t(legacy);
-        if (fixed > 0 && fixed < kUsdGenMaxBackends && Claim(fixed)) slot = fixed;
-    } else {
-        for (uint32_t i = kFirstOpenSlot; i < kUsdGenMaxBackends && slot == kUsdGenMaxBackends; ++i)
-            if (Claim(i)) slot = i;
-    }
+    for (uint32_t i = 1; i < kUsdGenMaxBackends && slot == kUsdGenMaxBackends; ++i)
+        if (Claim(i)) slot = i;
     if (slot == kUsdGenMaxBackends) return UsdGenBackendId::Invalid;
     gDefs[slot] = def;
     gState[slot].store(kReady, std::memory_order_release);
@@ -95,8 +79,12 @@ bool UsdGenRegistrar::RegisterDeviceProgram(UsdGenBackendId backend, UsdGenTypeI
 
 UsdGenBackendId UsdGenFindBackend(UsdGenToken const &name) noexcept
 {
-    if (name.IsEmpty()) return UsdGenBackendId::Invalid;
-    char const *const text = name.GetText();
+    return name.IsEmpty() ? UsdGenBackendId::Invalid : UsdGenFindBackend(name.GetText());
+}
+
+UsdGenBackendId UsdGenFindBackend(char const *text) noexcept
+{
+    if (!text || !*text) return UsdGenBackendId::Invalid;
     if (std::strcmp(text, "cpu") == 0 || std::strcmp(text, "cpuReference") == 0)
         return kUsdGenBackendCpu;
     EnsureRegistries();

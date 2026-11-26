@@ -44,18 +44,6 @@ struct UsdGenParamValue
     bool    animated = false;    // authored with a .spline / time samples
 };
 
-// Invalid is deliberately distinct from CpuReference: a present but
-// malformed/unknown backend request must fail closed instead of silently
-// selecting the legacy CPU implementation. Values are stable: host-side graph
-// snapshots carry them.
-enum class UsdGenExecutionBackend : uint8_t {
-    CpuReference = 0,
-    Cuda = 1,
-    Invalid = 2,
-    Metal = 3,
-    Vulkan = 4
-};
-
 /// One connected parameter (was UsdGenExpressionBinding). 'output' empty means
 /// the connection named the expression PRIM rather than one of its outputs;
 /// UsdGenFindExpressionOutput resolves it.
@@ -315,7 +303,9 @@ struct UsdGenGraphSpec
     TfToken  basis = UsdGenTokens().bspline;           // the published basis (C2)
     double   time = 0.0;
     double   timeCodesPerSecond = 24.0; // USD default; expressions expose seconds
-    UsdGenExecutionBackend executionBackend = UsdGenExecutionBackend::CpuReference;
+    /// kUsdGenBackendCpu, a registered backend (registries/backend.h), or
+    /// Invalid: a present but unknown request fails closed, never the CPU.
+    UsdGenBackendId executionBackend = kUsdGenBackendCpu;
     std::vector<std::string> validationErrors;
     /// Sorted by key: the text of every key above.
     std::vector<UsdGenNodeLabel> labels;

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "sessionProvider.h"
+#include "usdGenVulkan/backendId.h"
 
 #include "executionPlan.h"
 
@@ -32,7 +33,7 @@ std::shared_ptr<VulkanSessionProvider> VulkanSessionProvider::Create(
     CreateInfo info, std::string* reason) {
     if (!info.executor || !info.context || !info.queueOwner || !info.maxRegisteredPlans ||
         info.maxRegisteredPlans > kPlanSlots ||
-        info.identity.backend != UsdGenDeviceBackend::Vulkan ||
+        info.identity.backend != UsdGenVulkanBackendId() ||
         info.identity.capabilityVersion != 1 ||
         !info.identity.logicalContextIdentity ||
         // The neutral generation publishes the factory physical index. The
@@ -146,7 +147,7 @@ bool VulkanSessionProvider::Submit(UsdGenSessionDeviceRequest request) {
             break;
         }
     }
-    if (request.plan->Backend() != UsdGenExecutionBackend::Vulkan || !typed ||
+    if (request.plan->Backend() != UsdGenVulkanBackendId() || !typed ||
         (request.authoritativeRevisions &&
          !request.authoritativeRevisions->IsStrictlyOrdered(typed->IntermediateCount()))) return false;
     // Normalize the optional frozen-plan route once, before reserving either

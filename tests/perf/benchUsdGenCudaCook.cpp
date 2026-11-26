@@ -6,6 +6,7 @@
 // device publication (the asynchronous relay path). Prints medians in ms.
 //   benchUsdGenCudaCook [--density N] [--runs N]
 #include "usdGen/cudaExecution.h"
+#include "../testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
 
@@ -24,7 +25,7 @@ using namespace usdGen;
 static UsdGenGraphDesc Desc(float density) {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Groom/Bench");
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     d.defaultWidth = .025f;
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/Scalp");

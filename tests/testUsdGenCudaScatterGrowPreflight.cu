@@ -1,4 +1,5 @@
 #include "gpu/scatterGrow.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"
 #include "usdGenMath/hash.h"
 
@@ -35,7 +36,7 @@ int main(int argc, char** argv) {
         CHECK(requirements.peakBytes == sizeof(uint32_t) + requirements.statusBytes);
     int count=0,device=-1; CHECK(cudaGetDeviceCount(&count)==cudaSuccess); if(!count)return 77; CHECK(cudaGetDevice(&device)==cudaSuccess);
     CHECK(ConfigureCudaExecutionResources(device,{size_t{8}<<20,0}));
-    auto resources=FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda,device}); CHECK(resources);
+    auto resources=FindUsdGenExecutionResourcePool({usdGen::UsdGenCudaBackendId(),device}); CHECK(resources);
     auto const baseline=resources->Snapshot(); cudaStream_t stream=nullptr; CHECK(cudaStreamCreate(&stream)==cudaSuccess);
     ScatterGrowControls controls; controls.cvCount=2;
     if (argc == 2 && std::strcmp(argv[1], "--quarantine-host") == 0) {

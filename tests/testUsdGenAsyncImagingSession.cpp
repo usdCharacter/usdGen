@@ -2,6 +2,7 @@
 // re-entry, retirement, and terminal shutdown behavior.
 
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -108,7 +109,7 @@ UsdGenGraphDesc MakeCudaSourceDesc()
 {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/asyncImaging/cudaRequest");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     desc.defaultWidth = .025f;
 
     UsdGenNodeDesc source;

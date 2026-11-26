@@ -1,5 +1,4 @@
 #include "usdGen/deviceGeneration.h"
-#include "usdGenCurves/types/curveDeviceLayout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -192,11 +191,15 @@ bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
 {
     if ((geometry.pointCount == 0 && geometry.elementCount != 0) ||
         (geometry.elementCount == 0 && geometry.pointCount != 0)) {
-        Fail(reason, "device geometry has mismatched curve and point counts");
+        Fail(reason, "device geometry has mismatched element and item counts");
         return false;
     }
-    if (!UsdGenCurveLayoutValid(geometry.layoutMetadata)) {
-        Fail(reason, "device geometry has invalid curve topology metadata");
+    // Layout is all unspecified or all specified; which specified layouts
+    // are valid is the producing primitive's check.
+    UsdGenDeviceLayoutMetadata const &layout = geometry.layoutMetadata;
+    if ((layout.kind == 0 || layout.variant == 0 || layout.wrap == 0) &&
+        layout != UsdGenDeviceLayoutMetadata{}) {
+        Fail(reason, "device geometry has partially specified layout metadata");
         return false;
     }
 
@@ -290,7 +293,7 @@ UsdGenDeviceGeneration::Create(CreateInfo info, std::string *reason)
         Fail(reason, "device generation requires an owner");
         return {};
     }
-    if (info.identity.backend == UsdGenDeviceBackend::Unknown ||
+    if (info.identity.backend == UsdGenBackendId::Invalid ||
         info.identity.deviceIndex < 0) {
         Fail(reason, "device generation has invalid backend identity");
         return {};

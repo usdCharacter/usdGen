@@ -5,6 +5,7 @@
 // block (in place or from the pool), permits charge the requested bytes, and
 // concurrent resizes keep data and accounting exact.
 #include "usdGen/gpu/deviceBuffer.h"
+#include "testBackend.h"
 #include "usdGen/gpu/deviceResources.h"
 
 #include <atomic>
@@ -19,7 +20,7 @@ int main() {
     int device = -1;
     if (cudaGetDevice(&device) != cudaSuccess) return 77;
     CHECK(gpu::ConfigureCudaExecutionResources(device, {size_t{1} << 30, 0}));
-    auto resources = FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda, device});
+    auto resources = FindUsdGenExecutionResourcePool({usdGenTestUtils::Backend("cuda"), device});
     CHECK(resources);
     {
         gpu::DeviceBuffer<float> a;

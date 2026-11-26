@@ -1,4 +1,5 @@
 #include "cudaRetirement.h"
+#include "usdGenCuda/backendId.h"
 
 #include <atomic>
 #include <cstdlib>
@@ -35,11 +36,11 @@ bool InitializeCudaDeviceForRetirement(int device) noexcept {
 
 bool IsCudaRetirementBackendOpen() noexcept {
     return IsUsdGenExecutionRetirementBackendOpen(
-        UsdGenExecutionResourceBackend::Cuda);
+        UsdGenCudaBackendId());
 }
 void CloseCudaRetirementBackend() noexcept {
     QuiesceUsdGenExecutionRetirementBackend(
-        UsdGenExecutionResourceBackend::Cuda);
+        UsdGenCudaBackendId());
 }
 
 std::optional<UsdGenExecutionRetirementTicket>
@@ -48,7 +49,7 @@ TryReserveCudaRetirement(int device) noexcept
     if (device < 0 || !IsCudaRetirementBackendOpen() ||
         !InitializeCudaDeviceForRetirement(device)) return std::nullopt;
     auto service = GetOrCreateUsdGenExecutionRetirementService(
-        {UsdGenExecutionResourceBackend::Cuda, device}, {1024}, false);
+        {UsdGenCudaBackendId(), device}, {1024}, false);
     if (!service) return {};
     // Register only after a real CUDA retirement service exists.  The
     // backend-wide neutral gate is shared across DSOs, making duplicate

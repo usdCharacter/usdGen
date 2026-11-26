@@ -426,7 +426,7 @@ void CookExampleStage(UsdStageRefPtr const &stage, std::string const &name, Tabl
             table->Put(graph, std::move(rows));
             continue;
         }
-        desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+        desc.executionBackend = kUsdGenBackendCpu;
         std::string const status = CookScheduler(desc, graph, &rows);
         rows.rows.insert(rows.rows.begin(), {"status", status});
         if (status == "ok") CookSession(desc, graph, &rows);

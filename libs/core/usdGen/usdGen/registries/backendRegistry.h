@@ -18,7 +18,7 @@ USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
 UsdGenBackendRegistry &UsdGenMutableBackendRegistry() noexcept;   // registrar-only
 
 struct UsdGenKernelDef {
-    uint16_t stage = 0;                  // UsdGenCudaStage / vulkan Stage::Kind
+    uint16_t stage = 0;                  // the backend's own stage enum
     uint32_t capabilityVersion = 0;      // executionPlan.h:46
     int minimumAlgorithmVersion = 0, maximumAlgorithmVersion = 0;
     uint32_t flags = 0;                  // UsdGenExecutionCapabilityFlag, executionPlan.h:26-39
@@ -44,9 +44,5 @@ private:
     uint32_t _orderCount[kUsdGenMaxBackends] = {};
     std::atomic<bool> _frozen{false};
 };
-
-constexpr UsdGenBackendId UsdGenBackendIdOf(uint8_t executionBackend) noexcept {
-    return UsdGenBackendId(executionBackend);
-}
 
 }  // namespace usdGen

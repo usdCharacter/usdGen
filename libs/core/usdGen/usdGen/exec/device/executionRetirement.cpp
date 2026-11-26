@@ -39,19 +39,16 @@ constexpr uint64_t _Pack(uint32_t generation, uint32_t flags) noexcept {
 constexpr uint32_t _Generation(uint64_t state) noexcept { return uint32_t(state >> 32); }
 constexpr uint32_t _Flags(uint64_t state) noexcept { return uint32_t(state); }
 
-constexpr size_t _BackendIndex(UsdGenExecutionResourceBackend backend) noexcept {
-    switch (backend) {
-    case UsdGenExecutionResourceBackend::Cuda: return 0;
-    case UsdGenExecutionResourceBackend::Metal: return 1;
-    case UsdGenExecutionResourceBackend::Vulkan: return 2;
-    }
-    return 3;
+// Index of a backend handle; kUsdGenMaxBackends when out of range.
+constexpr size_t _BackendIndex(UsdGenBackendId backend) noexcept {
+    uint32_t const index = UsdGenIndex(backend);
+    return index < kUsdGenMaxBackends ? index : kUsdGenMaxBackends;
 }
 // Constant-initialized: false means open.
-std::atomic<bool> _backendClosed[3] = {};
-bool _BackendIsOpen(UsdGenExecutionResourceBackend backend) noexcept {
+std::atomic<bool> _backendClosed[kUsdGenMaxBackends] = {};
+bool _BackendIsOpen(UsdGenBackendId backend) noexcept {
     size_t const index = _BackendIndex(backend);
-    return index < 3 && !_backendClosed[index].load(std::memory_order_acquire);
+    return index < kUsdGenMaxBackends && !_backendClosed[index].load(std::memory_order_acquire);
 }
 
 // A single guard covers every service: invoking Drain from a cleanup worker,
@@ -93,7 +90,7 @@ struct UsdGenExecutionRetirementSignal::State {
         Slot* laneNext = nullptr;
     };
 
-    explicit State(size_t capacity, UsdGenExecutionResourceBackend backend_)
+    explicit State(size_t capacity, UsdGenBackendId backend_)
         : backend(backend_) {
         slots.reserve(capacity);
         for (size_t i = 0; i != capacity; ++i) {
@@ -256,7 +253,7 @@ struct UsdGenExecutionRetirementSignal::State {
     std::vector<std::unique_ptr<Slot>> slots;
     std::atomic<bool> accepting{true};
     std::atomic<bool> backendQuiesced{false};
-    UsdGenExecutionResourceBackend const backend;
+    UsdGenBackendId const backend;
 };
 
 // The retirement lane runs backend cleanup off the signalling thread (native
@@ -407,7 +404,7 @@ bool UsdGenExecutionRetirementTicket::Retire(
 }
 
 UsdGenExecutionRetirementService::UsdGenExecutionRetirementService(
-    size_t capacity, UsdGenExecutionResourceBackend backend)
+    size_t capacity, UsdGenBackendId backend)
     : impl_(std::make_shared<Impl>(capacity, backend)) {}
 UsdGenExecutionRetirementService::~UsdGenExecutionRetirementService() = default;
 std::optional<UsdGenExecutionRetirementTicket>
@@ -542,13 +539,13 @@ std::shared_ptr<UsdGenExecutionRetirementService> FindUsdGenExecutionRetirementS
     return found ? found->service : nullptr;
 }
 bool IsUsdGenExecutionRetirementBackendOpen(
-    UsdGenExecutionResourceBackend backend) noexcept {
+    UsdGenBackendId backend) noexcept {
     return _BackendIsOpen(backend);
 }
 void QuiesceUsdGenExecutionRetirementBackend(
-    UsdGenExecutionResourceBackend backend) noexcept {
+    UsdGenBackendId backend) noexcept {
     size_t const index = _BackendIndex(backend);
-    if (index >= 3) return;
+    if (index >= kUsdGenMaxBackends) return;
     _backendClosed[index].store(true, std::memory_order_release);
     // The registry is process-lifetime, so its service identities remain
     // stable while late static owners transfer payloads into fixed slots.

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "picktileVk.h"
+#include "usdGenVulkan/backendId.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 
 #include <algorithm>
 #include <cfenv>
@@ -1734,7 +1736,7 @@ void PicktileVkGeometryLease::Complete() noexcept {
 PicktileVkGeometryLease AcquirePicktileVkGeometry(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     UsdGenDeviceStream queueStream) noexcept {
-    if (!generation || generation->Identity().backend != UsdGenDeviceBackend::Vulkan)
+    if (!generation || generation->Identity().backend != UsdGenVulkanBackendId())
         return {};
     VulkanGenerationLease inner = AcquireVulkanGeneration(generation, queueStream);
     if (!inner) return {};
@@ -1769,7 +1771,7 @@ PicktileVkTileLease::PicktileVkTileLease(
 PicktileVkTileLease AcquirePicktileVkTile(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     uint32_t tileId, uint64_t expectedGeneration, UsdGenDeviceStream queueStream) noexcept {
-    if (!generation || generation->Identity().backend != UsdGenDeviceBackend::Vulkan ||
+    if (!generation || generation->Identity().backend != UsdGenVulkanBackendId() ||
         generation->Identity().generation != expectedGeneration)
         return {};
     UsdGenDeviceTileMetadata const* tile = nullptr;
@@ -1858,6 +1860,9 @@ std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
     info.geometry = geometry;
     info.geometry.tiles = std::move(tiles);
     if (layoutMetadata != UsdGenDeviceLayoutMetadata{}) info.geometry.layoutMetadata = layoutMetadata;
+    // The curve layout rule (the engine checks only completeness).
+    if (!UsdGenCurveLayoutValid(info.geometry.layoutMetadata))
+        return fail("device geometry has invalid curve topology metadata");
     info.tool = candidate->Tool();
     info.channels = candidate->Channels();
     info.owner = candidate->Owner();

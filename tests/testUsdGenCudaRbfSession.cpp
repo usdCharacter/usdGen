@@ -1,4 +1,5 @@
 #include "pxr/base/gf/vec2f.h"
+#include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
@@ -16,7 +17,7 @@ static expr::ValueShape Scalar(expr::ScalarType t) { return {t, 1, 1, 1, 1, fals
 
 static UsdGenGraphDesc MakeDesc() {
     UsdGenGraphDesc d; d.description = SdfPath("/Groom/Description");
-    d.executionBackend = UsdGenExecutionBackend::Cuda; d.defaultWidth = .025f;
+    d.executionBackend = usdGenTestUtils::Backend("cuda"); d.defaultWidth = .025f;
     UsdGenSurfaceDesc s; s.path = SdfPath("/Scalp"); s.worldMatrix.SetIdentity();
     s.restPoints = {{0,0,0},{1,0,0},{0,1,0},{0,0,1},{1,1,1}};
     s.points = s.restPoints;

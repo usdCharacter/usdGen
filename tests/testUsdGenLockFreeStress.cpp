@@ -154,7 +154,7 @@ UsdGenExecutionCacheKey BaseKey()
 {
     UsdGenExecutionInputVersions inputs;
     inputs.sources.push_back({usdGenUsd::KeyOf(SdfPath("/stress/hair")), 1});
-    UsdGenExecutionContext context{UsdGenDeviceBackend::CpuReference, 0, -1, 0,
+    UsdGenExecutionContext context{kUsdGenBackendCpu, 0, -1, 0,
                                    UsdGenContext::Interactive};
     return UsdGenExecutionCacheKey::Make(usdGenUsd::KeyOf(SdfPath("/stress")), {1, 2}, inputs, context, 0, 1.0);
 }
@@ -197,7 +197,7 @@ void DomainCoalescingStress()
 {
     using Domain = UsdGenExecutionCacheDomain;
     auto domain = std::make_shared<Domain>(
-        UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::CpuReference, -1, 0x5354524553u},
+        UsdGenExecutionCacheDomainKey{kUsdGenBackendCpu, -1, 0x5354524553u},
         1u << 20);
     int const threads = 16, rounds = 300;
     std::atomic<int> badCalls{0}, missing{0};
@@ -315,7 +315,7 @@ using Domain = UsdGenExecutionCacheDomain;
 std::shared_ptr<Domain> MakeDomain(uint64_t identity)
 {
     return std::make_shared<Domain>(
-        UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::CpuReference, -1, identity}, 1u << 20);
+        UsdGenExecutionCacheDomainKey{kUsdGenBackendCpu, -1, identity}, 1u << 20);
 }
 
 UsdGenExecutionCacheKey DomainKey(Domain const &domain, uint64_t layout)

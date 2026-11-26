@@ -1,11 +1,12 @@
 #include "deviceResources.h"
+#include "usdGenCuda/backendId.h"
 #include <cuda_runtime.h>
 #include <algorithm>
 
 namespace usdGen::gpu {
 namespace {
 constexpr size_t OneGiB = size_t{1} << 30;
-UsdGenExecutionResourceDevice Key(int device) { return {UsdGenExecutionResourceBackend::Cuda, device}; }
+UsdGenExecutionResourceDevice Key(int device) { return {UsdGenCudaBackendId(), device}; }
 UsdGenExecutionResourceConfig DefaultConfig(size_t freeBytes) {
     size_t headroom = std::max(OneGiB, freeBytes / 5);
     return {freeBytes, std::min(headroom, freeBytes)};

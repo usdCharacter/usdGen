@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/gpu/cudaCompat.h"
 #include "usdGen/gpu/curveCompaction.h"
@@ -558,7 +559,7 @@ static std::shared_ptr<const UsdGenDeviceGeneration> MakeGeneration(
         }
     }
     UsdGenDeviceGeneration::CreateInfo info;
-    info.identity = {UsdGenDeviceBackend::Cuda, device, generation};
+    info.identity = {UsdGenCudaBackendId(), device, generation};
     info.geometry.topologyVersion = generation;
     info.geometry.valueVersion = generation;
     info.geometry.elementCount = view.curveCount;
@@ -681,7 +682,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakePointRevisionGeneration(
         return {};
     }
     int device = -1;
-    if (!base || base->Identity().backend != UsdGenDeviceBackend::Cuda ||
+    if (!base || base->Identity().backend != UsdGenCudaBackendId() ||
         !std::dynamic_pointer_cast<SourceOwner const>(base->Owner()) ||
         !base->Owner()->ProducerReady() || cudaGetDevice(&device) != cudaSuccess ||
         device != base->Identity().deviceIndex || generation <= base->Identity().generation) {
@@ -696,7 +697,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakePointRevisionGeneration(
         return {};
     }
     UsdGenDeviceGeneration::CreateInfo info;
-    info.identity = {UsdGenDeviceBackend::Cuda, device, generation};
+    info.identity = {UsdGenCudaBackendId(), device, generation};
     info.geometry = base->Geometry();
     info.geometry.valueVersion = generation;
     if (points) {
@@ -738,7 +739,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeNamedChannelRevisionGeneration
     }
     int device = -1;
     auto baseOwner = base ? std::dynamic_pointer_cast<SourceOwner const>(base->Owner()) : nullptr;
-    if (!base || !baseOwner || base->Identity().backend != UsdGenDeviceBackend::Cuda ||
+    if (!base || !baseOwner || base->Identity().backend != UsdGenCudaBackendId() ||
         !base->Owner()->ProducerReady() || cudaGetDevice(&device) != cudaSuccess ||
         device != base->Identity().deviceIndex || generation <= base->Identity().generation ||
         planes.empty()) {
@@ -761,7 +762,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeNamedChannelRevisionGeneration
         return {};
     }
     UsdGenDeviceGeneration::CreateInfo info;
-    info.identity = {UsdGenDeviceBackend::Cuda, device, generation};
+    info.identity = {UsdGenCudaBackendId(), device, generation};
     info.geometry = base->Geometry();
     info.geometry.valueVersion = generation;
     info.channels = std::move(channels);
@@ -791,7 +792,7 @@ CudaNamedChannelLease AcquireNamedChannel(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     std::string const& name, cudaStream_t stream) {
     CudaNamedChannelLease result;
-    if (!generation || name.empty() || generation->Identity().backend != UsdGenDeviceBackend::Cuda)
+    if (!generation || name.empty() || generation->Identity().backend != UsdGenCudaBackendId())
         return result;
     auto owner = std::dynamic_pointer_cast<SourceOwner const>(generation->Owner());
     auto const* plane = owner ? owner->NamedChannel(name) : nullptr;
@@ -807,7 +808,7 @@ CudaNamedChannelLease AcquireNamedChannel(
 CudaGeometryLease AcquireGeometry(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation, cudaStream_t stream) {
     CudaGeometryLease result;
-    if (!generation || generation->Identity().backend != UsdGenDeviceBackend::Cuda) return result;
+    if (!generation || generation->Identity().backend != UsdGenCudaBackendId()) return result;
     auto owner = std::dynamic_pointer_cast<SourceOwner const>(generation->Owner());
     if (!owner) return result;
     auto lease = generation->AcquireLease(reinterpret_cast<UsdGenDeviceStream>(stream));
@@ -845,7 +846,7 @@ CudaGeometryTileLease AcquireGeometryTile(
     uint32_t tileId, uint64_t expectedGeneration, cudaStream_t stream)
 {
     CudaGeometryTileLease result;
-    if (!generation || generation->Identity().backend != UsdGenDeviceBackend::Cuda ||
+    if (!generation || generation->Identity().backend != UsdGenCudaBackendId() ||
         generation->Identity().generation != expectedGeneration)
         return result;
 
@@ -945,6 +946,11 @@ std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
     info.geometry.tiles = std::move(tiles);
     if (layoutMetadata != UsdGenDeviceLayoutMetadata{}) {
         info.geometry.layoutMetadata = layoutMetadata;
+    }
+    // The curve layout rule (the engine checks only completeness).
+    if (!UsdGenCurveLayoutValid(info.geometry.layoutMetadata)) {
+        if (reason) *reason = "device geometry has invalid curve topology metadata";
+        return {};
     }
     info.tool = candidate->Tool();
     info.channels = candidate->Channels();

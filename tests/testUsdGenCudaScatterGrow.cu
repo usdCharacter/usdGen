@@ -1,4 +1,5 @@
 #include "gpu/scatterGrow.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionResources.h"
@@ -25,7 +26,7 @@ static size_t KindBytes(UsdGenExecutionResourceSnapshot const& s, UsdGenExecutio
 int main() {
     int count=0, device=-1; CHECK(cudaGetDeviceCount(&count)==cudaSuccess); if(!count) return 77; CHECK(cudaGetDevice(&device)==cudaSuccess);
     CHECK(ConfigureCudaExecutionResources(device, {size_t{8} << 20, 0}));
-    auto resources=FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda,device}); CHECK(resources);
+    auto resources=FindUsdGenExecutionResourcePool({usdGen::UsdGenCudaBackendId(),device}); CHECK(resources);
     auto const baseline=resources->Snapshot();
     cudaStream_t stream=nullptr; CHECK(cudaStreamCreate(&stream)==cudaSuccess);
     {
@@ -138,7 +139,7 @@ int main() {
     // and retirement protocol used by other CUDA generations. Keep a lease
     // after dropping the first wrapper while a second output is published.
     auto retirement = GetOrCreateUsdGenExecutionRetirementService(
-        {UsdGenExecutionResourceBackend::Cuda, device}, {32});
+        {usdGen::UsdGenCudaBackendId(), device}, {32});
     CHECK(retirement);
     auto makeGeneration = [&](float length, uint64_t version, bool zero = false) {
         auto roots = std::make_shared<ScatterGrowRoots>();

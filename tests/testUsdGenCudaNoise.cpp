@@ -1,4 +1,5 @@
 #include "gpu/noise.h"
+#include "testBackend.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 
@@ -177,7 +178,7 @@ int main() {
                           cudaMemcpyHostToDevice, producer) == cudaSuccess &&
           cudaStreamSynchronize(producer) == cudaSuccess);
     auto resourcePool = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, 0});
+        {usdGenTestUtils::Backend("cuda"), 0});
     CHECK(resourcePool);
     size_t const freshBaseline = resourcePool->Snapshot().usedBytes;
     {

@@ -1,4 +1,5 @@
 #include "usdGen/gpu/nonWidthCompare.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"
 
 #include <cuda_runtime.h>
@@ -248,7 +249,7 @@ int main() {
     }
 
     // Admission rejection must not submit work or perturb the full ledger.
-    auto pool=FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda,device});
+    auto pool=FindUsdGenExecutionResourcePool({usdGen::UsdGenCudaBackendId(),device});
     CHECK(pool);
     // The comparison may run on a Width branch stream while scalar proof is
     // returned on another stream. EnqueueFreshStatus must order its copy after

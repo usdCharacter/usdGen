@@ -5,6 +5,7 @@
 // source/width executor.  CPU construction below is an independent oracle for
 // C3 canonicalization; GPU bytes are always read back from the publication.
 #include "usdGen/vulkan/planExecutor.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/vulkan/executionPlan.h"
@@ -46,7 +47,7 @@ UsdGenGraphDesc MakeDescriptor(bool sourceWidths, bool useRest, float literal,
                                bool replace, uint64_t generation) {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Executor");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
     desc.defaultWidth = .8f;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Executor/C3"); curves.role = UsdGenLane::Chunked;
@@ -255,7 +256,7 @@ Oracle ManualExpected(bool sourceWidths, float literal, bool replace, bool index
 
 bool CpuReference(UsdGenGraphDesc desc, Oracle* expected) {
     if (!expected) return false;
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     UsdGenCompiler compiler; UsdGenGraph graph;
     auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) return false;

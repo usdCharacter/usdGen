@@ -1,7 +1,5 @@
 #include "usdGen/executionBackend.h"
 #include "usdGen/registries/backend.h"
-#include "usdGen/registries/backendRegistry.h"
-#include "usdGen/registries/engineTokens.h"
 
 #include "usdGen/op.h"
 
@@ -14,19 +12,20 @@ namespace usdGen {
 
 namespace {
 
-// Frozen backend registry: one slot per backend, claimed once by CAS (the
-// first registration wins) before UsdGenFreezeRegistries; reads are plain
-// acquire loads. Entries live for the process. Constant-initialized and
+// Frozen adapter registry: one slot per backend handle, claimed once by CAS
+// (the first registration wins) before UsdGenFreezeRegistries; reads are
+// plain acquire loads. Entries live for the process. Constant-initialized and
 // trivially destructible, so nothing runs at DLL detach.
 struct AdapterEntry {
     std::shared_ptr<const UsdGenExecutionBackendAdapter> adapter;
 };
-constexpr size_t kBackendSlots = 8;
-std::atomic<AdapterEntry *> gAdapters[kBackendSlots] = {};
+std::atomic<AdapterEntry *> gAdapters[kUsdGenMaxBackends] = {};
 std::atomic<bool> gAdaptersFrozen{false};
 
-size_t BackendSlot(UsdGenExecutionBackend backend) noexcept {
-    return static_cast<size_t>(backend) % kBackendSlots;
+// A device backend's slot; kUsdGenMaxBackends for the CPU and Invalid.
+size_t AdapterSlot(UsdGenBackendId backend) noexcept {
+    uint32_t const index = UsdGenIndex(backend);
+    return index > 0 && index < kUsdGenMaxBackends ? index : kUsdGenMaxBackends;
 }
 
 void SetReason(std::string *reason, char const *message) noexcept {
@@ -35,14 +34,13 @@ void SetReason(std::string *reason, char const *message) noexcept {
 }
 
 // The contract of a registered backend, from its def.
-UsdGenExecutionBackendContract RegisteredContract(UsdGenExecutionBackend backend,
-                                                  UsdGenDeviceBackend device,
+UsdGenExecutionBackendContract RegisteredContract(UsdGenBackendId backend,
                                                   UsdGenBackendDef const &def) noexcept {
     bool available = true;
     if (def.available) {
         try { available = def.available(nullptr); } catch (...) { available = false; }
     }
-    return {backend, device, def.name,
+    return {backend, def.name,
             available ? "" : def.unavailableReason ? def.unavailableReason
                            : "the registered backend cannot run in this process",
             def.capabilityVersion,
@@ -51,8 +49,7 @@ UsdGenExecutionBackendContract RegisteredContract(UsdGenExecutionBackend backend
 }
 
 UsdGenExecutionBackendContract InvalidContract() noexcept {
-    return {UsdGenExecutionBackend::Invalid, UsdGenDeviceBackend::Unknown,
-            "invalid", "invalid execution backend", 0,
+    return {UsdGenBackendId::Invalid, "invalid", "invalid execution backend", 0,
             UsdGenExecutionBackendAvailability::Invalid};
 }
 
@@ -60,10 +57,10 @@ UsdGenExecutionBackendContract InvalidContract() noexcept {
 
 std::shared_ptr<const UsdGenExecutionPlanHandle>
 UsdGenExecutionPlanHandle::Create(
-    UsdGenExecutionBackend backend,
+    UsdGenBackendId backend,
     std::shared_ptr<const UsdGenExecutionPlanMetadata> metadata,
     std::shared_ptr<const void> payload, std::string *reason) {
-    if (backend == UsdGenExecutionBackend::Invalid) {
+    if (backend == UsdGenBackendId::Invalid) {
         SetReason(reason, "execution plan handle has an invalid backend");
         return {};
     }
@@ -71,7 +68,7 @@ UsdGenExecutionPlanHandle::Create(
         SetReason(reason, "execution plan handle has no metadata");
         return {};
     }
-    if (metadata->Backend() != UsdGenExecutionBackendName(backend)) {
+    if (metadata->Backend() != UsdGenBackendName(backend)) {
         SetReason(reason, "execution plan metadata backend does not match handle backend");
         return {};
     }
@@ -93,22 +90,25 @@ bool RegisterUsdGenExecutionBackendAdapter(
         return false;
     }
     UsdGenExecutionBackendContract const contract = adapter->Contract();
-    if (contract.backend == UsdGenExecutionBackend::Invalid ||
-        contract.deviceBackend == UsdGenDeviceBackend::Unknown ||
+    size_t const index = AdapterSlot(contract.backend);
+    if (index == kUsdGenMaxBackends ||
         !contract.name || !*contract.name ||
         contract.availability == UsdGenExecutionBackendAvailability::Invalid) {
         SetReason(reason, "execution backend adapter contract is invalid");
         return false;
     }
-    if (std::strcmp(UsdGenExecutionBackendName(contract.backend), contract.name) != 0) {
-        SetReason(reason, "execution backend adapter contract name is not canonical");
-        return false;
+    // A registered handle keeps its def's name.
+    if (UsdGenBackendDef const *def = UsdGenGetBackend(contract.backend)) {
+        if (std::strcmp(def->name, contract.name) != 0) {
+            SetReason(reason, "execution backend adapter contract name is not canonical");
+            return false;
+        }
     }
     if (gAdaptersFrozen.load(std::memory_order_acquire)) {
         SetReason(reason, "execution backend registry is frozen");
         return false;
     }
-    auto &slot = gAdapters[BackendSlot(contract.backend)];
+    auto &slot = gAdapters[index];
     if (slot.load(std::memory_order_acquire)) {
         SetReason(reason, "execution backend adapter is already registered");
         return false;
@@ -133,79 +133,36 @@ void UsdGenFreezeExecutionBackendRegistry() noexcept {
 }
 
 std::shared_ptr<const UsdGenExecutionBackendAdapter>
-FindUsdGenExecutionBackendAdapter(UsdGenExecutionBackend backend) noexcept {
-    if (backend == UsdGenExecutionBackend::Invalid) return {};
-    AdapterEntry const *entry = gAdapters[BackendSlot(backend)].load(std::memory_order_acquire);
+FindUsdGenExecutionBackendAdapter(UsdGenBackendId backend) noexcept {
+    size_t const index = AdapterSlot(backend);
+    if (index == kUsdGenMaxBackends) return {};
+    AdapterEntry const *entry = gAdapters[index].load(std::memory_order_acquire);
     return entry ? entry->adapter : nullptr;
 }
 
-const char *UsdGenExecutionBackendName(UsdGenExecutionBackend backend) noexcept {
-    switch (backend) {
-    case UsdGenExecutionBackend::CpuReference: return "cpu";
-    case UsdGenExecutionBackend::Cuda: return "cuda";
-    case UsdGenExecutionBackend::Metal: return "metal";
-    case UsdGenExecutionBackend::Vulkan: return "vulkan";
-    case UsdGenExecutionBackend::Invalid: break;
-    }
-    return "invalid";
-}
-
-UsdGenExecutionBackend ParseUsdGenExecutionBackend(TfToken const &token) noexcept {
-    if (token == UsdGenTokens().cpu || token == UsdGenTokens().cpuReference)
-        return UsdGenExecutionBackend::CpuReference;
-    if (token == UsdGenTokens().cuda) return UsdGenExecutionBackend::Cuda;
-    if (token == UsdGenTokens().metal) return UsdGenExecutionBackend::Metal;
-    if (token == UsdGenTokens().vulkan) return UsdGenExecutionBackend::Vulkan;
-    return UsdGenExecutionBackend::Invalid;
-}
-
 UsdGenExecutionBackendContract GetUsdGenExecutionBackendContract(
-    UsdGenExecutionBackend backend) noexcept {
+    UsdGenBackendId backend) noexcept {
     if (auto adapter = FindUsdGenExecutionBackendAdapter(backend))
         return adapter->Contract();
-    switch (backend) {
-    case UsdGenExecutionBackend::CpuReference:
-        return {backend, UsdGenDeviceBackend::CpuReference, "cpu", "",
-                1, UsdGenExecutionBackendAvailability::Available};
-    case UsdGenExecutionBackend::Cuda:
-        // Answered by the def usdGenCuda registers.
-        if (UsdGenBackendDef const *def =
-                UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(backend))))
-            return RegisteredContract(backend, UsdGenDeviceBackend::Cuda, *def);
-        return {backend, UsdGenDeviceBackend::Cuda, "cuda",
-                "CUDA support was not enabled in this build", 0,
-                UsdGenExecutionBackendAvailability::Unavailable};
-    case UsdGenExecutionBackend::Metal:
-        return {backend, UsdGenDeviceBackend::Metal, "metal",
-                "no Metal execution factory is linked", 0,
-                UsdGenExecutionBackendAvailability::Unavailable};
-    case UsdGenExecutionBackend::Vulkan:
-        // Answered by the def usdGenVulkan registers.
-        if (UsdGenBackendDef const *def =
-                UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(backend))))
-            return RegisteredContract(backend, UsdGenDeviceBackend::Vulkan, *def);
-        return {backend, UsdGenDeviceBackend::Vulkan, "vulkan",
-                "Vulkan support was not enabled in this build", 0,
-                UsdGenExecutionBackendAvailability::Unavailable};
-    case UsdGenExecutionBackend::Invalid: break;
-    }
+    if (backend == kUsdGenBackendCpu)
+        return {backend, "cpu", "", 1, UsdGenExecutionBackendAvailability::Available};
+    if (UsdGenBackendDef const *def = UsdGenGetBackend(backend))
+        return RegisteredContract(backend, *def);
     return InvalidContract();
 }
 
-bool ValidateUsdGenExecutionBackend(UsdGenExecutionBackend backend,
+bool ValidateUsdGenExecutionBackend(UsdGenBackendId backend,
                                     UsdGenDiagnostics *diagnostics) {
     auto const contract = GetUsdGenExecutionBackendContract(backend);
     if (contract.Available()) return true;
     if (diagnostics) {
         if (!contract.IsValid()) {
             diagnostics->Error("invalid execution backend '" +
-                               std::string(UsdGenExecutionBackendName(backend)) +
+                               std::string(UsdGenBackendName(backend)) +
                                "'; refusing implicit CPU fallback");
         } else {
-            std::string label = contract.name;
-            if (backend == UsdGenExecutionBackend::Cuda) label = "CUDA";
-            else if (backend == UsdGenExecutionBackend::Metal) label = "Metal";
-            else if (backend == UsdGenExecutionBackend::Vulkan) label = "Vulkan";
+            UsdGenBackendDef const *def = UsdGenGetBackend(backend);
+            std::string label = def && def->label ? def->label : contract.name;
             diagnostics->Error(std::move(label) +
                                " execution backend factory is unavailable: " +
                                contract.unavailabilityReason);
@@ -215,12 +172,12 @@ bool ValidateUsdGenExecutionBackend(UsdGenExecutionBackend backend,
 }
 
 UsdGenExecutionContext MakeUsdGenExecutionContext(
-    UsdGenExecutionBackend backend, uint32_t capabilityVersion,
+    UsdGenBackendId backend, uint32_t capabilityVersion,
     int32_t deviceIndex, uint64_t deviceGeneration,
     UsdGenContext evaluationContext) noexcept {
     auto const contract = GetUsdGenExecutionBackendContract(backend);
     UsdGenExecutionContext context;
-    context.backend = contract.deviceBackend;
+    context.backend = contract.backend;
     context.capabilityVersion = capabilityVersion;
     context.deviceIndex = deviceIndex;
     context.deviceGeneration = deviceGeneration;

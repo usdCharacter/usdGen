@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "deviceGenerationAdapter.h"
+#include "usdGenVulkan/backendId.h"
+#include "usdGenCurves/types/curveDeviceLayout.h"
 #include "externalRetirement.h"
 
 #include <algorithm>
@@ -470,9 +472,14 @@ VulkanDeviceGenerationAdapter::Create(CreateInfo info, std::string* reason)
         auto generationOwner = std::make_shared<VulkanGenerationOwner>(source,
             domain, actual);
         UsdGenDeviceGeneration::CreateInfo publication;
-        publication.identity = {UsdGenDeviceBackend::Vulkan, context->physicalIndex(), info.generation};
+        publication.identity = {UsdGenVulkanBackendId(), context->physicalIndex(), info.generation};
         publication.geometry = source->geometry();
         publication.geometry.valueVersion = source->valueVersion();
+        // The curve layout rule (the engine checks only completeness).
+        if (!UsdGenCurveLayoutValid(publication.geometry.layoutMetadata)) {
+            Fail(reason, "device geometry has invalid curve topology metadata");
+            return {};
+        }
         publication.tool = std::move(info.tool);
         publication.channels = std::move(channels);
         publication.owner = std::move(generationOwner);
@@ -493,7 +500,7 @@ VulkanGenerationAccess GetVulkanGenerationAccess(
     if (!owner || !owner->ProducerReady() || !owner->source() || !owner->domain()) return {};
     auto context = owner->source()->context();
     auto queue = owner->domain()->QueueOwnerForIngress();
-    if (!context || !queue || generation->Identity().backend != UsdGenDeviceBackend::Vulkan ||
+    if (!context || !queue || generation->Identity().backend != UsdGenVulkanBackendId() ||
         generation->Identity().deviceIndex != context->physicalIndex()) return {};
     return {generation, std::move(context), std::move(queue), owner->domain()};
 }
@@ -502,7 +509,7 @@ VulkanGenerationLease AcquireVulkanGeneration(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     UsdGenDeviceStream queueStream) noexcept
 {
-    if (!generation || generation->Identity().backend != UsdGenDeviceBackend::Vulkan) return {};
+    if (!generation || generation->Identity().backend != UsdGenVulkanBackendId()) return {};
     auto owner = std::dynamic_pointer_cast<VulkanGenerationOwner const>(generation->Owner());
     if (!owner || queueStream != QueueToken(*owner->source()->context())) return {};
     auto lease = generation->AcquireLease(queueStream);

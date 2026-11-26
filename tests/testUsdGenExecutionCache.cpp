@@ -1,4 +1,5 @@
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionCache.h"
@@ -119,7 +120,7 @@ std::shared_ptr<const UsdGenGeneration> DevicePayload(
     int64_t id, std::shared_ptr<const UsdGenDeviceOwner> owner)
 {
     UsdGenDeviceGeneration::CreateInfo info;
-    info.identity = {UsdGenDeviceBackend::CpuReference, 0,
+    info.identity = {kUsdGenBackendCpu, 0,
                      static_cast<uint64_t>(id + 1)};
     info.owner = std::move(owner);
     auto generation = std::make_shared<UsdGenGeneration>();
@@ -175,12 +176,12 @@ int main()
           "map generation change changes tuple identity");
 
     UsdGenExecutionContext cuda{
-        UsdGenDeviceBackend::Cuda, 8, 2, 17};
+        usdGenTestUtils::kTestBackendA, 8, 2, 17};
     auto key = UsdGenExecutionCacheKey::Make(
         usdGenUsd::KeyOf(desc.description), {11, 22}, versions, cuda, 99, 24.0);
     Check(key.IsValid(), "valid input tuple produces an admissible cache key");
     auto unknownContext = key;
-    unknownContext.context.backend = UsdGenDeviceBackend::Unknown;
+    unknownContext.context.backend = UsdGenBackendId::Invalid;
     Check(!unknownContext.IsValid(), "unknown backend context is not cache-admissible");
     auto same = key;
     Check(same == key && same.Hash() == key.Hash(),
@@ -189,7 +190,7 @@ int main()
     Check(same != key, "capability version partitions cache keys");
     same = key; same.context.deviceIndex++;
     Check(same != key, "device identity partitions cache keys");
-    same = key; same.context.backend = UsdGenDeviceBackend::Metal;
+    same = key; same.context.backend = usdGenTestUtils::kTestBackendB;
     Check(same != key, "backend identity partitions cache keys");
     same = key; same.context.evaluationContext = UsdGenContext::Render;
     Check(same != key, "interactive and render contexts partition cache keys");
@@ -274,7 +275,7 @@ int main()
     using Domain = UsdGenExecutionCacheDomain;
     auto domain = std::make_shared<Domain>(
         UsdGenExecutionCacheDomainKey{
-            UsdGenDeviceBackend::CpuReference, -1, 91},
+            kUsdGenBackendCpu, -1, 91},
         2 * sizeof(UsdGenGeneration));
     auto domainPayload = [](int id) {
         auto generation = std::make_shared<UsdGenGeneration>();
@@ -283,7 +284,7 @@ int main()
     };
     UsdGenExecutionCacheKey domainKey = keyA;
     domainKey.context = UsdGenExecutionContext{
-        UsdGenDeviceBackend::CpuReference, 0, -1, domain->Epoch(),
+        kUsdGenBackendCpu, 0, -1, domain->Epoch(),
         UsdGenContext::Interactive};
     auto firstDomainPayload = domainPayload(71);
     Check(domain->Insert(domainKey, firstDomainPayload,
@@ -498,13 +499,13 @@ int main()
     domainLease.reset();
 
     auto acquiredDomain = Domain::AcquireShared(
-        {UsdGenDeviceBackend::CpuReference, -1, 0x5245474953545259ull}, 128);
+        {kUsdGenBackendCpu, -1, 0x5245474953545259ull}, 128);
     auto sameAcquiredDomain = Domain::AcquireShared(
-        {UsdGenDeviceBackend::CpuReference, -1, 0x5245474953545259ull}, 128);
+        {kUsdGenBackendCpu, -1, 0x5245474953545259ull}, 128);
     auto conflictingBudgetDomain = Domain::AcquireShared(
-        {UsdGenDeviceBackend::CpuReference, -1, 0x5245474953545259ull}, 64);
+        {kUsdGenBackendCpu, -1, 0x5245474953545259ull}, 64);
     auto otherContextDomain = Domain::AcquireShared(
-        {UsdGenDeviceBackend::CpuReference, -1, 0x524547495354525aull}, 128);
+        {kUsdGenBackendCpu, -1, 0x524547495354525aull}, 128);
     Check(acquiredDomain && acquiredDomain == sameAcquiredDomain &&
               !conflictingBudgetDomain && otherContextDomain &&
               otherContextDomain != acquiredDomain,
@@ -516,10 +517,10 @@ int main()
     // owner destructor may inspect the same domain during backend retirement.
     auto reentrantDomain = std::make_shared<Domain>(
         UsdGenExecutionCacheDomainKey{
-            UsdGenDeviceBackend::CpuReference, 0, 0x5245454e5452414eull}, 1);
+            kUsdGenBackendCpu, 0, 0x5245454e5452414eull}, 1);
     UsdGenExecutionCacheKey reentrantDomainKey = keyA;
     reentrantDomainKey.context = {
-        UsdGenDeviceBackend::CpuReference, 1, 0, reentrantDomain->Epoch(),
+        kUsdGenBackendCpu, 1, 0, reentrantDomain->Epoch(),
         UsdGenContext::Interactive};
     std::weak_ptr<Domain> weakReentrantDomain = reentrantDomain;
     std::atomic<int> reentrantDomainDestructions{0};
@@ -679,7 +680,7 @@ int main()
     // remains the immutable COW data retained by the leader's accepted entry.
     auto sharedCpuDomain = std::make_shared<UsdGenExecutionCacheDomain>(
         UsdGenExecutionCacheDomainKey{
-            UsdGenDeviceBackend::CpuReference, -1, 0x435055434f57ull},
+            kUsdGenBackendCpu, -1, 0x435055434f57ull},
         1024 * 1024);
     UsdGenSessionCooker leaderCooker(2, 1024 * 1024, sharedCpuDomain);
     UsdGenSessionCooker followerCooker(2, 1024 * 1024, sharedCpuDomain);

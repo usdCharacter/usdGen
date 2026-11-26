@@ -6,6 +6,7 @@
 // Covers usdGen:mask specifically, because that is the operator envelope the
 // UsdGenMaskAPI block was replaced with, but the resolution is generic.
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -171,7 +172,7 @@ int main()
     // names the prim: two outputs and no outputs:result cannot be resolved.
     {
         UsdGenGraphDesc ambiguous = stageDesc;
-        ambiguous.executionBackend = UsdGenExecutionBackend::Cuda;
+        ambiguous.executionBackend = usdGenTestUtils::Backend("cuda");
         Check(ambiguous.expressions.size() == 1, "ambiguity fixture has one expression");
         if (ambiguous.expressions.size() == 1) {
             UsdGenExpressionOutputDesc first;

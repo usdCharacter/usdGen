@@ -2,14 +2,15 @@
 //
 // This interface is deliberately native-runtime-free.  It lets adapters
 // select a stable backend/device cache identity and report an unavailable
-// factory without inventing a CPU fallback or importing CUDA, Metal, or
-// Vulkan SDK headers.
+// factory without inventing a CPU fallback or importing a native SDK header.
+// Backends are registered handles (registries/backend.h).
 #ifndef USDGEN_EXECUTION_BACKEND_H
 #define USDGEN_EXECUTION_BACKEND_H
 
 #include "usdGen/executionCache.h"
 #include "usdGen/executionPlan.h"
 #include "usdGen/executionPipeline.h"
+#include "usdGen/registries/backend.h"
 
 #include <cstdint>
 #include <exception>
@@ -30,13 +31,10 @@ enum class UsdGenExecutionBackendAvailability : uint8_t {
 
 /// Stable description of one selectable execution backend.  `available`
 /// describes an executable path for the backend, not whether a particular
-/// device is currently present.  CPU and CUDA currently expose this through
-/// legacy Session-owned paths while their adapter registrations are migrated;
-/// Metal and Vulkan are explicit unavailable entries until native adapters are
-/// linked.
+/// device is currently present.  The CPU is built in; every other backend
+/// answers from the def its library registered.
 struct UsdGenExecutionBackendContract {
-    UsdGenExecutionBackend backend = UsdGenExecutionBackend::Invalid;
-    UsdGenDeviceBackend deviceBackend = UsdGenDeviceBackend::Unknown;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     const char *name = "invalid";
     const char *unavailabilityReason = "invalid execution backend";
     uint32_t capabilityVersion = 0;
@@ -54,16 +52,16 @@ struct UsdGenExecutionBackendContract {
 /// Immutable adapter-owned execution plan boundary.  Metadata is inspectable
 /// by generic schedulers; payload is deliberately opaque so a backend can
 /// retain compiled programs, command encoders, or other native state without
-/// placing a CUDA, Metal, or Vulkan type in this interface.
+/// placing a native type in this interface.
 class UsdGenExecutionPlanHandle {
 public:
     static std::shared_ptr<const UsdGenExecutionPlanHandle> Create(
-        UsdGenExecutionBackend backend,
+        UsdGenBackendId backend,
         std::shared_ptr<const UsdGenExecutionPlanMetadata> metadata,
         std::shared_ptr<const void> payload = {},
         std::string *reason = nullptr);
 
-    UsdGenExecutionBackend Backend() const noexcept { return backend_; }
+    UsdGenBackendId Backend() const noexcept { return backend_; }
     std::shared_ptr<const UsdGenExecutionPlanMetadata> Metadata() const noexcept {
         return metadata_;
     }
@@ -71,13 +69,13 @@ public:
 
 private:
     UsdGenExecutionPlanHandle(
-        UsdGenExecutionBackend backend,
+        UsdGenBackendId backend,
         std::shared_ptr<const UsdGenExecutionPlanMetadata> metadata,
         std::shared_ptr<const void> payload) noexcept
         : backend_(backend), metadata_(std::move(metadata)),
           payload_(std::move(payload)) {}
 
-    UsdGenExecutionBackend backend_ = UsdGenExecutionBackend::Invalid;
+    UsdGenBackendId backend_ = UsdGenBackendId::Invalid;
     std::shared_ptr<const UsdGenExecutionPlanMetadata> metadata_;
     std::shared_ptr<const void> payload_;
 };
@@ -111,7 +109,7 @@ public:
     virtual void Shutdown() noexcept = 0;
 };
 
-/// Backend implementation/factory seam.  CUDA, Metal, and Vulkan adapters
+/// Backend implementation/factory seam.  Device adapters
 /// own their concrete plans/resources and may translate the neutral plan into
 /// native work.  Compile is immutable; CreateExecutor establishes the
 /// owner-private mutable boundary used for submission.  Registration does not
@@ -142,35 +140,26 @@ void UsdGenFreezeExecutionBackendRegistry() noexcept;
 /// Look up the registered adapter without loading a native runtime.  A null
 /// result means the backend has no linked factory; callers must fail closed.
 std::shared_ptr<const UsdGenExecutionBackendAdapter>
-FindUsdGenExecutionBackendAdapter(UsdGenExecutionBackend) noexcept;
+FindUsdGenExecutionBackendAdapter(UsdGenBackendId) noexcept;
 
-/// Canonical lowercase token used by the descriptor/imaging transport.
-const char *UsdGenExecutionBackendName(UsdGenExecutionBackend) noexcept;
-
-/// Parse only canonical backend tokens. Empty/unknown tokens return Invalid;
-/// callers must not silently select CpuReference on parse failure.
-UsdGenExecutionBackend ParseUsdGenExecutionBackend(TfToken const&) noexcept;
-
-/// Return the backend-neutral factory/capability contract. This function does
-/// not load a native runtime and never claims that an unavailable backend can
-/// execute. CPU and CUDA retain their legacy built-in contracts while their
-/// current Session paths are being migrated; therefore Available does not
-/// imply FindUsdGenExecutionBackendAdapter() is non-null for those two
-/// transitional backends.
+/// Return the backend-neutral factory/capability contract: an adapter's, the
+/// built-in CPU's, or the registered def's. It does not load a native runtime
+/// and never claims that an unavailable backend can execute; Available does
+/// not imply FindUsdGenExecutionBackendAdapter() is non-null.
 UsdGenExecutionBackendContract GetUsdGenExecutionBackendContract(
-    UsdGenExecutionBackend) noexcept;
+    UsdGenBackendId) noexcept;
 
 /// Validate a requested backend at the compiler/adapter boundary. For an
 /// unavailable factory this appends a precise diagnostic and returns false.
-bool ValidateUsdGenExecutionBackend(UsdGenExecutionBackend,
+bool ValidateUsdGenExecutionBackend(UsdGenBackendId,
                                     UsdGenDiagnostics * = nullptr);
 
 /// Build the cache context from the requested backend's stable identity. The
 /// backend/device fields remain explicit even when no executable factory is
-/// installed, so a future Metal/Vulkan adapter cannot collide with CPU/CUDA
-/// cache entries. `deviceGeneration` is supplied by the native adapter.
+/// installed, so two backends never share cache entries. `deviceGeneration`
+/// is supplied by the native adapter.
 UsdGenExecutionContext MakeUsdGenExecutionContext(
-    UsdGenExecutionBackend backend, uint32_t capabilityVersion,
+    UsdGenBackendId backend, uint32_t capabilityVersion,
     int32_t deviceIndex, uint64_t deviceGeneration,
     UsdGenContext evaluationContext = UsdGenContext::Interactive) noexcept;
 

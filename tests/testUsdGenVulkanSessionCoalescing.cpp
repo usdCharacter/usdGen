@@ -9,6 +9,7 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "usdGen/executionPipeline.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/executionResources.h"
@@ -197,7 +198,7 @@ void CheckPlanes(std::shared_ptr<NativeOwner> const& native,
 // this here makes the Vulkan proof independent of device-only fixture tests.
 static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     if (!out) return false;
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     auto compiled = usdGenUsd::Compile(compiler, desc, &graph);
@@ -228,7 +229,7 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
 static UsdGenGraphDesc MakeProviderDescriptor() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/SessionProvider");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
     desc.defaultWidth = .5f;
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/SessionProvider/curves");
@@ -392,7 +393,7 @@ int main(int argc, char** argv) {
     auto executor = VulkanPlanExecutor::Create({fixture.domain, pipeline, preparer}, &reason);
     if (!executor) { std::fprintf(stderr, "%s\n", reason.c_str()); return 1; }
     UsdGenSessionDeviceIdentity identity;
-    identity.backend = UsdGenDeviceBackend::Vulkan;
+    identity.backend = usdGenTestUtils::Backend("vulkan");
     identity.deviceIndex = fixture.context->physicalIndex();
     identity.capabilityVersion = 1;
     identity.logicalContextIdentity = reinterpret_cast<uintptr_t>(fixture.context.get());
@@ -404,7 +405,7 @@ int main(int argc, char** argv) {
     if (!provider) { std::fprintf(stderr, "%s\n", reason.c_str()); return 1; }
     auto countedProvider = std::make_shared<CountingProvider>(provider);
     auto cacheDomain = UsdGenExecutionCacheDomain::AcquireShared(
-        {UsdGenDeviceBackend::Vulkan, identity.deviceIndex,
+        {usdGenTestUtils::Backend("vulkan"), identity.deviceIndex,
          identity.logicalContextIdentity}, size_t{64} << 20);
     auto leaderRegistered = std::make_shared<std::promise<bool>>();
     auto followerRegistered = std::make_shared<std::promise<bool>>();

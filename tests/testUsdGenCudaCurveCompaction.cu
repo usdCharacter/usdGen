@@ -1,4 +1,5 @@
 #include "gpu/curveCompaction.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"
 
 #include <atomic>
@@ -109,7 +110,7 @@ int main() {
         int resourceDevice = -1;
         CHECK(cudaGetDevice(&resourceDevice) == cudaSuccess);
         auto resourcePool = FindUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Cuda, resourceDevice});
+            {usdGen::UsdGenCudaBackendId(), resourceDevice});
         CHECK(resourcePool);
         auto const scanBaseline = resourcePool->Snapshot();
         constexpr size_t fixedScratch = sizeof(int) + 2 * sizeof(uint32_t) +

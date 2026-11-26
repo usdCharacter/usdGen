@@ -3,6 +3,7 @@
 #define USDGEN_EXECUTION_RESOURCES_H
 
 #include "usdGen/api/export.h"
+#include "usdGen/registries/handles.h"
 
 #include <array>
 #include <cstddef>
@@ -39,7 +40,7 @@ class UsdGenExecutionMemoryReservation;
 struct UsdGenExecutionMemoryReservationState;
 
 // Move-only allocation charge. It must be retained by the allocation itself,
-// not by the operation which happened to allocate it.  A quarantined CUDA
+// not by the operation which happened to allocate it.  A quarantined device
 // allocation deliberately retains its permit because its storage cannot be
 // proven free.
 class USDGEN_CORE_API UsdGenExecutionResourcePermit {
@@ -145,9 +146,8 @@ private:
 // pool across workspaces, images and test executables without application
 // locks. The first configuration wins; an explicit mismatched configuration
 // fails instead of creating a second budget for the same physical device.
-enum class UsdGenExecutionResourceBackend : uint8_t { Cuda, Metal, Vulkan };
 struct UsdGenExecutionResourceDevice {
-    UsdGenExecutionResourceBackend backend;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     int device = -1;
 };
 struct UsdGenExecutionResourceConfig {

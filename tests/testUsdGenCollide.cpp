@@ -13,6 +13,7 @@
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
@@ -2148,7 +2149,7 @@ static void CheckCudaRejectsCollide()
           "CUDA capability matrix has no UsdGenCollide row");
     UsdGenGraphDesc desc = CollideDesc({{TfToken("offset"), VtValue(0.5f), false},
                                         {TfToken("pushAmount"), VtValue(1.0f), false}});
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenDiagnostics diag;
     auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diag);
     Check(plan == nullptr, "CUDA planner rejects a Collide graph");

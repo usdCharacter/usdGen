@@ -14,14 +14,13 @@
 #include "usdGen/ops/width.h"
 #include "usdGen/ops/widthBlend.h"
 #include "usdGen/registries/registrar.h"
+#include "usdGenVulkan/backendId.h"
 #include "usdGen/registries/token.h"
 
 #include <atomic>
 
 namespace usdGen {
 namespace {
-
-constexpr UsdGenBackendId kVulkan = UsdGenBackendIdOf(uint8_t(UsdGenExecutionBackend::Vulkan));
 
 constexpr UsdGenParamSlot kCurveSourceMap[vulkanP::kCsCount] = {
     curveSourceP::kUseRest, curveSourceP::kUsdGenUseRest, curveSourceP::kResampleTo,
@@ -79,7 +78,7 @@ void Register(UsdGenRegistrar &r, UsdGenOpId op, UsdGenVulkanStage stage,
     k.stage = uint16_t(stage);
     k.paramMap = paramMap;
     k.profileLut = profileLut;
-    r.RegisterKernel(op, kVulkan, k);
+    r.RegisterKernel(op, UsdGenVulkanBackendId(), k);
 }
 
 }  // namespace
@@ -103,7 +102,7 @@ UsdGenVulkanKernel UsdGenVulkanKernelOf(TfToken const &type) noexcept
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenOpId const id = ops.Find(type);
     if (id == UsdGenOpId::Invalid) return {};
-    UsdGenKernelDef const *kernel = UsdGenBackendRegistry::Get().Find(id, kVulkan);
+    UsdGenKernelDef const *kernel = UsdGenBackendRegistry::Get().Find(id, UsdGenVulkanBackendId());
     if (!kernel) return {};
     return {&ops.Record(id), kernel};
 }
@@ -112,8 +111,8 @@ UsdGenVulkanKernel UsdGenVulkanKernelFor(UsdGenVulkanStage s) noexcept
 {
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenBackendRegistry const &kernels = UsdGenBackendRegistry::Get();
-    for (UsdGenOpId id : kernels.Ops(kVulkan)) {
-        UsdGenKernelDef const *kernel = kernels.Find(id, kVulkan);
+    for (UsdGenOpId id : kernels.Ops(UsdGenVulkanBackendId())) {
+        UsdGenKernelDef const *kernel = kernels.Find(id, UsdGenVulkanBackendId());
         if (kernel && kernel->stage == uint16_t(s)) return {&ops.Record(id), kernel};
     }
     return {};

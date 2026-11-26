@@ -554,14 +554,14 @@ Rows CookSubject(std::string const &label, DescAt const &at, int *topologyEdits,
     for (double f : frames) {
         UsdGenGraphDesc desc = at(f);
         desc.time = f;
-        desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+        desc.executionBackend = kUsdGenBackendCpu;
         Step(&session, desc, "f" + Num(f), f == 0.0 ? UsdGenCommitReason::LiveOverride
                                                      : UsdGenCommitReason::SetTime,
              label, &rows);
     }
     UsdGenGraphDesc desc = at(12.0);
     desc.time = 12.0;
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     std::string const value = ValueEdit(&desc);
     rows.Add("value edit", value.empty() ? "n/a" : value);
     if (!value.empty())

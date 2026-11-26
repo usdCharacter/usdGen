@@ -3,6 +3,7 @@
 // End-to-end parity through the two production Session executors. Device
 // readback below is confined to the test; no host geometry oracle is published.
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
@@ -65,7 +66,7 @@ struct Packet {
 using DeviceGeneration = std::shared_ptr<const UsdGenDeviceGeneration>;
 
 Packet ReadCuda(DeviceGeneration const& generation) {
-    CHECK(generation && generation->Identity().backend == UsdGenDeviceBackend::Cuda);
+    CHECK(generation && generation->Identity().backend == usdGenTestUtils::Backend("cuda"));
     Packet packet; packet.geometry = generation->Geometry();
     cudaStream_t stream = nullptr;
     CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) == cudaSuccess);
@@ -102,7 +103,7 @@ Packet ReadCuda(DeviceGeneration const& generation) {
 }
 
 Packet ReadVulkan(DeviceGeneration const& generation) {
-    CHECK(generation && generation->Identity().backend == UsdGenDeviceBackend::Vulkan);
+    CHECK(generation && generation->Identity().backend == usdGenTestUtils::Backend("vulkan"));
     auto access = GetVulkanGenerationAccess(generation); CHECK(access);
     auto context = access.context; auto device = context->device();
     previousContexts.push_back(context);
@@ -328,8 +329,8 @@ struct Pair {
     void Set(UsdGenGraphDesc desc) {
         std::fprintf(stderr, "Session parity terminal: %s\n", desc.terminal.GetText());
         cuda.SetDevicePublicationEnabled(true); vulkan.SetDevicePublicationEnabled(true);
-        desc.executionBackend = UsdGenExecutionBackend::Cuda; usdGenUsd::SetGraphDesc(cuda, desc);
-        desc.executionBackend = UsdGenExecutionBackend::Vulkan; usdGenUsd::SetGraphDesc(vulkan, desc);
+        desc.executionBackend = usdGenTestUtils::Backend("cuda"); usdGenUsd::SetGraphDesc(cuda, desc);
+        desc.executionBackend = usdGenTestUtils::Backend("vulkan"); usdGenUsd::SetGraphDesc(vulkan, desc);
     }
     Packet Run(double frame = 1, float tolerance = 0, bool generatedRest = false) {
         std::fprintf(stderr, "Session parity frame: %g\n", frame);

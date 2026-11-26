@@ -294,8 +294,8 @@ struct UsdGenSession::State {
                 deviceContextLossWorkQueued = false;
         }
     }
-    void RecordDeviceContextLost(UsdGenDeviceBackend backend, int32_t deviceIndex) {
-        if (backend == UsdGenDeviceBackend::Unknown || deviceIndex < -1)
+    void RecordDeviceContextLost(UsdGenBackendId backend, int32_t deviceIndex) {
+        if (backend == UsdGenBackendId::Invalid || deviceIndex < -1)
             throw std::invalid_argument("invalid device context-loss target");
         if (nextDeviceContextLossSerial == std::numeric_limits<uint64_t>::max())
             throw std::overflow_error("device context-loss serial exhausted");
@@ -346,7 +346,9 @@ std::unique_ptr<UsdGenSession> CreateUsdGenDeviceSession(int limit,
     if (!provider || !domain) return {};
     auto const identity = provider->Identity();
     auto const& key = domain->Key();
-    if (identity.backend != UsdGenDeviceBackend::Vulkan ||
+    // Only a backend that owns its logical contexts and revisions shares one.
+    UsdGenBackendDef const *def = UsdGenGetBackend(identity.backend);
+    if (!def || !(def->flags & kUsdGenBackendAuthoritativeRevisions) ||
         !identity.logicalContextIdentity || key.backend != identity.backend ||
         key.deviceIndex != identity.deviceIndex ||
         key.contextIdentity != identity.logicalContextIdentity) return {};
@@ -403,9 +405,9 @@ bool UsdGenSession::PostDirty(UsdGenPendingDirty pending) {
     });
 }
 bool UsdGenSession::PostDeviceContextLost(
-    UsdGenDeviceBackend backend, int32_t deviceIndex)
+    UsdGenBackendId backend, int32_t deviceIndex)
 {
-    if (backend == UsdGenDeviceBackend::Unknown || deviceIndex < -1) return false;
+    if (backend == UsdGenBackendId::Invalid || deviceIndex < -1) return false;
     return _state->pipeline.PostCommand([this, backend, deviceIndex] {
         _state->RecordDeviceContextLost(backend, deviceIndex);
     });
@@ -421,9 +423,9 @@ void UsdGenSession::SetDevicePublicationEnabled(bool value) {
     _state->pipeline.InvokeOwner([this, value] { _state->SetDevicePublication(value); });
 }
 void UsdGenSession::NotifyDeviceContextLost(
-    UsdGenDeviceBackend backend, int32_t deviceIndex)
+    UsdGenBackendId backend, int32_t deviceIndex)
 {
-    if (backend == UsdGenDeviceBackend::Unknown || deviceIndex < -1)
+    if (backend == UsdGenBackendId::Invalid || deviceIndex < -1)
         throw std::invalid_argument("invalid device context-loss target");
     _state->pipeline.InvokeOwner([this, backend, deviceIndex] {
         _state->RecordDeviceContextLost(backend, deviceIndex);
@@ -737,7 +739,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 reply->Finish(Snapshot(), outcome);
             };
             std::shared_ptr<DeviceReturnRelay> deviceReturn;
-            if (state.desc->executionBackend != UsdGenExecutionBackend::CpuReference &&
+            if (state.desc->executionBackend != kUsdGenBackendCpu &&
                 executor->CanRoute(state.desc->executionBackend)) {
                 deviceReturn = std::make_shared<DeviceReturnRelay>();
                 deviceReturn->owner = &state.pipeline;

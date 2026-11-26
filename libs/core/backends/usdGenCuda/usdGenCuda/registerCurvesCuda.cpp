@@ -20,9 +20,6 @@
 
 namespace usdGen {
 
-static_assert(kUsdGenCudaBackend == UsdGenBackendIdOf(uint8_t(UsdGenExecutionBackend::Cuda)),
-              "CUDA backend id is the descriptor backend value");
-
 namespace {
 
 using namespace cudaP;
@@ -63,7 +60,7 @@ void Add(UsdGenRegistrar &r, UsdGenOpId op, UsdGenCudaStage stage, uint32_t vers
     k.flags = flags;
     k.paramMap = paramMap;
     if (stage == UsdGenCudaStage::Width) k.profileLut = &UsdGenWidthBezierLut;
-    r.RegisterKernel(op, kUsdGenCudaBackend, k);
+    r.RegisterKernel(op, UsdGenCudaBackendId(), k);
 }
 
 }  // namespace
@@ -96,7 +93,7 @@ void UsdGenRegisterCurvesCuda(UsdGenRegistrar &r, UsdGenCudaKernelOps const &ops
 UsdGenKernelDef const *UsdGenCudaKernel(UsdGenOpId op) noexcept
 {
     return op == UsdGenOpId::Invalid ? nullptr
-                                     : UsdGenBackendRegistry::Get().Find(op, kUsdGenCudaBackend);
+                                     : UsdGenBackendRegistry::Get().Find(op, UsdGenCudaBackendId());
 }
 
 UsdGenKernelDef const *UsdGenCudaKernel(UsdGenOpNode const &node) noexcept

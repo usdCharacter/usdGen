@@ -6,6 +6,7 @@
 // rows attach to. Without the CUDA toolkit the backend registers unavailable,
 // so its contract keeps the capability version.
 #include "usdGenCuda/export.h"
+#include "usdGenCuda/backendId.h"
 #include "usdGenCuda/cudaExecution.h"
 #include "usdGenCuda/cudaStages.h"
 #include "usdGenCurves/ops/kernelOps.h"
@@ -15,12 +16,15 @@
 #include "usdGenCuda/cudaSessionProvider.h"
 #endif
 
+#include <atomic>
 #include <memory>
 #include <string>
 
 using namespace usdGen;
 
 namespace {
+
+std::atomic<UsdGenBackendId> gCudaBackend{UsdGenBackendId::Invalid};
 
 #if !defined(USDGEN_ENABLE_CUDA)
 bool Unavailable(std::string *reason)
@@ -38,6 +42,12 @@ std::shared_ptr<UsdGenSessionDeviceProvider> NoProvider(UsdGenBackendProviderDes
 #endif
 
 }  // namespace
+
+UsdGenBackendId usdGen::UsdGenCudaBackendId() noexcept
+{
+    UsdGenBackendId const id = gCudaBackend.load(std::memory_order_acquire);
+    return id != UsdGenBackendId::Invalid ? id : UsdGenFindBackend("cuda");
+}
 
 extern "C" USDGEN_CUDA_API void usdGenRegister(UsdGenRegistrar &r);
 
@@ -58,7 +68,7 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
     def.unavailableReason = "CUDA support was not enabled in this build";
     def.createProvider = &NoProvider;
 #endif
-    r.RegisterBackend(def);
+    gCudaBackend.store(r.RegisterBackend(def), std::memory_order_release);
     UsdGenCurvesKernelOps const &ops = UsdGenCurvesBuiltinKernelOps();
     UsdGenCudaKernelOps cuda;
     cuda.scatter = ops.scatter;

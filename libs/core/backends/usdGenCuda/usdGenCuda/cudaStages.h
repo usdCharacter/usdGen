@@ -5,6 +5,7 @@
 #pragma once
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/handles.h"
+#include "usdGenCuda/backendId.h"
 
 #include <cstdint>
 
@@ -60,9 +61,6 @@ struct UsdGenCudaKernelOps {
 
 /// Registers the CUDA kernel rows, in capability-matrix order.
 void UsdGenRegisterCurvesCuda(UsdGenRegistrar &, UsdGenCudaKernelOps const &);
-
-/// == uint8_t(UsdGenExecutionBackend::Cuda) (graphDesc.h).
-constexpr UsdGenBackendId kUsdGenCudaBackend = UsdGenBackendId(1);
 
 /// The CUDA row of an op or of a node's op; null when CUDA cannot run it.
 /// Never interns.

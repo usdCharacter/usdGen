@@ -1,6 +1,7 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
 // with the accepted device generation, including tool point revisions.
 #include "usdGenCurves/publish/curvePublication.h"
+#include "testBackend.h"
 #include "usdGen/gpu/deviceBuffer.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
@@ -26,7 +27,7 @@ static UsdGenGraphDesc MakeDesc()
 {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/Presentation");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     desc.xformMatrix.SetTranslate(GfVec3d(1.0, 2.0, 3.0));
     desc.purpose = TfToken("render");
     desc.visibility = TfToken("invisible");

@@ -45,11 +45,6 @@ UsdGenEngineTokens *MakeEngineTokens()
     t->scalpShadow = i("scalpShadow");
     t->materialScalpShadow = i("material_scalpShadow");
     t->result = i("result");
-    t->cpu = i("cpu");
-    t->cpuReference = i("cpuReference");
-    t->cuda = i("cuda");
-    t->metal = i("metal");
-    t->vulkan = i("vulkan");
     t->varying = i("varying");
     t->rightHanded = i("rightHanded");
     t->edgeAndCorner = i("edgeAndCorner");

@@ -8,6 +8,7 @@
 // tag written to and read back from the block), and accounting must return to
 // zero with the cache gauge equal to the idle bytes.
 #include "usdGen/gpu/deviceBuffer.h"
+#include "testBackend.h"
 #include "usdGen/gpu/deviceResources.h"
 
 #include <atomic>
@@ -82,7 +83,7 @@ int main() {
     int device = -1;
     if (cudaGetDevice(&device) != cudaSuccess) return 77;
     CHECK(gpu::ConfigureCudaExecutionResources(device, {size_t{1} << 30, 0}));
-    auto resources = FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda, device});
+    auto resources = FindUsdGenExecutionResourcePool({usdGenTestUtils::Backend("cuda"), device});
     CHECK(resources && resources->Snapshot().usedBytes == 0);
     std::vector<std::thread> threads;
     for (uint32_t t = 0; t != kThreads; ++t) threads.emplace_back(Worker, device, t);

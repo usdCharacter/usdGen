@@ -15,6 +15,7 @@
 //   (4) CUDA-backend explicit rejection: Wind is CPU-only (no capability
 //       matrix row, like Clump), so ValidateCudaGraph refuses a Wind graph.
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
@@ -995,7 +996,7 @@ static void CheckEdgesFailClosed()
 static void CheckCudaRejectsWind()
 {
     UsdGenGraphDesc desc = WindDesc({{TfToken("constStrength"), VtValue(2.0f), false}});
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     Check(GetCudaExecutionCapabilityMatrix().Find(TfToken("UsdGenWind")) == nullptr,
           "Wind has no CUDA capability row (CPU-only, like Clump)");
     UsdGenDiagnostics cudaDiag;

@@ -21,6 +21,7 @@
 // in every build. Exits 77 when either backend is unavailable, after running
 // the available Vulkan oracle checks. Available-device failures fail the test.
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/resampleVkPipeline.h"
 #include "usdGen/vulkan/sourceGeneration.h"
@@ -303,7 +304,7 @@ struct Lifetime {
 static bool NeutralResampleControl() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom");
-    desc.executionBackend = UsdGenExecutionBackend::Vulkan;
+    desc.executionBackend = usdGenTestUtils::Backend("vulkan");
     UsdGenCurveSetDesc curves;
     curves.path = SdfPath("/Groom/C3");
     curves.role = UsdGenLane::Chunked;
@@ -491,7 +492,7 @@ int main(int argc, char** argv) {
         CHECK(cudaSetDevice(0) == cudaSuccess);
         using namespace cudaTwin;
         CHECK(ConfigureCudaExecutionResources(0, {size_t{16} << 20, 0}));
-        UsdGenExecutionResourceDevice const resourceKey{UsdGenExecutionResourceBackend::Cuda, 0};
+        UsdGenExecutionResourceDevice const resourceKey{usdGenTestUtils::Backend("cuda"), 0};
         auto cudaResources = FindUsdGenExecutionResourcePool(resourceKey);
         auto cudaRetirement = GetOrCreateUsdGenExecutionRetirementService(resourceKey, {64});
         CHECK(cudaResources && cudaRetirement);

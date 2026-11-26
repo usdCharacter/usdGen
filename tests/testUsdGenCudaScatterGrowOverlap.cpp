@@ -7,6 +7,7 @@
 // scans. A scan failure there must report exactly ValidateRoots' status,
 // release all accounting, and leave the object clean and reusable.
 #include "gpu/scatterGrow.h"
+#include "testBackend.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGen/executionResources.h"
 
@@ -58,7 +59,7 @@ int main() {
     ScatterGrowRequirements requirements;
     CHECK(GetScatterGrowRequirements(kBig, controls.cvCount, &requirements) == ScatterGrowStatus::Ok);
     CHECK(ConfigureCudaExecutionResources(device, {requirements.peakBytes + (size_t{64} << 20), 0}));
-    auto resources=FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda,device}); CHECK(resources);
+    auto resources=FindUsdGenExecutionResourcePool({usdGenTestUtils::Backend("cuda"),device}); CHECK(resources);
     auto const baseline=resources->Snapshot();
     cudaStream_t stream=nullptr; CHECK(cudaStreamCreate(&stream)==cudaSuccess);
     {

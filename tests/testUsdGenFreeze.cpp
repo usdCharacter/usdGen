@@ -20,6 +20,7 @@
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
@@ -846,7 +847,7 @@ static UsdGenGraphDesc CudaFreezeDesc()
 {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom/Hair");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/Scalp");
     surface.restPoints = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}};

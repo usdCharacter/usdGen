@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/expressions/context.h"
 #include <cstdio>
@@ -66,7 +67,7 @@ int main()
     Check(!usdGenUsd::Recompile(compiler, unknown,&graph).ok && preservesGraph(),
           "failed incremental compilation leaves graph contents intact");
     auto invalidBackend = baseline;
-    invalidBackend.executionBackend = static_cast<UsdGenExecutionBackend>(255);
+    invalidBackend.executionBackend = static_cast<UsdGenBackendId>(255);
     Check(!usdGenUsd::Compile(compiler, invalidBackend,&graph).ok && preservesGraph(),
           "invalid backend cannot become CPU reference execution");
     auto invalidTransport = baseline;
@@ -89,7 +90,7 @@ int main()
     expectFail(duplicate,"duplicate consumer fails closed", "duplicate expression consumer");
     auto stringLike = valid; stringLike.expressions[0].outputs[0].shape.scalar=expr::ScalarType::Invalid;
     expectFail(stringLike,"string-like output fails closed", "type/shape");
-    auto cuda = valid; cuda.executionBackend=UsdGenExecutionBackend::Cuda;
+    auto cuda = valid; cuda.executionBackend=usdGenTestUtils::Backend("cuda");
     expectFail(cuda,"CUDA backend fails closed without runtime evaluator", "CUDA");
     auto badDomain = valid; badDomain.nodes[0].expressionBindings[0].domain=expr::Domain::All;
     expectFail(badDomain,"invalid combined domain fails closed", "invalid expression evaluation domain");

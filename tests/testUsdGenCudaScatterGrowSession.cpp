@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
@@ -24,7 +25,7 @@ using namespace usdGen;
 static UsdGenGraphDesc Desc(bool nonYAxisBinormal = false) {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Groom/ScatterGrow");
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     d.defaultWidth = .025f;
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/Scalp");
@@ -60,7 +61,7 @@ static UsdGenGraphDesc Desc(bool nonYAxisBinormal = false) {
 }
 
 static bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     if (!usdGenUsd::Compile(compiler, desc, &graph).ok) return false;

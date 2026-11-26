@@ -51,7 +51,7 @@ bool Cook(UsdStageRefPtr const &stage, UsdGenCurveBuffer *out, std::string const
     UsdGenGraphDesc const desc =
         usdGenImaging::BuildGraphDescFromStage(stage, SdfPath(kDescription));
     if (desc.nodes.empty() ||
-        desc.executionBackend != UsdGenExecutionBackend::CpuReference ||
+        desc.executionBackend != kUsdGenBackendCpu ||
         desc.expressions.size() != 2) {
         Check(false, label + ": the stage must yield a CPU-lane graph with two expressions");
         return false;

@@ -16,7 +16,7 @@
 #include "usdGenUsd/resolve/sdfValueShape.h"
 
 #include "pxr/base/trace/trace.h"
-#include "usdGen/executionBackend.h"
+#include "usdGen/registries/backend.h"
 
 #include "pxr/base/tf/diagnostic.h"
 #include "pxr/base/vt/array.h"
@@ -271,26 +271,29 @@ _HGetToken(HdContainerDataSourceHandle const &root, _HdTime t, TfToken *out,
 // includes the resolved "cuda" fallback, so only a missing leaf keeps the
 // legacy CPU baseline.  Any present non-token/empty/unknown value is an
 // explicit invalid request and must never fall through to CPU.
-usdGen::UsdGenExecutionBackend
+usdGen::UsdGenBackendId
 _HResolveExecutionBackend(HdContainerDataSourceHandle const &root,
-                          _HdTime t)
+                          _HdTime t, std::vector<std::string> *errors)
 {
     HdDataSourceBaseHandle const source =
         _HLocate(root, {"execution", "backend"});
     if (!source) {
-        return usdGen::UsdGenExecutionBackend::CpuReference;
+        return usdGen::kUsdGenBackendCpu;
     }
     HdSampledDataSourceHandle const sampled =
         HdSampledDataSource::Cast(source);
     if (!sampled) {
-        return usdGen::UsdGenExecutionBackend::Invalid;
+        return usdGen::UsdGenBackendId::Invalid;
     }
     VtValue const value = sampled->GetValue(t);
     if (!value.IsHolding<TfToken>()) {
-        return usdGen::UsdGenExecutionBackend::Invalid;
+        return usdGen::UsdGenBackendId::Invalid;
     }
-    TfToken const backend = value.UncheckedGet<TfToken>();
-    return usdGen::ParseUsdGenExecutionBackend(backend);
+    TfToken const name = value.UncheckedGet<TfToken>();
+    usdGen::UsdGenBackendId const backend = usdGen::UsdGenFindBackend(name);
+    if (backend == usdGen::UsdGenBackendId::Invalid && !name.IsEmpty())
+        errors->push_back("no backend named '" + name.GetString() + "' is registered");
+    return backend;
 }
 
 bool
@@ -1828,7 +1831,7 @@ CaptureGraphDescFromHydra(
     HdContainerDataSourceHandle groomDs;
     if (_HPrim(input, descriptionPath.GetParentPath(), &groomDs, nullptr)) {
         desc.executionBackend = _HResolveExecutionBackend(
-            _HUsdGen(groomDs), t);
+            _HUsdGen(groomDs), t, &desc.validationErrors);
     }
 
     UsdGenLookDesc &look = desc.look;

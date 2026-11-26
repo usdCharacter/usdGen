@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "deviceFactory.h"
+#include "usdGenVulkan/backendId.h"
 
 #include "deviceContext.h"
 
@@ -70,7 +71,7 @@ std::shared_ptr<const DeviceFactory::Entry> RegistryAuthority::Resolve(
         return {};
     int const resourceDeviceId = nextResourceDeviceId++;
     auto pool = GetOrCreateUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Vulkan, resourceDeviceId}, config);
+        {UsdGenVulkanBackendId(), resourceDeviceId}, config);
     if (!pool) return {};
     auto entry = std::shared_ptr<const DeviceFactory::Entry>(new DeviceFactory::Entry(
         uuid, resourceDeviceId, config, std::move(pool)));

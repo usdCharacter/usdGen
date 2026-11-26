@@ -1,4 +1,5 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
@@ -10,9 +11,11 @@
 #include "pxr/usdImaging/usdImaging/stageSceneIndex.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <limits>
 #include <string>
+#include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -210,7 +213,7 @@ int main()
     indices.finalSceneIndex->AddObserver(observer);
     auto hydraDesc = usdGenImaging::BuildGraphDescFromHydra(*indices.finalSceneIndex, descPath);
     if (!Same(stageDesc, hydraDesc)) return Fail("Stage/Hydra expression descriptor parity");
-    if (stageDesc.executionBackend != usdGen::UsdGenExecutionBackend::Cuda) return Fail("cuda backend transport");
+    if (stageDesc.executionBackend != usdGenTestUtils::Backend("cuda")) return Fail("cuda backend transport");
     for (auto const &curve : hydraDesc.curveSets) {
         if (curve.path.GetName() == TfToken("curves")) {
             if (curve.restFromCurrentPoints)
@@ -290,9 +293,16 @@ int main()
     auto invalidStage = usdGenImaging::BuildGraphDescFromStage(stage, descPath);
     auto invalidHydra = usdGenImaging::BuildGraphDescFromHydra(
         *indices.finalSceneIndex, descPath);
-    if (invalidStage.executionBackend != usdGen::UsdGenExecutionBackend::Invalid ||
-        invalidHydra.executionBackend != usdGen::UsdGenExecutionBackend::Invalid)
+    if (invalidStage.executionBackend != usdGen::UsdGenBackendId::Invalid ||
+        invalidHydra.executionBackend != usdGen::UsdGenBackendId::Invalid)
         return Fail("unknown backend did not fail closed");
+    auto namesBackend = [](std::vector<std::string> const &errors) {
+        return std::find(errors.begin(), errors.end(),
+            "no backend named 'not-a-backend' is registered") != errors.end();
+    };
+    if (!namesBackend(invalidStage.validationErrors) ||
+        !namesBackend(invalidHydra.validationErrors))
+        return Fail("unknown backend was not reported by name");
 
     // Clearing the authored opinion exposes the schema's resolved cuda
     // fallback, which is still a valid backend request.
@@ -301,8 +311,8 @@ int main()
     auto absentStage = usdGenImaging::BuildGraphDescFromStage(stage, descPath);
     auto absentHydra = usdGenImaging::BuildGraphDescFromHydra(
         *indices.finalSceneIndex, descPath);
-    if (absentStage.executionBackend != usdGen::UsdGenExecutionBackend::Cuda ||
-        absentHydra.executionBackend != usdGen::UsdGenExecutionBackend::Cuda)
+    if (absentStage.executionBackend != usdGenTestUtils::Backend("cuda") ||
+        absentHydra.executionBackend != usdGenTestUtils::Backend("cuda"))
         return Fail("schema backend fallback was not transported");
 
     // A genuinely undeclared property remains the legacy CPU baseline.  Use
@@ -342,9 +352,9 @@ def Scope "Groom"
     auto noBackendHydraDesc = usdGenImaging::BuildGraphDescFromHydra(
         *noBackendIndices.finalSceneIndex, SdfPath("/Groom/hair"));
     if (noBackendStageDesc.executionBackend !=
-            usdGen::UsdGenExecutionBackend::CpuReference ||
+            usdGen::kUsdGenBackendCpu ||
         noBackendHydraDesc.executionBackend !=
-            usdGen::UsdGenExecutionBackend::CpuReference)
+            usdGen::kUsdGenBackendCpu)
         return Fail("undeclared backend did not retain CPU baseline");
     if (noBackendStageDesc.validationErrors.size() < 4 ||
         noBackendHydraDesc.validationErrors.size() < 4) {

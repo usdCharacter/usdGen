@@ -4,6 +4,7 @@
 
 #include "usdGen/gpu/generation.h"
 #include "usdGen/executionPipeline.h"
+#include "usdGen/registries/backend.h"
 
 #include "pxr/imaging/hd/bufferSpec.h"
 #include "pxr/imaging/hd/types.h"
@@ -15,6 +16,7 @@
 
 #include <cuda_gl_interop.h>
 
+#include <cstring>
 #include <limits>
 #include <exception>
 #include <sstream>
@@ -170,7 +172,7 @@ UsdGenCudaGlComputation::_Describe(
     HdTupleType *tuple, size_t *count, size_t *elementBytes) const noexcept
 {
     if (_destinationName.IsEmpty() || !_generation ||
-        _generation->Identity().backend != usdGen::UsdGenDeviceBackend::Cuda ||
+        std::strcmp(usdGen::UsdGenBackendName(_generation->Identity().backend), "cuda") != 0 ||
         _generation->Identity().deviceIndex < 0 || !tuple || !count ||
         !elementBytes) {
         return false;

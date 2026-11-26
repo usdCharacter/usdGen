@@ -1,4 +1,5 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "testBackend.h"
 #include "usdGen/deviceGeneration.h"
 
 #include <cstdio>
@@ -98,7 +99,7 @@ int main()
     std::weak_ptr<FakeOwner> weakOwner = owner;
 
     usdGen::UsdGenDeviceGeneration::CreateInfo info;
-    info.identity = {usdGen::UsdGenDeviceBackend::Cuda, 2, 17};
+    info.identity = {usdGenTestUtils::kTestBackendA, 2, 17};
     info.geometry.topologyVersion = 4;
     info.geometry.valueVersion = 9;
     info.geometry.elementCount = 3;
@@ -155,8 +156,8 @@ int main()
 
     // The immutable handoff contract names portable backend identities; native
     // synchronization remains entirely inside each backend owner.
-    for (auto backend : {usdGen::UsdGenDeviceBackend::Metal,
-                         usdGen::UsdGenDeviceBackend::Vulkan}) {
+    for (auto backend : {usdGenTestUtils::kTestBackendB,
+                         usdGenTestUtils::kTestBackendA}) {
         usdGen::UsdGenDeviceGeneration::CreateInfo portable;
         portable.identity = {backend, 0, 1};
         portable.geometry = generation->Geometry();
@@ -228,7 +229,7 @@ int main()
     Check(!invalid && !reason.empty(), "invalid generation is rejected", &failures);
 
     usdGen::UsdGenDeviceGeneration::CreateInfo badShape;
-    badShape.identity = {usdGen::UsdGenDeviceBackend::Cuda, 2, 18};
+    badShape.identity = {usdGenTestUtils::kTestBackendA, 2, 18};
     badShape.geometry.elementCount = 3;
     badShape.geometry.pointCount = 12;
     badShape.owner = owner;

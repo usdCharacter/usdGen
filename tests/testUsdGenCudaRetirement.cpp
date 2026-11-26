@@ -1,4 +1,5 @@
 #include "usdGen/executionResources.h"
+#include "testBackend.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/gpu/cudaRetirement.h"
 #include "usdGen/gpu/curveCompaction.h"
@@ -114,7 +115,7 @@ int main(int argc, char** argv)
     int device = -1;
     if (cudaGetDevice(&device) != cudaSuccess) return 77;
     CHECK(ConfigureCudaExecutionResources(device, {size_t{8} << 20, 0}));
-    UsdGenExecutionResourceDevice const key{UsdGenExecutionResourceBackend::Cuda, device};
+    UsdGenExecutionResourceDevice const key{usdGenTestUtils::Backend("cuda"), device};
     auto resources = FindUsdGenExecutionResourcePool(key);
     CHECK(resources);
     // One published owner plus one consumer is enough to force a factory

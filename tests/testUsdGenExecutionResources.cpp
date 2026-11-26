@@ -1,4 +1,5 @@
 #include "usdGen/executionResources.h"
+#include "testBackend.h"
 
 #include <atomic>
 #include <limits>
@@ -334,7 +335,7 @@ int main() {
     for (auto& worker : workers) worker.join();
     CHECK(attempted == 8 && admitted == 2 && exhausted->Snapshot().usedBytes == 0);
 
-    UsdGenExecutionResourceDevice device{UsdGenExecutionResourceBackend::Cuda, 92741};
+    UsdGenExecutionResourceDevice device{usdGenTestUtils::kTestBackendA, 92741};
     auto registered = GetOrCreateUsdGenExecutionResourcePool(device, {91, 11});
     CHECK(registered && FindUsdGenExecutionResourcePool(device) == registered);
     CHECK(GetOrCreateUsdGenExecutionResourcePool(device, {91, 11}) == registered);

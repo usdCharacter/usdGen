@@ -202,7 +202,7 @@ bool ValidateExpressionBindings(UsdGenGraphSpec const &desc,
     }
     // A registered backend's compile-time admission of the graph.
     UsdGenBackendDef const *backendDef = ok
-        ? UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(desc.executionBackend))) : nullptr;
+        ? UsdGenGetBackend(desc.executionBackend) : nullptr;
     if (backendDef && backendDef->validate) {
         UsdGenDiagnostics diagnostics;
         if (!backendDef->validate(desc, &diagnostics)) {
@@ -654,8 +654,8 @@ UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
 {
     UsdGenCompileResult result;
     if (!out || !plan || !compile ||
-        desc.executionBackend == UsdGenExecutionBackend::CpuReference ||
-        desc.executionBackend == UsdGenExecutionBackend::Invalid) {
+        desc.executionBackend == kUsdGenBackendCpu ||
+        desc.executionBackend == UsdGenBackendId::Invalid) {
         result.errors.push_back("injected device compilation requires a device provider and valid outputs");
         return result;
     }
@@ -691,7 +691,7 @@ UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphSpec const &newDesc, Us
     // transactionally so a failed edit cannot invalidate the last usable
     // program or generation.
     if (UsdGenBackendDef const *def =
-            UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(newDesc.executionBackend))))
+            UsdGenGetBackend(newDesc.executionBackend))
         if (def->flags & kUsdGenBackendReusesPlan)
             return Compile(newDesc, out);
     UsdGenCompileResult result;

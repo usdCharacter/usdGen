@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/vulkan/csourceVkCapture.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/growVkPlan.h"
 #include "usdGen/vulkan/executionPlan.h"
@@ -25,7 +26,7 @@ int main() {
     CHECK(ValidateVulkanSurfaceCage(usdGenUsd::Lower(desc),usdGenUsd::Lower(desc.nodes[0]),usdGenUsd::Lower(desc.curveSets[0]),&curves,&points,&diagnostics));
     CHECK(curves == 30 && points == 120 && !std::filesystem::exists(map));
     auto planned = desc;
-    planned.executionBackend = UsdGenExecutionBackend::Vulkan;
+    planned.executionBackend = usdGenTestUtils::Backend("vulkan");
     CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(planned),&diagnostics));
     CHECK(!diagnostics.HasErrors() && !std::filesystem::exists(map));
     UsdGenCurveBuffer output; output.totalCurves = 17;

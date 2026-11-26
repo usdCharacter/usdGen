@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/curveLoader.h"
 #include "usdGen/curveRootCapture.h"
@@ -23,7 +24,7 @@ UsdGenGraphDesc Fixture(bool surface = true, TfToken rebind = TfToken("never"))
 {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Groom");
-    d.executionBackend = UsdGenExecutionBackend::Vulkan;
+    d.executionBackend = usdGenTestUtils::Backend("vulkan");
     d.defaultWidth = .125f;
 
     if (surface) {

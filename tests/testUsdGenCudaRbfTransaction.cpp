@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecutionQueue.h"
 #include "usdGen/executionResources.h"
@@ -50,7 +51,7 @@ namespace {
 UsdGenGraphDesc RbfDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/RbfAtomic/Hair");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/RbfAtomic/Scalp");
     surface.restPoints = {{0,0,0}, {1,0,0}, {0,1,0}, {0,0,1}, {1,1,1}};
@@ -311,7 +312,7 @@ int SynchronousTransactions(
     int resourceDevice = -1;
     CHECK(cudaGetDevice(&resourceDevice) == cudaSuccess);
     auto resources = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, resourceDevice});
+        {usdGenTestUtils::Backend("cuda"), resourceDevice});
     CHECK(resources);
     auto const workspaceBaseline = resources->Snapshot();
     auto first = ExecuteCudaGraph(*plan, *workspace, 20.0, 200, &diagnostics);

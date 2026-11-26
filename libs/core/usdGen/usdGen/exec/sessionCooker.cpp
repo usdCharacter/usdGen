@@ -570,20 +570,6 @@ UsdGenDevicePresentationMetadata _BuildDevicePresentation(
     return result;
 }
 
-// The registered def of a device backend (until step 8.4 replaces the
-// device enum with the backend handle).
-UsdGenBackendDef const *_DefOfDevice(UsdGenDeviceBackend device) noexcept
-{
-    if (device == UsdGenDeviceBackend::Unknown) return nullptr;
-    for (uint8_t value = 0; value != 8; ++value) {
-        auto const contract =
-            GetUsdGenExecutionBackendContract(UsdGenExecutionBackend(value));
-        if (contract.IsValid() && contract.deviceBackend == device)
-            return UsdGenGetBackend(UsdGenBackendIdOf(value));
-    }
-    return nullptr;
-}
-
 char const *_LabelOf(UsdGenBackendDef const *def, char const *fallback) noexcept
 {
     return !def ? fallback : def->label ? def->label : def->name;
@@ -612,14 +598,14 @@ UsdGenSessionCooker::UsdGenSessionCooker(int threadLimit,
     if (!_executionCacheDomain)
         _executionCacheDomain = std::make_shared<UsdGenExecutionCacheDomain>(
             UsdGenExecutionCacheDomainKey{
-                UsdGenDeviceBackend::CpuReference, -1, 0},
+                kUsdGenBackendCpu, -1, 0},
             executionCacheBytes);
 }
 
 UsdGenSessionCooker::~UsdGenSessionCooker() = default;
 
 bool UsdGenSessionCooker::_SelectExecutionCacheDomain(
-    UsdGenDeviceBackend backend, int32_t deviceIndex, uint64_t contextIdentity)
+    UsdGenBackendId backend, int32_t deviceIndex, uint64_t contextIdentity)
 {
     UsdGenExecutionCacheDomainKey key{backend, deviceIndex, contextIdentity};
     auto selectedDomain = _executionCacheDomain;
@@ -866,7 +852,7 @@ bool UsdGenSessionCooker::ApplyDeviceContextLoss(
     // by this serialized cooker, so the replay is idempotent.
     if (loss.serial <= _lastDeviceContextLossSerial) return true;
 
-    UsdGenBackendDef const *def = _DefOfDevice(loss.backend);
+    UsdGenBackendDef const *def = UsdGenGetBackend(loss.backend);
     char const *const label = _LabelOf(def, "device");
     auto const lossMatches = [&loss](int32_t deviceIndex) {
         return loss.deviceIndex < 0 || loss.deviceIndex == deviceIndex;
@@ -935,15 +921,14 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     // it is the sole writer of the cooked epoch.
     struct LastCooked { uint64_t& out; uint64_t epoch; ~LastCooked() { out = epoch; } }
         lastCooked{_lastCookedEpoch, cancellation.epoch};
-    UsdGenExecutionBackend const backend =
-        desc ? desc->executionBackend : UsdGenExecutionBackend::Invalid;
-    UsdGenBackendDef const *const def =
-        UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(backend)));
+    UsdGenBackendId const backend =
+        desc ? desc->executionBackend : UsdGenBackendId::Invalid;
+    UsdGenBackendDef const *const def = UsdGenGetBackend(backend);
     // An injected provider of an unregistered backend keeps the
     // revision-authoritative contract.
     uint32_t const flags = def ? def->flags
         : uint32_t(kUsdGenBackendAuthoritativeRevisions | kUsdGenBackendNeedsDevicePublication);
-    char const *const label = _LabelOf(def, UsdGenExecutionBackendName(backend));
+    char const *const label = _LabelOf(def, UsdGenBackendName(backend));
     bool const authoritative = flags & kUsdGenBackendAuthoritativeRevisions;
     bool const poisonable = flags & kUsdGenBackendPoisonable;
     bool const reusesPlan = flags & kUsdGenBackendReusesPlan;
@@ -995,7 +980,7 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
         completion(_store.Get(), {});
         return;
     }
-    if (identity.backend != GetUsdGenExecutionBackendContract(_desc.executionBackend).deviceBackend ||
+    if (identity.backend != GetUsdGenExecutionBackendContract(_desc.executionBackend).backend ||
         !identity.capabilityVersion || cancellation.Superseded()) {
         _lastDiagnostics.Error(std::string(label) + " device publication is unavailable for this request");
         completion(_store.Get(), {}); return;
@@ -1231,7 +1216,7 @@ bool UsdGenSessionCooker::AdoptCoalesced(
     UsdGenGeneration hit = *payload;
     hit.id = -1;
     hit.frame = frame;
-    bool const onDevice = _desc.executionBackend != UsdGenExecutionBackend::CpuReference;
+    bool const onDevice = _desc.executionBackend != kUsdGenBackendCpu;
     if (onDevice) {
         bool const authoritative = _deviceFlags & kUsdGenBackendAuthoritativeRevisions;
         if (!_deviceProvider || !_activeDeviceIdentity || !hit.device ||
@@ -1328,7 +1313,7 @@ bool UsdGenSessionCooker::CommitCacheCandidate(
     UsdGenExecutionContext context = _ExecutionCacheContext(
         _desc, _context, -1,
         _executionCacheDomain ? _executionCacheDomain->Epoch() : 0);
-    if (_desc.executionBackend != UsdGenExecutionBackend::CpuReference) {
+    if (_desc.executionBackend != kUsdGenBackendCpu) {
         // The provider's identity (a poisoned workspace changes it) must
         // still be the one the cook accepted.
         if (!_deviceProvider || !candidate.generation->device ||
@@ -1412,7 +1397,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     UsdGenCookTokenCheck const tokenCheck;
 
     const uint64_t myReq = workEpoch;
-    if (!_SelectExecutionCacheDomain(UsdGenDeviceBackend::CpuReference, -1))
+    if (!_SelectExecutionCacheDomain(kUsdGenBackendCpu, -1))
         return _store.Get();
     if (!_ObserveExecutionCacheDomainEpoch())
         return _store.Get();

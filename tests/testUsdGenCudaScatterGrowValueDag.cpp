@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecution.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecutionQueue.h"
 #include "usdGen/gpu/generation.h"
@@ -85,7 +86,7 @@ UsdGenNodeDesc Node(char const* path, char const* type, SdfPath input) {
 }
 UsdGenGraphDesc Source() {
     UsdGenGraphDesc d; d.description=SdfPath("/GeneratedDag");
-    d.executionBackend=UsdGenExecutionBackend::Cuda; d.defaultWidth=.025f;
+    d.executionBackend=usdGenTestUtils::Backend("cuda"); d.defaultWidth=.025f;
     UsdGenSurfaceDesc s; s.path=SdfPath("/Scalp");
     s.restPoints={{0,0,0},{1,0,0},{1,1,0},{0,1,0}}; s.points=s.restPoints;
     s.faceVertexCounts={4}; s.faceVertexIndices={0,1,2,3}; s.uv={{0,0},{1,0},{1,1},{0,1}};

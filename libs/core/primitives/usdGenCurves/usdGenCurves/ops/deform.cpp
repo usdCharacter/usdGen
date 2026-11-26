@@ -44,6 +44,7 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include "usdGen/registries/backend.h"
 #include "usdGen/registries/registrar.h"
 
 namespace usdGen {
@@ -243,6 +244,12 @@ GfMatrix4d DriverToGroom(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
                   : GfMatrix4d(1.0);
 }
 
+// The CUDA program owns RBF deform nodes (it reads no other backend).
+bool OnCuda(UsdGenGraphSpec const *desc) noexcept
+{
+    return desc && std::strcmp(UsdGenBackendName(desc->executionBackend), "cuda") == 0;
+}
+
 }  // namespace
 
 bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diagnostics) {
@@ -253,8 +260,7 @@ bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diag
     UsdGenOpRecord const &rec = *params.op;
     if (!params.node || (!params.node->mode.IsEmpty() && params.node->mode != rec.Token(kTokCurveWrap)))
         return fail("UsdGenDeform mode must be empty (RBF) or curveWrap");
-    bool const cuda = params.desc &&
-        params.desc->executionBackend == UsdGenExecutionBackend::Cuda;
+    bool const cuda = OnCuda(params.desc);
     bool const guided = !params.node->inputSets.empty() || !params.node->references.empty();
     if (params.node->mode == rec.Token(kTokCurveWrap) && (cuda || !guided))
         return fail("UsdGenDeform curveWrap requires guide curves on the CPU lane");
@@ -356,7 +362,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
     };
     UsdGenParamView const *p = ctx.params;
     if (p && !Bind(*p,diagnostics)) return false;
-    if (ctx.desc && ctx.desc->executionBackend == UsdGenExecutionBackend::Cuda)
+    if (OnCuda(ctx.desc))
         return fail("the CUDA RBF executor owns this node; it cannot run through the host scheduler");
     bool const surfaceDriven = ctx.referenceCount == 0;
     if (!surfaceDriven && (ctx.referenceCount != 1 || !ctx.resolvedReferences ||

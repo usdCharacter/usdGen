@@ -1,5 +1,6 @@
 // Compile/link seam for consumers which only use the backend-neutral API.
 #include "usdGen/deviceGeneration.h"
+#include "testBackend.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/executionPlan.h"
 #include "usdGen/executionResources.h"
@@ -38,7 +39,7 @@ int main()
     // Interleaved chains reserve every actual stage from the shared domain.
     // A valid intermediate is not necessarily source+1 or final-1.
     auto domain = UsdGenExecutionCacheDomain::AcquireShared(
-        {UsdGenDeviceBackend::Vulkan, 0, 0x5354414745524556ull}, 1024);
+        {usdGenTestUtils::kTestBackendA, 0, 0x5354414745524556ull}, 1024);
     auto sourceA = domain->AllocatePublicationGeneration(0);
     auto sourceB = domain->AllocatePublicationGeneration(sourceA);
     auto middleA = domain->AllocatePublicationGeneration(sourceA);
@@ -51,16 +52,19 @@ int main()
         middleA <= sourceA + 1 || finalA <= middleA + 1) return 7;
 
     auto const contract = GetUsdGenExecutionBackendContract(
-        UsdGenExecutionBackend::Vulkan);
+        usdGenTestUtils::Backend("vulkan"));
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
-    if (!contract.IsValid() || contract.deviceBackend != UsdGenDeviceBackend::Vulkan ||
+    if (!contract.IsValid() || contract.backend != usdGenTestUtils::Backend("vulkan") ||
         !contract.Available() || contract.capabilityVersion != 1) {
         std::fprintf(stderr, "neutral backend contract check failed\n");
         return 1;
     }
 #else
-    if (!contract.IsValid() || contract.deviceBackend != UsdGenDeviceBackend::Vulkan ||
-        contract.Available()) {
+    // Without the runtime "vulkan" registers unavailable; without usdGenVulkan
+    // nothing registers it. Either way it cannot run.
+    UsdGenBackendId const vulkan = usdGenTestUtils::Backend("vulkan");
+    if (contract.Available() || (vulkan != UsdGenBackendId::Invalid &&
+        (!contract.IsValid() || contract.backend != vulkan))) {
         std::fprintf(stderr, "neutral backend contract check failed\n");
         return 1;
     }

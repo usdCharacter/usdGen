@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/vulkan/publicationJob.h"
+#include "testBackend.h"
 #include "vulkanReadbackFixture.h"
 
 #include <atomic>
@@ -229,7 +230,7 @@ int main(int argc, char** argv) {
         Pump(*owner, done);
         auto first = done.get();
         CHECK(job->state() == VulkanPublicationJob::State::Ready);
-        CHECK(first->Identity().backend == UsdGenDeviceBackend::Vulkan &&
+        CHECK(first->Identity().backend == usdGenTestUtils::Backend("vulkan") &&
               first->Identity().generation == 10 && first->Geometry().valueVersion == 14);
         CHECK(first->Tool().toolId == "vulkan-publication-test" &&
               first->Tool().snapshotVersion == 10);

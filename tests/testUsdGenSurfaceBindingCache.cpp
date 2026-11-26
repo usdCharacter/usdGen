@@ -1,4 +1,5 @@
 #include "usdGen/surfaceRootBindings.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/curveRootCapture.h"
 #include "usdGen/curveLoader.h"
@@ -185,7 +186,7 @@ int main() {
 #ifdef USDGEN_TEST_CUDA_BINDING_CACHE
     int devices=0;
     if (cudaGetDeviceCount(&devices)!=cudaSuccess || !devices) return 77;
-    d = Desc(); d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d = Desc(); d.executionBackend = usdGenTestUtils::Backend("cuda");
     diagnostics = {};
     auto workspace = CreateCudaExecutionWorkspace(-1,&diagnostics);
     auto other = CreateCudaExecutionWorkspace(-1,&diagnostics);

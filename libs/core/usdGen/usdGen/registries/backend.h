@@ -18,8 +18,6 @@ struct UsdGenGraphSpec;
 struct UsdGenDiagnostics;
 class UsdGenSessionDeviceProvider;
 
-constexpr UsdGenBackendId kUsdGenBackendCpu = UsdGenBackendId(0);
-
 enum UsdGenBackendFlag : uint32_t {
     /// Results carry the revisions the request supplied; a cache hit
     /// republishes with RepublishPreservingRevisions.
@@ -61,6 +59,8 @@ struct UsdGenBackendDef {
 /// kUsdGenBackendCpu for "cpu" and "cpuReference", the handle of a registered
 /// name, else Invalid. Compile and lowering phase only.
 USDGEN_CORE_API UsdGenBackendId UsdGenFindBackend(UsdGenToken const &name) noexcept;
+/// The same by text, without interning: safe on any thread after the freeze.
+USDGEN_CORE_API UsdGenBackendId UsdGenFindBackend(char const *name) noexcept;
 /// Null for kUsdGenBackendCpu and Invalid.
 USDGEN_CORE_API UsdGenBackendDef const *UsdGenGetBackend(UsdGenBackendId) noexcept;
 /// "cpu", a registered name, or "invalid".

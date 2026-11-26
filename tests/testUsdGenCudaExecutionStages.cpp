@@ -1,4 +1,5 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/cudaParameters.h"
@@ -25,7 +26,7 @@ static size_t ResourceKindBytes(UsdGenExecutionResourceSnapshot const& snapshot,
 static UsdGenGraphDesc Desc() {
     UsdGenGraphDesc d;
     d.description = SdfPath("/Stages/Hair");
-    d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc s; s.path = SdfPath("/Scalp");
     s.restPoints = {{0,0,0},{1,0,0},{0,1,0},{0,0,1},{1,1,1}};
     s.points = s.restPoints; s.points[0][0] = 1;
@@ -381,7 +382,7 @@ int main() {
     int initialResourceDevice = -1;
     CHECK(cudaGetDevice(&initialResourceDevice) == cudaSuccess);
     auto initialResourcePool = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, initialResourceDevice});
+        {usdGenTestUtils::Backend("cuda"), initialResourceDevice});
     CHECK(initialResourcePool);
     auto const unknownBefore = initialResourcePool->Snapshot();
     auto sequential=ExecuteCudaGraph(*plan,*sequentialWorkspace,2,2,&diagnostics); CHECK(sequential);
@@ -428,7 +429,7 @@ int main() {
     int literalDevice = -1;
     CHECK(cudaGetDevice(&literalDevice) == cudaSuccess);
     auto literalResources = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, literalDevice});
+        {usdGenTestUtils::Backend("cuda"), literalDevice});
     CHECK(literalResources);
     auto const literalBaseline = literalResources->Snapshot();
     CHECK(literalBaseline.usableBytes >= literalBaseline.usedBytes);
@@ -694,7 +695,7 @@ int main() {
         int controlDevice = -1;
         if (cudaGetDevice(&controlDevice) != cudaSuccess) return false;
         auto controlPool = FindUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Cuda, controlDevice});
+            {usdGenTestUtils::Backend("cuda"), controlDevice});
         if (!controlPool) return false;
         auto const controlBefore = controlPool->Snapshot();
         auto legacyControl=ExecuteCudaGraph(*sourceControlPlan,*legacyWorkspace,frame,generation,&diagnostics);

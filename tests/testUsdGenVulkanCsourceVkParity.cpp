@@ -32,6 +32,7 @@
 // when its backend is available; the test fails only on a run check, and the
 // summary banner states explicitly which parity legs were proven.
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/vulkan/deviceContext.h"
 #include "usdGenOpFixture.h"
@@ -130,7 +131,7 @@ std::vector<T> AsValues(std::vector<uint8_t> const& bytes) {
 UsdGenGraphDesc BaseDesc() {
     UsdGenGraphDesc d;
     d.description = SdfPath("/CsourceVk");
-    d.executionBackend = UsdGenExecutionBackend::Vulkan;
+    d.executionBackend = usdGenTestUtils::Backend("vulkan");
     d.defaultWidth = 0.01f;
     return d;
 }

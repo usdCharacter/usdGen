@@ -111,7 +111,7 @@ private:
     struct Impl;
     std::shared_ptr<Impl> impl_;
     explicit UsdGenExecutionRetirementService(size_t capacity,
-                                              UsdGenExecutionResourceBackend);
+                                              UsdGenBackendId);
     friend USDGEN_CORE_API std::shared_ptr<UsdGenExecutionRetirementService>
     GetOrCreateUsdGenExecutionRetirementService(UsdGenExecutionResourceDevice,
                                                 UsdGenExecutionRetirementConfig,
@@ -126,9 +126,9 @@ FindUsdGenExecutionRetirementService(UsdGenExecutionResourceDevice) noexcept;
 // The embedding runtime must call it before backend-runtime teardown and
 // serialize concurrent quiesce/drain calls for a backend.
 USDGEN_CORE_API bool
-IsUsdGenExecutionRetirementBackendOpen(UsdGenExecutionResourceBackend) noexcept;
+IsUsdGenExecutionRetirementBackendOpen(UsdGenBackendId) noexcept;
 USDGEN_CORE_API void
-QuiesceUsdGenExecutionRetirementBackend(UsdGenExecutionResourceBackend) noexcept;
+QuiesceUsdGenExecutionRetirementBackend(UsdGenBackendId) noexcept;
 
 // Narrow deterministic interleaving hook for retirement installation tests.
 // A claimed gate pauses once after Retire obtains its Drain credit and before

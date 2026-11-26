@@ -1,4 +1,5 @@
 #include "namedChannelTopology.h"
+#include "usdGenCuda/backendId.h"
 #include "cudaCompletionLane.h"
 
 #include <cuda_runtime.h>
@@ -78,8 +79,8 @@ bool SameDevice(std::shared_ptr<const UsdGenDeviceGeneration> const& source,
                 std::shared_ptr<const UsdGenDeviceGeneration> const& topology,
                 uint64_t generation, std::string* reason)
 {
-    if (!source || !topology || source->Identity().backend != UsdGenDeviceBackend::Cuda ||
-        topology->Identity().backend != UsdGenDeviceBackend::Cuda ||
+    if (!source || !topology || source->Identity().backend != UsdGenCudaBackendId() ||
+        topology->Identity().backend != UsdGenCudaBackendId() ||
         source->Identity().deviceIndex != topology->Identity().deviceIndex ||
         generation <= topology->Identity().generation ||
         generation <= source->Identity().generation) {

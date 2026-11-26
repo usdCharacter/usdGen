@@ -704,7 +704,7 @@ int main()
     // miss. The leader is held before key registration; the follower parks
     // without entering the held capture and receives its own COW generation.
     auto coalescedDomain = std::make_shared<UsdGenExecutionCacheDomain>(
-        UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::CpuReference, -1, 0},
+        UsdGenExecutionCacheDomainKey{kUsdGenBackendCpu, -1, 0},
         64u * 1024u * 1024u);
     UsdGenSession coalescedLeader(2, 4096, coalescedDomain);
     UsdGenSession coalescedFollower(2, 4096, coalescedDomain);
@@ -762,7 +762,7 @@ int main()
     // Superseding a parked follower withdraws only that waiter. Its pipeline
     // settles as Superseded while the leader remains allowed to finish.
     auto supersedeDomain = std::make_shared<UsdGenExecutionCacheDomain>(
-        UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::CpuReference, -1, 0},
+        UsdGenExecutionCacheDomainKey{kUsdGenBackendCpu, -1, 0},
         64u * 1024u * 1024u);
     UsdGenSession supersedeLeader(2, 4096, supersedeDomain);
     UsdGenSession supersedeFollower(2, 4096, supersedeDomain);

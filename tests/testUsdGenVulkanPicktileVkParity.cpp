@@ -22,6 +22,7 @@
 // one the test exits 77. vkCreateDevice failures retry (environmental tenant
 // load): 5 attempts with a 60s wait between them.
 #include "usdGen/vulkan/deviceContext.h"
+#include "testBackend.h"
 #include "usdGen/vulkan/chargedBuffer.h"
 #include "usdGen/vulkan/picktileVk.h"
 
@@ -416,7 +417,7 @@ int main(int argc, char** argv) {
 
         auto owner = std::make_shared<VulkanIdentityOwner>();
         UsdGenDeviceGeneration::CreateInfo info;
-        info.identity.backend = UsdGenDeviceBackend::Vulkan;
+        info.identity.backend = usdGenTestUtils::Backend("vulkan");
         info.identity.deviceIndex = 0;
         info.identity.generation = 7;
         info.geometry.elementCount = 2;

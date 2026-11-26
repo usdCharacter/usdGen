@@ -16,6 +16,7 @@
 #include "pxr/imaging/hd/xformSchema.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/op.h"
+#include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
 #include "usdGen/furOcclusion.h"
@@ -2794,8 +2795,8 @@ void UsdGenGroomSceneIndex::_CaptureAndSubmit(_Ingress packet) {
                     // even though this plugin does not yet hand its device
                     // buffers to stock Storm.
                     // CPU graphs retain existing explicit-session sharing.
-                    captured.key.rendererLocal = captured.desc->executionBackend ==
-                        usdGen::UsdGenExecutionBackend::Cuda;
+                    captured.key.rendererLocal = std::strcmp(usdGen::UsdGenBackendName(
+                        captured.desc->executionBackend), "cuda") == 0;
                     captured.cache = std::move(result.cache);
                     captured.dependencies = recorder.Dependencies(*captured.desc);
                     packet.inputs.push_back(std::move(captured));

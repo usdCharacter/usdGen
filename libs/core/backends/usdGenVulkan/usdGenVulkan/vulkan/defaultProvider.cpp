@@ -9,6 +9,7 @@
 // and other non-GPU devices are rejected so a missing GPU reports as
 // unavailable instead of silently executing on the CPU.
 #include "defaultProvider.h"
+#include "usdGenVulkan/backendId.h"
 
 #include "completionService.h"
 #include "rbfVkDeformPipeline.h"
@@ -711,7 +712,7 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
         return Fail(message.c_str());
     }
     UsdGenSessionDeviceIdentity identity;
-    identity.backend = UsdGenDeviceBackend::Vulkan;
+    identity.backend = UsdGenVulkanBackendId();
     identity.deviceIndex = self->context_->physicalIndex();
     identity.capabilityVersion = 1;
     identity.logicalContextIdentity =

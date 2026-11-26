@@ -30,9 +30,7 @@ public:
     UsdGenTypeId RegisterType(UsdGenTypeDef const &);
     bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
     /// Invalid on a duplicate name, a null createProvider, every handle
-    /// already used, or after freeze. Until step 8.4 the handle of a name
-    /// UsdGenExecutionBackend spells is that enumerant's value; other names
-    /// take the handles above it.
+    /// already used, or after freeze. Handles are dense from 1.
     UsdGenBackendId RegisterBackend(UsdGenBackendDef const &);
     /// One per (backend, primitive type); false on a duplicate, an unknown
     /// handle or type, or after freeze. The pointer must outlive the registry.

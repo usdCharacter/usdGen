@@ -1804,8 +1804,8 @@ UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexce
         UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
         UsdGenBackendRegistry const& kernels = UsdGenBackendRegistry::Get();
         std::vector<UsdGenExecutionCapability> rows;
-        for (UsdGenOpId id : kernels.Ops(kUsdGenCudaBackend)) {
-            UsdGenKernelDef const* k = kernels.Find(id, kUsdGenCudaBackend);
+        for (UsdGenOpId id : kernels.Ops(UsdGenCudaBackendId())) {
+            UsdGenKernelDef const* k = kernels.Find(id, UsdGenCudaBackendId());
             rows.push_back({ops.Record(id).Name(), k->capabilityVersion,
                             k->minimumAlgorithmVersion, k->maximumAlgorithmVersion, k->flags});
         }

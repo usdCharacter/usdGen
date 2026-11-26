@@ -5,6 +5,7 @@
 // capture/readback boundary separate from neutral publication: production
 // publication must expose metadata and owners, never geometry bytes.
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "testBackend.h"
 #include "usdGen/vulkan/sourceGeneration.h"
 #include "usdGen/vulkan/deviceGenerationAdapter.h"
 #include "usdGen/vulkan/completionService.h"
@@ -245,7 +246,7 @@ int main(int argc, char** argv) {
         nativeGeneration, domain,
         reinterpret_cast<UsdGenDeviceStream>(context->computeQueue()), 41,
         {"vulkan-source", 17, 41}}, &reason);
-    CHECK(publication && publication->Identity().backend == UsdGenDeviceBackend::Vulkan);
+    CHECK(publication && publication->Identity().backend == usdGenTestUtils::Backend("vulkan"));
     CHECK(publication->Identity().generation == 41 && publication->Tool().snapshotVersion == 41);
     CHECK(publication->Geometry().tiles[0].extentMax[0] == 3);
     size_t publicCount = 0;
@@ -282,7 +283,7 @@ int main(int argc, char** argv) {
         CHECK(queueOwner->OutstandingCommands()==0);
     }
     auto foreign = UsdGenDeviceGeneration::Create({
-        {UsdGenDeviceBackend::CpuReference, 0, 41}, publication->Geometry(),
+        {kUsdGenBackendCpu, 0, 41}, publication->Geometry(),
         publication->Tool(), publication->Channels(), publication->Owner()}, &reason);
     CHECK(foreign);
     std::weak_ptr<const VulkanSourceGeneration> weakBase=nativeGeneration,weakChild=child;

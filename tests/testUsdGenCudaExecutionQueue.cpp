@@ -1,4 +1,5 @@
 #include "usdGen/cudaExecutionQueue.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/executionPipeline.h"
@@ -19,7 +20,7 @@ using namespace usdGen;
 
 static UsdGenGraphDesc Desc(float translation = 1.f) {
     UsdGenGraphDesc d;
-    d.description = SdfPath("/Groom/Hair"); d.executionBackend = UsdGenExecutionBackend::Cuda;
+    d.description = SdfPath("/Groom/Hair"); d.executionBackend = usdGenTestUtils::Backend("cuda");
     UsdGenSurfaceDesc s; s.path = SdfPath("/Scalp");
     s.restPoints = {{0,0,0},{1,0,0},{0,1,0},{0,0,1},{1,1,1}};
     s.points = s.restPoints; for (auto& p : s.points) p[0] += translation;
@@ -338,7 +339,7 @@ int main() {
         int resourceDevice = -1;
         CHECK(cudaGetDevice(&resourceDevice) == cudaSuccess);
         auto resourcePool = FindUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Cuda, resourceDevice});
+            {usdGenTestUtils::Backend("cuda"), resourceDevice});
         CHECK(resourcePool);
         auto resourceBaseline = resourcePool->Snapshot();
         CHECK(resourceBaseline.usedBytes <= resourceBaseline.usableBytes);
@@ -511,7 +512,7 @@ int main() {
         int lengthDevice = -1;
         CHECK(cudaGetDevice(&lengthDevice) == cudaSuccess);
         auto lengthResources = FindUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Cuda, lengthDevice});
+            {usdGenTestUtils::Backend("cuda"), lengthDevice});
         CHECK(lengthResources);
         auto const lengthPending = ResourceKindBytes(
             lengthResources->Snapshot(), UsdGenExecutionResourceKind::Pending);
@@ -928,7 +929,7 @@ int main() {
         // replacement without disturbing a published generation or its lease.
         int device = -1; CHECK(cudaGetDevice(&device) == cudaSuccess);
         auto resources = FindUsdGenExecutionResourcePool(
-            {UsdGenExecutionResourceBackend::Cuda, device});
+            {usdGenTestUtils::Backend("cuda"), device});
         CHECK(resources);
         auto state = resources->Snapshot();
         auto filler = resources->TryReserve(state.usableBytes - state.usedBytes,

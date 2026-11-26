@@ -45,12 +45,12 @@ struct UsdGenPendingDirty
 /// newer loss event.
 struct UsdGenDeviceContextLoss
 {
-    UsdGenDeviceBackend backend = UsdGenDeviceBackend::Unknown;
+    UsdGenBackendId backend = UsdGenBackendId::Invalid;
     int32_t deviceIndex = -1; // -1 invalidates every device of this backend.
     uint64_t serial = 0;
 
     bool IsValid() const noexcept {
-        return backend != UsdGenDeviceBackend::Unknown && deviceIndex >= -1 && serial != 0;
+        return backend != UsdGenBackendId::Invalid && deviceIndex >= -1 && serial != 0;
     }
 };
 
@@ -163,11 +163,11 @@ public:
     /// Callback-safe backend context-loss notification. Accepted notification
     /// cancels stale publication and schedules serialized cache/workspace
     /// invalidation. False means command admission rejected it.
-    bool PostDeviceContextLost(UsdGenDeviceBackend, int32_t deviceIndex = -1);
+    bool PostDeviceContextLost(UsdGenBackendId, int32_t deviceIndex = -1);
 
     /// External synchronous adapter for the same owner command. It returns
     /// after the loss fence is recorded, not after native retirement drains.
-    void NotifyDeviceContextLost(UsdGenDeviceBackend, int32_t deviceIndex = -1);
+    void NotifyDeviceContextLost(UsdGenBackendId, int32_t deviceIndex = -1);
 
     bool BeginDeviceEdit(UsdGenGenerationConstPtr const&, uint64_t*,
                          std::string* = nullptr);

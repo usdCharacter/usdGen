@@ -24,6 +24,7 @@
 // backend prints the Session diagnostics and exits 77 (cpu: 1).
 
 #include "usdGen/allocCounter.h"
+#include "../testBackend.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -414,11 +415,11 @@ void HydraBench(int runs)
 //   session.paramEdit  SetGraphSpec with a fresh noise value + commit (each
 //                      edit is a new value, so no execution-cache hit)
 
-bool ParseBackend(std::string const &name, UsdGenExecutionBackend *out)
+bool ParseBackend(std::string const &name, UsdGenBackendId *out)
 {
-    if (name == "cpu") *out = UsdGenExecutionBackend::CpuReference;
-    else if (name == "cuda") *out = UsdGenExecutionBackend::Cuda;
-    else if (name == "vulkan") *out = UsdGenExecutionBackend::Vulkan;
+    if (name == "cpu") *out = kUsdGenBackendCpu;
+    else if (name == "cuda") *out = usdGenTestUtils::Backend("cuda");
+    else if (name == "vulkan") *out = usdGenTestUtils::Backend("vulkan");
     else return false;
     return true;
 }
@@ -442,9 +443,9 @@ bool SessionCommit(UsdGenSession &s, bool device, char const *what,
     return true;
 }
 
-bool SessionBench(UsdGenExecutionBackend backend, char const *name, int threads, int runs)
+bool SessionBench(UsdGenBackendId backend, char const *name, int threads, int runs)
 {
-    bool const device = backend != UsdGenExecutionBackend::CpuReference;
+    bool const device = backend != kUsdGenBackendCpu;
     int const edits = 3;
     // Lowered once, outside the measured regions, through one key map.
     usdGenUsd::NodeKeyMap keys;
@@ -519,16 +520,16 @@ int main(int argc, char **argv)
         else if (a == "--no-hydra") hydra = false;
         else if (a == "--backend" && i + 1 < argc) backendName = argv[++i];
     }
-    UsdGenExecutionBackend backend = UsdGenExecutionBackend::CpuReference;
+    UsdGenBackendId backend = kUsdGenBackendCpu;
     if (!ParseBackend(backendName, &backend)) {
         std::printf("unknown --backend %s (cpu, cuda, vulkan)\n", backendName.c_str());
         return 2;
     }
     if (threads <= 0) threads = int(std::max(1u, std::thread::hardware_concurrency()));
-    if (backend == UsdGenExecutionBackend::CpuReference) {
+    if (backend == kUsdGenBackendCpu) {
         EngineBench(threads, runs);
         if (hydra) HydraBench(runs);
     }
     if (SessionBench(backend, backendName.c_str(), threads, runs)) return 0;
-    return backend == UsdGenExecutionBackend::CpuReference ? 1 : 77;
+    return backend == kUsdGenBackendCpu ? 1 : 77;
 }

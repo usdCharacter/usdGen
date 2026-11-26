@@ -1,4 +1,5 @@
 #include "usdGen/compiler.h"
+#include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/cudaExecution.h"
@@ -66,7 +67,7 @@ UsdGenNodeDesc RbfDeform(char const* path, char const* input) {
 UsdGenGraphDesc BaseDesc() {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Dag/Hair");
-    desc.executionBackend = UsdGenExecutionBackend::Cuda;
+    desc.executionBackend = usdGenTestUtils::Backend("cuda");
 
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/Dag/Scalp");
@@ -266,7 +267,7 @@ UsdGenGraphDesc TopologyLengthWidthBlendDesc() {
 }
 
 bool CpuReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
-    desc.executionBackend = UsdGenExecutionBackend::CpuReference;
+    desc.executionBackend = kUsdGenBackendCpu;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
     auto const compile = usdGenUsd::Compile(compiler, desc, &graph);
@@ -1166,7 +1167,7 @@ int main() {
     int admissionDevice = -1;
     CHECK(cudaGetDevice(&admissionDevice) == cudaSuccess);
     auto admissionPool = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, admissionDevice});
+        {usdGenTestUtils::Backend("cuda"), admissionDevice});
     CHECK(admissionPool);
     auto const admissionEstimate = metadata->MemoryEstimate();
     CHECK(admissionEstimate.memoryAvailable &&
@@ -1284,7 +1285,7 @@ int main() {
     int resourceDevice = -1;
     CHECK(cudaGetDevice(&resourceDevice) == cudaSuccess);
     auto resourcePool = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, resourceDevice});
+        {usdGenTestUtils::Backend("cuda"), resourceDevice});
     CHECK(resourcePool);
     // The device overlap witness is test-only storage and is not part of the
     // compiled graph estimate. Charge it before taking the job baseline.
@@ -2179,7 +2180,7 @@ int main() {
     int graphDevice = -1;
     CHECK(cudaGetDevice(&graphDevice) == cudaSuccess);
     auto graphPool = FindUsdGenExecutionResourcePool(
-        {UsdGenExecutionResourceBackend::Cuda, graphDevice});
+        {usdGenTestUtils::Backend("cuda"), graphDevice});
     CHECK(graphPool);
     auto const cacheBeforeGraphWorkspace = graphPool->Snapshot();
     std::shared_ptr<const UsdGenDeviceGeneration> graphFirst, graphReplay;

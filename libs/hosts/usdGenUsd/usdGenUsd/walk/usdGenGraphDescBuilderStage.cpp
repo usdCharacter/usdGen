@@ -10,7 +10,7 @@
 
 #include "usdGenUsd/resolve/authoredPlaneConvert.h"
 #include "usdGenUsd/resolve/sdfValueShape.h"
-#include "usdGen/exec/device/executionBackend.h"
+#include "usdGen/registries/backend.h"
 
 #include "pxr/base/tf/diagnostic.h"
 #include "pxr/base/vt/array.h"
@@ -131,20 +131,24 @@ _GetToken(UsdPrim const &prim, char const *name, TfToken *out)
 // absent property as the legacy CPU baseline, but a schema property with its
 // resolved "cuda" fallback is still an explicit CUDA selection.  Inspect the
 // raw VtValue and reject every present value except the approved token.
-usdGen::UsdGenExecutionBackend
-_ResolveExecutionBackend(UsdPrim const &prim)
+usdGen::UsdGenBackendId
+_ResolveExecutionBackend(UsdPrim const &prim, std::vector<std::string> *errors)
 {
     UsdAttribute const attr =
         prim.GetAttribute(TfToken("usdGen:execution:backend"));
     if (!attr) {
-        return usdGen::UsdGenExecutionBackend::CpuReference;
+        return usdGen::kUsdGenBackendCpu;
     }
     VtValue value;
     if (!attr.Get(&value, UsdTimeCode::Default()) ||
         !value.IsHolding<TfToken>()) {
-        return usdGen::UsdGenExecutionBackend::Invalid;
+        return usdGen::UsdGenBackendId::Invalid;
     }
-    return usdGen::ParseUsdGenExecutionBackend(value.UncheckedGet<TfToken>());
+    TfToken const name = value.UncheckedGet<TfToken>();
+    usdGen::UsdGenBackendId const backend = usdGen::UsdGenFindBackend(name);
+    if (backend == usdGen::UsdGenBackendId::Invalid && !name.IsEmpty())
+        errors->push_back("no backend named '" + name.GetString() + "' is registered");
+    return backend;
 }
 
 void
@@ -1504,7 +1508,8 @@ BuildGraphDescFromStage(
     desc.xformMatrix = UsdGeomImageable(descPrim).ComputeLocalToWorldTransform(
         UsdTimeCode(time));
 
-    desc.executionBackend = _ResolveExecutionBackend(descPrim.GetParent());
+    desc.executionBackend = _ResolveExecutionBackend(descPrim.GetParent(),
+                                                     &desc.validationErrors);
 
     ResolveUsdGenImageMaps(&desc);
     UsdGenFinalizeInputGenerations(&desc);

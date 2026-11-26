@@ -1,4 +1,5 @@
 #include "usdGen/gpu/imageSampler.h"
+#include "usdGenCuda/backendId.h"
 
 #include <cuda_runtime.h>
 #include <cmath>
@@ -30,7 +31,7 @@ int main()
         std::fprintf(stderr, "reset errors %s %s\n", cudaGetErrorString(uvStatus), cudaGetErrorString(outStatus));
     CHECK(uvStatus == cudaSuccess && outStatus == cudaSuccess);
     CHECK(cudaMemcpy(uvDevice.data(), uv.data(), uv.size()*sizeof(float2), cudaMemcpyHostToDevice) == cudaSuccess);
-    auto pool = FindUsdGenExecutionResourcePool({UsdGenExecutionResourceBackend::Cuda, device});
+    auto pool = FindUsdGenExecutionResourcePool({usdGen::UsdGenCudaBackendId(), device});
     CHECK(pool);
     size_t const baseline = pool->Snapshot().usedBytes;
     {
