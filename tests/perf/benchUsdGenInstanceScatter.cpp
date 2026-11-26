@@ -61,7 +61,7 @@
 #include "usdGenCurves/cuda/scatterGrow.h"
 #endif
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
-#include "usdGen/vulkan/scatterGrowPipeline.h"
+#include "usdGenCurves/vulkan/scatterGrowPipeline.h"
 #include "vulkanNativeFixture.h"
 #endif
 

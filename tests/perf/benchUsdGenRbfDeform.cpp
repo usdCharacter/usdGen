@@ -62,10 +62,10 @@
 #endif
 
 #ifdef USDGEN_BENCH_VULKAN
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/deformPipeline.h"
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/rbfVkBinding.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/deformPipeline.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenCurves/vulkan/rbfVkBinding.h"
 #include "../vulkanNativeFixture.h"
 #include "../vulkanReadbackFixture.h"
 #include <fstream>

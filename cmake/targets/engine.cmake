@@ -32,7 +32,7 @@ add_library(usdGen SHARED ${USDGEN_CORE_SOURCES})
 # keeps the explicit-fma loop's sqrt scalar and the suffix runs ~2x slower.
 # Values are unchanged (errno only); nothing in the library reads errno.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set_source_files_properties(libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deformPipeline.cpp PROPERTIES
+    set_source_files_properties(libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/deformPipeline.cpp PROPERTIES
         COMPILE_OPTIONS "-fno-math-errno")
 endif()
 target_include_directories(usdGen PUBLIC

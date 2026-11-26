@@ -1,11 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/deformEvaluateCpu.h"
-#include "usdGen/vulkan/deformPipeline.h"
-#include "usdGen/vulkan/deformRbfHost.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/deformEvaluateCpu.h"
+#include "usdGenCurves/vulkan/deformPipeline.h"
+#include "usdGenCurves/vulkan/deformRbfHost.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"

@@ -10,30 +10,14 @@
 // unavailable instead of silently executing on the CPU.
 #include "defaultProvider.h"
 #include "usdGenVulkan/backendId.h"
+#include "usdGenVulkan/compile/program.h"
 
 #include "completionService.h"
-#include "rbfVkDeformPipeline.h"
-#include "resampleVkPipeline.h"
 #include "deviceContext.h"
 #include "deviceFactory.h"
-#include "deviceGenerationAdapter.h"
 #include "defaultResources.h"
 #include "externalRetirement.h"
-#include "executionPlan.h"
-#include "exprVkContext.h"
-#include "exprVkEvaluate.h"
-#include "exprVkApply.h"
-#include "exprVkPack.h"
-#include "growVkPipeline.h"
-#include "lengthCompactionPipeline.h"
-#include "lengthScalePipeline.h"
-#include "noisePipeline.h"
-#include "nonWidthComparePipeline.h"
-#include "picktileVk.h"
-#include "planExecutor.h"
-#include "sessionProvider.h"
-#include "widthBlendPipeline.h"
-#include "widthPipeline.h"
+#include "usdGen/exec/executionPipeline.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/sessionDeviceProvider.h"
@@ -72,14 +56,6 @@ struct DefaultNative {
         if (instance) vkDestroyInstance(instance, nullptr);
     }
 };
-
-// Copies a library module's words; false when the library has none.
-bool LoadShader(ShaderLibrary const& library, char const* name,
-                std::vector<uint32_t>* words) {
-    if (!library.Has(name)) return false;
-    *words = library.Words(name);
-    return true;
-}
 
 int DeviceScore(VkPhysicalDeviceType type) noexcept {
     switch (type) {
@@ -259,26 +235,26 @@ public:
     UsdGenSessionDevicePlanHandle Compile(
         UsdGenGraphSpec const& desc,
         UsdGenDiagnostics* diagnostics) const override {
-        return inner_ ? inner_->Compile(desc, diagnostics) : nullptr;
+        return program_ ? program_->Compile(desc, diagnostics) : nullptr;
     }
     UsdGenSessionDeviceIdentity Identity() const noexcept override {
-        return inner_ ? inner_->Identity() : identity_;
+        return program_ ? program_->Identity() : identity_;
     }
     bool NotifyContextLost(
         UsdGenSessionDeviceIdentity const& lost) noexcept override {
-        bool const accepted = inner_ && inner_->NotifyContextLost(lost);
-        if (accepted && domain_) domain_->StopAdmission();
+        bool const accepted = program_ && program_->NotifyContextLost(lost);
+        if (accepted) program_->StopAdmission();
         return accepted;
     }
     bool Submit(UsdGenSessionDeviceRequest request) override {
-        return inner_ ? inner_->Submit(std::move(request)) : false;
+        return program_ ? program_->Submit(std::move(request)) : false;
     }
     void Shutdown() noexcept override {
         bool expected = false;
         if (!closing_.compare_exchange_strong(expected, true,
                                              std::memory_order_acq_rel))
             return;
-        if (domain_) domain_->StopAdmission();
+        if (program_) program_->StopAdmission();
         identity_ = Identity();
         // A later provider can initialize driver modules after the queue's
         // first-use exit hook. Refresh once at this provider's final boundary,
@@ -292,17 +268,13 @@ public:
             std::shared_ptr<UsdGenExecutionRuntime> runtime;
             std::shared_ptr<UsdGenExecutionPipeline> queueOwner;
             std::shared_ptr<VulkanCompletionService> completion;
-            std::shared_ptr<VulkanGenerationAdapterDomain> domain;
-            std::shared_ptr<UsdGenExecutionTaskGraph> preparer;
             std::shared_ptr<DeviceContext> context;
-            std::shared_ptr<VulkanPlanExecutor> executor;
-            std::shared_ptr<VulkanSessionProvider> inner;
+            UsdGenRef<Program> program;
             std::shared_ptr<VulkanExternalRetirementDomain> exitDomain;
             bool exitRegistered = false;
             void Close() noexcept {
                 try {
-                    if (inner) inner->Shutdown();
-                    if (executor) executor->Shutdown();
+                    if (program) program->Shutdown();
                     if (!exitRegistered) {
                         // Registration failure (or already-closed admission)
                         // cannot authorize deferred destruction during driver
@@ -338,14 +310,14 @@ public:
             // One registered close; the domain's lifecycle word is held.
             void CloseOnce() noexcept {
                 try {
-                    if (preparer) preparer->Drain();
+                    if (program) program->DrainPreparer();
                     if (queueOwner) queueOwner->Drain();
-                    if (domain && !domain->Close()) {
+                    if (program && !program->CloseDomain()) {
                         // The last consumer proof schedules a new external
                         // close; no owner callback waits and no healthy lease
                         // forces permanent retention of the provider domain.
                         auto held = shared_from_this();
-                        if (!domain->RetireWhenIdle([held] { held->Close(); })) {
+                        if (!program->RetireWhenIdle([held] { held->Close(); })) {
                             auto* retained = new std::shared_ptr<Retirement>(std::move(held));
                             (void)retained;
                         }
@@ -367,11 +339,8 @@ public:
             retirement->runtime = std::move(runtime_);
             retirement->queueOwner = std::move(queueOwner_);
             retirement->completion = std::move(completion_);
-            retirement->domain = std::move(domain_);
-            retirement->preparer = std::move(preparer_);
             retirement->context = std::move(context_);
-            retirement->executor = std::move(executor_);
-            retirement->inner = std::move(inner_);
+            retirement->program = std::move(program_);
             retirement->exitDomain = std::move(exitDomain_);
             retirement->exitRegistered = exitRegistered;
             if (!UsdGenExecutionPipeline::IsExecuting()) retirement->Close();
@@ -399,11 +368,8 @@ private:
     std::shared_ptr<UsdGenExecutionRuntime> runtime_;
     std::shared_ptr<UsdGenExecutionPipeline> queueOwner_;
     std::shared_ptr<VulkanCompletionService> completion_;
-    std::shared_ptr<VulkanGenerationAdapterDomain> domain_;
-    std::shared_ptr<UsdGenExecutionTaskGraph> preparer_;
     std::shared_ptr<DeviceContext> context_;
-    std::shared_ptr<VulkanPlanExecutor> executor_;
-    std::shared_ptr<VulkanSessionProvider> inner_;
+    UsdGenRef<Program> program_;
     std::shared_ptr<VulkanExternalRetirementDomain> exitDomain_;
     UsdGenSessionDeviceIdentity identity_{};
     std::atomic<bool> closing_{false};
@@ -418,66 +384,17 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
     // Every registered Vulkan program's SPIR-V, resolved next to its module.
     ShaderLibrary library;
     library.AddRegisteredPrograms();
-    std::vector<uint32_t> widthSpv;
-    if (!LoadShader(library, "width", &widthSpv)) {
-        SetReason(reason, "Vulkan default provider cannot load width.spv");
+    ProgramDef const *def = FindCreatableProgram();
+    if (!def || def->shaders.empty()) {
+        SetReason(reason, "no Vulkan program is registered");
         return {};
     }
-    std::vector<uint32_t> scale, set, cut, reparam, minimum, literal, envelope, lengthDevice;
-    bool const hasScale = LoadShader(library, "lengthScale", &scale);
-    bool const hasSet = LoadShader(library, "lengthSet", &set);
-    bool const hasCut = LoadShader(library, "lengthCutExtend", &cut);
-    bool const hasReparam = LoadShader(library, "lengthReparam", &reparam);
-    bool const hasMinimum = LoadShader(library, "lengthMinimum", &minimum);
-    bool const hasLiteral = LoadShader(library, "lengthLiteralV1", &literal);
-    bool const hasEnvelope = LoadShader(library, "lengthEnvelopeV1", &envelope);
-    bool const hasLengthDevice = LoadShader(library, "lengthDeviceV1", &lengthDevice);
-    std::vector<uint32_t> blendSpv, compareSpv, compactSpv;
-    bool const hasBlend = LoadShader(library, "widthBlend", &blendSpv);
-    bool const hasCompare = LoadShader(library, "nonWidthCompare", &compareSpv);
-    bool const hasCompact = LoadShader(library, "lengthCompaction", &compactSpv);
-    std::vector<uint32_t> noiseValidateSpv, noiseGenerateSpv;
-    bool const hasNoise =
-        LoadShader(library, "noiseValidate", &noiseValidateSpv) &&
-        LoadShader(library, "noiseGenerate", &noiseGenerateSpv);
-    std::vector<uint32_t> resampleSpv;
-    bool const hasResample = LoadShader(library, "resampleVk", &resampleSpv);
-    std::vector<uint32_t> exprContextSpv, exprEvaluateSpv, exprWidthSpv, exprPackSpv, growSpv;
-    bool const hasExprContext = LoadShader(library, "exprVkContext", &exprContextSpv);
-    bool const hasExprEvaluate = LoadShader(library, "exprVkEvaluate", &exprEvaluateSpv);
-    bool const hasExprWidth = LoadShader(library, "exprVkWidth", &exprWidthSpv);
-    bool const hasExprPack = LoadShader(library, "exprVkPack", &exprPackSpv);
-    bool const hasGrow = LoadShader(library, "curveGrow", &growSpv);
-    // Phase 2 picktiles: optional tile-span/bounds finalization; missing
-    // shaders only disable the tile stage (publications carry no tiles).
-    std::vector<uint32_t> tilesSpv, boundsSpv;
-    bool const hasTiles = LoadShader(library, "picktileVkTiles", &tilesSpv) &&
-        LoadShader(library, "picktileVkBounds", &boundsSpv);
-    // Phase-2 RBF device path (rbfVk hook): optional modules; missing
-    // shaders narrow all Deform admission (see planExecutor.cpp).
-    std::vector<uint32_t> rbfVkExtentSpv, rbfVkGramSpv, rbfVkBuildMatrixSpv, rbfVkLuSpv,
-        rbfVkRhsSpv, rbfVkTriSolveSpv, rbfVkEvaluateSpv, rbfVkApplySpv;
-    bool const hasRbfVk =
-        LoadShader(library, "rbfVkExtent", &rbfVkExtentSpv) &&
-        LoadShader(library, "rbfVkGram", &rbfVkGramSpv) &&
-        LoadShader(library, "rbfVkBuildMatrix", &rbfVkBuildMatrixSpv) &&
-        LoadShader(library, "rbfVkLu", &rbfVkLuSpv) &&
-        LoadShader(library, "rbfVkRhs", &rbfVkRhsSpv) &&
-        LoadShader(library, "rbfVkTriSolve", &rbfVkTriSolveSpv) &&
-        LoadShader(library, "rbfVkEvaluate", &rbfVkEvaluateSpv) &&
-        LoadShader(library, "rbfVkApply", &rbfVkApplySpv);
-    // R-cache programs: optional, never gating. Missing shaders only
-    // disable the RbfVkBinding evaluate cache (direct evaluation, as
-    // before); the binding rejects a partial set at Create.
-    std::vector<uint32_t> rbfVkVerifySpv, rbfVkFillSpv, rbfVkEvaluateCachedSpv;
-    bool const hasRbfVkEvalCache =
-        LoadShader(library, "rbfVkVerify", &rbfVkVerifySpv) &&
-        LoadShader(library, "rbfVkFill", &rbfVkFillSpv) &&
-        LoadShader(library, "rbfVkEvaluateCached", &rbfVkEvaluateCachedSpv);
-    if (!hasRbfVkEvalCache) {
-        rbfVkVerifySpv.clear();
-        rbfVkFillSpv.clear();
-        rbfVkEvaluateCachedSpv.clear();
+    // The program's first module locates the shader directory.
+    if (!library.Has(def->shaders[0].name)) {
+        std::string const message = std::string("Vulkan default provider cannot load ") +
+                                    def->shaders[0].file;
+        SetReason(reason, message.c_str());
+        return {};
     }
     auto self = std::shared_ptr<DefaultVulkanSessionProvider>(
         new DefaultVulkanSessionProvider);
@@ -543,95 +460,12 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
     // Pipelines need only the device context; build them before the
     // completion waiter exists so a pipeline failure destroys plain Vk
     // objects inline (safe on any thread) instead of needing the reaper.
-    auto width = WidthPipeline::Create(self->context_, widthSpv, &status);
-    if (!width) {
-        SetReason(reason, "Vulkan default provider cannot create the width pipeline");
+    std::string programReason;
+    self->program_ = def->create(self->context_, library, &programReason);
+    if (!self->program_) {
+        SetReason(reason, programReason.empty()
+            ? "Vulkan default provider cannot create its program" : programReason.c_str());
         return {};
-    }
-    // Length scale/set/cut/reparam/minimum/literal/envelope chain: install
-    // the largest contiguous combination present; missing shaders only
-    // narrow admission for graphs needing those Length forms.
-    std::shared_ptr<LengthScalePipeline> length;
-    if (hasScale && hasSet && hasCut && hasReparam && hasMinimum && hasLiteral &&
-        hasEnvelope && hasLengthDevice)
-        length = LengthScalePipeline::CreateWithDeviceV1(
-            self->context_, scale, set, cut, reparam, minimum, literal,
-            envelope, lengthDevice);
-    else if (hasScale && hasSet && hasCut && hasReparam && hasMinimum && hasLiteral &&
-        hasEnvelope)
-        length = LengthScalePipeline::CreateWithEnvelopeV1(
-            self->context_, scale, set, cut, reparam, minimum, literal,
-            envelope);
-    else if (hasScale && hasSet && hasCut && hasReparam && hasMinimum &&
-             hasLiteral)
-        length = LengthScalePipeline::CreateWithLiteralV1(
-            self->context_, scale, set, cut, reparam, minimum, literal);
-    else if (hasScale && hasSet && hasCut && hasReparam && hasMinimum)
-        length = LengthScalePipeline::CreateWithMinimum(
-            self->context_, scale, set, cut, reparam, minimum);
-    else if (hasScale && hasSet && hasCut && hasReparam)
-        length = LengthScalePipeline::CreateWithReparam(self->context_, scale,
-                                                        set, cut, reparam);
-    else if (hasScale && hasSet && hasCut)
-        length = LengthScalePipeline::CreateWithCutExtend(self->context_, scale,
-                                                          set, cut);
-    else if (hasScale && hasSet)
-        length = LengthScalePipeline::CreateWithSet(self->context_, scale, set);
-    else if (hasScale)
-        length = LengthScalePipeline::Create(self->context_, scale);
-    std::shared_ptr<WidthBlendPipeline> blend;
-    if (hasBlend) blend = WidthBlendPipeline::Create(self->context_, blendSpv);
-    std::shared_ptr<NonWidthComparePipeline> compare;
-    if (hasCompare)
-        compare = NonWidthComparePipeline::Create(self->context_, compareSpv);
-    std::shared_ptr<LengthCompactionPipeline> compact;
-    if (hasCompact)
-        compact = LengthCompactionPipeline::CreateWithKeep(self->context_, compactSpv);
-    std::shared_ptr<NoisePipeline> noise;
-    if (pick.shaderFloat64 && hasNoise)
-        noise = NoisePipeline::Create(self->context_, noiseValidateSpv,
-                                      noiseGenerateSpv);
-    std::shared_ptr<ResampleVkPipeline> resample;
-    if (pick.shaderFloat64 && hasResample)
-        resample = ResampleVkPipeline::Create(self->context_, resampleSpv);
-    std::shared_ptr<ExprVkContextPipeline> expressionContext;
-    std::shared_ptr<ExprVkEvaluatePipeline> expressionEvaluate;
-    std::shared_ptr<ExprVkWidthApplyPipeline> expressionWidth;
-    std::shared_ptr<ExprVkPackPipeline> expressionPack;
-    if (pick.shaderFloat64 && pick.shaderInt64 && hasExprContext && hasExprEvaluate) {
-        expressionContext = ExprVkContextPipeline::Create(self->context_, exprContextSpv);
-        expressionEvaluate = ExprVkEvaluatePipeline::Create(self->context_, exprEvaluateSpv);
-    }
-    if (hasExprWidth)
-        expressionWidth = ExprVkWidthApplyPipeline::Create(self->context_, exprWidthSpv);
-    if (hasExprPack)
-        expressionPack = ExprVkPackPipeline::Create(self->context_, exprPackSpv);
-    std::shared_ptr<GrowVkPipeline> grow;
-    if (hasGrow && resample) {
-        auto nativeGrow = CurveGrowPipeline::Create(self->context_, growSpv);
-        if (nativeGrow) grow = GrowVkPipeline::Create(nativeGrow, resample);
-    }
-    std::shared_ptr<PicktileVkTilesPipeline> tiles;
-    std::shared_ptr<PicktileVkBoundsPipeline> bounds;
-    if (hasTiles) {
-        tiles = PicktileVkTilesPipeline::Create(self->context_, tilesSpv);
-        bounds = PicktileVkBoundsPipeline::Create(self->context_, boundsSpv);
-        if (!tiles || !bounds) { tiles.reset(); bounds.reset(); }
-    }
-    std::shared_ptr<RbfVkDeformPipeline> rbfVkDeform;
-    if (pick.shaderFloat64 && hasRbfVk) {
-        RbfVkBindingSpirv rbfVkSpirv;
-        rbfVkSpirv.extent = std::move(rbfVkExtentSpv);
-        rbfVkSpirv.gram = std::move(rbfVkGramSpv);
-        rbfVkSpirv.buildMatrix = std::move(rbfVkBuildMatrixSpv);
-        rbfVkSpirv.lu = std::move(rbfVkLuSpv);
-        rbfVkSpirv.rhs = std::move(rbfVkRhsSpv);
-        rbfVkSpirv.triSolve = std::move(rbfVkTriSolveSpv);
-        rbfVkSpirv.evaluate = std::move(rbfVkEvaluateSpv);
-        rbfVkSpirv.verify = std::move(rbfVkVerifySpv);
-        rbfVkSpirv.fill = std::move(rbfVkFillSpv);
-        rbfVkSpirv.evaluateCached = std::move(rbfVkEvaluateCachedSpv);
-        rbfVkDeform = RbfVkDeformPipeline::Create(self->context_, rbfVkSpirv, rbfVkApplySpv);
     }
     self->completion_ = VulkanCompletionService::Create(
         {self->context_, self->queueOwner_.get(), 64});
@@ -651,41 +485,6 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
     self->exitDomain_ = TrackVulkanExternalRetirementDomain(self->queueOwner_, self->completion_);
     if (!self->exitDomain_)
         return Fail("Vulkan default provider cannot reserve process retirement tracking");
-    self->domain_ = VulkanGenerationAdapterDomain::Create(
-        {self->queueOwner_, self->completion_});
-    if (!self->domain_)
-        return Fail("Vulkan default provider cannot create a generation domain");
-    self->preparer_ = UsdGenExecutionTaskGraph::GetOrCreate(
-        *self->runtime_, "vulkan", self->context_->resourceDeviceId());
-    std::string executorReason;
-    VulkanPlanExecutor::CreateInfo executorInfo;
-    executorInfo.domain = self->domain_;
-    executorInfo.widthPipeline = width;
-    executorInfo.preparer = self->preparer_;
-    executorInfo.lengthPipeline = length;
-    executorInfo.widthBlendPipeline = blend;
-    executorInfo.nonWidthComparePipeline = compare;
-    executorInfo.lengthCompactionPipeline = compact;
-    executorInfo.noisePipeline = noise;
-    // Production deformation requires the device solver. Missing FP64 or
-    // RBF modules fail admission; legacy host-fit pipelines remain available
-    // only to callers that explicitly inject a compatibility provider.
-    executorInfo.resampleVkPipeline = resample;
-    executorInfo.tilesPipeline = tiles;
-    executorInfo.boundsPipeline = bounds;
-    executorInfo.rbfVkDeformPipeline = rbfVkDeform;
-    executorInfo.expressionContextPipeline = expressionContext;
-    executorInfo.expressionEvaluatePipeline = expressionEvaluate;
-    executorInfo.expressionWidthPipeline = expressionWidth;
-    executorInfo.expressionPackPipeline = expressionPack;
-    executorInfo.growVkPipeline = grow;
-    self->executor_ = VulkanPlanExecutor::Create(std::move(executorInfo), &executorReason);
-    if (!self->executor_) {
-        std::string message = executorReason.empty()
-            ? "Vulkan default provider cannot create a plan executor"
-            : executorReason;
-        return Fail(message.c_str());
-    }
     UsdGenSessionDeviceIdentity identity;
     identity.backend = UsdGenVulkanBackendId();
     identity.deviceIndex = self->context_->physicalIndex();
@@ -697,16 +496,15 @@ DefaultVulkanSessionProvider::Create(std::string* reason) {
               self->context_->deviceUUID().end(),
               identity.physicalDeviceUuid.begin());
     self->identity_ = identity;
-    std::string providerReason;
-    self->inner_ = VulkanSessionProvider::Create(
-        {self->executor_, self->context_, self->queueOwner_, identity, 256},
-        &providerReason);
-    if (!self->inner_) {
-        std::string message = providerReason.empty()
-            ? "Vulkan default provider cannot create a session provider"
-            : providerReason;
-        return Fail(message.c_str());
-    }
+    ProgramBinding binding;
+    binding.runtime = self->runtime_;
+    binding.queueOwner = self->queueOwner_;
+    binding.completion = self->completion_;
+    binding.identity = identity;
+    std::string bindReason;
+    if (!self->program_->Bind(std::move(binding), &bindReason))
+        return Fail(bindReason.empty() ? "Vulkan default provider cannot bind its program"
+                                       : bindReason.c_str());
     if (!RegisterVulkanExternalRetirementAtExit())
         return Fail("Vulkan default provider cannot register its process shutdown boundary");
     return self;

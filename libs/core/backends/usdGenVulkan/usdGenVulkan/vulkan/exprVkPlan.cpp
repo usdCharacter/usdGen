@@ -8,7 +8,7 @@
 #include "usdGen/expressions/irExec.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/vulkan/vkStages.h"
+#include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
 #include <cctype>

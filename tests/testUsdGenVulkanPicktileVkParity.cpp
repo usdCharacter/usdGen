@@ -21,10 +21,10 @@
 // without a device. Device sections need one NVIDIA Vulkan device; without
 // one the test exits 77. vkCreateDevice failures retry (environmental tenant
 // load): 5 attempts with a 60s wait between them.
-#include "usdGen/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
 #include "testBackend.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/picktileVk.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/picktileVk.h"
 
 #include "usdGenCurves/cuda/picking.h"
 #include "usdGenCurves/cuda/curveTiles.h"

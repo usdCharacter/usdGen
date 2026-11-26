@@ -13,9 +13,9 @@
 // blocks of mixed sizes; a held block is never handed to anyone else (each
 // holder tags its block and finds the tag intact at release), idle blocks
 // are reused, and growth stops once the classes are warm.
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/memoryPool.h"
-#include "usdGen/vulkan/queueTimeline.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/memoryPool.h"
+#include "usdGenVulkan/vulkan/queueTimeline.h"
 
 #include "vulkanNativeFixture.h"
 

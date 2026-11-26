@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/vulkan/externalRetirement.h"
+#include "usdGenVulkan/vulkan/externalRetirement.h"
 
 #include <atomic>
 #include <condition_variable>

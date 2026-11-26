@@ -8,7 +8,7 @@
 // authored host path, rejection codes, quarantine pinning.
 // argv: <rootFramesValidate.spv> <rootFrames.spv> [--quarantine]
 
-#include "usdGen/vulkan/rootFramesPipeline.h"
+#include "usdGenVulkan/vulkan/rootFramesPipeline.h"
 #include "vulkanNativeFixture.h"
 
 #include <cmath>

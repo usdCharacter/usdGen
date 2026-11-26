@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/lengthCompactionPipeline.h"
-#include "usdGen/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/lengthCompactionPipeline.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
 
 #include <cstdio>

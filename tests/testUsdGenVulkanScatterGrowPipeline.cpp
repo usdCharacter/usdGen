@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/scatterGrowPipeline.h"
+#include "usdGenCurves/vulkan/scatterGrowPipeline.h"
 #include "vulkanNativeFixture.h"
 #include "floatUlpFixture.h"
 #include <cmath>

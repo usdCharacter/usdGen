@@ -3,7 +3,7 @@
 
 #version 450
 #extension GL_GOOGLE_include_directive : require
-#include "../../libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/float32Envelope.glsl"
+#include "../../libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/shaders/float32Envelope.glsl"
 layout(local_size_x=256) in;
 layout(set=0,binding=0,std430) readonly buffer P { uint v[]; } inputBits;
 layout(set=0,binding=2,std430) writeonly buffer R { uint v[]; } outputBits;

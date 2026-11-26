@@ -8,10 +8,10 @@
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/vulkan/defaultProvider.h"
-#include "usdGen/vulkan/deviceGenerationAdapter.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/externalRetirement.h"
+#include "usdGenVulkan/vulkan/defaultProvider.h"
+#include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenVulkan/vulkan/externalRetirement.h"
 #include "vulkanSurfaceCageFixture.h"
 
 #include <algorithm>

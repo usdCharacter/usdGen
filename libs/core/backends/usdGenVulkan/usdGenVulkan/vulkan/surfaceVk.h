@@ -26,7 +26,7 @@
 #include "usdGen/api/graphSpec.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
-#include "usdGen/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
 
 namespace usdGen::vulkan {
 

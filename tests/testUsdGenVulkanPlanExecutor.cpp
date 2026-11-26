@@ -4,15 +4,15 @@
 // End-to-end proof for the deliberately narrow descriptor -> native Vulkan
 // source/width executor.  CPU construction below is an independent oracle for
 // C3 canonicalization; GPU bytes are always read back from the publication.
-#include "usdGen/vulkan/planExecutor.h"
+#include "usdGenCurves/vulkan/planExecutor.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/vulkan/executionPlan.h"
-#include "usdGen/vulkan/deviceGenerationAdapter.h"
-#include "usdGen/vulkan/completionService.h"
-#include "usdGen/vulkan/lengthScalePipeline.h"
-#include "usdGen/vulkan/widthBlendPipeline.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
+#include "usdGenVulkan/vulkan/completionService.h"
+#include "usdGenCurves/vulkan/lengthScalePipeline.h"
+#include "usdGenCurves/vulkan/widthBlendPipeline.h"
 #include "usdGen/curveLoader.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"

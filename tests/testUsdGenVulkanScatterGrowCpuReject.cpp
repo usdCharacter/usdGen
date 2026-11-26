@@ -8,7 +8,7 @@
 // pre-scan fusion, which moves these checks per-curve: a removal that
 // drops a plane (Normalize3 substitutes instead of rejecting; rootUV is
 // only ever copied) must fail here.
-#include "usdGen/vulkan/scatterGrowPipeline.h"
+#include "usdGenCurves/vulkan/scatterGrowPipeline.h"
 
 #include <cmath>
 #include <cstdint>

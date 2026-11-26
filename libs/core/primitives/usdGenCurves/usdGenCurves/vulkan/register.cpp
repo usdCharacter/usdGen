@@ -1,10 +1,14 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// usdGenCurvesVulkan's registration: the curves' Vulkan device program, so
-// far its SPIR-V table (the runtime still builds the pipelines). Loaded
-// after usdGenVulkan (USDGEN_DEFAULT_EXTENSIONS), whose backend it names.
+// usdGenCurvesVulkan's registration: the curves' Vulkan device program (its
+// SPIR-V table and pipeline factory) and the Vulkan kernel rows of the
+// built-in curve ops. Loaded after usdGenVulkan (USDGEN_DEFAULT_EXTENSIONS),
+// whose backend it names, and after usdGenCurves, whose op ids it attaches to.
 #include "usdGenCurves/vulkan/export.h"
+#include "usdGenCurves/ops/kernelOps.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenCurves/vulkan/curvesProgram.h"
+#include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenVulkan/compile/program.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/registrar.h"
@@ -53,7 +57,7 @@ constexpr vulkan::ShaderDecl kShaders[] = {
 // Constant-initialized; the anchor is this object, so the shader directory
 // is resolved next to this module.
 vulkan::ProgramDef const gProgram{UsdGenSpan<const vulkan::ShaderDecl>(kShaders), &gProgram,
-                                  nullptr};
+                                  &vulkan::CreateCurvesProgram};
 
 }  // namespace
 
@@ -62,4 +66,17 @@ extern "C" USDGEN_CURVES_VULKAN_API void usdGenRegister(UsdGenRegistrar &r);
 extern "C" void usdGenRegister(UsdGenRegistrar &r)
 {
     r.RegisterDeviceProgram(UsdGenFindBackend("vulkan"), UsdGenCurveSetType(), &gProgram);
+    UsdGenCurvesKernelOps const &ops = UsdGenCurvesBuiltinKernelOps();
+    UsdGenVulkanKernelOps k;
+    k.curveSource = ops.curveSource;
+    k.referenceSource = ops.referenceSource;
+    k.scatter = ops.scatter;
+    k.grow = ops.grow;
+    k.width = ops.width;
+    k.length = ops.length;
+    k.widthBlend = ops.widthBlend;
+    k.noise = ops.noise;
+    k.deform = ops.deform;
+    k.resample = ops.resample;
+    UsdGenRegisterVulkanKernels(r, k);
 }

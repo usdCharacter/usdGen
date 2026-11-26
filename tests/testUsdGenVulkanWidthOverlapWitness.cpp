@@ -13,7 +13,7 @@
 // the live count balances, and maxActive of 2 proves overlap was observed.
 // A device that serializes still passes with maxActive 1 (the probe
 // correctly reports what happened); the outcome is printed, never silent.
-#include "usdGen/vulkan/widthOverlapWitness.h"
+#include "usdGenCurves/vulkan/widthOverlapWitness.h"
 
 #include <vulkan/vulkan.h>
 

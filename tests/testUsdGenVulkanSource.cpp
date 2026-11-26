@@ -3,8 +3,8 @@
 
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "vulkanReadbackFixture.h"
-#include "usdGen/vulkan/sourceGeneration.h"
-#include "usdGen/vulkan/widthBlendPipeline.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/widthBlendPipeline.h"
 #include <map>
 #include <fstream>
 #include <iterator>

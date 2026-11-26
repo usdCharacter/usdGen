@@ -36,15 +36,15 @@
 //
 // Usage: testUsdGenVulkanSurfaceVk deformEvaluate.spv deformApply.spv
 
-#include "usdGen/vulkan/surfaceVk.h"
+#include "usdGenVulkan/vulkan/surfaceVk.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
-#include "usdGen/vulkan/executionPlan.h"
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/deformPipeline.h"
-#include "usdGen/vulkan/deformRbfHost.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/deformPipeline.h"
+#include "usdGenCurves/vulkan/deformRbfHost.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"

@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/completionService.h"
-#include "usdGen/vulkan/widthPipeline.h"
+#include "usdGenVulkan/vulkan/completionService.h"
+#include "usdGenCurves/vulkan/widthPipeline.h"
 #include "vulkanReadbackFixture.h"
 #include <fstream>
 #include <iterator>

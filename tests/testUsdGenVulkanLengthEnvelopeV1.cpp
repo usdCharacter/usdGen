@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGenCurves/types/curveDeviceLayout.h"
-#include "usdGen/vulkan/lengthScalePipeline.h"
-#include "usdGen/vulkan/sourceGeneration.h"
+#include "usdGenCurves/vulkan/lengthScalePipeline.h"
+#include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
 #include "floatUlpFixture.h"
 #include "../libs/base/usdGenMath/usdGenMath/hash.h"

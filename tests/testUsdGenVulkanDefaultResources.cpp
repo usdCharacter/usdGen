@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/vulkan/defaultResources.h"
+#include "usdGenVulkan/vulkan/defaultResources.h"
 
 #include <cstdio>
 #include <limits>

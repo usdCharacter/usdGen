@@ -31,9 +31,9 @@
 // Missing backends return 77 after the available lane runs its host oracles.
 // Initialization and execution failures fail the test; success requires both lanes.
 
-#include "usdGen/vulkan/deviceContext.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/styleVkPipeline.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenCurves/vulkan/styleVkPipeline.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"

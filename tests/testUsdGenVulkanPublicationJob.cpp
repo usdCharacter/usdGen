@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/publicationJob.h"
+#include "usdGenCurves/vulkan/publicationJob.h"
 #include "testBackend.h"
 #include "vulkanReadbackFixture.h"
 

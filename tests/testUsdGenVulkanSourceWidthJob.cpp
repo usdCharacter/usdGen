@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/vulkan/sourceWidthJob.h"
+#include "usdGenCurves/vulkan/sourceWidthJob.h"
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"
 

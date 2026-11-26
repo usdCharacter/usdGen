@@ -10,7 +10,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_PLAN_H
 #define USDGEN_VULKAN_EXPR_VK_PLAN_H
 
-#include "executionPlan.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
 #include "exprVkProgram.h"
 
 #include <string>

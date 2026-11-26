@@ -7,7 +7,7 @@
 #include <cstring>
 #include <map>
 #include <string_view>
-#include "usdGen/vulkan/vkStages.h"
+#include "usdGenCurves/vulkan/vkStages.h"
 namespace usdGen::vulkan {
 namespace {
 // A destination's name without "usdGen:"; compares text, never interns.

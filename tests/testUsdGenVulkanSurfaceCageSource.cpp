@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/vulkan/csourceVkCapture.h"
+#include "usdGenCurves/vulkan/csourceVkCapture.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/vulkan/growVkPlan.h"
-#include "usdGen/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/growVkPlan.h"
+#include "usdGenCurves/vulkan/executionPlan.h"
 #include "vulkanSurfaceCageFixture.h"
 #include <chrono>
 #include <cstdio>

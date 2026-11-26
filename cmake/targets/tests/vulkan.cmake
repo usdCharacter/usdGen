@@ -490,7 +490,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             -o "${_usdgen_vulkan_arithmetic_spv}"
         COMMAND "${USDGEN_SPIRV_VAL_EXECUTABLE}" --target-env vulkan1.2 "${_usdgen_vulkan_arithmetic_spv}"
         DEPENDS tests/shaders/envelopeArithmetic.comp
-            libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/float32Envelope.glsl VERBATIM)
+            libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/shaders/float32Envelope.glsl VERBATIM)
     add_executable(testUsdGenVulkanEnvelopeArithmetic tests/testUsdGenVulkanEnvelopeArithmetic.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}"

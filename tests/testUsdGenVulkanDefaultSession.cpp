@@ -9,10 +9,10 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
-#include "usdGen/vulkan/defaultProvider.h"
-#include "usdGen/vulkan/deviceGenerationAdapter.h"
-#include "usdGen/vulkan/chargedBuffer.h"
-#include "usdGen/vulkan/externalRetirement.h"
+#include "usdGenVulkan/vulkan/defaultProvider.h"
+#include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenVulkan/vulkan/externalRetirement.h"
 
 #include <algorithm>
 #include <chrono>
