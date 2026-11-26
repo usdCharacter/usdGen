@@ -26,6 +26,9 @@ enum UsdGenTypeTrait : uint32_t {
     kUsdGenTypeMapPtex           = 1u << 2,   // surfaceCageSource.cpp:154, valuePreview.cpp:368, regionMap.h:31
     kUsdGenTypeMapImage          = 1u << 3,   // strandUtil.cpp:415
     kUsdGenTypeMapExprSampleable = 1u << 4,   // cpuParameters.cpp:418 (ptex() accepts it)
+    /// A primitive whose elements convert one-to-one to the default primitive
+    /// (one item each): the compiler admits it into ops that take the default.
+    kUsdGenTypeConvertsToDefault = 1u << 5,
 };
 
 /// Map prim parameters parsed once (cpuParameters.cpp:424-436,
