@@ -141,7 +141,8 @@ file(GLOB_RECURSE _usdgen_cuda_cpp_sources
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/*.cpp")
 set(_usdgen_cuda_runtime_only
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaSessionProvider.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/exec/provider.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/exec/workspace.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp")
 if(NOT USDGEN_ENABLE_CUDA)
@@ -221,4 +222,49 @@ if(USDGEN_ENABLE_CUDA)
     target_link_libraries(usdGenPomade PRIVATE usdGenCuda CUDA::cudart)
     set_target_properties(usdGenPomade PROPERTIES
         CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
+endif()
+
+# ---------------------------------------------------------------------------
+# Primitive CUDA targets (step 8.6a), each sourced by GLOB_RECURSE of its
+# folder so a git mv moves membership (reconfigure after one):
+#   usdGenCurvesCuda (SHARED)  libs/core/primitives/usdGenCurves/usdGenCurves/cuda/
+#   usdGenSurfaceCuda, usdGenExprCuda (OBJECT, linked into usdGenCurvesCuda,
+#   their only consumer)       usdGen{Surface,Expr}/usdGen{Surface,Expr}/cuda/
+# An OBJECT folder without sources yet makes no target. CUDA builds only.
+# ---------------------------------------------------------------------------
+function(_usdgen_glob_gpu_folder _out _folder)
+    file(GLOB_RECURSE _found
+        "${CMAKE_CURRENT_SOURCE_DIR}/${_folder}/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/${_folder}/*.cu")
+    set(${_out} "${_found}" PARENT_SCOPE)
+endfunction()
+if(USDGEN_ENABLE_CUDA)
+    _usdgen_glob_gpu_folder(_usdgen_curves_cuda_sources
+        libs/core/primitives/usdGenCurves/usdGenCurves/cuda)
+    add_library(usdGenCurvesCuda SHARED ${_usdgen_curves_cuda_sources})
+    target_link_libraries(usdGenCurvesCuda
+        PUBLIC usdGen
+        PRIVATE usdGenCuda usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+    foreach(_usdgen_gpu_object usdGenSurface usdGenExpr)
+        _usdgen_glob_gpu_folder(_usdgen_gpu_object_sources
+            libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/cuda)
+        if(_usdgen_gpu_object_sources)
+            add_library(${_usdgen_gpu_object}Cuda OBJECT ${_usdgen_gpu_object_sources})
+            target_link_libraries(${_usdgen_gpu_object}Cuda PRIVATE usdGenCuda ${_usdgen_gpu_object})
+            set_target_properties(${_usdgen_gpu_object}Cuda PROPERTIES
+                POSITION_INDEPENDENT_CODE ON
+                CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
+            target_sources(usdGenCurvesCuda PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Cuda>)
+        endif()
+    endforeach()
+    set_target_properties(usdGenCurvesCuda PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}"
+        INSTALL_RPATH "$ORIGIN")
+    add_dependencies(usdGenWithPrimitives usdGenCurvesCuda)
+    # Loaded after usdGenCuda: its usdGenRegister names the "cuda" backend.
+    list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCurvesCuda)
+    install(TARGETS usdGenCurvesCuda
+        RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+        LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")
 endif()

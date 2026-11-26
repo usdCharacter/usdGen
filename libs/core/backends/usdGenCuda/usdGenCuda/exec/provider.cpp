@@ -1,14 +1,18 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// The CUDA Session provider: the staged source -> operator* -> final task
-// graph that ran inside the cooker until step 8.3, behind the provider
-// boundary. The cooker owns compilation, the cache and publication.
-#include "usdGenCuda/cudaSessionProvider.h"
+// The CUDA Session provider: the staged source -> operator* -> publication
+// task graph of a registered device program, behind the provider boundary.
+// The cooker owns compilation, the cache and publication.
+#include "usdGenCuda/exec/provider.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGenCuda/bindingReport.h"
-#include "usdGenCuda/cudaExecution.h"
+#include "usdGenCuda/compile/program.h"
+#include "usdGenCuda/exec/workspace.h"
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/exec/executionTaskGraph.h"
 #include "usdGen/registries/backend.h"
+#include "usdGen/registries/op.h"
+#include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/typeRegistry.h"
 
 #include <cuda_runtime_api.h>
 
@@ -19,7 +23,6 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace usdGen {
 namespace {
@@ -29,16 +32,76 @@ std::exception_ptr Failure(std::string const &what)
     return std::make_exception_ptr(std::runtime_error(what));
 }
 
+cuda::ProgramDef const *ProgramOf(UsdGenTypeId type) noexcept
+{
+    return static_cast<cuda::ProgramDef const *>(
+        UsdGenFindDeviceProgram(UsdGenCudaBackendId(), type));
+}
+
+// The program of the graph's terminal type; the default primitive's when
+// the terminal names none or its type has no program.
+cuda::ProgramDef const *ProgramFor(UsdGenGraphSpec const &spec) noexcept
+{
+    UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+    UsdGenTypeId const fallback = types.DefaultPrimitive();
+    UsdGenTypeId type = fallback;
+    for (UsdGenOpNode const &node : spec.nodes) {
+        if (node.key != spec.terminal) continue;
+        if (node.opId != UsdGenOpId::Invalid) {
+            TfToken const &name = UsdGenOpRegistry::Get().Record(node.opId).OutputType();
+            if (!name.IsEmpty()) type = types.Find(name);
+        }
+        break;
+    }
+    cuda::ProgramDef const *program = ProgramOf(type);
+    return program || type == fallback ? program : ProgramOf(fallback);
+}
+
+// The payload of the handles this provider hands out: the program and its plan.
+struct CompiledProgram {
+    cuda::ProgramDef const *program = nullptr;
+    std::shared_ptr<const UsdGenExecutionPlanHandle> plan;
+};
+
 class CudaSessionProvider final : public UsdGenSessionDeviceProvider {
 public:
     // One cook's state, shared by its task closures until the graph completes.
     struct Stages {
-        std::shared_ptr<UsdGenCudaExecutionJob> job;
+        UsdGenRef<cuda::Job> job;
         UsdGenSessionDeviceReturn transport;
         UsdGenSessionDeviceIdentity identity;
         std::shared_ptr<const UsdGenDeviceGeneration> generation;
         UsdGenRef<const UsdGenPublication> report;
         std::atomic<bool> returned{false};
+    };
+
+    // One started task's completion; owned by the TaskDone it is handed to.
+    struct TaskRelay {
+        UsdGenExecutionTaskGraph::TaskCompletion completion;
+        std::shared_ptr<Stages> stages;   // set on the publication task only
+        std::string failure;              // what a failed task reports
+
+        static void Done(void *user, bool ok) noexcept
+        {
+            std::unique_ptr<TaskRelay> self(static_cast<TaskRelay *>(user));
+            try {
+                if (ok && self->stages) {
+                    // Native diagnostic snapshot, before the result leaves.
+                    auto device = self->stages->job->Result();
+                    if (device) {
+                        self->stages->report = self->stages->job->Report();
+                        self->stages->generation = std::move(device);
+                        self->completion([] {}, {});
+                        return;
+                    }
+                    ok = false;
+                }
+                if (ok) self->completion({}, {});
+                else self->completion({}, Failure(self->failure));
+            } catch (...) {
+                try { self->completion({}, std::current_exception()); } catch (...) {}
+            }
+        }
     };
 
     ~CudaSessionProvider() override = default;
@@ -48,24 +111,19 @@ public:
     {
         UsdGenDiagnostics local;
         UsdGenDiagnostics *const diag = diagnostics ? diagnostics : &local;
-        size_t const knownErrors = diag->errors.size();
-        auto plan = CompileCudaGraph(desc, diag);
-        if (!plan) {
-            if (diag->errors.size() == knownErrors) diag->Error("CUDA plan compilation failed");
+        cuda::ProgramDef const *const program = ProgramFor(desc);
+        if (!program || !program->compile || !program->createJob) {
+            diag->Error("CUDA: no device program is registered for the graph's primitive");
             return {};
         }
-        // A plan without metadata still compiles; Submit rejects it.
-        auto metadata = GetCudaExecutionPlanMetadata(*plan);
-        if (!metadata)
-            metadata = std::make_shared<const UsdGenExecutionPlanMetadata>(
-                "cuda", kUsdGenCudaCapabilityVersion,
-                UsdGenExecutionPlanShape::LinearAuthoredChain,
-                std::vector<UsdGenCompiledOperatorCapability>{},
-                std::vector<UsdGenExecutionTaskMetadata>{},
-                std::vector<UsdGenExecutionValueMetadata>{}, 0);
+        auto plan = program->compile(desc, diag);
+        if (!plan) return {};
+        std::shared_ptr<const UsdGenExecutionPlanMetadata> metadata = plan->Metadata();
+        UsdGenBackendId const backend = plan->Backend();
         std::string reason;
-        auto handle = UsdGenExecutionPlanHandle::Create(
-            UsdGenCudaBackendId(), std::move(metadata), std::move(plan), &reason);
+        auto handle = UsdGenExecutionPlanHandle::Create(backend, std::move(metadata),
+            std::make_shared<const CompiledProgram>(CompiledProgram{program, std::move(plan)}),
+            &reason);
         if (!handle) diag->Error("CUDA plan handle: " + reason);
         return handle;
     }
@@ -75,7 +133,8 @@ public:
         UsdGenSessionDeviceIdentity identity;
         identity.backend = UsdGenCudaBackendId();
         identity.deviceIndex = _workspace ? _workspace->DeviceIndex() : -1;
-        identity.capabilityVersion = kUsdGenCudaCapabilityVersion;
+        UsdGenBackendDef const *const def = UsdGenGetBackend(identity.backend);
+        identity.capabilityVersion = def ? def->capabilityVersion : 0;
         return identity;
     }
 
@@ -97,8 +156,8 @@ public:
         _fresh = !_workspace || _description != description ||
             (callerDevice >= 0 && _workspace->DeviceIndex() != callerDevice);
         if (_fresh) {
-            auto replacement = CreateCudaExecutionWorkspace(callerDevice, diagnostics);
-            if (!replacement) return false;
+            auto replacement = cuda::Workspace::Create(callerDevice, diagnostics);
+            if (!replacement || !_MakeStates(*replacement, diagnostics)) return false;
             _workspace = std::move(replacement);
             _description = description;
         }
@@ -109,29 +168,32 @@ public:
     bool Submit(UsdGenSessionDeviceRequest request) override
     {
         UsdGenDiagnostics *const diagnostics = request.diagnostics;
-        auto const plan = request.plan
-            ? std::static_pointer_cast<const UsdGenCudaExecutionPlan>(request.plan->Payload())
-            : std::shared_ptr<const UsdGenCudaExecutionPlan>{};
-        if (!plan || !_workspace || !request.runtime || !request.returnTransport) return false;
+        auto const *const compiled = request.plan
+            ? static_cast<CompiledProgram const *>(request.plan->Payload().get()) : nullptr;
+        if (!compiled || !compiled->program || !compiled->plan || !_workspace ||
+            !request.runtime || !request.returnTransport)
+            return false;
+        cuda::ProgramState *const state = _workspace->State(*compiled->program, diagnostics);
+        if (!state) return false;
         auto stages = std::make_shared<Stages>();
         stages->transport = std::move(request.returnTransport);
         stages->identity = Identity();
         // A fresh workspace has no incremental baseline.
-        stages->job = CreateCudaExecutionJob(plan, *_workspace,
-            request.evaluationFrame ? *request.evaluationFrame : 0.0,
-            request.publicationGeneration, diagnostics,
-            _fresh ? nullptr : request.previous);
+        std::shared_ptr<const UsdGenDeviceGeneration> const none;
+        stages->job = compiled->program->createJob(*compiled->plan, *_workspace, *state, request,
+                                                   _fresh ? none : request.previous, diagnostics);
         if (!stages->job) {
             if (diagnostics) diagnostics->Error("CUDA execution job creation failed");
             return false;
         }
-        auto metadata = GetCudaExecutionPlanMetadata(*plan);
+        UsdGenExecutionPlanMetadata const *const metadata = stages->job->Metadata();
+        size_t const operators = stages->job->OperatorCount();
         if (!metadata ||
             (metadata->Shape() != UsdGenExecutionPlanShape::LinearAuthoredChain &&
              metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedUnaryDag &&
              metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedValueDag) ||
             metadata->Operators().empty() ||
-            metadata->Tasks().size() != CudaExecutionJobOperatorCount(*stages->job) + 2 ||
+            metadata->Tasks().size() != operators + 2 ||
             !metadata->FindTask(metadata->TerminalTask()))
             return _Fail(stages, "CUDA execution plan metadata is missing or incompatible");
         for (uint32_t i = 0; i != metadata->Tasks().size(); ++i)
@@ -151,21 +213,13 @@ public:
             sourceMetadata->id != graph.tasks.size())
             return _Fail(stages, "CUDA source task metadata is missing");
         graph.tasks.push_back({sourceMetadata->dependencies, [stages](auto const &taskCancel, auto done) {
-            auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
-                std::move(done));
-            try {
-                if (taskCancel.Superseded()) {
-                    (*completion)({}, Failure("CUDA source stage failed"));
-                    return;
-                }
-                if (!ExecuteCudaJobSourceAsync(stages->job, [completion](bool ok) {
-                        if (ok) (*completion)({}, {});
-                        else (*completion)({}, Failure("CUDA source stage failed"));
-                    }))
-                    (*completion)({}, Failure("CUDA source stage failed"));
-            } catch (...) { (*completion)({}, std::current_exception()); }
+            if (taskCancel.Superseded()) {
+                done({}, Failure("CUDA source stage failed"));
+                return;
+            }
+            CudaSessionProvider::_Start(stages, 0, std::move(done), "CUDA source stage failed",
+                   "CUDA source stage failed", false);
         }});
-        size_t const operators = CudaExecutionJobOperatorCount(*stages->job);
         for (size_t i = 0; i < operators; ++i) {
             auto const *operatorMetadata = metadata->FindTask(static_cast<uint32_t>(i + 1));
             if (!operatorMetadata || operatorMetadata->kind != UsdGenExecutionTaskKind::Operator ||
@@ -173,58 +227,31 @@ public:
                 return _Fail(stages, "CUDA operator task metadata is missing");
             graph.tasks.push_back({operatorMetadata->dependencies,
                                    [stages, i](auto const &taskCancel, auto done) {
-                auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
-                    std::move(done));
-                try {
-                    if (taskCancel.Superseded()) {
-                        (*completion)({}, Failure("CUDA operator stage " + std::to_string(i) + " superseded"));
-                        return;
-                    }
-                    if (!ExecuteCudaJobOperatorAsync(stages->job, i, [completion, i](bool ok) {
-                            if (ok) (*completion)({}, {});
-                            else (*completion)({}, Failure("CUDA operator stage " +
-                                                           std::to_string(i) + " completion failed"));
-                        }))
-                        (*completion)({}, Failure("CUDA operator stage " + std::to_string(i) +
-                                                  " submission failed"));
-                } catch (...) { (*completion)({}, std::current_exception()); }
+                std::string const stage = "CUDA operator stage " + std::to_string(i);
+                if (taskCancel.Superseded()) {
+                    done({}, Failure(stage + " superseded"));
+                    return;
+                }
+                CudaSessionProvider::_Start(stages, static_cast<uint32_t>(i + 1), std::move(done),
+                       stage + " completion failed", stage + " submission failed", false);
             }});
         }
         auto const *terminalMetadata = metadata->FindTask(metadata->TerminalTask());
         if (!terminalMetadata || terminalMetadata->kind != UsdGenExecutionTaskKind::Publication ||
             terminalMetadata->id != graph.tasks.size())
             return _Fail(stages, "CUDA publication task metadata is missing");
-        UsdGenCudaExecutionWorkspace const *const workspace = _workspace.get();
+        uint32_t const terminal = terminalMetadata->id;
         graph.tasks.push_back({terminalMetadata->dependencies,
-                               [stages, workspace](auto const &, auto done) {
-            auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
-                std::move(done));
-            try {
-                if (!FinalizeCudaExecutionJobAsync(stages->job,
-                        [stages, workspace, completion](
-                            std::shared_ptr<const UsdGenDeviceGeneration> device) {
-                    try {
-                        if (!device) {
-                            (*completion)({}, Failure("CUDA final stage failed"));
-                            return;
-                        }
-                        // Native diagnostic snapshot, before the result leaves.
-                        auto report = UsdGenMakeRef<UsdGenCudaBindingReport>();
-                        report->stats = GetCudaBindingStats(*workspace);
-                        stages->report = std::move(report);
-                        stages->generation = std::move(device);
-                        (*completion)([] {}, {});
-                    } catch (...) { (*completion)({}, std::current_exception()); }
-                }))
-                    (*completion)({}, Failure("CUDA final stage failed"));
-            } catch (...) { (*completion)({}, std::current_exception()); }
+                               [stages, terminal](auto const &, auto done) {
+            CudaSessionProvider::_Start(stages, terminal, std::move(done), "CUDA final stage failed",
+                   "CUDA final stage failed", true);
         }});
         graph.finalTask = terminalMetadata->id;
         graph.completion = [this, stages](auto, std::exception_ptr error) {
             // Task completion proves no dispatcher closure can still borrow
-            // the workspace. Destroy the job first: its destructor can be the
+            // the workspace. Release the job first: its destructor can be the
             // operation that marks an unprovable transaction poisoned.
-            stages->job.reset();
+            stages->job.Reset();
             bool const poisoned = _workspace && _workspace->IsPoisoned();
             if (poisoned) _Drop();
             _Return(stages, error, poisoned);
@@ -237,6 +264,41 @@ public:
     void Shutdown() noexcept override { _Drop(); }
 
 private:
+    // Starts one task; its relay reports to 'done' exactly once.
+    static void _Start(std::shared_ptr<Stages> const &stages, uint32_t task,
+                       UsdGenExecutionTaskGraph::TaskCompletion done, std::string failed,
+                       std::string const &rejected, bool publication)
+    {
+        std::unique_ptr<TaskRelay> relay;
+        try {
+            relay.reset(new TaskRelay{std::move(done), publication ? stages : nullptr,
+                                      std::move(failed)});
+        } catch (...) {
+            done({}, std::current_exception());
+            return;
+        }
+        cuda::TaskDone handoff;
+        handoff.fn = &TaskRelay::Done;
+        handoff.user = relay.get();
+        if (stages->job->Start(task, handoff)) {
+            (void)relay.release();
+            return;
+        }
+        relay->completion({}, Failure(rejected));
+    }
+
+    // One state per registered program, made with the workspace so a
+    // device that cannot host them fails the selection, not the cook.
+    static bool _MakeStates(cuda::Workspace &workspace, UsdGenDiagnostics *diagnostics)
+    {
+        UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+        for (uint32_t t = 0; t < types.Count(); ++t) {
+            cuda::ProgramDef const *const program = ProgramOf(UsdGenTypeId(t));
+            if (program && !workspace.State(*program, diagnostics)) return false;
+        }
+        return true;
+    }
+
     void _Drop() noexcept
     {
         _workspace.reset();
@@ -268,7 +330,7 @@ private:
         } catch (...) {}
     }
 
-    std::unique_ptr<UsdGenCudaExecutionWorkspace> _workspace;
+    std::unique_ptr<cuda::Workspace> _workspace;
     UsdGenNodeKey _description;
     bool _fresh = true;   // the selected workspace was created for this cook
 };

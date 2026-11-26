@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// The CUDA Session device provider (CUDA builds only).
+// The CUDA Session device provider (CUDA builds only). It runs the program
+// registered for the graph's primitive (compile/program.h).
 #pragma once
 #include "usdGenCuda/export.h"
 #include "usdGen/exec/sessionDeviceProvider.h"
@@ -13,8 +14,8 @@ namespace usdGen {
 struct UsdGenBackendProviderDesc;
 
 /// One execution workspace, replaced when the cook's device or graph
-/// description changes; each cook runs source -> operator* -> final as a
-/// task graph on the device's shared dispatcher.
+/// description changes; each cook runs source -> operator* -> publication
+/// as a task graph on the device's shared dispatcher.
 USDGEN_CUDA_API std::shared_ptr<UsdGenSessionDeviceProvider> CreateCudaSessionProvider(
     UsdGenBackendProviderDesc const &, std::string *reason);
 

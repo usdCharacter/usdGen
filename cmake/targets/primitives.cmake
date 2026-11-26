@@ -10,6 +10,9 @@
 # ---------------------------------------------------------------------------
 function(_usdgen_add_primitive _name _root)
     file(GLOB_RECURSE _sources "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/${_root}/*.cpp")
+    # cuda/ and vulkan/ build into the primitive's GPU targets (cuda.cmake,
+    # vulkan.cmake).
+    list(FILTER _sources EXCLUDE REGEX "/primitives/${_root}/${_root}/(cuda|vulkan)/")
     if(ARGN)
         list(REMOVE_ITEM _sources ${ARGN})
     endif()

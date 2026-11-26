@@ -13,7 +13,7 @@
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/registrar.h"
 #if defined(USDGEN_ENABLE_CUDA)
-#include "usdGenCuda/cudaSessionProvider.h"
+#include "usdGenCuda/exec/provider.h"
 #endif
 
 #include <atomic>
