@@ -10,6 +10,8 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/registries/handles.h"
+#include "usdGen/api/export.h"
+#include "usdGenSurface/types/rootSet.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -79,6 +81,11 @@ enum Tok : uint16_t { kTokRandom, kTokPerFace, kTokNone, kTokLeftHanded, kTokDen
 
 class UsdGenRegistrar;
 UsdGenOpId UsdGenRegisterScatterOp(UsdGenRegistrar &);
+
+/// A Scatter capture's roots as a RootSet view (static channels; no copy,
+/// valid until the capture is re-captured or recycled). Invalid when the
+/// capture holds no consistent roots.
+USDGEN_CORE_API UsdGenRootSetView UsdGenScatterRoots(UsdGenCapture const &capture) noexcept;
 
 }  // namespace usdGen
 

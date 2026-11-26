@@ -46,6 +46,7 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenSurface/types/rootSet.h"
 
 #include "usdGen/clumpMotion.h"
 #include "usdGen/ops/guideBlend.h"
@@ -1052,6 +1053,11 @@ void UsdGenGuideInterpolateOp::Evaluate(
     }
 }
 
+namespace {
+// Roots (Scatter), or curves whose first CVs are the roots; filled at registration.
+char const *gInputTypes[2] = {nullptr, nullptr};
+}  // namespace
+
 UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &r)
 {
     UsdGenOpDef d;
@@ -1060,6 +1066,8 @@ UsdGenOpId UsdGenRegisterGuideInterpolateOp(UsdGenRegistrar &r)
     d.create = &Create;
     d.countChanges = UsdGenCountsAtLevel(2);
     d.traits = kUsdGenOpGenerator | kUsdGenOpCaptureOwnsRestAndPlanes;
+    gInputTypes[0] = UsdGenRootSetTypeName();
+    d.inputTypes = UsdGenSpan(gInputTypes);
     d.params = UsdGenSpan(kParams);
     d.referenceInputs = UsdGenSpan(kReferences);
     d.mapSlots = UsdGenSpan(kMaps);

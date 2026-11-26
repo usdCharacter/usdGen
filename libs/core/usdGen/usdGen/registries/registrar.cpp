@@ -139,6 +139,9 @@ UsdGenOpId UsdGenRegistrar::RegisterOp(UsdGenOpDef const &def)
         if (!token) return UsdGenOpId::Invalid;
         tables->tokens.push_back(UsdGenInternToken(token));
     }
+    if (def.outputType && *def.outputType) tables->outputType = UsdGenInternToken(def.outputType);
+    for (char const *type : def.inputTypes)
+        tables->inputTypes.push_back(type && *type ? UsdGenInternToken(type) : TfToken());
     FillPlanes(def.inputPlanes, &tables->inputPlanes);
     FillPlanes(def.outputPlanes, &tables->outputPlanes);
 

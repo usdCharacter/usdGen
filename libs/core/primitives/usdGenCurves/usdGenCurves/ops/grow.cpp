@@ -8,6 +8,7 @@
 #include "usdGen/ops/grow.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenSurface/types/rootSet.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -174,6 +175,8 @@ UsdGenParamDecl const kParams[kCount] = {
     {"azimuthRandom", UsdGenParamClass::Value, true, kFloatRoot},
 };
 constexpr char const *kTokens[] = {"surfaceNormal", "vector"};
+// Roots (Scatter), or curves whose first CVs are the roots; filled at registration.
+char const *gInputTypes[2] = {nullptr, nullptr};
 
 std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &record, void *)
 {
@@ -711,6 +714,8 @@ UsdGenOpId UsdGenRegisterGrowOp(UsdGenRegistrar &r)
     d.countChanges = UsdGenCountsAtLevel(2);
     d.traits = kUsdGenOpGenerator | kUsdGenOpCaptureDigestComplete |
         kUsdGenOpCaptureOwnsRestAndPlanes;
+    gInputTypes[0] = UsdGenRootSetTypeName();
+    d.inputTypes = UsdGenSpan(gInputTypes);
     d.params = UsdGenSpan(kParams);
     d.tokens = UsdGenSpan(kTokens);
     return r.RegisterOp(d);
