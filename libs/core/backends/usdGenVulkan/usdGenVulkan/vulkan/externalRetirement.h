@@ -47,20 +47,22 @@ std::shared_ptr<VulkanExternalRetirementDomain> TrackVulkanExternalRetirementDom
 bool RegisterVulkanExternalRetirementAtExit() noexcept;
 
 // Runs accepted close callbacks in order on the retirement lane, a
-// process-owned native thread outside any execution graph, fed by a bounded
-// lock-free ring. Admission is bounded and permanently closes at shutdown.
+// UsdGenSerialLane on the process scheduler outside any execution graph, fed
+// by a bounded lock-free ring. A running callback occupies one scheduler
+// worker. Admission is bounded and permanently closes at shutdown.
 // A rejected callback must remain retained by its native domain.
 bool EnqueueVulkanExternalRetirement(std::function<void()> callback) noexcept;
 
 // External lifecycle boundary, also registered as a process exit hook after
-// first use. Joins every accepted callback, then stops and joins every tracked
-// domain's owner and completion waiter on the lane. Unproved ownership remains
-// retained without waiting for consumers. Subsequent admissions fail closed.
-// Never call this from a retirement callback.
+// first use. Parks until every accepted callback ran, then until the lane
+// stopped and joined every tracked domain's owner and completion waiter.
+// Unproved ownership remains retained without waiting for consumers.
+// Subsequent admissions fail closed. Never call this from a retirement
+// callback, nor from a scheduler worker when no other worker is free.
 void CloseVulkanExternalRetirement() noexcept;
 
-// Test-only: called on the thread that claims the lane start, before the lane
-// thread exists; returning false fails that start. Null restores the default.
+// Test-only: called on the thread that claims the lane start, before any
+// admission; returning false fails that start. Null restores the default.
 void SetVulkanExternalRetirementLaneStartHookForTesting(bool (*hook)()) noexcept;
 
 } // namespace usdGen::vulkan
