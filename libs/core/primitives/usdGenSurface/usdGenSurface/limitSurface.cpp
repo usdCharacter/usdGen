@@ -1,23 +1,249 @@
 #include "usdGen/limitSurface.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/digest.h"
-#include "pxr/imaging/pxOsd/meshTopology.h"
-#include "pxr/imaging/pxOsd/refinerFactory.h"
+#include "usdGen/registries/token.h"
 #include "pxr/base/gf/vec2d.h"
 #include <opensubdiv/far/patchTableFactory.h>
 #include <opensubdiv/far/patchMap.h>
 #include <opensubdiv/far/primvarRefiner.h>
 #include <opensubdiv/far/ptexIndices.h>
+#include <opensubdiv/far/topologyRefinerFactory.h>
 #include <opensubdiv/bfr/refinerSurfaceFactory.h>
 #include <opensubdiv/bfr/surface.h>
 #include <opensubdiv/bfr/tessellation.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <memory>
+#include <string>
 #include <vector>
 PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
+
 namespace {
+std::atomic<UsdGenSurfaceTokenTable *> gSurfaceTokens{nullptr};
+
+UsdGenSurfaceTokenTable *MakeSurfaceTokens()
+{
+    auto *t = new UsdGenSurfaceTokenTable;
+    auto i = [](char const *text) { return UsdGenInternToken(text); };
+    t->catmullClark = i("catmullClark");
+    t->loop = i("loop");
+    t->bilinear = i("bilinear");
+    t->none = i("none");
+    t->edgeOnly = i("edgeOnly");
+    t->edgeAndCorner = i("edgeAndCorner");
+    t->all = i("all");
+    t->cornersOnly = i("cornersOnly");
+    t->cornersPlus1 = i("cornersPlus1");
+    t->cornersPlus2 = i("cornersPlus2");
+    t->boundaries = i("boundaries");
+    t->uniform = i("uniform");
+    t->chaikin = i("chaikin");
+    t->smooth = i("smooth");
+    return t;
+}
+
+// Far input: the surface view, read the way OpenUSD 26.08
+// pxOsd/refinerFactory.cpp reads a PxOsdMeshTopology (right-handed, no
+// face-varying channels). Its diagnostics (TF_WARN) are dropped.
+struct RefinerInput {
+    UsdGenSurfaceInputView const *s;
+};
+
+OpenSubdiv::Sdc::SchemeType SchemeOf(UsdGenSurfaceInputView const &s)
+{
+    using namespace OpenSubdiv::Sdc;
+    UsdGenSurfaceTokenTable const &t = UsdGenSurfaceTokens();
+    if (s.subdivisionScheme == t.loop) return SCHEME_LOOP;
+    if (s.subdivisionScheme == t.bilinear) return SCHEME_BILINEAR;
+    return SCHEME_CATMARK;   // catmullClark and unknown schemes
+}
+
+OpenSubdiv::Sdc::Options OptionsOf(UsdGenSurfaceInputView const &s)
+{
+    using namespace OpenSubdiv::Sdc;
+    UsdGenSurfaceTokenTable const &t = UsdGenSurfaceTokens();
+    Options options;
+    // Bilinear forces edgeAndCorner (OpenSubdiv 3.0.0 boundary-face bug).
+    TfToken const &boundary =
+        s.subdivisionScheme == t.bilinear ? t.edgeAndCorner : s.interpolateBoundary;
+    if (!boundary.IsEmpty()) {
+        if (boundary == t.none)
+            options.SetVtxBoundaryInterpolation(Options::VTX_BOUNDARY_NONE);
+        else if (boundary == t.edgeOnly)
+            options.SetVtxBoundaryInterpolation(Options::VTX_BOUNDARY_EDGE_ONLY);
+        else if (boundary == t.edgeAndCorner)
+            options.SetVtxBoundaryInterpolation(Options::VTX_BOUNDARY_EDGE_AND_CORNER);
+    } else {
+        options.SetVtxBoundaryInterpolation(Options::VTX_BOUNDARY_EDGE_AND_CORNER);
+    }
+    TfToken const &fvar = s.faceVaryingLinearInterpolation;
+    if (!fvar.IsEmpty()) {
+        if (fvar == t.all)
+            options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_ALL);
+        else if (fvar == t.cornersOnly)
+            options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_CORNERS_ONLY);
+        else if (fvar == t.cornersPlus1)
+            options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_CORNERS_PLUS1);
+        else if (fvar == t.cornersPlus2)
+            options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_CORNERS_PLUS2);
+        else if (fvar == t.none)
+            options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_NONE);
+        else if (fvar == t.boundaries)
+            options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_BOUNDARIES);
+    } else {
+        options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_NONE);
+    }
+    if (!s.creaseMethod.IsEmpty()) {
+        if (s.creaseMethod == t.uniform)
+            options.SetCreasingMethod(Options::CREASE_UNIFORM);
+        else if (s.creaseMethod == t.chaikin)
+            options.SetCreasingMethod(Options::CREASE_CHAIKIN);
+    }
+    if (!s.triangleSubdivisionRule.IsEmpty()) {
+        if (s.triangleSubdivisionRule == t.catmullClark)
+            options.SetTriangleSubdivision(Options::TRI_SUB_CATMARK);
+        else if (s.triangleSubdivisionRule == t.smooth)
+            options.SetTriangleSubdivision(Options::TRI_SUB_SMOOTH);
+    }
+    return options;
+}
+}  // namespace
+
+// CAS-published like UsdGenTokens(); never freed. usdGenSurface's
+// usdGenRegister interns it before the registries freeze.
+UsdGenSurfaceTokenTable const &UsdGenSurfaceTokens() noexcept
+{
+    if (UsdGenSurfaceTokenTable *t = gSurfaceTokens.load(std::memory_order_acquire)) return *t;
+    UsdGenSurfaceTokenTable *fresh = MakeSurfaceTokens();
+    UsdGenSurfaceTokenTable *winner = nullptr;
+    if (gSurfaceTokens.compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
+                                               std::memory_order_acquire))
+        return *fresh;
+    delete fresh;
+    return *winner;
+}
+
+}  // namespace usdGen
+
+// Far's topology hooks for RefinerInput, as pxOsd specializes them for its
+// Converter: base vertex count is the largest face index + 1; out-of-range
+// creases/corners/holes and missing crease edges are skipped.
+namespace OpenSubdiv {
+namespace OPENSUBDIV_VERSION {
+namespace Far {
+
+template <>
+inline bool TopologyRefinerFactory<usdGen::RefinerInput>::resizeComponentTopology(
+    TopologyRefiner &refiner, usdGen::RefinerInput const &in)
+{
+    usdGen::UsdGenSurfaceInputView const &s = *in.s;
+    int const numFaces = int(s.faceVertexCounts.size());
+    int maxVertIndex = 0;
+    int const *vertCounts = s.faceVertexCounts.data();
+    int const *vertIndices = s.faceVertexIndices.data();
+    setNumBaseFaces(refiner, numFaces);
+    for (int face = 0; face < numFaces; ++face) {
+        int const nverts = vertCounts[face];
+        setNumBaseFaceVertices(refiner, face, nverts);
+        for (int vert = 0; vert < nverts; ++vert)
+            maxVertIndex = std::max(maxVertIndex, vertIndices[vert]);
+        vertIndices += nverts;
+    }
+    setNumBaseVertices(refiner, maxVertIndex + 1);
+    return true;
+}
+
+template <>
+inline bool TopologyRefinerFactory<usdGen::RefinerInput>::assignComponentTopology(
+    TopologyRefiner &refiner, usdGen::RefinerInput const &in)
+{
+    int const *vertIndices = in.s->faceVertexIndices.data();
+    for (int face = 0, idx = 0; face < refiner.GetLevel(0).GetNumFaces(); ++face) {
+        IndexArray dstFaceVerts = getBaseFaceVertices(refiner, face);
+        for (int vert = 0; vert < dstFaceVerts.size(); ++vert)
+            dstFaceVerts[vert] = vertIndices[idx++];
+    }
+    return true;
+}
+
+template <>
+inline bool TopologyRefinerFactory<usdGen::RefinerInput>::assignComponentTags(
+    TopologyRefiner &refiner, usdGen::RefinerInput const &in)
+{
+    usdGen::UsdGenSurfaceInputView const &s = *in.s;
+    // Sharpness per crease or per edge.
+    size_t numCreaseSets = s.creaseLengths.size();
+    bool const perEdgeCrease = s.creaseSharpnesses.size() != numCreaseSets;
+    if (perEdgeCrease) {
+        int numEdges = 0;
+        for (size_t i = 0; i < numCreaseSets; ++i) numEdges += s.creaseLengths[i] - 1;
+        if (s.creaseSharpnesses.size() != static_cast<size_t>(numEdges)) numCreaseSets = 0;
+    }
+    TopologyLevel const &level = refiner.GetLevel(0);
+    for (size_t i = 0, cindex = 0, sindex = 0; i < numCreaseSets; ++i) {
+        size_t const numSegments = size_t(std::max(int(s.creaseLengths[i]) - 1, 0));
+        for (size_t j = 0; j < numSegments; ++j) {
+            int const v0 = s.creaseIndices[cindex + j];
+            int const v1 = s.creaseIndices[cindex + j + 1];
+            // FindEdge does not bounds-check.
+            if (v0 >= 0 && v0 < level.GetNumVertices() &&
+                v1 >= 0 && v1 < level.GetNumVertices()) {
+                Vtr::Index const edge = level.FindEdge(v0, v1);
+                if (edge != Vtr::INDEX_INVALID)
+                    setBaseEdgeSharpness(refiner, edge,
+                                         std::max(0.0f, s.creaseSharpnesses[sindex]));
+            }
+            if (perEdgeCrease) ++sindex;
+        }
+        if (!perEdgeCrease) ++sindex;
+        cindex += size_t(s.creaseLengths[i]);
+    }
+    size_t numCorners = s.cornerIndices.size();
+    if (s.cornerSharpnesses.size() != numCorners) numCorners = 0;
+    for (size_t i = 0; i < numCorners; ++i) {
+        int const vert = s.cornerIndices[i];
+        if (vert >= 0 && vert < refiner.GetLevel(0).GetNumVertices())
+            setBaseVertexSharpness(refiner, vert, std::max(0.0f, s.cornerSharpnesses[i]));
+    }
+    int const numHoles = int(s.holeIndices.size());
+    for (int i = 0; i < numHoles; ++i) {
+        int const face = s.holeIndices[size_t(i)];
+        if (face >= 0 && face < refiner.GetLevel(0).GetNumFaces())
+            setBaseFaceHole(refiner, face, true);
+    }
+    return true;
+}
+
+template <>
+inline bool TopologyRefinerFactory<usdGen::RefinerInput>::assignFaceVaryingTopology(
+    TopologyRefiner &, usdGen::RefinerInput const &)
+{
+    return true;
+}
+
+template <>
+inline void TopologyRefinerFactory<usdGen::RefinerInput>::reportInvalidTopology(
+    TopologyError, char const *, usdGen::RefinerInput const &)
+{
+}
+
+}  // namespace Far
+}  // namespace OPENSUBDIV_VERSION
+}  // namespace OpenSubdiv
+
+namespace usdGen {
+namespace {
+std::unique_ptr<OpenSubdiv::Far::TopologyRefiner> BuildRefiner(UsdGenSurfaceInputView const &s)
+{
+    using Factory = OpenSubdiv::Far::TopologyRefinerFactory<RefinerInput>;
+    RefinerInput const in{&s};
+    return std::unique_ptr<OpenSubdiv::Far::TopologyRefiner>(
+        Factory::Create(in, Factory::Options(SchemeOf(s), OptionsOf(s))));
+}
 double Cross2(GfVec2d const& a, GfVec2d const& b) { return a[0]*b[1]-a[1]*b[0]; }
 // (u,v) of p in the bilinear quad a(0,0) b(1,0) c(1,1) d(0,1), clamped to
 // [0,1]^2. The quads used here are convex kites, so the root inside the unit
@@ -42,15 +268,6 @@ GfVec2d InverseBilinear(GfVec2d const& p, GfVec2d const& a, GfVec2d const& b,
 }
 template <class T>
 VtArray<T> Vt(UsdGenSpan<const T> s) { return VtArray<T>(s.begin(), s.end()); }
-PxOsdMeshTopology Topology(UsdGenSurfaceInputView const& s) {
-    PxOsdSubdivTags tags(s.interpolateBoundary, s.faceVaryingLinearInterpolation,
-        s.creaseMethod, s.triangleSubdivisionRule, Vt(s.creaseIndices), Vt(s.creaseLengths),
-        Vt(s.creaseSharpnesses), Vt(s.cornerIndices), Vt(s.cornerSharpnesses));
-    // Evaluate in authored corner order. Left-handedness changes the normal,
-    // not Ptex's corner coordinate convention.
-    return PxOsdMeshTopology(s.subdivisionScheme, TfToken("rightHanded"),
-        Vt(s.faceVertexCounts), Vt(s.faceVertexIndices), Vt(s.holeIndices), tags);
-}
 struct Vertex {
     GfVec3f p{0};
     void Clear() { p=GfVec3f(0); }
@@ -100,7 +317,7 @@ void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceInputView const& s) {
     FeedSubdivArray(h, s.faceVertexIndices);
 }
 } // namespace
-// Same logical coverage as Topology(s).ComputeHash() plus s.orientation,
+// Same logical coverage as PxOsdMeshTopology::ComputeHash() plus s.orientation,
 // hashed with the 4-lane word-wise FNV instead of SpookyHash (which
 // re-streamed ~20MB of topology arrays at ~half the per-byte throughput).
 // Tokens feed as string bytes rather than TfToken rep bytes, so the digest
@@ -122,7 +339,7 @@ bool UsdGenLimitSurface::Build(UsdGenSurfaceInputView const& s, int level, std::
     _state.reset();
     auto fail=[&](char const* e){if(error)*error=e;return false;};
     if(level<1 || level>6) return fail("subdivisionLevel must be in [1,6]");
-    if(s.subdivisionScheme!=TfToken("catmullClark"))
+    if(s.subdivisionScheme!=UsdGenSurfaceTokens().catmullClark)
         return fail("limit scatter requires subdivisionScheme=catmullClark");
     if(s.faceVertexCounts.empty() || s.restPoints.empty()) return fail("empty limit surface");
     size_t corners=0;
@@ -142,7 +359,9 @@ bool UsdGenLimitSurface::Build(UsdGenSurfaceInputView const& s, int level, std::
         for(int i:*ids) if(i<0 || size_t(i)>=s.restPoints.size()) return fail("invalid sharpness vertex");
     for(auto const* weights:{&s.creaseSharpnesses,&s.cornerSharpnesses})
         for(float w:*weights) if(!std::isfinite(w)||w<0) return fail("invalid sharpness");
-    auto refiner=PxOsdRefinerFactory::Create(Topology(s));
+    // Evaluate in authored corner order. Left-handedness changes the normal,
+    // not Ptex's corner coordinate convention.
+    auto refiner=BuildRefiner(s);
     if(!refiner) return fail("OpenSubdiv could not create the topology refiner");
     OpenSubdiv::Far::PatchTableFactory::Options opts(level);
     opts.SetEndCapType(OpenSubdiv::Far::PatchTableFactory::Options::ENDCAP_GREGORY_BASIS);
@@ -236,7 +455,7 @@ struct UsdGenCollisionLimitSurface::State {
         std::unique_ptr<OpenSubdiv::Bfr::Surface<double>> surface;
         std::vector<double> patchPoints;
     };
-    PxOsdTopologyRefinerSharedPtr refiner;
+    std::unique_ptr<OpenSubdiv::Far::TopologyRefiner> refiner;
     std::unique_ptr<OpenSubdiv::Bfr::RefinerSurfaceFactory<>> factory;
     std::vector<Face> faces;
 };
@@ -255,16 +474,17 @@ bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceInputView const& s,
         if (error) *error = why;
         return false;
     };
-    if (s.subdivisionScheme != TfToken("catmullClark") &&
-        s.subdivisionScheme != TfToken("loop") &&
-        s.subdivisionScheme != TfToken("bilinear"))
+    UsdGenSurfaceTokenTable const &tokens = UsdGenSurfaceTokens();
+    if (s.subdivisionScheme != tokens.catmullClark &&
+        s.subdivisionScheme != tokens.loop &&
+        s.subdivisionScheme != tokens.bilinear)
         return fail("unsupported subdivision scheme '" +
                     s.subdivisionScheme.GetString() + "'");
     if (s.points.empty() || s.faceVertexCounts.empty())
         return fail("empty posed subdivision mesh");
     size_t cornerCount = 0;
     for (int n : s.faceVertexCounts) {
-        if (n < 3 || (s.subdivisionScheme == TfToken("loop") && n != 3))
+        if (n < 3 || (s.subdivisionScheme == tokens.loop && n != 3))
             return fail("invalid face size for subdivision scheme");
         cornerCount += size_t(n);
     }
@@ -300,7 +520,7 @@ bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceInputView const& s,
                 return fail("invalid subdivision sharpness");
 
     auto state = std::make_unique<State>();
-    state->refiner = PxOsdRefinerFactory::Create(Topology(s));
+    state->refiner = BuildRefiner(s);
     if (!state->refiner)
         return fail("OpenSubdiv rejected the subdivision topology");
     OpenSubdiv::Bfr::SurfaceFactory::Options options;

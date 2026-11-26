@@ -10,6 +10,14 @@
 #include <string>
 #include <vector>
 namespace usdGen {
+// Subdivision vocabulary (Sdc scheme and tag values). usdGenSurface's
+// usdGenRegister interns it; valid for the life of the process.
+struct UsdGenSurfaceTokenTable {
+    TfToken catmullClark, loop, bilinear, none, edgeOnly, edgeAndCorner, all,
+        cornersOnly, cornersPlus1, cornersPlus2, boundaries, uniform, chaikin, smooth;
+};
+USDGEN_CORE_API UsdGenSurfaceTokenTable const &UsdGenSurfaceTokens() noexcept;
+
 // Patch evaluation, not interpolation of a finitely subdivided polygon cage.
 // Build accepts any Catmull-Clark polygon topology. Evaluate addresses a quad
 // face by its coarse (u,v), which the random per-face Scatter path keeps as

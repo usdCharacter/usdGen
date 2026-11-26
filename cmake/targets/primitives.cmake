@@ -64,11 +64,12 @@ set_source_files_properties(libs/core/primitives/usdGenExpr/usdGenExpr/expressio
     INCLUDE_DIRECTORIES "${_usdgen_frontend_dir}")
 
 _usdgen_add_primitive(usdGenSurface usdGenSurface ${_usdgen_resident_abs})
+usdgen_opensubdiv_target(_usdgen_osd_cpu)
 target_link_libraries(usdGenSurface
     PUBLIC usdGen
     # attributeBake.cpp writes Ptex files: its own PtexWriter copy, no state
     # shared with usdGen's reader cache.
-    PRIVATE usdGenMath arch work trace pxOsd usdGen_ptex ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath arch work trace ${_usdgen_osd_cpu} usdGen_ptex ${CMAKE_DL_LIBS})
 _usdgen_add_primitive(usdGenExpr usdGenExpr ${_usdgen_resident_abs})
 target_link_libraries(usdGenExpr
     PUBLIC usdGen usdGenSurface
