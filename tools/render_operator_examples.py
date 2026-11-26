@@ -28,7 +28,7 @@ DIAGRAM_SOURCES = {
     "UsdGenPart": "libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.cpp",
     "UsdGenFreeze": "libs/core/primitives/usdGenCurves/usdGenCurves/ops/freeze.cpp",
     "UsdGenWidthBlend": "libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.cpp",
-    "UsdGenInstance": "libs/usdGenSchema/schema.usda",
+    "UsdGenInstance": "libs/hosts/usdGenUsd/schema/schema.usda",
 }
 
 

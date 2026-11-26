@@ -511,14 +511,16 @@ endif()
 # usdGenUsd (SHARED, host): the only code that maps SdfPath to engine node
 # keys (step 7). Links usdGen + sdf + usd; nothing in libs/core links it.
 # ---------------------------------------------------------------------------
-file(GLOB_RECURSE USDGEN_USD_SOURCES libs/hosts/usdGenUsd/*.cpp)
+file(GLOB_RECURSE USDGEN_USD_SOURCES libs/hosts/usdGenUsd/usdGenUsd/*.cpp)
+# The stage builder is fenced to T0/offline/tests: usdGenTestUtilsHd compiles it.
+list(FILTER USDGEN_USD_SOURCES EXCLUDE REGEX "usdGenGraphDescBuilderStage\\.cpp$")
 add_library(usdGenUsd SHARED ${USDGEN_USD_SOURCES})
 target_include_directories(usdGenUsd PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenUsd
     PUBLIC usdGen sdf tf
-    PRIVATE usd)
+    PRIVATE usd hio)
 set_target_properties(usdGenUsd PROPERTIES
     CXX_VISIBILITY_PRESET default
     WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -526,10 +528,10 @@ set_target_properties(usdGenUsd PROPERTIES
 # ---------------------------------------------------------------------------
 # usdGenSchema (SHARED, minimal — tokens + extent registration)
 # ---------------------------------------------------------------------------
-file(GLOB_RECURSE USDGEN_SCHEMA_SOURCES libs/usdGenSchema/*.cpp)
+file(GLOB_RECURSE USDGEN_SCHEMA_SOURCES libs/hosts/usdGenUsd/schema/*.cpp)
 add_library(usdGenSchema SHARED ${USDGEN_SCHEMA_SOURCES})
 target_include_directories(usdGenSchema PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenSchema>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenSchema
     PUBLIC usd
@@ -538,11 +540,10 @@ target_link_libraries(usdGenSchema
 # ---------------------------------------------------------------------------
 # usdGenImaging (SHARED — scene-index plugins + adapters)
 # ---------------------------------------------------------------------------
-file(GLOB_RECURSE USDGEN_IMAGING_SOURCES libs/usdGenImaging/*.cpp)
-list(FILTER USDGEN_IMAGING_SOURCES EXCLUDE REGEX "usdGenGraphDescBuilderStage\\.cpp$")
+file(GLOB_RECURSE USDGEN_IMAGING_SOURCES libs/hosts/usdGenHydra/usdGenImaging/*.cpp)
 add_library(usdGenImaging SHARED ${USDGEN_IMAGING_SOURCES})
 target_include_directories(usdGenImaging PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenImaging
     PUBLIC hd hdsi hf usd usdGeom usdShade sdr usdImaging
@@ -613,7 +614,7 @@ file(GLOB_RECURSE USDGEN_TESTUTILS_HD_SOURCES
     testutils/usdGenTestUtilsHd/*.cpp)
 add_library(usdGenTestUtilsHd STATIC ${USDGEN_TESTUTILS_HD_SOURCES})
 target_sources(usdGenTestUtilsHd PRIVATE
-    libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilderStage.cpp)
+    libs/hosts/usdGenUsd/usdGenUsd/walk/usdGenGraphDescBuilderStage.cpp)
 target_include_directories(usdGenTestUtilsHd PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/testutils")
 target_link_libraries(usdGenTestUtilsHd PUBLIC
@@ -628,10 +629,10 @@ target_link_libraries(usdGenTestUtilsHd PUBLIC
 set(_usdgen_schema_resources "${CMAKE_CURRENT_BINARY_DIR}/usd/usdGenSchema/resources")
 set(_usdgen_schema_pluginfo "${_usdgen_schema_resources}/plugInfo.json")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/plugin/usdGenSchema/resources/plugInfo.json"
-    "${CMAKE_CURRENT_SOURCE_DIR}/plugin/usdGenSchema/resources/generatedSchema.usda")
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/resources/plugInfo.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/resources/generatedSchema.usda")
 file(READ
-    "${CMAKE_CURRENT_SOURCE_DIR}/plugin/usdGenSchema/resources/plugInfo.json"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/resources/plugInfo.json"
     _usdgen_schema_pluginfo_content)
 string(REPLACE "\"Type\": \"resource\"" "\"Type\": \"library\""
     _usdgen_schema_pluginfo_content "${_usdgen_schema_pluginfo_content}")
@@ -645,7 +646,7 @@ string(REPLACE "\"Name\": \"usdGenSchema\""
 file(GENERATE OUTPUT "${_usdgen_schema_pluginfo}"
     CONTENT "${_usdgen_schema_pluginfo_content}")
 file(COPY
-    "${CMAKE_CURRENT_SOURCE_DIR}/plugin/usdGenSchema/resources/generatedSchema.usda"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/resources/generatedSchema.usda"
     DESTINATION "${_usdgen_schema_resources}")
 
 set(_usdgen_imaging_resources "${CMAKE_CURRENT_BINARY_DIR}/usd/usdGenImaging/resources")
@@ -1435,12 +1436,12 @@ target_link_libraries(testUsdGenVulkanEpochCell PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenVulkanEpochCell COMMAND testUsdGenVulkanEpochCell)
 set_tests_properties(testUsdGenVulkanEpochCell PROPERTIES LABELS "T0;scheduling;epoch;vulkan" RUN_SERIAL ON TIMEOUT 120)
 add_executable(testUsdGenImagingAtomicShared tests/testUsdGenImagingAtomicShared.cpp)
-target_include_directories(testUsdGenImagingAtomicShared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging)
+target_include_directories(testUsdGenImagingAtomicShared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra)
 target_link_libraries(testUsdGenImagingAtomicShared PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenImagingAtomicShared COMMAND testUsdGenImagingAtomicShared)
 set_tests_properties(testUsdGenImagingAtomicShared PROPERTIES LABELS "T0;scheduling;epoch" RUN_SERIAL ON TIMEOUT 120)
 add_executable(testUsdGenCleanupQueue tests/testUsdGenCleanupQueue.cpp)
-target_include_directories(testUsdGenCleanupQueue PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging)
+target_include_directories(testUsdGenCleanupQueue PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra)
 target_link_libraries(testUsdGenCleanupQueue PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenCleanupQueue COMMAND testUsdGenCleanupQueue)
 set_tests_properties(testUsdGenCleanupQueue PROPERTIES LABELS "T0;scheduling;stress" RUN_SERIAL ON TIMEOUT 120)
@@ -2952,9 +2953,9 @@ set(USDGEN_FORBIDDEN_STAGING_SYM_REGEX
     "Usd(Stage|Prim|Attribute|Relationship|Geom|Shade)")
 find_program(USDGEN_NM nm)
 set(_usdgen_staging_tus
-    "libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilder.h|libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilder.cpp|libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.h|libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.cpp")
+    "libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.h|libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp|libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.h|libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp")
 set(_usdgen_staging_objs
-    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilder.cpp.o|${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.cpp.o")
+    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp.o|${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp.o")
 usdgen_add_unix_only_test(testUsdGenStagingRule
     ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -3600,8 +3601,8 @@ endif()
 set_tests_properties(testUsdGenContracts PROPERTIES LABELS "T1")
 
 # N-5 (09 §5.2, 10 §5.6): schema regeneration-drift guard — the checked-in
-# plugin/usdGenSchema/resources must stay byte-identical to a fresh
-# usdGenSchema run over libs/usdGenSchema/schema.usda (bin/gen_schema.sh is
+# libs/hosts/usdGenUsd/schema/resources must stay byte-identical to a fresh
+# usdGenSchema run over libs/hosts/usdGenUsd/schema/schema.usda (bin/gen_schema.sh is
 # the reference recipe; the N-2 plugInfo post-processing drift is what this
 # catches in CI). The source has landed (plan/13 §1); the else() echo-stub
 # branch below is retained only for missing sources (never a fake pass).
@@ -3614,8 +3615,8 @@ elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/testUsdGenSchemaUpToDate.cpp")
     add_executable(testUsdGenSchemaUpToDate tests/testUsdGenSchemaUpToDate.cpp)
     target_link_libraries(testUsdGenSchemaUpToDate PRIVATE usdGenSchema usd tf arch)
     target_compile_definitions(testUsdGenSchemaUpToDate PRIVATE
-        USDGEN_TEST_SCHEMA_USDA="${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenSchema/schema.usda"
-        USDGEN_TEST_SCHEMA_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/plugin/usdGenSchema/resources"
+        USDGEN_TEST_SCHEMA_USDA="${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/schema.usda"
+        USDGEN_TEST_SCHEMA_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/resources"
         USDGEN_TEST_USD_GEN_SCHEMA_TOOL="${USDGEN_TEST_USD_DIR}/bin/usdGenSchema")
     add_test(NAME testUsdGenSchemaUpToDate COMMAND testUsdGenSchemaUpToDate)
     set(_usdgen_schema_uptodate_props SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
@@ -4912,8 +4913,8 @@ install(FILES
 #   usdGenCurves, usdGenSurface, usdGenExpr (libs/core/primitives/<name>),
 #   usdGenCuda, usdGenVulkan (libs/core/backends/<name>) -> #include "<name>/..."
 #   the include shim (<build>/shim) -> the pre-move "usdGen/..." spellings
-#   usdGenSchema  libs/usdGenSchema    -> #include "usdGenSchema/..."
-#   usdGenImaging libs/usdGenImaging   -> #include "usdGenImaging/..."
+#   usdGenSchema  libs/hosts/usdGenUsd/schema -> #include "usdGenSchema/..."
+#   usdGenImaging libs/hosts/usdGenHydra -> #include "usdGenImaging/..."
 #   usdGenPomade   libs/usdGenPomade     -> #include "usdGenPomade/..."
 # so the install mirrors the include spellings directly under
 # <prefix>/include. Trailing source slashes + FILES_MATCHING ship headers
@@ -4943,10 +4944,10 @@ install(DIRECTORY "${USDGEN_SHIM_DIR}/usdGen/"
 install(DIRECTORY libs/hosts/usdGenUsd/usdGenUsd/
     DESTINATION include/usdGenUsd
     FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/usdGenSchema/usdGenSchema/
+install(DIRECTORY libs/hosts/usdGenUsd/schema/usdGenSchema/
     DESTINATION include/usdGenSchema
     FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/usdGenImaging/usdGenImaging/
+install(DIRECTORY libs/hosts/usdGenHydra/usdGenImaging/
     DESTINATION include/usdGenImaging
     FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY libs/usdGenPomade/usdGenPomade/

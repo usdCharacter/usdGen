@@ -22,7 +22,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/usd/sdf/path.h"

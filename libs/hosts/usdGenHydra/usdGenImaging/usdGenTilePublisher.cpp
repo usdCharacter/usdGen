@@ -6,7 +6,7 @@
 // and never writes to it (no hashing, no hairId derivation here).
 #include "usdGenImaging/usdGenTilePublisher.h"
 
-#include "usdGenImaging/usdGenTokens.h"
+#include "usdGenUsd/walk/usdGenTokens.h"
 #include "usdGenUsd/publishPaths.h"
 
 #include "pxr/base/tf/diagnostic.h"

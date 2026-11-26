@@ -27,7 +27,7 @@
 #define USDGEN_IMAGING_TILE_PUBLISHER_H
 
 #include "usdGenImaging/api.h"
-#include "usdGenImaging/staticToken.h"
+#include "usdGenUsd/walk/staticToken.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGenUsd/graphDesc.h"
 

@@ -1226,7 +1226,7 @@ def register_usdgen_schema(extra=None):
     """Register the generated usdGen schema so authored ops get their declared types (best effort)."""
     if Plug.Registry().GetPluginWithName("usdGenSchema") is None:   # not on PXR_PLUGINPATH_NAME already
         cands = [extra, os.environ.get("USDGEN_SCHEMA_PLUGIN"),
-                 os.path.join(HERE, "..", "..", "plugin", "usdGenSchema", "resources")]
+                 os.path.join(HERE, "..", "..", "libs", "hosts", "usdGenUsd", "schema", "resources")]
         for c in cands:
             if c and os.path.isfile(os.path.join(c, "plugInfo.json")):
                 try:

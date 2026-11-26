@@ -1,5 +1,5 @@
 // T1 — the C ABI the usdview expression editor calls
-// (libs/usdGenImaging/usdGenImaging/usdGenToolsApi.h).
+// (libs/hosts/usdGenHydra/usdGenImaging/usdGenToolsApi.h).
 //
 // Covers what the editor depends on: a clean compile reports OK, a broken one
 // reports a diagnostic with a usable line and column, the domain is honoured,

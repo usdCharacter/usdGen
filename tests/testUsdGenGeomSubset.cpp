@@ -20,7 +20,7 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"

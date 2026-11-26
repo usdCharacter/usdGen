@@ -3,7 +3,7 @@
 #include "usdGen/cudaExecution.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/sdf/types.h"
 #include "pxr/usd/usdGeom/mesh.h"

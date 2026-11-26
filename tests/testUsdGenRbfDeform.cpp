@@ -40,7 +40,7 @@
 #include "pxr/imaging/hd/extentSchema.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"
 #include "pxr/imaging/hdsi/extComputationPrimvarPruningSceneIndex.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/range3f.h"

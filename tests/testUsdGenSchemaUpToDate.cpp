@@ -1,6 +1,6 @@
 // N-5 (plan/09 §5.2, plan/10 §5.6): schema regeneration-drift guard.
 // Runs bin/gen_schema.sh (the reference recipe) with the current
-// plugin/usdGenSchema/resources stashed aside, then byte-compares the fresh
+// libs/hosts/usdGenUsd/schema/resources stashed aside, then byte-compares the fresh
 // products against the checked-in ones. On PASS the worktree is untouched
 // (byte-identical); on DRIFT the fresh files stay in the tree for review,
 // listing which product moved. This deliberately exercises the real script —
@@ -17,7 +17,7 @@
 #error "USDGEN_TEST_SCHEMA_RESOURCES must be defined by CMake"
 #endif
 #ifndef USDGEN_TEST_SCHEMA_USDA
-#define USDGEN_TEST_SCHEMA_USDA "<libs/usdGenSchema/schema.usda>"
+#define USDGEN_TEST_SCHEMA_USDA "<libs/hosts/usdGenUsd/schema/schema.usda>"
 #endif
 #ifndef USDGEN_TEST_USD_GEN_SCHEMA_TOOL
 #define USDGEN_TEST_USD_GEN_SCHEMA_TOOL ""
@@ -25,11 +25,11 @@
 
 namespace {
 
-// <root>/plugin/usdGenSchema/resources -> <root>
+// <root>/libs/hosts/usdGenUsd/schema/resources -> <root>
 std::string RepoRoot()
 {
     std::string r = USDGEN_TEST_SCHEMA_RESOURCES;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 5; ++i) {
         const size_t slash = r.rfind('/');
         if (slash == std::string::npos) return "";
         r = r.substr(0, slash);
@@ -93,7 +93,7 @@ int main()
     const bool plugOk = seen.find("PLUG_INFO_IDENTICAL") != std::string::npos;
 
     if (scriptOk && schemaOk && plugOk && rc == 0) {
-        std::printf("PASS: plugin/usdGenSchema/resources is byte-identical to "
+        std::printf("PASS: libs/hosts/usdGenUsd/schema/resources is byte-identical to "
                     "a fresh bin/gen_schema.sh run (N-5)\n");
         return 0;
     }
@@ -104,7 +104,7 @@ int main()
         return 77;
     }
     std::printf("FAIL: N-5 schema resources out of date with "
-                "libs/usdGenSchema/schema.usda — the fresh output has been "
+                "libs/hosts/usdGenUsd/schema/schema.usda — the fresh output has been "
                 "left in place; review the diff, commit or revert\n");
     std::printf("  generatedSchema.usda: %s\n  plugInfo.json: %s\n  rc=%d\n",
                 scriptOk ? (schemaOk ? "identical" : "DRIFT") : "untested",

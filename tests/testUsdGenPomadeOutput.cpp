@@ -13,7 +13,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/surfaceRootFrames.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "usdGenPomade/pomadeCommit.h"
 #include "usdGenPomade/pomadeModel.h"

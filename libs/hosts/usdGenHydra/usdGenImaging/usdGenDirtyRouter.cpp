@@ -5,7 +5,7 @@
 
 #include "usdGen/sharedCell.h"
 #include "usdGenImaging/primAdapter.h"
-#include "usdGenImaging/usdGenTokens.h"
+#include "usdGenUsd/walk/usdGenTokens.h"
 #include "usdGen/executionPipeline.h"
 
 #include "pxr/base/tf/diagnostic.h"

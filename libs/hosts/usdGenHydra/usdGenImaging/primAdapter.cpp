@@ -26,7 +26,7 @@
 #include "usdGenImaging/primAdapter.h"
 #include "usdGen/sharedCell.h"
 
-#include "usdGenImaging/expressionConnection.h"
+#include "usdGenUsd/walk/expressionConnection.h"
 
 #include "usdGen/expressions/valueShape.h"
 
@@ -45,7 +45,7 @@
 #include <vector>
 #include <unordered_map>
 
-#include "usdGenImaging/usdGenTokens.h"
+#include "usdGenUsd/walk/usdGenTokens.h"
 PXR_NAMESPACE_OPEN_SCOPE
 
 namespace {

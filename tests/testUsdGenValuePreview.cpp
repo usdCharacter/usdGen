@@ -29,7 +29,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/valuePreview.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
 
 #include "pxr/usd/sdf/path.h"

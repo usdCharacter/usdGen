@@ -14,7 +14,7 @@
 #include "nodeSets.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"
 #include "pxr/usd/usd/attribute.h"

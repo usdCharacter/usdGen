@@ -5,7 +5,6 @@
 # Retired by step 12; testUsdGenNoShimIncludes ratchets the old spellings down.
 usdGen/allocCounter.h usdGen/exec/allocCounter.h
 usdGen/authoredNamedChannels.h usdGenCurves/types/authoredNamedChannels.h
-usdGen/authoredPlaneConvert.h usdGenCurves/types/authoredPlaneConvert.h
 usdGen/clumpMotion.h usdGenCurves/clumpMotion.h
 usdGen/compiler.h usdGen/compile/compiler.h
 usdGen/concaveMaterialRemap.h usdGenCurves/publish/concaveMaterialRemap.h

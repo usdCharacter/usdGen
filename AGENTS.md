@@ -11,8 +11,9 @@ usdGen is an OpenUSD 26.08 plugin that generates and grooms hair and fur and pub
 | Path | What it is |
 |---|---|
 | `libs/usdGen`, `libs/usdGenMath` | Stage-free groom engine. Gate B-1 forbids linking `usd`/`hd` from `libusdGen`. |
-| `libs/usdGenImaging`, `plugin/usdGenImaging` | Hydra scene index, tile publisher, brush and expression C ABI |
-| `libs/usdGenSchema`, `plugin/usdGenSchema` | Hand-written `schema.usda` and the checked-in generated resources |
+| `libs/hosts/usdGenHydra/usdGenImaging`, `plugin/usdGenImaging` | Hydra scene index, tile publisher, brush and expression C ABI |
+| `libs/hosts/usdGenUsd/usdGenUsd` | USD host: SdfPath to node keys, `Lower`, the stage builder (`walk/`) and image maps (`resolve/`) |
+| `libs/hosts/usdGenUsd/schema` | Hand-written `schema.usda` and the checked-in generated resources (`resources/`) |
 | `libs/usdGenPomade`, `plugin/usdGenPomade`, `plugin/usdGenPomadeTools` | Pomade model, scene index, and usdview tool |
 | `plugin/usdGenTools` | SeExpr editor usdview plugin |
 | `usdGenShaders` | Storm glslfx materials |
@@ -40,14 +41,14 @@ Useful cache variables: `USDGEN_BUILD_TESTS` (default ON on Unix), `USDGEN_ENABL
 
 There is no pytest suite. C++ tests are ctest. Python checks are plain scripts (`tests/checks/check_pomade_docs.py`, `plugin/usdGenPomadeTools/testenv/testUsdGenPomadeToolsGizmoScreen.py`) that do not import `pxr`. T0/T1 labels are the headless gates; `ctest -L '^T[01]$'` is the usual agent run when a build exists. `.github/workflows/usdgen.yml` is the CI definition. Do not treat milestone prose in `plan/` as the list of jobs that exist today.
 
-Schema, only after editing `libs/usdGenSchema/schema.usda`:
+Schema, only after editing `libs/hosts/usdGenUsd/schema/schema.usda`:
 
 ```sh
 source bin/_env.sh
 bin/gen_schema.sh
 ```
 
-That runs OpenUSD's `usdGenSchema` (the tool in `$USD/bin`, not the `usdGenSchema` CMake target) and `libs/usdGenSchema/restore_generated_metadata.py`. Review the diff in `plugin/usdGenSchema/resources/` before committing. If `usdGenSchema` is not installed, do not hand-edit generated files unless you are applying the same rename already made in `schema.usda`, and say so.
+That runs OpenUSD's `usdGenSchema` (the tool in `$USD/bin`, not the `usdGenSchema` CMake target) and `libs/hosts/usdGenUsd/schema/restore_generated_metadata.py`. Review the diff in `libs/hosts/usdGenUsd/schema/resources/` before committing. If `usdGenSchema` is not installed, do not hand-edit generated files unless you are applying the same rename already made in `schema.usda`, and say so.
 
 `source bin/_env.sh` is how to get `usdcat` and `PXR_PLUGINPATH_NAME`. Launch `usdview` as `"$PY" "$USD/bin/usdview"`. Do not rely on the shebang inside the OpenUSD prefix.
 
