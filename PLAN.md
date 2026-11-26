@@ -48,18 +48,26 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoLocks` (locks, atomic shared_ptr, TBB) | empty | empty |
 | `testUsdGenNoGuardedStatics` | 4 (usdGenMath ramp.cpp) | empty |
 | `testUsdGenNoPxrIncludes` | see `noPxrIncludes.txt` | empty under libs/core |
-| `testUsdGenNoPxrLink_usdGen` | tf gf vt arch js plug ts ar work trace hio pxOsd | none |
+| `testUsdGenNoPxrLink_usdGen` | tf gf vt arch js plug ts ar work trace | none |
 | `testUsdGenNoSdfBelowHosts` (no `Sdf*`, no `pxr/usd/sdf` under libs/base, libs/core) | empty | empty |
 | `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
 | `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted); 0 interns each | 0 / 0 |
 | `testUsdGenNoOpNameLiterals` | empty | empty |
-| `testUsdGenNoTokenIntern` | token.cpp, curveLoader.cpp, furOcclusion.cpp, limitSurface.cpp | token.cpp only |
-| `testUsdGenEngineNoOpCoupling` | 4 rbfField includes | empty |
+| `testUsdGenNoTokenIntern` | token.cpp, curveLoader.cpp, furOcclusion.cpp | token.cpp only |
+| `testUsdGenEngineNoOpCoupling` | empty | empty |
 | `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
 | `testUsdGenNoShimIncludes` (old include spellings) | see `noShimIncludes.txt` | empty at step 12 |
 | `testUsdGenCookGoldens`, `testUsdGenOutputGoldens`, `testUsdGenOpContracts` | byte-identical | never regenerated without a reviewed output change |
 | `testUsdGenEngineNoCurveBuffer` | empty | empty (subsumed by the 6.5 gate) |
-| `testUsdGenNoPrimitiveInEngine` (op names, primitive words, basisCurves, render namespace, CUDA/Vulkan/primitive includes in libs/core/usdGen; comments count) | 9 hits in 6 files, step-8 plumbing only (`noPrimitiveInEngine.txt`) | empty at step 8 |
+| `testUsdGenNoPrimitiveInEngine` (op names, primitive words, basisCurves, render namespace, CUDA/Vulkan/primitive includes in libs/core/usdGen; comments count) | empty | empty |
+| `testUsdGenNoBackendInEngine` (8a: CUDA, Vulkan, Metal, `USDGEN_ENABLE_` in libs/core/usdGen; comments count) | empty | empty |
+| `testUsdGenNoBlockingGpuWait` (8b) | 132 hits in 35 files | the keep list at 8.7/8.8 |
+| `testUsdGenTimelineSubmitOnly` (8c) | 60 hits in 24 files | `queueTimeline.cpp` only at 8.8e |
+| `testUsdGenNoDisallowedLink_{usdGen,usdGenCuda,usdGenVulkan,usdGenImaging}` (8d) | green | stays |
+| `testUsdGenNoPxrLink_{usdGenCuda,usdGenVulkan}` | empty | empty |
+| `testUsdGenNoPxrLink_{usdGenSurface,usdGenExpr,usdGenCurves}` | arch work trace | none (11) |
+| `testUsdGenNoPxrLink_{usdGenCurvesCuda,usdGenCurvesVulkan}` | arch | none (11) |
+| `testUsdGenNoPxrUsdImagingBelowHosts` (10a: no `pxr/usd`, `pxr/imaging` include under libs/base, libs/core) | empty | empty |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
 
@@ -267,7 +275,56 @@ Left over:
 - **Needs a GPU:** CUDA and Vulkan timings before and after.
 - **Depends on:** 3 (GPU sync rows) and 6.
 
+M8a (8.0-8.6f, with 9.0, 9.1 and 10.1). Done:
+
+- **P0:** the root CMakeLists.txt is split into `cmake/targets/*.cmake` and `cmake/targets/tests/*.cmake`.
+- **8.0:** `benchUsdGenRestructure --backend cpu|cuda|vulkan` (Session section); gates 8a-8c.
+- **8.1:** `UsdGenSerialLane`; usdGenExecutionResources folds into usdGen.
+- **8.2-8.4:** backend registry by handle (`registries/backend.h`); usdGenVulkan and usdGenCuda are SHARED extensions loaded after the primitives (`USDGEN_DEFAULT_EXTENSIONS`); CUDA cooks through the Session device provider; the engine names no backend (gates 8a and `noPrimitiveInEngine` empty).
+- **8.5:** primitive sources leave usdGen; `rbfField` is `usdGenMath/rbf.h` with an injected parallel-for; usdGen drops the primitive include roots, ptex, seexpr, pxOsd and hio.
+- **8.6a-f:** device program interfaces (`usdGenCuda/compile/program.h`, `usdGenVulkan/compile/program.h`), shader library by registered path, `UsdGenDeviceOwner::ChannelAddress` (CUDA-GL interop without usdGenCuda); kernels, executors and shaders live in SHARED usdGenCurvesCuda and usdGenCurvesVulkan plus OBJECT usdGen{Surface,Expr}{Cuda,Vulkan}; the runtimes link usdGen and the SDK only (gates 8d); `noise_gpu.cu` reaches Noise through a function pointer.
+
+Milestone verification M8a (Windows, RTX 4090, MSVC 14.36, CUDA 12.6, Vulkan on): clean configure and full build; serial `ctest -L '^(T0|T1)$'`: 459 run, 441 pass, 14 skipped, 4 failed. `testUsdGenScenePublication` fails as on main; `testUsdGenPomadeCommit` TN-4, `testPomadeSoakSmoke` and `testUsdGenPomadeHierarchy` TN-1 (4 ms move, also failed in the step-3 and step-4 full runs) are load timing and pass alone (other worktrees were building, CPU at 50-100%). `testUsdGenInstallTree` and `testUsdGenConsumer` are Unix-only; `cmake --install` was checked by hand (every extension DLL in lib/, 53 SPIR-V files in share/usdGen/vulkan, usdGenShaders resources and plugInfo from the moved folder).
+
+One real failure: a CUDA-off, Vulkan-on tree (the CI Vulkan job's configuration) did not link on Windows. usdGenCurvesCuda's program.cpp called the inline `cuda::Workspace::DeviceIndex()` of a `USDGEN_CUDA_API` class; without CUDA no usdGenCuda source includes workspace.h, so MSVC imported a symbol nobody exported. `CreateState` now reports "built without CUDA" when `USDGEN_ENABLE_CUDA` is off (no provider calls it then). GCC emits the inline locally, so Linux was not affected. With the fix the CUDA-off/Vulkan-on tree builds and passes `-L '^vulkan$'` (129 run, 9 CUDA-parity skips), and the CUDA-off/Vulkan-off tree builds and runs `-L '^(T0|T1)$'` (226 run) failing only ScenePublication and the Pomade timing checks below. `noPxrLink_usdGenSurface.txt` loses the stale pxOsd row (10.1 links OpenSubdiv directly).
+
+Linux audit (no Linux machine): the Clang-for-Linux syntax pass over all 530 translation units of both CUDA-off trees finds only the known environment misses (Windows Python headers in usdNoodles bindings, `isatty` in the generated SeExpr lexer). L1: `CMAKE_INSTALL_RPATH $ORIGIN` for every target, `INSTALL_RPATH $ORIGIN` on usdGenCurves{Cuda,Vulkan}, build-tree RUNPATH by default; each extension's DT_NEEDED names what it uses (the Windows import tables match the link lines: usdGenCuda imports usdGen + CUDA, usdGenVulkan usdGen + vulkan-1). L2: cross-DSO interfaces with virtual methods (providers, programs, hook state) have out-of-line destructors or only same-DSO `dynamic_cast` (op captures are file-local). L3: no function-local statics in libs/core headers. L5: the fp-contract and `-fno-math-errno` lists name existing paths (`deformPipeline.cpp` and the exprVk files at their new homes; `rbf.cpp` keeps the toolchain default). L6: `usdgen_opensubdiv_target()` prefers `OpenSubdiv::osdCPU`. W1: largest export table is usdGenExpr (20,665).
+
+Bench, main (b741e6c) against M8a, CPU, 4 threads, medians of 5 alternating rounds, machine not idle (CPU 45-50%):
+
+| Metric | main | M8a |
+|---|---|---|
+| Cold cook, 100k curves | 200.0 ms | 168.8 ms |
+| Warm recook | 175.8 ms | 161.7 ms |
+| Param-edit recook | 148.5 ms | 5.6 ms |
+| Hydra publish | 940.8 ms | 364.1 ms |
+| Hydra pull | 0.51 ms | 0.44 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 |
+
+GPU Session section, 8.0 (683a8c7) against M8a, same conditions (CPU 20-40%):
+
+| Metric | CUDA 8.0 | CUDA M8a | Vulkan 8.0 | Vulkan M8a |
+|---|---|---|---|---|
+| session.cold | 29.9 ms | 28.5 ms | 265.1 ms | 259.2 ms |
+| session.warm | 9.0 ms | 8.9 ms | 77.0 ms | 84.1 ms |
+| session.paramEdit | 27.8 ms | 27.3 ms | 171.9 ms | 165.2 ms |
+
+Vulkan warm read +9% and +11% in two 5-round runs; 8 alternating rounds of 9 runs each gave 61.1 ms (8.0) and 60.9 ms (M8a), so it is noise.
+
+Left over:
+
+| What | Where it goes |
+|---|---|
+| usdGenCuda and usdGenCurvesCuda exist in CUDA-off builds (CPU-side admission, "cuda" registered unavailable); the brief's L8 wanted no target | design call |
+| Gates 8b and 8c at their 8.0 ceilings | 8.7, 8.8 |
+| CUDA-off trees: `testUsdGenPomadeHierarchy` TN-1 (CPU tessellation, ~4-5 ms against 4 ms) and `testUsdGenPomadeIndex` G6 (no pinned memory, 6-9 ms against 8 ms) fail on this machine, the same at 2baa04c | Pomade budgets per lane |
+| Linux CI run (Vulkan on lavapipe, install check) | when the branch is pushed |
+| 8.7-8.11 (sync executor deletion, async CUDA/Vulkan cooks, channel tokens, worker pool into the scheduler) | M8b |
+
+
 ### 9. PublishDesc and the Hydra adapters
+
+- **Done (M8a):** 9.0 `api/publishDesc.h` and `UsdGenTypeDef::publish`; usdGenCurves registers the CurveSet publish desc and its publisher calls the `previewValues` and `occluder` hooks. 9.1 the hair shaders live in `libs/hosts/usdGenHydra/primitives/curves/shaders` (plugin name, resource layout and install dir unchanged).
 
 - **Goal:** tiles, publication types, hair shaders, fur occlusion (including the new `UsdGenFurOcclusionCache`) and the Storm index layouts move into `usdGenHydra`: generic publishers plus `primitives/curves/`. Locator routing goes through the API.
 - **Where:** `sessionCooker.cpp:674` (tile paths), `:2403` (basisCurves), `furOcclusion.*`.
@@ -275,7 +332,9 @@ Left over:
 - **Proves it:** `hydra.publish` and `hydra.pull` must not regress; scene publication and pomade index behave as on main.
 - **Depends on:** 6 and 7.
 
-### 10. OpenSubdiv Far replaces pxOsd
+### 10. OpenSubdiv Far replaces pxOsd. Done
+
+- **10.1 (M8a):** `limitSurface.cpp` builds its `Far::TopologyRefiner` through its own `TopologyRefinerFactory` specialization instead of `PxOsdRefinerFactory`; usdGenSurface links `usdgen_opensubdiv_target()`; gate 10a `testUsdGenNoPxrUsdImagingBelowHosts` is on with an empty baseline; no pxOsd in any link baseline.
 
 - **Goal:** usdGenSurface uses OpenSubdiv Far instead of pxOsd (`limitSurface.cpp`).
 - **Gate:** turn on the include gate for `pxr/usd` and `pxr/imaging` under libs/core.

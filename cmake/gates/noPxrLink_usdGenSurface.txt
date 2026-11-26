@@ -2,4 +2,3 @@
 arch
 work
 trace
-pxOsd

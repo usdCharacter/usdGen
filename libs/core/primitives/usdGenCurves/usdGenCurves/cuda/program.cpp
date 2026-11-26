@@ -115,9 +115,19 @@ std::shared_ptr<const UsdGenExecutionPlanHandle> Compile(UsdGenGraphSpec const &
 std::unique_ptr<cuda::ProgramState> CreateState(cuda::Workspace &workspace,
                                                 UsdGenDiagnostics *diagnostics)
 {
+#if defined(USDGEN_ENABLE_CUDA)
     auto executor = CreateCudaExecutionWorkspace(workspace.DeviceIndex(), diagnostics);
     if (!executor) return {};
     return std::unique_ptr<cuda::ProgramState>(new CurvesState(std::move(executor)));
+#else
+    // Without the toolkit usdGenCuda builds no workspaces (exec/workspace.cpp
+    // is CUDA-only), so no provider reaches this; it must not name
+    // Workspace's members either: MSVC imports the inline DeviceIndex from a
+    // usdGenCuda.dll that never instantiated it.
+    (void)workspace;
+    if (diagnostics) diagnostics->Error("CUDA: usdGen was built without CUDA");
+    return {};
+#endif
 }
 
 UsdGenRef<cuda::Job> CreateJob(UsdGenExecutionPlanHandle const &handle, cuda::Workspace &,
