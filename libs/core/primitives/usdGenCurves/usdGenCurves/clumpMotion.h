@@ -4,7 +4,7 @@
 #define USDGEN_CLUMP_MOTION_H
 
 #include "usdGen/curveBuffer.h"
-#include "usdGen/export.h"
+#include "usdGenCurves/export.h"
 
 #include <cstdint>
 #include <memory>
@@ -69,13 +69,13 @@ struct UsdGenClumpMotion {
 // Resolve the four native planes once at capture time. Legacy clumpId-only
 // levels remain visible with no groups or weights; consumers must not infer
 // cohesion from an ID alone. A malformed native quartet fails closed.
-USDGEN_CORE_API bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
+USDGEN_CURVES_API bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
                             UsdGenClumpMotion *out,
                             std::string *error = nullptr,
                             UsdGenClumpMotion const *previous = nullptr);
 /// View overload: copies the planes first, so the previous-capture reuse
 /// never hits there.
-USDGEN_CORE_API bool UsdGenBuildClumpMotion(UsdGenCurveSetView const &curves,
+USDGEN_CURVES_API bool UsdGenBuildClumpMotion(UsdGenCurveSetView const &curves,
                             UsdGenClumpMotion *out,
                             std::string *error = nullptr,
                             UsdGenClumpMotion const *previous = nullptr);

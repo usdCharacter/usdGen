@@ -30,7 +30,7 @@
 #ifndef USDGEN_MAPS_ATTRIBUTE_INSTANCE_H
 #define USDGEN_MAPS_ATTRIBUTE_INSTANCE_H
 
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 #include "usdGen/maps/attributeMap.h"
 
 #include <cstddef>
@@ -81,7 +81,7 @@ struct UsdGenAttributeInstanceResult {
 // and setting *error (when non-null), for a null map, a channel outside
 // the map, an empty root list, numPrototypes < 1, a non-finite threshold
 // or default, or a null result.
-USDGEN_CORE_API bool UsdGenAttributeCookInstances(
+USDGEN_SURFACE_API bool UsdGenAttributeCookInstances(
     UsdGenAttributeInstanceInput const &input,
     UsdGenAttributeInstanceResult *result, std::string *error);
 

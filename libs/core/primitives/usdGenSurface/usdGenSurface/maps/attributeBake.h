@@ -37,7 +37,7 @@
 #ifndef USDGEN_MAPS_ATTRIBUTE_BAKE_H
 #define USDGEN_MAPS_ATTRIBUTE_BAKE_H
 
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 #include "usdGen/maps/attributeMap.h"
 
 #include <atomic>
@@ -75,15 +75,15 @@ struct UsdGenAttributeBakeStats {
 // never names a half-written file. Returns false with *err set (when
 // non-null) on any failure — a null map, a face-count mismatch, a non-quad
 // face, inconsistent indices, an empty out path — and writes nothing.
-USDGEN_CORE_API bool UsdGenAttributeBakePtex(
+USDGEN_SURFACE_API bool UsdGenAttributeBakePtex(
     UsdGenAttributeBakeInput const &input, std::string const &outPath,
     UsdGenAttributeBakeStats *stats, std::string *err);
 
 // Versioned filename for a bake version (no directory join).
-USDGEN_CORE_API std::string UsdGenAttributeBakeFileName(
+USDGEN_SURFACE_API std::string UsdGenAttributeBakeFileName(
     std::string const &baseName, uint64_t version);
 
-class USDGEN_CORE_API UsdGenAttributeBakeWorker {
+class USDGEN_SURFACE_API UsdGenAttributeBakeWorker {
 public:
     UsdGenAttributeBakeWorker();
     ~UsdGenAttributeBakeWorker();

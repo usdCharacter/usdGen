@@ -8,7 +8,7 @@
 // Interim home until step 9 moves it to usdGenHydra/primitives/curves.
 #pragma once
 
-#include "usdGen/api/export.h"
+#include "usdGenCurves/export.h"
 #include "usdGen/api/primRef.h"
 #include "usdGen/compile/types.h"
 #include "usdGen/registries/engineTokens.h"
@@ -162,7 +162,7 @@ struct UsdGenTileDirty
 class UsdGenCurvePublication final : public UsdGenPublication
 {
 public:
-    USDGEN_CORE_API UsdGenCurvePublication() noexcept;
+    USDGEN_CURVES_API UsdGenCurvePublication() noexcept;
     std::vector<UsdGenTilePublication> tiles;        // sorted by tile id
     std::vector<UsdGenTilePublication> guides;       // guides/<setName> prims (§4.2)
     std::vector<UsdGenInstancerPublication> instancers; // M6
@@ -182,7 +182,7 @@ public:
 class UsdGenCurveDirtyReport final : public UsdGenPublication
 {
 public:
-    USDGEN_CORE_API UsdGenCurveDirtyReport() noexcept;
+    USDGEN_CURVES_API UsdGenCurveDirtyReport() noexcept;
     std::vector<UsdGenTileDirty> tiles;
     bool surfaceXformDirty = false;         // description-level xform moved
 };
@@ -191,10 +191,10 @@ public:
 enum : uint8_t { kUsdGenCurvePublicationKind = 0, kUsdGenCurveDirtyReportKind = 1 };
 
 /// A new, empty, mutable curve publication (tests and hosts that stage one).
-USDGEN_CORE_API UsdGenRef<UsdGenCurvePublication> UsdGenNewCurvePublication();
+USDGEN_CURVES_API UsdGenRef<UsdGenCurvePublication> UsdGenNewCurvePublication();
 
 /// The curve publication of `p`; an empty one when `p` is null or not curves.
-USDGEN_CORE_API UsdGenCurvePublication const &
+USDGEN_CURVES_API UsdGenCurvePublication const &
 UsdGenCurvePublicationOf(UsdGenPublication const *p) noexcept;
 inline UsdGenCurvePublication const &
 UsdGenCurvePublicationOf(UsdGenRef<const UsdGenPublication> const &p) noexcept
@@ -202,11 +202,11 @@ UsdGenCurvePublicationOf(UsdGenRef<const UsdGenPublication> const &p) noexcept
 UsdGenCurvePublication const &
 UsdGenCurvePublicationOf(UsdGenRef<const UsdGenPublication> &&) = delete;   // would dangle
 /// The generation's curve publication; empty on the device lane.
-USDGEN_CORE_API UsdGenCurvePublication const &
+USDGEN_CURVES_API UsdGenCurvePublication const &
 UsdGenCurvePublicationOf(UsdGenGeneration const &generation) noexcept;
 
 /// The curve dirty report of `p`; an empty one when `p` is null or not curves.
-USDGEN_CORE_API UsdGenCurveDirtyReport const &
+USDGEN_CURVES_API UsdGenCurveDirtyReport const &
 UsdGenCurveDirtyReportOf(UsdGenPublication const *p) noexcept;
 inline UsdGenCurveDirtyReport const &
 UsdGenCurveDirtyReportOf(UsdGenRef<const UsdGenPublication> const &p) noexcept
