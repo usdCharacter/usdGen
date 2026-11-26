@@ -166,7 +166,9 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
             ${USDGEN_CORE_INCLUDE_DIRS})
         # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
         # on toolkits older than 12.8.
-        target_link_libraries(usdGenGpu PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver usdGenExecutionResources)
+        target_link_libraries(usdGenGpu PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver)
+        # The resource ledger and retirement live in usdGen. usdGen links this
+        # archive, so consumers name usdGen themselves (no cycle).
         # The kernels still include pxr/ headers (step 8 removes them).
         target_include_directories(usdGenGpu SYSTEM PUBLIC
             $<TARGET_PROPERTY:tf,INTERFACE_INCLUDE_DIRECTORIES>)

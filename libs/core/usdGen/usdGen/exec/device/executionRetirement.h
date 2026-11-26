@@ -16,7 +16,7 @@ namespace usdGen {
 // callback userdata, is retained by the retirement slot until Destroy reports
 // that storage was actually released.  Quarantine must not free backend
 // storage or invalidate native callback userdata.
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionRetirementPayload {
+class USDGEN_CORE_API UsdGenExecutionRetirementPayload {
 public:
     virtual ~UsdGenExecutionRetirementPayload() = default;
     virtual bool IsComplete() noexcept = 0;
@@ -35,7 +35,7 @@ class UsdGenExecutionRetirementTicket;
 // Declare the exported factory before the service's friend declaration. MSVC
 // diagnoses a later dllimport declaration as a different-linkage redeclaration
 // when the unannotated friend is seen first.
-USDGEN_EXECUTION_RESOURCES_API std::shared_ptr<UsdGenExecutionRetirementService>
+USDGEN_CORE_API std::shared_ptr<UsdGenExecutionRetirementService>
 GetOrCreateUsdGenExecutionRetirementService(
     UsdGenExecutionResourceDevice, UsdGenExecutionRetirementConfig,
     bool requireMatchingConfig = true) noexcept;
@@ -44,7 +44,7 @@ GetOrCreateUsdGenExecutionRetirementService(
 // mechanism. Signal may occur before or after Retire. The first success or
 // failure wins; duplicate/opposite/late signals are ignored. A slot generation
 // prevents an old callback from affecting a later ticket.
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionRetirementSignal {
+class USDGEN_CORE_API UsdGenExecutionRetirementSignal {
 public:
     UsdGenExecutionRetirementSignal() = default;
     void SignalSuccess() const noexcept;
@@ -65,7 +65,7 @@ private:
 // retained the payload, even when completion has not yet been signalled. A
 // false return requires an empty payload or an invalid/previously-consumed
 // ticket; callers must not transfer a live backend payload on that misuse.
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionRetirementTicket {
+class USDGEN_CORE_API UsdGenExecutionRetirementTicket {
 public:
     UsdGenExecutionRetirementTicket() = default;
     ~UsdGenExecutionRetirementTicket();
@@ -85,7 +85,7 @@ private:
     friend class UsdGenExecutionRetirementService;
 };
 
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionRetirementService {
+class USDGEN_CORE_API UsdGenExecutionRetirementService {
 public:
     ~UsdGenExecutionRetirementService();
     std::optional<UsdGenExecutionRetirementTicket> TryReserve() noexcept;
@@ -112,31 +112,31 @@ private:
     std::shared_ptr<Impl> impl_;
     explicit UsdGenExecutionRetirementService(size_t capacity,
                                               UsdGenExecutionResourceBackend);
-    friend USDGEN_EXECUTION_RESOURCES_API std::shared_ptr<UsdGenExecutionRetirementService>
+    friend USDGEN_CORE_API std::shared_ptr<UsdGenExecutionRetirementService>
     GetOrCreateUsdGenExecutionRetirementService(UsdGenExecutionResourceDevice,
                                                 UsdGenExecutionRetirementConfig,
                                                 bool) noexcept;
 };
 
-USDGEN_EXECUTION_RESOURCES_API std::shared_ptr<UsdGenExecutionRetirementService>
+USDGEN_CORE_API std::shared_ptr<UsdGenExecutionRetirementService>
 FindUsdGenExecutionRetirementService(UsdGenExecutionResourceDevice) noexcept;
 
 // Process/DSO-wide backend lifecycle. Quiesce is irreversible and closes all
 // existing services for this backend as well as future GetOrCreate admission.
 // The embedding runtime must call it before backend-runtime teardown and
 // serialize concurrent quiesce/drain calls for a backend.
-USDGEN_EXECUTION_RESOURCES_API bool
+USDGEN_CORE_API bool
 IsUsdGenExecutionRetirementBackendOpen(UsdGenExecutionResourceBackend) noexcept;
-USDGEN_EXECUTION_RESOURCES_API void
+USDGEN_CORE_API void
 QuiesceUsdGenExecutionRetirementBackend(UsdGenExecutionResourceBackend) noexcept;
 
 // Narrow deterministic interleaving hook for retirement installation tests.
 // A claimed gate pauses once after Retire obtains its Drain credit and before
 // it publishes Installing; production leaves it unset.
-struct USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionRetirementInstallTestGate {
+struct USDGEN_CORE_API UsdGenExecutionRetirementInstallTestGate {
     std::atomic<bool> claimed{false}, entered{false}, release{false}, timedOut{false};
 };
-USDGEN_EXECUTION_RESOURCES_API void
+USDGEN_CORE_API void
 SetUsdGenExecutionRetirementInstallTestGate(
     std::shared_ptr<UsdGenExecutionRetirementInstallTestGate>) noexcept;
 

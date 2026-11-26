@@ -96,12 +96,12 @@ target_link_directories(usdGenUtilityFixtures PRIVATE
 if(WIN32)
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/usd_*.lib")
     target_link_libraries(usdGenUtilityFixtures PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen usdGenExecutionResources
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen
         ${_usd_libs} "${USD_INSTALL_DIR}/lib/tbb.lib" Shlwapi Ws2_32 Dbghelp)
 else()
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/libusd_*.so*")
     target_link_libraries(usdGenUtilityFixtures PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen usdGenExecutionResources ${_usd_libs})
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen ${_usd_libs})
 endif()
 target_link_directories(usdGenBakeGroom PRIVATE
     "${USDGEN_BUILD_DIR}"
@@ -109,10 +109,10 @@ target_link_directories(usdGenBakeGroom PRIVATE
 if(WIN32)
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/usd_*.lib")
     target_link_libraries(usdGenBakeGroom PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen usdGenExecutionResources
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen
         ${_usd_libs} "${USD_INSTALL_DIR}/lib/tbb.lib" Shlwapi Ws2_32 Dbghelp)
 else()
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/libusd_*.so*")
     target_link_libraries(usdGenBakeGroom PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen usdGenExecutionResources ${_usd_libs})
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen ${_usd_libs})
 endif()

@@ -2,7 +2,7 @@
 #ifndef USDGEN_EXECUTION_RESOURCES_H
 #define USDGEN_EXECUTION_RESOURCES_H
 
-#include "usdGen/executionResourcesExport.h"
+#include "usdGen/api/export.h"
 
 #include <array>
 #include <cstddef>
@@ -25,7 +25,7 @@ enum class UsdGenExecutionResourceKind : uint8_t {
     Count
 };
 
-struct USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionResourceSnapshot {
+struct USDGEN_CORE_API UsdGenExecutionResourceSnapshot {
     size_t limitBytes = 0;
     size_t headroomBytes = 0;
     size_t usableBytes = 0;
@@ -42,7 +42,7 @@ struct UsdGenExecutionMemoryReservationState;
 // not by the operation which happened to allocate it.  A quarantined CUDA
 // allocation deliberately retains its permit because its storage cannot be
 // proven free.
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionResourcePermit {
+class USDGEN_CORE_API UsdGenExecutionResourcePermit {
 public:
     UsdGenExecutionResourcePermit() = default;
     ~UsdGenExecutionResourcePermit();
@@ -87,7 +87,7 @@ private:
 // pool total, so Consume transfers only category ownership (Pending to
 // target permit); a child permit returns that credit to Pending when released
 // while this reservation remains live. It never competes with another job.
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionMemoryReservation {
+class USDGEN_CORE_API UsdGenExecutionMemoryReservation {
 public:
     UsdGenExecutionMemoryReservation() = default;
     ~UsdGenExecutionMemoryReservation();
@@ -118,7 +118,7 @@ private:
 
 // A pool has immutable capacity/headroom. Backend adapters obtain its one
 // process-wide instance per physical device from the registry below.
-class USDGEN_EXECUTION_RESOURCES_API UsdGenExecutionResourcePool {
+class USDGEN_CORE_API UsdGenExecutionResourcePool {
 public:
     UsdGenExecutionResourcePool(size_t limitBytes, size_t headroomBytes = 0);
     ~UsdGenExecutionResourcePool();
@@ -154,10 +154,10 @@ struct UsdGenExecutionResourceConfig {
     size_t limitBytes = 0;
     size_t headroomBytes = 0;
 };
-USDGEN_EXECUTION_RESOURCES_API std::shared_ptr<UsdGenExecutionResourcePool> GetOrCreateUsdGenExecutionResourcePool(
+USDGEN_CORE_API std::shared_ptr<UsdGenExecutionResourcePool> GetOrCreateUsdGenExecutionResourcePool(
     UsdGenExecutionResourceDevice, UsdGenExecutionResourceConfig,
     bool requireMatchingConfig = true) noexcept;
-USDGEN_EXECUTION_RESOURCES_API std::shared_ptr<UsdGenExecutionResourcePool> FindUsdGenExecutionResourcePool(
+USDGEN_CORE_API std::shared_ptr<UsdGenExecutionResourcePool> FindUsdGenExecutionResourcePool(
     UsdGenExecutionResourceDevice) noexcept;
 
 } // namespace usdGen

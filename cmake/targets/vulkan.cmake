@@ -158,7 +158,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         target_link_libraries(usdGen PRIVATE Vulkan::Vulkan Threads::Threads)
         add_library(usdGenVulkanNative INTERFACE)
         target_link_libraries(usdGenVulkanNative INTERFACE
-            usdGen Vulkan::Vulkan usdGenExecutionResources Threads::Threads)
+            usdGen Vulkan::Vulkan Threads::Threads)
         target_include_directories(usdGenVulkanNative INTERFACE
             ${USDGEN_CORE_INCLUDE_DIRS}
             "$<INSTALL_INTERFACE:include>")
@@ -166,7 +166,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         # Test-only: keep Vulkan out of the core (no SDK leakage into
         # CPU/CUDA-only builds); tests share one native resource registry.
         add_library(usdGenVulkanNative SHARED ${_usdgen_vulkan_sources})
-        target_link_libraries(usdGenVulkanNative PUBLIC Vulkan::Vulkan usdGenExecutionResources usdGen Threads::Threads)
+        target_link_libraries(usdGenVulkanNative PUBLIC Vulkan::Vulkan usdGen Threads::Threads)
         target_link_libraries(usdGenVulkanNative PRIVATE usdGenMath)
         target_include_directories(usdGenVulkanNative PUBLIC
             ${USDGEN_CORE_INCLUDE_DIRS}

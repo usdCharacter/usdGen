@@ -282,7 +282,7 @@ endif()
 
 list(LENGTH _usdgen_pxr_targets _usdgen_pxr_target_count)
 
-# usdGen names TBB::tbb directly (usdGenExecutionResources), so provide the
+# usdGen names TBB::tbb directly, so provide the
 # imported target instead of only threading the library through edges. Inert
 # for consumers that never name it.
 if (NOT TARGET TBB::tbb)

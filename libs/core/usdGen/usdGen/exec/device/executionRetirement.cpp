@@ -1,6 +1,7 @@
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionRuntimeInternal.h"
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/parkingWord.h"
+#include "usdGen/exec/serialLane.h"
 
 #include <atomic>
 #include <array>
@@ -219,12 +220,7 @@ struct UsdGenExecutionRetirementSignal::State {
         }
         // Services are process-lifetime (the registry never drops one), so
         // the lane holds the slot by raw pointer.
-        if (!_LaneDispatch(&slot, generation)) {
-            // Lane start failure is terminal but is never an inline backend
-            // cleanup path. The payload and all permits remain retained.
-            Quarantine(slot, generation, false);
-            return false;
-        }
+        _LaneDispatch(&slot, generation);
         return true;
     }
 
@@ -250,16 +246,11 @@ struct UsdGenExecutionRetirementSignal::State {
         }
     }
 
-    // The retirement lane (see _LaneRun).
-    struct Lane {
-        std::atomic<Slot*> head{nullptr};
-        std::atomic<uint32_t> wake{0};
-        std::atomic<uint32_t> sleeping{0};
-        std::atomic<uint32_t> started{0};  // 0 none, 1 starting, 2 running
-    };
-    static Lane lane;
-    static bool _LaneDispatch(Slot*, uint32_t) noexcept;
-    static void _LaneRun() noexcept;
+    // The retirement lane (see _LanePass).
+    static std::atomic<Slot*> laneHead;
+    static UsdGenSerialLane lane;
+    static void _LaneDispatch(Slot*, uint32_t) noexcept;
+    static void _LanePass(void*) noexcept;
 
     _DrainCount drain;
     std::vector<std::unique_ptr<Slot>> slots;
@@ -268,70 +259,40 @@ struct UsdGenExecutionRetirementSignal::State {
     UsdGenExecutionResourceBackend const backend;
 };
 
-// The retirement lane: one process-wide thread that runs backend cleanup off
-// the signalling thread (native completion callbacks must not free native
-// storage inline). Producers push slots on a Treiber stack and wake the lane
-// only when it sleeps; the lane parks on a word, never polls. It is started
-// on first use, detached and never joined: process exit ends it, and nothing
-// waits for it in a static destructor. Zero-initialized, trivially
-// destructible. It stays a thread rather than a UsdGenTaskScheduler lane:
-// this file is in usdGenExecutionResources, below usdGen, so it cannot reach
-// the process scheduler, and a private scheduler copy would add a second
-// hardware-sized pool; cleanup may also block, which a shared worker must not.
-UsdGenExecutionRetirementSignal::State::Lane UsdGenExecutionRetirementSignal::State::lane;
+// The retirement lane runs backend cleanup off the signalling thread (native
+// completion callbacks must not free native storage inline). Producers push
+// slots on a Treiber stack and kick a UsdGenSerialLane on the process
+// scheduler, so at most one pass runs and nothing is held while idle. Both
+// are constant-initialized and never destroyed: late callbacks at exit still
+// find them. Cleanup occupies one scheduler worker while it runs.
+std::atomic<UsdGenExecutionRetirementSignal::State::Slot*>
+    UsdGenExecutionRetirementSignal::State::laneHead{nullptr};
+UsdGenSerialLane UsdGenExecutionRetirementSignal::State::lane{
+    &UsdGenExecutionRetirementSignal::State::_LanePass, nullptr};
 
-void UsdGenExecutionRetirementSignal::State::_LaneRun() noexcept {
-    auto& _lane = lane;
-    using _Slot = Slot;
-    for (;;) {
-        _Slot* list = _lane.head.exchange(nullptr, std::memory_order_seq_cst);
-        if (!list) {
-            uint32_t const seq = _lane.wake.load(std::memory_order_seq_cst);
-            _lane.sleeping.store(1, std::memory_order_seq_cst);
-            if (!_lane.head.load(std::memory_order_seq_cst))
-                UsdGenParkWhileEqual(_lane.wake, seq);
-            _lane.sleeping.store(0, std::memory_order_relaxed);
-            continue;
-        }
-        _Slot* fifo = nullptr;  // pushed LIFO; run in dispatch order
-        while (list) {
-            _Slot* next = list->laneNext;
-            list->laneNext = fifo;
-            fifo = list;
-            list = next;
-        }
-        while (fifo) {
-            _Slot* next = fifo->laneNext;  // Process may requeue the slot
-            fifo->owner->Process(fifo->index, fifo->laneGeneration);
-            fifo = next;
-        }
+void UsdGenExecutionRetirementSignal::State::_LanePass(void*) noexcept {
+    Slot* list = laneHead.exchange(nullptr, std::memory_order_acq_rel);
+    Slot* fifo = nullptr;  // pushed LIFO; run in dispatch order
+    while (list) {
+        Slot* next = list->laneNext;
+        list->laneNext = fifo;
+        fifo = list;
+        list = next;
+    }
+    while (fifo) {
+        Slot* next = fifo->laneNext;  // Process may requeue the slot
+        fifo->owner->Process(fifo->index, fifo->laneGeneration);
+        fifo = next;
     }
 }
 
-bool UsdGenExecutionRetirementSignal::State::_LaneDispatch(Slot* slot, uint32_t generation) noexcept {
-    auto& _lane = lane;
-    if (_lane.started.load(std::memory_order_acquire) == 0) {
-        uint32_t expected = 0;
-        if (_lane.started.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
-            try {
-                std::thread(&_LaneRun).detach();
-            } catch (...) {
-                _lane.started.store(0, std::memory_order_release);
-                return false;
-            }
-            _lane.started.store(2, std::memory_order_release);
-        }
-    }
+void UsdGenExecutionRetirementSignal::State::_LaneDispatch(Slot* slot, uint32_t generation) noexcept {
     slot->laneGeneration = generation;
-    Slot* h = _lane.head.load(std::memory_order_relaxed);
+    Slot* h = laneHead.load(std::memory_order_relaxed);
     do { slot->laneNext = h; }
-    while (!_lane.head.compare_exchange_weak(h, slot, std::memory_order_seq_cst,
-                                             std::memory_order_relaxed));
-    if (_lane.sleeping.load(std::memory_order_seq_cst)) {
-        _lane.wake.fetch_add(1, std::memory_order_seq_cst);
-        UsdGenUnparkAll(_lane.wake);
-    }
-    return true;
+    while (!laneHead.compare_exchange_weak(h, slot, std::memory_order_release,
+                                           std::memory_order_relaxed));
+    lane.Kick();
 }
 
 struct UsdGenExecutionRetirementService::Impl

@@ -28,7 +28,6 @@ usdGen/executionCache.h usdGen/exec/executionCache.h
 usdGen/executionPipeline.h usdGen/exec/executionPipeline.h
 usdGen/executionPlan.h usdGen/exec/device/executionPlan.h
 usdGen/executionResources.h usdGen/exec/device/executionResources.h
-usdGen/executionResourcesExport.h usdGen/exec/device/executionResourcesExport.h
 usdGen/executionRetirement.h usdGen/exec/device/executionRetirement.h
 usdGen/executionRuntimeInternal.h usdGen/exec/executionRuntimeInternal.h
 usdGen/executionSequenceWindow.h usdGen/exec/executionSequenceWindow.h

@@ -18,9 +18,7 @@ namespace usdGen {
 // intentionally internal: synchronous waits from either framework are invalid.
 extern thread_local bool usdGenExecutionGraphActive;
 
-// Inline so both libusdGen (default visibility) and usdGenExecutionResources
-// (hidden) get a copy; a single out-of-line definition cannot be referenced
-// across that DSO boundary.
+// Inline: every module that includes it gets its own copy.
 inline bool UsdGenProcessShutdownInProgress() noexcept {
 #if defined(_WIN32)
     using Fn = BOOLEAN(NTAPI*)();

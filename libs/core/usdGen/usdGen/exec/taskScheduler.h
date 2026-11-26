@@ -25,7 +25,7 @@ namespace usdGen {
 /// Intrusive unit of work.
 struct UsdGenTask {
     using Run = void (*)(UsdGenTask *) noexcept;
-    explicit UsdGenTask(Run run = nullptr) noexcept : taskRun(run) {}
+    explicit constexpr UsdGenTask(Run run = nullptr) noexcept : taskRun(run) {}
     UsdGenTask *taskNext = nullptr;
     Run taskRun = nullptr;
 };

@@ -3,6 +3,7 @@
 #include "usdGen/gpu/cudaCompletionLane.h"
 
 #include "usdGen/epoch.h"
+#include "usdGen/exec/serialLane.h"
 
 #include <atomic>
 
@@ -11,69 +12,45 @@ namespace {
 
 // The lane: submitters push on `incoming`; the one runner moves them into
 // its private ring (`pending`), queries each event and runs the finished
-// ones. `state` makes it serial: SCHEDULED while a pass is queued or running,
-// DIRTY when a kick arrived since the pass began, so no kick is lost.
-struct Lane;
-extern Lane g_lane;
-
+// ones. A UsdGenSerialLane keeps it serial with no kick lost.
 struct Lane {
-    static constexpr uint32_t kScheduled = 1u, kDirty = 2u;
     UsdGenTreiberStack<CudaCompletion, &CudaCompletion::laneNext> incoming;
     CudaCompletion *pending = nullptr;  // runner only
-    std::atomic<uint32_t> state{0};
-    std::atomic<uint64_t> passes{0};
     std::atomic<size_t> count{0};
-    UsdGenTask task{&Lane::Run};
+    UsdGenSerialLane serial{&Lane::Pass, nullptr};
 
-    void Kick() noexcept
-    {
-        uint32_t const old = state.fetch_or(kScheduled | kDirty, std::memory_order_acq_rel);
-        if (!(old & kScheduled)) UsdGenTaskScheduler::Process().Post(&task);
-    }
+    void Kick() noexcept { serial.Kick(); }
 
-    void Pass() noexcept
-    {
-        passes.fetch_add(1, std::memory_order_relaxed);
-        if (CudaCompletion *in = incoming.PopAll()) {
-            CudaCompletion *last = in;
-            while (last->laneNext) last = last->laneNext;
-            last->laneNext = pending;
-            pending = in;
-        }
-        CudaCompletion **link = &pending;
-        while (CudaCompletion *c = *link) {
-            cudaError_t const e = cudaEventQuery(c->event);
-            if (e == cudaErrorNotReady) {
-                link = &c->laneNext;
-                continue;
-            }
-            *link = c->laneNext;
-            c->laneNext = nullptr;
-            c->status = e;
-            count.fetch_sub(1, std::memory_order_relaxed);
-            c->taskRun(c);  // may free c
-        }
-    }
-
-    static void Run(UsdGenTask *t) noexcept
-    {
-        (void)t;
-        Lane &lane = g_lane;
-        lane.state.fetch_and(~kDirty, std::memory_order_acq_rel);
-        for (;;) {
-            lane.Pass();
-            uint32_t s = kScheduled;
-            if (lane.state.compare_exchange_strong(s, 0, std::memory_order_acq_rel,
-                                                   std::memory_order_acquire))
-                return;
-            lane.state.fetch_and(~kDirty, std::memory_order_acq_rel);  // kicked meanwhile
-        }
-    }
+    static void Pass(void *) noexcept;
 };
 
 // Constant-initialized and never destroyed: a late stream callback during
 // process teardown still finds it.
 Lane g_lane;
+
+void Lane::Pass(void *) noexcept
+{
+    Lane &lane = g_lane;
+    if (CudaCompletion *in = lane.incoming.PopAll()) {
+        CudaCompletion *last = in;
+        while (last->laneNext) last = last->laneNext;
+        last->laneNext = lane.pending;
+        lane.pending = in;
+    }
+    CudaCompletion **link = &lane.pending;
+    while (CudaCompletion *c = *link) {
+        cudaError_t const e = cudaEventQuery(c->event);
+        if (e == cudaErrorNotReady) {
+            link = &c->laneNext;
+            continue;
+        }
+        *link = c->laneNext;
+        c->laneNext = nullptr;
+        c->status = e;
+        lane.count.fetch_sub(1, std::memory_order_relaxed);
+        c->taskRun(c);  // may free c
+    }
+}
 
 void CUDART_CB LaneKick(cudaStream_t, cudaError_t, void *) noexcept { g_lane.Kick(); }
 
@@ -101,7 +78,7 @@ bool CudaCompletionSubmit(CudaCompletion *c, cudaStream_t stream) noexcept
 
 uint64_t CudaCompletionLanePassesForTesting() noexcept
 {
-    return g_lane.passes.load(std::memory_order_relaxed);
+    return g_lane.serial.Passes();
 }
 
 size_t CudaCompletionLanePendingForTesting() noexcept

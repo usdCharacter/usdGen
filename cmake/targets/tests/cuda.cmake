@@ -191,19 +191,19 @@ if(USDGEN_ENABLE_CUDA)
         LABELS "T1;cuda;threading" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaExecutionResources tests/testUsdGenCudaExecutionResources.cpp)
-    target_link_libraries(testUsdGenCudaExecutionResources PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaExecutionResources PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaExecutionResources COMMAND testUsdGenCudaExecutionResources)
     set_tests_properties(testUsdGenCudaExecutionResources PROPERTIES
         LABELS "T0;cuda;resources" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaDeviceBufferClasses tests/testUsdGenCudaDeviceBufferClasses.cpp)
-    target_link_libraries(testUsdGenCudaDeviceBufferClasses PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaDeviceBufferClasses PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaDeviceBufferClasses COMMAND testUsdGenCudaDeviceBufferClasses)
     set_tests_properties(testUsdGenCudaDeviceBufferClasses PROPERTIES
         LABELS "T1;cuda;threading" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaDeviceBufferPoolStress tests/testUsdGenCudaDeviceBufferPoolStress.cpp)
-    target_link_libraries(testUsdGenCudaDeviceBufferPoolStress PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaDeviceBufferPoolStress PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaDeviceBufferPoolStress COMMAND testUsdGenCudaDeviceBufferPoolStress)
     set_tests_properties(testUsdGenCudaDeviceBufferPoolStress PROPERTIES
         LABELS "T0;cuda;resources" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu
@@ -224,7 +224,7 @@ if(USDGEN_ENABLE_CUDA)
     set(USDGEN_OPENUSD_SOURCE_DIR "${PROJECT_SOURCE_DIR}/../OpenUSD" CACHE PATH
         "Matching OpenUSD source tree for native Storm index oracle tests")
     add_executable(testUsdGenCudaCurveIndices tests/testUsdGenCudaCurveIndices.cpp)
-    target_link_libraries(testUsdGenCudaCurveIndices PRIVATE usdGenGpu hdSt)
+    target_link_libraries(testUsdGenCudaCurveIndices PRIVATE usdGenGpu usdGen hdSt)
     if(EXISTS "${USDGEN_OPENUSD_SOURCE_DIR}/pxr/imaging/hdSt/basisCurvesTopology.h")
         target_include_directories(testUsdGenCudaCurveIndices SYSTEM PRIVATE "${USDGEN_OPENUSD_SOURCE_DIR}")
         target_compile_definitions(testUsdGenCudaCurveIndices PRIVATE USDGEN_HAS_STORM_INDEX_ORACLE)
@@ -235,17 +235,17 @@ if(USDGEN_ENABLE_CUDA)
         LABELS "T1;cuda;topology;interop" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     set_tests_properties(testUsdGenCudaCurveIndicesStorm PROPERTIES SKIP_RETURN_CODE 77)
     add_executable(testUsdGenCudaCurveTiles tests/testUsdGenCudaCurveTiles.cpp)
-    target_link_libraries(testUsdGenCudaCurveTiles PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaCurveTiles PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaCurveTiles COMMAND testUsdGenCudaCurveTiles)
     set_tests_properties(testUsdGenCudaCurveTiles PROPERTIES
         LABELS "T1;cuda;topology;tiles" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaCurveResample tests/testUsdGenCudaCurveResample.cpp)
-    target_link_libraries(testUsdGenCudaCurveResample PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaCurveResample PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaCurveResample COMMAND testUsdGenCudaCurveResample)
     set_tests_properties(testUsdGenCudaCurveResample PROPERTIES
         LABELS "T1;cuda;topology;resample" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaCurveTileBounds tests/testUsdGenCudaCurveTileBounds.cpp)
-    target_link_libraries(testUsdGenCudaCurveTileBounds PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaCurveTileBounds PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaCurveTileBounds COMMAND testUsdGenCudaCurveTileBounds)
     set_tests_properties(testUsdGenCudaCurveTileBounds PROPERTIES
         LABELS "T1;cuda;topology;tiles" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
@@ -368,7 +368,7 @@ if(USDGEN_ENABLE_CUDA)
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     foreach(_cuda_test Rbf Deform)
         add_executable(testUsdGenCuda${_cuda_test} tests/testUsdGenCuda${_cuda_test}.cu)
-        target_link_libraries(testUsdGenCuda${_cuda_test} PRIVATE usdGenGpu)
+        target_link_libraries(testUsdGenCuda${_cuda_test} PRIVATE usdGenGpu usdGen)
         # These CUDA oracles use assert for both execution and checks.
         # Release's -DNDEBUG must never turn them into false-green no-ops.
         set_target_properties(testUsdGenCuda${_cuda_test} PROPERTIES USDGEN_KEEP_ASSERTS ON)
@@ -377,14 +377,14 @@ if(USDGEN_ENABLE_CUDA)
             LABELS "T1;cuda;rbf" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     endforeach()
     add_executable(testUsdGenCudaStyle tests/testUsdGenCudaStyle.cu)
-    target_link_libraries(testUsdGenCudaStyle PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaStyle PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaStyle COMMAND testUsdGenCudaStyle)
     set_tests_properties(testUsdGenCudaStyle PROPERTIES
         LABELS "T1;cuda;operators" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaNoise tests/testUsdGenCudaNoise.cpp)
     # The oracle calls the explicitly-instantiated SeExpr 3->3 double FBM;
     # CUDA itself is deliberately float and built with global --fmad=false.
-    target_link_libraries(testUsdGenCudaNoise PRIVATE usdGenGpu usdGenMath usdGen_seexpr)
+    target_link_libraries(testUsdGenCudaNoise PRIVATE usdGenGpu usdGen usdGenMath usdGen_seexpr)
     add_test(NAME testUsdGenCudaNoise COMMAND testUsdGenCudaNoise)
     set_tests_properties(testUsdGenCudaNoise PROPERTIES
         LABELS "T1;cuda;operators;noise" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
@@ -395,12 +395,12 @@ if(USDGEN_ENABLE_CUDA)
         LABELS "T1;cuda;operators;noise;session;cow" TIMEOUT 120
         RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaRootFrames tests/testUsdGenCudaRootFrames.cpp)
-    target_link_libraries(testUsdGenCudaRootFrames PRIVATE usdGenGpu gf)
+    target_link_libraries(testUsdGenCudaRootFrames PRIVATE usdGenGpu usdGen gf)
     add_test(NAME testUsdGenCudaRootFrames COMMAND testUsdGenCudaRootFrames)
     set_tests_properties(testUsdGenCudaRootFrames PROPERTIES
         LABELS "T1;cuda;root-frames" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)
     add_executable(testUsdGenCudaRootFrameGather tests/testUsdGenCudaRootFrameGather.cpp)
-    target_link_libraries(testUsdGenCudaRootFrameGather PRIVATE usdGenGpu)
+    target_link_libraries(testUsdGenCudaRootFrameGather PRIVATE usdGenGpu usdGen)
     add_test(NAME testUsdGenCudaRootFrameGather COMMAND testUsdGenCudaRootFrameGather)
     set_tests_properties(testUsdGenCudaRootFrameGather PROPERTIES
         LABELS "T1;cuda;root-frames" TIMEOUT 120 RESOURCE_LOCK usdgen_gpu)

@@ -33,8 +33,6 @@ set(USDGEN_CORE_INCLUDE_DIRS ${USDGEN_ENGINE_INCLUDE_DIRS} ${USDGEN_PRIMITIVE_IN
 # expressions/irExec.h is the design, shared by the CUDA kernel and by
 # expressions/cpuEvaluator.cpp.
 list(REMOVE_ITEM USDGEN_CORE_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen/usdGen/exec/device/executionResources.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp"
     # CUDA-only helper exposes CUDA vector types; do not compile it in the
@@ -44,21 +42,6 @@ list(REMOVE_ITEM USDGEN_CORE_SOURCES
     # block below adds them to usdGen and usdGenGpu.
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp")
-add_library(usdGenExecutionResources SHARED
-    libs/core/usdGen/usdGen/exec/device/executionResources.cpp
-    libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp
-    # Private copy of the parking primitive for the retirement drain.
-    libs/core/usdGen/usdGen/exec/parkingWord.cpp)
-target_include_directories(usdGenExecutionResources PUBLIC
-    ${USDGEN_ENGINE_INCLUDE_DIRS}
-    $<INSTALL_INTERFACE:include>)
-target_link_libraries(usdGenExecutionResources PRIVATE Threads::Threads)
-set_target_properties(usdGenExecutionResources PROPERTIES
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON)
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
-    target_link_options(usdGenExecutionResources PRIVATE "LINKER:--exclude-libs,ALL")
-endif()
 add_library(usdGen SHARED ${USDGEN_CORE_SOURCES})
 target_sources(usdGen PRIVATE
     libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp
@@ -82,7 +65,7 @@ target_include_directories(usdGen PUBLIC
 # a non-installed target); usdGen's own sources still see its headers
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
-    PUBLIC tf gf vt usdGenExecutionResources
+    PUBLIC tf gf vt
     PRIVATE usdGenMath arch js plug ts ar work trace hio pxOsd
             usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 if(WIN32)

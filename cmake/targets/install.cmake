@@ -12,7 +12,7 @@
 # shipped objects) — installing them would put libusdGenMath.a /
 # libusdGen_seexpr.a into lib/ and drag their unprefixed INTERFACE include
 # roots into the usdGenTargets export set.
-install(TARGETS usdGenExecutionResources usdGen usdGenSurface usdGenExpr usdGenCurves usdGenWithPrimitives
+install(TARGETS usdGen usdGenSurface usdGenExpr usdGenCurves usdGenWithPrimitives
         usdGenUsd usdGenImaging usdGenSchema usdGenShaders usdGenPomade
     EXPORT usdGenTargets
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"

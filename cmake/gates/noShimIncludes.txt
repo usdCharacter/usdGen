@@ -202,8 +202,7 @@ libs/core/usdGen/usdGen/exec/device/deviceGeneration.cpp 1
 libs/core/usdGen/usdGen/exec/device/executionBackend.cpp 2
 libs/core/usdGen/usdGen/exec/device/executionBackend.h 3
 libs/core/usdGen/usdGen/exec/device/executionResources.cpp 1
-libs/core/usdGen/usdGen/exec/device/executionResources.h 1
-libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp 3
+libs/core/usdGen/usdGen/exec/device/executionRetirement.cpp 2
 libs/core/usdGen/usdGen/exec/device/executionRetirement.h 1
 libs/core/usdGen/usdGen/exec/epoch.cpp 1
 libs/core/usdGen/usdGen/exec/executionCache.cpp 3
