@@ -205,7 +205,7 @@ bool Direct(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out, scatter::ModeStats
         ctx.referenceCount = 1;
     }
     UsdGenDiagnostics diag;
-    bool const ok = scatter::CaptureModes(ctx, cfg, lowered193.surfaces[0], out, &diag, st);
+    bool const ok = scatter::CaptureModes(ctx, cfg, UsdGenSurfaceInputs(lowered193)[0], out, &diag, st);
     for (auto const &e : diag.errors) std::printf("  direct: %s\n", e.c_str());
     return ok && !diag.HasErrors();
 }

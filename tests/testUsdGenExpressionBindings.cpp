@@ -29,8 +29,9 @@ int main()
     baseline.expressions.push_back({SdfPath("/existing/unusedExpression"), "4*2",
         {{TfToken("result"),TfToken("float"),FloatShape()}}});
     Check(usdGenUsd::Compile(compiler, baseline, &graph).ok, "seed a real existing graph");
-    Check(graph.Spec().expressions.size() == 1 &&
-          graph.Spec().expressions[0].source == "4*2", "compiler retains expression program descriptors");
+    Check(UsdGenExpressionInputs(graph.Spec()).size() == 1 &&
+          UsdGenExpressionInputView(UsdGenExpressionInputs(graph.Spec())[0]).source == "4*2",
+          "compiler retains expression program descriptors");
     Check(graph.Spec().defaultWidth == baseline.defaultWidth,
           "compiler retains description width fallback");
     if (failures) return failures;

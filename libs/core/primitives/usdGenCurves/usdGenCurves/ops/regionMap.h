@@ -2,6 +2,8 @@
 #define USDGEN_OPS_REGION_MAP_H
 
 #include "usdGen/op.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/maps/ptexMap.h"
 #include "usdGen/ops/opUtil.h"
 #include <algorithm>
@@ -27,9 +29,10 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
     if (!target.IsValid()) return true;
     *mapped=true;
     auto fail=[&](std::string const &s) { *error="regionMap: "+s;return false; };
-    auto map=std::find_if(ctx.desc->maps.begin(),ctx.desc->maps.end(),
-        [&](UsdGenMapInput const &m) { return m.key==target; });
-    if (map==ctx.desc->maps.end() || !UsdGenMapHas(*map,kUsdGenTypeMapPtex) || map->resolvedAssetPath.empty())
+    UsdGenInputRecord const *mapRecord=UsdGenFindMapInput(*ctx.desc,target);
+    UsdGenMapInputView const mapView=mapRecord?UsdGenMapInputView::Of(*mapRecord):UsdGenMapInputView{};
+    UsdGenMapInputView const *map=mapRecord?&mapView:nullptr;
+    if (!map || !UsdGenMapHas(*map,kUsdGenTypeMapPtex) || map->resolvedAssetPath.empty())
         return fail("target must be a resolved UsdGenPtexMap");
     UsdGenPtexMapOptions options;options.filter="nearest";options.channelCount=1;
     for (auto const &param:map->params) {
@@ -46,11 +49,11 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
              (param.value.template IsHolding<double>() && param.value.template UncheckedGet<double>()!=0)))
             return fail("categorical maps require blur=0");
     }
-    auto texture=UsdGenPtexTexture::Open(map->resolvedAssetPath,options,error);
+    auto texture=UsdGenPtexTexture::Open(std::string(map->resolvedAssetPath),options,error);
     if (!texture) return false;
-    if (ctx.surface>=ctx.desc->surfaces.size() || geometry.rootPrim.size()!=geometry.totalCurves)
+    if (ctx.surface>=UsdGenSurfaceInputs(*ctx.desc).size() || geometry.rootPrim.size()!=geometry.totalCurves)
         return fail("requires a bound rest surface and a face binding for every strand");
-    auto const &surface=ctx.desc->surfaces[ctx.surface];
+    UsdGenSurfaceInputView const surface=UsdGenSurfaceAt(*ctx.desc,ctx.surface);
     if (surface.restFromCurrentPoints || surface.restPoints.empty())
         return fail("requires Default-time surface rest points");
     size_t const count=surface.faceVertexCounts.size();

@@ -89,12 +89,17 @@ std::shared_ptr<const usdGen::UsdGenGraphSpec> LowerShared(
 /// One input or node on its own, keyed by KeyOf (as a fresh map keys it):
 /// for tests and tools that drive an engine function with a single item.
 usdGen::UsdGenOpNode Lower(usdGen::UsdGenNodeDesc const &node);
-usdGen::UsdGenCurveSetInput Lower(usdGen::UsdGenCurveSetDesc const &curves);
-usdGen::UsdGenSurfaceInput Lower(usdGen::UsdGenSurfaceDesc const &surface);
-usdGen::UsdGenMapInput Lower(usdGen::UsdGenMapDesc const &map);
-usdGen::UsdGenGeometryInput Lower(usdGen::UsdGenGeometryDesc const &geometry);
-usdGen::UsdGenExpressionInput Lower(usdGen::UsdGenExpressionDesc const &expression);
+/// Each input becomes a record of its kind (read it through the kind's view).
+usdGen::UsdGenInputRecord Lower(usdGen::UsdGenCurveSetDesc const &curves);
+usdGen::UsdGenInputRecord Lower(usdGen::UsdGenSurfaceDesc const &surface);
+usdGen::UsdGenInputRecord Lower(usdGen::UsdGenMapDesc const &map);
+usdGen::UsdGenInputRecord Lower(usdGen::UsdGenGeometryDesc const &geometry);
+usdGen::UsdGenInputRecord Lower(usdGen::UsdGenExpressionDesc const &expression);
 usdGen::UsdGenParamBinding Lower(usdGen::UsdGenExpressionBinding const &binding);
+/// Lower(item) read through its kind's view; the view keeps the record's
+/// columns alive, so it outlives the temporary record.
+usdGen::UsdGenCurveSetInputView View(usdGen::UsdGenCurveSetDesc const &curves);
+usdGen::UsdGenSurfaceInputView View(usdGen::UsdGenSurfaceDesc const &surface);
 
 /// The address of a temporary, valid to the end of the full expression: a
 /// lowered host item passed where an engine call takes a pointer.

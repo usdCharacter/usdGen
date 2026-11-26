@@ -81,6 +81,7 @@ void NodeKeyMap::Clear() noexcept
 {
     _byPath.clear();
     _byKey.clear();
+    _columns.Clear();
 }
 
 }  // namespace usdGenUsd

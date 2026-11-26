@@ -324,9 +324,10 @@ void TestResolveDescIds()
     Check(spec.nodes[0].opId == ops.Find(TfToken("UsdGenLength")) &&
               spec.nodes[0].opId != UsdGenOpId::Invalid, "node opId");
     Check(spec.nodes[1].opId == UsdGenOpId::Invalid, "unknown node opId");
-    Check(spec.maps[0].typeId == UsdGenTypeRegistry::Get().Find(TfToken("UsdGenPaintMap")) &&
-              spec.maps[0].typeId != UsdGenTypeId::Invalid, "map typeId");
-    Check(spec.maps[1].typeId == UsdGenTypeId::Invalid, "unknown map typeId");
+    UsdGenMapInputView const map0 = UsdGenMapInputs(spec)[0], map1 = UsdGenMapInputs(spec)[1];
+    Check(map0.typeId == UsdGenTypeRegistry::Get().Find(TfToken("UsdGenPaintMap")) &&
+              map0.typeId != UsdGenTypeId::Invalid, "map typeId");
+    Check(map1.typeId == UsdGenTypeId::Invalid, "unknown map typeId");
 }
 
 UsdGenExpressionBinding Binding(char const *destination, char const *native,

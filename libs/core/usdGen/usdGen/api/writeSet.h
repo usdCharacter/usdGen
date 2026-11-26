@@ -47,6 +47,9 @@ public:
     /// Before Plan.
     USDGEN_CORE_API void Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGenSlot fromSlot);
     USDGEN_CORE_API void Drop(UsdGenSlot slot);
+    /// Before Plan/Share: a free-length column (input records) holds 'values'
+    /// values instead of count[level] * arity.
+    USDGEN_CORE_API void SetValueCount(UsdGenSlot slot, uint32_t values) noexcept;
     /// Overrides the versions Seal stamps (0 keeps the automatic one).
     USDGEN_CORE_API void SetVersions(uint64_t topologyVersion, uint64_t valueVersion) noexcept;
     /// The versions Seal stamps, zero included.

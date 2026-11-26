@@ -23,6 +23,8 @@
 //     so a painted mask never renumbers strands (strandIndex keeps the
 //     generation index).
 #include "usdGen/ops/scatterModes.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/maps/mapInput.h"
 
 #include "usdGen/limitSurface.h"
 #include "usdGen/ops/scatter.h"
@@ -142,11 +144,11 @@ struct Surface
     bool HasUv() const { return !cornerUv.empty(); }
     GfVec3f const &P(size_t t, int k) const { return points[size_t(tris[t].v[k])]; }
 
-    void Build(UsdGenSurfaceInput const &s)
+    void Build(UsdGenSurfaceInputView const &s)
     {
-        points = s.restPoints;
-        VtIntArray const &counts = s.faceVertexCounts;
-        VtIntArray const &indices = s.faceVertexIndices;
+        points.assign(s.restPoints.begin(), s.restPoints.end());
+        UsdGenSpan<const int> const counts = s.faceVertexCounts;
+        UsdGenSpan<const int> const indices = s.faceVertexIndices;
         bool const restricted = UsdGenSurfaceRestricted(s);
         std::vector<strand::FanTriangle> all;
         strand::FanTriangulate(counts, indices, &all, restricted ? &s.subsetFaces : nullptr);
@@ -198,7 +200,7 @@ struct Surface
 
         // Normals: the authored rest normals (vertex or faceVarying), else
         // area-weighted vertex normals.
-        VtVec3fArray const &rn = s.restNormals;
+        UsdGenSpan<const GfVec3f> const rn = s.restNormals;
         bool const nVertex = s.restNormalDomain == UsdGenSurfaceNormalDomain::Vertex &&
                              rn.size() == np;
         bool const nFaceVarying = s.restNormalDomain == UsdGenSurfaceNormalDomain::FaceVarying &&
@@ -233,7 +235,7 @@ struct Surface
         // UVs: vertex-interpolated (the imported layout) or faceVarying.
         cornerUv.clear();
         vertexUv.clear();
-        VtVec2fArray const &uv = s.uv;
+        UsdGenSpan<const GfVec2f> const uv = s.uv;
         bool const uvVertex = !uv.empty() && uv.size() == np;
         bool const uvFaceVarying = !uv.empty() && !uvVertex && uv.size() == indices.size();
         if (uvVertex || uvFaceVarying) {
@@ -978,7 +980,7 @@ void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
 }
 
 bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
-                  UsdGenSurfaceInput const &surface, UsdGenCurveBuffer *buf,
+                  UsdGenSurfaceInputView const &surface, UsdGenCurveBuffer *buf,
                   UsdGenDiagnostics *diag, ModeStats *stats)
 {
     ModeStats local;
@@ -1067,7 +1069,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
     st.placed = uint32_t(roots.size());
 
     // Density-map thinning (emit filter): never renumbers strands.
-    std::vector<UsdGenMapInput const *> const maps = strand::BoundMaps(
+    std::vector<UsdGenMapInputView> const maps = strand::BoundMaps(
         ctx.desc, ctx.mapBindings, ctx.mapBindingCount, config.names.densityMap);
     std::vector<uint32_t> survivors;
     survivors.reserve(roots.size());
@@ -1076,8 +1078,8 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
         Root const &r = roots[i];
         if (!maps.empty()) {
             float m = 1.0f;
-            for (UsdGenMapInput const *map : maps)
-                m *= s.bvhBuilt ? strand::SampleMaskMap(*map, s.bvh, r.tri, r.sampleBary, 1.0f)
+            for (UsdGenMapInputView const &map : maps)
+                m *= s.bvhBuilt ? strand::SampleMaskMap(map, s.bvh, r.tri, r.sampleBary, 1.0f)
                                 : 1.0f;
             bool const keep = m > 0.0f &&
                 (m >= 0.999f || RootHash01(i, r.hashTri, r.vertex, r.pos, r.hashBary) <= m);
@@ -1181,7 +1183,7 @@ struct RandomPathFilter::Impl
 {
     Surface surface;
     Proximity prox;
-    std::vector<UsdGenMapInput const *> maps;
+    std::vector<UsdGenMapInputView> maps;
     bool active = false;
 };
 
@@ -1189,7 +1191,7 @@ RandomPathFilter::RandomPathFilter() : _impl(new Impl) {}
 RandomPathFilter::~RandomPathFilter() = default;
 
 bool RandomPathFilter::Init(UsdGenCaptureContext const &ctx, ModeConfig const &config,
-                            UsdGenSurfaceInput const &surface, UsdGenDiagnostics *diag)
+                            UsdGenSurfaceInputView const &surface, UsdGenDiagnostics *diag)
 {
     Impl &im = *_impl;
     im = Impl();
@@ -1223,8 +1225,8 @@ bool RandomPathFilter::Keep(GfVec3f const &pos, uint64_t curveId) const
     strand::ClosestHit const hit = im.surface.bvh.Closest(pos);
     if (!hit.hit) return true;
     float m = 1.0f;
-    for (UsdGenMapInput const *map : im.maps)
-        m *= strand::SampleMaskMap(*map, im.surface.bvh, hit.triangle, hit.bary, 1.0f);
+    for (UsdGenMapInputView const &map : im.maps)
+        m *= strand::SampleMaskMap(map, im.surface.bvh, hit.triangle, hit.bary, 1.0f);
     return m > 0.0f && (m >= 0.999f || UsdGenHash01(curveId, kSaltScatterThin) <= m);
 }
 

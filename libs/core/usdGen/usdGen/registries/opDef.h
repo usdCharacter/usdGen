@@ -21,7 +21,7 @@ struct UsdGenParamView;
 struct UsdGenGraphSpec;
 struct UsdGenOpNode;
 struct UsdGenRbfAnimationBinding;
-struct UsdGenSurfaceInput;
+struct UsdGenInputRecord;
 
 /// Dirty class of one parameter (02 §6). Structural == Merkle digest term.
 enum class UsdGenParamClass : uint8_t { Structural, Topology, Capture, Value };
@@ -75,7 +75,7 @@ struct UsdGenIndexedPlaneRequest {
 struct UsdGenAnimationBindingQuery {
     UsdGenOpNode const *terminalDesc = nullptr;
     UsdGenParamView const *terminalParams = nullptr;
-    UsdGenSurfaceInput const *surface = nullptr;   // null: terminal binds no surface
+    UsdGenInputRecord const *surface = nullptr;    // null: terminal binds no surface
     uint32_t terminalInputCount = 0;
     bool terminalHasOutputPlanes = false;
     bool graphStatic = false;            // no ReadsTime op, no expression binding, no animated param

@@ -24,6 +24,8 @@ public:
     constexpr T &operator[](size_t i) const noexcept { return _data[i]; }
     constexpr T *begin() const noexcept { return _data; }
     constexpr T *end() const noexcept { return _data + _size; }
+    constexpr T const *cbegin() const noexcept { return _data; }
+    constexpr T const *cend() const noexcept { return _data + _size; }
     constexpr T &front() const noexcept { return _data[0]; }
     constexpr T &back() const noexcept { return _data[_size - 1]; }
 

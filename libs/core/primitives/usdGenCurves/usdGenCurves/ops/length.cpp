@@ -20,6 +20,8 @@
 // usdGen:mask envelope and writes the `restLength` plane. Its capture
 // tracks upstream VALUES (positions), unlike the factor modes.
 #include "usdGen/ops/length.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -259,10 +261,10 @@ UsdGenEpoch UsdGenLengthOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     }
     // A bound length map is sampled on the surface: its geometry is a
     // capture input (the map identity itself is mixed by the scheduler).
-    if (ctx.desc && ctx.surface < ctx.desc->surfaces.size() &&
+    if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size() &&
         !strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount,
                           Record().Token(kTokLengthMap)).empty())
-        feed("surface", ctx.desc->surfaces[ctx.surface].surfaceGeneration);
+        feed("surface", UsdGenSurfaceAt(*ctx.desc, ctx.surface).surfaceGeneration);
     feed("upstream", ctx.upstreamGeneration);
     return {h, h ^ 0x9E3779B97F4A7C15ull};
 }
@@ -323,14 +325,14 @@ bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &c
 
     // usdGen:lengthMap: the product of every bound mask, sampled at the root
     // (closest point on the rest surface to the strand's rest root).
-    std::vector<UsdGenMapInput const *> const maps =
+    std::vector<UsdGenMapInputView> const maps =
         strand::BoundMaps(ctx.desc, ctx.mapBindings, ctx.mapBindingCount,
                           rec.Token(kTokLengthMap));
     if (!maps.empty()) {
         strands.mask.assign(R, 1.0f);
         strand::TriangleBvh bvh;
-        if (ctx.desc && ctx.surface < ctx.desc->surfaces.size())
-            strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], true, &bvh);
+        if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size())
+            strand::BuildSurfaceBvh(UsdGenSurfaceAt(*ctx.desc, ctx.surface), true, &bvh);
         if (bvh.Empty()) {
             if (diag) diag->Warn("UsdGenLength: usdGen:lengthMap needs a bound surface; "
                                  "the length mask is ignored");
@@ -340,8 +342,8 @@ bool CaptureRandomRange(UsdGenOpRecord const &rec, UsdGenCaptureContext const &c
                 strand::ClosestHit const hit = bvh.Closest(opUtil::RestPoint(upstream, spans[c]));
                 if (!hit.hit) continue;
                 float m = 1.0f;
-                for (UsdGenMapInput const *map : maps)
-                    m *= strand::SampleMaskMap(*map, bvh, hit.triangle, hit.bary, 1.0f);
+                for (UsdGenMapInputView const &map : maps)
+                    m *= strand::SampleMaskMap(map, bvh, hit.triangle, hit.bary, 1.0f);
                 strands.mask[c] = strand::Clamp01(m);
             }
         }

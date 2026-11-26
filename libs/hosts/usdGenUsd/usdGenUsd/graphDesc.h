@@ -8,6 +8,10 @@
 #define USDGENUSD_GRAPH_DESC_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenExpr/exprInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "pxr/pxr.h"
 #include "pxr/usd/sdf/path.h"

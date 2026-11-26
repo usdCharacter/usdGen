@@ -1,4 +1,7 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenSurface/maps/mapInput.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/epoch.h"
 #include "usdGen/sharedCell.h"
@@ -157,9 +160,10 @@ bool ValidateCudaClumpMotionInputs(UsdGenGraphSpec const& desc,
                                predecessor->inputs.end());
                 continue;
             }
-            for (auto const& curves : desc.curveSets) {
+            for (UsdGenInputRecord const& record : UsdGenCurveSetInputs(desc)) {
                 if (std::find(predecessor->curves.begin(), predecessor->curves.end(),
-                              curves.key) == predecessor->curves.end()) continue;
+                              record.key) == predecessor->curves.end()) continue;
+                UsdGenCurveSetInputView const curves = UsdGenCurveSetInputView::Of(record);
                 for (auto const& plane : curves.authoredPlanes)
                     if (plane.name.GetString().rfind("clumpWeight_", 0) == 0)
                         return Fail(diagnostics,
@@ -508,9 +512,10 @@ bool ValidateCudaResolvedInputs(UsdGenGraphSpec const& desc,
         if (CudaIs(node, UsdGenCudaStage::ReferenceSource) &&
             references == 1 && maps == 0 && node.curves.empty() &&
             node.surfaces.empty() && node.inputs.empty()) {
-            auto const found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-                [&](auto const& curves) { return curves.key == node.references.front(); });
-            if (found != desc.curveSets.end() && found->role == UsdGenLane::Reference) {
+            UsdGenInputRecord const* foundRecord = UsdGenFindCurveSetInput(desc, node.references.front());
+            UsdGenCurveSetInputView const foundView = foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
+            UsdGenCurveSetInputView const* found = foundRecord ? &foundView : nullptr;
+            if (found && found->role == UsdGenLane::Reference) {
                 if (found->authoredPlanes.empty() && found->rootFrame.empty())
                     continue;
                 if (!found->authoredPlanes.empty())
@@ -1305,7 +1310,7 @@ struct ExecutionState {
     bool PrepareScatterGrowFrames(UsdGenCudaExecutionPlan const&,
                                   UsdGenCudaExecutionWorkspace&, cudaStream_t,
                                   UsdGenDiagnostics*);
-    bool UploadAuthoredPlanes(UsdGenCurveSetInput const&, CudaSourcePrepared const&,
+    bool UploadAuthoredPlanes(UsdGenCurveSetInputView const&, CudaSourcePrepared const&,
                               CudaSourcePreparationOptions const&,
                               cudaStream_t,
                               UsdGenDiagnostics*);
@@ -1482,8 +1487,9 @@ bool ExecutionState::PrepareScatterGrowWorkspace(UsdGenCudaExecutionPlan const& 
 bool ValidateCudaNamedPlaneBindings(UsdGenGraphSpec const& desc,
                                     UsdGenDiagnostics* diagnostics) {
     bool hasAuthoredPlanes = false;
-    for (auto const& curves : desc.curveSets)
-        hasAuthoredPlanes = hasAuthoredPlanes || !curves.authoredPlanes.empty();
+    for (UsdGenInputRecord const& curves : UsdGenCurveSetInputs(desc))
+        hasAuthoredPlanes = hasAuthoredPlanes ||
+            !UsdGenCurveSetInputView::Of(curves).authoredPlanes.empty();
     UsdGenOpRegistry const& ops = UsdGenOpRegistry::Get();
     for (auto const& node : desc.nodes) {
         UsdGenOpId const id = node.opId != UsdGenOpId::Invalid ? node.opId : ops.Find(node.type);
@@ -1912,7 +1918,7 @@ bool EstimateGeometryBytes(uint64_t points, uint64_t curves, bool roots,
         ((*result = total), true);
 }
 bool SourceMayProduceRootBindings(UsdGenOpNode const& node,
-                                  UsdGenCurveSetInput const& source) {
+                                  UsdGenCurveSetInputView const& source) {
     // Root capture can repair absent/partial bindings from the resolved
     // surface. Authoring alone is therefore not an output-shape proof.
     // Reserve the full input cardinality even when rebind=never may drop
@@ -1977,9 +1983,10 @@ LiteralRbfAdmission ReserveLiteralRbfExecution(
         HasExpressionBinding(plan.desc.nodes[step.semanticNode], "rbfSamples") ||
         sourceNode.curves.empty())
         return LiteralRbfAdmission::NotEligible;
-    auto source = std::find_if(plan.desc.curveSets.begin(), plan.desc.curveSets.end(),
-        [&](auto const& curves) { return curves.key == sourceNode.curves.front(); });
-    if (source == plan.desc.curveSets.end()) return LiteralRbfAdmission::NotEligible;
+    UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(plan.desc, sourceNode.curves.front());
+    UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
+    UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
+    if (!source) return LiteralRbfAdmission::NotEligible;
     // The formula below is for the literal cold Source->Deform producer; a
     // resampled input has an additional retained geometry owner.
     if (SourceValues(plan).GetInt(SourceSlot(plan, cudaP::kSrcResampleTo), 0) != 0)
@@ -2114,9 +2121,10 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
         return LiteralLengthAdmission::NotEligible;
     UsdGenNodeKey const sourcePath = referenceSource
         ? sourceNode.references.front() : sourceNode.curves.front();
-    auto source = std::find_if(plan.desc.curveSets.begin(), plan.desc.curveSets.end(),
-        [&](auto const& curves) { return curves.key == sourcePath; });
-    if (source == plan.desc.curveSets.end())
+    UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(plan.desc, sourcePath);
+    UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
+    UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
+    if (!source)
         return LiteralLengthAdmission::NotEligible;
     int const resample = SourceValues(plan).GetInt(SourceSlot(plan, cudaP::kSrcResampleTo), 0);
     if (resample < 0 || resample == 1)
@@ -2141,7 +2149,7 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
         }
     }
     uint64_t inputNamedBytes = 0, authoredNamedBytes = 0;
-    for (UsdGenAuthoredPlaneDesc const& plane : source->authoredPlanes) {
+    for (UsdGenAuthoredPlaneView const& plane : source->authoredPlanes) {
         uint64_t elements = plane.domain == UsdGenAuthoredPlaneDomain::Point
             ? inputPoints : plane.domain == UsdGenAuthoredPlaneDomain::Primitive
             ? curves : 1;
@@ -2920,9 +2928,10 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
             !node.mapBindings.empty() || !node.inputs.empty())
             return Fail(diagnostics,
                 "UsdGenReferenceSource requires exactly one reference and no geometry/map inputs");
-        auto const reference = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-            [&](auto const& curves) { return curves.key == node.references.front(); });
-        if (reference == desc.curveSets.end() || reference->role != UsdGenLane::Reference)
+        UsdGenInputRecord const* referenceRecord = UsdGenFindCurveSetInput(desc, node.references.front());
+        UsdGenCurveSetInputView const referenceView = referenceRecord ? UsdGenCurveSetInputView::Of(*referenceRecord) : UsdGenCurveSetInputView{};
+        UsdGenCurveSetInputView const* reference = referenceRecord ? &referenceView : nullptr;
+        if (!reference || reference->role != UsdGenLane::Reference)
             return Fail(diagnostics, "UsdGenReferenceSource requires a resolved reference curve set");
         if (!reference->authoredPlanes.empty())
             return Fail(diagnostics,
@@ -2971,9 +2980,10 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
     if (sawDeform && !connectedUseRest && !params.GetBool(sourceParams.Slot(cudaP::kSrcUseRest), true))
         return Fail(diagnostics, "already-deformed CurveSource cannot feed rest-to-animated RBF Deform");
     if (sawDeform) {
-        auto source = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-            [&](auto const& curves) { return curves.key == node.curves.front(); });
-        if (desc.xformMatrix != GfMatrix4d(1.0) || source == desc.curveSets.end() ||
+        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
+        UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
+        if (desc.xformMatrix != GfMatrix4d(1.0) || !source ||
             source->worldMatrix != GfMatrix4d(1.0))
             return Fail(diagnostics, "RBF currently requires identity Description and CurveSource transforms");
     }
@@ -3002,21 +3012,24 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
     if (surfaceCage) {
         if (params.GetInt(sourceParams.Slot(cudaP::kSrcRegionMapChannel), 0) != 0)
             return Fail(diagnostics, "surfaceCage CurveSource requires categorical regionMapChannel zero");
-        auto const source = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-            [&](auto const& curves) { return curves.key == node.curves.front(); });
-        auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
-            [&](auto const& value) { return value.key == node.maps.front(); });
-        if (source == desc.curveSets.end() || !source->surfaceCage ||
-            map == desc.maps.end() ||
+        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
+        UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
+        UsdGenInputRecord const* mapRecord = UsdGenFindMapInput(desc, node.maps.front());
+        UsdGenMapInputView const mapView = mapRecord ? UsdGenMapInputView::Of(*mapRecord) : UsdGenMapInputView{};
+        UsdGenMapInputView const* map = mapRecord ? &mapView : nullptr;
+        if (!source || !source->surfaceCage ||
+            !map ||
             !UsdGenTypeRegistry::Get().Has(UsdGenTypeRegistry::Get().Find(map->type),
                                            kUsdGenTypeMapPtex) ||
             map->resolvedAssetPath.empty())
             return Fail(diagnostics, "surfaceCage CurveSource requires a captured cage and resolved UsdGenPtexMap");
     }
     if (NoiseNeedsAuthoredSourceRest(desc, layout.source, layout.operators, layout.input)) {
-        auto const source = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-            [&](auto const& curves) { return curves.key == node.curves.front(); });
-        if (source == desc.curveSets.end())
+        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
+        UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
+        if (!source)
             return Fail(diagnostics, "CUDA Noise requires a resolved C3 source");
         // Noise always samples rest geometry, independently of a literal or
         // connected source useRest control. This invariant can be established
@@ -3033,13 +3046,14 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
             for (auto const& point : source->rest)
                 if (!std::isfinite(point[0]) || !std::isfinite(point[1]) || !std::isfinite(point[2]))
                     return Fail(diagnostics, "CUDA Noise source rest snapshot contains non-finite points");
-            UsdGenSurfaceInput const* surface = nullptr;
+            UsdGenSurfaceInputView surfaceView;
+            UsdGenSurfaceInputView const* surface = nullptr;
             if (!node.surfaces.empty()) {
-                auto const found = std::find_if(desc.surfaces.begin(),desc.surfaces.end(),
-                    [&](auto const& value) { return value.key == node.surfaces.front(); });
-                if (found == desc.surfaces.end())
+                UsdGenInputRecord const* foundRecord = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+                if (!foundRecord)
                     return Fail(diagnostics, "CUDA Noise root binding surface is unresolved");
-                surface = &*found;
+                surfaceView = UsdGenSurfaceInputView::Of(*foundRecord);
+                surface = &surfaceView;
             }
             UsdGenCurveRootCaptureResult roots;
             std::string error;
@@ -3150,9 +3164,10 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             BuildCudaStepProfile(params, *step, &step->profile);
             if (step->stage == UsdGenCudaStage::Deform) {
                 auto const& node = desc.nodes[nodeIndex];
-                auto surface = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-                    [&](auto const& value) { return value.key == node.surfaces.front(); });
-                if (surface == desc.surfaces.end()) {
+                UsdGenInputRecord const* surfaceRecord = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+                UsdGenSurfaceInputView const surfaceView = surfaceRecord ? UsdGenSurfaceInputView::Of(*surfaceRecord) : UsdGenSurfaceInputView{};
+                UsdGenSurfaceInputView const* surface = surfaceRecord ? &surfaceView : nullptr;
+                if (!surface) {
                     Fail(diagnostics, "Scatter->Grow Deform surface is unavailable"); return {};
                 }
                 if (PrepareCudaSurface(*surface,
@@ -3442,9 +3457,10 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         }
         BuildCudaStepProfile(params, *width, &width->profile);
         if (width->stage == UsdGenCudaStage::Deform) {
-            auto found = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-                [&](auto const& surface) { return surface.key == desc.nodes[nodeIndex].surfaces.front(); });
-            if (found == desc.surfaces.end()) { Fail(diagnostics, "missing RBF surface"); return {}; }
+            UsdGenInputRecord const* foundRecord = UsdGenFindSurfaceInput(desc, desc.nodes[nodeIndex].surfaces.front());
+            UsdGenSurfaceInputView const foundView = foundRecord ? UsdGenSurfaceInputView::Of(*foundRecord) : UsdGenSurfaceInputView{};
+            UsdGenSurfaceInputView const* found = foundRecord ? &foundView : nullptr;
+            if (!found) { Fail(diagnostics, "missing RBF surface"); return {}; }
             if (PrepareCudaSurface(*found, params.GetInt(StepSlot(*width, cudaP::kDeformRbfSamples), 100),
                     &width->surface, &errors) != CudaSurfacePreparationStatus::Ok) {
                 for (auto const& error : errors) Fail(diagnostics, error);
@@ -3467,9 +3483,10 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     UsdGenNodeKey const sourcePath = CudaIs(sourceNodeDesc, UsdGenCudaStage::ReferenceSource)
         ? sourceNodeDesc.references.front()
         : sourceNodeDesc.curves.front();
-    auto sourceIt = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-        [&](auto const& curves) { return curves.key == sourcePath; });
-    if (sourceIt == desc.curveSets.end()) {
+    UsdGenInputRecord const* sourceItRecord = UsdGenFindCurveSetInput(desc, sourcePath);
+    UsdGenCurveSetInputView const sourceItView = sourceItRecord ? UsdGenCurveSetInputView::Of(*sourceItRecord) : UsdGenCurveSetInputView{};
+    UsdGenCurveSetInputView const* sourceIt = sourceItRecord ? &sourceItView : nullptr;
+    if (!sourceIt) {
         Fail(diagnostics, "CUDA memory estimate requires the source curve set");
         return {};
     }
@@ -3518,7 +3535,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             return {};
         }
     } else {
-        for (UsdGenAuthoredPlaneDesc const& plane : sourceIt->authoredPlanes) {
+        for (UsdGenAuthoredPlaneView const& plane : sourceIt->authoredPlanes) {
             uint64_t planeValues = plane.type == UsdGenAuthoredPlaneType::Float32
                 ? static_cast<uint64_t>(plane.floatValues.size())
                 : static_cast<uint64_t>(plane.intValues.size());
@@ -3571,7 +3588,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
                     "CUDA surfaceCage resampled named-channel estimate overflow");
                 return {};
             }
-        } else for (UsdGenAuthoredPlaneDesc const& plane : sourceIt->authoredPlanes) {
+        } else for (UsdGenAuthoredPlaneView const& plane : sourceIt->authoredPlanes) {
             uint64_t elements = plane.domain == UsdGenAuthoredPlaneDomain::Point
                 ? finalPoints
                 : plane.domain == UsdGenAuthoredPlaneDomain::Primitive
@@ -8151,7 +8168,7 @@ void failNextCudaSourceRelayNamedNativeCallbackForTesting() {
 
 #ifdef USDGEN_ENABLE_CUDA
 bool ExecutionState::UploadAuthoredPlanes(
-    UsdGenCurveSetInput const& curves, CudaSourcePrepared const& preparedSource,
+    UsdGenCurveSetInputView const& curves, CudaSourcePrepared const& preparedSource,
     CudaSourcePreparationOptions const& options,
     cudaStream_t stream,
     UsdGenDiagnostics* diagnostics)
@@ -8173,7 +8190,7 @@ bool ExecutionState::UploadAuthoredPlanes(
         for (size_t curve = 0; curve != curves.curveVertexCounts.size(); ++curve)
             sourceOffsets[curve + 1] = sourceOffsets[curve] +
                 static_cast<size_t>(curves.curveVertexCounts[curve]);
-        for (UsdGenAuthoredPlaneDesc const& authored : curves.authoredPlanes) {
+        for (UsdGenAuthoredPlaneView const& authored : curves.authoredPlanes) {
             uint64_t elements = authored.domain == UsdGenAuthoredPlaneDomain::Point
                 ? static_cast<uint64_t>(preparedSource.points.size())
                 : authored.domain == UsdGenAuthoredPlaneDomain::Primitive
@@ -8466,16 +8483,18 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     bool const referenceSource = CudaIs(node, UsdGenCudaStage::ReferenceSource);
     UsdGenNodeKey const sourcePath = referenceSource
         ? node.references.front() : node.curves.front();
-    auto found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-        [&](auto const& c) { return c.key == sourcePath; });
-    if (found == desc.curveSets.end()) {
+    UsdGenInputRecord const* foundRecord = UsdGenFindCurveSetInput(desc, sourcePath);
+    UsdGenCurveSetInputView const foundView = foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
+    UsdGenCurveSetInputView const* found = foundRecord ? &foundView : nullptr;
+    if (!found) {
         Fail(diagnostics, "missing C3 input " + desc.Label(sourcePath)); this->failed = true; return false;
     }
     // surfaceCage expands sparse rails on this CPU source-preparation
     // boundary. CUDA only uploads the resulting transient ordinary C3 data;
     // no worker consults a stage or a map relationship.
-    UsdGenCurveSetInput surfaceCageSource;
-    UsdGenCurveSetInput const* preparedInput = &*found;
+    UsdGenCurveSetData surfaceCageSource;
+    UsdGenCurveSetInputView surfaceCageView;
+    UsdGenCurveSetInputView const* preparedInput = found;
     UsdGenParamView const params = SourceValues(plan);
     if (node.enabled && TokenIs(params, SourceSlot(plan, cudaP::kSrcInterpolationMode), "none",
                                 "surfaceCage")) {
@@ -8493,13 +8512,14 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
             this->failed = true;
             return false;
         }
-        preparedInput = &surfaceCageSource;
+        surfaceCageView = UsdGenCurveSetInputView::Of(surfaceCageSource, found->key);
+        preparedInput = &surfaceCageView;
     }
     // 02 §6.3: a disabled generator publishes an EMPTY curve set. Substitute
     // an empty C3 input, keeping the authored topology metadata so the rest of
     // this preparation validates the same shape it always did; every step
     // downstream then runs over zero curves, as it does on the CPU lane.
-    UsdGenCurveSetInput emptySource;
+    UsdGenCurveSetInputView emptySource;
     if (!node.enabled) {
         emptySource.key = found->key;
         emptySource.role = found->role;
@@ -8509,6 +8529,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
         emptySource.wrap = found->wrap;
         emptySource.widthsInterpolation = found->widthsInterpolation;
         emptySource.worldMatrix = found->worldMatrix;
+        emptySource.frozenEpochHolder = found->frozenEpochHolder;
         emptySource.frozenEpoch = found->frozenEpoch;
         emptySource.curveGeneration = found->curveGeneration;
     }
@@ -8689,12 +8710,13 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     // override it; source preparation itself never host-resamples.
     TfToken const& rebind = params.GetToken(SourceSlot(plan, cudaP::kSrcRebind), kCudaRebindOnError);
     options.rebind = rebind.GetString();
-    const UsdGenSurfaceInput* surface = nullptr;
+    UsdGenSurfaceInputView surfaceView;
+    const UsdGenSurfaceInputView* surface = nullptr;
     if (!node.surfaces.empty()) {
-        auto s = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-            [&](auto const& value) { return value.key == node.surfaces.front(); });
-        if (s == desc.surfaces.end()) { Fail(diagnostics, "missing CurveSource binding surface"); this->failed = true; return false; }
-        surface = &*s;
+        UsdGenInputRecord const* sRecord = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+        if (!sRecord) { Fail(diagnostics, "missing CurveSource binding surface"); this->failed = true; return false; }
+        surfaceView = UsdGenSurfaceInputView::Of(*sRecord);
+        surface = &surfaceView;
     }
     UsdGenCurveRootCaptureResult capturedRoots;
     std::string rootError;

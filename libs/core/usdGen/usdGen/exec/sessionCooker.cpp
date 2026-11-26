@@ -14,6 +14,10 @@
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenExpr/exprInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 
@@ -34,6 +38,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -160,7 +165,7 @@ void _CacheMix(uint64_t *hash, uint64_t value)
     }
 }
 
-void _CacheMixText(uint64_t *hash, std::string const &text)
+void _CacheMixText(uint64_t *hash, std::string_view text)
 {
     _CacheMix(hash, static_cast<uint64_t>(text.size()));
     for (unsigned char byte : text) {
@@ -411,8 +416,10 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     std::memcpy(&cpsBits, &desc.timeCodesPerSecond, sizeof(cpsBits));
     _CacheMix(&h0, timeBits);
     _CacheMix(&h1, cpsBits);
-    _CacheMix(&h0, static_cast<uint64_t>(desc.expressions.size()));
-    for (UsdGenExpressionInput const &expression : desc.expressions) {
+    UsdGenSpan<const UsdGenInputRecord> const expressions = UsdGenExpressionInputs(desc);
+    _CacheMix(&h0, static_cast<uint64_t>(expressions.size()));
+    for (UsdGenInputRecord const &expressionRecord : expressions) {
+        UsdGenExpressionInputView const expression = UsdGenExpressionInputView::Of(expressionRecord);
         _CacheMix(&h0, expression.key.value);
         _CacheMixText(&h1, expression.source);
         _CacheMix(&h0, static_cast<uint64_t>(expression.outputs.size()));
@@ -431,8 +438,10 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     }
     // Geometry an expression samples is an execution input exactly like a
     // curve set: its content moves the key.
-    _CacheMix(&h1, static_cast<uint64_t>(desc.geometries.size()));
-    for (UsdGenGeometryInput const &geometry : desc.geometries) {
+    UsdGenSpan<const UsdGenInputRecord> const geometries = UsdGenGeometryInputs(desc);
+    _CacheMix(&h1, static_cast<uint64_t>(geometries.size()));
+    for (UsdGenInputRecord const &geometryRecord : geometries) {
+        UsdGenGeometryInputView const geometry = UsdGenGeometryInputView::Of(geometryRecord);
         _CacheMix(&h0, geometry.key.value);
         _CacheMix(&h1, static_cast<uint64_t>(geometry.kind));
         _CacheMixArray(&h0, geometry.counts, &terms);
@@ -458,7 +467,8 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMix(&h1, binding.literal.GetHash());
         }
     }
-    for (UsdGenMapInput const &map : desc.maps) {
+    for (UsdGenInputRecord const &mapRecord : UsdGenMapInputs(desc)) {
+        UsdGenMapInputView const map = UsdGenMapInputView::Of(mapRecord);
         _CacheMix(&h0, map.key.value);
         _CacheMixText(&h1, map.type.GetString());
         _CacheMixText(&h0, map.resolvedAssetPath);
@@ -477,7 +487,8 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMix(&h1, static_cast<uint64_t>(param.animated));
         }
     }
-    for (UsdGenCurveSetInput const &curve : desc.curveSets) {
+    for (UsdGenInputRecord const &curveRecord : UsdGenCurveSetInputs(desc)) {
+        UsdGenCurveSetInputView const curve = UsdGenCurveSetInputView::Of(curveRecord);
         _CacheMix(&h0, curve.key.value);
         _CacheMix(&h1, static_cast<uint64_t>(curve.role));
         _CacheMixText(&h0, curve.curveRole.GetString());
@@ -498,7 +509,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
         _CacheMixText(&h0, curve.frozenEpoch);
         _CacheMix(&h1, curve.curveGeneration);
         _CacheMix(&h1, static_cast<uint64_t>(curve.authoredPlanes.size()));
-        for (UsdGenAuthoredPlaneDesc const& plane : curve.authoredPlanes) {
+        for (UsdGenAuthoredPlaneView const& plane : curve.authoredPlanes) {
             _CacheMixText(&h0, plane.name.GetString());
             _CacheMix(&h1, static_cast<uint64_t>(plane.type));
             _CacheMix(&h0, static_cast<uint64_t>(plane.domain));
@@ -507,7 +518,8 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMixArray(&h1, plane.intValues, &terms);
         }
     }
-    for (UsdGenSurfaceInput const &surface : desc.surfaces) {
+    for (UsdGenInputRecord const &surfaceRecord : UsdGenSurfaceInputs(desc)) {
+        UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(surfaceRecord);
         // Tags-only subdivision cover: faceVertexCounts/faceVertexIndices
         // mix into this key directly below. Coverage is unchanged.
         _CacheMix(&h0, UsdGenSubdivisionTagsDigest(surface));
@@ -521,7 +533,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
         _CacheMixArray(&h1, surface.restNormals, &terms);
         _CacheMixArray(&h0, surface.points, &terms);
         _CacheMix(&h1, static_cast<uint64_t>(surface.samples.size()));
-        for (UsdGenSurfaceSample const& sample : surface.samples) {
+        for (UsdGenSurfaceSampleView const& sample : surface.samples) {
             uint64_t sampleTimeBits = 0;
             std::memcpy(&sampleTimeBits, &sample.time, sizeof(sampleTimeBits));
             _CacheMix(&h0, sampleTimeBits);
@@ -549,12 +561,14 @@ uint64_t _ExecutionLayoutDigest(UsdGenGraph const &graph,
     _CacheMix(&hash, static_cast<uint64_t>(graph.TileTarget()));
     _CacheMix(&hash, static_cast<uint64_t>(graph.ChunksPerTile()));
     _CacheMix(&hash, static_cast<uint64_t>(desc.tileTarget));
-    for (auto const &surface : desc.surfaces) {
+    for (UsdGenInputRecord const &record : UsdGenSurfaceInputs(desc)) {
+        UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(record);
         _CacheMix(&hash, surface.key.value);
         _CacheMix(&hash, surface.faceVertexCounts.size());
         _CacheMix(&hash, surface.restPoints.size());
     }
-    for (auto const &curve : desc.curveSets) {
+    for (UsdGenInputRecord const &record : UsdGenCurveSetInputs(desc)) {
+        UsdGenCurveSetInputView const curve = UsdGenCurveSetInputView::Of(record);
         _CacheMix(&hash, curve.key.value);
         _CacheMix(&hash, curve.curveVertexCounts.size());
         _CacheMix(&hash, curve.points.size());
@@ -709,9 +723,8 @@ UsdGenNodeKey _CudaSourceDependencySurface(UsdGenGraphSpec const &desc)
     if (desc.nodes.empty() || desc.nodes.front().surfaces.size() != 1)
         return UsdGenNodeKey();
     UsdGenNodeKey const candidate = desc.nodes.front().surfaces.front();
-    auto found = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceInput const &surface) { return surface.key == candidate; });
-    return found == desc.surfaces.end() ? UsdGenNodeKey() : found->key;
+    UsdGenInputRecord const *found = UsdGenFindSurfaceInput(desc, candidate);
+    return found ? found->key : UsdGenNodeKey();
 }
 
 UsdGenDevicePresentationMetadata _BuildDevicePresentation(
@@ -1120,7 +1133,8 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
             if (kv.first < static_cast<UsdGenNodeId>(_graph.NodeCount())) _graph.MarkNode(kv.first, kv.second);
         for (auto const& kv : pending.surfaceBits) _graph.DirtySurface(kv.first, kv.second);
         if (pending.surfaceTopology)
-            for (auto const& s : _desc.surfaces) _graph.DirtySurface(s.id, UsdGenDirtySurfaceTopo);
+            for (UsdGenInputRecord const& s : UsdGenSurfaceInputs(_desc))
+                _graph.DirtySurface(UsdGenSurfaceInputView::Of(s).id, UsdGenDirtySurfaceTopo);
     }
     if (invalidateValues) for (UsdGenNodeId id=0; id<static_cast<UsdGenNodeId>(_graph.NodeCount()); ++id) {
         auto& node=_graph.Node(id); node.paramValueDigest=~uint64_t(0); node.lastParamDigest=0;
@@ -2466,17 +2480,21 @@ UsdGenStats publishedStats, bool invalidateValues,
         // tiles were transformed into.
         // A GeomSubset surface carries its whole parent mesh, which occludes
         // whole and once, however many subsets of it the groom binds.
-        occlusion.occluders.reserve(_desc.surfaces.size());
+        UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(_desc);
+        occlusion.occluders.reserve(surfaceRecords.size());
         std::set<UsdGenNodeKey> occludingMeshes;
-        for (UsdGenSurfaceInput const &surface : _desc.surfaces) {
+        for (UsdGenInputRecord const &surfaceRecord : surfaceRecords) {
+            UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(surfaceRecord);
             if (surface.points.empty() || surface.faceVertexIndices.empty())
                 continue;
             if (!occludingMeshes.insert(UsdGenSurfaceMeshKey(surface)).second)
                 continue;
             UsdGenFurOccluder occluder;
-            occluder.points = surface.points;
-            occluder.faceVertexCounts = surface.faceVertexCounts;
-            occluder.faceVertexIndices = surface.faceVertexIndices;
+            occluder.points.assign(surface.points.begin(), surface.points.end());
+            occluder.faceVertexCounts.assign(surface.faceVertexCounts.begin(),
+                                             surface.faceVertexCounts.end());
+            occluder.faceVertexIndices.assign(surface.faceVertexIndices.begin(),
+                                              surface.faceVertexIndices.end());
             occluder.worldMatrix = surface.worldMatrix;
             occlusion.occluders.push_back(std::move(occluder));
         }
@@ -2887,8 +2905,11 @@ UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
 
     UsdGenNodeKey dependencySurface;
     if (hasDep) {
-        for (UsdGenSurfaceInput const &s : _desc.surfaces)
-            if (s.id == depSurface) { dependencySurface = s.key; break; }
+        for (UsdGenInputRecord const &record : UsdGenSurfaceInputs(_desc))
+            if (UsdGenSurfaceInputView::Of(record).id == depSurface) {
+                dependencySurface = record.key;
+                break;
+            }
     }
     _PresentationScalars const scalars = _BuildPresentationScalars(
         _desc, dependencySurface);
@@ -2921,7 +2942,8 @@ UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
     UsdGenAnimationBindingQuery query;
     query.terminalDesc = terminal.desc;
     query.terminalParams = &terminal.paramView;
-    query.surface = terminal.surface < _desc.surfaces.size() ? &_desc.surfaces[terminal.surface] : nullptr;
+    UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(_desc);
+    query.surface = terminal.surface < surfaceRecords.size() ? &surfaceRecords[terminal.surface] : nullptr;
     query.terminalInputCount = uint32_t(terminal.inputs.size());
     query.terminalHasOutputPlanes = !terminal.outputPrimvars.empty();
     query.graphStatic = true;

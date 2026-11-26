@@ -13,6 +13,8 @@
 #define USDGEN_OPS_STRAND_UTIL_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/maps/mapInput.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -225,8 +227,36 @@ struct FanTriangle
 /// Fan-triangulates every polygon in face order: polygon f with k corners
 /// gives triangles (c0, cj, cj+1), j = 1..k-2. When `faces` is non-null only
 /// those faces are emitted (sorted ascending, e.g. GeomSubset faces).
-void FanTriangulate(VtIntArray const &counts, VtIntArray const &indices,
-                    std::vector<FanTriangle> *out, VtIntArray const *faces = nullptr);
+/// Ints: VtIntArray or UsdGenSpan<const int>.
+template <class Ints>
+inline void FanTriangulate(Ints const &counts, Ints const &indices,
+                           std::vector<FanTriangle> *out, Ints const *faces = nullptr)
+{
+    out->clear();
+    std::vector<int> faceStart(counts.size() + 1, 0);
+    for (size_t f = 0; f < counts.size(); ++f)
+        faceStart[f + 1] = faceStart[f] + std::max(0, counts[f]);
+    auto emit = [&](int f) {
+        if (f < 0 || size_t(f) >= counts.size()) return;
+        int const k = counts[f];
+        int const c0 = faceStart[size_t(f)];
+        if (k < 3 || size_t(c0 + k) > indices.size()) return;
+        for (int j = 1; j + 1 < k; ++j) {
+            FanTriangle t;
+            t.face = f;
+            t.corner[0] = c0; t.corner[1] = c0 + j; t.corner[2] = c0 + j + 1;
+            t.v[0] = indices[size_t(t.corner[0])];
+            t.v[1] = indices[size_t(t.corner[1])];
+            t.v[2] = indices[size_t(t.corner[2])];
+            out->push_back(t);
+        }
+    };
+    if (faces) {
+        for (int f : *faces) emit(f);
+    } else {
+        for (size_t f = 0; f < counts.size(); ++f) emit(int(f));
+    }
+}
 
 struct ClosestHit
 {
@@ -282,7 +312,7 @@ private:
 /// faceVarying, else area-weighted vertex normals of the chosen points.
 /// Corner UVs come from `surface.uv` when it is vertex- (points) or
 /// faceVarying- (face-vertex) sized.
-void BuildSurfaceBvh(UsdGenSurfaceInput const &surface, bool rest, TriangleBvh *bvh);
+void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleBvh *bvh);
 
 /// Samples a mask map at a point on the surface the BVH was built from:
 ///   UsdGenPaintMap -> barycentric blend of its faceVarying `paintValues` at
@@ -292,16 +322,16 @@ void BuildSurfaceBvh(UsdGenSurfaceInput const &surface, bool rest, TriangleBvh *
 ///                     0.299 R + 0.587 G + 0.114 B for 3+ channels, else
 ///                     channel 0.
 /// Returns `fallback` when the map has no usable payload. Clamped to [0,1].
-float SampleMaskMap(UsdGenMapInput const &map, TriangleBvh const &bvh, int triangle,
+float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int triangle,
                     GfVec3f const &bary, float fallback = 1.0f);
 
 /// The map descriptors a node binds through `relationship` (e.g.
 /// "usdGen:densityMap"), resolved against the graph description, in
 /// authored order. Untyped legacy bindings (empty relationship) never match.
-std::vector<UsdGenMapInput const *> BoundMaps(UsdGenGraphSpec const *desc,
-                                             UsdGenMapBinding const *bindings,
-                                             uint32_t bindingCount,
-                                             TfToken const &relationship);
+std::vector<UsdGenMapInputView> BoundMaps(UsdGenGraphSpec const *desc,
+                                         UsdGenMapBinding const *bindings,
+                                         uint32_t bindingCount,
+                                         TfToken const &relationship);
 
 }  // namespace strand
 }  // namespace usdGen

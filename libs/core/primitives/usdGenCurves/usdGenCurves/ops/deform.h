@@ -2,6 +2,7 @@
 #define USDGEN_OP_DEFORM_H
 
 #include "usdGen/op.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/rbfField.h"
 
@@ -85,7 +86,8 @@ private:
    // hash only the posed drivers Capture will touch; the scheduler runs
    // digest and capture back to back on the commit thread, so the key
    // cannot change between the two. See MixChosenPosed.
-   mutable VtVec3fArray surfaceRestRef_;
+   mutable UsdGenSpan<const GfVec3f> surfaceRestRef_;
+   mutable UsdGenRef<const UsdGenElementSet> surfaceRestOwner_;   // holds surfaceRestRef_'s memory
    mutable std::vector<size_t> surfaceSelection_;
    mutable size_t surfaceBudget_ = 0;
    mutable bool surfaceValid_ = false;
@@ -93,7 +95,7 @@ private:
    // surface branch then hashes only the chosen posed drivers; the guide
    // branch still hashes every frame). Shared by the surface and guide
    // branches; a rewire misses once and rehashes.
-   mutable opUtil::ContentDigestCache<VtVec3fArray> restDigest_;
+   mutable opUtil::ContentDigestCache<GfVec3f> restDigest_;
    mutable opUtil::SetColumnDigestCache referenceRestDigest_;
 
    // Hashes the posed surface drivers Capture reads on a selection-cache
@@ -106,7 +108,7 @@ private:
    // degenerate (Capture fails there too; the full hash keeps the
    // failure cadence what it was).
    bool MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext const &ctx,
-                       UsdGenSurfaceInput const &surface) const;
+                       UsdGenSurfaceInputView const &surface) const;
    mutable uint64_t chosenDigestHits_ = 0;
 };
 

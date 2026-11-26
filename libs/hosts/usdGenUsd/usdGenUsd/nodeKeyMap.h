@@ -3,6 +3,7 @@
 // SdfPath <-> UsdGenNodeKey for one host graph builder (step 7.1). The only
 // place a node key meets a path.
 #pragma once
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/api/nodeKey.h"
 
 #include "pxr/usd/sdf/path.h"
@@ -44,11 +45,15 @@ public:
 
     size_t Size() const noexcept { return _byPath.size(); }
     void Clear() noexcept;
+    /// The input columns Lower packed with these keys (unchanged arrays are
+    /// shared, not copied, by the next Lower).
+    usdGen::UsdGenInputColumnCache &Columns() noexcept { return _columns; }
 
 private:
     HashFn _hash;
     std::map<PXR_NS::SdfPath, usdGen::UsdGenNodeKey> _byPath;  // sorted: a prefix's descendants are contiguous
     std::unordered_map<usdGen::UsdGenNodeKey, PXR_NS::SdfPath, usdGen::UsdGenNodeKeyHash> _byKey;
+    usdGen::UsdGenInputColumnCache _columns;
 };
 
 }  // namespace usdGenUsd

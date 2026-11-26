@@ -1465,10 +1465,13 @@ int main() {
     }
     CHECK(rootedMetadata->Tasks()[0].estimate.retainedOutputBytes -
               metadata->Tasks()[0].estimate.retainedOutputBytes == 48);
-    CHECK(rootedPlan->Descriptor()->curveSets[0].skinPrim == VtIntArray({0}));
+    CHECK(VtIntArray(UsdGenCurveSetInputView(UsdGenCurveSetInputs(*rootedPlan->Descriptor())[0]).skinPrim.begin(),
+                     UsdGenCurveSetInputView(UsdGenCurveSetInputs(*rootedPlan->Descriptor())[0]).skinPrim.end()) ==
+          VtIntArray({0}));
     rooted.curveSets[0].skinPrim[0] = 99;
     rooted.curveSets[0].rootFrame[0][0][0] = 2.0;
-    CHECK(rootedPlan->Source().skinPrim == VtIntArray({0}) &&
+    CHECK(VtIntArray(rootedPlan->Source().skinPrim.begin(), rootedPlan->Source().skinPrim.end()) ==
+              VtIntArray({0}) &&
           rootedPlan->Source().rootFrame[0] == GfMatrix4d(1.0));
 
     // Source and bound surface matrices describe relative coordinates, not
@@ -1487,13 +1490,13 @@ int main() {
         auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(affine)); CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Source().worldMatrix == matrix &&
-              plan->Descriptor()->surfaces[0].worldMatrix == matrix);
+              UsdGenSurfaceInputView(UsdGenSurfaceInputs(*plan->Descriptor())[0]).worldMatrix == matrix);
         CHECK(handle->Metadata()->Tasks()[0].estimate.retainedOutputBytes ==
               rootedMetadata->Tasks()[0].estimate.retainedOutputBytes);
         affine.curveSets[0].worldMatrix[3][0] += 10;
         affine.surfaces[0].worldMatrix[0][0] = 0;
         CHECK(plan->Source().worldMatrix == matrix &&
-              plan->Descriptor()->surfaces[0].worldMatrix == matrix);
+              UsdGenSurfaceInputView(UsdGenSurfaceInputs(*plan->Descriptor())[0]).worldMatrix == matrix);
     }
     for (int target = 0; target != 2; ++target) {
         for (int variant = 0; variant != 5; ++variant) {

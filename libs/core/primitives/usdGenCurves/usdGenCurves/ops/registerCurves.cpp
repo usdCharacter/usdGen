@@ -5,6 +5,10 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGen/cudaStages.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenExpr/exprInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/grow.h"
@@ -100,6 +104,12 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterTieClumpOp(r);
     UsdGenRegisterCardSourceOp(r);
     RegisterMapTypes(r);
+    // Input kinds after every older type, so their ids keep their values;
+    // a spec's inputs run in this (kind) order.
+    UsdGenRegisterCurveSetInputKind(r);
+    UsdGenRegisterSurfaceInputKind(r);
+    UsdGenRegisterMapInputKind(r);
+    UsdGenRegisterExprInputKinds(r);
     UsdGenCudaKernelOps cuda;
     cuda.scatter = k.scatter;
     cuda.grow = k.grow;

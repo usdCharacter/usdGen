@@ -43,6 +43,7 @@
 // (strandIndex, strandSeed, ...) are carried into the generated buffer.
 // Evaluate writes the captured strands, following their roots.
 #include "usdGen/ops/guideInterpolate.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -570,8 +571,8 @@ bool UsdGenGuideInterpolateOp::Capture(
     {
         strand::TriangleBvh bvh;
         bool const useSurface = parting.active && guides.rootN.size() != G && ctx.desc &&
-            p && p->node && !p->node->surfaces.empty() && ctx.surface < ctx.desc->surfaces.size();
-        if (useSurface) strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], true, &bvh);
+            p && p->node && !p->node->surfaces.empty() && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size();
+        if (useSurface) strand::BuildSurfaceBvh(UsdGenSurfaceAt(*ctx.desc, ctx.surface), true, &bvh);
         for (size_t g = 0; g < G; ++g) {
             if (guideSpans[g + 1] == guideSpans[g]) continue;
             size_t const first = guideSpans[g];

@@ -1,4 +1,7 @@
 #include "usdGen/cpuParameters.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenExpr/exprInput.h"
 
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
@@ -57,6 +60,14 @@ uint64_t MixText(uint64_t h, char const *text)
 {
     for (auto const *p = reinterpret_cast<unsigned char const *>(text); p && *p; ++p)
         h = Mix(h, *p);
+    return h;
+}
+uint64_t MixText(uint64_t h, std::string_view text)
+{
+    for (char c : text) {
+        if (!c) break;
+        h = Mix(h, static_cast<unsigned char>(c));
+    }
     return h;
 }
 uint64_t MixDouble(uint64_t h, double value)
@@ -225,7 +236,7 @@ double Decode(unsigned char const *bytes, Type type, size_t index)
     }
 }
 
-UsdGenExpressionSlot const *FindInput(UsdGenExpressionInput const &expression,
+UsdGenExpressionSlot const *FindInput(UsdGenExpressionInputView const &expression,
                                             std::string const &name)
 {
     for (auto const &input : expression.inputs)
@@ -233,28 +244,24 @@ UsdGenExpressionSlot const *FindInput(UsdGenExpressionInput const &expression,
     return nullptr;
 }
 
-UsdGenGeometryInput const *FindGeometry(UsdGenGraphSpec const &desc, UsdGenNodeKey path)
+UsdGenInputRecord const *FindGeometry(UsdGenGraphSpec const &desc, UsdGenNodeKey path)
 {
-    for (auto const &geometry : desc.geometries)
-        if (geometry.key == path) return &geometry;
-    return nullptr;
+    return UsdGenFindGeometryInput(desc, path);
 }
 
-UsdGenMapInput const *FindMap(UsdGenGraphSpec const &desc, UsdGenNodeKey path)
+UsdGenInputRecord const *FindMap(UsdGenGraphSpec const &desc, UsdGenNodeKey path)
 {
-    for (auto const &map : desc.maps)
-        if (map.key == path) return &map;
-    return nullptr;
+    return UsdGenFindMapInput(desc, path);
 }
 
-UsdGenParamValue const *FindMapParam(UsdGenMapInput const &map, char const *name)
+UsdGenParamValue const *FindMapParam(UsdGenMapInputView const &map, char const *name)
 {
     for (auto const &param : map.params)
         if (param.name == name) return &param;
     return nullptr;
 }
 
-bool MapToken(UsdGenMapInput const &map, char const *name, std::string *out)
+bool MapToken(UsdGenMapInputView const &map, char const *name, std::string *out)
 {
     UsdGenParamValue const *param = FindMapParam(map, name);
     if (!param) return false;
@@ -264,7 +271,7 @@ bool MapToken(UsdGenMapInput const &map, char const *name, std::string *out)
     return true;
 }
 
-double MapNumber(UsdGenMapInput const &map, char const *name, double fallback)
+double MapNumber(UsdGenMapInputView const &map, char const *name, double fallback)
 {
     UsdGenParamValue const *param = FindMapParam(map, name);
     if (!param) return fallback;
@@ -277,12 +284,12 @@ double MapNumber(UsdGenMapInput const &map, char const *name, double fallback)
 
 /// The space the groom is generated and published in: the description's.
 /// Sampled geometry is brought into it through its own world matrix.
-GfMatrix4d ToGroomSpace(UsdGenGraphSpec const &desc, UsdGenGeometryInput const &geometry)
+GfMatrix4d ToGroomSpace(UsdGenGraphSpec const &desc, UsdGenGeometryInputView const &geometry)
 {
     return geometry.worldMatrix * desc.xformMatrix.GetInverse();
 }
 
-void TransformPoints(VtVec3fArray const &in, GfMatrix4d const &m, std::vector<float> *out)
+void TransformPoints(UsdGenSpan<const GfVec3f> in, GfMatrix4d const &m, std::vector<float> *out)
 {
     out->resize(in.size() * 3);
     for (size_t i = 0; i < in.size(); ++i) {
@@ -294,7 +301,7 @@ void TransformPoints(VtVec3fArray const &in, GfMatrix4d const &m, std::vector<fl
 }
 
 expr::SamplerGeometrySource ToSamplerSource(UsdGenGraphSpec const &desc,
-                                           UsdGenGeometryInput const &geometry)
+                                           UsdGenGeometryInputView const &geometry)
 {
     expr::SamplerGeometrySource source;
     switch (geometry.kind) {
@@ -327,14 +334,14 @@ expr::SamplerGeometrySource ToSamplerSource(UsdGenGraphSpec const &desc,
 
 /// The surface a node's strands root on. A GeomSubset binding carries no
 /// topology of its own; its parent mesh does (R15).
-UsdGenSurfaceInput const *RootSurface(UsdGenGraphSpec const &desc, UsdGenOpNode const &node)
+UsdGenInputRecord const *RootSurface(UsdGenGraphSpec const &desc, UsdGenOpNode const &node)
 {
     if (node.surfaces.empty()) return nullptr;
     UsdGenNodeKey path = node.surfaces.front();
     for (int pass = 0; pass < 2; ++pass) {
-        for (auto const &surface : desc.surfaces) {
+        for (UsdGenInputRecord const &surface : UsdGenSurfaceInputs(desc)) {
             if (surface.key != path) continue;
-            if (!surface.faceVertexCounts.empty()) return &surface;
+            if (!UsdGenSurfaceInputView::Of(surface).faceVertexCounts.empty()) return &surface;
             path = surface.owner;
             break;
         }
@@ -404,7 +411,7 @@ bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphSpec const &desc, UsdGenOpNode con
     return record->Def().hooks.emitsLimitSurfaceUv(view);
 }
 
-bool UsdGenParseMapOptions(UsdGenMapInput const &map, UsdGenMapOptions *out, std::string *error)
+bool UsdGenParseMapOptions(UsdGenMapInputView const &map, UsdGenMapOptions *out, std::string *error)
 {
     if (!out) {
         if (error) *error = "map options output is null";
@@ -454,7 +461,7 @@ std::vector<std::string> UsdGenCpuParameters::TakeWarnings()
 }
 
 bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphSpec const &desc,
-                                          UsdGenExpressionInput const &expression,
+                                          UsdGenExpressionInputView const &expression,
                                           Item *item, std::vector<std::string> *diagnostics)
 {
     auto fail = [&](std::string const &message) {
@@ -492,7 +499,10 @@ bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphSpec const &desc,
         } else {
             if (input->maps.size() != 1)
                 return fail(call + ": input:" + spec.input + " must target exactly one UsdGenPtexMap or UsdGenPaintMap");
-            UsdGenMapInput const *map = FindMap(desc, input->maps.front());
+            UsdGenInputRecord const *mapRecord = FindMap(desc, input->maps.front());
+            UsdGenMapInputView const mapView =
+                mapRecord ? UsdGenMapInputView::Of(*mapRecord) : UsdGenMapInputView{};
+            UsdGenMapInputView const *map = mapRecord ? &mapView : nullptr;
             if (!map)
                 return fail(call + ": map " + desc.Label(input->maps.front()) + " was not resolved");
             if (!UsdGenMapHas(*map, kUsdGenTypeMapExprSampleable))
@@ -530,7 +540,7 @@ bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphSpec const &desc,
                             "\" cannot drive it, use r or luminance");
             std::string error;
             if (!state->paint)
-                state->texture = UsdGenPtexTexture::Open(map->resolvedAssetPath, options, &error);
+                state->texture = UsdGenPtexTexture::Open(std::string(map->resolvedAssetPath), options, &error);
             else if (map->paintValues.empty())
                 warnings_.push_back(call + ": " + desc.Label(map->key) +
                     " carries no paint payload (see the capture errors); using usdGen:map:default");
@@ -539,7 +549,7 @@ bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphSpec const &desc,
                 if ((state->channel < 0 && window < 3) || state->channel >= window)
                     return fail(call + ": usdGen:map:channel \"" + channel + "\" is outside the " +
                                 std::to_string(window) + "-channel window of " +
-                                map->resolvedAssetPath);
+                                std::string(map->resolvedAssetPath));
             } else if (!state->paint) {
                 // A map that cannot be read is not a broken groom: every strand
                 // reads usdGen:map:default, and the reason is reported (07 §5.1).
@@ -577,9 +587,9 @@ bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphSpec const &desc,
                 std::vector<expr::SamplerGeometrySource> sources;
                 sources.reserve(state.geometries.size());
                 for (UsdGenNodeKey const path : state.geometries) {
-                    UsdGenGeometryInput const *found = FindGeometry(desc, path);
+                    UsdGenInputRecord const *found = FindGeometry(desc, path);
                     if (!found) return fail(state, "geometry " + desc.Label(path) + " is gone");
-                    sources.push_back(ToSamplerSource(desc, *found));
+                    sources.push_back(ToSamplerSource(desc, UsdGenGeometryInputView::Of(*found)));
                 }
                 std::string error;
                 if (!state.geometry->Build(sources, state.spec, controls, &error))
@@ -603,13 +613,15 @@ bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphSpec const &desc,
         // texture) always reaches its branch below.
         if (!state.paint && !state.texture) continue;
         std::string const call = "ptex(\"" + state.spec.input + "\")";
-        UsdGenSurfaceInput const *surface = RootSurface(desc, node);
-        if (!surface)
+        UsdGenInputRecord const *surfaceRecord = RootSurface(desc, node);
+        if (!surfaceRecord)
             return fail(state, call + " needs strands rooted on a usdGen:surface mesh");
+        UsdGenSurfaceInputView const surfaceView = UsdGenSurfaceInputView::Of(*surfaceRecord);
+        UsdGenSurfaceInputView const *surface = &surfaceView;
         if (geometry.rootPrim.size() != curves)
             return fail(state, call + " needs root face ids, and this input carries none");
-        VtVec3fArray const &corners = surface->restPoints.empty() ? surface->points
-                                                                  : surface->restPoints;
+        UsdGenSpan<const GfVec3f> const corners = surface->restPoints.empty() ? surface->points
+                                                                              : surface->restPoints;
         size_t const faceCount = surface->faceVertexCounts.size();
         bool const limitUV=HasLimitScatter(desc,node) && geometry.rootUV.size()==curves;
         std::vector<int> faceOffsets(faceCount + 1, 0);
@@ -626,7 +638,10 @@ bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphSpec const &desc,
             // surface keeps its parent's ids, R15). Non-quad faces, degenerate
             // quads and unreadable corners fall back to the face mean, so a
             // paint read never fails a cook on sampling alone.
-            UsdGenMapInput const *map = FindMap(desc, state.map);
+            UsdGenInputRecord const *mapRecord = FindMap(desc, state.map);
+            UsdGenMapInputView const mapView =
+                mapRecord ? UsdGenMapInputView::Of(*mapRecord) : UsdGenMapInputView{};
+            UsdGenMapInputView const *map = mapRecord ? &mapView : nullptr;
             if (!map || map->paintValues.empty()) continue;  // Resolve warned; strands read the fallback
             UsdGenNodeKey const rootMesh = UsdGenSurfaceMeshKey(*surface);
             if (map->paintSurface != rootMesh)
@@ -777,10 +792,11 @@ bool UsdGenCpuParameters::Compile(UsdGenGraphSpec const &desc, UsdGenOpNode cons
         auto const name = binding.destination.GetString();
         if (binding.destination.IsEmpty() || !binding.expression.IsValid())
             return fail(name, "empty expression destination or path");
-        auto expression = std::find_if(desc.expressions.begin(), desc.expressions.end(),
-            [&](auto const &candidate) { return candidate.key == binding.expression; });
-        if (expression == desc.expressions.end())
+        UsdGenInputRecord const *expressionRecord = UsdGenFindExpressionInput(desc, binding.expression);
+        if (!expressionRecord)
             return fail(name, "missing expression " + desc.Label(binding.expression));
+        UsdGenExpressionInputView const expressionView = UsdGenExpressionInputView::Of(*expressionRecord);
+        UsdGenExpressionInputView const *expression = &expressionView;
         // An empty output is a connection to the expression PRIM; it resolves
         // to outputs:result, or to a single declared output.
         UsdGenExpressionOutputDesc const *result =
@@ -805,7 +821,7 @@ bool UsdGenCpuParameters::Compile(UsdGenGraphSpec const &desc, UsdGenOpNode cons
         if (!Literal(binding.literal, binding.destinationShape, &item.literal))
             return fail(name, "literal must have the exact finite native type; "
                               "int64/uint64 currently limited to 2^53");
-        auto compiled = expr::Frontend::Compile(expression->source,
+        auto compiled = expr::Frontend::Compile(std::string(expression->source),
             {binding.domain, binding.destinationShape.scalar,
              binding.destinationShape.components});
         if (!compiled.ok) {
@@ -850,29 +866,32 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode con
         sourceDigest = Mix(sourceDigest, binding.destinationShape.components);
         sourceDigest = Mix(sourceDigest,
             binding.literal.IsEmpty() ? 0u : uint64_t(binding.literal.GetHash()));
-        auto expression = std::find_if(desc.expressions.begin(), desc.expressions.end(),
-            [&](auto const &candidate) { return candidate.key == binding.expression; });
-        if (expression == desc.expressions.end()) continue;
-        sourceDigest = MixText(sourceDigest, expression->source.c_str());
+        UsdGenInputRecord const *expressionRecord = UsdGenFindExpressionInput(desc, binding.expression);
+        if (!expressionRecord) continue;
+        UsdGenExpressionInputView const expressionView = UsdGenExpressionInputView::Of(*expressionRecord);
+        UsdGenExpressionInputView const *expression = &expressionView;
+        sourceDigest = MixText(sourceDigest, expression->source);
         // A geoSampler()/ptex() input is compiled into the sampler state, so
         // retargeting it, or editing the data it names, recompiles.
         for (auto const &input : expression->inputs) {
             sourceDigest = MixText(sourceDigest, input.name.GetText());
             for (UsdGenNodeKey const path : input.geometries) {
                 sourceDigest = Mix(sourceDigest, path.value);
-                UsdGenGeometryInput const *sampled = FindGeometry(desc, path);
+                UsdGenInputRecord const *sampled = FindGeometry(desc, path);
                 sourceDigest = Mix(sourceDigest, sampled ? sampled->generation : ~uint64_t(0));
                 if (sampled) {
-                    GfMatrix4d const m = ToGroomSpace(desc, *sampled);
+                    GfMatrix4d const m = ToGroomSpace(desc, UsdGenGeometryInputView::Of(*sampled));
                     for (int r = 0; r < 4; ++r)
                         for (int c = 0; c < 4; ++c) sourceDigest = MixDouble(sourceDigest, m[r][c]);
                 }
             }
             for (UsdGenNodeKey const path : input.maps) {
                 sourceDigest = Mix(sourceDigest, path.value);
-                if (UsdGenMapInput const *map = FindMap(desc, path)) {
+                if (UsdGenInputRecord const *mapRecord = FindMap(desc, path)) {
+                    UsdGenMapInputView const mapView = UsdGenMapInputView::Of(*mapRecord);
+                    UsdGenMapInputView const *map = &mapView;
                     sourceDigest = MixText(sourceDigest, map->type.GetText());
-                    sourceDigest = MixText(sourceDigest, map->resolvedAssetPath.c_str());
+                    sourceDigest = MixText(sourceDigest, map->resolvedAssetPath);
                     sourceDigest = Mix(sourceDigest, map->textureGeneration);
                     for (auto const &param : map->params) {
                         sourceDigest = MixText(sourceDigest, param.name.GetText());

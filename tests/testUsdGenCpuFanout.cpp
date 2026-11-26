@@ -1084,7 +1084,8 @@ void TestAuthoredSourcePlanes()
           "source materializes point, primitive, and groom authored planes");
     if (!sourcePlanesMaterialized) return;
     Check(sourceBufferView.ExtraCv(0).f.cdata() !=
-              graph.Spec().curveSets[0].authoredPlanes[0].floatValues.cdata(),
+              UsdGenCurveSetInputView(UsdGenCurveSetInputs(graph.Spec())[0])
+                  .authoredPlanes[0].floatValues.cdata(),
           "resampled source plane materializes private COW storage");
     Check(writerBuffer.extraCv.size() == 1 && writerBufferView.ExtraCv(0).f.cdata() ==
               sourceBufferView.ExtraCv(0).f.cdata(),

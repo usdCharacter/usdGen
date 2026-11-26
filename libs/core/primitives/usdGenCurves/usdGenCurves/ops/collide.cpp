@@ -22,6 +22,7 @@
 // still hard-errors on every one of those states; the Evaluate fallbacks
 // only cover a literal edited after capture and can never write NaN.
 #include "usdGen/ops/collide.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/limitSurface.h"
 
@@ -199,8 +200,9 @@ bool FindSurface(UsdGenGraphSpec const *desc, UsdGenNodeKey path,
                  uint32_t *index)
 {
     if (!desc) return false;
-    for (uint32_t i = 0; i < desc->surfaces.size(); ++i) {
-        if (desc->surfaces[i].key == path) {
+    UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*desc);
+    for (uint32_t i = 0; i < surfaces.size(); ++i) {
+        if (surfaces[i].key == path) {
             *index = i;
             return true;
         }
@@ -497,7 +499,7 @@ bool ClosestOnHitFacet(UsdGenCollideCapture const &cap,
 }
 
 bool BuildLimitProxy(UsdGenCollideCollider *c,
-                     UsdGenSurfaceInput const &mesh, std::string *error)
+                     UsdGenSurfaceInputView const &mesh, std::string *error)
 {
     auto surface = std::make_shared<UsdGenCollisionLimitSurface>();
     if (!surface->Build(mesh, error)) return false;
@@ -917,7 +919,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphSpec const *desc,
     if (!desc) return best;
     for (size_t ci = 0; ci < cap.colliders.size(); ++ci) {
         UsdGenCollideCollider const &collider = cap.colliders[ci];
-        if (!collider.hasFaces || collider.geometry >= desc->surfaces.size())
+        if (!collider.hasFaces || collider.geometry >= UsdGenSurfaceInputs(*desc).size())
             continue;
         if (collider.limit && !collider.bvh.empty() &&
             Finite(maxOffset) && maxOffset >= 0.0 &&
@@ -937,7 +939,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphSpec const *desc,
             continue;
         }
         double winding = 0.0;
-        UsdGenSurfaceInput const &surf = desc->surfaces[collider.geometry];
+        UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, collider.geometry);
         size_t const F = surf.faceVertexCounts.size();
         if (collider.points.empty() || surf.faceVertexIndices.empty()) continue;
         size_t fi = 0;  // merge cursor over the sorted restricted faces
@@ -1006,7 +1008,7 @@ bool SignedDepthOnClosed(UsdGenGraphSpec const *desc,
         return false;
     UsdGenCollideCollider const &collider = cap.colliders[ci];
     if (!collider.closed || !collider.hasFaces ||
-        collider.geometry >= desc->surfaces.size())
+        collider.geometry >= UsdGenSurfaceInputs(*desc).size())
         return false;
     ClosestHit local;
     local.collider = ci;
@@ -1020,7 +1022,7 @@ bool SignedDepthOnClosed(UsdGenGraphSpec const *desc,
         return true;
     }
     double winding = 0.0;
-    UsdGenSurfaceInput const &surf = desc->surfaces[collider.geometry];
+    UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, collider.geometry);
     size_t fi=0,off=0;
     for (size_t f=0;f<surf.faceVertexCounts.size();++f) {
         int const corners=surf.faceVertexCounts[f];
@@ -1210,7 +1212,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
     for (size_t ci = 0; ci < cap.colliders.size(); ++ci) {
         UsdGenCollideCollider const &collider = cap.colliders[ci];
         if (!collider.hasFaces || !collider.closed ||
-            collider.geometry >= desc->surfaces.size())
+            collider.geometry >= UsdGenSurfaceInputs(*desc).size())
             continue;
         if (collider.limit) {
             for (auto const &face : collider.faceCandidates) {
@@ -1343,7 +1345,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
             }
             continue;
         }
-        UsdGenSurfaceInput const &surf = desc->surfaces[collider.geometry];
+        UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, collider.geometry);
         size_t fi = 0, off = 0;
         for (size_t f = 0; f < surf.faceVertexCounts.size(); ++f) {
             int const n = surf.faceVertexCounts[f];
@@ -1396,8 +1398,8 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
 // list (empty == whole mesh). Every malformed shape fails closed; exactly
 // degenerate triangles are skipped with a warning, and a collider with no
 // valid triangle at all fails closed.
-bool ValidateColliderMesh(std::string const &label, UsdGenSurfaceInput const &entry,
-                          UsdGenSurfaceInput const &geometry,
+bool ValidateColliderMesh(std::string const &label, UsdGenSurfaceInputView const &entry,
+                          UsdGenSurfaceInputView const &geometry,
                           std::vector<int> *faces, bool *hasFaces,
                           bool *closed, std::string *error, std::string *warning)
 {
@@ -1557,11 +1559,11 @@ std::unique_ptr<UsdGenCapture> UsdGenCollideOp::CreateCapture() const
 {
     return std::make_unique<UsdGenCollideCapture>();
 }
-void BuildRelaxBvh(UsdGenSurfaceInput const &geometry, std::vector<int> const &faces,
+void BuildRelaxBvh(UsdGenSurfaceInputView const &geometry, std::vector<int> const &faces,
                    strand::TriangleBvh *bvh)
 {
     std::vector<strand::FanTriangle> all, kept;
-    VtIntArray restricted(faces.begin(), faces.end());
+    UsdGenSpan<const int> const restricted(faces.data(), faces.size());
     strand::FanTriangulate(geometry.faceVertexCounts, geometry.faceVertexIndices, &all,
                            faces.empty() ? nullptr : &restricted);
     kept.reserve(all.size());
@@ -1572,7 +1574,8 @@ void BuildRelaxBvh(UsdGenSurfaceInput const &geometry, std::vector<int> const &f
         double const l = GfCross(b - a, c - a).GetLength();
         if (l > 0.0 && Finite(l)) kept.push_back(t);
     }
-    bvh->Build(geometry.points, kept);
+    // The BVH owns its points: it outlives the input record.
+    bvh->Build(VtVec3fArray(geometry.points.begin(), geometry.points.end()), kept);
 }
 
 // --- relax ------------------------------------------------------------------
@@ -1784,7 +1787,7 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     }
     d.Mix(ctx.upstreamGeneration);
     d.Mix(uint64_t(ctx.seed));
-    auto mixSurface = [&](UsdGenSurfaceInput const &s) {
+    auto mixSurface = [&](UsdGenSurfaceInputView const &s) {
         d.Mix(s.subdivisionScheme); d.Mix(s.orientation);
         d.Mix(s.interpolateBoundary);
         d.Mix(s.faceVaryingLinearInterpolation);
@@ -1817,7 +1820,7 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
                 continue;
             }
             d.Mix(uint64_t(entry));
-            UsdGenSurfaceInput const &e = ctx.desc->surfaces[entry];
+            UsdGenSurfaceInputView const &e = UsdGenSurfaceAt(*ctx.desc, entry);
             d.Mix(e.surfaceGeneration);
             mixSurface(e);
             for (int row = 0; row < 4; ++row)
@@ -1827,11 +1830,11 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
             if (e.faceVertexCounts.empty() && !e.subsetFaces.empty()) {
                 uint32_t parent = 0;
                 if (FindSurface(ctx.desc, e.owner, &parent)) {
-                    d.Mix(ctx.desc->surfaces[parent].surfaceGeneration);
-                    mixSurface(ctx.desc->surfaces[parent]);
+                    d.Mix(UsdGenSurfaceAt(*ctx.desc, parent).surfaceGeneration);
+                    mixSurface(UsdGenSurfaceAt(*ctx.desc, parent));
                     for (int row = 0; row < 4; ++row)
                         for (int col = 0; col < 4; ++col)
-                            d.Mix(ctx.desc->surfaces[parent].worldMatrix[row][col]);
+                            d.Mix(UsdGenSurfaceAt(*ctx.desc, parent).worldMatrix[row][col]);
                 } else
                     d.Mix(uint64_t(~0ull) - 1);
             }
@@ -1841,7 +1844,7 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
 }
 
 void UsdGenCollideOp::WarnOnce(UsdGenDiagnostics *diag, std::string const &label,
-                               UsdGenSurfaceInput const &mesh,
+                               UsdGenSurfaceInputView const &mesh,
                                std::vector<int> const &faces,
                                std::string const &message) const
 {
@@ -1935,7 +1938,7 @@ bool UsdGenCollideOp::Capture(
                                   label() + "' is not in the description");
             return false;
         }
-        UsdGenSurfaceInput const &e = ctx.desc->surfaces[entry];
+        UsdGenSurfaceInputView const &e = UsdGenSurfaceAt(*ctx.desc, entry);
         // A GeomSubset stub carries subsetFaces only; its parent mesh carries
         // the geometry (builder R15 pools; opUtil::RestSurfaceArea precedent).
         uint32_t geometry = entry;
@@ -1950,7 +1953,7 @@ bool UsdGenCollideOp::Capture(
         UsdGenCollideCollider collider;
         collider.geometry = geometry;
         std::string error, warning;
-        if (!ValidateColliderMesh(label(), e, ctx.desc->surfaces[geometry],
+        if (!ValidateColliderMesh(label(), e, UsdGenSurfaceAt(*ctx.desc, geometry),
                                   &collider.faces, &collider.hasFaces,
                                   &collider.closed,
                                   &error, &warning)) {
@@ -1958,7 +1961,7 @@ bool UsdGenCollideOp::Capture(
             return false;
         }
         if (!warning.empty() && diag) diag->Warn("UsdGenCollide: " + warning);
-        auto const &mesh = ctx.desc->surfaces[geometry];
+        auto const &mesh = UsdGenSurfaceAt(*ctx.desc, geometry);
         if (!affine(mesh.worldMatrix)) {
             if (diag) diag->Error("UsdGenCollide: collider '" + label() +
                                   "' world matrix must be finite and affine");
@@ -2097,7 +2100,7 @@ bool UsdGenCollideOp::Capture(
     if (cap.relax) {
         cap.relaxBvhs.resize(cap.colliders.size());
         for (size_t i = 0; i < cap.colliders.size(); ++i)
-            BuildRelaxBvh(ctx.desc->surfaces[cap.colliders[i].geometry],
+            BuildRelaxBvh(UsdGenSurfaceAt(*ctx.desc, cap.colliders[i].geometry),
                           cap.colliders[i].faces, &cap.relaxBvhs[i]);
     }
     // Every connected value is scanned, so a non-finite expression fails

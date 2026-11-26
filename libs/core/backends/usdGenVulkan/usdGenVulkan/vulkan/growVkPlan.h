@@ -3,6 +3,7 @@
 #ifndef USDGEN_VULKAN_GROW_VK_PLAN_H
 #define USDGEN_VULKAN_GROW_VK_PLAN_H
 #include "curveGrowPipeline.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 namespace usdGen::vulkan {
@@ -17,8 +18,8 @@ bool ValidateVulkanGrow(UsdGenGraphSpec const&, UsdGenOpNode const&,
 // The captured C3 decoder deliberately permits absent root channels. Grow
 // requires a full private frame trio; this matches CUDA's source fallback.
 void CompleteVulkanGrowSource(UsdGenCurveBuffer*);
-bool IsVulkanCapturedScatter(UsdGenGraphSpec const&, UsdGenCurveSetInput const&) noexcept;
-bool CaptureVulkanScatterSource(UsdGenGraphSpec const&, UsdGenCurveSetInput const&,
+bool IsVulkanCapturedScatter(UsdGenGraphSpec const&, UsdGenCurveSetInputView const&) noexcept;
+bool CaptureVulkanScatterSource(UsdGenGraphSpec const&, UsdGenCurveSetInputView const&,
     uint64_t topologyVersion,
     uint64_t valueVersion, UsdGenCurveBuffer*);
 } // namespace usdGen::vulkan

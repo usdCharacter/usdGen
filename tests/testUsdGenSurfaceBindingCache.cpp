@@ -146,18 +146,18 @@ int main() {
 
     std::shared_ptr<const UsdGenRestSurfaceBindingCache> slot;
     UsdGenCurveRootCaptureResult roots;
-    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("always"),&roots,&error,&slot));
+    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("always"),&roots,&error,&slot));
     auto old = slot;
     CHECK(old && old->Matches(usdGenUsd::Lower(surface)));
-    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::Lower(posed)),TfToken("always"),&roots,&error,&slot));
+    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(posed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot == old);
     changed = surface; changed.restPoints[1][0] = 2;
-    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::Lower(changed)),TfToken("always"),&roots,&error,&slot));
+    CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(changed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot != old && std::fabs(roots.rootUV[0][0]-.1f)<1.e-6f);
     auto current = slot;
     auto oldRoots = roots;
     changed.faceVertexIndices[0] = 99;
-    CHECK(!UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::Lower(changed)),TfToken("always"),&roots,&error,&slot));
+    CHECK(!UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(changed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot == current && roots.rootUV.cdata() == oldRoots.rootUV.cdata());
     UsdGenSurfaceRootBindingResult retained;
     CHECK(old->Bind({{.2f,.3f,2}},GfMatrix4d(1.0),&retained,&error));

@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "cudaSurfaceInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include <cmath>
 #include <limits>
@@ -8,7 +9,7 @@
 namespace usdGen {
 namespace {
 void Diag(std::vector<std::string>* d, std::string const& s) { if (d) d->push_back(s); }
-bool Finite(VtVec3fArray const& points) {
+bool Finite(UsdGenSpan<const GfVec3f> points) {
     for (auto const& p : points)
         if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) return false;
     return true;
@@ -26,7 +27,7 @@ bool SameKey(CudaSurfaceBindingKey const& a, CudaSurfaceBindingKey const& b) {
         a.faceVertexIndices == b.faceVertexIndices &&
         a.sampleBudget == b.sampleBudget;
 }
-bool ValidNormalShape(UsdGenSurfaceInput const& source) {
+bool ValidNormalShape(UsdGenSurfaceInputView const& source) {
     const size_t faceCount = source.faceVertexCounts.size();
     const size_t vertexCount = source.restPoints.size();
     const size_t faceVaryingCount = source.faceVertexIndices.size();
@@ -43,7 +44,7 @@ bool ValidNormalShape(UsdGenSurfaceInput const& source) {
 } // namespace
 
 CudaSurfacePreparationStatus PrepareCudaSurface(
-    UsdGenSurfaceInput const& source, uint32_t sampleBudget,
+    UsdGenSurfaceInputView const& source, uint32_t sampleBudget,
     CudaSurfacePrepared* output, std::vector<std::string>* diagnostics) {
     if (!output) { Diag(diagnostics, "null CUDA surface output"); return CudaSurfacePreparationStatus::InvalidArgument; }
     auto fail = [&](CudaSurfacePreparationStatus status, char const* message) {
@@ -99,9 +100,13 @@ CudaSurfacePreparationStatus PrepareCudaSurface(
             offset += static_cast<uint64_t>(count);
             candidate.faceOffsets.push_back(static_cast<uint32_t>(offset));
         }
-        candidate.key = {source.key, source.restPoints, source.restNormals, source.restNormalDomain,
-                         source.faceVertexCounts,
-                         source.faceVertexIndices, sampleBudget};
+        candidate.key.surface = source.key;
+        candidate.key.restPoints.assign(source.restPoints.begin(), source.restPoints.end());
+        candidate.key.restNormals.assign(source.restNormals.begin(), source.restNormals.end());
+        candidate.key.restNormalDomain = source.restNormalDomain;
+        candidate.key.faceVertexCounts.assign(source.faceVertexCounts.begin(), source.faceVertexCounts.end());
+        candidate.key.faceVertexIndices.assign(source.faceVertexIndices.begin(), source.faceVertexIndices.end());
+        candidate.key.sampleBudget = sampleBudget;
         candidate.sampleBudget = sampleBudget;
         *output = std::move(candidate);
         return CudaSurfacePreparationStatus::Ok;

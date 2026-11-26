@@ -83,7 +83,7 @@ UsdGenSurfaceCageInput Input(UsdGenSurfaceDesc surface,
                               float rootScale = 1.0f)
 {
     UsdGenSurfaceCageInput input;
-    input.surface = usdGenUsd::Lower(surface);
+    input.surface = surface;
     input.densityMultiplier = 1.0f;
     input.ownerMap.texture = std::move(texture);
     input.ownerMap.options.filter = "nearest";
@@ -166,7 +166,7 @@ UsdGenSurfaceCageInput ConcaveInput(UsdGenSurfaceDesc surface,
                                     std::shared_ptr<const UsdGenPtexTexture> texture)
 {
     UsdGenSurfaceCageInput input;
-    input.surface = usdGenUsd::Lower(surface);
+    input.surface = surface;
     input.ownerMap.texture = std::move(texture);
     input.ownerMap.options.filter = "nearest";
     input.ownerMap.options.firstChannel = 0;
@@ -321,7 +321,7 @@ void CheckWorldMetricBridge(std::string const &mapFile)
                                                                &curves, &cvs, &error);
     Check(estimated && curves == 180 && cvs == 720,
           ("bridge measures transformed scalp area in world space: " + error).c_str());
-    UsdGenCurveSetInput dense;
+    UsdGenCurveSetData dense;
     bool const built = UsdGenBuildSurfaceCageCurveSet(usdGenUsd::Lower(desc), usdGenUsd::Lower(node), usdGenUsd::Lower(sparse), &dense, &error);
     bool worldRoots = built && !dense.points.empty() && dense.worldMatrix == GfMatrix4d(1.0);
     for (size_t begin = 0, curve = 0; worldRoots && curve != dense.curveVertexCounts.size(); ++curve) {

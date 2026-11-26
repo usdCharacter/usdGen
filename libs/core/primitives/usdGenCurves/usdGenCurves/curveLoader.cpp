@@ -1,4 +1,6 @@
 #include "usdGen/curveLoader.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/curveRootCapture.h"
 
 #include <algorithm>
@@ -157,7 +159,7 @@ bool ReadOptions(UsdGenCaptureContext const &ctx, Options *out,
     return true;
 }
 
-bool BuildSourcePlanes(UsdGenCurveSetInput const &source,
+bool BuildSourcePlanes(UsdGenCurveSetInputView const &source,
                        uint32_t totalCurves, uint32_t totalCvs,
                        std::vector<UsdGenPlane> *cv,
                        std::vector<UsdGenPlane> *curve,
@@ -165,7 +167,7 @@ bool BuildSourcePlanes(UsdGenCurveSetInput const &source,
 {
     cv->clear(); curve->clear();
     try {
-        for (UsdGenAuthoredPlaneDesc const &authored : source.authoredPlanes) {
+        for (UsdGenAuthoredPlaneView const &authored : source.authoredPlanes) {
             if (authored.name.IsEmpty() || authored.arity == 0 || authored.arity > 16)
                 return Fail(diag, "authored plane has an invalid name or arity");
             size_t elements = 0;
@@ -195,12 +197,12 @@ bool BuildSourcePlanes(UsdGenCurveSetInput const &source,
                     if (!std::isfinite(value))
                         return Fail(diag, "authored plane '" + authored.name.GetString() + "' has non-finite values");
                 plane.type = TfToken("float");
-                plane.f = authored.floatValues;
+                plane.f.assign(authored.floatValues.begin(), authored.floatValues.end());
             } else if (authored.type == UsdGenAuthoredPlaneType::Int32) {
                 if (authored.intValues.size() != expected || !authored.floatValues.empty())
                     return Fail(diag, "authored plane '" + authored.name.GetString() + "' cardinality is invalid");
                 plane.type = TfToken("int");
-                plane.i = authored.intValues;
+                plane.i.assign(authored.intValues.begin(), authored.intValues.end());
             } else {
                 return Fail(diag, "authored plane '" + authored.name.GetString() + "' has an unsupported type");
             }
@@ -316,14 +318,11 @@ bool ReorderSourcePlanes(UsdGenCurveBuffer const &source,
 }
 
 
-UsdGenSurfaceInput const *FindSurface(UsdGenCaptureContext const &ctx)
+UsdGenInputRecord const *FindSurface(UsdGenCaptureContext const &ctx)
 {
     if (!ctx.desc || !ctx.params || !ctx.params->node || ctx.params->node->surfaces.size() != 1)
         return nullptr;
-    UsdGenNodeKey const path = ctx.params->node->surfaces.front();
-    auto const it = std::find_if(ctx.desc->surfaces.begin(), ctx.desc->surfaces.end(),
-        [&](UsdGenSurfaceInput const &candidate) { return candidate.key == path; });
-    return it == ctx.desc->surfaces.end() ? nullptr : &*it;
+    return UsdGenFindSurfaceInput(*ctx.desc, ctx.params->node->surfaces.front());
 }
 
 void PutFrame(GfMatrix4d const &frame, UsdGenCurveBuffer *out, size_t index)
@@ -339,7 +338,7 @@ void PutFrame(GfMatrix4d const &frame, UsdGenCurveBuffer *out, size_t index)
 } // namespace
 
 bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
-                             UsdGenCurveSetInput const &source,
+                             UsdGenCurveSetInputView const &source,
                              UsdGenCurveBuffer *out,
                              UsdGenDiagnostics *diag,
                              std::shared_ptr<const UsdGenRestSurfaceBindingCache> *bindingCache)
@@ -429,7 +428,10 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
     for (size_t i = 1; i < allIdOrder.size(); ++i)
         if (ids[allIdOrder[i - 1]] == ids[allIdOrder[i]])
             return Fail(diag, "C3 contains duplicate stable curve ids");
-    UsdGenSurfaceInput const *surface = FindSurface(ctx);
+    UsdGenInputRecord const *surfaceRecord = FindSurface(ctx);
+    UsdGenSurfaceInputView const surfaceView =
+        surfaceRecord ? UsdGenSurfaceInputView::Of(*surfaceRecord) : UsdGenSurfaceInputView{};
+    UsdGenSurfaceInputView const *surface = surfaceRecord ? &surfaceView : nullptr;
     bool const hasSurfaceRelationship = ctx.params && ctx.params->node &&
         !ctx.params->node->surfaces.empty();
     if (hasSurfaceRelationship &&
@@ -515,8 +517,8 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
     // the evaluator (including a rest-space source); `rest` is transported
     // independently for binding/deformation.  useRest is admission/space
     // policy, never permission to overwrite current points with rest.
-    VtVec3fArray const &positions = source.points;
-    VtVec3fArray const &restPositions = source.rest.empty() ? source.points : source.rest;
+    UsdGenSpan<const GfVec3f> const positions = source.points;
+    UsdGenSpan<const GfVec3f> const restPositions = source.rest.empty() ? source.points : source.rest;
     size_t dst = 0;
     for (size_t sorted = 0; sorted != order.size(); ++sorted) {
         size_t const old = order[sorted];

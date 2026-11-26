@@ -2,6 +2,7 @@
 #define USDGEN_AUTHORED_NAMED_CHANNELS_H
 
 #include "curveBuffer.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
 
 #include <algorithm>
@@ -29,7 +30,7 @@ inline bool IsReservedAuthoredNamedChannel(TfToken const& name) {
     return std::any_of(std::begin(names), std::end(names),
                        [&](char const *n) { return s == n; });
 }
-inline bool AuthoredNamedChannelElements(UsdGenAuthoredPlaneDesc const& plane,
+inline bool AuthoredNamedChannelElements(UsdGenAuthoredPlaneView const& plane,
     size_t curves, size_t points, size_t* elements, std::string* reason) {
     switch (plane.domain) {
     case UsdGenAuthoredPlaneDomain::Point: *elements = points; return true;
@@ -40,10 +41,10 @@ inline bool AuthoredNamedChannelElements(UsdGenAuthoredPlaneDesc const& plane,
 }
 } // namespace detail
 
-inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetInput const& source, size_t totalCurves,
+inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetInputView const& source, size_t totalCurves,
     size_t totalPoints, std::string* reason = nullptr) {
     std::set<TfToken> names;
-    for (UsdGenAuthoredPlaneDesc const& plane : source.authoredPlanes) {
+    for (UsdGenAuthoredPlaneView const& plane : source.authoredPlanes) {
         if (plane.name.IsEmpty() || !names.insert(plane.name).second ||
             detail::IsReservedAuthoredNamedChannel(plane.name))
             return detail::AuthoredNamedChannelFail("authored named channel has an empty, duplicate, or reserved name", reason);
@@ -67,7 +68,7 @@ inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetInput const& source, siz
     return true;
 }
 
-inline bool GatherAuthoredNamedChannels(UsdGenCurveSetInput const& source,
+inline bool GatherAuthoredNamedChannels(UsdGenCurveSetInputView const& source,
     std::vector<uint32_t> const& sourceOffsets, std::vector<size_t> const& canonicalCurveOrder,
     UsdGenCurveBuffer* out, std::string* reason = nullptr) {
     if (!out || sourceOffsets.size() != canonicalCurveOrder.size() + 1 ||
@@ -90,7 +91,7 @@ inline bool GatherAuthoredNamedChannels(UsdGenCurveSetInput const& source,
         }
         std::vector<UsdGenPlane> cv, curve;
         cv.reserve(source.authoredPlanes.size()); curve.reserve(source.authoredPlanes.size());
-        for (UsdGenAuthoredPlaneDesc const& authored : source.authoredPlanes) {
+        for (UsdGenAuthoredPlaneView const& authored : source.authoredPlanes) {
             UsdGenPlane plane;
             plane.name = authored.name; plane.arity = authored.arity;
             bool const point = authored.domain == UsdGenAuthoredPlaneDomain::Point;
@@ -102,7 +103,9 @@ inline bool GatherAuthoredNamedChannels(UsdGenCurveSetInput const& source,
             if (plane.type == UsdGenTokens().float_) plane.f = VtFloatArray(values, 0.0f);
             else plane.i = VtIntArray(values, 0);
             if (groom) {
-                if (plane.type == UsdGenTokens().float_) plane.f = authored.floatValues; else plane.i = authored.intValues;
+                if (plane.type == UsdGenTokens().float_)
+                    plane.f.assign(authored.floatValues.begin(), authored.floatValues.end());
+                else plane.i.assign(authored.intValues.begin(), authored.intValues.end());
             } else for (size_t destinationCurve = 0; destinationCurve != canonicalCurveOrder.size(); ++destinationCurve) {
                 size_t const sourceCurve = canonicalCurveOrder[destinationCurve];
                 if (sourceCurve >= sourceOffsets.size() - 1 || sourceOffsets[sourceCurve] > sourceOffsets[sourceCurve + 1])

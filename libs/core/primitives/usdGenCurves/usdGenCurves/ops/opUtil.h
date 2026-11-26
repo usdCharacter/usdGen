@@ -4,6 +4,7 @@
 #define USDGEN_OP_UTIL_H
 
 #include "usdGen/curveBuffer.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -90,25 +91,34 @@ struct Digest
 /// miss rehashes exactly as before, so the epochs are unchanged. For use from
 /// const CaptureDigest (mutable member); digests run per node, never
 /// concurrently on one op.
-template <class VtArrayT>
+template <class T>
 class ContentDigestCache
 {
 public:
-    uint64_t Digest(VtArrayT const &values)
+    /// 'owner' is the input record's set the values live in (an input
+    /// view's 'data'). The keyed set is held, so its memory cannot be reused
+    /// and a hit (same address and size) proves the bytes unchanged; another
+    /// set sharing the column hits too. Values without an owner (a payload
+    /// view) are never keyed.
+    uint64_t Digest(UsdGenRef<const UsdGenElementSet> const &owner, UsdGenSpan<const T> values)
     {
-        if (valid_ && values.size() == array_.size() &&
-            (values.empty() || values.cdata() == array_.cdata()))
+        if (valid_ && owner_ && values.size() == size_ &&
+            (values.empty() || values.cdata() == data_))
             return digest_;
         opUtil::Digest d;
-        d.MixBytes(values.cdata(), values.size() * sizeof(*values.cdata()));
-        array_ = values;
+        d.MixBytes(values.cdata(), values.size() * sizeof(T));
+        owner_ = owner;
+        data_ = values.cdata();
+        size_ = values.size();
         digest_ = d.h;
-        valid_ = true;
+        valid_ = bool(owner);
         return digest_;
     }
 
 private:
-    VtArrayT array_;
+    UsdGenRef<const UsdGenElementSet> owner_;
+    T const *data_ = nullptr;
+    size_t size_ = 0;
     uint64_t digest_ = 0;
     bool valid_ = false;
 };
@@ -211,18 +221,26 @@ inline GfVec3f RotateOnto(GfVec3f const &v, GfVec3f const &from, GfVec3f const &
 /// parent mesh, or the whole mesh. 0 when there is no bound surface.
 inline double RestSurfaceArea(UsdGenGraphSpec const *desc, UsdGenSurfaceId surface, bool hasSurface)
 {
-    if (!desc || !hasSurface || surface >= desc->surfaces.size()) return 0.0;
-    UsdGenSurfaceInput const *mesh = &desc->surfaces[surface];
-    VtIntArray const subset = mesh->subsetFaces;
-    bool const restricted = UsdGenSurfaceRestricted(*mesh);
+    UsdGenSpan<const UsdGenInputRecord> const surfaces =
+        desc ? UsdGenSurfaceInputs(*desc) : UsdGenSpan<const UsdGenInputRecord>();
+    if (!desc || !hasSurface || surface >= surfaces.size()) return 0.0;
+    UsdGenSurfaceInputView const target = UsdGenSurfaceInputView::Of(surfaces[surface]);
+    UsdGenSpan<const int> const subset = target.subsetFaces;
+    bool const restricted = UsdGenSurfaceRestricted(target);
+    UsdGenSurfaceInputView parentView;
+    UsdGenSurfaceInputView const *mesh = &target;
     if (mesh->faceVertexCounts.empty()) {
         UsdGenNodeKey const parent = mesh->owner;
         mesh = nullptr;
-        for (auto const &candidate : desc->surfaces)
-            if (parent.IsValid() && candidate.key == parent) { mesh = &candidate; break; }
+        for (UsdGenInputRecord const &candidate : surfaces)
+            if (parent.IsValid() && candidate.key == parent) {
+                parentView = UsdGenSurfaceInputView::Of(candidate);
+                mesh = &parentView;
+                break;
+            }
         if (!mesh) return 0.0;
     }
-    VtVec3fArray const &points = mesh->restPoints.empty() ? mesh->points : mesh->restPoints;
+    UsdGenSpan<const GfVec3f> const points = mesh->restPoints.empty() ? mesh->points : mesh->restPoints;
     std::vector<size_t> offsets(mesh->faceVertexCounts.size() + 1, 0);
     for (size_t f = 0; f < mesh->faceVertexCounts.size(); ++f)
         offsets[f + 1] = offsets[f] + size_t(std::max(0, mesh->faceVertexCounts[f]));

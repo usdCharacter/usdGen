@@ -13,8 +13,9 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
-struct UsdGenMapInput;
+struct UsdGenMapInputView;
 struct UsdGenElementLayout;
+struct UsdGenInputDesc;
 class UsdGenTypeRegistry;
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
 UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;   // registrar-only
@@ -42,11 +43,14 @@ struct UsdGenMapOptions {
 struct UsdGenTypeDef {
     char const *name = nullptr;          // e.g. UsdGenPtexMap
     uint32_t traits = 0;
-    bool (*parseOptions)(UsdGenMapInput const &, UsdGenMapOptions *, std::string *error) = nullptr;
+    bool (*parseOptions)(UsdGenMapInputView const &, UsdGenMapOptions *, std::string *error) = nullptr;
     /// Primitive types (UsdGenCurveSet, UsdGenRootSet): the element layout;
     /// null for map and value types. Must outlive the registry.
     UsdGenElementLayout const *layout = nullptr;
     uint32_t limits[kUsdGenMaxLevels] = {};   // max items per parent; curves: {0, 4096, 0}
+    /// Input kinds (UsdGenCurveSetInput, ...): how a host fills a record of
+    /// this type ('layout' is the record's). Must outlive the registry.
+    UsdGenInputDesc const *input = nullptr;
 };
 
 class USDGEN_CORE_API UsdGenTypeRegistry {

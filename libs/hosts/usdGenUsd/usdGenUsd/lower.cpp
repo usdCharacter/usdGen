@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenUsd/lower.h"
 
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenExpr/exprInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
+
 #include <algorithm>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -78,6 +83,8 @@ class Lowering {
 public:
     explicit Lowering(NodeKeyMap &map) : _map(map) {}
 
+    UsdGenInputColumnCache *Columns() noexcept { return &_map.Columns(); }
+
     UsdGenNodeKey Key(SdfPath const &path)
     {
         UsdGenNodeKey const key = _map.Key(path);
@@ -107,55 +114,48 @@ private:
     std::vector<std::pair<UsdGenNodeKey, SdfPath>> _entries;
 };
 
-UsdGenCurveSetInput LowerCurves(UsdGenCurveSetDesc const &curves, Lowering &keys)
+UsdGenInputRecord LowerCurves(UsdGenCurveSetDesc const &curves, Lowering &keys)
 {
-    UsdGenCurveSetInput in;
-    static_cast<UsdGenCurveSetData &>(in) = curves;
-    in.key = keys.Key(curves.path);
-    return in;
+    return UsdGenCurveSetRecord(curves, keys.Key(curves.path), curves.path.GetAsToken(),
+                                keys.Columns());
 }
 
-UsdGenSurfaceInput LowerSurface(UsdGenSurfaceDesc const &surface, Lowering &keys)
+UsdGenInputRecord LowerSurface(UsdGenSurfaceDesc const &surface, Lowering &keys)
 {
-    UsdGenSurfaceInput in;
-    static_cast<UsdGenSurfaceData &>(in) = surface;
-    in.key = keys.Key(surface.path);
+    UsdGenNodeKey const key = keys.Key(surface.path);
     // The parent prim: a GeomSubset's Mesh (consumers that find a
     // topology-less target look its geometry up here).
+    UsdGenNodeKey owner;
     if (!surface.path.IsEmpty() && !surface.path.IsAbsoluteRootPath())
-        in.owner = keys.Key(surface.path.GetParentPath());
-    return in;
+        owner = keys.Key(surface.path.GetParentPath());
+    return UsdGenSurfaceRecord(surface, key, owner, surface.path.GetAsToken(), keys.Columns());
 }
 
-UsdGenMapInput LowerMap(UsdGenMapDesc const &map, Lowering &keys)
+UsdGenInputRecord LowerMap(UsdGenMapDesc const &map, Lowering &keys)
 {
-    UsdGenMapInput in;
-    static_cast<UsdGenMapData &>(in) = map;
-    in.key = keys.Key(map.path);
-    in.paintSurface = keys.Key(map.paintSurface);
-    return in;
+    UsdGenNodeKey const key = keys.Key(map.path);
+    return UsdGenMapRecord(map, key, keys.Key(map.paintSurface), map.path.GetAsToken(),
+                           keys.Columns());
 }
 
-UsdGenExpressionInput LowerExpression(UsdGenExpressionDesc const &expression, Lowering &keys)
+UsdGenInputRecord LowerExpression(UsdGenExpressionDesc const &expression, Lowering &keys)
 {
-    UsdGenExpressionInput in;
-    in.key = keys.Key(expression.path);
-    in.source = expression.source;
-    in.outputs = expression.outputs;
-    in.inputs.reserve(expression.inputs.size());
+    UsdGenExpressionData data;
+    UsdGenNodeKey const key = keys.Key(expression.path);
+    data.source = expression.source;
+    data.outputs = expression.outputs;
+    data.inputs.reserve(expression.inputs.size());
     for (UsdGenExpressionInputDesc const &input : expression.inputs)
-        in.inputs.push_back(UsdGenExpressionSlot{input.name, keys.Keys(input.targets),
-                                                 keys.Keys(input.geometries),
-                                                 keys.Keys(input.maps)});
-    return in;
+        data.inputs.push_back(UsdGenExpressionSlot{input.name, keys.Keys(input.targets),
+                                                   keys.Keys(input.geometries),
+                                                   keys.Keys(input.maps)});
+    return UsdGenExpressionRecord(data, key, expression.path.GetAsToken());
 }
 
-UsdGenGeometryInput LowerGeometry(UsdGenGeometryDesc const &geometry, Lowering &keys)
+UsdGenInputRecord LowerGeometry(UsdGenGeometryDesc const &geometry, Lowering &keys)
 {
-    UsdGenGeometryInput in;
-    static_cast<UsdGenGeometryData &>(in) = geometry;
-    in.key = keys.Key(geometry.path);
-    return in;
+    return UsdGenGeometryRecord(geometry, keys.Key(geometry.path), geometry.path.GetAsToken(),
+                                keys.Columns());
 }
 
 UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
@@ -196,26 +196,25 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
 
 UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
 {
+    map.Columns().Advance();
     Lowering keys(map);
     UsdGenGraphSpec spec;
     spec.description = keys.Key(desc.description);
     spec.terminal = keys.Key(desc.terminal);
     spec.nodes.reserve(desc.nodes.size());
     for (UsdGenNodeDesc const &node : desc.nodes) spec.nodes.push_back(LowerNode(node, keys));
-    spec.curveSets.reserve(desc.curveSets.size());
+    spec.inputs.reserve(desc.curveSets.size() + desc.surfaces.size() + desc.maps.size() +
+                        desc.expressions.size() + desc.geometries.size());
     for (UsdGenCurveSetDesc const &curves : desc.curveSets)
-        spec.curveSets.push_back(LowerCurves(curves, keys));
-    spec.surfaces.reserve(desc.surfaces.size());
+        spec.inputs.push_back(LowerCurves(curves, keys));
     for (UsdGenSurfaceDesc const &surface : desc.surfaces)
-        spec.surfaces.push_back(LowerSurface(surface, keys));
-    spec.maps.reserve(desc.maps.size());
-    for (UsdGenMapDesc const &map : desc.maps) spec.maps.push_back(LowerMap(map, keys));
-    spec.expressions.reserve(desc.expressions.size());
+        spec.inputs.push_back(LowerSurface(surface, keys));
+    for (UsdGenMapDesc const &map : desc.maps) spec.inputs.push_back(LowerMap(map, keys));
     for (UsdGenExpressionDesc const &expression : desc.expressions)
-        spec.expressions.push_back(LowerExpression(expression, keys));
-    spec.geometries.reserve(desc.geometries.size());
+        spec.inputs.push_back(LowerExpression(expression, keys));
     for (UsdGenGeometryDesc const &geometry : desc.geometries)
-        spec.geometries.push_back(LowerGeometry(geometry, keys));
+        spec.inputs.push_back(LowerGeometry(geometry, keys));
+    spec.SortInputs();
     spec.look = desc.look;
     UsdGenPreviewDesc const &preview = desc.preview;
     if (preview.source.IsPropertyPath()) {
@@ -255,35 +254,45 @@ UsdGenOpNode Lower(UsdGenNodeDesc const &node)
     Lowering keys(map);
     return LowerNode(node, keys);
 }
-UsdGenCurveSetInput Lower(UsdGenCurveSetDesc const &curves)
+UsdGenInputRecord Lower(UsdGenCurveSetDesc const &curves)
 {
     NodeKeyMap map;
     Lowering keys(map);
     return LowerCurves(curves, keys);
 }
-UsdGenSurfaceInput Lower(UsdGenSurfaceDesc const &surface)
+UsdGenInputRecord Lower(UsdGenSurfaceDesc const &surface)
 {
     NodeKeyMap map;
     Lowering keys(map);
     return LowerSurface(surface, keys);
 }
-UsdGenMapInput Lower(UsdGenMapDesc const &map)
+UsdGenInputRecord Lower(UsdGenMapDesc const &map)
 {
     NodeKeyMap keyMap;
     Lowering keys(keyMap);
     return LowerMap(map, keys);
 }
-UsdGenGeometryInput Lower(UsdGenGeometryDesc const &geometry)
+UsdGenInputRecord Lower(UsdGenGeometryDesc const &geometry)
 {
     NodeKeyMap map;
     Lowering keys(map);
     return LowerGeometry(geometry, keys);
 }
-UsdGenExpressionInput Lower(UsdGenExpressionDesc const &expression)
+UsdGenInputRecord Lower(UsdGenExpressionDesc const &expression)
 {
     NodeKeyMap map;
     Lowering keys(map);
     return LowerExpression(expression, keys);
+}
+
+UsdGenCurveSetInputView View(UsdGenCurveSetDesc const &curves)
+{
+    return UsdGenCurveSetInputView::Of(Lower(curves));
+}
+
+UsdGenSurfaceInputView View(UsdGenSurfaceDesc const &surface)
+{
+    return UsdGenSurfaceInputView::Of(Lower(surface));
 }
 
 UsdGenParamBinding Lower(UsdGenExpressionBinding const &binding)

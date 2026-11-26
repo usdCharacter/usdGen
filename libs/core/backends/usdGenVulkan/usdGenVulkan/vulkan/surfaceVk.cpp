@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/vulkan/surfaceVk.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 
 #include "usdGen/op.h"
 #include "usdGen/ops/rbfField.h"
@@ -48,7 +50,7 @@ bool IsFiniteInvertibleAffine(GfMatrix4d const& matrix) {
 // gpu/surfaceBinding.cu exactly, in float arithmetic with the same
 // evaluation order: triangle a*w+b*u+c*v with w=1-u-v, quad
 // a*u0*v0+b*u*v0+c*u*v+d*u0*v.
-GfVec3f GatherRootLocal(VtVec3fArray const& points, VtIntArray const& indices,
+GfVec3f GatherRootLocal(UsdGenSpan<const GfVec3f> points, UsdGenSpan<const int> indices,
                         uint32_t base, int n, GfVec2f const& uv) {
     float const u = uv[0], v = uv[1];
     GfVec3f const a(points[indices[base]]);
@@ -69,8 +71,8 @@ GfVec3f GatherRootLocal(VtVec3fArray const& points, VtIntArray const& indices,
 
 } // namespace
 
-bool CompileSurfaceVkDeform(UsdGenCurveSetInput const& source,
-                            UsdGenSurfaceInput const& surface, int budget,
+bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
+                            UsdGenSurfaceInputView const& surface, int budget,
                             VulkanDeformControls* out,
                             UsdGenDiagnostics* diagnostics) {
     if (!out) return Fail(diagnostics, "Deform surface binding output is null");

@@ -561,7 +561,7 @@ bool LoadDesc(UsdGenGraphDesc const& d, UsdGenCurveBuffer* out) {
     ctx.seed = static_cast<uint32_t>(d.nodes[0].seed);
     UsdGenDiagnostics diag;
     UsdGenCurveBuffer result;
-    if (!UsdGenCurveLoader::Load(ctx, lowered.curveSets[0], &result, &diag))
+    if (!UsdGenCurveLoader::Load(ctx, UsdGenCurveSetInputs(lowered)[0], &result, &diag))
         return false;
     *out = std::move(result);
     return true;
@@ -1050,7 +1050,7 @@ struct CudaSourceLeg {
             if (!surface) return false;
         }
         std::string rootError;
-        if (!UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::Lower(*surface)) : nullptr), rebind, &captured,
+        if (!UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::View(*surface)) : nullptr), rebind, &captured,
                                      &rootError)) {
             std::fprintf(stderr, "csourceVk cuda capture: %s\n",
                          rootError.c_str());
@@ -1489,7 +1489,7 @@ bool SourceParity(char const* fixture, UsdGenGraphDesc const& d,
                 rebind = p.value.UncheckedGet<TfToken>();
         UsdGenCurveRootCaptureResult captured;
         std::string error;
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::Lower(*surface)) : nullptr), rebind, &captured,
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::View(*surface)) : nullptr), rebind, &captured,
                                        &error));
         std::vector<float> ot, ob, on;
         CHECK(FrameOracle(curves, captured, &ot, &ob, &on));

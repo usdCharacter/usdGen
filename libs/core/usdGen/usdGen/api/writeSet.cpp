@@ -29,6 +29,7 @@ struct UsdGenWriteSet::Impl : UsdGenPooled {
         uint64_t at = 0;                         // kWritten / kCopied: byte position in the delta
         uint32_t values = 0;
         uint8_t kind = kAbsent;
+        bool sized = false;                      // SetValueCount: values is fixed
     };
     UsdGenRef<const UsdGenChannelTable> channels;
     UsdGenRef<const UsdGenElementSet> base;
@@ -151,7 +152,7 @@ void UsdGenWriteSet::Plan(UsdGenSpan<const UsdGenSlot> written)
         if (s >= im.slots.size()) continue;
         Impl::Slot &slot = im.slots[s];
         slot.kind = kWritten;
-        slot.values = im.ValuesFor(table[s]);
+        if (!slot.sized) slot.values = im.ValuesFor(table[s]);
         slot.column = nullptr;
         slot.arena = nullptr;
     }
@@ -280,7 +281,7 @@ void UsdGenWriteSet::Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGen
     Impl::Slot &s = _impl->slots[slot];
     UsdGenChannelDesc const &d = (*_impl->channels)[slot];
     if (!from.Has(fromSlot) || !UsdGenSameLayout(d, from.Channels()[fromSlot]) ||
-        from._values[fromSlot] != _impl->ValuesFor(d)) {
+        from._values[fromSlot] != (s.sized ? s.values : _impl->ValuesFor(d))) {
         s.kind = kAbsent;
         return;
     }
@@ -296,6 +297,13 @@ void UsdGenWriteSet::Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGen
 void UsdGenWriteSet::Drop(UsdGenSlot slot)
 {
     if (_impl && slot < _impl->slots.size()) _impl->slots[slot].kind = kAbsent;
+}
+
+void UsdGenWriteSet::SetValueCount(UsdGenSlot slot, uint32_t values) noexcept
+{
+    if (!_impl || _impl->planned || slot >= _impl->slots.size()) return;
+    _impl->slots[slot].values = values;
+    _impl->slots[slot].sized = true;
 }
 
 void UsdGenWriteSet::SetVersions(uint64_t topologyVersion, uint64_t valueVersion) noexcept

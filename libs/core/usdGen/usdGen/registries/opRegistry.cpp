@@ -163,7 +163,11 @@ void UsdGenResolveDescIds(UsdGenGraphSpec *desc)
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenTypeRegistry const &types = UsdGenMutableTypeRegistry();
     for (UsdGenOpNode &node : desc->nodes) node.opId = ops.Find(node.type);
-    for (UsdGenMapInput &map : desc->maps) map.typeId = types.Find(map.type);
+    for (UsdGenInputRecord &record : desc->inputs) {
+        if (record.kind == UsdGenTypeId::Invalid) continue;
+        UsdGenInputDesc const *input = types.Def(record.kind).input;
+        if (input && input->intake) input->intake(record);
+    }
 }
 
 // ---- expression admission ------------------------------------------------------

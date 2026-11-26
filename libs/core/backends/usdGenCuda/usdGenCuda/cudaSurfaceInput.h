@@ -2,6 +2,7 @@
 #define USDGEN_CUDA_SURFACE_INPUT_H
 
 #include "gpu/curveGeometry.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include <cstdint>
 #include <string>
@@ -34,7 +35,7 @@ enum class CudaSurfacePreparationStatus {
 };
 
 CudaSurfacePreparationStatus PrepareCudaSurface(
-    UsdGenSurfaceInput const&, uint32_t sampleBudget,
+    UsdGenSurfaceInputView const&, uint32_t sampleBudget,
     CudaSurfacePrepared*, std::vector<std::string>* diagnostics = nullptr);
 
 bool RestBindingMatches(CudaSurfacePrepared const&, CudaSurfacePrepared const&);

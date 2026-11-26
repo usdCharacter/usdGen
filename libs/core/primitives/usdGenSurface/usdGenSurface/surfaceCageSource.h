@@ -3,6 +3,7 @@
 #define USDGEN_SURFACE_CAGE_SOURCE_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGenCurves/types/curveSetInput.h"
 
 #include <cstdint>
 #include <string>
@@ -17,7 +18,7 @@ namespace usdGen {
 /// left unchanged on failure.
 bool UsdGenEstimateSurfaceCageCurveSet(
     UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-    UsdGenCurveSetInput const &sparse, uint64_t *curves, uint64_t *cvs,
+    UsdGenCurveSetInputView const &sparse, uint64_t *curves, uint64_t *cvs,
     std::string *error = nullptr);
 
 /// Turns one immutable sparse surface-cage descriptor into a normal dense C3
@@ -30,7 +31,7 @@ bool UsdGenEstimateSurfaceCageCurveSet(
 /// under a transformed scalp. It leaves `out` unchanged on every error.
 bool UsdGenBuildSurfaceCageCurveSet(
     UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-    UsdGenCurveSetInput const &sparse, UsdGenCurveSetInput *out,
+    UsdGenCurveSetInputView const &sparse, UsdGenCurveSetData *out,
     std::string *error = nullptr);
 
 } // namespace usdGen

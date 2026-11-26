@@ -9,6 +9,8 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/types.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -48,55 +50,9 @@ UsdGenOpNode const &UsdGenGraph::OpNode(UsdGenNodeId id) const
 
 namespace {
 
-// Word-at-a-time FNV-1a over a surface's Default-space content: topology,
-// rest points and normals, uv, subset and world matrix. The posed points,
-// shutter samples and velocities are deliberately not terms.
-class RestContentHash
+std::array<uint64_t, 3> RestSourceKey(UsdGenInputRecord const &record)
 {
-public:
-    void Bytes(void const *data, size_t size)
-    {
-        auto const *bytes = static_cast<unsigned char const *>(data);
-        size_t i = 0;
-        for (; i + 8 <= size; i += 8) {
-            uint64_t word;
-            std::memcpy(&word, bytes + i, 8);
-            Mix(word);
-        }
-        uint64_t tail = 0;
-        if (i < size) std::memcpy(&tail, bytes + i, size - i);
-        Mix(tail);
-        Mix(uint64_t(size));
-    }
-    template <class T> void Array(VtArray<T> const &a)
-    {
-        Bytes(a.empty() ? nullptr : a.cdata(), a.size() * sizeof(T));
-    }
-    void Mix(uint64_t word) { _h ^= word; _h *= 0x100000001b3ULL; }
-    uint64_t Value() const { return _h ? _h : 1; }
-
-private:
-    uint64_t _h = 1469598103934665603ULL;
-};
-
-uint64_t RestSurfaceGeneration(UsdGenSurfaceInput const &surface)
-{
-    RestContentHash h;
-    h.Mix(0x5265737453726675ULL);   // distinct from any posed generation domain
-    h.Array(surface.faceVertexCounts);
-    h.Array(surface.faceVertexIndices);
-    h.Array(surface.restPoints);
-    h.Array(surface.restNormals);
-    h.Mix(uint64_t(surface.restNormalDomain));
-    h.Array(surface.uv);
-    h.Array(surface.subsetFaces);
-    h.Mix(surface.isSubset ? 1u : 0u);
-    h.Bytes(surface.worldMatrix.GetArray(), 16 * sizeof(double));
-    return h.Value();
-}
-
-std::array<uint64_t, 3> RestSourceKey(UsdGenSurfaceInput const &surface)
-{
+    UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(record);
     return {surface.surfaceGeneration,
             uint64_t(reinterpret_cast<uintptr_t>(surface.points.cdata())),
             uint64_t(reinterpret_cast<uintptr_t>(surface.restPoints.cdata()))};
@@ -110,30 +66,44 @@ UsdGenGraphSpec const &UsdGenGraph::RestSpec() const
         if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphSpec>();
         return *_restDesc;
     }
+    UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*_desc);
     bool fresh = _restDesc && _restSource == _desc.get() &&
-        _restSourceKeys.size() == _desc->surfaces.size();
-    for (size_t s = 0; fresh && s < _desc->surfaces.size(); ++s)
-        fresh = _restSourceKeys[s] == RestSourceKey(_desc->surfaces[s]);
+        _restSourceKeys.size() == surfaces.size();
+    for (size_t s = 0; fresh && s < surfaces.size(); ++s)
+        fresh = _restSourceKeys[s] == RestSourceKey(surfaces[s]);
     if (fresh) return *_restDesc;
 
     // Copy-assign into the retained view: its vectors keep their capacity.
     if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphSpec>();
     UsdGenGraphSpec *rest = _restDesc.get();
     *rest = *_desc;
-    for (UsdGenSurfaceInput &surface : rest->surfaces) {
-        if (surface.restFromCurrentPoints || surface.restPoints.empty() ||
-            surface.restPoints.size() != surface.points.size())
-            continue;   // no authored rest: Default space is the current geometry
-        surface.points = surface.restPoints;
-        if (!surface.samples.empty()) {
-            surface.samples.resize(1);
-            surface.samples[0].points = surface.restPoints;
+    UsdGenSpan<UsdGenInputRecord> const restSurfaces = rest->MutableInputs(UsdGenSurfaceInputKind());
+    size_t const keep = 2 * restSurfaces.size() + 2;
+    for (UsdGenInputRecord &surface : restSurfaces) {
+        RestRecord const *hit = nullptr;
+        for (RestRecord const &cached : _restRecords) {
+            if (cached.posed == surface.data && cached.generation == surface.generation &&
+                cached.rest.values.size() == surface.values.size() &&
+                std::equal(surface.values.begin(), surface.values.end(), cached.rest.values.begin(),
+                           [](UsdGenParamValue const &a, UsdGenParamValue const &b) {
+                               return a.name == b.name && a.value == b.value;
+                           })) {
+                hit = &cached;
+                break;
+            }
         }
-        surface.velocities = VtVec3fArray();
-        surface.surfaceGeneration = RestSurfaceGeneration(surface);
+        if (!hit) {
+            UsdGenInputRecord restRecord;
+            // No authored rest: Default space is the current geometry.
+            if (!UsdGenRestSurfaceRecord(surface, &restRecord)) continue;
+            if (_restRecords.size() >= keep) _restRecords.erase(_restRecords.begin());
+            _restRecords.push_back(RestRecord{surface.data, surface.generation, std::move(restRecord)});
+            hit = &_restRecords.back();
+        }
+        surface = hit->rest;
     }
     _restSourceKeys.clear();
-    for (UsdGenSurfaceInput const &surface : _desc->surfaces)
+    for (UsdGenInputRecord const &surface : surfaces)
         _restSourceKeys.push_back(RestSourceKey(surface));
     _restSource = _desc.get();
     return *_restDesc;
@@ -159,11 +129,12 @@ UsdGenGraph::RoutingSnapshot() const
     if (_desc) {
         snapshot->description = _desc->description;
         snapshot->host = _desc->host;
-        snapshot->surfaceKeys.reserve(_desc->surfaces.size());
-        snapshot->meshKeys.reserve(_desc->surfaces.size());
-        for (auto const &surface : _desc->surfaces) {
+        UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*_desc);
+        snapshot->surfaceKeys.reserve(surfaces.size());
+        snapshot->meshKeys.reserve(surfaces.size());
+        for (UsdGenInputRecord const &surface : surfaces) {
             snapshot->surfaceKeys.push_back(surface.key);
-            snapshot->meshKeys.push_back(UsdGenSurfaceMeshKey(surface));
+            snapshot->meshKeys.push_back(UsdGenSurfaceMeshKey(UsdGenSurfaceInputView::Of(surface)));
         }
     }
     snapshot->nodes.reserve(_nodes.size());
@@ -198,8 +169,9 @@ UsdGenGraph::RoutingSnapshot() const
                                    node.geometryRefs.begin(),
                                    node.geometryRefs.end());
             for (UsdGenNodeKey const mapRef : paintCandidates) {
-                for (auto const &map : _desc->maps) {
-                    if (map.key != mapRef) continue;
+                for (UsdGenInputRecord const &mapRecord : UsdGenMapInputs(*_desc)) {
+                    if (mapRecord.key != mapRef) continue;
+                    UsdGenMapInputView const map = UsdGenMapInputView::Of(mapRecord);
                     if (!UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) break;
                     if (map.paintPrimvar.IsEmpty()) break;
                     for (size_t s = 0;
@@ -353,10 +325,11 @@ void UsdGenGraph::DirtyTopology(UsdGenNodeId id)
 void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
                                uint64_t generation)
 {
-    if (generation != UINT64_MAX && _desc &&
-        surface < _desc->surfaces.size())
-        _inputVersions.UpdateSurface(
-            _desc->surfaces[surface].key, generation);
+    if (generation != UINT64_MAX && _desc) {
+        UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*_desc);
+        if (surface < surfaces.size())
+            _inputVersions.UpdateSurface(surfaces[surface].key, generation);
+    }
     // Hop 4: surface-major chunk order -> the chunks binding `surface` are a
     // contiguous range on every node; OR `bits` into them and into the
     // owning nodes + strict descendants.

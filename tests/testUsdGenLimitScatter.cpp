@@ -314,18 +314,20 @@ int main() {
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     // Pose and parent motion are downstream deformation inputs, not rest
     // scatter inputs. Rest/topology/UV/paint edits must still invalidate.
-    sp1=sp0;sp1.surfaces[0].points[0]+=GfVec3f(0,0,3);
-    sp1.surfaces[0].worldMatrix.SetTranslate(GfVec3d(2,0,0));
-    sp1.surfaces[0].surfaceGeneration=99;
-    sp1.surfaces[0].samples.push_back({42,sp1.surfaces[0].points});
+    // Input records are immutable: edit the host desc and lower again.
+    auto e=d0;e.surfaces[0].points[0]+=GfVec3f(0,0,3);
+    e.surfaces[0].worldMatrix.SetTranslate(GfVec3d(2,0,0));
+    e.surfaces[0].surfaceGeneration=99;
+    e.surfaces[0].samples.push_back({42,e.surfaces[0].points});
+    sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)==op.CaptureDigest(c1));
-    sp1.surfaces[0].restPoints[0]+=GfVec3f(0,0,1);
+    e.surfaces[0].restPoints[0]+=GfVec3f(0,0,1);sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    sp1=sp0;sp1.surfaces[0].subsetFaces={3};
+    e=d0;e.surfaces[0].subsetFaces={3};sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    sp1=sp0;sp1.surfaces[0].uv.push_back(GfVec2f(.2f,.3f));
+    e=d0;e.surfaces[0].uv.push_back(GfVec2f(.2f,.3f));sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    sp1=sp0;sp1.surfaces[0].densityMultiplier.assign(9,.5f);
+    e=d0;e.surfaces[0].densityMultiplier.assign(9,.5f);sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     CHECK(Run(Desc(s,0),&b));CHECK(b.totalCurves!=a.totalCurves);
     // Shuffled multi-face subset at level 0: every root lands on a

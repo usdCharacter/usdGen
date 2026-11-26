@@ -715,11 +715,11 @@ void TestImageMapReloadStagesNewCowGeneration()
               firstPublished.load(std::memory_order_acquire),
           "image-map imaging commit publishes");
     auto firstGraph = session->Engine()->Graph();
-    Check(firstGraph.Spec().maps.size() == 1 &&
-              firstGraph.Spec().maps[0].imagePayload,
+    Check(UsdGenMapInputs(firstGraph.Spec()).size() == 1 &&
+              UsdGenMapInputView(UsdGenMapInputs(firstGraph.Spec())[0]).imagePayload,
           "imaging session publishes a decoded immutable map payload");
-    auto const oldPayload = firstGraph.Spec().maps[0].imagePayload;
-    uint64_t const oldGeneration = firstGraph.Spec().maps[0].textureGeneration;
+    auto const oldPayload = UsdGenMapInputView(UsdGenMapInputs(firstGraph.Spec())[0]).imagePayload;
+    uint64_t const oldGeneration = UsdGenMapInputView(UsdGenMapInputs(firstGraph.Spec())[0]).textureGeneration;
     float const oldFirst = oldPayload ? oldPayload->Data()[0] : 0.0f;
 
     uint64_t const nextGeneration = InvalidateUsdGenImageMapCache();
@@ -742,11 +742,11 @@ void TestImageMapReloadStagesNewCowGeneration()
               secondPublished.load(std::memory_order_acquire),
           "reloaded image-map generation publishes");
     auto replacementGraph = session->Engine()->Graph();
-    Check(replacementGraph.Spec().maps.size() == 1 &&
-              replacementGraph.Spec().maps[0].imagePayload &&
-              replacementGraph.Spec().maps[0].textureGeneration == nextGeneration &&
-              replacementGraph.Spec().maps[0].textureGeneration > oldGeneration &&
-              replacementGraph.Spec().maps[0].imagePayload != oldPayload &&
+    Check(UsdGenMapInputs(replacementGraph.Spec()).size() == 1 &&
+              UsdGenMapInputView(UsdGenMapInputs(replacementGraph.Spec())[0]).imagePayload &&
+              UsdGenMapInputView(UsdGenMapInputs(replacementGraph.Spec())[0]).textureGeneration == nextGeneration &&
+              UsdGenMapInputView(UsdGenMapInputs(replacementGraph.Spec())[0]).textureGeneration > oldGeneration &&
+              UsdGenMapInputView(UsdGenMapInputs(replacementGraph.Spec())[0]).imagePayload != oldPayload &&
               oldPayload && oldPayload->Data()[0] == oldFirst,
           "reload replaces the map COW generation while retained pixels stay immutable");
     session->Shutdown();
