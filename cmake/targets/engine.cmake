@@ -7,11 +7,10 @@
 # usdGen (SHARED — the engine core, no usd/usdImaging/hd linkage)
 # ---------------------------------------------------------------------------
 # Step 6.4: the primitives are their own DLLs (below); usdGen compiles the
-# engine and, until step 8, the backends.
+# engine and, until step 8.3, the CUDA backend. usdGenVulkan is its own DLL
+# (vulkan.cmake, step 8.2).
 file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/usdGen/*.cpp libs/core/backends/*.cpp)
-# Native Vulkan owners are opt-in and must not leak SDK headers/runtime
-# dependencies into CUDA-only or CPU-only core builds.
-list(FILTER USDGEN_CORE_SOURCES EXCLUDE REGEX "/usdGenVulkan/vulkan/.*\\.cpp$")
+list(FILTER USDGEN_CORE_SOURCES EXCLUDE REGEX "/backends/usdGenVulkan/.*\\.cpp$")
 # Include roots plus the old-spelling shim (cmake/IncludeShim.cmake).
 include(cmake/IncludeShim.cmake)
 set(USDGEN_ENGINE_INCLUDE_DIRS
@@ -34,7 +33,6 @@ set(USDGEN_CORE_INCLUDE_DIRS ${USDGEN_ENGINE_INCLUDE_DIRS} ${USDGEN_PRIMITIVE_IN
 # expressions/cpuEvaluator.cpp.
 list(REMOVE_ITEM USDGEN_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp"
     # CUDA-only helper exposes CUDA vector types; do not compile it in the
     # CPU-only core build selected by ordinary consumers.
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp"
@@ -44,8 +42,7 @@ list(REMOVE_ITEM USDGEN_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp")
 add_library(usdGen SHARED ${USDGEN_CORE_SOURCES})
 target_sources(usdGen PRIVATE
-    libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp)
+    libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp)
 # The host suffix port (deformEvaluateCpu.h, inlined into
 # deformPipeline.cpp) needs sqrt vectorized: with math-errno the vectorizer
 # keeps the explicit-fma loop's sqrt scalar and the suffix runs ~2x slower.

@@ -1,4 +1,6 @@
 #include "usdGen/executionBackend.h"
+#include "usdGen/registries/backend.h"
+#include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/engineTokens.h"
 
 #include "usdGen/op.h"
@@ -10,12 +12,10 @@
 
 namespace usdGen {
 
-// Defined by executionBackendCudaProvider.cpp /
-// executionBackendVulkanProvider.cpp. Keeping these tiny providers separate
-// means the neutral backend contract does not include a concrete adapter
-// header or know its capability-matrix type.
+// Defined by executionBackendCudaProvider.cpp. Keeping this tiny provider
+// separate means the neutral backend contract does not include a concrete
+// adapter header or know its capability-matrix type.
 uint32_t UsdGenCudaCapabilityVersionForBackendContract() noexcept;
-uint32_t UsdGenVulkanCapabilityVersionForBackendContract() noexcept;
 
 namespace {
 
@@ -37,6 +37,21 @@ size_t BackendSlot(UsdGenExecutionBackend backend) noexcept {
 void SetReason(std::string *reason, char const *message) noexcept {
     if (!reason) return;
     try { *reason = message; } catch (...) {}
+}
+
+// The contract of a registered backend, from its def.
+UsdGenExecutionBackendContract RegisteredContract(UsdGenExecutionBackend backend,
+                                                  UsdGenDeviceBackend device,
+                                                  UsdGenBackendDef const &def) noexcept {
+    bool available = true;
+    if (def.available) {
+        try { available = def.available(nullptr); } catch (...) { available = false; }
+    }
+    return {backend, device, def.name,
+            available ? "" : "the registered backend cannot run in this process",
+            def.capabilityVersion,
+            available ? UsdGenExecutionBackendAvailability::Available
+                      : UsdGenExecutionBackendAvailability::Unavailable};
 }
 
 UsdGenExecutionBackendContract InvalidContract() noexcept {
@@ -172,16 +187,13 @@ UsdGenExecutionBackendContract GetUsdGenExecutionBackendContract(
                 "no Metal execution factory is linked", 0,
                 UsdGenExecutionBackendAvailability::Unavailable};
     case UsdGenExecutionBackend::Vulkan:
-#ifdef USDGEN_ENABLE_VULKAN_RUNTIME
-        return {backend, UsdGenDeviceBackend::Vulkan, "vulkan", "",
-                UsdGenVulkanCapabilityVersionForBackendContract(),
-                UsdGenExecutionBackendAvailability::Available};
-#else
+        // Answered by the def usdGenVulkan registers.
+        if (UsdGenBackendDef const *def =
+                UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(backend))))
+            return RegisteredContract(backend, UsdGenDeviceBackend::Vulkan, *def);
         return {backend, UsdGenDeviceBackend::Vulkan, "vulkan",
-                "Vulkan support was not enabled in this build",
-                UsdGenVulkanCapabilityVersionForBackendContract(),
+                "Vulkan support was not enabled in this build", 0,
                 UsdGenExecutionBackendAvailability::Unavailable};
-#endif
     case UsdGenExecutionBackend::Invalid: break;
     }
     return InvalidContract();

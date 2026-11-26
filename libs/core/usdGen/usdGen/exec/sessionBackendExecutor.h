@@ -55,12 +55,11 @@ public:
     virtual UsdGenSessionCooker const &Cooker() const noexcept = 0;
 };
 
-/// Creates the one private executor owned by a Session. CPU, CUDA and (when
-/// built) Vulkan retain their normal routes. An explicitly injected Vulkan
-/// provider still wins; otherwise a built runtime lazily creates its default
-/// provider, while an unbuilt Vulkan (and always Metal) retains the
-/// unavailable compiler diagnostic, never a fabricated CPU result. Neither
-/// path registers a global route.
+/// Creates the one private executor owned by a Session. CPU cooks inline; a
+/// registered backend (registries/backend.h) gets its provider lazily on a
+/// scheduler task. An injected provider wins for its own device backend. An
+/// unregistered backend keeps the unavailable compiler diagnostic, never a
+/// fabricated CPU result.
 std::shared_ptr<UsdGenSessionBackendExecutor> CreateUsdGenSessionBackendExecutor(
     int threadLimit, size_t executionCacheBytes,
     std::shared_ptr<UsdGenExecutionCacheDomain> executionCacheDomain,

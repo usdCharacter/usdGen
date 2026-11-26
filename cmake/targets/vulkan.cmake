@@ -80,10 +80,10 @@ if(NOT "${USDGEN_ENABLE_VULKAN}" STREQUAL "${USDGEN_ENABLE_VULKAN_RUNTIME}")
         "Build the Vulkan execution runtime (alias of USDGEN_ENABLE_VULKAN_RUNTIME; mirrors USDGEN_ENABLE_CUDA)" FORCE)
 endif()
 option(USDGEN_BUILD_VULKAN_TESTS "Build native Vulkan compute and injected-provider tests" OFF)
-# Shared Vulkan source list: production (RUNTIME ON) compiles these into
-# libusdGen.so; test-only builds (RUNTIME OFF + VULKAN_TESTS ON) keep them
-# in the shared test runtime. The canonical UUID registry always lives in
-# the same DSO as DeviceContext, never one static copy per consumer.
+# Vulkan source list: SHARED usdGenVulkan in production (RUNTIME ON) and
+# test-only builds (RUNTIME OFF + VULKAN_TESTS ON). The canonical UUID
+# registry always lives in the same DSO as DeviceContext, never one static
+# copy per consumer.
 set(_usdgen_vulkan_sources
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceFactory.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceContext.cpp
@@ -145,39 +145,40 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     endif()
     _usdgen_hint_vulkan_loader()
     find_package(Vulkan 1.2 REQUIRED)
-    if(USDGEN_ENABLE_VULKAN_RUNTIME)
-        # Production: Vulkan objects live in libusdGen.so (mirrors the CUDA
-        # usdGenGpu pattern) so Sessions route without test-only injection.
-        # USDGEN_ENABLE_VULKAN_RUNTIME drives the contract like
-        # USDGEN_ENABLE_CUDA. The native lib stays as an INTERFACE alias so
-        # existing test links keep working without duplicate symbols.
-        # Gate B-1: Vulkan::Vulkan is a private system-loader link, not a
-        # usd/hd stage-family dependency, so the link-rule gate stays green.
-        target_sources(usdGen PRIVATE ${_usdgen_vulkan_sources})
-        target_compile_definitions(usdGen PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
-        target_link_libraries(usdGen PRIVATE Vulkan::Vulkan Threads::Threads)
-        add_library(usdGenVulkanNative INTERFACE)
-        target_link_libraries(usdGenVulkanNative INTERFACE
-            usdGen Vulkan::Vulkan Threads::Threads)
-        target_include_directories(usdGenVulkanNative INTERFACE
-            ${USDGEN_CORE_INCLUDE_DIRS}
-            "$<INSTALL_INTERFACE:include>")
-    else()
-        # Test-only: keep Vulkan out of the core (no SDK leakage into
-        # CPU/CUDA-only builds); tests share one native resource registry.
-        add_library(usdGenVulkanNative SHARED ${_usdgen_vulkan_sources})
-        target_link_libraries(usdGenVulkanNative PUBLIC Vulkan::Vulkan usdGen Threads::Threads)
-        target_link_libraries(usdGenVulkanNative PRIVATE usdGenMath)
-        target_include_directories(usdGenVulkanNative PUBLIC
-            ${USDGEN_CORE_INCLUDE_DIRS}
-            "$<INSTALL_INTERFACE:include>")
-        set_target_properties(usdGenVulkanNative PROPERTIES
-            POSITION_INDEPENDENT_CODE ON
-            WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    # usdGenVulkan (SHARED, step 8.2): the Vulkan runtime and, until step 8.6,
+    # the curve pipelines. The registry loads it after the primitives
+    # (USDGEN_DEFAULT_EXTENSIONS); its usdGenRegister adds the Vulkan kernel
+    # rows and, with the runtime on, registers the "vulkan" backend. Without
+    # the runtime (test-only builds) the backend stays unregistered and tests
+    # inject a provider. One DSO holds the canonical UUID registry.
+    add_library(usdGenVulkan SHARED ${_usdgen_vulkan_sources}
+        libs/core/backends/usdGenVulkan/usdGenVulkan/executionBackendVulkanProvider.cpp
+        libs/core/backends/usdGenVulkan/usdGenVulkan/registerCurvesVulkan.cpp
+        libs/core/backends/usdGenVulkan/usdGenVulkan/register.cpp)
+    # The primitives by name, not usdGenWithPrimitives: that target depends on
+    # this one so every consumer of the engine finds it built.
+    target_link_libraries(usdGenVulkan
+        PUBLIC usdGen Vulkan::Vulkan Threads::Threads
+        PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+    target_include_directories(usdGenVulkan PUBLIC
+        ${USDGEN_CORE_INCLUDE_DIRS}
+        "$<INSTALL_INTERFACE:include>")
+    set_target_properties(usdGenVulkan PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
+        target_link_options(usdGenVulkan PRIVATE "LINKER:--exclude-libs,ALL")
     endif()
-    # Compatibility target; registry storage belongs to the native runtime.
+    if(USDGEN_ENABLE_VULKAN_RUNTIME)
+        target_compile_definitions(usdGenVulkan PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
+    endif()
+    add_dependencies(usdGenWithPrimitives usdGenVulkan)
+    list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenVulkan)
+    # Test link lines name these; both are usdGenVulkan.
+    add_library(usdGenVulkanNative INTERFACE)
+    target_link_libraries(usdGenVulkanNative INTERFACE usdGenVulkan)
     add_library(usdGenVulkanFactory INTERFACE)
-    target_link_libraries(usdGenVulkanFactory INTERFACE usdGenVulkanNative)
+    target_link_libraries(usdGenVulkanFactory INTERFACE usdGenVulkan)
     find_program(USDGEN_GLSLANG_EXECUTABLE NAMES glslangValidator glslang glslc
         HINTS "$ENV{VULKAN_SDK}/bin" "${CMAKE_CURRENT_SOURCE_DIR}/.vulkan-toolchain/root/usr/bin" REQUIRED)
     find_program(USDGEN_SPIRV_VAL_EXECUTABLE NAMES spirv-val
@@ -261,19 +262,28 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     _usdgen_compile_vulkan_shader(stylevk_length styleVkLength)
     _usdgen_compile_vulkan_shader(stylevk_grow styleVkGrow)
     add_custom_target(usdGenVulkanShaders ALL DEPENDS ${_usdgen_vulkan_spirv_files})
+    add_dependencies(usdGenVulkan usdGenVulkanShaders)
     if(USDGEN_ENABLE_VULKAN_RUNTIME)
-        add_dependencies(usdGen usdGenVulkanShaders)
         install(FILES ${_usdgen_vulkan_spirv_files} DESTINATION share/usdGen/vulkan)
     endif()
     get_filename_component(_usdgen_vulkan_library_dir "${USDGEN_INSTALL_LIBDIR}"
         ABSOLUTE BASE_DIR "${CMAKE_INSTALL_PREFIX}")
     file(RELATIVE_PATH _usdgen_vulkan_shader_relative_dir
         "${_usdgen_vulkan_library_dir}" "${CMAKE_INSTALL_PREFIX}/share/usdGen/vulkan")
-    if(USDGEN_ENABLE_VULKAN_RUNTIME)
-        target_compile_definitions(usdGen PRIVATE
-            USDGEN_VULKAN_SHADER_RELATIVE_DIR="${_usdgen_vulkan_shader_relative_dir}")
-    else()
-        target_compile_definitions(usdGenVulkanNative PRIVATE
-            USDGEN_VULKAN_SHADER_RELATIVE_DIR="${_usdgen_vulkan_shader_relative_dir}")
-    endif()
+    target_compile_definitions(usdGenVulkan PRIVATE
+        USDGEN_VULKAN_SHADER_RELATIVE_DIR="${_usdgen_vulkan_shader_relative_dir}")
 endif()
+
+# The extensions usdGen loads from its own directory when USDGEN_EXTENSIONS
+# is unset, in load order: file names joined by '|' (registrar.cpp).
+set(_usdgen_default_extensions "")
+foreach(_t IN LISTS USDGEN_DEFAULT_EXTENSION_TARGETS)
+    if(_usdgen_default_extensions STREQUAL "")
+        set(_usdgen_default_extensions "$<TARGET_FILE_NAME:${_t}>")
+    else()
+        string(APPEND _usdgen_default_extensions "|$<TARGET_FILE_NAME:${_t}>")
+    endif()
+endforeach()
+set_property(SOURCE libs/core/usdGen/usdGen/registries/registrar.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS "USDGEN_DEFAULT_EXTENSIONS=\"${_usdgen_default_extensions}\"")
+unset(_usdgen_default_extensions)

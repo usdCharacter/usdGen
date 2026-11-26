@@ -78,12 +78,9 @@ target_link_libraries(usdGenCurves
     PUBLIC usdGen usdGenSurface usdGenExpr
     PRIVATE usdGenMath arch work trace usdGen_seexpr ${CMAKE_DL_LIBS})
 # usdGen loads them at registry build (UsdGenEngineEnsureInitialized), from
-# its own directory, in this order.
-set_property(SOURCE libs/core/usdGen/usdGen/registries/registrar.cpp APPEND PROPERTY
-    COMPILE_DEFINITIONS
-    "USDGEN_SURFACE_FILE=\"$<TARGET_FILE_NAME:usdGenSurface>\""
-    "USDGEN_EXPR_FILE=\"$<TARGET_FILE_NAME:usdGenExpr>\""
-    "USDGEN_CURVES_FILE=\"$<TARGET_FILE_NAME:usdGenCurves>\"")
+# its own directory, in this order; the backend files follow (cuda.cmake,
+# vulkan.cmake append, vulkan.cmake writes USDGEN_DEFAULT_EXTENSIONS).
+set(USDGEN_DEFAULT_EXTENSION_TARGETS usdGenSurface usdGenExpr usdGenCurves)
 # What hosts and tests link instead of usdGen (step 6.4).
 add_library(usdGenWithPrimitives INTERFACE)
 target_link_libraries(usdGenWithPrimitives INTERFACE usdGen usdGenSurface usdGenExpr usdGenCurves)

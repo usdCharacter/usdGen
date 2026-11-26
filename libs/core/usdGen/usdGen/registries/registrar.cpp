@@ -345,14 +345,20 @@ void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, std::string *error)
             begin = end + 1;
         }
     } else {
-        std::string const dir = EngineDirectory();
-        char const *const files[] = {
-#if defined(USDGEN_SURFACE_FILE) && defined(USDGEN_EXPR_FILE) && defined(USDGEN_CURVES_FILE)
-            USDGEN_SURFACE_FILE, USDGEN_EXPR_FILE, USDGEN_CURVES_FILE,
+#if defined(USDGEN_DEFAULT_EXTENSIONS)
+        // File names joined by '|', in load order (CMake).
+        std::string const files(USDGEN_DEFAULT_EXTENSIONS);
+#else
+        std::string const files;
 #endif
-            nullptr};
-        if (dir.empty() && files[0]) *error = "cannot locate usdGen's directory";
-        for (char const *const *f = files; *f && !dir.empty(); ++f) paths.push_back(dir + *f);
+        std::string const dir = EngineDirectory();
+        if (dir.empty() && !files.empty()) *error = "cannot locate usdGen's directory";
+        for (size_t begin = 0; !dir.empty() && begin < files.size();) {
+            size_t end = files.find('|', begin);
+            if (end == std::string::npos) end = files.size();
+            if (end > begin) paths.push_back(dir + files.substr(begin, end - begin));
+            begin = end + 1;
+        }
     }
     for (std::string const &path : paths) {
         std::string message;

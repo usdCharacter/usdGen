@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Vulkan kernel rows: the backend stage of each op the lane lowers, backend
 // parameter indices (UsdGenKernelDef::paramMap) and the lane's vocabulary.
-// No Vulkan SDK types: ops/registerCurvesVulkan.cpp builds into the core.
+// No Vulkan SDK types. Defined in usdGenVulkan (registerCurvesVulkan.cpp).
 #pragma once
-#include "usdGen/export.h"
+#include "usdGenVulkan/export.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
 
@@ -50,7 +50,7 @@ struct UsdGenVulkanTokens {
         lengthTransform /* VulkanLengthTransform */, publication /* VulkanPublication */;
 };
 
-USDGEN_CORE_API UsdGenVulkanTokens const &UsdGenVkTokens() noexcept;
+USDGEN_VULKAN_API UsdGenVulkanTokens const &UsdGenVkTokens() noexcept;
 
 /// One op's Vulkan kernel row; empty when the op has none.
 struct UsdGenVulkanKernel {
@@ -77,11 +77,11 @@ struct UsdGenVulkanKernel {
 };
 
 /// The Vulkan kernel of the op named type. Pointer probes; never interns.
-USDGEN_CORE_API UsdGenVulkanKernel UsdGenVulkanKernelOf(TfToken const &type) noexcept;
+USDGEN_VULKAN_API UsdGenVulkanKernel UsdGenVulkanKernelOf(TfToken const &type) noexcept;
 /// The first op whose Vulkan kernel has stage s.
-USDGEN_CORE_API UsdGenVulkanKernel UsdGenVulkanKernelFor(UsdGenVulkanStage s) noexcept;
+USDGEN_VULKAN_API UsdGenVulkanKernel UsdGenVulkanKernelFor(UsdGenVulkanStage s) noexcept;
 
-/// Op ids the Vulkan kernels attach to (ops/registerCurves.cpp).
+/// Op ids the Vulkan kernels attach to (register.cpp).
 struct UsdGenVulkanKernelOps {
     UsdGenOpId curveSource = UsdGenOpId::Invalid, referenceSource = UsdGenOpId::Invalid,
                scatter = UsdGenOpId::Invalid, grow = UsdGenOpId::Invalid,

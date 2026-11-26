@@ -7,6 +7,7 @@
 // usdGenRegister. "defaults": the registry build loads the three from
 // usdGen's directory.
 
+#include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/publisher.h"
 #include "usdGen/registries/registrar.h"
@@ -96,6 +97,18 @@ int RunDefaults()
     Check(UsdGenEngineEnsureInitialized(&error) && error.empty(),
           "default extensions load from usdGen's directory: " + error);
     CheckPrimitives("defaults");
+    Check(UsdGenFindBackend(TfToken("cpu")) == kUsdGenBackendCpu &&
+              UsdGenGetBackend(kUsdGenBackendCpu) == nullptr,
+          "defaults: the CPU is built in");
+    Check(UsdGenFindBackend(TfToken("noSuchBackend")) == UsdGenBackendId::Invalid,
+          "defaults: an unregistered name finds no backend");
+#if defined(USDGEN_TEST_VULKAN_BACKEND)
+    UsdGenBackendId const vk = UsdGenFindBackend(TfToken("vulkan"));
+    UsdGenBackendDef const *def = UsdGenGetBackend(vk);
+    Check(vk != UsdGenBackendId::Invalid && def && def->createProvider &&
+              std::strcmp(UsdGenBackendName(vk), "vulkan") == 0,
+          "defaults: usdGenVulkan loads from usdGen's directory and registers its backend");
+#endif
     return 0;
 }
 

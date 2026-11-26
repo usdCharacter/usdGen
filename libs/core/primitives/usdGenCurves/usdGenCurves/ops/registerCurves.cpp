@@ -8,6 +8,7 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGenCurves/export.h"
 #include "usdGenCuda/cudaStages.h"
+#include "usdGenCurves/ops/kernelOps.h"
 #include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -48,11 +49,13 @@
 #include "usdGenCurves/ops/frizz.h"
 #include "usdGenCurves/ops/tieClump.h"
 #include "usdGenCurves/ops/cardSource.h"
-#include "usdGenVulkan/vulkan/vkStages.h"
 
 using namespace usdGen;
 
 namespace {
+
+// Written by usdGenRegister (before the freeze); read after it.
+UsdGenCurvesKernelOps gKernelOps;
 
 void RegisterMapTypes(UsdGenRegistrar &r)
 {
@@ -73,6 +76,11 @@ void RegisterMapTypes(UsdGenRegistrar &r)
 
 }  // namespace
 
+UsdGenCurvesKernelOps const &usdGen::UsdGenCurvesBuiltinKernelOps() noexcept
+{
+    return gKernelOps;
+}
+
 extern "C" USDGEN_CURVES_API void usdGenRegister_usdGenCurves(UsdGenRegistrar &r);
 extern "C" USDGEN_CURVES_API void usdGenRegister(UsdGenRegistrar &r);
 
@@ -85,7 +93,7 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
     UsdGenRegisterCurveSetType(r);   // first: op defs name its type
     UsdGenRegisterCurvePublisher(r);
-    UsdGenVulkanKernelOps k;
+    UsdGenCurvesKernelOps &k = gKernelOps;
     k.scatter = UsdGenRegisterScatterOp(r);
     k.grow = UsdGenRegisterGrowOp(r);
     k.noise = UsdGenRegisterNoiseOp(r);
@@ -137,5 +145,4 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     cuda.deform = k.deform;
     cuda.referenceSource = k.referenceSource;
     UsdGenRegisterCurvesCuda(r, cuda);
-    UsdGenRegisterVulkanKernels(r, k);
 }
