@@ -107,10 +107,23 @@ struct Registered {
     UsdGenTypeId type = UsdGenTypeId::Invalid;
     UsdGenTypeId typeDuplicate = UsdGenTypeId::Invalid;
     bool kernel = false, kernelDuplicate = true, kernelBadOp = true;
+    bool evaluatorDuplicate = true, evaluatorNoCreate = true;
+    bool publisher = false, publisherDuplicate = true, publisherBadType = true,
+         publisherNoBuild = true;
     UsdGenRegistrar *saved = nullptr;    // a copy, for post-freeze calls
 } g_reg;
 
 std::vector<UsdGenParamDecl> g_many;
+
+UsdGenRef<const UsdGenPublication> BuildNothing(UsdGenPublishContext const &)
+{
+    return {};
+}
+
+std::unique_ptr<UsdGenParamEvaluatorState> CreateNoEvaluator()
+{
+    return nullptr;
+}
 
 void RegisterTestLibrary(UsdGenRegistrar &r)
 {
@@ -164,12 +177,31 @@ void RegisterTestLibrary(UsdGenRegistrar &r)
     g_reg.kernel = r.RegisterKernel(g_reg.test, UsdGenBackendId(0), k);
     g_reg.kernelDuplicate = r.RegisterKernel(g_reg.test, UsdGenBackendId(0), k);
     g_reg.kernelBadOp = r.RegisterKernel(UsdGenOpId(kUsdGenMaxOps - 1), UsdGenBackendId(0), k);
+
+    UsdGenParamEvaluatorDef evaluator;
+    g_reg.evaluatorNoCreate = r.RegisterParamEvaluator(evaluator);
+    evaluator.create = &CreateNoEvaluator;
+    g_reg.evaluatorDuplicate = r.RegisterParamEvaluator(evaluator);   // usdGenExpr's is first
+
+    UsdGenPublisherDef publisher;
+    publisher.primitive = g_reg.type;
+    g_reg.publisherNoBuild = r.RegisterPublisher(publisher);
+    publisher.build = &BuildNothing;
+    g_reg.publisher = r.RegisterPublisher(publisher);
+    g_reg.publisherDuplicate = r.RegisterPublisher(publisher);
+    publisher.primitive = UsdGenTypeId(kUsdGenMaxTypes - 1);
+    g_reg.publisherBadType = r.RegisterPublisher(publisher);
     g_reg.saved = new UsdGenRegistrar(r);
 }
 
 void TestRegistration()
 {
+    std::string error = "unset";
+    Check(UsdGenEngineEnsureInitialized(&error) && error.empty(), "UsdGenEngineEnsureInitialized");
+    Check(UsdGenEngineEnsureInitialized(), "UsdGenEngineEnsureInitialized is idempotent");
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    Check(ops.ParamEvaluator().create != nullptr, "usdGenExpr registers the parameter evaluator");
+    Check(UsdGenCreateParamEvaluatorState() != nullptr, "an evaluator state is made");
     Check(ops.Count() == 32, "32 built-in ops registered, got " + std::to_string(ops.Count()));
     Check(!ops.IsFrozen(), "registry is open before the first compile");
     Check(UsdGenRegisterStatic(&RegisterTestLibrary), "UsdGenRegisterStatic");
@@ -186,6 +218,15 @@ void TestRegistration()
           "type registers once");
     Check(g_reg.kernel && !g_reg.kernelDuplicate && !g_reg.kernelBadOp,
           "kernel registers once, only for a registered op");
+    Check(!g_reg.evaluatorNoCreate && !g_reg.evaluatorDuplicate,
+          "one parameter evaluator, with a create");
+    Check(ops.ParamEvaluator().create != &CreateNoEvaluator, "the first evaluator stays");
+    Check(g_reg.publisher && !g_reg.publisherDuplicate && !g_reg.publisherBadType &&
+              !g_reg.publisherNoBuild,
+          "publisher registers once, only for a registered type, with a build");
+    UsdGenPublisherDef const *found = UsdGenFindPublisher(g_reg.type);
+    Check(found && found->build == &BuildNothing, "UsdGenFindPublisher");
+    Check(!UsdGenFindPublisher(UsdGenTypeId::Invalid), "no publisher for Invalid");
 }
 
 void TestDenseHandles()
@@ -478,6 +519,10 @@ void TestFrozen()
     Check(g_reg.saved->RegisterType(t) == UsdGenTypeId::Invalid, "RegisterType after freeze");
     Check(!g_reg.saved->RegisterKernel(g_reg.plain, UsdGenBackendId(0), UsdGenKernelDef{}),
           "RegisterKernel after freeze");
+    UsdGenPublisherDef publisher;
+    publisher.primitive = UsdGenTypeId(0);   // registered, no publisher yet
+    publisher.build = &BuildNothing;
+    Check(!g_reg.saved->RegisterPublisher(publisher), "RegisterPublisher after freeze");
     Check(ops.Count() == count, "nothing registered after freeze");
     UsdGenFreezeRegistries();   // idempotent
     TestInterner();

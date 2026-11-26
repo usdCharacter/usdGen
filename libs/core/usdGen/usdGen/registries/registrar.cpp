@@ -22,6 +22,9 @@ void UsdGenFreezeExecutionBackendRegistry() noexcept;              // executionB
 
 namespace {
 
+// Written by registration only (before the freeze); read after it.
+UsdGenPublisherDef gPublishers[kUsdGenMaxTypes];
+
 TfToken InternPlaneRate(UsdGenPlaneRate rate)
 {
     UsdGenEngineTokens const &t = UsdGenTokens();
@@ -197,10 +200,33 @@ bool UsdGenRegistrar::RegisterParamEvaluator(UsdGenParamEvaluatorDef const &def)
     return true;
 }
 
+bool UsdGenRegistrar::RegisterPublisher(UsdGenPublisherDef const &def)
+{
+    uint32_t const t = UsdGenIndex(def.primitive);
+    if (_ops->IsFrozen() || !def.build || def.primitive == UsdGenTypeId::Invalid ||
+        t >= UsdGenMutableTypeRegistry().Count() || gPublishers[t].build)
+        return false;
+    gPublishers[t] = def;
+    return true;
+}
+
+UsdGenPublisherDef const *UsdGenFindPublisher(UsdGenTypeId primitive) noexcept
+{
+    uint32_t const t = UsdGenIndex(primitive);
+    return t < kUsdGenMaxTypes && gPublishers[t].build ? &gPublishers[t] : nullptr;
+}
+
 std::unique_ptr<UsdGenParamEvaluatorState> UsdGenCreateParamEvaluatorState()
 {
     UsdGenParamEvaluatorDef const &def = UsdGenOpRegistry::Get().ParamEvaluator();
     return def.create ? def.create() : nullptr;
+}
+
+bool UsdGenEngineEnsureInitialized(std::string *error)
+{
+    (void)UsdGenOpRegistry::Get();
+    if (error) error->clear();
+    return true;
 }
 
 bool UsdGenRegisterStatic(UsdGenRegisterFn fn)

@@ -12,6 +12,7 @@
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/paramEvaluator.h"
+#include "usdGen/registries/publisher.h"
 #include "usdGen/registries/typeRegistry.h"
 #include <string>
 
@@ -29,6 +30,9 @@ public:
     bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
     /// One per engine; false on a second one, a missing create, or after freeze.
     bool RegisterParamEvaluator(UsdGenParamEvaluatorDef const &);
+    /// One per primitive type; false on a second one for the type, an
+    /// unregistered type, a missing build, or after freeze.
+    bool RegisterPublisher(UsdGenPublisherDef const &);
 private:
     friend bool UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
     friend class UsdGenOpRegistry;
@@ -40,6 +44,12 @@ using UsdGenRegisterFn = void (*)(UsdGenRegistrar &);
 USDGEN_CORE_API bool UsdGenLoadExtension(std::string const &path, std::string *error);
 USDGEN_CORE_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
+
+/// Builds the registries with the statically linked extensions (usdGenCurves,
+/// usdGenExpr). Idempotent and lock-free; every registry lookup calls it
+/// implicitly. Freezing stays with the first compile, so extensions and tests
+/// can register after it.
+USDGEN_CORE_API bool UsdGenEngineEnsureInitialized(std::string *error = nullptr);
 
 }  // namespace usdGen
 
