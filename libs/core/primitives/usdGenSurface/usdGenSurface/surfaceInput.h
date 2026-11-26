@@ -6,6 +6,7 @@
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
 #include "usdGen/compile/types.h"
+#include "usdGenSurface/export.h"
 #include "usdGen/registries/engineTokens.h"
 
 
@@ -107,8 +108,8 @@ enum UsdGenSurfaceInputValue : uint8_t {
     kUsdGenSurfaceValues
 };
 
-USDGEN_CORE_API UsdGenTypeId UsdGenSurfaceInputKind() noexcept;
-USDGEN_CORE_API UsdGenTypeId UsdGenRegisterSurfaceInputKind(UsdGenRegistrar &);
+USDGEN_SURFACE_API UsdGenTypeId UsdGenSurfaceInputKind() noexcept;
+USDGEN_SURFACE_API UsdGenTypeId UsdGenRegisterSurfaceInputKind(UsdGenRegistrar &);
 
 /// One surface sample, read from a record or a payload.
 struct UsdGenSurfaceSampleView
@@ -122,11 +123,11 @@ class UsdGenSurfaceSamples
 {
 public:
     UsdGenSurfaceSamples() noexcept = default;
-    USDGEN_CORE_API static UsdGenSurfaceSamples Of(UsdGenInputRecord const &) noexcept;
-    USDGEN_CORE_API static UsdGenSurfaceSamples Of(std::vector<UsdGenSurfaceSample> const &) noexcept;
+    USDGEN_SURFACE_API static UsdGenSurfaceSamples Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_SURFACE_API static UsdGenSurfaceSamples Of(std::vector<UsdGenSurfaceSample> const &) noexcept;
     size_t size() const noexcept { return _count; }
     bool empty() const noexcept { return _count == 0; }
-    USDGEN_CORE_API UsdGenSurfaceSampleView operator[](size_t i) const noexcept;
+    USDGEN_SURFACE_API UsdGenSurfaceSampleView operator[](size_t i) const noexcept;
     UsdGenSurfaceSampleView front() const noexcept { return (*this)[0]; }
     UsdGenSurfaceSampleView back() const noexcept { return (*this)[_count - 1]; }
     class iterator
@@ -165,8 +166,8 @@ struct UsdGenSurfaceInputView
     UsdGenSurfaceInputView() = default;
     /// The view of a record (Of(record)); implicit so a record passes where a view is read.
     UsdGenSurfaceInputView(UsdGenInputRecord const &record) noexcept : UsdGenSurfaceInputView(Of(record)) {}
-    USDGEN_CORE_API static UsdGenSurfaceInputView Of(UsdGenInputRecord const &) noexcept;
-    USDGEN_CORE_API static UsdGenSurfaceInputView Of(UsdGenSurfaceData const &,
+    USDGEN_SURFACE_API static UsdGenSurfaceInputView Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_SURFACE_API static UsdGenSurfaceInputView Of(UsdGenSurfaceData const &,
                                                      UsdGenNodeKey key = {},
                                                      UsdGenNodeKey owner = {}) noexcept;
 
@@ -214,26 +215,26 @@ inline UsdGenNodeKey UsdGenSurfaceMeshKey(UsdGenSurfaceInputView const &surface)
 }
 
 /// Every surface input of 'spec'; a surface's id is its index here.
-USDGEN_CORE_API UsdGenSpan<const UsdGenInputRecord> UsdGenSurfaceInputs(UsdGenGraphSpec const &spec) noexcept;
+USDGEN_SURFACE_API UsdGenSpan<const UsdGenInputRecord> UsdGenSurfaceInputs(UsdGenGraphSpec const &spec) noexcept;
 /// The view of surface 'id' (its index), else an empty view.
-USDGEN_CORE_API UsdGenSurfaceInputView UsdGenSurfaceAt(UsdGenGraphSpec const &spec, size_t id) noexcept;
+USDGEN_SURFACE_API UsdGenSurfaceInputView UsdGenSurfaceAt(UsdGenGraphSpec const &spec, size_t id) noexcept;
 /// The surface input 'key', else null.
-USDGEN_CORE_API UsdGenInputRecord const *UsdGenFindSurfaceInput(UsdGenGraphSpec const &spec,
+USDGEN_SURFACE_API UsdGenInputRecord const *UsdGenFindSurfaceInput(UsdGenGraphSpec const &spec,
                                                                 UsdGenNodeKey key) noexcept;
 /// Sets the compiler-assigned id of a surface record. No allocation.
-USDGEN_CORE_API void UsdGenSetSurfaceId(UsdGenInputRecord &record, UsdGenSurfaceId id) noexcept;
+USDGEN_SURFACE_API void UsdGenSetSurfaceId(UsdGenInputRecord &record, UsdGenSurfaceId id) noexcept;
 
 /// Packs 'data' into a UsdGenSurfaceInput record. Compile phase: allocates.
-USDGEN_CORE_API UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &data,
+USDGEN_SURFACE_API UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &data,
                                                       UsdGenNodeKey key, UsdGenNodeKey owner,
                                                       TfToken const &label,
                                                       UsdGenInputColumnCache *cache = nullptr);
 /// The Default-space variant of a surface record: points (and the one sample
 /// kept) are its rest points, no velocities, a rest-content generation.
 /// Shares every column; false (no record) when the surface has no usable rest.
-USDGEN_CORE_API bool UsdGenRestSurfaceRecord(UsdGenInputRecord const &posed, UsdGenInputRecord *out);
+USDGEN_SURFACE_API bool UsdGenRestSurfaceRecord(UsdGenInputRecord const &posed, UsdGenInputRecord *out);
 
 /// Copies a view's arrays into a payload (engine-made variants of an input).
-USDGEN_CORE_API void UsdGenCopySurfaceData(UsdGenSurfaceInputView const &view, UsdGenSurfaceData *out);
+USDGEN_SURFACE_API void UsdGenCopySurfaceData(UsdGenSurfaceInputView const &view, UsdGenSurfaceData *out);
 
 }  // namespace usdGen

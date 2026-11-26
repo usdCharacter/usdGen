@@ -6,6 +6,7 @@
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
 #include "usdGen/registries/engineTokens.h"
+#include "usdGenExpr/export.h"
 #include "usdGenExpr/expressions/context.h"
 
 
@@ -32,8 +33,8 @@ struct UsdGenExpressionSlot
     std::vector<UsdGenNodeKey> maps;
 };
 
-USDGEN_CORE_API bool operator==(UsdGenExpressionOutputDesc const &, UsdGenExpressionOutputDesc const &) noexcept;
-USDGEN_CORE_API bool operator==(UsdGenExpressionSlot const &, UsdGenExpressionSlot const &) noexcept;
+USDGEN_EXPR_API bool operator==(UsdGenExpressionOutputDesc const &, UsdGenExpressionOutputDesc const &) noexcept;
+USDGEN_EXPR_API bool operator==(UsdGenExpressionSlot const &, UsdGenExpressionSlot const &) noexcept;
 inline bool operator!=(UsdGenExpressionOutputDesc const &a, UsdGenExpressionOutputDesc const &b) noexcept { return !(a == b); }
 inline bool operator!=(UsdGenExpressionSlot const &a, UsdGenExpressionSlot const &b) noexcept { return !(a == b); }
 
@@ -134,10 +135,10 @@ enum UsdGenGeometryInputValue : uint8_t {
     kUsdGenGeometryValues
 };
 
-USDGEN_CORE_API UsdGenTypeId UsdGenExpressionInputKind() noexcept;
-USDGEN_CORE_API UsdGenTypeId UsdGenGeometryInputKind() noexcept;
+USDGEN_EXPR_API UsdGenTypeId UsdGenExpressionInputKind() noexcept;
+USDGEN_EXPR_API UsdGenTypeId UsdGenGeometryInputKind() noexcept;
 /// Registers "UsdGenExpressionInput" and "UsdGenGeometryInput".
-USDGEN_CORE_API void UsdGenRegisterExprInputKinds(UsdGenRegistrar &);
+USDGEN_EXPR_API void UsdGenRegisterExprInputKinds(UsdGenRegistrar &);
 
 /// Read view of an expression input. Non-owning: valid while its record (or
 /// payload) lives. No allocation.
@@ -146,8 +147,8 @@ struct UsdGenExpressionInputView
     UsdGenExpressionInputView() = default;
     /// The view of a record (Of(record)); implicit so a record passes where a view is read.
     UsdGenExpressionInputView(UsdGenInputRecord const &record) noexcept : UsdGenExpressionInputView(Of(record)) {}
-    USDGEN_CORE_API static UsdGenExpressionInputView Of(UsdGenInputRecord const &) noexcept;
-    USDGEN_CORE_API static UsdGenExpressionInputView Of(UsdGenExpressionData const &,
+    USDGEN_EXPR_API static UsdGenExpressionInputView Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_EXPR_API static UsdGenExpressionInputView Of(UsdGenExpressionData const &,
                                                         UsdGenNodeKey key = {}) noexcept;
     UsdGenNodeKey key;
     std::string_view source;
@@ -163,8 +164,8 @@ struct UsdGenGeometryInputView
     UsdGenGeometryInputView() = default;
     /// The view of a record (Of(record)); implicit so a record passes where a view is read.
     UsdGenGeometryInputView(UsdGenInputRecord const &record) noexcept : UsdGenGeometryInputView(Of(record)) {}
-    USDGEN_CORE_API static UsdGenGeometryInputView Of(UsdGenInputRecord const &) noexcept;
-    USDGEN_CORE_API static UsdGenGeometryInputView Of(UsdGenGeometryData const &,
+    USDGEN_EXPR_API static UsdGenGeometryInputView Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_EXPR_API static UsdGenGeometryInputView Of(UsdGenGeometryData const &,
                                                       UsdGenNodeKey key = {}) noexcept;
     UsdGenNodeKey key;
     UsdGenGeometryKind kind = UsdGenGeometryKind::Points;
@@ -178,15 +179,15 @@ struct UsdGenGeometryInputView
     UsdGenRef<const UsdGenElementSet> data;   // keeps a record's columns alive
 };
 
-USDGEN_CORE_API UsdGenSpan<const UsdGenInputRecord> UsdGenExpressionInputs(UsdGenGraphSpec const &) noexcept;
-USDGEN_CORE_API UsdGenSpan<const UsdGenInputRecord> UsdGenGeometryInputs(UsdGenGraphSpec const &) noexcept;
-USDGEN_CORE_API UsdGenInputRecord const *UsdGenFindExpressionInput(UsdGenGraphSpec const &, UsdGenNodeKey) noexcept;
-USDGEN_CORE_API UsdGenInputRecord const *UsdGenFindGeometryInput(UsdGenGraphSpec const &, UsdGenNodeKey) noexcept;
+USDGEN_EXPR_API UsdGenSpan<const UsdGenInputRecord> UsdGenExpressionInputs(UsdGenGraphSpec const &) noexcept;
+USDGEN_EXPR_API UsdGenSpan<const UsdGenInputRecord> UsdGenGeometryInputs(UsdGenGraphSpec const &) noexcept;
+USDGEN_EXPR_API UsdGenInputRecord const *UsdGenFindExpressionInput(UsdGenGraphSpec const &, UsdGenNodeKey) noexcept;
+USDGEN_EXPR_API UsdGenInputRecord const *UsdGenFindGeometryInput(UsdGenGraphSpec const &, UsdGenNodeKey) noexcept;
 
 /// Packers. Compile phase: allocate.
-USDGEN_CORE_API UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &data,
+USDGEN_EXPR_API UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &data,
                                                          UsdGenNodeKey key, TfToken const &label);
-USDGEN_CORE_API UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &data,
+USDGEN_EXPR_API UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &data,
                                                        UsdGenNodeKey key, TfToken const &label,
                                                        UsdGenInputColumnCache *cache = nullptr);
 

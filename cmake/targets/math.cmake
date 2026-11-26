@@ -88,16 +88,17 @@ if(_usdgen_host_expr_fp_options)
     # Keep these source-local; unrelated engine arithmetic is unchanged.
     # Grouped by the target that compiles them (step 6.4); source properties,
     # so a file keeps its policy when it changes target.
-    # usdGen: engine-resident primitive sources and the Vulkan backend.
-    set(_usdgen_fp_usdGen_sources
-        libs/core/primitives/usdGenCurves/usdGenCurves/ops/strandUtil.cpp
-        libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatterModes.cpp
-        libs/core/primitives/usdGenExpr/usdGenExpr/expressions/frontend.cpp
+    # usdGenSurface.
+    set(_usdgen_fp_usdGenSurface_sources
+        libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatterModes.cpp)
+    # usdGenVulkan.
+    set(_usdgen_fp_usdGenVulkan_sources
         libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp
         libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkParameters.cpp
         libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkRun.cpp
         libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp)
     set(_usdgen_fp_usdGenExpr_sources
+        libs/core/primitives/usdGenExpr/usdGenExpr/expressions/frontend.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/expressions/samplers.cpp)
@@ -108,10 +109,11 @@ if(_usdgen_host_expr_fp_options)
         tests/testUsdGenExpressionSamplers.cpp
         tests/testUsdGenCudaExpressionParity.cpp
         tests/testUsdGenVulkanExprVkParityOracle.cpp)
-    # usdGenCurves. strandUtil (above) and the imported-groom kernels
-    # reproduce a reference generator bit for bit; keep their float
-    # evaluation order independent of the toolchain.
+    # usdGenCurves. strandUtil and the imported-groom kernels reproduce a
+    # reference generator bit for bit; keep their float evaluation order
+    # independent of the toolchain.
     set(_usdgen_fp_usdGenCurves_sources
+        libs/core/primitives/usdGenCurves/usdGenCurves/ops/strandUtil.cpp
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise.cpp
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/wholeStrand.cpp
@@ -127,8 +129,8 @@ if(_usdgen_host_expr_fp_options)
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardSource.cpp
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardGeometry.cpp)
     set_property(SOURCE
-        ${_usdgen_fp_usdGenMath_sources}
-        ${_usdgen_fp_usdGen_sources} ${_usdgen_fp_usdGenExpr_sources}
+        ${_usdgen_fp_usdGenMath_sources} ${_usdgen_fp_usdGenSurface_sources}
+        ${_usdgen_fp_usdGenVulkan_sources} ${_usdgen_fp_usdGenExpr_sources}
         ${_usdgen_fp_usdGenCurves_sources} ${_usdgen_fp_tests_sources}
         APPEND PROPERTY COMPILE_OPTIONS ${_usdgen_host_expr_fp_options})
 endif()

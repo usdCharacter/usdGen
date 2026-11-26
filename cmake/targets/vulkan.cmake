@@ -160,7 +160,8 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         PUBLIC usdGen Vulkan::Vulkan Threads::Threads
         PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
     target_include_directories(usdGenVulkan PUBLIC
-        ${USDGEN_CORE_INCLUDE_DIRS}
+        ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan>
         "$<INSTALL_INTERFACE:include>")
     set_target_properties(usdGenVulkan PROPERTIES
         POSITION_INDEPENDENT_CODE ON

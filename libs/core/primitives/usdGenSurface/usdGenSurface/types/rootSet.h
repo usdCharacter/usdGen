@@ -6,7 +6,7 @@
 // UsdGenRootSetView. No pxr include and no curves header here.
 #pragma once
 #include "usdGen/api/elementSet.h"
-#include "usdGen/api/export.h"
+#include "usdGenSurface/export.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
@@ -36,19 +36,19 @@ enum UsdGenRootSlot : UsdGenSlot {
 };
 
 /// "UsdGenRootSet": op ports name the type through this.
-USDGEN_CORE_API char const *UsdGenRootSetTypeName() noexcept;
+USDGEN_SURFACE_API char const *UsdGenRootSetTypeName() noexcept;
 /// Valid once UsdGenRegisterRootSetType ran (the op registry's first use).
-USDGEN_CORE_API UsdGenTypeId UsdGenRootSetType() noexcept;
-USDGEN_CORE_API UsdGenElementLayout const &UsdGenRootSetLayout() noexcept;
+USDGEN_SURFACE_API UsdGenTypeId UsdGenRootSetType() noexcept;
+USDGEN_SURFACE_API UsdGenElementLayout const &UsdGenRootSetLayout() noexcept;
 /// Interns the static channel names and registers "UsdGenRootSet". Idempotent.
-USDGEN_CORE_API UsdGenTypeId UsdGenRegisterRootSetType(UsdGenRegistrar &);
+USDGEN_SURFACE_API UsdGenTypeId UsdGenRegisterRootSetType(UsdGenRegistrar &);
 
 /// Partition hook: chunks of params.chunkSize roots; no sub-items.
-USDGEN_CORE_API uint32_t UsdGenRootSetPartition(uint32_t elements, UsdGenElementSetView const &set,
+USDGEN_SURFACE_API uint32_t UsdGenRootSetPartition(uint32_t elements, UsdGenElementSetView const &set,
                                                 UsdGenPartitionParams const &,
                                                 UsdGenSpan<UsdGenChunkRange> out);
 /// Group hook: groupTarget chunks per group, the last group takes the rest.
-USDGEN_CORE_API uint32_t UsdGenRootSetGroups(uint32_t chunks, UsdGenPartitionParams const &,
+USDGEN_SURFACE_API uint32_t UsdGenRootSetGroups(uint32_t chunks, UsdGenPartitionParams const &,
                                              UsdGenSpan<UsdGenChunkGroup> out);
 
 /// A per-root dynamic channel (levels 0-1, name order).
@@ -67,7 +67,7 @@ struct UsdGenRootPlaneView {
 /// layouts, the engine stores Scatter's roots in the graph's partition layout).
 /// Anything else yields an empty view (totalCurves 0, valid false).
 struct UsdGenRootSetView {
-    USDGEN_CORE_API static UsdGenRootSetView Of(UsdGenElementSetView const &) noexcept;
+    USDGEN_SURFACE_API static UsdGenRootSetView Of(UsdGenElementSetView const &) noexcept;
     static UsdGenRootSetView Of(UsdGenElementSet const &s) noexcept { return Of(s.View()); }
     UsdGenSpan<const float> px, py, pz;
     UsdGenSpan<const uint64_t> curveId;
@@ -77,8 +77,8 @@ struct UsdGenRootSetView {
     uint32_t totalCurves = 0;              // roots
     uint64_t topologyVersion = 0, valueVersion = 0;
     bool valid = false;
-    USDGEN_CORE_API uint32_t PlaneCount() const noexcept;
-    USDGEN_CORE_API UsdGenRootPlaneView Plane(uint32_t) const noexcept;
+    USDGEN_SURFACE_API uint32_t PlaneCount() const noexcept;
+    USDGEN_SURFACE_API UsdGenRootPlaneView Plane(uint32_t) const noexcept;
 private:
     UsdGenElementSetView _set{};
 };
@@ -86,7 +86,7 @@ private:
 /// Copies a view into a fresh RootSet (one arena, static channels and
 /// per-root planes); null when the view is invalid. Allocates: capture,
 /// compile and test time only.
-USDGEN_CORE_API UsdGenRef<const UsdGenElementSet>
+USDGEN_SURFACE_API UsdGenRef<const UsdGenElementSet>
 UsdGenRootSetFromView(UsdGenRootSetView const &, uint64_t topologyVersion, uint64_t valueVersion);
 
 }  // namespace usdGen

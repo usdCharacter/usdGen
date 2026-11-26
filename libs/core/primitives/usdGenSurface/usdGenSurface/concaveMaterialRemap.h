@@ -2,7 +2,7 @@
 #ifndef USDGEN_CONCAVE_MATERIAL_REMAP_H
 #define USDGEN_CONCAVE_MATERIAL_REMAP_H
 
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
@@ -20,7 +20,7 @@ namespace usdGen {
 /// retaining its original input slot IDs.  Collinear boundary slots remain in
 /// the resulting nondegenerate triangles.  `triangles` is unchanged on
 /// failure, including self-intersecting or collapsed input polygons.
-USDGEN_CORE_API bool UsdGenTriangulateConcaveMaterialSlots(
+USDGEN_SURFACE_API bool UsdGenTriangulateConcaveMaterialSlots(
     std::vector<GfVec2f> const &actual, std::vector<std::array<int, 3>> *triangles,
     std::string *error = nullptr);
 
@@ -28,7 +28,7 @@ USDGEN_CORE_API bool UsdGenTriangulateConcaveMaterialSlots(
 /// polygon. This lets dense runtime callers cache a target ring triangulation
 /// for a shared sampled station while retaining the same boundary/tie policy
 /// as the one-shot remap below.
-USDGEN_CORE_API bool UsdGenLocateConcaveMaterialPoint(
+USDGEN_SURFACE_API bool UsdGenLocateConcaveMaterialPoint(
     size_t slotCount, std::vector<std::array<int, 3>> const &triangles,
     GfVec2f const &canonicalPoint, std::array<int, 3> *slots,
     GfVec3f *weights, std::string *error = nullptr);
@@ -40,7 +40,7 @@ USDGEN_CORE_API bool UsdGenLocateConcaveMaterialPoint(
 /// `slots` and `weights` identify that actual triangle. Boundary points clamp
 /// only floating-point roundoff and are deterministic on a shared diagonal.
 /// On failure outputs remain unchanged.
-USDGEN_CORE_API bool UsdGenRemapConcaveMaterialPoint(
+USDGEN_SURFACE_API bool UsdGenRemapConcaveMaterialPoint(
     std::vector<GfVec2f> const &actual, GfVec2f const &canonicalPoint,
     std::array<int, 3> *slots, GfVec3f *weights,
     std::string *error = nullptr);

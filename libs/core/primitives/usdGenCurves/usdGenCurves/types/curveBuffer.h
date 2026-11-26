@@ -7,6 +7,7 @@
 #define USDGEN_CURVE_BUFFER_H
 
 #include "usdGen/api/primRef.h"
+#include "usdGenCurves/export.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/types.h"
@@ -117,17 +118,17 @@ struct UsdGenCurveSetView;   // usdGenCurves/types/curveSet.h
 
 /// View overloads: copy the view's planes and curve topology into a scratch
 /// buffer first (capture time only).
-USDGEN_CORE_API bool UsdGenResampleExtraPlanes(UsdGenCurveSetView const &source,
+USDGEN_CURVES_API bool UsdGenResampleExtraPlanes(UsdGenCurveSetView const &source,
                                                UsdGenCurveBuffer *target,
                                                std::string *error = nullptr);
-USDGEN_CORE_API bool UsdGenCompactExtraPlanes(UsdGenCurveSetView const &source,
+USDGEN_CURVES_API bool UsdGenCompactExtraPlanes(UsdGenCurveSetView const &source,
                                               std::vector<uint32_t> const &survivors,
                                               UsdGenCurveBuffer *target,
                                               std::string *error = nullptr);
 /// A buffer with the view's counts, offsets and named planes (copies; no
 /// built-in columns). What the overloads above and UsdGenBuildClumpMotion's
 /// view overload read.
-USDGEN_CORE_API UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &source);
+USDGEN_CURVES_API UsdGenCurveBuffer UsdGenCurvePlanesBuffer(UsdGenCurveSetView const &source);
 
 namespace detail {
 

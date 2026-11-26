@@ -7,6 +7,7 @@
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
 #include "usdGen/compile/types.h"
+#include "usdGenCurves/export.h"
 #include "usdGen/registries/engineTokens.h"
 
 
@@ -146,10 +147,10 @@ enum UsdGenCurveInputValue : uint8_t {
 };
 
 /// Valid after usdGenRegister_usdGenCurves ran (the op registry's first use).
-USDGEN_CORE_API UsdGenTypeId UsdGenCurveSetInputKind() noexcept;
+USDGEN_CURVES_API UsdGenTypeId UsdGenCurveSetInputKind() noexcept;
 /// Registers "UsdGenCurveSetInput" with its layout, InputDesc and the
 /// reference-set materialize hook.
-USDGEN_CORE_API UsdGenTypeId UsdGenRegisterCurveSetInputKind(UsdGenRegistrar &);
+USDGEN_CURVES_API UsdGenTypeId UsdGenRegisterCurveSetInputKind(UsdGenRegistrar &);
 
 /// One authored plane, read from a record or a payload.
 struct UsdGenAuthoredPlaneView
@@ -168,11 +169,11 @@ class UsdGenAuthoredPlanes
 {
 public:
     UsdGenAuthoredPlanes() noexcept = default;
-    USDGEN_CORE_API static UsdGenAuthoredPlanes Of(UsdGenInputRecord const &) noexcept;
-    USDGEN_CORE_API static UsdGenAuthoredPlanes Of(std::vector<UsdGenAuthoredPlaneDesc> const &) noexcept;
+    USDGEN_CURVES_API static UsdGenAuthoredPlanes Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_CURVES_API static UsdGenAuthoredPlanes Of(std::vector<UsdGenAuthoredPlaneDesc> const &) noexcept;
     size_t size() const noexcept { return _count; }
     bool empty() const noexcept { return _count == 0; }
-    USDGEN_CORE_API UsdGenAuthoredPlaneView operator[](size_t i) const noexcept;
+    USDGEN_CURVES_API UsdGenAuthoredPlaneView operator[](size_t i) const noexcept;
     class iterator
     {
     public:
@@ -201,8 +202,8 @@ public:
     iterator end() const noexcept { return iterator(this, _count); }
 
 private:
-    USDGEN_CORE_API UsdGenAuthoredPlaneView _At(size_t i, size_t floats, size_t ints) const noexcept;
-    USDGEN_CORE_API void _Advance(size_t i, size_t *floats, size_t *ints) const noexcept;
+    USDGEN_CURVES_API UsdGenAuthoredPlaneView _At(size_t i, size_t floats, size_t ints) const noexcept;
+    USDGEN_CURVES_API void _Advance(size_t i, size_t *floats, size_t *ints) const noexcept;
     size_t _count = 0;
     UsdGenAuthoredPlaneDesc const *_descs = nullptr;   // payload-backed
     VtTokenArray _names;                               // record-backed (shared, no copy)
@@ -252,9 +253,9 @@ struct UsdGenCurveSetInputView
     UsdGenCurveSetInputView() = default;
     /// The view of a record (Of(record)); implicit so a record passes where a view is read.
     UsdGenCurveSetInputView(UsdGenInputRecord const &record) noexcept : UsdGenCurveSetInputView(Of(record)) {}
-    USDGEN_CORE_API static UsdGenCurveSetInputView Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_CURVES_API static UsdGenCurveSetInputView Of(UsdGenInputRecord const &) noexcept;
     /// A payload not packed into a record (engine-made transients, tests).
-    USDGEN_CORE_API static UsdGenCurveSetInputView Of(UsdGenCurveSetData const &,
+    USDGEN_CURVES_API static UsdGenCurveSetInputView Of(UsdGenCurveSetData const &,
                                                       UsdGenNodeKey key = {}) noexcept;
 
     UsdGenNodeKey   key;
@@ -280,18 +281,18 @@ struct UsdGenCurveSetInputView
 };
 
 /// Every curve set input of 'spec', builder order.
-USDGEN_CORE_API UsdGenSpan<const UsdGenInputRecord> UsdGenCurveSetInputs(UsdGenGraphSpec const &spec) noexcept;
+USDGEN_CURVES_API UsdGenSpan<const UsdGenInputRecord> UsdGenCurveSetInputs(UsdGenGraphSpec const &spec) noexcept;
 /// The curve set input 'key', else null.
-USDGEN_CORE_API UsdGenInputRecord const *UsdGenFindCurveSetInput(UsdGenGraphSpec const &spec,
+USDGEN_CURVES_API UsdGenInputRecord const *UsdGenFindCurveSetInput(UsdGenGraphSpec const &spec,
                                                                  UsdGenNodeKey key) noexcept;
 
 /// Packs 'data' into a UsdGenCurveSetInput record. Compile phase: allocates.
-USDGEN_CORE_API UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &data,
+USDGEN_CURVES_API UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &data,
                                                        UsdGenNodeKey key, TfToken const &label,
                                                        UsdGenInputColumnCache *cache = nullptr);
 
 /// Copies a view's arrays into a payload (engine-made variants of an input).
-USDGEN_CORE_API void UsdGenCopyCurveSetData(UsdGenCurveSetInputView const &view,
+USDGEN_CURVES_API void UsdGenCopyCurveSetData(UsdGenCurveSetInputView const &view,
                                             UsdGenCurveSetData *out);
 
 }  // namespace usdGen

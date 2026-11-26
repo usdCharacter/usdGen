@@ -828,7 +828,8 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenVulkanMapVkSample tests/testUsdGenVulkanMapVkSample.cpp
         "${_usdgen_vulkan_mapvk_sample_spv}")
-    target_link_libraries(testUsdGenVulkanMapVkSample PRIVATE usdGenVulkanNative)
+    # usdGenSurface: the CPU image sampler oracle (usdGen links no primitive).
+    target_link_libraries(testUsdGenVulkanMapVkSample PRIVATE usdGenVulkanNative usdGenSurface)
     if(USDGEN_ENABLE_CUDA)
         target_link_libraries(testUsdGenVulkanMapVkSample PRIVATE usdGenCuda)
         target_compile_definitions(testUsdGenVulkanMapVkSample PRIVATE USDGEN_ENABLE_CUDA)

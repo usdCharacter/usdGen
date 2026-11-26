@@ -135,8 +135,9 @@ add_test(NAME testUsdGenEngineNoOpCoupling
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
         -DNAME=engine-no-op-coupling
-        -DDIRS=libs/core
-        "-DEXCLUDE_PATHS=^libs/core/(primitives/[^/]+/[^/]+/ops/|backends/usdGenCuda/usdGenCuda/registerCurvesCuda[.]cpp$|backends/usdGenVulkan/usdGenVulkan/registerCurvesVulkan[.]cpp$)"
+        -DDIRS=libs/core/usdGen,libs/core/backends
+        # The curves' kernel-row files leave the backends at 8.6; then no exclude.
+        "-DEXCLUDE_PATHS=^libs/core/backends/(usdGenCuda/usdGenCuda/registerCurvesCuda|usdGenVulkan/usdGenVulkan/registerCurvesVulkan)[.]cpp$"
         "-DPATTERN=${USDGEN_OP_COUPLING_PATTERN}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/engineNoOpCoupling.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)

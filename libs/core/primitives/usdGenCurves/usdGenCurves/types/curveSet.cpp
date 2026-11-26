@@ -292,33 +292,6 @@ uint32_t UsdGenCurveSetGroups(uint32_t chunks, UsdGenPartitionParams const &para
 
 // ---- views -----------------------------------------------------------------------
 
-UsdGenCurveSetView UsdGenCurveSetView::Of(UsdGenElementSetView const &s) noexcept
-{
-    UsdGenCurveSetView v;
-    if (!s.channels || s.channels->StaticCount() < kUsdGenCurveStaticSlots || !s.columns || !s.values)
-        return v;
-    v._set = s;
-    v.px = Col<float>(s, kUsdGenCurvePx);
-    v.py = Col<float>(s, kUsdGenCurvePy);
-    v.pz = Col<float>(s, kUsdGenCurvePz);
-    v.rest = Col<GfVec3f>(s, kUsdGenCurveRest, 3);
-    v.width = Col<float>(s, kUsdGenCurveWidth);
-    v.hairT = Col<float>(s, kUsdGenCurveHairT);
-    v.curveId = Col<uint64_t>(s, kUsdGenCurveId);
-    v.rootPrim = Col<int>(s, kUsdGenCurveRootPrim);
-    v.rootUV = Col<GfVec2f>(s, kUsdGenCurveRootUV, 2);
-    v.rootT = Col<GfVec3f>(s, kUsdGenCurveRootT, 3);
-    v.rootN = Col<GfVec3f>(s, kUsdGenCurveRootN, 3);
-    v.rootB = Col<GfVec3f>(s, kUsdGenCurveRootB, 3);
-    if (s.offsets[2])
-        v.cvOffsets = {reinterpret_cast<int const *>(s.offsets[2]), size_t(s.count[1]) + 1};
-    v.totalCurves = s.count[1];
-    v.totalCvs = s.count[2];
-    v.topologyVersion = s.topologyVersion;
-    v.valueVersion = s.valueVersion;
-    return v;
-}
-
 UsdGenCurveSetView UsdGenCurveSetView::Of(UsdGenCurveBuffer const &b) noexcept
 {
     UsdGenCurveSetView v;

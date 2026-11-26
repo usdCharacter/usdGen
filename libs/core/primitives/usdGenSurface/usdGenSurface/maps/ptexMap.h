@@ -14,7 +14,7 @@
 #ifndef USDGEN_MAPS_PTEX_MAP_H
 #define USDGEN_MAPS_PTEX_MAP_H
 
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 
 #include <cstddef>
 #include <memory>
@@ -47,7 +47,7 @@ struct UsdGenPtexMapOptions {
 // USDGEN_PTEX_CACHE_MB say otherwise (0 MB = unlimited), never premultiplied.
 // A texture keeps its file's data referenced while it is alive, so the cache
 // can only prune files nobody holds.
-class USDGEN_CORE_API UsdGenPtexTexture final {
+class USDGEN_SURFACE_API UsdGenPtexTexture final {
 public:
     // Returns null and sets *error (when non-null) if the file cannot be
     // opened, or the options are invalid: an unknown filter or border token,
@@ -73,7 +73,7 @@ public:
     // A per-thread lookup. PtexFilter keeps per-eval scratch, so a Sampler must
     // not be used by two threads at once; make one per worker instead. A
     // Sampler keeps its texture alive.
-    class USDGEN_CORE_API Sampler final {
+    class USDGEN_SURFACE_API Sampler final {
     public:
         ~Sampler();
         Sampler(Sampler const &) = delete;
@@ -112,7 +112,7 @@ private:
 // face; *totalOut (when non-null) receives the number of ids. Faces with
 // fewer than three vertices are invalid topology and are not diagnosed here.
 // Returns an empty vector and a total of -1 if the ids overflow int.
-USDGEN_CORE_API std::vector<int> UsdGenPtexFirstFaceIds(
+USDGEN_SURFACE_API std::vector<int> UsdGenPtexFirstFaceIds(
     int const *faceVertexCounts, size_t faceCount, int *totalOut = nullptr);
 
 // Locates the object-space point p on coarse face `face` in Ptex space.
@@ -146,7 +146,7 @@ USDGEN_CORE_API std::vector<int> UsdGenPtexFirstFaceIds(
 //
 // Returns false for an out-of-range face, inconsistent topology, an index
 // outside the points, or degenerate geometry.
-USDGEN_CORE_API bool UsdGenPtexFaceCoordinate(
+USDGEN_SURFACE_API bool UsdGenPtexFaceCoordinate(
     float const *points, size_t pointCount,
     int const *faceVertexCounts, int const *faceVertexIndices,
     int const *faceOffsets, size_t faceCount, int const *firstIds,
@@ -158,7 +158,7 @@ USDGEN_CORE_API bool UsdGenPtexFaceCoordinate(
 // quad (subface must be 0), otherwise sub-face `subface` as defined above.
 // Evaluating these bilinearly at (u, v) inverts UsdGenPtexFaceCoordinate.
 // Returns false for invalid input.
-USDGEN_CORE_API bool UsdGenPtexFaceCorners(
+USDGEN_SURFACE_API bool UsdGenPtexFaceCorners(
     float const *points, size_t pointCount,
     int const *faceVertexCounts, int const *faceVertexIndices,
     int const *faceOffsets, size_t faceCount, int face, int subface,

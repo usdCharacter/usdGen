@@ -2,7 +2,7 @@
 #define USDGEN_LIMIT_SURFACE_H
 #include "usdGen/api/graphSpec.h"
 #include "usdGenSurface/surfaceInput.h"
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 #include "pxr/base/gf/vec2d.h"
 #include "pxr/base/gf/vec3d.h"
 #include <array>
@@ -15,7 +15,7 @@ namespace usdGen {
 // face by its coarse (u,v), which the random per-face Scatter path keeps as
 // rootPrim/rootUV; EvaluateCagePoint addresses a point of any face by the
 // barycentrics of one of its cage triangles, for roots placed on the cage.
-class USDGEN_CORE_API UsdGenLimitSurface {
+class USDGEN_SURFACE_API UsdGenLimitSurface {
 public:
     UsdGenLimitSurface();
     ~UsdGenLimitSurface();
@@ -42,7 +42,7 @@ private:
 // helper above, this accepts Catmull-Clark, Loop and bilinear base faces,
 // including non-quad Catmull-Clark parameterizations. It owns its topology
 // and prepared posed patch points; no Stage or Hydra objects enter the core.
-class USDGEN_CORE_API UsdGenCollisionLimitSurface {
+class USDGEN_SURFACE_API UsdGenCollisionLimitSurface {
 public:
     UsdGenCollisionLimitSurface();
     ~UsdGenCollisionLimitSurface();
@@ -70,7 +70,7 @@ private:
 // faceVertexIndices. UsdGenSubdivisionTagsDigest covers everything EXCEPT
 // the two face arrays, for callers that already mix those arrays into the
 // same key (it must never be the sole topology cover).
-USDGEN_CORE_API uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceInputView const&);
-USDGEN_CORE_API uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceInputView const&);
+USDGEN_SURFACE_API uint64_t UsdGenSubdivisionDigest(UsdGenSurfaceInputView const&);
+USDGEN_SURFACE_API uint64_t UsdGenSubdivisionTagsDigest(UsdGenSurfaceInputView const&);
 }
 #endif

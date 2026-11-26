@@ -3,7 +3,7 @@
 #ifndef USDGEN_IMAGE_PAYLOAD_H
 #define USDGEN_IMAGE_PAYLOAD_H
 
-#include "usdGen/api/export.h"
+#include "usdGenSurface/export.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -40,7 +40,7 @@ struct UsdGenImageSampleOptions {
 // payload does not impose a color transform). Keeping this value immutable
 // makes it safe to share one decoded image across capture workers
 // and across a CPU sampler and a CUDA upload.
-class USDGEN_CORE_API UsdGenImagePayload final {
+class USDGEN_SURFACE_API UsdGenImagePayload final {
 public:
     UsdGenImagePayload() = default;
 
@@ -79,10 +79,10 @@ private:
     std::shared_ptr<const std::vector<float>> storage_;
 };
 
-USDGEN_CORE_API bool ValidateUsdGenImageSampleOptions(
+USDGEN_SURFACE_API bool ValidateUsdGenImageSampleOptions(
     UsdGenImagePayload const&, UsdGenImageSampleOptions const&, std::string* error = nullptr) noexcept;
 
-class USDGEN_CORE_API UsdGenImageSampler final {
+class USDGEN_SURFACE_API UsdGenImageSampler final {
 public:
     static float Sample(UsdGenImagePayload const&, float u, float v,
                         UsdGenImageSampleOptions const& = {}) noexcept;

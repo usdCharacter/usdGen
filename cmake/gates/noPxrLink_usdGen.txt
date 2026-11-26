@@ -9,5 +9,3 @@ ts
 ar
 work
 trace
-hio
-pxOsd

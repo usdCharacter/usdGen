@@ -7,7 +7,7 @@ usdGen/allocCounter.h usdGen/exec/allocCounter.h
 usdGen/authoredNamedChannels.h usdGenCurves/types/authoredNamedChannels.h
 usdGen/clumpMotion.h usdGenCurves/clumpMotion.h
 usdGen/compiler.h usdGen/compile/compiler.h
-usdGen/concaveMaterialRemap.h usdGenCurves/publish/concaveMaterialRemap.h
+usdGen/concaveMaterialRemap.h usdGenSurface/concaveMaterialRemap.h
 usdGen/cpuParameters.h usdGenExpr/cpuParameters.h
 usdGen/cudaExecution.h usdGenCuda/cudaExecution.h
 usdGen/cudaExecutionQueue.h usdGenCuda/cudaExecutionQueue.h

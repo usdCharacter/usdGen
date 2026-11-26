@@ -14,18 +14,14 @@ file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/usdGen/*.cpp)
 include(cmake/IncludeShim.cmake)
 set(USDGEN_ENGINE_INCLUDE_DIRS
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan>
     $<BUILD_INTERFACE:${USDGEN_SHIM_DIR}>)
-# Primitive roots: each primitive target publishes its own. usdGen keeps
-# them public until step 8: the backends compiled into usdGen read primitive
-# headers (the engine itself includes none since 6.5; gate
-# testUsdGenNoPrimitiveInEngine).
+# Primitive roots: each primitive target publishes its own; usdGen publishes
+# none (step 8.5). The backends still read primitive headers in their public
+# headers until step 8.6 and republish these.
 set(USDGEN_PRIMITIVE_INCLUDE_DIRS
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenSurface>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenExpr>)
-set(USDGEN_CORE_INCLUDE_DIRS ${USDGEN_ENGINE_INCLUDE_DIRS} ${USDGEN_PRIMITIVE_INCLUDE_DIRS})
 # exprEval.{h,cpp} (a stale SeExpr2-engine evaluator design) and its unwired
 # tests/testUsdGenExpr.cpp are deleted: the IR interpreter in
 # expressions/irExec.h is the design, shared by the CUDA kernel and by
@@ -40,7 +36,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         COMPILE_OPTIONS "-fno-math-errno")
 endif()
 target_include_directories(usdGen PUBLIC
-    ${USDGEN_CORE_INCLUDE_DIRS}
+    ${USDGEN_ENGINE_INCLUDE_DIRS}
     $<INSTALL_INTERFACE:include>)
 # Public headers expose TfToken/GfVec3f/VtArray, so those base libs must be
 # PUBLIC for consumers (tests) to link them transitively. No sdf (step 7.4):
@@ -51,14 +47,10 @@ target_include_directories(usdGen PUBLIC
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
     PUBLIC tf gf vt
-    PRIVATE usdGenMath arch js plug ts ar work trace hio pxOsd
-            usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath arch js plug ts ar work trace ${CMAKE_DL_LIBS})
 if(WIN32)
     target_link_libraries(usdGen PRIVATE Synchronization)  # WaitOnAddress
 endif()
-# Vendored Ptex (usdGenSurface/maps/ptexMap.cpp, engine-resident until 6.5);
-# private like the other archives.
-target_link_libraries(usdGen PRIVATE usdGen_ptex)
 # usdGen is a SHARED plugin-host library: its public API (UsdGenSession,
 # graph/tile types, ...) is consumed across the shared boundary by
 # libusdGenImaging.so, so it must keep default visibility. Third-party code

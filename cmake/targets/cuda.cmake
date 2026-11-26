@@ -155,7 +155,8 @@ target_link_libraries(usdGenCuda
     PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch work trace ${CMAKE_DL_LIBS})
 # Bare "gpu/X.h" spellings resolve against the backend folder.
 target_include_directories(usdGenCuda PUBLIC
-    ${USDGEN_CORE_INCLUDE_DIRS}
+    ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda>
     $<INSTALL_INTERFACE:include>)
 set_target_properties(usdGenCuda PROPERTIES

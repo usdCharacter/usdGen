@@ -6,6 +6,7 @@
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
 #include "usdGen/registries/typeRegistry.h"
+#include "usdGenSurface/export.h"
 
 
 #include <cstdint>
@@ -57,8 +58,8 @@ enum UsdGenMapInputValue : uint8_t {
     kUsdGenMapValues
 };
 
-USDGEN_CORE_API UsdGenTypeId UsdGenMapInputKind() noexcept;
-USDGEN_CORE_API UsdGenTypeId UsdGenRegisterMapInputKind(UsdGenRegistrar &);
+USDGEN_SURFACE_API UsdGenTypeId UsdGenMapInputKind() noexcept;
+USDGEN_SURFACE_API UsdGenTypeId UsdGenRegisterMapInputKind(UsdGenRegistrar &);
 
 /// Read view of a map input with the payload's field names. Non-owning:
 /// valid while its record (or payload) lives. No allocation.
@@ -67,8 +68,8 @@ struct UsdGenMapInputView
     UsdGenMapInputView() = default;
     /// The view of a record (Of(record)); implicit so a record passes where a view is read.
     UsdGenMapInputView(UsdGenInputRecord const &record) noexcept : UsdGenMapInputView(Of(record)) {}
-    USDGEN_CORE_API static UsdGenMapInputView Of(UsdGenInputRecord const &) noexcept;
-    USDGEN_CORE_API static UsdGenMapInputView Of(UsdGenMapData const &, UsdGenNodeKey key = {},
+    USDGEN_SURFACE_API static UsdGenMapInputView Of(UsdGenInputRecord const &) noexcept;
+    USDGEN_SURFACE_API static UsdGenMapInputView Of(UsdGenMapData const &, UsdGenNodeKey key = {},
                                                  UsdGenNodeKey paintSurface = {}) noexcept;
 
     UsdGenNodeKey key;
@@ -103,17 +104,17 @@ inline bool UsdGenMapHas(UsdGenMapInputView const &map, uint32_t trait) noexcept
 }
 
 /// Every map input of 'spec', builder order.
-USDGEN_CORE_API UsdGenSpan<const UsdGenInputRecord> UsdGenMapInputs(UsdGenGraphSpec const &spec) noexcept;
+USDGEN_SURFACE_API UsdGenSpan<const UsdGenInputRecord> UsdGenMapInputs(UsdGenGraphSpec const &spec) noexcept;
 /// The map input 'key', else null.
-USDGEN_CORE_API UsdGenInputRecord const *UsdGenFindMapInput(UsdGenGraphSpec const &spec,
+USDGEN_SURFACE_API UsdGenInputRecord const *UsdGenFindMapInput(UsdGenGraphSpec const &spec,
                                                             UsdGenNodeKey key) noexcept;
 
 /// Packs 'data' into a UsdGenMapInput record. Compile phase: allocates.
-USDGEN_CORE_API UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &data, UsdGenNodeKey key,
+USDGEN_SURFACE_API UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &data, UsdGenNodeKey key,
                                                   UsdGenNodeKey paintSurface, TfToken const &label,
                                                   UsdGenInputColumnCache *cache = nullptr);
 
 /// Copies a view into a payload (engine-made variants of an input).
-USDGEN_CORE_API void UsdGenCopyMapData(UsdGenMapInputView const &view, UsdGenMapData *out);
+USDGEN_SURFACE_API void UsdGenCopyMapData(UsdGenMapInputView const &view, UsdGenMapData *out);
 
 }  // namespace usdGen

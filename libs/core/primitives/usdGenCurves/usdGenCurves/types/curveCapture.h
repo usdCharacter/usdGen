@@ -4,6 +4,7 @@
 // per-curve / per-CV scalars resolved once per capture epoch (I4).
 #pragma once
 #include "usdGen/registries/op.h"
+#include "usdGenCurves/export.h"
 #include "usdGenCurves/types/curveBuffer.h"
 
 #include <memory>
@@ -21,7 +22,7 @@ struct UsdGenCurveCapture : UsdGenCapture
     /// OwnsBuffer(): the buffer as a set with the buffer's own versions (a
     /// copy per call; the scheduler converts once per capture). Null
     /// otherwise or when inconsistent.
-    USDGEN_CORE_API UsdGenRef<const UsdGenElementSet> Output() const override;
+    USDGEN_CURVES_API UsdGenRef<const UsdGenElementSet> Output() const override;
 
 protected:
     UsdGenCurveBuffer _buffer;

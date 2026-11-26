@@ -2,7 +2,7 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/concaveMaterialRemap.h"
+#include "usdGenSurface/concaveMaterialRemap.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 

@@ -7,7 +7,7 @@
 #ifndef USDGEN_SURFACE_CAGE_INTERPOLATE_H
 #define USDGEN_SURFACE_CAGE_INTERPOLATE_H
 
-#include "usdGen/export.h"
+#include "usdGenSurface/export.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/maps/ptexMap.h"
@@ -125,7 +125,7 @@ struct UsdGenSurfaceCageResult
 /// owner triangle are rejected; there is no cross-owner or nearest fallback.
 /// Structural errors return false and leave `out` unchanged.  A valid input
 /// whose map rejects every candidate returns true with an empty result.
-USDGEN_CORE_API bool UsdGenInterpolateSurfaceCage(
+USDGEN_SURFACE_API bool UsdGenInterpolateSurfaceCage(
     UsdGenSurfaceCageInput const &input, UsdGenSurfaceCageResult *out,
     std::string *error = nullptr);
 
