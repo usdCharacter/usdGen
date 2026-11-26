@@ -1,4 +1,6 @@
 #include "usdGen/curveRootCapture.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGen/surfaceRootFrames.h"
@@ -49,7 +51,7 @@ bool ValidBindingCoordinates(int face, GfVec2f const &uv)
     return face >= 0 && Finite(uv) && uv[0] >= 0.0f && uv[1] >= 0.0f;
 }
 
-bool ValidSurfaceBinding(UsdGenSurfaceInput const *surface, int face,
+bool ValidSurfaceBinding(UsdGenSurfaceInputView const *surface, int face,
                          GfVec2f const &uv)
 {
     if (!ValidBindingCoordinates(face, uv)) return false;
@@ -119,8 +121,8 @@ bool Add(size_t a, size_t b, size_t *out)
 } // namespace
 
 bool UsdGenCaptureCurveRoots(
-    UsdGenCurveSetInput const &source,
-    UsdGenSurfaceInput const *surface,
+    UsdGenCurveSetInputView const &source,
+    UsdGenSurfaceInputView const *surface,
     TfToken rebind,
     UsdGenCurveRootCaptureResult *out,
     std::string *error,

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGen/vulkan/executionPlan.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "csourceVkCapture.h"
 #include "exprVkPlan.h"
 #include "growVkPlan.h"
@@ -93,7 +95,7 @@ bool IsIdentityMask(UsdGenParamValue const &param) {
 }
 
 bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-                    UsdGenCurveSetInput const **source, VulkanSourceControls *controls,
+                    UsdGenCurveSetInputView *source, VulkanSourceControls *controls,
                     UsdGenDiagnostics *diagnostics) {
     using namespace vulkanP;
     UsdGenEngineTokens const &et = UsdGenTokens();
@@ -102,11 +104,12 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     if (IsVulkanSurfaceCage(node)) {
         if (node.curves.size() != 1)
             return Fail(diagnostics, "surfaceCage requires one sparse cage");
-        auto found =
-            std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-                         [&](auto const &item) { return item.key == node.curves.front(); });
-        if (found == desc.curveSets.end() ||
-            !ValidateVulkanSurfaceCage(desc, node, *found, &controls->maxCurves, &controls->maxCvs,
+        UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        if (!foundRecord)
+            return Fail(diagnostics, "surfaceCage requires one sparse cage");
+        UsdGenCurveSetInputView const foundView = UsdGenCurveSetInputView::Of(*foundRecord);
+        UsdGenCurveSetInputView const *found = &foundView;
+        if (!ValidateVulkanSurfaceCage(desc, node, *found, &controls->maxCurves, &controls->maxCvs,
                                        diagnostics))
             return false;
         controls->surfaceCage = true;
@@ -122,7 +125,7 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                 controls->resampleTo = target;
             }
         }
-        *source = &*found;
+        *source = *found;
         return true;
     }
     if (!node.mode.IsEmpty() || !node.inputs.empty() || !node.references.empty() ||
@@ -136,9 +139,11 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
             return Fail(diagnostics, "non-identity source ramps are not supported");
     if (node.curves.size() != 1)
         return Fail(diagnostics, "CurveSource requires exactly one C3 curve target");
-    auto found = std::find_if(desc.curveSets.begin(), desc.curveSets.end(),
-                              [&](auto const &item) { return item.key == node.curves.front(); });
-    if (found == desc.curveSets.end() || found->role != UsdGenLane::Chunked ||
+    UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+    UsdGenCurveSetInputView const foundView =
+        foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
+    UsdGenCurveSetInputView const *found = &foundView;
+    if (!foundRecord || found->role != UsdGenLane::Chunked ||
         found->curveRole != et.hair)
         return Fail(diagnostics, "CurveSource target must be one resolved C3 hair curve set");
     // Current/rest points stay source-local. Only constructing absent root
@@ -154,16 +159,15 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     if (node.surfaces.size() == 1) {
         if (!node.surfaces.front().IsValid())
             return Fail(diagnostics, "CurveSource rest surface relationship is empty");
+        UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(desc);
         size_t const resolved = std::count_if(
-            desc.surfaces.begin(), desc.surfaces.end(),
-            [&](UsdGenSurfaceInput const &item) { return item.key == node.surfaces.front(); });
+            surfaces.begin(), surfaces.end(),
+            [&](UsdGenInputRecord const &item) { return item.key == node.surfaces.front(); });
         if (resolved != 1)
             return Fail(diagnostics,
                         "CurveSource rest surface relationship is unresolved or ambiguous");
-        auto const surface = std::find_if(
-            desc.surfaces.begin(), desc.surfaces.end(),
-            [&](UsdGenSurfaceInput const &item) { return item.key == node.surfaces.front(); });
-        if (!IsFiniteInvertibleAffine(surface->worldMatrix))
+        UsdGenInputRecord const *surface = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+        if (!IsFiniteInvertibleAffine(UsdGenSurfaceInputView::Of(*surface).worldMatrix))
             return Fail(diagnostics, "CurveSource rest surface worldMatrix must be "
                                      "finite, affine and invertible");
     }
@@ -326,7 +330,7 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         if (!IsVulkanCapturedScatter(desc, *found) && !UsdGenValidateAuthoredRootFrame(frame))
             return Fail(diagnostics, "C3 authored rootFrame violates the affine "
                                      "orthonormal frame contract");
-    *source = &*found;
+    *source = *found;
     return true;
 }
 
@@ -534,7 +538,7 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
 
 // Barycentric (triangle) / bilinear (quad) interpolation of a surface face at
 // a UV coordinate — mirrors the CUDA GatherRoots kernel exactly.
-GfVec3f RootPosition(UsdGenSurfaceInput const &surface, std::vector<uint32_t> const &faceStart,
+GfVec3f RootPosition(UsdGenSurfaceInputView const &surface, std::vector<uint32_t> const &faceStart,
                      int faceIdx, GfVec2f const &uv) {
     auto const &indices = surface.faceVertexIndices;
     auto const &pts = surface.points;
@@ -552,7 +556,7 @@ GfVec3f RootPosition(UsdGenSurfaceInput const &surface, std::vector<uint32_t> co
 }
 
 bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-                    UsdGenCurveSetInput const *source, VulkanDeformControls *out,
+                    UsdGenCurveSetInputView const *source, VulkanDeformControls *out,
                     UsdGenDiagnostics *diagnostics) {
     if (!source || node.surfaces.size() != 1 || !node.references.empty() || !node.curves.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.ramps.empty())
@@ -600,10 +604,13 @@ bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         return true;
     }
 
-    UsdGenSurfaceInput const *surface = nullptr;
-    for (auto const &item : desc.surfaces)
+    UsdGenInputRecord const *surfaceRecord = nullptr;
+    for (UsdGenInputRecord const &item : UsdGenSurfaceInputs(desc))
         if (item.key == node.surfaces.front())
-            surface = &item;
+            surfaceRecord = &item;
+    UsdGenSurfaceInputView const surfaceView =
+        surfaceRecord ? UsdGenSurfaceInputView::Of(*surfaceRecord) : UsdGenSurfaceInputView{};
+    UsdGenSurfaceInputView const *surface = surfaceRecord ? &surfaceView : nullptr;
     if (!surface || surface->restPoints.empty() ||
         surface->points.size() != surface->restPoints.size() || surface->faceVertexCounts.empty())
         return Fail(diagnostics, "Deform pose surface is invalid");
@@ -719,7 +726,7 @@ bool ValidateResample(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
     return true;
 }
 
-bool Estimate(UsdGenCurveSetInput const &source, bool rootBindings, int resampleTo, uint64_t *bytes,
+bool Estimate(UsdGenCurveSetInputView const &source, bool rootBindings, int resampleTo, uint64_t *bytes,
               uint64_t *widthBytes, uint64_t capacityCurves = 0, uint64_t capacityPoints = 0) {
     uint64_t authoredPoints = capacityPoints ? capacityPoints : source.points.size(),
              curves = capacityCurves ? capacityCurves : source.curveVertexCounts.size(), total = 0,
@@ -758,7 +765,7 @@ bool Estimate(UsdGenCurveSetInput const &source, bool rootBindings, int resample
     *bytes = total;
     return true;
 }
-bool ResampledEstimate(UsdGenCurveSetInput const &source, bool rootBindings, uint32_t target,
+bool ResampledEstimate(UsdGenCurveSetInputView const &source, bool rootBindings, uint32_t target,
                        uint64_t *bytes, uint64_t capacityCurves = 0) {
     // Upper bound for any Resample stage output packet. Curves never grow
     // downstream on this lane (no Grow/Scatter admitted), so every resample
@@ -810,7 +817,7 @@ bool ResampledEstimate(UsdGenCurveSetInput const &source, bool rootBindings, uin
 } // namespace
 
 VulkanSourceWidthPlan::VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphSpec> descriptor,
-                                             UsdGenCurveSetInput source, UsdGenNodeKey sourcePath,
+                                             UsdGenCurveSetInputView source, UsdGenNodeKey sourcePath,
                                              UsdGenNodeKey widthPath, VulkanSourceControls sourceControls,
                                              VulkanLiteralWidthControls width, uint64_t generation,
                                              uint64_t topology, uint64_t value,
@@ -829,7 +836,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
         return {};
     auto const &desc = normalized;
     if (!desc.validationErrors.empty() || desc.executionBackend != UsdGenExecutionBackend::Vulkan ||
-        desc.nodes.empty() || desc.nodes.size() >= size_t(UINT32_MAX) || desc.curveSets.empty() ||
+        desc.nodes.empty() || desc.nodes.size() >= size_t(UINT32_MAX) || UsdGenCurveSetInputs(desc).empty() ||
         !IsFiniteMatrix(desc.xformMatrix) || !IsFinite(desc.defaultWidth) || desc.defaultWidth < 0) {
         Fail(diagnostics, "requires a single-source Vulkan graph within the native index domain");
         return {};
@@ -918,10 +925,11 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
         Fail(diagnostics, "missing selected source");
         return {};
     }
-    UsdGenCurveSetInput const *source = nullptr;
+    UsdGenCurveSetInputView sourceView;
+    UsdGenCurveSetInputView const *source = &sourceView;
     VulkanSourceControls sourceControls;
     auto const &sourceNode = desc.nodes[sourceIndex];
-    if (!ValidateSource(desc, sourceNode, &source, &sourceControls, diagnostics))
+    if (!ValidateSource(desc, sourceNode, &sourceView, &sourceControls, diagnostics))
         return {};
     // Imported CurveSource planes can contain a baked native Clump quartet
     // without a Clump node in this graph. Vulkan Noise currently transports
@@ -1143,8 +1151,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
             if (sourceControls.surfaceCage) {
                 // Dense roots are captured later. Fit planning depends only on
                 // the pose surface, in the dense source's identity space.
-                UsdGenCurveSetInput fittingSource;
-                fittingSource.worldMatrix = GfMatrix4d(1.0);
+                UsdGenCurveSetInputView fittingSource;   // identity worldMatrix
                 if (!ValidateDeform(desc, node, &fittingSource, &stage.deform, diagnostics))
                     return {};
             } else if (!ValidateDeform(desc, node, source, &stage.deform, diagnostics))

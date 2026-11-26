@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "cudaParameters.h"
+#include "usdGenExpr/exprInput.h"
 #include "usdGen/gpu/cudaCompat.h"
 #include "usdGen/gpu/cudaCompletionLane.h"
 #include "usdGen/expressions/frontend.h"
@@ -187,10 +188,11 @@ CudaParameterStatus CudaParameterProgram::Compile(
         if (binding.destination.IsEmpty() || !binding.expression.IsValid() ||
             !destinations.insert(CanonicalName(binding.destination)).second)
             return fail(CudaParameterStatus::InvalidArgument, "empty or duplicate expression destination/path");
-        auto expression = std::find_if(graph.expressions.begin(), graph.expressions.end(),
-            [&](auto const& candidate) { return candidate.key == binding.expression; });
-        if (expression == graph.expressions.end())
+        UsdGenInputRecord const* expressionRecord = UsdGenFindExpressionInput(graph, binding.expression);
+        if (!expressionRecord)
             return fail(CudaParameterStatus::CompileError, "missing expression");
+        UsdGenExpressionInputView const expressionView = UsdGenExpressionInputView::Of(*expressionRecord);
+        UsdGenExpressionInputView const* expression = &expressionView;
         // An empty output is a connection to the expression PRIM; it resolves
         // to outputs:result, or to a single declared output.
         UsdGenExpressionOutputDesc const* result =
@@ -214,7 +216,7 @@ CudaParameterStatus CudaParameterProgram::Compile(
         if (!Literal(binding.literal, binding.destinationShape, &item.literal))
             return fail(CudaParameterStatus::UnsupportedType,
                 "literal must have the exact finite native type; int64/uint64 currently limited to 2^53");
-        auto compiled = expr::Frontend::Compile(expression->source,
+        auto compiled = expr::Frontend::Compile(std::string(expression->source),
             {binding.domain, binding.destinationShape.scalar, binding.destinationShape.components});
         if (!compiled.ok) {
             for (auto const& message : compiled.diagnostics)

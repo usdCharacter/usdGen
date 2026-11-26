@@ -44,7 +44,7 @@ static bool LoadAffine(UsdGenGraphDesc const& desc, UsdGenCurveBuffer* out,
     usdGen::UsdGenGraphSpec const lowered = usdGenUsd::Lower(desc);
     UsdGenParamView params{&lowered, &lowered.nodes.front()};
     UsdGenCaptureContext context; context.desc = &lowered; context.params = &params;
-    return UsdGenCurveLoader::Load(context, lowered.curveSets.front(), out, diagnostics);
+    return UsdGenCurveLoader::Load(context, UsdGenCurveSetInputs(lowered).front(), out, diagnostics);
 }
 
 static UsdGenGraphDesc AffineDesc() {

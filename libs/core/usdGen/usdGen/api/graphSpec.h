@@ -7,7 +7,10 @@
 #ifndef USDGEN_API_GRAPH_SPEC_H
 #define USDGEN_API_GRAPH_SPEC_H
 
+#include "usdGen/api/elementSet.h"
+#include "usdGen/api/inputDesc.h"
 #include "usdGen/api/nodeKey.h"
+#include "usdGen/api/span.h"
 #include "usdGen/compile/types.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/handles.h"
@@ -25,13 +28,12 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
-
-class UsdGenImagePayload;
 
 /// One authored usdGen:* property, resolved. 'name' is the property name with
 /// the 'usdGen:' prefix stripped (C1 registry, docs/freezes/C1.md).
@@ -54,59 +56,6 @@ enum class UsdGenExecutionBackend : uint8_t {
     Vulkan = 4
 };
 
-struct UsdGenExpressionOutputDesc { TfToken name = UsdGenTokens().result; TfToken nativeType = UsdGenTokens().float_; expr::ValueShape shape; };
-
-/// One input:<name> relationship of an expression: the external data
-/// geoSampler("<name>", ...) and ptex("<name>") read. 'targets' is the
-/// authored (forwarded) target list; 'geometries' the gprims it resolves to,
-/// in namespace order; 'maps' the map prims, in order.
-struct UsdGenExpressionSlot
-{
-    TfToken name;                            // "guideCurves" for input:guideCurves
-    std::vector<UsdGenNodeKey> targets;
-    std::vector<UsdGenNodeKey> geometries;
-    std::vector<UsdGenNodeKey> maps;
-};
-
-struct UsdGenExpressionInput
-{
-    UsdGenNodeKey key;
-    std::string source;
-    std::vector<UsdGenExpressionOutputDesc> outputs;
-    std::vector<UsdGenExpressionSlot> inputs;
-};
-
-/// A gprim an expression samples (geoSampler), by value. Points are in the
-/// prim's object space; worldMatrix places them.
-enum class UsdGenGeometryKind : uint8_t { Mesh, Curves, Points };
-
-/// The payload of a sampled gprim, shared by the host desc and the engine input.
-struct UsdGenGeometryData
-{
-    UsdGenGeometryKind kind = UsdGenGeometryKind::Points;
-    VtIntArray         counts;       // faceVertexCounts | curveVertexCounts | empty
-    VtIntArray         indices;      // faceVertexIndices (mesh)
-    VtVec3fArray       points;       // at the graph time
-    VtVec3fArray       rest;         // Default-time rest when the prim has one, else empty
-    VtVec3fArray       normals;      // points: optional per-point normals
-    VtArray<uint64_t>  ids;          // curves: usdGen:curveId; points: ids (optional)
-    // A GeomSubset input (R15): the arrays above are its parent Mesh's, and
-    // only subsetFaces (sorted parent face ids) and their points are sampled.
-    // isSubset keeps an empty subset empty.
-    VtIntArray         subsetFaces;
-    bool               isSubset = false;
-    GfMatrix4d         worldMatrix{1.0};
-    /// Content identity of everything above, computed by the builder. Any
-    /// edit of the prim's data changes it, so a consumer's capture identity
-    /// can fold it instead of rehashing arrays.
-    uint64_t           generation = 0;
-};
-
-struct UsdGenGeometryInput : UsdGenGeometryData
-{
-    UsdGenNodeKey key;
-};
-
 /// One connected parameter (was UsdGenExpressionBinding). 'output' empty means
 /// the connection named the expression PRIM rather than one of its outputs;
 /// UsdGenFindExpressionOutput resolves it.
@@ -115,25 +64,6 @@ struct UsdGenParamBinding {
     expr::ValueShape destinationShape; expr::Domain domain = expr::Domain::Groom;
     VtValue literal;
 };
-
-/// The output a binding names on 'expression' (a host desc or an engine
-/// input). A named output must exist. An EMPTY name is a prim connection: it
-/// resolves to "result" when the expression declares it, otherwise to its
-/// single declared output. Returns nullptr when nothing matches, or when a
-/// prim connection is ambiguous.
-template <class Expression>
-inline UsdGenExpressionOutputDesc const *
-UsdGenFindExpressionOutput(Expression const &expression, TfToken const &output)
-{
-    if (!output.IsEmpty()) {
-        for (UsdGenExpressionOutputDesc const &o : expression.outputs)
-            if (o.name == output) return &o;
-        return nullptr;
-    }
-    for (UsdGenExpressionOutputDesc const &o : expression.outputs)
-        if (o.name == UsdGenTokens().result) return &o;
-    return expression.outputs.size() == 1 ? &expression.outputs.front() : nullptr;
-}
 
 /// S11 ramp encodings, already resolved by the adapter (02-schema.md §2.17).
 struct UsdGenRampDesc
@@ -154,53 +84,6 @@ struct UsdGenMapBinding
     TfToken       relationship;
 };
 
-/// A named plane authored on a C3 curve set: Point becomes vertex, Primitive
-/// uniform, and Groom one constant value in the CPU CurveSource buffer.
-enum class UsdGenAuthoredPlaneType : uint8_t { Float32, Int32 };
-enum class UsdGenAuthoredPlaneDomain : uint8_t { Point, Primitive, Groom };
-
-struct UsdGenAuthoredPlaneDesc
-{
-    TfToken name;
-    UsdGenAuthoredPlaneType type = UsdGenAuthoredPlaneType::Float32;
-    UsdGenAuthoredPlaneDomain domain = UsdGenAuthoredPlaneDomain::Point;
-    uint8_t arity = 1;                 // [1, 16]
-    VtFloatArray floatValues;          // populated only for Float32
-    VtIntArray intValues;              // populated only for Int32
-};
-
-/// Immutable surface-cage controls captured alongside a CurveSource's sparse
-/// C3 rails, in the authored owner/triangle order the runtime interpolator
-/// uses. Chart positions are captured independently of the surface map so a
-/// density or profile edit changes the capture identity without re-reading.
-struct UsdGenSurfaceCagePayload
-{
-    VtIntArray   ownerIds;
-    VtFloatArray ownerDensities;
-    VtIntArray   ownerSeeds;
-    VtIntArray   ownerCvCounts;
-    VtFloatArray ownerEdgeBias;
-    VtIntArray   ownerLengthProfileOffsets;
-    VtVec2fArray ownerLengthProfile;
-    VtFloatArray normalizedT;           // flattened per-point rail parameter
-    VtVec3iArray triangles;              // guide-curve indices
-    VtIntArray   triangleOwnerIndices;
-    VtVec2fArray triangleRootCharts;     // 3 entries per triangle
-    VtVec2fArray ownerChartCentroids;
-    VtFloatArray ownerChartMeanRadii;
-};
-
-/// The source curves' own primvars:displayColor, forwarded as an authored
-/// plane under this reserved name. It rides the named-plane machinery so
-/// resampling and compaction carry it, but the session cooker consumes it
-/// into the tile's displayColor instead of publishing it. 'displayColor'
-/// itself is reserved by the compiler for authored planes.
-inline TfToken const &UsdGenSourceColorPlane()
-{
-    static TfToken const name("usdGenSourceColor");
-    return name;
-}
-
 /// One operator (was UsdGenNodeDesc). Builder order is the Kahn tie-break.
 struct UsdGenOpNode
 {
@@ -212,7 +95,7 @@ struct UsdGenOpNode
     std::vector<UsdGenNodeKey>   inputs;       // compiler-owned hierarchy dependency edges
     std::vector<UsdGenNodeKey>   references;   // guide sets, clump centres, card roots
     std::vector<UsdGenNodeKey>   curves;       // usdGen:guides / usdGen:curves / usdGen:frozen:curves
-                                               //   -> UsdGenGraphSpec::curveSets
+                                               //   -> curve set input records
     std::vector<UsdGenNodeKey>   surfaces;     // the Description's usdGen:surface targets (ADR R15)
     // Untyped map keys. Builders populate both; mapBindings is the canonical form.
     std::vector<UsdGenNodeKey>   maps;
@@ -221,137 +104,6 @@ struct UsdGenOpNode
     std::vector<UsdGenParamBinding> expressionBindings;
     std::vector<UsdGenRampDesc>   ramps;
     UsdGenOpId                   opId = UsdGenOpId::Invalid;   // engine-filled at intake (UsdGenResolveDescIds)
-};
-
-/// One authored C3 BasisCurves input: a guide set, a freeze, an import, a sim
-/// cache. The only way curve data reaches the engine (R23).
-struct UsdGenCurveSetData
-{
-    UsdGenLane      role;              // Reference (guides, clump centres) | Chunked (a CurveSource)
-    TfToken         curveRole;         // primvars:usdGen:role: hair | guide (C3 marker)
-    VtIntArray      curveVertexCounts;
-    VtVec3fArray    points, rest;      // rest == primvars:rest; may share points' buffer
-    // Compatibility builders may lack a Default-time C3 snapshot. CUDA
-    // admission must not mistake a current-frame fallback for bound rest.
-    bool            restFromCurrentPoints = false;
-    GfMatrix4d      worldMatrix{1.0}; // source object space must be explicit for deformation
-    VtFloatArray    widths;
-    TfToken         type = UsdGenTokens().cubic;
-    TfToken         basis = UsdGenTokens().bspline;
-    TfToken         wrap = UsdGenTokens().pinned;
-    TfToken         widthsInterpolation = UsdGenTokens().vertexWidths;
-    VtIntArray      skinPrim;          // primvars:skinprim (uniform int)
-    VtArray<uint64_t> curveId;         // primvars:usdGen:curveId (uniform uint64[], R12)
-    VtVec2fArray    skinPrimUv;        // primvars:skinprimuv (uniform texCoord2f, not "st")
-    VtMatrix4dArray rootFrame;         // primvars:usdGen:rootFrame; may be empty
-    std::string     frozenEpoch;       // constant string primvar, "usdgen1:sha1:..." (S42)
-    std::vector<UsdGenAuthoredPlaneDesc> authoredPlanes;
-    std::shared_ptr<const UsdGenSurfaceCagePayload> surfaceCage;
-    uint64_t        curveGeneration = 0;   // bumped by any points/topology/id change on the prim
-};
-
-struct UsdGenCurveSetInput : UsdGenCurveSetData
-{
-    UsdGenNodeKey key;
-};
-
-/// A surface geometry sample at an absolute time (R23).
-struct UsdGenSurfaceSample { double time; VtVec3fArray points; };
-
-// The Default-time mesh-normal interpolation transported by UsdGenRestAPI.
-// Invalid is deliberately distinct from None: a nonempty malformed snapshot
-// must not be silently converted into geometric-normal fallback by CUDA.
-enum class UsdGenSurfaceNormalDomain : uint8_t {
-    None,
-    Constant,
-    Uniform,
-    Vertex,
-    FaceVarying,
-    Invalid
-};
-
-struct UsdGenSurfaceData
-{
-    UsdGenSurfaceId id = 0;
-    VtIntArray     faceVertexCounts, faceVertexIndices;
-    // USD subdivision opinions, captured identically by stage/Hydra builders.
-    TfToken subdivisionScheme = UsdGenTokens().none, orientation = UsdGenTokens().rightHanded;
-    TfToken interpolateBoundary = UsdGenTokens().edgeAndCorner,
-        faceVaryingLinearInterpolation = UsdGenTokens().cornersPlus1;
-    TfToken triangleSubdivisionRule = UsdGenTokens().catmullClark,
-        creaseMethod = UsdGenTokens().uniform;
-    VtIntArray holeIndices, creaseIndices, creaseLengths, cornerIndices;
-    VtFloatArray creaseSharpnesses, cornerSharpnesses;
-    VtVec3fArray   restPoints;        // usdGen/rest/points (S12), UsdTimeCode::Default()
-    VtVec3fArray   restNormals;       // usdGen/rest/normals, Default-time Mesh normals
-    UsdGenSurfaceNormalDomain restNormalDomain = UsdGenSurfaceNormalDomain::None;
-    bool          restFromCurrentPoints = false; // compatibility fallback, never a valid RBF binding
-    VtVec3fArray   points;            // deformed, at the graph time
-    /// Sorted by time; samples[0].time == the graph time (R23).
-    std::vector<UsdGenSurfaceSample> samples;
-    VtVec3fArray   velocities;        // motion profile P1 only; empty otherwise
-    VtVec2fArray   uv;                // the surface's primary uv set
-    // A GeomSubset target (R15) carries its parent Mesh's full geometry
-    // above, so face ids stay parent-mesh ids, plus its sorted, unique faces
-    // here. isSubset makes subsetFaces authoritative even when empty (an
-    // empty subset selects no face); otherwise empty == whole mesh.
-    VtIntArray     subsetFaces;
-    bool           isSubset = false;
-    VtFloatArray   densityMultiplier; // per-face scatter density scale from
-                                     // usdGen:paint:density (face means,
-                                     // clamped >= 0, non-finite -> 0);
-                                     // empty == all 1.0
-    GfMatrix4d     worldMatrix{1.0};  // post-flattening, resetXformStack (S4)
-    uint64_t       surfaceGeneration = 0; // bumped by any points/topology change
-};
-
-struct UsdGenSurfaceInput : UsdGenSurfaceData
-{
-    UsdGenNodeKey key;
-    UsdGenNodeKey owner;   // the Mesh a GeomSubset belongs to (host-filled); else invalid
-};
-
-/// Whether consumers restrict a surface to subsetFaces: a GeomSubset target
-/// (even an empty one) or a hand-built input that names faces.
-inline bool
-UsdGenSurfaceRestricted(UsdGenSurfaceData const &surface)
-{
-    return surface.isSubset || !surface.subsetFaces.empty();
-}
-
-/// The Mesh a surface's geometry and primvars live on: the target itself, or
-/// a GeomSubset's parent.
-inline UsdGenNodeKey
-UsdGenSurfaceMeshKey(UsdGenSurfaceInput const &surface)
-{
-    return surface.isSubset ? surface.owner : surface.key;
-}
-
-struct UsdGenMapData
-{
-    TfToken      type;                // UsdGenImageMap | UsdGenPtexMap | UsdGenExprMap | ...
-    std::string  resolvedAssetPath;   // stage-free (S13)
-    uint64_t     textureGeneration = 0;  // bumped by ReloadMaps()
-    // UsdGenPaintMap payload (empty unless type == UsdGenPaintMap): the
-    // surface primvar snapshotted at capture, scalar-folded through
-    // usdGen:map:channel. v1 carries faceVarying float data only; any other
-    // interpolation, a missing primvar, or a size mismatch leaves
-    // paintValues empty and the sampler fails closed.
-    TfToken      paintPrimvar;
-    TfToken      paintInterpolation;
-    VtFloatArray paintValues;
-    std::vector<UsdGenParamValue> params;
-    // Optional stage-free decoded pixels for a typed ImageMap consumer. The
-    // immutable payload is backend-neutral; callers replacing it must also
-    // advance textureGeneration, which is the deterministic cache identity.
-    std::shared_ptr<const UsdGenImagePayload> imagePayload;
-    UsdGenTypeId typeId = UsdGenTypeId::Invalid;   // engine-filled at intake (UsdGenResolveDescIds)
-};
-
-struct UsdGenMapInput : UsdGenMapData
-{
-    UsdGenNodeKey key;
-    UsdGenNodeKey paintSurface;       // UsdGenPaintMap: the surface carrying the primvar
 };
 
 /// Compiler-resolved map value. It contains no stage or backend handle: the
@@ -369,19 +121,131 @@ struct UsdGenResolvedMapValue
     UsdGenMapOptions options;            // the map type's parseOptions, run once at compile
 };
 
-/// The map's type id: the intake-resolved one, else a registry probe (inputs
-/// built outside the compiler). Never interns.
-inline UsdGenTypeId UsdGenMapTypeId(UsdGenMapData const &map) noexcept
+/// One external input (a C3 curve set, a surface, a map, a sampled gprim,
+/// an expression program): free-length columns per its kind's registered
+/// layout, and values in its InputDesc's attribute order. Primitives read it
+/// through their input views (usdGenCurves UsdGenCurveSetInputView, ...).
+struct UsdGenInputRecord
 {
-    return map.typeId != UsdGenTypeId::Invalid ? map.typeId
-                                               : UsdGenTypeRegistry::Get().Find(map.type);
-}
+    UsdGenNodeKey key;
+    UsdGenNodeKey owner;            // GeomSubset: its Mesh; paint map: its surface
+    UsdGenTypeId  kind = UsdGenTypeId::Invalid;
+    TfToken       label;            // the host path text; diagnostics only
+    UsdGenRef<const UsdGenElementSet> data;
+    std::vector<UsdGenParamValue> values;
+    uint64_t      generation = 0;   // content identity the host bumps on any edit
 
-/// True when the map's registered type carries \p trait (kUsdGenTypeMap*).
-inline bool UsdGenMapHas(UsdGenMapData const &map, uint32_t trait) noexcept
+    template <class T>
+    UsdGenSpan<const T> Column(UsdGenSlot slot) const noexcept
+    {
+        return data ? data->Column<T>(slot) : UsdGenSpan<const T>();
+    }
+    VtValue const *Value(size_t index) const noexcept
+    {
+        return index < values.size() ? &values[index].value : nullptr;
+    }
+    template <class T>
+    T const &Get(size_t index, T const &fallback) const noexcept
+    {
+        VtValue const *v = Value(index);
+        return v && v->IsHolding<T>() ? v->UncheckedGet<T>() : fallback;
+    }
+};
+
+/// Host-owned memo of the columns a host packed. A column whose source
+/// VtArray is the same buffer as at the last packing of that input is shared
+/// from the previous record instead of copied, so an unchanged input keeps
+/// its column addresses across lowerings and identity-keyed caches hit. It
+/// holds each source array (a held buffer is immutable, so the same address
+/// is the same bytes) and the set its column lives in. Not thread-safe; one
+/// per host builder.
+class UsdGenInputColumnCache
 {
-    return UsdGenTypeRegistry::Get().Has(UsdGenMapTypeId(map), trait);
-}
+public:
+    USDGEN_CORE_API UsdGenInputColumnCache();
+    USDGEN_CORE_API ~UsdGenInputColumnCache();
+    /// Starts a lowering: forgets columns unused for 'age' lowerings.
+    USDGEN_CORE_API void Advance(uint32_t age = 4);
+    USDGEN_CORE_API void Clear() noexcept;
+    size_t Size() const noexcept { return _entries.size(); }
+
+private:
+    friend class UsdGenInputRecordWriter;
+    struct Entry {
+        UsdGenNodeKey key;
+        UsdGenTypeId kind = UsdGenTypeId::Invalid;
+        UsdGenSlot slot = kUsdGenNoSlot;
+        void const *data = nullptr;
+        size_t bytes = 0;
+        VtValue source;                            // holds the source buffer
+        UsdGenRef<const UsdGenElementSet> set;     // holds the column
+        uint64_t used = 0;
+    };
+    std::unordered_map<uint64_t, Entry> _entries;
+    uint64_t _epoch = 0;
+};
+
+/// Packs one input record of a registered kind. Columns are staged (the
+/// caller's memory must outlive Finish) or shared from another record's data.
+/// Compile phase: allocates.
+class UsdGenInputRecordWriter
+{
+public:
+    USDGEN_CORE_API explicit UsdGenInputRecordWriter(UsdGenTypeId kind);
+    UsdGenInputRecordWriter(UsdGenInputRecordWriter const &) = delete;
+    UsdGenInputRecordWriter &operator=(UsdGenInputRecordWriter const &) = delete;
+    /// False for an unregistered kind or one without a layout and InputDesc.
+    bool Valid() const noexcept { return _layout && _desc; }
+    template <class T>
+    void Column(UsdGenSlot slot, T const *data, size_t count)
+    {
+        _Stage(slot, data, count * sizeof(T));
+    }
+    /// A host array: with a column cache (UseCache), an unchanged buffer
+    /// shares the previous record's column. Empty leaves the column absent.
+    template <class T>
+    void Array(UsdGenSlot slot, VtArray<T> const &array)
+    {
+        Column(slot, array.cdata(), array.size());
+        if (_cache && !array.empty() && slot < _sources.size()) _sources[slot] = VtValue(array);
+    }
+    template <class T>
+    void Array(UsdGenSlot slot, UsdGenSpan<T> array)
+    {
+        Column(slot, array.cdata(), array.size());
+    }
+    /// Remember and reuse this input's columns across packings.
+    void UseCache(UsdGenInputColumnCache *cache, UsdGenNodeKey key) noexcept
+    {
+        _cache = cache;
+        _cacheKey = key;
+    }
+    /// Shares 'from''s column (same scalar and arity) without copying.
+    USDGEN_CORE_API void Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGenSlot fromSlot);
+    /// The value at 'index' (the InputDesc's attribute order).
+    USDGEN_CORE_API void Value(size_t index, VtValue value);
+    /// Values appended after the InputDesc's attributes (map parameters).
+    USDGEN_CORE_API void Extra(UsdGenParamValue value);
+    USDGEN_CORE_API UsdGenInputRecord Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
+                                             TfToken const &label, uint64_t generation);
+
+private:
+    struct Staged {
+        void const *data = nullptr;
+        size_t bytes = 0;
+        UsdGenElementSet const *from = nullptr;
+        UsdGenSlot fromSlot = kUsdGenNoSlot;
+    };
+    USDGEN_CORE_API void _Stage(UsdGenSlot slot, void const *data, size_t bytes);
+    UsdGenTypeId _kind;
+    UsdGenElementLayout const *_layout = nullptr;
+    UsdGenInputDesc const *_desc = nullptr;
+    std::vector<Staged> _staged;
+    std::vector<VtValue> _sources;   // UseCache: the host arrays staged per slot
+    std::vector<UsdGenParamValue> _values;
+    UsdGenInputColumnCache *_cache = nullptr;
+    UsdGenNodeKey _cacheKey;
+};
 
 /// The description's look block (02-schema.md §2.12 defaults; 07 §1.2 bake
 /// order): base colour, the root->tip ramp and the per-curve jitter.
@@ -437,11 +301,10 @@ struct UsdGenGraphSpec
     UsdGenNodeKey                  description;   // the UsdGenDescription prim
     UsdGenNodeKey                  terminal;      // hierarchy-derived final operator
     std::vector<UsdGenOpNode>      nodes;         // composed execution order from the builder
-    std::vector<UsdGenCurveSetInput> curveSets;   // every C3 BasisCurves the graph names (R23)
-    std::vector<UsdGenSurfaceInput> surfaces;
-    std::vector<UsdGenMapInput>    maps;
-    std::vector<UsdGenExpressionInput> expressions;
-    std::vector<UsdGenGeometryInput> geometries;  // every gprim an expression input names
+    /// Every external input (curve sets, surfaces, maps, expressions, the
+    /// gprims expressions sample), grouped by ascending kind; builder order
+    /// within a kind (a surface's id is its index in its run).
+    std::vector<UsdGenInputRecord> inputs;
     UsdGenLookDesc                 look;
     UsdGenPreviewSpec              preview;
     GfMatrix4d                     xformMatrix{1.0}; // description world matrix (post-flattening, S4)
@@ -462,6 +325,13 @@ struct UsdGenGraphSpec
     /// spec and never reads it.
     std::shared_ptr<const void> host;
 
+    /// The run of 'kind' in 'inputs' (empty when absent).
+    UsdGenSpan<const UsdGenInputRecord> Inputs(UsdGenTypeId kind) const noexcept;
+    UsdGenSpan<UsdGenInputRecord> MutableInputs(UsdGenTypeId kind) noexcept;
+    /// The record of 'kind' with 'key', else null (linear within the run).
+    UsdGenInputRecord const *FindInput(UsdGenTypeId kind, UsdGenNodeKey key) const noexcept;
+    /// Stable sort of 'inputs' by kind (builders append kinds in any order).
+    void SortInputs();
     /// The text of 'key' (its prim path), else empty. Allocates: diagnostics only.
     std::string Label(UsdGenNodeKey key) const;
     /// The host label token of 'key' without allocating; empty for a

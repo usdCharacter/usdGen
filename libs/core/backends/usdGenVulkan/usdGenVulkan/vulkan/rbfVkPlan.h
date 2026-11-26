@@ -31,6 +31,8 @@
 #pragma once
 
 #include "usdGen/vulkan/executionPlan.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 #include "usdGen/ops/rbfField.h"
@@ -106,7 +108,7 @@ inline bool ReadFloat(UsdGenParamValue const& param, float* value) {
 // (The legacy RootPosition in executionPlan.cpp:400 shares the old triangle
 // divergence; the identity path it serves is preserved bit-for-bit and out
 // of scope.)
-inline GfVec3f GatherRoot(UsdGenSurfaceInput const& surface,
+inline GfVec3f GatherRoot(UsdGenSurfaceInputView const& surface,
                           std::vector<uint32_t> const& faceStart,
                           int faceIdx, GfVec2f const& uv) {
     auto const& indices = surface.faceVertexIndices;
@@ -134,7 +136,7 @@ inline GfVec3f GatherRoot(UsdGenSurfaceInput const& surface,
 
 inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
                                    UsdGenOpNode const& node,
-                                   UsdGenCurveSetInput const* source,
+                                   UsdGenCurveSetInputView const* source,
                                    VulkanDeformControls* out,
                                    UsdGenDiagnostics* diagnostics) {
     using rbfVkPlanDetail::Fail;
@@ -170,9 +172,12 @@ inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
     if (budget < kRbfVkPlanMinBudget || budget > kRbfVkPlanMaxBudget)
         return Fail(diagnostics, "Deform rbfSamples must be in [1,46336]");
 
-    UsdGenSurfaceInput const* surface = nullptr;
-    for (auto const& item : desc.surfaces)
-        if (item.key == node.surfaces.front()) surface = &item;
+    UsdGenInputRecord const* surfaceRecord = nullptr;
+    for (UsdGenInputRecord const& item : UsdGenSurfaceInputs(desc))
+        if (item.key == node.surfaces.front()) surfaceRecord = &item;
+    UsdGenSurfaceInputView const surfaceView =
+        surfaceRecord ? UsdGenSurfaceInputView::Of(*surfaceRecord) : UsdGenSurfaceInputView{};
+    UsdGenSurfaceInputView const* surface = surfaceRecord ? &surfaceView : nullptr;
     if (!surface || surface->restPoints.empty() ||
         surface->points.size() != surface->restPoints.size() ||
         surface->faceVertexCounts.empty())

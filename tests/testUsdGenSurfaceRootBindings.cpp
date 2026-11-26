@@ -217,27 +217,27 @@ int main() {
         curves.rest = {{.1f,.2f,0},{.1f,.2f,1},{.3f,.2f,0},{.3f,.2f,1}};
         curves.skinPrim = {0,999}; curves.skinPrimUv = {{.6f,.1f},{.9f,.9f}};
         UsdGenCurveRootCaptureResult captured;
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("onError"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("onError"),&captured,&error));
         CHECK(captured.rebound == 1 && captured.dropped == 0 &&
               captured.rootPrim == VtIntArray({0,0}) &&
               captured.rootUV[0] == curves.skinPrimUv[0] &&
               Near(captured.rootUV[1][0],.3) && Near(captured.rootUV[1][1],.2));
         auto old = captured;
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("always"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("always"),&captured,&error));
         CHECK(captured.rebound == 2 && captured.dropped == 0 &&
               Near(captured.rootUV[0][0],.1) && Near(captured.rootUV[0][1],.2));
         CHECK(old.rootUV[0] == GfVec2f(.6f,.1f) && curves.skinPrim[1] == 999);
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("never"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("never"),&captured,&error));
         CHECK(captured.dropped == 1 && captured.valid[0] && !captured.valid[1] &&
               captured.rootPrim[1] == -1 && captured.dropMask[1]);
         // Failed always-rebind must not retain the previous valid flags.
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(collapsed)),TfToken("always"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(collapsed)),TfToken("always"),&captured,&error));
         CHECK(captured.dropped == 2 && captured.rebound == 0);
         curves.rootFrame.assign(2,GfMatrix4d(1.0));
         curves.skinPrim.clear(); curves.skinPrimUv.clear();
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("never"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("never"),&captured,&error));
         CHECK(captured.dropped == 2 && !captured.valid[0] && !captured.valid[1]);
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(surface)),TfToken("onError"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("onError"),&captured,&error));
         CHECK(captured.rebound == 2 && captured.dropped == 0);
         auto transformed = surface;
         transformed.restPoints = {{0,0,0},{0,0,1},{1,-1,0}};
@@ -245,7 +245,7 @@ int main() {
         curves.curveVertexCounts = {2};
         curves.points = {{0,0,0},{0,0,1}}; curves.rest = curves.points;
         curves.rootFrame.clear(); curves.skinPrim = {0}; curves.skinPrimUv = {{.2f,.3f}};
-        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::Lower(transformed)),TfToken("never"),&captured,&error));
+        CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(transformed)),TfToken("never"),&captured,&error));
         CHECK(captured.valid[0] && UsdGenValidateAuthoredRootFrame(captured.frames[0]));
         CHECK(Near(captured.frames[0][2][0],1/std::sqrt(5.0)) &&
               Near(captured.frames[0][2][1],2/std::sqrt(5.0)) &&

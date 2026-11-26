@@ -18,6 +18,7 @@
 #define USDGEN_AUTHORED_PLANE_CONVERT_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGenCurves/types/curveSetInput.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

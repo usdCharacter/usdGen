@@ -1,4 +1,5 @@
 #include "usdGen/cudaScatterInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/cudaStages.h"
 #include "usdGen/op.h"
@@ -138,7 +139,7 @@ bool ValidateCounts(int const* counts, size_t n, size_t* corners) {
     return true;
 }
 
-CudaScatterInputStatus ValidateSurface(UsdGenSurfaceInput const& surface,
+CudaScatterInputStatus ValidateSurface(UsdGenSurfaceInputView const& surface,
                                        std::string* reason) {
     if (surface.faceVertexCounts.empty()) {
         if (!surface.faceVertexIndices.empty())
@@ -337,9 +338,10 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                         "Scatter input has unsupported, duplicate, or animated parameter '" +
                         param.name.GetString() + "'", reason);
     }
-    auto surfaceIt = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceInput const& surface) { return surface.key == node.surfaces.front(); });
-    if (surfaceIt == desc.surfaces.end())
+    UsdGenInputRecord const* surfaceItRecord = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+    UsdGenSurfaceInputView const surfaceItView = surfaceItRecord ? UsdGenSurfaceInputView::Of(*surfaceItRecord) : UsdGenSurfaceInputView{};
+    UsdGenSurfaceInputView const* surfaceIt = surfaceItRecord ? &surfaceItView : nullptr;
+    if (!surfaceIt)
         return Fail(CudaScatterInputStatus::InvalidSurface,
                     "Scatter input cannot resolve its surface path", reason);
     CudaScatterInputStatus validated = ValidateSurface(*surfaceIt, reason);
@@ -374,7 +376,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenCaptureContext context;
     context.desc = &desc;
     context.params = &resolved.View();
-    context.surface = static_cast<UsdGenSurfaceId>(surfaceIt - desc.surfaces.begin());
+    context.surface = static_cast<UsdGenSurfaceId>(surfaceItRecord - UsdGenSurfaceInputs(desc).data());
     context.seed = static_cast<uint32_t>(node.seed);
     context.diag = &diagnostics;
     if (!op->Capture(context, UsdGenOpInputs{}, capture.get(), &diagnostics))   // a source: no input

@@ -58,6 +58,7 @@
 #define USDGEN_OP_COLLIDE_H
 
 #include "usdGen/op.h"
+#include "usdGenSurface/surfaceInput.h"
 #include <array>
 #include <atomic>
 #include "usdGen/registries/handles.h"
@@ -91,7 +92,7 @@ private:
     // cannot flood Play with the same polygon fallback diagnostic.
     mutable std::array<std::atomic<uint64_t>, 256> _warned{};
     void WarnOnce(UsdGenDiagnostics *, std::string const &label,
-                  UsdGenSurfaceInput const &, std::vector<int> const &,
+                  UsdGenSurfaceInputView const &, std::vector<int> const &,
                   std::string const &) const;
 };
 

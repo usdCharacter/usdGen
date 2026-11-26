@@ -66,7 +66,7 @@ struct UsdGenGraphRoutingNode
 struct UsdGenGraphRoutingSnapshot
 {
     UsdGenNodeKey description;
-    /// Per desc.surfaces entry: the bound target, and the Mesh prim whose
+    /// Per surface input: the bound target, and the Mesh prim whose
     /// points, topology and primvars it reads. They differ only for a
     /// GeomSubset target, whose own prim carries just indices and type (R15).
     std::vector<UsdGenNodeKey> surfaceKeys;
@@ -288,6 +288,15 @@ private:
     mutable std::unique_ptr<UsdGenGraphSpec> _restDesc;
     mutable UsdGenGraphSpec const *_restSource = nullptr;
     mutable std::vector<std::array<uint64_t, 3>> _restSourceKeys;
+    // Recent Default-space surface records, keyed by the posed record's
+    // columns (held) and content: a recompile that keeps an input reuses its
+    // rest record without allocating.
+    struct RestRecord {
+        UsdGenRef<const UsdGenElementSet> posed;
+        uint64_t generation = 0;
+        UsdGenInputRecord rest;
+    };
+    mutable std::vector<RestRecord> _restRecords;
     std::shared_ptr<const UsdGenCudaExecutionPlan> _cudaPlan;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _nodes; // indexed by id
     UsdGenPoolVector<UsdGenChunkGroup> _groups;  // terminal publication groups

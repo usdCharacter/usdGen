@@ -22,6 +22,7 @@
 // Floating-point evaluation order follows the reference so results match it
 // bit for bit wherever the inputs do.
 #include "usdGen/ops/twist.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
@@ -302,9 +303,9 @@ bool UsdGenTwistOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
     // Root re-snap onto the bound surface (current points).
     strand::TriangleBvh bvh;
     bool resnap = s.resnapRoot && s.root != 0.0f && ctx.desc &&
-                  ctx.surface < ctx.desc->surfaces.size();
+                  ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size();
     if (resnap) {
-        strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], false, &bvh);
+        strand::BuildSurfaceBvh(UsdGenSurfaceAt(*ctx.desc, ctx.surface), false, &bvh);
         resnap = !bvh.Empty();
     }
 

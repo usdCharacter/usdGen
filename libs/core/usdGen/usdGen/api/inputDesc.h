@@ -13,6 +13,7 @@
 #include "usdGen/exec/epoch.h"
 
 #include <cstdint>
+#include <string>
 
 namespace usdGen {
 
@@ -34,14 +35,21 @@ struct UsdGenInputSlot {
 
 /// Registered per input kind. A host reads 'schemaType' prims per 'slots',
 /// time-sampled, into a UsdGenInputRecord; it never links the primitive.
+/// Record columns are free-length (level 0, values = the array's length *
+/// arity), so a malformed input reaches the compiler's checks unchanged.
 struct UsdGenInputDesc {
     UsdGenTypeId kind = UsdGenTypeId::Invalid;   // registered type with the record layout
     UsdGenToken schemaType;                       // "BasisCurves", "Mesh"
     UsdGenSpan<const UsdGenInputSlot> slots;
-    UsdGenSpan<const UsdGenToken> attributes;     // scalar/token attributes copied as values
+    UsdGenSpan<const UsdGenToken> attributes;     // values, in record.values order
     UsdGenToken dynamicPrimvarPrefix;             // authored planes; empty = none
-    /// Optional engine-side derivation run at compile.
-    UsdGenRef<const UsdGenElementSet> (*materialize)(UsdGenInputRecord const &) = nullptr;
+    /// Optional engine-side derivation run at compile (curves: the reference
+    /// set). True with a null 'out' when the record has none; false sets 'error'.
+    bool (*materialize)(UsdGenInputRecord const &, UsdGenRef<const UsdGenElementSet> *out,
+                        std::string *error) = nullptr;
+    /// Optional intake fix-up run when a spec enters the compiler (maps:
+    /// their type handle). Compile phase.
+    void (*intake)(UsdGenInputRecord &) = nullptr;
 };
 
 }  // namespace usdGen

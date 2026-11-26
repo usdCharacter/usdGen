@@ -13,6 +13,7 @@
 // (review M-3 / engine rule E-8). Roots are Morton-sorted by rest position so
 // chunk placement is surface-major (plan/04 :641).
 #include "usdGen/ops/scatter.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 
 #include "usdGen/digest.h"
@@ -346,12 +347,14 @@ uint32_t UsdGenScatterOp::PlanesTouched() const
 }
 
 uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
-    UsdGenSurfaceInput const &surface)
+    UsdGenSurfaceInputView const &surface)
 {
     auto same = [](auto const &a, auto const &b) {
         return a.size() == b.size() && (a.empty() || a.cdata() == b.cdata());
     };
-    if (valid_ && same(surface.faceVertexCounts, counts_) &&
+    // owner_ holds the keyed columns, so equal addresses mean equal bytes.
+    if (valid_ && owner_ &&
+        same(surface.faceVertexCounts, counts_) &&
         same(surface.faceVertexIndices, indices_) &&
         same(surface.holeIndices, holes_) &&
         same(surface.creaseIndices, creaseIndices_) &&
@@ -367,6 +370,7 @@ uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
         surface.creaseMethod == creaseMethod_ &&
         surface.triangleSubdivisionRule == triangleSubdivisionRule_)
         return digest_;
+    owner_ = surface.data;
     counts_ = surface.faceVertexCounts;
     indices_ = surface.faceVertexIndices;
     holes_ = surface.holeIndices;
@@ -383,7 +387,7 @@ uint64_t UsdGenScatterOp::SubdivisionDigestCache::Digest(
     creaseMethod_ = surface.creaseMethod;
     triangleSubdivisionRule_ = surface.triangleSubdivisionRule;
     digest_ = UsdGenSubdivisionDigest(surface);
-    valid_ = true;
+    valid_ = bool(owner_);
     return digest_;
 }
 
@@ -450,14 +454,14 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     for (uint32_t i = 0; i < ctx.mapCount; ++i)
         if (ctx.maps && ctx.maps[i]) feed("mapIdentity", ctx.maps[i]->identity);
     UsdGenGraphSpec const *desc = ctx.desc;
-    if (desc && ctx.surface < desc->surfaces.size()) {
-        auto const &surface = desc->surfaces[ctx.surface];
+    if (desc && ctx.surface < UsdGenSurfaceInputs(*desc).size()) {
+        auto const &surface = UsdGenSurfaceAt(*desc, ctx.surface);
         auto array = [&](char const *name, auto &cache, auto const &values) {
             // Word-at-a-time FNV-1a (opUtil::Digest::MixBytes): one round
             // per 8 bytes instead of one per byte. The epoch values differ
             // from byte mixing, but epochs are only compared for equality
             // within a process.
-            feed(name, cache.Digest(values));
+            feed(name, cache.Digest(surface.data, values));
             feed(name, uint64_t(values.size()));
         };
         array("restPoints", restPointsDigest_, surface.restPoints);
@@ -473,9 +477,9 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
         // The paint primvar edits no generation, so the multiplier content
         // itself joins the digest: without this a paint stroke would read
         // back the cached pre-stroke roots.
-        auto const &mult = desc->surfaces[ctx.surface].densityMultiplier;
+        auto const &mult = surface.densityMultiplier;
         feed("densityMultSize", uint64_t(mult.size()));
-        feed("densityMult", densityMultDigest_.Digest(mult));
+        feed("densityMult", densityMultDigest_.Digest(surface.data, mult));
         scatter::ModeConfig modes;
         std::string modeError;
         if (scatter::ReadModeConfig(p, &modes, &modeError) && modes.GenerationPath()) {
@@ -500,11 +504,11 @@ bool UsdGenScatterOp::Capture(
         if (diag) diag->Error("UsdGenScatter::Capture: no graph description");
         return false;
     }
-    if (ctx.surface >= desc->surfaces.size()) {
+    if (ctx.surface >= UsdGenSurfaceInputs(*desc).size()) {
         if (diag) diag->Error("UsdGenScatter::Capture: no bound usdGen:surface");
         return false;
     }
-    UsdGenSurfaceInput const &surf = desc->surfaces[ctx.surface];
+    UsdGenSurfaceInputView const &surf = UsdGenSurfaceAt(*desc, ctx.surface);
     scatter::ModeConfig modes;
     {
         std::string modeError;

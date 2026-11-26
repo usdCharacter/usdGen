@@ -11,6 +11,7 @@
 #define USDGEN_VULKAN_CSOURCE_VK_ADMISSION_H
 
 #include "usdGen/authoredNamedChannels.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/vulkan/vkStages.h"
 
 #include <cstddef>

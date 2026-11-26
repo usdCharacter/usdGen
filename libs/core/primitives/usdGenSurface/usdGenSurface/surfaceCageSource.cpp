@@ -1,4 +1,7 @@
 #include "usdGen/surfaceCageSource.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenSurface/maps/mapInput.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
@@ -42,8 +45,8 @@ bool Finite(GfMatrix4d const &matrix) {
     return true;
 }
 
-UsdGenParamValue const *FindParam(std::vector<UsdGenParamValue> const &params,
-                                  char const *name)
+template <class Params>
+UsdGenParamValue const *FindParam(Params const &params, char const *name)
 {
     TfToken const key(name);
     UsdGenParamValue const *found = nullptr;
@@ -64,7 +67,7 @@ bool Number(VtValue const &value, double *out)
     return false;
 }
 
-bool Token(UsdGenMapInput const &map, char const *name, std::string *out)
+bool Token(UsdGenMapInputView const &map, char const *name, std::string *out)
 {
     UsdGenParamValue const *param = FindParam(map.params, name);
     if (!param) return false;
@@ -77,7 +80,7 @@ bool Token(UsdGenMapInput const &map, char const *name, std::string *out)
     return false;
 }
 
-bool MapNumber(UsdGenMapInput const &map, char const *name, double fallback,
+bool MapNumber(UsdGenMapInputView const &map, char const *name, double fallback,
                double *out)
 {
     UsdGenParamValue const *param = FindParam(map.params, name);
@@ -93,16 +96,18 @@ struct Prepared
     uint64_t boundCurves = 0, boundCvs = 0;
 };
 
-bool GetUniformIntPlane(UsdGenCurveSetInput const &sparse, char const *name,
+bool GetUniformIntPlane(UsdGenCurveSetInputView const &sparse, char const *name,
                         bool required, VtIntArray *values, std::string *error)
 {
-    UsdGenAuthoredPlaneDesc const *found = nullptr;
-    for (UsdGenAuthoredPlaneDesc const &plane : sparse.authoredPlanes) {
+    UsdGenAuthoredPlaneView foundPlane;
+    UsdGenAuthoredPlaneView const *found = nullptr;
+    for (UsdGenAuthoredPlaneView const &plane : sparse.authoredPlanes) {
         if (plane.name.GetString() != name) continue;
         if (found)
             return Fail(std::string("surface-cage sparse curves have duplicate ") + name +
                         " planes", error);
-        found = &plane;
+        foundPlane = plane;
+        found = &foundPlane;
     }
     if (!found) {
         if (!required) { values->clear(); return true; }
@@ -114,7 +119,7 @@ bool GetUniformIntPlane(UsdGenCurveSetInput const &sparse, char const *name,
         found->arity != 1 || found->intValues.size() != sparse.curveVertexCounts.size())
         return Fail(std::string("surface-cage sparse curves require a uniform int ") + name +
                     " plane", error);
-    *values = found->intValues;
+    values->assign(found->intValues.begin(), found->intValues.end());
     return true;
 }
 
@@ -131,7 +136,7 @@ bool TransformPoint(GfMatrix4d const &matrix, GfVec3f const &source,
 }
 
 bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-             UsdGenCurveSetInput const &sparse, bool openMap,
+             UsdGenCurveSetInputView const &sparse, bool openMap,
              Prepared *prepared, std::string *error)
 {
     if (!prepared) return Fail("surface-cage bridge has null prepared output", error);
@@ -140,10 +145,11 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         return Fail("surface-cage requires captured sparse points and authored rest", error);
     if (node.surfaces.size() != 1)
         return Fail("surface-cage requires exactly one bound surface", error);
-    auto const surface = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](UsdGenSurfaceInput const &candidate) { return candidate.key == node.surfaces.front(); });
-    if (surface == desc.surfaces.end())
+    UsdGenInputRecord const *surfaceRecord = UsdGenFindSurfaceInput(desc, node.surfaces.front());
+    if (!surfaceRecord)
         return Fail("surface-cage cannot resolve its bound rest surface", error);
+    UsdGenSurfaceInputView const surfaceView = UsdGenSurfaceInputView::Of(*surfaceRecord);
+    UsdGenSurfaceInputView const *surface = &surfaceView;
     if (surface->restFromCurrentPoints || surface->restPoints.empty())
         return Fail("surface-cage requires authored/default-time surface rest", error);
     if (!std::isfinite(desc.defaultWidth) || desc.defaultWidth < 0.0f)
@@ -157,9 +163,11 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         return Fail("surface-cage requires exactly one usdGen:regionMap binding", error);
     if (!node.maps.empty() && (node.maps.size() != 1 || node.maps.front() != bindings.front().map))
         return Fail("surface-cage regionMap and legacy map paths disagree", error);
-    auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
-        [&](UsdGenMapInput const &candidate) { return candidate.key == bindings.front().map; });
-    if (map == desc.maps.end() || !UsdGenMapHas(*map, kUsdGenTypeMapPtex) ||
+    UsdGenInputRecord const *mapRecord = UsdGenFindMapInput(desc, bindings.front().map);
+    UsdGenMapInputView const mapView =
+        mapRecord ? UsdGenMapInputView::Of(*mapRecord) : UsdGenMapInputView{};
+    UsdGenMapInputView const *map = mapRecord ? &mapView : nullptr;
+    if (!map || !UsdGenMapHas(*map, kUsdGenTypeMapPtex) ||
         map->resolvedAssetPath.empty())
         return Fail("surface-cage regionMap must resolve to a UsdGenPtexMap asset", error);
     UsdGenParamValue const *expect = FindParam(node.params, "expectMapGeneration");
@@ -220,7 +228,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
             !checkOwnerValue(hierarchyLevels, &ownerHierarchy, "hierarchyLevel"))
             return false;
     }
-    UsdGenSurfaceCagePayload const &payload = *sparse.surfaceCage;
+    UsdGenSurfaceCageView const &payload = *sparse.surfaceCage;
     size_t const owners = payload.ownerIds.size();
     if (owners == 0 || payload.ownerDensities.size() != owners ||
         payload.ownerSeeds.size() != owners || payload.ownerCvCounts.size() != owners ||
@@ -237,7 +245,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
 
     Prepared candidate;
     candidate.densityMultiplier = densityMultiplier;
-    candidate.input.surface = *surface;
+    UsdGenCopySurfaceData(*surface, &candidate.input.surface);
     // Fill measures density and finds cage bindings in world space.  Make the
     // pure helper use that same metric, including under a non-uniform scalp
     // transform, and return an explicitly world-space transient descriptor.
@@ -268,8 +276,10 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     candidate.input.densityMultiplier = densityMultiplier;
     candidate.input.ownerMap.options = options;
     candidate.input.ownerMap.channel = 0;
-    candidate.input.ownerLengthProfileOffsets = payload.ownerLengthProfileOffsets;
-    candidate.input.ownerLengthProfile = payload.ownerLengthProfile;
+    candidate.input.ownerLengthProfileOffsets.assign(payload.ownerLengthProfileOffsets.begin(),
+                                                     payload.ownerLengthProfileOffsets.end());
+    candidate.input.ownerLengthProfile.assign(payload.ownerLengthProfile.begin(),
+                                              payload.ownerLengthProfile.end());
     candidate.input.owners.reserve(owners);
     for (size_t index = 0; index != owners; ++index) {
         UsdGenSurfaceCageOwner owner;
@@ -381,7 +391,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     }
     if (openMap) {
         std::string mapError;
-        candidate.input.ownerMap.texture = UsdGenPtexTexture::Open(map->resolvedAssetPath, options, &mapError);
+        candidate.input.ownerMap.texture = UsdGenPtexTexture::Open(std::string(map->resolvedAssetPath), options, &mapError);
         if (!candidate.input.ownerMap.texture)
             return Fail("surface-cage cannot open categorical regionMap: " + mapError, error);
     }
@@ -398,7 +408,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
 
 bool UsdGenEstimateSurfaceCageCurveSet(
     UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-    UsdGenCurveSetInput const &sparse, uint64_t *curves, uint64_t *cvs,
+    UsdGenCurveSetInputView const &sparse, uint64_t *curves, uint64_t *cvs,
     std::string *error)
 {
     if (error) error->clear();
@@ -411,7 +421,7 @@ bool UsdGenEstimateSurfaceCageCurveSet(
 
 bool UsdGenBuildSurfaceCageCurveSet(
     UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
-    UsdGenCurveSetInput const &sparse, UsdGenCurveSetInput *out,
+    UsdGenCurveSetInputView const &sparse, UsdGenCurveSetData *out,
     std::string *error)
 {
     if (error) error->clear();
@@ -420,8 +430,7 @@ bool UsdGenBuildSurfaceCageCurveSet(
     if (!Prepare(desc, node, sparse, true, &prepared, error)) return false;
     UsdGenSurfaceCageResult dense;
     if (!UsdGenInterpolateSurfaceCage(prepared.input, &dense, error)) return false;
-    UsdGenCurveSetInput candidate;
-    candidate.key = sparse.key;
+    UsdGenCurveSetData candidate;
     candidate.role = UsdGenLane::Chunked;
     candidate.curveRole = UsdGenTokens().hair;
     candidate.curveVertexCounts = std::move(dense.curveVertexCounts);

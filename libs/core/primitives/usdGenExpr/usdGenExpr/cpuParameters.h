@@ -18,6 +18,8 @@
 #define USDGEN_CPU_PARAMETERS_H
 
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenExpr/exprInput.h"
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/ir.h"
 #include "usdGen/expressions/samplers.h"
@@ -50,7 +52,7 @@ bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphSpec const &desc, UsdGenOpNode con
 
 /// Parses a map prim's usdGen:map:* params once (the map types'
 /// parseOptions). Unauthored or mistyped params keep their defaults.
-bool UsdGenParseMapOptions(UsdGenMapInput const &map, UsdGenMapOptions *out,
+bool UsdGenParseMapOptions(UsdGenMapInputView const &map, UsdGenMapOptions *out,
                            std::string *error);
 
 /// One connected destination's evaluated values, decoded from the typed
@@ -136,7 +138,7 @@ private:
         std::vector<std::unique_ptr<SamplerState>> samplers;
         expr::CpuExpressionSamplers table;
     };
-    bool ResolveSamplers(UsdGenGraphSpec const &desc, UsdGenExpressionInput const &expression,
+    bool ResolveSamplers(UsdGenGraphSpec const &desc, UsdGenExpressionInputView const &expression,
                          Item *item, std::vector<std::string> *diagnostics);
     bool PrepareSamplers(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                          UsdGenCurveSetView const &geometry, expr::Context const &controls,

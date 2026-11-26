@@ -6,6 +6,7 @@
 #define USDGEN_VULKAN_EXECUTION_PLAN_H
 
 #include "curveGrowPipeline.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "exprVkProgram.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/vulkan/vkStages.h"
@@ -142,7 +143,7 @@ class VulkanSourceWidthPlan final {
     std::shared_ptr<const UsdGenGraphSpec> const &Descriptor() const noexcept {
         return descriptor_;
     }
-    UsdGenCurveSetInput const &Source() const noexcept { return source_; }
+    UsdGenCurveSetInputView const &Source() const noexcept { return source_; }
     UsdGenNodeKey SourceNodeKey() const noexcept { return sourceNodeKey_; }
     UsdGenNodeKey WidthNodeKey() const noexcept { return widthNodeKey_; }
     VulkanSourceControls const &SourceControls() const noexcept { return sourceControls_; }
@@ -165,11 +166,11 @@ class VulkanSourceWidthPlan final {
   private:
     friend std::shared_ptr<const UsdGenExecutionPlanHandle>
     CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &, UsdGenDiagnostics *);
-    VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphSpec>, UsdGenCurveSetInput, UsdGenNodeKey,
+    VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphSpec>, UsdGenCurveSetInputView, UsdGenNodeKey,
                           UsdGenNodeKey, VulkanSourceControls, VulkanLiteralWidthControls, uint64_t,
                           uint64_t, uint64_t, bool) noexcept;
     std::shared_ptr<const UsdGenGraphSpec> descriptor_;
-    UsdGenCurveSetInput source_;
+    UsdGenCurveSetInputView source_;   // holds its record's columns; descriptor_ holds the rest
     UsdGenNodeKey sourceNodeKey_, widthNodeKey_;
     VulkanSourceControls sourceControls_;
     VulkanLiteralWidthControls width_;

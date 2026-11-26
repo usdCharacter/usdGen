@@ -73,7 +73,7 @@ static bool LoadRootedC3(UsdGenGraphDesc const& desc, UsdGenCurveBuffer* out) {
     UsdGenParamView params{&lowered, &lowered.nodes[0]};
     UsdGenCaptureContext capture; capture.desc = &lowered; capture.params = &params;
     UsdGenDiagnostics diagnostics;
-    return UsdGenCurveLoader::Load(capture, lowered.curveSets[0], out, &diagnostics) &&
+    return UsdGenCurveLoader::Load(capture, UsdGenCurveSetInputs(lowered)[0], out, &diagnostics) &&
         !diagnostics.HasErrors();
 }
 

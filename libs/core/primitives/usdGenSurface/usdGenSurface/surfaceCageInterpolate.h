@@ -8,6 +8,7 @@
 #define USDGEN_SURFACE_CAGE_INTERPOLATE_H
 
 #include "usdGen/export.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/maps/ptexMap.h"
 
@@ -93,7 +94,7 @@ struct UsdGenSurfaceCageInput
     // [0,1].  Linear interpolation clamps outside its authored domain.
     VtIntArray ownerLengthProfileOffsets;
     VtVec2fArray ownerLengthProfile;
-    UsdGenSurfaceInput surface;
+    UsdGenSurfaceData surface;   // owned: the input outlives the spec it came from
     UsdGenSurfaceCageOwnerMap ownerMap;
     float densityMultiplier = 1.0f;
 };

@@ -25,7 +25,7 @@ namespace usdGen {
 using UsdGenNodeId    = uint32_t;   // dense, assigned by the compiler in topo order
 using UsdGenChunkId   = uint32_t;   // dense within a description
 using UsdGenTileId    = uint16_t;
-using UsdGenSurfaceId = uint16_t;   // index into UsdGenGraphSpec::surfaces
+using UsdGenSurfaceId = uint16_t;   // index into the spec's surface input run
 
 constexpr UsdGenNodeId kUsdGenInvalidNode = ~0u;
 

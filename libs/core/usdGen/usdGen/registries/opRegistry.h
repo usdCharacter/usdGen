@@ -80,7 +80,8 @@ private:
     std::atomic<bool> _frozen{false};
 };
 
-/// Fills UsdGenOpNode::opId and UsdGenMapInput::typeId. Compile phase.
+/// Fills UsdGenOpNode::opId and runs every input record's intake hook (maps:
+/// their type id). Compile phase.
 USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphSpec *desc);
 
 /// Generic expression admission over the record's decls. Messages (substrings tests check today):

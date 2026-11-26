@@ -4,6 +4,7 @@
 // usdGen — UsdGenCardSourceOp implementation. See cardSource.h for the
 // behaviour and ops/cardGeometry.h for the card grids.
 #include "usdGen/ops/cardSource.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -247,8 +248,8 @@ UsdGenEpoch UsdGenCardSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) c
         }
     }
     d.Mix(uint64_t(ctx.seed));
-    if (ctx.desc && ctx.surface < ctx.desc->surfaces.size())
-        d.Mix(ctx.desc->surfaces[ctx.surface].surfaceGeneration);
+    if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size())
+        d.Mix(UsdGenSurfaceAt(*ctx.desc, ctx.surface).surfaceGeneration);
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
             d.Mix(ctx.resolvedReferences[i]->identity);
@@ -322,10 +323,10 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     gctx.cards = &cards;
     gctx.smooth = s.smooth;
     float sceneLength = 1.0f;
-    if (ctx.desc && ctx.surface < ctx.desc->surfaces.size()) {
-        UsdGenSurfaceInput whole = ctx.desc->surfaces[ctx.surface];
+    if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size()) {
+        UsdGenSurfaceInputView whole = UsdGenSurfaceAt(*ctx.desc, ctx.surface);
         whole.isSubset = false;
-        whole.subsetFaces = VtIntArray();
+        whole.subsetFaces = {};
         strand::BuildSurfaceBvh(whole, true, &scalp.bvh);
         scalp.valid = !scalp.bvh.Empty();
         VtVec3fArray const &P = scalp.bvh.Points();

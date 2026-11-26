@@ -81,7 +81,8 @@ int main() {
     scattered.terminal = grow.path;
     UsdGenGraphSpec normalized;
     CHECK(NormalizeVulkanGeneratorGraph(usdGenUsd::Lower(scattered),&normalized,&diagnostics));
-    CHECK(normalized.curveSets.size() == 1 && !normalized.curveSets[0].points.empty());
+    CHECK(UsdGenCurveSetInputs(normalized).size() == 1 &&
+          !UsdGenCurveSetInputView(UsdGenCurveSetInputs(normalized)[0]).points.empty());
     CHECK(!normalized.nodes[1].enabled);
     std::puts("Vulkan surfaceCage source preflight, capture, pose roots and generator isolation PASS");
     return 0;

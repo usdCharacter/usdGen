@@ -1,4 +1,7 @@
 #include "usdGen/valuePreview.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenExpr/exprInput.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 
@@ -234,7 +237,7 @@ UsdGenOpNode PreviewNode(UsdGenGraphSpec const &desc)
     return node;
 }
 
-void SetParam(UsdGenMapInput *map, TfToken const &name, VtValue value)
+void SetParam(UsdGenMapData *map, TfToken const &name, VtValue value)
 {
     for (UsdGenParamValue &param : map->params) {
         if (param.name == name) {
@@ -245,7 +248,7 @@ void SetParam(UsdGenMapInput *map, TfToken const &name, VtValue value)
     map->params.push_back({name, std::move(value), false});
 }
 
-void EraseParam(UsdGenMapInput *map, char const *name)
+void EraseParam(UsdGenMapData *map, char const *name)
 {
     map->params.erase(std::remove_if(map->params.begin(), map->params.end(),
                                      [&](UsdGenParamValue const &p) { return p.name == name; }),
@@ -338,8 +341,10 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphSpec const &desc,
                                         Values *values, std::string *warning)
 {
     UsdGenPreviewSpec const &preview = desc.preview;
-    auto const expression = std::find_if(desc.expressions.begin(), desc.expressions.end(),
-        [&](UsdGenExpressionInput const &e) { return e.key == preview.source; });
+    UsdGenInputRecord const *expressionRecord = UsdGenFindExpressionInput(desc, preview.source);
+    UsdGenExpressionInputView const expressionView = expressionRecord
+        ? UsdGenExpressionInputView::Of(*expressionRecord) : UsdGenExpressionInputView{};
+    UsdGenExpressionInputView const *expression = &expressionView;
     UsdGenExpressionOutputDesc const *output =
         UsdGenFindExpressionOutput(*expression, TfToken());
     if (!output) {
@@ -394,8 +399,10 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
                                  Values *values, std::string *warning)
 {
     UsdGenPreviewSpec const &preview = desc.preview;
-    auto const map = std::find_if(desc.maps.begin(), desc.maps.end(),
-        [&](UsdGenMapInput const &m) { return m.key == preview.source; });
+    UsdGenInputRecord const *mapRecord = UsdGenFindMapInput(desc, preview.source);
+    UsdGenMapInputView const mapView =
+        mapRecord ? UsdGenMapInputView::Of(*mapRecord) : UsdGenMapInputView{};
+    UsdGenMapInputView const *map = &mapView;
     if (!UsdGenMapHas(*map, kUsdGenTypeMapPtex)) {
         *warning = SourceText(desc) + " is a " + map->type.GetString() +
             "; only a UsdGenPtexMap can be previewed";
@@ -406,7 +413,7 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
     _mapDesc.description = desc.description;
     _mapDesc.labels = desc.labels;
     _mapDesc.xformMatrix = desc.xformMatrix;
-    _mapDesc.surfaces = desc.surfaces;
+    UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(desc);
     _mapDesc.timeCodesPerSecond = desc.timeCodesPerSecond;
     expr::ValueShape const floatShape = expr::ValueShapeFromNativeType(UsdGenTokens().float_);
 
@@ -416,12 +423,12 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
     for (int attempt = preview.colorMap == kColorRgb ? 0 : 1; attempt < 2; ++attempt) {
         bool const colour = attempt == 0;
         unsigned const channels = colour ? 3u : 1u;
-        _mapDesc.maps.clear();
-        _mapDesc.expressions.clear();
+        _mapDesc.inputs.assign(surfaces.begin(), surfaces.end());
         UsdGenOpNode node = PreviewNode(desc);
         for (unsigned k = 0; k < channels; ++k) {
-            UsdGenMapInput copy = *map;
-            copy.key = _mapDesc.DeriveKey(map->key, kPreviewChannels[k]);
+            UsdGenMapData copy;
+            UsdGenCopyMapData(*map, &copy);
+            UsdGenNodeKey const copyKey = _mapDesc.DeriveKey(map->key, kPreviewChannels[k]);
             if (colour) {
                 SetParam(&copy, kMapChannel, VtValue(kRgbChannels[k]));
                 SetParam(&copy, kMapFirstChannel, VtValue(0));
@@ -430,13 +437,12 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
                 EraseParam(&copy, "map:offset");
                 EraseParam(&copy, "map:clamp");
             }
-            UsdGenExpressionInput expression;
-            expression.key = copy.key;
+            UsdGenExpressionData expression;
             expression.source = "ptex(\"map\")";
-            expression.inputs.push_back({kMapInput, {copy.key}, {}, {copy.key}});
+            expression.inputs.push_back({kMapInput, {copyKey}, {}, {copyKey}});
             expression.outputs.push_back({UsdGenTokens().result, UsdGenTokens().float_, floatShape});
             UsdGenParamBinding binding;
-            binding.expression = copy.key;
+            binding.expression = copyKey;
             binding.output = UsdGenTokens().result;
             binding.nativeType = UsdGenTokens().float_;
             binding.destination = kPreviewChannels[k];
@@ -444,9 +450,10 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
             binding.domain = Domain::Primitive;
             binding.literal = VtValue(0.0f);
             node.expressionBindings.push_back(std::move(binding));
-            _mapDesc.maps.push_back(std::move(copy));
-            _mapDesc.expressions.push_back(std::move(expression));
+            _mapDesc.inputs.push_back(UsdGenMapRecord(copy, copyKey, map->paintSurface, TfToken()));
+            _mapDesc.inputs.push_back(UsdGenExpressionRecord(expression, copyKey, TfToken()));
         }
+        _mapDesc.SortInputs();
         std::string message;
         if (!Evaluate(_mapDesc, node, terminal, frame, &message)) {
             if (colour) {
@@ -559,13 +566,11 @@ UsdGenPreviewColors UsdGenValuePreview::Build(UsdGenGraphSpec const &desc,
     std::string warning;
     bool ok = false;
     UsdGenNodeKey const source = preview.source;
-    auto const isExpression = [&](UsdGenExpressionInput const &e) { return e.key == source; };
-    auto const isMap = [&](UsdGenMapInput const &m) { return m.key == source; };
     if (!preview.attribute.IsEmpty()) {
         ok = FromAttribute(desc, graph, &values, &warning);
-    } else if (std::any_of(desc.expressions.begin(), desc.expressions.end(), isExpression)) {
+    } else if (UsdGenFindExpressionInput(desc, source)) {
         ok = FromExpression(desc, terminal, frame, &values, &warning);
-    } else if (std::any_of(desc.maps.begin(), desc.maps.end(), isMap)) {
+    } else if (UsdGenFindMapInput(desc, source)) {
         ok = FromMap(desc, terminal, frame, &values, &warning);
     } else {
         warning = SourceText(desc) + " is not a UsdGenExpression under " +

@@ -3,6 +3,9 @@
 
 #include "usdGen/executionRuntimeInternal.h"
 #include "usdGen/parkingWord.h"
+#include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenSurface/maps/mapInput.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include <algorithm>
 #include <array>
@@ -115,18 +118,18 @@ void UsdGenExecutionInputVersions::FromDescription(
     result.maps.clear();
     result.surfaces.clear();
     result.valid = true;
-    for (auto const& curve : desc.curveSets) {
-        auto& bucket = curve.role == UsdGenLane::Reference
+    for (UsdGenInputRecord const& record : UsdGenCurveSetInputs(desc)) {
+        auto& bucket = UsdGenCurveSetInputView::Of(record).role == UsdGenLane::Reference
             ? result.references : result.sources;
-        bucket.push_back({curve.key, curve.curveGeneration});
+        bucket.push_back({record.key, record.generation});
     }
     for (auto const& node : desc.nodes)
         for (auto const& reference : node.references)
             result.references.push_back({reference, 0});
-    for (auto const& map : desc.maps)
-        result.maps.push_back({map.key, map.textureGeneration});
-    for (auto const& surface : desc.surfaces)
-        result.surfaces.push_back({surface.key, surface.surfaceGeneration});
+    for (UsdGenInputRecord const& map : UsdGenMapInputs(desc))
+        result.maps.push_back({map.key, map.generation});
+    for (UsdGenInputRecord const& surface : UsdGenSurfaceInputs(desc))
+        result.surfaces.push_back({surface.key, surface.generation});
     Coalesce(&result.sources, &result.valid);
     Coalesce(&result.references, &result.valid);
     Coalesce(&result.maps, &result.valid);

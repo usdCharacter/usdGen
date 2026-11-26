@@ -27,6 +27,7 @@
 // count uniformly over [0, max(s_cut, 1e-4)]; strands that miss every blade
 // are untouched.
 #include "usdGen/ops/trim.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/lengthRange.h"
 #include "usdGen/ops/opUtil.h"
@@ -285,8 +286,8 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
     auto surfaceNormal = [&](GfVec3f const &at, GfVec3f *n) {
         if (!bvhBuilt) {
             bvhBuilt = true;
-            if (ctx.desc && ctx.surface < ctx.desc->surfaces.size())
-                strand::BuildSurfaceBvh(ctx.desc->surfaces[ctx.surface], true, &bvh);
+            if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size())
+                strand::BuildSurfaceBvh(UsdGenSurfaceAt(*ctx.desc, ctx.surface), true, &bvh);
         }
         if (bvh.Empty()) return false;
         strand::ClosestHit const hit = bvh.Closest(at, searchSq);

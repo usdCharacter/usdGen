@@ -7,6 +7,7 @@
 #define USDGEN_OP_SCATTER_H
 
 #include "usdGen/op.h"
+#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/registries/handles.h"
 
@@ -35,22 +36,23 @@ public:
 private:
     // Static rest/topology array digests, memoized across poses (the steady
     // state rehashes megabytes of unchanged rest data every frame).
-    mutable opUtil::ContentDigestCache<VtVec3fArray> restPointsDigest_;
-    mutable opUtil::ContentDigestCache<VtIntArray> faceCountsDigest_;
-    mutable opUtil::ContentDigestCache<VtIntArray> faceIndicesDigest_;
-    mutable opUtil::ContentDigestCache<VtIntArray> subsetFacesDigest_;
-    mutable opUtil::ContentDigestCache<VtVec2fArray> uvDigest_;
-    mutable opUtil::ContentDigestCache<VtFloatArray> densityMultDigest_;
+    mutable opUtil::ContentDigestCache<GfVec3f> restPointsDigest_;
+    mutable opUtil::ContentDigestCache<int> faceCountsDigest_;
+    mutable opUtil::ContentDigestCache<int> faceIndicesDigest_;
+    mutable opUtil::ContentDigestCache<int> subsetFacesDigest_;
+    mutable opUtil::ContentDigestCache<GfVec2f> uvDigest_;
+    mutable opUtil::ContentDigestCache<float> densityMultDigest_;
     // Rest normals feed the root frames of the generation-order modes.
-    mutable opUtil::ContentDigestCache<VtVec3fArray> restNormalsDigest_;
+    mutable opUtil::ContentDigestCache<GfVec3f> restNormalsDigest_;
     // UsdGenSubdivisionDigest re-hashes the topology arrays on top of the
     // array digests above; memoize it keyed on the same buffer identities
     // plus the scheme tokens (a miss recomputes exactly as before).
     struct SubdivisionDigestCache {
-        uint64_t Digest(UsdGenSurfaceInput const &surface);
-        VtIntArray counts_, indices_, holes_, creaseIndices_, creaseLengths_,
+        uint64_t Digest(UsdGenSurfaceInputView const &surface);
+        UsdGenRef<const UsdGenElementSet> owner_;   // holds the keyed columns
+        UsdGenSpan<const int> counts_, indices_, holes_, creaseIndices_, creaseLengths_,
             cornerIndices_;
-        VtFloatArray creaseSharpnesses_, cornerSharpnesses_;
+        UsdGenSpan<const float> creaseSharpnesses_, cornerSharpnesses_;
         TfToken scheme_, orientation_, interpolateBoundary_,
             faceVaryingLinearInterpolation_, creaseMethod_,
             triangleSubdivisionRule_;

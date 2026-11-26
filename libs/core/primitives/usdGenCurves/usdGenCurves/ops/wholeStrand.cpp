@@ -3,6 +3,7 @@
 //
 // usdGen — whole-strand styler base. See wholeStrand.h.
 #include "usdGen/ops/wholeStrand.h"
+#include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/opUtil.h"
 
@@ -149,8 +150,8 @@ UsdGenEpoch UsdGenWholeStrandOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
     }
     d.Mix(uint64_t(ctx.seed));
     d.Mix(ctx.upstreamGeneration);
-    if (ctx.desc && ctx.surface < ctx.desc->surfaces.size())
-        d.Mix(ctx.desc->surfaces[ctx.surface].surfaceGeneration);
+    if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size())
+        d.Mix(UsdGenSurfaceAt(*ctx.desc, ctx.surface).surfaceGeneration);
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
             d.Mix(ctx.resolvedReferences[i]->identity);

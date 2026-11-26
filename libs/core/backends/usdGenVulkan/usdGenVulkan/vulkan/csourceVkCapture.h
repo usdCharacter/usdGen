@@ -4,6 +4,8 @@
 #define USDGEN_VULKAN_CSOURCE_VK_CAPTURE_H
 
 #include "usdGen/curveLoader.h"
+#include "usdGenSurface/surfaceInput.h"
+#include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/op.h"
 #include "usdGen/surfaceCageSource.h"
 #include "usdGen/vulkan/vkStages.h"
@@ -29,7 +31,7 @@ inline bool IsVulkanSurfaceCage(UsdGenOpNode const& node) {
 // the native graph's resource estimates, exactly as the CUDA source does.
 inline bool ValidateVulkanSurfaceCage(
     UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
-    UsdGenCurveSetInput const& sparse, uint64_t* maxCurves, uint64_t* maxCvs,
+    UsdGenCurveSetInputView const& sparse, uint64_t* maxCurves, uint64_t* maxCvs,
     UsdGenDiagnostics* diagnostics = nullptr) {
     auto fail = [&](std::string const& reason) {
         if (diagnostics) diagnostics->Error("Vulkan surfaceCage source: " + reason);
@@ -80,10 +82,10 @@ inline bool ValidateVulkanSurfaceCage(
 // and the source resample stage still execute on the selected device.
 inline bool CaptureVulkanSurfaceCage(
     UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
-    UsdGenCurveSetInput const& sparse, uint64_t maxCurves, uint64_t maxCvs,
+    UsdGenCurveSetInputView const& sparse, uint64_t maxCurves, uint64_t maxCvs,
     UsdGenCurveBuffer* out, UsdGenDiagnostics* diagnostics = nullptr) {
     if (!out) return false;
-    UsdGenCurveSetInput dense;
+    UsdGenCurveSetData dense;
     std::string error;
     if (!UsdGenBuildSurfaceCageCurveSet(desc, node, sparse, &dense, &error)) {
         if (diagnostics) diagnostics->Error("Vulkan surfaceCage source capture: " + error);
@@ -105,7 +107,9 @@ inline bool CaptureVulkanSurfaceCage(
     context.seed = uint32_t(node.seed);
     context.diag = diagnostics;
     UsdGenCurveBuffer captured;
-    if (!UsdGenCurveLoader::Load(context, dense, &captured, diagnostics)) return false;
+    if (!UsdGenCurveLoader::Load(context, UsdGenCurveSetInputView::Of(dense, sparse.key), &captured,
+                                 diagnostics))
+        return false;
     *out = std::move(captured);
     return true;
 }
@@ -125,9 +129,10 @@ inline bool GatherVulkanSourceRootTargets(
         captured.rootPrim.size() != captured.totalCurves ||
         captured.rootUV.size() != captured.totalCurves)
         return fail("incomplete captured root bindings");
-    auto surface = std::find_if(desc.surfaces.begin(), desc.surfaces.end(),
-        [&](auto const& s) { return s.key == poseNode.surfaces.front(); });
-    if (surface == desc.surfaces.end()) return fail("unresolved pose surface");
+    UsdGenInputRecord const* surfaceRecord = UsdGenFindSurfaceInput(desc, poseNode.surfaces.front());
+    if (!surfaceRecord) return fail("unresolved pose surface");
+    UsdGenSurfaceInputView const surfaceView = UsdGenSurfaceInputView::Of(*surfaceRecord);
+    UsdGenSurfaceInputView const* surface = &surfaceView;
     std::vector<size_t> starts{0};
     for (int n : surface->faceVertexCounts) {
         if ((n != 3 && n != 4) || size_t(n) > SIZE_MAX - starts.back())
