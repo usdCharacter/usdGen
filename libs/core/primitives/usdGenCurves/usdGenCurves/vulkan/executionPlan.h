@@ -7,7 +7,7 @@
 
 #include "usdGenCurves/vulkan/curveGrowPipeline.h"
 #include "usdGenCurves/types/curveSetInput.h"
-#include "usdGenVulkan/vulkan/exprVkProgram.h"
+#include "usdGenExpr/vulkan/exprVkProgram.h"
 #include "usdGen/executionBackend.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include <array>

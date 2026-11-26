@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef USDGEN_VULKAN_EXPR_VK_STRUCTURAL_H
 #define USDGEN_VULKAN_EXPR_VK_STRUCTURAL_H
-#include "completionService.h"
+#include "usdGenVulkan/vulkan/completionService.h"
 #include "exprVkRun.h"
 #include <map>
 namespace usdGen::vulkan {

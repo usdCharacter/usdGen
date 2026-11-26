@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef USDGEN_VULKAN_EXPR_VK_PACK_H
 #define USDGEN_VULKAN_EXPR_VK_PACK_H
-#include "chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include <functional>
 #include <vector>
 

@@ -3,8 +3,8 @@
 
 #include "usdGenCurves/vulkan/planExecutor.h"
 #include "usdGenCurves/vulkan/csourceVkCapture.h"
-#include "usdGenVulkan/vulkan/exprVkPlan.h"
-#include "usdGenVulkan/vulkan/exprVkStructural.h"
+#include "usdGenExpr/vulkan/exprVkPlan.h"
+#include "usdGenExpr/vulkan/exprVkStructural.h"
 #include "usdGenCurves/vulkan/growVkPlan.h"
 #include "usdGen/curveLoader.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"

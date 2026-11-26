@@ -46,7 +46,7 @@
 #include "usdGenCurves/vulkan/rbfVkBinding.h"
 #include "usdGenCurves/vulkan/rbfVkDeformPipeline.h"
 #include "usdGenCurves/vulkan/rbfVkPlan.h"
-#include "usdGenVulkan/vulkan/surfaceVk.h"
+#include "usdGenSurface/vulkan/surfaceVk.h"
 #include "usdGenMath/rbf.h"
 
 #include "vulkanNativeFixture.h"

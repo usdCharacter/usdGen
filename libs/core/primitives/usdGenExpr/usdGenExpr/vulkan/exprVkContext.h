@@ -16,7 +16,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_CONTEXT_H
 #define USDGEN_VULKAN_EXPR_VK_CONTEXT_H
 
-#include "chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include "exprVkProgram.h"
 
 #include <cstddef>

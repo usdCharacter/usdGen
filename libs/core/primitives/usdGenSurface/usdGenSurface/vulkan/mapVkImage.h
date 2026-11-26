@@ -12,7 +12,7 @@
 // with explicit fma() at the five sites the oracle build fuses; Vulkan
 // hardware samplers cannot provide that bit-exactness.
 
-#include "chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include "usdGen/imagePayload.h"
 
 #include <cstdint>

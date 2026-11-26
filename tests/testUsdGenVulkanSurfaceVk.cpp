@@ -36,7 +36,7 @@
 //
 // Usage: testUsdGenVulkanSurfaceVk deformEvaluate.spv deformApply.spv
 
-#include "usdGenVulkan/vulkan/surfaceVk.h"
+#include "usdGenSurface/vulkan/surfaceVk.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"

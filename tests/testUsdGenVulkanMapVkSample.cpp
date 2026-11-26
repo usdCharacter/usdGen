@@ -8,7 +8,7 @@
 // host model compiled with -ffp-contract=off. All CUDA comparisons are direct
 // equality; unsupported hardware skips, while initialization and execution
 // failures fail the test. The same contract applies to every Vulkan vendor.
-#include "usdGenVulkan/vulkan/mapVkImage.h"
+#include "usdGenSurface/vulkan/mapVkImage.h"
 #include "vulkanNativeFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA

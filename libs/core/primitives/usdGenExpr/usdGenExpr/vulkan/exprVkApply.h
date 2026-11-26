@@ -11,7 +11,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_APPLY_H
 #define USDGEN_VULKAN_EXPR_VK_APPLY_H
 
-#include "chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 
 #include <cstdint>
 #include <functional>
