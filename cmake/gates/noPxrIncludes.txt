@@ -45,11 +45,11 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/wave.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wholeStrand.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/width.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp 2
+libs/core/primitives/usdGenCurves/usdGenCurves/preview/valuePreview.cpp 11
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/curvePublication.h 3
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/curvePublisher.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 2
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 11
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 3
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 2

@@ -29,6 +29,7 @@ struct UsdGenCurveBuffer;     // usdGenCurves/types/curveBuffer.h
 struct UsdGenChunkView;       // usdGen/exec/chunkView.h
 struct UsdGenChunkExtent;     // usdGen/exec/chunkView.h
 class UsdGenRegistrar;
+struct UsdGenPublishDesc;     // usdGen/api/publishDesc.h
 
 /// CPU-lane ceiling on CVs per generated or resampled strand (Grow segments,
 /// GuideInterpolate/CardSource cvCount, Resample cvCount/spacing). The CUDA
@@ -51,8 +52,10 @@ enum UsdGenCurveSlot : UsdGenSlot {
 /// Valid after usdGenRegister_usdGenCurves ran (the op registry's first use).
 USDGEN_CORE_API UsdGenTypeId UsdGenCurveSetType() noexcept;
 USDGEN_CORE_API UsdGenElementLayout const &UsdGenCurveSetLayout() noexcept;
-/// Interns the static channel names and registers "UsdGenCurveSet".
-USDGEN_CORE_API UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &);
+/// Interns the static channel names and registers "UsdGenCurveSet" with
+/// `publish` (outlives the registry; may be null).
+USDGEN_CORE_API UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &,
+                                                        UsdGenPublishDesc const *publish = nullptr);
 
 /// Partition hook: chunks of params.chunkSize curves; CVs from the set's
 /// level-2 offsets or uniform stride; group = the chunk's tile.

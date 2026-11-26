@@ -151,8 +151,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.cpp 
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.h 1
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 2
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
