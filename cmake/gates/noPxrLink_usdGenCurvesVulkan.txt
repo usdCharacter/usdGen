@@ -1,0 +1,2 @@
+# pxr libraries usdGenCurvesVulkan may link. Only shrinks; the target is an empty list.
+arch

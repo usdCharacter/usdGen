@@ -77,7 +77,9 @@ add_test(NAME testUsdGenNoSdfBelowHosts
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoSdfBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
-foreach(_t usdGen usdGenMath)
+# 8.6f: the runtimes and primitives join (baselines noPxrLink_<t>.txt).
+foreach(_t usdGen usdGenMath usdGenCuda usdGenVulkan usdGenSurface usdGenExpr usdGenCurves
+        usdGenCurvesCuda usdGenCurvesVulkan)
     if(NOT TARGET ${_t})
         continue()
     endif()
@@ -90,6 +92,33 @@ foreach(_t usdGen usdGenMath)
             -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noPxrLink_${_t}.txt
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/CheckLinkRatchet.cmake)
     set_tests_properties(testUsdGenNoPxrLink_${_t} PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
+endforeach()
+
+# Link gates 8d (step 8.6f): a backend runtime links usdGen and its SDK only;
+# usdGen links no backend, primitive or GPU SDK; hosts link no backend.
+# usdGenPomade (app layer) may link usdGenCuda (one block cache, D12).
+set(_usdgen_link_gate_rows
+    "usdGenCuda|ALLOW|^(usdGen|CUDA::(cudart|cuda_driver|cusolver)|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
+    "usdGenVulkan|ALLOW|^(usdGen|Vulkan::Vulkan|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
+    "usdGen|DENY|^(usdGen(Cuda|Vulkan|Curves|Surface|Expr|Gpu|WithPrimitives|_ptex|_seexpr|ExprFrontend)|CUDA::.*|Vulkan::.*|pxOsd|hio)$"
+    "usdGenImaging|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan))$"
+    "usdGenHydraCurves|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan))$")
+foreach(_row IN LISTS _usdgen_link_gate_rows)
+    string(REGEX MATCH "^([^|]+)[|]([A-Z]+)[|](.*)$" _m "${_row}")
+    set(_t "${CMAKE_MATCH_1}")
+    set(_kind "${CMAKE_MATCH_2}")
+    set(_re "${CMAKE_MATCH_3}")
+    if(NOT TARGET ${_t})
+        continue()
+    endif()
+    add_test(NAME testUsdGenNoDisallowedLink_${_t}
+        COMMAND ${CMAKE_COMMAND}
+            -DNAME=link-allow
+            -DTARGET=${_t}
+            "-DLINKS=$<JOIN:$<TARGET_PROPERTY:${_t},LINK_LIBRARIES>,\;>"
+            "-D${_kind}=${_re}"
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/CheckLinkAllow.cmake)
+    set_tests_properties(testUsdGenNoDisallowedLink_${_t} PROPERTIES LABELS "T0;build;gate;gate:link")
 endforeach()
 
 # Step 4 registry gates (design-step4 section 6). Today's counts as ceilings;

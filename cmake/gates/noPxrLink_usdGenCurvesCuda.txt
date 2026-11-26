@@ -1,0 +1,2 @@
+# pxr libraries usdGenCurvesCuda may link. Only shrinks; the target is an empty list.
+arch

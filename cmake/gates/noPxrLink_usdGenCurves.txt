@@ -1,0 +1,4 @@
+# pxr libraries usdGenCurves may link. Only shrinks; the target is an empty list.
+arch
+work
+trace
