@@ -10,8 +10,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 namespace usdGen::gpu {
@@ -117,6 +119,8 @@ public:
     size_t InclusiveRetainedBytes() const noexcept override;
     std::unique_ptr<UsdGenDeviceConsumer> AcquireConsumer(
         UsdGenDeviceStream stream) const noexcept override;
+    bool ChannelAddress(UsdGenDeviceChannelSemantic semantic,
+                        UsdGenDeviceChannelAddress* out) const noexcept override;
     DeviceView<const float> HairT() const noexcept {
         return payload_->base ? BaseOwner()->HairT() : payload_->curveGrow ? payload_->curveGrow->hairT() : payload_->scatterGrow ? payload_->scatterGrow->hairT() :
             payload_->compacted ? payload_->compacted->hairT() :
@@ -299,6 +303,37 @@ bool SourceOwner::ProducerReady() const noexcept
     if (payload_->curveGrow) return payload_->curveGrow->generation() != 0;
     if (payload_->scatterGrow) return payload_->scatterGrow->generation() != 0;
     return payload_->source && payload_->source->generation() != 0;
+}
+
+// A device view as a channel address: the pointer, its bytes, the element size.
+template <class View>
+bool ViewAddress(View const& view, UsdGenDeviceChannelAddress* out) noexcept
+{
+    using Element = std::remove_pointer_t<decltype(view.data)>;
+    if (view.size && !view.data) return false;
+    out->address = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(view.data));
+    out->bytes = static_cast<uint64_t>(view.size) * sizeof(Element);
+    out->strideBytes = static_cast<uint32_t>(sizeof(Element));
+    return true;
+}
+
+bool SourceOwner::ChannelAddress(UsdGenDeviceChannelSemantic semantic,
+                                 UsdGenDeviceChannelAddress* out) const noexcept
+{
+    if (!out || !payload_) return false;
+    using S = UsdGenDeviceChannelSemantic;
+    DeviceCurveGeometryView const geometry = Geometry();
+    switch (semantic) {
+    case S::Points: return ViewAddress(geometry.points, out);
+    case S::RestPoints: return ViewAddress(geometry.restPoints, out);
+    case S::Widths: return ViewAddress(geometry.widths, out);
+    case S::HairT: return ViewAddress(HairT(), out);
+    case S::ElementOffsets: return ViewAddress(geometry.curveOffsets, out);
+    case S::StableIds: return ViewAddress(geometry.stableIds, out);
+    case S::RootPrim: return ViewAddress(RootPrim(), out);
+    case S::RootUV: return ViewAddress(RootUV(), out);
+    default: return false;
+    }
 }
 
 size_t SourceOwner::ExclusiveRetainedBytes() const noexcept

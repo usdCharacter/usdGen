@@ -2,8 +2,7 @@
 
 #ifdef USDGEN_HAS_CUDA_GL_INTEROP
 
-#include "usdGen/gpu/generation.h"
-#include "usdGen/executionPipeline.h"
+#include "usdGen/exec/executionPipeline.h"
 #include "usdGen/registries/backend.h"
 
 #include "pxr/imaging/hd/bufferSpec.h"
@@ -16,6 +15,7 @@
 
 #include <cuda_gl_interop.h>
 
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <exception>
@@ -377,17 +377,14 @@ UsdGenCudaGlComputation::Execute(
         return;
     }
 
-    // A tile lease retains its parent source lease.  Keep either lease alive
-    // until after GL is unmapped and the consumer stream is fenced.
-    usdGen::gpu::CudaGeometryLease lease;
-    usdGen::gpu::CudaGeometryTileLease tileLease;
-    if (_tileId) {
-        tileLease = usdGen::gpu::AcquireGeometryTile(
-            _generation, *_tileId, _generation->Identity().generation, stream);
-    } else {
-        lease = usdGen::gpu::AcquireGeometry(_generation, stream);
+    // The lease keeps the generation's storage alive and orders its producer
+    // before this stream; hold it until GL is unmapped and the stream fenced.
+    usdGen::UsdGenDeviceLease lease = _generation->AcquireLease(
+        reinterpret_cast<usdGen::UsdGenDeviceStream>(stream));
+    if (lease && lease.WaitUntilReady() != usdGen::UsdGenDeviceStatus::Ok) {
+        lease = {};
     }
-    if ((_tileId && !tileLease) || (!_tileId && !lease)) {
+    if (!lease) {
         cudaStreamDestroy(stream);
         restoreDevice();
         _Fail(_tileId ? "CUDA tile generation rejected the consumer stream" :
@@ -395,39 +392,19 @@ UsdGenCudaGlComputation::Execute(
         return;
     }
 
+    // A tile slice keeps global offset values; every other channel is
+    // tile-local.
+    usdGen::UsdGenDeviceChannelAddress address;
     void const *source = nullptr;
     size_t sourceCount = 0;
-    if (_tileId) {
-        // Do not reconstruct a whole-geometry view from tile storage: offset
-        // values remain global, while every other channel is tile-local.
-        auto const geometry = tileLease.View();
-        switch (_semantic) {
-        case S::Points: source = geometry.points.data; sourceCount = geometry.points.size; break;
-        case S::RestPoints: source = geometry.restPoints.data; sourceCount = geometry.restPoints.size; break;
-        case S::Widths: source = geometry.widths.data; sourceCount = geometry.widths.size; break;
-        case S::HairT: source = geometry.hairT.data; sourceCount = geometry.hairT.size; break;
-        case S::ElementOffsets: source = geometry.curveOffsets.data; sourceCount = geometry.curveOffsets.size; break;
-        case S::StableIds: source = geometry.stableIds.data; sourceCount = geometry.stableIds.size; break;
-        case S::RootPrim: source = geometry.rootPrim.data; sourceCount = geometry.rootPrim.size; break;
-        case S::RootUV: source = geometry.rootUV.data; sourceCount = geometry.rootUV.size; break;
-        default: break;
-        }
+    if (_generation->ChannelAddress(_semantic, _tileId ? *_tileId : UINT32_MAX, &address) &&
+        address.strideBytes == elementBytes && address.bytes % elementBytes == 0 &&
+        _ToSize(address.bytes / elementBytes, &sourceCount)) {
+        source = reinterpret_cast<void const *>(static_cast<uintptr_t>(address.address));
     } else {
-        auto const geometry = lease.Geometry();
-        switch (_semantic) {
-        case S::Points: source = geometry.points.data; sourceCount = geometry.points.size; break;
-        case S::RestPoints: source = geometry.restPoints.data; sourceCount = geometry.restPoints.size; break;
-        case S::Widths: source = geometry.widths.data; sourceCount = geometry.widths.size; break;
-        case S::HairT: { auto v = lease.HairT(); source = v.data; sourceCount = v.size; break; }
-        case S::ElementOffsets: source = geometry.curveOffsets.data; sourceCount = geometry.curveOffsets.size; break;
-        case S::StableIds: source = geometry.stableIds.data; sourceCount = geometry.stableIds.size; break;
-        case S::RootPrim: { auto v = lease.RootPrim(); source = v.data; sourceCount = v.size; break; }
-        case S::RootUV: { auto v = lease.RootUV(); source = v.data; sourceCount = v.size; break; }
-        default: break;
-        }
+        sourceCount = 0;
     }
     if (sourceCount != count || (count && !source)) {
-        tileLease = {};
         lease = {};
         cudaStreamDestroy(stream);
         restoreDevice();
@@ -440,7 +417,6 @@ UsdGenCudaGlComputation::Execute(
     // the source lease through its completion fence before reporting Ready.
     if (count == 0) {
         cudaError_t const fenceStatus = cudaStreamSynchronize(stream);
-        tileLease = {};
         lease = {};
         cudaError_t const destroyStatus = cudaStreamDestroy(stream);
         cudaError_t const restoreStatus = restoreDevice();
@@ -458,7 +434,6 @@ UsdGenCudaGlComputation::Execute(
     }
 
     if (!destination->GetHandle()) {
-        tileLease = {};
         lease = {};
         cudaStreamDestroy(stream);
         restoreDevice();
@@ -468,7 +443,6 @@ UsdGenCudaGlComputation::Execute(
     HgiGLBuffer *const glBuffer = dynamic_cast<HgiGLBuffer *>(
         destination->GetHandle().Get());
     if (!glBuffer || !glBuffer->GetBufferId()) {
-        tileLease = {};
         lease = {};
         cudaStreamDestroy(stream);
         restoreDevice();
@@ -477,7 +451,6 @@ UsdGenCudaGlComputation::Execute(
     }
     if (destination->GetOffset() < 0 || destination->GetStride() <= 0 ||
         destinationRange->GetByteOffset(_destinationName) < 0) {
-        tileLease = {};
         lease = {};
         cudaStreamDestroy(stream);
         restoreDevice();
@@ -495,7 +468,6 @@ UsdGenCudaGlComputation::Execute(
         !_Add(destinationOffset, span, &destinationEnd) ||
         !_Add(destinationEnd, elementBytes, &destinationEnd) ||
         destinationEnd > glBuffer->GetByteSizeOfResource()) {
-        tileLease = {};
         lease = {};
         cudaStreamDestroy(stream);
         restoreDevice();
@@ -543,7 +515,7 @@ UsdGenCudaGlComputation::Execute(
         std::terminate();
     }
     // cudaGraphicsUnmapResources is ordered on stream.  Check that stream
-    // explicitly: CudaGeometryLease::Complete also fences it, but deliberately
+    // explicitly: the lease's Complete also fences it, but deliberately
     // cannot return its status to this computation.
     if ((status = cudaStreamSynchronize(stream)) != cudaSuccess) {
         _Fail("cudaStreamSynchronize after CUDA-GL unmap", status);
@@ -553,7 +525,6 @@ UsdGenCudaGlComputation::Execute(
     }
     // Completion fences the consumer stream, including the asynchronous
     // unmap, before the GL resource registration is released.
-    tileLease = {};
     lease = {};
     if (graphics) {
         cudaError_t const unregisterStatus = cudaGraphicsUnregisterResource(graphics);

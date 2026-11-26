@@ -335,6 +335,10 @@ public:
     size_t InclusiveRetainedBytes() const noexcept override {
         return source_ ? source_->InclusiveRetainedBytes() : 0;
     }
+    // The device is created without bufferDeviceAddress, so no channel has
+    // an address to hand out; interop through external memory comes later.
+    bool ChannelAddress(UsdGenDeviceChannelSemantic,
+                        UsdGenDeviceChannelAddress*) const noexcept override { return false; }
     std::shared_ptr<const VulkanSourceGeneration> source() const noexcept { return source_; }
     std::shared_ptr<VulkanGenerationAdapterDomain> domain() const noexcept { return domain_; }
 

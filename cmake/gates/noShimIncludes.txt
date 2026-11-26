@@ -234,8 +234,6 @@ libs/core/usdGen/version.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/attributePreviewSceneIndex.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/attributePreviewSceneIndex.h 2
 libs/hosts/usdGenHydra/usdGenImaging/cleanupQueue.h 1
-libs/hosts/usdGenHydra/usdGenImaging/cudaGlComputation.cpp 2
-libs/hosts/usdGenHydra/usdGenImaging/cudaGlComputation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 6
 libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/rbfAnimation.h 1

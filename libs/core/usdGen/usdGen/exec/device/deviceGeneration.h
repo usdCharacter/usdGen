@@ -145,6 +145,15 @@ bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
 bool UsdGenDeviceChannelStorageBytes(UsdGenDeviceChannelMetadata const& channel,
     size_t* bytes, std::string* reason = nullptr);
 
+/// A channel's device storage for interop. Read it only while a lease
+/// acquired on the reading stream is held.
+struct UsdGenDeviceChannelAddress
+{
+    uint64_t address = 0;       // the backend's device address of the first element
+    uint64_t bytes = 0;
+    uint32_t strideBytes = 0;
+};
+
 /// Tool identity is retained with a geometry snapshot so a tool cannot
 /// accidentally consume a later graph/device generation.
 struct UsdGenDeviceToolMetadata
@@ -207,6 +216,16 @@ public:
     /// is released by UsdGenDeviceLease destruction/completion.
     virtual std::unique_ptr<UsdGenDeviceConsumer> AcquireConsumer(
         UsdGenDeviceStream stream) const noexcept = 0;
+
+    /// The whole storage of the channel with this semantic. False: absent,
+    /// or the owner exposes no device address.
+    virtual bool ChannelAddress(UsdGenDeviceChannelSemantic semantic,
+                                UsdGenDeviceChannelAddress *out) const noexcept
+    {
+        (void)semantic;
+        (void)out;
+        return false;
+    }
 };
 
 /// Shared lease state makes copies safe and keeps the owner alive until the
@@ -283,6 +302,13 @@ public:
     /// Acquires a lifetime/fence lease for a concrete consumer stream.  An
     /// invalid lease means the owner rejected the asynchronous use.
     UsdGenDeviceLease AcquireLease(UsdGenDeviceStream stream) const noexcept;
+
+    /// The owner's storage of 'semantic' sliced to the tile with id 'tile'
+    /// (UINT32_MAX: the whole channel) by the channel's domain: Point by the
+    /// tile's points, Primitive by its elements, Topology by its elements
+    /// plus one. Valid while a lease on the reading stream is held.
+    bool ChannelAddress(UsdGenDeviceChannelSemantic semantic, uint32_t tile,
+                        UsdGenDeviceChannelAddress *out) const noexcept;
 
 private:
     std::shared_ptr<const UsdGenDeviceGeneration> _Republish(

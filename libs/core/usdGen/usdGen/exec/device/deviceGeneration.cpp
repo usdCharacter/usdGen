@@ -405,4 +405,51 @@ UsdGenDeviceGeneration::AcquireLease(UsdGenDeviceStream stream) const noexcept
     }
 }
 
+bool
+UsdGenDeviceGeneration::ChannelAddress(UsdGenDeviceChannelSemantic semantic, uint32_t tile,
+                                       UsdGenDeviceChannelAddress *out) const noexcept
+{
+    if (!_owner || !out || semantic == UsdGenDeviceChannelSemantic::Generic) return false;
+    UsdGenDeviceChannelMetadata const *channel = nullptr;
+    for (UsdGenDeviceChannelMetadata const &candidate : _channels)
+        if (candidate.semantic == semantic) { channel = &candidate; break; }
+    if (!channel) return false;
+    UsdGenDeviceChannelAddress whole;
+    if (!_owner->ChannelAddress(semantic, &whole) || !whole.strideBytes) return false;
+    if (tile == UINT32_MAX) {
+        *out = whole;
+        return true;
+    }
+    UsdGenDeviceTileMetadata const *range = nullptr;
+    for (UsdGenDeviceTileMetadata const &candidate : _geometry.tiles)
+        if (candidate.tile == tile) { range = &candidate; break; }
+    if (!range) return false;
+    uint64_t first = 0, count = 0;
+    switch (channel->domain) {
+    case UsdGenDeviceDomain::Point:
+        first = range->firstPoint;
+        count = range->pointCount;
+        break;
+    case UsdGenDeviceDomain::Primitive:
+        first = range->firstElement;
+        count = range->elementCount;
+        break;
+    case UsdGenDeviceDomain::Topology:   // offsets: one past the tile's last element
+        if (range->elementCount == UINT64_MAX) return false;
+        first = range->firstElement;
+        count = range->elementCount + 1;
+        break;
+    default:
+        return false;
+    }
+    uint64_t const stride = whole.strideBytes;
+    if (first > UINT64_MAX / stride || count > UINT64_MAX / stride) return false;
+    uint64_t const begin = first * stride, bytes = count * stride;
+    if (begin > whole.bytes || bytes > whole.bytes - begin) return false;
+    out->address = bytes ? whole.address + begin : 0;
+    out->bytes = bytes;
+    out->strideBytes = whole.strideBytes;
+    return true;
+}
+
 } // namespace usdGen

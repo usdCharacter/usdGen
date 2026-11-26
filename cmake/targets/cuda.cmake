@@ -208,10 +208,11 @@ if(USDGEN_ENABLE_CUDA)
         $<TARGET_PROPERTY:tf,INTERFACE_INCLUDE_DIRECTORIES>)
     target_compile_definitions(usdGenCuda PRIVATE USDGEN_ENABLE_CUDA)
     set_target_properties(usdGenCuda PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
-    # Hosts and Pomade share usdGenCuda's one block cache (step 8.6a moves
-    # the imaging interop onto the neutral device owner).
+    # The imaging interop reads channels through the neutral device owner
+    # (UsdGenDeviceGeneration::ChannelAddress): the CUDA runtime API only,
+    # no backend library. Pomade shares usdGenCuda's one block cache.
     target_compile_definitions(usdGenImaging PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
-    target_link_libraries(usdGenImaging PUBLIC hdSt PRIVATE usdGenCuda hgiGL)
+    target_link_libraries(usdGenImaging PUBLIC hdSt PRIVATE CUDA::cudart hgiGL)
     # Pomade CUDA lane (plan/17 P0): the tessellation kernel joins
     # usdGenPomade, and the model/transport compile their device mirrors.
     target_sources(usdGenPomade PRIVATE
