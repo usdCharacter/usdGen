@@ -48,14 +48,14 @@ install(FILES "${_usdgen_imaging_pluginfo}"
 # so the relative @./...@ citations resolve in the installed layout too.
 install(FILES
     "${_usdgen_shader_pluginfo}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/hairLook.usda"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/hairLook.usda"
     DESTINATION "${USDGEN_INSTALL_PLUGINDIR}/usdGenShaders/resources")
 # N-6: a trailing-slash source copies the *contents* of shaders/, so the
 # destination must be .../resources/shaders — the old rule flattened
 # shaderDefs.usda and the .glslfx files straight into resources/, where
 # plugInfo's "ShaderResources": "shaders" never looks (Sdr discovery found
 # zero shaders in the install tree).
-install(DIRECTORY usdGenShaders/resources/shaders/
+install(DIRECTORY libs/hosts/usdGenHydra/primitives/curves/shaders/resources/shaders/
     DESTINATION "${USDGEN_INSTALL_PLUGINDIR}/usdGenShaders/resources/shaders"
     PATTERN "usdGenHairModel.glslfx" EXCLUDE)
 # The strand-model selector the build generated (USDGEN_HAIR_SHADING_MODEL).

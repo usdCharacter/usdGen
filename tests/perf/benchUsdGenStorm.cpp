@@ -2,7 +2,7 @@
 // benchUsdGenStorm - M1/M2 storm timing-gate driver (plan/09 S-1/S-2/S-3/S-4/S-5/S-6/S-12).
 //
 // UsdImagingGLEngine + HdStormRendererPlugin on a headless EGL device context
-// (usdGenShaders/test/eglctx.h). Timing (plan/09 4.5): per repeat, `warmup`
+// (libs/hosts/usdGenHydra/primitives/curves/shaders/test/eglctx.h). Timing (plan/09 4.5): per repeat, `warmup`
 // frames then `frames` timed; the first (cold) repeat is discarded; median is
 // the median of per-repeat medians, p90/min over retained frame samples.
 // Counters from Engine::GetRenderStats() via lowercase-substring key mapping;

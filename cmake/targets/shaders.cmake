@@ -33,18 +33,18 @@ install(TARGETS usdGenBakePtex RUNTIME DESTINATION bin)
 set(_usdgen_shader_resources "${CMAKE_CURRENT_BINARY_DIR}/usd/usdGenShaders/resources")
 set(_usdgen_shader_pluginfo "${_usdgen_shader_resources}/plugInfo.json")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/plugInfo.json.in")
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/plugInfo.json.in")
 file(READ
-    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/plugInfo.json.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/plugInfo.json.in"
     _usdgen_shader_pluginfo_content)
 file(GENERATE OUTPUT "${_usdgen_shader_pluginfo}"
     CONTENT "${_usdgen_shader_pluginfo_content}")
 file(COPY
-    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/shaders/"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/shaders/"
     DESTINATION "${_usdgen_shader_resources}/shaders"
     PATTERN "usdGenHairModel.glslfx" EXCLUDE)
 file(COPY
-    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/hairLook.usda"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/hairLook.usda"
     DESTINATION "${_usdgen_shader_resources}")
 
 # The strand model UsdGenHairStrands compiles (docs/storm-fur.md, "Strand
@@ -66,7 +66,7 @@ if(NOT _usdgen_hair_model MATCHES "^(karis|marschner|rtxcr)$")
 endif()
 string(TOUPPER "${_usdgen_hair_model}" _usdgen_hair_model_upper)
 set(_usdgen_hair_model_source
-    "${CMAKE_CURRENT_SOURCE_DIR}/usdGenShaders/resources/shaders/usdGenHairModel.glslfx")
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/resources/shaders/usdGenHairModel.glslfx")
 set(_usdgen_hair_model_file "${_usdgen_shader_resources}/shaders/usdGenHairModel.glslfx")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_usdgen_hair_model_source}")
 file(READ "${_usdgen_hair_model_source}" _usdgen_hair_model_content)

@@ -1,5 +1,5 @@
 // stormTestUtils.h — shared harness for the T2 Storm decision-gate tests
-// (S-8/S-9 family). EGL headless context via usdGenShaders/test/eglctx.h,
+// (S-8/S-9 family). EGL headless context via libs/hosts/usdGenHydra/primitives/curves/shaders/test/eglctx.h,
 // FrameRecorder renders, Hio PNG round-trip with a native-format pixel loader
 // (a conversion Read() into a Float32Vec4 StorageSpec silently yields an
 // unfilled buffer on 26.08 — decode the native format instead; verified).

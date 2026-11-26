@@ -6,7 +6,7 @@
 // default: A is ~33-36% faster per deforming frame (no DirtyPrimvar
 // republish) and compiles under HDST_ENABLE_HGI_RESOURCE_GENERATION=1.
 // This test re-verifies the decision on the shipped scenes from
-// usdGenShaders/test/make_scene.py: both variants must render clean, the
+// libs/hosts/usdGenHydra/primitives/curves/shaders/test/make_scene.py: both variants must render clean, the
 // frames must match within look parity (same groom, same lights — the two
 // tangent sources describe the same strand field), re-renders must be
 // bit-stable, and a warm-frame wall-time comparison must show A no slower
@@ -55,7 +55,7 @@ int main(int argc, char** argv)
 
     ::setenv("USDGEN_SHADER_SCENES", scratch.c_str(), 1);
     const std::string gen = "python3 '" + srcDir +
-                            "/usdGenShaders/test/make_scene.py' >/dev/null 2>&1";
+                            "/libs/hosts/usdGenHydra/primitives/curves/shaders/test/make_scene.py' >/dev/null 2>&1";
     check(std::system(gen.c_str()) == 0, "make_scene.py generated scenes");
     // Variant A: inData.Neye tangent, no authored hairTangent.
     const std::string sceneA = scratch + "/sceneA_asset.usda";
