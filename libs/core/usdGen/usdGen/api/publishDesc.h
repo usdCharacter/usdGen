@@ -9,6 +9,7 @@
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
+#include "usdGen/exec/epoch.h"
 #include "usdGen/exec/pool.h"
 #include <cstdint>
 
@@ -16,6 +17,7 @@ namespace usdGen {
 
 struct UsdGenPublishContext;      // registries/publisher.h
 struct UsdGenDiagnostics;
+struct UsdGenDeformBinding;       // api/deformBinding.h
 
 /// Lines: one-dimensional prims (Hydra basis splines).
 enum class UsdGenPublishKind : uint8_t { None, Lines, Points, Mesh, Instances };
@@ -50,6 +52,10 @@ struct UsdGenPublishDesc {
     /// The index-th surface input whose triangles occlude the elements (one
     /// per mesh, in input order); an invalid key past the last.
     UsdGenNodeKey (*occluder)(UsdGenPublishContext const &, uint32_t index) = nullptr;
+    /// Renderer playback binding, one group per ctx.groups entry (allocates:
+    /// capture time only). False: none.
+    bool (*deformBinding)(UsdGenPublishContext const &,
+                          UsdGenRef<const UsdGenDeformBinding> *out) = nullptr;
 };
 
 }  // namespace usdGen

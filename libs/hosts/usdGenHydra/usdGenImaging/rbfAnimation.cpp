@@ -220,7 +220,7 @@ bool Pose(RbfAnimation* result, usdGenMath::rbf::CubicField const& field, GfMatr
     HdDataSourceBaseHandle const inputs[] = {Value(Flatten(Coefficients(field))),Value(int(FloatSafe(domain,field)))};
     result->computations[result->coefficientsPath] = Container(HdExtComputationSchema::GetSchemaToken(),
         HdExtComputationSchema::Builder().SetInputValues(HdRetainedContainerDataSource::New(2,inputNames,inputs)).Build());
-    for (size_t t = 0; t != result->binding->tiles.size(); ++t) {
+    for (size_t t = 0; t != result->binding->groups.size(); ++t) {
         SdfPath const& tilePath = result->tilePaths[t];
         auto const extent = Bounds(result->restBounds.at(tilePath), field);
         for (int k=0; k!=3; ++k)
@@ -246,21 +246,22 @@ bool Pose(RbfAnimation* result, usdGenMath::rbf::CubicField const& field, GfMatr
 }
 }
 std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
-    std::shared_ptr<const usdGen::UsdGenRbfAnimationBinding> const& binding,
+    usdGen::UsdGenRef<const usdGen::UsdGenDeformBinding> const& binding,
+    std::vector<usdGen::UsdGenPrimRef> const& groupPrims,
     std::shared_ptr<const void> const& host, GfMatrix4d const& xform) {
-    if (!binding || binding->tiles.empty()) return {};
+    if (!binding || binding->groups.empty() || groupPrims.size() != binding->groups.size()) return {};
     auto result = std::make_shared<RbfAnimation>();
     result->binding = binding;
     result->host = host;
-    for (auto const& tile : binding->tiles)
-        result->tilePaths.push_back(usdGenUsd::PrimPath(tile.prim, usdGenUsd::Paths(host)));
+    for (usdGen::UsdGenPrimRef const& prim : groupPrims)
+        result->tilePaths.push_back(usdGenUsd::PrimPath(prim, usdGenUsd::Paths(host)));
     if (result->tilePaths.front().IsEmpty()) return {};
     result->coefficientsPath = result->tilePaths.front().GetParentPath().AppendChild(TfToken("usdGenAnimationCoefficients"));
     auto const& field = binding->field;
     auto const rest = Flatten(field.Samples());
     auto const origin = field.Centre();
-    for (size_t t = 0; t != binding->tiles.size(); ++t) {
-        auto const& tile = binding->tiles[t];
+    for (size_t t = 0; t != binding->groups.size(); ++t) {
+        auto const& tile = binding->groups[t];
         SdfPath const& tilePath = result->tilePaths[t];
         GfRange3d bounds;
         for (auto const& p : tile.restPoints) bounds.UnionWith(GfVec3d(p));

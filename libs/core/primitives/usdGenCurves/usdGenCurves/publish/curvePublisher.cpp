@@ -8,8 +8,8 @@
 #include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/publish/furOcclusion.h"
 #include "usdGenCurves/publish/valuePreview.h"
+#include "usdGen/api/deformBinding.h"
 #include "usdGen/api/publishDesc.h"
-#include "usdGenCurves/rbfAnimation.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/surfaceInput.h"
@@ -57,6 +57,9 @@ static constexpr bool _furDensityDefault = true;
 #else
 static constexpr bool _furDensityDefault = false;
 #endif
+TF_DEFINE_ENV_SETTING(USDGEN_STORM_GPU_DEFORM, false,
+    "Use resident Storm GPU points for compatible terminal RBF pose previews.");
+
 TF_DEFINE_ENV_SETTING(USDGEN_FUR_DENSITY, _furDensityDefault,
                       "Publish the per-CV hair-only local density primvar "
                       "furDensity on usdGen fur tiles.");
@@ -763,45 +766,19 @@ bool RefreshTilePoints(UsdGenChunkGroup const &tv, UsdGenCurveSetView const &ter
     return true;
 }
 
-std::shared_ptr<const UsdGenRbfAnimationBinding> BuildAnimationBinding(
-    UsdGenGraphSpec const &spec, UsdGenGraph const &graph,
-    UsdGenSpan<const UsdGenChunkGroup> groups, UsdGenSpan<const UsdGenChunkRange> chunks,
-    std::vector<UsdGenTilePublication> const& tiles)
+// The curve type's playback binding when every group matches the tile the
+// publication carries for it, point for point; else null.
+UsdGenRef<const UsdGenDeformBinding> BuildAnimationBinding(
+    UsdGenPublishContext const &ctx, UsdGenPublishDesc const *publish,
+    std::vector<UsdGenTilePublication> const &tiles)
 {
-    auto const& terminal = graph.Node(graph.TerminalNodeId());
-    if (!terminal.op || !terminal.record || !terminal.desc) return {};
-    auto const makeBinding = terminal.record->Def().hooks.makeAnimationBinding;
-    if (!makeBinding) return {};
-    UsdGenAnimationBindingQuery query;
-    query.terminalDesc = terminal.desc;
-    query.terminalParams = &terminal.paramView;
-    UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(spec);
-    query.surface = terminal.surface < surfaceRecords.size() ? &surfaceRecords[terminal.surface] : nullptr;
-    query.terminalInputCount = uint32_t(terminal.inputs.size());
-    query.terminalHasOutputPlanes = !terminal.outputPrimvars.empty();
-    query.graphStatic = true;
-    for (int i = 0; i != graph.NodeCount(); ++i) {
-        auto const& node = graph.Node(i);
-        if (!node.op || !node.record || node.record->Has(kUsdGenOpReadsTime) ||
-            !node.desc->expressionBindings.empty())
-            query.graphStatic = false;
-        else
-            for (auto const& param : node.desc->params) if (param.animated) query.graphStatic = false;
-        if (node.opId == terminal.opId) ++query.nodesWithTerminalOp;
-    }
-    UsdGenRbfAnimationBinding fields;
-    if (!makeBinding(query, *terminal.op, &fields) || !query.surface) return {};
-    auto binding = std::make_shared<UsdGenRbfAnimationBinding>(std::move(fields));
-    binding->surface = query.surface->key;
-    UsdGenCurveSetView const restSet =
-        UsdGenCurveSetView::Of(graph.NodeOutput(terminal.inputs.front()));
-    for (auto const& tv : groups) {
-        auto tile = std::find_if(tiles.begin(), tiles.end(), [&](auto const& t) { return t.tile == tv.id; });
-        UsdGenTilePublication rest;
-        if (tile == tiles.end() || !RefreshTilePoints(tv, restSet, chunks, *tile, &rest)) return {};
-        double padding = 0;
-        for (float width : tile->widths) padding = std::max(padding, double(width) * 0.5);
-        binding->tiles.push_back({tile->prim, std::move(rest.points), padding});
+    UsdGenRef<const UsdGenDeformBinding> binding;
+    if (!publish || !publish->deformBinding || !publish->deformBinding(ctx, &binding) || !binding)
+        return {};
+    for (UsdGenDeformBindingGroup const &group : binding->groups) {
+        auto tile = std::find_if(tiles.begin(), tiles.end(),
+                                 [&](auto const &t) { return t.tile == group.group; });
+        if (tile == tiles.end() || tile->points.size() != group.restPoints.size()) return {};
     }
     return binding;
 }
@@ -1023,8 +1000,7 @@ UsdGenRef<const UsdGenPublication> BuildPublication(UsdGenPublishContext const &
     Phase(ctx, refreshedTiles == rebuiltTiles && refreshedTiles ? "tile points" : "tiles",
           rebuiltTiles, gen.tiles.size());
     if (UsdGenRbfAnimationEnabled())
-        gen.animationBinding =
-            BuildAnimationBinding(spec, *ctx.graph, ctx.groups, ctx.chunks, gen.tiles);
+        gen.animationBinding = BuildAnimationBinding(ctx, publish, gen.tiles);
 
     // Whole-groom optical depth includes neighboring tiles. Unchanged
     // geometry reuses the immutable planes, including on look-only edits.
@@ -1276,12 +1252,12 @@ size_t Bytes(UsdGenPublication const &publication)
     if (p.animationBinding) {
         auto const& binding = *p.animationBinding;
         size_t const n = binding.sampleIndices.size(), order = n + 4;
-        if (!_AddBytes(&total, 1, sizeof(UsdGenRbfAnimationBinding)) ||
+        if (!_AddBytes(&total, 1, sizeof(UsdGenDeformBinding)) ||
             !_AddBytes(&total, order * order + 9 * order, sizeof(double)) ||
             !_AddBytes(&total, n + order, sizeof(size_t))) return 0;
-        for (auto const& tile : binding.tiles)
-            if (!_AddBytes(&total, 1, sizeof(UsdGenRbfAnimationTile)) ||
-                !_AddBytes(&total, tile.restPoints.size(), sizeof(GfVec3f))) return 0;
+        for (auto const& group : binding.groups)
+            if (!_AddBytes(&total, 1, sizeof(UsdGenDeformBindingGroup)) ||
+                !_AddBytes(&total, group.restPoints.size(), sizeof(GfVec3f))) return 0;
     }
     for (UsdGenInstancerPublication const &instancer : p.instancers) {
         if (!_AddBytes(&total, 1, sizeof(UsdGenInstancerPublication)) ||
@@ -1316,6 +1292,8 @@ std::unique_ptr<UsdGenPublisherState> CreateState()
 }
 
 }  // namespace
+
+bool UsdGenRbfAnimationEnabled() { return TfGetEnvSetting(USDGEN_STORM_GPU_DEFORM); }
 
 UsdGenCurvePublication::UsdGenCurvePublication() noexcept
     : UsdGenPublication(UsdGenCurveSetType(), kUsdGenCurvePublicationKind)

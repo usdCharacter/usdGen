@@ -139,7 +139,6 @@ usdGen/ops/widthBlend.h usdGenCurves/ops/widthBlend.h
 usdGen/ops/wind.h usdGenCurves/ops/wind.h
 usdGen/parkingWord.h usdGen/exec/parkingWord.h
 usdGen/pool.h usdGen/exec/pool.h
-usdGen/rbfAnimation.h usdGenCurves/rbfAnimation.h
 usdGen/scheduler.h usdGen/exec/scheduler.h
 usdGen/scratch.h usdGen/exec/scratch.h
 usdGen/session.h usdGen/exec/session.h

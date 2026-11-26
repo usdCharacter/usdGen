@@ -9,6 +9,7 @@
 #pragma once
 
 #include "usdGenCurves/export.h"
+#include "usdGen/api/deformBinding.h"
 #include "usdGen/api/primRef.h"
 #include "usdGen/compile/types.h"
 #include "usdGen/registries/engineTokens.h"
@@ -28,7 +29,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 struct UsdGenGeneration;
-struct UsdGenRbfAnimationBinding;   // usdGenCurves/rbfAnimation.h
 
 struct UsdGenTilePublication
 {
@@ -174,7 +174,7 @@ public:
     // preview edit rebuilds tiles whose geometry did not move.
     uint64_t colorDigest = 0;
     // RBF playback of a static groom over a deforming surface; null otherwise.
-    std::shared_ptr<const UsdGenRbfAnimationBinding> animationBinding;
+    UsdGenRef<const UsdGenDeformBinding> animationBinding;
 };
 
 /// Diff of two curve publications, consumed by the imaging notice emitter

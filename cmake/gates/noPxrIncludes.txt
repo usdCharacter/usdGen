@@ -44,8 +44,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/publish/curvePublication.h 3
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/curvePublisher.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 3
-libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
-libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 4
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkCapture.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/executionPlan.cpp 3
@@ -64,6 +62,7 @@ libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatterModes.h 3
 libs/core/primitives/usdGenSurface/usdGenSurface/surfaceCageInterpolate.cpp 2
 libs/core/primitives/usdGenSurface/usdGenSurface/surfaceCageSource.cpp 1
 libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/surfaceVk.cpp 2
+libs/core/usdGen/usdGen/api/deformBinding.h 1
 libs/core/usdGen/usdGen/api/graphSpec.h 7
 libs/core/usdGen/usdGen/compile/compiler.cpp 3
 libs/core/usdGen/usdGen/compile/types.h 4

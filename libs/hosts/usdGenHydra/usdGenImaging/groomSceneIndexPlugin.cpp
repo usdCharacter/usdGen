@@ -20,6 +20,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
 #include "usdGen/furOcclusion.h"
+#include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGen/parkingWord.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/imaging/hd/sceneIndexPluginRegistry.h"
@@ -1429,8 +1430,14 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         g->generation = generation.id;
         g->publishedFrame = generation.frame;
         g->tiles = std::move(fresh);
+        // Each binding group plays back on the tile published for it.
+        std::vector<usdGen::UsdGenPrimRef> animationPrims;
+        if (published.animationBinding)
+            for (auto const& group : published.animationBinding->groups)
+                for (auto const& tile : published.tiles)
+                    if (tile.tile == group.group) { animationPrims.push_back(tile.prim); break; }
         g->animation = progressiveRenderer && published.scalpShadow.IsEmpty() ? ::usdGenImaging::BuildRbfAnimation(
-            published.animationBinding, generation.host, published.tiles.empty()
+            published.animationBinding, animationPrims, generation.host, published.tiles.empty()
                 ? GfMatrix4d(1.0) : published.tiles.front().xformMatrix) : nullptr;
         g->animationNeedsSettle = false;
         g->progressBaseline.reset();

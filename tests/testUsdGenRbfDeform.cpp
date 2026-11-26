@@ -1947,19 +1947,19 @@ void CheckCaptureDirectFailureRestore()
 // independent of the shader. GPU execution is covered by the viewport probe.
 void CheckResidentAnimation()
 {
-    auto binding = std::make_shared<UsdGenRbfAnimationBinding>();
+    UsdGenRef<UsdGenDeformBinding> binding(new UsdGenDeformBinding);
     usdGenUsd::PathRecorder keys;   // the cooked spec's path table, by hand
     binding->surface = keys(SdfPath("/surface"));
     std::vector<GfVec3d> rest = Cloud(20, 59);
     std::string error;
     Check(binding->field.Bind(rest, &error) && binding->field.Solve(rest, &error),
           "resident animation: bind the rest driver field");
-    UsdGenRbfAnimationTile tile;
+    UsdGenDeformBindingGroup tile;
     SdfPath const tilePath("/groom/render/tile");
-    tile.prim = UsdGenPrimRef{keys(tilePath)};
+    std::vector<UsdGenPrimRef> const tilePrims{UsdGenPrimRef{keys(tilePath)}};
     tile.widthPadding = 0.025;
     for (auto p : Cloud(200, 81)) tile.restPoints.push_back(GfVec3f(p));
-    binding->tiles.push_back(tile);
+    binding->groups.push_back(tile);
     UsdGenGraphDesc desc;
     desc.surfaces.resize(1);
     desc.surfaces[0].path = SdfPath("/surface");
@@ -1967,7 +1967,8 @@ void CheckResidentAnimation()
         binding->sampleIndices.push_back(i);
         desc.surfaces[0].points.push_back(GfVec3f(rest[i]));
     }
-    auto initial = usdGenImaging::BuildRbfAnimation(binding, keys.Table(), GfMatrix4d(1));
+    auto initial = usdGenImaging::BuildRbfAnimation(UsdGenRef<const UsdGenDeformBinding>(binding),
+                                                    tilePrims, keys.Table(), GfMatrix4d(1));
     Check(bool(initial), "resident animation: build static renderer inputs");
     if (!initial) return;
     for (int pose=0; pose!=3; ++pose) {

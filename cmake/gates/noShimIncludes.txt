@@ -52,7 +52,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.cpp 5
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.h 1
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp 6
+libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp 5
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.h 1
@@ -108,7 +108,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
-libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkAdmission.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkCapture.h 3
@@ -227,7 +226,6 @@ libs/hosts/usdGenHydra/usdGenImaging/attributePreviewSceneIndex.h 2
 libs/hosts/usdGenHydra/usdGenImaging/cleanupQueue.h 1
 libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 6
 libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 1
-libs/hosts/usdGenHydra/usdGenImaging/rbfAnimation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/testHook.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenBrushApi.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.cpp 2

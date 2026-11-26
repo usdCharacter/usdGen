@@ -15,6 +15,10 @@ class UsdGenRegistrar;
 /// type is registered.
 USDGEN_CURVES_API bool UsdGenRegisterCurvePublisher(UsdGenRegistrar &);
 
+/// Whether the publisher builds the renderer playback binding
+/// (USDGEN_STORM_GPU_DEFORM).
+USDGEN_CURVES_API bool UsdGenRbfAnimationEnabled();
+
 /// The publisher's diff of two curve publications (a UsdGenCurveDirtyReport);
 /// `prev` may be null.
 USDGEN_CURVES_API UsdGenRef<const UsdGenPublication> UsdGenDiffCurvePublications(
