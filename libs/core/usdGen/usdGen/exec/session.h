@@ -81,7 +81,8 @@ struct UsdGenSessionGraphSnapshot
 struct UsdGenSessionSnapshot
 {
     UsdGenGenerationConstPtr generation;
-    UsdGenDirtyReport report;
+    // The publisher's diff against the previous generation; null when empty.
+    UsdGenRef<const UsdGenPublication> report;
     UsdGenDiagnostics diagnostics;
     UsdGenStats stats;
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> routing;
@@ -120,7 +121,7 @@ public:
         uint64_t epoch = 0;
         uint64_t sequence = 0;
         double frame = 0.0;
-        UsdGenTilePublication tile;
+        UsdGenRef<const UsdGenPublication> tile;   // one group
         std::shared_ptr<const void> host;   // the cooked spec's host data
     };
     using TileProgressPtr = std::shared_ptr<const TileProgress>;
@@ -204,9 +205,9 @@ public:
         auto snapshot = Snapshot();
         return snapshot ? snapshot->generation : nullptr;
     }
-    UsdGenDirtyReport LastReport() const {
+    UsdGenRef<const UsdGenPublication> LastReport() const {
         auto snapshot = Snapshot();
-        return snapshot ? snapshot->report : UsdGenDirtyReport{};
+        return snapshot ? snapshot->report : UsdGenRef<const UsdGenPublication>();
     }
     UsdGenDiagnostics LastDiagnostics() const {
         auto snapshot = Snapshot();

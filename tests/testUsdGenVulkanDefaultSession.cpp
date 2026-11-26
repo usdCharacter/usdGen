@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // Plain Session production-provider parity. Geometry readback is test-only.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -183,7 +184,7 @@ int Lifecycle(std::string const& shaderPath) {
             if (snapshot) for (auto const& error : snapshot->diagnostics.errors)
                 std::fprintf(stderr, "lifecycle %u: %s\n", iteration, error.c_str());
             CHECK(snapshot && !snapshot->diagnostics.HasErrors() && snapshot->generation &&
-                  snapshot->generation->device && snapshot->generation->tiles.empty());
+                  snapshot->generation->device && usdGen::UsdGenCurvePublicationOf(*snapshot->generation).tiles.empty());
             auto access = GetVulkanGenerationAccess(snapshot->generation->device);
             CHECK(access && access.context->shaderInt64Enabled() &&
                   access.context->timelineSemaphoreEnabled());
@@ -232,7 +233,7 @@ int main(int argc, char** argv) {
     if (first) for (auto const& error : first->diagnostics.errors)
         std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(first && !first->diagnostics.HasErrors() && first->generation && first->generation->device);
-    CHECK(first->generation->tiles.empty());
+    CHECK(usdGen::UsdGenCurvePublicationOf(*first->generation).tiles.empty());
     auto old = GetVulkanGenerationAccess(first->generation->device); CHECK(old);
     CHECK(old.context->shaderInt64Enabled() && old.context->timelineSemaphoreEnabled());
     ExactPlanes(old, oracle);

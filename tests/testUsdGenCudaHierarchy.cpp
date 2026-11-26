@@ -1,3 +1,4 @@
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
@@ -80,7 +81,7 @@ int main() {
     auto generation = session.Commit(24, UsdGenCommitReason::SetTime);
     if (session.LastDiagnostics().HasErrors())
         for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
-    CHECK(generation && generation->device && generation->tiles.empty());
+    CHECK(generation && generation->device && usdGen::UsdGenCurvePublicationOf(*generation).tiles.empty());
     CHECK(!generation->device->Geometry().alreadyDeformed);
     auto lease = gpu::AcquireGeometry(generation->device, nullptr);
     CHECK(lease && lease.Geometry().pointCount == 5);
@@ -116,7 +117,7 @@ int main() {
     auto deformed = session.Commit(24, UsdGenCommitReason::SetTime);
     for (auto const& error : session.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(!session.LastDiagnostics().HasErrors());
-    CHECK(deformed && deformed != currentGeneration && deformed->device && deformed->tiles.empty());
+    CHECK(deformed && deformed != currentGeneration && deformed->device && usdGen::UsdGenCurvePublicationOf(*deformed).tiles.empty());
     CHECK(deformed->device->Geometry().alreadyDeformed);
     auto deformedLease = gpu::AcquireGeometry(deformed->device, nullptr);
     CHECK(deformedLease && deformedLease.Geometry().pointCount == 5);

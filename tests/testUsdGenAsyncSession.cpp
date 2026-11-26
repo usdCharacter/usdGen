@@ -2,6 +2,7 @@
 // publication snapshots.  The held Capture operator makes owner/work
 // separation observable without a timing-dependent sleep.
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -269,12 +270,12 @@ int main()
             [&](UsdGenSession::SnapshotPtr snapshot,
                 UsdGenExecutionPipeline::Outcome outcome) {
                 terminalPublished.store(outcome == UsdGenExecutionPipeline::Outcome::Published &&
-                    snapshot && snapshot->generation && snapshot->generation->tiles.size() > 1,
+                    snapshot && snapshot->generation && usdGen::UsdGenCurvePublicationOf(*snapshot->generation).tiles.size() > 1,
                     std::memory_order_release);
                 terminal.store(true, std::memory_order_release);
             },
             [&](UsdGenSession::TileProgressPtr tile) {
-                if (!tile || tile->tile.tile != 0) return;
+                if (!tile || usdGen::UsdGenCurvePublicationOf(tile->tile).tiles.front().tile != 0) return;
                 workerCallback.store(std::this_thread::get_id() != submitter,
                                      std::memory_order_release);
                 auto snapshot = progressive.Snapshot();
@@ -313,7 +314,7 @@ int main()
         progressive.Drain();
         auto const next = progressive.Generation();
         Check(next && baseline && next->id > baseline->id && next->frame == 2.0 &&
-                  next->tiles.size() == baseline->tiles.size() && playbackTiles == 0,
+                  usdGen::UsdGenCurvePublicationOf(*next).tiles.size() == usdGen::UsdGenCurvePublicationOf(*baseline).tiles.size() && playbackTiles == 0,
               "frame change publishes existing tiles atomically without progressive redraw");
     }
     {
@@ -333,7 +334,7 @@ int main()
                     std::memory_order_release);
                 terminal.store(true, std::memory_order_release);
             }, [&](UsdGenSession::TileProgressPtr tile) {
-                if (tile && tile->tile.tile == 0)
+                if (tile && usdGen::UsdGenCurvePublicationOf(tile->tile).tiles.front().tile == 0)
                     firstTile.store(true, std::memory_order_release);
             }), "failing progressive cook accepted");
         bool const early = WaitFor(firstTile);
@@ -362,7 +363,7 @@ int main()
                                     std::memory_order_release);
                 oldTerminal.store(true, std::memory_order_release);
             }, [&](UsdGenSession::TileProgressPtr tile) {
-                if (tile && tile->tile.tile == 0)
+                if (tile && usdGen::UsdGenCurvePublicationOf(tile->tile).tiles.front().tile == 0)
                     firstTile.store(true, std::memory_order_release);
             }), "superseded progressive cook accepted");
         bool const early = WaitFor(firstTile);
@@ -477,7 +478,7 @@ int main()
               VtValue(0.07f),
           "published snapshot contains newest same-path descriptor");
     bool hasWidthGeometry = false;
-    for (auto const &tile : latestSnapshot->generation->tiles) {
+    for (auto const &tile : usdGen::UsdGenCurvePublicationOf(*latestSnapshot->generation).tiles) {
         for (float value : tile.widths) {
             hasWidthGeometry = hasWidthGeometry ||
                 (std::isfinite(value) && std::fabs(value - 0.07f) < 1e-4f);
@@ -736,25 +737,25 @@ int main()
     Check(coalescedLeaderSnapshot && coalescedFollowerSnapshot &&
               coalescedLeaderSnapshot->generation && coalescedFollowerSnapshot->generation &&
               coalescedLeaderSnapshot->generation != coalescedFollowerSnapshot->generation &&
-              coalescedLeaderSnapshot->generation->tiles.size() ==
-                  coalescedFollowerSnapshot->generation->tiles.size() &&
-              !coalescedLeaderSnapshot->generation->tiles.empty() &&
-              coalescedLeaderSnapshot->generation->tiles.front().points.cdata() ==
-                  coalescedFollowerSnapshot->generation->tiles.front().points.cdata() &&
-              coalescedLeaderSnapshot->generation->tiles.front().widths.cdata() ==
-                  coalescedFollowerSnapshot->generation->tiles.front().widths.cdata() &&
+              usdGen::UsdGenCurvePublicationOf(*coalescedLeaderSnapshot->generation).tiles.size() ==
+                  usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.size() &&
+              !usdGen::UsdGenCurvePublicationOf(*coalescedLeaderSnapshot->generation).tiles.empty() &&
+              usdGen::UsdGenCurvePublicationOf(*coalescedLeaderSnapshot->generation).tiles.front().points.cdata() ==
+                  usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.front().points.cdata() &&
+              usdGen::UsdGenCurvePublicationOf(*coalescedLeaderSnapshot->generation).tiles.front().widths.cdata() ==
+                  usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.front().widths.cdata() &&
               coalescedFollowerSnapshot->stats.executionCacheCoalesced == 1,
           "CPU coalesced follower publishes a distinct generation with COW payload");
     auto const retainedPoint = coalescedFollowerSnapshot &&
-        !coalescedFollowerSnapshot->generation->tiles.empty() &&
-        !coalescedFollowerSnapshot->generation->tiles.front().points.empty()
-            ? coalescedFollowerSnapshot->generation->tiles.front().points.front()
+        !usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.empty() &&
+        !usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.front().points.empty()
+            ? usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.front().points.front()
             : GfVec3f(-1);
     coalescedLeaderSnapshot.reset();
     Check(coalescedFollowerSnapshot &&
-              !coalescedFollowerSnapshot->generation->tiles.empty() &&
-              !coalescedFollowerSnapshot->generation->tiles.front().points.empty() &&
-              coalescedFollowerSnapshot->generation->tiles.front().points.front() ==
+              !usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.empty() &&
+              !usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.front().points.empty() &&
+              usdGen::UsdGenCurvePublicationOf(*coalescedFollowerSnapshot->generation).tiles.front().points.front() ==
                   retainedPoint,
           "CPU follower COW payload remains readable after leader release");
 

@@ -7,6 +7,7 @@
 // that both indices republish identically: same generation id, same prim paths,
 // same frame, and identical prim set.
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -243,11 +244,11 @@ int main()
                   "republished generation ids equal (zero-based, first = 0)");
             Check(p1.generation->frame == p2.generation->frame,
                   "republished frames identical");
-            Check(p1.generation->signature.prims ==
-                      p2.generation->signature.prims &&
-                      !p1.generation->signature.prims.empty(),
+            Check(usdGen::UsdGenCurvePublicationOf(*p1.generation).signature.prims ==
+                      usdGen::UsdGenCurvePublicationOf(*p2.generation).signature.prims &&
+                      !usdGen::UsdGenCurvePublicationOf(*p1.generation).signature.prims.empty(),
                   "republished prim sets identical and non-empty");
-            Check(p1.generation->tiles.size() == p2.generation->tiles.size(),
+            Check(usdGen::UsdGenCurvePublicationOf(*p1.generation).tiles.size() == usdGen::UsdGenCurvePublicationOf(*p2.generation).tiles.size(),
                   "republished tile counts identical");
         }
     }
@@ -274,7 +275,7 @@ int main()
     UsdGenSession failureSession(2);
     usdGenUsd::SetGraphDesc(failureSession, desc);
     auto previous = failureSession.Commit(1, UsdGenCommitReason::SetTime);
-    Check(previous && !previous->tiles.empty(), "failure regression seeds nonempty publication");
+    Check(previous && !usdGen::UsdGenCurvePublicationOf(*previous).tiles.empty(), "failure regression seeds nonempty publication");
     auto rejected = desc;
     rejected.nodes.back().type = TfToken("UsdGenMissingKernelTest");
     usdGenUsd::SetGraphDesc(failureSession, rejected);

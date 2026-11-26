@@ -1,5 +1,6 @@
 #include "usdGen/furOcclusion.h"
-#include "usdGen/generationStore.h"
+#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGenImaging/usdGenTilePublisher.h"
 #include "usdGenUsd/lower.h"
 #include "pxr/base/gf/rotation.h"
@@ -195,8 +196,9 @@ int main() try {
     Require(UsdGenBuildFurOcclusion(&moved,&prior),"transform edit invalidates bake");
     Require(Plane(moved[0],"furTauN").f[0]>Plane(moved[0],"furTauP").f[0],
         "moving occluder to -X reverses shadow direction");
-    UsdGenGeneration a,b;a.tiles=prior;b.tiles=tiles;
-    auto report=UsdGenGenerationStore().Diff(a,b);
+    auto a=UsdGenNewCurvePublication(),b=UsdGenNewCurvePublication();a->tiles=prior;b->tiles=tiles;
+    auto const reportRef=UsdGenDiffCurvePublications(a.Get(),*b);
+    auto const& report=UsdGenCurveDirtyReportOf(reportRef);
     Require(!report.tiles[0].pointsDirty,"shadow update does not dirty receiver points");
     Require(std::find(report.tiles[0].dirtyPrimvars.begin(),report.tiles[0].dirtyPrimvars.end(),TfToken("furTauP"))!=report.tiles[0].dirtyPrimvars.end(),"neighbor update dirties receiver optical depth");
     auto ds=usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(tiles[0],nullptr);
@@ -228,14 +230,17 @@ int main() try {
                 Require(a[i]==b[i],"recompute preserves tau values");
             Require(!a.IsIdentical(b),"recompute takes fresh buffers");
         }
-        UsdGenGeneration gL,gR,gS; gL.tiles=left; gR.tiles=right; gS.tiles=left;
-        auto rep=UsdGenGenerationStore().Diff(gL,gR);
+        auto gL=UsdGenNewCurvePublication(),gR=UsdGenNewCurvePublication(),gS=UsdGenNewCurvePublication();
+        gL->tiles=left; gR->tiles=right; gS->tiles=left;
+        auto const repRef=UsdGenDiffCurvePublications(gL.Get(),*gR);
+        auto const& rep=UsdGenCurveDirtyReportOf(repRef);
         for(size_t t=0;t<rep.tiles.size();++t) for(auto name:{"furTauP","furTauN"}) {
             auto const& dirty=rep.tiles[t].dirtyPrimvars;
             Require(std::find(dirty.begin(),dirty.end(),TfToken(name))!=dirty.end(),
                     "fresh-buffer recompute dirties receiver optical depth");
         }
-        auto rep2=UsdGenGenerationStore().Diff(gL,gS);
+        auto const rep2Ref=UsdGenDiffCurvePublications(gL.Get(),*gS);
+        auto const& rep2=UsdGenCurveDirtyReportOf(rep2Ref);
         for(size_t t=0;t<rep2.tiles.size();++t) for(auto name:{"furTauP","furTauN"}) {
             auto const& dirty=rep2.tiles[t].dirtyPrimvars;
             Require(std::find(dirty.begin(),dirty.end(),TfToken(name))==dirty.end(),
@@ -780,8 +785,10 @@ int main() try {
         Require(inside>10.f*open,"a crowded CV reads far more than an isolated one");
         Require(lone<inside,"a lone strand is less crowded than a bundle");
         {   // Diff sees the new plane generically: first appearance is new.
-            UsdGenGeneration gPlain,gLit; gPlain.tiles=plain; gLit.tiles=lit;
-            auto rep=UsdGenGenerationStore().Diff(gPlain,gLit);
+            auto gPlain=UsdGenNewCurvePublication(),gLit=UsdGenNewCurvePublication();
+            gPlain->tiles=plain; gLit->tiles=lit;
+            auto const repRef=UsdGenDiffCurvePublications(gPlain.Get(),*gLit);
+            auto const& rep=UsdGenCurveDirtyReportOf(repRef);
             for(auto const& td:rep.tiles)
                 Require(std::find(td.newPrimvars.begin(),td.newPrimvars.end(),
                                   TfToken("furDensity"))!=td.newPrimvars.end(),

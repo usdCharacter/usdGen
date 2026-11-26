@@ -36,7 +36,8 @@
 #ifndef USDGEN_IMAGING_INSTANCER_H
 #define USDGEN_IMAGING_INSTANCER_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenCurves/types/curveBuffer.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/quatf.h"

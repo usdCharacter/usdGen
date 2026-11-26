@@ -1,5 +1,6 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
 // with the accepted device generation, including tool point revisions.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/gpu/deviceBuffer.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
@@ -117,7 +118,7 @@ int main()
     usdGenUsd::SetGraphDesc(session, desc);
     auto first = session.Commit(1.0, UsdGenCommitReason::SetTime);
     CHECK(first && first->device && first->devicePresentation &&
-          first->tiles.empty() && !session.LastDiagnostics().HasErrors());
+          usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() && !session.LastDiagnostics().HasErrors());
     auto const initial = *first->devicePresentation;
     PresentationPaths const initialPaths = Paths(*first);
     CHECK(initialPaths.description == desc.description &&

@@ -30,6 +30,7 @@
 //
 // Scatter Evaluate is intentionally absent: it is an empty identity hook
 // (ops/scatter.cpp), so there is nothing to time.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/curveBuffer.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
@@ -681,7 +682,7 @@ int RunAttrCook(Options const &opts, UsdGenCurveBuffer const &roots,
 uint64_t HashTiles(UsdGenGenerationConstPtr const &gen)
 {
     Fnv f;
-    for (UsdGenTilePublication const &t : gen->tiles) {
+    for (UsdGenTilePublication const &t : usdGen::UsdGenCurvePublicationOf(*gen).tiles) {
         uint32_t const id = t.tile;
         f.Add(&id, sizeof(id));
         HashArray(&f, t.curveVertexCounts);
@@ -730,10 +731,10 @@ int RunSessionCook(Options const &opts, UsdGenGraphDesc const &desc)
         ms.push_back(
             std::chrono::duration<double, std::milli>(t1 - t0).count());
         Fold(&sum, HashTiles(gen));
-        tiles = gen->tiles.size();
+        tiles = usdGen::UsdGenCurvePublicationOf(*gen).tiles.size();
         curves = 0;
         cvs = 0;
-        for (UsdGenTilePublication const &t : gen->tiles) {
+        for (UsdGenTilePublication const &t : usdGen::UsdGenCurvePublicationOf(*gen).tiles) {
             curves += t.curveVertexCounts.size();
             cvs += t.points.size();
         }

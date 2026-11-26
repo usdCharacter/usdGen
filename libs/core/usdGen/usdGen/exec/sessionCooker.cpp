@@ -7,22 +7,18 @@
 #include "usdGen/registries/token.h"
 #include "usdGen/limitSurface.h"
 #include "usdGen/debugCodes.h"
-#include "usdGen/furOcclusion.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
-#include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
 
-#include "usdGenMath/usdGenMath/hash.h"
 
 #include "pxr/pxr.h"
-#include "pxr/base/tf/envSetting.h"
 #include "pxr/base/trace/trace.h"
 
 #include <algorithm>
@@ -36,46 +32,21 @@
 #include <limits>
 #include <map>
 #include <optional>
-#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
 
 PXR_NAMESPACE_USING_DIRECTIVE
-
-// Hair shadowing the scalp is on by default and costs one extra sweep of the
-// density volume plus a small translucent mesh. Set USDGEN_SCALP_SHADOW=0 to
-// publish no cap at all: nothing else in the groom changes.
-TF_DEFINE_ENV_SETTING(USDGEN_SCALP_SHADOW, true,
-                      "Publish the usdGen scalp-shadow cap (hair shadowing the "
-                      "groom's emitting surface).");
-
-// Per-CV local hair density (`furDensity`), read by a hair shading model that
-// darkens ambient light by local hair density. On by default only in a build
-// that selects that model (USDGEN_FUR_LOCAL_DENSITY); USDGEN_FUR_DENSITY=0/1
-// overrides either way. Off, tiles carry no extra primvar.
-#if defined(USDGEN_FUR_LOCAL_DENSITY)
-static constexpr bool _furDensityDefault = true;
-#else
-static constexpr bool _furDensityDefault = false;
-#endif
-TF_DEFINE_ENV_SETTING(USDGEN_FUR_DENSITY, _furDensityDefault,
-                      "Publish the per-CV hair-only local density primvar "
-                      "furDensity on usdGen fur tiles.");
-
 namespace usdGen {
 
 namespace {
-
-// Schema-default look, made at load rather than behind a static's guard.
-UsdGenLookDesc const _lookFallbackDesc;
 
 // A streamed tile past the cook's slot count.
 struct _StreamedTile
 {
     _StreamedTile *next = nullptr;
     UsdGenTileId tile{};
-    UsdGenTilePublication publication;
+    UsdGenRef<const UsdGenPublication> publication;
 };
 
 // USDGEN_COMMIT: where one cook's time went, printed as a single line.
@@ -598,76 +569,16 @@ UsdGenExecutionCacheKey _MakeExecutionCacheKey(
         context, _ExecutionLayoutDigest(graph, desc), frame);
 }
 
-bool _AddBytes(size_t *total, size_t count, size_t element)
-{
-    if (count != 0 && element > std::numeric_limits<size_t>::max() / count)
-        return false;
-    size_t const bytes = count * element;
-    if (bytes > std::numeric_limits<size_t>::max() - *total) return false;
-    *total += bytes;
-    return true;
-}
 
 bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
 {
     if (!result) return false;
     size_t total = sizeof(UsdGenGeneration);
-    auto addTile = [&total](UsdGenTilePublication const &tile) {
-        auto addPlane = [&total](UsdGenPlane const &plane) {
-            return _AddBytes(&total, 1, sizeof(UsdGenPlane)) &&
-                _AddBytes(&total, plane.f.size(), sizeof(float)) &&
-                _AddBytes(&total, plane.i.size(), sizeof(int));
-        };
-        if (!_AddBytes(&total, 1, sizeof(UsdGenTilePublication)) ||
-            !_AddBytes(&total, tile.basis.size(), sizeof(char)) ||
-            !_AddBytes(&total, tile.curveVertexCounts.size(), sizeof(int)) ||
-            !_AddBytes(&total, tile.points.size(), sizeof(GfVec3f)) ||
-            !_AddBytes(&total, tile.widths.size(), sizeof(float)) ||
-            !_AddBytes(&total, tile.hairT.size(), sizeof(float)) ||
-            !_AddBytes(&total, tile.hairId.size(), sizeof(float)) ||
-            !_AddBytes(&total, tile.st.size(), sizeof(GfVec2f)) ||
-            !_AddBytes(&total, tile.displayColor.size(), sizeof(GfVec3f)) ||
-            !_AddBytes(&total, tile.bakeColor.size(), sizeof(GfVec3f)) ||
-            !_AddBytes(&total, tile.velocities.size(), sizeof(GfVec3f)))
-            return false;
-        for (UsdGenPlane const &plane : tile.extraUniform)
-            if (!addPlane(plane)) return false;
-        return true;
-    };
-    for (auto const &tile : generation.tiles)
-        if (!addTile(tile)) return false;
-    for (auto const &tile : generation.guides)
-        if (!addTile(tile)) return false;
-    if (generation.animationBinding) {
-        auto const& binding = *generation.animationBinding;
-        size_t const n = binding.sampleIndices.size(), order = n + 4;
-        if (!_AddBytes(&total, 1, sizeof(UsdGenRbfAnimationBinding)) ||
-            !_AddBytes(&total, order * order + 9 * order, sizeof(double)) ||
-            !_AddBytes(&total, n + order, sizeof(size_t))) return false;
-        for (auto const& tile : binding.tiles)
-            if (!_AddBytes(&total, 1, sizeof(UsdGenRbfAnimationTile)) ||
-                !_AddBytes(&total, tile.restPoints.size(), sizeof(GfVec3f))) return false;
-    }
-    for (UsdGenInstancerPublication const &instancer : generation.instancers) {
-        if (!_AddBytes(&total, 1, sizeof(UsdGenInstancerPublication)) ||
-            !_AddBytes(&total, instancer.prototypes.size(), sizeof(UsdGenPrimRef)) ||
-            !_AddBytes(&total, instancer.instanceIndices.size(), sizeof(VtIntArray)) ||
-            !_AddBytes(&total, instancer.mask.size(), sizeof(bool)))
-            return false;
-        for (VtIntArray const &indices : instancer.instanceIndices)
-            if (!_AddBytes(&total, indices.size(), sizeof(int))) return false;
-    }
-    if (!_AddBytes(&total, 1, sizeof(UsdGenPrimSetSignature)) ||
-        !_AddBytes(&total, generation.signature.prims.size(), sizeof(UsdGenPrimRef)) ||
-        !_AddBytes(&total, generation.signature.primTypes.size(), sizeof(std::string)) ||
-        !_AddBytes(&total, generation.signature.primvarNames.size(),
-                   sizeof(std::vector<std::string>))) return false;
-    for (std::string const &type : generation.signature.primTypes)
-        if (!_AddBytes(&total, type.size(), sizeof(char))) return false;
-    for (auto const &names : generation.signature.primvarNames) {
-        if (!_AddBytes(&total, names.size(), sizeof(std::string))) return false;
-        for (std::string const &name : names)
-            if (!_AddBytes(&total, name.size(), sizeof(char))) return false;
+    if (generation.publication) {
+        UsdGenPublisherDef const *publisher = UsdGenFindPublisher(generation.publication->type);
+        size_t const bytes = publisher && publisher->bytes ? publisher->bytes(*generation.publication) : 0;
+        if (bytes == 0 || bytes > std::numeric_limits<size_t>::max() - total) return false;
+        total += bytes;
     }
     if (generation.device) {
         // Cache residency must account for every immutable COW predecessor
@@ -684,11 +595,25 @@ bool _GenerationBytes(UsdGenGeneration const &generation, size_t *result)
     return true;
 }
 
-// Look constants published on tiles (addLookConstant below).
-TfToken const kHairTipColor = UsdGenInternToken("hairTipColor");
-TfToken const kHairColorRamp = UsdGenInternToken("hairColorRamp");
-TfToken const kHairRandomHue = UsdGenInternToken("hairRandomHue");
-TfToken const kHairRandomValue = UsdGenInternToken("hairRandomValue");
+// The publisher's diff of two generations; null when `next` has no
+// publication (device lane) or its type has no diff.
+UsdGenRef<const UsdGenPublication> _DiffGenerations(UsdGenGeneration const *prev,
+                                                    UsdGenGeneration const &next)
+{
+    if (!next.publication) return {};
+    UsdGenPublisherDef const *publisher = UsdGenFindPublisher(next.publication->type);
+    if (!publisher || !publisher->diff) return {};
+    UsdGenPublication const *const before =
+        prev && prev->publication && prev->publication->type == next.publication->type
+            ? prev->publication.Get() : nullptr;
+    return publisher->diff(before, *next.publication);
+}
+
+// Groups the generation publishes (0 on the device lane).
+uint64_t _PublishedGroups(UsdGenGeneration const *generation)
+{
+    return generation && generation->publication ? generation->publication->groups : 0;
+}
 
 struct _PresentationScalars
 {
@@ -745,200 +670,12 @@ UsdGenDevicePresentationMetadata _BuildDevicePresentation(
     return result;
 }
 
-// Sample a named curve buffer plane into the publication's uniform array.
-// "uniform" planes index by curve, "vertex" planes by CV.
-template <class Plane>
-void _GatherPlane(const Plane &plane, uint32_t curveIdx, uint32_t cvIdx,
-                  bool wantUniform, VtFloatArray *outF)
-{
-    if (plane.type == UsdGenTokens().int_ || plane.arity == 0) return;
-    const size_t idx =
-        (wantUniform && plane.interpolation != UsdGenTokens().vertex)
-            ? curveIdx : cvIdx;
-    if ((idx + 1) * plane.arity > plane.f.size()) return;
-    for (uint8_t k = 0; k < plane.arity; ++k)
-        outF->push_back(plane.f[idx * plane.arity + k]);
-}
-
-template <class Plane>
-bool _GatherPlaneElement(Plane const& plane, size_t index,
-                         UsdGenPlane* out)
-{
-    if (!out || plane.arity == 0) return false;
-    size_t const begin = index * plane.arity;
-    if (plane.type == UsdGenTokens().int_) {
-        if (begin + plane.arity > plane.i.size()) return false;
-        for (uint8_t component = 0; component != plane.arity; ++component)
-            out->i.push_back(plane.i[begin + component]);
-        return true;
-    }
-    if (plane.type != UsdGenTokens().float_ || begin + plane.arity > plane.f.size())
-        return false;
-    for (uint8_t component = 0; component != plane.arity; ++component)
-        out->f.push_back(plane.f[begin + component]);
-    return true;
-}
-
-// Color planes may be float3 (arity 3) or float (arity 1, grey).
-template <class Plane>
-void _GatherColor(const Plane &plane, uint32_t curveIdx, uint32_t cvIdx,
-                  VtVec3fArray *out)
-{
-    VtFloatArray tmp;
-    _GatherPlane(plane, curveIdx, cvIdx, /*wantUniform=*/true, &tmp);
-    if (plane.arity >= 3) {
-        for (size_t q = 0; q + 3 <= tmp.size(); q += 3)
-            out->push_back(GfVec3f(tmp[q], tmp[q + 1], tmp[q + 2]));
-    } else if (plane.arity == 1) {
-        for (float v : tmp) out->push_back(GfVec3f(v, v, v));
-    }
-}
-
-// Group dirty bits the scheduler's interleave sets (UsdGenChunkGroup::dirtyRoles).
-constexpr uint32_t kGroupPositionDirty = 1u << uint32_t(UsdGenChannelRole::Position);
-constexpr uint32_t kGroupWidthDirty = 1u << uint32_t(UsdGenChannelRole::Width);
-
-// A named per-curve (cv false) or per-CV plane of the terminal.
-std::optional<UsdGenPlaneView> _FindPlane(UsdGenCurveSetView const &term, bool cv,
-                                          TfToken const &name)
-{
-    uint32_t const n = cv ? term.ExtraCvCount() : term.ExtraCurveCount();
-    for (uint32_t k = 0; k < n; ++k) {
-        UsdGenPlaneView const p = cv ? term.ExtraCv(k) : term.ExtraCurve(k);
-        if (p.name == name) return p;
-    }
-    return std::nullopt;
-}
-
-// Bulk tile path (bit-identical): when the tile's chunks are all uniform,
-// the terminal planes cover every emitted element, no extra plane needs a
-// per-element gather, and the color mode is a per-tile constant (Root) or
-// empty (NoColor), the serial push_back loop becomes per-chunk bulk copies
-// (points interleave, widths/hairT/st memcpy, counts fill, displayColor
-// assign) plus a branch-free per-curve hairId loop, with the extent
-// reduction fused into the interleave. Coverage is verified up front (any
-// gap returns false with `pub` untouched and the serial loop runs); sizes
-// are proven against the tile view, so every no-init element is
-// overwritten and no garbage is observed. wantColor selects Root (NoColor
-// passes false); every other color mode stays on the serial loop.
-bool _BuildTilePublicationBulk(
-    UsdGenChunkGroup const &tv, UsdGenCurveSetView const &term,
-    UsdGenCompiledNode const &tn, bool wantColor, GfVec3f const &rootColor,
-    UsdGenTilePublication *pub, uint32_t *depSurface, bool *hasDep)
-{
-    // Pre-scan: uniform chunks, plane coverage, view-size agreement. The
-    // serial loop breaks the CV loop on px overrun and falls back per
-    // element for short width/hairT/curveId/rootUV; any of that needs the
-    // serial loop, so coverage must be total here.
-    uint64_t scanCurves = 0, scanCvs = 0;
-    bool const needWidth = !term.width.empty();
-    bool const needHairT = !term.hairT.empty();
-    bool const needSt = !term.rootUV.empty();
-    for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
-        if (cd.stride[1] == 0)
-            return false;
-        uint64_t const n = uint64_t(cd.live) * cd.stride[1];
-        uint64_t const cvEnd = uint64_t(cd.first[1]) + n;
-        if (cvEnd > term.px.size() || cvEnd > term.py.size() ||
-            cvEnd > term.pz.size())
-            return false;
-        if (needWidth && cvEnd > term.width.size())
-            return false;
-        if (needHairT && cvEnd > term.hairT.size())
-            return false;
-        uint64_t const gEnd = uint64_t(cd.first[0]) + cd.live;
-        if (gEnd > term.curveId.size())
-            return false;
-        if (needSt && gEnd > term.rootUV.size())
-            return false;
-        scanCurves += cd.live;
-        scanCvs += n;
-    }
-    if (scanCurves != tv.live[0] || scanCvs != tv.live[1])
-        return false;
-    size_t const nCurves = tv.live[0], nCvs = tv.live[1];
-    auto noInit = [](auto *b, auto *e) {
-        (void)b;
-        (void)e;
-    };
-    pub->curveVertexCounts.resize(nCurves, noInit);
-    pub->points.resize(nCvs, noInit);
-    pub->widths.resize(nCvs, noInit);
-    pub->hairT.resize(nCvs, noInit);
-    pub->hairId.resize(nCurves, noInit);
-    if (needSt)
-        pub->st.resize(nCurves, noInit);
-    if (wantColor)
-        pub->displayColor.assign(nCurves, rootColor);
-    int *counts = pub->curveVertexCounts.data();
-    GfVec3f *points = nCvs ? pub->points.data() : nullptr;
-    float *widths = nCvs ? pub->widths.data() : nullptr;
-    float *hairT = nCvs ? pub->hairT.data() : nullptr;
-    float *hairIds = nCurves ? pub->hairId.data() : nullptr;
-    GfVec2f *st = (needSt && nCurves) ? pub->st.data() : nullptr;
-    float const *px = term.px.cdata(), *py = term.py.cdata(),
-                *pz = term.pz.cdata();
-    // Fused extent: same init (SetEmpty) and per-point compares as the
-    // serial GfRange3f pass over the identical emission order, including
-    // the empty-range tail below (NaN points stay ignored, as there).
-    float const inf = std::numeric_limits<float>::max();
-    float minX = inf, minY = inf, minZ = inf;
-    float maxX = -inf, maxY = -inf, maxZ = -inf;
-    size_t curOff = 0, cvOff = 0;
-    for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
-        uint32_t const L = cd.live;
-        if (L == 0)
-            continue;
-        size_t const n = size_t(L) * cd.stride[1];
-        uint32_t const G = cd.first[0], P = cd.first[1];
-        std::fill(counts + curOff, counts + curOff + L, int(cd.stride[1]));
-        for (uint32_t c = 0; c < L; ++c)
-            hairIds[curOff + c] = UsdGenHairId(term.curveId[G + c]);
-        if (needSt)
-            std::memcpy(st + curOff, term.rootUV.cdata() + G,
-                        L * sizeof(GfVec2f));
-        if (needWidth)
-            std::memcpy(widths + cvOff, term.width.cdata() + P,
-                        n * sizeof(float));
-        else
-            std::fill(widths + cvOff, widths + cvOff + n, 0.01f);
-        if (needHairT)
-            std::memcpy(hairT + cvOff, term.hairT.cdata() + P,
-                        n * sizeof(float));
-        else
-            std::fill(hairT + cvOff, hairT + cvOff + n, 0.0f);
-        for (size_t k = 0; k < n; ++k) {
-            float const x = px[P + k], y = py[P + k], z = pz[P + k];
-            points[cvOff + k] = GfVec3f(x, y, z);
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
-            if (z < minZ) minZ = z;
-            if (z > maxZ) maxZ = z;
-        }
-        curOff += L;
-        cvOff += n;
-    }
-    GfRange3f e(GfVec3f(minX, minY, minZ), GfVec3f(maxX, maxY, maxZ));
-    if (e.IsEmpty()) e = GfRange3f(GfVec3f(0.f), GfVec3f(0.f));
-    pub->extentMin = GfVec3d(e.GetMin()[0], e.GetMin()[1], e.GetMin()[2]);
-    pub->extentMax = GfVec3d(e.GetMax()[0], e.GetMax()[1], e.GetMax()[2]);
-    if (tv.chunkCount != 0) {
-        *depSurface = tn.chunks[tv.firstChunk].domain;
-        *hasDep = true;
-    }
-    return true;
-}
-
 }  // namespace
 
 struct UsdGenSessionCooker::_ProgressSlot
 {
     UsdGenTileId tile{};
-    UsdGenTilePublication publication;
+    UsdGenRef<const UsdGenPublication> publication;
     std::atomic<bool> ready{false};
 };
 
@@ -1063,7 +800,7 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
     _acceptedDeviceIdentity.reset();
     _activeDeviceIdentity.reset();
     _stats = std::move(publishedStats);
-    _lastReport = UsdGenDirtyReport{};
+    _lastReport.Reset();
     const bool newDesc = desc != _descIdentity;
     const bool staleBaseline = previousPublishedWorkerEpoch != _lastCookedEpoch;
     _descIdentity = std::move(desc);
@@ -1139,6 +876,9 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
     if (invalidateValues) for (UsdGenNodeId id=0; id<static_cast<UsdGenNodeId>(_graph.NodeCount()); ++id) {
         auto& node=_graph.Node(id); node.paramValueDigest=~uint64_t(0); node.lastParamDigest=0;
     }
+    // The publisher's state is made here, before the cook's exec phase.
+    if (_graph.NodeCount() != 0)
+        _SelectPublisher(_graph.NodeOutput(_graph.TerminalNodeId()));
     return true;
 }
 
@@ -1160,7 +900,7 @@ bool UsdGenSessionCooker::_FinalizeDevicePublication(
         })) return false;
     _publicationFence = ExecutionPublicationFence{domain, *fence};
     _graphBaselineDetached = false;
-    _lastReport = UsdGenDirtyReport{};
+    _lastReport.Reset();
     ++_stats.commits;
     _stats.publishedTiles = 0;
     _lastNodeStats.clear();
@@ -1356,7 +1096,7 @@ void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
                     --_stats.executionCacheMisses;
                     ++_stats.executionCacheHits;
                     _graphBaselineDetached = true;
-                    _lastReport = UsdGenDirtyReport{};
+                    _lastReport.Reset();
                     ++_stats.commits;
                     _stats.publishedTiles = 0;
                     _lastNodeStats.clear();
@@ -1615,7 +1355,7 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
                     _publicationFence = ExecutionPublicationFence{domain, *fence};
                     _acceptedDeviceIdentity = identity;
                     --_stats.executionCacheMisses; ++_stats.executionCacheHits;
-                    _graphBaselineDetached = true; _lastReport = UsdGenDirtyReport{};
+                    _graphBaselineDetached = true; _lastReport.Reset();
                     ++_stats.commits; _stats.publishedTiles = 0; _lastNodeStats.clear();
                     completion(_store.Get(), {}); return;
                 }
@@ -1809,10 +1549,10 @@ bool UsdGenSessionCooker::AdoptCoalesced(
     _graphBaselineDetached = true;
     _lastReport = (_desc.executionBackend == UsdGenExecutionBackend::Cuda ||
                    _desc.executionBackend == UsdGenExecutionBackend::Vulkan)
-        ? UsdGenDirtyReport{}
-        : _store.Diff(previous ? *previous : UsdGenGeneration{}, *_store.Get());
+        ? UsdGenRef<const UsdGenPublication>()
+        : _DiffGenerations(previous.get(), *_store.Get());
     ++_stats.commits;
-    _stats.publishedTiles = static_cast<uint64_t>(_store.Get()->tiles.size());
+    _stats.publishedTiles = _PublishedGroups(_store.Get().get());
     _lastNodeStats.clear();
     *generation = _store.Get();
     _coalescedRole = CoalescedRole::None;
@@ -1944,7 +1684,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     // would display mixed poses and disable capture-direct point updates.
     // Geometry notices can precede the host's current-frame notice, so the
     // frame number alone cannot distinguish playback from an authoring edit.
-    if (previous && !previous->tiles.empty()) progress = {};
+    if (_PublishedGroups(previous.get()) != 0) progress = {};
     if (!_Prepare(std::move(desc), context, devicePublicationEnabled, pending,
                   std::move(previous), std::move(publishedStats), invalidateValues,
                   previousPublishedWorkerEpoch)) return _store.Get();
@@ -1994,9 +1734,9 @@ UsdGenStats publishedStats, bool invalidateValues,
                 --_stats.executionCacheMisses;
                 ++_stats.executionCacheHits;
                 UsdGenGenerationConstPtr next = _store.Get();
-                _lastReport = _store.Diff(prev ? *prev : UsdGenGeneration{}, *next);
+                _lastReport = _DiffGenerations(prev.get(), *next);
                 ++_stats.commits;
-                _stats.publishedTiles = static_cast<uint64_t>(next->tiles.size());
+                _stats.publishedTiles = _PublishedGroups(next.get());
                 _lastNodeStats.clear();
                 _graphBaselineDetached = true;
                 phases.Phase("cache hit publish");
@@ -2085,7 +1825,7 @@ UsdGenStats publishedStats, bool invalidateValues,
                             cacheDomain, *fence};
                         --_stats.executionCacheMisses;
                         ++_stats.executionCacheHits;
-                        _lastReport = UsdGenDirtyReport{};
+                        _lastReport.Reset();
                         ++_stats.commits;
                         _stats.publishedTiles = 0;
                         _lastNodeStats.clear();
@@ -2118,7 +1858,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         // payload; publishing must not consult a later graph descriptor.
         gen.devicePresentation = _BuildDevicePresentation(_desc);
         gen.host = _desc.host;
-        // Do not call the host scheduler or _BuildTilePublication for a
+        // Do not call the host scheduler or the publisher for a
         // device generation. Tools retain this snapshot directly.
         auto prepared = _store.PreparePublication(std::move(gen));
         auto fence = cacheDomain->CapturePublicationFence(cacheKey);
@@ -2126,7 +1866,7 @@ UsdGenStats publishedStats, bool invalidateValues,
                 return _store.PublishPrepared(std::move(prepared));
             })) return reject();
         _publicationFence = ExecutionPublicationFence{cacheDomain, *fence};
-        _lastReport = UsdGenDirtyReport{};
+        _lastReport.Reset();
         ++_stats.commits;
         _stats.publishedTiles = 0;
         _lastNodeStats.clear();
@@ -2143,10 +1883,6 @@ UsdGenStats publishedStats, bool invalidateValues,
     UsdGenEvalContext evalCtx;
     evalCtx.time = frame;
     evalCtx.desc = &_desc;
-    // Tile copies may start on terminal sweep workers. A previous cook's
-    // preview colors must never be visible there; active preview is deferred
-    // until its whole-output color pass below has completed.
-    _previewColors = UsdGenPreviewColors{};
     // Streamed tiles, without a lock: each completed tile claims a slot by
     // fetch_add and publishes it with a release store (tiles past the slot
     // count go on an overflow stack). Whoever holds `delivering` emits the
@@ -2172,7 +1908,7 @@ UsdGenStats publishedStats, bool invalidateValues,
         ~StreamReset() {
             size_t const used = std::min(count, claimed.load(std::memory_order_acquire));
             for (size_t i = 0; i < used; ++i) {
-                slots[i].publication = UsdGenTilePublication{};
+                slots[i].publication.Reset();
                 slots[i].ready.store(false, std::memory_order_relaxed);
             }
             while (_StreamedTile *n = overflow) {
@@ -2181,12 +1917,12 @@ UsdGenStats publishedStats, bool invalidateValues,
             }
         }
     } streamReset{progressSlots, slotCount, slotsClaimed, overflowDelivered};
-    auto emitProgress = [&](UsdGenTilePublication const &tile) {
+    auto emitProgress = [&](UsdGenRef<const UsdGenPublication> tile) {
         if (!progress || (superseded && superseded())) return;
         auto update = std::make_shared<UsdGenSession::TileProgress>();
         update->epoch = workEpoch;
         update->frame = frame;
-        update->tile = tile;
+        update->tile = std::move(tile);
         update->host = _desc.host;
         if (superseded && superseded()) return;
         update->sequence = ++progressSequence;
@@ -2216,16 +1952,27 @@ UsdGenStats publishedStats, bool invalidateValues,
                 return;
         }
     };
+    // Streams only without a usdGen:preview: a group built here never carries
+    // preview colours (the whole-output colour pass runs after the run).
     auto tileCompleted = progress && !_desc.preview.Active()
         ? UsdGenScheduler::TileCompleted([&](UsdGenChunkGroup const& tile,
                                                UsdGenElementSet const& output) {
             if (superseded && superseded()) return;
-            UsdGenRunResult partial;
-            partial.terminalOutput = &output;
-            UsdGenTilePublication publication = _BuildTilePublication(tile, partial, {});
-            // VtArray copies share their immutable storage. Reuse this exact
-            // geometry in the final generation instead of gathering the
-            // tile's points a second time.
+            UsdGenPublisherDef const *const streamPublisher =
+                UsdGenFindPublisher(output.Channels().Layout().primitive);
+            if (!streamPublisher || !streamPublisher->buildGroup) return;
+            UsdGenCompiledNode const &terminal = _graph.Node(_graph.TerminalNodeId());
+            UsdGenPublishContext group;
+            group.spec = &_desc;
+            group.graph = &_graph;
+            group.terminal = &output;
+            group.chunks = {terminal.chunks.data(), terminal.chunks.size()};
+            group.groups = {&tile, 1};
+            group.frame = frame;
+            UsdGenRef<const UsdGenPublication> publication =
+                streamPublisher->buildGroup(group, 0);
+            // The final publication reuses this group instead of building it
+            // a second time.
             size_t const i = slotsClaimed.fetch_add(1, std::memory_order_relaxed);
             if (i < slotCount) {
                 progressSlots[i].tile = tile.id;
@@ -2282,282 +2029,49 @@ UsdGenStats publishedStats, bool invalidateValues,
     UsdGenGeneration gen;
     gen.frame = frame;
     gen.host = _desc.host;
-    gen.tiles.reserve(result.groups.size());
-
-    // usdGen:preview recolours every tile, including those whose geometry
-    // this cook did not touch.
-    {
-        std::vector<std::string> previewWarnings;
-        _previewColors = _preview.Build(_desc, _graph, UsdGenCurveSetView::Of(*result.terminalOutput), frame,
-                                        &previewWarnings);
-        for (std::string const &warning : previewWarnings) _lastDiagnostics.Warn(warning);
-    }
-    gen.colorDigest = _previewColors.digest;
-    // ...and so does usdGen:look, which is baked into every tile's
-    // displayColor and (since the look travels as constant primvars too)
-    // into its extra planes. A look-only edit touches no point and no
-    // topology, so without this it would reach the synthetic material and
-    // nothing else -- the strands would keep the previous root colour.
-    {
-        auto mix = [](uint64_t *h, uint64_t v) {
-            *h ^= v + 0x9e3779b97f4a7c15ull + (*h << 6) + (*h >> 2);
-            *h ^= *h >> 30; *h *= 0xbf58476d1ce4e5b9ull;
-            *h ^= *h >> 27; *h *= 0x94d049bb133111ebull;
-            *h ^= *h >> 31;
-        };
-        auto mixF = [&](uint64_t *h, float v) {
-            uint32_t bits = 0; std::memcpy(&bits, &v, sizeof(bits));
-            mix(h, bits);
-        };
-        UsdGenLookDesc const &lk = _desc.look;
-        uint64_t h = gen.colorDigest;
-        for (int i = 0; i < 3; ++i) { mixF(&h, lk.rootColor[i]); mixF(&h, lk.tipColor[i]); }
-        for (GfVec3f const &c : lk.rampColors)
-            for (int i = 0; i < 3; ++i) mixF(&h, c[i]);
-        for (float p : lk.rampPositions) mixF(&h, p);
-        mixF(&h, lk.rampExponent);
-        mixF(&h, lk.hueJitter);
-        mixF(&h, lk.valueJitter);
-        mix(&h, static_cast<uint64_t>(static_cast<uint32_t>(lk.jitterSeed)));
-        mix(&h, lk.rampInterpolation.Hash());
-        mix(&h, lk.bakeMode.Hash());
-        mix(&h, lk.bakeTarget.Hash());
-        mix(&h, lk.bakePrimvar.Hash());
-        gen.colorDigest = h;
-    }
-    const bool recolour = prev && prev->colorDigest != gen.colorDigest;
-    phases.Phase("preview");
-
-    TRACE_SCOPE("usdGen build tile publications");
-    // Serial triage (cheap): carry-over and streamed reuse resolve here in
-    // result.groups order; only the _BuildTilePublication calls fan out.
-    // Every tile reads only its own view plus shared-immutable run state
-    // (terminal buffer, graph, desc, preview colors) and writes only its
-    // own publication, so any build order fills identical tiles -- and the
-    // streaming path already invokes _BuildTilePublication concurrently
-    // from scheduler workers, so the function is production-hardened for
-    // it. Assembly below restores result.groups order, the progress emits
-    // keep their serial sequence, and the first failing tile's exception
-    // still wins (captured per slot, rethrown in order). One deliberate
-    // edge difference: on a layout-corruption throw with a progress
-    // callback set, no partial progress emits (serial interleaved them);
-    // success paths -- the only contracted case -- are identical.
-    // Run has joined every tile callback: the streamed set is final.
-    std::vector<std::pair<UsdGenTileId, UsdGenTilePublication const *>> streamedIndex;
-    if (size_t const claimed = slotsClaimed.load(std::memory_order_acquire)) {
-        streamedIndex.reserve(claimed);
-        for (size_t i = 0, n = std::min(claimed, slotCount); i < n; ++i)
-            streamedIndex.emplace_back(progressSlots[i].tile, &progressSlots[i].publication);
-        for (_StreamedTile const *n = overflowDelivered; n; n = n->next)
-            streamedIndex.emplace_back(n->tile, &n->publication);
-        // First completion wins, as with map::emplace.
-        std::stable_sort(streamedIndex.begin(), streamedIndex.end(),
-            [](auto const &a, auto const &b) { return a.first < b.first; });
-    }
-    auto findStreamed = [&streamedIndex](UsdGenTileId id) -> UsdGenTilePublication const * {
-        auto it = std::lower_bound(streamedIndex.begin(), streamedIndex.end(), id,
-            [](auto const &e, UsdGenTileId t) { return e.first < t; });
-        return it != streamedIndex.end() && it->first == id ? it->second : nullptr;
-    };
-    size_t rebuiltTiles = 0;
-    size_t rebuildCvs = 0;
-    std::vector<UsdGenChunkGroup const *> buildViews;
-    // Points-only republication: the previous tile with fresh points (every
-    // other channel shared), when nothing but points moved since it was built.
-    bool const refreshPoints = channelsSettled && prev && !recolour && !_rebuildAllTiles &&
-        !_previewColors.active;
-    size_t refreshedTiles = 0;
-    for (UsdGenChunkGroup const &tv : result.groups) {
-        // E-4: untouched tiles carry over their publication wholesale (the
-        // VtArray copies share buffers, so step 7 sees IsIdentical == true).
-        const bool rebuild =
-            result.topologyChanged || (tv.dirtyRoles & kGroupPositionDirty) ||
-            (tv.dirtyRoles & kGroupWidthDirty) || recolour ||
-            _rebuildAllTiles;
-        const UsdGenTilePublication *previous = nullptr;
-        if (prev) {
-            auto it = std::lower_bound(
-                prev->tiles.begin(), prev->tiles.end(), tv.id,
-                [](UsdGenTilePublication const &p, UsdGenTileId t) {
-                    return p.tile < t;
+    if (UsdGenPublisherDef const *publisher = _SelectPublisher(*result.terminalOutput)) {
+        // Run has joined every group callback: the streamed set is final.
+        std::vector<UsdGenPublishedGroup> streamed;
+        if (size_t const claimed = slotsClaimed.load(std::memory_order_acquire)) {
+            streamed.reserve(claimed);
+            for (size_t i = 0, n = std::min(claimed, slotCount); i < n; ++i)
+                streamed.push_back({progressSlots[i].tile, progressSlots[i].publication.Get()});
+            for (_StreamedTile const *n = overflowDelivered; n; n = n->next)
+                streamed.push_back({n->tile, n->publication.Get()});
+            // First completion wins, as with map::emplace.
+            std::stable_sort(streamed.begin(), streamed.end(),
+                [](UsdGenPublishedGroup const &a, UsdGenPublishedGroup const &b) {
+                    return a.group < b.group;
                 });
-            if (it != prev->tiles.end() && it->tile == tv.id) previous = &*it;
         }
-        if (!rebuild && previous) {
-            gen.tiles.push_back(*previous);
-            continue;
-        }
-        ++rebuiltTiles;
-        if (refreshPoints && previous && !(tv.dirtyRoles & kGroupWidthDirty)) {
-            UsdGenTilePublication refreshed;
-            if (_RefreshTilePoints(tv, result, *previous, &refreshed)) {
-                gen.tiles.push_back(std::move(refreshed));
-                ++refreshedTiles;
-                continue;
-            }
-        }
-        if (UsdGenTilePublication const *streamed = findStreamed(tv.id)) {
-            gen.tiles.push_back(*streamed);
-            continue;
-        }
-        rebuildCvs += tv.live[1];
-        buildViews.push_back(&tv);
-    }
-    std::vector<UsdGenTilePublication> built(buildViews.size());
-    // Threaded over tiles for big rebuilds on this cooker's worker pool
-    // (idle here: Run has returned): each worker builds whole tiles into
-    // indexed slots. Small rebuilds keep the serial driver below. Chunks
-    // cap at 8 like every other site: uncapped auto-partitioning over the
-    // 20-thread arena regressed this loop 5x (oversubscription on the
-    // pinned cores plus co-tenant contention).
-    UsdGenWorkDispatcher tileDispatcher = _scheduler.MakeWorkDispatcher();
-    int const tileWorkers = tileDispatcher.MaxConcurrency();
-    size_t const tileChunks =
-        (tileWorkers > 1 && rebuildCvs > 32768)
-            ? std::min({size_t(tileWorkers), size_t(8), buildViews.size()})
-            : 1;
-    if (tileChunks > 1) {
-        std::vector<std::exception_ptr> buildError(buildViews.size());
-        UsdGenRunResult const &buildResult = result;
-        UsdGenChunkGroup const *const *views = buildViews.data();
-        UsdGenTilePublication *slots = built.data();
-        std::exception_ptr *errors = buildError.data();
-        size_t const jobs = buildViews.size();
-        struct Build {
-            UsdGenSessionCooker *cooker;
-            UsdGenRunResult const *result;
-            UsdGenGenerationConstPtr const *prev;
-            UsdGenChunkGroup const *const *views;
-            UsdGenTilePublication *slots;
-            std::exception_ptr *errors;
-            size_t jobs, chunks;
-        } build{this, &buildResult, &prev, views, slots, errors, jobs, tileChunks};
-        tileDispatcher.ParallelFor(tileChunks, [](size_t c, void *p) {
-            auto const &b = *static_cast<Build const *>(p);
-            size_t const i0 = (c * b.jobs) / b.chunks;
-            size_t const i1 = ((c + 1) * b.jobs) / b.chunks;
-            for (size_t i = i0; i < i1; ++i) {
-                try {
-                    b.slots[i] = b.cooker->_BuildTilePublication(
-                        *b.views[i], *b.result, *b.prev);
-                } catch (...) {
-                    b.errors[i] = std::current_exception();
-                }
-            }
-        }, &build, 1);
-        for (std::exception_ptr const &e : buildError)
-            if (e)
-                std::rethrow_exception(e);
-    } else {
-        for (size_t i = 0; i < buildViews.size(); ++i)
-            built[i] = _BuildTilePublication(*buildViews[i], result, prev);
-    }
-    for (size_t i = 0; i < built.size(); ++i) {
-        gen.tiles.push_back(std::move(built[i]));
-        if (progress)
-            emitProgress(gen.tiles.back());
-    }
-    std::sort(gen.tiles.begin(), gen.tiles.end(),
-              [](UsdGenTilePublication const &a, UsdGenTilePublication const &b) {
-                  return a.tile < b.tile;
-              });
-    phases.Phase(refreshedTiles == rebuiltTiles && refreshedTiles ? "tile points" : "tiles",
-                 rebuiltTiles, gen.tiles.size());
-    if (UsdGenRbfAnimationEnabled())
-        gen.animationBinding = _BuildAnimationBinding(result, gen.tiles);
-
-    // Whole-groom optical depth includes neighboring tiles. Unchanged
-    // geometry reuses the immutable planes, including on look-only edits.
-    {
+        UsdGenCompiledNode const &terminal = _graph.Node(_graph.TerminalNodeId());
         UsdGenWorkDispatcher dispatcher = _scheduler.MakeWorkDispatcher();
-        UsdGenFurOcclusionParams occlusion;
-        occlusion.dispatcher = &dispatcher;
-        if (!_furCache) _furCache = std::make_shared<UsdGenFurOcclusionCache>();
-        occlusion.cache = _furCache.get();
-        // The emitting surfaces are opaque: without them light reaches hair
-        // through the scalp (a host renderer injects the opaque depth for the same
-        // reason). Deformed points at this frame, in the same world space the
-        // tiles were transformed into.
-        // A GeomSubset surface carries its whole parent mesh, which occludes
-        // whole and once, however many subsets of it the groom binds.
-        UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(_desc);
-        occlusion.occluders.reserve(surfaceRecords.size());
-        std::set<UsdGenNodeKey> occludingMeshes;
-        for (UsdGenInputRecord const &surfaceRecord : surfaceRecords) {
-            UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(surfaceRecord);
-            if (surface.points.empty() || surface.faceVertexIndices.empty())
-                continue;
-            if (!occludingMeshes.insert(UsdGenSurfaceMeshKey(surface)).second)
-                continue;
-            UsdGenFurOccluder occluder;
-            occluder.points.assign(surface.points.begin(), surface.points.end());
-            occluder.faceVertexCounts.assign(surface.faceVertexCounts.begin(),
-                                             surface.faceVertexCounts.end());
-            occluder.faceVertexIndices.assign(surface.faceVertexIndices.begin(),
-                                              surface.faceVertexIndices.end());
-            occluder.worldMatrix = surface.worldMatrix;
-            occlusion.occluders.push_back(std::move(occluder));
+        UsdGenPublishContext ctx;
+        ctx.spec = &_desc;
+        ctx.graph = &_graph;
+        ctx.terminal = result.terminalOutput;
+        ctx.chunks = {terminal.chunks.data(), terminal.chunks.size()};
+        ctx.groups = result.groups;
+        ctx.streamed = {streamed.data(), streamed.size()};
+        ctx.previous = prev ? prev->publication.Get() : nullptr;
+        ctx.state = _publisherState.get();
+        ctx.frame = frame;
+        ctx.topologyChanged = result.topologyChanged;
+        ctx.rebuildAll = _rebuildAllTiles;
+        ctx.pointsOnly = channelsSettled;
+        ctx.dispatcher = &dispatcher;
+        ctx.diag = &_lastDiagnostics;
+        if (progress) {
+            ctx.emit = [](void *user, UsdGenRef<const UsdGenPublication> group) {
+                (*static_cast<decltype(emitProgress) *>(user))(std::move(group));
+            };
+            ctx.emitUser = &emitProgress;
         }
-        // Hair shadowing the scalp. Stock Storm casts no shadow from any
-        // UsdLux light, so a synthetic cap over the emitting surface is the
-        // only route; it is built from the same volume, at no extra sweep
-        // beyond the hair-only one it needs.
-        occlusion.scalpShadow = !occlusion.occluders.empty() &&
-                                TfGetEnvSetting(USDGEN_SCALP_SHADOW);
-        // Local density for ambient darkening: a gather of a grid the bake
-        // already has, so it needs no occluders and no extra sweep.
-        occlusion.localDensity = TfGetEnvSetting(USDGEN_FUR_DENSITY);
-        // The reuse path leaves the cap untouched, so seed it: unchanged
-        // geometry shares the previous immutable arrays.
-        if (prev) gen.scalpShadow = prev->scalpShadow;
-        UsdGenBuildFurOcclusion(&gen.tiles, prev ? &prev->tiles : nullptr,
-                                occlusion, &_furVolumeKey, &gen.scalpShadow);
-        if (!gen.scalpShadow.IsEmpty()) {
-            _PresentationScalars const scalars = _BuildPresentationScalars(
-                _desc, UsdGenNodeKey());
-            gen.scalpShadow.prim =
-                UsdGenPrimRef{_desc.description, UsdGenPublishRole::ScalpShadow, 0};
-            gen.scalpShadow.purpose = scalars.purpose;
-            gen.scalpShadow.visibility = scalars.visibility;
-            gen.scalpShadow.material =
-                UsdGenPrimRef{_desc.description, UsdGenPublishRole::ScalpShadowMaterial, 0};
-        }
-    }
-    phases.Phase("occlusion");
-
-    // Signature: the prim-set identity step 7 diffs structurally (03 §6.1).
-    gen.signature.tileCount = static_cast<uint32_t>(gen.tiles.size());
-    gen.signature.instancerCount = 0;
-    // The end of the look's path into Storm: the colour a tile actually
-    // publishes. It is baked from _desc.look, so this and the INGRESS capture
-    // line together say whether an authored look survived the whole trip --
-    // the failure mode is silent, because a defaulted look is still a
-    // plausible dark brown.
-    if (TfDebug::IsEnabled(USDGEN_INGRESS) && !gen.tiles.empty() &&
-        !gen.tiles.front().displayColor.empty()) {
-        GfVec3f const &c = gen.tiles.front().displayColor.front();
-        TF_DEBUG(USDGEN_INGRESS).Msg(
-            "usdGen tile displayColor[0] = %.4f %.4f %.4f (look rootColor "
-            "%.4f %.4f %.4f)\n",
-            double(c[0]), double(c[1]), double(c[2]),
-            double(_desc.look.rootColor[0]), double(_desc.look.rootColor[1]),
-            double(_desc.look.rootColor[2]));
-    }
-    gen.signature.prims.reserve(gen.tiles.size());
-    gen.signature.primTypes.assign(gen.tiles.size(), "basisCurves");
-    gen.signature.primvarNames.reserve(gen.tiles.size());
-    for (UsdGenTilePublication const &t : gen.tiles) {
-        gen.signature.prims.push_back(t.prim);
-        std::vector<std::string> names{"points", "widths", "hairT", "hairId"};
-        if (!t.st.empty())            names.emplace_back("st");
-        if (!t.displayColor.empty())  names.emplace_back("displayColor");
-        if (!t.bakeColor.empty())     names.emplace_back("bakeColor");
-        if (!t.velocities.empty())    names.emplace_back("velocities");
-        for (UsdGenPlane const &p : t.extraUniform)
-            names.push_back(p.name.GetString());
-        std::sort(names.begin(), names.end());
-        names.erase(std::unique(names.begin(), names.end()), names.end());
-        gen.signature.primvarNames.push_back(std::move(names));
+        ctx.phase = [](void *user, char const *name, size_t rebuilt, size_t total) {
+            static_cast<_CommitPhases *>(user)->Phase(name, rebuilt, total);
+        };
+        ctx.phaseUser = &phases;
+        gen.publication = publisher->build(ctx);
     }
 
     if (UsdGenCookInternFails(tokenCheck, &_lastDiagnostics)) {
@@ -2576,12 +2090,12 @@ UsdGenStats publishedStats, bool invalidateValues,
 
     // -- step 7: diff vs the previous generation (06 §5.1) -----------------
     UsdGenGenerationConstPtr next = _store.Get();
-    _lastReport = _store.Diff(prev ? *prev : UsdGenGeneration{}, *next);
+    _lastReport = _DiffGenerations(prev.get(), *next);
     phases.Phase("diff");
 
     // -- stats (03 §9.2) ----------------------------------------------------
     ++_stats.commits;
-    _stats.publishedTiles = static_cast<uint64_t>(next->tiles.size());
+    _stats.publishedTiles = _PublishedGroups(next.get());
     _lastNodeStats.clear();
     double captureMs = 0.0, evalMs = 0.0;
     for (UsdGenNodeRunStats const &rs : result.nodeStats) {
@@ -2613,414 +2127,17 @@ UsdGenStats publishedStats, bool invalidateValues,
     return next;
 }
 
-UsdGenTilePublication UsdGenSessionCooker::_BuildTilePublication(
-    UsdGenChunkGroup const &tv, UsdGenRunResult const &result,
-    UsdGenGenerationConstPtr const &prev)
+UsdGenPublisherDef const *UsdGenSessionCooker::_SelectPublisher(
+    UsdGenElementSet const &terminal)
 {
-    TF_UNUSED(prev);
-    UsdGenTilePublication pub;
-    pub.tile = tv.id;
-    pub.prim = UsdGenPrimRef{_desc.description, UsdGenPublishRole::Tile, uint32_t(tv.id)};
-    if (!_desc.curveBasis.IsEmpty())
-        pub.basis = _desc.curveBasis.GetString();
-    pub.refineLevel = 2;
-
-    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*result.terminalOutput);
-    UsdGenCompiledNode const &tn = _graph.Node(_graph.TerminalNodeId());
-
-    pub.curveVertexCounts.reserve(tv.live[0]);
-    pub.points.reserve(tv.live[1]);
-    pub.widths.reserve(tv.live[1]);
-    pub.hairT.reserve(tv.live[1]);
-    pub.hairId.reserve(tv.live[0]);
-
-    std::optional<UsdGenPlaneView> const displayColor =
-        _FindPlane(term, false, UsdGenTokens().displayColor);
-    struct ExtraPlanePublication {
-        std::optional<UsdGenPlaneView> source;
-        UsdGenPlane output;
-    };
-    std::vector<ExtraPlanePublication> extraPlanes;
-    // The forwarded source colour is consumed into the tile's displayColor
-    // below, never published: it is an input to the colour decision, not a
-    // primvar of its own.
-    std::optional<UsdGenPlaneView> sourceColor =
-        _FindPlane(term, false, UsdGenSourceColorPlane());
-    if (!sourceColor) sourceColor = _FindPlane(term, true, UsdGenSourceColorPlane());
-    auto addExtraPlane = [&](UsdGenPlaneView const& plane, TfToken expectedInterpolation) {
-        if (plane.name == UsdGenTokens().displayColor ||
-            plane.name == UsdGenSourceColorPlane()) return;
-        size_t const elements = expectedInterpolation == UsdGenTokens().constant ? 1 :
-            expectedInterpolation == UsdGenTokens().vertex ? term.totalCvs : term.totalCurves;
-        size_t const values = elements * plane.arity;
-        bool const validPayload = plane.type == UsdGenTokens().int_
-            ? plane.i.size() == values && plane.f.empty()
-            : plane.type == UsdGenTokens().float_ && plane.f.size() == values && plane.i.empty();
-        if (plane.name.IsEmpty() || plane.arity == 0 ||
-            plane.arity > kUsdGenMaxExtraPlaneSlots ||
-            plane.interpolation != expectedInterpolation || !validPayload)
-            throw std::runtime_error("invalid extra-plane publication layout for '" +
-                                     plane.name.GetString() + "'");
-        if (std::any_of(extraPlanes.begin(), extraPlanes.end(), [&](auto const& entry) {
-                return entry.output.name == plane.name;
-            }))
-            throw std::runtime_error("duplicate extra-plane publication name '" +
-                                     plane.name.GetString() + "'");
-        ExtraPlanePublication entry;
-        entry.source = plane;
-        entry.output.name = plane.name;
-        entry.output.interpolation = plane.interpolation;
-        entry.output.type = plane.type;
-        entry.output.arity = plane.arity;
-        if (plane.interpolation == UsdGenTokens().constant)
-            _GatherPlaneElement(plane, 0, &entry.output);
-        extraPlanes.push_back(std::move(entry));
-    };
-    for (uint32_t k = 0; k < term.ExtraCurveCount(); ++k) {
-        UsdGenPlaneView const p = term.ExtraCurve(k);
-        if (p.interpolation == UsdGenTokens().constant)
-            addExtraPlane(p, UsdGenTokens().constant);
-        else if (p.interpolation == UsdGenTokens().uniform)
-            addExtraPlane(p, UsdGenTokens().uniform);
-        else if (p.name != UsdGenTokens().displayColor)
-            throw std::runtime_error("invalid per-curve extra-plane interpolation for '" +
-                                     p.name.GetString() + "'");
+    UsdGenPublisherDef const *const publisher =
+        UsdGenFindPublisher(terminal.Channels().Layout().primitive);
+    if (!publisher || !publisher->build) return nullptr;
+    if (publisher != _publisher) {
+        _publisherState = publisher->createState ? publisher->createState() : nullptr;
+        _publisher = publisher;
     }
-    for (uint32_t k = 0; k < term.ExtraCvCount(); ++k)
-        addExtraPlane(term.ExtraCv(k), UsdGenTokens().vertex);
-
-    // Precedence (02 §2.14): an AUTHORED look on the description wins;
-    // otherwise the source curves' own displayColor, which is what a
-    // character asset already carries; otherwise the look's schema
-    // defaults. "Authored" has to mean an opinion that differs from the
-    // fallback -- a description that merely applies UsdGenLookAPI has a full
-    // set of schema-default look values, and treating those as authored would
-    // silently discard every asset's own colour.
-    UsdGenLookDesc const &lookFallback = _lookFallbackDesc;
-    bool const authoredLook =
-        _desc.look.rootColor != lookFallback.rootColor ||
-        _desc.look.tipColor != lookFallback.tipColor ||
-        !_desc.look.rampColors.empty();
-
-    // The rest of the look as CONSTANT primvars, so the shading of a groom
-    // does not depend on the tile keeping the synthetic material: a user who
-    // binds their own UsdGenHairStrands material gets the Sdr defaults for
-    // everything the tile does not carry, which used to mean blond tips on a
-    // black-haired groom. rootColor already travels as the baked per-curve
-    // displayColor, so it is deliberately NOT repeated here -- a second
-    // channel for it would only be a way for the two to disagree.
-    //
-    // Each one is published only where the look RESOLVES it to something
-    // other than its schema fallback. An unauthored look publishes none of
-    // them, the shader's `#ifdef HD_HAS_*` is false, and the material input
-    // applies exactly as before: the default-material path is unchanged by
-    // construction, and a forwarded asset colour (one flat colour per curve)
-    // never acquires an invented tip.
-    auto addLookConstant = [&](TfToken const& name, std::initializer_list<float> v) {
-        // An authored plane of the same name wins: the user asked for it by
-        // hand, and two planes with one name is not a publishable tile.
-        if (std::any_of(extraPlanes.begin(), extraPlanes.end(),
-                        [&](auto const& e) { return e.output.name == name; }))
-            return;
-        UsdGenPlane plane;
-        plane.name = name;
-        plane.interpolation = UsdGenTokens().constant;
-        plane.type = UsdGenTokens().float_;
-        plane.arity = static_cast<decltype(plane.arity)>(v.size());
-        plane.f.assign(v.begin(), v.end());
-        ExtraPlanePublication entry;
-        entry.source.reset();     // synthesized; the uniform gather never runs
-        entry.output = std::move(plane);
-        extraPlanes.push_back(std::move(entry));
-    };
-    if (authoredLook) {
-        // Ramp-aware, matching UsdGenTilePublisher::_LookColors: the shader
-        // has one lerp, so a multi-stop ramp presents as its last stop.
-        GfVec3f const tip = _desc.look.rampColors.size() >= 2
-            ? _desc.look.rampColors[_desc.look.rampColors.size() - 1]
-            : _desc.look.tipColor;
-        addLookConstant(kHairTipColor, {tip[0], tip[1], tip[2]});
-    }
-    if (_desc.look.rampExponent != lookFallback.rampExponent)
-        addLookConstant(kHairColorRamp,
-                        {std::max(_desc.look.rampExponent, 0.001f)});
-    if (_desc.look.hueJitter != lookFallback.hueJitter)
-        addLookConstant(kHairRandomHue, {std::max(_desc.look.hueJitter, 0.0f)});
-    if (_desc.look.valueJitter != lookFallback.valueJitter)
-        addLookConstant(kHairRandomValue,
-                        {std::max(_desc.look.valueJitter, 0.0f)});
-
-    GfRange3f bounds;
-    uint32_t depSurface = 0;
-    bool hasDep = false;
-    bool firstChunk = true;
-
-    // Hoisted tile-uniform color dispatch (bit-identical): preview, the
-    // displayColor/sourceColor planes, bakeTarget and authoredLook never
-    // change within a tile, but the curve loop re-evaluated
-    // `bakeTarget != TfToken("none")` -- a token-registry lookup -- for
-    // every curve (1M lookups at bench scale, and a mutex convoy under
-    // tile threading). The mode below selects the identical branch.
-    enum ColorMode { NoColor, Preview, Plane, SourcePlane, Root };
-    ColorMode colorMode = NoColor;
-    if (_previewColors.active)
-        colorMode = Preview;
-    else if (displayColor)
-        colorMode = Plane;
-    else if (_desc.look.bakeTarget != UsdGenTokens().none)
-        colorMode = (!authoredLook && sourceColor) ? SourcePlane : Root;
-    // Extra planes partitioned once per tile (bit-identical): the CV loop
-    // gathered the vertex-interpolated planes and the curve loop the
-    // uniform ones, each re-comparing every plane's interpolation token
-    // per element. Same planes, same relative order, no per-element
-    // token work; constant planes stay out of both loops, as before.
-    std::vector<ExtraPlanePublication *> vertexPlanes, uniformPlanes;
-    for (auto &extra : extraPlanes) {
-        if (extra.output.interpolation == UsdGenTokens().vertex)
-            vertexPlanes.push_back(&extra);
-        else if (extra.output.interpolation == UsdGenTokens().uniform)
-            uniformPlanes.push_back(&extra);
-    }
-    // Pre-size the remaining per-curve/per-CV arrays (bit-identical: same
-    // pushed values, no geometric-growth copies): st takes one root UV per
-    // curve when the terminal carries rootUV; displayColor takes one color
-    // per curve except under per-CV preview (one per CV), and nothing at
-    // all when the mode is NoColor; extra planes take their live element
-    // count times arity on the matching payload. Over-reserve is
-    // capacity-only: short gathers (failed bounds checks, multi-push
-    // color arities resuming past their share) just push less.
-    if (!term.rootUV.empty())
-        pub.st.reserve(tv.live[0]);
-    if (colorMode == Preview && _previewColors.perCv)
-        pub.displayColor.reserve(tv.live[1]);
-    else if (colorMode != NoColor)
-        pub.displayColor.reserve(tv.live[0]);
-    for (ExtraPlanePublication *extra : vertexPlanes) {
-        size_t const n = size_t(tv.live[1]) * extra->output.arity;
-        if (extra->output.type == UsdGenTokens().int_)
-            extra->output.i.reserve(n);
-        else
-            extra->output.f.reserve(n);
-    }
-    for (ExtraPlanePublication *extra : uniformPlanes) {
-        size_t const n = size_t(tv.live[0]) * extra->output.arity;
-        if (extra->output.type == UsdGenTokens().int_)
-            extra->output.i.reserve(n);
-        else
-            extra->output.f.reserve(n);
-    }
-
-    // Bulk uniform path (bit-identical, see _BuildTilePublicationBulk):
-    // per-chunk bulk copies instead of the push_back loop below, with the
-    // extent fused in. Any uncovered element falls back to the serial loop
-    // (ragged chunks, short planes, per-element color or extra gathers).
-    bool useBulk = vertexPlanes.empty() && uniformPlanes.empty() &&
-        (colorMode == Root || colorMode == NoColor);
-    if (useBulk)
-        useBulk = _BuildTilePublicationBulk(tv, term, tn,
-                                            colorMode == Root,
-                                            _desc.look.rootColor, &pub,
-                                            &depSurface, &hasDep);
-    if (!useBulk) {
-        for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-            UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
-            // id 0 is a legitimate surface (compiler.cpp assigns dense indices
-            // from 0): the first chunk of the tile always establishes the
-            // dependency, never a `!= 0` sentinel.
-            if (firstChunk) { depSurface = cd.domain; hasDep = true; firstChunk = false; }
-            for (uint32_t c = 0; c < cd.live; ++c) {
-                const uint32_t g = cd.first[0] + c;
-                uint32_t p0 = 0, len = 0;
-                if (cd.stride[1] != 0) {
-                    len = cd.stride[1];
-                    p0 = cd.first[1] + c * cd.stride[1];
-                } else if (g + 1 < term.cvOffsets.size()) {   // ragged chunk
-                    p0 = static_cast<uint32_t>(term.cvOffsets[g]);
-                    len = static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
-                }
-                pub.curveVertexCounts.push_back(static_cast<int>(len));
-                for (uint32_t v = 0; v < len; ++v) {
-                    const uint32_t p = p0 + v;
-                    if (p >= term.px.size()) break;
-                    pub.points.emplace_back(term.px[p], term.py[p], term.pz[p]);
-                    // C2 (06 §4.1): widths/hairT are vertex channels on every
-                    // tile. A chain whose terminal never wrote them (grow-only:
-                    // kPlanePoints|kPlaneHairT) still publishes FULL-SIZE planes
-                    // from desc defaults (02 §2.6/§2.14: width 0.01, look bake),
-                    // never a wrong-size array — SI-1 sizes every non-empty
-                    // vertex plane against points.
-                    float w = 0.01f;
-                    if (p < term.width.size()) w = term.width[p];
-                    else if (!term.width.empty()) w = term.width.back();
-                    pub.widths.push_back(w);
-                    pub.hairT.push_back(p < term.hairT.size() ? term.hairT[p] : 0.0f);
-                    for (ExtraPlanePublication *extra : vertexPlanes)
-                        _GatherPlaneElement(*extra->source, p, &extra->output);
-                }
-                // hairId: UsdGenHash32(curveId, 0) / 2^32 in [0,1) (06, S29).
-                pub.hairId.push_back(g < term.curveId.size()
-                    ? UsdGenHairId(term.curveId[g]) : 0.0f);
-                if (!term.rootUV.empty() && g < term.rootUV.size())
-                    pub.st.push_back(term.rootUV[g]);
-                if (colorMode == Preview) {
-                    std::vector<GfVec3f> const &colors = _previewColors.colors;
-                    if (_previewColors.perCv) {
-                        for (uint32_t v = 0; v < len; ++v)
-                            pub.displayColor.push_back(size_t(p0) + v < colors.size()
-                                ? colors[size_t(p0) + v] : UsdGenPreviewMissingColor());
-                    } else {
-                        pub.displayColor.push_back(g < colors.size()
-                            ? colors[g] : UsdGenPreviewMissingColor());
-                    }
-                } else if (colorMode == Plane)
-                    _GatherColor(*displayColor, g, p0, &pub.displayColor);
-                else if (colorMode == SourcePlane)
-                    _GatherColor(*sourceColor, g, p0, &pub.displayColor);
-                else if (colorMode == Root)
-                    pub.displayColor.push_back(_desc.look.rootColor);
-                for (ExtraPlanePublication *extra : uniformPlanes)
-                    _GatherPlaneElement(*extra->source, g, &extra->output);
-            }
-        }
-    }
-    for (auto& extra : extraPlanes)
-        pub.extraUniform.push_back(std::move(extra.output));
-    std::sort(pub.extraUniform.begin(), pub.extraUniform.end(),
-              [](UsdGenPlane const& left, UsdGenPlane const& right) {
-                  return left.name < right.name;
-              });
-
-        if (!useBulk) {
-        // Extent is a pure function of the published points (03 §6.3: min/max
-        // fused into the interleave loop — but InterleaveTile skips untouched
-        // tiles, so tv.extent is empty on any tile this commit did not evaluate
-        // while its points are real). Reduce over pub.points in memory: same
-        // (g,p0,len) ragged walk already emitted them above, one cheap pass.
-        GfRange3f e;
-        for (GfVec3f const &pt : pub.points) e.ExtendBy(pt);
-        if (e.IsEmpty()) e = GfRange3f(GfVec3f(0.f), GfVec3f(0.f));
-        pub.extentMin = GfVec3d(e.GetMin()[0], e.GetMin()[1], e.GetMin()[2]);
-        pub.extentMax = GfVec3d(e.GetMax()[0], e.GetMax()[1], e.GetMax()[2]);
-    }
-
-    UsdGenNodeKey dependencySurface;
-    if (hasDep) {
-        for (UsdGenInputRecord const &record : UsdGenSurfaceInputs(_desc))
-            if (UsdGenSurfaceInputView::Of(record).id == depSurface) {
-                dependencySurface = record.key;
-                break;
-            }
-    }
-    _PresentationScalars const scalars = _BuildPresentationScalars(
-        _desc, dependencySurface);
-    pub.xformMatrix = scalars.xformMatrix;
-    pub.purpose = scalars.purpose;
-    pub.visibility = scalars.visibility;
-    pub.material = scalars.material;
-    pub.materialPurpose = scalars.materialPurpose;
-    if (_previewColors.active) {
-        // The look's shader blends toward the tip colour; the preview shows
-        // exactly the published displayColor, over any authored material.
-        pub.material = UsdGenPrimRef{_desc.description,
-            UsdGenPreviewMaterialRole(_desc.preview.shading), 0};
-        pub.materialPurpose = UsdGenTokens().allPurpose;
-    }
-    pub.refineLevel = scalars.refineLevel;
-    pub.origin = scalars.origin;
-    pub.dependency = scalars.dependency;
-    return pub;
-}
-
-std::shared_ptr<const UsdGenRbfAnimationBinding>
-UsdGenSessionCooker::_BuildAnimationBinding(UsdGenRunResult const& result,
-    std::vector<UsdGenTilePublication> const& tiles) const
-{
-    auto const& terminal = _graph.Node(_graph.TerminalNodeId());
-    if (!terminal.op || !terminal.record || !terminal.desc) return {};
-    auto const makeBinding = terminal.record->Def().hooks.makeAnimationBinding;
-    if (!makeBinding) return {};
-    UsdGenAnimationBindingQuery query;
-    query.terminalDesc = terminal.desc;
-    query.terminalParams = &terminal.paramView;
-    UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(_desc);
-    query.surface = terminal.surface < surfaceRecords.size() ? &surfaceRecords[terminal.surface] : nullptr;
-    query.terminalInputCount = uint32_t(terminal.inputs.size());
-    query.terminalHasOutputPlanes = !terminal.outputPrimvars.empty();
-    query.graphStatic = true;
-    for (int i = 0; i != _graph.NodeCount(); ++i) {
-        auto const& node = _graph.Node(i);
-        if (!node.op || !node.record || node.record->Has(kUsdGenOpReadsTime) ||
-            !node.desc->expressionBindings.empty())
-            query.graphStatic = false;
-        else
-            for (auto const& param : node.desc->params) if (param.animated) query.graphStatic = false;
-        if (node.opId == terminal.opId) ++query.nodesWithTerminalOp;
-    }
-    UsdGenRbfAnimationBinding fields;
-    if (!makeBinding(query, *terminal.op, &fields) || !query.surface) return {};
-    auto binding = std::make_shared<UsdGenRbfAnimationBinding>(std::move(fields));
-    binding->surface = query.surface->key;
-    auto restResult = result;
-    restResult.terminalOutput = &_graph.NodeOutput(terminal.inputs.front());
-    for (auto const& tv : result.groups) {
-        auto tile = std::find_if(tiles.begin(), tiles.end(), [&](auto const& t) { return t.tile == tv.id; });
-        UsdGenTilePublication rest;
-        if (tile == tiles.end() || !_RefreshTilePoints(tv, restResult, *tile, &rest)) return {};
-        double padding = 0;
-        for (float width : tile->widths) padding = std::max(padding, double(width) * 0.5);
-        binding->tiles.push_back({tile->prim, std::move(rest.points), padding});
-    }
-    return binding;
-}
-
-bool UsdGenSessionCooker::_RefreshTilePoints(UsdGenChunkGroup const &tv,
-                                             UsdGenRunResult const &result,
-                                             UsdGenTilePublication const &previous,
-                                             UsdGenTilePublication *out) const
-{
-    // The same chunk -> live curve -> CV walk as _BuildTilePublication, so
-    // the points land in the order the previous build published them; any
-    // disagreement with the previous curve layout refuses the refresh.
-    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*result.terminalOutput);
-    UsdGenCompiledNode const &tn = _graph.Node(_graph.TerminalNodeId());
-    size_t const count = previous.points.size();
-    VtVec3fArray points(count);
-    GfVec3f *dst = points.data();
-    size_t k = 0, curve = 0;
-    GfRange3f e;
-    for (uint32_t i = 0; i < tv.chunkCount; ++i) {
-        if (size_t(tv.firstChunk) + i >= tn.chunks.size()) return false;
-        UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
-        for (uint32_t c = 0; c < cd.live; ++c) {
-            uint32_t const g = cd.first[0] + c;
-            uint32_t p0 = 0, len = 0;
-            if (cd.stride[1] != 0) {
-                len = cd.stride[1];
-                p0 = cd.first[1] + c * cd.stride[1];
-            } else if (g + 1 < term.cvOffsets.size()) {   // ragged chunk
-                p0 = static_cast<uint32_t>(term.cvOffsets[g]);
-                len = static_cast<uint32_t>(term.cvOffsets[g + 1]) - p0;
-            }
-            if (curve >= previous.curveVertexCounts.size() ||
-                previous.curveVertexCounts[curve] != static_cast<int>(len) ||
-                size_t(p0) + len > term.px.size() || k + len > count)
-                return false;
-            ++curve;
-            for (uint32_t v = 0; v < len; ++v) {
-                uint32_t const p = p0 + v;
-                GfVec3f const pt(term.px[p], term.py[p], term.pz[p]);
-                dst[k++] = pt;
-                e.ExtendBy(pt);
-            }
-        }
-    }
-    if (k != count || curve != previous.curveVertexCounts.size()) return false;
-    *out = previous;
-    out->points = std::move(points);
-    if (e.IsEmpty()) e = GfRange3f(GfVec3f(0.f), GfVec3f(0.f));
-    out->extentMin = GfVec3d(e.GetMin()[0], e.GetMin()[1], e.GetMin()[2]);
-    out->extentMax = GfVec3d(e.GetMax()[0], e.GetMax()[1], e.GetMax()[2]);
-    return true;
+    return publisher;
 }
 
 std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats() const

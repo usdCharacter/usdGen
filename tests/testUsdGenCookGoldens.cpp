@@ -35,6 +35,7 @@
 #include "usdGen/exec/scheduler.h"
 #include "usdGen/exec/session.h"
 #include "usdGen/registries/op.h"
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
@@ -277,12 +278,13 @@ void AddScalp(Rows *out, std::string const &step, UsdGenGeneration const &gen,
 
 void AddGeneration(Rows *out, std::string const &step, UsdGenGeneration const &gen)
 {
-    AddTiles(out, step, "tiles", gen, gen.tiles);
-    AddTiles(out, step, "guides", gen, gen.guides);
-    AddScalp(out, step, gen, gen.scalpShadow);
+    UsdGenCurvePublication const &pub = UsdGenCurvePublicationOf(gen);
+    AddTiles(out, step, "tiles", gen, pub.tiles);
+    AddTiles(out, step, "guides", gen, pub.guides);
+    AddScalp(out, step, gen, pub.scalpShadow);
     Fnv128 inst;
-    inst.U64(gen.instancers.size());
-    for (UsdGenInstancerPublication const &i : gen.instancers) {
+    inst.U64(pub.instancers.size());
+    for (UsdGenInstancerPublication const &i : pub.instancers) {
         inst.Str(usdGenUsd::PrimPath(gen, i.prim).GetString());
         inst.U64(i.prototypes.size());
         for (UsdGenPrimRef const &p : i.prototypes) inst.Str(usdGenUsd::PrimPath(gen, p).GetString());
@@ -291,16 +293,16 @@ void AddGeneration(Rows *out, std::string const &step, UsdGenGeneration const &g
         inst.U64(i.mask.size());
         for (bool b : i.mask) inst.Byte(b ? 1 : 0);
     }
-    out->Add(step + " instancers", "n=" + std::to_string(gen.instancers.size()) + " " + inst.Hex());
+    out->Add(step + " instancers", "n=" + std::to_string(pub.instancers.size()) + " " + inst.Hex());
     Fnv128 sig;
-    sig.U64(uint64_t(int64_t(gen.signature.tileCount)));
-    sig.U64(uint64_t(int64_t(gen.signature.instancerCount)));
-    for (UsdGenPrimRef const &s : gen.signature.prims) sig.Str(usdGenUsd::PrimPath(gen, s).GetString());
-    for (auto const &names : gen.signature.primvarNames) {
+    sig.U64(uint64_t(int64_t(pub.signature.tileCount)));
+    sig.U64(uint64_t(int64_t(pub.signature.instancerCount)));
+    for (UsdGenPrimRef const &s : pub.signature.prims) sig.Str(usdGenUsd::PrimPath(gen, s).GetString());
+    for (auto const &names : pub.signature.primvarNames) {
         sig.U64(names.size());
         for (std::string const &s : names) sig.Str(s);
     }
-    for (std::string const &s : gen.signature.primTypes) sig.Str(s);
+    for (std::string const &s : pub.signature.primTypes) sig.Str(s);
     out->Add(step + " signature", sig.Hex());
     // colorDigest is left out: it mixes TfToken::Hash (pointer-derived).
 }

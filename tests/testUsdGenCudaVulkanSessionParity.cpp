@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // End-to-end parity through the two production Session executors. Device
 // readback below is confined to the test; no host geometry oracle is published.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
@@ -317,7 +318,7 @@ DeviceGeneration Commit(UsdGenSession& session, double frame) {
     CHECK(snapshot);
     for (auto const& error : snapshot->diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(!snapshot->diagnostics.HasErrors() && snapshot->generation && snapshot->generation->device);
-    CHECK(snapshot->generation->tiles.empty()); return snapshot->generation->device;
+    CHECK(usdGen::UsdGenCurvePublicationOf(*snapshot->generation).tiles.empty()); return snapshot->generation->device;
 }
 struct Pair {
     UsdGenSession cuda{2}, vulkan{2};

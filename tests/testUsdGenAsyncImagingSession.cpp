@@ -1,6 +1,7 @@
 // testUsdGenAsyncImagingSession -- imaging-owner request pairing, callback
 // re-entry, retirement, and terminal shutdown behavior.
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -172,7 +173,7 @@ bool HasWidth(UsdGenImagingSession::CommitPayload const &payload,
         payload.generation->frame != frame)
         return false;
     bool found = false;
-    for (auto const &tile : payload.generation->tiles) {
+    for (auto const &tile : usdGen::UsdGenCurvePublicationOf(*payload.generation).tiles) {
         for (float value : tile.widths) {
             if (!std::isfinite(value) || std::fabs(value - width) > 1e-4f)
                 return false;

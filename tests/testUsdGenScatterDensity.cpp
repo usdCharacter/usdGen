@@ -4,6 +4,7 @@
 // nothing; scales multiply; malformed multipliers fail closed; and the
 // multiplier joins the capture digest so a repaint recooks instead of
 // reading back cached pre-stroke roots.
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -118,7 +119,7 @@ int main() {
                 false, epoch, epoch + 1, -1);
             if (!gen) return false;
             size_t curves = 0;
-            for (auto const& tile : gen->tiles)
+            for (auto const& tile : usdGen::UsdGenCurvePublicationOf(*gen).tiles)
                 curves += tile.curveVertexCounts.size();
             auto candidate = cooker.TakeCacheCandidate();
             if (candidate) cooker.CommitCacheCandidate(*candidate);

@@ -1,3 +1,4 @@
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionCache.h"
@@ -686,19 +687,19 @@ int main()
         usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 6.0,
         UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
     auto sharedLeaderCandidate = leaderCooker.TakeCacheCandidate();
-    Check(sharedLeader && !sharedLeader->tiles.empty() && sharedLeaderCandidate &&
+    Check(sharedLeader && !usdGen::UsdGenCurvePublicationOf(*sharedLeader).tiles.empty() && sharedLeaderCandidate &&
               leaderCooker.CommitCacheCandidate(*sharedLeaderCandidate) &&
               sharedCpuDomain->Size() == 1,
           "leader accepted publication seeds its explicit shared CPU domain");
-    if (!sharedLeader || sharedLeader->tiles.empty() || !sharedLeaderCandidate)
+    if (!sharedLeader || usdGen::UsdGenCurvePublicationOf(*sharedLeader).tiles.empty() || !sharedLeaderCandidate)
         return 1;
     auto sharedFollower = followerCooker.Cook(
         usdGenUsd::LowerShared(*cookedDesc), UsdGenContext::Interactive, false, {}, 6.0,
         UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
     Check(sharedFollower && sharedFollower != sharedLeader &&
-              sharedFollower->tiles.size() == sharedLeader->tiles.size() &&
-              sharedFollower->tiles.front().points.IsIdentical(
-                  sharedLeader->tiles.front().points) &&
+              usdGen::UsdGenCurvePublicationOf(*sharedFollower).tiles.size() == usdGen::UsdGenCurvePublicationOf(*sharedLeader).tiles.size() &&
+              usdGen::UsdGenCurvePublicationOf(*sharedFollower).tiles.front().points.IsIdentical(
+                  usdGen::UsdGenCurvePublicationOf(*sharedLeader).tiles.front().points) &&
               !followerCooker.TakeCacheCandidate() &&
               followerCooker.Stats().executionCacheHits == 1 &&
               followerCooker.Stats().executionCacheMisses == 0,
@@ -852,7 +853,7 @@ int main()
             usdGenUsd::LowerShared(*bigDesc), UsdGenContext::Interactive, false, {}, 0.0,
             UsdGenCommitReason::NoticeBatchEnd, {}, {}, false, 0, 1, -1);
         auto bigCandidate = bigCooker.TakeCacheCandidate();
-        Check(bigFirst && !bigFirst->tiles.empty() && bigCandidate,
+        Check(bigFirst && !usdGen::UsdGenCurvePublicationOf(*bigFirst).tiles.empty() && bigCandidate,
               "big-key cook publishes a cache candidate");
         if (bigCandidate)
             bigCooker.CommitCacheCandidate(*bigCandidate);
