@@ -144,9 +144,9 @@ set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenNoTokenIntern
     testUsdGenEngineNoOpCoupling PROPERTIES LABELS "T0;build;gate;gate:registries")
 
 # Step 5.6: the engine works on element sets; the curve builder buffer, its
-# chunk and tile types and curveBuffer.h stay out of libs/core/usdGen except
-# the files the baseline names (BuildReferenceValue until 7.3a, publication
-# types until 6.3). Comment lines are no hit.
+# chunk and tile types and curveBuffer.h stay out of libs/core/usdGen. The
+# baseline is empty since 6.3 (publication behind UsdGenPublisherDef; hosts
+# read usdGenCurves/publish until step 9). Comment lines are no hit.
 add_test(NAME testUsdGenEngineNoCurveBuffer
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}

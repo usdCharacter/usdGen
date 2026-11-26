@@ -543,7 +543,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 next->devicePresentation = previous->devicePresentation;
                 auto snapshot = std::make_shared<UsdGenSessionSnapshot>(*baseline);
                 snapshot->generation = std::move(next);
-                snapshot->report = UsdGenDirtyReport{};
+                snapshot->report.Reset();
                 snapshot->diagnostics = UsdGenDiagnostics{};
                 ++snapshot->stats.commits;
                 _snapshot.Store(SnapshotPtr(snapshot));
@@ -587,7 +587,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 }
                 if (failed) {
                     snapshot->generation = previous;
-                    snapshot->report = UsdGenDirtyReport{};
+                    snapshot->report.Reset();
                     snapshot->stats.commits = baseline ? baseline->stats.commits : 0;
                     snapshot->nodeStats = baseline ? baseline->nodeStats
                         : std::unordered_map<UsdGenNodeId, UsdGenNodeStats>{};
@@ -721,7 +721,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                         if (!current || !current->diagnostics.HasErrors()) {
                             auto failed = current ? std::make_shared<UsdGenSessionSnapshot>(*current)
                                                   : std::make_shared<UsdGenSessionSnapshot>();
-                            failed->report = UsdGenDirtyReport{};
+                            failed->report.Reset();
                             try {
                                 std::rethrow_exception(error);
                             } catch (std::exception const& e) {

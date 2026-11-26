@@ -1,3 +1,4 @@
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/sessionCooker.h"
@@ -996,7 +997,7 @@ int main() {
             std::fprintf(stderr, "%s\n", error.c_str());
         CHECK(first && first->device && first->id == 0 && first->frame == 1);
         CHECK(!first->device->Geometry().alreadyDeformed);
-        CHECK(first->tiles.empty() && first->guides.empty() && first->instancers.empty());
+        CHECK(usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() && usdGen::UsdGenCurvePublicationOf(*first).guides.empty() && usdGen::UsdGenCurvePublicationOf(*first).instancers.empty());
         CHECK(!session.LastDiagnostics().HasErrors() && !session.LastDiagnostics().warnings.empty());
         CHECK(session.Graph().Spec().executionBackend == UsdGenExecutionBackend::Cuda);
         retained = gpu::AcquireGeometry(first->device, consumer);

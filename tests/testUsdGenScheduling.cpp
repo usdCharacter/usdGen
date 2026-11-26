@@ -16,6 +16,7 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -137,7 +138,7 @@ int main()
     Check(g0 && g0->id == 0, "first published generation id == 0");
     Check(session.Stats().commits == 1, "Stats().commits == 1 after one commit");
     Check(!session.NeedsCommit(), "NeedsCommit() false after the commit drained dirt");
-    Check(g0 && !g0->tiles.empty(), "generation carries published tiles");
+    Check(g0 && !usdGen::UsdGenCurvePublicationOf(*g0).tiles.empty(), "generation carries published tiles");
 
     // ---- 2: 10 events -> exactly 10 new generations ---------------------------
     UsdGenNodeId const noise = usdGenUsd::NodeIdForPath(session.Graph(), SdfPath("/groom/noise"));
@@ -184,16 +185,17 @@ int main()
     Check(after != nullptr && after->id == before->id + 1,
           "clean commit still publishes the next generation id");
     bool noPayloadChange = true;
-    for (UsdGenTileDirty const &td : session.LastReport().tiles)
+    auto const lastReport = session.LastReport();
+    for (UsdGenTileDirty const &td : usdGen::UsdGenCurveDirtyReportOf(lastReport).tiles)
         noPayloadChange = noPayloadChange && !td.pointsDirty && !td.widthsDirty &&
                           !td.added && !td.removed && td.newPrimvars.empty() &&
                           td.dirtyPrimvars.empty();
     Check(noPayloadChange, "LastReport() carries no payload/structural changes for a "
                            "clean commit (tiles carried over)");
-    bool payloadIdentical = before->tiles.size() == after->tiles.size();
-    for (size_t i = 0; payloadIdentical && i < before->tiles.size(); ++i) {
-        UsdGenTilePublication const &tb = before->tiles[i];
-        UsdGenTilePublication const &ta = after->tiles[i];
+    bool payloadIdentical = usdGen::UsdGenCurvePublicationOf(*before).tiles.size() == usdGen::UsdGenCurvePublicationOf(*after).tiles.size();
+    for (size_t i = 0; payloadIdentical && i < usdGen::UsdGenCurvePublicationOf(*before).tiles.size(); ++i) {
+        UsdGenTilePublication const &tb = usdGen::UsdGenCurvePublicationOf(*before).tiles[i];
+        UsdGenTilePublication const &ta = usdGen::UsdGenCurvePublicationOf(*after).tiles[i];
         payloadIdentical =
             tb.points.size() == ta.points.size() &&
             (tb.points.empty() ||

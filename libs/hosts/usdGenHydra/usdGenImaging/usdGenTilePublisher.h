@@ -3,7 +3,7 @@
 //
 // Publishes every usdGen::UsdGenTilePublication as
 // <description>/__usdGenRender/tile_NNNN (basisCurves, C2 payload) and turns
-// a usdGen::UsdGenDirtyReport into the exact notice set of 06 §5.1:
+// a usdGen::UsdGenCurveDirtyReport into the exact notice set of 06 §5.1:
 //   * points change      -> primvars/points/primvarValue + extent/min +
 //                           extent/max  (bare leaf; never the container
 //                           sentinel from ComputeDirtyLocators)
@@ -28,7 +28,7 @@
 
 #include "usdGenImaging/api.h"
 #include "usdGenUsd/walk/staticToken.h"
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGenUsd/graphDesc.h"
 
 #include "pxr/pxr.h"

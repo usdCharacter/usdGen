@@ -1,17 +1,20 @@
-// usdGen engine — generation store and publication diff (03 §6.1/§6.2).
+// usdGen engine — generation store (03 §6.1/§6.2).
 //
 // A generation is immutable once published. The publish/read pair is a
 // UsdGenSharedCell (atomic holder pointer, epoch-protected weak lock): no
 // lock, and the displaced generation dies when its last reference drops.
-// "Did this tile change" is VtArray::IsIdentical() (data-pointer comparison,
-// pxr/base/vt/array.h:945-950), not memcmp.
+// What changed between two generations is the publisher's diff
+// (registries/publisher.h).
 #ifndef USDGEN_GENERATION_STORE_H
 #define USDGEN_GENERATION_STORE_H
 
-#include "usdGen/curveBuffer.h"
-#include "usdGen/deviceGeneration.h"
-#include "usdGen/rbfAnimation.h"
-#include "usdGen/sharedCell.h"
+#include "usdGen/api/primRef.h"
+#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/exec/sharedCell.h"
+#include "usdGen/registries/engineTokens.h"
+#include "usdGen/registries/publisher.h"
+
+#include "pxr/base/gf/matrix4d.h"
 
 #include <cstdint>
 #include <memory>
@@ -44,23 +47,15 @@ struct UsdGenGeneration
 {
     int64_t id = -1;
     double frame = 0.0;
-    std::vector<UsdGenTilePublication> tiles;        // C2 payload, sorted by tile id
-    std::vector<UsdGenTilePublication> guides;       // guides/<setName> prims (§4.2)
-    std::vector<UsdGenInstancerPublication> instancers; // M6
-    // The scalp-shadow cap: hair shadowing the emitting surface. Empty when
-    // the description has no occluder, no hair over it, or the bake is off.
-    UsdGenScalpShadowPublication scalpShadow;
-    UsdGenPrimSetSignature signature;
-    // Identity of the usdGen:preview colours the tiles carry (0 == none), so a
-    // preview edit rebuilds tiles whose geometry did not move.
-    uint64_t colorDigest = 0;
+    // What the terminal type's publisher built (UsdGenPublisherDef); null on
+    // the device lane and when no publisher is registered.
+    UsdGenRef<const UsdGenPublication> publication;
     // Mutually exclusive with host geometry. Device-aware consumers acquire
     // leases from this immutable payload; never cast its pointers to VtArray.
     std::shared_ptr<const UsdGenDeviceGeneration> device;
     // Present only for a CUDA publication.  It is built from the same accepted
     // descriptor snapshot as `device`, never from a later scene read.
     std::optional<UsdGenDevicePresentationMetadata> devicePresentation;
-    std::shared_ptr<const UsdGenRbfAnimationBinding> animationBinding;
     // The cooked spec's opaque host data (UsdGenGraphSpec::host): the host
     // names the keys above through it.
     std::shared_ptr<const void> host;
@@ -96,12 +91,6 @@ public:
 
     /// Lock-free snapshot read from any thread.
     UsdGenGenerationConstPtr Get() const noexcept;
-
-    /// Cheap structural diff of two generations (03 §6.1): payload changes via
-    /// IsIdentical, structural changes via the signature. Consumed by the
-    /// imaging notice emitter (06 §5.1 rules).
-    UsdGenDirtyReport Diff(UsdGenGeneration const &prev,
-                           UsdGenGeneration const &next) const;
 
     int64_t NextId() const noexcept;
 private:

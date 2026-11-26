@@ -21,6 +21,7 @@
 //
 // Timing-soft (plan 09): nothing here is budget-gated.
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -359,7 +360,7 @@ int main()
          refines = true, extents = true, paths = true, xforms = true,
          inherit = true, idArrays = true;
     size_t countMismatch = 0;
-    for (auto const &pub : gen->tiles) {
+    for (auto const &pub : usdGen::UsdGenCurvePublicationOf(*gen).tiles) {
         size_t const curves = size_t(pub.curveVertexCounts.size());
         size_t const pts = SumCounts(pub.curveVertexCounts);
         totalCurves += curves;
@@ -420,11 +421,11 @@ int main()
             inherit = false;
         if (usdGenUsd::PrimPath(*gen, pub.origin) != descPath) inherit = false;   // pickTarget == description
     }
-    Check(!gen->tiles.empty(), "published at least one tile");
+    Check(!usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty(), "published at least one tile");
     Check(totalCurves >= size_t(kCurveCount),
           "tile curve set covers >= 32768 curves (got " + std::to_string(totalCurves) + ")");
-    Check(gen->tiles.size() <= size_t(64),
-          "tile count <= tileTarget 64 (got " + std::to_string(gen->tiles.size()) + ")");
+    Check(usdGen::UsdGenCurvePublicationOf(*gen).tiles.size() <= size_t(64),
+          "tile count <= tileTarget 64 (got " + std::to_string(usdGen::UsdGenCurvePublicationOf(*gen).tiles.size()) + ")");
     Check(si1, "SI-1: points.size() == sum(curveVertexCounts) on every tile"
                " (mismatches: " + std::to_string(countMismatch) + ")");
     Check(uniformSizes, "uniform primvars sized curveCount on every tile");
@@ -440,8 +441,8 @@ int main()
     Check(inherit, "purpose/visibility/material/primOrigin inherited by hand (C2)");
 
     // ---- Publisher-built data sources: HdType + C2 child-name set -------
-    if (!gen->tiles.empty()) {
-        UsdGenTilePublication const &pub = gen->tiles[0];
+    if (!usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty()) {
+        UsdGenTilePublication const &pub = usdGen::UsdGenCurvePublicationOf(*gen).tiles[0];
         // T0 scope: BuildTileDataSource is the pure data-source assembler,
         // so the observable surface here is the container tree the scene
         // index would hand Hydra. The prim-type token (basisCurves) is a
@@ -624,12 +625,12 @@ int main()
         Check(gen2->id > gen->id,
               "generation id strictly increases (" + std::to_string(gen->id) +
                   " -> " + std::to_string(gen2->id) + ")");
-        bool identical = gen2->tiles.size() == gen->tiles.size();
+        bool identical = usdGen::UsdGenCurvePublicationOf(*gen2).tiles.size() == usdGen::UsdGenCurvePublicationOf(*gen).tiles.size();
         bool dsIdentical = true;
         if (identical) {
-            for (size_t i = 0; i < gen->tiles.size() && identical; ++i) {
-                UsdGenTilePublication const &a = gen->tiles[i];
-                UsdGenTilePublication const &b = gen2->tiles[i];
+            for (size_t i = 0; i < usdGen::UsdGenCurvePublicationOf(*gen).tiles.size() && identical; ++i) {
+                UsdGenTilePublication const &a = usdGen::UsdGenCurvePublicationOf(*gen).tiles[i];
+                UsdGenTilePublication const &b = usdGen::UsdGenCurvePublicationOf(*gen2).tiles[i];
                 identical = a.tile == b.tile &&
                     usdGenUsd::PrimPath(*gen, a.prim) == usdGenUsd::PrimPath(*gen2, b.prim) &&
                     a.points == b.points && a.curveVertexCounts == b.curveVertexCounts;
@@ -646,13 +647,13 @@ int main()
         Check(dsIdentical, "re-commit data sources compare value-identical");
     }
 
-    if (gen2 && !gen2->tiles.empty() && !gen->tiles.empty()) {
+    if (gen2 && !usdGen::UsdGenCurvePublicationOf(*gen2).tiles.empty() && !usdGen::UsdGenCurvePublicationOf(*gen).tiles.empty()) {
         // Additive overload (06 §4.1): the container can carry a prim-level
         // `generation` int source with the snapshot id.
         HdContainerDataSourceHandle ca =
-            UsdGenTilePublisher::BuildTileDataSource(gen->tiles[0], gen->host);
+            UsdGenTilePublisher::BuildTileDataSource(usdGen::UsdGenCurvePublicationOf(*gen).tiles[0], gen->host);
         HdContainerDataSourceHandle cb =
-            UsdGenTilePublisher::BuildTileDataSource(gen2->tiles[0], gen2->host, int64_t(gen2->id));
+            UsdGenTilePublisher::BuildTileDataSource(usdGen::UsdGenCurvePublicationOf(*gen2).tiles[0], gen2->host, int64_t(gen2->id));
         if (ca && cb) {
             VtValue sv = LeafValue(cb->Get(TfToken("generation")));
             bool stampOk = (sv.IsHolding<int>() &&
@@ -841,16 +842,16 @@ int main()
         UsdGenGenerationConstPtr bulkGen =
             bulkSession.Commit(0.0, UsdGenCommitReason::LiveOverride);
         Check(bool(bulkGen), "bulk-terminal commit publishes a generation");
-        Check(bulkGen && bulkGen->tiles.size() == gen->tiles.size(),
+        Check(bulkGen && usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles.size() == usdGen::UsdGenCurvePublicationOf(*gen).tiles.size(),
               "bulk and serial commits publish the same tile count (bulk " +
-                  std::to_string(bulkGen ? bulkGen->tiles.size() : 0) +
-                  ", serial " + std::to_string(gen->tiles.size()) + ")");
+                  std::to_string(bulkGen ? usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles.size() : 0) +
+                  ", serial " + std::to_string(usdGen::UsdGenCurvePublicationOf(*gen).tiles.size()) + ")");
         bool coresEqual = bulkGen &&
-            bulkGen->tiles.size() == gen->tiles.size();
+            usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles.size() == usdGen::UsdGenCurvePublicationOf(*gen).tiles.size();
         if (coresEqual) {
-            for (size_t i = 0; i < gen->tiles.size(); ++i) {
-                UsdGenTilePublication const &a = gen->tiles[i];
-                UsdGenTilePublication const &b = bulkGen->tiles[i];
+            for (size_t i = 0; i < usdGen::UsdGenCurvePublicationOf(*gen).tiles.size(); ++i) {
+                UsdGenTilePublication const &a = usdGen::UsdGenCurvePublicationOf(*gen).tiles[i];
+                UsdGenTilePublication const &b = usdGen::UsdGenCurvePublicationOf(*bulkGen).tiles[i];
                 coresEqual = coresEqual && a.tile == b.tile &&
                     usdGenUsd::PrimPath(*gen, a.prim) == usdGenUsd::PrimPath(*bulkGen, b.prim) &&
                     a.curveVertexCounts == b.curveVertexCounts &&

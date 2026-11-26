@@ -16,6 +16,7 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -54,11 +55,11 @@ bool SnapshotConsistent(UsdGenGenerationConstPtr const &g)
 {
     if (!g) { ReportBad("null generation pointer"); return false; }
     if (g->id < 0) { ReportBad("negative generation id"); return false; }
-    if (g->tiles.size() != size_t(g->signature.tileCount)) {
+    if (usdGen::UsdGenCurvePublicationOf(*g).tiles.size() != size_t(usdGen::UsdGenCurvePublicationOf(*g).signature.tileCount)) {
         ReportBad("tileCount != tiles.size() at gen " + std::to_string(g->id));
         return false;
     }
-    for (UsdGenTilePublication const &t : g->tiles) {
+    for (UsdGenTilePublication const &t : usdGen::UsdGenCurvePublicationOf(*g).tiles) {
         size_t sum = 0;
         for (int c : t.curveVertexCounts) {
             if (c <= 0) { ReportBad("non-positive curveVertexCount"); return false; }

@@ -1375,9 +1375,11 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
             TF_WARN("usdGen stock-Storm GPU-resident BasisCurves handoff is not implemented");
             return;
         }
+        usdGen::UsdGenCurvePublication const& published =
+            usdGen::UsdGenCurvePublicationOf(generation);
         auto fresh = std::make_shared<TileMap>();
         const auto render = RenderPath(g->description);
-        for (auto const& tile : generation.tiles) {
+        for (auto const& tile : published.tiles) {
             SdfPath const tilePath = PublishedPath(tile.prim, generation.host, g->description);
             if (!tilePath.HasPrefix(render)) return; // old description namespace
             fresh->emplace(tilePath,
@@ -1389,13 +1391,13 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         // differently.
         std::shared_ptr<const usdGen::UsdGenScalpShadowPublication> freshScalp;
         uint64_t freshScalpDigest = 0;
-        if (!generation.scalpShadow.IsEmpty() &&
-            PublishedPath(generation.scalpShadow.prim, generation.host, g->description)
+        if (!published.scalpShadow.IsEmpty() &&
+            PublishedPath(published.scalpShadow.prim, generation.host, g->description)
                 .HasPrefix(render)) {
             // A copy shares the generation's immutable arrays.
             freshScalp = std::make_shared<const usdGen::UsdGenScalpShadowPublication>(
-                generation.scalpShadow);
-            freshScalpDigest = generation.scalpShadow.digest;
+                published.scalpShadow);
+            freshScalpDigest = published.scalpShadow.digest;
         }
         Added added;
         Removed removed;
@@ -1409,7 +1411,8 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                 // invalid diff against THIS scene's displayed baseline.
                 HdDataSourceLocatorSet locators;
                 if (g->generation + 1 != generation.id) locators.insert(HdDataSourceLocator());
-                else for (auto const& report : payload.report.tiles) {
+                else for (auto const& report :
+                           usdGen::UsdGenCurveDirtyReportOf(payload.report).tiles) {
                     if (PublishedPath(report.prim, generation.host, g->description) != tile.first)
                         continue;
                     for (auto const& loc : ::usdGenImaging::UsdGenTilePublisher::NoticesFor(report).all())
@@ -1425,9 +1428,9 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         g->generation = generation.id;
         g->publishedFrame = generation.frame;
         g->tiles = std::move(fresh);
-        g->animation = progressiveRenderer && generation.scalpShadow.IsEmpty() ? ::usdGenImaging::BuildRbfAnimation(
-            generation.animationBinding, generation.host, generation.tiles.empty()
-                ? GfMatrix4d(1.0) : generation.tiles.front().xformMatrix) : nullptr;
+        g->animation = progressiveRenderer && published.scalpShadow.IsEmpty() ? ::usdGenImaging::BuildRbfAnimation(
+            published.animationBinding, generation.host, published.tiles.empty()
+                ? GfMatrix4d(1.0) : published.tiles.front().xformMatrix) : nullptr;
         g->animationNeedsSettle = false;
         g->progressBaseline.reset();
         g->progressScalpBaseline = nullptr;
@@ -1481,12 +1484,15 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         SdfPath const render = RenderPath(g->description);
         for (auto const& tile : *payload.tiles) {
             if (!tile || tile->epoch != payload.epoch ||
-                tile->sequence <= g->progressSequence ||
-                !PublishedPath(tile->tile.prim, tile->host, g->description).HasPrefix(render))
+                tile->sequence <= g->progressSequence)
                 continue;
-            (*fresh)[PublishedPath(tile->tile.prim, tile->host, g->description)] =
-                ::usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(
-                    tile->tile, tile->host, g->generation + 1);
+            for (auto const& one : usdGen::UsdGenCurvePublicationOf(tile->tile).tiles) {
+                if (!PublishedPath(one.prim, tile->host, g->description).HasPrefix(render))
+                    continue;
+                (*fresh)[PublishedPath(one.prim, tile->host, g->description)] =
+                    ::usdGenImaging::UsdGenTilePublisher::BuildTileDataSource(
+                        one, tile->host, g->generation + 1);
+            }
         }
         g->progressSequence = payload.sequence;
         g->tiles = std::move(fresh);
@@ -3269,8 +3275,12 @@ bool UsdGenGroomSceneIndex::_TestStaleProgressRejected(SdfPath const& root) cons
             auto tile = std::make_shared<usdGen::UsdGenSession::TileProgress>();
             tile->epoch = (std::max)(uint64_t{1}, g->progressEpoch + 1);
             tile->sequence = 1;
-            tile->tile.prim = usdGen::UsdGenPrimRef{usdGenUsd::KeyOf(g->description),
-                                                    usdGen::UsdGenPublishRole::Tile, 0};
+            auto one = usdGen::UsdGenNewCurvePublication();
+            one->tiles.emplace_back();
+            one->tiles.back().prim = usdGen::UsdGenPrimRef{usdGenUsd::KeyOf(g->description),
+                                                           usdGen::UsdGenPublishRole::Tile, 0};
+            one->groups = 1;
+            tile->tile = std::move(one);
             Session::ProgressPayload payload;
             payload.epoch = tile->epoch;
             payload.sequence = tile->sequence;

@@ -140,7 +140,7 @@ public:
         // subscribers can restore their last complete scene snapshot.
         uint64_t progressEpoch = 0;
         usdGen::UsdGenGenerationConstPtr generation;
-        usdGen::UsdGenDirtyReport report;
+        usdGen::UsdGenRef<const usdGen::UsdGenPublication> report;   // the publisher's diff
         std::shared_ptr<const usdGen::UsdGenGraphRoutingSnapshot> routing;
         usdGen::UsdGenDiagnostics diagnostics;
         usdGen::UsdGenStats stats;

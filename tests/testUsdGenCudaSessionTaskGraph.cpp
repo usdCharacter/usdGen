@@ -1,3 +1,4 @@
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
@@ -580,7 +581,8 @@ int main() {
     CHECK(bad->outcome == UsdGenExecutionPipeline::Outcome::Failed);
     CHECK(bad->snapshot && bad->snapshot->generation == beforeBad->generation);
     CHECK(bad->snapshot->stats.commits == beforeBad->stats.commits);
-    CHECK(bad->snapshot->report.tiles.empty() && !bad->snapshot->report.surfaceXformDirty &&
+    CHECK(usdGen::UsdGenCurveDirtyReportOf(bad->snapshot->report).tiles.empty() &&
+          !usdGen::UsdGenCurveDirtyReportOf(bad->snapshot->report).surfaceXformDirty &&
           bad->snapshot->diagnostics.HasErrors() && a.NeedsCommit());
     UsdGenSession::CommitRequest retryRequest; retryRequest.frame = 6; retryRequest.reason = UsdGenCommitReason::SetTime;
     retryRequest.spec = usdGenUsd::LowerShared(Desc());

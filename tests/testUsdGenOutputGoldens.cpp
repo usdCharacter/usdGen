@@ -21,6 +21,7 @@
 #include "golden/goldenGraphs.h"
 #include "nodeSets.h"
 
+#include "usdGenCurves/publish/curvePublication.h"
 #include "usdGen/compiler.h"
 #include "usdGen/generationStore.h"
 #include "usdGen/graph.h"
@@ -204,7 +205,7 @@ void CookSession(UsdGenGraphDesc const &desc, std::string const &label, Rows *ro
         return;
     }
     std::vector<UsdGenTilePublication const *> tiles;
-    for (UsdGenTilePublication const &t : gen->tiles) tiles.push_back(&t);
+    for (UsdGenTilePublication const &t : usdGen::UsdGenCurvePublicationOf(*gen).tiles) tiles.push_back(&t);
     std::sort(tiles.begin(), tiles.end(), [](auto const *a, auto const *b) { return a->tile < b->tile; });
     uint64_t counts = kFnvOffset, points = kFnvOffset, widths = kFnvOffset;
     size_t curves = 0, cvs = 0;
