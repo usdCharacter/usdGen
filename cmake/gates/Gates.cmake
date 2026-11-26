@@ -175,6 +175,45 @@ add_test(NAME testUsdGenNoPrimitiveInEngine
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPrimitiveInEngine PROPERTIES LABELS "T0;build;gate;gate:engine-generic")
 
+# Step 8.0 backend gates (design-step8-10 section 7). Today's counts.
+#   testUsdGenNoBackendInEngine  the engine names no backend (comments count);
+#                                empty at 8.4
+#   testUsdGenNoBlockingGpuWait  no blocking GPU wait in backends/primitives;
+#                                after 8.8 only "// shutdown wait" sites remain
+#   testUsdGenTimelineSubmitOnly every Vulkan submit through the queue
+#                                timeline; 8.8e leaves queueTimeline.cpp only
+add_test(NAME testUsdGenNoBackendInEngine
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-backend-in-engine
+        -DDIRS=libs/core/usdGen
+        "-DPATTERN=[Cc]uda|CUDA|[Vv]ulkan|VULKAN|[Mm]etal([^A-Za-z]|$)|USDGEN_ENABLE_"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noBackendInEngine.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoBackendInEngine PROPERTIES LABELS "T0;build;gate;gate:engine-generic")
+
+add_test(NAME testUsdGenNoBlockingGpuWait
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-blocking-gpu-wait
+        -DDIRS=libs/core/backends,libs/core/primitives
+        "-DPATTERN=CudaFenceStream[ ]*[(]|cuda(Stream|Event|Device)Synchronize|vkWaitForFences|vkQueueWaitIdle|vkDeviceWaitIdle"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noBlockingGpuWait.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+add_test(NAME testUsdGenTimelineSubmitOnly
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=timeline-submit-only
+        -DDIRS=libs/core
+        "-DPATTERN=vkQueueSubmit[ ]*[(]|vkCreateFence[ ]*[(]"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/timelineSubmitOnly.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoBlockingGpuWait testUsdGenTimelineSubmitOnly
+    PROPERTIES LABELS "T0;build;gate;gate:gpu-async")
+
+
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
 target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)
