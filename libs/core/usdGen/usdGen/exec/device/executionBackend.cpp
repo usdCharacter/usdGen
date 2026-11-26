@@ -12,11 +12,6 @@
 
 namespace usdGen {
 
-// Defined by executionBackendCudaProvider.cpp. Keeping this tiny provider
-// separate means the neutral backend contract does not include a concrete
-// adapter header or know its capability-matrix type.
-uint32_t UsdGenCudaCapabilityVersionForBackendContract() noexcept;
-
 namespace {
 
 // Frozen backend registry: one slot per backend, claimed once by CAS (the
@@ -48,7 +43,8 @@ UsdGenExecutionBackendContract RegisteredContract(UsdGenExecutionBackend backend
         try { available = def.available(nullptr); } catch (...) { available = false; }
     }
     return {backend, device, def.name,
-            available ? "" : "the registered backend cannot run in this process",
+            available ? "" : def.unavailableReason ? def.unavailableReason
+                           : "the registered backend cannot run in this process",
             def.capabilityVersion,
             available ? UsdGenExecutionBackendAvailability::Available
                       : UsdGenExecutionBackendAvailability::Unavailable};
@@ -172,16 +168,13 @@ UsdGenExecutionBackendContract GetUsdGenExecutionBackendContract(
         return {backend, UsdGenDeviceBackend::CpuReference, "cpu", "",
                 1, UsdGenExecutionBackendAvailability::Available};
     case UsdGenExecutionBackend::Cuda:
-#ifdef USDGEN_ENABLE_CUDA
-        return {backend, UsdGenDeviceBackend::Cuda, "cuda", "",
-                UsdGenCudaCapabilityVersionForBackendContract(),
-                UsdGenExecutionBackendAvailability::Available};
-#else
+        // Answered by the def usdGenCuda registers.
+        if (UsdGenBackendDef const *def =
+                UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(backend))))
+            return RegisteredContract(backend, UsdGenDeviceBackend::Cuda, *def);
         return {backend, UsdGenDeviceBackend::Cuda, "cuda",
-                "CUDA support was not enabled in this build",
-                UsdGenCudaCapabilityVersionForBackendContract(),
+                "CUDA support was not enabled in this build", 0,
                 UsdGenExecutionBackendAvailability::Unavailable};
-#endif
     case UsdGenExecutionBackend::Metal:
         return {backend, UsdGenDeviceBackend::Metal, "metal",
                 "no Metal execution factory is linked", 0,

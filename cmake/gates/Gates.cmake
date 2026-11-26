@@ -234,3 +234,31 @@ add_test(NAME testUsdGenNoShimIncludes
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noShimIncludes.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoShimIncludes PROPERTIES LABELS "T0;build;gate;gate:no-shim")
+# Gate 8e (step 8.3), checked at configure: one CUDA block cache. Only
+# usdGenCuda compiles the runtime's gpu/deviceBuffer.cu, and no STATIC
+# target holds a .cu file of the CUDA runtime (each would be a copy).
+get_property(_usdgen_gate_targets DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_usdgen_gate_target IN LISTS _usdgen_gate_targets)
+    get_target_property(_usdgen_gate_type ${_usdgen_gate_target} TYPE)
+    if(_usdgen_gate_type STREQUAL "INTERFACE_LIBRARY" OR _usdgen_gate_type STREQUAL "UTILITY")
+        continue()
+    endif()
+    get_target_property(_usdgen_gate_sources ${_usdgen_gate_target} SOURCES)
+    if(NOT _usdgen_gate_sources)
+        continue()
+    endif()
+    foreach(_usdgen_gate_source IN LISTS _usdgen_gate_sources)
+        if(NOT _usdgen_gate_source MATCHES "backends/usdGenCuda/.*[.]cu$")
+            continue()
+        endif()
+        if(_usdgen_gate_source MATCHES "deviceBuffer[.]cu$" AND
+           NOT _usdgen_gate_target STREQUAL "usdGenCuda")
+            message(FATAL_ERROR "usdGen gate 8e: ${_usdgen_gate_target} compiles "
+                "${_usdgen_gate_source}; only usdGenCuda may (one block cache)")
+        endif()
+        if(_usdgen_gate_type STREQUAL "STATIC_LIBRARY")
+            message(FATAL_ERROR "usdGen gate 8e: STATIC ${_usdgen_gate_target} holds "
+                "the CUDA runtime source ${_usdgen_gate_source}")
+        endif()
+    endforeach()
+endforeach()

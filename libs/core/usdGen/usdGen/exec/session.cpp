@@ -2,10 +2,8 @@
 #include "usdGen/sessionBackendExecutor.h"
 #include "usdGen/sessionCooker.h"
 #include "usdGen/sessionDeviceIntegration.h"
+#include "usdGen/registries/backend.h"
 
-#ifdef USDGEN_ENABLE_CUDA
-#include <cuda_runtime_api.h>
-#endif
 #include <limits>
 #include <algorithm>
 #include <stdexcept>
@@ -46,7 +44,7 @@ UsdGenSessionGraphSnapshot GraphInfo(UsdGenSessionCooker const& cooker) {
     UsdGenSessionGraphSnapshot info;
     info.nodeCount = cooker.NodeCount();
     info.spec = cooker.GraphSpec();
-    info.cudaPlan = cooker.CudaPlan();
+    info.devicePlan = cooker.DevicePlan();
     for (auto const& node : info.spec.nodes)
         info.nodeIds[node.key] = cooker.NodeIdForKey(node.key);
     return info;
@@ -369,7 +367,7 @@ UsdGenSession::~UsdGenSession() {
         if (control) control->Cancel();
     _state->pipeline.Shutdown(_state->deviceObservers.admissionClosed);
     // Shutdown happens only after the pipeline has terminally drained every
-    // captured executor reference. CUDA task completions can no longer enter
+    // captured executor reference. Device completions can no longer enter
     // the cooker before it releases a remaining silent coalesced registration.
     if (_state->executor) _state->executor->Shutdown();
     _state.reset();
@@ -378,11 +376,11 @@ UsdGenSession::SnapshotPtr UsdGenSession::Snapshot() const noexcept {
     return _snapshot.Load();
 }
 int UsdGenSession::CaptureCallerDevice() noexcept {
-    int device = -2;
-#ifdef USDGEN_ENABLE_CUDA
-    if (cudaGetDevice(&device) != cudaSuccess) device = -2;
-#endif
-    return device;
+    for (uint32_t i = 1; i < kUsdGenMaxBackends; ++i) {
+        UsdGenBackendDef const *def = UsdGenGetBackend(UsdGenBackendId(i));
+        if (def && def->captureCallerDevice) return def->captureCallerDevice();
+    }
+    return -2;
 }
 bool UsdGenSession::NeedsCommit() const noexcept {
     return _state->dirty.load(std::memory_order_acquire);
@@ -510,7 +508,7 @@ bool UsdGenSession::EndDeviceEdit(uint64_t token,
 
 bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                                 TileProgressCallback tileProgress) {
-    // CUDA's current device is thread-local. Capture it at the caller boundary,
+    // A backend's current device is thread-local. Capture it at the caller boundary,
     // never infer it from whichever framework worker picks up this request.
     const int callerDevice = request.callerDevice ? *request.callerDevice : CaptureCallerDevice();
     auto reply = std::make_shared<CommitReply>();
@@ -572,7 +570,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 snapshot->routing = cooker.Routing();
                 snapshot->graphInfo = GraphInfo(cooker);
                 snapshot->nodeStats = cooker.NodeStats();
-                snapshot->cudaBindings = cooker.CudaBindingStats();
+                snapshot->deviceReport = cooker.DeviceReport();
                 bool failed = workError || snapshot->diagnostics.HasErrors() ||
                     !snapshot->generation || snapshot->generation == previous;
                 std::optional<UsdGenSessionCooker::ExecutionPublicationFence>
@@ -591,8 +589,8 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                     snapshot->stats.commits = baseline ? baseline->stats.commits : 0;
                     snapshot->nodeStats = baseline ? baseline->nodeStats
                         : std::unordered_map<UsdGenNodeId, UsdGenNodeStats>{};
-                    snapshot->cudaBindings = baseline ? baseline->cudaBindings
-                        : std::vector<UsdGenCudaBindingStats>{};
+                    snapshot->deviceReport = baseline ? baseline->deviceReport
+                        : UsdGenRef<const UsdGenPublication>{};
                     if (!snapshot->diagnostics.HasErrors()) {
                         if (workError) {
                             try {
@@ -609,7 +607,7 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                         }
                     }
                 } else if (!snapshot->generation->device) {
-                    snapshot->cudaBindings.clear();
+                    snapshot->deviceReport.Reset();
                 }
                 std::optional<UsdGenSessionCooker::ExecutionCacheCandidate>
                     cacheCandidate;
@@ -739,8 +737,8 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 reply->Finish(Snapshot(), outcome);
             };
             std::shared_ptr<DeviceReturnRelay> deviceReturn;
-            if (state.desc->executionBackend == UsdGenExecutionBackend::Vulkan &&
-                executor->CanRoute(UsdGenExecutionBackend::Vulkan)) {
+            if (state.desc->executionBackend != UsdGenExecutionBackend::CpuReference &&
+                executor->CanRoute(state.desc->executionBackend)) {
                 deviceReturn = std::make_shared<DeviceReturnRelay>();
                 deviceReturn->owner = &state.pipeline;
                 deviceReturn->executor = executor;
@@ -751,10 +749,11 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                     throw std::runtime_error("Session device return admission exhausted");
             }
             state.TrackCoalesced(coalescedControl);
-            // Both CPU and CUDA are selected by the immutable request at the
-            // private executor boundary. CUDA still uses its ready-task graph;
-            // CPU completes on this work callback. In either case the
-            // pipeline retains `executor` until the terminal completion.
+            // CPU and device cooks are selected by the immutable request at
+            // the private executor boundary. A device cook completes through
+            // its provider's return route; CPU completes on this work
+            // callback. Either way the pipeline retains `executor` until the
+            // terminal completion.
             auto& runtime = state.privateRuntime ? *state.privateRuntime : DefaultRuntime();
             auto work = [executor, &runtime, desc=state.desc, context=state.context,
                          device=state.devicePublication, pending=state.pending,
@@ -841,10 +840,6 @@ UsdGenSession::SnapshotPtr UsdGenSession::CommitSnapshot(
     request.frame = frame;
     request.reason = reason;
     return CommitSnapshot(std::move(request));
-}
-std::vector<UsdGenCudaBindingStats> UsdGenSession::CudaBindingStats() const {
-    auto snapshot = Snapshot();
-    return snapshot ? snapshot->cudaBindings : std::vector<UsdGenCudaBindingStats>{};
 }
 std::optional<UsdGenNodeStats> UsdGenSession::NodeStats(UsdGenNodeId id) const {
     auto snapshot = Snapshot();

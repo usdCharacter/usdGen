@@ -79,7 +79,7 @@ endif()
 # only TU that touches usd, for hydrate and Save groom; gate B-1 stays true
 # for usdGen itself). Links usdGen only for the gpu/ primitives
 # (DeviceBuffer, execution resources). The CUDA kernel (pomadeKernels.cu)
-# joins below in the USDGEN_ENABLE_CUDA branch, next to the usdGenGpu wiring.
+# joins in cuda.cmake's USDGEN_ENABLE_CUDA branch, next to the usdGenCuda wiring.
 # ---------------------------------------------------------------------------
 file(GLOB_RECURSE USDGEN_POMADE_SOURCES libs/usdGenPomade/*.cpp)
 list(FILTER USDGEN_POMADE_SOURCES EXCLUDE REGEX "\\.cu$")

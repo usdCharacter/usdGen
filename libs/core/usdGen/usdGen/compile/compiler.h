@@ -59,6 +59,11 @@ public:
     UsdGenCompileResult CompileInjectedDevice(UsdGenGraphSpec const&,
         UsdGenGraph*, DevicePlanCompiler const&,
         std::shared_ptr<const UsdGenExecutionPlanHandle>* plan);
+    /// Compile() plus the device plan of a kUsdGenBackendReusesPlan backend,
+    /// compiled after the graph. Both outputs stay untouched on failure.
+    UsdGenCompileResult CompileWithDevicePlan(UsdGenGraphSpec const&,
+        UsdGenGraph*, DevicePlanCompiler const&,
+        std::shared_ptr<const UsdGenExecutionPlanHandle>* plan);
 
     /// Incremental: rebuild only the sub-graph whose Merkle digest moved
     /// (03 §3.5). One node appended to a 200-node groom rebuilds exactly one

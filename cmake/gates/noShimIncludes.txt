@@ -10,7 +10,6 @@ libs/core/backends/usdGenCuda/usdGenCuda/cudaParameters.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp 4
 libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/cudaTools.cpp 2
-libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp 2
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp 2
@@ -66,7 +65,6 @@ libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceGeneration.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceWidthJob.h 3
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp 3
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.h 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/vkStages.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/clumpMotion.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/clumpMotion.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/curveLoader.cpp 2
@@ -150,7 +148,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
@@ -168,8 +165,6 @@ libs/core/primitives/usdGenExpr/usdGenExpr/expressions/ir.h 1
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/irExec.h 2
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/samplers.cpp 2
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/samplers.h 2
-libs/core/primitives/usdGenExpr/usdGenExpr/expressions/valueShape.cpp 1
-libs/core/primitives/usdGenExpr/usdGenExpr/expressions/valueShape.h 1
 libs/core/primitives/usdGenExpr/usdGenExpr/ops/exprOp.cpp 4
 libs/core/primitives/usdGenExpr/usdGenExpr/ops/exprOp.h 1
 libs/core/primitives/usdGenSurface/usdGenSurface/limitSurface.cpp 2
@@ -191,7 +186,7 @@ libs/core/primitives/usdGenSurface/usdGenSurface/surfaceCageSource.cpp 3
 libs/core/primitives/usdGenSurface/usdGenSurface/surfaceRootBindings.cpp 2
 libs/core/primitives/usdGenSurface/usdGenSurface/surfaceRootFrames.cpp 1
 libs/core/usdGen/usdGen/api/usdGen.h 1
-libs/core/usdGen/usdGen/compile/compiler.cpp 5
+libs/core/usdGen/usdGen/compile/compiler.cpp 4
 libs/core/usdGen/usdGen/compile/compiler.h 3
 libs/core/usdGen/usdGen/compile/graph.cpp 2
 libs/core/usdGen/usdGen/compile/graph.h 3
@@ -213,8 +208,6 @@ libs/core/usdGen/usdGen/exec/executionSequenceWindow.cpp 1
 libs/core/usdGen/usdGen/exec/executionTaskGraph.cpp 4
 libs/core/usdGen/usdGen/exec/executionTaskGraph.h 1
 libs/core/usdGen/usdGen/exec/fastCores.cpp 1
-libs/core/usdGen/usdGen/exec/generationStore.cpp 1
-libs/core/usdGen/usdGen/exec/generationStore.h 4
 libs/core/usdGen/usdGen/exec/parkingWord.cpp 1
 libs/core/usdGen/usdGen/exec/pool.cpp 2
 libs/core/usdGen/usdGen/exec/pool.h 1
@@ -223,11 +216,11 @@ libs/core/usdGen/usdGen/exec/scheduler.h 4
 libs/core/usdGen/usdGen/exec/scratch.cpp 2
 libs/core/usdGen/usdGen/exec/scratch.h 1
 libs/core/usdGen/usdGen/exec/session.cpp 4
-libs/core/usdGen/usdGen/exec/session.h 5
-libs/core/usdGen/usdGen/exec/sessionBackendExecutor.cpp 3
+libs/core/usdGen/usdGen/exec/session.h 4
+libs/core/usdGen/usdGen/exec/sessionBackendExecutor.cpp 2
 libs/core/usdGen/usdGen/exec/sessionBackendExecutor.h 1
-libs/core/usdGen/usdGen/exec/sessionCooker.cpp 9
-libs/core/usdGen/usdGen/exec/sessionCooker.h 7
+libs/core/usdGen/usdGen/exec/sessionCooker.cpp 6
+libs/core/usdGen/usdGen/exec/sessionCooker.h 6
 libs/core/usdGen/usdGen/exec/sessionDeviceIntegration.h 2
 libs/core/usdGen/usdGen/exec/sessionDeviceProvider.h 3
 libs/core/usdGen/usdGen/exec/sharedCell.cpp 2
@@ -237,7 +230,7 @@ libs/core/usdGen/usdGen/exec/workerPool.cpp 5
 libs/core/usdGen/usdGen/registries/backendRegistry.h 1
 libs/core/usdGen/usdGen/registries/engineTokens.h 1
 libs/core/usdGen/usdGen/registries/op.h 1
-libs/core/usdGen/usdGen/registries/opDef.h 2
+libs/core/usdGen/usdGen/registries/opDef.h 1
 libs/core/usdGen/usdGen/registries/opRegistry.cpp 1
 libs/core/usdGen/usdGen/registries/opRegistry.h 1
 libs/core/usdGen/usdGen/registries/registrar.h 1
@@ -262,9 +255,7 @@ libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.cpp 5
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.h 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenInstancer.cpp 1
-libs/hosts/usdGenHydra/usdGenImaging/usdGenInstancer.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenShadersDiscoveryPlugin.cpp 1
-libs/hosts/usdGenHydra/usdGenImaging/usdGenTilePublisher.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenToolsApi.cpp 2
 libs/usdGenPomade/usdGenPomade/imaging/pomadeSceneIndex.cpp 1
 libs/usdGenPomade/usdGenPomade/pomadeBake.cpp 4
@@ -379,7 +370,7 @@ tests/testUsdGenExpressionPrimConnection.cpp 3
 tests/testUsdGenExpressionSamplers.cpp 5
 tests/testUsdGenExpressionWidthExample.cpp 3
 tests/testUsdGenFreeze.cpp 7
-tests/testUsdGenFurOcclusion.cpp 2
+tests/testUsdGenFurOcclusion.cpp 1
 tests/testUsdGenGeomSubset.cpp 4
 tests/testUsdGenGraph.cpp 4
 tests/testUsdGenGroomExamples.cpp 5

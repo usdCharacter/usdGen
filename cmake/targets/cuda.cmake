@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Nick Burkard
 # SPDX-License-Identifier: MIT
 #
-# CUDA foundations (usdGenGpu). Included from the root CMakeLists.txt.
+# CUDA toolchain and usdGenCuda. Included from the root CMakeLists.txt.
 
 # ---------------------------------------------------------------------------
 # CUDA foundations and legacy optional GPU noise
@@ -124,67 +124,99 @@ if(USE_GPU_NOISE OR USDGEN_ENABLE_CUDA)
         # Enables the #ifdef USDGEN_USE_GPU_NOISE branch in noise.cpp (04 §2.9).
         target_compile_definitions(usdGenCurves PRIVATE USDGEN_USE_GPU_NOISE)
     endif()
-    if(USDGEN_ENABLE_CUDA)
-        target_sources(usdGen PRIVATE libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp)
-        add_library(usdGenGpu STATIC
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/rbf.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGeometry.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveSource.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGrow.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/expressionContext.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/deformCurves.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/styleOps.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/width.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthBlend.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthOverlapWitness.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/surfaceBinding.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/length.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveCompaction.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveResample.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/namedChannelTopology.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/picking.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/pointOverride.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/topology.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/nonWidthCompare.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveIndices.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTiles.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTileBounds.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrames.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrameGather.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/noise.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu
-            libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp
-            libs/core/usdGen/usdGen/exec/parkingWord.cpp)
-        target_include_directories(usdGenGpu PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda>
-            ${USDGEN_CORE_INCLUDE_DIRS})
-        # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
-        # on toolkits older than 12.8.
-        target_link_libraries(usdGenGpu PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver)
-        # The resource ledger and retirement live in usdGen. usdGen links this
-        # archive, so consumers name usdGen themselves (no cycle).
-        # The kernels still include pxr/ headers (step 8 removes them).
-        target_include_directories(usdGenGpu SYSTEM PUBLIC
-            $<TARGET_PROPERTY:tf,INTERFACE_INCLUDE_DIRECTORIES>)
-        target_compile_definitions(usdGen PRIVATE USDGEN_ENABLE_CUDA)
-        target_link_libraries(usdGen PRIVATE usdGenGpu)
-        target_compile_definitions(usdGenImaging PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
-        target_link_libraries(usdGenImaging PUBLIC hdSt PRIVATE usdGenGpu hgiGL)
-        set_target_properties(usdGenGpu PROPERTIES
-            POSITION_INDEPENDENT_CODE ON CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
-        # Pomade CUDA lane (plan/17 P0): the tessellation kernel joins
-        # usdGenPomade, and the model/transport compile their device mirrors.
-        target_sources(usdGenPomade PRIVATE
-            libs/usdGenPomade/usdGenPomade/pomadeKernels.cu)
-        target_compile_definitions(usdGenPomade PUBLIC USDGEN_POMADE_HAS_CUDA)
-        target_link_libraries(usdGenPomade PRIVATE usdGenGpu CUDA::cudart)
-        set_target_properties(usdGenPomade PROPERTIES
-            CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
-    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# usdGenCuda (SHARED, step 8.3): the CUDA runtime (device selection, streams,
+# the one block cache in gpu/deviceBuffer.cu, device resources, completion
+# lane, retirement payloads), the CUDA Session provider and, until step 8.6,
+# the curve kernels and executor. Built in every configuration like
+# usdGenVulkan's kernel rows: without the toolkit it carries the CPU-side
+# admission (capability matrix, ValidateCudaGraph) and registers "cuda" as
+# unavailable. The registry loads it after the primitives
+# (USDGEN_DEFAULT_EXTENSIONS). It is the only target that may compile
+# deviceBuffer.cu (Gates.cmake, single block cache).
+# ---------------------------------------------------------------------------
+file(GLOB_RECURSE _usdgen_cuda_cpp_sources
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/*.cpp")
+set(_usdgen_cuda_runtime_only
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaSessionProvider.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp")
+if(NOT USDGEN_ENABLE_CUDA)
+    list(REMOVE_ITEM _usdgen_cuda_cpp_sources ${_usdgen_cuda_runtime_only})
+endif()
+add_library(usdGenCuda SHARED ${_usdgen_cuda_cpp_sources})
+# The primitives by name, not usdGenWithPrimitives: that target depends on
+# this one so every consumer of the engine finds it built.
+target_link_libraries(usdGenCuda
+    PUBLIC usdGen
+    PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch work trace ${CMAKE_DL_LIBS})
+# Bare "gpu/X.h" spellings resolve against the backend folder.
+target_include_directories(usdGenCuda PUBLIC
+    ${USDGEN_CORE_INCLUDE_DIRS}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda>
+    $<INSTALL_INTERFACE:include>)
+set_target_properties(usdGenCuda PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
+    target_link_options(usdGenCuda PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
+add_dependencies(usdGenWithPrimitives usdGenCuda)
+list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCuda)
+if(USDGEN_ENABLE_CUDA)
+    target_sources(usdGenCuda PRIVATE
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rbf.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGeometry.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveSource.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGrow.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/expressionContext.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/deformCurves.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/styleOps.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/width.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthBlend.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthOverlapWitness.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/surfaceBinding.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/length.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveCompaction.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveResample.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/namedChannelTopology.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/picking.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/pointOverride.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/topology.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/nonWidthCompare.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveIndices.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTiles.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTileBounds.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrames.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrameGather.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/noise.cu
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu)
+    # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
+    # on toolkits older than 12.8.
+    target_link_libraries(usdGenCuda PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver)
+    # The kernels still include pxr/ headers (step 8 removes them).
+    target_include_directories(usdGenCuda SYSTEM PUBLIC
+        $<TARGET_PROPERTY:tf,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_compile_definitions(usdGenCuda PRIVATE USDGEN_ENABLE_CUDA)
+    set_target_properties(usdGenCuda PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
+    # Hosts and Pomade share usdGenCuda's one block cache (step 8.6a moves
+    # the imaging interop onto the neutral device owner).
+    target_compile_definitions(usdGenImaging PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
+    target_link_libraries(usdGenImaging PUBLIC hdSt PRIVATE usdGenCuda hgiGL)
+    # Pomade CUDA lane (plan/17 P0): the tessellation kernel joins
+    # usdGenPomade, and the model/transport compile their device mirrors.
+    target_sources(usdGenPomade PRIVATE
+        libs/usdGenPomade/usdGenPomade/pomadeKernels.cu)
+    target_compile_definitions(usdGenPomade PUBLIC USDGEN_POMADE_HAS_CUDA)
+    target_link_libraries(usdGenPomade PRIVATE usdGenCuda CUDA::cudart)
+    set_target_properties(usdGenPomade PROPERTIES
+        CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
 endif()

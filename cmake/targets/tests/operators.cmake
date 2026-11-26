@@ -138,7 +138,8 @@ set_tests_properties(testUsdGenExpressionSamplers PROPERTIES
 # Curl/Bend/Wave/Part stylers plus the primitive-domain Grow lift: registry
 # contracts, expression-target validation and deterministic CPU cooks.
 add_executable(testUsdGenCurlBendWavePart tests/testUsdGenCurlBendWavePart.cpp)
-target_link_libraries(testUsdGenCurlBendWavePart PRIVATE usdGenWithPrimitives usdGenUsd)
+# CUDA admission checks (ValidateCudaGraph) live in usdGenCuda (step 8.3).
+target_link_libraries(testUsdGenCurlBendWavePart PRIVATE usdGenWithPrimitives usdGenUsd usdGenCuda)
 add_test(NAME testUsdGenCurlBendWavePart COMMAND testUsdGenCurlBendWavePart)
 set_tests_properties(testUsdGenCurlBendWavePart PROPERTIES
     LABELS "T0;operators;expressions" TIMEOUT 120)
@@ -155,6 +156,10 @@ foreach(_styler_test Direction Smooth Resample Scale Straighten Displace SculptL
 endforeach()
 target_compile_definitions(testUsdGenCollide PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+# Their CUDA rejection checks read the capability matrix in usdGenCuda.
+foreach(_styler_test SculptLayer Wind ExprOp Freeze Collide)
+    target_link_libraries(testUsdGen${_styler_test} PRIVATE usdGenCuda)
+endforeach()
 # testUsdGenScale recomputes UsdGenDraw01 expectations; usdGenMath is PRIVATE
 # to usdGen (N-7), so the test links it explicitly (CudaCurveGrowSession
 # precedent).
@@ -254,7 +259,7 @@ set_tests_properties(testUsdGenRestAdapter PROPERTIES LABELS "T1;gate:SI-7")
 set_tests_properties(testUsdGenCurveRestAdapter PROPERTIES LABELS "T1;gate:SI-7")
 if(USDGEN_ENABLE_CUDA)
     add_executable(testUsdGenCudaHierarchy tests/testUsdGenCudaHierarchy.cpp)
-    target_link_libraries(testUsdGenCudaHierarchy PRIVATE usdGenTestUtilsHd usdGenGpu)
+    target_link_libraries(testUsdGenCudaHierarchy PRIVATE usdGenTestUtilsHd usdGenCuda)
     target_compile_definitions(testUsdGenCudaHierarchy PRIVATE USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME testUsdGenCudaHierarchy COMMAND testUsdGenCudaHierarchy)
     set_tests_properties(testUsdGenCudaHierarchy PROPERTIES

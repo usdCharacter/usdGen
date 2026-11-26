@@ -2,6 +2,9 @@
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/sessionCooker.h"
+#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/registries/backend.h"
+#include "usdGen/registries/backendRegistry.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/cudaExecution.h"
@@ -29,6 +32,50 @@ static bool DrainCudaRetirement() {
     if (!service) return false;
     service->Drain();
     return true;
+}
+
+// The registered CUDA backend's Session provider.
+static std::shared_ptr<UsdGenSessionDeviceProvider> CudaProvider() {
+    UsdGenBackendDef const* def =
+        UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(UsdGenExecutionBackend::Cuda)));
+    std::string reason;
+    return def && def->createProvider ? def->createProvider({}, &reason) : nullptr;
+}
+
+// One cooker turn through the CUDA provider, waited for here (step 8.3 moved
+// the cooker's CUDA execution behind the provider). The result returns on
+// the provider's completion thread; the test thread only waits.
+static UsdGenGenerationConstPtr CookCuda(UsdGenSessionCooker& cooker,
+    std::shared_ptr<UsdGenSessionDeviceProvider> const& provider,
+    std::shared_ptr<const UsdGenGraphSpec> desc, double frame,
+    UsdGenGenerationConstPtr previous, UsdGenStats stats, int device) {
+    // Leaked: the runtime's workers must not be joined at exit.
+    static UsdGenExecutionRuntime* runtime = new UsdGenExecutionRuntime(4);
+    struct Done {
+        std::atomic<bool> ready{false};
+        UsdGenGenerationConstPtr generation;
+    };
+    auto done = std::make_shared<Done>();
+    cooker.CookDeviceAsync(*runtime, UsdGenExecutionPipeline::Cancellation{},
+        std::move(desc), UsdGenContext::Interactive, true, {}, frame,
+        UsdGenCommitReason::SetTime, std::move(previous), std::move(stats), false, 0,
+        device, provider,
+        [](UsdGenSessionCooker::DeviceResultHandler handler) {
+            auto shared = std::make_shared<UsdGenSessionCooker::DeviceResultHandler>(
+                std::move(handler));
+            return UsdGenSessionDeviceReturn(
+                [shared](std::shared_ptr<const UsdGenSessionDeviceResult> result) {
+                    (*shared)(std::move(result));
+                    return true;
+                });
+        },
+        [done](UsdGenGenerationConstPtr generation, std::exception_ptr) {
+            done->generation = std::move(generation);
+            done->ready.store(true, std::memory_order_release);
+        });
+    while (!done->ready.load(std::memory_order_acquire))
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    return done->generation;
 }
 
 static UsdGenGraphDesc SourceDesc() {
@@ -1193,7 +1240,7 @@ int main() {
         if (!first) for (auto const& error : session.LastDiagnostics().errors)
             std::fprintf(stderr, "%s\n", error.c_str());
         CHECK(first && first->device && first->id == 0 && first->frame == 1);
-        auto const* plan = session.Graph().CudaPlan().get();
+        auto const* plan = session.Graph().DevicePlan().get();
         CHECK(plan != nullptr);
         retainedWidths = gpu::AcquireGeometry(first->device, consumer);
         CHECK(retainedWidths && retainedWidths.Geometry().pointCount == 5);
@@ -1220,7 +1267,7 @@ int main() {
 
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second->device && second->id == 1 && second->frame == 2);
-        CHECK(session.Graph().CudaPlan().get() == plan);
+        CHECK(session.Graph().DevicePlan().get() == plan);
         // Primitive 0 has replace=true; primitive 1 has replace=false. The
         // latter multiplies WidthLiteral's .1 by the point target.
         auto secondLease = gpu::AcquireGeometry(second->device, consumer);
@@ -1255,14 +1302,14 @@ int main() {
         usdGenUsd::SetGraphDesc(session, malformed);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
         CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
-        CHECK(session.Graph().CudaPlan().get() == plan);
+        CHECK(session.Graph().DevicePlan().get() == plan);
 
         auto runtimeBad = desc;
         runtimeBad.expressions[0].source = "$frame / ($frame - 4)";
         usdGenUsd::SetGraphDesc(session, runtimeBad);
         CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
         CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
-        // Compilation succeeded, so Graph()/CudaPlan() may now describe the
+        // Compilation succeeded, so Graph()/DevicePlan() may now describe the
         // attempted program even though publication correctly retained the
         // last-good generation.
 
@@ -1298,8 +1345,8 @@ int main() {
     CHECK(cudaStreamSynchronize(consumer) == cudaSuccess);
     CHECK(DrainCudaRetirement() && widthOwner.expired());
 
-    // The synchronous cooker uses the same device-aware cache contract as the
-    // session owner: a successful device generation first becomes a deferred
+    // A cooker driven directly through the CUDA provider uses the same
+    // device-aware cache contract as the session owner: a successful device generation first becomes a deferred
     // candidate, and only an accepted candidate enters residency.  A hit then
     // republishes a fresh host/device identity while retaining the immutable
     // COW owner and its native allocations.
@@ -1310,11 +1357,11 @@ int main() {
         auto cacheDomain = std::make_shared<UsdGenExecutionCacheDomain>(
             UsdGenExecutionCacheDomainKey{UsdGenDeviceBackend::Cuda, device, 0},
             64u * 1024u * 1024u);
+        auto cookerProvider = CudaProvider();
+        CHECK(cookerProvider != nullptr);
         UsdGenSessionCooker cooker(2, 64u * 1024u * 1024u, cacheDomain);
         auto cudaDesc = std::make_shared<const UsdGenGraphDesc>(WidthChainDesc());
-        auto first = cooker.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 1.0,
-            UsdGenCommitReason::SetTime, {}, {}, false, 0, 1, device);
+        auto first = CookCuda(cooker, cookerProvider, usdGenUsd::LowerShared(*cudaDesc), 1.0, {}, {}, device);
         auto firstCandidate = cooker.TakeCacheCandidate();
         CHECK(first && first->device && first->id == 0 &&
               first->device->Identity().generation == 0 && firstCandidate &&
@@ -1359,9 +1406,7 @@ int main() {
                   first->device->InclusiveRetainedBytes() +
                   revision->ExclusiveRetainedBytes());
 
-        auto second = cooker.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 1.0,
-            UsdGenCommitReason::SetTime, first, afterAdmission, false, 1, 2, device);
+        auto second = CookCuda(cooker, cookerProvider, usdGenUsd::LowerShared(*cudaDesc), 1.0, first, afterAdmission, device);
         CHECK(second && second != first && second->device && second->id == 1 &&
               second->device->Identity().generation == 1 &&
               second->device->Geometry().valueVersion == 1 &&
@@ -1373,9 +1418,7 @@ int main() {
               cooker.Stats().executionCacheMisses == 1);
         CHECK(!cooker.CommitCacheCandidate(*firstCandidate));
 
-        auto frameMiss = cooker.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 2.0,
-            UsdGenCommitReason::SetTime, second, {}, false, 2, 3, device);
+        auto frameMiss = CookCuda(cooker, cookerProvider, usdGenUsd::LowerShared(*cudaDesc), 2.0, second, {}, device);
         auto frameCandidate = cooker.TakeCacheCandidate();
         CHECK(frameMiss && frameMiss != second && frameMiss->device &&
               frameMiss->id == 2 && frameMiss->frame == 2.0 && frameCandidate &&
@@ -1386,9 +1429,7 @@ int main() {
         changed.nodes[1].params.front().value = VtValue(0.2f);
         auto changedDesc = std::make_shared<const UsdGenGraphDesc>(
             std::move(changed));
-        auto parameterMiss = cooker.Cook(
-            usdGenUsd::LowerShared(*changedDesc), UsdGenContext::Interactive, true, {}, 2.0,
-            UsdGenCommitReason::SetTime, frameMiss, {}, false, 3, 4, device);
+        auto parameterMiss = CookCuda(cooker, cookerProvider, usdGenUsd::LowerShared(*changedDesc), 2.0, frameMiss, {}, device);
         auto parameterCandidate = cooker.TakeCacheCandidate();
         CHECK(parameterMiss && parameterMiss != frameMiss &&
               parameterMiss->device && parameterMiss->id == 3 &&
@@ -1416,21 +1457,20 @@ int main() {
                 UsdGenDeviceBackend::Cuda, device, 0x434f575f43414348ull},
             64u * 1024u * 1024u);
         auto cudaDesc = std::make_shared<const UsdGenGraphDesc>(WidthChainDesc());
+        auto leaderProvider = CudaProvider();
+        auto followerProvider = CudaProvider();
+        CHECK(leaderProvider && followerProvider);
         UsdGenSessionCooker leader(2, 64u * 1024u * 1024u, sharedDomain);
         UsdGenSessionCooker follower(2, 64u * 1024u * 1024u, sharedDomain);
 
-        auto first = leader.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 7.0,
-            UsdGenCommitReason::SetTime, {}, {}, false, 0, 1, device);
+        auto first = CookCuda(leader, leaderProvider, usdGenUsd::LowerShared(*cudaDesc), 7.0, {}, {}, device);
         auto firstCandidate = leader.TakeCacheCandidate();
         CHECK(first && first->device && firstCandidate &&
               leader.CommitCacheCandidate(*firstCandidate) &&
               sharedDomain->Size() == 1);
         auto const firstOwner = first->device->Owner();
 
-        auto reused = follower.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 7.0,
-            UsdGenCommitReason::SetTime, {}, {}, false, 0, 1, device);
+        auto reused = CookCuda(follower, followerProvider, usdGenUsd::LowerShared(*cudaDesc), 7.0, {}, {}, device);
         CHECK(reused && reused != first && reused->device &&
               reused->device != first->device &&
               reused->device->Owner() == firstOwner &&
@@ -1449,10 +1489,7 @@ int main() {
         // Leave a real, unaccepted candidate in the old epoch.  Invalidation
         // must clear residency first and the stale candidate must not seed it
         // again, even though its producer generation remains current locally.
-        auto pending = leader.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 8.0,
-            UsdGenCommitReason::SetTime, first, leader.Stats(), false, 1, 2,
-            device);
+        auto pending = CookCuda(leader, leaderProvider, usdGenUsd::LowerShared(*cudaDesc), 8.0, first, leader.Stats(), device);
         auto staleCandidate = leader.TakeCacheCandidate();
         CHECK(pending && pending->device && staleCandidate &&
               sharedDomain->Invalidate() && sharedDomain->Size() == 0 &&
@@ -1466,10 +1503,7 @@ int main() {
               retainedPoint.x == oldPoint.x && retainedPoint.y == oldPoint.y &&
               retainedPoint.z == oldPoint.z);
 
-        auto recovered = follower.Cook(
-            usdGenUsd::LowerShared(*cudaDesc), UsdGenContext::Interactive, true, {}, 7.0,
-            UsdGenCommitReason::SetTime, reused, follower.Stats(), false, 1, 2,
-            device);
+        auto recovered = CookCuda(follower, followerProvider, usdGenUsd::LowerShared(*cudaDesc), 7.0, reused, follower.Stats(), device);
         auto recoveredLease = recovered && recovered->device
             ? gpu::AcquireGeometry(recovered->device, consumer)
             : gpu::CudaGeometryLease{};

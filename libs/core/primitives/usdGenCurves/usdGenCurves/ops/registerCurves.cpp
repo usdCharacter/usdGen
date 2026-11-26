@@ -7,7 +7,6 @@
 // split (their ids and the input-kind run order stay unchanged).
 #include "usdGen/registries/registrar.h"
 #include "usdGenCurves/export.h"
-#include "usdGenCuda/cudaStages.h"
 #include "usdGenCurves/ops/kernelOps.h"
 #include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -134,15 +133,6 @@ extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
     UsdGenRegisterMapInputKind(r);
     UsdGenRegisterExprInputKinds(r);
     UsdGenRegisterRootSetType(r);   // last: older ids keep their values
-    UsdGenCudaKernelOps cuda;
-    cuda.scatter = k.scatter;
-    cuda.grow = k.grow;
-    cuda.noise = k.noise;
-    cuda.length = k.length;
-    cuda.width = k.width;
-    cuda.widthBlend = k.widthBlend;
-    cuda.curveSource = k.curveSource;
-    cuda.deform = k.deform;
-    cuda.referenceSource = k.referenceSource;
-    UsdGenRegisterCurvesCuda(r, cuda);
+    // The CUDA and Vulkan kernel rows register from usdGenCuda and
+    // usdGenVulkan, which load after this library.
 }

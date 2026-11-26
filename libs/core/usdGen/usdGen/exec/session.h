@@ -1,8 +1,8 @@
 #ifndef USDGEN_SESSION_H
 #define USDGEN_SESSION_H
 
-#include "usdGen/cudaExecution.h"
 #include "usdGen/executionPipeline.h"
+#include "usdGen/exec/device/executionBackend.h"
 #include "usdGen/generationStore.h"
 #include "usdGen/graph.h"
 #include "usdGen/stats.h"
@@ -40,7 +40,7 @@ struct UsdGenPendingDirty
 
 /// Backend-neutral context-loss fence recorded by the Session command owner
 /// and consumed by its serialized cooker lane. Native handles never cross
-/// this boundary; CUDA, Metal, and Vulkan adapters identify only backend and
+/// this boundary; device adapters identify only backend and
 /// logical device, while `serial` prevents a stale cook from acknowledging a
 /// newer loss event.
 struct UsdGenDeviceContextLoss
@@ -60,7 +60,8 @@ struct UsdGenSessionGraphSnapshot
 {
     int nodeCount = 0;
     UsdGenGraphSpec spec;
-    std::shared_ptr<const UsdGenCudaExecutionPlan> cudaPlan;
+    // The device plan compiled with the graph (kUsdGenBackendReusesPlan).
+    std::shared_ptr<const UsdGenExecutionPlanHandle> devicePlan;
     std::unordered_map<UsdGenNodeKey, UsdGenNodeId, UsdGenNodeKeyHash> nodeIds;
 
     int NodeCount() const noexcept { return nodeCount; }
@@ -69,8 +70,8 @@ struct UsdGenSessionGraphSnapshot
         return found == nodeIds.end() ? kUsdGenInvalidNode : found->second;
     }
     UsdGenGraphSpec const& Spec() const noexcept { return spec; }
-    std::shared_ptr<const UsdGenCudaExecutionPlan> const& CudaPlan() const noexcept {
-        return cudaPlan;
+    std::shared_ptr<const UsdGenExecutionPlanHandle> const& DevicePlan() const noexcept {
+        return devicePlan;
     }
 };
 
@@ -88,7 +89,9 @@ struct UsdGenSessionSnapshot
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> routing;
     UsdGenSessionGraphSnapshot graphInfo;
     std::unordered_map<UsdGenNodeId, UsdGenNodeStats> nodeStats;
-    std::vector<UsdGenCudaBindingStats> cudaBindings;
+    // The device backend's report of the last executed cook (provider
+    // defined, e.g. binding statistics); null on the CPU lane.
+    UsdGenRef<const UsdGenPublication> deviceReport;
 };
 
 /// One atomic command-owner commit request. Optional input changes are applied
@@ -102,7 +105,8 @@ struct UsdGenSessionCommitRequest
     std::shared_ptr<const UsdGenGraphSpec> spec;
     std::optional<UsdGenContext> context;
     // Captured by an upstream owner when it must relay the original caller's
-    // CUDA device. Absent means capture at this Session API boundary.
+    // device (a registered backend's captureCallerDevice). Absent means
+    // capture at this Session API boundary.
     std::optional<int> callerDevice;
     // Optional renderer admission selection.  Applied with desc/context in
     // this one owner command before its publication baseline is captured;
@@ -173,7 +177,8 @@ public:
     bool EndDeviceEdit(uint64_t, UsdGenGenerationConstPtr const&, bool = true);
     void AccumulateDirty(UsdGenPendingDirty&&);
     bool NeedsCommit() const noexcept;
-    /// Captures CUDA's thread-local current device, or -2 on CPU/failure.
+    /// The first registered backend's captureCallerDevice (a thread-local
+    /// current device), or -2 when none captures or capture fails.
     static int CaptureCallerDevice() noexcept;
 
     /// Asynchronously accept a command snapshot and schedule private cooking.
@@ -217,7 +222,6 @@ public:
         auto snapshot = Snapshot();
         return snapshot ? snapshot->stats : UsdGenStats{};
     }
-    std::vector<UsdGenCudaBindingStats> CudaBindingStats() const;
     std::optional<UsdGenNodeStats> NodeStats(UsdGenNodeId) const;
 
     void InvalidateAllValues();

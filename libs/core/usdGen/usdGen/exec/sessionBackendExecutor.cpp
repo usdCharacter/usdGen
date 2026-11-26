@@ -25,9 +25,6 @@ public:
 
     bool CanRoute(UsdGenExecutionBackend backend) const noexcept override {
         if (backend == UsdGenExecutionBackend::CpuReference) return true;
-#ifdef USDGEN_ENABLE_CUDA
-        if (backend == UsdGenExecutionBackend::Cuda) return true;
-#endif
         return Injected(backend) || Registered(backend);
     }
 
@@ -70,8 +67,7 @@ public:
             }
 
             // A registered backend (or the injected provider): one device path.
-            if (backend != UsdGenExecutionBackend::CpuReference &&
-                backend != UsdGenExecutionBackend::Cuda) {
+            if (backend != UsdGenExecutionBackend::CpuReference) {
                 if (!request.runtime || !request.deviceReturnBinder)
                     throw std::runtime_error("device Session executor has no runtime/return route");
                 std::shared_ptr<UsdGenSessionDeviceProvider> provider =
@@ -88,9 +84,14 @@ public:
                     // serialized loss work before the next cook request. A
                     // fresh default provider starts at epoch zero; consult
                     // its loss latch even when this request has no loss list.
-                    bool contextLost = slot.provider &&
+                    // A poisonable backend recovers in place instead: the
+                    // cooker's context-loss turn retired its workspace.
+                    bool const replaceOnLoss =
+                        !def || !(def->flags & kUsdGenBackendPoisonable);
+                    bool contextLost = replaceOnLoss && slot.provider &&
                         slot.provider->Identity().contextEpoch != 0;
                     for (auto const& loss : request.contextLosses) {
+                        if (!replaceOnLoss) break;
                         if (slot.provider && loss.serial > slot.lossSerial &&
                             loss.backend == slot.provider->Identity().backend &&
                             (loss.deviceIndex < 0 || loss.deviceIndex ==
@@ -134,23 +135,6 @@ public:
                     std::move(request.publishedStats), request.invalidateValues,
                     request.previousPublishedWorkerEpoch, request.callerDevice,
                     provider, std::move(request.deviceReturnBinder),
-                    std::move(completion), std::move(request.coalescedHooks));
-                return;
-            }
-
-            if (backend == UsdGenExecutionBackend::Cuda) {
-                if (!request.runtime)
-                    throw std::runtime_error("CUDA Session executor has no runtime");
-                // Keep request.completion intact for the catch path: a
-                // synchronous setup exception must still release Pipeline's
-                // async gate exactly once.
-                auto completion = request.completion;
-                _cooker.CookCudaAsync(*request.runtime, request.cancellation,
-                    std::move(request.desc), request.context,
-                    request.devicePublicationEnabled, std::move(request.pending),
-                    request.frame, request.reason, std::move(request.previous),
-                    std::move(request.publishedStats), request.invalidateValues,
-                    request.previousPublishedWorkerEpoch, request.callerDevice,
                     std::move(completion), std::move(request.coalescedHooks));
                 return;
             }

@@ -25,7 +25,6 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
-class UsdGenCudaExecutionPlan;
 class UsdGenOpRecord;
 
 /// Extra-plane pointer tables are stack-local in the chunk evaluator.  The
@@ -244,7 +243,6 @@ public:
     /// surface without authored rest is unchanged. Built on first use after
     /// the descriptor or any surface's content changes; commit thread only.
     UsdGenGraphSpec const &RestSpec() const;
-    std::shared_ptr<const UsdGenCudaExecutionPlan> const& CudaPlan() const noexcept { return _cudaPlan; }
     UsdGenOpNode const &OpNode(NodeId id) const;
     /// Immutable descriptor-value identities resolved during compilation.
     TfSpan<const UsdGenResolvedReferenceValue> ReferenceValues() const;
@@ -298,7 +296,6 @@ private:
         UsdGenInputRecord rest;
     };
     mutable std::vector<RestRecord> _restRecords;
-    std::shared_ptr<const UsdGenCudaExecutionPlan> _cudaPlan;
     std::vector<std::unique_ptr<UsdGenCompiledNode>> _nodes; // indexed by id
     UsdGenPoolVector<UsdGenChunkGroup> _groups;  // terminal publication groups
     UsdGenPoolVector<UsdGenChunkRange> _rangeScratch;   // Repartition's desired chunks

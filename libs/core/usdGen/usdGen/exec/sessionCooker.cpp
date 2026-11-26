@@ -6,9 +6,10 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/debugCodes.h"
-#include "usdGen/cudaExecution.h"
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
+#include "usdGen/registries/backend.h"
+#include "usdGen/registries/backendRegistry.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
 
@@ -452,9 +453,7 @@ UsdGenExecutionContext _ExecutionCacheContext(
     int deviceIndex = -1, uint64_t deviceGeneration = 0)
 {
     uint32_t const capabilityVersion =
-        desc.executionBackend == UsdGenExecutionBackend::Cuda
-            ? GetCudaExecutionCapabilityMatrix().Version() :
-              GetUsdGenExecutionBackendContract(desc.executionBackend).capabilityVersion;
+        GetUsdGenExecutionBackendContract(desc.executionBackend).capabilityVersion;
     return MakeUsdGenExecutionContext(desc.executionBackend, capabilityVersion,
                                       deviceIndex, deviceGeneration,
                                       evaluationContext);
@@ -540,10 +539,10 @@ _PresentationScalars _BuildPresentationScalars(
     return result;
 }
 
-// CUDA admission permits at most one source root-binding surface and
-// ExecuteCudaGraph rejects a named binding that is absent from desc.surfaces.
-// Return no dependency for the valid empty/no-binding case; never invent one.
-UsdGenNodeKey _CudaSourceDependencySurface(UsdGenGraphSpec const &desc)
+// Device admission permits at most one source root-binding surface, and a
+// named binding absent from desc.surfaces is rejected. Return no dependency
+// for the valid empty/no-binding case; never invent one.
+UsdGenNodeKey _SourceDependencySurface(UsdGenGraphSpec const &desc)
 {
     if (desc.nodes.empty() || desc.nodes.front().surfaces.size() != 1)
         return UsdGenNodeKey();
@@ -557,7 +556,7 @@ UsdGenDevicePresentationMetadata _BuildDevicePresentation(
     UsdGenGraphSpec const &desc)
 {
     _PresentationScalars const scalars = _BuildPresentationScalars(
-        desc, _CudaSourceDependencySurface(desc));
+        desc, _SourceDependencySurface(desc));
     UsdGenDevicePresentationMetadata result;
     result.description = desc.description;
     result.xformMatrix = scalars.xformMatrix;
@@ -569,6 +568,25 @@ UsdGenDevicePresentationMetadata _BuildDevicePresentation(
     result.origin = scalars.origin;
     result.dependency = scalars.dependency;
     return result;
+}
+
+// The registered def of a device backend (until step 8.4 replaces the
+// device enum with the backend handle).
+UsdGenBackendDef const *_DefOfDevice(UsdGenDeviceBackend device) noexcept
+{
+    if (device == UsdGenDeviceBackend::Unknown) return nullptr;
+    for (uint8_t value = 0; value != 8; ++value) {
+        auto const contract =
+            GetUsdGenExecutionBackendContract(UsdGenExecutionBackend(value));
+        if (contract.IsValid() && contract.deviceBackend == device)
+            return UsdGenGetBackend(UsdGenBackendIdOf(value));
+    }
+    return nullptr;
+}
+
+char const *_LabelOf(UsdGenBackendDef const *def, char const *fallback) noexcept
+{
+    return !def ? fallback : def->label ? def->label : def->name;
 }
 
 }  // namespace
@@ -598,14 +616,6 @@ UsdGenSessionCooker::UsdGenSessionCooker(int threadLimit,
             executionCacheBytes);
 }
 
-void UsdGenSessionCooker::_PublishCudaBindingStats(
-    std::vector<UsdGenCudaBindingStats> stats)
-{
-    auto ref = UsdGenMakeRef<_BindingStats>();
-    ref->stats = std::move(stats);
-    _cudaBindingStats.Store(std::move(ref));
-}
-
 UsdGenSessionCooker::~UsdGenSessionCooker() = default;
 
 bool UsdGenSessionCooker::_SelectExecutionCacheDomain(
@@ -617,7 +627,7 @@ bool UsdGenSessionCooker::_SelectExecutionCacheDomain(
         auto const& selected = selectedDomain->Key();
         // contextIdentity is the adapter-owned stable identity of this
         // domain. The cooker selects only backend/device and must preserve a
-        // nonzero identity supplied by an explicit Metal/Vulkan/CUDA owner.
+        // nonzero identity supplied by an explicit device owner.
         if (selected.backend == backend && selected.deviceIndex == deviceIndex &&
             (!contextIdentity || selected.contextIdentity == contextIdentity))
             return true;
@@ -639,13 +649,13 @@ bool UsdGenSessionCooker::_ObserveExecutionCacheDomainEpoch()
     uint64_t const epoch = _executionCacheDomain->Epoch();
     if (epoch == _observedCacheDomainEpoch) return true;
     // Another Session sharing this domain invalidated the backend context.
-    // The serialized cooker lane is the only owner of this workspace, so it
-    // can quarantine it before the next job borrows any native allocation.
+    // The serialized cooker lane is the only user of a poisonable provider's
+    // workspace, so it is quarantined before the next job borrows any native
+    // allocation.
     _cacheCandidate.reset();
-    if (_cudaWorkspace) {
-        _cudaWorkspace->MarkContextLost();
-        _cudaWorkspace.reset();
-        _cudaWorkspaceDescription = UsdGenNodeKey();
+    if (_deviceProvider && (_deviceFlags & kUsdGenBackendPoisonable)) {
+        auto const identity = _deviceProvider->Identity();
+        if (identity.deviceIndex >= 0) (void)_deviceProvider->NotifyContextLost(identity);
     }
     _observedCacheDomainEpoch = epoch;
     return true;
@@ -690,7 +700,7 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
     UsdGenStats publishedStats, bool invalidateValues,
     uint64_t previousPublishedWorkerEpoch,
     UsdGenCompiler::DevicePlanCompiler const& deviceCompiler,
-    std::shared_ptr<const UsdGenExecutionPlanHandle>* devicePlan)
+    std::shared_ptr<const UsdGenExecutionPlanHandle>* devicePlan, bool reusesPlan)
 {
     _coalescedRole = CoalescedRole::None;
     _coalescedDomain.reset();
@@ -718,7 +728,10 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
     // itself stays valid (every capture is re-validated against its inputs),
     // but no tile may be carried over from that baseline.
     _rebuildAllTiles = staleBaseline || _graphBaselineDetached;
-    if (pending.structural || _graph.NodeCount() == 0 || deviceCompiler) {
+    // A plan compiled per cook recompiles every cook; one that lives with the
+    // graph (kUsdGenBackendReusesPlan) only with it.
+    bool const planPerCook = deviceCompiler && !reusesPlan;
+    if (pending.structural || _graph.NodeCount() == 0 || planPerCook) {
         // Device plans capture the exact immutable request. Keep all common
         // reset, baseline and dirty handling above; only compilation is
         // supplied by the explicitly injected provider.
@@ -731,10 +744,14 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
         // moved. A graph a failed cook left behind is not trusted and is
         // rebuilt from scratch.
         bool const incremental = !deviceCompiler && !firstCompile && !_graphUntrusted;
-        UsdGenCompileResult cr = deviceCompiler
+        UsdGenCompileResult cr = planPerCook
             ? _compiler.CompileInjectedDevice(_desc, &_graph, deviceCompiler, devicePlan)
+            : deviceCompiler
+            ? _compiler.CompileWithDevicePlan(_desc, &_graph, deviceCompiler, &_devicePlan)
             : incremental ? _compiler.Recompile(_desc, &_graph)
                           : _compiler.Compile(_desc, &_graph);
+        // A plan describes the graph compiled with it; any other compile drops it.
+        if (cr.ok && !(deviceCompiler && reusesPlan)) _devicePlan.reset();
         ++_stats.recompiles;
         if (TfDebug::IsEnabled(USDGEN_COMMIT)) {
             char buffer[256];
@@ -756,8 +773,10 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
             // Recompile is transactional: a rejected edit keeps the last
             // usable graph. Discard it only if the compiler reports that a
             // failure got past its preflight.
-            if (!cr.graphIntact)
+            if (!cr.graphIntact) {
                 _graph = UsdGenGraph();
+                _devicePlan.reset();
+            }
             // The kept graph still describes the previous descriptor, so the
             // next cook must compile again rather than run it as current.
             _descIdentity.reset();
@@ -781,6 +800,7 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
     if (invalidateValues) for (UsdGenNodeId id=0; id<static_cast<UsdGenNodeId>(_graph.NodeCount()); ++id) {
         auto& node=_graph.Node(id); node.paramValueDigest=~uint64_t(0); node.lastParamDigest=0;
     }
+    if (devicePlan && reusesPlan) *devicePlan = _devicePlan;
     // The publisher's state is made here, before the cook's exec phase.
     if (_graph.NodeCount() != 0)
         _SelectPublisher(_graph.NodeOutput(_graph.TerminalNodeId()));
@@ -816,35 +836,22 @@ bool UsdGenSessionCooker::_FinalizeDevicePublication(
     return true;
 }
 
-struct UsdGenSessionCooker::CudaStages {
-    std::shared_ptr<UsdGenCudaExecutionJob> job;
-    UsdGenGenerationConstPtr previous;
-    // Retain the exact shared domain selected when this asynchronous job was
-    // created.  A later cooker turn cannot substitute a different domain for
-    // its terminal publication.
-    std::shared_ptr<UsdGenExecutionCacheDomain> cacheDomain;
-    UsdGenExecutionCacheKey cacheKey;
-    double frame = 0.0;
-};
-
-bool UsdGenSessionCooker::_InvalidatePoisonedCudaWorkspace()
+bool UsdGenSessionCooker::_InvalidatePoisonedDevice()
 {
-    if (!_cudaWorkspace || !_cudaWorkspace->IsPoisoned()) return true;
-    // The poisoned destructor deliberately quarantines its native state. Drop
-    // cooker reachability only after all jobs borrowing the workspace have
-    // released it; callers enforce that ordering. Cached/public generations
-    // retain their independent immutable owners and retirement tickets.
+    if (!_devicePoisoned) return true;
+    // The provider has quarantined the poisoned workspace. Cached/public
+    // generations retain their independent immutable owners and retirement
+    // tickets; only the domain's residency is dropped here.
     bool const cleared = _executionCacheDomain && _executionCacheDomain->Invalidate();
     _cacheCandidate.reset();
     if (!cleared) {
-        // Keep the poisoned identity installed so every retry returns here;
-        // replacing it while old entries remain resident would hide a failed
-        // invalidation behind a new epoch instead of actually removing it.
-        _lastDiagnostics.Error("CUDA execution cache poison invalidation failed");
+        // Stay poisoned so every retry returns here; a new epoch must not
+        // hide a failed invalidation while old entries remain resident.
+        _lastDiagnostics.Error(std::string(_deviceLabel) +
+                               " execution cache poison invalidation failed");
         return false;
     }
-    _cudaWorkspace.reset();
-    _cudaWorkspaceDescription = UsdGenNodeKey();
+    _devicePoisoned = false;
     return true;
 }
 
@@ -859,35 +866,45 @@ bool UsdGenSessionCooker::ApplyDeviceContextLoss(
     // by this serialized cooker, so the replay is idempotent.
     if (loss.serial <= _lastDeviceContextLossSerial) return true;
 
-    if (loss.backend == UsdGenDeviceBackend::Cuda && _executionCacheDomain &&
-        _executionCacheDomain->Key().backend == UsdGenDeviceBackend::Cuda &&
-        (loss.deviceIndex < 0 ||
-         loss.deviceIndex == _executionCacheDomain->Key().deviceIndex)) {
-        // This method runs only on the serialized cooker work lane. Any older
-        // async job has reached terminal completion before this turn begins,
-        // so marking and retiring the borrowed workspace cannot race it.
-        if (_cudaWorkspace && (loss.deviceIndex < 0 ||
-                               loss.deviceIndex == _cudaWorkspace->DeviceIndex())) {
-            _cudaWorkspace->MarkContextLost();
-            if (!_InvalidatePoisonedCudaWorkspace()) return false;
-        } else if (!_executionCacheDomain->Invalidate()) {
-            _lastDiagnostics.Error("CUDA execution cache context invalidation failed");
-            return false;
+    UsdGenBackendDef const *def = _DefOfDevice(loss.backend);
+    char const *const label = _LabelOf(def, "device");
+    auto const lossMatches = [&loss](int32_t deviceIndex) {
+        return loss.deviceIndex < 0 || loss.deviceIndex == deviceIndex;
+    };
+    if (def && (def->flags & kUsdGenBackendPoisonable)) {
+        if (_executionCacheDomain &&
+            _executionCacheDomain->Key().backend == loss.backend &&
+            lossMatches(_executionCacheDomain->Key().deviceIndex)) {
+            // This method runs only on the serialized cooker work lane. Any
+            // older async job has reached terminal completion before this
+            // turn begins, so the provider can retire its workspace.
+            auto const identity = _deviceProvider
+                ? _deviceProvider->Identity() : UsdGenSessionDeviceIdentity{};
+            if (_deviceProvider && identity.backend == loss.backend &&
+                identity.deviceIndex >= 0 && lossMatches(identity.deviceIndex)) {
+                (void)_deviceProvider->NotifyContextLost(identity);
+                _devicePoisoned = true;
+                _deviceLabel = label;
+                if (!_InvalidatePoisonedDevice()) return false;
+            } else if (!_executionCacheDomain->Invalidate()) {
+                _lastDiagnostics.Error(std::string(label) +
+                                       " execution cache context invalidation failed");
+                return false;
+            }
         }
-    }
-    if (loss.backend == UsdGenDeviceBackend::Vulkan && _deviceProvider) {
+    } else if (_deviceProvider) {
         auto const identity = _deviceProvider->Identity();
-        if (loss.deviceIndex < 0 || loss.deviceIndex == identity.deviceIndex) {
+        if (identity.backend == loss.backend && lossMatches(identity.deviceIndex)) {
             // Another Session may already have latched the shared provider.
             // Cache invalidation and serial acknowledgement still belong to
             // this cooker, irrespective of NotifyContextLost's return value.
             (void)_deviceProvider->NotifyContextLost(identity);
             if (_executionCacheDomain &&
-                _executionCacheDomain->Key().backend == UsdGenDeviceBackend::Vulkan &&
-                (loss.deviceIndex < 0 ||
-                 loss.deviceIndex == _executionCacheDomain->Key().deviceIndex) &&
+                _executionCacheDomain->Key().backend == loss.backend &&
+                lossMatches(_executionCacheDomain->Key().deviceIndex) &&
                 !_executionCacheDomain->Invalidate()) {
-                _lastDiagnostics.Error("Vulkan execution cache context invalidation failed");
+                _lastDiagnostics.Error(std::string(label) +
+                                       " execution cache context invalidation failed");
                 return false;
             }
         }
@@ -902,294 +919,6 @@ void UsdGenSessionCooker::SetDeviceProvider(
     _deviceProvider = std::move(provider);
 }
 
-void UsdGenSessionCooker::CookCudaAsync(UsdGenExecutionRuntime& runtime,
-    UsdGenExecutionPipeline::Cancellation const& cancellation,
-    std::shared_ptr<const UsdGenGraphSpec> desc, UsdGenContext context,
-    bool devicePublicationEnabled, UsdGenPendingDirty pending, double frame,
-    UsdGenCommitReason reason, UsdGenGenerationConstPtr previous,
-    UsdGenStats publishedStats, bool invalidateValues,
-    uint64_t previousPublishedWorkerEpoch, int callerDevice, CudaCompletion completion,
-    CoalescedHooks hooks)
-{
-    // Preparation owns the serial compiler/workspace state. It deliberately
-    // ends before the ready-task job is submitted; source/operators/final can
-    // then interleave with other sessions on the shared device dispatcher.
-    // Preparation mutates private compiler/store state before subsequent
-    // allocations or admission can throw. Record this epoch on every exit so
-    // a later cook against an unchanged public baseline rebuilds that state.
-    // This function returns before the pipeline can start this session's next
-    // work item (the async completion/run-return gate retains the work lane),
-    // so this is the sole writer: task-graph completion must not race it.
-    struct LastCooked {
-        uint64_t& out;
-        uint64_t epoch;
-        ~LastCooked() { out = epoch; }
-    } lastCooked{_lastCookedEpoch, cancellation.epoch};
-    TF_UNUSED(reason);
-    if (!_Prepare(std::move(desc), context, devicePublicationEnabled, pending,
-                  std::move(previous), std::move(publishedStats), invalidateValues,
-                  previousPublishedWorkerEpoch)) {
-        completion(_store.Get(), {});
-        return;
-    }
-    // Exec phase from here to the job's completion (registries/token.h).
-    UsdGenCookTokenCheck const tokenCheck;
-    if (callerDevice==-2) _lastDiagnostics.Error("CUDA caller device capture failed");
-    else if (!_devicePublicationEnabled) _lastDiagnostics.Error("CUDA publication requires a device-aware consumer; renderer graphics interop is unavailable");
-    else if (!_graph.CudaPlan()) _lastDiagnostics.Error("CUDA graph has no compiled execution plan");
-    if (_lastDiagnostics.HasErrors()) {
-        completion(_store.Get(), {});
-        return;
-    }
-    if (!_InvalidatePoisonedCudaWorkspace()) {
-        completion(_store.Get(), {});
-        return;
-    }
-    if (_cudaWorkspace && _executionCacheDomain &&
-        _executionCacheDomain->Key().backend == UsdGenDeviceBackend::Cuda &&
-        _executionCacheDomain->Key().deviceIndex == _cudaWorkspace->DeviceIndex() &&
-        !_ObserveExecutionCacheDomainEpoch()) {
-        completion(_store.Get(), {});
-        return;
-    }
-    const bool newWorkspace=!_cudaWorkspace || _cudaWorkspaceDescription!=_desc.description || (callerDevice>=0 && _cudaWorkspace->DeviceIndex()!=callerDevice);
-    if (newWorkspace) {
-        auto replacement = CreateCudaExecutionWorkspace(callerDevice, &_lastDiagnostics);
-        if (!replacement) {
-            completion(_store.Get(), {});
-            return;
-        }
-        _cudaWorkspace = std::move(replacement);
-        _cudaWorkspaceDescription = _desc.description;
-    }
-    if (!_SelectExecutionCacheDomain(UsdGenDeviceBackend::Cuda,
-                                     _cudaWorkspace->DeviceIndex())) {
-        completion(_store.Get(), {});
-        return;
-    }
-    _observedCacheDomainEpoch = _executionCacheDomain->Epoch();
-    auto cacheDomain = _executionCacheDomain;
-    UsdGenExecutionCacheKey const cacheKey = _MakeExecutionCacheKey(
-        _graph, _desc, _ExecutionCacheContext(_desc, _context,
-            _cudaWorkspace->DeviceIndex(), cacheDomain->Epoch()), frame);
-    ++_stats.executionCacheMisses;
-    if (auto lease = cacheDomain->Lookup(cacheKey)) {
-        UsdGenGeneration const& cached = **lease;
-        auto const& device = cached.device;
-        if (device && device->Owner() && device->Owner()->ProducerReady() &&
-            device->Identity().backend == UsdGenDeviceBackend::Cuda &&
-            device->Identity().deviceIndex == _cudaWorkspace->DeviceIndex()) {
-            std::string republishReason;
-            uint64_t const publicationGeneration =
-                cacheDomain->AllocatePublicationGeneration(
-                    static_cast<uint64_t>(_store.NextId()));
-            auto republished = publicationGeneration
-                ? device->Republish(publicationGeneration, &republishReason)
-                : std::shared_ptr<const UsdGenDeviceGeneration>{};
-            if (republished) {
-                UsdGenGeneration hit = cached;
-                hit.id = -1;
-                hit.frame = frame;
-                hit.device = std::move(republished);
-                auto prepared = _store.PreparePublication(std::move(hit));
-                auto fence = cacheDomain->CapturePublicationFence(cacheKey);
-                if (fence && cacheDomain->PublishIfCurrent(*fence, [this, &prepared] {
-                        return _store.PublishPrepared(std::move(prepared));
-                    })) {
-                    _publicationFence = ExecutionPublicationFence{
-                        cacheDomain, *fence};
-                    --_stats.executionCacheMisses;
-                    ++_stats.executionCacheHits;
-                    _graphBaselineDetached = true;
-                    _lastReport.Reset();
-                    ++_stats.commits;
-                    _stats.publishedTiles = 0;
-                    _lastNodeStats.clear();
-                    completion(_store.Get(), {});
-                    return;
-                }
-            }
-        }
-    }
-    _BeginCoalesced(cacheDomain, cacheKey, hooks);
-    if (_coalescedRole == CoalescedRole::Follower ||
-        _coalescedRole == CoalescedRole::Resident) {
-        return;
-    }
-    auto stages = std::make_shared<CudaStages>();
-    stages->previous = _store.Get();
-    stages->cacheDomain = std::move(cacheDomain);
-    stages->cacheKey = cacheKey;
-    stages->frame = frame;
-    stages->job = CreateCudaExecutionJob(_graph.CudaPlan(), *_cudaWorkspace, frame,
-        static_cast<uint64_t>(_store.NextId()), &_lastDiagnostics,
-        stages->previous && !newWorkspace ? stages->previous->device : nullptr);
-    if (!stages->job) {
-        _lastDiagnostics.Error("CUDA execution job creation failed");
-        completion(_store.Get(), {});
-        return;
-    }
-    auto metadata = GetCudaExecutionPlanMetadata(*_graph.CudaPlan());
-    if (!metadata ||
-        (metadata->Shape() != UsdGenExecutionPlanShape::LinearAuthoredChain &&
-         metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedUnaryDag &&
-         metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedValueDag) ||
-        metadata->Operators().empty() ||
-        metadata->Tasks().size() != CudaExecutionJobOperatorCount(*stages->job) + 2 ||
-        !metadata->FindTask(metadata->TerminalTask())) {
-        completion(_store.Get(), std::make_exception_ptr(
-            std::runtime_error("CUDA execution plan metadata is missing or incompatible")));
-        return;
-    }
-    for (uint32_t i = 0; i != metadata->Tasks().size(); ++i) {
-        if (!metadata->FindTask(i)) {
-            completion(_store.Get(), std::make_exception_ptr(
-                std::runtime_error("CUDA execution plan task ids are not dense")));
-            return;
-        }
-    }
-    std::string dependencyReason;
-    if (!UsdGenExecutionDependencyCompiler::Validate(
-            metadata->Tasks(), metadata->Values(), &dependencyReason)) {
-        completion(_store.Get(), std::make_exception_ptr(std::runtime_error(
-            "CUDA execution plan dependencies are invalid: " + dependencyReason)));
-        return;
-    }
-    auto dispatcher = UsdGenExecutionTaskGraph::GetOrCreate(
-        runtime, "cuda", _cudaWorkspace->DeviceIndex());
-    if (!dispatcher) {
-        completion(_store.Get(), std::make_exception_ptr(
-            std::runtime_error("CUDA dispatcher unavailable")));
-        return;
-    }
-    UsdGenExecutionTaskGraph::Job graph;
-    graph.cancellation = cancellation;
-    auto const* sourceMetadata = metadata->FindTask(0);
-    if (!sourceMetadata || sourceMetadata->kind != UsdGenExecutionTaskKind::Source ||
-        sourceMetadata->id != graph.tasks.size()) {
-        completion(_store.Get(), std::make_exception_ptr(
-            std::runtime_error("CUDA source task metadata is missing")));
-        return;
-    }
-    graph.tasks.push_back({sourceMetadata->dependencies, [stages](auto const& taskCancel, auto done) {
-        auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
-            std::move(done));
-        try {
-            if (taskCancel.Superseded()) {
-                (*completion)({}, std::make_exception_ptr(
-                    std::runtime_error("CUDA source stage failed")));
-                return;
-            }
-            if (!ExecuteCudaJobSourceAsync(stages->job,
-                    [completion](bool ok) {
-                if (ok) (*completion)({}, {});
-                else (*completion)({}, std::make_exception_ptr(
-                    std::runtime_error("CUDA source stage failed")));
-            })) {
-                (*completion)({}, std::make_exception_ptr(
-                    std::runtime_error("CUDA source stage failed")));
-            }
-        } catch (...) { (*completion)({}, std::current_exception()); }
-    }});
-    const size_t operators=CudaExecutionJobOperatorCount(*stages->job);
-    for (size_t i = 0; i < operators; ++i) {
-        auto const* operatorMetadata = metadata->FindTask(static_cast<uint32_t>(i + 1));
-        if (!operatorMetadata || operatorMetadata->kind != UsdGenExecutionTaskKind::Operator ||
-            operatorMetadata->id != graph.tasks.size()) {
-            completion(_store.Get(), std::make_exception_ptr(
-                std::runtime_error("CUDA operator task metadata is missing")));
-            return;
-        }
-        graph.tasks.push_back({operatorMetadata->dependencies,
-                               [stages, i](auto const& taskCancel, auto done) {
-            auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
-                std::move(done));
-            try {
-                if (taskCancel.Superseded()) {
-                    (*completion)({}, std::make_exception_ptr(
-                        std::runtime_error("CUDA operator stage " + std::to_string(i) + " superseded")));
-                    return;
-                }
-                if (!ExecuteCudaJobOperatorAsync(stages->job, i,
-                        [completion, i](bool ok) {
-                    if (ok) (*completion)({}, {});
-                    else (*completion)({}, std::make_exception_ptr(
-                        std::runtime_error("CUDA operator stage " + std::to_string(i) + " completion failed")));
-                })) {
-                    (*completion)({}, std::make_exception_ptr(
-                        std::runtime_error("CUDA operator stage " + std::to_string(i) + " submission failed")));
-                }
-            } catch (...) { (*completion)({}, std::current_exception()); }
-        }});
-    }
-    auto const* terminalMetadata = metadata->FindTask(metadata->TerminalTask());
-    if (!terminalMetadata || terminalMetadata->kind != UsdGenExecutionTaskKind::Publication ||
-        terminalMetadata->id != graph.tasks.size()) {
-        completion(_store.Get(), std::make_exception_ptr(
-            std::runtime_error("CUDA publication task metadata is missing")));
-        return;
-    }
-    graph.tasks.push_back({terminalMetadata->dependencies,
-                           [this, stages, tokenCheck](auto const&, auto done) {
-        auto completion = std::make_shared<UsdGenExecutionTaskGraph::TaskCompletion>(
-            std::move(done));
-        try {
-            if (!FinalizeCudaExecutionJobAsync(stages->job,
-                    [this, stages, completion, tokenCheck](std::shared_ptr<const UsdGenDeviceGeneration> device) {
-                try {
-                    if (!device) {
-                        (*completion)({}, std::make_exception_ptr(
-                            std::runtime_error("CUDA final stage failed")));
-                        return;
-                    }
-                    if (UsdGenCookInternFails(tokenCheck, nullptr)) {
-                        (*completion)({}, std::make_exception_ptr(std::runtime_error(
-                            "usdGen: a token was interned during the cook")));
-                        return;
-                    }
-                    // Allocate native diagnostic snapshots before advancing
-                    // the shared private publication state.
-                    auto bindingStats = UsdGenMakeRef<_BindingStats>();
-                    bindingStats->stats = GetCudaBindingStats(*_cudaWorkspace);
-                    if (!_FinalizeDevicePublication(std::move(device),
-                            stages->cacheDomain, stages->cacheKey, stages->frame)) {
-                        (*completion)({}, std::make_exception_ptr(std::runtime_error(
-                            "CUDA execution domain was invalidated before publication")));
-                        return;
-                    }
-                    // This is private cooker state for the sole in-flight
-                    // Session work lane.  Public snapshot/pending acceptance
-                    // remains the pipeline publication produced by session.cpp.
-                    _cudaBindingStats.Store(std::move(bindingStats));
-                    (*completion)([] {}, {});
-                } catch (...) { (*completion)({}, std::current_exception()); }
-            })) {
-                (*completion)({}, std::make_exception_ptr(
-                    std::runtime_error("CUDA final stage failed")));
-            }
-        } catch (...) { (*completion)({}, std::current_exception()); }
-    }});
-    graph.finalTask = terminalMetadata->id;
-    auto terminal=std::make_shared<CudaCompletion>(std::move(completion));
-    graph.completion = [this, stages, terminal](
-        auto, std::exception_ptr error) mutable {
-        // Task completion proves no dispatcher closure can still borrow the
-        // job workspace. Destroy the job first, because its destructor can be
-        // the operation that marks an unprovable transaction poisoned.
-        stages->job.reset();
-        if (!_InvalidatePoisonedCudaWorkspace() && !error)
-            error = std::make_exception_ptr(std::runtime_error(
-                "CUDA execution cache poison invalidation failed"));
-        if (*terminal) (*terminal)(_store.Get(), error);
-    };
-    if (!dispatcher->Submit(std::move(graph))) {
-        if (*terminal) {
-            (*terminal)(_store.Get(), std::make_exception_ptr(
-                std::runtime_error("CUDA dispatcher rejected job")));
-        }
-    }
-}
-
 void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     UsdGenExecutionPipeline::Cancellation const& cancellation,
     std::shared_ptr<const UsdGenGraphSpec> desc, UsdGenContext context,
@@ -1198,58 +927,117 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     UsdGenStats publishedStats, bool invalidateValues,
     uint64_t previousPublishedWorkerEpoch, int callerDevice,
     std::shared_ptr<UsdGenSessionDeviceProvider> provider,
-    DeviceReturnBinder bindReturn, CudaCompletion completion, CoalescedHooks hooks)
+    DeviceReturnBinder bindReturn, CookCompletion completion, CoalescedHooks hooks)
 {
-    TF_UNUSED(runtime); TF_UNUSED(reason); TF_UNUSED(callerDevice);
+    TF_UNUSED(reason);
+    // This function returns before the pipeline can start this session's
+    // next work item (the async completion gate retains the work lane), so
+    // it is the sole writer of the cooked epoch.
     struct LastCooked { uint64_t& out; uint64_t epoch; ~LastCooked() { out = epoch; } }
         lastCooked{_lastCookedEpoch, cancellation.epoch};
-    if (!provider || !bindReturn) { _lastDiagnostics.Error("Vulkan Session provider is not injected"); completion(_store.Get(), {}); return; }
+    UsdGenExecutionBackend const backend =
+        desc ? desc->executionBackend : UsdGenExecutionBackend::Invalid;
+    UsdGenBackendDef const *const def =
+        UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(backend)));
+    // An injected provider of an unregistered backend keeps the
+    // revision-authoritative contract.
+    uint32_t const flags = def ? def->flags
+        : uint32_t(kUsdGenBackendAuthoritativeRevisions | kUsdGenBackendNeedsDevicePublication);
+    char const *const label = _LabelOf(def, UsdGenExecutionBackendName(backend));
+    bool const authoritative = flags & kUsdGenBackendAuthoritativeRevisions;
+    bool const poisonable = flags & kUsdGenBackendPoisonable;
+    bool const reusesPlan = flags & kUsdGenBackendReusesPlan;
+    if (!provider || !bindReturn) {
+        _lastDiagnostics.Error(std::string(label) + " Session provider is not injected");
+        completion(_store.Get(), {});
+        return;
+    }
     _deviceProvider = provider;
+    _deviceFlags = flags;
+    _deviceLabel = label;
     std::shared_ptr<const UsdGenExecutionPlanHandle> plan;
     if (!_Prepare(std::move(desc), context, devicePublicationEnabled, pending,
                   std::move(previous), std::move(publishedStats), invalidateValues,
                   previousPublishedWorkerEpoch,
                   [provider](UsdGenGraphSpec const& d, UsdGenDiagnostics* diag) {
                       return provider->Compile(d, diag);
-                  }, &plan)) { completion(_store.Get(), {}); return; }
+                  }, &plan, reusesPlan)) { completion(_store.Get(), {}); return; }
     // Exec phase from here to the device result (registries/token.h).
     UsdGenCookTokenCheck const tokenCheck;
-    auto const identity = provider->Identity();
-    if (!_devicePublicationEnabled || !plan ||
-        identity.backend != UsdGenDeviceBackend::Vulkan ||
+    // -2 is the command boundary's explicit capture-failure sentinel. Reusing
+    // a former workspace would silently run on an unrelated device.
+    if (def && def->captureCallerDevice && callerDevice == -2)
+        _lastDiagnostics.Error(std::string(label) + " caller device capture failed");
+    else if ((flags & kUsdGenBackendNeedsDevicePublication) && !_devicePublicationEnabled)
+        _lastDiagnostics.Error(std::string(label) + " publication requires a device-aware "
+                               "consumer; renderer graphics interop is unavailable");
+    else if (!plan)
+        _lastDiagnostics.Error(std::string(label) + " graph has no compiled execution plan");
+    if (_lastDiagnostics.HasErrors() || !_InvalidatePoisonedDevice()) {
+        completion(_store.Get(), {});
+        return;
+    }
+    if (poisonable) {
+        // A domain epoch moved by another Session quarantines this provider's
+        // workspace before the next job borrows any native allocation.
+        auto const current = provider->Identity();
+        if (current.deviceIndex >= 0 && _executionCacheDomain &&
+            _executionCacheDomain->Key().backend == current.backend &&
+            _executionCacheDomain->Key().deviceIndex == current.deviceIndex &&
+            !_ObserveExecutionCacheDomainEpoch()) {
+            completion(_store.Get(), {});
+            return;
+        }
+    }
+    UsdGenSessionDeviceIdentity identity;
+    if (!provider->Select(callerDevice, _desc.description, &identity, &_lastDiagnostics) ||
+        _lastDiagnostics.HasErrors()) {
+        completion(_store.Get(), {});
+        return;
+    }
+    if (identity.backend != GetUsdGenExecutionBackendContract(_desc.executionBackend).deviceBackend ||
         !identity.capabilityVersion || cancellation.Superseded()) {
-        _lastDiagnostics.Error("Vulkan device publication is unavailable for this request");
+        _lastDiagnostics.Error(std::string(label) + " device publication is unavailable for this request");
         completion(_store.Get(), {}); return;
     }
     _activeDeviceIdentity = identity;
     if (!_SelectExecutionCacheDomain(identity.backend, identity.deviceIndex,
-                                    identity.logicalContextIdentity) ||
-        !_ObserveExecutionCacheDomainEpoch()) { completion(_store.Get(), {}); return; }
+                                     identity.logicalContextIdentity) ||
+        (!poisonable && !_ObserveExecutionCacheDomainEpoch())) {
+        completion(_store.Get(), {}); return;
+    }
     auto domain = _executionCacheDomain;
-    if (!domain || domain->Key().contextIdentity != identity.logicalContextIdentity) {
-        _lastDiagnostics.Error("Vulkan execution cache domain logical context identity mismatch");
+    // An authoritative backend owns its logical context: the domain must be it.
+    if (!domain || (authoritative &&
+                    domain->Key().contextIdentity != identity.logicalContextIdentity)) {
+        _lastDiagnostics.Error(std::string(label) +
+                               " execution cache domain logical context identity mismatch");
         completion(_store.Get(), {}); return;
     }
     _observedCacheDomainEpoch = domain->Epoch();
-    auto cacheContext = MakeUsdGenExecutionContext(UsdGenExecutionBackend::Vulkan,
+    auto cacheContext = MakeUsdGenExecutionContext(_desc.executionBackend,
         identity.capabilityVersion, identity.deviceIndex, domain->Epoch(), _context);
     auto key = _MakeExecutionCacheKey(_graph, _desc, cacheContext, frame);
     ++_stats.executionCacheMisses;
     if (auto lease = domain->Lookup(key)) {
         UsdGenGeneration const& cached = **lease;
         auto const& cachedDevice = cached.device;
-        if (provider->Identity() == identity && cachedDevice && cachedDevice->Owner() && cachedDevice->Owner()->ProducerReady() &&
-            cachedDevice->Identity().backend == UsdGenDeviceBackend::Vulkan &&
+        if (provider->Identity() == identity && cachedDevice && cachedDevice->Owner() &&
+            cachedDevice->Owner()->ProducerReady() &&
+            cachedDevice->Identity().backend == identity.backend &&
             cachedDevice->Identity().deviceIndex == identity.deviceIndex) {
             std::string republishReason;
             uint64_t const publicationGeneration = domain->AllocatePublicationGeneration(
                 static_cast<uint64_t>(_store.NextId()));
-            auto republished = publicationGeneration
+            // Republish changes only the consumer/publication identity; an
+            // authoritative backend's cached revisions stay immutable, the
+            // others advance the value version.
+            auto republished = !publicationGeneration
+                ? std::shared_ptr<const UsdGenDeviceGeneration>{}
+                : authoritative
                 ? cachedDevice->RepublishPreservingRevisions(publicationGeneration, &republishReason)
-                : std::shared_ptr<const UsdGenDeviceGeneration>{};
+                : cachedDevice->Republish(publicationGeneration, &republishReason);
             if (republished) {
-                // Republish changes only the consumer/publication identity;
-                // cached topology/value revisions remain immutable.
                 UsdGenGeneration hit = cached;
                 hit.id = -1; hit.frame = frame; hit.device = std::move(republished);
                 auto prepared = _store.PreparePublication(std::move(hit));
@@ -1269,47 +1057,86 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     }
     _BeginCoalesced(domain, key, hooks);
     if (_coalescedRole == CoalescedRole::Follower || _coalescedRole == CoalescedRole::Resident) return;
-    auto metadata = plan->Metadata();
-    size_t modifiers = 0;
-    if (metadata) for (auto const& task : metadata->Tasks())
-        if (task.kind == UsdGenExecutionTaskKind::Operator) ++modifiers;
-    if (!metadata || !modifiers ||
-        (metadata->Shape() != UsdGenExecutionPlanShape::LinearAuthoredChain &&
-         metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedUnaryDag &&
-         metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedValueDag)) {
-        _lastDiagnostics.Error("Vulkan publication revision contract is missing");
-        completion(_store.Get(), {}); return;
+    uint64_t source = 0, final = 0, expectedTopology = 0;
+    std::vector<uint64_t> intermediates;
+    if (authoritative) {
+        auto metadata = plan->Metadata();
+        size_t modifiers = 0;
+        if (metadata) for (auto const& task : metadata->Tasks())
+            if (task.kind == UsdGenExecutionTaskKind::Operator) ++modifiers;
+        if (!metadata || !modifiers ||
+            (metadata->Shape() != UsdGenExecutionPlanShape::LinearAuthoredChain &&
+             metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedUnaryDag &&
+             metadata->Shape() != UsdGenExecutionPlanShape::SourceRootedValueDag)) {
+            _lastDiagnostics.Error(std::string(label) + " publication revision contract is missing");
+            completion(_store.Get(), {}); return;
+        }
+        intermediates.resize(modifiers - 1);
+        source = domain->AllocatePublicationGeneration(
+            static_cast<uint64_t>(_store.NextId()));
+        uint64_t previousRevision = source;
+        for (auto& value : intermediates) {
+            if (!previousRevision) break;
+            value = domain->AllocatePublicationGeneration(previousRevision);
+            if (value <= previousRevision) { previousRevision = 0; break; }
+            previousRevision = value;
+        }
+        final = previousRevision ? domain->AllocatePublicationGeneration(previousRevision) : 0;
+        if (!source || !final || final <= previousRevision) {
+            _lastDiagnostics.Error(std::string(label) + " publication revision allocation failed");
+            completion(_store.Get(), {}); return;
+        }
+        if (!_TerminalTopologyRevision(*metadata, source, final, intermediates, &expectedTopology)) {
+            _lastDiagnostics.Error(std::string(label) + " terminal topology revision contract is missing");
+            completion(_store.Get(), {}); return;
+        }
     }
-    std::vector<uint64_t> intermediates(modifiers - 1);
-    uint64_t const source = domain->AllocatePublicationGeneration(
-        static_cast<uint64_t>(_store.NextId()));
-    uint64_t previousRevision = source;
-    for (auto& value : intermediates) {
-        if (!previousRevision) break;
-        value = domain->AllocatePublicationGeneration(previousRevision);
-        if (value <= previousRevision) { previousRevision = 0; break; }
-        previousRevision = value;
-    }
-    uint64_t const final = previousRevision ? domain->AllocatePublicationGeneration(previousRevision) : 0;
-    if (!source || !final || final <= previousRevision) {
-        _lastDiagnostics.Error("Vulkan publication revision allocation failed"); completion(_store.Get(), {}); return;
-    }
-    uint64_t expectedTopology = 0;
-    if (!_TerminalTopologyRevision(*metadata, source, final, intermediates, &expectedTopology)) {
-        _lastDiagnostics.Error("Vulkan terminal topology revision contract is missing");
-        completion(_store.Get(), {}); return;
-    }
-    auto handler = [this, provider, domain, key, frame, identity, source, final, intermediates, expectedTopology,
-                    completion, tokenCheck](
+    auto handler = [this, provider, domain, key, frame, identity, source, final, intermediates,
+                    expectedTopology, authoritative, label, completion, tokenCheck](
         std::shared_ptr<const UsdGenSessionDeviceResult> result) mutable {
+        bool const poisoned = result && result->poisoned;
+        // A poisoned workspace invalidates the domain after the result is
+        // settled and before the terminal completion.
+        auto finish = [&](std::exception_ptr error) {
+            if (poisoned) {
+                _devicePoisoned = true;
+                if (!_InvalidatePoisonedDevice() && !error)
+                    error = std::make_exception_ptr(std::runtime_error(
+                        std::string(label) + " execution cache poison invalidation failed"));
+            }
+            completion(_store.Get(), error);
+        };
+        if (!authoritative) {
+            // Errors travel as the cook's exception; the provider names them.
+            if (!result || result->error || !result->generation) {
+                finish(result && result->error ? result->error
+                    : std::make_exception_ptr(std::runtime_error(
+                          std::string(label) + " final stage failed")));
+                return;
+            }
+            if (UsdGenCookInternFails(tokenCheck, nullptr)) {
+                finish(std::make_exception_ptr(std::runtime_error(
+                    "usdGen: a token was interned during the cook")));
+                return;
+            }
+            if (!_FinalizeDevicePublication(result->generation, domain, key, frame)) {
+                finish(std::make_exception_ptr(std::runtime_error(std::string(label) +
+                    " execution domain was invalidated before publication")));
+                return;
+            }
+            _deviceReport = result->report;
+            _acceptedDeviceIdentity = identity;
+            finish({});
+            return;
+        }
         if (result && result->error) {
             try { std::rethrow_exception(result->error); }
             catch (std::exception const& error) {
-                _lastDiagnostics.Error(std::string("Vulkan device execution failed: ") + error.what());
+                _lastDiagnostics.Error(std::string(label) + " device execution failed: " + error.what());
             } catch (...) {
-                _lastDiagnostics.Error("Vulkan device execution failed with an unknown error");
+                _lastDiagnostics.Error(std::string(label) + " device execution failed with an unknown error");
             }
-            completion(_store.Get(), result->error);
+            finish(result->error);
             return;
         }
         if (!result || result->error || !result->generation || result->identity != identity ||
@@ -1319,51 +1146,59 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
             result->revisions.finalValueVersion != final ||
             result->revisions.intermediateValueVersions != intermediates ||
             !result->generation->Owner() || !result->generation->Owner()->ProducerReady() ||
-            result->generation->Identity().backend != UsdGenDeviceBackend::Vulkan ||
+            result->generation->Identity().backend != identity.backend ||
             result->generation->Identity().deviceIndex != identity.deviceIndex ||
             result->generation->Identity().generation != final ||
             result->generation->Geometry().topologyVersion != expectedTopology ||
             result->generation->Geometry().valueVersion != final) {
-            _lastDiagnostics.Error("Vulkan device result failed immutable identity or readiness validation");
-            completion(_store.Get(), result && result->error ? result->error :
-                std::make_exception_ptr(std::runtime_error("Vulkan device result validation failed"))); return;
+            _lastDiagnostics.Error(std::string(label) +
+                " device result failed immutable identity or readiness validation");
+            finish(result && result->error ? result->error :
+                std::make_exception_ptr(std::runtime_error(std::string(label) +
+                    " device result validation failed"))); return;
         }
         if (UsdGenCookInternFails(tokenCheck, &_lastDiagnostics)) {
-            completion(_store.Get(), std::make_exception_ptr(std::runtime_error(
+            finish(std::make_exception_ptr(std::runtime_error(
                 "usdGen: a token was interned during the cook"))); return;
         }
         if (!_FinalizeDevicePublication(result->generation, domain, key, frame)) {
-            completion(_store.Get(), std::make_exception_ptr(std::runtime_error(
-                "Vulkan execution domain was invalidated before publication"))); return;
+            finish(std::make_exception_ptr(std::runtime_error(std::string(label) +
+                " execution domain was invalidated before publication"))); return;
         }
+        _deviceReport = result->report;
         _acceptedDeviceIdentity = identity;
-        completion(_store.Get(), {});
+        finish({});
     };
     UsdGenSessionDeviceRequest request;
     request.plan = std::move(plan); request.identity = identity;
-    request.publicationGeneration = final;
     request.evaluationFrame = frame;
-    request.authoritativeRevisions = UsdGenSessionDeviceRevisions{source, source, final, std::move(intermediates)};
     request.cancellation = cancellation;
-    request.tool.snapshotVersion = final;
+    request.runtime = &runtime;
+    request.previous = _store.Get() ? _store.Get()->device : nullptr;
+    request.diagnostics = &_lastDiagnostics;
+    if (authoritative) {
+        request.publicationGeneration = final;
+        request.authoritativeRevisions = UsdGenSessionDeviceRevisions{source, source, final, std::move(intermediates)};
+        request.tool.snapshotVersion = final;
+    } else {
+        request.publicationGeneration = static_cast<uint64_t>(_store.NextId());
+    }
     // Binder state can retain the Session ingress relay. Drop it before
     // provider admission so handler/result/provider cannot close a cycle back
     // through the binder after the one return route has been materialized.
     auto binder = std::move(bindReturn);
     try { request.returnTransport = binder(std::move(handler)); }
     catch (...) {
-        _lastDiagnostics.Error("Vulkan Session return transport binding failed");
+        _lastDiagnostics.Error(std::string(label) + " Session return transport binding failed");
         completion(_store.Get(), std::current_exception()); return;
     }
     binder = {};
+    size_t const knownErrors = _lastDiagnostics.errors.size();
     if (!request.returnTransport || !provider->Submit(std::move(request))) {
-        _lastDiagnostics.Error("Vulkan device provider rejected owner admission");
+        if (_lastDiagnostics.errors.size() == knownErrors)
+            _lastDiagnostics.Error(std::string(label) + " device provider rejected owner admission");
         completion(_store.Get(), {});
     }
-}
-
-std::vector<UsdGenCudaBindingStats> UsdGenSessionCooker::CudaBindingStats() const {
-    return _cudaBindingStats.Load()->stats;
 }
 
 std::optional<UsdGenSessionCooker::ExecutionCacheCandidate>
@@ -1396,64 +1231,50 @@ bool UsdGenSessionCooker::AdoptCoalesced(
     UsdGenGeneration hit = *payload;
     hit.id = -1;
     hit.frame = frame;
-    if (_desc.executionBackend == UsdGenExecutionBackend::Cuda) {
-        if (!_cudaWorkspace || _cudaWorkspace->IsPoisoned() || !hit.device ||
-            !hit.device->Owner() || !hit.device->Owner()->ProducerReady() ||
-            hit.device->Identity().deviceIndex != _cudaWorkspace->DeviceIndex())
-            return false;
-        std::string reason;
-        uint64_t const id = _coalescedDomain->AllocatePublicationGeneration(
-            static_cast<uint64_t>(_store.NextId()));
-        auto republished = id ? hit.device->Republish(id, &reason)
-                              : std::shared_ptr<const UsdGenDeviceGeneration>{};
-        if (!republished) {
-            _lastDiagnostics.Error(reason.empty()
-                ? "coalesced CUDA cache result could not be republished" : reason);
-            return false;
-        }
-        hit.device = std::move(republished);
-    } else if (_desc.executionBackend == UsdGenExecutionBackend::Vulkan) {
-        if (!_deviceProvider || !hit.device || !hit.device->Owner() ||
-            !hit.device->Owner()->ProducerReady() ||
-            _coalescedDomain->Key().backend != UsdGenDeviceBackend::Vulkan) return false;
+    bool const onDevice = _desc.executionBackend != UsdGenExecutionBackend::CpuReference;
+    if (onDevice) {
+        bool const authoritative = _deviceFlags & kUsdGenBackendAuthoritativeRevisions;
+        if (!_deviceProvider || !_activeDeviceIdentity || !hit.device ||
+            !hit.device->Owner() || !hit.device->Owner()->ProducerReady()) return false;
         auto const identity = _deviceProvider->Identity();
-        if (identity.backend != UsdGenDeviceBackend::Vulkan ||
-            hit.device->Identity().backend != UsdGenDeviceBackend::Vulkan ||
-            hit.device->Identity().deviceIndex != identity.deviceIndex ||
-            _coalescedDomain->Key().deviceIndex != identity.deviceIndex ||
-            _coalescedDomain->Key().contextIdentity != identity.logicalContextIdentity ||
-            _coalescedKey.context.deviceGeneration != _coalescedDomain->Epoch()) return false;
-        // The native generation's topology/value revisions are immutable
-        // cache payload. Allocate only a fresh consumer/publication identity.
+        // A poisoned or replaced workspace changes the provider identity.
+        if (identity != *_activeDeviceIdentity ||
+            hit.device->Identity().backend != identity.backend ||
+            hit.device->Identity().deviceIndex != identity.deviceIndex) return false;
+        if (authoritative &&
+            (_coalescedDomain->Key().backend != identity.backend ||
+             _coalescedDomain->Key().deviceIndex != identity.deviceIndex ||
+             _coalescedDomain->Key().contextIdentity != identity.logicalContextIdentity ||
+             _coalescedKey.context.deviceGeneration != _coalescedDomain->Epoch())) return false;
+        // An authoritative backend's topology/value revisions are immutable
+        // cache payload: allocate only a fresh consumer/publication identity.
         std::string reason;
         uint64_t const id = _coalescedDomain->AllocatePublicationGeneration(
             static_cast<uint64_t>(_store.NextId()));
-        auto republished = id ? hit.device->RepublishPreservingRevisions(id, &reason)
-                              : std::shared_ptr<const UsdGenDeviceGeneration>{};
+        auto republished = !id ? std::shared_ptr<const UsdGenDeviceGeneration>{}
+            : authoritative ? hit.device->RepublishPreservingRevisions(id, &reason)
+                            : hit.device->Republish(id, &reason);
         if (!republished) {
             _lastDiagnostics.Error(reason.empty()
-                ? "coalesced Vulkan cache result could not be republished" : reason);
+                ? std::string("coalesced ") + _deviceLabel + " cache result could not be republished"
+                : reason);
             return false;
         }
         hit.device = std::move(republished);
     }
-    if (_desc.executionBackend == UsdGenExecutionBackend::Vulkan &&
-        (!_deviceProvider || !_activeDeviceIdentity ||
-         _deviceProvider->Identity() != *_activeDeviceIdentity)) return false;
     auto prepared = _store.PreparePublication(std::move(hit));
     if (!_coalescedDomain->PublishIfCurrent(publication.fence, [this, &prepared] {
             return _store.PublishPrepared(std::move(prepared));
         })) return false;
     _publicationFence = publication;
-    if (_desc.executionBackend == UsdGenExecutionBackend::Vulkan)
+    if (onDevice)
         _acceptedDeviceIdentity = _activeDeviceIdentity;
     --_stats.executionCacheMisses;
     ++_stats.executionCacheHits;
     if (_coalescedRole == CoalescedRole::Follower)
         ++_stats.executionCacheCoalesced;
     _graphBaselineDetached = true;
-    _lastReport = (_desc.executionBackend == UsdGenExecutionBackend::Cuda ||
-                   _desc.executionBackend == UsdGenExecutionBackend::Vulkan)
+    _lastReport = onDevice
         ? UsdGenRef<const UsdGenPublication>()
         : _DiffGenerations(previous.get(), *_store.Get());
     ++_stats.commits;
@@ -1507,34 +1328,26 @@ bool UsdGenSessionCooker::CommitCacheCandidate(
     UsdGenExecutionContext context = _ExecutionCacheContext(
         _desc, _context, -1,
         _executionCacheDomain ? _executionCacheDomain->Epoch() : 0);
-    if (_desc.executionBackend == UsdGenExecutionBackend::Cuda) {
-        if (!_cudaWorkspace || _cudaWorkspace->IsPoisoned() ||
-            !candidate.generation->device ||
-            !candidate.generation->device->Owner() ||
-            !candidate.generation->device->Owner()->ProducerReady()) return reject();
-        context = _ExecutionCacheContext(_desc, _context,
-            _cudaWorkspace->DeviceIndex(), _executionCacheDomain->Epoch());
-        auto const& identity = candidate.generation->device->Identity();
-        if (identity.backend != UsdGenDeviceBackend::Cuda ||
-            identity.deviceIndex != context.deviceIndex) return reject();
-    } else if (_desc.executionBackend == UsdGenExecutionBackend::Vulkan) {
+    if (_desc.executionBackend != UsdGenExecutionBackend::CpuReference) {
+        // The provider's identity (a poisoned workspace changes it) must
+        // still be the one the cook accepted.
         if (!_deviceProvider || !candidate.generation->device ||
             !candidate.generation->device->Owner() ||
             !candidate.generation->device->Owner()->ProducerReady() ||
             !_executionCacheDomain) return reject();
         auto const identity = _deviceProvider->Identity();
         if (!_acceptedDeviceIdentity || *_acceptedDeviceIdentity != identity) return reject();
-        if (_executionCacheDomain->Key().contextIdentity != identity.logicalContextIdentity ||
-            candidate.key.context.backend != UsdGenDeviceBackend::Vulkan ||
+        if (((_deviceFlags & kUsdGenBackendAuthoritativeRevisions) &&
+             _executionCacheDomain->Key().contextIdentity != identity.logicalContextIdentity) ||
+            candidate.key.context.backend != identity.backend ||
             candidate.key.context.capabilityVersion != identity.capabilityVersion ||
             candidate.key.context.deviceIndex != identity.deviceIndex ||
             candidate.key.context.deviceGeneration != _executionCacheDomain->Epoch()) return reject();
-        context = MakeUsdGenExecutionContext(UsdGenExecutionBackend::Vulkan,
+        context = MakeUsdGenExecutionContext(_desc.executionBackend,
             identity.capabilityVersion, identity.deviceIndex,
             _executionCacheDomain->Epoch(), _context);
         auto const& deviceIdentity = candidate.generation->device->Identity();
-        if (identity.backend != UsdGenDeviceBackend::Vulkan ||
-            deviceIdentity.backend != UsdGenDeviceBackend::Vulkan ||
+        if (deviceIdentity.backend != identity.backend ||
             deviceIdentity.deviceIndex != identity.deviceIndex) return reject();
     }
     UsdGenExecutionCacheKey current = _MakeExecutionCacheKey(
@@ -1585,6 +1398,7 @@ UsdGenStats publishedStats, bool invalidateValues,
     TRACE_FUNCTION();
     _CommitPhases phases;
     TF_UNUSED(reason);
+    TF_UNUSED(callerDevice);
     // Once populated, replace the complete pose together. Streaming updates
     // would display mixed poses and disable capture-direct point updates.
     // Geometry notices can precede the host's current-frame notice, so the
@@ -1598,14 +1412,11 @@ UsdGenStats publishedStats, bool invalidateValues,
     UsdGenCookTokenCheck const tokenCheck;
 
     const uint64_t myReq = workEpoch;
-    if (_desc.executionBackend != UsdGenExecutionBackend::Cuda &&
-        !_SelectExecutionCacheDomain(UsdGenDeviceBackend::CpuReference, -1))
+    if (!_SelectExecutionCacheDomain(UsdGenDeviceBackend::CpuReference, -1))
         return _store.Get();
-    if (_desc.executionBackend != UsdGenExecutionBackend::Cuda &&
-        !_ObserveExecutionCacheDomainEpoch())
+    if (!_ObserveExecutionCacheDomainEpoch())
         return _store.Get();
-    // Keep the exact domain alive for every publication in this cook.  CUDA
-    // may select its device-specific domain below; CPU keeps this one.
+    // Keep the exact domain alive for every publication in this cook.
     auto cacheDomain = _executionCacheDomain;
     UsdGenExecutionCacheKey cacheKey = [&] {
         TRACE_SCOPE("usdGen execution cache key");
@@ -1621,168 +1432,40 @@ UsdGenStats publishedStats, bool invalidateValues,
     // graph's exact input tuple and current layout contract. A hit is copied
     // into a new generation publication; the cache's immutable payload is
     // never handed to the mutable generation store by alias.
-    if (_desc.executionBackend != UsdGenExecutionBackend::Cuda) {
-        ++_stats.executionCacheMisses;
-        auto lease = cacheDomain->Lookup(cacheKey);
-        if (lease) {
-            UsdGenGeneration hit = **lease;
-            hit.id = -1;
-            hit.frame = frame;
-            UsdGenGenerationConstPtr prev = _store.Get();
-            auto prepared = _store.PreparePublication(std::move(hit));
-            auto fence = cacheDomain->CapturePublicationFence(cacheKey);
-            if (fence && cacheDomain->PublishIfCurrent(*fence, [this, &prepared] {
-                    return _store.PublishPrepared(std::move(prepared));
-                })) {
-                _publicationFence = ExecutionPublicationFence{
-                    cacheDomain, *fence};
-                --_stats.executionCacheMisses;
-                ++_stats.executionCacheHits;
-                UsdGenGenerationConstPtr next = _store.Get();
-                _lastReport = _DiffGenerations(prev.get(), *next);
-                ++_stats.commits;
-                _stats.publishedTiles = _PublishedGroups(next.get());
-                _lastNodeStats.clear();
-                _graphBaselineDetached = true;
-                phases.Phase("cache hit publish");
-                phases.Print(frame, _traceCompile,
-                             "cache hit (operators not run; next cook recompiles)",
-                             _desc);
-                return next;
-            }
-        }
-        phases.Phase("cache lookup");
-        _BeginCoalesced(cacheDomain, cacheKey, hooks);
-        if (_coalescedRole == CoalescedRole::Follower ||
-            _coalescedRole == CoalescedRole::Resident)
-            return _store.Get();
-    }
-
-    if (_desc.executionBackend == UsdGenExecutionBackend::Cuda) {
-        auto reject = [&]() {
-            return _store.Get();
-        };
-        // -2 is the command boundary's explicit cudaGetDevice failure
-        // sentinel.  Reusing a former workspace in that case would silently
-        // execute on an unrelated device selected by a worker thread.
-        if (callerDevice == -2) {
-            _lastDiagnostics.Error("CUDA caller device capture failed");
-            return reject();
-        }
-        if (!_devicePublicationEnabled) {
-            _lastDiagnostics.Error("CUDA publication requires a device-aware consumer; renderer graphics interop is unavailable");
-            return reject();
-        }
-        if (!_graph.CudaPlan()) {
-            _lastDiagnostics.Error("CUDA graph has no compiled execution plan");
-            return reject();
-        }
-        if (!_InvalidatePoisonedCudaWorkspace()) return reject();
-        if (_cudaWorkspace && _executionCacheDomain &&
-            _executionCacheDomain->Key().backend == UsdGenDeviceBackend::Cuda &&
-            _executionCacheDomain->Key().deviceIndex == _cudaWorkspace->DeviceIndex() &&
-            !_ObserveExecutionCacheDomainEpoch()) return reject();
-        const bool newWorkspace = !_cudaWorkspace ||
-            _cudaWorkspaceDescription != _desc.description ||
-            (callerDevice >= 0 && _cudaWorkspace->DeviceIndex() != callerDevice);
-        if (newWorkspace) {
-            auto replacement = CreateCudaExecutionWorkspace(
-                callerDevice, &_lastDiagnostics);
-            if (!replacement) return reject();
-            _cudaWorkspace = std::move(replacement);
-            _cudaWorkspaceDescription = _desc.description;
-        }
-        if (!_cudaWorkspace) return reject();
-        if (!_SelectExecutionCacheDomain(UsdGenDeviceBackend::Cuda,
-                                         _cudaWorkspace->DeviceIndex()))
-            return reject();
-        _observedCacheDomainEpoch = _executionCacheDomain->Epoch();
-        cacheDomain = _executionCacheDomain;
-        cacheKey = _MakeExecutionCacheKey(_graph, _desc,
-            _ExecutionCacheContext(_desc, _context,
-                _cudaWorkspace->DeviceIndex(), cacheDomain->Epoch()), frame);
-        ++_stats.executionCacheMisses;
-        if (auto lease = cacheDomain->Lookup(cacheKey)) {
-            UsdGenGeneration const& cached = **lease;
-            auto const& cachedDevice = cached.device;
-            if (cachedDevice && cachedDevice->Owner() &&
-                cachedDevice->Owner()->ProducerReady() &&
-                cachedDevice->Identity().backend == UsdGenDeviceBackend::Cuda &&
-                cachedDevice->Identity().deviceIndex == _cudaWorkspace->DeviceIndex()) {
-                std::string republishReason;
-                uint64_t const publicationGeneration =
-                    cacheDomain->AllocatePublicationGeneration(
-                        static_cast<uint64_t>(_store.NextId()));
-                auto republished = publicationGeneration
-                    ? cachedDevice->Republish(publicationGeneration, &republishReason)
-                    : std::shared_ptr<const UsdGenDeviceGeneration>{};
-                if (republished) {
-                    UsdGenGeneration hit = cached;
-                    hit.id = -1;
-                    hit.frame = frame;
-                    hit.device = std::move(republished);
-                    auto prepared = _store.PreparePublication(std::move(hit));
-                    auto fence = cacheDomain->CapturePublicationFence(cacheKey);
-                    if (fence && cacheDomain->PublishIfCurrent(*fence, [this, &prepared] {
-                            return _store.PublishPrepared(std::move(prepared));
-                        })) {
-                        _publicationFence = ExecutionPublicationFence{
-                            cacheDomain, *fence};
-                        --_stats.executionCacheMisses;
-                        ++_stats.executionCacheHits;
-                        _lastReport.Reset();
-                        ++_stats.commits;
-                        _stats.publishedTiles = 0;
-                        _lastNodeStats.clear();
-                        _graphBaselineDetached = true;
-                        return _store.Get();
-                    }
-                }
-            }
-        }
-        if (!_desc.preview.Active())
-            _cudaPreviewWarned = false;
-        else if (!std::exchange(_cudaPreviewWarned, true))
-            _lastDiagnostics.Warn("usdGen:preview: " + _desc.Label(_desc.description) +
-                                  " runs on the CUDA lane, which cannot preview values; "
-                                  "the look is shown");
-        auto priorGeneration = _store.Get();
-        auto device = ExecuteCudaGraph(*_graph.CudaPlan(), *_cudaWorkspace, frame,
-            static_cast<uint64_t>(_store.NextId()), &_lastDiagnostics,
-            priorGeneration && !newWorkspace ? priorGeneration->device : nullptr);
-        if (!device || _lastDiagnostics.HasErrors()) {
-            _InvalidatePoisonedCudaWorkspace();
-            return reject();
-        }
-        _PublishCudaBindingStats(GetCudaBindingStats(*_cudaWorkspace));
-        UsdGenGeneration gen;
-        gen.frame = frame;
-        gen.device = std::move(device);
-        // `_desc` is the copied command descriptor that compiled the accepted
-        // CUDA plan above.  Capture its presentation once with the device
-        // payload; publishing must not consult a later graph descriptor.
-        gen.devicePresentation = _BuildDevicePresentation(_desc);
-        gen.host = _desc.host;
-        // Do not call the host scheduler or the publisher for a
-        // device generation. Tools retain this snapshot directly.
-        auto prepared = _store.PreparePublication(std::move(gen));
+    ++_stats.executionCacheMisses;
+    auto lease = cacheDomain->Lookup(cacheKey);
+    if (lease) {
+        UsdGenGeneration hit = **lease;
+        hit.id = -1;
+        hit.frame = frame;
+        UsdGenGenerationConstPtr prev = _store.Get();
+        auto prepared = _store.PreparePublication(std::move(hit));
         auto fence = cacheDomain->CapturePublicationFence(cacheKey);
-        if (!fence || !cacheDomain->PublishIfCurrent(*fence, [this, &prepared] {
+        if (fence && cacheDomain->PublishIfCurrent(*fence, [this, &prepared] {
                 return _store.PublishPrepared(std::move(prepared));
-            })) return reject();
-        _publicationFence = ExecutionPublicationFence{cacheDomain, *fence};
-        _lastReport.Reset();
-        ++_stats.commits;
-        _stats.publishedTiles = 0;
-        _lastNodeStats.clear();
-        _graphBaselineDetached = false;
-        UsdGenGenerationConstPtr const next = _store.Get();
-        size_t cacheBytes = 0;
-        if (_GenerationBytes(*next, &cacheBytes))
-            _cacheCandidate = ExecutionCacheCandidate{
-                std::move(cacheKey), next, cacheBytes};
-        return next;
+            })) {
+            _publicationFence = ExecutionPublicationFence{
+                cacheDomain, *fence};
+            --_stats.executionCacheMisses;
+            ++_stats.executionCacheHits;
+            UsdGenGenerationConstPtr next = _store.Get();
+            _lastReport = _DiffGenerations(prev.get(), *next);
+            ++_stats.commits;
+            _stats.publishedTiles = _PublishedGroups(next.get());
+            _lastNodeStats.clear();
+            _graphBaselineDetached = true;
+            phases.Phase("cache hit publish");
+            phases.Print(frame, _traceCompile,
+                         "cache hit (operators not run; next cook recompiles)",
+                         _desc);
+            return next;
+        }
     }
+    phases.Phase("cache lookup");
+    _BeginCoalesced(cacheDomain, cacheKey, hooks);
+    if (_coalescedRole == CoalescedRole::Follower ||
+        _coalescedRole == CoalescedRole::Resident)
+        return _store.Get();
 
     // -- steps 2-5: reference lane, capture, evaluate, interleave (03 §5.4)
     UsdGenEvalContext evalCtx;
@@ -2065,7 +1748,5 @@ std::shared_ptr<const UsdGenGraphRoutingSnapshot> UsdGenSessionCooker::Routing()
 { return _graph.RoutingSnapshot(); }
 UsdGenGraphSpec UsdGenSessionCooker::GraphSpec() const
 { return _graph.NodeCount() ? _graph.Spec() : _desc; }
-std::shared_ptr<const UsdGenCudaExecutionPlan> UsdGenSessionCooker::CudaPlan() const
-{ return _graph.CudaPlan(); }
 
 }  // namespace usdGen

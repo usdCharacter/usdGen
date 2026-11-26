@@ -20,7 +20,7 @@ target_link_libraries(testUsdGenAsyncSession PRIVATE usdGenWithPrimitives usdGen
 add_test(NAME testUsdGenAsyncSession COMMAND testUsdGenAsyncSession)
 set_tests_properties(testUsdGenAsyncSession PROPERTIES LABELS "T1;scheduling;sessions" TIMEOUT 60)
 add_executable(testUsdGenAsyncImagingSession tests/testUsdGenAsyncImagingSession.cpp)
-target_link_libraries(testUsdGenAsyncImagingSession PRIVATE usdGenImaging usdGenWithPrimitives usdGenUsd)
+target_link_libraries(testUsdGenAsyncImagingSession PRIVATE usdGenImaging usdGenWithPrimitives usdGenUsd usdGenCuda)
 target_compile_definitions(testUsdGenAsyncImagingSession PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME testUsdGenAsyncImagingSession COMMAND testUsdGenAsyncImagingSession)

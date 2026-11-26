@@ -162,7 +162,7 @@ target_link_libraries(testUsdGenExecutionCache PRIVATE usdGenWithPrimitives usdG
 add_test(NAME testUsdGenExecutionCache COMMAND testUsdGenExecutionCache)
 set_tests_properties(testUsdGenExecutionCache PROPERTIES LABELS "T1;scheduling" TIMEOUT 30)
 add_executable(testUsdGenExecutionBackend tests/testUsdGenExecutionBackend.cpp)
-target_link_libraries(testUsdGenExecutionBackend PRIVATE usdGenWithPrimitives usdGenUsd)
+target_link_libraries(testUsdGenExecutionBackend PRIVATE usdGenWithPrimitives usdGenUsd usdGenCuda)
 if(USDGEN_ENABLE_CUDA)
     target_compile_definitions(testUsdGenExecutionBackend PRIVATE USDGEN_ENABLE_CUDA)
 endif()

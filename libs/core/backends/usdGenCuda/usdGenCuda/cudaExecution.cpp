@@ -1810,7 +1810,7 @@ UsdGenExecutionCapabilityMatrix const& GetCudaExecutionCapabilityMatrix() noexce
                             k->minimumAlgorithmVersion, k->maximumAlgorithmVersion, k->flags});
         }
         return new UsdGenExecutionCapabilityMatrix const{
-        "cuda", 35,
+        "cuda", kUsdGenCudaCapabilityVersion,
 #ifdef USDGEN_ENABLE_CUDA
         true,
 #else

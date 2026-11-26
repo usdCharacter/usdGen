@@ -29,14 +29,14 @@ struct UsdGenSessionBackendRequest {
     uint64_t previousPublishedWorkerEpoch = 0;
     int callerDevice = -1;
     std::vector<UsdGenDeviceContextLoss> contextLosses;
-    UsdGenSessionCooker::CudaCompletion completion;
+    UsdGenSessionCooker::CookCompletion completion;
     UsdGenSessionCooker::CoalescedHooks coalescedHooks;
     UsdGenSession::TileProgressCallback tileProgress;
     UsdGenSessionCooker::DeviceReturnBinder deviceReturnBinder;
 };
 
 /// Per-Session executor.  It owns the cooker, and therefore the compiler,
-/// cache-domain state, COW publication candidates, and (for CUDA) the native
+/// cache-domain state, COW publication candidates, and (through its providers) the native
 /// workspace.  The work pipeline retains this shared object for every
 /// submission, so descriptor replacement cannot redirect an old completion
 /// at a newly-created backend workspace.

@@ -23,10 +23,7 @@ namespace usdGen {
 class UsdGenSessionCooker {
 public:
     static constexpr size_t kDefaultExecutionCacheBytes = 64u * 1024u * 1024u;
-    // CUDA stage state is private mutable cooker ownership carried by one
-    // pipeline epoch. It is never shared between sessions.
-    struct CudaStages;
-    using CudaCompletion = std::function<void(UsdGenGenerationConstPtr, std::exception_ptr)>;
+    using CookCompletion = std::function<void(UsdGenGenerationConstPtr, std::exception_ptr)>;
     using DeviceResultHandler = std::function<void(
         std::shared_ptr<const UsdGenSessionDeviceResult>)>;
     // Session supplies a pre-reserved command-owner return route. The
@@ -74,27 +71,24 @@ public:
         uint64_t workEpoch, int callerDevice, CoalescedHooks hooks = {},
         UsdGenSession::TileProgressCallback progress = {},
         std::function<bool()> superseded = {});
-    // Begins a real source -> operator* -> final CUDA task graph. The caller
-    // must retain this cooker through completion (the session pipeline does).
-    void CookCudaAsync(UsdGenExecutionRuntime&, UsdGenExecutionPipeline::Cancellation const&,
-        std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext, bool,
-        UsdGenPendingDirty, double, UsdGenCommitReason, UsdGenGenerationConstPtr,
-        UsdGenStats, bool, uint64_t, int, CudaCompletion,
-        CoalescedHooks hooks = {});
+    // One device cook through the backend's Session provider. The caller must
+    // retain this cooker through completion (the session pipeline does).
     void CookDeviceAsync(UsdGenExecutionRuntime&, UsdGenExecutionPipeline::Cancellation const&,
         std::shared_ptr<const UsdGenGraphSpec>, UsdGenContext, bool,
         UsdGenPendingDirty, double, UsdGenCommitReason, UsdGenGenerationConstPtr,
         UsdGenStats, bool, uint64_t, int,
         std::shared_ptr<UsdGenSessionDeviceProvider>, DeviceReturnBinder,
-        CudaCompletion, CoalescedHooks hooks = {});
+        CookCompletion, CoalescedHooks hooks = {});
     UsdGenRef<const UsdGenPublication> Report() const { return _lastReport; }
     UsdGenDiagnostics Diagnostics() const { return _lastDiagnostics; }
     UsdGenStats Stats() const { return _stats; }
-    std::vector<UsdGenCudaBindingStats> CudaBindingStats() const;
+    /// The last executed device cook's backend report (provider-defined).
+    UsdGenRef<const UsdGenPublication> DeviceReport() const { return _deviceReport; }
     std::unordered_map<UsdGenNodeId, UsdGenNodeStats> NodeStats() const;
     std::shared_ptr<const UsdGenGraphRoutingSnapshot> Routing() const;
     UsdGenGraphSpec GraphSpec() const;
-    std::shared_ptr<const UsdGenCudaExecutionPlan> CudaPlan() const;
+    /// The device plan compiled with the graph (kUsdGenBackendReusesPlan).
+    std::shared_ptr<const UsdGenExecutionPlanHandle> DevicePlan() const { return _devicePlan; }
     struct ExecutionCacheCandidate {
         UsdGenExecutionCacheKey key;
         UsdGenGenerationConstPtr generation;
@@ -138,8 +132,10 @@ private:
                   UsdGenGenerationConstPtr previous, UsdGenStats publishedStats,
                   bool invalidateValues, uint64_t previousPublishedWorkerEpoch,
                   UsdGenCompiler::DevicePlanCompiler const& deviceCompiler = {},
-                  std::shared_ptr<const UsdGenExecutionPlanHandle>* devicePlan = nullptr);
-    bool _InvalidatePoisonedCudaWorkspace();
+                  std::shared_ptr<const UsdGenExecutionPlanHandle>* devicePlan = nullptr,
+                  bool reusesPlan = false);
+    // Retries a pending poisoned-workspace invalidation of the cache domain.
+    bool _InvalidatePoisonedDevice();
     // Shared device finalization: prepares the private immutable candidate and
     // cache fence only. Session's existing command publication still owns final
     // acceptance and cache insertion. Call solely from the retained cook lane.
@@ -158,26 +154,24 @@ private:
     UsdGenGraphSpec _desc;
     std::shared_ptr<const UsdGenGraphSpec> _descIdentity;
     UsdGenGraph _graph;
-    std::unique_ptr<UsdGenCudaExecutionWorkspace> _cudaWorkspace;
     std::shared_ptr<UsdGenSessionDeviceProvider> _deviceProvider;
-    // Captured at the accepted Vulkan publication boundary. Cache admission
+    // The device backend last cooked: its def flags and diagnostics label.
+    uint32_t _deviceFlags = 0;
+    char const *_deviceLabel = "device";
+    // A poisoned workspace whose cache-domain invalidation is still owed.
+    bool _devicePoisoned = false;
+    std::shared_ptr<const UsdGenExecutionPlanHandle> _devicePlan;
+    UsdGenRef<const UsdGenPublication> _deviceReport;
+    // Captured at the accepted device publication boundary. Cache admission
     // must reject if the provider's full identity changes before Session's
     // later command-owner acceptance action.
     std::optional<UsdGenSessionDeviceIdentity> _acceptedDeviceIdentity;
     std::optional<UsdGenSessionDeviceIdentity> _activeDeviceIdentity;
-    UsdGenNodeKey _cudaWorkspaceDescription;
     uint64_t _lastDeviceContextLossSerial = 0;
-    // Written on the work lane, read from any thread.
-    struct _BindingStats : UsdGenRefCounted {
-        std::vector<UsdGenCudaBindingStats> stats;
-    };
-    UsdGenAtomicRef<_BindingStats> _cudaBindingStats{UsdGenMakeRef<_BindingStats>()};
-    void _PublishCudaBindingStats(std::vector<UsdGenCudaBindingStats> stats);
     UsdGenScheduler _scheduler;
     // The terminal type's publisher and the state it keeps across cooks.
     UsdGenPublisherDef const *_publisher = nullptr;
     std::unique_ptr<UsdGenPublisherState> _publisherState;
-    bool _cudaPreviewWarned = false;
     // USDGEN_COMMIT: why and how long the current cook compiled ("" = no compile).
     std::string _traceCompile;
     // A cook failed part-way: the next compile starts from scratch.

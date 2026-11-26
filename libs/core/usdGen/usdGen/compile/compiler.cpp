@@ -18,8 +18,9 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/pool.h"
-#include "usdGen/cudaExecution.h"
 #include "usdGen/executionBackend.h"
+#include "usdGen/registries/backend.h"
+#include "usdGen/registries/backendRegistry.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"
@@ -199,9 +200,12 @@ bool ValidateExpressionBindings(UsdGenGraphSpec const &desc,
                              backendDiagnostics.errors.end());
         ok = false;
     }
-    if (ok && desc.executionBackend == UsdGenExecutionBackend::Cuda) {
+    // A registered backend's compile-time admission of the graph.
+    UsdGenBackendDef const *backendDef = ok
+        ? UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(desc.executionBackend))) : nullptr;
+    if (backendDef && backendDef->validate) {
         UsdGenDiagnostics diagnostics;
-        if (!ValidateCudaGraph(desc, &diagnostics)) {
+        if (!backendDef->validate(desc, &diagnostics)) {
             result.errors.insert(result.errors.end(), diagnostics.errors.begin(), diagnostics.errors.end());
             ok = false;
         }
@@ -591,13 +595,6 @@ UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphSpec const &desc, UsdGenG
     if (!ValidateExpressionBindings(desc, result)) return result;
     UsdGenGraph candidate;
     _Build(desc, &candidate, /*reuse=*/nullptr, result);
-    if (result.errors.empty() && desc.executionBackend == UsdGenExecutionBackend::Cuda) {
-        UsdGenDiagnostics diagnostics;
-        candidate._cudaPlan = CompileCudaGraph(desc, &diagnostics);
-        result.errors.insert(result.errors.end(), diagnostics.errors.begin(), diagnostics.errors.end());
-        if (!candidate._cudaPlan && result.errors.empty())
-            result.errors.push_back("CUDA plan compilation failed");
-    }
     if (result.errors.empty()) {
         *out = std::move(candidate);
         out->_inputVersions =
@@ -614,6 +611,42 @@ UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphSpec const &desc, UsdGenG
     return result;
 }
 
+UsdGenCompileResult UsdGenCompiler::CompileWithDevicePlan(
+    UsdGenGraphSpec const &desc, UsdGenGraph *out, DevicePlanCompiler const &compile,
+    std::shared_ptr<const UsdGenExecutionPlanHandle> *plan)
+{
+    TRACE_FUNCTION();
+    UsdGenCompileResult result;
+    if (!out || !plan || !compile) {
+        result.errors.push_back("device plan compilation requires a provider and valid outputs");
+        return result;
+    }
+    if (!ValidateExpressionBindings(desc, result)) return result;
+    UsdGenGraph candidate;
+    _Build(desc, &candidate, /*reuse=*/nullptr, result);
+    std::shared_ptr<const UsdGenExecutionPlanHandle> nativePlan;
+    if (result.errors.empty()) {
+        UsdGenDiagnostics diagnostics;
+        nativePlan = compile(desc, &diagnostics);
+        result.errors.insert(result.errors.end(), diagnostics.errors.begin(), diagnostics.errors.end());
+        if (!nativePlan && result.errors.empty())
+            result.errors.push_back("device plan compilation failed");
+    }
+    if (result.errors.empty()) {
+        *out = std::move(candidate);
+        out->_inputVersions =
+            UsdGenExecutionInputVersions::FromDescription(out->Spec());
+        result.ok = true;
+        for (auto &np : out->_nodes) {
+            np->captureNeeded = true;
+            std::fill(np->chunkDirty.begin(), np->chunkDirty.end(),
+                      UsdGenDirtyParameter);
+        }
+        *plan = std::move(nativePlan);
+    }
+    return result;
+}
+
 UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
     UsdGenGraphSpec const& desc, UsdGenGraph* out,
     DevicePlanCompiler const& compile,
@@ -621,8 +654,9 @@ UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
 {
     UsdGenCompileResult result;
     if (!out || !plan || !compile ||
-        desc.executionBackend != UsdGenExecutionBackend::Vulkan) {
-        result.errors.push_back("injected device compilation requires a Vulkan provider and valid outputs");
+        desc.executionBackend == UsdGenExecutionBackend::CpuReference ||
+        desc.executionBackend == UsdGenExecutionBackend::Invalid) {
+        result.errors.push_back("injected device compilation requires a device provider and valid outputs");
         return result;
     }
     // Injection bypasses only the process-wide availability lookup. All
@@ -653,10 +687,13 @@ UsdGenCompileResult UsdGenCompiler::CompileInjectedDevice(
 
 UsdGenCompileResult UsdGenCompiler::Recompile(UsdGenGraphSpec const &newDesc, UsdGenGraph *out)
 {
-    // CUDA programs are immutable per descriptor. Compile transactionally so
-    // a failed edit cannot invalidate the last usable program or generation.
-    if (newDesc.executionBackend == UsdGenExecutionBackend::Cuda)
-        return Compile(newDesc, out);
+    // A plan that lives with the graph is immutable per descriptor. Compile
+    // transactionally so a failed edit cannot invalidate the last usable
+    // program or generation.
+    if (UsdGenBackendDef const *def =
+            UsdGenGetBackend(UsdGenBackendIdOf(uint8_t(newDesc.executionBackend))))
+        if (def->flags & kUsdGenBackendReusesPlan)
+            return Compile(newDesc, out);
     UsdGenCompileResult result;
     if (!ValidateExpressionBindings(newDesc, result)) return result;
     _Build(newDesc, out, out, result);

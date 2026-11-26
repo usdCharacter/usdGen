@@ -7,10 +7,9 @@
 # usdGen (SHARED — the engine core, no usd/usdImaging/hd linkage)
 # ---------------------------------------------------------------------------
 # Step 6.4: the primitives are their own DLLs (below); usdGen compiles the
-# engine and, until step 8.3, the CUDA backend. usdGenVulkan is its own DLL
-# (vulkan.cmake, step 8.2).
-file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/usdGen/*.cpp libs/core/backends/*.cpp)
-list(FILTER USDGEN_CORE_SOURCES EXCLUDE REGEX "/backends/usdGenVulkan/.*\\.cpp$")
+# engine only. usdGenCuda (cuda.cmake, step 8.3) and usdGenVulkan
+# (vulkan.cmake, step 8.2) are their own DLLs.
+file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/usdGen/*.cpp)
 # Include roots plus the old-spelling shim (cmake/IncludeShim.cmake).
 include(cmake/IncludeShim.cmake)
 set(USDGEN_ENGINE_INCLUDE_DIRS
@@ -31,18 +30,7 @@ set(USDGEN_CORE_INCLUDE_DIRS ${USDGEN_ENGINE_INCLUDE_DIRS} ${USDGEN_PRIMITIVE_IN
 # tests/testUsdGenExpr.cpp are deleted: the IR interpreter in
 # expressions/irExec.h is the design, shared by the CUDA kernel and by
 # expressions/cpuEvaluator.cpp.
-list(REMOVE_ITEM USDGEN_CORE_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp"
-    # CUDA-only helper exposes CUDA vector types; do not compile it in the
-    # CPU-only core build selected by ordinary consumers.
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp"
-    # CUDA completion lane and stream fence include cuda_runtime.h; the CUDA
-    # block below adds them to usdGen and usdGenGpu.
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp")
 add_library(usdGen SHARED ${USDGEN_CORE_SOURCES})
-target_sources(usdGen PRIVATE
-    libs/core/backends/usdGenCuda/usdGenCuda/executionBackendCudaProvider.cpp)
 # The host suffix port (deformEvaluateCpu.h, inlined into
 # deformPipeline.cpp) needs sqrt vectorized: with math-errno the vectorizer
 # keeps the explicit-fma loop's sqrt scalar and the suffix runs ~2x slower.

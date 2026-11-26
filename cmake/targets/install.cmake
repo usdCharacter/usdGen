@@ -18,8 +18,13 @@ install(TARGETS usdGen usdGenSurface usdGenExpr usdGenCurves usdGenWithPrimitive
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}")
+# usdGen loads the backends from its own directory (USDGEN_DEFAULT_EXTENSIONS).
+install(TARGETS usdGenCuda
+    EXPORT usdGenTargets
+    RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+    ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}")
 if(TARGET usdGenVulkan)
-    # usdGen loads it from its own directory (USDGEN_DEFAULT_EXTENSIONS).
     install(TARGETS usdGenVulkan usdGenVulkanNative usdGenVulkanFactory
         EXPORT usdGenTargets
         RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"

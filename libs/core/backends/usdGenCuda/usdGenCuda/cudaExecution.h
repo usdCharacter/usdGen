@@ -12,6 +12,9 @@
 #include <memory>
 
 namespace usdGen {
+// The capability matrix version (the backend def's capabilityVersion). Bump
+// it whenever a row or its executor contract changes.
+constexpr uint32_t kUsdGenCudaCapabilityVersion = 35;
 // CUDA backend admission is explicit and shared by compilation/execution.
 // Unsupported operators/configurations are errors, never CPU fallbacks.
 bool ValidateCudaGraph(UsdGenGraphSpec const&, UsdGenDiagnostics*);

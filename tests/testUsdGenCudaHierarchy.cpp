@@ -2,6 +2,7 @@
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/cudaExecution.h"
+#include "usdGenCuda/bindingReport.h"
 #include "usdGen/gpu/generation.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
@@ -128,7 +129,7 @@ int main() {
         CHECK(std::abs(points[i].x - x) < 1e-5f);
         CHECK(std::abs(widths[i] - .02f * (1 + x)) < 1e-6f);
     }
-    auto bindings = session.CudaBindingStats();
+    auto bindings = UsdGenCudaBindingStatsOf(session.Snapshot());
     CHECK(bindings.size() == 1 && bindings[0].bindCount == 1 && bindings[0].sampleCount == 5);
     RestNotice notice;
     auto observer = TfCreateWeakPtr(&notice);
@@ -149,7 +150,7 @@ int main() {
     usdGenUsd::SetGraphDesc(session, editedDesc);
     auto edited = session.Commit(24, UsdGenCommitReason::SetTime);
     CHECK(edited && edited != deformed && !session.LastDiagnostics().HasErrors());
-    auto editedBinding = session.CudaBindingStats();
+    auto editedBinding = UsdGenCudaBindingStatsOf(session.Snapshot());
     CHECK(editedBinding.size() == 1 && editedBinding[0].identity != bindings[0].identity);
 
     // Rest normals are a separate Default-time surface binding: authored
