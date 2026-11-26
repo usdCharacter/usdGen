@@ -15,7 +15,13 @@
 //                       usdGen counter (allocCounter.h): CRT heap calls of every
 //                       module on Windows, operator new calls on ELF
 //
+//   session.*           the same cooks through UsdGenSession on --backend
+//
 // Usage: benchUsdGenRestructure [--threads N] [--runs N] [--no-hydra]
+//                               [--backend cpu|cuda|vulkan]
+// --backend cpu (default) runs every section; cuda/vulkan run the Session
+// section only (the engine and Hydra sections are CPU paths). An unavailable
+// backend prints the Session diagnostics and exits 77 (cpu: 1).
 
 #include "usdGen/allocCounter.h"
 #include "usdGen/compiler.h"
@@ -24,6 +30,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/exec/session.h"
 #include "usdGen/types.h"
 
 #include "usdGenImaging/groomSceneIndexPlugin.h"
@@ -398,20 +405,130 @@ void HydraBench(int runs)
     Report("allocs.hydra.pull", pullAllocs, "allocs");
 }
 
+// ---- Session (--backend) ---------------------------------------------------
+// The same G3 through UsdGenSession on the chosen backend. GPU backends cook
+// with device publication on (what a device-aware renderer selects).
+//   session.cold       new Session: SetGraphSpec + first commit
+//   session.warm       InvalidateAllValues + commit, same spec; after the
+//                      first one the execution cache answers (hits printed)
+//   session.paramEdit  SetGraphSpec with a fresh noise value + commit (each
+//                      edit is a new value, so no execution-cache hit)
+
+bool ParseBackend(std::string const &name, UsdGenExecutionBackend *out)
+{
+    if (name == "cpu") *out = UsdGenExecutionBackend::CpuReference;
+    else if (name == "cuda") *out = UsdGenExecutionBackend::Cuda;
+    else if (name == "vulkan") *out = UsdGenExecutionBackend::Vulkan;
+    else return false;
+    return true;
+}
+
+bool SessionCommit(UsdGenSession &s, bool device, char const *what,
+                   UsdGenGenerationConstPtr *generation, uint64_t *cacheHits)
+{
+    UsdGenSession::SnapshotPtr const snap = s.CommitSnapshot(1.0, UsdGenCommitReason::SetTime);
+    bool const ok = snap && snap->generation && !snap->diagnostics.HasErrors() &&
+                    (!device || snap->generation->device);
+    if (!ok) {
+        std::printf("session: %s commit failed%s\n", what,
+                    snap && device && snap->generation && !snap->generation->device
+                        ? " (no device generation)" : "");
+        if (snap)
+            for (auto const &e : snap->diagnostics.errors) std::printf("  %s\n", e.c_str());
+        return false;
+    }
+    if (generation) *generation = snap->generation;
+    *cacheHits = snap->stats.executionCacheHits;   // cumulative per Session
+    return true;
+}
+
+bool SessionBench(UsdGenExecutionBackend backend, char const *name, int threads, int runs)
+{
+    bool const device = backend != UsdGenExecutionBackend::CpuReference;
+    int const edits = 3;
+    // Lowered once, outside the measured regions, through one key map.
+    usdGenUsd::NodeKeyMap keys;
+    std::vector<UsdGenGraphSpec> specs;
+    for (int i = 0; i <= runs * edits; ++i) {
+        UsdGenGraphDesc d = MakeG3(0.05 + 0.001 * i);
+        d.executionBackend = backend;
+        // Schema attributes are float; the device admission checks types.
+        for (auto &n : d.nodes)
+            for (auto &p : n.params)
+                if (p.value.IsHolding<double>()) p.value = VtValue(float(p.value.UncheckedGet<double>()));
+        specs.push_back(usdGenUsd::Lower(d, keys));
+    }
+    Stat cold, warm, edit;
+    int warmFresh = 0, warmTotal = 0;
+    uint64_t warmHits = 0, editHits = 0;
+    for (int r = 0; r < runs; ++r) {
+        UsdGenSession s(threads);
+        s.SetDevicePublicationEnabled(device);
+        UsdGenGenerationConstPtr last;
+        uint64_t hits = 0, prevHits = 0;
+        auto t0 = Clock::now();
+        s.SetGraphSpec(specs[0]);
+        if (!SessionCommit(s, device, "cold", &last, &prevHits)) return false;
+        auto t1 = Clock::now();
+        cold.v.push_back(Ms(t0, t1));
+        for (int i = 0; i < 3; ++i) {
+            UsdGenGenerationConstPtr next;
+            t0 = Clock::now();
+            s.InvalidateAllValues();
+            if (!SessionCommit(s, device, "warm", &next, &hits)) return false;
+            t1 = Clock::now();
+            warmHits += hits - prevHits;
+            prevHits = hits;
+            warm.v.push_back(Ms(t0, t1));
+            warmFresh += next != last;
+            ++warmTotal;
+            last = next;
+        }
+        for (int i = 0; i < edits; ++i) {
+            t0 = Clock::now();
+            s.SetGraphSpec(specs[1 + r * edits + i]);
+            if (!SessionCommit(s, device, "paramEdit", nullptr, &hits)) return false;
+            t1 = Clock::now();
+            editHits += hits - prevHits;
+            prevHits = hits;
+            edit.v.push_back(Ms(t0, t1));
+        }
+        s.Drain();
+    }
+    std::printf("session: backend=%s threads=%d devicePublication=%d warm new generations=%d/%d\n"
+                "session: execution-cache hits warm=%llu/%d paramEdit=%llu/%d\n",
+                name, threads, int(device), warmFresh, warmTotal,
+                (unsigned long long)warmHits, warmTotal, (unsigned long long)editHits, runs * edits);
+    Report("session.cold", cold);
+    Report("session.warm", warm);
+    Report("session.paramEdit", edit);
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char **argv)
 {
     int threads = 0, runs = 5;
     bool hydra = true;
+    std::string backendName = "cpu";
     for (int i = 1; i < argc; ++i) {
         std::string const a = argv[i];
         if (a == "--threads" && i + 1 < argc) threads = std::atoi(argv[++i]);
         else if (a == "--runs" && i + 1 < argc) runs = std::max(1, std::atoi(argv[++i]));
         else if (a == "--no-hydra") hydra = false;
+        else if (a == "--backend" && i + 1 < argc) backendName = argv[++i];
+    }
+    UsdGenExecutionBackend backend = UsdGenExecutionBackend::CpuReference;
+    if (!ParseBackend(backendName, &backend)) {
+        std::printf("unknown --backend %s (cpu, cuda, vulkan)\n", backendName.c_str());
+        return 2;
     }
     if (threads <= 0) threads = int(std::max(1u, std::thread::hardware_concurrency()));
-    EngineBench(threads, runs);
-    if (hydra) HydraBench(runs);
-    return 0;
+    if (backend == UsdGenExecutionBackend::CpuReference) {
+        EngineBench(threads, runs);
+        if (hydra) HydraBench(runs);
+    }
+    if (SessionBench(backend, backendName.c_str(), threads, runs)) return 0;
+    return backend == UsdGenExecutionBackend::CpuReference ? 1 : 77;
 }
