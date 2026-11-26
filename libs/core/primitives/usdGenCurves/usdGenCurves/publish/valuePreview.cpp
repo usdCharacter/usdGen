@@ -5,7 +5,7 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 
-#include "usdGen/expressions/valueShape.h"
+#include "usdGenExpr/expressions/valueShape.h"
 #include "usdGen/graph.h"
 
 #include "pxr/base/gf/half.h"
@@ -19,7 +19,6 @@
 #include "pxr/base/gf/vec4f.h"
 #include "pxr/base/gf/vec4h.h"
 #include "pxr/base/gf/vec4i.h"
-#include "pxr/usd/sdf/schema.h"
 
 #include <algorithm>
 #include <cmath>
@@ -372,7 +371,7 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphSpec const &desc,
     binding.domain = domain;
     // $value is the literal of the attribute an expression drives; a preview
     // drives nothing, so it reads zero of the output's own type.
-    binding.literal = SdfSchema::GetInstance().FindType(output->nativeType).GetDefaultValue();
+    binding.literal = expr::ValueTypeDefault(expr::FindValueType(output->nativeType));
     node.expressionBindings.push_back(std::move(binding));
 
     std::string message;

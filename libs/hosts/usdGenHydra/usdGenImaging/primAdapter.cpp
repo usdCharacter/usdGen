@@ -28,7 +28,7 @@
 
 #include "usdGenUsd/walk/expressionConnection.h"
 
-#include "usdGen/expressions/valueShape.h"
+#include "usdGenUsd/resolve/sdfValueShape.h"
 
 #include "pxr/base/ts/spline.h"
 #include "pxr/imaging/hd/overlayContainerDataSource.h"

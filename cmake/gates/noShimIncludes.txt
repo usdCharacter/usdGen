@@ -152,7 +152,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.cpp 
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/concaveMaterialRemap.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.h 1
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 3
+libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 1
@@ -253,7 +253,7 @@ libs/hosts/usdGenHydra/usdGenImaging/cleanupQueue.h 1
 libs/hosts/usdGenHydra/usdGenImaging/cudaGlComputation.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/cudaGlComputation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 6
-libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 2
+libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/rbfAnimation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/testHook.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenBrushApi.cpp 1
@@ -261,7 +261,7 @@ libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.h 1
-libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 3
+libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.cpp 5
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.h 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenInstancer.cpp 1

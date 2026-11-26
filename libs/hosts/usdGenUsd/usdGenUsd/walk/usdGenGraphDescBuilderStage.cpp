@@ -9,7 +9,7 @@
 #include "usdGenUsd/walk/usdGenGraphDescShared.h"
 
 #include "usdGenUsd/resolve/authoredPlaneConvert.h"
-#include "usdGenExpr/expressions/valueShape.h"
+#include "usdGenUsd/resolve/sdfValueShape.h"
 #include "usdGen/exec/device/executionBackend.h"
 
 #include "pxr/base/tf/diagnostic.h"
