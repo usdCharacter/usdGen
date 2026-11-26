@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_ROOT_FRAMES_H
 #define USDGEN_GPU_ROOT_FRAMES_H
 
-#include "deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 
 #include <cstddef>
 #include <cstdint>

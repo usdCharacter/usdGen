@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_SURFACE_BINDING_H
 #define USDGEN_GPU_SURFACE_BINDING_H
 
-#include "deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 
 #include <cstddef>
 #include <cstdint>

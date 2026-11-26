@@ -2,7 +2,7 @@
 #define USDGEN_GPU_EXPRESSION_CONTEXT_H
 
 #include "usdGenCurves/cuda/curveGeometry.h"
-#include "expression.h"
+#include "usdGenExpr/cuda/expression.h"
 
 namespace usdGen::gpu {
 

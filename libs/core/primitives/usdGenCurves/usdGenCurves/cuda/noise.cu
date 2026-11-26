@@ -2,7 +2,7 @@
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 #include "usdGenCuda/gpu/cudaCompat.h"
 
-#include "usdGenCuda/gpu/seexprNoise.cuh"
+#include "usdGenExpr/cuda/seexprNoise.cuh"
 
 #include <algorithm>
 #include <cmath>

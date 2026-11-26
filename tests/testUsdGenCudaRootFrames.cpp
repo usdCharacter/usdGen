@@ -1,4 +1,4 @@
-#include "gpu/rootFrames.h"
+#include "usdGenSurface/cuda/rootFrames.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/vec3d.h"

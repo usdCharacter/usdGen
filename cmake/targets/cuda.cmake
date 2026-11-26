@@ -171,13 +171,7 @@ if(USDGEN_ENABLE_CUDA)
     target_sources(usdGenCuda PRIVATE
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/expressionContext.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/surfaceBinding.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrames.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrameGather.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu)
+        libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu)
     # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
     # on toolkits older than 12.8.
     target_link_libraries(usdGenCuda PUBLIC CUDA::cudart CUDA::cuda_driver CUDA::cusolver)
@@ -235,6 +229,7 @@ set_target_properties(usdGenCurvesCuda PROPERTIES
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
     target_link_options(usdGenCurvesCuda PRIVATE "LINKER:--exclude-libs,ALL")
 endif()
+set(USDGEN_SURFACE_EXPR_CUDA_HOST usdGenCurvesCuda)
 if(USDGEN_ENABLE_CUDA)
     target_compile_definitions(usdGenCurvesCuda PRIVATE USDGEN_ENABLE_CUDA)
     set_target_properties(usdGenCurvesCuda PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
@@ -243,11 +238,19 @@ if(USDGEN_ENABLE_CUDA)
             libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/cuda)
         if(_usdgen_gpu_object_sources)
             add_library(${_usdgen_gpu_object}Cuda OBJECT ${_usdgen_gpu_object_sources})
-            target_link_libraries(${_usdgen_gpu_object}Cuda PRIVATE usdGenCuda ${_usdgen_gpu_object})
+            # Includes of usdGenCuda by property, not by link: the interim host
+            # below is usdGenCuda itself and a link would make a target cycle.
+            target_link_libraries(${_usdgen_gpu_object}Cuda PRIVATE
+                usdGen ${_usdgen_gpu_object} CUDA::cudart)
+            target_include_directories(${_usdgen_gpu_object}Cuda PRIVATE
+                $<TARGET_PROPERTY:usdGenCuda,INTERFACE_INCLUDE_DIRECTORIES>)
+            target_compile_definitions(${_usdgen_gpu_object}Cuda PRIVATE USDGEN_ENABLE_CUDA)
             set_target_properties(${_usdgen_gpu_object}Cuda PROPERTIES
                 POSITION_INDEPENDENT_CODE ON
                 CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
-            target_sources(usdGenCurvesCuda PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Cuda>)
+            # The kernels' callers live in usdGenCurvesCuda (8.6b), so the
+            # objects link there.
+            target_sources(${USDGEN_SURFACE_EXPR_CUDA_HOST} PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Cuda>)
         endif()
     endforeach()
 endif()

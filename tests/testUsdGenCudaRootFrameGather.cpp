@@ -1,4 +1,4 @@
-#include "gpu/rootFrameGather.h"
+#include "usdGenSurface/cuda/rootFrameGather.h"
 
 #include <cuda_runtime.h>
 

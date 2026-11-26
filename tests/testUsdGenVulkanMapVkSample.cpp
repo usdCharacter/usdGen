@@ -12,7 +12,7 @@
 #include "vulkanNativeFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "usdGen/gpu/imageSampler.h"
+#include "usdGenSurface/cuda/imageSampler.h"
 #include <cuda_runtime.h>
 #endif
 

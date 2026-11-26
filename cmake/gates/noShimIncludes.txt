@@ -5,9 +5,6 @@ libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp 2
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.h 1
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu 1
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.h 1
-libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.h 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/registerCurvesVulkan.cpp 8
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.h 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/csourceVkAdmission.h 2

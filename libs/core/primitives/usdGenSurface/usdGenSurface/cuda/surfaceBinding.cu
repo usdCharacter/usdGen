@@ -1,6 +1,6 @@
-#include "surfaceBinding.h"
-#include "cudaCompletionLane.h"
-#include "cudaCompat.h"
+#include "usdGenSurface/cuda/surfaceBinding.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompat.h"
 
 #include <algorithm>
 #include <cmath>

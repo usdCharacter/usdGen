@@ -2,7 +2,7 @@
 #define USDGEN_GPU_CURVE_COMPACTION_H
 
 #include "usdGenCurves/cuda/curveGeometry.h"
-#include "usdGenCuda/gpu/rootFrames.h"
+#include "usdGenSurface/cuda/rootFrames.h"
 
 #include <cstddef>
 #include <cstdint>

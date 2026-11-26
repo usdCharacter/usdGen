@@ -1,4 +1,4 @@
-#include "usdGen/gpu/surfaceBinding.h"
+#include "usdGenSurface/cuda/surfaceBinding.h"
 
 #include <cuda_runtime.h>
 

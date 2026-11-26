@@ -49,8 +49,8 @@
 
 #ifdef USDGEN_ENABLE_CUDA
 #include "gpu/deviceBuffer.h"
-#include "gpu/expression.h"
-#include "gpu/expressionContext.h"
+#include "usdGenExpr/cuda/expression.h"
+#include "usdGenExpr/cuda/expressionContext.h"
 #include <cuda_runtime.h>
 #include <vector_types.h>
 #endif

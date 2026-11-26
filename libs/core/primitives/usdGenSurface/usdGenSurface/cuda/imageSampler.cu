@@ -1,4 +1,4 @@
-#include "imageSampler.h"
+#include "usdGenSurface/cuda/imageSampler.h"
 
 #include <algorithm>
 #include <cmath>

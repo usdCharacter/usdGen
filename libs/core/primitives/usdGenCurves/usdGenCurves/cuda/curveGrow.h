@@ -2,7 +2,7 @@
 #define USDGEN_GPU_CURVE_GROW_H
 
 #include "usdGenCurves/cuda/curveGeometry.h"
-#include "usdGenCuda/gpu/imageSampler.h"
+#include "usdGenSurface/cuda/imageSampler.h"
 
 #include <cstdint>
 #include <memory>

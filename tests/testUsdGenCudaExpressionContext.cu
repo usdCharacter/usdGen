@@ -1,4 +1,4 @@
-#include "gpu/expressionContext.h"
+#include "usdGenExpr/cuda/expressionContext.h"
 #include "usdGen/expressions/frontend.h"
 
 #include <cuda_runtime.h>

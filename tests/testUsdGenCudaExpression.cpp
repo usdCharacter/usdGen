@@ -1,4 +1,4 @@
-#include "gpu/expression.h"
+#include "usdGenExpr/cuda/expression.h"
 #include "usdGenCurves/cuda/styleOps.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGenSeExprOracle.h"

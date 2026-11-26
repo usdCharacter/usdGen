@@ -173,7 +173,7 @@ if(USDGEN_ENABLE_CUDA)
         LABELS "T0;cuda;topology;scatter-input" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     add_executable(testUsdGenCudaImageSampler tests/testUsdGenCudaImageSampler.cu)
-    target_link_libraries(testUsdGenCudaImageSampler PRIVATE usdGenCuda usdGenWithPrimitives usdGenUsd)
+    target_link_libraries(testUsdGenCudaImageSampler PRIVATE usdGenCurvesCuda usdGenWithPrimitives usdGenUsd)
     add_test(NAME testUsdGenCudaImageSampler COMMAND testUsdGenCudaImageSampler)
     set_tests_properties(testUsdGenCudaImageSampler PROPERTIES
         LABELS "T0;cuda;image;sampler" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu

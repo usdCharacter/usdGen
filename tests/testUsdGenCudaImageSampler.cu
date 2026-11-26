@@ -1,4 +1,4 @@
-#include "usdGen/gpu/imageSampler.h"
+#include "usdGenSurface/cuda/imageSampler.h"
 #include "usdGenCuda/backendId.h"
 
 #include <cuda_runtime.h>

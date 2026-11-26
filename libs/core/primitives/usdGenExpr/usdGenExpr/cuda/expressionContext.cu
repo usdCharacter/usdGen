@@ -1,6 +1,6 @@
-#include "expressionContext.h"
-#include "cudaCompletionLane.h"
-#include "cudaCompat.h"
+#include "usdGenExpr/cuda/expressionContext.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompat.h"
 
 #include <algorithm>
 #include <cmath>

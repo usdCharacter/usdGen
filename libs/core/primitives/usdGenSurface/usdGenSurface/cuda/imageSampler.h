@@ -3,8 +3,8 @@
 #ifndef USDGEN_GPU_IMAGE_SAMPLER_H
 #define USDGEN_GPU_IMAGE_SAMPLER_H
 
-#include "deviceBuffer.h"
-#include "usdGen/imagePayload.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
+#include "usdGenSurface/imagePayload.h"
 
 #include <cuda_runtime.h>
 #include <cstddef>

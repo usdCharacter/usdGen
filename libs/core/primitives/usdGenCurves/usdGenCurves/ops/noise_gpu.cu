@@ -15,7 +15,7 @@
 #include <cstring>
 #include <cuda_runtime.h>
 
-#include "usdGenCuda/gpu/seexprNoise.cuh"
+#include "usdGenExpr/cuda/seexprNoise.cuh"
 
 
 // One thread per curve. base[c*3+k] is the rest-pinned sample position,

@@ -32,8 +32,8 @@
 // Every comparison runs into a FLOAT64 destination as well as the float32 one
 // the operators actually use, so a last-bit difference cannot hide inside the
 // float rounding.
-#include "gpu/expression.h"
-#include "gpu/expressionContext.h"
+#include "usdGenExpr/cuda/expression.h"
+#include "usdGenExpr/cuda/expressionContext.h"
 #include "usdGen/expressions/cpuEvaluator.h"
 #include "usdGen/expressions/frontend.h"
 
