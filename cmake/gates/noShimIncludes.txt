@@ -157,7 +157,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
-libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp 5
+libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp 4
 libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.h 3
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/context.cpp 1
 libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.cpp 2
@@ -239,7 +239,7 @@ libs/core/usdGen/usdGen/exec/taskScheduler.cpp 4
 libs/core/usdGen/usdGen/exec/workerPool.cpp 5
 libs/core/usdGen/usdGen/registries/backendRegistry.h 1
 libs/core/usdGen/usdGen/registries/engineTokens.h 1
-libs/core/usdGen/usdGen/registries/op.h 2
+libs/core/usdGen/usdGen/registries/op.h 1
 libs/core/usdGen/usdGen/registries/opDef.h 2
 libs/core/usdGen/usdGen/registries/opRegistry.cpp 1
 libs/core/usdGen/usdGen/registries/opRegistry.h 1

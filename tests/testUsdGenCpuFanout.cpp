@@ -18,6 +18,7 @@
 #include "usdGenOpFixture.h"
 #include "usdGen/scheduler.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenExpr/cpuParameters.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"

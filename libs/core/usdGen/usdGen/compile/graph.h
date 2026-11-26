@@ -138,9 +138,10 @@ struct UsdGenCompiledNode : UsdGenPooled
     bool                   remapsVertexPlanes = false;
     // Plane slots resolved per run by the scheduler; negative: curve rate.
     std::array<int16_t, kUsdGenMaxExtraPlaneSlots> outPlaneIndex{}, inPlaneIndex{};
-    // Connected (expression) parameters evaluated for this node, once per
-    // cook, over its INPUT geometry. paramView.expressions points here.
-    UsdGenCpuParameters    expressions;
+    // Connected parameters evaluated for this node, once per cook, over its
+    // INPUT geometry; null when no evaluator is registered.
+    // paramView.expressions points here.
+    std::unique_ptr<UsdGenParamEvaluatorState> expressions;
     uint64_t               lastExpressionDigest = 0;  // the digest last evaluated
     std::vector<std::pair<TfToken, uint32_t>> paramRouting;  // param name -> UsdGenDirtyBits
     std::vector<UsdGenNodeId> descendants;       // strict descendants, topological order

@@ -709,7 +709,8 @@ void BindParams(UsdGenCompiledNode &node, UsdGenGraphSpec const *desc,
     node.paramView.desc = desc;
     node.paramView.node = nd;
     node.paramView.op = record;
-    node.paramView.expressions = &node.expressions;
+    if (!node.expressions) node.expressions = UsdGenCreateParamEvaluatorState();
+    node.paramView.expressions = node.expressions.get();
     if (record) {
         node.params.resize(record->ParamCount());
         UsdGenResolveParams(*record, *nd, node.params.data());

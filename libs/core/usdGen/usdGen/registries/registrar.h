@@ -11,6 +11,7 @@
 #include "usdGen/export.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/registries/typeRegistry.h"
 #include <string>
 
@@ -26,6 +27,8 @@ public:
     UsdGenOpId RegisterOp(UsdGenOpDef const &);
     UsdGenTypeId RegisterType(UsdGenTypeDef const &);
     bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
+    /// One per engine; false on a second one, a missing create, or after freeze.
+    bool RegisterParamEvaluator(UsdGenParamEvaluatorDef const &);
 private:
     friend bool UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
     friend class UsdGenOpRegistry;
@@ -42,3 +45,5 @@ USDGEN_CORE_API void UsdGenFreezeRegistries();   // idempotent; the first Compil
 
 /// Built-in ops, map types and kernels: ops/registerCurves.cpp.
 extern "C" USDGEN_CORE_API void usdGenRegister_usdGenCurves(usdGen::UsdGenRegistrar &);
+/// The connected-parameter evaluator: usdGenExpr/register.cpp.
+extern "C" USDGEN_CORE_API void usdGenRegister_usdGenExpr(usdGen::UsdGenRegistrar &);

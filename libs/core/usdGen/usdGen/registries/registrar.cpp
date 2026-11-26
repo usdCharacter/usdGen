@@ -189,6 +189,20 @@ bool UsdGenRegistrar::RegisterKernel(UsdGenOpId op, UsdGenBackendId backend,
     return true;
 }
 
+bool UsdGenRegistrar::RegisterParamEvaluator(UsdGenParamEvaluatorDef const &def)
+{
+    UsdGenParamEvaluatorDef &slot = _ops->_paramEvaluator;
+    if (_ops->IsFrozen() || !def.create || slot.create) return false;
+    slot = def;
+    return true;
+}
+
+std::unique_ptr<UsdGenParamEvaluatorState> UsdGenCreateParamEvaluatorState()
+{
+    UsdGenParamEvaluatorDef const &def = UsdGenOpRegistry::Get().ParamEvaluator();
+    return def.create ? def.create() : nullptr;
+}
+
 bool UsdGenRegisterStatic(UsdGenRegisterFn fn)
 {
     UsdGenOpRegistry &ops = UsdGenMutableOpRegistry();

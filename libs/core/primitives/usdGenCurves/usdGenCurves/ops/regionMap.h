@@ -2,6 +2,7 @@
 #define USDGEN_OPS_REGION_MAP_H
 
 #include "usdGen/op.h"
+#include "usdGenExpr/cpuParameters.h"   // UsdGenNodeEmitsLimitSurfaceUv
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/maps/ptexMap.h"

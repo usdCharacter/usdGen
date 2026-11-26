@@ -3,6 +3,7 @@
 #ifndef USDGEN_VULKAN_GROW_VK_PLAN_H
 #define USDGEN_VULKAN_GROW_VK_PLAN_H
 #include "curveGrowPipeline.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"

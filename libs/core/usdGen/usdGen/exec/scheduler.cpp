@@ -494,7 +494,7 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
     // are on the CUDA lane: editing usdGen:expr:source, re-pointing a
     // connection or moving the geometry the expression samples changes this
     // digest, which re-captures the node and dirties its chunks.
-    mix(node.expressions.Digest());
+    mix(node.expressions ? node.expressions->Digest() : 0);
     return digest;
 }
 /// Group dirty bits: the roles a run wrote (UsdGenChunkGroup::dirtyRoles).
@@ -1149,15 +1149,22 @@ UsdGenRunResult UsdGenScheduler::_Run(
             double const rate = graph.Spec().timeCodesPerSecond;
             double const seconds = std::isfinite(rate) && rate > 0.0
                 ? evalCtx.time / rate : evalCtx.time;
-            std::vector<std::string> expressionErrors;
-            if (!node.expressions.Evaluate(spaceDesc(pos), *node.desc,
-                                           UsdGenCurveSetView::Of(up ? up->View() : UsdGenElementSetView{}),
-                                           evalCtx.time, seconds, cctx.seed,
-                                           &job->expressionsChanged,
-                                           &expressionErrors))
-                for (auto const &message : expressionErrors)
-                    nodeDiag.Error("UsdGen: " + message);
-            for (auto const &message : node.expressions.TakeWarnings())
+            UsdGenDiagnostics expressionDiag;
+            if (node.expressions) {
+                if (!node.expressions->Evaluate(spaceDesc(pos), *node.desc,
+                                                up ? up->View() : UsdGenElementSetView{},
+                                                evalCtx.time, seconds, cctx.seed,
+                                                &job->expressionsChanged, &expressionDiag))
+                    for (auto const &message : expressionDiag.errors)
+                        nodeDiag.Error("UsdGen: " + message);
+                node.expressions->TakeWarnings(&expressionDiag);
+            } else {
+                job->expressionsChanged = false;
+                if (!node.desc->expressionBindings.empty())
+                    nodeDiag.Error("UsdGen: " + graph.Spec().Label(node.desc->key) +
+                                   ": connected parameters need a registered evaluator");
+            }
+            for (auto const &message : expressionDiag.warnings)
                 nodeDiag.Warn("UsdGen: " + graph.Spec().Label(node.desc->key) + ": " + message);
             // A groom-domain usdGen:enabled drives the node's own gate. With
             // nothing connected the authored value stands.
@@ -1291,7 +1298,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         job->evalAll = node.paramValueDigest != node.lastParamDigest ||
                        job->expressionsChanged;
         node.lastParamDigest = node.paramValueDigest;
-        node.lastExpressionDigest = node.expressions.Digest();
+        node.lastExpressionDigest = node.expressions ? node.expressions->Digest() : 0;
         for (UsdGenChunkDirtyBits b : node.chunkDirty)
             job->anyChunkDirty |= (b & UsdGenDirtyParameter) != 0;
 

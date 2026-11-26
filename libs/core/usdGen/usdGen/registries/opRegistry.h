@@ -5,6 +5,7 @@
 #pragma once
 #include "usdGen/export.h"
 #include "usdGen/registries/opDef.h"
+#include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/compile/types.h"        // UsdGenPlane
 #include "pxr/base/tf/token.h"
 #include <atomic>
@@ -59,7 +60,8 @@ private:
 
 class USDGEN_CORE_API UsdGenOpRegistry {
 public:
-    /// Built with the built-ins on first use and published by CAS.
+    /// Built with the static extensions on first use (UsdGenEngineEnsureInitialized)
+    /// and published by CAS.
     static UsdGenOpRegistry const &Get() noexcept;
     bool IsFrozen() const noexcept { return _frozen.load(std::memory_order_acquire); }
     uint32_t Count() const noexcept { return _count; }
@@ -67,6 +69,8 @@ public:
     UsdGenOpId Find(TfToken const &name) const noexcept;
     UsdGenOpRecord const &Record(UsdGenOpId id) const noexcept { return _records[UsdGenIndex(id)]; }
     std::unique_ptr<UsdGenOp> Create(UsdGenOpId id) const;
+    /// The registered connected-parameter evaluator; create null when none.
+    UsdGenParamEvaluatorDef const &ParamEvaluator() const noexcept { return _paramEvaluator; }
 
 private:
     friend class UsdGenRegistrar;
@@ -77,6 +81,7 @@ private:
     uint32_t _count = 0;
     struct NameSlot { TfToken name; UsdGenOpId id = UsdGenOpId::Invalid; };
     NameSlot _byName[2 * kUsdGenMaxOps];
+    UsdGenParamEvaluatorDef _paramEvaluator;
     std::atomic<bool> _frozen{false};
 };
 

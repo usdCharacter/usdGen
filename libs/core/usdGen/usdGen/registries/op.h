@@ -14,10 +14,10 @@
 #ifndef USDGEN_OP_H
 #define USDGEN_OP_H
 
-#include "usdGen/cpuParameters.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/pool.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/exec/chunkView.h"
@@ -74,41 +74,6 @@ inline bool UsdGenCookInternFails(UsdGenCookTokenCheck const &check, UsdGenDiagn
     return fail;
 }
 
-/// This node's resolved parameters and ramps, handed in by the scheduler at
-/// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the
-/// adapter does the S11 encoding, the kernel does the LUT (257 entries).
-///
-/// 26.08 VtValue note: there is no GetAsSafe/SafeGet; the getters below use
-/// IsHolding<T>() + UncheckedGet<T>() with the C1 default as fallback.
-/// A parameter that may be a literal or a connected expression. `Value` is the
-/// ONE indexing rule, and it is the rule gpu::ReadScalar/ReadBool/ReadInt
-/// implement: a groom-domain result broadcasts, a primitive-domain result
-/// indexes by ABSOLUTE curve index, a point-domain result by ABSOLUTE CV
-/// index. Operators pass `view->desc->firstCurve + c` and
-/// `view->desc->firstCv + o`, exactly as they already do for whole-buffer
-/// capture payloads.
-struct UsdGenParamField
-{
-    double literal = 0.0;
-    double const *values = nullptr;
-    size_t count = 0;
-    uint32_t components = 1;
-    expr::Domain domain = expr::Domain::Groom;
-    bool connected = false;
-
-    double Value(size_t curve, size_t point, uint32_t component = 0) const
-    {
-        if (!connected || !values || component >= components) return literal;
-        const size_t index = domain == expr::Domain::Primitive ? curve
-            : domain == expr::Domain::Point ? point : size_t(0);
-        if (index >= count) return literal;
-        return values[index * components + component];
-    }
-    /// True when every element carries the same value, so a kernel may hoist
-    /// the read out of its inner loop.
-    bool Uniform() const { return !connected || domain == expr::Domain::Groom; }
-};
-
 /// One declared parameter resolved at compile (UsdGenResolveParams).
 struct UsdGenResolvedParam
 {
@@ -117,6 +82,12 @@ struct UsdGenResolvedParam
     int32_t enumIndex = -1;                       // decl enumerant index; -1 none/unmatched
 };
 
+/// This node's resolved parameters and ramps, handed in by the scheduler at
+/// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the
+/// adapter does the S11 encoding, the kernel does the LUT (257 entries).
+///
+/// 26.08 VtValue note: there is no GetAsSafe/SafeGet; the getters below use
+/// IsHolding<T>() + UncheckedGet<T>() with the C1 default as fallback.
 struct UsdGenParamView
 {
     UsdGenGraphSpec const *desc = nullptr;
@@ -127,7 +98,7 @@ struct UsdGenParamView
     UsdGenResolvedParam const *slots = nullptr;
     /// This node's evaluated connected parameters, or null when the node has
     /// none (or when the caller is a validator that never evaluates them).
-    UsdGenCpuParameters const *expressions = nullptr;
+    UsdGenParamEvaluatorState const *expressions = nullptr;
 
     // ---- by slot ---------------------------------------------------------------
     UsdGenResolvedParam const *Slot(UsdGenParamSlot s) const noexcept
@@ -139,7 +110,7 @@ struct UsdGenParamView
         UsdGenResolvedParam const *r = Slot(s);
         return r && r->authored;
     }
-    UsdGenExpressionValue const *Expression(UsdGenParamSlot s) const noexcept
+    UsdGenEvaluatedParam const *Expression(UsdGenParamSlot s) const noexcept
     {
         return expressions && Slot(s) ? expressions->FindSlot(s) : nullptr;
     }
@@ -199,14 +170,14 @@ private:
     {
         return p && (p->value.IsHolding<TfToken>() || p->value.IsHolding<std::string>());
     }
-    static bool GroomValue(UsdGenExpressionValue const *value, double *out) noexcept
+    static bool GroomValue(UsdGenEvaluatedParam const *value, double *out) noexcept
     {
-        if (!value || value->domain != expr::Domain::Groom || value->values.empty())
+        if (!value || value->level != 0 || value->values.empty())
             return false;
         *out = value->values.front();
         return true;
     }
-    static UsdGenParamField Field(double literal, UsdGenExpressionValue const *value) noexcept
+    static UsdGenParamField Field(double literal, UsdGenEvaluatedParam const *value) noexcept
     {
         UsdGenParamField field;
         field.literal = literal;
@@ -215,7 +186,7 @@ private:
         field.values = value->values.data();
         field.count = value->count;
         field.components = value->components;
-        field.domain = value->domain;
+        field.level = value->level;
         return field;
     }
     static double DoubleLiteral(UsdGenParamValue const *p, double fallback) noexcept

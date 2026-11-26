@@ -111,8 +111,10 @@ UsdGenOpRegistry::UsdGenOpRegistry()
     UsdGenReadTokenCheckSetting();
     (void)UsdGenTokens();
     (void)UsdGenMutableTypeRegistry();
+    // The statically linked extensions, in id order.
     UsdGenRegistrar r(*this);
     usdGenRegister_usdGenCurves(r);
+    usdGenRegister_usdGenExpr(r);
 }
 
 // Built on first use and published by CAS; a thread that loses the race

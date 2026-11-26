@@ -1,4 +1,4 @@
-#include "usdGen/cpuParameters.h"
+#include "usdGenExpr/cpuParameters.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenExpr/exprInput.h"
@@ -38,6 +38,12 @@ namespace usdGen {
 namespace {
 
 using Type = expr::ScalarType;
+
+/// The engine's element level of an evaluation domain.
+uint8_t LevelOf(expr::Domain domain) noexcept
+{
+    return domain == expr::Domain::Primitive ? 1 : domain == expr::Domain::Point ? 2 : 0;
+}
 using Domain = expr::Domain;
 
 size_t ScalarBytes(Type type)
@@ -446,6 +452,8 @@ bool UsdGenParseMapOptions(UsdGenMapInputView const &map, UsdGenMapOptions *out,
 void UsdGenCpuParameters::IndexSlots() noexcept
 {
     std::fill(std::begin(slotToValue_), std::end(slotToValue_), uint16_t(0));
+    for (UsdGenExpressionValue &value : values_)
+        value.values = UsdGenSpan<const double>(value.storage.data(), value.storage.size());
     for (size_t i = 0; i < values_.size() && i < 0xFFFEu; ++i) {
         UsdGenParamSlot const slot = values_[i].slot;
         if (slot < kUsdGenMaxParamsPerOp && slotToValue_[slot] == 0)
@@ -458,6 +466,13 @@ std::vector<std::string> UsdGenCpuParameters::TakeWarnings()
     std::vector<std::string> result;
     result.swap(warnings_);
     return result;
+}
+
+void UsdGenCpuParameters::TakeWarnings(UsdGenDiagnostics *diag)
+{
+    if (diag)
+        for (std::string &warning : warnings_) diag->Warn(std::move(warning));
+    warnings_.clear();
 }
 
 bool UsdGenCpuParameters::ResolveSamplers(UsdGenGraphSpec const &desc,
@@ -755,7 +770,7 @@ bool UsdGenCpuParameters::Clear() noexcept
     return had;
 }
 
-UsdGenExpressionValue const *UsdGenCpuParameters::Find(TfToken const &destination) const
+UsdGenExpressionValue const *UsdGenCpuParameters::Find(TfToken const &destination) const noexcept
 {
     // Fast path: a node with no connected expressions matches nothing, so
     // skip the canonicalization (a string copy plus a token-registry
@@ -1025,12 +1040,13 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode con
         value.destination = item.canonical;
         value.slot = item.slot;
         value.domain = item.binding.domain;
+        value.level = LevelOf(item.binding.domain);
         value.type = type;
         value.components = components;
         value.count = inputs.count;
-        value.values.resize(inputs.count * components);
-        for (size_t i = 0; i < value.values.size(); ++i)
-            value.values[i] = Decode(raw.data(), type, i);
+        value.storage.resize(inputs.count * components);
+        for (size_t i = 0; i < value.storage.size(); ++i)
+            value.storage[i] = Decode(raw.data(), type, i);
         candidate.push_back(std::move(value));
     }
 
@@ -1041,12 +1057,21 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode con
         digest = Mix(digest, uint64_t(value.type));
         digest = Mix(digest, value.components);
         digest = Mix(digest, value.count);
-        for (double v : value.values) digest = MixDouble(digest, v);
+        for (double v : value.storage) digest = MixDouble(digest, v);
     }
     values_ = std::move(candidate);
     IndexSlots();
     digest_ = digest;
     return publish(true);
+}
+
+bool UsdGenCpuParameters::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
+                                   UsdGenElementSetView const &geometry, double frame,
+                                   double time, uint32_t seed, bool *changed,
+                                   UsdGenDiagnostics *diag)
+{
+    return Evaluate(desc, node, UsdGenCurveSetView::Of(geometry), frame, time, seed, changed,
+                    diag ? &diag->errors : nullptr);
 }
 
 } // namespace usdGen

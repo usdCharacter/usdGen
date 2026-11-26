@@ -504,21 +504,24 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphSpec const &desc, UsdGenGraph 
                 return CanonicalText(b.destination) == name;
             });
         if (connected) {
-            UsdGenExpressionValue const *value = node.expressions.Find(attribute);
+            UsdGenEvaluatedParam const *value =
+                node.expressions ? node.expressions->Find(attribute) : nullptr;
             if (!value || value->values.empty()) {
                 *warning = SourceText(desc) +
                     " is connected to an expression that did not evaluate";
                 return false;
             }
-            size_t const expected = value->domain == Domain::Primitive ? input.totalCurves
-                : value->domain == Domain::Point ? input.totalCvs : 1;
+            Domain const domain = value->level == 1 ? Domain::Primitive
+                : value->level >= 2 ? Domain::Point : Domain::Groom;
+            size_t const expected = domain == Domain::Primitive ? input.totalCurves
+                : domain == Domain::Point ? input.totalCvs : 1;
             if (value->count != expected) {
                 *warning = SourceText(desc) + " was evaluated over " +
                     std::to_string(value->count) + " elements, but the operator's input has " +
                     std::to_string(expected);
                 return false;
             }
-            values->domain = value->domain;
+            values->domain = domain;
             values->components = value->components;
             values->count = value->count;
             values->data = value->values.data();
