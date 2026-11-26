@@ -98,6 +98,9 @@ struct UsdGenOpHooks {
     /// 4a. Fill sampleIndices and field; false: no binding.
     bool (*makeAnimationBinding)(UsdGenAnimationBindingQuery const &, UsdGenOp const &,
                                  UsdGenRbfAnimationBinding *out) = nullptr;
+    /// The diagnostic for a nonzero UsdGenEvalContext::failureCode; null:
+    /// the generic "operator evaluation failed".
+    char const *(*failureMessage)(uint32_t code) = nullptr;
 };
 
 enum UsdGenOpTrait : uint32_t {

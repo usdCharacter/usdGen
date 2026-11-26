@@ -29,6 +29,9 @@ enum UsdGenTypeTrait : uint32_t {
     /// A primitive whose elements convert one-to-one to the default primitive
     /// (one item each): the compiler admits it into ops that take the default.
     kUsdGenTypeConvertsToDefault = 1u << 5,
+    /// The default primitive: the layout of the graph's partition and of an
+    /// unrun node's output. The first registered type with it wins.
+    kUsdGenTypeDefaultPrimitive  = 1u << 6,
 };
 
 /// Map prim parameters parsed once (cpuParameters.cpp:424-436,
@@ -63,6 +66,8 @@ public:
     UsdGenTypeDef const &Def(UsdGenTypeId) const noexcept;
     TfToken const &Name(UsdGenTypeId) const noexcept;
     uint32_t Count() const noexcept { return _count; }
+    /// The first type with kUsdGenTypeDefaultPrimitive and a layout, else Invalid.
+    UsdGenTypeId DefaultPrimitive() const noexcept;
     bool Has(UsdGenTypeId id, uint32_t trait) const noexcept {
         return id != UsdGenTypeId::Invalid && (Def(id).traits & trait) != 0;
     }

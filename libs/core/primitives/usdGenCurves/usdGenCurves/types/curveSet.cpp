@@ -89,6 +89,36 @@ TileLayout Tiles(uint32_t chunks, uint32_t groupTarget) noexcept
     return l;
 }
 
+bool StartsWith(char const *s, char const *prefix) noexcept
+{
+    return std::strncmp(s, prefix, std::strlen(prefix)) == 0;
+}
+
+/// First-producer layouts of the named channels curve ops emit without
+/// declaring them (the layout's namedChannel hook). Text compares only.
+bool CurveNamedChannel(UsdGenToken const &name, UsdGenChannelDesc *d, bool *fixedFamily) noexcept
+{
+    char const *const s = name.GetText();
+    auto is = [s](char const *text) { return std::strcmp(s, text) == 0; };
+    bool const clumpId = StartsWith(s, "clumpId_"), centre = StartsWith(s, "clumpCenter_"),
+               centreId = StartsWith(s, "clumpCenterId_"), weight = StartsWith(s, "clumpWeight_");
+    *fixedFamily = clumpId || centre || centreId || weight;
+    *d = UsdGenChannelDesc{};
+    d->name = name;
+    d->level = 1;
+    if (is("guideIndex") || is("partId") || clumpId || centreId) d->scalar = UsdGenScalar::I32;
+    if (centre) d->arity = 3;
+    if (centreId) d->arity = 2;
+    // Whole-strand identities are ints; the braid knot mask is per CV.
+    if (is("primaryGuide") || is("nearestGuide") || is("strandSeed") || is("strandIndex") ||
+        is("mirrorSign"))
+        d->scalar = UsdGenScalar::I32;
+    if (weight || is("braidKnotMask")) d->level = 2;
+    if (is("guideIndex") || is("guideWeight")) d->arity = 3;
+    d->flags = d->arity > 1 ? uint8_t(kUsdGenChannelPacked) : uint8_t(0);
+    return true;
+}
+
 template <class T>
 UsdGenSpan<const T> Col(UsdGenElementSetView const &s, UsdGenSlot slot, uint32_t perItem = 1) noexcept
 {
@@ -179,8 +209,10 @@ UsdGenTypeId UsdGenRegisterCurveSetType(UsdGenRegistrar &r)
     fresh->layout.channels = UsdGenSpan<const UsdGenChannelDesc>(fresh->statics, kUsdGenCurveStaticSlots);
     fresh->layout.partition = &UsdGenCurveSetPartition;
     fresh->layout.groups = &UsdGenCurveSetGroups;
+    fresh->layout.namedChannel = &CurveNamedChannel;
     UsdGenTypeDef def;
     def.name = "UsdGenCurveSet";
+    def.traits = kUsdGenTypeDefaultPrimitive;
     def.layout = &fresh->layout;
     def.limits[1] = kUsdGenMaxCvsPerCurve;
     UsdGenTypeId const id = r.RegisterType(def);

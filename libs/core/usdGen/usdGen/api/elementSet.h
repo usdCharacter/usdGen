@@ -61,6 +61,12 @@ struct UsdGenElementLayout {
     /// Publication groups over 'chunks' chunks. Returns the group count.
     uint32_t (*groups)(uint32_t chunks, UsdGenPartitionParams const &,
                        UsdGenSpan<UsdGenChunkGroup> out) = nullptr;
+    /// Optional: the layout of a named channel an op emits without declaring
+    /// it (its first producer). False: unknown, one float per element.
+    /// *fixedFamily: an op with kUsdGenOpFixedOutputPlaneLayout fixes it
+    /// regardless of upstream. Compile/prepare phase; no allocation.
+    bool (*namedChannel)(UsdGenToken const &name, UsdGenChannelDesc *desc,
+                         bool *fixedFamily) = nullptr;
 };
 
 /// Static channels of a layout followed by dynamic channels ordered by

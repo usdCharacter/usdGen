@@ -2936,6 +2936,15 @@ bool RemapsVertexPlanes(UsdGenParamView const &params)
 {
     return params.op && DeepMode(params) == params.op->Token(kTokCutThenCollide);
 }
+
+/// Evaluate's failure codes (PublishEvalFailure).
+char const *FailureMessage(uint32_t code)
+{
+    if (code == 1) return "UsdGenCollide: closed-surface depth query failed";
+    if (code == 2)
+        return "UsdGenCollide: cut depth search exceeded its deterministic resource budget";
+    return nullptr;
+}
 }  // namespace
 
 UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
@@ -2951,6 +2960,7 @@ UsdGenOpId UsdGenRegisterCollideOp(UsdGenRegistrar &r)
     d.tokens = UsdGenSpan(kTokens);
     d.hooks.emittedPlanes = &EmittedPlanes;
     d.hooks.remapsVertexPlanes = &RemapsVertexPlanes;
+    d.hooks.failureMessage = &FailureMessage;
     return r.RegisterOp(d);
 }
 

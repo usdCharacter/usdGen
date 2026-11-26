@@ -77,8 +77,8 @@ public:
         }
         ++gReferenceCaptures;
         gOrder.push_back(1);
-        gReferenceGeneration = ctx.resolvedReferences[0]->curveGeneration;
-        gSecondReferenceGeneration = ctx.resolvedReferences[1]->curveGeneration;
+        gReferenceGeneration = ctx.resolvedReferences[0]->generation;
+        gSecondReferenceGeneration = ctx.resolvedReferences[1]->generation;
         gReferenceIdentity = ctx.resolvedReferences[0]->identity;
         gMapGeneration = ctx.maps[0]->textureGeneration;
         gMapIdentity = ctx.maps[0]->identity;
@@ -335,8 +335,8 @@ void RunReferenceMapLowering()
     Check(usdGenUsd::Compile(compiler, desc, &graph).ok, "reference/map CPU fixture compiles");
     Check(graph.ReferenceValues().size() == 2 && graph.MapValues().size() == 2 &&
               graph.ReferenceValues()[0].value &&
-              graph.ReferenceValues()[0].curveGeneration == 17 &&
-              graph.ReferenceValues()[1].curveGeneration == 23 &&
+              graph.ReferenceValues()[0].generation == 17 &&
+              graph.ReferenceValues()[1].generation == 23 &&
               graph.MapValues()[0].textureGeneration == 9,
           "compiler exposes immutable resolved reference and map values");
     UsdGenCompiledNode const *referenceNode = nullptr;

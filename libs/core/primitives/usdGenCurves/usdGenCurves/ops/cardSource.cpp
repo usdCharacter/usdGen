@@ -253,7 +253,7 @@ UsdGenEpoch UsdGenCardSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) c
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
             d.Mix(ctx.resolvedReferences[i]->identity);
-            d.Mix(ctx.resolvedReferences[i]->curveGeneration);
+            d.Mix(ctx.resolvedReferences[i]->generation);
         } else if (ctx.references && ctx.references[i]) {
             d.Mix(ctx.references[i]->generation);
         }

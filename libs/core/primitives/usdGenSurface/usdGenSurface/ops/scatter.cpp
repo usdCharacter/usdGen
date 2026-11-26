@@ -445,7 +445,7 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     for (uint32_t i = 0; i < ctx.referenceCount; ++i) {
         if (ctx.resolvedReferences && ctx.resolvedReferences[i]) {
             feed("referenceIdentity", ctx.resolvedReferences[i]->identity);
-            feed("referenceGeneration", ctx.resolvedReferences[i]->curveGeneration);
+            feed("referenceGeneration", ctx.resolvedReferences[i]->generation);
         } else if (ctx.references && ctx.references[i]) {
             feed("referenceGeneration", ctx.references[i]->generation);
         }

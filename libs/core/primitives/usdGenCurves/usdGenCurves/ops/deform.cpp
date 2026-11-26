@@ -631,7 +631,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         maskField.Uniform() && maskField.Value(0, 0) == 1.0;
     bool const direct = !wrap && maskUniformOne && R > 0 && totalCvs > 0 &&
         ctx.outPx != nullptr && ctx.outPy != nullptr && ctx.outPz != nullptr &&
-        ctx.outPlaneCvs == totalCvs &&
+        ctx.outPlaneItems == totalCvs &&
         ctx.outPx != ctx.outPy && ctx.outPy != ctx.outPz && ctx.outPx != ctx.outPz &&
         ctx.outPx != upstream.px.cdata() && ctx.outPy != upstream.py.cdata() &&
         ctx.outPz != upstream.pz.cdata();

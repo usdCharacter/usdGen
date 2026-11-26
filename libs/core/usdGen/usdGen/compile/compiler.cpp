@@ -1179,7 +1179,7 @@ void UsdGenCompiler::_Build(
         shared->set = std::move(set);
         UsdGenResolvedReferenceValue value;
         value.key = record.key;
-        value.curveGeneration = record.generation;
+        value.generation = record.generation;
         value.identity = Fnv1aI64(Fnv1aI64(1469598103934665603ULL,
                                            static_cast<int64_t>(record.key.value)),
                                   static_cast<int64_t>(record.generation));

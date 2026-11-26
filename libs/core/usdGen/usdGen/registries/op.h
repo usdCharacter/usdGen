@@ -43,7 +43,7 @@ class UsdGenWorkDispatcher;  // defined in usdGen/scheduler.h
 struct UsdGenResolvedReferenceValue
 {
     UsdGenNodeKey key;
-    uint64_t curveGeneration = 0;
+    uint64_t generation = 0;
     uint64_t identity = 0;
     std::shared_ptr<const UsdGenReferenceSet> value;
 };
@@ -330,14 +330,14 @@ struct UsdGenCaptureContext
     UsdGenChunkExtent     *chunkExtentSlots = nullptr;
     size_t                 chunkExtentCount = 0;
     // The node's previous-run point planes (writable) for capture-direct
-    // output, plus their CV count. Set only by UsdGenScheduler::Run when
+    // output, plus their level-2 item count. Set only by UsdGenScheduler::Run when
     // the planes exactly match the node's current totals; a capture that
     // writes direct must additionally verify the count against its own
     // upstream, the planes' mutual distinctness, and that they do not
     // alias the upstream planes. Null everywhere else (including
     // progressive cooks, which keep the sweep path).
     float                 *outPx = nullptr, *outPy = nullptr, *outPz = nullptr;
-    size_t                 outPlaneCvs = 0;
+    size_t                 outPlaneItems = 0;
 };
 
 struct UsdGenEvalContext

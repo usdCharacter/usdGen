@@ -7,8 +7,8 @@
 #include "usdGen/graph.h"
 
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/registries/typeRegistry.h"
 #include "usdGen/types.h"
-#include "usdGenCurves/types/curveSet.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
 
@@ -233,9 +233,21 @@ UsdGenElementSet const &UsdGenGraph::NodeOutput(UsdGenNodeId id) const
     return EmptyOutput();
 }
 
+namespace {
+/// The layout of an engine without a default primitive: no channels, no
+/// partition (Repartition keeps zero chunks).
+UsdGenElementLayout const kNoPrimitiveLayout{};
+}  // namespace
+
 UsdGenElementSet const &UsdGenGraph::EmptyOutput() const
 {
-    if (!_emptyOutput) _emptyOutput = UsdGenElementSet::Empty(UsdGenCurveSetLayout());
+    if (!_emptyOutput) {
+        UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+        UsdGenTypeId const primitive = types.DefaultPrimitive();
+        UsdGenElementLayout const *layout =
+            primitive != UsdGenTypeId::Invalid ? types.Def(primitive).layout : nullptr;
+        _emptyOutput = UsdGenElementSet::Empty(layout ? *layout : kNoPrimitiveLayout);
+    }
     return *_emptyOutput;
 }
 
