@@ -475,15 +475,15 @@ endif()
 target_include_directories(usdGen PUBLIC
     ${USDGEN_CORE_INCLUDE_DIRS}
     $<INSTALL_INTERFACE:include>)
-# Public headers expose SdfPath/TfToken/GfVec3f/VtArray, so those base libs
-# must be PUBLIC for consumers (tests) to link them transitively; sdf in
-# particular is required by SdfPath in the usdGen graph/compiler headers.
+# Public headers expose TfToken/GfVec3f/VtArray, so those base libs must be
+# PUBLIC for consumers (tests) to link them transitively. No sdf (step 7.4):
+# SdfPath and Sdf value types live in the hosts (usdGenUsd links sdf).
 # usdGenMath is PRIVATE (N-7, plan §1.2): it is not installed, so it must
 # not sit in usdGen's export interface (install(EXPORT) would then reference
 # a non-installed target); usdGen's own sources still see its headers
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
-    PUBLIC tf gf vt sdf usdGenExecutionResources
+    PUBLIC tf gf vt usdGenExecutionResources
     PRIVATE usdGenMath arch js plug ts ar work trace hio pxOsd
             usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 if(WIN32)

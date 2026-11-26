@@ -48,7 +48,8 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoLocks` (locks, atomic shared_ptr, TBB) | empty | empty |
 | `testUsdGenNoGuardedStatics` | 4 (usdGenMath ramp.cpp) | empty |
 | `testUsdGenNoPxrIncludes` | see `noPxrIncludes.txt` | empty under libs/core |
-| `testUsdGenNoPxrLink_usdGen` | tf gf vt sdf arch js plug ts ar work trace hio pxOsd | none |
+| `testUsdGenNoPxrLink_usdGen` | tf gf vt arch js plug ts ar work trace hio pxOsd | none |
+| `testUsdGenNoSdfBelowHosts` (no `Sdf*`, no `pxr/usd/sdf` under libs/base, libs/core) | empty | empty |
 | `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
 | `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted); 0 interns each | 0 / 0 |
 | `testUsdGenNoOpNameLiterals` | empty | empty |
@@ -206,16 +207,20 @@ Left over:
 - **Done:** the source gate passes and the engine builds without any primitive.
 - **Depends on:** 4a and 5.
 
-### 7. GraphSpec and NodeKey replace SdfPath
+### 7. GraphSpec and NodeKey replace SdfPath. Done
 
-- **Goal:** no SdfPath in plans, ops, caches or the Vulkan plans.
-- **Work:**
-  - Add InputDesc.
-  - Move the builders into usdGenUsd, driven by it.
-  - Drop sdf from usdGen's link line.
-  - 20 headers in usdGen mention SdfPath today.
-- **Done:** sdf is gone from `noPxrLink_usdGen.txt`.
-- **Depends on:** 5.
+- **7.1:** `api/nodeKey.h`; `libs/hosts/usdGenUsd` with `NodeKeyMap` (SdfPath to node keys, collision re-probe, `KeysUnder`).
+- **7.2:** the engine runs on `UsdGenGraphSpec` and node keys; `graphDesc.h` is host-only; `api/inputDesc.h`.
+- **7.3a/b:** input records replace typed spec inputs; the builders, image maps and schema live under `libs/hosts/usdGenUsd`, the imaging library under `libs/hosts/usdGenHydra`.
+- **7.4:** `usdGenExpr/expressions/valueShape.h` holds a closed value-type table (`FindValueType`, `ValueShapeFromValueType`, `ValueTypeDefault`): Sdf's type names plus the legacy names `SdfSchema` still resolves, with tuple dimensions and Sdf's defaults. `testUsdGenValueTypeTable` (usdGenUsd) checks every registered name and alias against `SdfSchema`. The `SdfValueTypeName` helpers (`ValueShapeFromSdfType`, `FixedArrayElementCount`) moved to `usdGenUsd/resolve/sdfValueShape.h`. sdf is off usdGen's link line and out of `noPxrLink_usdGen.txt`; gate `testUsdGenNoSdfBelowHosts` (no `Sdf*` and no `pxr/usd/sdf` under libs/base and libs/core, comment lines excepted) has an empty baseline.
+
+Left over:
+
+| What | Where it goes |
+|---|---|
+| `asset`, `opaque`, `group` and `pathExpression` rows have no default in the table (their C++ types live in sdf); a value preview of an expression output declared with one of them now gets an empty `$value` literal instead of Sdf's default. Such outputs have no evaluable shape either way | step 11 (Value) |
+| A value type a plugin registers with `SdfSchema` at run time is unknown to the table (`ValueShapeFromNativeType` returns an invalid shape); the stage builder still decodes `SdfValueTypeName` directly | when a plugin needs it |
+| `VtValue`, `TfToken` and Gf types remain in core headers (`graphSpec.h` and others; `noPxrIncludes.txt`) | 11 |
 
 ### 8. Generic GPU backends
 

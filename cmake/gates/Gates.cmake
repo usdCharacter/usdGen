@@ -64,6 +64,19 @@ add_test(NAME testUsdGenNoPxrIncludes
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPxrIncludes PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
+# Step 7: no Sdf type or sdf include below the hosts (SdfPath is a host
+# NodeKey map, Sdf value types are usdGenExpr's closed table). Empty baseline.
+add_test(NAME testUsdGenNoSdfBelowHosts
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-sdf-below-hosts
+        "-DDIRS=${_usdgen_below_dirs}"
+        "-DPATTERN=Sdf[A-Z_]|pxr/usd/sdf/"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noSdfBelowHosts.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoSdfBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
+
 foreach(_t usdGen usdGenMath)
     if(NOT TARGET ${_t})
         continue()
