@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/api/writeSet.h"
+#include "usdGen/registries/typeRegistry.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -9,6 +10,21 @@
 #include <iterator>
 
 namespace usdGen {
+
+UsdGenInputDesc const *UsdGenFindInputDesc(UsdGenTypeId kind) noexcept
+{
+    return kind == UsdGenTypeId::Invalid ? nullptr : UsdGenTypeRegistry::Get().Def(kind).input;
+}
+
+UsdGenTypeId UsdGenInputKindWithRole(UsdGenInputRole role) noexcept
+{
+    UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+    for (uint32_t i = 0; i < types.Count(); ++i) {
+        UsdGenInputDesc const *input = types.Def(UsdGenTypeId(i)).input;
+        if (input && input->role == role) return UsdGenTypeId(i);
+    }
+    return UsdGenTypeId::Invalid;
+}
 
 UsdGenNodeKey UsdGenNodeKeyOfText(std::string const &text) noexcept
 {

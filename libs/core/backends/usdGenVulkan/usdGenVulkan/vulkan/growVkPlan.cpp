@@ -49,7 +49,7 @@ bool SurfaceValid(UsdGenSurfaceInputView const& surface) {
 bool ValidateVulkanGrow(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
     CurveGrowPipeline::Controls* output, UsdGenDiagnostics* diag) {
     if (!output || !node.mode.IsEmpty() || node.inputs.size() != 1 || !node.references.empty() ||
-        !node.curves.empty() || !node.expressionBindings.empty() || !node.ramps.empty())
+        !node.inputSets.empty() || !node.expressionBindings.empty() || !node.ramps.empty())
         return Fail(diag, "unsupported inputs, expressions, ramps or mode");
     static constexpr char const* kAllowed[] = {"segments", "length", "lengthRandom", "lift",
         "azimuth", "azimuthRandom", "direction", "directionVector"};
@@ -111,7 +111,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
     for (auto& node : desc.nodes) {
         UsdGenVulkanKernel const kernel = UsdGenVulkanKernelOf(node.type);
         if (kernel.Is(UsdGenVulkanStage::ReferenceSource)) {
-            if (node.references.size() != 1 || !node.curves.empty() || !node.inputs.empty() ||
+            if (node.references.size() != 1 || !node.inputSets.empty() || !node.inputs.empty() ||
                 !node.maps.empty() || !node.mapBindings.empty() || !node.surfaces.empty() ||
                 !node.params.empty() || !node.ramps.empty() || !node.expressionBindings.empty() || !node.mode.IsEmpty())
                 return Fail(diag, "ReferenceSource requires one authored reference");
@@ -125,13 +125,13 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
             UsdGenCopyCurveSetData(UsdGenCurveSetInputView::Of(*record), &curves);
             curves.role = UsdGenLane::Chunked; curves.curveRole = et.hair;
             // CUDA ReferenceSource imports the snapshot as current geometry.
-            node.curves = node.references; node.references.clear();
+            node.inputSets = node.references; node.references.clear();
             lowerToSource(node, false);
             if (curves.rootFrame.empty() && !curves.skinPrim.empty())
                 curves.rootFrame = VtMatrix4dArray(curves.curveVertexCounts.size(), Frame({1,0,0},{0,0,-1},{0,1,0}));
             *record = UsdGenCurveSetRecord(curves, record->key, record->label);
         } else if (kernel.Is(UsdGenVulkanStage::Scatter)) {
-            if (!node.inputs.empty() || !node.references.empty() || !node.curves.empty() ||
+            if (!node.inputs.empty() || !node.references.empty() || !node.inputSets.empty() ||
                 !node.maps.empty() || !node.mapBindings.empty() || !node.expressionBindings.empty() || !node.ramps.empty() ||
                 node.surfaces.size() != 1 || !node.mode.IsEmpty())
                 return Fail(diag,"Scatter requires one rest surface and literal density");
@@ -181,7 +181,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
                 curves.points[2*i] = curves.points[2*i+1] = curves.rest[2*i] = curves.rest[2*i+1] = root;
                 curves.rootFrame[i] = Frame(roots.rootT[i],roots.rootB[i],roots.rootN[i]);
             }
-            node.enabled = true; node.curves = {curvesKey}; node.surfaces.clear();
+            node.enabled = true; node.inputSets = {curvesKey}; node.surfaces.clear();
             lowerToSource(node, true);
             desc.inputs.push_back(UsdGenCurveSetRecord(curves, curvesKey, TfToken()));
             desc.SortInputs();

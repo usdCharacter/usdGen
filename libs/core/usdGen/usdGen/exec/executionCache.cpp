@@ -3,9 +3,7 @@
 
 #include "usdGen/executionRuntimeInternal.h"
 #include "usdGen/parkingWord.h"
-#include "usdGenCurves/types/curveSetInput.h"
-#include "usdGenSurface/maps/mapInput.h"
-#include "usdGenSurface/surfaceInput.h"
+#include "usdGen/compile/types.h"
 
 #include <algorithm>
 #include <array>
@@ -118,18 +116,29 @@ void UsdGenExecutionInputVersions::FromDescription(
     result.maps.clear();
     result.surfaces.clear();
     result.valid = true;
-    for (UsdGenInputRecord const& record : UsdGenCurveSetInputs(desc)) {
-        auto& bucket = UsdGenCurveSetInputView::Of(record).role == UsdGenLane::Reference
-            ? result.references : result.sources;
-        bucket.push_back({record.key, record.generation});
+    // Kinds with a lane are sources or references; the map and surface
+    // roles have their own runs. Coalesce sorts each run.
+    UsdGenTypeId const mapKind = UsdGenInputKindWithRole(UsdGenInputRole::Map);
+    UsdGenTypeId const surfaceKind = UsdGenInputKindWithRole(UsdGenInputRole::Surface);
+    for (UsdGenInputRecord const& record : desc.inputs) {
+        if (record.kind == UsdGenTypeId::Invalid) continue;
+        if (record.kind == mapKind) {
+            result.maps.push_back({record.key, record.generation});
+            continue;
+        }
+        if (record.kind == surfaceKind) {
+            result.surfaces.push_back({record.key, record.generation});
+            continue;
+        }
+        UsdGenInputDesc const* input = UsdGenFindInputDesc(record.kind);
+        UsdGenLane lane = UsdGenLane::Chunked;
+        if (!input || !input->lane || !input->lane(record, &lane)) continue;
+        (lane == UsdGenLane::Reference ? result.references : result.sources)
+            .push_back({record.key, record.generation});
     }
     for (auto const& node : desc.nodes)
         for (auto const& reference : node.references)
             result.references.push_back({reference, 0});
-    for (UsdGenInputRecord const& map : UsdGenMapInputs(desc))
-        result.maps.push_back({map.key, map.generation});
-    for (UsdGenInputRecord const& surface : UsdGenSurfaceInputs(desc))
-        result.surfaces.push_back({surface.key, surface.generation});
     Coalesce(&result.sources, &result.valid);
     Coalesce(&result.references, &result.valid);
     Coalesce(&result.maps, &result.valid);

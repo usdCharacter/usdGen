@@ -15,7 +15,7 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/registries/typeRegistry.h"
-#include "usdGenExpr/expressions/context.h"
+#include "usdGen/api/valueShape.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -93,9 +93,8 @@ struct UsdGenOpNode
     bool                         enabled = true;
     int                          seed = 0;
     std::vector<UsdGenNodeKey>   inputs;       // compiler-owned hierarchy dependency edges
-    std::vector<UsdGenNodeKey>   references;   // guide sets, clump centres, card roots
-    std::vector<UsdGenNodeKey>   curves;       // usdGen:guides / usdGen:curves / usdGen:frozen:curves
-                                               //   -> curve set input records
+    std::vector<UsdGenNodeKey>   references;   // reference sets the node reads by name
+    std::vector<UsdGenNodeKey>   inputSets;    // input records the node reads as element sets
     std::vector<UsdGenNodeKey>   surfaces;     // the Description's usdGen:surface targets (ADR R15)
     // Untyped map keys. Builders populate both; mapBindings is the canonical form.
     std::vector<UsdGenNodeKey>   maps;
@@ -121,10 +120,10 @@ struct UsdGenResolvedMapValue
     UsdGenMapOptions options;            // the map type's parseOptions, run once at compile
 };
 
-/// One external input (a C3 curve set, a surface, a map, a sampled gprim,
-/// an expression program): free-length columns per its kind's registered
-/// layout, and values in its InputDesc's attribute order. Primitives read it
-/// through their input views (usdGenCurves UsdGenCurveSetInputView, ...).
+/// One external input of a registered kind (an element set, a surface, a
+/// map, an expression program, ...): free-length columns per its kind's
+/// registered layout, and values in its InputDesc's attribute order.
+/// Primitives read it through their own input views.
 struct UsdGenInputRecord
 {
     UsdGenNodeKey key;
@@ -248,7 +247,7 @@ private:
 };
 
 /// The description's look block (02-schema.md §2.12 defaults; 07 §1.2 bake
-/// order): base colour, the root->tip ramp and the per-curve jitter.
+/// order): base colour, the root->tip ramp and the per-element jitter.
 struct UsdGenLookDesc
 {
     GfVec3f  rootColor{0.035f, 0.018f, 0.008f};
@@ -257,7 +256,7 @@ struct UsdGenLookDesc
     VtFloatArray rampPositions;       // usdGen:look:colorRamp:positions
     TfToken  rampInterpolation = UsdGenTokens().catmullRom;
     float    rampExponent = 1.0f;     // usdGen:look:rampExponent
-    TfToken  bakeMode = UsdGenTokens().perCurve;           // perCurve | perCV
+    TfToken  bakeMode;                                 // host-filled (the schema's fallback)
     TfToken  bakeTarget = UsdGenTokens().displayColor;     // displayColor | primvar | none
     TfToken  bakePrimvar = UsdGenTokens().displayColor;
     float    hueJitter = 0.0f;
@@ -266,7 +265,7 @@ struct UsdGenLookDesc
 };
 
 /// usdGen:preview:* on the description: a viewport-only colour override that
-/// shows a value on the strands (07 §7.3). 'source' is the first authored
+/// shows a value on the published geometry (07 §7.3). 'source' is the first authored
 /// target, resolved by the host to a prim and an attribute: a UsdGenExpression
 /// prim, a UsdGenPtexMap prim (the builders add it to 'maps') or an operator
 /// attribute ('attribute' non-empty). The session cooker resolves it against
@@ -301,7 +300,7 @@ struct UsdGenGraphSpec
     UsdGenNodeKey                  description;   // the UsdGenDescription prim
     UsdGenNodeKey                  terminal;      // hierarchy-derived final operator
     std::vector<UsdGenOpNode>      nodes;         // composed execution order from the builder
-    /// Every external input (curve sets, surfaces, maps, expressions, the
+    /// Every external input (element sets, surfaces, maps, expressions, the
     /// gprims expressions sample), grouped by ascending kind; builder order
     /// within a kind (a surface's id is its index in its run).
     std::vector<UsdGenInputRecord> inputs;
@@ -313,7 +312,7 @@ struct UsdGenGraphSpec
     UsdGenNodeKey                  material;       // the description's bound Material (C2)
     float    defaultWidth = 0.01f;                 // usdGen:width:default
     int      tileTarget = 64;                      // uniform int usdGen:tileTarget
-    TfToken  curveBasis = UsdGenTokens().bspline;      // usdGen:curve:basis (C2)
+    TfToken  basis = UsdGenTokens().bspline;           // the published basis (C2)
     double   time = 0.0;
     double   timeCodesPerSecond = 24.0; // USD default; expressions expose seconds
     UsdGenExecutionBackend executionBackend = UsdGenExecutionBackend::CpuReference;

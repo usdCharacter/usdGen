@@ -358,8 +358,8 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
     UsdGenTilePublication pub;
     pub.tile = tv.id;
     pub.prim = UsdGenPrimRef{spec.description, UsdGenPublishRole::Tile, uint32_t(tv.id)};
-    if (!spec.curveBasis.IsEmpty())
-        pub.basis = spec.curveBasis.GetString();
+    if (!spec.basis.IsEmpty())
+        pub.basis = spec.basis.GetString();
     pub.refineLevel = 2;
 
     pub.curveVertexCounts.reserve(tv.live[0]);

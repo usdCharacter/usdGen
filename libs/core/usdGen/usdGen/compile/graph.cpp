@@ -9,8 +9,6 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/typeRegistry.h"
 #include "usdGen/types.h"
-#include "usdGenSurface/maps/mapInput.h"
-#include "usdGenSurface/surfaceInput.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -50,12 +48,24 @@ UsdGenOpNode const &UsdGenGraph::OpNode(UsdGenNodeId id) const
 
 namespace {
 
-std::array<uint64_t, 3> RestSourceKey(UsdGenInputRecord const &record)
+/// The surface role's kind and desc; null without one.
+UsdGenInputDesc const *SurfaceDesc(UsdGenTypeId *kind)
 {
-    UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(record);
-    return {surface.surfaceGeneration,
-            uint64_t(reinterpret_cast<uintptr_t>(surface.points.cdata())),
-            uint64_t(reinterpret_cast<uintptr_t>(surface.restPoints.cdata()))};
+    *kind = UsdGenInputKindWithRole(UsdGenInputRole::Surface);
+    return UsdGenFindInputDesc(*kind);
+}
+
+UsdGenSpan<const UsdGenInputRecord> SurfaceRecords(UsdGenGraphSpec const &spec)
+{
+    UsdGenTypeId kind;
+    return SurfaceDesc(&kind) ? spec.Inputs(kind) : UsdGenSpan<const UsdGenInputRecord>();
+}
+
+std::array<uint64_t, 3> RestSourceKey(UsdGenInputDesc const &input, UsdGenInputRecord const &record)
+{
+    std::array<uint64_t, 3> key{};
+    if (input.restKey) input.restKey(record, key.data());
+    return key;
 }
 
 }  // namespace
@@ -66,18 +76,22 @@ UsdGenGraphSpec const &UsdGenGraph::RestSpec() const
         if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphSpec>();
         return *_restDesc;
     }
-    UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*_desc);
+    UsdGenTypeId surfaceKind;
+    UsdGenInputDesc const *const surfaceInput = SurfaceDesc(&surfaceKind);
+    UsdGenSpan<const UsdGenInputRecord> const surfaces =
+        surfaceInput ? _desc->Inputs(surfaceKind) : UsdGenSpan<const UsdGenInputRecord>();
     bool fresh = _restDesc && _restSource == _desc.get() &&
         _restSourceKeys.size() == surfaces.size();
     for (size_t s = 0; fresh && s < surfaces.size(); ++s)
-        fresh = _restSourceKeys[s] == RestSourceKey(surfaces[s]);
+        fresh = _restSourceKeys[s] == RestSourceKey(*surfaceInput, surfaces[s]);
     if (fresh) return *_restDesc;
 
     // Copy-assign into the retained view: its vectors keep their capacity.
     if (!_restDesc) _restDesc = std::make_unique<UsdGenGraphSpec>();
     UsdGenGraphSpec *rest = _restDesc.get();
     *rest = *_desc;
-    UsdGenSpan<UsdGenInputRecord> const restSurfaces = rest->MutableInputs(UsdGenSurfaceInputKind());
+    UsdGenSpan<UsdGenInputRecord> const restSurfaces =
+        surfaceInput ? rest->MutableInputs(surfaceKind) : UsdGenSpan<UsdGenInputRecord>();
     size_t const keep = 2 * restSurfaces.size() + 2;
     for (UsdGenInputRecord &surface : restSurfaces) {
         RestRecord const *hit = nullptr;
@@ -95,7 +109,7 @@ UsdGenGraphSpec const &UsdGenGraph::RestSpec() const
         if (!hit) {
             UsdGenInputRecord restRecord;
             // No authored rest: Default space is the current geometry.
-            if (!UsdGenRestSurfaceRecord(surface, &restRecord)) continue;
+            if (!surfaceInput->restVariant || !surfaceInput->restVariant(surface, &restRecord)) continue;
             if (_restRecords.size() >= keep) _restRecords.erase(_restRecords.begin());
             _restRecords.push_back(RestRecord{surface.data, surface.generation, std::move(restRecord)});
             hit = &_restRecords.back();
@@ -104,7 +118,7 @@ UsdGenGraphSpec const &UsdGenGraph::RestSpec() const
     }
     _restSourceKeys.clear();
     for (UsdGenInputRecord const &surface : surfaces)
-        _restSourceKeys.push_back(RestSourceKey(surface));
+        _restSourceKeys.push_back(RestSourceKey(*surfaceInput, surface));
     _restSource = _desc.get();
     return *_restDesc;
 }
@@ -129,12 +143,16 @@ UsdGenGraph::RoutingSnapshot() const
     if (_desc) {
         snapshot->description = _desc->description;
         snapshot->host = _desc->host;
-        UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*_desc);
+        UsdGenTypeId surfaceKind;
+        UsdGenInputDesc const *const surfaceInput = SurfaceDesc(&surfaceKind);
+        UsdGenSpan<const UsdGenInputRecord> const surfaces =
+            surfaceInput ? _desc->Inputs(surfaceKind) : UsdGenSpan<const UsdGenInputRecord>();
         snapshot->surfaceKeys.reserve(surfaces.size());
         snapshot->meshKeys.reserve(surfaces.size());
         for (UsdGenInputRecord const &surface : surfaces) {
             snapshot->surfaceKeys.push_back(surface.key);
-            snapshot->meshKeys.push_back(UsdGenSurfaceMeshKey(UsdGenSurfaceInputView::Of(surface)));
+            snapshot->meshKeys.push_back(surfaceInput->routingKey ? surfaceInput->routingKey(surface)
+                                                                  : surface.key);
         }
     }
     snapshot->nodes.reserve(_nodes.size());
@@ -159,7 +177,9 @@ UsdGenGraph::RoutingSnapshot() const
         // description, at recompile only); a map whose paint surface is
         // not routed, or whose primvar is empty, keeps the map-prim row
         // as its only route.
-        if (_desc) {
+        UsdGenTypeId const mapKind = UsdGenInputKindWithRole(UsdGenInputRole::Map);
+        UsdGenInputDesc const *const mapInput = UsdGenFindInputDesc(mapKind);
+        if (_desc && mapInput && mapInput->paintSource) {
             std::vector<UsdGenNodeKey> paintCandidates;
             paintCandidates.reserve(node.mapRefs.size() +
                                     node.geometryRefs.size());
@@ -169,18 +189,19 @@ UsdGenGraph::RoutingSnapshot() const
                                    node.geometryRefs.begin(),
                                    node.geometryRefs.end());
             for (UsdGenNodeKey const mapRef : paintCandidates) {
-                for (UsdGenInputRecord const &mapRecord : UsdGenMapInputs(*_desc)) {
+                for (UsdGenInputRecord const &mapRecord : _desc->Inputs(mapKind)) {
                     if (mapRecord.key != mapRef) continue;
-                    UsdGenMapInputView const map = UsdGenMapInputView::Of(mapRecord);
-                    if (!UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) break;
-                    if (map.paintPrimvar.IsEmpty()) break;
+                    UsdGenNodeKey paintSurface;
+                    TfToken paintPrimvar;
+                    if (!mapInput->paintSource(mapRecord, &paintSurface, &paintPrimvar)) break;
+                    if (paintPrimvar.IsEmpty()) break;
                     for (size_t s = 0;
                          s < snapshot->meshKeys.size(); ++s) {
-                        if (snapshot->meshKeys[s] != map.paintSurface)
+                        if (snapshot->meshKeys[s] != paintSurface)
                             continue;
                         UsdGenPaintRoutingRef ref;
                         ref.surface = static_cast<UsdGenSurfaceId>(s);
-                        ref.primvar = map.paintPrimvar;
+                        ref.primvar = paintPrimvar;
                         bool known = false;
                         for (auto const &prior : copy.paintRefs) {
                             if (prior.surface == ref.surface &&
@@ -338,7 +359,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
                                uint64_t generation)
 {
     if (generation != UINT64_MAX && _desc) {
-        UsdGenSpan<const UsdGenInputRecord> const surfaces = UsdGenSurfaceInputs(*_desc);
+        UsdGenSpan<const UsdGenInputRecord> const surfaces = SurfaceRecords(*_desc);
         if (surface < surfaces.size())
             _inputVersions.UpdateSurface(surfaces[surface].key, generation);
     }

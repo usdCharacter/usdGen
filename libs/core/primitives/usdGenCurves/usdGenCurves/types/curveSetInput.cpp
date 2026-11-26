@@ -4,6 +4,7 @@
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 
+#include "usdGen/compile/graph.h"   // kUsdGenMaxExtraPlaneSlots
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
@@ -11,7 +12,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
+#include <limits>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace usdGen {
 
@@ -48,6 +54,162 @@ GfMatrix4d const kIdentity(1.0);
 
 bool MaterializeReference(UsdGenInputRecord const &record,
                           UsdGenRef<const UsdGenElementSet> *out, std::string *error);
+
+/// Authored-plane checks (moved from the compiler).
+bool ValidateRecord(UsdGenGraphSpec const &desc, UsdGenInputRecord const &record,
+                    std::vector<std::string> *errors)
+{
+    constexpr char const *kReservedNames[] = {
+        "points", "rest", "widths", "hairT", "curveOffsets", "curveId",
+        "skinprim", "skinprimuv", "displayColor"};
+    auto reserved = [&](TfToken const &name) {
+        for (char const *r : kReservedNames)
+            if (std::strcmp(name.GetText(), r) == 0) return true;
+        return false;
+    };
+    bool ok = true;
+    UsdGenCurveSetInputView const curveSet = UsdGenCurveSetInputView::Of(record);
+    size_t pointCount = 0;
+    for (int count : curveSet.curveVertexCounts) {
+        if (count < 0 || pointCount > std::numeric_limits<size_t>::max() -
+                              static_cast<size_t>(count)) {
+            errors->push_back("UsdGenCompiler: curve set '" +
+                desc.Label(curveSet.key) + "' has invalid topology for authored planes");
+            ok = false;
+            pointCount = 0;
+            break;
+        }
+        pointCount += static_cast<size_t>(count);
+    }
+    std::set<TfToken> names;
+    for (UsdGenAuthoredPlaneView const &plane : curveSet.authoredPlanes) {
+        bool const validName = !plane.name.IsEmpty() && names.insert(plane.name).second;
+        if (!validName) {
+            errors->push_back("UsdGenCompiler: curve set '" +
+                desc.Label(curveSet.key) + "' has an empty or duplicate authored plane '" +
+                plane.name.GetString() + "'");
+            ok = false;
+            continue;
+        }
+        if (reserved(plane.name)) {
+            errors->push_back("UsdGenCompiler: authored plane '" +
+                plane.name.GetString() + "' on curve set '" +
+                desc.Label(curveSet.key) +
+                "' collides with a reserved C3 channel");
+            ok = false;
+            continue;
+        }
+        if (plane.arity < 1 || plane.arity > kUsdGenMaxExtraPlaneSlots) {
+            errors->push_back("UsdGenCompiler: authored plane '" +
+                plane.name.GetString() + "' on curve set '" + desc.Label(curveSet.key) +
+                "' has arity outside [1,16]");
+            ok = false;
+            continue;
+        }
+        size_t elements = 0;
+        switch (plane.domain) {
+        case UsdGenAuthoredPlaneDomain::Point: elements = pointCount; break;
+        case UsdGenAuthoredPlaneDomain::Primitive:
+            elements = curveSet.curveVertexCounts.size(); break;
+        case UsdGenAuthoredPlaneDomain::Groom: elements = 1; break;
+        default:
+            errors->push_back("UsdGenCompiler: authored plane '" +
+                plane.name.GetString() + "' has an invalid domain");
+            ok = false;
+            continue;
+        }
+        if (elements > std::numeric_limits<size_t>::max() / plane.arity) {
+            errors->push_back("UsdGenCompiler: authored plane '" +
+                plane.name.GetString() + "' value count overflows this platform");
+            ok = false;
+            continue;
+        }
+        size_t const expected = elements * plane.arity;
+        bool payload = false;
+        switch (plane.type) {
+        case UsdGenAuthoredPlaneType::Float32:
+            payload = plane.floatValues.size() == expected && plane.intValues.empty();
+            break;
+        case UsdGenAuthoredPlaneType::Int32:
+            payload = plane.intValues.size() == expected && plane.floatValues.empty();
+            break;
+        default: break;
+        }
+        if (!payload) {
+            errors->push_back("UsdGenCompiler: authored plane '" +
+                plane.name.GetString() + "' has invalid type or cardinality");
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+void MixMatrix(UsdGenInputDigest &d, int lane, GfMatrix4d const &m)
+{
+    for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
+        uint64_t bits = 0;
+        double const component = m[row][col];
+        std::memcpy(&bits, &component, sizeof(bits));
+        d.Mix(lane, bits);
+    }
+}
+
+/// Execution cache key terms (moved from the session cooker).
+void DigestRecord(UsdGenInputRecord const &record, UsdGenInputDigest &d, bool layout)
+{
+    UsdGenCurveSetInputView const curve = UsdGenCurveSetInputView::Of(record);
+    if (layout) {
+        d.Mix(0, curve.key.value);
+        d.Mix(0, curve.curveVertexCounts.size());
+        d.Mix(0, curve.points.size());
+        return;
+    }
+    d.Mix(0, curve.key.value);
+    d.Mix(1, static_cast<uint64_t>(curve.role));
+    d.MixText(0, curve.curveRole.GetString());
+    d.MixText(1, curve.type.GetString());
+    d.MixText(0, curve.basis.GetString());
+    d.MixText(1, curve.wrap.GetString());
+    d.MixText(0, curve.widthsInterpolation.GetString());
+    d.Mix(1, static_cast<uint64_t>(curve.restFromCurrentPoints));
+    d.MixSpan(0, curve.curveVertexCounts);
+    d.MixSpan(1, curve.points);
+    d.MixSpan(0, curve.rest);
+    MixMatrix(d, 1, curve.worldMatrix);
+    d.MixSpan(0, curve.widths);
+    d.MixSpan(1, curve.skinPrim);
+    d.MixSpan(0, curve.curveId);
+    d.MixSpan(1, curve.skinPrimUv);
+    d.MixSpan(0, curve.rootFrame);
+    d.MixText(0, curve.frozenEpoch);
+    d.Mix(1, curve.curveGeneration);
+    d.Mix(1, static_cast<uint64_t>(curve.authoredPlanes.size()));
+    for (UsdGenAuthoredPlaneView const &plane : curve.authoredPlanes) {
+        d.MixText(0, plane.name.GetString());
+        d.Mix(1, static_cast<uint64_t>(plane.type));
+        d.Mix(0, static_cast<uint64_t>(plane.domain));
+        d.Mix(1, plane.arity);
+        d.MixSpan(0, plane.floatValues);
+        d.MixSpan(1, plane.intValues);
+    }
+}
+
+bool RecordLane(UsdGenInputRecord const &record, UsdGenLane *out)
+{
+    *out = UsdGenCurveSetInputView::Of(record).role;
+    return true;
+}
+
+/// The authored plane names, as many as UsdGenAuthoredPlanes::Of reads.
+UsdGenSpan<const UsdGenToken> AuthoredChannels(UsdGenInputRecord const &record)
+{
+    VtValue const *names = record.Value(kUsdGenCurveValuePlaneNames);
+    if (!names || !names->IsHolding<VtTokenArray>()) return {};
+    VtTokenArray const &array = names->UncheckedGet<VtTokenArray>();
+    size_t const count =
+        std::min(array.size(), record.Column<int>(kUsdGenCurveInputPlaneInfo).size() / kPlaneInfo);
+    return {array.cdata(), count};
+}
 
 }  // namespace
 
@@ -120,6 +282,10 @@ UsdGenTypeId UsdGenRegisterCurveSetInputKind(UsdGenRegistrar &r)
     fresh->input.slots = UsdGenSpan<const UsdGenInputSlot>(fresh->slots, kUsdGenCurveInputSlots);
     fresh->input.attributes = UsdGenSpan<const UsdGenToken>(fresh->attributes, kUsdGenCurveValues);
     fresh->input.materialize = &MaterializeReference;
+    fresh->input.validate = &ValidateRecord;
+    fresh->input.digest = &DigestRecord;
+    fresh->input.lane = &RecordLane;
+    fresh->input.authoredChannels = &AuthoredChannels;
     UsdGenTypeDef def;
     def.name = "UsdGenCurveSetInput";
     def.layout = &fresh->layout;

@@ -141,7 +141,7 @@ inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
                                    UsdGenDiagnostics* diagnostics) {
     using rbfVkPlanDetail::Fail;
     if (!source || node.surfaces.size() != 1 ||
-        !node.references.empty() || !node.curves.empty() ||
+        !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() ||
         !node.ramps.empty())
         return Fail(diagnostics, "Deform requires one pose surface and no references/maps");

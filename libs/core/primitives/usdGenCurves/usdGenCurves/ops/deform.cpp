@@ -255,7 +255,7 @@ bool UsdGenDeformOp::Bind(UsdGenParamView const& params, UsdGenDiagnostics* diag
         return fail("UsdGenDeform mode must be empty (RBF) or curveWrap");
     bool const cuda = params.desc &&
         params.desc->executionBackend == UsdGenExecutionBackend::Cuda;
-    bool const guided = !params.node->curves.empty() || !params.node->references.empty();
+    bool const guided = !params.node->inputSets.empty() || !params.node->references.empty();
     if (params.node->mode == rec.Token(kTokCurveWrap) && (cuda || !guided))
         return fail("UsdGenDeform curveWrap requires guide curves on the CPU lane");
     if (params.node->mode.IsEmpty()) {
@@ -979,7 +979,7 @@ bool MakeAnimationBinding(UsdGenAnimationBindingQuery const &q, UsdGenOp const &
     UsdGenParamView const *p = q.terminalParams;
     if (!n || !p || !p->op || !out || !n->enabled) return false;
     if (!n->mode.IsEmpty() && n->mode != p->op->Token(kTokRbf)) return false;
-    if (q.terminalInputCount != 1 || !n->curves.empty() || !n->references.empty() ||
+    if (q.terminalInputCount != 1 || !n->inputSets.empty() || !n->references.empty() ||
         !n->expressionBindings.empty() || !n->maps.empty() || !n->mapBindings.empty() ||
         !q.surface || p->GetBool(kLockRoots, true) || p->GetDouble(kMask, 1.0) != 1.0 ||
         q.terminalHasOutputPlanes)

@@ -20,8 +20,10 @@ namespace usdGenImaging {
 
 inline constexpr char kUsdGenContainerText[] = "usdGen";
 inline constexpr char kUsdGenRenderNamespaceText[] = "__usdGenRender";
+inline constexpr char kUsdGenLookBakeModeFallbackText[] = "perCurve";
 inline UsdGenStaticToken<kUsdGenContainerText> const s_usdGenContainerToken{};
 inline UsdGenStaticToken<kUsdGenRenderNamespaceText> const s_usdGenRenderNamespaceToken{};
+inline UsdGenStaticToken<kUsdGenLookBakeModeFallbackText> const s_usdGenLookBakeModeFallbackToken{};
 
 /// Container token for all usdGen-published Hydra data ("usdGen").
 inline PXR_NS::TfToken const &UsdGenContainerToken()
@@ -34,6 +36,12 @@ inline PXR_NS::TfToken const &UsdGenContainerToken()
 inline PXR_NS::TfToken const &UsdGenRenderNamespaceToken()
 {
     return *s_usdGenRenderNamespaceToken;
+}
+
+/// usdGen:look:bakeMode's schema fallback; hosts fill it into the look block.
+inline PXR_NS::TfToken const &UsdGenLookBakeModeFallbackToken()
+{
+    return *s_usdGenLookBakeModeFallbackToken;
 }
 
 }  // namespace usdGenImaging

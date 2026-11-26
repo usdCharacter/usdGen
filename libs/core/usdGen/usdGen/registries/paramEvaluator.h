@@ -4,6 +4,7 @@
 // evaluator state per compiled node; the registered evaluator fills it.
 #pragma once
 #include "usdGen/api/export.h"
+#include "usdGen/api/nodeKey.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
 #include "usdGen/exec/pool.h"
@@ -12,6 +13,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace usdGen {
 
@@ -79,6 +82,17 @@ public:
 struct UsdGenParamEvaluatorDef
 {
     std::unique_ptr<UsdGenParamEvaluatorState> (*create)() = nullptr;
+    /// Optional compile checks of the evaluator's inputs in the spec; false
+    /// appends to 'errors'.
+    bool (*validateInputs)(UsdGenGraphSpec const &, std::vector<std::string> *errors) = nullptr;
+    /// Optional compile checks of one node's connected parameters, after
+    /// the record's admission checks.
+    bool (*validateBindings)(UsdGenGraphSpec const &, UsdGenOpNode const &,
+                             std::vector<std::string> *errors) = nullptr;
+    /// Optional: keys whose edits re-evaluate a node through one binding's
+    /// source, in order.
+    void (*bindingDependencies)(UsdGenGraphSpec const &, UsdGenNodeKey source, void *context,
+                                void (*add)(void *context, UsdGenNodeKey)) = nullptr;
 };
 
 /// A fresh state from the registered evaluator; null when none is

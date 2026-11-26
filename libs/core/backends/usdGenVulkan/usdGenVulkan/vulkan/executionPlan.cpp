@@ -102,9 +102,9 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     UsdGenVulkanTokens const &vk = UsdGenVkTokens();
     UsdGenVulkanKernel const cs = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
     if (IsVulkanSurfaceCage(node)) {
-        if (node.curves.size() != 1)
+        if (node.inputSets.size() != 1)
             return Fail(diagnostics, "surfaceCage requires one sparse cage");
-        UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
         if (!foundRecord)
             return Fail(diagnostics, "surfaceCage requires one sparse cage");
         UsdGenCurveSetInputView const foundView = UsdGenCurveSetInputView::Of(*foundRecord);
@@ -137,9 +137,9 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                 return k[1] != 1.0f || !std::isfinite(k[0]);
             }))
             return Fail(diagnostics, "non-identity source ramps are not supported");
-    if (node.curves.size() != 1)
+    if (node.inputSets.size() != 1)
         return Fail(diagnostics, "CurveSource requires exactly one C3 curve target");
-    UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+    UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
     UsdGenCurveSetInputView const foundView =
         foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
     UsdGenCurveSetInputView const *found = &foundView;
@@ -338,7 +338,7 @@ bool ValidateLength(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
                     UsdGenDiagnostics *diagnostics) {
     // C1 rework removed the node-level mute: `usdGen:mask` is the one
     // envelope control and it feeds the stage envelope directly.
-    if (!node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.surfaces.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.ramps.empty())
         return Fail(diagnostics, "Length requires literal identity-envelope scale, "
@@ -455,7 +455,7 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
                    UsdGenDiagnostics *diagnostics) {
     // Literal-only lane: no references/curves/surfaces/maps/expressions/ramps.
     // Magnitude ramps are excluded (the pipeline uses a flat 257-entry profile).
-    if (!node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty())
         return Fail(diagnostics, "Noise requires literal configuration");
     std::set<TfToken> seen;
@@ -558,7 +558,7 @@ GfVec3f RootPosition(UsdGenSurfaceInputView const &surface, std::vector<uint32_t
 bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                     UsdGenCurveSetInputView const *source, VulkanDeformControls *out,
                     UsdGenDiagnostics *diagnostics) {
-    if (!source || node.surfaces.size() != 1 || !node.references.empty() || !node.curves.empty() ||
+    if (!source || node.surfaces.size() != 1 || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.ramps.empty())
         return Fail(diagnostics,
                     "Deform requires one pose surface and no references/maps/expressions");
@@ -674,7 +674,7 @@ bool ValidateResample(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
     // Indexed-CV (keepParam) subset only: uniform arc-length resampling,
     // mask blending and length restore have no Vulkan lowering and must
     // fail closed, never run silently as indexed interpolation.
-    if (!node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.surfaces.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.expressionBindings.empty() || !node.ramps.empty())
         return Fail(diagnostics, "Resample requires literal keepParam configuration");
@@ -1100,7 +1100,7 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
             if (inputs[ready].size() != 2 || inputs[ready][0] == inputs[ready][1] ||
                 !node.enabled || !paramsOk || !node.mode.IsEmpty() || !node.ramps.empty() ||
                 !node.expressionBindings.empty() || !node.references.empty() ||
-                !node.curves.empty() || !node.surfaces.empty() || !node.maps.empty() ||
+                !node.inputSets.empty() || !node.surfaces.empty() || !node.maps.empty() ||
                 !node.mapBindings.empty()) {
                 Fail(diagnostics, "WidthBlend requires two ordered inputs and literal blend");
                 return {};

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGenSurface/limitSurface.h"
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -78,6 +79,80 @@ private:
     uint64_t _h = 1469598103934665603ULL;
 };
 
+void MixMatrix(UsdGenInputDigest &d, int lane, GfMatrix4d const &m)
+{
+    for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
+        uint64_t bits = 0;
+        double const component = m[row][col];
+        std::memcpy(&bits, &component, sizeof(bits));
+        d.Mix(lane, bits);
+    }
+}
+
+/// Execution cache key terms (moved from the session cooker).
+void DigestRecord(UsdGenInputRecord const &record, UsdGenInputDigest &d, bool layout)
+{
+    UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(record);
+    if (layout) {
+        d.Mix(0, surface.key.value);
+        d.Mix(0, surface.faceVertexCounts.size());
+        d.Mix(0, surface.restPoints.size());
+        return;
+    }
+    // Tags-only subdivision cover: faceVertexCounts/faceVertexIndices
+    // mix into this key directly below. Coverage is unchanged.
+    d.Mix(0, UsdGenSubdivisionTagsDigest(surface));
+    d.Mix(0, surface.key.value);
+    d.Mix(1, surface.id);
+    d.Mix(0, static_cast<uint64_t>(surface.restNormalDomain));
+    d.Mix(1, static_cast<uint64_t>(surface.restFromCurrentPoints));
+    d.MixSpan(0, surface.faceVertexCounts);
+    d.MixSpan(1, surface.faceVertexIndices);
+    d.MixSpan(0, surface.restPoints);
+    d.MixSpan(1, surface.restNormals);
+    d.MixSpan(0, surface.points);
+    d.Mix(1, static_cast<uint64_t>(surface.samples.size()));
+    for (UsdGenSurfaceSampleView const &sample : surface.samples) {
+        uint64_t sampleTimeBits = 0;
+        std::memcpy(&sampleTimeBits, &sample.time, sizeof(sampleTimeBits));
+        d.Mix(0, sampleTimeBits);
+        d.MixSpan(1, sample.points);
+    }
+    d.MixSpan(0, surface.velocities);
+    d.MixSpan(1, surface.uv);
+    d.MixSpan(0, surface.subsetFaces);
+    d.Mix(1, surface.isSubset ? 1u : 0u);
+    // Paint density the brush bakes: a repaint must miss the cache,
+    // or the stale pre-stroke roots publish and the groom freezes.
+    d.MixSpan(1, surface.densityMultiplier);
+    MixMatrix(d, 0, surface.worldMatrix);
+    d.Mix(1, surface.surfaceGeneration);
+}
+
+uint32_t SurfaceIdOf(UsdGenInputRecord const &record)
+{
+    return UsdGenSurfaceInputView::Of(record).id;
+}
+
+void SetSurfaceIdOf(UsdGenInputRecord &record, uint32_t id)
+{
+    UsdGenSetSurfaceId(record, static_cast<UsdGenSurfaceId>(id));
+}
+
+UsdGenNodeKey RoutingKey(UsdGenInputRecord const &record)
+{
+    return UsdGenSurfaceMeshKey(UsdGenSurfaceInputView::Of(record));
+}
+
+/// What the Default-space variant is derived from (graph.cpp RestSpec).
+void RestKey(UsdGenInputRecord const &record, uint64_t key[3])
+{
+    UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(record);
+    key[0] = surface.surfaceGeneration;
+    key[1] = uint64_t(reinterpret_cast<uintptr_t>(surface.points.cdata()));
+    key[2] = uint64_t(reinterpret_cast<uintptr_t>(surface.restPoints.cdata()));
+}
+
 }  // namespace
 
 UsdGenTypeId UsdGenRegisterSurfaceInputKind(UsdGenRegistrar &r)
@@ -138,6 +213,13 @@ UsdGenTypeId UsdGenRegisterSurfaceInputKind(UsdGenRegistrar &r)
     fresh->input.slots = UsdGenSpan<const UsdGenInputSlot>(fresh->slots, kUsdGenSurfaceInputSlots);
     fresh->input.attributes = UsdGenSpan<const UsdGenToken>(fresh->attributes, kUsdGenSurfaceValues);
     UsdGenTypeDef def;
+    fresh->input.role = UsdGenInputRole::Surface;
+    fresh->input.digest = &DigestRecord;
+    fresh->input.surfaceId = &SurfaceIdOf;
+    fresh->input.setSurfaceId = &SetSurfaceIdOf;
+    fresh->input.routingKey = &RoutingKey;
+    fresh->input.restVariant = &UsdGenRestSurfaceRecord;
+    fresh->input.restKey = &RestKey;
     def.name = "UsdGenSurfaceInput";
     def.layout = &fresh->layout;
     def.input = &fresh->input;

@@ -66,7 +66,7 @@ uint32_t RoutingBits(UsdGenEngineTokens const &t, TfToken const &name,
                      UsdGenParamClass cls, uint8_t countChanges)
 {
     if (cls == UsdGenParamClass::Value) return UsdGenDirtyParameter;
-    if (name == t.input || name == t.guides || name == t.curves || name == t.surface)
+    if (name == t.input || name == t.guides || name == t.surface)
         return UsdGenDirtyStructural;
     if (name == t.enabled)
         return countChanges != 0 ? (UsdGenDirtyTopology | UsdGenDirtyCapture)

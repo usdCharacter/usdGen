@@ -7,6 +7,7 @@
 #include "usdGen/registries/token.h"
 
 #include <atomic>
+#include <cstring>
 #include <utility>
 
 namespace usdGen {
@@ -58,6 +59,63 @@ UsdGenSpan<const T> Arr(VtArray<T> const &a) noexcept
     return {a.cdata(), a.size()};
 }
 
+void MixShape(UsdGenInputDigest &d, int lane, expr::ValueShape const &shape)
+{
+    d.Mix(lane, static_cast<uint64_t>(shape.scalar));
+    d.Mix(lane, shape.elementCount);
+    d.Mix(lane, shape.components);
+    d.Mix(lane, shape.rows);
+    d.Mix(lane, shape.columns);
+    d.Mix(lane, static_cast<uint64_t>(shape.isArray));
+}
+
+/// Execution cache key terms (moved from the session cooker); no layout terms.
+void DigestExpression(UsdGenInputRecord const &record, UsdGenInputDigest &d, bool layout)
+{
+    if (layout) return;
+    UsdGenExpressionInputView const expression = UsdGenExpressionInputView::Of(record);
+    d.Mix(0, expression.key.value);
+    d.MixText(1, expression.source);
+    d.Mix(0, static_cast<uint64_t>(expression.outputs.size()));
+    for (UsdGenExpressionOutputDesc const &output : expression.outputs) {
+        d.MixText(1, output.name.GetString());
+        d.MixText(0, output.nativeType.GetString());
+        MixShape(d, 1, output.shape);
+    }
+    d.Mix(0, static_cast<uint64_t>(expression.inputs.size()));
+    for (UsdGenExpressionSlot const &input : expression.inputs) {
+        d.MixText(1, input.name.GetString());
+        for (UsdGenNodeKey const key : input.targets) d.Mix(0, key.value);
+        for (UsdGenNodeKey const key : input.geometries) d.Mix(1, key.value);
+        for (UsdGenNodeKey const key : input.maps) d.Mix(0, key.value);
+    }
+}
+
+/// Geometry an expression samples is an execution input like any other:
+/// its content moves the key.
+void DigestGeometry(UsdGenInputRecord const &record, UsdGenInputDigest &d, bool layout)
+{
+    if (layout) return;
+    UsdGenGeometryInputView const geometry = UsdGenGeometryInputView::Of(record);
+    d.Mix(0, geometry.key.value);
+    d.Mix(1, static_cast<uint64_t>(geometry.kind));
+    d.MixSpan(0, geometry.counts);
+    d.MixSpan(1, geometry.indices);
+    d.MixSpan(0, geometry.points);
+    d.MixSpan(1, geometry.rest);
+    d.MixSpan(0, geometry.normals);
+    d.MixSpan(1, geometry.ids);
+    d.MixSpan(0, geometry.subsetFaces);
+    d.Mix(1, geometry.isSubset ? 1u : 0u);
+    for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
+        uint64_t bits = 0;
+        double const component = geometry.worldMatrix[row][col];
+        std::memcpy(&bits, &component, sizeof(bits));
+        d.Mix(0, bits);
+    }
+    d.Mix(1, geometry.generation);
+}
+
 }  // namespace
 
 void UsdGenRegisterExprInputKinds(UsdGenRegistrar &r)
@@ -105,6 +163,8 @@ void UsdGenRegisterExprInputKinds(UsdGenRegistrar &r)
         UsdGenSpan<const UsdGenChannelDesc>(fresh->geometryChannels, kUsdGenGeometryInputSlots);
     fresh->geometry.slots = UsdGenSpan<const UsdGenInputSlot>(fresh->geometrySlots, kUsdGenGeometryInputSlots);
     fresh->geometry.attributes = UsdGenSpan<const UsdGenToken>(fresh->geometryAttributes, kUsdGenGeometryValues);
+    fresh->expression.digest = &DigestExpression;
+    fresh->geometry.digest = &DigestGeometry;
 
     UsdGenTypeDef def;
     def.name = "UsdGenExpressionInput";

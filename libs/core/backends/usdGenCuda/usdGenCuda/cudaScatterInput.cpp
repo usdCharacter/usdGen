@@ -324,7 +324,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (!node.mode.IsEmpty())
         return Fail(CudaScatterInputStatus::Unsupported,
                     "Scatter has no usdGen:mode property; it is always random", reason);
-    if (!node.inputs.empty() || !node.references.empty() || !node.curves.empty() ||
+    if (!node.inputs.empty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.expressionBindings.empty() ||
         !node.ramps.empty())
         return Fail(CudaScatterInputStatus::Unsupported,

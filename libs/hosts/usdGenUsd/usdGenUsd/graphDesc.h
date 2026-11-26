@@ -126,6 +126,10 @@ struct UsdGenPreviewDesc
     bool Active() const { return !source.IsEmpty(); }
 };
 
+/// The engine's look block with the schema fallbacks the host fills
+/// (bakeMode). publishPaths.cpp.
+UsdGenLookDesc UsdGenSchemaLook();
+
 struct UsdGenGraphDesc
 {
     SdfPath                        description;   // the UsdGenDescription prim
@@ -136,7 +140,7 @@ struct UsdGenGraphDesc
     std::vector<UsdGenMapDesc>     maps;
     std::vector<UsdGenExpressionDesc> expressions;
     std::vector<UsdGenGeometryDesc> geometries;   // every gprim an expression input names
-    UsdGenLookDesc                 look;
+    UsdGenLookDesc                 look = UsdGenSchemaLook();
     UsdGenPreviewDesc              preview;
     GfMatrix4d                     xformMatrix{1.0}; // description world matrix (post-flattening, S4)
     TfToken                        purpose;        // inherited by hand to every tile (C2)

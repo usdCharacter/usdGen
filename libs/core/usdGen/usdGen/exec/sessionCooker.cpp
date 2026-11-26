@@ -5,17 +5,12 @@
 #include "usdGen/sessionCooker.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
-#include "usdGen/limitSurface.h"
 #include "usdGen/debugCodes.h"
 #include "usdGen/cudaExecution.h"
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
-#include "usdGenCurves/types/curveSetInput.h"
-#include "usdGenExpr/exprInput.h"
-#include "usdGenSurface/maps/mapInput.h"
-#include "usdGenSurface/surfaceInput.h"
 
 
 #include "pxr/pxr.h"
@@ -296,6 +291,42 @@ void _CacheMixKeys(uint64_t *hash, std::vector<UsdGenNodeKey> const &keys)
     for (UsdGenNodeKey const key : keys) _CacheMix(hash, key.value);
 }
 
+// An input kind's digest hook writes into the plan digest's lanes.
+class _CacheInputDigest final : public UsdGenInputDigest
+{
+public:
+    _CacheInputDigest(uint64_t *h0, uint64_t *h1, _CacheArrayTerms *terms)
+        : _lanes{h0, h1}, _terms(terms) {}
+    void Mix(int lane, uint64_t value) override { _CacheMix(_Lane(lane), value); }
+    void MixText(int lane, std::string_view text) override { _CacheMixText(_Lane(lane), text); }
+    void MixArray(int lane, void const *data, size_t count, size_t elementBytes) override
+    {
+        uint64_t *const hash = _Lane(lane);
+        _CacheMix(hash, static_cast<uint64_t>(count));
+        if (count != 0 && _terms) {
+            size_t const bytes = count * elementBytes;
+            _terms->terms.push_back(_CacheArrayTerm{hash, data, bytes});
+            _terms->totalBytes += bytes;
+        }
+    }
+
+private:
+    uint64_t *_Lane(int lane) const { return _lanes[lane & 1]; }
+    uint64_t *_lanes[2];
+    _CacheArrayTerms *_terms;
+};
+
+/// Every input record through its kind's digest hook, record order.
+void _CacheMixInputs(UsdGenGraphSpec const &desc, uint64_t *h0, uint64_t *h1,
+                     _CacheArrayTerms *terms, bool layout)
+{
+    _CacheInputDigest sink(h0, h1, terms);
+    for (UsdGenInputRecord const &record : desc.inputs) {
+        UsdGenInputDesc const *input = UsdGenFindInputDesc(record.kind);
+        if (input && input->digest) input->digest(record, sink, layout);
+    }
+}
+
 UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
                                 UsdGenGraphSpec const &desc)
 {
@@ -322,7 +353,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMixText(&h1, nd.mode.GetString());
             _CacheMixKeys(&h1, nd.inputs);
             _CacheMixKeys(&h0, nd.references);
-            _CacheMixKeys(&h1, nd.curves);
+            _CacheMixKeys(&h1, nd.inputSets);
             _CacheMixKeys(&h0, nd.surfaces);
             _CacheMixKeys(&h1, nd.maps);
             _CacheMix(&h0, static_cast<uint64_t>(nd.mapBindings.size()));
@@ -348,7 +379,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     }
     // Descriptor-wide terms can affect evaluation or presentation while a
     // compiled node remains incrementally reusable.
-    _CacheMixText(&h0, desc.curveBasis.GetString());
+    _CacheMixText(&h0, desc.basis.GetString());
     uint32_t widthBits = 0;
     std::memcpy(&widthBits, &desc.defaultWidth, sizeof(widthBits));
     _CacheMix(&h1, widthBits);
@@ -387,45 +418,6 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     std::memcpy(&cpsBits, &desc.timeCodesPerSecond, sizeof(cpsBits));
     _CacheMix(&h0, timeBits);
     _CacheMix(&h1, cpsBits);
-    UsdGenSpan<const UsdGenInputRecord> const expressions = UsdGenExpressionInputs(desc);
-    _CacheMix(&h0, static_cast<uint64_t>(expressions.size()));
-    for (UsdGenInputRecord const &expressionRecord : expressions) {
-        UsdGenExpressionInputView const expression = UsdGenExpressionInputView::Of(expressionRecord);
-        _CacheMix(&h0, expression.key.value);
-        _CacheMixText(&h1, expression.source);
-        _CacheMix(&h0, static_cast<uint64_t>(expression.outputs.size()));
-        for (UsdGenExpressionOutputDesc const &output : expression.outputs) {
-            _CacheMixText(&h1, output.name.GetString());
-            _CacheMixText(&h0, output.nativeType.GetString());
-            _CacheMixShape(&h1, output.shape);
-        }
-        _CacheMix(&h0, static_cast<uint64_t>(expression.inputs.size()));
-        for (UsdGenExpressionSlot const &input : expression.inputs) {
-            _CacheMixText(&h1, input.name.GetString());
-            for (UsdGenNodeKey const key : input.targets) _CacheMix(&h0, key.value);
-            for (UsdGenNodeKey const key : input.geometries) _CacheMix(&h1, key.value);
-            for (UsdGenNodeKey const key : input.maps) _CacheMix(&h0, key.value);
-        }
-    }
-    // Geometry an expression samples is an execution input exactly like a
-    // curve set: its content moves the key.
-    UsdGenSpan<const UsdGenInputRecord> const geometries = UsdGenGeometryInputs(desc);
-    _CacheMix(&h1, static_cast<uint64_t>(geometries.size()));
-    for (UsdGenInputRecord const &geometryRecord : geometries) {
-        UsdGenGeometryInputView const geometry = UsdGenGeometryInputView::Of(geometryRecord);
-        _CacheMix(&h0, geometry.key.value);
-        _CacheMix(&h1, static_cast<uint64_t>(geometry.kind));
-        _CacheMixArray(&h0, geometry.counts, &terms);
-        _CacheMixArray(&h1, geometry.indices, &terms);
-        _CacheMixArray(&h0, geometry.points, &terms);
-        _CacheMixArray(&h1, geometry.rest, &terms);
-        _CacheMixArray(&h0, geometry.normals, &terms);
-        _CacheMixArray(&h1, geometry.ids, &terms);
-        _CacheMixArray(&h0, geometry.subsetFaces, &terms);
-        _CacheMix(&h1, geometry.isSubset ? 1u : 0u);
-        _CacheMixMatrix(&h0, geometry.worldMatrix);
-        _CacheMix(&h1, geometry.generation);
-    }
     for (UsdGenOpNode const &node : desc.nodes) {
         _CacheMix(&h0, static_cast<uint64_t>(node.expressionBindings.size()));
         for (UsdGenParamBinding const &binding : node.expressionBindings) {
@@ -438,88 +430,7 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
             _CacheMix(&h1, binding.literal.GetHash());
         }
     }
-    for (UsdGenInputRecord const &mapRecord : UsdGenMapInputs(desc)) {
-        UsdGenMapInputView const map = UsdGenMapInputView::Of(mapRecord);
-        _CacheMix(&h0, map.key.value);
-        _CacheMixText(&h1, map.type.GetString());
-        _CacheMixText(&h0, map.resolvedAssetPath);
-        _CacheMix(&h1, map.textureGeneration);
-        // A paint map's snapshot is capture content, not identity: the
-        // path, type and generation never move under a repaint, so the
-        // values themselves join the key or a length stroke would hit the
-        // pre-stroke cache entry and the groom would freeze (the density
-        // multiplier's row below is the same contract).
-        if (UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot))
-            _CacheMixArray(&h0, map.paintValues, &terms);
-        _CacheMix(&h0, static_cast<uint64_t>(map.params.size()));
-        for (UsdGenParamValue const &param : map.params) {
-            _CacheMixText(&h1, param.name.GetString());
-            _CacheMix(&h0, param.value.GetHash());
-            _CacheMix(&h1, static_cast<uint64_t>(param.animated));
-        }
-    }
-    for (UsdGenInputRecord const &curveRecord : UsdGenCurveSetInputs(desc)) {
-        UsdGenCurveSetInputView const curve = UsdGenCurveSetInputView::Of(curveRecord);
-        _CacheMix(&h0, curve.key.value);
-        _CacheMix(&h1, static_cast<uint64_t>(curve.role));
-        _CacheMixText(&h0, curve.curveRole.GetString());
-        _CacheMixText(&h1, curve.type.GetString());
-        _CacheMixText(&h0, curve.basis.GetString());
-        _CacheMixText(&h1, curve.wrap.GetString());
-        _CacheMixText(&h0, curve.widthsInterpolation.GetString());
-        _CacheMix(&h1, static_cast<uint64_t>(curve.restFromCurrentPoints));
-        _CacheMixArray(&h0, curve.curveVertexCounts, &terms);
-        _CacheMixArray(&h1, curve.points, &terms);
-        _CacheMixArray(&h0, curve.rest, &terms);
-        _CacheMixMatrix(&h1, curve.worldMatrix);
-        _CacheMixArray(&h0, curve.widths, &terms);
-        _CacheMixArray(&h1, curve.skinPrim, &terms);
-        _CacheMixArray(&h0, curve.curveId, &terms);
-        _CacheMixArray(&h1, curve.skinPrimUv, &terms);
-        _CacheMixArray(&h0, curve.rootFrame, &terms);
-        _CacheMixText(&h0, curve.frozenEpoch);
-        _CacheMix(&h1, curve.curveGeneration);
-        _CacheMix(&h1, static_cast<uint64_t>(curve.authoredPlanes.size()));
-        for (UsdGenAuthoredPlaneView const& plane : curve.authoredPlanes) {
-            _CacheMixText(&h0, plane.name.GetString());
-            _CacheMix(&h1, static_cast<uint64_t>(plane.type));
-            _CacheMix(&h0, static_cast<uint64_t>(plane.domain));
-            _CacheMix(&h1, plane.arity);
-            _CacheMixArray(&h0, plane.floatValues, &terms);
-            _CacheMixArray(&h1, plane.intValues, &terms);
-        }
-    }
-    for (UsdGenInputRecord const &surfaceRecord : UsdGenSurfaceInputs(desc)) {
-        UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(surfaceRecord);
-        // Tags-only subdivision cover: faceVertexCounts/faceVertexIndices
-        // mix into this key directly below. Coverage is unchanged.
-        _CacheMix(&h0, UsdGenSubdivisionTagsDigest(surface));
-        _CacheMix(&h0, surface.key.value);
-        _CacheMix(&h1, surface.id);
-        _CacheMix(&h0, static_cast<uint64_t>(surface.restNormalDomain));
-        _CacheMix(&h1, static_cast<uint64_t>(surface.restFromCurrentPoints));
-        _CacheMixArray(&h0, surface.faceVertexCounts, &terms);
-        _CacheMixArray(&h1, surface.faceVertexIndices, &terms);
-        _CacheMixArray(&h0, surface.restPoints, &terms);
-        _CacheMixArray(&h1, surface.restNormals, &terms);
-        _CacheMixArray(&h0, surface.points, &terms);
-        _CacheMix(&h1, static_cast<uint64_t>(surface.samples.size()));
-        for (UsdGenSurfaceSampleView const& sample : surface.samples) {
-            uint64_t sampleTimeBits = 0;
-            std::memcpy(&sampleTimeBits, &sample.time, sizeof(sampleTimeBits));
-            _CacheMix(&h0, sampleTimeBits);
-            _CacheMixArray(&h1, sample.points, &terms);
-        }
-        _CacheMixArray(&h0, surface.velocities, &terms);
-        _CacheMixArray(&h1, surface.uv, &terms);
-        _CacheMixArray(&h0, surface.subsetFaces, &terms);
-        _CacheMix(&h1, surface.isSubset ? 1u : 0u);
-        // Paint density the brush bakes: a repaint must miss the cache,
-        // or the stale pre-stroke roots publish and the groom freezes.
-        _CacheMixArray(&h1, surface.densityMultiplier, &terms);
-        _CacheMixMatrix(&h0, surface.worldMatrix);
-        _CacheMix(&h1, surface.surfaceGeneration);
-    }
+    _CacheMixInputs(desc, &h0, &h1, &terms, false);
     _CacheDigestTerms(terms);
     return {h0, h1};
 }
@@ -532,18 +443,7 @@ uint64_t _ExecutionLayoutDigest(UsdGenGraph const &graph,
     _CacheMix(&hash, static_cast<uint64_t>(graph.TileTarget()));
     _CacheMix(&hash, static_cast<uint64_t>(graph.ChunksPerTile()));
     _CacheMix(&hash, static_cast<uint64_t>(desc.tileTarget));
-    for (UsdGenInputRecord const &record : UsdGenSurfaceInputs(desc)) {
-        UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(record);
-        _CacheMix(&hash, surface.key.value);
-        _CacheMix(&hash, surface.faceVertexCounts.size());
-        _CacheMix(&hash, surface.restPoints.size());
-    }
-    for (UsdGenInputRecord const &record : UsdGenCurveSetInputs(desc)) {
-        UsdGenCurveSetInputView const curve = UsdGenCurveSetInputView::Of(record);
-        _CacheMix(&hash, curve.key.value);
-        _CacheMix(&hash, curve.curveVertexCounts.size());
-        _CacheMix(&hash, curve.points.size());
-    }
+    _CacheMixInputs(desc, &hash, &hash, nullptr, true);
     return hash;
 }
 
@@ -648,7 +548,8 @@ UsdGenNodeKey _CudaSourceDependencySurface(UsdGenGraphSpec const &desc)
     if (desc.nodes.empty() || desc.nodes.front().surfaces.size() != 1)
         return UsdGenNodeKey();
     UsdGenNodeKey const candidate = desc.nodes.front().surfaces.front();
-    UsdGenInputRecord const *found = UsdGenFindSurfaceInput(desc, candidate);
+    UsdGenInputRecord const *found =
+        desc.FindInput(UsdGenInputKindWithRole(UsdGenInputRole::Surface), candidate);
     return found ? found->key : UsdGenNodeKey();
 }
 
@@ -870,8 +771,12 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
             if (kv.first < static_cast<UsdGenNodeId>(_graph.NodeCount())) _graph.MarkNode(kv.first, kv.second);
         for (auto const& kv : pending.surfaceBits) _graph.DirtySurface(kv.first, kv.second);
         if (pending.surfaceTopology)
-            for (UsdGenInputRecord const& s : UsdGenSurfaceInputs(_desc))
-                _graph.DirtySurface(UsdGenSurfaceInputView::Of(s).id, UsdGenDirtySurfaceTopo);
+            if (UsdGenInputDesc const* surfaceInput =
+                    UsdGenFindInputDesc(UsdGenInputKindWithRole(UsdGenInputRole::Surface)))
+                for (UsdGenInputRecord const& s : _desc.Inputs(surfaceInput->kind))
+                    _graph.DirtySurface(surfaceInput->surfaceId
+                                            ? UsdGenSurfaceId(surfaceInput->surfaceId(s)) : UsdGenSurfaceId(0),
+                                        UsdGenDirtySurfaceTopo);
     }
     if (invalidateValues) for (UsdGenNodeId id=0; id<static_cast<UsdGenNodeId>(_graph.NodeCount()); ++id) {
         auto& node=_graph.Node(id); node.paramValueDigest=~uint64_t(0); node.lastParamDigest=0;

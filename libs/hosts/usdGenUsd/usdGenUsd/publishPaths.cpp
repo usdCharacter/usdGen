@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenUsd/publishPaths.h"
+#include "usdGenUsd/graphDesc.h"
 
 #include "usdGen/registries/engineTokens.h"
+#include "usdGenUsd/walk/usdGenTokens.h"
 
 #include <atomic>
 #include <cstdio>
@@ -42,7 +44,7 @@ TfToken InstancerName(uint32_t index)
 
 SdfPath RenderNamespace(SdfPath const &description)
 {
-    return description.AppendChild(UsdGenTokens().renderNamespace);
+    return description.AppendChild(::usdGenImaging::UsdGenRenderNamespaceToken());
 }
 
 TfToken TileName(UsdGenTileId tile)
@@ -104,3 +106,14 @@ SdfPath PrimPath(UsdGenGeneration const &generation, UsdGenPrimRef const &prim)
 }
 
 }  // namespace usdGenUsd
+
+namespace usdGen {
+
+UsdGenLookDesc UsdGenSchemaLook()
+{
+    UsdGenLookDesc look;
+    look.bakeMode = ::usdGenImaging::UsdGenLookBakeModeFallbackToken();
+    return look;
+}
+
+}  // namespace usdGen

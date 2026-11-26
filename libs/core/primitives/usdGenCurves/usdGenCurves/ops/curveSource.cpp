@@ -60,8 +60,8 @@ bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
    authoredOffsets->clear();
    *hasSource = false;
    if (!ctx.desc || !ctx.params || !ctx.params->node ||
-       ctx.params->node->curves.empty()) return true;
-   UsdGenNodeKey const path = ctx.params->node->curves.front();
+       ctx.params->node->inputSets.empty()) return true;
+   UsdGenNodeKey const path = ctx.params->node->inputSets.front();
    UsdGenInputRecord const *curveSetRecord = UsdGenFindCurveSetInput(*ctx.desc, path);
    if (!curveSetRecord) return true;
    UsdGenCurveSetInputView const curveSetView = UsdGenCurveSetInputView::Of(*curveSetRecord);
@@ -223,8 +223,8 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          bytes(name.data(), name.size());
          feed("value", param.value.GetHash());
       }
-      feed("curveRelationships", p->node->curves.size());
-      for (UsdGenNodeKey const path : p->node->curves) {
+      feed("curveRelationships", p->node->inputSets.size());
+      for (UsdGenNodeKey const path : p->node->inputSets) {
          bytes(&path.value, sizeof(path.value));
       }
       feed("surfaceRelationships", p->node->surfaces.size());
@@ -271,8 +271,8 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
    // C3 data is a captured external owner, not just optional named planes.
    // Hash its complete payload so a descriptor-only recompile recaptures into
    // fresh COW storage without changing an older published generation.
-   if (ctx.desc && p && p->node && p->node->curves.size() == 1) {
-      UsdGenNodeKey const path = p->node->curves.front();
+   if (ctx.desc && p && p->node && p->node->inputSets.size() == 1) {
+      UsdGenNodeKey const path = p->node->inputSets.front();
       UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(*ctx.desc, path);
       if (!foundRecord) {
          feed("missingCurveSet", 1);
@@ -412,7 +412,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
             bytes(&normal[0], 3 * sizeof(float));
          // Ordinary C3 already hashes the relative binding transform above.
          if (p->GetToken(kInterpolationMode, none) != none ||
-             p->node->curves.size() != 1)
+             p->node->inputSets.size() != 1)
             bytes(found->worldMatrix.GetArray(), 16 * sizeof(double));
       }
    }
@@ -455,15 +455,15 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
    // first, then exchange the capture owner only after every validation and
    // allocation succeeded; retained generations continue to own the old
    // buffer on failure.
-   if (ctx.params && ctx.params->node && !ctx.params->node->curves.empty()) {
-      if (ctx.params->node->curves.size() != 1) {
+   if (ctx.params && ctx.params->node && !ctx.params->node->inputSets.empty()) {
+      if (ctx.params->node->inputSets.size() != 1) {
          if (diag) diag->Error(
              "UsdGenCurveSource::Capture: node '" +
              ctx.desc->Label(ctx.params->node->key) +
              "' must bind exactly one authored C3 curve target");
          return false;
       }
-      UsdGenNodeKey const path = ctx.params->node->curves.front();
+      UsdGenNodeKey const path = ctx.params->node->inputSets.front();
       UsdGenInputRecord const *foundRecord = UsdGenFindCurveSetInput(*ctx.desc, path);
       if (!foundRecord) {
          if (diag) diag->Error("UsdGenCurveSource::Capture: node '" +

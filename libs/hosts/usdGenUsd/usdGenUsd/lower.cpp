@@ -168,7 +168,7 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
     out.seed = node.seed;
     out.inputs = keys.Keys(node.inputs);
     out.references = keys.Keys(node.references);
-    out.curves = keys.Keys(node.curves);
+    out.inputSets = keys.Keys(node.curves);
     out.surfaces = keys.Keys(node.surfaces);
     out.maps = keys.Keys(node.maps);
     out.mapBindings.reserve(node.mapBindings.size());
@@ -233,7 +233,7 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     spec.material = keys.Key(desc.materialPath);
     spec.defaultWidth = desc.defaultWidth;
     spec.tileTarget = desc.tileTarget;
-    spec.curveBasis = desc.curveBasis;
+    spec.basis = desc.curveBasis;
     spec.time = desc.time;
     spec.timeCodesPerSecond = desc.timeCodesPerSecond;
     spec.executionBackend = desc.executionBackend;

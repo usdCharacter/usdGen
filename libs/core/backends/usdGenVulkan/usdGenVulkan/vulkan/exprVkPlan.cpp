@@ -77,7 +77,7 @@ bool ExprVkCompileStageBindings(UsdGenGraphSpec const &desc, UsdGenOpNode const 
 
 bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
                              ExprVkWidthData *out, std::vector<std::string> *diagnostics) {
-    if (!out || !node.mode.IsEmpty() || !node.references.empty() || !node.curves.empty()) {
+    if (!out || !node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty()) {
         Error(diagnostics, "Width has unsupported mode/input configuration");
         return false;
     }
@@ -175,7 +175,7 @@ bool ExprVkValidateExprOpNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &n
     }
     // expr:maps (node.maps) still rejects: sampler calls have no Vulkan
     // transport and maps are the image-map gap's surface.
-    if (!node.references.empty() || !node.curves.empty() || !node.surfaces.empty() ||
+    if (!node.references.empty() || !node.inputSets.empty() || !node.surfaces.empty() ||
         !node.maps.empty() || !node.mapBindings.empty() || !node.ramps.empty()) {
         Error(diagnostics, "UsdGenExprOp has unsupported input configuration");
         return false;

@@ -1,23 +1,13 @@
 #ifndef USDGEN_EXPRESSIONS_CONTEXT_H
 #define USDGEN_EXPRESSIONS_CONTEXT_H
 
+#include "usdGen/api/valueShape.h"   // Domain, ScalarType, ValueShape
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
 namespace usdGen::expr {
-
-enum class Domain : uint8_t { None = 0, Groom = 1, Primitive = 2, Point = 4,
-                              All = 7 };
-constexpr Domain operator|(Domain a, Domain b) {
-    return Domain(uint8_t(a) | uint8_t(b));
-}
-constexpr bool HasDomain(Domain mask, Domain d) {
-    return (uint8_t(mask) & uint8_t(d)) != 0;
-}
-
-enum class ScalarType : uint8_t { Invalid, Bool, Int32, UInt32, Int64, UInt64,
-                                  Float16, Float32, Float64 };
 
 // Non-owning, trivially-copyable payload view. Shape is explicit: arrays are
 // not collapsed into point samples and matrices retain row-major dimensions.
@@ -29,15 +19,6 @@ struct ValueView {
     uint32_t columns = 1;
     uint32_t strideBytes = 0;
     ScalarType scalar = ScalarType::Invalid;
-    bool isArray = false;
-};
-
-struct ValueShape {
-    ScalarType scalar = ScalarType::Invalid;
-    uint32_t elementCount = 1;
-    uint32_t components = 1;
-    uint32_t rows = 1;
-    uint32_t columns = 1;
     bool isArray = false;
 };
 

@@ -39,7 +39,7 @@ inline bool ValidateVulkanSurfaceCage(
     };
     if (!maxCurves || !maxCvs || !IsVulkanSurfaceCage(node) ||
         !node.mode.IsEmpty() || !node.inputs.empty() || !node.references.empty() ||
-        node.curves.size() != 1 || node.curves.front() != sparse.key ||
+        node.inputSets.size() != 1 || node.inputSets.front() != sparse.key ||
         node.surfaces.size() != 1 || node.maps.size() != 1 ||
         node.mapBindings.size() != 1 || node.maps.front() != node.mapBindings.front().map ||
         node.mapBindings.front().relationship != UsdGenVkTokens().regionMapRel)

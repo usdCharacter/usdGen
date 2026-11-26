@@ -38,7 +38,7 @@ bool ValidateNode(UsdGenGraphSpec const &, UsdGenOpNode const &node,
         weight > 1.0 || !node.mode.IsEmpty() ||
         !paramsOk || !node.ramps.empty() ||
         !node.expressionBindings.empty() || !node.references.empty() ||
-        !node.curves.empty() || !node.surfaces.empty() ||
+        !node.inputSets.empty() || !node.surfaces.empty() ||
         !node.maps.empty() || !node.mapBindings.empty()) {
         if (error) *error =
             "UsdGenCompiler: WidthBlend requires enabled=true, a finite "
@@ -144,7 +144,7 @@ bool UsdGenWidthBlendOp::Bind(UsdGenParamView const &params,
     if (!node || !node->enabled ||
         !node->mode.IsEmpty() || !paramsOk ||
         !node->ramps.empty() || !node->expressionBindings.empty() ||
-        !node->references.empty() || !node->curves.empty() ||
+        !node->references.empty() || !node->inputSets.empty() ||
         !node->surfaces.empty() || !node->maps.empty() ||
         !node->mapBindings.empty()) {
         if (diag) diag->Error(

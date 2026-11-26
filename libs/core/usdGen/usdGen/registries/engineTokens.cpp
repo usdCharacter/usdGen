@@ -25,7 +25,6 @@ UsdGenEngineTokens *MakeEngineTokens()
     t->seed = i("seed");
     t->enabled = i("enabled");
     t->guides = i("guides");
-    t->curves = i("curves");
     t->mask = i("mask");
     t->usdGenPrefix = i("usdGen:");
     t->hair = i("hair");
@@ -35,7 +34,6 @@ UsdGenEngineTokens *MakeEngineTokens()
     t->pinned = i("pinned");
     t->nonperiodic = i("nonperiodic");
     t->vertexWidths = i("vertex");
-    t->renderNamespace = i("__usdGenRender");
     t->allPurpose = i("allPurpose");
     t->none = i("none");
     t->displayColor = i("displayColor");
@@ -57,7 +55,6 @@ UsdGenEngineTokens *MakeEngineTokens()
     t->edgeAndCorner = i("edgeAndCorner");
     t->cornersPlus1 = i("cornersPlus1");
     t->catmullClark = i("catmullClark");
-    t->perCurve = i("perCurve");
     t->heat = i("heat");
     t->primitive = i("primitive");
     t->lit = i("lit");

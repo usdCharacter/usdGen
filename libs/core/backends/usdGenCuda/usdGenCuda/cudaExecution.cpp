@@ -161,8 +161,8 @@ bool ValidateCudaClumpMotionInputs(UsdGenGraphSpec const& desc,
                 continue;
             }
             for (UsdGenInputRecord const& record : UsdGenCurveSetInputs(desc)) {
-                if (std::find(predecessor->curves.begin(), predecessor->curves.end(),
-                              record.key) == predecessor->curves.end()) continue;
+                if (std::find(predecessor->inputSets.begin(), predecessor->inputSets.end(),
+                              record.key) == predecessor->inputSets.end()) continue;
                 UsdGenCurveSetInputView const curves = UsdGenCurveSetInputView::Of(record);
                 for (auto const& plane : curves.authoredPlanes)
                     if (plane.name.GetString().rfind("clumpWeight_", 0) == 0)
@@ -186,7 +186,7 @@ bool ValidateExpressionTargets(UsdGenGraphSpec const& desc, UsdGenOpNode const& 
 bool ValidateLength(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
                   UsdGenDiagnostics* diagnostics) {
     if (!node.mode.IsEmpty() ||
-        !node.references.empty() || !node.curves.empty() || !node.maps.empty() ||
+        !node.references.empty() || !node.inputSets.empty() || !node.maps.empty() ||
         !node.mapBindings.empty())
         return Fail(diagnostics, "unsupported Length mode/reference/map configuration");
     static constexpr std::string_view floats[] = {
@@ -232,7 +232,7 @@ bool ValidateWidth(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
         return Fail(diagnostics, "only Width operators may follow CurveSource in this CUDA executor");
     // Surface inheritance is metadata on Width; this operator does not sample
     // it. Do not reject the Description's ordinary inherited scalp target.
-    if (!node.references.empty() || !node.curves.empty() || !node.mode.IsEmpty())
+    if (!node.references.empty() || !node.inputSets.empty() || !node.mode.IsEmpty())
         return Fail(diagnostics, "Width references/curves/mode are not supported");
     // The Bezier profile controls are literal floats; the profile itself is
     // folded into the per-node LUT (UsdGenWidthBezierLut) below.
@@ -284,7 +284,7 @@ bool ValidateWidthBlend(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
     if (!CudaIs(node, UsdGenCudaStage::WidthBlend) ||
         !paramsOk || !node.ramps.empty() ||
         !node.expressionBindings.empty() || !node.references.empty() ||
-        !node.curves.empty() || !node.surfaces.empty() || !node.maps.empty() ||
+        !node.inputSets.empty() || !node.surfaces.empty() || !node.maps.empty() ||
         !node.mapBindings.empty() || !node.mode.IsEmpty() || !node.enabled)
         return Fail(diagnostics,
             "WidthBlend requires a finite usdGen:widthBlend:weight in [0,1] and no auxiliary inputs");
@@ -298,7 +298,7 @@ bool ValidateNoise(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
     // does not sample it; rejecting it would make Noise unusable from a stage
     // (the same reason ValidateWidth accepts the inherited target).
     if (!CudaIs(node, UsdGenCudaStage::Noise) || !node.references.empty() ||
-        !node.curves.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
+        !node.inputSets.empty() || !node.maps.empty() || !node.mapBindings.empty() ||
         !node.mode.IsEmpty())
         return Fail(diagnostics, "Noise does not accept references, curves, maps, or mode");
     static constexpr std::string_view floats[] = {
@@ -355,7 +355,7 @@ bool ValidateDeform(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
                   UsdGenDiagnostics* diagnostics) {
     if (!node.mode.IsEmpty())
         return Fail(diagnostics, "Deform mode requires the CPU lane; CUDA supports default surface RBF");
-    if (node.surfaces.size() != 1 || !node.references.empty() || !node.curves.empty() ||
+    if (node.surfaces.size() != 1 || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty())
         return Fail(diagnostics, "RBF Deform requires exactly one surface and no guide/map inputs "
                                  "(guide-driven RBF, usdGen:guides, runs on the CPU lane)");
@@ -406,7 +406,7 @@ bool ValidateScatterGrow(UsdGenGraphSpec const& desc, uint32_t source, uint32_t 
             return Fail(diagnostics,
                 "Scatter distribution/count/proximity modes require the CPU reference backend");
     }
-    if (!c3 && (!scatter.mapBindings.empty() || !scatter.curves.empty()))
+    if (!c3 && (!scatter.mapBindings.empty() || !scatter.inputSets.empty()))
         return Fail(diagnostics,
             "Scatter density maps and guides require the CPU reference backend");
     auto const& grow = desc.nodes[terminal];
@@ -418,7 +418,7 @@ bool ValidateScatterGrow(UsdGenGraphSpec const& desc, uint32_t source, uint32_t 
     // operator that authors none of its own, so a Grow reaching this slice
     // normally carries the same surface as its Scatter. That is the surface
     // the kernel grows from anyway; only a different one is unsupported.
-    if (!grow.references.empty() || !grow.curves.empty() ||
+    if (!grow.references.empty() || !grow.inputSets.empty() ||
         !grow.expressionBindings.empty() || !grow.ramps.empty() ||
         (!grow.surfaces.empty() && grow.surfaces != scatter.surfaces))
         return Fail(diagnostics, "Scatter->Grow does not support Grow references/maps/expressions/ramps");
@@ -500,7 +500,7 @@ bool ValidateCudaResolvedInputs(UsdGenGraphSpec const& desc,
                                                    : node.mapBindings.size();
         if (references == 0 && maps == 0) continue;
         if (CudaIs(node, UsdGenCudaStage::CurveSource) &&
-            references == 0 && maps == 1 && node.curves.size() == 1 &&
+            references == 0 && maps == 1 && node.inputSets.size() == 1 &&
             node.surfaces.size() == 1 && node.inputs.empty() &&
             node.mapBindings.size() == 1 &&
             node.mapBindings.front().relationship.GetString() == "usdGen:regionMap") {
@@ -510,7 +510,7 @@ bool ValidateCudaResolvedInputs(UsdGenGraphSpec const& desc,
             continue;
         }
         if (CudaIs(node, UsdGenCudaStage::ReferenceSource) &&
-            references == 1 && maps == 0 && node.curves.empty() &&
+            references == 1 && maps == 0 && node.inputSets.empty() &&
             node.surfaces.empty() && node.inputs.empty()) {
             UsdGenInputRecord const* foundRecord = UsdGenFindCurveSetInput(desc, node.references.front());
             UsdGenCurveSetInputView const foundView = foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
@@ -1981,9 +1981,9 @@ LiteralRbfAdmission ReserveLiteralRbfExecution(
         !SourceExpressionCardinalityKnown(sourceNode) ||
         step.semanticNode >= plan.desc.nodes.size() ||
         HasExpressionBinding(plan.desc.nodes[step.semanticNode], "rbfSamples") ||
-        sourceNode.curves.empty())
+        sourceNode.inputSets.empty())
         return LiteralRbfAdmission::NotEligible;
-    UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(plan.desc, sourceNode.curves.front());
+    UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(plan.desc, sourceNode.inputSets.front());
     UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
     UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
     if (!source) return LiteralRbfAdmission::NotEligible;
@@ -2115,12 +2115,12 @@ LiteralLengthAdmission ReserveLiteralLengthExecution(
         return LiteralLengthAdmission::NotEligible;
     auto const& sourceNode = plan.desc.nodes[plan.sourceNode];
     bool const referenceSource = CudaIs(sourceNode, UsdGenCudaStage::ReferenceSource);
-    if ((!referenceSource && sourceNode.curves.empty()) ||
+    if ((!referenceSource && sourceNode.inputSets.empty()) ||
         (referenceSource && sourceNode.references.size() != 1) ||
         !SourceExpressionCardinalityKnown(sourceNode))
         return LiteralLengthAdmission::NotEligible;
     UsdGenNodeKey const sourcePath = referenceSource
-        ? sourceNode.references.front() : sourceNode.curves.front();
+        ? sourceNode.references.front() : sourceNode.inputSets.front();
     UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(plan.desc, sourcePath);
     UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
     UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
@@ -2923,7 +2923,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
     auto const& node = desc.nodes[layout.source];
     bool const referenceSource = CudaIs(node, UsdGenCudaStage::ReferenceSource);
     if (referenceSource) {
-        if (node.references.size() != 1 || !node.curves.empty() ||
+        if (node.references.size() != 1 || !node.inputSets.empty() ||
             !node.surfaces.empty() || !node.maps.empty() ||
             !node.mapBindings.empty() || !node.inputs.empty())
             return Fail(diagnostics,
@@ -2968,7 +2968,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
             std::any_of(ramp.knots.begin(), ramp.knots.end(), [](auto const& k) { return k[1] != 1.0f || !std::isfinite(k[0]); }))
             return Fail(diagnostics, "non-identity source ramps are not supported");
     }
-    if (node.curves.size() != 1)
+    if (node.inputSets.size() != 1)
         return Fail(diagnostics, "CurveSource requires exactly one C3 curve target");
     if (node.surfaces.size() > 1)
         return Fail(diagnostics, "CurveSource binding requires one resolved parent surface");
@@ -2980,7 +2980,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
     if (sawDeform && !connectedUseRest && !params.GetBool(sourceParams.Slot(cudaP::kSrcUseRest), true))
         return Fail(diagnostics, "already-deformed CurveSource cannot feed rest-to-animated RBF Deform");
     if (sawDeform) {
-        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
         UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
         UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
         if (desc.xformMatrix != GfMatrix4d(1.0) || !source ||
@@ -3012,7 +3012,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
     if (surfaceCage) {
         if (params.GetInt(sourceParams.Slot(cudaP::kSrcRegionMapChannel), 0) != 0)
             return Fail(diagnostics, "surfaceCage CurveSource requires categorical regionMapChannel zero");
-        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
         UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
         UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
         UsdGenInputRecord const* mapRecord = UsdGenFindMapInput(desc, node.maps.front());
@@ -3026,7 +3026,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
             return Fail(diagnostics, "surfaceCage CurveSource requires a captured cage and resolved UsdGenPtexMap");
     }
     if (NoiseNeedsAuthoredSourceRest(desc, layout.source, layout.operators, layout.input)) {
-        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.curves.front());
+        UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
         UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
         UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
         if (!source)
@@ -3482,7 +3482,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     auto const& sourceNodeDesc = desc.nodes[layout.source];
     UsdGenNodeKey const sourcePath = CudaIs(sourceNodeDesc, UsdGenCudaStage::ReferenceSource)
         ? sourceNodeDesc.references.front()
-        : sourceNodeDesc.curves.front();
+        : sourceNodeDesc.inputSets.front();
     UsdGenInputRecord const* sourceItRecord = UsdGenFindCurveSetInput(desc, sourcePath);
     UsdGenCurveSetInputView const sourceItView = sourceItRecord ? UsdGenCurveSetInputView::Of(*sourceItRecord) : UsdGenCurveSetInputView{};
     UsdGenCurveSetInputView const* sourceIt = sourceItRecord ? &sourceItView : nullptr;
@@ -8482,7 +8482,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     auto const& node = desc.nodes[plan.sourceNode];
     bool const referenceSource = CudaIs(node, UsdGenCudaStage::ReferenceSource);
     UsdGenNodeKey const sourcePath = referenceSource
-        ? node.references.front() : node.curves.front();
+        ? node.references.front() : node.inputSets.front();
     UsdGenInputRecord const* foundRecord = UsdGenFindCurveSetInput(desc, sourcePath);
     UsdGenCurveSetInputView const foundView = foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
     UsdGenCurveSetInputView const* found = foundRecord ? &foundView : nullptr;

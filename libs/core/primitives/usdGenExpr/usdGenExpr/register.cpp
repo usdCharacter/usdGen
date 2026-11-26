@@ -5,6 +5,7 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGenExpr/cpuParameters.h"
 #include "usdGenExpr/export.h"
+#include "usdGenExpr/exprValidate.h"
 
 #include <memory>
 
@@ -31,5 +32,8 @@ extern "C" void usdGenRegister_usdGenExpr(UsdGenRegistrar &r)
 {
     UsdGenParamEvaluatorDef def;
     def.create = &CreateCpuParameters;
+    def.validateInputs = &UsdGenValidateExpressionInputs;
+    def.validateBindings = &UsdGenValidateExpressionBindingSources;
+    def.bindingDependencies = &UsdGenExpressionDependencies;
     r.RegisterParamEvaluator(def);
 }

@@ -12,6 +12,7 @@
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
+#include "usdGenUsd/publishPaths.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/registrar.h"
@@ -487,8 +488,8 @@ void TestInterner()
 {
     TfToken const vertex("vertex");
     Check(UsdGenTokens().vertex == vertex && UsdGenTokens().float_ == TfToken("float") &&
-              UsdGenTokens().renderNamespace == TfToken("__usdGenRender"),
-          "engine tokens");
+              usdGenUsd::RenderNamespace(SdfPath("/D")) == SdfPath("/D/__usdGenRender"),
+          "engine tokens and the host's render namespace");
     Check(UsdGenTokenChecksEnabled(), "token checks on by default");
     uint64_t const total = UsdGenTotalInternCount(), exec = UsdGenExecInternCount();
     UsdGenCookTokenCheck const check;

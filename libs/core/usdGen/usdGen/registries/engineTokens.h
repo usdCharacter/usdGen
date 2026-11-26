@@ -12,18 +12,18 @@ struct UsdGenEngineTokens {
     // plane rate / scalar (UsdGenPlane, types.h)
     TfToken vertex, uniform, constant, float_, int_;
     // base node parameters (compiler.cpp:779-801) and the "usdGen:" prefix
-    TfToken input, surface, seed, enabled, guides, curves, mask, usdGenPrefix;
-    // C3 curve-set vocabulary (graphDesc.h:224-235, cudaExecution.cpp:8376-8398)
+    TfToken input, surface, seed, enabled, guides, mask, usdGenPrefix;
+    // element-set input vocabulary (input payload defaults)
     TfToken hair, cubic, bspline, catmullRom, pinned, nonperiodic, vertexWidths;
     // publication vocabulary; step 9 moves it (sessionCooker.cpp:678-2882,
     // generationStore.cpp:163-180, tile publication, graphDesc.h:124)
-    TfToken renderNamespace /* __usdGenRender */, allPurpose, none, displayColor,
+    TfToken allPurpose, none, displayColor,
         hairT, hairId, st, bakeColor, velocities, scalpShadow, materialScalpShadow,
         result;
     // backend names (executionBackend.cpp:141-148)
     TfToken cpu, cpuReference, cuda, metal, vulkan;
     // S4-3 (Core-B): varying rate; desc defaults (graphDesc.h surface, look, preview)
-    TfToken varying, rightHanded, edgeAndCorner, cornersPlus1, catmullClark, perCurve,
+    TfToken varying, rightHanded, edgeAndCorner, cornersPlus1, catmullClark,
         heat, primitive, lit;
 };
 

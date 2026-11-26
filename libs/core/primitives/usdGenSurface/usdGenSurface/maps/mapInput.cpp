@@ -7,8 +7,12 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace usdGen {
 
@@ -43,6 +47,122 @@ void ResolveTypeId(UsdGenInputRecord &record)
         VtValue(int(UsdGenMutableTypeRegistry().Find(type)));
 }
 
+// FNV-1a 64-bit (the compiler's map value identity, moved here).
+uint64_t Fnv1a(uint64_t h, void const *data, size_t n)
+{
+    auto const *p = static_cast<unsigned char const *>(data);
+    for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 0x100000001b3ULL; }
+    return h;
+}
+
+uint64_t Fnv1aI64(uint64_t h, int64_t v)
+{
+    uint64_t u = static_cast<uint64_t>(v);
+    return Fnv1a(h, &u, sizeof(u));
+}
+
+uint64_t Fnv1aCstr(uint64_t h, char const *s)
+{
+    for (auto const *p = reinterpret_cast<unsigned char const *>(s); *p; ++p) {
+        h ^= *p; h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+uint64_t Fnv1aText(uint64_t h, std::string_view s)
+{
+    for (char c : s) {   // as Fnv1aCstr: stops at a NUL
+        if (!c) break;
+        h ^= static_cast<unsigned char>(c); h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+uint64_t Fnv1aToken(uint64_t h, TfToken const &t)
+{
+    return Fnv1aI64(Fnv1aCstr(h, t.GetText()), static_cast<int64_t>(t.Hash()));
+}
+
+uint64_t MapValueIdentity(UsdGenMapInputView const &map)
+{
+    uint64_t h = Fnv1aI64(1469598103934665603ULL, static_cast<int64_t>(map.key.value));
+    h = Fnv1aToken(h, map.type);
+    h = Fnv1aText(h, map.resolvedAssetPath);
+    h = Fnv1aI64(h, static_cast<int64_t>(map.textureGeneration));
+    // A UsdGenPaintMap's payload is the surface primvar snapshot, not a
+    // file: a repaint changes only paintValues, so they are the identity a
+    // direct map-slot consumer re-captures on (DigestRecord folds the same
+    // fields into the execution-cache key).
+    if (!map.paintValues.empty() || map.paintSurface.IsValid()) {
+        h = Fnv1aI64(h, static_cast<int64_t>(map.paintSurface.value));
+        h = Fnv1aToken(h, map.paintPrimvar);
+        h = Fnv1aToken(h, map.paintInterpolation);
+        h = Fnv1aI64(h, static_cast<int64_t>(map.paintValues.size()));
+        for (float v : map.paintValues) {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &v, sizeof(bits));
+            h = Fnv1aI64(h, static_cast<int64_t>(bits));
+        }
+    }
+    std::vector<UsdGenParamValue const *> params;
+    params.reserve(map.params.size());
+    for (UsdGenParamValue const &param : map.params) params.push_back(&param);
+    std::sort(params.begin(), params.end(), [](auto const *a, auto const *b) {
+        if (a->name != b->name) return a->name < b->name;
+        if (a->value.GetHash() != b->value.GetHash())
+            return a->value.GetHash() < b->value.GetHash();
+        return a->animated < b->animated;
+    });
+    for (UsdGenParamValue const *param : params) {
+        h = Fnv1aToken(h, param->name);
+        h = Fnv1aI64(h, static_cast<int64_t>(param->value.GetHash()));
+        h = Fnv1aI64(h, param->animated ? 1 : 0);
+    }
+    return h;
+}
+
+void ResolveMap(UsdGenInputRecord const &record, UsdGenResolvedMapValue *value)
+{
+    UsdGenMapInputView const map = UsdGenMapInputView::Of(record);
+    value->type = map.type;
+    value->resolvedAssetPath.assign(map.resolvedAssetPath.data(), map.resolvedAssetPath.size());
+    value->textureGeneration = map.textureGeneration;
+    value->identity = MapValueIdentity(map);
+}
+
+bool PaintSource(UsdGenInputRecord const &record, UsdGenNodeKey *surface, UsdGenToken *primvar)
+{
+    UsdGenMapInputView const map = UsdGenMapInputView::Of(record);
+    if (!UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot)) return false;
+    *surface = map.paintSurface;
+    *primvar = map.paintPrimvar;
+    return true;
+}
+
+/// Execution cache key terms (moved from the session cooker); no layout terms.
+void DigestRecord(UsdGenInputRecord const &record, UsdGenInputDigest &d, bool layout)
+{
+    if (layout) return;
+    UsdGenMapInputView const map = UsdGenMapInputView::Of(record);
+    d.Mix(0, map.key.value);
+    d.MixText(1, map.type.GetString());
+    d.MixText(0, map.resolvedAssetPath);
+    d.Mix(1, map.textureGeneration);
+    // A paint map's snapshot is capture content, not identity: the
+    // path, type and generation never move under a repaint, so the
+    // values themselves join the key or a length stroke would hit the
+    // pre-stroke cache entry and the groom would freeze (the density
+    // multiplier's row is the same contract).
+    if (UsdGenMapHas(map, kUsdGenTypeMapPaintSnapshot))
+        d.MixSpan(0, map.paintValues);
+    d.Mix(0, static_cast<uint64_t>(map.params.size()));
+    for (UsdGenParamValue const &param : map.params) {
+        d.MixText(1, param.name.GetString());
+        d.Mix(0, param.value.GetHash());
+        d.Mix(1, static_cast<uint64_t>(param.animated));
+    }
+}
+
 }  // namespace
 
 UsdGenTypeId UsdGenRegisterMapInputKind(UsdGenRegistrar &r)
@@ -69,6 +189,10 @@ UsdGenTypeId UsdGenRegisterMapInputKind(UsdGenRegistrar &r)
     fresh->input.slots = UsdGenSpan<const UsdGenInputSlot>(fresh->slots, kUsdGenMapInputSlots);
     fresh->input.attributes = UsdGenSpan<const UsdGenToken>(fresh->attributes, kUsdGenMapValues);
     fresh->input.intake = &ResolveTypeId;
+    fresh->input.role = UsdGenInputRole::Map;
+    fresh->input.digest = &DigestRecord;
+    fresh->input.resolveMap = &ResolveMap;
+    fresh->input.paintSource = &PaintSource;
     UsdGenTypeDef def;
     def.name = "UsdGenMapInput";
     def.layout = &fresh->layout;
