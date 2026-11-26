@@ -47,9 +47,17 @@ public:
     uint64_t Submit(VkCommandBuffer const* commands, uint32_t count,
                     VkResult* result = nullptr) noexcept;
 
+    /// Submits one empty batch that signals the next value. Same-queue
+    /// ordering makes it prove every earlier submission on this queue,
+    /// timeline or not. Returns the value, or 0 with *result set.
+    uint64_t Signal(VkResult* result = nullptr) noexcept;
+
     /// Non-blocking: VK_SUCCESS once `value` has signaled, VK_NOT_READY
     /// before, or the device error (VK_ERROR_DEVICE_LOST).
     VkResult Check(uint64_t value) noexcept;
+
+    /// Non-blocking: reads the signaled value into *value (one driver call).
+    VkResult Poll(uint64_t* value) noexcept;
 
     /// Blocks until `value` signals or `timeoutNs` passes (VK_TIMEOUT).
     /// For synchronous API boundaries, shutdown, device loss and tests.
@@ -71,6 +79,8 @@ public:
 private:
     struct Request;
     VulkanQueueTimeline(VkDevice, VkQueue, VkSemaphore) noexcept;
+    uint64_t Enqueue(VkCommandBuffer const* commands, uint32_t count,
+                     VkResult* result) noexcept;
     void Drain(Request* self) noexcept;
     void SubmitOne(Request&) noexcept;
     void Observe(uint64_t value) noexcept;

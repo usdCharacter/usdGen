@@ -10,7 +10,7 @@ namespace usdGen::vulkan {
 // One producer's call, on its stack until the submitter marks it done.
 struct VulkanQueueTimeline::Request {
     VkCommandBuffer const* commands = nullptr;
-    uint32_t count = 0;
+    uint32_t count = 0;  // 0: one empty batch (Signal)
     Request* next = nullptr;
     uint64_t last = 0;
     VkResult result = VK_SUCCESS;
@@ -58,11 +58,20 @@ VulkanQueueTimeline::~VulkanQueueTimeline() {
 
 uint64_t VulkanQueueTimeline::Submit(VkCommandBuffer const* commands, uint32_t count,
                                      VkResult* result) noexcept {
-    auto finish = [&](VkResult r) { if (result) *result = r; };
     if (!commands || count == 0 || count > kMaxBatches) {
-        finish(VK_ERROR_INITIALIZATION_FAILED);
+        if (result) *result = VK_ERROR_INITIALIZATION_FAILED;
         return 0;
     }
+    return Enqueue(commands, count, result);
+}
+
+uint64_t VulkanQueueTimeline::Signal(VkResult* result) noexcept {
+    return Enqueue(nullptr, 0, result);
+}
+
+uint64_t VulkanQueueTimeline::Enqueue(VkCommandBuffer const* commands, uint32_t count,
+                                      VkResult* result) noexcept {
+    auto finish = [&](VkResult r) { if (result) *result = r; };
     Request request;
     request.commands = commands;
     request.count = count;
@@ -117,26 +126,27 @@ void VulkanQueueTimeline::Drain(Request* self) noexcept {
 
 void VulkanQueueTimeline::SubmitOne(Request& request) noexcept {
     uint64_t const base = submitted_.load(std::memory_order_relaxed);
+    uint32_t const count = request.count ? request.count : 1;
     uint64_t values[kMaxBatches];
     VkTimelineSemaphoreSubmitInfo timeline[kMaxBatches]{};
     VkSubmitInfo batches[kMaxBatches]{};
-    for (uint32_t i = 0; i < request.count; ++i) {
+    for (uint32_t i = 0; i < count; ++i) {
         values[i] = base + 1 + i;
         timeline[i].sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
         timeline[i].signalSemaphoreValueCount = 1;
         timeline[i].pSignalSemaphoreValues = &values[i];
         batches[i].sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         batches[i].pNext = &timeline[i];
-        batches[i].commandBufferCount = 1;
-        batches[i].pCommandBuffers = &request.commands[i];
+        batches[i].commandBufferCount = request.count ? 1 : 0;
+        batches[i].pCommandBuffers = request.count ? &request.commands[i] : nullptr;
         batches[i].signalSemaphoreCount = 1;
         batches[i].pSignalSemaphores = &semaphore_;
     }
     submits_.fetch_add(1, std::memory_order_relaxed);
-    VkResult r = vkQueueSubmit(queue_, request.count, batches, VK_NULL_HANDLE);
-    if (r == VK_SUCCESS) submitted_.store(base + request.count, std::memory_order_release);
+    VkResult r = vkQueueSubmit(queue_, count, batches, VK_NULL_HANDLE);
+    if (r == VK_SUCCESS) submitted_.store(base + count, std::memory_order_release);
     request.result = r;
-    request.last = r == VK_SUCCESS ? base + request.count : 0;
+    request.last = r == VK_SUCCESS ? base + count : 0;
     uint32_t const old = request.state.exchange(kDone, std::memory_order_acq_rel);
     // Nothing of the request is read after this point: its owner may return.
     if (old & kWaiter) UsdGenUnparkAll(request.state);
@@ -156,6 +166,15 @@ VkResult VulkanQueueTimeline::Check(uint64_t value) noexcept {
     if (r != VK_SUCCESS) return r;
     Observe(now);
     return now >= value ? VK_SUCCESS : VK_NOT_READY;
+}
+
+VkResult VulkanQueueTimeline::Poll(uint64_t* value) noexcept {
+    uint64_t now = 0;
+    VkResult r = vkGetSemaphoreCounterValue(device_, semaphore_, &now);
+    if (r != VK_SUCCESS) return r;
+    Observe(now);
+    if (value) *value = now;
+    return VK_SUCCESS;
 }
 
 VkResult VulkanQueueTimeline::Wait(uint64_t value, uint64_t timeoutNs) noexcept {

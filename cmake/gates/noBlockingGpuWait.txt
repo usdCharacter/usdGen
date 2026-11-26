@@ -4,7 +4,6 @@ libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp 2
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBufferImpl.h 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecution.cpp 36
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaParameters.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaTools.cpp 3

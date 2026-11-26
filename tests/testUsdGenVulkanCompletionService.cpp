@@ -83,6 +83,69 @@ static int CheckDeliveryFailure(std::shared_ptr<DeviceContext> const& context,
     return 0;
 }
 
+// SubmitOnTimeline: one call submits through the queue timeline and runs
+// the delivery on the owner once the value passed; the slot frees itself and
+// the lifetime drops after delivery. Two rounds through a one-slot service.
+static int CheckSubmitOnTimeline(std::shared_ptr<DeviceContext> const& context,
+                                 UsdGenExecutionPipeline& owner) {
+    using Result = VulkanCompletionService::DeliveryResult;
+    VkDevice const device = context->device();
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.queueFamilyIndex = context->computeQueueFamily();
+    VkCommandPool pool = VK_NULL_HANDLE;
+    CHECK(vkCreateCommandPool(device, &poolInfo, nullptr, &pool) == VK_SUCCESS);
+    VkCommandBufferAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc.commandPool = pool; alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    CHECK(vkAllocateCommandBuffers(device, &alloc, &cmd) == VK_SUCCESS);
+    VkCommandBufferBeginInfo begin{}; begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    CHECK(vkBeginCommandBuffer(cmd, &begin) == VK_SUCCESS && vkEndCommandBuffer(cmd) == VK_SUCCESS);
+    auto service = VulkanCompletionService::Create({context, &owner, 1});
+    CHECK(service);
+    unsigned delivered = 0;
+    bool ok = true;
+    uint64_t lastValue = 0;
+    for (unsigned round = 0; round != 2; ++round) {
+        std::weak_ptr<int> life;
+        uint64_t value = 0;
+        owner.Await([&](auto finish) {
+            if (!owner.PostCommand([&, finish] {
+                auto lifetime = std::make_shared<int>(1); life = lifetime;
+                VkResult r = VK_ERROR_UNKNOWN;
+                value = SubmitOnTimeline(*service, &cmd, 1, std::move(lifetime),
+                    [&, finish](VkResult proof) {
+                        ++delivered;
+                        ok = ok && owner.IsExecutingOwner() && proof == VK_SUCCESS &&
+                             context->computeTimeline()->Check(value) == VK_SUCCESS;
+                        finish();
+                        return Result::Posted;
+                    }, &r);
+                ok = ok && r == VK_SUCCESS && value > lastValue;
+                if (!value) finish();
+            })) finish();
+        });
+        owner.Drain();
+        CHECK(ok && delivered == round + 1 && life.expired());
+        lastValue = value;
+    }
+    // Rejected before submission: nothing queued, delivery dropped unrun.
+    bool rejected = false;
+    owner.InvokeOwner([&] {
+        VkResult r = VK_SUCCESS;
+        rejected = SubmitOnTimeline(*service, &cmd, 0, std::make_shared<int>(1),
+                                    [&](VkResult) { ++delivered; return Result::Posted; }, &r) == 0 &&
+                   r != VK_SUCCESS;
+    });
+    CHECK(rejected && delivered == 2);
+    CHECK(service->CloseAndJoin());
+    owner.Drain();
+    CHECK(delivered == 2 && owner.OutstandingCommands() == 0);
+    vkDestroyCommandPool(device, pool, nullptr);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     bool const idleClose = argc == 2 && std::string(argv[1]) == "--idle-close";
     bool const unavailableOwner = argc == 2 && std::string(argv[1]) == "--owner-unavailable";
@@ -220,5 +283,6 @@ int main(int argc, char** argv) {
     CHECK(owner.OutstandingCommands() == 0);
     CHECK(CheckDeliveryFailure(context, owner, false) == 0);
     CHECK(CheckDeliveryFailure(context, owner, true) == 0);
+    CHECK(CheckSubmitOnTimeline(context, owner) == 0);
     return 0;
 }
