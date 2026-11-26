@@ -285,26 +285,46 @@ char const kModuleAnchor = 0;
 // usdGen's directory with a trailing separator; empty if unknown.
 std::string EngineDirectory()
 {
-#if defined(_WIN32)
-    HMODULE self = nullptr;
-    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            &kModuleAnchor, &self))
-        return std::string();
     char buffer[4096];
-    DWORD const n = GetModuleFileNameA(self, buffer, DWORD(sizeof(buffer)));
-    if (n == 0 || n >= sizeof(buffer)) return std::string();
-    std::string file(buffer, n);
-#else
-    Dl_info info;
-    if (!dladdr(&kModuleAnchor, &info) || !info.dli_fname) return std::string();
-    std::string file(info.dli_fname);
-#endif
-    size_t const slash = file.find_last_of("/\\");
-    return slash == std::string::npos ? std::string() : file.substr(0, slash + 1);
+    size_t const n = UsdGenModuleDirectory(&kModuleAnchor, buffer, sizeof(buffer));
+    return std::string(buffer, n);
 }
 
+// Set while this thread runs the default extensions' usdGenRegister.
+thread_local bool tRegistering = false;
+
 }  // namespace
+
+bool UsdGenRegistering() noexcept { return tRegistering; }
+
+size_t UsdGenModuleDirectory(void const *anchor, char *buffer, size_t capacity) noexcept
+{
+    if (!buffer || capacity == 0) return 0;
+    buffer[0] = 0;
+    size_t n = 0;
+#if defined(_WIN32)
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            static_cast<LPCSTR>(anchor), &module))
+        return 0;
+    DWORD const got = GetModuleFileNameA(module, buffer, DWORD(capacity));
+    if (got == 0 || size_t(got) >= capacity) {
+        buffer[0] = 0;
+        return 0;
+    }
+    n = size_t(got);
+#else
+    Dl_info info;
+    if (!dladdr(anchor, &info) || !info.dli_fname) return 0;
+    n = std::strlen(info.dli_fname);
+    if (n >= capacity) return 0;
+    std::memcpy(buffer, info.dli_fname, n);
+#endif
+    while (n > 0 && buffer[n - 1] != '/' && buffer[n - 1] != '\\') --n;
+    buffer[n] = 0;
+    return n;
+}
 
 // The op registry's constructor: registers the default extensions (or
 // USDGEN_EXTENSIONS) in order. Keeps going past a failure; 'error' gets the first.
@@ -339,7 +359,11 @@ void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, std::string *error)
         bool const absolute = (!path.empty() && (path[0] == '/' || path[0] == '\\')) ||
                               (path.size() > 1 && path[1] == ':');
         UsdGenRegisterFn const fn = OpenExtension(path, absolute, &message);
-        if (fn) fn(registrar);
+        if (fn) {
+            tRegistering = true;
+            fn(registrar);
+            tRegistering = false;
+        }
         else if (error->empty()) *error = std::move(message);
     }
 }

@@ -9,6 +9,7 @@
 // first compile; after that every lookup reads immutable state.
 #pragma once
 #include "usdGen/export.h"
+#include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/paramEvaluator.h"
@@ -28,6 +29,14 @@ public:
     UsdGenOpId RegisterOp(UsdGenOpDef const &);
     UsdGenTypeId RegisterType(UsdGenTypeDef const &);
     bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
+    /// Invalid on a duplicate name, a null createProvider, every handle
+    /// already used, or after freeze. Until step 8.4 the handle of a name
+    /// UsdGenExecutionBackend spells is that enumerant's value; other names
+    /// take the handles above it.
+    UsdGenBackendId RegisterBackend(UsdGenBackendDef const &);
+    /// One per (backend, primitive type); false on a duplicate, an unknown
+    /// handle or type, or after freeze. The pointer must outlive the registry.
+    bool RegisterDeviceProgram(UsdGenBackendId, UsdGenTypeId, void const *programDef);
     /// One per engine; false on a second one, a missing create, or after freeze.
     bool RegisterParamEvaluator(UsdGenParamEvaluatorDef const &);
     /// One per primitive type; false on a second one for the type, an

@@ -6,7 +6,8 @@
 
 namespace usdGen {
 
-/// Value == uint8_t(UsdGenExecutionBackend) until step 8.
+/// Registered handle; 0 is the CPU (registries/backend.h). Until step 8.4
+/// a handle equals the UsdGenExecutionBackend value of its name.
 enum class UsdGenBackendId : uint8_t { Invalid = 0xFFu };
 
 using UsdGenParamSlot = uint16_t;
