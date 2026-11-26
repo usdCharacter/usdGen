@@ -7,6 +7,9 @@
 #include "usdGen/deviceGeneration.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/executionValueRevisions.h"
+#include "usdGen/api/nodeKey.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/registries/publisher.h"
 
 #include <exception>
 #include <array>
@@ -51,9 +54,16 @@ using UsdGenSessionDeviceRevisions = UsdGenExecutionValueRevisions;
 
 struct UsdGenSessionDeviceResult {
     UsdGenSessionDeviceIdentity identity;
+    // Ignored without kUsdGenBackendAuthoritativeRevisions.
     UsdGenSessionDeviceRevisions revisions;
     std::shared_ptr<const UsdGenDeviceGeneration> generation;
     std::exception_ptr error;
+    // kUsdGenBackendPoisonable only: the cook left the workspace unprovable;
+    // the provider has dropped it and the cooker invalidates the cache domain.
+    bool poisoned = false;
+    // Backend diagnostics for tools and tests (binding statistics); stored in
+    // UsdGenSessionSnapshot::deviceReport, never read by the engine.
+    UsdGenRef<const UsdGenPublication> report;
 };
 
 // This callback is reserved by the Session command owner before Submit.  It
@@ -80,12 +90,18 @@ struct UsdGenSessionDeviceRequest {
     // Evaluation time belongs to this immutable request. Plans are cached
     // across SetTime commits and must not freeze expression clocks.
     std::optional<double> evaluationFrame;
-
+    // The Session runtime (per-device task dispatchers live on it).
+    UsdGenExecutionRuntime *runtime = nullptr;
+    // The published generation's device payload, an incremental baseline.
+    std::shared_ptr<const UsdGenDeviceGeneration> previous;
+    // The cooker's diagnostics; written only during Submit. A provider that
+    // rejects with a diagnostic of its own returns false.
+    UsdGenDiagnostics *diagnostics = nullptr;
 };
 
 class UsdGenSessionDeviceProvider {
 public:
-    virtual ~UsdGenSessionDeviceProvider() = default;
+    virtual ~UsdGenSessionDeviceProvider();
     virtual UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const&,
                                                    UsdGenDiagnostics*) const = 0;
     virtual UsdGenSessionDeviceIdentity Identity() const noexcept = 0;
@@ -95,6 +111,12 @@ public:
     // False means neither device-owner ingress nor native work was admitted.
     virtual bool Submit(UsdGenSessionDeviceRequest) = 0;
     virtual void Shutdown() noexcept = 0;
+    // Picks the device and workspace of one cook on the cook lane, before its
+    // cache lookup. callerDevice is the def's captureCallerDevice value (-1
+    // none); description is the graph's identity. False with a diagnostic
+    // when no workspace is available. Default: Identity().
+    virtual bool Select(int callerDevice, UsdGenNodeKey description,
+                        UsdGenSessionDeviceIdentity *identity, UsdGenDiagnostics *);
 };
 
 } // namespace usdGen

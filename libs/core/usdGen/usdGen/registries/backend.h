@@ -29,6 +29,10 @@ enum UsdGenBackendFlag : uint32_t {
     kUsdGenBackendPoisonable = 1u << 1,
     /// Publishing needs a device-aware consumer.
     kUsdGenBackendNeedsDevicePublication = 1u << 2,
+    /// The compiled plan lives with the graph: compiled whole with it on a
+    /// structural edit or a new description, reused by every other cook.
+    /// Without it the provider compiles once per cook.
+    kUsdGenBackendReusesPlan = 1u << 3,
 };
 
 struct UsdGenBackendProviderDesc {
@@ -42,6 +46,8 @@ struct UsdGenBackendDef {
     uint32_t flags = 0;                      // UsdGenBackendFlag
     /// False with a reason when this process cannot run the backend. Null: true.
     bool (*available)(std::string *reason) = nullptr;
+    /// Static text of the contract's unavailability reason (null: generic).
+    char const *unavailableReason = nullptr;
     /// Compile-time admission of a graph.
     bool (*validate)(UsdGenGraphSpec const &, UsdGenDiagnostics *) = nullptr;
     /// The caller's device at the Session API boundary, -2 on failure. Null: -1.
