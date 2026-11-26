@@ -5,7 +5,7 @@
 //
 //     extern "C" void usdGenRegister(usdGen::UsdGenRegistrar &);
 //
-// (or usdGenRegister_<lib> when linked statically). Registries freeze on the
+// (and usdGenRegister_<lib> for a static link). Registries freeze on the
 // first compile; after that every lookup reads immutable state.
 #pragma once
 #include "usdGen/export.h"
@@ -45,15 +45,12 @@ USDGEN_CORE_API bool UsdGenLoadExtension(std::string const &path, std::string *e
 USDGEN_CORE_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
 
-/// Builds the registries with the statically linked extensions (usdGenCurves,
-/// usdGenExpr). Idempotent and lock-free; every registry lookup calls it
-/// implicitly. Freezing stays with the first compile, so extensions and tests
-/// can register after it.
+/// Builds the registries: loads the extensions named by USDGEN_EXTENSIONS
+/// (paths, ';' on Windows, ':' elsewhere), else usdGenSurface, usdGenExpr and
+/// usdGenCurves from usdGen's own directory, and calls each usdGenRegister in
+/// that order. Idempotent and lock-free; every registry lookup calls it
+/// implicitly. False with 'error' when an extension failed to load. Freezing
+/// stays with the first compile, so extensions and tests can register after it.
 USDGEN_CORE_API bool UsdGenEngineEnsureInitialized(std::string *error = nullptr);
 
 }  // namespace usdGen
-
-/// Built-in ops, map types and kernels: ops/registerCurves.cpp.
-extern "C" USDGEN_CORE_API void usdGenRegister_usdGenCurves(usdGen::UsdGenRegistrar &);
-/// The connected-parameter evaluator: usdGenExpr/register.cpp.
-extern "C" USDGEN_CORE_API void usdGenRegister_usdGenExpr(usdGen::UsdGenRegistrar &);

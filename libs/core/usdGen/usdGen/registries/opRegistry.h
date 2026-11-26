@@ -64,7 +64,7 @@ private:
 
 class USDGEN_CORE_API UsdGenOpRegistry {
 public:
-    /// Built with the static extensions on first use (UsdGenEngineEnsureInitialized)
+    /// Built with the default extensions on first use (UsdGenEngineEnsureInitialized)
     /// and published by CAS.
     static UsdGenOpRegistry const &Get() noexcept;
     bool IsFrozen() const noexcept { return _frozen.load(std::memory_order_acquire); }
@@ -73,6 +73,8 @@ public:
     UsdGenOpId Find(TfToken const &name) const noexcept;
     UsdGenOpRecord const &Record(UsdGenOpId id) const noexcept { return _records[UsdGenIndex(id)]; }
     std::unique_ptr<UsdGenOp> Create(UsdGenOpId id) const;
+    /// First default-extension load failure; empty when all loaded.
+    std::string const &InitError() const noexcept { return _initError; }
     /// The registered connected-parameter evaluator; create null when none.
     UsdGenParamEvaluatorDef const &ParamEvaluator() const noexcept { return _paramEvaluator; }
 
@@ -86,6 +88,7 @@ private:
     struct NameSlot { TfToken name; UsdGenOpId id = UsdGenOpId::Invalid; };
     NameSlot _byName[2 * kUsdGenMaxOps];
     UsdGenParamEvaluatorDef _paramEvaluator;
+    std::string _initError;              // first extension load failure
     std::atomic<bool> _frozen{false};
 };
 

@@ -6,7 +6,10 @@
 #include "usdGen/registries/opRecordTables.h"
 #include "usdGen/registries/token.h"
 
+#include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #  include <windows.h>
@@ -227,9 +230,9 @@ std::unique_ptr<UsdGenParamEvaluatorState> UsdGenCreateParamEvaluatorState()
 
 bool UsdGenEngineEnsureInitialized(std::string *error)
 {
-    (void)UsdGenOpRegistry::Get();
-    if (error) error->clear();
-    return true;
+    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
+    if (error) *error = ops.InitError();
+    return ops.InitError().empty();
 }
 
 bool UsdGenRegisterStatic(UsdGenRegisterFn fn)
@@ -241,6 +244,106 @@ bool UsdGenRegisterStatic(UsdGenRegisterFn fn)
     return true;
 }
 
+namespace {
+
+// Opens 'path' and returns its usdGenRegister. The module stays loaded:
+// registered defs point into it. 'siblings' resolves the module's own
+// dependencies from its directory (absolute paths only).
+UsdGenRegisterFn OpenExtension(std::string const &path, bool siblings, std::string *error)
+{
+#if defined(_WIN32)
+    HMODULE module = nullptr;
+    if (siblings) {
+        std::string native = path;   // the altered search wants backslashes
+        for (char &c : native)
+            if (c == '/') c = '\\';
+        module = LoadLibraryExA(native.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    } else {
+        module = LoadLibraryA(path.c_str());
+    }
+    if (!module) {
+        *error = "cannot load '" + path + "'";
+        return nullptr;
+    }
+    auto fn = reinterpret_cast<UsdGenRegisterFn>(GetProcAddress(module, "usdGenRegister"));
+#else
+    (void)siblings;
+    void *module = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!module) {
+        *error = std::string("cannot load '") + path + "': " + dlerror();
+        return nullptr;
+    }
+    auto fn = reinterpret_cast<UsdGenRegisterFn>(dlsym(module, "usdGenRegister"));
+#endif
+    if (!fn) *error = "'" + path + "' exports no usdGenRegister";
+    return fn;
+}
+
+// Any object of this module; its address names usdGen's own file.
+char const kModuleAnchor = 0;
+
+// usdGen's directory with a trailing separator; empty if unknown.
+std::string EngineDirectory()
+{
+#if defined(_WIN32)
+    HMODULE self = nullptr;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            &kModuleAnchor, &self))
+        return std::string();
+    char buffer[4096];
+    DWORD const n = GetModuleFileNameA(self, buffer, DWORD(sizeof(buffer)));
+    if (n == 0 || n >= sizeof(buffer)) return std::string();
+    std::string file(buffer, n);
+#else
+    Dl_info info;
+    if (!dladdr(&kModuleAnchor, &info) || !info.dli_fname) return std::string();
+    std::string file(info.dli_fname);
+#endif
+    size_t const slash = file.find_last_of("/\\");
+    return slash == std::string::npos ? std::string() : file.substr(0, slash + 1);
+}
+
+}  // namespace
+
+// The op registry's constructor: registers the default extensions (or
+// USDGEN_EXTENSIONS) in order. Keeps going past a failure; 'error' gets the first.
+void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, std::string *error)
+{
+#if defined(_WIN32)
+    char const separator = ';';
+#else
+    char const separator = ':';
+#endif
+    std::vector<std::string> paths;
+    if (char const *list = std::getenv("USDGEN_EXTENSIONS")) {
+        std::string const all(list);
+        for (size_t begin = 0; begin <= all.size();) {
+            size_t end = all.find(separator, begin);
+            if (end == std::string::npos) end = all.size();
+            if (end > begin) paths.push_back(all.substr(begin, end - begin));
+            begin = end + 1;
+        }
+    } else {
+        std::string const dir = EngineDirectory();
+        char const *const files[] = {
+#if defined(USDGEN_SURFACE_FILE) && defined(USDGEN_EXPR_FILE) && defined(USDGEN_CURVES_FILE)
+            USDGEN_SURFACE_FILE, USDGEN_EXPR_FILE, USDGEN_CURVES_FILE,
+#endif
+            nullptr};
+        if (dir.empty() && files[0]) *error = "cannot locate usdGen's directory";
+        for (char const *const *f = files; *f && !dir.empty(); ++f) paths.push_back(dir + *f);
+    }
+    for (std::string const &path : paths) {
+        std::string message;
+        bool const absolute = (!path.empty() && (path[0] == '/' || path[0] == '\\')) ||
+                              (path.size() > 1 && path[1] == ':');
+        UsdGenRegisterFn const fn = OpenExtension(path, absolute, &message);
+        if (fn) fn(registrar);
+        else if (error->empty()) *error = std::move(message);
+    }
+}
+
 bool UsdGenLoadExtension(std::string const &path, std::string *error)
 {
     auto fail = [error](std::string message) {
@@ -249,17 +352,9 @@ bool UsdGenLoadExtension(std::string const &path, std::string *error)
     };
     if (UsdGenOpRegistry::Get().IsFrozen())
         return fail("registries are frozen; load extensions before the first compile");
-#if defined(_WIN32)
-    HMODULE module = LoadLibraryA(path.c_str());
-    if (!module) return fail("cannot load '" + path + "'");
-    auto fn = reinterpret_cast<UsdGenRegisterFn>(GetProcAddress(module, "usdGenRegister"));
-#else
-    void *module = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (!module) return fail(std::string("cannot load '") + path + "': " + dlerror());
-    auto fn = reinterpret_cast<UsdGenRegisterFn>(dlsym(module, "usdGenRegister"));
-#endif
-    // The module stays loaded: registered defs point into it.
-    if (!fn) return fail("'" + path + "' exports no usdGenRegister");
+    std::string message;
+    UsdGenRegisterFn const fn = OpenExtension(path, false, &message);
+    if (!fn) return fail(std::move(message));
     return UsdGenRegisterStatic(fn);
 }
 

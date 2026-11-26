@@ -14,6 +14,7 @@
 namespace usdGen {
 
 void UsdGenReadTokenCheckSetting() noexcept;   // token.cpp
+void UsdGenLoadDefaultExtensions(UsdGenRegistrar &, std::string *error);   // registrar.cpp
 UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
 
 namespace {
@@ -127,10 +128,9 @@ UsdGenOpRegistry::UsdGenOpRegistry()
     UsdGenReadTokenCheckSetting();
     (void)UsdGenTokens();
     (void)UsdGenMutableTypeRegistry();
-    // The statically linked extensions, in id order.
+    // The default extensions, in id order.
     UsdGenRegistrar r(*this);
-    usdGenRegister_usdGenCurves(r);
-    usdGenRegister_usdGenExpr(r);
+    UsdGenLoadDefaultExtensions(r, &_initError);
 }
 
 // Built on first use and published by CAS; a thread that loses the race
