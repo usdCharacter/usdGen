@@ -11,7 +11,7 @@
 //   samples  up to usdGen:rbfSamples driver CVs, farthest-point sampled at
 //            rest (primvars:rest, else the Default-time points), in the
 //            description's space;
-//   field    rbf::CubicField bound at those rest positions and solved for
+//   field    usdGenMath::rbf::CubicField bound at those rest positions and solved for
 //            their current positions: it passes through every sample and
 //            reproduces any affine motion of the drivers exactly;
 //   strands  every incoming CV x moves to x + D(x), D = F - identity. With
@@ -31,6 +31,7 @@
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/rbfAnimation.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/range3d.h"
@@ -55,6 +56,9 @@ static_assert(sizeof(GfVec3d) == 3 * sizeof(double),
 namespace {
 
 using namespace deformP;
+
+// Large displace batches split over the process scheduler.
+usdGenMath::rbf::ParallelFor const kDisplaceParallel{&UsdGenParallelForBlocks, nullptr};
 using D = expr::Domain;
 constexpr char const *kRefs[] = {"guides"};
 constexpr char const *kTokens[] = {"curveWrap", "usdGen:regionMap", "periodic", "rbf"};
@@ -535,7 +539,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             }();
             chosen = restUnchanged
                 ? selection_
-                : rbf::SelectSamples(driverRest, size_t(budget), epsilon);
+                : usdGenMath::rbf::SelectSamples(driverRest, size_t(budget), epsilon);
             if (surfaceDriven) {
                 surfaceRestRef_ = surfaceSrc->restPoints;
                 surfaceRestOwner_ = surfaceSrc->data;
@@ -646,7 +650,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
     // re-capture (a value-only edit reuses the capture) must find the
     // deformed values, not an empty buffer.
     cap.result.resizeUninit(totalCvs * 3);
-    rbf::CubicField const &field = field_;
+    usdGenMath::rbf::CubicField const &field = field_;
     UninitFloatBuffer &result = cap.result;
     // The non-finite refusal checks the stored floats while they are still
     // in registers, instead of re-reading the whole result serially: every
@@ -688,7 +692,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             field.DisplaceBatchPlanar(upstream.px.cdata() + cvBase,
                                       upstream.py.cdata() + cvBase,
                                       upstream.pz.cdata() + cvBase, bx, by, bz,
-                                      total);
+                                      total, kDisplaceParallel);
             if (direct) {
                 // Direct stores plus a local range: adjacent groups share
                 // cache lines in groupExtents, so the per-CV accumulation

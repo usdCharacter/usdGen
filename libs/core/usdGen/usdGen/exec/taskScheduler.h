@@ -82,4 +82,9 @@ void UsdGenParallelFor(size_t count, void (*body)(size_t, void *), void *payload
 /// Threads UsdGenParallelFor may use: the process workers plus the caller.
 int UsdGenParallelForConcurrency();
 
+/// UsdGenParallelFor as a block runner (usdGenMath::rbf::ParallelFor::run):
+/// body(user, i, i + 1) for i in [0, count). ctx is unused.
+void UsdGenParallelForBlocks(void *ctx, size_t count,
+                             void (*body)(void *user, size_t begin, size_t end), void *user);
+
 }  // namespace usdGen

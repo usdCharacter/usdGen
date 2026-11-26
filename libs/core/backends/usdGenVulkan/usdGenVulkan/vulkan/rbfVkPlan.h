@@ -35,7 +35,7 @@
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/range3d.h"
@@ -208,7 +208,7 @@ inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
         extent.UnionWith(driverRest[i]);
     }
     double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
-    auto chosen = usdGen::rbf::SelectSamples(driverRest, size_t(budget), std::max(1e-12, size * 1e-7));
+    auto chosen = usdGenMath::rbf::SelectSamples(driverRest, size_t(budget), std::max(1e-12, size * 1e-7));
     // No <4 rejection: below-minimum counts flow to RbfVkBinding::Bind,
     // which reports the exact CUDA InvalidArgument result.
     GfMatrix4d const toLocal = source->worldMatrix.GetInverse();

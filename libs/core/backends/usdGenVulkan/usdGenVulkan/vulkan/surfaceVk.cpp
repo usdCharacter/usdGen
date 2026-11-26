@@ -6,7 +6,7 @@
 #include "usdGenCurves/types/curveSetInput.h"
 
 #include "usdGen/op.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 
 #include "pxr/base/gf/range3d.h"
 #include "pxr/base/gf/vec3d.h"
@@ -111,7 +111,7 @@ bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
         extent.UnionWith(driverRest[i]);
     }
     double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
-    auto chosen = usdGen::rbf::SelectSamples(driverRest, size_t(budget),
+    auto chosen = usdGenMath::rbf::SelectSamples(driverRest, size_t(budget),
                                              std::max(1e-12, size * 1e-7));
     if (chosen.size() < 4)
         return Fail(diagnostics,

@@ -1,6 +1,6 @@
-#include "usdGen/ops/rbfField.h"
-#include "usdGen/fastCores.h"
-#include "usdGen/workerPool.h"
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+#include "usdGenMath/rbf.h"
 
 #include "pxr/base/gf/vec3i.h"
 
@@ -18,7 +18,7 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-namespace usdGen {
+namespace usdGenMath {
 namespace rbf {
 
 namespace {
@@ -211,7 +211,7 @@ bool CubicField::Solve(std::vector<GfVec3d> const &current, std::string *error)
     return true;
 }
 
-// CubicField::Displacement lives in rbfField.h (inlined at the per-CV call
+// CubicField::Displacement lives in rbf.h (inlined at the per-CV call
 // sites); see there.
 
 namespace {
@@ -703,46 +703,12 @@ void DisplaceRangePlanar(CubicField const &field, DisplaceParams const &p,
 
 // Large-batch threading: a 200k-query batch is ~9ms of fp64 sqrt work on
 // one core, compute-bound and per-query independent, so batches at or
-// above kDisplaceThreadQueries split over a process-wide pool in
-// kDisplaceBlock-query slices (a multiple of the NEON width, so only
-// the last slice carries a tail). Production deform batches (~256
-// queries per strand group, already spread over the scheduler pool)
-// stay serial, as do nested calls from pool workers (the re-entry
-// guard). The pool runs one ParallelFor at a time: a dispatch claims it with
-// one exchange, and a concurrent one that finds it taken runs its own batch
-// serially instead of waiting (same output; slices are independent).
+// above kDisplaceThreadQueries split over the caller's ParallelFor in
+// kDisplaceBlock-query slices (a multiple of the NEON width, so only the
+// last slice carries a tail). Without one, or below the threshold, the
+// batch runs serially; the bits are the same either way.
 size_t constexpr kDisplaceThreadQueries = 16384;
 size_t constexpr kDisplaceBlock = 1024;
-
-std::atomic<UsdGenWorkerPool *> g_displacePool{nullptr};
-std::atomic<bool> g_displacePoolClaimed{false};
-
-// Called only by the claim holder, so at most one pool is ever built.
-UsdGenWorkerPool &DisplacePool()
-{
-    if (UsdGenWorkerPool *pool = g_displacePool.load(std::memory_order_acquire))
-        return *pool;
-    // Leaked like the TBB market: joining workers at DSO unload waits
-    // for threads process shutdown may already have stopped.
-    // The scheduler's sizing: the fast-core count where the topology
-    // qualifies (pinning engages by construction), else the 8-thread
-    // floor. 8/10/20 measured 1.44/1.14/1.30ms on the bench's 200k
-    // batch (the 20-wide float loses to 10 pinned fast cores).
-    UsdGenWorkerPool *pool = new UsdGenWorkerPool(std::max(8, FastCoreCount()));
-    g_displacePool.store(pool, std::memory_order_release);
-    return *pool;
-}
-
-struct DisplacePoolClaim {
-    ~DisplacePoolClaim() { g_displacePoolClaimed.store(false, std::memory_order_release); }
-};
-
-thread_local bool t_inDisplaceBody = false;
-
-struct DisplaceBodyGuard {
-    DisplaceBodyGuard() { t_inDisplaceBody = true; }
-    ~DisplaceBodyGuard() { t_inDisplaceBody = false; }
-};
 
 struct AosJob {
     CubicField const *field;
@@ -753,12 +719,11 @@ struct AosJob {
     size_t count;
 };
 
-void DisplaceAosBlock(size_t b, void *payload)
+void DisplaceAosBlocks(void *payload, size_t begin, size_t end)
 {
-    DisplaceBodyGuard guard;
     AosJob const &job = *static_cast<AosJob const *>(payload);
-    size_t const lo = b * kDisplaceBlock;
-    size_t const hi = std::min(lo + kDisplaceBlock, job.count);
+    size_t const lo = begin * kDisplaceBlock;
+    size_t const hi = std::min(end * kDisplaceBlock, job.count);
     DisplaceRangeAos(*job.field, job.params, job.scalar, job.qs + lo,
                      job.ds + lo, hi - lo);
 }
@@ -772,26 +737,24 @@ struct PlanarJob {
     size_t count;
 };
 
-void DisplacePlanarBlock(size_t b, void *payload)
+void DisplacePlanarBlocks(void *payload, size_t begin, size_t end)
 {
-    DisplaceBodyGuard guard;
     PlanarJob const &job = *static_cast<PlanarJob const *>(payload);
-    size_t const lo = b * kDisplaceBlock;
-    size_t const hi = std::min(lo + kDisplaceBlock, job.count);
+    size_t const lo = begin * kDisplaceBlock;
+    size_t const hi = std::min(end * kDisplaceBlock, job.count);
     DisplaceRangePlanar(*job.field, job.params, job.scalar, job.qx + lo,
                         job.qy + lo, job.qz + lo, job.dx + lo, job.dy + lo,
                         job.dz + lo, hi - lo);
 }
 
-// False when nested or the pool is busy (the caller runs the serial range).
-bool DisplaceDispatch(size_t count, void (*body)(size_t, void *),
-                      void *payload)
+// False when the batch is small or no runner was given (the caller runs
+// the serial range).
+bool DisplaceDispatch(ParallelFor const &parallel, size_t count,
+                      void (*body)(void *, size_t, size_t), void *payload)
 {
-    if (t_inDisplaceBody) return false;
-    if (g_displacePoolClaimed.exchange(true, std::memory_order_acquire)) return false;
-    DisplacePoolClaim claim;
-    DisplacePool().ParallelFor((count + kDisplaceBlock - 1) / kDisplaceBlock,
-                               body, payload);
+    if (count < kDisplaceThreadQueries || !parallel.run) return false;
+    parallel.run(parallel.ctx, (count + kDisplaceBlock - 1) / kDisplaceBlock,
+                 body, payload);
     return true;
 }
 
@@ -806,7 +769,8 @@ void TestForceScalarDisplace(bool force) noexcept
     g_forceScalarDisplace.store(force, std::memory_order_relaxed);
 }
 
-void CubicField::DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count) const
+void CubicField::DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count,
+                               ParallelFor const &parallel) const
 {
     if (count == 0) return;
     size_t const n = _rest.size(), m = _order;
@@ -825,16 +789,14 @@ void CubicField::DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count) con
                            &_coefficients[2 * m],
                            n};
     bool const scalar = g_forceScalarDisplace.load(std::memory_order_relaxed);
-    if (count >= kDisplaceThreadQueries) {
-        AosJob job{this, p, scalar, qs, ds, count};
-        if (DisplaceDispatch(count, DisplaceAosBlock, &job)) return;
-    }
+    AosJob job{this, p, scalar, qs, ds, count};
+    if (DisplaceDispatch(parallel, count, DisplaceAosBlocks, &job)) return;
     DisplaceRangeAos(*this, p, scalar, qs, ds, count);
 }
 
 void CubicField::DisplaceBatchPlanar(float const *qx, float const *qy, float const *qz,
                                      double *dx, double *dy, double *dz,
-                                     size_t count) const
+                                     size_t count, ParallelFor const &parallel) const
 {
     if (count == 0) return;
     size_t const n = _rest.size(), m = _order;
@@ -853,10 +815,8 @@ void CubicField::DisplaceBatchPlanar(float const *qx, float const *qy, float con
                            &_coefficients[2 * m],
                            n};
     bool const scalar = g_forceScalarDisplace.load(std::memory_order_relaxed);
-    if (count >= kDisplaceThreadQueries) {
-        PlanarJob job{this, p, scalar, qx, qy, qz, dx, dy, dz, count};
-        if (DisplaceDispatch(count, DisplacePlanarBlock, &job)) return;
-    }
+    PlanarJob job{this, p, scalar, qx, qy, qz, dx, dy, dz, count};
+    if (DisplaceDispatch(parallel, count, DisplacePlanarBlocks, &job)) return;
     DisplaceRangePlanar(*this, p, scalar, qx, qy, qz, dx, dy, dz, count);
 }
 
@@ -912,4 +872,4 @@ std::vector<size_t> SelectSamples(std::vector<GfVec3d> const &points, size_t bud
 }
 
 }  // namespace rbf
-}  // namespace usdGen
+}  // namespace usdGenMath

@@ -116,7 +116,7 @@ usdGen/ops/noise.h usdGenCurves/ops/noise.h
 usdGen/ops/noise_tables_gen.cuh usdGenCurves/ops/noise_tables_gen.cuh
 usdGen/ops/opUtil.h usdGenCurves/ops/opUtil.h
 usdGen/ops/part.h usdGenCurves/ops/part.h
-usdGen/ops/rbfField.h usdGenCurves/ops/rbfField.h
+usdGen/ops/rbfField.h usdGenMath/rbf.h
 usdGen/ops/recordedOp.h usdGenCurves/ops/recordedOp.h
 usdGen/ops/referenceSource.h usdGenCurves/ops/referenceSource.h
 usdGen/ops/regionMap.h usdGenCurves/ops/regionMap.h

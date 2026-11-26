@@ -14,7 +14,7 @@
 //       tests' own contracts (2e-4 affine/identity and 1e-3 nonlinear
 //       per testUsdGenCudaRbf.cu near(); 4e-4 deform per
 //       testUsdGenCudaDeform.cu Near), plus <=1e-9 vs the independent
-//       CPU oracle (rbf::CubicField / deformRbfHost.h SolveRbf).
+//       CPU oracle (usdGenMath::rbf::CubicField / deformRbfHost.h SolveRbf).
 //   B4-B5  error parity: equal status codes AND equal diagnostic
 //       strings on the shared n<4 / rank-deficient / non-finite /
 //       mismatch paths (CUDA's messages are mirrored verbatim).
@@ -47,7 +47,7 @@
 #include "usdGen/vulkan/rbfVkDeformPipeline.h"
 #include "usdGen/vulkan/rbfVkPlan.h"
 #include "usdGen/vulkan/surfaceVk.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"
@@ -204,7 +204,7 @@ bool CpuSolve(float const* rest, float const* posed, int n,
         r[size_t(i)] = GfVec3d(rest[3 * i], rest[3 * i + 1], rest[3 * i + 2]);
         p[size_t(i)] = GfVec3d(posed[3 * i], posed[3 * i + 1], posed[3 * i + 2]);
     }
-    rbf::CubicField field;
+    usdGenMath::rbf::CubicField field;
     if (!field.Bind(r, error)) return false;
     if (!field.Solve(p, error)) return false;
     for (uint32_t i = 0; i < count; ++i) {

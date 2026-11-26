@@ -18,7 +18,7 @@
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3d.h"
 #include "usdGen/op.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 #include "usdGen/vulkan/rbfVkPlan.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
@@ -636,7 +636,7 @@ bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     }
     double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
     auto chosen =
-        usdGen::rbf::SelectSamples(driverRest, size_t(budget), std::max(1e-12, size * 1e-7));
+        usdGenMath::rbf::SelectSamples(driverRest, size_t(budget), std::max(1e-12, size * 1e-7));
     if (chosen.size() < 4)
         return Fail(diagnostics, "Deform pose surface has fewer than four "
                                  "spanning-3D samples for the RBF fit");

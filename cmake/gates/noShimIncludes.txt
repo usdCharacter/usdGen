@@ -36,7 +36,7 @@ libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deformPipeline.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceContext.h 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceFactory.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deviceGenerationAdapter.h 2
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.cpp 9
+libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.cpp 8
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/executionPlan.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkParameters.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp 4
@@ -55,7 +55,7 @@ libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/publicationJob.h 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/queueTimeline.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkBinding.h 3
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkDeformPipeline.h 2
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkPlan.h 3
+libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkPlan.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/resampleVkPipeline.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFrameGatherPipeline.h 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFramesPipeline.cpp 1
@@ -63,7 +63,7 @@ libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/scatterGrowPipeline.cpp 1
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sessionProvider.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceGeneration.h 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/sourceWidthJob.h 3
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp 3
+libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp 2
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/clumpMotion.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/clumpMotion.h 1
@@ -90,7 +90,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.cpp 5
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp 6
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.h 3
+libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/displace.cpp 3
@@ -112,7 +112,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/opUtil.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.h 1
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/rbfField.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/recordedOp.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/referenceSource.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/referenceSource.h 1
@@ -151,7 +150,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/publish/valuePreview.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
-libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
 libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp 4
 libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.h 3
@@ -272,7 +270,7 @@ tests/perf/benchUsdGenChain.cpp 5
 tests/perf/benchUsdGenClumpMotion.cpp 2
 tests/perf/benchUsdGenCudaCook.cpp 2
 tests/perf/benchUsdGenInstanceScatter.cpp 12
-tests/perf/benchUsdGenRbfDeform.cpp 11
+tests/perf/benchUsdGenRbfDeform.cpp 10
 tests/perf/benchUsdGenRestructure.cpp 6
 tests/perf/benchUsdGenSparse.cpp 5
 tests/perf/benchUsdGenSurfaceBindings.cpp 1
@@ -397,7 +395,7 @@ tests/testUsdGenPomadeRegionBake.cpp 2
 tests/testUsdGenPool.cpp 3
 tests/testUsdGenPtexMap.cpp 1
 tests/testUsdGenRaggedTopo.cpp 5
-tests/testUsdGenRbfDeform.cpp 8
+tests/testUsdGenRbfDeform.cpp 7
 tests/testUsdGenReferenceSource.cpp 4
 tests/testUsdGenRegistries.cpp 3
 tests/testUsdGenRegistryOwners.cpp 2
@@ -434,7 +432,7 @@ tests/testUsdGenTwistFrizz.cpp 4
 tests/testUsdGenValuePreview.cpp 2
 tests/testUsdGenViewportOverlay.cpp 1
 tests/testUsdGenVulkanCompletionService.cpp 1
-tests/testUsdGenVulkanCsourceVkParity.cpp 10
+tests/testUsdGenVulkanCsourceVkParity.cpp 9
 tests/testUsdGenVulkanCullAdmission.cpp 2
 tests/testUsdGenVulkanCurveGrowPipeline.cpp 1
 tests/testUsdGenVulkanDefaultResources.cpp 1
@@ -468,7 +466,7 @@ tests/testUsdGenVulkanPlanExecutor.cpp 10
 tests/testUsdGenVulkanPointOverridePipeline.cpp 3
 tests/testUsdGenVulkanPublicationJob.cpp 1
 tests/testUsdGenVulkanQueueTimeline.cpp 3
-tests/testUsdGenVulkanRbfVkParity.cpp 9
+tests/testUsdGenVulkanRbfVkParity.cpp 8
 tests/testUsdGenVulkanResampleVk.cpp 10
 tests/testUsdGenVulkanResources.cpp 1
 tests/testUsdGenVulkanRetirementStress.cpp 1

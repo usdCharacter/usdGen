@@ -44,7 +44,7 @@
 
 #include "usdGen/curveLoader.h"
 #include "usdGen/curveRootCapture.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 #include "pxr/base/gf/range3d.h"
 
 #include "vulkanNativeFixture.h"
@@ -414,7 +414,7 @@ DeformFixture FixtureDeformMovedSurface() {
     }
     double const size =
         extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
-    auto chosen = usdGen::rbf::SelectSamples(
+    auto chosen = usdGenMath::rbf::SelectSamples(
         drivers, 100, std::max(1e-12, size * 1e-7));
     for (size_t k : chosen) {
         fx.restSamples.insert(fx.restSamples.end(),

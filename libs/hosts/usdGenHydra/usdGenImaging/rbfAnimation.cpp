@@ -31,7 +31,7 @@ template<class T> HdDataSourceBaseHandle Value(T const& v) {
 HdContainerDataSourceHandle Container(TfToken const& name, HdDataSourceBaseHandle const& v) {
     return HdRetainedContainerDataSource::New(1, &name, &v);
 }
-VtVec3dArray Coefficients(usdGen::rbf::CubicField const& field) {
+VtVec3dArray Coefficients(usdGenMath::rbf::CubicField const& field) {
     size_t const n = field.SampleCount() + 4;
     VtVec3dArray result(n);
     auto const& c = field.Coefficients();
@@ -162,7 +162,7 @@ HdContainerDataSourceHandle Compute(SdfPath const& path, SdfPath const& coeffPat
 // can inflate a centimetre-sized tile to metres under a head rotation.
 // The cubic radial Hessian has norm <= 6*r, bounding the remainder below.
 // Work is proportional to sparse drivers, never to the number of hair CVs.
-GfRange3d Bounds(GfRange3d const& box, usdGen::rbf::CubicField const& field) {
+GfRange3d Bounds(GfRange3d const& box, usdGenMath::rbf::CubicField const& field) {
     GfVec3d const middle = (box.GetMin()+box.GetMax())*0.5;
     GfVec3d const half = box.GetSize()*0.5;
     GfVec3d const y = (middle-field.Centre())/field.Scale();
@@ -188,7 +188,7 @@ GfRange3d Bounds(GfRange3d const& box, usdGen::rbf::CubicField const& field) {
     }
     return GfRange3d(center-extent, center+extent);
 }
-bool FloatSafe(GfRange3d const& box, usdGen::rbf::CubicField const& field) {
+bool FloatSafe(GfRange3d const& box, usdGenMath::rbf::CubicField const& field) {
     // Bound absolute term magnitudes over the entire hair domain, including
     // a unit guard for sample/query rounding near zero distance. Large
     // coefficients or extrapolation keep the full-precision kernel.
@@ -213,7 +213,7 @@ bool FloatSafe(GfRange3d const& box, usdGen::rbf::CubicField const& field) {
     double const tolerance = 1e-5*std::max(1.0,box.GetSize().GetLength());
     return std::isfinite(magnitude.GetLength()) && magnitude.GetLength()*roundoff <= tolerance;
 }
-bool Pose(RbfAnimation* result, usdGen::rbf::CubicField const& field, GfMatrix4d const& xform) {
+bool Pose(RbfAnimation* result, usdGenMath::rbf::CubicField const& field, GfMatrix4d const& xform) {
     GfRange3d domain;
     for (auto const& bounds : result->restBounds) domain.UnionWith(bounds.second);
     TfToken const inputNames[] = {coefficients,floatSafe};

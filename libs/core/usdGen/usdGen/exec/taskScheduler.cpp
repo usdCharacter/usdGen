@@ -355,4 +355,17 @@ void UsdGenParallelFor(size_t count, void (*body)(size_t, void *), void *payload
     if (error) std::rethrow_exception(error);
 }
 
+void UsdGenParallelForBlocks(void *, size_t count,
+                             void (*body)(void *user, size_t begin, size_t end), void *user)
+{
+    struct Blocks {
+        void (*body)(void *, size_t, size_t);
+        void *user;
+    } blocks{body, user};
+    UsdGenParallelFor(count, [](size_t i, void *p) {
+        Blocks const &b = *static_cast<Blocks const *>(p);
+        b.body(b.user, i, i + 1);
+    }, &blocks);
+}
+
 }  // namespace usdGen

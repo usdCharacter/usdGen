@@ -51,7 +51,6 @@ set(USDGEN_ENGINE_RESIDENT_PRIMITIVE_SOURCES
     libs/core/primitives/usdGenSurface/usdGenSurface/types/rootSet.cpp
     libs/core/primitives/usdGenCurves/usdGenCurves/curveRootCapture.cpp
     libs/core/primitives/usdGenCurves/usdGenCurves/curveLoader.cpp
-    libs/core/primitives/usdGenCurves/usdGenCurves/ops/rbfField.cpp
     libs/core/primitives/usdGenCurves/usdGenCurves/ops/width.cpp
     libs/core/primitives/usdGenCurves/usdGenCurves/ops/strandUtil.cpp
     libs/core/primitives/usdGenCurves/usdGenCurves/types/curveChunk.cpp
@@ -74,9 +73,11 @@ target_link_libraries(usdGenExpr
     PUBLIC usdGen usdGenSurface
     PRIVATE usdGenMath arch work trace usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 _usdgen_add_primitive(usdGenCurves usdGenCurves ${_usdgen_resident_abs})
+# deform.h and rbfAnimation.h expose usdGenMath/rbf.h. usdGenMath is not
+# installed (N-7), so it stays out of the export interface.
 target_link_libraries(usdGenCurves
-    PUBLIC usdGen usdGenSurface usdGenExpr
-    PRIVATE usdGenMath arch work trace usdGen_seexpr ${CMAKE_DL_LIBS})
+    PUBLIC usdGen usdGenSurface usdGenExpr $<BUILD_INTERFACE:usdGenMath>
+    PRIVATE arch work trace usdGen_seexpr ${CMAKE_DL_LIBS})
 # usdGen loads them at registry build (UsdGenEngineEnsureInitialized), from
 # its own directory, in this order; the backend files follow (cuda.cmake,
 # vulkan.cmake append, vulkan.cmake writes USDGEN_DEFAULT_EXTENSIONS).

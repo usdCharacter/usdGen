@@ -1,7 +1,7 @@
 // UsdGenDeform on the CPU lane: hair deformed by animated curves through a
 // cubic RBF (plan/examples/rbf-deformation.md, examples/rbf-guides-plane.usda).
 //
-// rbf::CubicField, the math:
+// usdGenMath::rbf::CubicField, the math:
 //   * the rest pose is the identity field;
 //   * the field passes through every sample;
 //   * any affine motion of the samples is reproduced everywhere;
@@ -27,10 +27,11 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/ops/deform.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 #include "usdGen/ops/curveWrap.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/workerPool.h"
+#include "usdGen/exec/taskScheduler.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGenImaging/rbfAnimation.h"
@@ -73,6 +74,8 @@ using namespace usdGen;
 
 namespace {
 
+usdGenMath::rbf::ParallelFor const kParallel{&UsdGenParallelForBlocks, nullptr};
+
 int g_failures = 0;
 void Check(bool ok, std::string const &what)
 {
@@ -109,7 +112,7 @@ void CheckField()
 {
     std::vector<GfVec3d> const rest = Cloud(40, 7);
     std::vector<GfVec3d> const queries = Cloud(200, 1001);
-    rbf::CubicField field;
+    usdGenMath::rbf::CubicField field;
     std::string error;
     bool const bound = field.Bind(rest, &error);
     Check(bound, "a 3D sample cloud binds " + error);
@@ -145,7 +148,7 @@ void CheckField()
                                  std::to_string(reproduced) + ")");
 
     // Refusals.
-    rbf::CubicField bad;
+    usdGenMath::rbf::CubicField bad;
     std::vector<GfVec3d> planar = rest;
     for (GfVec3d &p : planar) p[1] = 0.3 * p[0] - 0.2 * p[2];   // a tilted plane
     bool refused = !bad.Bind(planar, &error) && error.find("span 3D") != std::string::npos;
@@ -162,11 +165,11 @@ void CheckField()
     // Sample selection.
     std::vector<GfVec3d> points = Cloud(100, 42);
     points.push_back(points[3]);
-    std::vector<size_t> const all = rbf::SelectSamples(points, 1000, 1e-9);
+    std::vector<size_t> const all = usdGenMath::rbf::SelectSamples(points, 1000, 1e-9);
     Check(all.size() == 100 && std::find(all.begin(), all.end(), size_t(100)) == all.end(),
           "an exact duplicate is dropped");
-    std::vector<size_t> const some = rbf::SelectSamples(points, 12, 1e-9);
-    Check(some.size() == 12 && some == rbf::SelectSamples(points, 12, 1e-9) &&
+    std::vector<size_t> const some = usdGenMath::rbf::SelectSamples(points, 12, 1e-9);
+    Check(some.size() == 12 && some == usdGenMath::rbf::SelectSamples(points, 12, 1e-9) &&
           std::find(some.begin(), some.end(), size_t(0)) != some.end(),
           "a budget keeps a deterministic subset starting from the first point");
     double spread = 1e30;
@@ -190,7 +193,7 @@ void CheckBatchBitwise()
             moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                          0.1 * rest[i][0] * rest[i][2],
                                          -0.15 * std::cos(2.0 * rest[i][0]));
-        rbf::CubicField field;
+        usdGenMath::rbf::CubicField field;
         std::string error;
         if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
             Check(false, "batch fixture binds (" + std::to_string(samples) + " samples)");
@@ -210,7 +213,7 @@ void CheckBatchBitwise()
                                std::to_string(samples) + " samples" +
                                (worst ? ", first diff at count " + std::to_string(worst) : "") + ")");
     }
-    rbf::CubicField unbound;
+    usdGenMath::rbf::CubicField unbound;
     std::vector<GfVec3d> zeros(10, GfVec3d(1.0)), expect(10, GfVec3d(0.0));
     unbound.DisplaceBatch(zeros.data(), zeros.data(), zeros.size());
     Check(std::memcmp(zeros.data(), expect.data(), zeros.size() * sizeof(GfVec3d)) == 0,
@@ -230,7 +233,7 @@ void CheckBatchPathsAgree()
             moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                          0.1 * rest[i][0] * rest[i][2],
                                          -0.15 * std::cos(2.0 * rest[i][0]));
-        rbf::CubicField field;
+        usdGenMath::rbf::CubicField field;
         std::string error;
         if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
             Check(false, "path-agreement fixture binds (" + std::to_string(samples) +
@@ -244,11 +247,11 @@ void CheckBatchPathsAgree()
         for (size_t count = 0; count <= 300; ++count) {
             for (size_t off = 0; off <= 1; ++off) {
                 std::vector<GfVec3d> neon(count), scalar(count);
-                rbf::TestForceScalarDisplace(false);
+                usdGenMath::rbf::TestForceScalarDisplace(false);
                 field.DisplaceBatch(queries.data() + off, neon.data(), count);
-                rbf::TestForceScalarDisplace(true);
+                usdGenMath::rbf::TestForceScalarDisplace(true);
                 field.DisplaceBatch(queries.data() + off, scalar.data(), count);
-                rbf::TestForceScalarDisplace(false);
+                usdGenMath::rbf::TestForceScalarDisplace(false);
                 if (count && !worst &&
                     std::memcmp(neon.data(), scalar.data(), count * sizeof(GfVec3d)) != 0)
                     worst = count * 2 + off;
@@ -273,7 +276,7 @@ void CheckBatchPlanarBitwise()
             moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                          0.1 * rest[i][0] * rest[i][2],
                                          -0.15 * std::cos(2.0 * rest[i][0]));
-        rbf::CubicField field;
+        usdGenMath::rbf::CubicField field;
         std::string error;
         if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
             Check(false, "planar batch fixture binds (" + std::to_string(samples) +
@@ -289,7 +292,7 @@ void CheckBatchPlanarBitwise()
         }
         size_t worst = 0;
         for (int force = 0; force <= 1 && !worst; ++force) {
-            rbf::TestForceScalarDisplace(force != 0);
+            usdGenMath::rbf::TestForceScalarDisplace(force != 0);
             for (size_t count = 0; count <= 300; ++count) {
                 std::vector<double> dx(count), dy(count), dz(count);
                 field.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(), dx.data(),
@@ -307,13 +310,13 @@ void CheckBatchPlanarBitwise()
                 if (worst) break;
             }
         }
-        rbf::TestForceScalarDisplace(false);
+        usdGenMath::rbf::TestForceScalarDisplace(false);
         Check(worst == 0, "DisplaceBatchPlanar is bitwise Displacement (" +
                                std::to_string(samples) + " samples" +
                                (worst ? ", first diff at " + std::to_string(worst) : "") +
                                ")");
     }
-    rbf::CubicField unbound;
+    usdGenMath::rbf::CubicField unbound;
     std::vector<float> qx(10, 1.0f), qy(10, 2.0f), qz(10, 3.0f);
     std::vector<double> dx(10, 1.0), dy(10, 1.0), dz(10, 1.0);
     unbound.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(), dx.data(), dy.data(),
@@ -325,7 +328,7 @@ void CheckBatchPlanarBitwise()
           "an unbound field batches planar zeros");
 }
 
-// Large batches split over the internal pool (16k queries and up, in
+// Large batches split over the scheduler (16k queries and up, in
 // 1k-query slices): counts around the threshold and the slice edges
 // stay bitwise Displacement, on both entries and both scalar-seam
 // positions.
@@ -338,7 +341,7 @@ void CheckBatchThreaded()
         moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                      0.1 * rest[i][0] * rest[i][2],
                                      -0.15 * std::cos(2.0 * rest[i][0]));
-    rbf::CubicField field;
+    usdGenMath::rbf::CubicField field;
     std::string error;
     if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
         Check(false, "threaded batch fixture binds");
@@ -357,9 +360,9 @@ void CheckBatchThreaded()
                          size_t(17407), size_t(17408), size_t(17409),
                          size_t(19999), size_t(20000)}) {
         for (int force = 0; force <= 1 && !worst; ++force) {
-            rbf::TestForceScalarDisplace(force != 0);
+            usdGenMath::rbf::TestForceScalarDisplace(force != 0);
             std::vector<GfVec3d> batched(count), single(count);
-            field.DisplaceBatch(cloud.data(), batched.data(), count);
+            field.DisplaceBatch(cloud.data(), batched.data(), count, kParallel);
             for (size_t t = 0; t < count; ++t)
                 single[t] = field.Displacement(cloud[t]);
             if (std::memcmp(batched.data(), single.data(),
@@ -369,7 +372,8 @@ void CheckBatchThreaded()
             }
             std::vector<double> dx(count), dy(count), dz(count);
             field.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(),
-                                      dx.data(), dy.data(), dz.data(), count);
+                                      dx.data(), dy.data(), dz.data(), count,
+                                      kParallel);
             for (size_t t = 0; t < count; ++t) {
                 GfVec3d const s =
                     field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
@@ -383,14 +387,14 @@ void CheckBatchThreaded()
         }
         if (worst) break;
     }
-    rbf::TestForceScalarDisplace(false);
+    usdGenMath::rbf::TestForceScalarDisplace(false);
     Check(worst == 0, "threaded batches are bitwise Displacement" +
                            (worst ? " (first diff at " + std::to_string(worst) + ")" : ""));
 }
 
-// The pool discipline holds: concurrent large batches from many threads
-// claim the pool or run serially and stay bitwise, and large batches issued from another
-// pool's workers block-join the displace pool without deadlocking.
+// Concurrent large batches from many threads stay bitwise, and large
+// batches issued from a pool's workers join the scheduler without
+// deadlocking.
 void CheckBatchConcurrent()
 {
     size_t const samples = 100;
@@ -400,7 +404,7 @@ void CheckBatchConcurrent()
         moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                      0.1 * rest[i][0] * rest[i][2],
                                      -0.15 * std::cos(2.0 * rest[i][0]));
-    rbf::CubicField field;
+    usdGenMath::rbf::CubicField field;
     std::string error;
     if (!field.Bind(rest, &error) || !field.Solve(moved, &error)) {
         Check(false, "concurrent batch fixture binds");
@@ -414,7 +418,7 @@ void CheckBatchConcurrent()
     auto run = [&]() {
         for (int k = 0; k < 4; ++k) {
             std::vector<GfVec3d> got(n);
-            field.DisplaceBatch(cloud.data(), got.data(), n);
+            field.DisplaceBatch(cloud.data(), got.data(), n, kParallel);
             if (std::memcmp(got.data(), expect.data(), n * sizeof(GfVec3d)) != 0)
                 bad.fetch_add(1, std::memory_order_relaxed);
         }
@@ -424,7 +428,7 @@ void CheckBatchConcurrent()
     for (std::thread &t : threads) t.join();
     Check(bad.load() == 0, "concurrent large batches stay bitwise");
     struct Nested {
-        rbf::CubicField const *field;
+        usdGenMath::rbf::CubicField const *field;
         GfVec3d const *qs;
         GfVec3d *ds0, *ds1;
         size_t count;
@@ -436,7 +440,7 @@ void CheckBatchConcurrent()
                       [](size_t i, void *p) {
                           Nested const &job = *static_cast<Nested const *>(p);
                           job.field->DisplaceBatch(job.qs, i == 0 ? job.ds0 : job.ds1,
-                                                  job.count);
+                                                  job.count, kParallel);
                       },
                       &nested);
     Check(std::memcmp(nestedOut0.data(), expect.data(), n * sizeof(GfVec3d)) == 0 &&

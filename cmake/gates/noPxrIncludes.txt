@@ -2,6 +2,8 @@
 # Counts may only go down. The target is an empty file.
 libs/base/usdGenMath/usdGenMath.h 4
 libs/base/usdGenMath/usdGenMath/ramp.h 3
+libs/base/usdGenMath/usdGenMath/rbf.cpp 1
+libs/base/usdGenMath/usdGenMath/rbf.h 1
 libs/base/usdGenMath/version.cpp 3
 libs/core/backends/usdGenCuda/usdGenCuda/cudaParameters.cpp 13
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.h 4
@@ -32,8 +34,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/lengthRange.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/opUtil.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.cpp 2
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/rbfField.cpp 1
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/rbfField.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/resample.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/scale.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/sculptLayer.cpp 3

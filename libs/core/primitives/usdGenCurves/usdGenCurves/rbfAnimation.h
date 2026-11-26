@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef USDGEN_RBF_ANIMATION_H
 #define USDGEN_RBF_ANIMATION_H
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 #include "pxr/base/vt/array.h"
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/api/nodeKey.h"
@@ -21,7 +21,7 @@ struct UsdGenRbfAnimationTile {
 struct UsdGenRbfAnimationBinding {
     UsdGenNodeKey surface;
     std::vector<size_t> sampleIndices;
-    rbf::CubicField field;
+    usdGenMath::rbf::CubicField field;
     std::vector<UsdGenRbfAnimationTile> tiles;
 };
 bool UsdGenRbfAnimationEnabled();

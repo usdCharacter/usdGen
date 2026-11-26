@@ -1,4 +1,6 @@
-// usdGen — host cubic RBF displacement field (plan/examples/rbf-deformation.md).
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+// usdGenMath — host cubic RBF displacement field (plan/examples/rbf-deformation.md).
 //
 // The CPU twin of gpu::CudaRbfBinding's formulation, used by UsdGenDeform on
 // the CPU lane:
@@ -11,8 +13,8 @@
 // so F reproduces every sample exactly, and any affine motion of the samples
 // (translation, rotation, scale) everywhere. Bind factors the system once per
 // rest layout; Solve is a pair of triangular solves per pose.
-#ifndef USDGEN_OPS_RBF_FIELD_H
-#define USDGEN_OPS_RBF_FIELD_H
+#ifndef USDGEN_MATH_RBF_H
+#define USDGEN_MATH_RBF_H
 
 #include "pxr/base/gf/vec3d.h"
 
@@ -23,8 +25,15 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-namespace usdGen {
+namespace usdGenMath {
 namespace rbf {
+
+/// Runs body over [0, count) in blocks; serial when run is null.
+struct ParallelFor {
+    void (*run)(void *ctx, size_t count, void (*body)(void *user, size_t begin, size_t end),
+                void *user) = nullptr;
+    void *ctx = nullptr;
+};
 
 // Test-only DisplaceBatch path seam. While forced, DisplaceBatch runs the
 // scalar blocks even where the NEON block is available, so a test can
@@ -61,10 +70,11 @@ public:
     /// accumulators overlap. On AArch64 a fused 4-wide NEON block holds
     /// the accumulators in registers (scalar blocks elsewhere). Defined
     /// out of line; tails fall back to Displacement, and an unbound field
-    /// fills zeros. Large batches split over an internal worker pool;
+    /// fills zeros. Large batches split over `parallel` when given;
     /// every query still runs the same operations, so the bits match the
     /// serial loop.
-    void DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count) const;
+    void DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count,
+                       ParallelFor const &parallel = {}) const;
 
     /// A planar run of queries: (dx[t], dy[t], dz[t]) is bitwise
     /// Displacement(GfVec3d(qx[t], qy[t], qz[t])) for every t.
@@ -74,10 +84,10 @@ public:
     /// shuffles) while running each query's operations in the same order
     /// as DisplaceBatch, so the bits match. Tails fall back to
     /// Displacement, and an unbound field fills zeros. Large batches
-    /// split over an internal worker pool, bitwise as above.
+    /// split over `parallel` when given, bitwise as above.
     void DisplaceBatchPlanar(float const *qx, float const *qy, float const *qz,
                              double *dx, double *dy, double *dz,
-                             size_t count) const;
+                             size_t count, ParallelFor const &parallel = {}) const;
 
     bool Bound() const { return _order != 0; }
     size_t SampleCount() const { return _rest.size(); }
@@ -147,6 +157,6 @@ inline GfVec3d CubicField::Displacement(GfVec3d const &x) const
 }
 
 }  // namespace rbf
-}  // namespace usdGen
+}  // namespace usdGenMath
 
-#endif  // USDGEN_OPS_RBF_FIELD_H
+#endif  // USDGEN_MATH_RBF_H

@@ -5,7 +5,7 @@
 //
 // Workload D1: scatter -> grow -> deform (surface-driven, rbfSamples=100) ->
 // width over a wavy 400x250 grid surface (spans 3D so the RBF binds), plus a
-// direct rbf::CubicField microbench that isolates Bind/Solve/Displacement.
+// direct usdGenMath::rbf::CubicField microbench that isolates Bind/Solve/Displacement.
 //
 // Usage: benchUsdGenRbfDeform [--threads N] [--density D] [--vulkan-spv dir]
 //   [--vulkan-budget-mb MB]
@@ -35,8 +35,9 @@
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 #include "usdGen/scheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 #include "usdGen/types.h"
 
 #include "pxr/pxr.h"
@@ -74,6 +75,8 @@ PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
 
 namespace {
+
+usdGenMath::rbf::ParallelFor const kParallel{&UsdGenParallelForBlocks, nullptr};
 
 int g_hardFail = 0;
 
@@ -548,7 +551,7 @@ int main(int argc, char **argv)
     {
         FieldFixture const f = MakeFieldFixture(100, 200000);
         std::string error;
-        rbf::CubicField field;
+        usdGenMath::rbf::CubicField field;
         double t0 = NowMs();
         bool const bound = field.Bind(f.rest, &error);
         double const bindMs = NowMs() - t0;
@@ -572,7 +575,7 @@ int main(int argc, char **argv)
             // The production batch API over the same 200k queries; the
             // accumulation below runs in query order as before, so the
             // checksum is comparable across the change.
-            field.DisplaceBatch(f.queries.data(), disp.data(), f.queries.size());
+            field.DisplaceBatch(f.queries.data(), disp.data(), f.queries.size(), kParallel);
             double acc[3] = {0, 0, 0};
             for (GfVec3d const &d : disp) {
                 acc[0] += d[0]; acc[1] += d[1]; acc[2] += d[2];

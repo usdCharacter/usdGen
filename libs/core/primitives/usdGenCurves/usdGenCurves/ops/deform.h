@@ -4,7 +4,7 @@
 #include "usdGen/op.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/rbfField.h"
+#include "usdGenMath/rbf.h"
 
 #include "pxr/base/gf/vec3d.h"
 #include "pxr/base/gf/vec3f.h"
@@ -49,7 +49,7 @@ public:
                  UsdGenChunkView const &chunk) const override;
    std::unique_ptr<UsdGenCapture> CreateCapture() const override;
    uint32_t PlanesTouched() const override;
-   rbf::CubicField const& AnimationField() const { return field_; }
+   usdGenMath::rbf::CubicField const& AnimationField() const { return field_; }
    std::vector<size_t> const& AnimationSamples() const { return surfaceSelection_; }
 
    // Testing only: the cached surface selection (empty until the first
@@ -62,7 +62,7 @@ public:
 
 private:
    // The factored system survives poses that keep the same rest samples.
-   rbf::CubicField field_;
+   usdGenMath::rbf::CubicField field_;
    std::vector<GfVec3d> boundRest_;
    // The farthest-point selection is a pure function of the rest drivers, so
    // it is reused while they are bitwise unchanged (the steady-state pose

@@ -32,8 +32,10 @@ set_target_properties(usdGenExprFrontend PROPERTIES
 
 file(GLOB_RECURSE USDGEN_MATH_SOURCES libs/base/usdGenMath/*.cpp)
 add_library(usdGenMath STATIC ${USDGEN_MATH_SOURCES})
+# Two roots: "usdGenMath/usdGenMath/x.h" (older spelling) and "usdGenMath/x.h".
 target_include_directories(usdGenMath PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/base>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenMath PUBLIC
     arch tf gf vt work
@@ -72,9 +74,14 @@ else()
     endif()
 endif()
 if(_usdgen_host_expr_fp_options)
-    foreach(_usdgen_fp_target usdGen_seexpr usdGenMath usdGenExprFrontend)
+    foreach(_usdgen_fp_target usdGen_seexpr usdGenExprFrontend)
         target_compile_options(${_usdgen_fp_target} PRIVATE ${_usdgen_host_expr_fp_options})
     endforeach()
+    # usdGenMath per source: rbf.cpp keeps the toolchain default it had in
+    # usdGen, the policy of the callers that inline CubicField::Displacement.
+    set(_usdgen_fp_usdGenMath_sources ${USDGEN_MATH_SOURCES})
+    list(REMOVE_ITEM _usdgen_fp_usdGenMath_sources
+        "${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath/usdGenMath/rbf.cpp")
     # Every host instantiation of the shared IR/builtin headers must use the
     # same policy as the vendored SeExpr oracle. Otherwise ARM GCC's default
     # contraction emits FMAs while CUDA --fmad=false keeps separate rounding.
@@ -120,6 +127,7 @@ if(_usdgen_host_expr_fp_options)
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardSource.cpp
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardGeometry.cpp)
     set_property(SOURCE
+        ${_usdgen_fp_usdGenMath_sources}
         ${_usdgen_fp_usdGen_sources} ${_usdgen_fp_usdGenExpr_sources}
         ${_usdgen_fp_usdGenCurves_sources} ${_usdgen_fp_tests_sources}
         APPEND PROPERTY COMPILE_OPTIONS ${_usdgen_host_expr_fp_options})
