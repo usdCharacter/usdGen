@@ -5,7 +5,7 @@
 #include "usdGen/gpu/deviceBuffer.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
-#include "usdGen/gpu/tools.h"
+#include "usdGenCurves/cuda/tools.h"
 #include "usdGen/session.h"
 
 #include <cuda_runtime.h>

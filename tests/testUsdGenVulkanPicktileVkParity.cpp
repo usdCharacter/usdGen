@@ -26,11 +26,11 @@
 #include "usdGen/vulkan/chargedBuffer.h"
 #include "usdGen/vulkan/picktileVk.h"
 
-#include "gpu/picking.h"
-#include "gpu/curveTiles.h"
-#include "gpu/curveTileBounds.h"
-#include "gpu/curveIndices.h"
-#include "gpu/generation.h"
+#include "usdGenCurves/cuda/picking.h"
+#include "usdGenCurves/cuda/curveTiles.h"
+#include "usdGenCurves/cuda/curveTileBounds.h"
+#include "usdGenCurves/cuda/curveIndices.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime.h>
 

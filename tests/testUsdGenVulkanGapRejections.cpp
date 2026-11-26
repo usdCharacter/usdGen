@@ -33,8 +33,8 @@
 #include "usdGen/vulkan/sourceGeneration.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "gpu/generation.h"
-#include "gpu/picking.h"
+#include "usdGenCurves/cuda/generation.h"
+#include "usdGenCurves/cuda/picking.h"
 
 #include <cuda_runtime.h>
 #endif

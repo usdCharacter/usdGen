@@ -57,7 +57,7 @@
 #include <vector>
 
 #ifdef USDGEN_BENCH_CUDA
-#include "usdGen/gpu/rbf.h"
+#include "usdGenCurves/cuda/rbf.h"
 #include <cuda_runtime.h>
 #endif
 

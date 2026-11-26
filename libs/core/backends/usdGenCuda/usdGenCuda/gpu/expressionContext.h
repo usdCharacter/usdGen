@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_EXPRESSION_CONTEXT_H
 #define USDGEN_GPU_EXPRESSION_CONTEXT_H
 
-#include "curveGeometry.h"
+#include "usdGenCurves/cuda/curveGeometry.h"
 #include "expression.h"
 
 namespace usdGen::gpu {

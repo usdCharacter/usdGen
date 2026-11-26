@@ -8,8 +8,8 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/scheduler.h"
 #ifdef USDGEN_TEST_CUDA_SOURCE_PARITY
-#include "usdGen/cudaExecution.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
+#include "usdGenCurves/cuda/generation.h"
 #endif
 
 #include <cmath>

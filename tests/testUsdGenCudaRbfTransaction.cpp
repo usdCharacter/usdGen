@@ -1,9 +1,9 @@
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/cudaExecutionQueue.h"
+#include "usdGenCurves/cuda/cudaExecutionQueue.h"
 #include "usdGen/executionResources.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime_api.h>
 

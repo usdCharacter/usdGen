@@ -22,7 +22,7 @@
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"

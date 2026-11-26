@@ -4,8 +4,8 @@
 #include "pxr/base/gf/matrix4d.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/gpu/generation.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/generation.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 
 #include <array>
 #include <atomic>

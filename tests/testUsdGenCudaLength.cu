@@ -1,4 +1,4 @@
-#include "gpu/length.h"
+#include "usdGenCurves/cuda/length.h"
 #include "../libs/base/usdGenMath/usdGenMath/hash.h"
 #include "floatUlpFixture.h"
 

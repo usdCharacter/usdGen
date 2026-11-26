@@ -1,4 +1,4 @@
-#include "gpu/noise.h"
+#include "usdGenCurves/cuda/noise.h"
 #include "testBackend.h"
 
 #include "usdGenMath/usdGenMath/hash.h"

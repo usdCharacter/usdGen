@@ -1,7 +1,7 @@
 // Test-only readback oracle. Production index generation never reads offsets,
 // generated indices, primitive IDs, or draw counts back to the host.
-#include "gpu/curveIndices.h"
-#include "gpu/curveCompaction.h"
+#include "usdGenCurves/cuda/curveIndices.h"
+#include "usdGenCurves/cuda/curveCompaction.h"
 #ifdef USDGEN_HAS_STORM_INDEX_ORACLE
 #include "pxr/imaging/hdSt/basisCurvesTopology.h"
 #include "pxr/imaging/hd/bufferSource.h"

@@ -1,10 +1,10 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/cudaExecution.h"
-#include "usdGen/cudaParameters.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaParameters.h"
 #include "usdGen/executionResources.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <cmath>
 #include <atomic>

@@ -7,7 +7,7 @@
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"

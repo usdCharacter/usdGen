@@ -1,4 +1,4 @@
-#include "gpu/curveSource.h"
+#include "usdGenCurves/cuda/curveSource.h"
 
 #include <cmath>
 #include <cstdio>

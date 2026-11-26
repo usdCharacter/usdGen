@@ -1,6 +1,6 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "cudaGlFixture.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime.h>
 

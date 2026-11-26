@@ -1,6 +1,6 @@
-#include "usdGen/gpu/curveGrow.h"
+#include "usdGenCurves/cuda/curveGrow.h"
 #include "testBackend.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/gpu/deviceResources.h"
 #include "usdGen/executionRetirement.h"
 

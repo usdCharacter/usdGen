@@ -25,7 +25,7 @@
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"

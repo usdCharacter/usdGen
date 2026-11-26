@@ -8,9 +8,9 @@
 // idling `stream` proves nothing about the copies still queued on the copy
 // stream: the work must stay unproven (and the destructor quarantine) rather
 // than hand those blocks back to the device-buffer cache.
-#include "gpu/scatterGrow.h"
+#include "usdGenCurves/cuda/scatterGrow.h"
 #include "testBackend.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/executionResources.h"
 
 #include <cstdio>

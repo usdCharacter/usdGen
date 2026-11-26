@@ -2,11 +2,11 @@
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/session.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/imagePayload.h"
 
 #include <algorithm>

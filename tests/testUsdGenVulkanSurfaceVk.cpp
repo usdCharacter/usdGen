@@ -50,8 +50,8 @@
 #include "vulkanReadbackFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "gpu/deformCurves.h"
-#include "gpu/rbf.h"
+#include "usdGenCurves/cuda/deformCurves.h"
+#include "usdGenCurves/cuda/rbf.h"
 #include "gpu/surfaceBinding.h"
 
 #include <cuda_runtime.h>

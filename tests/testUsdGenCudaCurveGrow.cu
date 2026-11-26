@@ -1,4 +1,4 @@
-#include "gpu/curveGrow.h"
+#include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"
 #include "usdGenMath/hash.h"

@@ -20,7 +20,7 @@
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGen/clumpMotion.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/expressions/context.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"

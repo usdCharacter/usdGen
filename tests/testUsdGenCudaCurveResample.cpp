@@ -1,4 +1,4 @@
-#include "gpu/curveResample.h"
+#include "usdGenCurves/cuda/curveResample.h"
 
 #include <atomic>
 #include <cmath>

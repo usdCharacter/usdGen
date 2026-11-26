@@ -35,8 +35,8 @@
 #include "vulkanReadbackFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "gpu/curveResample.h"
-#include "gpu/namedChannelTopology.h"
+#include "usdGenCurves/cuda/curveResample.h"
+#include "usdGenCurves/cuda/namedChannelTopology.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/gpu/cudaRetirement.h"
