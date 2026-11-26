@@ -49,7 +49,7 @@ as warnings); extraction is confined to `<out>_assets/`; absolute asset paths in
 Legacy `.json` scenes reference absolute files; the files that exist are copied into `<out>_assets/`.
 
 The schema plugin: if `usdGenSchema` is not on `PXR_PLUGINPATH_NAME`, the converter registers
-`plugin/usdGenSchema/resources` (or `$USDGEN_SCHEMA_PLUGIN`) itself so every attribute gets its declared type
+`libs/hosts/usdGenUsd/schema/resources` (or `$USDGEN_SCHEMA_PLUGIN`) itself so every attribute gets its declared type
 and variability. `usdchecker` needs the schema **and** shader plugins on `PXR_PLUGINPATH_NAME` (use
 `sisir_env.sh`); without the shader plugin it reports `UsdGenHairStrands` as missing from the Sdr registry.
 

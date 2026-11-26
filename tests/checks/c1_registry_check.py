@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """C1 registry check (M1 schema-contract loop, plan/02-schema.md normative).
 
-Loads the CURRENT on-disk schema from plugin/usdGenSchema/resources and
+Loads the CURRENT on-disk schema from libs/hosts/usdGenUsd/schema/resources and
 asserts, for every prim type in docs/freezes/C1.md section 1, that
 UsdSchemaRegistry resolves it (concrete / abstract / API), and for every
 property row in a C1 section-2 table, that the property exists on the right
@@ -23,7 +23,7 @@ import sys
 # --- Pin plugin discovery BEFORE importing pxr -------------------------------
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _GEN = os.path.dirname(os.path.dirname(_HERE))  # <repo>/tests/checks -> <repo>
-_SOURCE_RES = os.path.join(_GEN, "plugin", "usdGenSchema", "resources")
+_SOURCE_RES = os.path.join(_GEN, "libs", "hosts", "usdGenUsd", "schema", "resources")
 _C1 = os.path.join(_GEN, "docs", "freezes", "C1.md")
 
 

@@ -1,6 +1,6 @@
 # bin/gen_schema.ps1 — Windows twin of bin/gen_schema.sh: regenerate the
 # codeless usdGen schema plugin resources (plugInfo.json + generatedSchema.usda)
-# from libs/usdGenSchema/schema.usda. Run this ONLY after editing schema.usda
+# from libs/hosts/usdGenUsd/schema/schema.usda. Run this ONLY after editing schema.usda
 # and review the diff before committing. Keep the post-processing here in
 # step with gen_schema.sh.
 
@@ -41,8 +41,8 @@ if (-not $python) {
 }
 if (-not $python) { throw "Python is not on PATH. Set PY to the interpreter that imports this build's pxr." }
 
-$schemaDir = Join-Path $Root "libs\usdGenSchema"
-$resources = Join-Path $Root "plugin\usdGenSchema\resources"
+$schemaDir = Join-Path $Root "libs\hosts\usdGenUsd\schema"
+$resources = Join-Path $schemaDir "resources"
 # usdGenSchema banners on stderr; with $ErrorActionPreference = "Stop" that
 # alone would throw, so tolerate stderr here — the LASTEXITCODE checks below
 # are the real gates.
@@ -92,4 +92,4 @@ Set-Content -Path $postFile -Value $post -Encoding ascii
 if ($LASTEXITCODE -ne 0) { throw "plugInfo post-processing failed with exit code $LASTEXITCODE" }
 Remove-Item $postFile -ErrorAction SilentlyContinue
 
-Write-Host "regenerated plugin/usdGenSchema/resources - review the diff before committing"
+Write-Host "regenerated libs/hosts/usdGenUsd/schema/resources - review the diff before committing"

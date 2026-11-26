@@ -4,7 +4,7 @@
 // types, and fallback defaults pinned in docs/freezes/C1.md (authoritative;
 // supersedes the abstract/API summary in docs/m1/interfaces.md §7) must match
 // the live UsdSchemaRegistry / UsdPrimDefinition as loaded from
-// plugin/usdGenSchema/resources/generatedSchema.usda.
+// libs/hosts/usdGenUsd/schema/resources/generatedSchema.usda.
 //
 // Uniform encoding note: the usda `uniform` qualifier surfaces as the
 // attribute's SdfVariability (SdfVariabilityUniform). In USD 26.08 neither
