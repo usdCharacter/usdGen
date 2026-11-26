@@ -4,7 +4,7 @@
 #ifndef USDGEN_VULKAN_ROOT_FRAMES_PIPELINE_H
 #define USDGEN_VULKAN_ROOT_FRAMES_PIPELINE_H
 
-#include "chargedBuffer.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include <functional>
 #include <vector>
 

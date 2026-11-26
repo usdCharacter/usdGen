@@ -108,27 +108,14 @@ set(_usdgen_vulkan_sources
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/pointOverridePipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/curveGrowPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/scatterGrowPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFramesPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rootFrameGatherPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/noisePipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/deformPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkBinding.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/rbfVkDeformPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/surfaceVk.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/widthPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/resampleVkPipeline.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/mapVkImage.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/styleVkPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/picktileVk.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkEvaluate.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkContext.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkApply.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkParameters.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkRun.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkStructural.cpp
-    libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPack.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPipeline.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/growVkPlan.cpp
     libs/core/backends/usdGenVulkan/usdGenVulkan/compile/program.cpp
@@ -180,7 +167,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     # its folder so a git mv moves membership (reconfigure after one):
     # SHARED usdGenCurvesVulkan (usdGenCurves/vulkan/) and OBJECT
     # usdGenSurfaceVulkan, usdGenExprVulkan (usdGen{Surface,Expr}/vulkan/,
-    # linked into usdGenCurvesVulkan, their only consumer). An OBJECT folder
+    # linked into their consumer: usdGenVulkan until 8.6d, then usdGenCurvesVulkan). An OBJECT folder
     # without sources yet makes no target.
     file(GLOB_RECURSE _usdgen_curves_vulkan_sources
         "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/*.cpp")
@@ -193,9 +180,20 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
             "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/vulkan/*.cpp")
         if(_usdgen_gpu_object_sources)
             add_library(${_usdgen_gpu_object}Vulkan OBJECT ${_usdgen_gpu_object_sources})
-            target_link_libraries(${_usdgen_gpu_object}Vulkan PRIVATE usdGenVulkan ${_usdgen_gpu_object})
+            # No link to usdGenVulkan (its objects are built into it until
+            # 8.6d: that would be a target cycle); same includes and deps.
+            target_link_libraries(${_usdgen_gpu_object}Vulkan PRIVATE
+                usdGen Vulkan::Vulkan Threads::Threads usdGenSurface usdGenExpr usdGenCurves usdGenMath arch)
+            target_include_directories(${_usdgen_gpu_object}Vulkan PRIVATE
+                ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
+                ${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan)
+            if(USDGEN_ENABLE_VULKAN_RUNTIME)
+                target_compile_definitions(${_usdgen_gpu_object}Vulkan PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
+            endif()
             set_target_properties(${_usdgen_gpu_object}Vulkan PROPERTIES POSITION_INDEPENDENT_CODE ON)
-            target_sources(usdGenCurvesVulkan PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Vulkan>)
+            # Until 8.6d moves the pipelines that call them into
+            # usdGenCurvesVulkan, usdGenVulkan itself needs these objects.
+            target_sources(usdGenVulkan PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Vulkan>)
         endif()
     endforeach()
     # RTLD_LOCAL dlopen finds libusdGenVulkan.so beside it in an install.
@@ -231,7 +229,19 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     endif()
     set(_usdgen_vulkan_spirv_files)
     function(_usdgen_compile_vulkan_shader _tag _file)
-        set(_shader "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders/${_file}.comp")
+        # A shader lives beside its pipeline: the runtime folder or a primitive's.
+        set(_shader)
+        foreach(_dir
+            libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/shaders
+            libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/shaders
+            libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/shaders)
+            if(NOT _shader AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_dir}/${_file}.comp")
+                set(_shader "${CMAKE_CURRENT_SOURCE_DIR}/${_dir}/${_file}.comp")
+            endif()
+        endforeach()
+        if(NOT _shader)
+            message(FATAL_ERROR "usdGen Vulkan: shader ${_file}.comp not found")
+        endif()
         set(_spv "${CMAKE_CURRENT_BINARY_DIR}/vulkan/${_file}.spv")
         add_custom_command(OUTPUT "${_spv}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/vulkan"

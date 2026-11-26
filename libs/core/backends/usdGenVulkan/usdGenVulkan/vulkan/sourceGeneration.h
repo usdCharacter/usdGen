@@ -15,7 +15,7 @@
 #include "rbfVkDeformPipeline.h"
 #include "resampleVkPipeline.h"
 #include "curveGrowPipeline.h"
-#include "exprVkApply.h"
+#include "usdGenExpr/vulkan/exprVkApply.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
 

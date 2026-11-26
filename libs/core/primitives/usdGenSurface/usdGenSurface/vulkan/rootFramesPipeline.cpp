@@ -22,8 +22,8 @@
 
 #include "rootFramesPipeline.h"
 
-#include "chargedBuffer.h"
-#include "deviceContext.h"
+#include "usdGenVulkan/vulkan/chargedBuffer.h"
+#include "usdGenVulkan/vulkan/deviceContext.h"
 #include "usdGen/executionResources.h"
 
 #include <algorithm>

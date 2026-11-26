@@ -91,13 +91,11 @@ if(_usdgen_host_expr_fp_options)
     # usdGenSurface.
     set(_usdgen_fp_usdGenSurface_sources
         libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatterModes.cpp)
-    # usdGenVulkan.
-    set(_usdgen_fp_usdGenVulkan_sources
-        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkProgram.cpp
-        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkParameters.cpp
-        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkRun.cpp
-        libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/exprVkPlan.cpp)
     set(_usdgen_fp_usdGenExpr_sources
+        libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkProgram.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkParameters.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkRun.cpp
+        libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkPlan.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/expressions/frontend.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/cpuParameters.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.cpp
@@ -130,7 +128,7 @@ if(_usdgen_host_expr_fp_options)
         libs/core/primitives/usdGenCurves/usdGenCurves/ops/cardGeometry.cpp)
     set_property(SOURCE
         ${_usdgen_fp_usdGenMath_sources} ${_usdgen_fp_usdGenSurface_sources}
-        ${_usdgen_fp_usdGenVulkan_sources} ${_usdgen_fp_usdGenExpr_sources}
+        ${_usdgen_fp_usdGenExpr_sources}
         ${_usdgen_fp_usdGenCurves_sources} ${_usdgen_fp_tests_sources}
         APPEND PROPERTY COMPILE_OPTIONS ${_usdgen_host_expr_fp_options})
 endif()

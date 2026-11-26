@@ -7,9 +7,9 @@
 
 #include "deformPipeline.h"
 #include "executionPlan.h"
-#include "exprVkApply.h"
-#include "exprVkPack.h"
-#include "exprVkRun.h"
+#include "usdGenExpr/vulkan/exprVkApply.h"
+#include "usdGenExpr/vulkan/exprVkPack.h"
+#include "usdGenExpr/vulkan/exprVkRun.h"
 #include "growVkPipeline.h"
 #include "noisePipeline.h"
 #include "picktileVk.h"
