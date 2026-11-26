@@ -4,8 +4,8 @@
 // still in usdGenCuda until its kernels move here).
 #include "usdGenCurves/cuda/program.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGenCuda/bindingReport.h"
-#include "usdGenCuda/cudaExecution.h"
+#include "usdGenCurves/cuda/bindingReport.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGenCuda/exec/workspace.h"
 #include "usdGen/registries/op.h"
 

@@ -4,7 +4,7 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime.h>
 #include <pxr/base/gf/vec2f.h>

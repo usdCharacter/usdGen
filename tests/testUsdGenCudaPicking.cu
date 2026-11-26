@@ -1,4 +1,4 @@
-#include "gpu/picking.h"
+#include "usdGenCurves/cuda/picking.h"
 
 #include <cmath>
 #include <cstdio>

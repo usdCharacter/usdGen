@@ -30,7 +30,7 @@
 #include "SeExpr2/Noise.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "gpu/noise.h"
+#include "usdGenCurves/cuda/noise.h"
 
 #include <cuda_runtime.h>
 #endif

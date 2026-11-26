@@ -2,7 +2,7 @@
 #include "usdGenUsd/lower.h"
 #include "usdGen/sessionBackendExecutor.h"
 #include "usdGen/compiler.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/op.h"
 #include "testBackend.h"
 

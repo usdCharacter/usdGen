@@ -4,8 +4,8 @@
 #include "usdGen/curveRootCapture.h"
 #include "usdGen/curveLoader.h"
 #ifdef USDGEN_TEST_CUDA_BINDING_CACHE
-#include "usdGen/cudaExecution.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
+#include "usdGenCurves/cuda/generation.h"
 #endif
 
 #include <array>

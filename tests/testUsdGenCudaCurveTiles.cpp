@@ -1,6 +1,6 @@
 // Test-only tile-span metadata readback.  Production retains these spans on
 // device until the explicit publication boundary.
-#include "gpu/curveTiles.h"
+#include "usdGenCurves/cuda/curveTiles.h"
 
 #include <algorithm>
 #include <cstdio>

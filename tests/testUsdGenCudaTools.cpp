@@ -1,4 +1,4 @@
-#include "usdGen/gpu/tools.h"
+#include "usdGenCurves/cuda/tools.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenImagingSession.h"

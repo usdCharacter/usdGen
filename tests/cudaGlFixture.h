@@ -3,9 +3,9 @@
 #ifndef USDGEN_TESTS_CUDA_GL_FIXTURE_H
 #define USDGEN_TESTS_CUDA_GL_FIXTURE_H
 
-#include "usdGen/gpu/generation.h"
-#include "usdGen/gpu/curveSource.h"
-#include "usdGen/gpu/width.h"
+#include "usdGenCurves/cuda/generation.h"
+#include "usdGenCurves/cuda/curveSource.h"
+#include "usdGenCurves/cuda/width.h"
 
 #include <cuda_runtime.h>
 

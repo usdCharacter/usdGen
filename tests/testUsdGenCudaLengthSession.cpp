@@ -3,7 +3,7 @@
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include <cmath>
 #include <cstdio>
 #include <vector>

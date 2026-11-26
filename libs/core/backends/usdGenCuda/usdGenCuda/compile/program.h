@@ -61,6 +61,14 @@ public:
     virtual void MarkContextLost() noexcept {}
 };
 
+struct ProgramDef;
+
+/// The program registered for (cuda, type); null if none.
+USDGEN_CUDA_API ProgramDef const *ProgramOf(UsdGenTypeId type) noexcept;
+/// The program of the graph's terminal type; the default primitive's when
+/// the terminal names none or its type has no program.
+USDGEN_CUDA_API ProgramDef const *ProgramFor(UsdGenGraphSpec const &spec) noexcept;
+
 struct ProgramDef {
     /// Null with diagnostics on refusal. The handle's backend is "cuda".
     std::shared_ptr<const UsdGenExecutionPlanHandle> (*compile)(

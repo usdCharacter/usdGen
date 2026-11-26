@@ -32,31 +32,6 @@ std::exception_ptr Failure(std::string const &what)
     return std::make_exception_ptr(std::runtime_error(what));
 }
 
-cuda::ProgramDef const *ProgramOf(UsdGenTypeId type) noexcept
-{
-    return static_cast<cuda::ProgramDef const *>(
-        UsdGenFindDeviceProgram(UsdGenCudaBackendId(), type));
-}
-
-// The program of the graph's terminal type; the default primitive's when
-// the terminal names none or its type has no program.
-cuda::ProgramDef const *ProgramFor(UsdGenGraphSpec const &spec) noexcept
-{
-    UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
-    UsdGenTypeId const fallback = types.DefaultPrimitive();
-    UsdGenTypeId type = fallback;
-    for (UsdGenOpNode const &node : spec.nodes) {
-        if (node.key != spec.terminal) continue;
-        if (node.opId != UsdGenOpId::Invalid) {
-            TfToken const &name = UsdGenOpRegistry::Get().Record(node.opId).OutputType();
-            if (!name.IsEmpty()) type = types.Find(name);
-        }
-        break;
-    }
-    cuda::ProgramDef const *program = ProgramOf(type);
-    return program || type == fallback ? program : ProgramOf(fallback);
-}
-
 // The payload of the handles this provider hands out: the program and its plan.
 struct CompiledProgram {
     cuda::ProgramDef const *program = nullptr;
@@ -111,7 +86,7 @@ public:
     {
         UsdGenDiagnostics local;
         UsdGenDiagnostics *const diag = diagnostics ? diagnostics : &local;
-        cuda::ProgramDef const *const program = ProgramFor(desc);
+        cuda::ProgramDef const *const program = cuda::ProgramFor(desc);
         if (!program || !program->compile || !program->createJob) {
             diag->Error("CUDA: no device program is registered for the graph's primitive");
             return {};
@@ -293,7 +268,7 @@ private:
     {
         UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
         for (uint32_t t = 0; t < types.Count(); ++t) {
-            cuda::ProgramDef const *const program = ProgramOf(UsdGenTypeId(t));
+            cuda::ProgramDef const *const program = cuda::ProgramOf(UsdGenTypeId(t));
             if (program && !workspace.State(*program, diagnostics)) return false;
         }
         return true;

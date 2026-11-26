@@ -3,10 +3,10 @@
 #include "pxr/base/gf/vec3d.h"
 #include "pxr/base/gf/vec2d.h"
 #include "pxr/base/gf/half.h"
-#include "cudaParameters.h"
+#include "usdGenCurves/cuda/cudaParameters.h"
 #include "usdGen/executionResources.h"
 #include "usdGenUsd/lower.h"
-#include "gpu/curveSource.h"
+#include "usdGenCurves/cuda/curveSource.h"
 #include <atomic>
 #include <cstdio>
 #include <cmath>

@@ -1,10 +1,10 @@
-#include "usdGen/cudaExecutionQueue.h"
+#include "usdGenCurves/cuda/cudaExecutionQueue.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/executionPipeline.h"
 #include "usdGen/executionResources.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <atomic>
 #include <chrono>

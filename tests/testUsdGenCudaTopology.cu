@@ -1,4 +1,4 @@
-#include "gpu/topology.h"
+#include "usdGenCurves/cuda/topology.h"
 #include "usdGenCuda/backendId.h"
 #include "gpu/deviceBuffer.h"
 #include "usdGen/executionResources.h"

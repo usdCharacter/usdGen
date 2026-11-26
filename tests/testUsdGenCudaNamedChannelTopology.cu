@@ -2,11 +2,11 @@
 #include "usdGenCuda/backendId.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/gpu/cudaRetirement.h"
-#include "usdGen/gpu/curveCompaction.h"
-#include "usdGen/gpu/curveResample.h"
-#include "usdGen/gpu/curveSource.h"
-#include "usdGen/gpu/generation.h"
-#include "usdGen/gpu/namedChannelTopology.h"
+#include "usdGenCurves/cuda/curveCompaction.h"
+#include "usdGenCurves/cuda/curveResample.h"
+#include "usdGenCurves/cuda/curveSource.h"
+#include "usdGenCurves/cuda/generation.h"
+#include "usdGenCurves/cuda/namedChannelTopology.h"
 
 #include <array>
 #include <atomic>

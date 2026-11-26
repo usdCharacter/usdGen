@@ -1,7 +1,7 @@
 #include "deviceBuffer.h"
 #include "cudaCompat.h"
-#include "curveTileBounds.h"
-#include "curveTiles.h"
+#include "usdGenCurves/cuda/curveTileBounds.h"
+#include "usdGenCurves/cuda/curveTiles.h"
 #include <cstddef>
 #include <cstdint>
 #include <atomic>

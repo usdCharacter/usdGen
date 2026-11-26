@@ -1,4 +1,4 @@
-#include "gpu/deformCurves.h"
+#include "usdGenCurves/cuda/deformCurves.h"
 
 #include <cmath>
 #include <cstdio>

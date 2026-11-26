@@ -55,10 +55,10 @@
 #include "pxr/usd/sdf/path.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "usdGen/cudaScatterInput.h"
+#include "usdGenCurves/cuda/cudaScatterInput.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/gpu/deviceResources.h"
-#include "usdGen/gpu/scatterGrow.h"
+#include "usdGenCurves/cuda/scatterGrow.h"
 #endif
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME
 #include "usdGen/vulkan/scatterGrowPipeline.h"

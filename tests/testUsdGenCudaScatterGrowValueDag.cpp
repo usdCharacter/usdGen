@@ -1,8 +1,8 @@
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/cudaExecutionQueue.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/cudaExecutionQueue.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <algorithm>
 #include <atomic>

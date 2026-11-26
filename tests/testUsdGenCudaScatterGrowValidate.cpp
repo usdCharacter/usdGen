@@ -3,7 +3,7 @@
 // topology, finiteness, duplicate stable ids, and per-curve overflow.
 // Pins the check order too (index order, Finite before duplicate
 // before overflow), so faster validators must keep the same statuses.
-#include "usdGen/gpu/scatterGrow.h"
+#include "usdGenCurves/cuda/scatterGrow.h"
 
 #include <cuda_runtime.h>
 

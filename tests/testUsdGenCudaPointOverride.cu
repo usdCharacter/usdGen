@@ -1,4 +1,4 @@
-#include "gpu/pointOverride.h"
+#include "usdGenCurves/cuda/pointOverride.h"
 
 #include <cmath>
 #include <cstdio>

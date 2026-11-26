@@ -1,4 +1,4 @@
-#include "gpu/rbf.h"
+#include "usdGenCurves/cuda/rbf.h"
 #include <cuda_runtime.h>
 #include <cassert>
 #include <cmath>

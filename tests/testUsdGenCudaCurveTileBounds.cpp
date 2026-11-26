@@ -1,5 +1,5 @@
 // Test-only readback oracle for device-only conservative per-tile bounds.
-#include "gpu/curveTileBounds.h"
+#include "usdGenCurves/cuda/curveTileBounds.h"
 
 #include <array>
 #include <cmath>

@@ -1,5 +1,5 @@
 #include "gpu/expression.h"
-#include "gpu/styleOps.h"
+#include "usdGenCurves/cuda/styleOps.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGenSeExprOracle.h"
 

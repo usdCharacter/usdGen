@@ -1,5 +1,5 @@
-#include "gpu/width.h"
-#include "gpu/widthBlend.h"
+#include "usdGenCurves/cuda/width.h"
+#include "usdGenCurves/cuda/widthBlend.h"
 
 #include <cmath>
 #include <cstdint>

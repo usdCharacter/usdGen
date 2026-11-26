@@ -5,7 +5,7 @@
 // through the direct executor (ExecuteCudaGraph) and through a Session with
 // device publication (the asynchronous relay path). Prints medians in ms.
 //   benchUsdGenCudaCook [--density N] [--runs N]
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "../testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"

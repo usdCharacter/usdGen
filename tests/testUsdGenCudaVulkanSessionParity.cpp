@@ -7,7 +7,7 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/vulkan/defaultProvider.h"
 #include "usdGen/vulkan/deviceGenerationAdapter.h"
 #include "usdGen/vulkan/chargedBuffer.h"

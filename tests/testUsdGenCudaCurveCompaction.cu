@@ -1,4 +1,4 @@
-#include "gpu/curveCompaction.h"
+#include "usdGenCurves/cuda/curveCompaction.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"
 

@@ -1,4 +1,4 @@
-#include "gpu/styleOps.h"
+#include "usdGenCurves/cuda/styleOps.h"
 
 #include <cmath>
 #include <cstdio>

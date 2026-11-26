@@ -1,6 +1,6 @@
-#include "gpu/scatterGrow.h"
+#include "usdGenCurves/cuda/scatterGrow.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionResources.h"
 #include "usdGenMath/hash.h"

@@ -51,12 +51,12 @@
 #include "vulkanReadbackFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "gpu/curveSource.h"
-#include "gpu/curveResample.h"
-#include "gpu/namedChannelTopology.h"
-#include "gpu/deformCurves.h"
-#include "gpu/rbf.h"
-#include "usdGen/cudaSourceInput.h"
+#include "usdGenCurves/cuda/curveSource.h"
+#include "usdGenCurves/cuda/curveResample.h"
+#include "usdGenCurves/cuda/namedChannelTopology.h"
+#include "usdGenCurves/cuda/deformCurves.h"
+#include "usdGenCurves/cuda/rbf.h"
+#include "usdGenCurves/cuda/cudaSourceInput.h"
 
 #include <cuda_runtime.h>
 #endif

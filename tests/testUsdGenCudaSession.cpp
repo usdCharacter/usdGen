@@ -8,9 +8,9 @@
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/executionResources.h"
-#include "usdGen/cudaExecution.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGen/imagePayload.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 
 #include <atomic>
 #include <chrono>

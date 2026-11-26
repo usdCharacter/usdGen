@@ -1,4 +1,4 @@
-#include "cudaSourceInput.h"
+#include "usdGenCurves/cuda/cudaSourceInput.h"
 
 #include <array>
 #include <cstdio>

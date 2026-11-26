@@ -1,6 +1,6 @@
 #include "pxr/base/gf/vec2f.h"
 #include "usdGenUsd/lower.h"
-#include "cudaSurfaceInput.h"
+#include "usdGenCurves/cuda/cudaSurfaceInput.h"
 #include <cstdio>
 #include <limits>
 

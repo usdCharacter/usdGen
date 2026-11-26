@@ -3,9 +3,9 @@
 #include "pxr/base/gf/vec3f.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/cudaExecution.h"
-#include "usdGenCuda/bindingReport.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
+#include "usdGenCurves/cuda/bindingReport.h"
+#include "usdGenCurves/cuda/generation.h"
 #include <cmath>
 #include <cstdio>
 #include <limits>

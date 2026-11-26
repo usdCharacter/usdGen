@@ -129,8 +129,8 @@ endif()
 # ---------------------------------------------------------------------------
 # usdGenCuda (SHARED, step 8.3): the CUDA runtime (device selection, streams,
 # the one block cache in gpu/deviceBuffer.cu, device resources, completion
-# lane, retirement payloads), the CUDA Session provider and, until step 8.6,
-# the curve kernels and executor. Built in every configuration like
+# lane, retirement payloads) and the CUDA Session provider; the curves' kernels
+# and executor live in usdGenCurvesCuda. Built in every configuration like
 # usdGenVulkan's kernel rows: without the toolkit it carries the CPU-side
 # admission (capability matrix, ValidateCudaGraph) and registers "cuda" as
 # unavailable. The registry loads it after the primitives
@@ -140,7 +140,6 @@ endif()
 file(GLOB_RECURSE _usdgen_cuda_cpp_sources
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/*.cpp")
 set(_usdgen_cuda_runtime_only
-    "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/cudaScatterInput.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/exec/provider.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/exec/workspace.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp"
@@ -173,33 +172,11 @@ if(USDGEN_ENABLE_CUDA)
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceResources.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/imageSampler.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/rbf.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGeometry.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveSource.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/scatterGrow.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveGrow.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/expressionContext.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/deformCurves.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/styleOps.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/width.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthBlend.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/widthOverlapWitness.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/surfaceBinding.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/length.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveCompaction.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveResample.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/namedChannelTopology.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/picking.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/pointOverride.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/topology.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/nonWidthCompare.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveIndices.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTiles.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/curveTileBounds.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrames.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/rootFrameGather.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaRetirement.cu
-        libs/core/backends/usdGenCuda/usdGenCuda/gpu/noise.cu
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/expression.cu)
     # cuda_driver backs the cudaStreamGetDevice shim in gpu/cudaCompat.h
     # on toolkits older than 12.8.
@@ -227,7 +204,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Primitive CUDA targets (step 8.6a), each sourced by GLOB_RECURSE of its
 # folder so a git mv moves membership (reconfigure after one):
-#   usdGenCurvesCuda (SHARED)  libs/core/primitives/usdGenCurves/usdGenCurves/cuda/
+#   usdGenCurvesCuda (SHARED, every configuration)  libs/core/primitives/usdGenCurves/usdGenCurves/cuda/
 #   usdGenSurfaceCuda, usdGenExprCuda (OBJECT, linked into usdGenCurvesCuda,
 #   their only consumer)       usdGen{Surface,Expr}/usdGen{Surface,Expr}/cuda/
 # An OBJECT folder without sources yet makes no target. CUDA builds only.
@@ -238,13 +215,29 @@ function(_usdgen_glob_gpu_folder _out _folder)
         "${CMAKE_CURRENT_SOURCE_DIR}/${_folder}/*.cu")
     set(${_out} "${_found}" PARENT_SCOPE)
 endfunction()
+# The curves' CUDA device program and kernels. Built in every configuration
+# like usdGenCuda: without the toolkit it carries the CPU-side admission and
+# the capability-matrix rows; the .cu kernels and the scatter input (CUDA
+# runtime API) join only with USDGEN_ENABLE_CUDA.
+_usdgen_glob_gpu_folder(_usdgen_curves_cuda_sources
+    libs/core/primitives/usdGenCurves/usdGenCurves/cuda)
+if(NOT USDGEN_ENABLE_CUDA)
+    list(FILTER _usdgen_curves_cuda_sources EXCLUDE REGEX "[.]cu$|/cudaScatterInput[.]cpp$")
+endif()
+add_library(usdGenCurvesCuda SHARED ${_usdgen_curves_cuda_sources})
+target_link_libraries(usdGenCurvesCuda
+    PUBLIC usdGenCuda usdGen
+    PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+set_target_properties(usdGenCurvesCuda PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    INSTALL_RPATH "$ORIGIN")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
+    target_link_options(usdGenCurvesCuda PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
 if(USDGEN_ENABLE_CUDA)
-    _usdgen_glob_gpu_folder(_usdgen_curves_cuda_sources
-        libs/core/primitives/usdGenCurves/usdGenCurves/cuda)
-    add_library(usdGenCurvesCuda SHARED ${_usdgen_curves_cuda_sources})
-    target_link_libraries(usdGenCurvesCuda
-        PUBLIC usdGen
-        PRIVATE usdGenCuda usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+    target_compile_definitions(usdGenCurvesCuda PRIVATE USDGEN_ENABLE_CUDA)
+    set_target_properties(usdGenCurvesCuda PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
     foreach(_usdgen_gpu_object usdGenSurface usdGenExpr)
         _usdgen_glob_gpu_folder(_usdgen_gpu_object_sources
             libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/cuda)
@@ -257,14 +250,10 @@ if(USDGEN_ENABLE_CUDA)
             target_sources(usdGenCurvesCuda PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Cuda>)
         endif()
     endforeach()
-    set_target_properties(usdGenCurvesCuda PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-        CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}"
-        INSTALL_RPATH "$ORIGIN")
-    add_dependencies(usdGenWithPrimitives usdGenCurvesCuda)
-    # Loaded after usdGenCuda: its usdGenRegister names the "cuda" backend.
-    list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCurvesCuda)
-    install(TARGETS usdGenCurvesCuda
-        RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
-        LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")
 endif()
+add_dependencies(usdGenWithPrimitives usdGenCurvesCuda)
+# Loaded after usdGenCuda: its usdGenRegister names the "cuda" backend.
+list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCurvesCuda)
+install(TARGETS usdGenCurvesCuda
+    RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")

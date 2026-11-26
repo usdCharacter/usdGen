@@ -39,7 +39,7 @@
 #include "vulkanReadbackFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA
-#include "gpu/styleOps.h"
+#include "usdGenCurves/cuda/styleOps.h"
 
 #include <cuda_runtime.h>
 #endif

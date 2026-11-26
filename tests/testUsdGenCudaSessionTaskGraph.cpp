@@ -2,8 +2,8 @@
 #include "testBackend.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/cudaExecution.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/cudaExecution.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/session.h"
 
 #include <array>

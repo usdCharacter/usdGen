@@ -6,9 +6,9 @@
 // cheap validation prefix and overlaps the H2D copies with the validation
 // scans. A scan failure there must report exactly ValidateRoots' status,
 // release all accounting, and leave the object clean and reusable.
-#include "gpu/scatterGrow.h"
+#include "usdGenCurves/cuda/scatterGrow.h"
 #include "testBackend.h"
-#include "usdGen/gpu/generation.h"
+#include "usdGenCurves/cuda/generation.h"
 #include "usdGen/executionResources.h"
 
 #include <atomic>

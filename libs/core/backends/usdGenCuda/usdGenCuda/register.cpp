@@ -1,15 +1,14 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// usdGenCuda's registration: the CUDA kernel rows of the built-in curve ops
-// (the capability matrix reads them in every build) and the "cuda" backend.
-// Loaded after usdGenCurves (USDGEN_DEFAULT_EXTENSIONS), whose op ids the
-// rows attach to. Without the CUDA toolkit the backend registers unavailable,
-// so its contract keeps the capability version.
+// usdGenCuda's registration: the "cuda" backend. The curves' kernel rows and
+// device program register from usdGenCurvesCuda, loaded after this module.
+// Without the CUDA toolkit the backend registers unavailable, so its
+// contract keeps the capability version.
 #include "usdGenCuda/export.h"
+#include "usdGenCuda/compile/program.h"
+#include "usdGen/api/graphSpec.h"
+#include "usdGen/registries/op.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGenCuda/cudaExecution.h"
-#include "usdGenCuda/cudaStages.h"
-#include "usdGenCurves/ops/kernelOps.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/registrar.h"
 #if defined(USDGEN_ENABLE_CUDA)
@@ -25,6 +24,15 @@ using namespace usdGen;
 namespace {
 
 std::atomic<UsdGenBackendId> gCudaBackend{UsdGenBackendId::Invalid};
+
+// Admission is the program's: the graph's primitive registered it.
+bool Validate(UsdGenGraphSpec const &spec, UsdGenDiagnostics *diagnostics)
+{
+    cuda::ProgramDef const *program = cuda::ProgramFor(spec);
+    if (program && program->validate) return program->validate(spec, diagnostics);
+    if (diagnostics) diagnostics->Error("no CUDA program is registered for this graph");
+    return false;
+}
 
 #if !defined(USDGEN_ENABLE_CUDA)
 bool Unavailable(std::string *reason)
@@ -59,7 +67,7 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
     def.capabilityVersion = kUsdGenCudaCapabilityVersion;
     def.flags = kUsdGenBackendPoisonable | kUsdGenBackendNeedsDevicePublication |
                 kUsdGenBackendReusesPlan;
-    def.validate = &ValidateCudaGraph;
+    def.validate = &Validate;
 #if defined(USDGEN_ENABLE_CUDA)
     def.captureCallerDevice = &CaptureCudaCallerDevice;
     def.createProvider = &CreateCudaSessionProvider;
@@ -69,16 +77,4 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
     def.createProvider = &NoProvider;
 #endif
     gCudaBackend.store(r.RegisterBackend(def), std::memory_order_release);
-    UsdGenCurvesKernelOps const &ops = UsdGenCurvesBuiltinKernelOps();
-    UsdGenCudaKernelOps cuda;
-    cuda.scatter = ops.scatter;
-    cuda.grow = ops.grow;
-    cuda.noise = ops.noise;
-    cuda.length = ops.length;
-    cuda.width = ops.width;
-    cuda.widthBlend = ops.widthBlend;
-    cuda.curveSource = ops.curveSource;
-    cuda.deform = ops.deform;
-    cuda.referenceSource = ops.referenceSource;
-    UsdGenRegisterCurvesCuda(r, cuda);
 }
