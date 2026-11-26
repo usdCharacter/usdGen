@@ -56,7 +56,7 @@ target_include_directories(usdGenBakeGroom PRIVATE
     "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
     "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
     "${USDGEN_BUILD_DIR}/shim"
-    "${USDGEN_SOURCE_DIR}/libs/usdGenImaging"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra"
     "${USD_INSTALL_DIR}/include")
 file(STRINGS "${USDGEN_BUILD_DIR}/CMakeCache.txt" _python_include_line
     REGEX "^_Python3_INCLUDE_DIR:INTERNAL=")
@@ -82,7 +82,7 @@ target_include_directories(usdGenUtilityFixtures PRIVATE
     "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
     "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
     "${USDGEN_BUILD_DIR}/shim"
-    "${USDGEN_SOURCE_DIR}/libs/usdGenImaging"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra"
     "${USD_INSTALL_DIR}/include")
 if(_python_include_line)
     target_include_directories(usdGenUtilityFixtures PRIVATE "${_python_include}")

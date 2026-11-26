@@ -538,11 +538,11 @@ target_link_libraries(usdGenSchema
 # ---------------------------------------------------------------------------
 # usdGenImaging (SHARED — scene-index plugins + adapters)
 # ---------------------------------------------------------------------------
-file(GLOB_RECURSE USDGEN_IMAGING_SOURCES libs/usdGenImaging/*.cpp)
+file(GLOB_RECURSE USDGEN_IMAGING_SOURCES libs/hosts/usdGenHydra/usdGenImaging/*.cpp)
 list(FILTER USDGEN_IMAGING_SOURCES EXCLUDE REGEX "usdGenGraphDescBuilderStage\\.cpp$")
 add_library(usdGenImaging SHARED ${USDGEN_IMAGING_SOURCES})
 target_include_directories(usdGenImaging PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenImaging
     PUBLIC hd hdsi hf usd usdGeom usdShade sdr usdImaging
@@ -613,7 +613,7 @@ file(GLOB_RECURSE USDGEN_TESTUTILS_HD_SOURCES
     testutils/usdGenTestUtilsHd/*.cpp)
 add_library(usdGenTestUtilsHd STATIC ${USDGEN_TESTUTILS_HD_SOURCES})
 target_sources(usdGenTestUtilsHd PRIVATE
-    libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilderStage.cpp)
+    libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilderStage.cpp)
 target_include_directories(usdGenTestUtilsHd PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/testutils")
 target_link_libraries(usdGenTestUtilsHd PUBLIC
@@ -1435,12 +1435,12 @@ target_link_libraries(testUsdGenVulkanEpochCell PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenVulkanEpochCell COMMAND testUsdGenVulkanEpochCell)
 set_tests_properties(testUsdGenVulkanEpochCell PROPERTIES LABELS "T0;scheduling;epoch;vulkan" RUN_SERIAL ON TIMEOUT 120)
 add_executable(testUsdGenImagingAtomicShared tests/testUsdGenImagingAtomicShared.cpp)
-target_include_directories(testUsdGenImagingAtomicShared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging)
+target_include_directories(testUsdGenImagingAtomicShared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra)
 target_link_libraries(testUsdGenImagingAtomicShared PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenImagingAtomicShared COMMAND testUsdGenImagingAtomicShared)
 set_tests_properties(testUsdGenImagingAtomicShared PROPERTIES LABELS "T0;scheduling;epoch" RUN_SERIAL ON TIMEOUT 120)
 add_executable(testUsdGenCleanupQueue tests/testUsdGenCleanupQueue.cpp)
-target_include_directories(testUsdGenCleanupQueue PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/usdGenImaging)
+target_include_directories(testUsdGenCleanupQueue PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra)
 target_link_libraries(testUsdGenCleanupQueue PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenCleanupQueue COMMAND testUsdGenCleanupQueue)
 set_tests_properties(testUsdGenCleanupQueue PROPERTIES LABELS "T0;scheduling;stress" RUN_SERIAL ON TIMEOUT 120)
@@ -2952,9 +2952,9 @@ set(USDGEN_FORBIDDEN_STAGING_SYM_REGEX
     "Usd(Stage|Prim|Attribute|Relationship|Geom|Shade)")
 find_program(USDGEN_NM nm)
 set(_usdgen_staging_tus
-    "libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilder.h|libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilder.cpp|libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.h|libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.cpp")
+    "libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.h|libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp|libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.h|libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp")
 set(_usdgen_staging_objs
-    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/usdGenImaging/usdGenImaging/usdGenGraphDescBuilder.cpp.o|${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/usdGenImaging/usdGenImaging/groomSceneIndexPlugin.cpp.o")
+    "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp.o|${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/usdGenImaging.dir/libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp.o")
 usdgen_add_unix_only_test(testUsdGenStagingRule
     ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -4913,7 +4913,7 @@ install(FILES
 #   usdGenCuda, usdGenVulkan (libs/core/backends/<name>) -> #include "<name>/..."
 #   the include shim (<build>/shim) -> the pre-move "usdGen/..." spellings
 #   usdGenSchema  libs/usdGenSchema    -> #include "usdGenSchema/..."
-#   usdGenImaging libs/usdGenImaging   -> #include "usdGenImaging/..."
+#   usdGenImaging libs/hosts/usdGenHydra -> #include "usdGenImaging/..."
 #   usdGenPomade   libs/usdGenPomade     -> #include "usdGenPomade/..."
 # so the install mirrors the include spellings directly under
 # <prefix>/include. Trailing source slashes + FILES_MATCHING ship headers
@@ -4946,7 +4946,7 @@ install(DIRECTORY libs/hosts/usdGenUsd/usdGenUsd/
 install(DIRECTORY libs/usdGenSchema/usdGenSchema/
     DESTINATION include/usdGenSchema
     FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/usdGenImaging/usdGenImaging/
+install(DIRECTORY libs/hosts/usdGenHydra/usdGenImaging/
     DESTINATION include/usdGenImaging
     FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY libs/usdGenPomade/usdGenPomade/

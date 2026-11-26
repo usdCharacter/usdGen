@@ -14,8 +14,8 @@ set(_active_files
     "${USDGEN_SOURCE_DIR}/CMakeLists.txt"
     "${USDGEN_SOURCE_DIR}/plugin/usdGenImaging/resources/plugInfo.json.in")
 file(GLOB_RECURSE _imaging_sources
-    "${USDGEN_SOURCE_DIR}/libs/usdGenImaging/usdGenImaging/*.cpp"
-    "${USDGEN_SOURCE_DIR}/libs/usdGenImaging/usdGenImaging/*.h")
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra/usdGenImaging/*.cpp"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra/usdGenImaging/*.h")
 list(APPEND _active_files ${_imaging_sources})
 
 string(CONCAT _retired_pattern
