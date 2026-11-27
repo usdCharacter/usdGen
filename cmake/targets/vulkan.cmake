@@ -123,9 +123,8 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     target_include_directories(usdGenVulkan PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan>
         "$<INSTALL_INTERFACE:include>")
-    set_target_properties(usdGenVulkan PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    set_target_properties(usdGenVulkan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    usdgen_hidden_library(usdGenVulkan)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
         target_link_options(usdGenVulkan PRIVATE "LINKER:--exclude-libs,ALL")
     endif()
@@ -161,7 +160,10 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
             if(USDGEN_ENABLE_VULKAN_RUNTIME)
                 target_compile_definitions(${_usdgen_gpu_object}Vulkan PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
             endif()
-            set_target_properties(${_usdgen_gpu_object}Vulkan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+            set_target_properties(${_usdgen_gpu_object}Vulkan PROPERTIES
+                POSITION_INDEPENDENT_CODE ON
+                CXX_VISIBILITY_PRESET hidden
+                VISIBILITY_INLINES_HIDDEN ON)
             # Linked into usdGenCurvesVulkan: its symbols export with that DLL's macro.
             target_compile_definitions(${_usdgen_gpu_object}Vulkan PRIVATE usdGenCurvesVulkan_EXPORTS)
             # The pipelines that call them live in usdGenCurvesVulkan (8.6d).
@@ -171,8 +173,8 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     # RTLD_LOCAL dlopen finds libusdGenVulkan.so beside it in an install.
     set_target_properties(usdGenCurvesVulkan PROPERTIES
         POSITION_INDEPENDENT_CODE ON
-        WINDOWS_EXPORT_ALL_SYMBOLS ON
         INSTALL_RPATH "$ORIGIN")
+    usdgen_hidden_library(usdGenCurvesVulkan)
     target_include_directories(usdGenCurvesVulkan PUBLIC
         ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
         "$<INSTALL_INTERFACE:include>")

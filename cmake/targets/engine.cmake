@@ -58,18 +58,11 @@ target_link_libraries(usdGen
 if(WIN32)
     target_link_libraries(usdGen PRIVATE Synchronization)  # WaitOnAddress
 endif()
-# usdGen is a SHARED plugin-host library: its public API (UsdGenSession,
-# graph/tile types, ...) is consumed across the shared boundary by
-# libusdGenImaging.so, so it must keep default visibility. Third-party code
-# stays hidden: usdGenMath and usdGen_seexpr are compiled with
-# CXX_VISIBILITY_PRESET hidden, and --exclude-libs,ALL keeps their symbols
-# out of libusdGen.so's export table (gate B-1 NoThirdPartyExports).
-set_target_properties(usdGen PROPERTIES
-    VISIBILITY_INLINES_HIDDEN ON
-    # The Linux build keeps its C++ API visible by default. Windows requires
-    # an explicit export table for the same API so usdGenImaging can link
-    # against the core DLL; CMake ignores this property elsewhere.
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+# Hidden (12.3f): only USDGEN_API (api/, api/ext/) and, with
+# USDGEN_EXPORT_INTERNALS, USDGEN_INTERNAL_API are exported. Third-party code
+# stays hidden too: --exclude-libs,ALL keeps the archives' symbols out of
+# libusdGen.so's export table (gate B-1 NoThirdPartyExports).
+usdgen_hidden_library(usdGen)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
     target_link_options(usdGen PRIVATE "LINKER:--exclude-libs,ALL")
 endif()

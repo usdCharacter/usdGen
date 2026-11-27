@@ -19,9 +19,7 @@ target_include_directories(usdGenUsd PUBLIC
 target_link_libraries(usdGenUsd
     PUBLIC usdGenWithPrimitives sdf tf gf vt
     PRIVATE usd hio)
-set_target_properties(usdGenUsd PROPERTIES
-    CXX_VISIBILITY_PRESET default
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+usdgen_hidden_library(usdGenUsd)
 
 # ---------------------------------------------------------------------------
 # usdGenSchema (SHARED, minimal — tokens + extent registration)
@@ -34,6 +32,7 @@ target_include_directories(usdGenSchema PUBLIC
 target_link_libraries(usdGenSchema
     PUBLIC usd
     PRIVATE tf usdGeom usdGenMath)
+usdgen_hidden_library(usdGenSchema)
 
 # ---------------------------------------------------------------------------
 # usdGenHydraCurves (SHARED, host): the curves' Hydra adapter (step 9.2). The
@@ -52,9 +51,7 @@ target_include_directories(usdGenHydraCurves PUBLIC
 target_link_libraries(usdGenHydraCurves
     PUBLIC usdGen usdGenUsd $<BUILD_INTERFACE:usdGenMath> hd sdf tf gf vt
     PRIVATE trace work)
-set_target_properties(usdGenHydraCurves PROPERTIES
-    CXX_VISIBILITY_PRESET default
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+usdgen_hidden_library(usdGenHydraCurves)
 
 # ---------------------------------------------------------------------------
 # usdGenImaging (SHARED — scene-index plugins + adapters)
@@ -71,11 +68,7 @@ target_link_libraries(usdGenImaging
            usdGenHydraCurves $<BUILD_INTERFACE:usdGenMath>
     PRIVATE hio js
     PRIVATE usdGenSchema)
-set_target_properties(usdGenImaging PROPERTIES
-    CXX_VISIBILITY_PRESET default
-    # Produce the import library that downstream Windows consumers need.
-    # This is ignored by non-Windows generators.
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)  # plugins need exported symbols
+usdgen_hidden_library(usdGenImaging)
 # -fno-math-errno on the scatter compile (GNU/Clang only): libm errno
 # / fenv is never read anywhere in libs/ (grep clean), so IEEE results
 # are bit-identical while every builtin-expanded sqrt drops its
@@ -115,9 +108,7 @@ target_include_directories(usdGenPomade PUBLIC
 target_link_libraries(usdGenPomade
     PUBLIC hd sdf tf gf vt
     PRIVATE usd usdGeom hio usdGenWithPrimitives usdGen_ptex usdGenImaging)
-set_target_properties(usdGenPomade PROPERTIES
-    CXX_VISIBILITY_PRESET default
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+usdgen_hidden_library(usdGenPomade)
 
 # ---------------------------------------------------------------------------
 # usdGenTestUtils (STATIC, T0 — no Hydra)

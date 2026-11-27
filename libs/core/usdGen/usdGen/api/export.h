@@ -38,8 +38,4 @@
 #  define USDGEN_INTERNAL_API
 #endif
 
-// Old spelling; 12.3b replaces its last use (usdGenSurface/limitSurface.h)
-// and 12.3f deletes it.
-#define USDGEN_CORE_API USDGEN_API
-
 #endif  // USDGEN_EXPORT_H

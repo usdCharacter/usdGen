@@ -151,9 +151,8 @@ target_include_directories(usdGenCuda PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenCuda/usdGenCuda>
     $<INSTALL_INTERFACE:include>)
-set_target_properties(usdGenCuda PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+set_target_properties(usdGenCuda PROPERTIES POSITION_INDEPENDENT_CODE ON)
+usdgen_hidden_library(usdGenCuda)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
     target_link_options(usdGenCuda PRIVATE "LINKER:--exclude-libs,ALL")
 endif()
@@ -225,8 +224,8 @@ target_include_directories(usdGenCurvesCuda PUBLIC
     "$<INSTALL_INTERFACE:include>")
 set_target_properties(usdGenCurvesCuda PROPERTIES
     POSITION_INDEPENDENT_CODE ON
-    WINDOWS_EXPORT_ALL_SYMBOLS ON
     INSTALL_RPATH "$ORIGIN")
+usdgen_hidden_library(usdGenCurvesCuda)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
     target_link_options(usdGenCurvesCuda PRIVATE "LINKER:--exclude-libs,ALL")
 endif()
@@ -251,6 +250,9 @@ if(USDGEN_ENABLE_CUDA)
             target_compile_definitions(${_usdgen_gpu_object}Cuda PRIVATE USDGEN_ENABLE_CUDA usdGenCurvesCuda_EXPORTS)
             set_target_properties(${_usdgen_gpu_object}Cuda PROPERTIES
                 POSITION_INDEPENDENT_CODE ON
+                CXX_VISIBILITY_PRESET hidden
+                CUDA_VISIBILITY_PRESET hidden
+                VISIBILITY_INLINES_HIDDEN ON
                 CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
             # The kernels' callers live in usdGenCurvesCuda (8.6b), so the
             # objects link there.

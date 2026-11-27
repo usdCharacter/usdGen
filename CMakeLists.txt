@@ -205,6 +205,33 @@ set(USDGEN_INSTALL_PLUGINDIR  "lib/usd"     CACHE PATH "usd plugin dir")
 set(USDGEN_INSTALL_PYTHONDIR  "lib/python"  CACHE PATH "python pkg dir")
 set(USDGEN_INSTALL_CMAKEDIR   "lib/cmake/usdGen" CACHE PATH "cmake config dir")
 
+# Step 12.3f: every shipped library is built hidden; what another DSO reaches
+# carries the library's export macro (export.h). Private classes that tests
+# drive carry the *_INTERNAL_API macros, exported only with this option (a
+# PUBLIC build-tree definition of every library, so importers agree). OFF is
+# the release surface: api/ and api/ext/ only; most test targets then fail to
+# link.
+option(USDGEN_EXPORT_INTERNALS "Export the private classes tests drive" ${USDGEN_BUILD_TESTS})
+function(usdgen_hidden_library _target)
+    set_target_properties(${_target} PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        CUDA_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+        WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+    if(USDGEN_EXPORT_INTERNALS)
+        target_compile_definitions(${_target} PUBLIC $<BUILD_INTERFACE:USDGEN_EXPORT_INTERNALS>)
+    endif()
+    if(MSVC)
+        # STL members and bases of exported classes.
+        target_compile_options(${_target} PUBLIC
+            $<$<COMPILE_LANGUAGE:CXX>:/wd4251> $<$<COMPILE_LANGUAGE:CXX>:/wd4275>)
+    endif()
+    # ELF resolves undefined symbols at dlopen, not at link: fail the link.
+    if(NOT WIN32 AND NOT APPLE)
+        target_link_options(${_target} PRIVATE "LINKER:--no-undefined")
+    endif()
+endfunction()
+
 # Targets, one file per area, in dependency order. include() keeps
 # CMAKE_CURRENT_SOURCE_DIR at the root, so relative paths resolve from here.
 include(cmake/targets/thirdparty.cmake)

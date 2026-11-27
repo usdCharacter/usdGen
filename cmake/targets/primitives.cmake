@@ -20,10 +20,8 @@ function(_usdgen_add_primitive _name _root)
     target_include_directories(${_name} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/${_root}>
         $<INSTALL_INTERFACE:include>)
-    # Same visibility contract as usdGen until step 12 (hidden + explicit API).
-    set_target_properties(${_name} PROPERTIES
-        VISIBILITY_INLINES_HIDDEN ON
-        WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    # Hidden; the library's export.h macros name what crosses (12.3f).
+    usdgen_hidden_library(${_name})
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
         target_link_options(${_name} PRIVATE "LINKER:--exclude-libs,ALL")
     endif()
