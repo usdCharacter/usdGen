@@ -7,6 +7,7 @@
 #ifndef USDGEN_API_GRAPH_SPEC_H
 #define USDGEN_API_GRAPH_SPEC_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/hostData.h"
 #include "usdGen/api/inputDesc.h"
@@ -148,11 +149,11 @@ struct UsdGenInputRecord
 class UsdGenInputColumnCache
 {
 public:
-    USDGEN_CORE_API UsdGenInputColumnCache();
-    USDGEN_CORE_API ~UsdGenInputColumnCache();
+    USDGEN_API UsdGenInputColumnCache();
+    USDGEN_API ~UsdGenInputColumnCache();
     /// Starts a lowering: forgets columns unused for 'age' lowerings.
-    USDGEN_CORE_API void Advance(uint32_t age = 4);
-    USDGEN_CORE_API void Clear() noexcept;
+    USDGEN_API void Advance(uint32_t age = 4);
+    USDGEN_API void Clear() noexcept;
     size_t Size() const noexcept { return _entries.size(); }
 
 private:
@@ -177,7 +178,7 @@ private:
 class UsdGenInputRecordWriter
 {
 public:
-    USDGEN_CORE_API explicit UsdGenInputRecordWriter(UsdGenTypeId kind);
+    USDGEN_API explicit UsdGenInputRecordWriter(UsdGenTypeId kind);
     UsdGenInputRecordWriter(UsdGenInputRecordWriter const &) = delete;
     UsdGenInputRecordWriter &operator=(UsdGenInputRecordWriter const &) = delete;
     /// False for an unregistered kind or one without a layout and InputDesc.
@@ -207,12 +208,12 @@ public:
         _cacheKey = key;
     }
     /// Shares 'from''s column (same scalar and arity) without copying.
-    USDGEN_CORE_API void Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGenSlot fromSlot);
+    USDGEN_API void Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGenSlot fromSlot);
     /// The value at 'index' (the InputDesc's attribute order).
-    USDGEN_CORE_API void Value(size_t index, UsdGenValue value);
+    USDGEN_API void Value(size_t index, UsdGenValue value);
     /// Values appended after the InputDesc's attributes (map parameters).
-    USDGEN_CORE_API void Extra(UsdGenParamValue value);
-    USDGEN_CORE_API UsdGenInputRecord Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
+    USDGEN_API void Extra(UsdGenParamValue value);
+    USDGEN_API UsdGenInputRecord Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
                                              UsdGenText const &label, uint64_t generation);
 
 private:
@@ -222,7 +223,7 @@ private:
         UsdGenElementSet const *from = nullptr;
         UsdGenSlot fromSlot = kUsdGenNoSlot;
     };
-    USDGEN_CORE_API void _Stage(UsdGenSlot slot, void const *data, size_t bytes);
+    USDGEN_API void _Stage(UsdGenSlot slot, void const *data, size_t bytes);
     UsdGenTypeId _kind;
     UsdGenElementLayout const *_layout = nullptr;
     UsdGenInputDesc const *_desc = nullptr;
@@ -261,9 +262,9 @@ struct UsdGenNodeLabel
 
 /// FNV-1a64 of a path text: the key a host gives a path that collides with
 /// nothing (usdGenUsd NodeKeyMap); 1 for a zero hash.
-UsdGenNodeKey UsdGenNodeKeyOfText(std::string const &text) noexcept;
+USDGEN_API UsdGenNodeKey UsdGenNodeKeyOfText(std::string const &text) noexcept;
 
-struct UsdGenGraphSpec
+struct USDGEN_API UsdGenGraphSpec
 {
     UsdGenNodeKey                  description;   // the UsdGenDescription prim
     UsdGenNodeKey                  terminal;      // hierarchy-derived final operator

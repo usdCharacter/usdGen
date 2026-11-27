@@ -18,12 +18,12 @@ namespace usdGen {
 
 class UsdGenRegistrar;
 class UsdGenOpRegistry;
-USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
-UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;   // registrar-only
-UsdGenOpRegistry &UsdGenBuildOpRegistry(char const *manifest);   // UsdGenEngine::Create only
+USDGEN_API void UsdGenFreezeRegistries();   // registrar.h
+USDGEN_API UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;   // registrar-only
+USDGEN_API UsdGenOpRegistry &UsdGenBuildOpRegistry(char const *manifest);   // UsdGenEngine::Create only
 
 /// Immutable after RegisterOp. Every name interned once.
-class USDGEN_CORE_API UsdGenOpRecord {
+class USDGEN_API UsdGenOpRecord {
 public:
     UsdGenOpId Id() const noexcept { return _id; }
     UsdGenToken const &Name() const noexcept { return _name; }
@@ -62,7 +62,7 @@ private:
     Tables const *_tables = nullptr;
 };
 
-class USDGEN_CORE_API UsdGenOpRegistry {
+class USDGEN_API UsdGenOpRegistry {
 public:
     /// Built by UsdGenEngine::Create (called on first use) and published by CAS.
     static UsdGenOpRegistry const &Get() noexcept;
@@ -94,7 +94,7 @@ private:
 
 /// Fills UsdGenOpNode::opId and runs every input record's intake hook (maps:
 /// their type id). Compile phase.
-USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphSpec *desc);
+USDGEN_API void UsdGenResolveDescIds(UsdGenGraphSpec *desc);
 
 /// Generic expression admission over the record's decls. Messages (substrings tests check today):
 ///   "unsupported or incorrectly typed <displayName> expression <param>"
@@ -102,11 +102,11 @@ USDGEN_CORE_API void UsdGenResolveDescIds(UsdGenGraphSpec *desc);
 ///   "<displayName> <param> requires groom/primitive evaluation"
 ///   "operator <name> at <path> does not accept connected (expression) parameters"
 /// 'spec' names the node in messages (its label).
-USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &,
+USDGEN_API bool UsdGenValidateExpressionBindings(UsdGenOpRecord const &,
     UsdGenOpNode const &, UsdGenGraphSpec const *spec, std::vector<std::string> *errors);
 /// The same for a node whose record is looked up (opId, else its type); an
 /// unregistered type with bindings is rejected. Compile phase.
-USDGEN_CORE_API bool UsdGenValidateExpressionBindings(UsdGenOpNode const &,
+USDGEN_API bool UsdGenValidateExpressionBindings(UsdGenOpNode const &,
     UsdGenGraphSpec const *spec, std::vector<std::string> *errors);
 
 }  // namespace usdGen

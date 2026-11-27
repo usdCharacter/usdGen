@@ -17,8 +17,8 @@ struct UsdGenElementLayout;
 struct UsdGenInputDesc;
 struct UsdGenPublishDesc;
 class UsdGenTypeRegistry;
-USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
-UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;   // registrar-only
+USDGEN_API void UsdGenFreezeRegistries();   // registrar.h
+USDGEN_API UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;   // registrar-only
 
 enum UsdGenTypeTrait : uint32_t {
     kUsdGenTypeMap               = 1u << 0,
@@ -62,7 +62,7 @@ struct UsdGenTypeDef {
     UsdGenPublishDesc const *publish = nullptr;
 };
 
-class USDGEN_CORE_API UsdGenTypeRegistry {
+class USDGEN_API UsdGenTypeRegistry {
 public:
     static UsdGenTypeRegistry const &Get() noexcept;
     UsdGenTypeId Find(UsdGenToken const &name) const noexcept;   // compile phase only

@@ -7,6 +7,7 @@
 #ifndef USDGEN_API_DEVICE_LEASE_H
 #define USDGEN_API_DEVICE_LEASE_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/ids.h"
 
@@ -137,13 +138,13 @@ struct UsdGenDeviceGeometryMetadata
 /// Validate immutable shape metadata before a backend allocates or submits.
 /// Uses the same contract as generation publication, without requiring a dummy
 /// native owner. This does not validate device data or readiness.
-bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
+USDGEN_API bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
     std::vector<UsdGenDeviceChannelMetadata> const& channels,
     std::string* reason = nullptr);
 
 /// Minimum byte span for a typed strided channel, with checked arithmetic.
 /// Zero elements require zero bytes. The output is unchanged on failure.
-bool UsdGenDeviceChannelStorageBytes(UsdGenDeviceChannelMetadata const& channel,
+USDGEN_API bool UsdGenDeviceChannelStorageBytes(UsdGenDeviceChannelMetadata const& channel,
     size_t* bytes, std::string* reason = nullptr);
 
 /// A channel's device storage for interop. Read it only while a lease
@@ -169,7 +170,7 @@ class UsdGenDeviceOwner;
 /// Shared lease state makes copies safe and keeps the owner alive until the
 /// asynchronous consumer has completed.  It carries no raw allocation
 /// pointer and is valid independently of the generation snapshot.
-class UsdGenDeviceLease
+class USDGEN_API UsdGenDeviceLease
 {
 public:
     UsdGenDeviceLease() = default;
@@ -200,7 +201,7 @@ private:
     friend class UsdGenDeviceGeneration;
 };
 
-class UsdGenDeviceGeneration
+class USDGEN_API UsdGenDeviceGeneration
 {
 public:
     struct CreateInfo

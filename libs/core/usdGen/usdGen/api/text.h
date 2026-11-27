@@ -14,7 +14,7 @@ class UsdGenText {
 public:
     UsdGenText() noexcept = default;
     /// Allocates in usdGen.
-    USDGEN_CORE_API explicit UsdGenText(std::string_view s);
+    USDGEN_API explicit UsdGenText(std::string_view s);
 
     std::string_view View() const noexcept
     {

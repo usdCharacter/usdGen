@@ -7,6 +7,7 @@
 #ifndef USDGEN_EXECUTION_BACKEND_H
 #define USDGEN_EXECUTION_BACKEND_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/ext/device/executionContext.h"
 #include "usdGen/api/ext/device/executionPlan.h"
 #include "usdGen/api/pipeline.h"
@@ -54,7 +55,7 @@ struct UsdGenExecutionBackendContract {
 /// by generic schedulers; payload is deliberately opaque so a backend can
 /// retain compiled programs, command encoders, or other native state without
 /// placing a native type in this interface.
-class UsdGenExecutionPlanHandle {
+class USDGEN_API UsdGenExecutionPlanHandle {
 public:
     static std::shared_ptr<const UsdGenExecutionPlanHandle> Create(
         UsdGenBackendId backend,
@@ -101,7 +102,7 @@ using UsdGenExecutionCompletion = std::function<void(
 /// object: an adapter creates one for each Session/command owner, allowing it
 /// to retain workspace, device context, previous-generation state, and native
 /// reservations without making any of those lifetimes process-global.
-class UsdGenExecutionBackendExecutor {
+class USDGEN_API UsdGenExecutionBackendExecutor {
 public:
     virtual ~UsdGenExecutionBackendExecutor() = default;
     virtual bool Submit(UsdGenExecutionRequest,
@@ -116,7 +117,7 @@ public:
 /// owner-private mutable boundary used for submission.  Registration does not
 /// imply that a backend is available: an adapter may expose an explicit
 /// unavailable contract until its real factory exists.
-class UsdGenExecutionBackendAdapter {
+class USDGEN_API UsdGenExecutionBackendAdapter {
 public:
     virtual ~UsdGenExecutionBackendAdapter() = default;
     virtual UsdGenExecutionBackendContract Contract() const noexcept = 0;
@@ -130,36 +131,36 @@ public:
 /// Register one process-lifetime backend adapter.  The first registration for
 /// a backend wins; duplicate registrations are rejected so two DSOs cannot
 /// silently disagree about capability or native ownership.
-bool RegisterUsdGenExecutionBackendAdapter(
+USDGEN_API bool RegisterUsdGenExecutionBackendAdapter(
     std::shared_ptr<const UsdGenExecutionBackendAdapter>,
     std::string *reason = nullptr) noexcept;
 
 /// Close registration. Called by UsdGenFreezeRegistries; later
 /// RegisterUsdGenExecutionBackendAdapter calls fail.
-void UsdGenFreezeExecutionBackendRegistry() noexcept;
+USDGEN_API void UsdGenFreezeExecutionBackendRegistry() noexcept;
 
 /// Look up the registered adapter without loading a native runtime.  A null
 /// result means the backend has no linked factory; callers must fail closed.
-std::shared_ptr<const UsdGenExecutionBackendAdapter>
+USDGEN_API std::shared_ptr<const UsdGenExecutionBackendAdapter>
 FindUsdGenExecutionBackendAdapter(UsdGenBackendId) noexcept;
 
 /// Return the backend-neutral factory/capability contract: an adapter's, the
 /// built-in CPU's, or the registered def's. It does not load a native runtime
 /// and never claims that an unavailable backend can execute; Available does
 /// not imply FindUsdGenExecutionBackendAdapter() is non-null.
-UsdGenExecutionBackendContract GetUsdGenExecutionBackendContract(
+USDGEN_API UsdGenExecutionBackendContract GetUsdGenExecutionBackendContract(
     UsdGenBackendId) noexcept;
 
 /// Validate a requested backend at the compiler/adapter boundary. For an
 /// unavailable factory this appends a precise diagnostic and returns false.
-bool ValidateUsdGenExecutionBackend(UsdGenBackendId,
+USDGEN_API bool ValidateUsdGenExecutionBackend(UsdGenBackendId,
                                     UsdGenDiagnostics * = nullptr);
 
 /// Build the cache context from the requested backend's stable identity. The
 /// backend/device fields remain explicit even when no executable factory is
 /// installed, so two backends never share cache entries. `deviceGeneration`
 /// is supplied by the native adapter.
-UsdGenExecutionContext MakeUsdGenExecutionContext(
+USDGEN_API UsdGenExecutionContext MakeUsdGenExecutionContext(
     UsdGenBackendId backend, uint32_t capabilityVersion,
     int32_t deviceIndex, uint64_t deviceGeneration,
     UsdGenContext evaluationContext = UsdGenContext::Interactive) noexcept;

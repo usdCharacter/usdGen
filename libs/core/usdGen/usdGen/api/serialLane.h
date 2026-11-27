@@ -25,12 +25,12 @@ public:
     UsdGenSerialLane(UsdGenSerialLane const &) = delete;
     UsdGenSerialLane &operator=(UsdGenSerialLane const &) = delete;
     /// Schedules a pass that starts after this call.
-    USDGEN_CORE_API void Kick() noexcept;
+    USDGEN_API void Kick() noexcept;
     /// Passes run so far.
     uint64_t Passes() const noexcept { return _passes.load(std::memory_order_relaxed); }
 
 private:
-    static void _Run(UsdGenTask *task) noexcept;  // passes until no kick is pending
+    USDGEN_API_NO_IMPORT static void _Run(UsdGenTask *task) noexcept;  // passes until no kick is pending
     static constexpr uint32_t kScheduled = 1u, kDirty = 2u;
     Pass _pass;
     void *_user;

@@ -20,9 +20,9 @@
 namespace usdGen {
 
 class UsdGenRegistrar;
-USDGEN_CORE_API bool UsdGenRegisterStatic(void (*fn)(UsdGenRegistrar &));
+USDGEN_API bool UsdGenRegisterStatic(void (*fn)(UsdGenRegistrar &));
 
-class USDGEN_CORE_API UsdGenRegistrar {
+class USDGEN_API UsdGenRegistrar {
 public:
     /// Invalid on a duplicate name, a missing create, more than
     /// kUsdGenMaxParamsPerOp params, a duplicate param or enumerant, or after freeze.
@@ -48,9 +48,9 @@ private:
 };
 
 using UsdGenRegisterFn = void (*)(UsdGenRegistrar &);
-USDGEN_CORE_API bool UsdGenLoadExtension(std::string const &path, std::string *error);
-USDGEN_CORE_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
-USDGEN_CORE_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
+USDGEN_API bool UsdGenLoadExtension(std::string const &path, std::string *error);
+USDGEN_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
+USDGEN_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
 
 // UsdGenEngine::Create (api/engine.h) builds the registries from the
 // extension manifest. Freezing stays with the first compile, so extensions

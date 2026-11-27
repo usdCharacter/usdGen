@@ -75,7 +75,7 @@ struct UsdGenGroup {
 /// Refcounted payload of a Boxed value. Allocated and freed (virtual
 /// destructor) in the module that defines it; that module also creates and
 /// reads the values that hold it.
-class UsdGenBoxed : public UsdGenRefCounted {
+class USDGEN_API UsdGenBoxed : public UsdGenRefCounted {
 public:
     virtual uint64_t Hash() const noexcept = 0;
     /// 'o' has the same tag.
@@ -230,7 +230,7 @@ public:
     UsdGenValueKind Kind() const noexcept { return _kind; }
     UsdGenValueKind ElementKind() const noexcept { return _element; }
     bool IsArrayValued() const noexcept { return _kind == UsdGenValueKind::Array; }
-    USDGEN_CORE_API size_t GetArraySize() const noexcept;
+    USDGEN_API size_t GetArraySize() const noexcept;
 
     /// Exact type, as VtValue.
     template <class T>
@@ -280,9 +280,9 @@ public:
     }
 
     /// Kind, element and content; +0 == -0. Process-local.
-    USDGEN_CORE_API uint64_t GetHash() const noexcept;
+    USDGEN_API uint64_t GetHash() const noexcept;
     /// The Sdf type name ("float3", "token[]"); "" when empty.
-    USDGEN_CORE_API char const *GetTypeName() const noexcept;
+    USDGEN_API char const *GetTypeName() const noexcept;
     friend bool operator==(UsdGenValue const &a, UsdGenValue const &b) noexcept { return _Equal(a, b); }
     friend bool operator!=(UsdGenValue const &a, UsdGenValue const &b) noexcept { return !(a == b); }
     /// TfHash and VtValue find it.
@@ -337,10 +337,10 @@ private:
         to->_store = from->_store;
     }
     /// Copies 'src' (the C++ type of kind/element) into a usdGen block.
-    USDGEN_CORE_API void _SetHeap(UsdGenValueKind kind, UsdGenValueKind element, void const *src);
-    USDGEN_CORE_API void _CopySlow(UsdGenValue const &o) noexcept;
-    USDGEN_CORE_API void _Release() noexcept;
-    USDGEN_CORE_API static bool _Equal(UsdGenValue const &a, UsdGenValue const &b) noexcept;
+    USDGEN_API void _SetHeap(UsdGenValueKind kind, UsdGenValueKind element, void const *src);
+    USDGEN_API void _CopySlow(UsdGenValue const &o) noexcept;
+    USDGEN_API void _Release() noexcept;
+    USDGEN_API static bool _Equal(UsdGenValue const &a, UsdGenValue const &b) noexcept;
 
     alignas(8) unsigned char _bytes[32];   // inline kinds and arrays; else the block (and the box tag)
     UsdGenValueKind _kind = UsdGenValueKind::Empty;

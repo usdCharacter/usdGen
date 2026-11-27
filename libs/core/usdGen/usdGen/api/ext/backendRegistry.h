@@ -13,8 +13,8 @@ namespace usdGen {
 
 struct UsdGenParamView;
 class UsdGenBackendRegistry;
-USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
-UsdGenBackendRegistry &UsdGenMutableBackendRegistry() noexcept;   // registrar-only
+USDGEN_API void UsdGenFreezeRegistries();   // registrar.h
+USDGEN_API UsdGenBackendRegistry &UsdGenMutableBackendRegistry() noexcept;   // registrar-only
 
 struct UsdGenKernelDef {
     uint16_t stage = 0;                  // the backend's own stage enum
@@ -25,7 +25,7 @@ struct UsdGenKernelDef {
     bool (*profileLut)(UsdGenParamView const &, float *lut, size_t size) = nullptr;
 };
 
-class USDGEN_CORE_API UsdGenBackendRegistry {
+class USDGEN_API UsdGenBackendRegistry {
 public:
     static UsdGenBackendRegistry const &Get() noexcept;
     /// null: this backend cannot run the op; callers fail closed with a diagnostic.

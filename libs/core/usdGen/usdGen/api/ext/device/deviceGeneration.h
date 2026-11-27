@@ -5,6 +5,7 @@
 #ifndef USDGEN_DEVICE_GENERATION_H
 #define USDGEN_DEVICE_GENERATION_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/deviceLease.h"
 
 #include <cstddef>
@@ -15,7 +16,7 @@ namespace usdGen {
 /// A single consumer use of a backend generation.  The handle is owned by a
 /// lease state, so a backend can keep all state needed for fencing locally
 /// instead of maintaining a process-wide token registry.
-class UsdGenDeviceConsumer
+class USDGEN_API UsdGenDeviceConsumer
 {
 public:
     virtual ~UsdGenDeviceConsumer() = default;
@@ -36,7 +37,7 @@ public:
 /// Backend-specific implementation of allocation ownership and fencing.
 /// Implementations may add typed accessors in a private/backend header, but
 /// the generation and lease only depend on this synchronization contract.
-class UsdGenDeviceOwner
+class USDGEN_API UsdGenDeviceOwner
 {
 public:
     virtual ~UsdGenDeviceOwner() = default;

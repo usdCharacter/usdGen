@@ -19,8 +19,8 @@ namespace usdGen {
 /// Canonical M0 version API (sol S-8): exactly one declaration in the
 /// installed surface, returning a static C string. libusdGen.so is built with
 /// hidden visibility and --exclude-libs,ALL, so the symbol is exported
-/// only through the USDGEN_CORE_API macro (see usdGen/export.h).
-USDGEN_CORE_API char const *GetVersionString();
+/// only through the USDGEN_API macro (see usdGen/export.h).
+USDGEN_API char const *GetVersionString();
 
 /// Chunk size: the engine's dirty/parallel unit is 512 elements (S23).
 constexpr int kDefaultChunkSize = 512;

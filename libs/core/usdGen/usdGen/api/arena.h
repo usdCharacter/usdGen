@@ -14,7 +14,7 @@ namespace usdGen {
 
 /// Host-owned memory an arena points at (zero-copy adoption). Release runs
 /// host code on the arena's last reference; the host frees what it allocated.
-class UsdGenExternal {
+class USDGEN_API UsdGenExternal {
 public:
     virtual void Release() noexcept = 0;
 
@@ -30,10 +30,10 @@ public:
     static constexpr size_t kColumnAlign = 256;
     /// Payload of at least 'payloadBytes' aligned to 'align' (a power of two
     /// up to kColumnAlign; contents undefined).
-    USDGEN_CORE_API static UsdGenRef<UsdGenArena> Acquire(size_t payloadBytes, size_t align = kColumnAlign);
+    USDGEN_API static UsdGenRef<UsdGenArena> Acquire(size_t payloadBytes, size_t align = kColumnAlign);
     /// Adopts 'bytes' of host memory without copying; 'owner' (may be null)
     /// is released with the arena. Never written, never recycled.
-    USDGEN_CORE_API static UsdGenRef<UsdGenArena> Adopt(void const *data, size_t bytes, UsdGenExternal *owner);
+    USDGEN_API static UsdGenRef<UsdGenArena> Adopt(void const *data, size_t bytes, UsdGenExternal *owner);
     std::byte *Payload() noexcept { return _payload; }
     std::byte const *Payload() const noexcept { return _payload; }
     size_t Capacity() const noexcept { return _capacity; }

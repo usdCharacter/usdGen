@@ -4,6 +4,7 @@
 #ifndef USDGEN_SESSION_DEVICE_PROVIDER_H
 #define USDGEN_SESSION_DEVICE_PROVIDER_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/ext/device/deviceGeneration.h"
 #include "usdGen/api/backend.h"
 #include "usdGen/api/ext/device/executionValueRevisions.h"
@@ -99,7 +100,7 @@ struct UsdGenSessionDeviceRequest {
     UsdGenDiagnostics *diagnostics = nullptr;
 };
 
-class UsdGenSessionDeviceProvider {
+class USDGEN_API UsdGenSessionDeviceProvider {
 public:
     virtual ~UsdGenSessionDeviceProvider();
     virtual UsdGenSessionDevicePlanHandle Compile(UsdGenGraphSpec const&,

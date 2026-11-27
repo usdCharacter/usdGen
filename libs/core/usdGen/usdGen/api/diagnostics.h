@@ -18,8 +18,8 @@ struct UsdGenDiagnostics
     std::vector<std::string> warnings;
     bool HasErrors() const { return !errors.empty(); }
     /// Out of line: every message string is allocated in usdGen.
-    USDGEN_CORE_API void Error(std::string_view msg);
-    USDGEN_CORE_API void Warn(std::string_view msg);
+    USDGEN_API void Error(std::string_view msg);
+    USDGEN_API void Warn(std::string_view msg);
 };
 
 }  // namespace usdGen

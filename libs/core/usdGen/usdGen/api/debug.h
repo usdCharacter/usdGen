@@ -25,10 +25,10 @@
 namespace usdGen {
 
 enum class UsdGenDebugCode : uint8_t { Commit, Schedule, Ingress, Fur, Count };
-USDGEN_CORE_API bool UsdGenDebugEnabled(UsdGenDebugCode c) noexcept;
-USDGEN_CORE_API void UsdGenSetDebugEnabled(UsdGenDebugCode c, bool on) noexcept;
+USDGEN_API bool UsdGenDebugEnabled(UsdGenDebugCode c) noexcept;
+USDGEN_API void UsdGenSetDebugEnabled(UsdGenDebugCode c, bool on) noexcept;
 /// printf-style, to stdout (TfDebug's default output).
-USDGEN_CORE_API void UsdGenDebugMsg(char const *fmt, ...) noexcept USDGEN_DEBUG_PRINTF_FORMAT(1, 2);
+USDGEN_API void UsdGenDebugMsg(char const *fmt, ...) noexcept USDGEN_DEBUG_PRINTF_FORMAT(1, 2);
 
 }  // namespace usdGen
 

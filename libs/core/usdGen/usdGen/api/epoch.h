@@ -33,6 +33,7 @@
 //   deleters and leaks whatever is still pending.
 #pragma once
 
+#include "usdGen/api/export.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -47,7 +48,7 @@ class UsdGenEpochNode;
 using UsdGenEpochDeleter = void (*)(UsdGenEpochNode *);
 
 /// Intrusive retire-list link; derive from it. Copies start unlinked.
-class UsdGenEpochNode {
+class USDGEN_API UsdGenEpochNode {
 public:
     UsdGenEpochNode() noexcept = default;
     UsdGenEpochNode(UsdGenEpochNode const &) noexcept {}
@@ -62,20 +63,20 @@ private:
     uint32_t epochBatch_ = 0;                // calls covered by epochRetired_
 };
 
-void UsdGenEpochEnter() noexcept;
-void UsdGenEpochLeave() noexcept;
+USDGEN_API void UsdGenEpochEnter() noexcept;
+USDGEN_API void UsdGenEpochLeave() noexcept;
 
 /// Queue `deleter(node)` for when no guard can still see `node`. A node
 /// retired again while queued runs its deleter once per retire (refcounts).
-void UsdGenEpochRetire(UsdGenEpochNode *node, UsdGenEpochDeleter deleter) noexcept;
+USDGEN_API void UsdGenEpochRetire(UsdGenEpochNode *node, UsdGenEpochDeleter deleter) noexcept;
 
 /// Try to advance the epoch and run every due deleter. Returns deleters run.
 /// Returns 0 at once on a pinned thread, with nothing pending, or during
 /// process detach.
-size_t UsdGenEpochDrain() noexcept;
+USDGEN_API size_t UsdGenEpochDrain() noexcept;
 
 /// Drain what is safe without waiting; returns retires still pending.
-size_t UsdGenEpochShutdown() noexcept;
+USDGEN_API size_t UsdGenEpochShutdown() noexcept;
 
 struct UsdGenEpochStats {
     uint64_t epoch = 0;
@@ -84,7 +85,7 @@ struct UsdGenEpochStats {
     uint64_t overflowPins = 0;  // pins taken without a slot
     uint32_t slotsInUse = 0;
 };
-UsdGenEpochStats UsdGenEpochGetStats() noexcept;
+USDGEN_API UsdGenEpochStats UsdGenEpochGetStats() noexcept;
 
 /// RAII pin of the current thread.
 class UsdGenEpochGuard {
@@ -103,12 +104,12 @@ void UsdGenEpochRetireDelete(T *p) noexcept
 
 class UsdGenRefCounted;
 /// Exported: the last release always frees through usdGen.
-void UsdGenRefCountedDestroy(UsdGenRefCounted const *p) noexcept;
+USDGEN_API void UsdGenRefCountedDestroy(UsdGenRefCounted const *p) noexcept;
 /// The deferred release AtomicRef retires with.
-void UsdGenEpochReleaseNode(UsdGenEpochNode *n) noexcept;
+USDGEN_API void UsdGenEpochReleaseNode(UsdGenEpochNode *n) noexcept;
 
 /// Intrusive refcount base. The count starts at 0; UsdGenRef owns references.
-class UsdGenRefCounted : public UsdGenEpochNode {
+class USDGEN_API UsdGenRefCounted : public UsdGenEpochNode {
 public:
     void AddRef() const noexcept { refs_.fetch_add(1, std::memory_order_relaxed); }
     void Release() const noexcept

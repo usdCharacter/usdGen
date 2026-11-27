@@ -3,6 +3,7 @@
 // The input versions and device context a backend execution request carries
 // (the execution cache keys on them).
 #pragma once
+#include "usdGen/api/export.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/api/types.h"
@@ -31,7 +32,7 @@ struct UsdGenExecutionInputGeneration {
 /// their corresponding descriptor identities.  Relationship-only references
 /// with no payload generation are retained at generation zero so a changed
 /// target still changes the plan/cache identity.
-struct UsdGenExecutionInputVersions {
+struct USDGEN_API UsdGenExecutionInputVersions {
     std::vector<UsdGenExecutionInputGeneration> sources;
     std::vector<UsdGenExecutionInputGeneration> references;
     std::vector<UsdGenExecutionInputGeneration> maps;

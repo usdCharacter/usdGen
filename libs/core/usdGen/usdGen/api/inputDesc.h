@@ -6,6 +6,7 @@
 #ifndef USDGEN_API_INPUT_DESC_H
 #define USDGEN_API_INPUT_DESC_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/nodeKey.h"
@@ -50,7 +51,7 @@ enum class UsdGenInputRole : uint8_t {
 /// Two-lane content digest an input kind writes one record into (the
 /// execution cache key). Arrays mix their length now and their bytes in
 /// parallel after the walk. Equality-only, never persisted.
-class UsdGenInputDigest {
+class USDGEN_API UsdGenInputDigest {
 public:
     virtual void Mix(int lane, uint64_t value) = 0;
     virtual void MixText(int lane, std::string_view text) = 0;
@@ -109,9 +110,9 @@ struct UsdGenInputDesc {
 };
 
 /// The InputDesc registered for 'kind', else null.
-USDGEN_CORE_API UsdGenInputDesc const *UsdGenFindInputDesc(UsdGenTypeId kind) noexcept;
+USDGEN_API UsdGenInputDesc const *UsdGenFindInputDesc(UsdGenTypeId kind) noexcept;
 /// The first registered kind with 'role', else Invalid. Compile phase.
-USDGEN_CORE_API UsdGenTypeId UsdGenInputKindWithRole(UsdGenInputRole role) noexcept;
+USDGEN_API UsdGenTypeId UsdGenInputKindWithRole(UsdGenInputRole role) noexcept;
 
 }  // namespace usdGen
 

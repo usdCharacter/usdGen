@@ -22,7 +22,7 @@ struct UsdGenEngineDesc {
     void *reportUser = nullptr;
 };
 
-class USDGEN_CORE_API UsdGenEngine {
+class USDGEN_API UsdGenEngine {
 public:
     /// Loads extensions in manifest order, runs each usdGenRegister, and
     /// creates the cache-domain table (the Ptex cache comes with

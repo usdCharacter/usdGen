@@ -7,6 +7,7 @@
 // is never lost, and no mutex or condition variable is involved.
 #pragma once
 
+#include "usdGen/api/export.h"
 #include <atomic>
 #include <cstdint>
 
@@ -14,18 +15,18 @@ namespace usdGen {
 
 /// Block while `word` still holds `expected`. May return spuriously; callers
 /// re-check in a loop.
-void UsdGenParkWhileEqual(std::atomic<uint32_t> &word, uint32_t expected);
+USDGEN_API void UsdGenParkWhileEqual(std::atomic<uint32_t> &word, uint32_t expected);
 
 /// As UsdGenParkWhileEqual, giving up after about `timeoutMs`. False when it
 /// timed out; true on a wake or a changed word (or spuriously).
-bool UsdGenParkWhileEqualFor(std::atomic<uint32_t> &word, uint32_t expected,
+USDGEN_API bool UsdGenParkWhileEqualFor(std::atomic<uint32_t> &word, uint32_t expected,
                              uint32_t timeoutMs);
 
 /// Wake every thread parked on `word`. Call after changing it.
-void UsdGenUnparkAll(std::atomic<uint32_t> &word);
+USDGEN_API void UsdGenUnparkAll(std::atomic<uint32_t> &word);
 
 /// Wake at most one thread parked on `word`. Call after changing it.
-void UsdGenUnparkOne(std::atomic<uint32_t> &word);
+USDGEN_API void UsdGenUnparkOne(std::atomic<uint32_t> &word);
 
 /// The idle-wait protocol for "sleep until there may be work": a waiter
 /// announces itself, re-checks its condition, then parks; a notifier makes
