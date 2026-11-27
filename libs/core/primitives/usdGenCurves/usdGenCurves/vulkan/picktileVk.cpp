@@ -439,14 +439,13 @@ struct PicktileVkPickPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> distances, result, state, idPlaceholder;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false;
     Semantic semantic = Semantic::Ok;
     PicktileVkResult pick{};
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto device = native->context->device();
-        if (fence) vkDestroyFence(device, fence, nullptr);
         if (commands) vkDestroyCommandPool(device, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(device, descriptors, nullptr);
     }
@@ -511,7 +510,7 @@ VkResult PicktileVkPickPipeline::Candidate::Poll(Semantic* status) {
     auto& state = *state_;
     if (state.lost) return VK_ERROR_DEVICE_LOST;
     if (!state.proved) {
-        VkResult fence = vkGetFenceStatus(state.native->context->device(), state.fence);
+        VkResult fence = state.native->context->computeTimeline()->Check(state.value);
         if (fence == VK_NOT_READY) return fence;
         if (fence != VK_SUCCESS) { Quarantine(); return fence; }
         state.pending = false;
@@ -625,10 +624,8 @@ std::unique_ptr<PicktileVkPickPipeline::Candidate> PicktileVkPickPipeline::Begin
         r = RecordOps(context, native_->pipe, set, dispatches, 3,
             &state->commands, &command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(context->device(), &fi, nullptr, &state->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try {
@@ -639,15 +636,11 @@ std::unique_ptr<PicktileVkPickPipeline::Candidate> PicktileVkPickPipeline::Begin
             }
             if (!admitted) { if (result) *result = VK_ERROR_OUT_OF_DEVICE_MEMORY; return {}; }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         state->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, state->fence);
-        if (r != VK_SUCCESS) {
-            candidate->Quarantine();
-            if (result) *result = r;
+        state->value = timeline->Submit(&command, 1, &r);
+        if (state->value == 0) {
+            state->pending = false;  // nothing was queued
+            if (result) *result = r != VK_SUCCESS ? r : VK_ERROR_UNKNOWN;
             return {};
         }
         if (result) *result = VK_SUCCESS;
@@ -683,14 +676,13 @@ struct PicktileVkFootprintPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> flags, scanA, scanB, output, state;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false;
     Semantic semantic = Semantic::Ok;
     uint32_t count = 0;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto device = native->context->device();
-        if (fence) vkDestroyFence(device, fence, nullptr);
         if (commands) vkDestroyCommandPool(device, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(device, descriptors, nullptr);
     }
@@ -758,7 +750,7 @@ VkResult PicktileVkFootprintPipeline::Candidate::Poll(Semantic* status) {
     auto& state = *state_;
     if (state.lost) return VK_ERROR_DEVICE_LOST;
     if (!state.proved) {
-        VkResult fence = vkGetFenceStatus(state.native->context->device(), state.fence);
+        VkResult fence = state.native->context->computeTimeline()->Check(state.value);
         if (fence == VK_NOT_READY) return fence;
         if (fence != VK_SUCCESS) { Quarantine(); return fence; }
         state.pending = false;
@@ -854,10 +846,8 @@ std::unique_ptr<PicktileVkFootprintPipeline::Candidate> PicktileVkFootprintPipel
         r = RecordOps(context, native_->pipe, set, dispatches.data(), dispatches.size(),
             &state->commands, &command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(context->device(), &fi, nullptr, &state->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try {
@@ -868,15 +858,11 @@ std::unique_ptr<PicktileVkFootprintPipeline::Candidate> PicktileVkFootprintPipel
             }
             if (!admitted) { if (result) *result = VK_ERROR_OUT_OF_DEVICE_MEMORY; return {}; }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         state->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, state->fence);
-        if (r != VK_SUCCESS) {
-            candidate->Quarantine();
-            if (result) *result = r;
+        state->value = timeline->Submit(&command, 1, &r);
+        if (state->value == 0) {
+            state->pending = false;  // nothing was queued
+            if (result) *result = r != VK_SUCCESS ? r : VK_ERROR_UNKNOWN;
             return {};
         }
         if (result) *result = VK_SUCCESS;
@@ -918,13 +904,12 @@ struct PicktileVkTilesPipeline::Candidate::State {
     size_t tileCount = 0;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false;
     uint32_t deviceStatus = UINT32_MAX;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto device = native->context->device();
-        if (fence) vkDestroyFence(device, fence, nullptr);
         if (commands) vkDestroyCommandPool(device, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(device, descriptors, nullptr);
     }
@@ -989,7 +974,7 @@ VkResult PicktileVkTilesPipeline::Candidate::Poll(uint32_t* deviceStatus) {
     auto& state = *state_;
     if (state.lost) return VK_ERROR_DEVICE_LOST;
     if (!state.proved) {
-        VkResult fence = vkGetFenceStatus(state.native->context->device(), state.fence);
+        VkResult fence = state.native->context->computeTimeline()->Check(state.value);
         if (fence == VK_NOT_READY) return fence;
         if (fence != VK_SUCCESS) { Quarantine(); return fence; }
         state.pending = false;
@@ -1096,10 +1081,8 @@ std::unique_ptr<PicktileVkTilesPipeline::Candidate> PicktileVkTilesPipeline::Beg
         r = RecordOps(context, native_->pipe, set, schedule, dispatchCount,
             &state->commands, &command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(context->device(), &fi, nullptr, &state->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try {
@@ -1110,15 +1093,11 @@ std::unique_ptr<PicktileVkTilesPipeline::Candidate> PicktileVkTilesPipeline::Beg
             }
             if (!admitted) { if (result) *result = VK_ERROR_OUT_OF_DEVICE_MEMORY; return {}; }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         state->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, state->fence);
-        if (r != VK_SUCCESS) {
-            candidate->Quarantine();
-            if (result) *result = r;
+        state->value = timeline->Submit(&command, 1, &r);
+        if (state->value == 0) {
+            state->pending = false;  // nothing was queued
+            if (result) *result = r != VK_SUCCESS ? r : VK_ERROR_UNKNOWN;
             return {};
         }
         if (result) *result = VK_SUCCESS;
@@ -1159,13 +1138,12 @@ struct PicktileVkBoundsPipeline::Candidate::State {
     PicktileVkTileBoundsBasis basis = PicktileVkTileBoundsBasis::BSpline;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false, empty = false;
     uint32_t deviceStatus = UINT32_MAX;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto device = native->context->device();
-        if (fence) vkDestroyFence(device, fence, nullptr);
         if (commands) vkDestroyCommandPool(device, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(device, descriptors, nullptr);
     }
@@ -1234,7 +1212,7 @@ VkResult PicktileVkBoundsPipeline::Candidate::Poll(uint32_t* deviceStatus) {
     if (state.lost) return VK_ERROR_DEVICE_LOST;
     if (!state.proved) {
         if (!state.empty) {
-            VkResult fence = vkGetFenceStatus(state.native->context->device(), state.fence);
+            VkResult fence = state.native->context->computeTimeline()->Check(state.value);
             if (fence == VK_NOT_READY) return fence;
             if (fence != VK_SUCCESS) { Quarantine(); return fence; }
             state.pending = false;
@@ -1358,10 +1336,8 @@ std::unique_ptr<PicktileVkBoundsPipeline::Candidate> PicktileVkBoundsPipeline::B
         r = RecordOps(context, native_->pipe, set, dispatches, 2,
             &state->commands, &command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(context->device(), &fi, nullptr, &state->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try {
@@ -1372,15 +1348,11 @@ std::unique_ptr<PicktileVkBoundsPipeline::Candidate> PicktileVkBoundsPipeline::B
             }
             if (!admitted) { if (result) *result = VK_ERROR_OUT_OF_DEVICE_MEMORY; return {}; }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         state->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, state->fence);
-        if (r != VK_SUCCESS) {
-            candidate->Quarantine();
-            if (result) *result = r;
+        state->value = timeline->Submit(&command, 1, &r);
+        if (state->value == 0) {
+            state->pending = false;  // nothing was queued
+            if (result) *result = r != VK_SUCCESS ? r : VK_ERROR_UNKNOWN;
             return {};
         }
         if (result) *result = VK_SUCCESS;
@@ -1426,7 +1398,7 @@ struct PicktileVkIndicesPipeline::Candidate::State {
     uint32_t arity = 0;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false;
     uint32_t deviceStatus = UINT32_MAX;
     uint64_t records = 0;
@@ -1434,7 +1406,6 @@ struct PicktileVkIndicesPipeline::Candidate::State {
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto device = native->context->device();
-        if (fence) vkDestroyFence(device, fence, nullptr);
         if (commands) vkDestroyCommandPool(device, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(device, descriptors, nullptr);
     }
@@ -1508,7 +1479,7 @@ VkResult PicktileVkIndicesPipeline::Candidate::Poll(uint32_t* deviceStatus) {
     auto& state = *state_;
     if (state.lost) return VK_ERROR_DEVICE_LOST;
     if (!state.proved) {
-        VkResult fence = vkGetFenceStatus(state.native->context->device(), state.fence);
+        VkResult fence = state.native->context->computeTimeline()->Check(state.value);
         if (fence == VK_NOT_READY) return fence;
         if (fence != VK_SUCCESS) { Quarantine(); return fence; }
         state.pending = false;
@@ -1631,10 +1602,8 @@ std::unique_ptr<PicktileVkIndicesPipeline::Candidate> PicktileVkIndicesPipeline:
         r = RecordOps(context, native_->pipe, set, dispatches.data(), dispatches.size(),
             &state->commands, &command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(context->device(), &fi, nullptr, &state->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT; return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try {
@@ -1645,15 +1614,11 @@ std::unique_ptr<PicktileVkIndicesPipeline::Candidate> PicktileVkIndicesPipeline:
             }
             if (!admitted) { if (result) *result = VK_ERROR_OUT_OF_DEVICE_MEMORY; return {}; }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         state->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, state->fence);
-        if (r != VK_SUCCESS) {
-            candidate->Quarantine();
-            if (result) *result = r;
+        state->value = timeline->Submit(&command, 1, &r);
+        if (state->value == 0) {
+            state->pending = false;  // nothing was queued
+            if (result) *result = r != VK_SUCCESS ? r : VK_ERROR_UNKNOWN;
             return {};
         }
         if (result) *result = VK_SUCCESS;
