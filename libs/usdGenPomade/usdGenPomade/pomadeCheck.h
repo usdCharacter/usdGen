@@ -25,6 +25,7 @@
 #ifndef USDGEN_POMADE_CHECK_H
 #define USDGEN_POMADE_CHECK_H
 
+#include "usdGenPomade/api.h"
 #include "usdGenPomade/pomadeTube.h"
 
 #include <string>
@@ -336,7 +337,7 @@ USDGEN_POMADE_HD inline int PomadeRootPairNarrowHit(
 
 // -- K13: per-CV kink scores ---------------------------------------------
 // `out` takes nCv scores (ends 0). Needs >= 1 CV (a lone CV scores 0).
-bool PomadeSmoothnessScoreCpu(float const *cx, float const *cy,
+USDGENPOMADE_API bool PomadeSmoothnessScoreCpu(float const *cx, float const *cy,
                              float const *cz, int nCv, float *out,
                              std::string *err);
 
@@ -344,7 +345,7 @@ bool PomadeSmoothnessScoreCpu(float const *cx, float const *cy,
 // Root chart of one tube: the root section plane (center + N/B) plus the
 // root ring placed in world coords (3 floats per vert, ringVerts of
 // them). `frames` are the K4 frames at the tube's center CVs.
-bool PomadeRootChartCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeRootChartCpu(PomadeTubeDesc const &tube,
                        std::vector<PomadeFrame> const &frames, float center[3],
                        float nrm[3], float bin[3],
                        std::vector<float> *worldRing, std::string *err);
@@ -352,7 +353,7 @@ bool PomadeRootChartCpu(PomadeTubeDesc const &tube,
 // One ordered pair (J projected into I's chart): *outHit is the narrow
 // verdict, *broadHit the world-AABB precheck (either may be null to skip
 // that phase). Counts must be in [3, kPomadeCheckRingMax].
-bool PomadeRootPairOverlapCpu(float const centerI[3], float const nrmI[3],
+USDGENPOMADE_API bool PomadeRootPairOverlapCpu(float const centerI[3], float const nrmI[3],
                              float const binI[3], float const *worldRingI,
                              int countI, float const *worldRingJ, int countJ,
                              int *outHit, int *broadHit, std::string *err);
@@ -360,7 +361,7 @@ bool PomadeRootPairOverlapCpu(float const centerI[3], float const nrmI[3],
 // All tubes: outFlags[i] is 1 when tube i's root overlaps another tube's
 // root (positive area), else 0. Ancestor/descendant pairs are skipped
 // (nesting by design); zero tubes is a no-op success.
-bool PomadeTubeIntersectCpu(PomadeTubeDesc const *tubes, int tubeCount,
+USDGENPOMADE_API bool PomadeTubeIntersectCpu(PomadeTubeDesc const *tubes, int tubeCount,
                            int *outFlags, std::string *err);
 
 #endif  // !__CUDA_ARCH__
