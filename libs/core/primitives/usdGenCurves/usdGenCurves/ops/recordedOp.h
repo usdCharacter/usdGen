@@ -10,10 +10,10 @@
 namespace usdGen {
 
 /// A copy of the slot's authored value, empty when unauthored.
-inline VtValue UsdGenAuthoredValue(UsdGenParamView const &p, UsdGenParamSlot s)
+inline UsdGenValue UsdGenAuthoredValue(UsdGenParamView const &p, UsdGenParamSlot s)
 {
     UsdGenResolvedParam const *r = p.Slot(s);
-    return r && r->authored ? r->authored->value : VtValue();
+    return r && r->authored ? r->authored->value : UsdGenValue();
 }
 
 }  // namespace usdGen

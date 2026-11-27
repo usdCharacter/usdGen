@@ -12,8 +12,8 @@
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
@@ -34,18 +34,18 @@ namespace usdGen {
 namespace {
 
 // usdGen:lengthRandom is a float2 (lo, hi); the property is stored as a
-// GfVec2f or a len-2 VtFloatArray depending on the source (02 §2.6).
-VtValue const kNoValue;
+// UsdGenVec2f or a len-2 UsdGenFloatArray depending on the source (02 §2.6).
+UsdGenValue const kNoValue;
 
 inline void ReadVec2Prop(UsdGenParamView const &p, UsdGenParamSlot slot,
                          double &lo, double &hi)
 {
     lo = 1.0; hi = 1.0;
-    if (VtValue const &v = p.GetValue(slot, kNoValue); v.IsHolding<VtFloatArray>()) {
-        VtFloatArray const a = v.UncheckedGet<VtFloatArray>();
+    if (UsdGenValue const &v = p.GetValue(slot, kNoValue); v.IsHolding<UsdGenFloatArray>()) {
+        UsdGenFloatArray const a = v.UncheckedGet<UsdGenFloatArray>();
         if (a.size() >= 2) { lo = a[0]; hi = a[1]; }
-    } else if (v.IsHolding<GfVec2f>()) {
-        GfVec2f const r = v.UncheckedGet<GfVec2f>();
+    } else if (v.IsHolding<UsdGenVec2f>()) {
+        UsdGenVec2f const r = v.UncheckedGet<UsdGenVec2f>();
         lo = r[0]; hi = r[1];
     }
 }
@@ -64,16 +64,16 @@ inline uint32_t floatAsBits(float f)
     return u;
 }
 
-inline GfVec3f NormalizeGrowDirection(GfVec3f v)
+inline UsdGenVec3f NormalizeGrowDirection(UsdGenVec3f v)
 {
     float const l2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
     float const length = std::sqrt(l2);
-    return length > 1.0e-12f ? v / length : GfVec3f(0.0f, 1.0f, 0.0f);
+    return length > 1.0e-12f ? v / length : UsdGenVec3f(0.0f, 1.0f, 0.0f);
 }
 
 // plan/04 §2.2: lift is an angle in degrees about root-frame B.  Rodrigues'
 // form keeps the CPU and CUDA lowerings on the same float arithmetic path.
-inline GfVec3f RotateGrowDirection(GfVec3f direction, GfVec3f axis,
+inline UsdGenVec3f RotateGrowDirection(UsdGenVec3f direction, UsdGenVec3f axis,
                                    float degrees)
 {
     if (degrees == 0.0f) return direction;
@@ -84,12 +84,12 @@ inline GfVec3f RotateGrowDirection(GfVec3f direction, GfVec3f axis,
     float const s = std::sin(radians);
     float const dot = axis[0] * direction[0] + axis[1] * direction[1] +
         axis[2] * direction[2];
-    GfVec3f const cross(
+    UsdGenVec3f const cross(
         axis[1] * direction[2] - axis[2] * direction[1],
         axis[2] * direction[0] - axis[0] * direction[2],
         axis[0] * direction[1] - axis[1] * direction[0]);
     float const oneMinusC = 1.0f - c;
-    return GfVec3f(
+    return UsdGenVec3f(
         direction[0] * c + cross[0] * s + axis[0] * dot * oneMinusC,
         direction[1] * c + cross[1] * s + axis[1] * dot * oneMinusC,
         direction[2] * c + cross[2] * s + axis[2] * dot * oneMinusC);
@@ -104,11 +104,11 @@ struct UsdGenGrowCapture final : public UsdGenCapturePayload
     // which case the scalar lift/directionVector below apply to every curve.
     int cvCount = 0;
     float lift = 0.0f;
-    TfToken direction;   // empty until Capture; anything but "vector" grows along the normal
-    GfVec3f directionVector{0.0f, 1.0f, 0.0f};
-    VtFloatArray liftPerCurve;
-    VtFloatArray azimuthPerCurve;
-    VtVec3fArray dirPerCurve;
+    UsdGenToken direction;   // empty until Capture; anything but "vector" grows along the normal
+    UsdGenVec3f directionVector{0.0f, 1.0f, 0.0f};
+    UsdGenFloatArray liftPerCurve;
+    UsdGenFloatArray azimuthPerCurve;
+    UsdGenVec3fArray dirPerCurve;
     uint64_t upstreamTopologyVersion = 0;
     uint64_t upstreamValueVersion = 0;
     uint32_t upstreamCurves = 0;
@@ -127,8 +127,8 @@ struct UsdGenGrowCapture final : public UsdGenCapturePayload
         rampLut.clear();
         cvCount = 0;
         lift = 0.0f;
-        direction = TfToken();
-        directionVector = GfVec3f(0.0f, 1.0f, 0.0f);
+        direction = UsdGenToken();
+        directionVector = UsdGenVec3f(0.0f, 1.0f, 0.0f);
         liftPerCurve.clear();
         azimuthPerCurve.clear();
         dirPerCurve.clear();
@@ -204,7 +204,7 @@ bool UsdGenGrowOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
             diag->Error("UsdGenGrow: usdGen:segments must be in [2, 4096]");
         return false;
     }
-    TfToken const &dir = params.GetToken(kDirection, Record().Token(kTokSurfaceNormal));
+    UsdGenToken const &dir = params.GetToken(kDirection, Record().Token(kTokSurfaceNormal));
     if (dir != Record().Token(kTokSurfaceNormal) && dir != Record().Token(kTokVector)) {
         if (diag)
             diag->Error("UsdGenGrow: unknown usdGen:direction token '" +
@@ -224,14 +224,14 @@ bool UsdGenGrowOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
         if (diag) diag->Error("UsdGenGrow: azimuth must be in [-360,360] degrees and azimuthRandom in [0,1]");
         return false;
     }
-    VtValue const &directionValue = params.GetValue(kDirectionVector, kNoValue);
-    if (!directionValue.IsEmpty() && !directionValue.IsHolding<GfVec3f>()) {
+    UsdGenValue const &directionValue = params.GetValue(kDirectionVector, kNoValue);
+    if (!directionValue.IsEmpty() && !directionValue.IsHolding<UsdGenVec3f>()) {
         if (diag)
             diag->Error("UsdGenGrow: usdGen:directionVector must be vector3f");
         return false;
     }
-    if (directionValue.IsHolding<GfVec3f>()) {
-        GfVec3f const v = directionValue.UncheckedGet<GfVec3f>();
+    if (directionValue.IsHolding<UsdGenVec3f>()) {
+        UsdGenVec3f const v = directionValue.UncheckedGet<UsdGenVec3f>();
         if (!std::isfinite(v[0]) || !std::isfinite(v[1]) ||
             !std::isfinite(v[2])) {
             if (diag)
@@ -264,10 +264,10 @@ UsdGenEpoch UsdGenGrowOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
         feed("lift", doubleAsBits(p->GetDouble(kLift, 0.0)));
         feed("azimuth", doubleAsBits(p->GetDouble(kAzimuth, 0.0)));
         feed("azimuthRandom", doubleAsBits(p->GetDouble(kAzimuthRandom, 0.0)));
-        GfVec3f directionVector(0.0f, 1.0f, 0.0f);
-        if (VtValue const &v = p->GetValue(kDirectionVector, kNoValue);
-            v.IsHolding<GfVec3f>())
-            directionVector = v.UncheckedGet<GfVec3f>();
+        UsdGenVec3f directionVector(0.0f, 1.0f, 0.0f);
+        if (UsdGenValue const &v = p->GetValue(kDirectionVector, kNoValue);
+            v.IsHolding<UsdGenVec3f>())
+            directionVector = v.UncheckedGet<UsdGenVec3f>();
         feed("directionVector.x", floatAsBits(directionVector[0]));
         feed("directionVector.y", floatAsBits(directionVector[1]));
         feed("directionVector.z", floatAsBits(directionVector[2]));
@@ -300,14 +300,14 @@ bool UsdGenGrowOp::Capture(
         if (diag) diag->Error("UsdGenGrow: usdGen:lift must be finite and in [-90, 90] degrees");
         return false;
     }
-    GfVec3f directionVector(0.0f, 1.0f, 0.0f);
+    UsdGenVec3f directionVector(0.0f, 1.0f, 0.0f);
     if (p) {
-        VtValue const &v = p->GetValue(kDirectionVector, kNoValue);
-        if (!v.IsEmpty() && !v.IsHolding<GfVec3f>()) {
+        UsdGenValue const &v = p->GetValue(kDirectionVector, kNoValue);
+        if (!v.IsEmpty() && !v.IsHolding<UsdGenVec3f>()) {
             if (diag) diag->Error("UsdGenGrow: usdGen:directionVector must be vector3f");
             return false;
         }
-        if (v.IsHolding<GfVec3f>()) directionVector = v.UncheckedGet<GfVec3f>();
+        if (v.IsHolding<UsdGenVec3f>()) directionVector = v.UncheckedGet<UsdGenVec3f>();
     }
     if (!std::isfinite(directionVector[0]) || !std::isfinite(directionVector[1]) ||
         !std::isfinite(directionVector[2])) {
@@ -378,7 +378,7 @@ bool UsdGenGrowOp::Capture(
     // description fallback.  This happens during capture, before workers
     // receive raw output pointers, and is deliberately private storage.
     // Refills a recycled capture's width storage (fresh when shared).
-    VtFloatArray grownWidths;
+    UsdGenFloatArray grownWidths;
     grownWidths.swap(buf.width);
     grownWidths.assign(buf.totalCvs, fallbackWidth);
     if (!upstream.width.empty()) {
@@ -564,7 +564,7 @@ bool UsdGenGrowOp::Capture(
                 cap.liftPerCurve[c] = static_cast<float>(liftC);
             }
             if (dirField.connected) {
-                GfVec3f const dirC(
+                UsdGenVec3f const dirC(
                     static_cast<float>(dirField.Value(c, root, 0)),
                     static_cast<float>(dirField.Value(c, root, 1)),
                     static_cast<float>(dirField.Value(c, root, 2)));
@@ -587,7 +587,7 @@ bool UsdGenGrowOp::Capture(
         if (diag) diag->Error("UsdGenGrow: upstream rest plane cardinality does not match its CV topology");
         return false;
     }
-    for (GfVec3f const &point : upstream.rest) {
+    for (UsdGenVec3f const &point : upstream.rest) {
         if (!std::isfinite(point[0]) || !std::isfinite(point[1]) || !std::isfinite(point[2])) {
             if (diag) diag->Error("UsdGenGrow: upstream rest plane contains non-finite values");
             return false;
@@ -599,8 +599,8 @@ bool UsdGenGrowOp::Capture(
         if (diag) diag->Error("UsdGenGrow: upstream root-frame plane cardinality does not match curve topology");
         return false;
     }
-    auto finiteFrame = [](UsdGenSpan<const GfVec3f> const &values) {
-        for (GfVec3f const &v : values)
+    auto finiteFrame = [](UsdGenSpan<const UsdGenVec3f> const &values) {
+        for (UsdGenVec3f const &v : values)
             if (!std::isfinite(v[0]) || !std::isfinite(v[1]) || !std::isfinite(v[2])) return false;
         return true;
     };
@@ -610,24 +610,24 @@ bool UsdGenGrowOp::Capture(
     }
     // Point cardinality and rootSpans were established before the per-curve
     // loop so connected controls sample each curve's root.
-    VtVec3fArray grownRest;
+    UsdGenVec3fArray grownRest;
     grownRest.swap(buf.rest);   // a recycled capture's storage
-    grownRest.assign(buf.totalCvs, GfVec3f(0.0f));
+    grownRest.assign(buf.totalCvs, UsdGenVec3f(0.0f));
     for (uint32_t c = 0; c != R; ++c) {
         uint32_t const rootIndex = rootSpans[c];
-        GfVec3f root = upstream.rest.empty() ? GfVec3f(upstream.px[rootIndex], upstream.py[rootIndex], upstream.pz[rootIndex])
+        UsdGenVec3f root = upstream.rest.empty() ? UsdGenVec3f(upstream.px[rootIndex], upstream.py[rootIndex], upstream.pz[rootIndex])
                                               : upstream.rest[rootIndex];
-        GfVec3f const dirLiteral = cap.dirPerCurve.size() == R
+        UsdGenVec3f const dirLiteral = cap.dirPerCurve.size() == R
             ? cap.dirPerCurve[c] : cap.directionVector;
-        GfVec3f dir = cap.direction == Record().Token(kTokVector) ? dirLiteral
-            : (upstream.rootN.empty() ? GfVec3f(0.0f, 1.0f, 0.0f) : upstream.rootN[c]);
+        UsdGenVec3f dir = cap.direction == Record().Token(kTokVector) ? dirLiteral
+            : (upstream.rootN.empty() ? UsdGenVec3f(0.0f, 1.0f, 0.0f) : upstream.rootN[c]);
         dir = NormalizeGrowDirection(dir);
-        GfVec3f const axis = upstream.rootB.empty()
-            ? GfVec3f(0.0f, 1.0f, 0.0f) : upstream.rootB[c];
+        UsdGenVec3f const axis = upstream.rootB.empty()
+            ? UsdGenVec3f(0.0f, 1.0f, 0.0f) : upstream.rootB[c];
         float const liftC = cap.liftPerCurve.size() == R ? cap.liftPerCurve[c] : cap.lift;
         dir = RotateGrowDirection(dir, axis, liftC);
         dir = RotateGrowDirection(dir, upstream.rootN.empty()
-            ? GfVec3f(0.0f, 1.0f, 0.0f) : upstream.rootN[c], cap.azimuthPerCurve[c]);
+            ? UsdGenVec3f(0.0f, 1.0f, 0.0f) : upstream.rootN[c], cap.azimuthPerCurve[c]);
         for (uint32_t i = 0; i != static_cast<uint32_t>(cap.cvCount); ++i) {
             float const t = cap.cvCount > 1 ? float(i) / float(cap.cvCount - 1) : 0.0f;
             float const distance = cap.perCurve[c] * t;
@@ -645,11 +645,11 @@ void UsdGenGrowOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(ctx);
+    (void)ctx;
     UsdGenGrowCapture const &cap =
         static_cast<UsdGenGrowCapture const &>(captureIn);
 
-    TfToken const &vectorToken = Record().Token(kTokVector);
+    UsdGenToken const &vectorToken = Record().Token(kTokVector);
     float const invSpan = view->cvCount > 1 ? 1.0f / float(view->cvCount - 1) : 0.0f;
     float *px = view->px;
     float *py = view->py;
@@ -672,22 +672,22 @@ void UsdGenGrowOp::Evaluate(
         // perCurve: chunk views pre-offset the plane arrays only, so index by
         // absolute curve.
         size_t const absolute = view->desc->firstCurve + c;
-        GfVec3f dir;
+        UsdGenVec3f dir;
         if (cap.direction == vectorToken) {
             dir = !cap.dirPerCurve.empty() && absolute < cap.dirPerCurve.size()
                 ? cap.dirPerCurve[absolute] : cap.directionVector;
         } else {  // surfaceNormal
-            dir = view->rootN ? view->rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f);
+            dir = view->rootN ? view->rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f);
         }
-        GfVec3f d = NormalizeGrowDirection(dir);
-        GfVec3f const axis = view->rootB ? view->rootB[c]
-            : GfVec3f(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f d = NormalizeGrowDirection(dir);
+        UsdGenVec3f const axis = view->rootB ? view->rootB[c]
+            : UsdGenVec3f(0.0f, 1.0f, 0.0f);
         float const liftC = !cap.liftPerCurve.empty() &&
             absolute < cap.liftPerCurve.size()
             ? cap.liftPerCurve[absolute] : cap.lift;
         d = RotateGrowDirection(d, axis, liftC);
         d = RotateGrowDirection(d, view->rootN ? view->rootN[c]
-            : GfVec3f(0.0f, 1.0f, 0.0f), cap.azimuthPerCurve[absolute]);
+            : UsdGenVec3f(0.0f, 1.0f, 0.0f), cap.azimuthPerCurve[absolute]);
         // perCurve is a whole-buffer capture payload: chunk views pre-offset
         // the plane/per-curve arrays only, so index by absolute curve.
         const float targetLen = cap.perCurve.empty()

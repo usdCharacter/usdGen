@@ -20,8 +20,8 @@
 
 #include "usdGen/ops/opUtil.h"
 
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
@@ -32,7 +32,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -66,7 +65,7 @@ struct UsdGenSculptLayerCapture final : public UsdGenCapture
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtValue FindValue(UsdGenParamView const &params, UsdGenParamSlot slot)
+UsdGenValue FindValue(UsdGenParamView const &params, UsdGenParamSlot slot)
 {
     return UsdGenAuthoredValue(params, slot);
 }
@@ -116,7 +115,7 @@ bool UsdGenSculptLayerOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics 
         if (diag) diag->Error("UsdGenSculptLayer: " + message);
         return false;
     };
-    TfToken const space = params.GetToken(kSpace, Record().Token(kTokRootFrame));
+    UsdGenToken const space = params.GetToken(kSpace, Record().Token(kTokRootFrame));
     if (space != Record().Token(kTokRootFrame) && space != Record().Token(kTokObject))
         return fail("unknown usdGen:sculpt:space '" + space.GetString() + "'");
     double const weight = params.GetDoubleLiteral(kWeight, 1.0);
@@ -125,37 +124,37 @@ bool UsdGenSculptLayerOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics 
     if (!Finite(params.GetDoubleLiteral(kMask, 1.0)))
         return fail("usdGen:mask must be finite");
 
-    VtValue const ids = FindValue(params, kCurveIds);
-    VtValue const offsets = FindValue(params, kCvOffsets);
-    VtValue const deltas = FindValue(params, kDeltas);
-    VtValue const epoch = FindValue(params, kEpoch);
-    VtValue const locked = FindValue(params, kLocked);
-    VtValue const rootPrims = FindValue(params, kRootPrims);
-    VtValue const rootUVs = FindValue(params, kRootUVs);
-    if (!ids.IsEmpty() && !ids.IsHolding<VtArray<uint64_t>>())
+    UsdGenValue const ids = FindValue(params, kCurveIds);
+    UsdGenValue const offsets = FindValue(params, kCvOffsets);
+    UsdGenValue const deltas = FindValue(params, kDeltas);
+    UsdGenValue const epoch = FindValue(params, kEpoch);
+    UsdGenValue const locked = FindValue(params, kLocked);
+    UsdGenValue const rootPrims = FindValue(params, kRootPrims);
+    UsdGenValue const rootUVs = FindValue(params, kRootUVs);
+    if (!ids.IsEmpty() && !ids.IsHolding<UsdGenCowArray<uint64_t>>())
         return fail("usdGen:sculpt:curveIds must be uint64[]");
-    if (!offsets.IsEmpty() && !offsets.IsHolding<VtIntArray>())
+    if (!offsets.IsEmpty() && !offsets.IsHolding<UsdGenIntArray>())
         return fail("usdGen:sculpt:cvOffsets must be int[]");
-    if (!deltas.IsEmpty() && !deltas.IsHolding<VtVec3fArray>())
+    if (!deltas.IsEmpty() && !deltas.IsHolding<UsdGenVec3fArray>())
         return fail("usdGen:sculpt:deltas must be vector3f[]");
     if (!epoch.IsEmpty() && !epoch.IsHolding<std::string>())
         return fail("usdGen:sculpt:epoch must be string");
-    if (!locked.IsEmpty() && !locked.IsHolding<VtArray<uint64_t>>())
+    if (!locked.IsEmpty() && !locked.IsHolding<UsdGenCowArray<uint64_t>>())
         return fail("usdGen:sculpt:lockedCurves must be uint64[]");
-    if (!rootPrims.IsEmpty() && !rootPrims.IsHolding<VtIntArray>())
+    if (!rootPrims.IsEmpty() && !rootPrims.IsHolding<UsdGenIntArray>())
         return fail("usdGen:sculpt:rootPrims must be int[]");
-    if (!rootUVs.IsEmpty() && !rootUVs.IsHolding<VtVec2fArray>())
+    if (!rootUVs.IsEmpty() && !rootUVs.IsHolding<UsdGenVec2fArray>())
         return fail("usdGen:sculpt:rootUVs must be texCoord2f[]");
 
-    VtArray<uint64_t> const emptyIds;
-    VtIntArray const emptyInts;
-    VtVec3fArray const emptyDeltas;
-    VtArray<uint64_t> const &idArray =
-        ids.IsHolding<VtArray<uint64_t>>() ? ids.UncheckedGet<VtArray<uint64_t>>() : emptyIds;
-    VtIntArray const &offsetArray =
-        offsets.IsHolding<VtIntArray>() ? offsets.UncheckedGet<VtIntArray>() : emptyInts;
-    VtVec3fArray const &deltaArray =
-        deltas.IsHolding<VtVec3fArray>() ? deltas.UncheckedGet<VtVec3fArray>() : emptyDeltas;
+    UsdGenCowArray<uint64_t> const emptyIds;
+    UsdGenIntArray const emptyInts;
+    UsdGenVec3fArray const emptyDeltas;
+    UsdGenCowArray<uint64_t> const &idArray =
+        ids.IsHolding<UsdGenCowArray<uint64_t>>() ? ids.UncheckedGet<UsdGenCowArray<uint64_t>>() : emptyIds;
+    UsdGenIntArray const &offsetArray =
+        offsets.IsHolding<UsdGenIntArray>() ? offsets.UncheckedGet<UsdGenIntArray>() : emptyInts;
+    UsdGenVec3fArray const &deltaArray =
+        deltas.IsHolding<UsdGenVec3fArray>() ? deltas.UncheckedGet<UsdGenVec3fArray>() : emptyDeltas;
     size_t const nIds = idArray.size();
 
     // Layout (02 §2.10): strictly ascending ids, N + 1 prefix offsets from 0
@@ -185,20 +184,20 @@ bool UsdGenSculptLayerOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics 
         if (size_t(offsetArray.back()) != deltaArray.size())
             return fail("usdGen:sculpt:cvOffsets must end at deltas.size()");
     }
-    for (GfVec3f const &d : deltaArray) {
+    for (UsdGenVec3f const &d : deltaArray) {
         if (!Finite(d[0]) || !Finite(d[1]) || !Finite(d[2]))
             return fail("usdGen:sculpt:deltas must be finite");
     }
-    if (locked.IsHolding<VtArray<uint64_t>>()) {
-        VtArray<uint64_t> const &locks = locked.UncheckedGet<VtArray<uint64_t>>();
+    if (locked.IsHolding<UsdGenCowArray<uint64_t>>()) {
+        UsdGenCowArray<uint64_t> const &locks = locked.UncheckedGet<UsdGenCowArray<uint64_t>>();
         std::vector<uint64_t> sorted(locks.begin(), locks.end());
         std::sort(sorted.begin(), sorted.end());
         if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end())
             return fail("usdGen:sculpt:lockedCurves carries a duplicate curveId");
     }
     // Rebase metadata is optional but, when present, parallel to curveIds.
-    if (rootPrims.IsHolding<VtIntArray>()) {
-        VtIntArray const &prims = rootPrims.UncheckedGet<VtIntArray>();
+    if (rootPrims.IsHolding<UsdGenIntArray>()) {
+        UsdGenIntArray const &prims = rootPrims.UncheckedGet<UsdGenIntArray>();
         if (!prims.empty() && prims.size() != nIds)
             return fail("usdGen:sculpt:rootPrims must be empty or parallel to curveIds");
         for (int prim : prims) {
@@ -206,11 +205,11 @@ bool UsdGenSculptLayerOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics 
                 return fail("usdGen:sculpt:rootPrims must carry non-negative face indices");
         }
     }
-    if (rootUVs.IsHolding<VtVec2fArray>()) {
-        VtVec2fArray const &uvs = rootUVs.UncheckedGet<VtVec2fArray>();
+    if (rootUVs.IsHolding<UsdGenVec2fArray>()) {
+        UsdGenVec2fArray const &uvs = rootUVs.UncheckedGet<UsdGenVec2fArray>();
         if (!uvs.empty() && uvs.size() != nIds)
             return fail("usdGen:sculpt:rootUVs must be empty or parallel to curveIds");
-        for (GfVec2f const &uv : uvs) {
+        for (UsdGenVec2f const &uv : uvs) {
             if (!Finite(uv[0]) || !Finite(uv[1]))
                 return fail("usdGen:sculpt:rootUVs must be finite");
         }
@@ -265,15 +264,15 @@ bool UsdGenSculptLayerOp::Capture(
     if (!opUtil::CurveSpans(upstream, &spans, &spansError))
         return fail("upstream CV topology " + spansError);
 
-    VtValue const ids = p ? FindValue(*p, kCurveIds) : VtValue();
-    VtValue const offsets = p ? FindValue(*p, kCvOffsets) : VtValue();
-    VtArray<uint64_t> const emptyIds;
-    VtIntArray const emptyInts;
-    VtArray<uint64_t> const &idArray = ids.IsHolding<VtArray<uint64_t>>()
-        ? ids.UncheckedGet<VtArray<uint64_t>>() : emptyIds;
-    VtIntArray const &offsetArray = offsets.IsHolding<VtIntArray>()
-        ? offsets.UncheckedGet<VtIntArray>() : emptyInts;
-    TfToken const space = p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame);
+    UsdGenValue const ids = p ? FindValue(*p, kCurveIds) : UsdGenValue();
+    UsdGenValue const offsets = p ? FindValue(*p, kCvOffsets) : UsdGenValue();
+    UsdGenCowArray<uint64_t> const emptyIds;
+    UsdGenIntArray const emptyInts;
+    UsdGenCowArray<uint64_t> const &idArray = ids.IsHolding<UsdGenCowArray<uint64_t>>()
+        ? ids.UncheckedGet<UsdGenCowArray<uint64_t>>() : emptyIds;
+    UsdGenIntArray const &offsetArray = offsets.IsHolding<UsdGenIntArray>()
+        ? offsets.UncheckedGet<UsdGenIntArray>() : emptyInts;
+    UsdGenToken const space = p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame);
 
     // Connected weight and mask scans, so a non-finite or out-of-range
     // expression fails closed at capture instead of writing NaN points.
@@ -358,15 +357,15 @@ void UsdGenSculptLayerOp::Evaluate(
     // resized deltas array against a stale capture span is a router-level
     // inconsistency Evaluate cannot diagnose, so it passes through rather
     // than reading out of bounds.
-    VtValue const deltasValue = p ? FindValue(*p, kDeltas) : VtValue();
-    VtVec3fArray const emptyDeltas;
-    VtVec3fArray const *deltas = deltasValue.IsHolding<VtVec3fArray>()
-        ? &deltasValue.UncheckedGet<VtVec3fArray>() : &emptyDeltas;
+    UsdGenValue const deltasValue = p ? FindValue(*p, kDeltas) : UsdGenValue();
+    UsdGenVec3fArray const emptyDeltas;
+    UsdGenVec3fArray const *deltas = deltasValue.IsHolding<UsdGenVec3fArray>()
+        ? &deltasValue.UncheckedGet<UsdGenVec3fArray>() : &emptyDeltas;
     if (cap.HasLayer() && deltas->size() != cap.totalDeltas) {
         for (uint32_t c = 0; c < view->curveCount; ++c) copyThrough(c);
         return;
     }
-    TfToken const space = p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame);
+    UsdGenToken const space = p ? p->GetToken(kSpace, Record().Token(kTokRootFrame)) : Record().Token(kTokRootFrame);
     bool const rootFrame = space == Record().Token(kTokRootFrame);
     if (space != Record().Token(kTokRootFrame) && space != Record().Token(kTokObject)) {
         // Defensive pass-through; Capture already failed closed.
@@ -402,7 +401,7 @@ void UsdGenSculptLayerOp::Evaluate(
             copyThrough(c);
             continue;
         }
-        GfVec3f T(1, 0, 0), B(0, 1, 0), N(0, 0, 1);
+        UsdGenVec3f T(1, 0, 0), B(0, 1, 0), N(0, 0, 1);
         if (rootFrame) {
             if (!rootT || !rootB || !rootN) {
                 copyThrough(c);
@@ -419,7 +418,7 @@ void UsdGenSculptLayerOp::Evaluate(
                 px[o] = inPx[o]; py[o] = inPy[o]; pz[o] = inPz[o];
                 continue;
             }
-            GfVec3f const d = (*deltas)[size_t(first) + i] * s;
+            UsdGenVec3f const d = (*deltas)[size_t(first) + i] * s;
             if (rootFrame) {
                 px[o] = inPx[o] + T[0] * d[0] + B[0] * d[1] + N[0] * d[2];
                 py[o] = inPy[o] + T[1] * d[0] + B[1] * d[1] + N[1] * d[2];

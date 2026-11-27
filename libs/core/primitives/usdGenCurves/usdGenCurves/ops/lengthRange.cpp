@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cmath>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace lengthRange {
@@ -38,7 +37,7 @@ struct MeanCurve
     std::vector<float> cum;
     size_t n = 0;
     float length = 0.0f;
-    GfVec3f tip{0.0f, 1.0f, 0.0f};
+    UsdGenVec3f tip{0.0f, 1.0f, 0.0f};
 };
 
 }  // namespace
@@ -59,10 +58,10 @@ float RandomScale(Settings const &settings, uint32_t seed)
     return scale;
 }
 
-GfVec3f SampleForward(float const *R, size_t nR, std::vector<float> const &cum,
-                      float L, GfVec3f const &tip, float x, size_t *k)
+UsdGenVec3f SampleForward(float const *R, size_t nR, std::vector<float> const &cum,
+                      float L, UsdGenVec3f const &tip, float x, size_t *k)
 {
-    if (nR == 0) return GfVec3f(0.0f);
+    if (nR == 0) return UsdGenVec3f(0.0f);
     if (x < L && nR >= 2) {
         size_t kk = k ? *k : 0;
         if (kk + 1 >= nR) kk = nR - 2;
@@ -70,14 +69,14 @@ GfVec3f SampleForward(float const *R, size_t nR, std::vector<float> const &cum,
         if (k) *k = kk;
         float const seg = cum[kk + 1] - cum[kk];
         float const w = seg > 1e-6f ? (x - cum[kk]) / seg : 0.0f;
-        GfVec3f const a = strand::Load(R, kk), b = strand::Load(R, kk + 1);
+        UsdGenVec3f const a = strand::Load(R, kk), b = strand::Load(R, kk + 1);
         return a + (b - a) * w;
     }
     return strand::Load(R, nR - 1) + tip * (x - L);
 }
 
 void ResampleTo(float const *R, size_t nR, std::vector<float> const &cum, float L,
-                GfVec3f const &tip, float target, size_t n, float *dst)
+                UsdGenVec3f const &tip, float target, size_t n, float *dst)
 {
     size_t k = 0;
     for (size_t j = 0; j < n; ++j) {
@@ -86,11 +85,11 @@ void ResampleTo(float const *R, size_t nR, std::vector<float> const &cum, float 
     }
 }
 
-GfVec3f TipDirection(float const *R, size_t n)
+UsdGenVec3f TipDirection(float const *R, size_t n)
 {
-    if (n < 2) return GfVec3f(0.0f, 1.0f, 0.0f);
+    if (n < 2) return UsdGenVec3f(0.0f, 1.0f, 0.0f);
     return strand::Normalize(strand::Load(R, n - 1) - strand::Load(R, n - 2),
-                             GfVec3f(0.0f, 1.0f, 0.0f), 1e-12f);
+                             UsdGenVec3f(0.0f, 1.0f, 0.0f), 1e-12f);
 }
 
 void Apply(Settings const &settings, Strands const &strands, std::vector<float> *points,
@@ -177,7 +176,7 @@ void Apply(Settings const &settings, Strands const &strands, std::vector<float> 
         size_t nRef = n;
         std::vector<float> const *cumRef = &cum;
         float L = 0.0f;
-        GfVec3f tip(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f tip(0.0f, 1.0f, 0.0f);
         if (mean) {
             ref = mean->points.data();
             nRef = mean->n;
@@ -194,7 +193,7 @@ void Apply(Settings const &settings, Strands const &strands, std::vector<float> 
         size_t k = 0;
         for (size_t j = 0; j < n; ++j) {
             float const x = n > 1 ? float(j) / float(n - 1) * target : 0.0f;
-            GfVec3f q = SampleForward(ref, nRef, *cumRef, L, tip, x, &k);
+            UsdGenVec3f q = SampleForward(ref, nRef, *cumRef, L, tip, x, &k);
             if (mean)
                 q += strand::Load(original.data(), j) -
                      strand::Load(mean->points.data(), std::min(j, mean->n - 1));

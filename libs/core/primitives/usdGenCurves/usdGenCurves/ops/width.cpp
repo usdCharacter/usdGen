@@ -23,7 +23,6 @@
 #include <string>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -31,23 +30,23 @@ using namespace widthP;
 
 namespace {
 
-VtValue const kNoValue;
+UsdGenValue const kNoValue;
 
 /// Read a float2[] ramp-knots property (02 §2.17). Missing or empty -> {}
 /// (UsdGenBuildRampLut maps {} to the flat constant ramp).
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
     if (!p) return {};
-    if (VtValue const &v = p->GetValue(slot, kNoValue);
-        v.IsHolding<VtVec2fArray>()) {
-        return v.UncheckedGet<VtVec2fArray>();
+    if (UsdGenValue const &v = p->GetValue(slot, kNoValue);
+        v.IsHolding<UsdGenVec2fArray>()) {
+        return v.UncheckedGet<UsdGenVec2fArray>();
     }
     return {};
 }
 
 // Views built outside the compiler (the GPU plan builders, until S4-6/7)
 // carry no slots; read the node's params by spelling, as before.
-VtValue const &RawParam(UsdGenParamView const &p, UsdGenParamSlot slot, char const *name)
+UsdGenValue const &RawParam(UsdGenParamView const &p, UsdGenParamSlot slot, char const *name)
 {
     if (p.op) return p.GetValue(slot, kNoValue);
     if (p.node)
@@ -60,7 +59,7 @@ double RawDouble(UsdGenParamView const &p, UsdGenParamSlot slot, char const *nam
                  double fallback)
 {
     if (p.op) return p.GetDouble(slot, fallback);
-    VtValue const &v = RawParam(p, slot, name);
+    UsdGenValue const &v = RawParam(p, slot, name);
     if (v.IsHolding<double>()) return v.UncheckedGet<double>();
     if (v.IsHolding<float>()) return v.UncheckedGet<float>();
     return fallback;
@@ -69,8 +68,8 @@ double RawDouble(UsdGenParamView const &p, UsdGenParamSlot slot, char const *nam
 bool IsBezierMode(UsdGenParamView const &p)
 {
     if (p.op) return p.GetEnum(kProfileMode, kProfileRamp) == kProfileBezier;
-    VtValue const &v = RawParam(p, kProfileMode, "width:profile:mode");
-    if (v.IsHolding<TfToken>()) return v.UncheckedGet<TfToken>().GetString() == "bezier";
+    UsdGenValue const &v = RawParam(p, kProfileMode, "width:profile:mode");
+    if (v.IsHolding<UsdGenToken>()) return v.UncheckedGet<UsdGenToken>().GetString() == "bezier";
     if (v.IsHolding<std::string>()) return v.UncheckedGet<std::string>() == "bezier";
     return false;
 }
@@ -187,8 +186,8 @@ uint32_t UsdGenWidthOp::PlanesTouched() const
 
 bool UsdGenWidthOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(params);
-    TF_UNUSED(diag);
+    (void)params;
+    (void)diag;
     return true;
 }
 
@@ -216,10 +215,10 @@ bool UsdGenWidthOp::Capture(
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(ctx);
-    TF_UNUSED(in);
-    TF_UNUSED(out);
-    TF_UNUSED(diag);
+    (void)ctx;
+    (void)in;
+    (void)out;
+    (void)diag;
     // `width:knots` is value-class (02 :665): the ramp LUT is rebuilt every
     // evaluate from the live parameters (review M-5). Baking it into the
     // capture payload here would freeze a value-class edit out of the frame
@@ -235,7 +234,7 @@ void UsdGenWidthOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(captureIn);
+    (void)captureIn;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     // usdGen:width and usdGen:mask are CONNECTABLE: an authored literal is a
     // uniform field, a connected expression is a groom/primitive/point field
@@ -258,7 +257,7 @@ void UsdGenWidthOp::Evaluate(
     // exact scalar 1.0 below and require no allocated table.
     float const *lutPtr = nullptr;
     BezierWidth const bezier = ReadBezierWidth(p);
-    VtVec2fArray const widthKnots = bezier.on ? VtVec2fArray() : ReadRampKnots(p, kKnots);
+    UsdGenVec2fArray const widthKnots = bezier.on ? UsdGenVec2fArray() : ReadRampKnots(p, kKnots);
     bool const magFlat = widthKnots.empty() && !bezier.on;
     thread_local std::vector<float> tLut;
     if (!widthKnots.empty()) {

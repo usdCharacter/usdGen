@@ -19,7 +19,7 @@
 #include "usdGen/registries/engineTokens.h"
 
 
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
@@ -30,7 +30,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -111,7 +110,7 @@ bool UsdGenStraightenOp::Capture(
     UsdGenDiagnostics *diag)
 {
     UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
-    TF_UNUSED(out);
+    (void)out;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
     // Literals are validated here (the CPU lane never calls Bind) and every
@@ -165,7 +164,7 @@ void UsdGenStraightenOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(captureIn);
+    (void)captureIn;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const tangentField =
         p ? p->GetScalarField(kTangentStraightness, 0.0) : UsdGenParamField{0.0};
@@ -186,9 +185,9 @@ void UsdGenStraightenOp::Evaluate(
         size_t const g = ragged ? size_t(cvOff[c] - cvOff[0]) : view->Cv(c, 0);
         if (!n) continue;
         size_t const curve = curveBase + c;
-        GfVec3f const T = rootT ? rootT[c] : GfVec3f(1.0f, 0.0f, 0.0f);
-        GfVec3f const N = rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f);
-        GfVec3f const B = rootB ? rootB[c] : GfVec3f(0.0f, 0.0f, 1.0f);
+        UsdGenVec3f const T = rootT ? rootT[c] : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+        UsdGenVec3f const N = rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f const B = rootB ? rootB[c] : UsdGenVec3f(0.0f, 0.0f, 1.0f);
         float const rootx = inPx[g], rooty = inPy[g], rootz = inPz[g];
         float const chordx = inPx[g + n - 1] - rootx;
         float const chordy = inPy[g + n - 1] - rooty;

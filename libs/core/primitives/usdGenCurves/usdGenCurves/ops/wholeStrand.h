@@ -23,21 +23,19 @@
 #include "usdGen/ops/recordedOp.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 #include <memory>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
 /// One output plane a whole-strand styler writes (built from its record).
 struct UsdGenStrandPlaneSpec
 {
-    TfToken name;
+    UsdGenToken name;
     bool cv = false;      // true: vertex (per CV); false: uniform (per curve)
     bool isInt = false;   // int or float payload, arity 1
 };
@@ -65,11 +63,11 @@ struct UsdGenStrandSet
     float const *P(uint32_t c) const { return points.data() + 3 * size_t(spans[c]); }
 
     /// Upstream per-curve int plane (arity 1), or null when absent.
-    int const *CurveInt(TfToken const &name) const;
+    int const *CurveInt(UsdGenToken const &name) const;
     /// Upstream per-curve float plane (arity 1), or null when absent.
-    float const *CurveFloat(TfToken const &name) const;
+    float const *CurveFloat(UsdGenToken const &name) const;
     /// Upstream per-CV float plane (arity 1), or null when absent.
-    float const *CvFloat(TfToken const &name) const;
+    float const *CvFloat(UsdGenToken const &name) const;
     /// Per-strand random key: the upstream `strandSeed` plane when present,
     /// else Index(c).
     uint32_t Seed(uint32_t c) const;

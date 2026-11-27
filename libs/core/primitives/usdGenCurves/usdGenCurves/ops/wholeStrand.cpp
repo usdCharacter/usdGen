@@ -11,7 +11,6 @@
 #include <cmath>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -52,7 +51,7 @@ struct UsdGenWholeStrandCapture final : public UsdGenCapture
 };
 
 // A named plane of the upstream view: curve rate (levels 0-1) or vertex rate.
-UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, TfToken const &name,
+UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, UsdGenToken const &name,
                                  UsdGenPlaneView *storage)
 {
     uint32_t const n = perCv ? v.ExtraCvCount() : v.ExtraCurveCount();
@@ -63,12 +62,12 @@ UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, TfToke
     return nullptr;
 }
 
-const TfToken sStrandSeed = UsdGenInternToken("strandSeed");
-const TfToken sStrandIndex = UsdGenInternToken("strandIndex");
+const UsdGenToken sStrandSeed = UsdGenInternToken("strandSeed");
+const UsdGenToken sStrandIndex = UsdGenInternToken("strandIndex");
 
 }  // namespace
 
-int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
+int const *UsdGenStrandSet::CurveInt(UsdGenToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlaneView plane;
@@ -79,7 +78,7 @@ int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
     return p->i.cdata();
 }
 
-float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
+float const *UsdGenStrandSet::CurveFloat(UsdGenToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlaneView plane;
@@ -90,7 +89,7 @@ float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
     return p->f.cdata();
 }
 
-float const *UsdGenStrandSet::CvFloat(TfToken const &name) const
+float const *UsdGenStrandSet::CvFloat(UsdGenToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlaneView plane;

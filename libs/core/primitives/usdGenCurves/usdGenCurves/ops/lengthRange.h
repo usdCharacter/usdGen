@@ -24,14 +24,12 @@
 #ifndef USDGEN_OPS_LENGTH_RANGE_H
 #define USDGEN_OPS_LENGTH_RANGE_H
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -65,15 +63,15 @@ float RandomScale(Settings const &settings, uint32_t seed);
 /// total L): linear on the first segment k with cum[k+1] >= x, searched
 /// forward from *k (monotone callers pass the previous k); past the tip
 /// R[last] + tip (x - L).
-GfVec3f SampleForward(float const *R, size_t nR, std::vector<float> const &cum,
-                      float L, GfVec3f const &tip, float x, size_t *k);
+UsdGenVec3f SampleForward(float const *R, size_t nR, std::vector<float> const &cum,
+                      float L, UsdGenVec3f const &tip, float x, size_t *k);
 
 /// Writes n points at x_j = j / (n - 1) * target along R into dst (3n floats).
 void ResampleTo(float const *R, size_t nR, std::vector<float> const &cum, float L,
-                GfVec3f const &tip, float target, size_t n, float *dst);
+                UsdGenVec3f const &tip, float target, size_t n, float *dst);
 
 /// normalize(R[n-1] - R[n-2]), (0,1,0) when degenerate or n < 2.
-GfVec3f TipDirection(float const *R, size_t n);
+UsdGenVec3f TipDirection(float const *R, size_t n);
 
 /// Applies the randomRange length scale to every strand of `points`
 /// (3 * totalCvs, edited in place) and writes each strand's reference

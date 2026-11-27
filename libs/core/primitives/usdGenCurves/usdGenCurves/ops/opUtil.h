@@ -9,8 +9,8 @@
 #include "usdGen/op.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
 
 #include <cmath>
 #include <cstdint>
@@ -34,8 +34,8 @@ struct Digest
         std::memcpy(&bits, &v, sizeof(bits));
         Mix(bits);
     }
-    void Mix(TfToken const &t) { for (char const *p = t.GetText(); *p; ++p) Mix(uint64_t(uint8_t(*p))); }
-    void Mix(VtValue const &v) { Mix(uint64_t(v.IsEmpty() ? 0 : v.GetHash())); }
+    void Mix(UsdGenToken const &t) { for (char const *p = t.GetText(); *p; ++p) Mix(uint64_t(uint8_t(*p))); }
+    void Mix(UsdGenValue const &v) { Mix(uint64_t(v.IsEmpty() ? 0 : v.GetHash())); }
     /// FNV-1a over a byte range, one round per 8-byte word. The multiply
     /// chain is the bottleneck, so groups of four words run as four
     /// independent lanes (distinct seeds, folded back in order). Faster
@@ -166,29 +166,29 @@ inline bool CurveSpans(UsdGenCurveSetView const &curves, std::vector<uint32_t> *
     return detail::_UsdGenCurveSpans(curves, spans, error);
 }
 
-inline GfVec3f Point(UsdGenCurveBuffer const &b, size_t cv)
+inline UsdGenVec3f Point(UsdGenCurveBuffer const &b, size_t cv)
 {
-    return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]);
+    return UsdGenVec3f(b.px[cv], b.py[cv], b.pz[cv]);
 }
 
-inline GfVec3f Point(UsdGenCurveSetView const &b, size_t cv)
+inline UsdGenVec3f Point(UsdGenCurveSetView const &b, size_t cv)
 {
-    return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]);
+    return UsdGenVec3f(b.px[cv], b.py[cv], b.pz[cv]);
 }
 
 /// The rest position of CV `cv` when the buffer carries a complete rest
 /// plane, else its current position.
-inline GfVec3f RestPoint(UsdGenCurveBuffer const &b, size_t cv)
+inline UsdGenVec3f RestPoint(UsdGenCurveBuffer const &b, size_t cv)
 {
     return b.rest.size() == b.totalCvs ? b.rest[cv] : Point(b, cv);
 }
 
-inline GfVec3f RestPoint(UsdGenCurveSetView const &b, size_t cv)
+inline UsdGenVec3f RestPoint(UsdGenCurveSetView const &b, size_t cv)
 {
     return b.rest.size() == b.totalCvs ? b.rest[cv] : Point(b, cv);
 }
 
-inline GfVec3f Normalized(GfVec3f v, GfVec3f fallback = GfVec3f(0, 1, 0))
+inline UsdGenVec3f Normalized(UsdGenVec3f v, UsdGenVec3f fallback = UsdGenVec3f(0, 1, 0))
 {
     float const length = v.GetLength();
     return length > 1e-12f ? v / length : fallback;
@@ -196,25 +196,25 @@ inline GfVec3f Normalized(GfVec3f v, GfVec3f fallback = GfVec3f(0, 1, 0))
 
 /// Rotates `v` by the rotation that takes unit `from` onto unit `to`, scaled
 /// to `amount` of its angle (0 = identity, 1 = the full minimal rotation).
-inline GfVec3f RotateOnto(GfVec3f const &v, GfVec3f const &from, GfVec3f const &to,
+inline UsdGenVec3f RotateOnto(UsdGenVec3f const &v, UsdGenVec3f const &from, UsdGenVec3f const &to,
                           float amount)
 {
     if (amount <= 0.0f) return v;
-    GfVec3d const a(from), b(to);
-    GfVec3d axis = GfCross(a, b);
+    UsdGenVec3d const a(from), b(to);
+    UsdGenVec3d axis = UsdGenCross(a, b);
     double const s = axis.GetLength();
-    double const c = GfDot(a, b);
+    double const c = UsdGenDot(a, b);
     double angle = std::atan2(s, c) * double(amount);
     if (s < 1e-9) {
         if (c > 0.0) return v;                 // already aligned
         // Opposite: any axis perpendicular to `from`.
-        axis = std::fabs(a[0]) < 0.9 ? GfCross(a, GfVec3d(1, 0, 0)) : GfCross(a, GfVec3d(0, 1, 0));
+        axis = std::fabs(a[0]) < 0.9 ? UsdGenCross(a, UsdGenVec3d(1, 0, 0)) : UsdGenCross(a, UsdGenVec3d(0, 1, 0));
     }
     axis.Normalize();
-    GfVec3d const p(v);
+    UsdGenVec3d const p(v);
     double const cs = std::cos(angle), sn = std::sin(angle);
-    GfVec3d const r = p * cs + GfCross(axis, p) * sn + axis * (GfDot(axis, p) * (1.0 - cs));
-    return GfVec3f(r);
+    UsdGenVec3d const r = p * cs + UsdGenCross(axis, p) * sn + axis * (UsdGenDot(axis, p) * (1.0 - cs));
+    return UsdGenVec3f(r);
 }
 
 /// Rest area of the faces a node scatters on: a GeomSubset's faces of its
@@ -240,7 +240,7 @@ inline double RestSurfaceArea(UsdGenGraphSpec const *desc, UsdGenSurfaceId surfa
             }
         if (!mesh) return 0.0;
     }
-    UsdGenSpan<const GfVec3f> const points = mesh->restPoints.empty() ? mesh->points : mesh->restPoints;
+    UsdGenSpan<const UsdGenVec3f> const points = mesh->restPoints.empty() ? mesh->points : mesh->restPoints;
     std::vector<size_t> offsets(mesh->faceVertexCounts.size() + 1, 0);
     for (size_t f = 0; f < mesh->faceVertexCounts.size(); ++f)
         offsets[f + 1] = offsets[f] + size_t(std::max(0, mesh->faceVertexCounts[f]));
@@ -248,13 +248,13 @@ inline double RestSurfaceArea(UsdGenGraphSpec const *desc, UsdGenSurfaceId surfa
     auto faceArea = [&](size_t f) {
         size_t const first = offsets[f], n = offsets[f + 1] - first;
         if (n < 3) return 0.0;
-        GfVec3d sum(0.0);
+        UsdGenVec3d sum(0.0);
         for (size_t k = 0; k < n; ++k) {
             int const ia = mesh->faceVertexIndices[first + k];
             int const ib = mesh->faceVertexIndices[first + (k + 1) % n];
             if (ia < 0 || ib < 0 || size_t(ia) >= points.size() || size_t(ib) >= points.size())
                 return 0.0;
-            sum += GfCross(GfVec3d(points[ia]), GfVec3d(points[ib]));
+            sum += UsdGenCross(UsdGenVec3d(points[ia]), UsdGenVec3d(points[ib]));
         }
         return 0.5 * sum.GetLength();
     };

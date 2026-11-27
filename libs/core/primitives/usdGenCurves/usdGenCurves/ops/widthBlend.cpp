@@ -7,7 +7,6 @@
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -30,7 +29,7 @@ bool ValidateNode(UsdGenGraphSpec const &, UsdGenOpNode const &node,
                   UsdGenParamView const &view, std::string *error)
 {
     bool paramsOk = true;
-    TfToken const &weightName = view.op->ParamName(kWeight);
+    UsdGenToken const &weightName = view.op->ParamName(kWeight);
     for (UsdGenParamValue const &param : node.params)
         paramsOk = paramsOk && param.name == weightName;
     double const weight = view.GetDoubleLiteral(kWeight, 1.0);
@@ -92,14 +91,14 @@ bool SameNonWidthData(UsdGenCurveSetView const &left,
     if (left.totalCurves != right.totalCurves || left.totalCvs != right.totalCvs ||
         !SameSpan<float>(left.px, right.px) || !SameSpan<float>(left.py, right.py) ||
         !SameSpan<float>(left.pz, right.pz) ||
-        !SameSpan<GfVec3f>(left.rest, right.rest) ||
+        !SameSpan<UsdGenVec3f>(left.rest, right.rest) ||
         !SameSpan<float>(left.hairT, right.hairT) ||
         !SameSpan<uint64_t>(left.curveId, right.curveId) ||
         !SameSpan<int>(left.rootPrim, right.rootPrim) ||
-        !SameSpan<GfVec2f>(left.rootUV, right.rootUV) ||
-        !SameSpan<GfVec3f>(left.rootT, right.rootT) ||
-        !SameSpan<GfVec3f>(left.rootN, right.rootN) ||
-        !SameSpan<GfVec3f>(left.rootB, right.rootB) ||
+        !SameSpan<UsdGenVec2f>(left.rootUV, right.rootUV) ||
+        !SameSpan<UsdGenVec3f>(left.rootT, right.rootT) ||
+        !SameSpan<UsdGenVec3f>(left.rootN, right.rootN) ||
+        !SameSpan<UsdGenVec3f>(left.rootB, right.rootB) ||
         !SameSpan<int>(left.cvOffsets, right.cvOffsets) ||
         left.ExtraCvCount() != right.ExtraCvCount() ||
         left.ExtraCurveCount() != right.ExtraCurveCount())
@@ -183,7 +182,7 @@ bool UsdGenWidthBlendOp::Capture(
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(out);
+    (void)out;
     float weight = 1.0f;
     if (!ReadWeight(ctx.params, &weight, diag)) return false;
     if (in.count != 2 || !in.sets) {
@@ -213,7 +212,7 @@ void UsdGenWidthBlendOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(capture);
+    (void)capture;
     if (!view || !view->width || !view->inWidth || !view->inWidth2) return;
     float weight = ctx.params
         ? static_cast<float>(ctx.params->GetDouble(kWeight, 1.0)) : 1.0f;

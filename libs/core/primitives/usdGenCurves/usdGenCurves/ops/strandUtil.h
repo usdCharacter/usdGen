@@ -16,10 +16,9 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,7 +27,6 @@
 #include <random>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace strand {
@@ -163,23 +161,23 @@ inline float ValueNoise1(float x, uint64_t key, float sharpness = 0.0f)
 // Vectors and polylines
 // ---------------------------------------------------------------------------
 
-inline GfVec3f Load(float const *p, size_t i) { return GfVec3f(p[3 * i], p[3 * i + 1], p[3 * i + 2]); }
-inline void Store(float *p, size_t i, GfVec3f const &v)
+inline UsdGenVec3f Load(float const *p, size_t i) { return UsdGenVec3f(p[3 * i], p[3 * i + 1], p[3 * i + 2]); }
+inline void Store(float *p, size_t i, UsdGenVec3f const &v)
 {
     p[3 * i] = v[0]; p[3 * i + 1] = v[1]; p[3 * i + 2] = v[2];
 }
 
-inline GfVec3f Normalize(GfVec3f const &v, GfVec3f const &fallback, float eps = 1e-6f)
+inline UsdGenVec3f Normalize(UsdGenVec3f const &v, UsdGenVec3f const &fallback, float eps = 1e-6f)
 {
     float const l = v.GetLength();
     return l > eps ? v / l : fallback;
 }
 
 /// Rodrigues rotation of v about unit axis k by angle a (radians).
-inline GfVec3f Rotate(GfVec3f const &v, GfVec3f const &k, float a)
+inline UsdGenVec3f Rotate(UsdGenVec3f const &v, UsdGenVec3f const &k, float a)
 {
     float const c = std::cos(a), s = std::sin(a);
-    return v * c + GfCross(k, v) * s + k * (GfDot(k, v) * (1.0f - c));
+    return v * c + UsdGenCross(k, v) * s + k * (UsdGenDot(k, v) * (1.0f - c));
 }
 
 /// Cumulative arc length: out[0] = 0, out[i] = sum of segment lengths to i.
@@ -189,7 +187,7 @@ float ArcLengths(float const *p, size_t n, std::vector<float> *out);
 /// Point at arc length s along the polyline (linear between points). Past
 /// the tip the last segment's direction is extrapolated by (s - L); before
 /// the root the root is returned. A zero-length polyline returns the root.
-GfVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float s);
+UsdGenVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float s);
 
 /// Resample the polyline to m points uniformly in arc length over [s0, s1]
 /// (s1 may exceed the length: extrapolates straight). dst has 3*m floats.
@@ -199,17 +197,17 @@ void ResampleArc(float const *p, size_t n, std::vector<float> const &cum,
 /// Rotation-minimising frames by the projection method: T[i] given (unit),
 /// N0 = normalize(T0 x up) with up = +Y, or +X when |T0.y| >= 0.95;
 /// N[i] = normalize(N[i-1] - (N[i-1].T[i]) T[i]); B[i] = T[i] x N[i].
-void TransportFrames(std::vector<GfVec3f> const &T, std::vector<GfVec3f> *N,
-                     std::vector<GfVec3f> *B);
+void TransportFrames(std::vector<UsdGenVec3f> const &T, std::vector<UsdGenVec3f> *N,
+                     std::vector<UsdGenVec3f> *B);
 
 /// Central-difference unit tangents of a polyline (forward/backward at the
 /// ends); degenerate segments reuse the previous tangent, default +Y.
-void PolylineTangents(float const *p, size_t n, std::vector<GfVec3f> *T);
+void PolylineTangents(float const *p, size_t n, std::vector<UsdGenVec3f> *T);
 
 /// Moves a strand so its root lands at root + delta while far CVs stay put:
 /// p0 += delta; p_k += delta * (1 - smoothstep(s_k / F)) for k >= 1 until
 /// s_k >= F, with s_k the ORIGINAL arc length and F = min(4|delta|, L/2).
-void ResnapRoot(float *p, size_t n, GfVec3f const &delta);
+void ResnapRoot(float *p, size_t n, UsdGenVec3f const &delta);
 
 // ---------------------------------------------------------------------------
 // Surface: fan triangles and closest-point queries
@@ -227,7 +225,7 @@ struct FanTriangle
 /// Fan-triangulates every polygon in face order: polygon f with k corners
 /// gives triangles (c0, cj, cj+1), j = 1..k-2. When `faces` is non-null only
 /// those faces are emitted (sorted ascending, e.g. GeomSubset faces).
-/// Ints: VtIntArray or UsdGenSpan<const int>.
+/// Ints: UsdGenIntArray or UsdGenSpan<const int>.
 template <class Ints>
 inline void FanTriangulate(Ints const &counts, Ints const &indices,
                            std::vector<FanTriangle> *out, Ints const *faces = nullptr)
@@ -262,8 +260,8 @@ struct ClosestHit
 {
     bool hit = false;
     int triangle = -1;          // index into the triangle list
-    GfVec3f bary{1.0f, 0.0f, 0.0f};
-    GfVec3f point{0.0f};
+    UsdGenVec3f bary{1.0f, 0.0f, 0.0f};
+    UsdGenVec3f point{0.0f};
     float distanceSq = 0.0f;
 };
 
@@ -277,33 +275,33 @@ class TriangleBvh
 public:
     /// `cornerNormals` / `cornerUvs`: 3 entries per triangle, or empty
     /// (normals then default to area-weighted vertex normals, UVs to 0).
-    void Build(VtVec3fArray const &points, std::vector<FanTriangle> const &triangles,
-               std::vector<GfVec3f> cornerNormals = {},
-               std::vector<GfVec2f> cornerUvs = {});
+    void Build(UsdGenVec3fArray const &points, std::vector<FanTriangle> const &triangles,
+               std::vector<UsdGenVec3f> cornerNormals = {},
+               std::vector<UsdGenVec2f> cornerUvs = {});
     bool Empty() const { return _nodes.empty(); }
     size_t TriangleCount() const { return _tris.size(); }
     /// Closest point within sqrt(maxDistanceSq) (infinite by default).
-    ClosestHit Closest(GfVec3f const &p, float maxDistanceSq = 3.0e38f) const;
+    ClosestHit Closest(UsdGenVec3f const &p, float maxDistanceSq = 3.0e38f) const;
     /// Unit geometric normal of a triangle (right-handed, (b-a)x(c-a)).
-    GfVec3f FaceNormal(int triangle) const;
+    UsdGenVec3f FaceNormal(int triangle) const;
     /// Barycentric blend of the triangle's corner normals, normalised
     /// (face normal fallback).
-    GfVec3f Normal(int triangle, GfVec3f const &bary) const;
+    UsdGenVec3f Normal(int triangle, UsdGenVec3f const &bary) const;
     /// Barycentric blend of the triangle's corner UVs.
-    GfVec2f Uv(int triangle, GfVec3f const &bary) const;
+    UsdGenVec2f Uv(int triangle, UsdGenVec3f const &bary) const;
     /// Position from barycentrics.
-    GfVec3f Position(int triangle, GfVec3f const &bary) const;
+    UsdGenVec3f Position(int triangle, UsdGenVec3f const &bary) const;
     std::vector<FanTriangle> const &Triangles() const { return _tris; }
-    VtVec3fArray const &Points() const { return _points; }
+    UsdGenVec3fArray const &Points() const { return _points; }
 private:
     struct Node { float lo[3], hi[3]; int left = -1, right = -1, first = 0, count = 0; };
-    int BuildRange(int first, int count, std::vector<GfVec3f> const &centroids);
+    int BuildRange(int first, int count, std::vector<UsdGenVec3f> const &centroids);
     std::vector<Node> _nodes;
     std::vector<int> _order;
     std::vector<FanTriangle> _tris;
-    std::vector<GfVec3f> _normals;   // 3 per triangle
-    std::vector<GfVec2f> _uvs;       // 3 per triangle, or empty
-    VtVec3fArray _points;
+    std::vector<UsdGenVec3f> _normals;   // 3 per triangle
+    std::vector<UsdGenVec2f> _uvs;       // 3 per triangle, or empty
+    UsdGenVec3fArray _points;
 };
 
 /// Builds the closest-point structure for a surface's REST (Default-time)
@@ -323,7 +321,7 @@ void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleB
 ///                     channel 0.
 /// Returns `fallback` when the map has no usable payload. Clamped to [0,1].
 float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int triangle,
-                    GfVec3f const &bary, float fallback = 1.0f);
+                    UsdGenVec3f const &bary, float fallback = 1.0f);
 
 /// The map descriptors a node binds through `relationship` (e.g.
 /// "usdGen:densityMap"), resolved against the graph description, in
@@ -331,7 +329,7 @@ float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int t
 std::vector<UsdGenMapInputView> BoundMaps(UsdGenGraphSpec const *desc,
                                          UsdGenMapBinding const *bindings,
                                          uint32_t bindingCount,
-                                         TfToken const &relationship);
+                                         UsdGenToken const &relationship);
 
 }  // namespace strand
 }  // namespace usdGen

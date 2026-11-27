@@ -12,12 +12,12 @@ namespace usdGen {
 /// or not a token. -1 when authored with a value that is not an enumerant;
 /// *unknown then points at the authored token.
 inline int UsdGenStylerEnum(UsdGenParamView const &p, UsdGenParamSlot s, int fallback,
-                            TfToken const **unknown = nullptr) noexcept
+                            UsdGenToken const **unknown = nullptr) noexcept
 {
     UsdGenResolvedParam const *r = p.Slot(s);
     if (!r || !r->authored) return fallback;
-    VtValue const &v = r->authored->value;
-    if (!v.IsHolding<TfToken>() && !v.IsHolding<std::string>()) return fallback;
+    UsdGenValue const &v = r->authored->value;
+    if (!v.IsHolding<UsdGenToken>() && !v.IsHolding<std::string>()) return fallback;
     if (r->enumIndex < 0 && unknown) *unknown = &r->token;
     return r->enumIndex;
 }

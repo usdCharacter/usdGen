@@ -29,7 +29,7 @@
 
 #include <nanoflann.hpp>
 
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
@@ -41,7 +41,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -126,7 +125,7 @@ uint32_t UsdGenSmoothOp::PlanesTouched() const
 
 bool UsdGenSmoothOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const *unknown = nullptr;
+    UsdGenToken const *unknown = nullptr;
     if (UsdGenStylerEnum(params, kMode, kModeAlongCurve, &unknown) < 0) {
         if (diag) diag->Error("UsdGenSmooth: unknown usdGen:mode '" + unknown->GetString() + "'");
         return false;

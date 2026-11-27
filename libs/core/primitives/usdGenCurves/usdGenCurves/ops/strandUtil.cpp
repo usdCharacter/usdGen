@@ -13,7 +13,6 @@
 #include <limits>
 #include <numeric>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace strand {
@@ -32,9 +31,9 @@ float ArcLengths(float const *p, size_t n, std::vector<float> *out)
     return s;
 }
 
-GfVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float s)
+UsdGenVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float s)
 {
-    if (n == 0) return GfVec3f(0.0f);
+    if (n == 0) return UsdGenVec3f(0.0f);
     if (n == 1 || s <= 0.0f) return Load(p, 0);
     float const L = cum[n - 1];
     if (!(L > 1e-12f)) return Load(p, 0);
@@ -43,8 +42,8 @@ GfVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float
         size_t k = n - 1;
         while (k > 0 && cum[k] - cum[k - 1] <= 1e-12f) --k;
         if (k == 0) return Load(p, n - 1);
-        GfVec3f const a = Load(p, k - 1), b = Load(p, k);
-        GfVec3f const dir = (b - a) / (cum[k] - cum[k - 1]);
+        UsdGenVec3f const a = Load(p, k - 1), b = Load(p, k);
+        UsdGenVec3f const dir = (b - a) / (cum[k] - cum[k - 1]);
         return Load(p, n - 1) + dir * (s - L);
     }
     // First segment whose end reaches s.
@@ -53,7 +52,7 @@ GfVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float
     size_t const k = std::min(std::max<size_t>(hi, 1), n - 1);
     float const seg = cum[k] - cum[k - 1];
     float const w = seg > 1e-12f ? (s - cum[k - 1]) / seg : 0.0f;
-    GfVec3f const a = Load(p, k - 1), b = Load(p, k);
+    UsdGenVec3f const a = Load(p, k - 1), b = Load(p, k);
     return a + (b - a) * w;
 }
 
@@ -66,41 +65,41 @@ void ResampleArc(float const *p, size_t n, std::vector<float> const &cum,
     }
 }
 
-void TransportFrames(std::vector<GfVec3f> const &T, std::vector<GfVec3f> *N,
-                     std::vector<GfVec3f> *B)
+void TransportFrames(std::vector<UsdGenVec3f> const &T, std::vector<UsdGenVec3f> *N,
+                     std::vector<UsdGenVec3f> *B)
 {
     size_t const n = T.size();
-    N->assign(n, GfVec3f(1.0f, 0.0f, 0.0f));
-    B->assign(n, GfVec3f(0.0f, 0.0f, 1.0f));
+    N->assign(n, UsdGenVec3f(1.0f, 0.0f, 0.0f));
+    B->assign(n, UsdGenVec3f(0.0f, 0.0f, 1.0f));
     if (n == 0) return;
-    GfVec3f const up = std::fabs(T[0][1]) >= 0.95f ? GfVec3f(1.0f, 0.0f, 0.0f)
-                                                   : GfVec3f(0.0f, 1.0f, 0.0f);
-    GfVec3f prev = Normalize(GfCross(T[0], up), GfVec3f(1.0f, 0.0f, 0.0f));
+    UsdGenVec3f const up = std::fabs(T[0][1]) >= 0.95f ? UsdGenVec3f(1.0f, 0.0f, 0.0f)
+                                                   : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+    UsdGenVec3f prev = Normalize(UsdGenCross(T[0], up), UsdGenVec3f(1.0f, 0.0f, 0.0f));
     for (size_t i = 0; i < n; ++i) {
-        GfVec3f const t = T[i];
-        GfVec3f const proj = prev - t * GfDot(prev, t);
-        GfVec3f const nrm = Normalize(proj, prev);
+        UsdGenVec3f const t = T[i];
+        UsdGenVec3f const proj = prev - t * UsdGenDot(prev, t);
+        UsdGenVec3f const nrm = Normalize(proj, prev);
         (*N)[i] = nrm;
-        (*B)[i] = GfCross(t, nrm);
+        (*B)[i] = UsdGenCross(t, nrm);
         prev = nrm;
     }
 }
 
-void PolylineTangents(float const *p, size_t n, std::vector<GfVec3f> *T)
+void PolylineTangents(float const *p, size_t n, std::vector<UsdGenVec3f> *T)
 {
-    T->assign(n, GfVec3f(0.0f, 1.0f, 0.0f));
-    GfVec3f last(0.0f, 1.0f, 0.0f);
+    T->assign(n, UsdGenVec3f(0.0f, 1.0f, 0.0f));
+    UsdGenVec3f last(0.0f, 1.0f, 0.0f);
     for (size_t i = 0; i < n; ++i) {
         size_t const a = i > 0 ? i - 1 : 0;
         size_t const b = i + 1 < n ? i + 1 : n - 1;
-        GfVec3f const d = Load(p, b) - Load(p, a);
+        UsdGenVec3f const d = Load(p, b) - Load(p, a);
         float const l = d.GetLength();
         if (l > 1e-12f) last = d / l;
         (*T)[i] = last;
     }
 }
 
-void ResnapRoot(float *p, size_t n, GfVec3f const &delta)
+void ResnapRoot(float *p, size_t n, UsdGenVec3f const &delta)
 {
     float const dl = delta.GetLength();
     if (n == 0 || !(dl > 1e-9f)) return;
@@ -123,39 +122,39 @@ namespace {
 
 // Ericson 5.1.5, double precision. Returns barycentrics (u,v,w) of the
 // closest point on triangle abc to p.
-GfVec3d ClosestBary(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b, GfVec3d const &c)
+UsdGenVec3d ClosestBary(UsdGenVec3d const &p, UsdGenVec3d const &a, UsdGenVec3d const &b, UsdGenVec3d const &c)
 {
-    GfVec3d const ab = b - a, ac = c - a, ap = p - a;
-    double const d1 = GfDot(ab, ap), d2 = GfDot(ac, ap);
-    if (d1 <= 0.0 && d2 <= 0.0) return GfVec3d(1, 0, 0);
-    GfVec3d const bp = p - b;
-    double const d3 = GfDot(ab, bp), d4 = GfDot(ac, bp);
-    if (d3 >= 0.0 && d4 <= d3) return GfVec3d(0, 1, 0);
+    UsdGenVec3d const ab = b - a, ac = c - a, ap = p - a;
+    double const d1 = UsdGenDot(ab, ap), d2 = UsdGenDot(ac, ap);
+    if (d1 <= 0.0 && d2 <= 0.0) return UsdGenVec3d(1, 0, 0);
+    UsdGenVec3d const bp = p - b;
+    double const d3 = UsdGenDot(ab, bp), d4 = UsdGenDot(ac, bp);
+    if (d3 >= 0.0 && d4 <= d3) return UsdGenVec3d(0, 1, 0);
     double const vc = d1 * d4 - d3 * d2;
     if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
         double const v = d1 / (d1 - d3);
-        return GfVec3d(1.0 - v, v, 0.0);
+        return UsdGenVec3d(1.0 - v, v, 0.0);
     }
-    GfVec3d const cp = p - c;
-    double const d5 = GfDot(ab, cp), d6 = GfDot(ac, cp);
-    if (d6 >= 0.0 && d5 <= d6) return GfVec3d(0, 0, 1);
+    UsdGenVec3d const cp = p - c;
+    double const d5 = UsdGenDot(ab, cp), d6 = UsdGenDot(ac, cp);
+    if (d6 >= 0.0 && d5 <= d6) return UsdGenVec3d(0, 0, 1);
     double const vb = d5 * d2 - d1 * d6;
     if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
         double const w = d2 / (d2 - d6);
-        return GfVec3d(1.0 - w, 0.0, w);
+        return UsdGenVec3d(1.0 - w, 0.0, w);
     }
     double const va = d3 * d6 - d5 * d4;
     if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
         double const w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
-        return GfVec3d(0.0, 1.0 - w, w);
+        return UsdGenVec3d(0.0, 1.0 - w, w);
     }
     double const denom = va + vb + vc;
-    if (!(std::fabs(denom) > 1e-300)) return GfVec3d(1, 0, 0);
+    if (!(std::fabs(denom) > 1e-300)) return UsdGenVec3d(1, 0, 0);
     double const v = vb / denom, w = vc / denom;
-    return GfVec3d(1.0 - v - w, v, w);
+    return UsdGenVec3d(1.0 - v - w, v, w);
 }
 
-double BoxDistanceSq(float const lo[3], float const hi[3], GfVec3f const &p)
+double BoxDistanceSq(float const lo[3], float const hi[3], UsdGenVec3f const &p)
 {
     double d = 0.0;
     for (int k = 0; k < 3; ++k) {
@@ -168,8 +167,8 @@ double BoxDistanceSq(float const lo[3], float const hi[3], GfVec3f const &p)
 
 }  // namespace
 
-void TriangleBvh::Build(VtVec3fArray const &points, std::vector<FanTriangle> const &triangles,
-                        std::vector<GfVec3f> cornerNormals, std::vector<GfVec2f> cornerUvs)
+void TriangleBvh::Build(UsdGenVec3fArray const &points, std::vector<FanTriangle> const &triangles,
+                        std::vector<UsdGenVec3f> cornerNormals, std::vector<UsdGenVec2f> cornerUvs)
 {
     _points = points;
     _tris.clear();
@@ -183,20 +182,20 @@ void TriangleBvh::Build(VtVec3fArray const &points, std::vector<FanTriangle> con
     // Corner normals: authored when complete, else area-weighted vertex normals.
     if (cornerNormals.size() == 3 * triangles.size() && _tris.size() == triangles.size()) {
         _normals = std::move(cornerNormals);
-        for (GfVec3f &nrm : _normals) nrm = Normalize(nrm, GfVec3f(0.0f, 1.0f, 0.0f));
+        for (UsdGenVec3f &nrm : _normals) nrm = Normalize(nrm, UsdGenVec3f(0.0f, 1.0f, 0.0f));
     } else {
-        std::vector<GfVec3d> vn(points.size(), GfVec3d(0.0));
+        std::vector<UsdGenVec3d> vn(points.size(), UsdGenVec3d(0.0));
         for (FanTriangle const &t : _tris) {
-            GfVec3d const a(points[size_t(t.v[0])]), b(points[size_t(t.v[1])]), c(points[size_t(t.v[2])]);
-            GfVec3d const fn = GfCross(b - a, c - a);  // length = 2 * area
+            UsdGenVec3d const a(points[size_t(t.v[0])]), b(points[size_t(t.v[1])]), c(points[size_t(t.v[2])]);
+            UsdGenVec3d const fn = UsdGenCross(b - a, c - a);  // length = 2 * area
             for (int k = 0; k < 3; ++k) vn[size_t(t.v[k])] += fn;
         }
         _normals.resize(3 * _tris.size());
         for (size_t i = 0; i < _tris.size(); ++i)
             for (int k = 0; k < 3; ++k) {
-                GfVec3d const v = vn[size_t(_tris[i].v[k])];
+                UsdGenVec3d const v = vn[size_t(_tris[i].v[k])];
                 double const l = v.GetLength();
-                _normals[3 * i + size_t(k)] = l > 1e-300 ? GfVec3f(v / l) : FaceNormal(int(i));
+                _normals[3 * i + size_t(k)] = l > 1e-300 ? UsdGenVec3f(v / l) : FaceNormal(int(i));
             }
     }
     if (cornerUvs.size() == 3 * triangles.size() && _tris.size() == triangles.size())
@@ -208,7 +207,7 @@ void TriangleBvh::Build(VtVec3fArray const &points, std::vector<FanTriangle> con
     _order.resize(_tris.size());
     std::iota(_order.begin(), _order.end(), 0);
     if (_tris.empty()) return;
-    std::vector<GfVec3f> centroids(_tris.size());
+    std::vector<UsdGenVec3f> centroids(_tris.size());
     for (size_t i = 0; i < _tris.size(); ++i)
         centroids[i] = (points[size_t(_tris[i].v[0])] + points[size_t(_tris[i].v[1])] +
                         points[size_t(_tris[i].v[2])]) / 3.0f;
@@ -216,7 +215,7 @@ void TriangleBvh::Build(VtVec3fArray const &points, std::vector<FanTriangle> con
     BuildRange(0, int(_tris.size()), centroids);
 }
 
-int TriangleBvh::BuildRange(int first, int count, std::vector<GfVec3f> const &centroids)
+int TriangleBvh::BuildRange(int first, int count, std::vector<UsdGenVec3f> const &centroids)
 {
     int const index = int(_nodes.size());
     _nodes.push_back(Node());
@@ -226,13 +225,13 @@ int TriangleBvh::BuildRange(int first, int count, std::vector<GfVec3f> const &ce
     for (int i = first; i < first + count; ++i) {
         FanTriangle const &t = _tris[size_t(_order[size_t(i)])];
         for (int c = 0; c < 3; ++c) {
-            GfVec3f const &q = _points[size_t(t.v[c])];
+            UsdGenVec3f const &q = _points[size_t(t.v[c])];
             for (int k = 0; k < 3; ++k) {
                 node.lo[k] = std::min(node.lo[k], q[k]);
                 node.hi[k] = std::max(node.hi[k], q[k]);
             }
         }
-        GfVec3f const &cc = centroids[size_t(_order[size_t(i)])];
+        UsdGenVec3f const &cc = centroids[size_t(_order[size_t(i)])];
         for (int k = 0; k < 3; ++k) { clo[k] = std::min(clo[k], cc[k]); chi[k] = std::max(chi[k], cc[k]); }
     }
     if (count <= 4) {
@@ -256,13 +255,13 @@ int TriangleBvh::BuildRange(int first, int count, std::vector<GfVec3f> const &ce
     return index;
 }
 
-ClosestHit TriangleBvh::Closest(GfVec3f const &p, float maxDistanceSq) const
+ClosestHit TriangleBvh::Closest(UsdGenVec3f const &p, float maxDistanceSq) const
 {
     ClosestHit best;
     if (_nodes.empty()) return best;
     double bestD = double(maxDistanceSq);
     int bestTri = std::numeric_limits<int>::max();
-    GfVec3d const pd(p);
+    UsdGenVec3d const pd(p);
     int stack[128];
     int top = 0;
     stack[top++] = 0;
@@ -273,18 +272,18 @@ ClosestHit TriangleBvh::Closest(GfVec3f const &p, float maxDistanceSq) const
             for (int i = node.first; i < node.first + node.count; ++i) {
                 int const ti = _order[size_t(i)];
                 FanTriangle const &t = _tris[size_t(ti)];
-                GfVec3d const a(_points[size_t(t.v[0])]), b(_points[size_t(t.v[1])]),
+                UsdGenVec3d const a(_points[size_t(t.v[0])]), b(_points[size_t(t.v[1])]),
                     c(_points[size_t(t.v[2])]);
-                GfVec3d const bc = ClosestBary(pd, a, b, c);
-                GfVec3d const q = a * bc[0] + b * bc[1] + c * bc[2];
+                UsdGenVec3d const bc = ClosestBary(pd, a, b, c);
+                UsdGenVec3d const q = a * bc[0] + b * bc[1] + c * bc[2];
                 double const d = (q - pd).GetLengthSq();
                 if (d < bestD || (d == bestD && ti < bestTri)) {
                     bestD = d;
                     bestTri = ti;
                     best.hit = true;
                     best.triangle = ti;
-                    best.bary = GfVec3f(bc);
-                    best.point = GfVec3f(q);
+                    best.bary = UsdGenVec3f(bc);
+                    best.point = UsdGenVec3f(q);
                     best.distanceSq = float(d);
                 }
             }
@@ -301,32 +300,32 @@ ClosestHit TriangleBvh::Closest(GfVec3f const &p, float maxDistanceSq) const
     return best;
 }
 
-GfVec3f TriangleBvh::FaceNormal(int triangle) const
+UsdGenVec3f TriangleBvh::FaceNormal(int triangle) const
 {
-    if (triangle < 0 || size_t(triangle) >= _tris.size()) return GfVec3f(0.0f, 1.0f, 0.0f);
+    if (triangle < 0 || size_t(triangle) >= _tris.size()) return UsdGenVec3f(0.0f, 1.0f, 0.0f);
     FanTriangle const &t = _tris[size_t(triangle)];
-    GfVec3f const a = _points[size_t(t.v[0])], b = _points[size_t(t.v[1])], c = _points[size_t(t.v[2])];
-    return Normalize(GfCross(b - a, c - a), GfVec3f(0.0f, 1.0f, 0.0f), 1e-20f);
+    UsdGenVec3f const a = _points[size_t(t.v[0])], b = _points[size_t(t.v[1])], c = _points[size_t(t.v[2])];
+    return Normalize(UsdGenCross(b - a, c - a), UsdGenVec3f(0.0f, 1.0f, 0.0f), 1e-20f);
 }
 
-GfVec3f TriangleBvh::Normal(int triangle, GfVec3f const &bary) const
+UsdGenVec3f TriangleBvh::Normal(int triangle, UsdGenVec3f const &bary) const
 {
-    if (triangle < 0 || size_t(triangle) >= _tris.size()) return GfVec3f(0.0f, 1.0f, 0.0f);
+    if (triangle < 0 || size_t(triangle) >= _tris.size()) return UsdGenVec3f(0.0f, 1.0f, 0.0f);
     size_t const b = 3 * size_t(triangle);
-    GfVec3f const n = _normals[b] * bary[0] + _normals[b + 1] * bary[1] + _normals[b + 2] * bary[2];
+    UsdGenVec3f const n = _normals[b] * bary[0] + _normals[b + 1] * bary[1] + _normals[b + 2] * bary[2];
     return Normalize(n, FaceNormal(triangle));
 }
 
-GfVec2f TriangleBvh::Uv(int triangle, GfVec3f const &bary) const
+UsdGenVec2f TriangleBvh::Uv(int triangle, UsdGenVec3f const &bary) const
 {
-    if (_uvs.empty() || triangle < 0 || size_t(triangle) >= _tris.size()) return GfVec2f(0.0f);
+    if (_uvs.empty() || triangle < 0 || size_t(triangle) >= _tris.size()) return UsdGenVec2f(0.0f);
     size_t const b = 3 * size_t(triangle);
     return _uvs[b] * bary[0] + _uvs[b + 1] * bary[1] + _uvs[b + 2] * bary[2];
 }
 
-GfVec3f TriangleBvh::Position(int triangle, GfVec3f const &bary) const
+UsdGenVec3f TriangleBvh::Position(int triangle, UsdGenVec3f const &bary) const
 {
-    if (triangle < 0 || size_t(triangle) >= _tris.size()) return GfVec3f(0.0f);
+    if (triangle < 0 || size_t(triangle) >= _tris.size()) return UsdGenVec3f(0.0f);
     FanTriangle const &t = _tris[size_t(triangle)];
     return _points[size_t(t.v[0])] * bary[0] + _points[size_t(t.v[1])] * bary[1] +
            _points[size_t(t.v[2])] * bary[2];
@@ -334,15 +333,15 @@ GfVec3f TriangleBvh::Position(int triangle, GfVec3f const &bary) const
 
 void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleBvh *bvh)
 {
-    UsdGenSpan<const GfVec3f> const pts = (rest && !surface.restPoints.empty())
+    UsdGenSpan<const UsdGenVec3f> const pts = (rest && !surface.restPoints.empty())
         ? surface.restPoints : surface.points;
     std::vector<FanTriangle> tris;
     bool const restricted = UsdGenSurfaceRestricted(surface);
     FanTriangulate(surface.faceVertexCounts, surface.faceVertexIndices, &tris,
                    restricted ? &surface.subsetFaces : nullptr);
-    std::vector<GfVec3f> normals;
+    std::vector<UsdGenVec3f> normals;
     if (rest && !surface.restNormals.empty()) {
-        UsdGenSpan<const GfVec3f> const rn = surface.restNormals;
+        UsdGenSpan<const UsdGenVec3f> const rn = surface.restNormals;
         bool const vertex = surface.restNormalDomain == UsdGenSurfaceNormalDomain::Vertex &&
                             rn.size() == pts.size();
         bool const faceVarying = surface.restNormalDomain == UsdGenSurfaceNormalDomain::FaceVarying &&
@@ -355,8 +354,8 @@ void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleB
                         rn[size_t(vertex ? tris[i].v[k] : tris[i].corner[k])];
         }
     }
-    std::vector<GfVec2f> uvs;
-    UsdGenSpan<const GfVec2f> const uv = surface.uv;
+    std::vector<UsdGenVec2f> uvs;
+    UsdGenSpan<const UsdGenVec2f> const uv = surface.uv;
     if (!uv.empty()) {
         bool const vertex = uv.size() == pts.size();
         bool const faceVarying = uv.size() == surface.faceVertexIndices.size();
@@ -366,16 +365,16 @@ void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleB
                 for (int k = 0; k < 3; ++k) {
                     int const idx = faceVarying && !vertex ? tris[i].corner[k] : tris[i].v[k];
                     uvs[3 * i + size_t(k)] = (idx >= 0 && size_t(idx) < uv.size()) ? uv[size_t(idx)]
-                                                                                 : GfVec2f(0.0f);
+                                                                                 : UsdGenVec2f(0.0f);
                 }
         }
     }
     // The BVH owns its points: it outlives the input record.
-    bvh->Build(VtVec3fArray(pts.begin(), pts.end()), tris, std::move(normals), std::move(uvs));
+    bvh->Build(UsdGenVec3fArray(pts.begin(), pts.end()), tris, std::move(normals), std::move(uvs));
 }
 
 float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int triangle,
-                    GfVec3f const &bary, float fallback)
+                    UsdGenVec3f const &bary, float fallback)
 {
     if (triangle < 0 || size_t(triangle) >= bvh.Triangles().size()) return fallback;
     FanTriangle const &t = bvh.Triangles()[size_t(triangle)];
@@ -389,7 +388,7 @@ float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int t
     }
     if (UsdGenMapHas(map, kUsdGenTypeMapImage) && map.imagePayload &&
         map.imagePayload->IsValid()) {
-        GfVec2f const uv = bvh.Uv(triangle, bary);
+        UsdGenVec2f const uv = bvh.Uv(triangle, bary);
         UsdGenImageSampleOptions options;
         options.filter = UsdGenImageFilter::Nearest;
         options.wrap = UsdGenImageWrap::Clamp;
@@ -415,7 +414,7 @@ float SampleMaskMap(UsdGenMapInputView const &map, TriangleBvh const &bvh, int t
 std::vector<UsdGenMapInputView> BoundMaps(UsdGenGraphSpec const *desc,
                                          UsdGenMapBinding const *bindings,
                                          uint32_t bindingCount,
-                                         TfToken const &relationship)
+                                         UsdGenToken const &relationship)
 {
     std::vector<UsdGenMapInputView> out;
     if (!desc || !bindings) return out;

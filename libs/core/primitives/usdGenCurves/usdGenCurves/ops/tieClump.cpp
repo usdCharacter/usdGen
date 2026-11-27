@@ -13,9 +13,9 @@
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
 
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/vt/array.h"
-#include "pxr/base/vt/types.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/cowArray.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,7 +25,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -63,33 +62,33 @@ constexpr float kMinWeight = 1e-6f;
 
 struct Tie
 {
-    GfVec3f position;
+    UsdGenVec3f position;
     float arc = 0.0f;   // arc length along the guide to the tied point
 };
 
-bool ReadPositions(VtValue const &v, std::vector<GfVec3f> *out)
+bool ReadPositions(UsdGenValue const &v, std::vector<UsdGenVec3f> *out)
 {
     out->clear();
     if (v.IsEmpty()) return true;
-    if (v.IsHolding<VtVec3fArray>()) {
-        VtVec3fArray const &a = v.UncheckedGet<VtVec3fArray>();
+    if (v.IsHolding<UsdGenVec3fArray>()) {
+        UsdGenVec3fArray const &a = v.UncheckedGet<UsdGenVec3fArray>();
         out->assign(a.cbegin(), a.cend());
         return true;
     }
-    if (v.IsHolding<VtVec3dArray>()) {
-        VtVec3dArray const &a = v.UncheckedGet<VtVec3dArray>();
-        for (GfVec3d const &p : a) out->push_back(GfVec3f(p));
+    if (v.IsHolding<UsdGenVec3dArray>()) {
+        UsdGenVec3dArray const &a = v.UncheckedGet<UsdGenVec3dArray>();
+        for (UsdGenVec3d const &p : a) out->push_back(UsdGenVec3f(p));
         return true;
     }
     return false;
 }
 
-bool ReadInts(VtValue const &v, std::vector<int> *out)
+bool ReadInts(UsdGenValue const &v, std::vector<int> *out)
 {
     out->clear();
     if (v.IsEmpty()) return true;
-    if (v.IsHolding<VtIntArray>()) {
-        VtIntArray const &a = v.UncheckedGet<VtIntArray>();
+    if (v.IsHolding<UsdGenIntArray>()) {
+        UsdGenIntArray const &a = v.UncheckedGet<UsdGenIntArray>();
         out->assign(a.cbegin(), a.cend());
         return true;
     }
@@ -111,18 +110,18 @@ void ParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const &body)
 
 // Arc position of the polyline point closest to t: per segment the clamped
 // projection, the first segment of minimum distance wins.
-float ClosestArc(float const *p, size_t n, std::vector<float> const &arc, GfVec3f const &t)
+float ClosestArc(float const *p, size_t n, std::vector<float> const &arc, UsdGenVec3f const &t)
 {
     float best = std::numeric_limits<float>::max();
     float s = 0.0f;
     for (size_t k = 0; k + 1 < n; ++k) {
-        GfVec3f const a = strand::Load(p, k), b = strand::Load(p, k + 1);
-        GfVec3f const ab = b - a;
-        float const len2 = GfDot(ab, ab);
-        float const u = len2 > 0.0f ? strand::Clamp01(GfDot(t - a, ab) / len2) : 0.0f;
-        GfVec3f const q(a[0] + ab[0] * u, a[1] + ab[1] * u, a[2] + ab[2] * u);
-        GfVec3f const d = t - q;
-        float const d2 = GfDot(d, d);
+        UsdGenVec3f const a = strand::Load(p, k), b = strand::Load(p, k + 1);
+        UsdGenVec3f const ab = b - a;
+        float const len2 = UsdGenDot(ab, ab);
+        float const u = len2 > 0.0f ? strand::Clamp01(UsdGenDot(t - a, ab) / len2) : 0.0f;
+        UsdGenVec3f const q(a[0] + ab[0] * u, a[1] + ab[1] * u, a[2] + ab[2] * u);
+        UsdGenVec3f const d = t - q;
+        float const d2 = UsdGenDot(d, d);
         if (d2 < best) {
             best = d2;
             s = arc[k] + std::sqrt(len2) * u;
@@ -151,9 +150,9 @@ void PullStrand(float *p, size_t n, std::vector<Tie> const &ties, float amount, 
             float const w = strand::Clamp01((1.0f - spread) * f +
                                             spread * std::sqrt(strand::Clamp01(f))) * amount;
             if (!(w > kMinWeight)) continue;
-            GfVec3f const q = strand::Load(p, k);
-            GfVec3f const d = tie.position - q;
-            strand::Store(p, k, GfVec3f(q[0] + d[0] * w, q[1] + d[1] * w, q[2] + d[2] * w));
+            UsdGenVec3f const q = strand::Load(p, k);
+            UsdGenVec3f const d = tie.position - q;
+            strand::Store(p, k, UsdGenVec3f(q[0] + d[0] * w, q[1] + d[1] * w, q[2] + d[2] * w));
         }
         length = strand::ArcLengths(p, n, &arc);
         if (!(length > kMinLength)) break;
@@ -176,7 +175,7 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
     if (!std::isfinite(amount) || !std::isfinite(spread))
         return fail("usdGen:tie:amount and usdGen:tie:spread must be finite");
 
-    std::vector<GfVec3f> positions;
+    std::vector<UsdGenVec3f> positions;
     std::vector<int> counts, guideIndices, vertexIndices;
     if (!ReadPositions(UsdGenAuthoredValue(*p, kPositions), &positions))
         return fail("usdGen:tie:positions must be a point3f[]");
@@ -193,7 +192,7 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
     }
     if (guideIndices.size() != entries || vertexIndices.size() != entries)
         return fail("usdGen:tie:guideIndices/vertexIndices must hold sum(entryCounts) entries");
-    for (GfVec3f const &t : positions)
+    for (UsdGenVec3f const &t : positions)
         if (!std::isfinite(t[0]) || !std::isfinite(t[1]) || !std::isfinite(t[2]))
             return fail("usdGen:tie:positions must be finite");
     if (entries == 0 || !(amount > kGate)) return true;   // gate: identity
@@ -228,7 +227,7 @@ bool UsdGenTieClumpOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet 
                 int const last = std::min(std::max(vertexIndices[entry], 1), nv - 1);
                 for (int v = 1; v <= last; ++v) {
                     size_t const a = first + size_t(v) - 1, b = first + size_t(v);
-                    GfVec3f const d(guides.px[b] - guides.px[a], guides.py[b] - guides.py[a],
+                    UsdGenVec3f const d(guides.px[b] - guides.px[a], guides.py[b] - guides.py[a],
                                     guides.pz[b] - guides.pz[a]);
                     arc += d.GetLength();
                 }

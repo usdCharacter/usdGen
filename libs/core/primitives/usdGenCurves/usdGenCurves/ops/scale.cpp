@@ -21,7 +21,7 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 #include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
@@ -31,7 +31,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -49,12 +48,12 @@ struct UsdGenScaleCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetValue(name, VtValue());
-        v.IsHolding<VtVec2fArray>()) {
-        return v.UncheckedGet<VtVec2fArray>();
+    if (UsdGenValue const v = p->GetValue(name, UsdGenValue());
+        v.IsHolding<UsdGenVec2fArray>()) {
+        return v.UncheckedGet<UsdGenVec2fArray>();
     }
     return {};
 }
@@ -63,11 +62,11 @@ inline void ReadVec2Prop(UsdGenParamView const &p, UsdGenParamSlot name,
                          double &lo, double &hi)
 {
     lo = 1.0; hi = 1.0;
-    if (VtValue const v = p.GetValue(name, VtValue()); v.IsHolding<VtFloatArray>()) {
-        VtFloatArray const a = v.UncheckedGet<VtFloatArray>();
+    if (UsdGenValue const v = p.GetValue(name, UsdGenValue()); v.IsHolding<UsdGenFloatArray>()) {
+        UsdGenFloatArray const a = v.UncheckedGet<UsdGenFloatArray>();
         if (a.size() >= 2) { lo = a[0]; hi = a[1]; }
-    } else if (v.IsHolding<GfVec2f>()) {
-        GfVec2f const r = v.UncheckedGet<GfVec2f>();
+    } else if (v.IsHolding<UsdGenVec2f>()) {
+        UsdGenVec2f const r = v.UncheckedGet<UsdGenVec2f>();
         lo = r[0]; hi = r[1];
     }
 }
@@ -147,7 +146,7 @@ bool UsdGenScaleOp::Capture(
     UsdGenDiagnostics *diag)
 {
     UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
-    TF_UNUSED(out);
+    (void)out;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
     if (!Bind(*p, diag)) return false;
@@ -211,7 +210,7 @@ void UsdGenScaleOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(captureIn);
+    (void)captureIn;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const scaleField =
         p ? p->GetScalarField(kScale, 1.0) : UsdGenParamField{1.0};
@@ -226,7 +225,7 @@ void UsdGenScaleOp::Evaluate(
         if (litLo > litHi) std::swap(litLo, litHi);
     }
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, kScaleKnots);
+    UsdGenVec2fArray const knots = ReadRampKnots(p, kScaleKnots);
     bool const rampFlat = knots.empty();
     thread_local std::vector<float> tLut;
     if (!rampFlat) {
