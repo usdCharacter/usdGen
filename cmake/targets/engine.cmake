@@ -57,6 +57,9 @@ target_link_libraries(usdGen
     PRIVATE usdGenMath ${CMAKE_DL_LIBS})
 if(WIN32)
     target_link_libraries(usdGen PRIVATE Synchronization)  # WaitOnAddress
+else()
+    # workerPool.cpp calls pthread_*; --no-undefined needs it named (12.3f).
+    target_link_libraries(usdGen PRIVATE Threads::Threads)
 endif()
 # Hidden (12.3f): only USDGEN_API (api/, api/ext/) and, with
 # USDGEN_EXPORT_INTERNALS, USDGEN_INTERNAL_API are exported. Third-party code

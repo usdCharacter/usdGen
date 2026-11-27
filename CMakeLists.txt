@@ -212,6 +212,9 @@ set(USDGEN_INSTALL_CMAKEDIR   "lib/cmake/usdGen" CACHE PATH "cmake config dir")
 # the release surface: api/ and api/ext/ only; most test targets then fail to
 # link.
 option(USDGEN_EXPORT_INTERNALS "Export the private classes tests drive" ${USDGEN_BUILD_TESTS})
+if(USDGEN_BUILD_TESTS AND NOT USDGEN_EXPORT_INTERNALS)
+    message(STATUS "usdGen: USDGEN_EXPORT_INTERNALS=OFF; white-box test targets do not link (build the libraries, hosts and api tests)")
+endif()
 function(usdgen_hidden_library _target)
     set_target_properties(${_target} PROPERTIES
         CXX_VISIBILITY_PRESET hidden
