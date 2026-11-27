@@ -12,10 +12,12 @@
 #include "usdGen/executionResources.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <limits>
 #include <memory>
+#include <thread>
 #include <vector>
 
 using namespace usdGen::gpu;
@@ -23,6 +25,16 @@ using namespace usdGen;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "CHECK failed: %s (%d)\n", #x, __LINE__); return 1; } } while (false)
 struct Relay { std::atomic<int> status{-1}; };
 static void Done(cudaStream_t, cudaError_t status, void* p) noexcept { static_cast<Relay*>(p)->status.store(int(status)); }
+
+// A rejected overlap grow frees its buffers on the CUDA completion lane.
+static bool DiscardsDrained()
+{
+    for (int i = 0; i < 10000; ++i) {
+        if (ScatterGrowDiscardsInFlightForTesting() == 0) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return false;
+}
 
 static std::shared_ptr<ScatterGrowRoots> MakeRoots(size_t n)
 {
@@ -73,6 +85,7 @@ int main() {
     CHECK(CudaScatterGrow::ValidateRoots(nanRoots, controls, &total) == ScatterGrowStatus::NonFiniteInput);
     CHECK(grow.BeginFresh(nanRoots, controls, stream) == ScatterGrowStatus::NonFiniteInput);
     CHECK(!grow.pending() && !grow.HasUnprovenWork());
+    CHECK(DiscardsDrained());
     CHECK(resources->Snapshot().usedBytes == baseline.usedBytes);
     // A duplicate id fails the dup leg on the same path.
     auto dupRoots = MakeRoots(kBig);
@@ -80,6 +93,7 @@ int main() {
     CHECK(CudaScatterGrow::ValidateRoots(dupRoots, controls, &total) == ScatterGrowStatus::DuplicateStableId);
     CHECK(grow.BeginFresh(dupRoots, controls, stream) == ScatterGrowStatus::DuplicateStableId);
     CHECK(!grow.pending() && !grow.HasUnprovenWork());
+    CHECK(DiscardsDrained());
     CHECK(resources->Snapshot().usedBytes == baseline.usedBytes);
     // The same object still grows valid roots to completion.
     auto roots = MakeRoots(kBig);

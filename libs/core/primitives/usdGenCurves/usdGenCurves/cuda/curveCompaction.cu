@@ -351,6 +351,7 @@ CurveCompactionStatus CudaCurveCompaction::finishError(int code) const {
     return CurveCompactionStatus::InvalidArgument;
 }
 
+// Test hook: no production caller (relays use ApplyFreshCounts).
 CurveCompactionStatus CudaCurveCompaction::Apply(
     DeviceCurveGeometryView geometry, DeviceView<const float> inputHairT,
     DeviceView<const int32_t> inputRootPrim, DeviceView<const float2> inputRootUV,
@@ -389,6 +390,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
         // A successful terminal synchronize proves every submission made by
         // this legacy phase before its candidate storage is released.  If it
         // cannot prove completion, destruction must quarantine instead.
+        // shutdown wait: test hook.
         if (CudaFenceStream(stream) == cudaSuccess) {
             pendingStorage_.clear();
             pending_ = false;
@@ -417,6 +419,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
     if (cudaGetLastError() != cudaSuccess) return resolveFailedSubmit();
     int error = 0;
     if (cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook.
         CudaFenceStream(stream) != cudaSuccess)
         return resolveFailedSubmit();
     unprovenWork_ = false;
@@ -445,6 +448,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
         if (cudaGetLastError() != cudaSuccess ||
             cudaMemcpyAsync(&outputCurves, counts_.data(), sizeof(uint32_t), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
             cudaMemcpyAsync(&outputPoints, counts_.data() + 1, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+            // shutdown wait: test hook.
             CudaFenceStream(stream) != cudaSuccess)
             return resolveFailedSubmit();
         unprovenWork_ = false;
@@ -489,6 +493,7 @@ CurveCompactionStatus CudaCurveCompaction::Apply(
     return CurveCompactionStatus::Ok;
 }
 
+// Test hook: no production caller (relays use the fresh scatter path).
 CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
     if (freshPhase_ != FreshPhase::Idle || unprovenWork_) return CurveCompactionStatus::InvalidArgument;
     cudaError_t streamStatus = validateStream(stream);
@@ -499,6 +504,7 @@ CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
         // additionally contain the error readback. Both must complete before
         // this candidate is released.
         if (ready_ && cudaStreamWaitEvent(stream, ready_, 0) == cudaSuccess &&
+            // shutdown wait: test hook.
             CudaFenceStream(stream) == cudaSuccess) {
             pendingStorage_.clear();
             pending_ = false;
@@ -511,6 +517,7 @@ CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook.
         CudaFenceStream(stream) != cudaSuccess)
         return resolveFailedFinish();
     if (error) {
@@ -520,6 +527,7 @@ CurveCompactionStatus CudaCurveCompaction::Finish(cudaStream_t stream) {
         return finishError(error);
     }
     if (active_.curveCount || active_.pointCount || active_.curveOffsets.size()) {
+        // shutdown wait: test hook.
         if (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
             return resolveFailedFinish();
     }

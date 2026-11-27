@@ -10,6 +10,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <new>
 #include <atomic>
 #include <stdexcept>
 #include <type_traits>
@@ -751,6 +752,7 @@ template <class T> cudaError_t Copy(DeviceBuffer<T>& dst, T const* src, size_t n
 // Fixed slots, claimed by exchange and filled by CAS: no lock, no ABA.
 // Test-only overlap faults (SetScatterGrowOverlapFaultsForTesting).
 std::atomic<bool> g_overlapFaultCopy{false}, g_overlapFaultThrow{false};
+std::atomic<size_t> g_discardsInFlight{0};
 
 constexpr size_t kPinnedRelayCap = 64;
 std::atomic<int*> g_pinnedRelays[kPinnedRelayCap] = {};
@@ -902,6 +904,9 @@ ScatterGrowStatus CudaScatterGrow::validateStream(cudaStream_t stream) const {
 void SetScatterGrowOverlapFaultsForTesting(bool failCopy, bool throwInValidate) noexcept {
     g_overlapFaultCopy.store(failCopy, std::memory_order_release);
     g_overlapFaultThrow.store(throwInValidate, std::memory_order_release);
+}
+size_t ScatterGrowDiscardsInFlightForTesting() noexcept {
+    return g_discardsInFlight.load(std::memory_order_acquire);
 }
 ScatterGrowStatus CudaScatterGrow::validate(
     std::shared_ptr<const ScatterGrowRoots> const& r, ScatterGrowControls const& c,
@@ -1232,6 +1237,64 @@ void CudaScatterGrow::discardPending() noexcept {
     rootsOwner_.reset(); rootsQuarantineOwner_.reset();
     pendingWork_=finishScheduled_=false; pendingCurves_=pendingPoints_=0;
 }
+// A rejected overlap grow whose copies and kernel were issued. It owns the
+// in-flight buffers, the roots they read and the copy stream; the lane frees
+// them once the event behind that work finished, or quarantines on error.
+struct CudaScatterGrow::Discard : CudaCompletion {
+    Storage pending, input;
+    DeviceBuffer<int> error;
+    std::shared_ptr<const ScatterGrowRoots> roots;
+    std::unique_ptr<std::shared_ptr<const ScatterGrowRoots>> quarantineRoots;
+    cudaStream_t copyStream = nullptr;
+    cudaEvent_t issued = nullptr, copied = nullptr;
+    int device = -1;
+    static void Run(UsdGenTask* task) noexcept {
+        auto* d = static_cast<Discard*>(task);
+        int const device = d->device;
+        int prior = -1;
+        bool const selected = cudaGetDevice(&prior) == cudaSuccess &&
+            cudaSetDevice(device) == cudaSuccess;
+        if (d->status != cudaSuccess || !selected) {
+            // No proof: device and host sources stay allocated for good.
+            d->pending.quarantine(); d->input.quarantine(); d->error.quarantine();
+            (void)d->quarantineRoots.release();
+        } else {
+            cudaEventDestroy(d->event);
+            if (d->issued) cudaEventDestroy(d->issued);
+            if (d->copied) cudaEventDestroy(d->copied);
+            if (d->copyStream) cudaStreamDestroy(d->copyStream);
+        }
+        delete d;
+        if (selected && prior >= 0 && prior != device) cudaSetDevice(prior);
+        g_discardsInFlight.fetch_sub(1, std::memory_order_acq_rel);
+    }
+};
+bool CudaScatterGrow::discardIssued(cudaStream_t stream) noexcept {
+    auto* d = new (std::nothrow) Discard;
+    if (!d) return false;
+    if (cudaEventCreateWithFlags(&d->event, cudaEventDisableTiming) != cudaSuccess) {
+        delete d;
+        return false;
+    }
+    d->taskRun = &Discard::Run;
+    d->device = deviceIndex_;
+    d->pending = std::move(pending_); d->input = std::move(pendingInput_);
+    d->error = std::move(error_);
+    d->roots = std::move(rootsOwner_); d->quarantineRoots = std::move(rootsQuarantineOwner_);
+    d->copyStream = copyStream_; d->issued = issued_; d->copied = copied_;
+    copyStream_ = nullptr; issued_ = copied_ = nullptr;
+    g_discardsInFlight.fetch_add(1, std::memory_order_acq_rel);
+    if (CudaCompletionSubmit(d, stream)) return true;  // d may be gone already
+    // Nothing queued: take everything back and stay unproven.
+    g_discardsInFlight.fetch_sub(1, std::memory_order_acq_rel);
+    pending_ = std::move(d->pending); pendingInput_ = std::move(d->input);
+    error_ = std::move(d->error);
+    rootsOwner_ = std::move(d->roots); rootsQuarantineOwner_ = std::move(d->quarantineRoots);
+    copyStream_ = d->copyStream; issued_ = d->issued; copied_ = d->copied;
+    cudaEventDestroy(d->event);
+    delete d;
+    return false;
+}
 ScatterGrowStatus CudaScatterGrow::BeginFresh(
     std::shared_ptr<const ScatterGrowRoots> roots, ScatterGrowControls controls,
     cudaStream_t stream, UsdGenExecutionMemoryReservation* reserve) {
@@ -1378,12 +1441,12 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         if (validateError) {
             // Both parts joined. Leave the object as clean as the pre-alloc
             // validation throw: once the copies issued, `stream` waits on
-            // copied_, so proving it idle covers the memset, copies and
-            // kernel and discarding is safe. A failed copy issue never
-            // recorded copied_: earlier copies may still run on copyStream_,
-            // so the work stays unproven (as on the copy-error return
-            // below). The throw propagates.
-            if (copyError == cudaSuccess && CudaFenceStream(stream) == cudaSuccess) {
+            // copied_, so a lane continuation behind `stream` covers the
+            // memset, copies and kernel and frees the candidate. A failed
+            // copy issue never recorded copied_: earlier copies may still run
+            // on copyStream_, so the work stays unproven (as on the
+            // copy-error return below). The throw propagates.
+            if (copyError == cudaSuccess && discardIssued(stream)) {
                 unprovenWork_ = false;
                 discardPending();
             }
@@ -1392,12 +1455,11 @@ ScatterGrowStatus CudaScatterGrow::BeginFresh(
         if (copyError != cudaSuccess) return Status(copyError);
         if (launchError != cudaSuccess) return Status(launchError);
         if (s != ScatterGrowStatus::Ok) {
-            // Copies and kernel may still be in flight: prove the stream
-            // idle before discarding, so the object stays clean and
-            // reusable like the pre-alloc validation failure. Failure path
-            // only.
-            cudaError_t const syncE = CudaFenceStream(stream);
-            if (syncE != cudaSuccess) return Status(syncE);
+            // Copies and kernel may still be in flight: hand them to a lane
+            // continuation behind `stream`, so the object is clean and
+            // reusable at once like the pre-alloc validation failure. If no
+            // continuation can be queued the work stays unproven.
+            if (!discardIssued(stream)) return ScatterGrowStatus::CudaError;
             unprovenWork_ = false;
             discardPending();
             return s;

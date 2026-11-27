@@ -204,6 +204,9 @@ ScatterGrowStatus GetScatterGrowRequirements(size_t curveCount, uint32_t cvCount
 // last staging copy's issue after the earlier copies were queued on the copy
 // stream; throwInValidate throws from the validation scans.
 void SetScatterGrowOverlapFaultsForTesting(bool failCopy, bool throwInValidate) noexcept;
+// Test-only: rejected overlap grows whose buffers still wait for the
+// completion lane (BeginFresh hands them over instead of fencing).
+size_t ScatterGrowDiscardsInFlightForTesting() noexcept;
 
 // A fresh, immutable Grow topology owner.  BeginFresh never mutates a
 // published generation.  A caller must commit only from the relay which saw
@@ -281,6 +284,11 @@ private:
                                ScatterGrowControls const&, size_t* total) const;
     ScatterGrowStatus validateStream(cudaStream_t) const;
     void discardPending() noexcept;
+    // Moves an issued, rejected candidate into a completion-lane
+    // continuation that frees it once `stream` finishes; false leaves it
+    // here, unproven.
+    struct Discard;
+    bool discardIssued(cudaStream_t stream) noexcept;
     std::shared_ptr<const ScatterGrowRoots> rootsOwner_;
     // Preallocated before submission so unproved H2D retirement can retain
     // its immutable host source without allocating in a noexcept destructor.
