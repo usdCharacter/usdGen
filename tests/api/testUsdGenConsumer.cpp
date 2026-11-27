@@ -72,8 +72,27 @@ int main() {
         return 1;
     }
 
+    // The consumer must run against the installed tree: ctest (and a dev
+    // shell) put the build tree on the loader path, which would load the
+    // build tree's libusdGen.so and, through its manifest, the build tree's
+    // extensions. Run it with the loader path cleared, so only the RUNPATH
+    // the installed package gave it resolves libusdGen.so.
+    const std::string cleanEnv = "env -u LD_LIBRARY_PATH -u DYLD_LIBRARY_PATH ";
+#if defined(__linux__)
+    const std::string installedLib =
+        std::string(prefix) + "/" + USDGEN_TEST_LIB_DIR + "/libusdGen.so";
+    std::string ldd = cleanEnv + "ldd '" + buildDir + "/consumer'; " + cleanEnv + "ldd '" +
+                      buildDir + "/consumer' | grep -F 'libusdGen.so' | grep -qF '=> " +
+                      installedLib + " '";
+    if (Run(ldd) != 0) {
+        std::printf("FAIL: consumer does not resolve libusdGen.so to %s\n",
+                    installedLib.c_str());
+        return 1;
+    }
+#endif
+
     // Run the consumer: version, engine, empty-spec compile and commit.
-    std::string out = buildDir + "/consumer > '" + buildDir + "/out.txt' 2>&1";
+    std::string out = cleanEnv + "'" + buildDir + "/consumer' > '" + buildDir + "/out.txt' 2>&1";
     if (Run(out) != 0) {
         std::printf("FAIL: consumer run failed\n");
         return 1;

@@ -24,7 +24,8 @@ if(NOT WIN32)
     add_executable(testUsdGenConsumer tests/api/testUsdGenConsumer.cpp)
     target_compile_definitions(testUsdGenConsumer PRIVATE
         USDGEN_TEST_CONSUMER_SRC="${CMAKE_CURRENT_SOURCE_DIR}/tests/consumer"
-        USDGEN_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}")
+        USDGEN_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
+        USDGEN_TEST_LIB_DIR="${USDGEN_INSTALL_LIBDIR}")
 endif()
 # Both assert the .so/.a install layout and drive POSIX execv/setenv or a
 # POSIX shell, so they cannot be built for Windows.

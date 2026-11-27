@@ -506,8 +506,10 @@ jobs:
       # docs/review/exec-code-B-report.md does not exist yet, so coordinate
       # with the code lane if the tests land under a different name).
       # PXR_PLUGINPATH_NAME points at the scratch usd/ plugin resources plus
-      # the stock OpenUSD plugin dirs; LD_LIBRARY_PATH puts the installed
-      # OpenUSD libs and the usdGen build tree first.
+      # the stock OpenUSD plugin dirs; LD_LIBRARY_PATH names the OpenUSD libs
+      # only, never the usdGen build tree, so the installed libraries (found
+      # through their RUNPATH) are the ones under test. testUsdGenConsumer
+      # also clears the loader path ctest adds before running the consumer.
       # Until the code lane registers these tests in CMakeLists.txt this step
       # is a guarded no-op: "No tests were found" warns instead of failing,
       # and the same step becomes the real gate automatically once they land.
@@ -515,9 +517,9 @@ jobs:
         env:
           USDGEN_INSTALL_PREFIX: "${{ github.workspace }}/usdgen-install"
           PXR_PLUGINPATH_NAME: "${{ github.workspace }}/usdgen-install/lib/usd/usdGenSchema/resources:${{ github.workspace }}/usdgen-install/lib/usd/usdGenImaging/resources:${{ github.workspace }}/usd-install/plugin/usd:${{ github.workspace }}/usd-install/lib/usd"
-          LD_LIBRARY_PATH: "${{ github.workspace }}/usd-install/lib:${{ github.workspace }}/build"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/usd-install/lib"
         run: |
-          OUT="$(ctest --test-dir build -R 'testUsdGen(InstallTree|Consumer)$' --output-on-failure 2>&1)" \
+          OUT="$(ctest --test-dir build -R 'testUsdGen(InstallTree|Consumer)$' --verbose 2>&1)" \
             || { echo "$OUT"; exit 1; }
           if echo "$OUT" | grep -q "No tests were found"; then
             echo "WARNING: testUsdGenInstallTree/testUsdGenConsumer are not yet registered"
