@@ -3,6 +3,7 @@
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "usdGen/graph.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/session.h"
@@ -172,7 +173,7 @@ int main(int argc, char** argv) {
             CHECK(workspace->IsPoisoned());
             CHECK(cudaSourceRelayQuarantinedCountForTesting() == quarantined + 1);
             CHECK(!CreateCudaExecutionJob(plan, *workspace, 1, 601, &diagnostics));
-            CHECK(!ExecuteCudaGraph(*plan, *workspace, 1, 602, &diagnostics));
+            CHECK(!ExecuteCudaPlanForTesting(plan, *workspace, 1, 602, &diagnostics));
             CHECK(cudaStreamDestroy(stream) == cudaSuccess);
             std::puts("testUsdGenCudaScatterGrowSourceFailure: PASS");
             return 0;
@@ -200,10 +201,10 @@ int main(int argc, char** argv) {
             CHECK(pending);
             lostWorkspace->MarkContextLost();
             CHECK(lostWorkspace->IsPoisoned());
-            CHECK(!ExecuteCudaJobSource(*pending));
+            CHECK(!RunCudaJobSourceForTesting(pending));
             CHECK(lostDiagnostics.HasErrors());
             CHECK(!CreateCudaExecutionJob(plan, *lostWorkspace, 1, 501, &lostDiagnostics));
-            CHECK(!ExecuteCudaGraph(*plan, *lostWorkspace, 1, 502, &lostDiagnostics));
+            CHECK(!ExecuteCudaPlanForTesting(plan, *lostWorkspace, 1, 502, &lostDiagnostics));
         }
         auto rejects = [](UsdGenGraphDesc const& candidate) {
             UsdGenDiagnostics errors;
@@ -305,7 +306,7 @@ int main(int argc, char** argv) {
         // publication metadata as the asynchronous Session path.
         auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         CHECK(workspace);
-        auto direct = ExecuteCudaGraph(*plan, *workspace, 1, 101, &diagnostics);
+        auto direct = ExecuteCudaPlanForTesting(plan, *workspace, 1, 101, &diagnostics);
         CHECK(direct && !diagnostics.HasErrors());
         auto directLease = gpu::AcquireGeometry(direct, stream);
         CHECK(directLease && directLease.Geometry().points.data != retained.Geometry().points.data);
@@ -339,7 +340,7 @@ int main(int argc, char** argv) {
             CHECK(angularPlan&&!angularDiagnostics.HasErrors());
             auto angularWorkspace=CreateCudaExecutionWorkspace(-1,&angularDiagnostics);
             CHECK(angularWorkspace);
-            auto angularDirect=ExecuteCudaGraph(*angularPlan,*angularWorkspace,
+            auto angularDirect=ExecuteCudaPlanForTesting(angularPlan,*angularWorkspace,
                                                 static_cast<double>(10+variant),200+variant,
                                                 &angularDiagnostics);
             std::vector<float> lengths;
@@ -386,7 +387,7 @@ int main(int argc, char** argv) {
         CHECK(sourceFuture.wait_for(std::chrono::seconds(10)) == std::future_status::ready);
         CHECK(sourceFuture.get());
         for (size_t i = 0; i < CudaExecutionJobOperatorCount(*job); ++i)
-            CHECK(ExecuteCudaJobOperator(*job, i));
+            CHECK(RunCudaJobOperatorForTesting(job, i));
         CHECK(Read(retained.Geometry().points, &directPoints, stream));
         CHECK(std::memcmp(directPoints.data(), points.data(), points.size() * sizeof(float3)) == 0);
         std::promise<std::shared_ptr<const UsdGenDeviceGeneration>> finalPromise;

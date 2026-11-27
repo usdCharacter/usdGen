@@ -3,6 +3,7 @@
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/executionRetirement.h"
 #include "usdGen/graph.h"
@@ -140,7 +141,7 @@ int main() {
             CHECK(Near(widths[i],reference.width[i]));
         }
         auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(workspace);
-        auto direct=ExecuteCudaGraph(*plan,*workspace,1,100,&diagnostics);
+        auto direct=ExecuteCudaPlanForTesting(plan,*workspace,1,100,&diagnostics);
         CHECK(direct && !diagnostics.HasErrors());
         auto directLease=gpu::AcquireGeometry(direct,stream); CHECK(directLease);
         std::vector<float> directWidths;
@@ -160,7 +161,7 @@ int main() {
             UsdGenExecutionResourceKind::Active);
         CHECK(filler);
         auto saturated=pool->Snapshot();
-        CHECK(!ExecuteCudaGraph(*plan,*workspace,1,101,&diagnostics,first->device));
+        CHECK(!ExecuteCudaPlanForTesting(plan,*workspace,1,101,&diagnostics,first->device));
         CHECK(!CreateCudaExecutionJob(plan,*workspace,1,102,&diagnostics,first->device));
         CHECK(diagnostics.HasErrors());
         auto rejected=pool->Snapshot();

@@ -1,13 +1,71 @@
-#include "usdGenCurves/cuda/cudaExecutionQueue.h"
-#include "usdGen/executionTaskGraph.h"
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+//
+// Test fixture: per-description staged CUDA execution queue. It drives the
+// public stage API (source, operators, publication) on the shared execution
+// task graph. Moved out of usdGenCurvesCuda in 8.7a: only tests used it.
+#ifndef USDGEN_TEST_CUDA_EXECUTION_QUEUE_FIXTURE_H
+#define USDGEN_TEST_CUDA_EXECUTION_QUEUE_FIXTURE_H
+
+#include "usdGenCurves/cuda/cudaExecution.h"
+#include "usdGen/exec/sharedCell.h"
+#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/exec/executionTaskGraph.h"
 
 #include <cmath>
+#include <cstdint>
 #include <exception>
+#include <functional>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace usdGen {
+
+// Immutable once published; readers hold it by shared reference.
+struct UsdGenCudaQueueSnapshot {
+    uint64_t epoch = 0;
+    double frame = 0.0;
+    std::shared_ptr<const UsdGenDeviceGeneration> generation;
+    std::vector<UsdGenCudaBindingStats> bindings;
+};
+
+// Per-description asynchronous CUDA execution boundary.  The queue owns
+// mutable device resources while the plan remains immutable and shareable.
+// Drain/destruction are external boundaries after stopping/joining submitters,
+// never callback operations. Callbacks enqueue follow-up requests, not waits.
+class UsdGenCudaExecutionQueue {
+public:
+    using Pipeline = UsdGenExecutionPipeline;
+    using Completion = std::function<void(uint64_t, Pipeline::Outcome,
+                                          UsdGenDiagnostics const&)>;
+
+    UsdGenCudaExecutionQueue(UsdGenExecutionRuntime& runtime, int device,
+                             UsdGenDiagnostics* diagnostics = nullptr);
+    ~UsdGenCudaExecutionQueue();
+    UsdGenCudaExecutionQueue(UsdGenCudaExecutionQueue const&) = delete;
+    UsdGenCudaExecutionQueue& operator=(UsdGenCudaExecutionQueue const&) = delete;
+
+    bool Valid() const noexcept;
+    // Null plans, invalid queues and nonfinite frames return zero without a
+    // callback. Accepted requests report their eventual pipeline outcome.
+    uint64_t Submit(std::shared_ptr<const UsdGenCudaExecutionPlan> plan,
+                    double frame, Completion completion = {});
+    // Selects shared-dispatcher scheduling priority; the three CUDA stages
+    // still serialize through this description's workspace.
+    uint64_t Submit(std::shared_ptr<const UsdGenCudaExecutionPlan> plan,
+                    double frame, Completion,
+                    UsdGenExecutionTaskGraph::RequestClass);
+    uint64_t CancelPending();
+    std::shared_ptr<const UsdGenCudaQueueSnapshot> Snapshot() const noexcept;
+    void Drain();
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 struct UsdGenCudaExecutionQueue::Impl {
     // Declaration order is intentional: the pipeline drains before the
@@ -30,24 +88,24 @@ struct UsdGenCudaExecutionQueue::Impl {
     }
 };
 
-UsdGenCudaExecutionQueue::UsdGenCudaExecutionQueue(
+inline UsdGenCudaExecutionQueue::UsdGenCudaExecutionQueue(
     UsdGenExecutionRuntime& runtime, int device, UsdGenDiagnostics* diagnostics)
     : impl_(std::make_unique<Impl>(runtime, device, diagnostics)) {}
 
-UsdGenCudaExecutionQueue::~UsdGenCudaExecutionQueue() = default;
+inline UsdGenCudaExecutionQueue::~UsdGenCudaExecutionQueue() = default;
 
-bool UsdGenCudaExecutionQueue::Valid() const noexcept {
+inline bool UsdGenCudaExecutionQueue::Valid() const noexcept {
     return impl_ && impl_->workspace && impl_->pipeline && impl_->dispatcher;
 }
 
-uint64_t UsdGenCudaExecutionQueue::Submit(
+inline uint64_t UsdGenCudaExecutionQueue::Submit(
     std::shared_ptr<const UsdGenCudaExecutionPlan> plan, double frame,
     Completion completion) {
     return Submit(std::move(plan), frame, std::move(completion),
         UsdGenExecutionTaskGraph::RequestClass::Interactive);
 }
 
-uint64_t UsdGenCudaExecutionQueue::Submit(
+inline uint64_t UsdGenCudaExecutionQueue::Submit(
     std::shared_ptr<const UsdGenCudaExecutionPlan> plan, double frame,
     Completion completion, UsdGenExecutionTaskGraph::RequestClass requestClass) {
     if (!Valid() || !plan || !std::isfinite(frame) ||
@@ -242,19 +300,21 @@ uint64_t UsdGenCudaExecutionQueue::Submit(
     return impl_->pipeline->SubmitAsync(std::move(work), std::move(callback));
 }
 
-uint64_t UsdGenCudaExecutionQueue::CancelPending() {
+inline uint64_t UsdGenCudaExecutionQueue::CancelPending() {
     return Valid() ? impl_->pipeline->CancelPending() : 0;
 }
 
-std::shared_ptr<const UsdGenCudaQueueSnapshot>
+inline std::shared_ptr<const UsdGenCudaQueueSnapshot>
 UsdGenCudaExecutionQueue::Snapshot() const noexcept {
     if (!impl_) return {};
     return impl_->snapshot.Load();
 }
 
-void UsdGenCudaExecutionQueue::Drain() {
+inline void UsdGenCudaExecutionQueue::Drain() {
     if (!Valid()) return;
     impl_->pipeline->Drain();
 }
 
 } // namespace usdGen
+
+#endif // USDGEN_TEST_CUDA_EXECUTION_QUEUE_FIXTURE_H

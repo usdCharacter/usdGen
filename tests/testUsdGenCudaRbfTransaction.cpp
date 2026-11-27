@@ -1,7 +1,8 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGenCurves/cuda/cudaExecutionQueue.h"
+#include "cudaExecutionQueueFixture.h"
 #include "usdGen/executionResources.h"
 #include "usdGenCurves/cuda/generation.h"
 
@@ -315,7 +316,7 @@ int SynchronousTransactions(
         {usdGenTestUtils::Backend("cuda"), resourceDevice});
     CHECK(resources);
     auto const workspaceBaseline = resources->Snapshot();
-    auto first = ExecuteCudaGraph(*plan, *workspace, 20.0, 200, &diagnostics);
+    auto first = ExecuteCudaPlanForTesting(plan, *workspace, 20.0, 200, &diagnostics);
     CHECK(first && !diagnostics.HasErrors());
     auto const firstStats = GetCudaBindingStats(*workspace);
     CHECK(firstStats.size() == 1 && firstStats.front().identity &&
@@ -340,7 +341,7 @@ int SynchronousTransactions(
     CHECK(fullFiller);
     auto const fullSaturated = resources->Snapshot();
     UsdGenDiagnostics fullRejectDiagnostics;
-    auto fullReject = ExecuteCudaGraph(*plan, *workspace, 20.5, 2001,
+    auto fullReject = ExecuteCudaPlanForTesting(plan, *workspace, 20.5, 2001,
                                        &fullRejectDiagnostics, first);
     uint64_t rbfPeak = 0;
     CHECK(!fullReject && ParseLiteralRbfPeak(fullRejectDiagnostics, &rbfPeak));
@@ -361,7 +362,7 @@ int SynchronousTransactions(
     CHECK(peakFiller);
     auto const peakSaturated = resources->Snapshot();
     UsdGenDiagnostics peakRejectDiagnostics;
-    auto peakReject = ExecuteCudaGraph(*plan, *workspace, 20.75, 2002,
+    auto peakReject = ExecuteCudaPlanForTesting(plan, *workspace, 20.75, 2002,
                                        &peakRejectDiagnostics, first);
     uint64_t repeatedPeak = 0;
     CHECK(!peakReject && ParseLiteralRbfPeak(peakRejectDiagnostics, &repeatedPeak) &&
@@ -380,7 +381,7 @@ int SynchronousTransactions(
     // stable, the output owner is replaced privately, and Pending is closed
     // before the synchronous call returns.
     UsdGenDiagnostics warmDiagnostics;
-    auto warm = ExecuteCudaGraph(*plan, *workspace, 20.75, 2003,
+    auto warm = ExecuteCudaPlanForTesting(plan, *workspace, 20.75, 2003,
                                  &warmDiagnostics, first);
     auto const warmStats = GetCudaBindingStats(*workspace);
     CHECK(warm && !warmDiagnostics.HasErrors() && warm->Owner() &&
@@ -426,10 +427,10 @@ int SynchronousTransactions(
     auto const asyncHeld = resources->Snapshot();
     CHECK(ResourceKindBytes(asyncHeld, UsdGenExecutionResourceKind::Pending) >
           ResourceKindBytes(asyncBaseline, UsdGenExecutionResourceKind::Pending));
-    CHECK(ExecuteCudaJobSource(*asyncAdmitted));
+    CHECK(RunCudaJobSourceForTesting(asyncAdmitted));
     for (size_t i = 0; i != CudaExecutionJobOperatorCount(*asyncAdmitted); ++i)
-        CHECK(ExecuteCudaJobOperator(*asyncAdmitted, i));
-    auto asyncGeneration = FinalizeCudaExecutionJob(*asyncAdmitted);
+        CHECK(RunCudaJobOperatorForTesting(asyncAdmitted, i));
+    auto asyncGeneration = FinalizeCudaJobForTesting(asyncAdmitted);
     CHECK(asyncGeneration && !asyncAdmissionDiagnostics.HasErrors());
     auto const afterAsyncAdmission = resources->Snapshot();
     CHECK(ResourceKindBytes(afterAsyncAdmission,
@@ -455,9 +456,9 @@ int SynchronousTransactions(
     auto const firstPointer = first;
     auto const beforeFailureAttempts = GetAttempts();
     auto const beforeFailureResources = resources->Snapshot();
-    failNextCudaSynchronousFinalizationForTesting();
+    failNextCudaRbfFinalizationForTesting();
     UsdGenDiagnostics failedDiagnostics;
-    auto failed = ExecuteCudaGraph(*plan, *workspace, 21.0, 201,
+    auto failed = ExecuteCudaPlanForTesting(plan, *workspace, 21.0, 201,
                                    &failedDiagnostics, firstPointer);
     auto const afterFailureAttempts = GetAttempts();
     auto const afterFailureResources = resources->Snapshot();
@@ -508,7 +509,7 @@ int SynchronousTransactions(
           afterFailureAttempts.surfaceRollback == beforeFailureAttempts.surfaceRollback + 1);
 
     UsdGenDiagnostics retryDiagnostics;
-    auto retry = ExecuteCudaGraph(*plan, *workspace, 21.0, 202,
+    auto retry = ExecuteCudaPlanForTesting(plan, *workspace, 21.0, 202,
                                   &retryDiagnostics, firstPointer);
     auto const retryStats = GetCudaBindingStats(*workspace);
     CHECK(retry && !retryDiagnostics.HasErrors() && retryStats.size() == 1 &&
@@ -524,13 +525,13 @@ int SynchronousTransactions(
     auto changedRestPlan = CompileCudaGraph(usdGenUsd::Lower(ChangedRestDesc()),
                                             &changedRestCompileDiagnostics);
     CHECK(changedRestPlan && !changedRestCompileDiagnostics.HasErrors());
-    failNextCudaSynchronousFinalizationForTesting();
+    failNextCudaRbfFinalizationForTesting();
     UsdGenDiagnostics changedRestFailureDiagnostics;
-    CHECK(!ExecuteCudaGraph(*changedRestPlan, *workspace, 22.0, 203,
+    CHECK(!ExecuteCudaPlanForTesting(changedRestPlan, *workspace, 22.0, 203,
                             &changedRestFailureDiagnostics, retry) &&
           SameStats(GetCudaBindingStats(*workspace), retryStats));
     UsdGenDiagnostics changedRestRetryDiagnostics;
-    auto changedRestRetry = ExecuteCudaGraph(*changedRestPlan, *workspace, 22.0, 204,
+    auto changedRestRetry = ExecuteCudaPlanForTesting(changedRestPlan, *workspace, 22.0, 204,
                                              &changedRestRetryDiagnostics, retry);
     auto const changedRestStats = GetCudaBindingStats(*workspace);
     CHECK(changedRestRetry && changedRestStats.size() == 1 &&
@@ -544,13 +545,13 @@ int SynchronousTransactions(
     UsdGenDiagnostics budgetCompileDiagnostics;
     auto budgetPlan = CompileCudaGraph(usdGenUsd::Lower(ChangedBudgetDesc()), &budgetCompileDiagnostics);
     CHECK(budgetPlan && !budgetCompileDiagnostics.HasErrors());
-    failNextCudaSynchronousFinalizationForTesting();
+    failNextCudaRbfFinalizationForTesting();
     UsdGenDiagnostics budgetFailureDiagnostics;
-    CHECK(!ExecuteCudaGraph(*budgetPlan, *workspace, 23.0, 205,
+    CHECK(!ExecuteCudaPlanForTesting(budgetPlan, *workspace, 23.0, 205,
                             &budgetFailureDiagnostics, changedRestRetry) &&
           SameStats(GetCudaBindingStats(*workspace), changedRestStats));
     UsdGenDiagnostics budgetRetryDiagnostics;
-    auto budgetRetry = ExecuteCudaGraph(*budgetPlan, *workspace, 23.0, 206,
+    auto budgetRetry = ExecuteCudaPlanForTesting(budgetPlan, *workspace, 23.0, 206,
                                         &budgetRetryDiagnostics, changedRestRetry);
     auto const budgetStats = GetCudaBindingStats(*workspace);
     if (!budgetRetry || budgetStats.size() != 1 ||
@@ -587,7 +588,7 @@ int SynchronousTransactions(
     auto cacheWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(cacheWorkspace);
     auto const cacheBaseline = resources->Snapshot();
-    auto cacheGeneration = ExecuteCudaGraph(*plan, *cacheWorkspace, 24.0, 207,
+    auto cacheGeneration = ExecuteCudaPlanForTesting(plan, *cacheWorkspace, 24.0, 207,
                                             &diagnostics);
     CHECK(cacheGeneration && !diagnostics.HasErrors());
     auto const cacheHeld = resources->Snapshot();
@@ -607,18 +608,18 @@ int SynchronousTransactions(
     auto poisonedWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(poisonedWorkspace);
     UsdGenDiagnostics poisonBaseDiagnostics;
-    auto poisonBase = ExecuteCudaGraph(*plan, *poisonedWorkspace, 30.0, 300,
+    auto poisonBase = ExecuteCudaPlanForTesting(plan, *poisonedWorkspace, 30.0, 300,
                                        &poisonBaseDiagnostics);
     CHECK(poisonBase);
     auto const poisonStats = GetCudaBindingStats(*poisonedWorkspace);
     failNextCudaRbfSolveAfterInputSubmitForTesting();
     UsdGenDiagnostics poisonDiagnostics;
-    CHECK(!ExecuteCudaGraph(*plan, *poisonedWorkspace, 31.0, 301,
+    CHECK(!ExecuteCudaPlanForTesting(plan, *poisonedWorkspace, 31.0, 301,
                             &poisonDiagnostics, poisonBase) &&
           SameStats(GetCudaBindingStats(*poisonedWorkspace), poisonStats) &&
           SameGeneration(poisonBase, poisonBase));
     UsdGenDiagnostics poisonedRetryDiagnostics;
-    CHECK(!ExecuteCudaGraph(*plan, *poisonedWorkspace, 32.0, 302,
+    CHECK(!ExecuteCudaPlanForTesting(plan, *poisonedWorkspace, 32.0, 302,
                             &poisonedRetryDiagnostics, poisonBase) &&
           SameStats(GetCudaBindingStats(*poisonedWorkspace), poisonStats));
     return 0;
@@ -695,8 +696,8 @@ static int ValueDagTransactions() {
         auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         auto referenceWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         CHECK(workspace && referenceWorkspace);
-        auto expected = ExecuteCudaGraph(*referencePlan, *referenceWorkspace, 1.0, 1000, &diagnostics);
-        auto first = ExecuteCudaGraph(*plan, *workspace, 1.0, 1001, &diagnostics);
+        auto expected = ExecuteCudaPlanForTesting(referencePlan, *referenceWorkspace, 1.0, 1000, &diagnostics);
+        auto first = ExecuteCudaPlanForTesting(plan, *workspace, 1.0, 1001, &diagnostics);
         CHECK(expected && first && !diagnostics.HasErrors() && SameGeneration(expected, first));
         if (variant == 7) {
             CHECK(first->Geometry().pointCount == 0 && first->Geometry().elementCount == 0 &&
@@ -711,9 +712,9 @@ static int ValueDagTransactions() {
         auto stats = GetCudaBindingStats(*workspace);
         CHECK(stats.size() == (variant == 5 ? 2 : 1));
         auto attempts = GetAttempts();
-        failNextCudaSynchronousFinalizationForTesting();
+        failNextCudaRbfFinalizationForTesting();
         UsdGenDiagnostics failedDiagnostics;
-        CHECK(!ExecuteCudaGraph(*plan, *workspace, 2.0, 1002, &failedDiagnostics, first));
+        CHECK(!ExecuteCudaPlanForTesting(plan, *workspace, 2.0, 1002, &failedDiagnostics, first));
         CHECK(failedDiagnostics.HasErrors() && SameStats(stats, GetCudaBindingStats(*workspace)) &&
               SameGeneration(expected, first));
         auto rejected = GetAttempts();
@@ -727,7 +728,7 @@ static int ValueDagTransactions() {
         CHECK(rejected.rbfAccept == attempts.rbfAccept && rejected.surfaceAccept == attempts.surfaceAccept);
         CHECK(rejected.rbfRollback == attempts.rbfRollback + stats.size() &&
               rejected.surfaceRollback == attempts.surfaceRollback + stats.size());
-        auto retry = ExecuteCudaGraph(*plan, *workspace, 3.0, 1003, &diagnostics, first);
+        auto retry = ExecuteCudaPlanForTesting(plan, *workspace, 3.0, 1003, &diagnostics, first);
         CHECK(retry && SameGeneration(expected, retry) && SameGeneration(expected, first));
         auto after = GetCudaBindingStats(*workspace);
         CHECK(after.size() == stats.size());

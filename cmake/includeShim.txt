@@ -10,7 +10,6 @@ usdGen/compiler.h usdGen/compile/compiler.h
 usdGen/concaveMaterialRemap.h usdGenSurface/concaveMaterialRemap.h
 usdGen/cpuParameters.h usdGenExpr/cpuParameters.h
 usdGen/cudaExecution.h usdGenCurves/cuda/cudaExecution.h
-usdGen/cudaExecutionQueue.h usdGenCurves/cuda/cudaExecutionQueue.h
 usdGen/cudaParameters.h usdGenCurves/cuda/cudaParameters.h
 usdGen/cudaScatterInput.h usdGenCurves/cuda/cudaScatterInput.h
 usdGen/cudaSourceInput.h usdGenCurves/cuda/cudaSourceInput.h

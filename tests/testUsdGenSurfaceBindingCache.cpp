@@ -5,6 +5,7 @@
 #include "usdGen/curveLoader.h"
 #ifdef USDGEN_TEST_CUDA_BINDING_CACHE
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "usdGenCurves/cuda/generation.h"
 #endif
 
@@ -193,20 +194,20 @@ int main() {
     CHECK(workspace && other);
     auto plan = CompileCudaGraph(usdGenUsd::Lower(d),&diagnostics);
     CHECK(plan);
-    auto first = ExecuteCudaGraph(*plan,*workspace,1,1,&diagnostics);
+    auto first = ExecuteCudaPlanForTesting(plan,*workspace,1,1,&diagnostics);
     CHECK(first && !diagnostics.HasErrors());
     auto identity = getCudaRestSurfaceBindingCacheIdentityForTesting(*workspace);
     CHECK(identity && !getCudaRestSurfaceBindingCacheIdentityForTesting(*other));
-    auto second = ExecuteCudaGraph(*plan,*workspace,2,2,&diagnostics);
+    auto second = ExecuteCudaPlanForTesting(plan,*workspace,2,2,&diagnostics);
     CHECK(second && identity == getCudaRestSurfaceBindingCacheIdentityForTesting(*workspace));
-    auto isolated = ExecuteCudaGraph(*plan,*other,1,1,&diagnostics);
+    auto isolated = ExecuteCudaPlanForTesting(plan,*other,1,1,&diagnostics);
     CHECK(isolated && identity != getCudaRestSurfaceBindingCacheIdentityForTesting(*other));
     auto lease = gpu::AcquireGeometry(first,nullptr);
     CHECK(lease && lease.RootUV().size == 1);
     d.surfaces[0].restPoints[1][0] = 2;
     plan = CompileCudaGraph(usdGenUsd::Lower(d),&diagnostics);
     CHECK(plan);
-    auto refreshed = ExecuteCudaGraph(*plan,*workspace,3,3,&diagnostics);
+    auto refreshed = ExecuteCudaPlanForTesting(plan,*workspace,3,3,&diagnostics);
     CHECK(refreshed && identity != getCudaRestSurfaceBindingCacheIdentityForTesting(*workspace));
     float2 oldUv{};
     CHECK(cudaMemcpy(&oldUv,lease.RootUV().data,sizeof(oldUv),cudaMemcpyDeviceToHost)==cudaSuccess);

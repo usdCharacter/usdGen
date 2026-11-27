@@ -1,4 +1,4 @@
-#include "usdGenCurves/cuda/cudaExecutionQueue.h"
+#include "cudaExecutionQueueFixture.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
