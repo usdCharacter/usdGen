@@ -23,13 +23,8 @@ enum class UsdGenStatusCode : uint8_t { Ok, InvalidArgument, Unsupported, Failed
 class UsdGenStatus {
 public:
     UsdGenStatus() noexcept = default;                       // Ok
-    static UsdGenStatus Error(UsdGenStatusCode code, std::string_view message)
-    {
-        UsdGenStatus s;
-        s._code = code;
-        s._message = UsdGenText(message);
-        return s;
-    }
+    /// The message is allocated in usdGen.
+    USDGEN_CORE_API static UsdGenStatus Error(UsdGenStatusCode code, std::string_view message);
     bool ok() const noexcept { return _code == UsdGenStatusCode::Ok; }
     UsdGenStatusCode code() const noexcept { return _code; }
     std::string_view message() const noexcept { return _message.View(); }

@@ -36,6 +36,14 @@ void Forward(UsdGenSeverity s, char const *message) noexcept
 }
 }  // namespace
 
+UsdGenStatus UsdGenStatus::Error(UsdGenStatusCode code, std::string_view message)
+{
+    UsdGenStatus s;
+    s._code = code;
+    s._message = UsdGenText(message);
+    return s;
+}
+
 void UsdGenSetReportSink(UsdGenReportFn fn, void *user) noexcept
 {
     gReportUser.store(user, std::memory_order_relaxed);

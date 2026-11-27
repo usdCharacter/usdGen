@@ -1297,7 +1297,6 @@ _HReadNode(HdSceneIndexBase &input, SdfPath const &p, _HdTime t)
                 binding.nativeType, binding.literal, &arrayElementCount);
             binding.destinationShape = usdGen::expr::ValueShapeFromNativeType(
                 usdGenUsd::ToToken(binding.nativeType), arrayElementCount, arrayCountKnown);
-            binding.literal = usdGenUsd::ToEngineValue(binding.literal);
             node.expressionBindings.push_back(std::move(binding));
         }
     }

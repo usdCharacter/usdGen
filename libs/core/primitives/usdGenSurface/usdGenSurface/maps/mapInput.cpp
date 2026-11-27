@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -40,6 +42,19 @@ MapInputState const *State() noexcept
 }
 
 using ImagePayloadPtr = std::shared_ptr<const UsdGenImagePayload>;
+
+/// The record's image payload value: a Boxed payload of usdGenSurface
+/// (pointer identity, as the shared_ptr it holds).
+struct ImagePayloadBox final : UsdGenBoxed, UsdGenPooled {
+    static constexpr uint64_t kBoxTag = UsdGenBoxTag("usdGenSurface.imagePayload");
+    explicit ImagePayloadBox(ImagePayloadPtr p) : payload(std::move(p)) {}
+    uint64_t Hash() const noexcept override { return uint64_t(reinterpret_cast<uintptr_t>(payload.get())); }
+    bool Equal(UsdGenBoxed const &o) const noexcept override
+    {
+        return payload == static_cast<ImagePayloadBox const &>(o).payload;
+    }
+    ImagePayloadPtr payload;
+};
 
 /// Intake: the map type's handle, once per compile.
 void ResolveTypeId(UsdGenInputRecord &record)
@@ -249,8 +264,8 @@ UsdGenMapInputView UsdGenMapInputView::Of(UsdGenInputRecord const &record) noexc
     if (record.values.size() > kUsdGenMapValues)
         v.params = {record.values.data() + kUsdGenMapValues, record.values.size() - kUsdGenMapValues};
     if (UsdGenValue const *image = record.Value(kUsdGenMapValueImagePayload);
-        image && image->IsHolding<ImagePayloadPtr>())
-        v.imagePayload = image->UncheckedGet<ImagePayloadPtr>();
+        image && image->GetBoxed<ImagePayloadBox>())
+        v.imagePayload = image->GetBoxed<ImagePayloadBox>()->payload;
     v.typeId = UsdGenTypeId(uint16_t(record.Get<int>(kUsdGenMapValueTypeId,
                                                      int(UsdGenTypeId::Invalid))));
     v.data = record.data;
@@ -286,7 +301,8 @@ UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &d, UsdGenNodeKey key,
     w.Value(kUsdGenMapValueResolvedAssetPath, UsdGenValue(d.resolvedAssetPath));
     w.Value(kUsdGenMapValuePaintPrimvar, UsdGenValue(d.paintPrimvar));
     w.Value(kUsdGenMapValuePaintInterpolation, UsdGenValue(d.paintInterpolation));
-    w.Value(kUsdGenMapValueImagePayload, UsdGenValue(d.imagePayload));
+    w.Value(kUsdGenMapValueImagePayload,
+            UsdGenValue::Box(ImagePayloadBox::kBoxTag, UsdGenRef<const UsdGenBoxed>(new ImagePayloadBox(d.imagePayload))));
     w.Value(kUsdGenMapValueTypeId, UsdGenValue(int(d.typeId)));
     for (UsdGenParamValue const &param : d.params) w.Extra(param);
     return w.Finish(key, paintSurface, label, d.textureGeneration);

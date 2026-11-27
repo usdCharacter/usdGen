@@ -43,22 +43,13 @@ USDGEN_EXPR_API bool operator==(UsdGenExpressionSlot const &, UsdGenExpressionSl
 inline bool operator!=(UsdGenExpressionOutputDesc const &a, UsdGenExpressionOutputDesc const &b) noexcept { return !(a == b); }
 inline bool operator!=(UsdGenExpressionSlot const &a, UsdGenExpressionSlot const &b) noexcept { return !(a == b); }
 
-// TfHash support: the record holds outputs and slots as VtValues.
-template <class HashState>
-void TfHashAppend(HashState &h, UsdGenExpressionOutputDesc const &o)
-{
-    h.Append(o.name, o.nativeType, uint32_t(o.shape.scalar), o.shape.elementCount,
-             o.shape.components, o.shape.rows, o.shape.columns, o.shape.isArray);
-}
-template <class HashState>
-void TfHashAppend(HashState &h, UsdGenExpressionSlot const &s)
-{
-    h.Append(s.name);
-    for (std::vector<UsdGenNodeKey> const *keys : {&s.targets, &s.geometries, &s.maps}) {
-        h.Append(keys->size());
-        for (UsdGenNodeKey const key : *keys) h.Append(key.value);
-    }
-}
+/// The record's outputs and slots values: Boxed payloads of usdGenExpr
+/// (allocated and freed here).
+USDGEN_EXPR_API UsdGenValue UsdGenExpressionOutputsValue(std::vector<UsdGenExpressionOutputDesc> const &outputs);
+USDGEN_EXPR_API UsdGenValue UsdGenExpressionSlotsValue(std::vector<UsdGenExpressionSlot> const &slots);
+/// The payload a value holds, or null.
+USDGEN_EXPR_API std::vector<UsdGenExpressionOutputDesc> const *UsdGenExpressionOutputsOf(UsdGenValue const &v) noexcept;
+USDGEN_EXPR_API std::vector<UsdGenExpressionSlot> const *UsdGenExpressionSlotsOf(UsdGenValue const &v) noexcept;
 
 /// An expression program as a host captures it; travels as a
 /// UsdGenExpressionInput record (values: source, outputs, slots).

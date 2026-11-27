@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Host and engine math. The usdGenMath types have Gf's bytes, so single
 // values convert implicitly (in) and explicitly (out) through
-// UsdGenHostMath; values convert explicitly here and arrays in
-// convert/array.h (included at the end).
+// UsdGenHostMath; values convert explicitly here, arrays in convert/array.h
+// and VtValues in convert/value.h (both included at the end).
 #pragma once
 #include "usdGenMath/math.h"
 
@@ -121,16 +121,7 @@ struct HostRep<E, std::enable_if_t<!std::is_void<HostMathOf<E>>::value>> {
     using Type = HostMathOf<E>;
     static E In(Type const &h) noexcept { return ToEngine(h); }
 };
-/// VtValues: a held Gf math value becomes the usdGenMath one (ToEngineValue),
-/// and back (ToHostValue); a TfToken becomes a UsdGenToken and back
-/// (convert/token.h); a VtArray of a convertible element becomes a
-/// UsdGenCowArray and back (convert/array.h), and a string array a
-/// std::vector<std::string>. Anything else is unchanged. Every value the
-/// engine reads goes through ToEngineValue (UsdGenValue is VtValue until the
-/// value swap, and IsHolding is exact).
-PXR_NS::VtValue ToEngineValue(PXR_NS::VtValue const &v);
-PXR_NS::VtValue ToHostValue(PXR_NS::VtValue const &v);
-
 }  // namespace usdGenUsd
 
 #include "usdGenUsd/convert/array.h"
+#include "usdGenUsd/convert/value.h"

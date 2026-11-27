@@ -141,7 +141,6 @@ UsdGenInputRecord LowerMap(UsdGenMapDesc const &map, Lowering &keys)
 {
     UsdGenNodeKey const key = keys.Key(map.path);
     UsdGenMapData data = map;
-    for (UsdGenParamValue &p : data.params) p.value = ToEngineValue(p.value);
     return UsdGenMapRecord(data, key, keys.Key(map.paintSurface), UsdGenText(map.path.GetString()),
                            keys.Columns());
 }
@@ -183,7 +182,6 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
     for (UsdGenMapBindingDesc const &binding : node.mapBindings)
         out.mapBindings.push_back(UsdGenMapBinding{keys.Key(binding.map), ToToken(binding.relationship)});
     out.params = node.params;
-    for (UsdGenParamValue &p : out.params) p.value = ToEngineValue(p.value);
     out.expressionBindings.reserve(node.expressionBindings.size());
     for (UsdGenExpressionBinding const &binding : node.expressionBindings) {
         UsdGenParamBinding b;

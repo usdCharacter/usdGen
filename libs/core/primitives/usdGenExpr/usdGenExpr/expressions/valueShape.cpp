@@ -21,7 +21,6 @@ template <class T> UsdGenValue _Value() { return UsdGenValue(T()); }
 template <class T> UsdGenValue _Identity() { return UsdGenValue(T(1.0)); }
 template <class T> UsdGenValue _Array() { return UsdGenValue(UsdGenCowArray<T>()); }
 UsdGenValue _Half() { return UsdGenValue(UsdGenHalf(0.0f)); }
-// UsdGenTimeCode comes with vt/types.h (through vt/value.h).
 
 // Sdf's value type names plus the legacy names SdfSchema still resolves
 // (Vec3f, Point, Transform, PointIndex, ...). Sorted by name (byte order);
@@ -89,8 +88,8 @@ constexpr UsdGenValueTypeInfo kTypes[] = {
     {"VectorFloat", ScalarType::Float32, 1, 3, 0, false, &_Value<UsdGenVec3f>},
     {"VectorFloat[]", ScalarType::Float32, 1, 3, 0, true, &_Array<UsdGenVec3f>},
     {"Vector[]", ScalarType::Float64, 1, 3, 0, true, &_Array<UsdGenVec3d>},
-    {"asset", ScalarType::Invalid, 0, 0, 0, false, nullptr},
-    {"asset[]", ScalarType::Invalid, 0, 0, 0, true, nullptr},
+    {"asset", ScalarType::Invalid, 0, 0, 0, false, &_Value<UsdGenAssetPath>},
+    {"asset[]", ScalarType::Invalid, 0, 0, 0, true, &_Value<std::vector<UsdGenAssetPath>>},
     {"bool", ScalarType::Bool, 0, 0, 0, false, &_Value<bool>},
     {"bool[]", ScalarType::Bool, 0, 0, 0, true, &_Array<bool>},
     {"color3d", ScalarType::Float64, 1, 3, 0, false, &_Value<UsdGenVec3d>},
@@ -123,7 +122,7 @@ constexpr UsdGenValueTypeInfo kTypes[] = {
     {"float[]", ScalarType::Float32, 0, 0, 0, true, &_Array<float>},
     {"frame4d", ScalarType::Float64, 2, 4, 4, false, &_Identity<UsdGenMatrix4d>},
     {"frame4d[]", ScalarType::Float64, 2, 4, 4, true, &_Array<UsdGenMatrix4d>},
-    {"group", ScalarType::Invalid, 0, 0, 0, false, nullptr},
+    {"group", ScalarType::Invalid, 0, 0, 0, false, &_Value<UsdGenGroup>},
     {"half", ScalarType::Float16, 0, 0, 0, false, &_Half},
     {"half2", ScalarType::Float16, 1, 2, 0, false, &_Value<UsdGenVec2h>},
     {"half2[]", ScalarType::Float16, 1, 2, 0, true, &_Array<UsdGenVec2h>},
@@ -154,9 +153,9 @@ constexpr UsdGenValueTypeInfo kTypes[] = {
     {"normal3f[]", ScalarType::Float32, 1, 3, 0, true, &_Array<UsdGenVec3f>},
     {"normal3h", ScalarType::Float16, 1, 3, 0, false, &_Value<UsdGenVec3h>},
     {"normal3h[]", ScalarType::Float16, 1, 3, 0, true, &_Array<UsdGenVec3h>},
-    {"opaque", ScalarType::Invalid, 0, 0, 0, false, nullptr},
-    {"pathExpression", ScalarType::Invalid, 0, 0, 0, false, nullptr},
-    {"pathExpression[]", ScalarType::Invalid, 0, 0, 0, true, nullptr},
+    {"opaque", ScalarType::Invalid, 0, 0, 0, false, &_Value<UsdGenOpaque>},
+    {"pathExpression", ScalarType::Invalid, 0, 0, 0, false, &_Value<UsdGenPathExpression>},
+    {"pathExpression[]", ScalarType::Invalid, 0, 0, 0, true, &_Value<std::vector<UsdGenPathExpression>>},
     {"point3d", ScalarType::Float64, 1, 3, 0, false, &_Value<UsdGenVec3d>},
     {"point3d[]", ScalarType::Float64, 1, 3, 0, true, &_Array<UsdGenVec3d>},
     {"point3f", ScalarType::Float32, 1, 3, 0, false, &_Value<UsdGenVec3f>},

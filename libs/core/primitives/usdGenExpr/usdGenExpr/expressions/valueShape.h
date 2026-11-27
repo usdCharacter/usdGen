@@ -16,9 +16,8 @@ namespace usdGen::expr {
 // One row of the closed value-type table: the native type names the
 // builders emit (Sdf's value type names, scalar and array). Tuple dims mirror
 // SdfTupleDimensions; scalar is Invalid for types the evaluator cannot carry.
-// makeDefault yields Sdf's default value; null where that C++ type lives in
-// sdf (asset, opaque, group, pathExpression). testUsdGenValueTypeTable
-// compares every row against SdfSchema.
+// makeDefault yields Sdf's default value (every row has one).
+// testUsdGenValueTypeTable compares every row against SdfSchema.
 struct UsdGenValueTypeInfo {
     char const *name = nullptr;
     ScalarType scalar = ScalarType::Invalid;

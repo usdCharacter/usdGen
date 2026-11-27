@@ -8,6 +8,7 @@
 #pragma once
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
+#include "usdGen/api/value.h"
 #include "usdGenUsd/convert/math.h"
 
 #include "pxr/base/gf/half.h"
@@ -33,7 +34,7 @@ template <class H>
 struct EngineElemImpl<H, std::enable_if_t<!std::is_void<typename EngineOfImpl<H>::Type>::value>> {
     using Type = typename EngineOfImpl<H>::Type;
 };
-template <> struct EngineElemImpl<PXR_NS::GfTimeCode, void> { using Type = PXR_NS::GfTimeCode; };
+template <> struct EngineElemImpl<PXR_NS::GfTimeCode, void> { using Type = usdGen::UsdGenTimeCode; };
 /// The host element of an engine element (void when none).
 template <class E, class = void> struct HostElemImpl { using Type = void; };
 template <class E> struct HostElemImpl<E, std::enable_if_t<std::is_arithmetic<E>::value>> { using Type = E; };
@@ -41,7 +42,7 @@ template <class E>
 struct HostElemImpl<E, std::enable_if_t<!std::is_void<typename HostMath<E>::Type>::value>> {
     using Type = typename HostMath<E>::Type;
 };
-template <> struct HostElemImpl<PXR_NS::GfTimeCode, void> { using Type = PXR_NS::GfTimeCode; };
+template <> struct HostElemImpl<usdGen::UsdGenTimeCode, void> { using Type = PXR_NS::GfTimeCode; };
 
 /// Keeps a host VtArray alive under an engine arena.
 template <class A>

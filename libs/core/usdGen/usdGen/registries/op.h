@@ -27,6 +27,7 @@
 #include <atomic>
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 namespace usdGen {
 
@@ -50,8 +51,9 @@ struct UsdGenDiagnostics
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
     bool HasErrors() const { return !errors.empty(); }
-    void Error(std::string msg)    { errors.push_back(std::move(msg)); }
-    void Warn(std::string msg)     { warnings.push_back(std::move(msg)); }
+    /// Out of line: every message string is allocated in usdGen.
+    USDGEN_CORE_API void Error(std::string_view msg);
+    USDGEN_CORE_API void Warn(std::string_view msg);
 };
 
 /// The exec-phase token rule: true (and an error on diag) when the phase

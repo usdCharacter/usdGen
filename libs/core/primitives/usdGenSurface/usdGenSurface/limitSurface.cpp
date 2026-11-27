@@ -1,3 +1,7 @@
+// OpenSubdiv's loop scheme uses M_PI (MSVC: only with _USE_MATH_DEFINES).
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
 #include "usdGen/limitSurface.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"

@@ -1487,8 +1487,8 @@ bool SourceParity(char const* fixture, UsdGenGraphDesc const& d,
         }
         TfToken rebind = TfToken("never");
         for (auto const& p : node.params)
-            if (p.name == TfToken("rebind") && p.value.IsHolding<TfToken>())
-                rebind = p.value.UncheckedGet<TfToken>();
+            if (p.name == TfToken("rebind") && p.value.IsHolding<usdGen::UsdGenToken>())
+                rebind = p.value.UncheckedGet<usdGen::UsdGenToken>();
         UsdGenCurveRootCaptureResult captured;
         std::string error;
         CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves), (surface ? usdGenUsd::Addr(usdGenUsd::View(*surface)) : nullptr), rebind, &captured,

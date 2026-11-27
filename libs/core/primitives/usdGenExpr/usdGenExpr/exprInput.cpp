@@ -36,6 +36,48 @@ namespace {
 using Outputs = std::vector<UsdGenExpressionOutputDesc>;
 using Slots = std::vector<UsdGenExpressionSlot>;
 
+uint64_t HashMix(uint64_t h, uint64_t v) noexcept { return math_detail::HashMix(h, v); }
+
+uint64_t HashOf(uint64_t h, UsdGenExpressionOutputDesc const &o) noexcept
+{
+    h = HashMix(h, o.name.Hash());
+    h = HashMix(h, o.nativeType.Hash());
+    for (uint64_t v : {uint64_t(o.shape.scalar), uint64_t(o.shape.elementCount), uint64_t(o.shape.components),
+                       uint64_t(o.shape.rows), uint64_t(o.shape.columns), uint64_t(o.shape.isArray)})
+        h = HashMix(h, v);
+    return h;
+}
+
+uint64_t HashOf(uint64_t h, UsdGenExpressionSlot const &s) noexcept
+{
+    h = HashMix(h, s.name.Hash());
+    for (std::vector<UsdGenNodeKey> const *keys : {&s.targets, &s.geometries, &s.maps}) {
+        h = HashMix(h, keys->size());
+        for (UsdGenNodeKey const key : *keys) h = HashMix(h, key.value);
+    }
+    return h;
+}
+
+/// A vector payload of usdGenExpr.
+template <class V, uint64_t Tag>
+struct VectorBox final : UsdGenBoxed, UsdGenPooled {
+    static constexpr uint64_t kBoxTag = Tag;
+    explicit VectorBox(V const &v) : value(v) {}
+    uint64_t Hash() const noexcept override
+    {
+        uint64_t h = HashMix(0xcbf29ce484222325ull, value.size());
+        for (auto const &e : value) h = HashOf(h, e);
+        return h;
+    }
+    bool Equal(UsdGenBoxed const &o) const noexcept override
+    {
+        return value == static_cast<VectorBox const &>(o).value;
+    }
+    V value;
+};
+using OutputsBox = VectorBox<Outputs, UsdGenBoxTag("usdGenExpr.outputs")>;
+using SlotsBox = VectorBox<Slots, UsdGenBoxTag("usdGenExpr.slots")>;
+
 struct ExprInputState {
     UsdGenToken expressionAttributes[kUsdGenExpressionValues];
     UsdGenElementLayout expressionLayout;
@@ -227,6 +269,28 @@ UsdGenInputRecord const *UsdGenFindGeometryInput(UsdGenGraphSpec const &spec, Us
     return spec.FindInput(UsdGenGeometryInputKind(), key);
 }
 
+UsdGenValue UsdGenExpressionOutputsValue(Outputs const &outputs)
+{
+    return UsdGenValue::Box(OutputsBox::kBoxTag, UsdGenRef<const UsdGenBoxed>(new OutputsBox(outputs)));
+}
+
+UsdGenValue UsdGenExpressionSlotsValue(Slots const &slots)
+{
+    return UsdGenValue::Box(SlotsBox::kBoxTag, UsdGenRef<const UsdGenBoxed>(new SlotsBox(slots)));
+}
+
+Outputs const *UsdGenExpressionOutputsOf(UsdGenValue const &v) noexcept
+{
+    OutputsBox const *box = v.GetBoxed<OutputsBox>();
+    return box ? &box->value : nullptr;
+}
+
+Slots const *UsdGenExpressionSlotsOf(UsdGenValue const &v) noexcept
+{
+    SlotsBox const *box = v.GetBoxed<SlotsBox>();
+    return box ? &box->value : nullptr;
+}
+
 UsdGenExpressionInputView UsdGenExpressionInputView::Of(UsdGenInputRecord const &record) noexcept
 {
     UsdGenExpressionInputView v;
@@ -237,15 +301,15 @@ UsdGenExpressionInputView UsdGenExpressionInputView::Of(UsdGenInputRecord const 
         v.source = v.sourceHolder.UncheckedGet<std::string>();
     }
     if (UsdGenValue const *outputs = record.Value(kUsdGenExpressionValueOutputs);
-        outputs && outputs->IsHolding<Outputs>()) {
+        outputs && UsdGenExpressionOutputsOf(*outputs)) {
         v.outputsHolder = *outputs;
-        Outputs const &o = v.outputsHolder.UncheckedGet<Outputs>();
+        Outputs const &o = *UsdGenExpressionOutputsOf(v.outputsHolder);
         v.outputs = {o.data(), o.size()};
     }
     if (UsdGenValue const *inputs = record.Value(kUsdGenExpressionValueInputs);
-        inputs && inputs->IsHolding<Slots>()) {
+        inputs && UsdGenExpressionSlotsOf(*inputs)) {
         v.inputsHolder = *inputs;
-        Slots const &s = v.inputsHolder.UncheckedGet<Slots>();
+        Slots const &s = *UsdGenExpressionSlotsOf(v.inputsHolder);
         v.inputs = {s.data(), s.size()};
     }
     return v;
@@ -306,8 +370,8 @@ UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &d, UsdGenNo
 {
     UsdGenInputRecordWriter w(UsdGenExpressionInputKind());
     w.Value(kUsdGenExpressionValueSource, UsdGenValue(d.source));
-    w.Value(kUsdGenExpressionValueOutputs, UsdGenValue(d.outputs));
-    w.Value(kUsdGenExpressionValueInputs, UsdGenValue(d.inputs));
+    w.Value(kUsdGenExpressionValueOutputs, UsdGenExpressionOutputsValue(d.outputs));
+    w.Value(kUsdGenExpressionValueInputs, UsdGenExpressionSlotsValue(d.inputs));
     return w.Finish(key, UsdGenNodeKey{}, label, 0);
 }
 

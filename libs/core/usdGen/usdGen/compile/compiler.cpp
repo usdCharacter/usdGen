@@ -1774,6 +1774,9 @@ void UsdGenCompiler::_Build(
 }
 
 
+void UsdGenDiagnostics::Error(std::string_view msg) { errors.emplace_back(msg); }
+void UsdGenDiagnostics::Warn(std::string_view msg) { warnings.emplace_back(msg); }
+
 void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
                          UsdGenResolvedParam *out)
 {

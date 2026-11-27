@@ -1282,7 +1282,7 @@ BuildGraphDescFromStage(
                 bool const hasLiteral = a.Get(&literal, UsdTimeCode(time));
                 binding.destinationShape = _ExpressionShape(
                     a.GetTypeName(), hasLiteral ? &literal : nullptr);
-                binding.literal = usdGenUsd::ToEngineValue(literal);
+                binding.literal = literal;   // lowering converts it
                 node.expressionBindings.push_back(std::move(binding));
             }
         }

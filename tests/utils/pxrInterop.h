@@ -8,15 +8,19 @@
 // compare text. Arrays (step 11.6): a VtArray converts implicitly both ways
 // to the UsdGenCowArray of its engine element (usdGenUsd::ToCow / ToVt, zero
 // copy where the bytes match), and mixed comparisons compare elements.
+// Values (step 11.7): a VtValue converts implicitly both ways to a
+// UsdGenValue (usdGenUsd::ToEngineValue / ToHostValue).
 // Hosts never include this header.
 #pragma once
 #include "usdGenUsd/convert/array.h"
 #include "usdGenUsd/convert/math.h"
 #include "usdGenUsd/convert/token.h"
+#include "usdGenUsd/convert/value.h"
 
 #include "pxr/base/tf/token.h"
 #include "pxr/base/vt/array.h"
 #include "pxr/base/vt/types.h"
+#include "pxr/base/vt/value.h"
 
 #include <string_view>
 #include <type_traits>
@@ -46,6 +50,18 @@ struct UsdGenHostArray<PXR_NS::VtArray<H>>
     static UsdGenCowArray<Element> In(PXR_NS::VtArray<H> const &h) { return usdGenUsd::ToCow(h); }
     static PXR_NS::VtArray<H> Out(UsdGenCowArray<Element> const &a) { return usdGenUsd::ToVt(a); }
 };
+
+template <>
+struct UsdGenHostValue<PXR_NS::VtValue> : std::true_type {
+    static UsdGenValue In(PXR_NS::VtValue const &v) { return usdGenUsd::ToEngineValue(v); }
+    static PXR_NS::VtValue Out(UsdGenValue const &v) { return usdGenUsd::ToHostValue(v); }
+};
+
+/// Mixed comparisons compare engine values (pxr's VtValue == T would never match).
+inline bool operator==(UsdGenValue const &a, PXR_NS::VtValue const &b) { return a == usdGenUsd::ToEngineValue(b); }
+inline bool operator==(PXR_NS::VtValue const &b, UsdGenValue const &a) { return a == b; }
+inline bool operator!=(UsdGenValue const &a, PXR_NS::VtValue const &b) { return !(a == b); }
+inline bool operator!=(PXR_NS::VtValue const &b, UsdGenValue const &a) { return !(a == b); }
 
 namespace pxr_interop_detail {
 template <class E, class H>

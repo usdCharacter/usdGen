@@ -213,13 +213,13 @@ void Conversions()
     PXR_NS::VtArray<PXR_NS::TfToken> const tokensBack = usdGenUsd::ToVt(t);
     Check(t.size() == 2 && t[1] == "bc" && tokensBack == tokens, "token arrays convert per element");
 
-    PXR_NS::VtValue const value = usdGenUsd::ToEngineValue(PXR_NS::VtValue(floats));
+    usdGen::UsdGenValue const value = usdGenUsd::ToEngineValue(PXR_NS::VtValue(floats));
     Check(value.IsHolding<UsdGenFloatArray>() && value.UncheckedGet<UsdGenFloatArray>().cdata() == floats.cdata(),
           "ToEngineValue holds the engine array, zero copy");
     PXR_NS::VtValue const hostValue = usdGenUsd::ToHostValue(value);
     Check(hostValue.IsHolding<PXR_NS::VtArray<float>>() && hostValue.UncheckedGet<PXR_NS::VtArray<float>>() == floats,
           "ToHostValue gives the VtArray back");
-    PXR_NS::VtValue const vec = usdGenUsd::ToEngineValue(PXR_NS::VtValue(host));
+    usdGen::UsdGenValue const vec = usdGenUsd::ToEngineValue(PXR_NS::VtValue(host));
     Check(vec.IsHolding<UsdGenVec3fArray>() && usdGenUsd::ToHostValue(vec).IsHolding<PXR_NS::VtArray<PXR_NS::GfVec3f>>(),
           "math arrays round trip through values");
 }
