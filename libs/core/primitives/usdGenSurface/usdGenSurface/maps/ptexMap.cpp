@@ -29,9 +29,8 @@
 #  pragma GCC visibility pop
 #endif
 
-#include "pxr/pxr.h"
-#include "pxr/base/tf/diagnostic.h"
-#include "pxr/base/tf/getenv.h"
+#include "usdGen/api/env.h"
+#include "usdGen/api/status.h"
 
 #include <algorithm>
 #include <atomic>
@@ -40,8 +39,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -55,18 +52,19 @@ namespace {
 // reach this handler; the default one writes to std::cerr.
 class UsdGenPtexErrorHandler final : public PtexErrorHandler {
 public:
-    void reportError(char const *error) override { TF_WARN("Ptex: %s", error); }
+    void reportError(char const *error) override { UsdGenReport(UsdGenSeverity::Warning, "Ptex: %s", error); }
 };
 
 int EnvInt(char const *name, int fallback, int minimum)
 {
-    std::string const value = TfGetenv(name);
+    char const *const env = UsdGenGetEnv(name);
+    std::string const value = env ? env : "";
     if (value.empty()) return fallback;
     char *end = nullptr;
     long const parsed = std::strtol(value.c_str(), &end, 10);
     if (end == value.c_str() || *end != '\0' || parsed < minimum ||
         parsed > std::numeric_limits<int>::max()) {
-        TF_WARN("Ignoring %s='%s' (expected an integer >= %d)", name, value.c_str(), minimum);
+        UsdGenReport(UsdGenSeverity::Warning, "Ignoring %s='%s' (expected an integer >= %d)", name, value.c_str(), minimum);
         return fallback;
     }
     return static_cast<int>(parsed);

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "exprVkParameters.h"
+#include "usdGen/api/token.h"
 
 #include "usdGen/expressions/irExec.h"
 
@@ -18,7 +19,7 @@ void Error(std::vector<std::string>* diagnostics, std::string const& message) {
     if (diagnostics) diagnostics->push_back(message);
 }
 // A destination's name without "usdGen:"; compares text, never interns.
-std::string_view CanonicalName(TfToken const& name) {
+std::string_view CanonicalName(UsdGenToken const& name) {
     std::string_view value = name.GetString();
     if (value.compare(0, 7, "usdGen:") == 0) value.remove_prefix(7);
     return value;
@@ -35,7 +36,7 @@ ExprVkParameterEvaluator::ExprVkParameterEvaluator(
     : context_(std::move(contextPipeline)), evaluate_(std::move(evaluatePipeline)) {}
 ExprVkParameterEvaluator::~ExprVkParameterEvaluator() = default;
 
-ExprVkParameterField const* ExprVkParameterEvaluator::Find(TfToken const& destination) const {
+ExprVkParameterField const* ExprVkParameterEvaluator::Find(UsdGenToken const& destination) const {
     auto canonical = CanonicalName(destination);
     for (auto const& field : fields_)
         if (CanonicalName(field.destination) == canonical) return &field;

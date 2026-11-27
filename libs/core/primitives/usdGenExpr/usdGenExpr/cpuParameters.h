@@ -28,14 +28,13 @@
 #include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/registries/typeRegistry.h"
 
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -95,7 +94,7 @@ public:
     bool Clear() noexcept override;
 
     /// By name, with or without `usdGen:`. Never interns.
-    UsdGenExpressionValue const *Find(TfToken const &destination) const noexcept override;
+    UsdGenExpressionValue const *Find(UsdGenToken const &destination) const noexcept override;
     /// By the op's param slot, O(1).
     UsdGenExpressionValue const *FindSlot(UsdGenParamSlot slot) const noexcept override
     {
@@ -136,7 +135,7 @@ private:
     struct Item {
         UsdGenParamBinding binding;
         UsdGenParamSlot slot = kUsdGenNoParam;
-        TfToken canonical;               // the destination without `usdGen:`
+        UsdGenToken canonical;               // the destination without `usdGen:`
         expr::IRProgram ir;
         std::vector<double> literal;
         std::vector<std::unique_ptr<SamplerState>> samplers;

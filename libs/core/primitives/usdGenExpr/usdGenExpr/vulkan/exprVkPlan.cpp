@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "exprVkPlan.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 #include "usdGenCurves/types/curveTokens.h"
 
 #include "usdGen/registries/opRegistry.h"
@@ -83,9 +86,9 @@ bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &no
         return false;
     }
     ExprVkWidthData data;
-    std::set<TfToken> seen;
-    VtVec2fArray knots;
-    TfToken interpolation = UsdGenCurveTokens().catmullRom;
+    std::set<UsdGenToken> seen;
+    UsdGenVec2fArray knots;
+    UsdGenToken interpolation = UsdGenCurveTokens().catmullRom;
     UsdGenVulkanKernel const widthKernel = UsdGenVulkanKernelFor(UsdGenVulkanStage::Width);
     UsdGenParamSlot const profileMode = widthKernel.Slot(vulkanP::kWidthProfileMode);
     for (auto const &param : node.params) {
@@ -111,11 +114,11 @@ bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &no
             }
             data.literal.replace = param.value.UncheckedGet<bool>();
         } else if (name == "width:knots") {
-            if (!param.value.IsHolding<VtVec2fArray>()) {
+            if (!param.value.IsHolding<UsdGenVec2fArray>()) {
                 Error(diagnostics, "Width knots must be float2 array");
                 return false;
             }
-            knots = param.value.UncheckedGet<VtVec2fArray>();
+            knots = param.value.UncheckedGet<UsdGenVec2fArray>();
             float previous = -1;
             for (auto const &k : knots) {
                 if (!std::isfinite(k[0]) || !std::isfinite(k[1]) || k[0] < 0 || k[0] > 1 ||
@@ -126,15 +129,15 @@ bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &no
                 previous = k[0];
             }
         } else if (name == "width:interpolation") {
-            if (!param.value.IsHolding<TfToken>()) {
+            if (!param.value.IsHolding<UsdGenToken>()) {
                 Error(diagnostics, "Width interpolation must be token");
                 return false;
             }
-            interpolation = param.value.UncheckedGet<TfToken>();
+            interpolation = param.value.UncheckedGet<UsdGenToken>();
         } else if (name == "width:profile:mode") {
             // ramp or bezier, held as a token
-            if (!param.value.IsHolding<TfToken>() ||
-                widthKernel.record->EnumIndex(profileMode, param.value.UncheckedGet<TfToken>()) < 0) {
+            if (!param.value.IsHolding<UsdGenToken>() ||
+                widthKernel.record->EnumIndex(profileMode, param.value.UncheckedGet<UsdGenToken>()) < 0) {
                 Error(diagnostics, "Width profile mode must be ramp or bezier");
                 return false;
             }
@@ -183,7 +186,7 @@ bool ExprVkValidateExprOpNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &n
     }
     ExprVkExprOpData data;
     std::string modeParam;
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const &param : node.params) {
         if (!seen.insert(param.name).second) {
             Error(diagnostics, "duplicate UsdGenExprOp parameter " + param.name.GetString());
@@ -191,17 +194,17 @@ bool ExprVkValidateExprOpNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &n
         }
         auto const &name = param.name.GetString();
         if (name == "mode") {
-            if (!param.value.IsHolding<TfToken>()) {
+            if (!param.value.IsHolding<UsdGenToken>()) {
                 Error(diagnostics, "UsdGenExprOp: unknown usdGen:mode");
                 return false;
             }
-            modeParam = param.value.UncheckedGet<TfToken>().GetString();
+            modeParam = param.value.UncheckedGet<UsdGenToken>().GetString();
         } else if (name == "expr:returnType") {
-            if (!param.value.IsHolding<TfToken>()) {
+            if (!param.value.IsHolding<UsdGenToken>()) {
                 Error(diagnostics, "UsdGenExprOp: unknown usdGen:expr:returnType");
                 return false;
             }
-            auto const value = param.value.UncheckedGet<TfToken>().GetString();
+            auto const value = param.value.UncheckedGet<UsdGenToken>().GetString();
             if (value != "displacement" && value != "width" && value != "color") {
                 Error(diagnostics, "UsdGenExprOp: unknown usdGen:expr:returnType '" + value + "'");
                 return false;
@@ -216,8 +219,8 @@ bool ExprVkValidateExprOpNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &n
         } else if (name == "expr:source") {
             if (param.value.IsHolding<std::string>())
                 data.source = param.value.UncheckedGet<std::string>();
-            else if (param.value.IsHolding<TfToken>())
-                data.source = param.value.UncheckedGet<TfToken>().GetString();
+            else if (param.value.IsHolding<UsdGenToken>())
+                data.source = param.value.UncheckedGet<UsdGenToken>().GetString();
             else {
                 Error(diagnostics, "UsdGenExprOp: usdGen:expr:source must be a string");
                 return false;

@@ -5,6 +5,8 @@
 #define USDGEN_SURFACE_ROOT_BINDINGS_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 #include "usdGenSurface/surfaceInput.h"
 
 #include <cstddef>
@@ -12,7 +14,6 @@
 #include <memory>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -20,15 +21,15 @@ struct UsdGenSurfaceRootBindingResult
 {
     // Fresh, owned parent-mesh bindings.  An unresolved root has rootPrim=-1
     // and rootUV=(0,0), never a plausible binding to face zero.
-    VtIntArray rootPrim;
-    VtVec2fArray rootUV;
+    UsdGenIntArray rootPrim;
+    UsdGenVec2fArray rootUV;
 
     // `valid[i]` is one exactly when the candidate search produced a binding.
     // `unresolved[i]` distinguishes a finite root for which no candidate
     // surface patch could be solved from a structural input failure, which
     // returns false and leaves the entire result untouched.
-    VtArray<uint8_t> valid;
-    VtArray<uint8_t> unresolved;
+    UsdGenCowArray<uint8_t> valid;
+    UsdGenCowArray<uint8_t> unresolved;
     uint32_t unresolvedCount = 0;
 };
 
@@ -47,8 +48,8 @@ public:
     ~UsdGenRestSurfaceBindingCache();
 
     bool Matches(UsdGenSurfaceInputView const &surface) const;
-    bool Bind(VtVec3fArray const &sourceRestRoots,
-              GfMatrix4d const &sourceWorldMatrix,
+    bool Bind(UsdGenVec3fArray const &sourceRestRoots,
+              UsdGenMatrix4d const &sourceWorldMatrix,
               UsdGenSurfaceRootBindingResult *out,
               std::string *error = nullptr) const;
     size_t BytesOwned() const noexcept;
@@ -80,8 +81,8 @@ private:
 /// entry, allowing a loader to apply its rebind/drop policy transactionally.
 bool UsdGenBuildRestSurfaceRootBindings(
     UsdGenSurfaceInputView const &surface,
-    VtVec3fArray const &sourceRestRoots,
-    GfMatrix4d const &sourceWorldMatrix,
+    UsdGenVec3fArray const &sourceRestRoots,
+    UsdGenMatrix4d const &sourceWorldMatrix,
     UsdGenSurfaceRootBindingResult *out,
     std::string *error = nullptr);
 

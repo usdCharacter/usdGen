@@ -8,20 +8,13 @@
 #include "usdGen/api/elementSet.h"
 #include "usdGenSurface/export.h"
 #include "usdGen/api/ids.h"
+#include "usdGenMath/math.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
 #include <cstddef>
 #include <cstdint>
 
-PXR_NAMESPACE_OPEN_SCOPE
-class GfVec2f;
-class GfVec3f;
-PXR_NAMESPACE_CLOSE_SCOPE
-
 namespace usdGen {
-
-using PXR_NS::GfVec2f;
-using PXR_NS::GfVec3f;
 
 class UsdGenRegistrar;
 
@@ -72,8 +65,8 @@ struct UsdGenRootSetView {
     UsdGenSpan<const float> px, py, pz;
     UsdGenSpan<const uint64_t> curveId;
     UsdGenSpan<const int> rootPrim;
-    UsdGenSpan<const GfVec2f> rootUV;
-    UsdGenSpan<const GfVec3f> rootT, rootN, rootB;
+    UsdGenSpan<const UsdGenVec2f> rootUV;
+    UsdGenSpan<const UsdGenVec3f> rootT, rootN, rootB;
     uint32_t totalCurves = 0;              // roots
     uint64_t topologyVersion = 0, valueVersion = 0;
     bool valid = false;

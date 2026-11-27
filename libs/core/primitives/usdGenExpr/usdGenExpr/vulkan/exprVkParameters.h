@@ -20,6 +20,7 @@
 #define USDGEN_VULKAN_EXPR_VK_PARAMETERS_H
 
 #include "exprVkContext.h"
+#include "usdGen/api/token.h"
 #include "exprVkEvaluate.h"
 
 #include <cstddef>
@@ -40,7 +41,7 @@ enum class ExprVkParameterStatus {
 };
 
 struct ExprVkParameterField {
-    TfToken destination;
+    UsdGenToken destination;
     // 8-byte slots, count*components of them; null only when count is 0.
     std::shared_ptr<const ChargedBuffer> data;
     size_t count = 0;
@@ -67,7 +68,7 @@ public:
         expr::Context controls, std::vector<std::string>* diagnostics = nullptr);
 
     std::vector<ExprVkParameterField> const& Fields() const noexcept { return fields_; }
-    ExprVkParameterField const* Find(TfToken const& destination) const;
+    ExprVkParameterField const* Find(UsdGenToken const& destination) const;
 
 private:
     std::shared_ptr<ExprVkContextPipeline> context_;

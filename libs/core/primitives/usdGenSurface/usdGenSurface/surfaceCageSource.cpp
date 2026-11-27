@@ -1,4 +1,7 @@
 #include "usdGen/surfaceCageSource.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -10,7 +13,7 @@
 #include "usdGen/maps/ptexMap.h"
 #include "usdGen/surfaceCageInterpolate.h"
 
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,15 +23,14 @@
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
 
 // Ownership plane names of the dense curve set, interned at load.
-TfToken const kTubeId = UsdGenInternToken("tubeId");
-TfToken const kRegionId = UsdGenInternToken("regionId");
-TfToken const kHierarchyLevel = UsdGenInternToken("hierarchyLevel");
+UsdGenToken const kTubeId = UsdGenInternToken("tubeId");
+UsdGenToken const kRegionId = UsdGenInternToken("regionId");
+UsdGenToken const kHierarchyLevel = UsdGenInternToken("hierarchyLevel");
 
 bool Fail(std::string const &message, std::string *error)
 {
@@ -36,10 +38,10 @@ bool Fail(std::string const &message, std::string *error)
     return false;
 }
 bool Finite(float value) { return std::isfinite(value); }
-bool Finite(GfVec3f const &value) {
+bool Finite(UsdGenVec3f const &value) {
     return Finite(value[0]) && Finite(value[1]) && Finite(value[2]);
 }
-bool Finite(GfMatrix4d const &matrix) {
+bool Finite(UsdGenMatrix4d const &matrix) {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!std::isfinite(matrix[row][column])) return false;
@@ -49,7 +51,7 @@ bool Finite(GfMatrix4d const &matrix) {
 template <class Params>
 UsdGenParamValue const *FindParam(Params const &params, char const *name)
 {
-    TfToken const key(name);
+    UsdGenToken const key(name);
     UsdGenParamValue const *found = nullptr;
     for (UsdGenParamValue const &param : params) {
         if (param.name != key) continue;
@@ -59,7 +61,7 @@ UsdGenParamValue const *FindParam(Params const &params, char const *name)
     return found;
 }
 
-bool Number(VtValue const &value, double *out)
+bool Number(UsdGenValue const &value, double *out)
 {
     if (!out) return false;
     if (value.IsHolding<float>()) { *out = value.UncheckedGet<float>(); return true; }
@@ -72,8 +74,8 @@ bool Token(UsdGenMapInputView const &map, char const *name, std::string *out)
 {
     UsdGenParamValue const *param = FindParam(map.params, name);
     if (!param) return false;
-    if (param->value.IsHolding<TfToken>()) {
-        *out = param->value.UncheckedGet<TfToken>().GetString(); return true;
+    if (param->value.IsHolding<UsdGenToken>()) {
+        *out = param->value.UncheckedGet<UsdGenToken>().GetString(); return true;
     }
     if (param->value.IsHolding<std::string>()) {
         *out = param->value.UncheckedGet<std::string>(); return true;
@@ -98,7 +100,7 @@ struct Prepared
 };
 
 bool GetUniformIntPlane(UsdGenCurveSetInputView const &sparse, char const *name,
-                        bool required, VtIntArray *values, std::string *error)
+                        bool required, UsdGenIntArray *values, std::string *error)
 {
     UsdGenAuthoredPlaneView foundPlane;
     UsdGenAuthoredPlaneView const *found = nullptr;
@@ -124,15 +126,15 @@ bool GetUniformIntPlane(UsdGenCurveSetInputView const &sparse, char const *name,
     return true;
 }
 
-bool TransformPoint(GfMatrix4d const &matrix, GfVec3f const &source,
-                    GfVec3f *out)
+bool TransformPoint(UsdGenMatrix4d const &matrix, UsdGenVec3f const &source,
+                    UsdGenVec3f *out)
 {
     if (!out || !Finite(source)) return false;
-    GfVec3d const value = matrix.Transform(GfVec3d(source));
+    UsdGenVec3d const value = matrix.Transform(UsdGenVec3d(source));
     if (!std::isfinite(value[0]) || !std::isfinite(value[1]) || !std::isfinite(value[2]) ||
         !std::isfinite(float(value[0])) || !std::isfinite(float(value[1])) ||
         !std::isfinite(float(value[2]))) return false;
-    *out = GfVec3f(float(value[0]), float(value[1]), float(value[2]));
+    *out = UsdGenVec3f(float(value[0]), float(value[1]), float(value[2]));
     return true;
 }
 
@@ -208,14 +210,14 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         return Fail("surface-cage regionMap blur must be zero", error);
     options.blur = 0.0f;
 
-    VtIntArray tubeIds, regionIds, hierarchyLevels;
+    UsdGenIntArray tubeIds, regionIds, hierarchyLevels;
     if (!GetUniformIntPlane(sparse, "tubeId", true, &tubeIds, error) ||
         !GetUniformIntPlane(sparse, "regionId", false, &regionIds, error) ||
         !GetUniformIntPlane(sparse, "hierarchyLevel", false, &hierarchyLevels, error))
         return false;
     std::map<int, int> ownerRegion, ownerHierarchy;
     for (size_t curve = 0; curve != tubeIds.size(); ++curve) {
-        auto checkOwnerValue = [&](VtIntArray const &values, std::map<int, int> *perOwner,
+        auto checkOwnerValue = [&](UsdGenIntArray const &values, std::map<int, int> *perOwner,
                                    char const *name) -> bool {
             if (values.empty()) return true;
             auto const found = perOwner->find(tubeIds[curve]);
@@ -250,7 +252,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     // Fill measures density and finds cage bindings in world space.  Make the
     // pure helper use that same metric, including under a non-uniform scalp
     // transform, and return an explicitly world-space transient descriptor.
-    candidate.input.surface.worldMatrix = GfMatrix4d(1.0);
+    candidate.input.surface.worldMatrix = UsdGenMatrix4d(1.0);
     size_t surfaceCorners = 0;
     for (size_t face = 0; face != surface->faceVertexCounts.size(); ++face) {
         int const count = surface->faceVertexCounts[face];
@@ -268,8 +270,8 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         return Fail("surface-cage rest surface index cardinality is invalid", error);
     candidate.input.surface.restPoints.clear();
     candidate.input.surface.restPoints.reserve(surface->restPoints.size());
-    for (GfVec3f const &point : surface->restPoints) {
-        GfVec3f world;
+    for (UsdGenVec3f const &point : surface->restPoints) {
+        UsdGenVec3f world;
         if (!TransformPoint(surface->worldMatrix, point, &world))
             return Fail("surface-cage rest surface has non-finite points", error);
         candidate.input.surface.restPoints.push_back(world);
@@ -321,7 +323,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
             guide.widths.reserve(size_t(count));
         }
         for (int cv = 0; cv != count; ++cv) {
-            GfVec3f point, rest;
+            UsdGenVec3f point, rest;
             if (!TransformPoint(sparse.worldMatrix, sparse.points[pointOffset + size_t(cv)], &point) ||
                 !TransformPoint(sparse.worldMatrix, sparse.rest[pointOffset + size_t(cv)], &rest))
                 return Fail("surface-cage sparse rail transform is non-finite", error);
@@ -338,7 +340,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     candidate.input.triangles.reserve(payload.triangles.size());
     for (size_t index = 0; index != payload.triangles.size(); ++index) {
         int const ownerIndex = payload.triangleOwnerIndices[index];
-        GfVec3i const triangle = payload.triangles[index];
+        UsdGenVec3i const triangle = payload.triangles[index];
         if (ownerIndex < 0 || size_t(ownerIndex) >= owners || triangle[0] < 0 ||
             triangle[1] < 0 || triangle[2] < 0)
             return Fail("surface-cage triangle has an invalid owner or rail index", error);
@@ -357,13 +359,13 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     std::vector<double> faceAreas(surface->faceVertexCounts.size(), 0.0);
     for (size_t face = 0, offset = 0; face != surface->faceVertexCounts.size(); ++face) {
         int const count = surface->faceVertexCounts[face];
-        auto point = [&](int corner) -> GfVec3f const & {
+        auto point = [&](int corner) -> UsdGenVec3f const & {
             int const vertex = candidate.input.surface.faceVertexIndices[
                 offset + size_t(corner)];
             return candidate.input.surface.restPoints[size_t(vertex)];
         };
         for (int corner = 1; corner + 1 < count; ++corner)
-            faceAreas[face] += 0.5 * double(GfCross(point(corner) - point(0),
+            faceAreas[face] += 0.5 * double(UsdGenCross(point(corner) - point(0),
                                                      point(corner + 1) - point(0)).GetLength());
         if (!std::isfinite(faceAreas[face]))
             return Fail("surface-cage rest surface area is invalid", error);
@@ -444,9 +446,9 @@ bool UsdGenBuildSurfaceCageCurveSet(
     candidate.skinPrim = std::move(dense.rootPrim);
     candidate.skinPrimUv = std::move(dense.rootUV);
     candidate.curveId = std::move(dense.curveId);
-    candidate.worldMatrix = GfMatrix4d(1.0);
+    candidate.worldMatrix = UsdGenMatrix4d(1.0);
     candidate.curveGeneration = sparse.curveGeneration;
-    auto appendOwnerPlane = [&](TfToken const &name, std::map<int, int> const &perOwner) -> bool {
+    auto appendOwnerPlane = [&](UsdGenToken const &name, std::map<int, int> const &perOwner) -> bool {
         if (perOwner.empty()) return true;
         UsdGenAuthoredPlaneDesc plane;
         plane.name = name; plane.type = UsdGenAuthoredPlaneType::Int32;

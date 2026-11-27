@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGenSurface/vulkan/surfaceVk.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 
 #include "usdGen/op.h"
 #include "usdGenMath/rbf.h"
 
-#include "pxr/base/gf/range3d.h"
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,9 +25,9 @@ bool Fail(UsdGenDiagnostics* diagnostics, std::string const& message) {
     return false;
 }
 
-// Same native-free contract as executionPlan.cpp: GfMatrix4d is row-major
+// Same native-free contract as executionPlan.cpp: UsdGenMatrix4d is row-major
 // with row-vector affine transforms (translation in matrix[3][0..2]).
-bool IsFiniteAffine(GfMatrix4d const& matrix) {
+bool IsFiniteAffine(UsdGenMatrix4d const& matrix) {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!std::isfinite(matrix[row][column])) return false;
@@ -35,10 +35,10 @@ bool IsFiniteAffine(GfMatrix4d const& matrix) {
         matrix[2][3] == 0.0 && matrix[3][3] == 1.0;
 }
 
-bool IsFiniteInvertibleAffine(GfMatrix4d const& matrix) {
+bool IsFiniteInvertibleAffine(UsdGenMatrix4d const& matrix) {
     if (!IsFiniteAffine(matrix)) return false;
     double determinant = 0.0;
-    GfMatrix4d const inverse = matrix.GetInverse(&determinant);
+    UsdGenMatrix4d const inverse = matrix.GetInverse(&determinant);
     if (!std::isfinite(determinant) ||
         std::abs(determinant) <= std::numeric_limits<double>::epsilon())
         return false;
@@ -50,21 +50,21 @@ bool IsFiniteInvertibleAffine(GfMatrix4d const& matrix) {
 // gpu/surfaceBinding.cu exactly, in float arithmetic with the same
 // evaluation order: triangle a*w+b*u+c*v with w=1-u-v, quad
 // a*u0*v0+b*u*v0+c*u*v+d*u0*v.
-GfVec3f GatherRootLocal(UsdGenSpan<const GfVec3f> points, UsdGenSpan<const int> indices,
-                        uint32_t base, int n, GfVec2f const& uv) {
+UsdGenVec3f GatherRootLocal(UsdGenSpan<const UsdGenVec3f> points, UsdGenSpan<const int> indices,
+                        uint32_t base, int n, UsdGenVec2f const& uv) {
     float const u = uv[0], v = uv[1];
-    GfVec3f const a(points[indices[base]]);
-    GfVec3f const b(points[indices[base + 1]]);
-    GfVec3f const c(points[indices[base + 2]]);
+    UsdGenVec3f const a(points[indices[base]]);
+    UsdGenVec3f const b(points[indices[base + 1]]);
+    UsdGenVec3f const c(points[indices[base + 2]]);
     if (n == 3) {
         float const w = 1.0f - u - v;
-        return GfVec3f(a[0] * w + b[0] * u + c[0] * v,
+        return UsdGenVec3f(a[0] * w + b[0] * u + c[0] * v,
                        a[1] * w + b[1] * u + c[1] * v,
                        a[2] * w + b[2] * u + c[2] * v);
     }
-    GfVec3f const d(points[indices[base + 3]]);
+    UsdGenVec3f const d(points[indices[base + 3]]);
     float const u0 = 1.0f - u, v0 = 1.0f - v;
-    return GfVec3f(a[0] * u0 * v0 + b[0] * u * v0 + c[0] * u * v + d[0] * u0 * v,
+    return UsdGenVec3f(a[0] * u0 * v0 + b[0] * u * v0 + c[0] * u * v + d[0] * u0 * v,
                    a[1] * u0 * v0 + b[1] * u * v0 + c[1] * u * v + d[1] * u0 * v,
                    a[2] * u0 * v0 + b[2] * u * v0 + c[2] * u * v + d[2] * u0 * v);
 }
@@ -94,8 +94,8 @@ bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
     // Row-vector convention (curveRootCapture.cpp): a surface-local point p
     // reaches source-local space as p * surface * source^-1.
     double determinant = 0.0;
-    GfMatrix4d const sourceInverse = source.worldMatrix.GetInverse(&determinant);
-    GfMatrix4d const surfaceToSource = surface.worldMatrix * sourceInverse;
+    UsdGenMatrix4d const sourceInverse = source.worldMatrix.GetInverse(&determinant);
+    UsdGenMatrix4d const surfaceToSource = surface.worldMatrix * sourceInverse;
     if (!IsFiniteAffine(surfaceToSource))
         return Fail(diagnostics,
             "Deform surface-to-source transform is non-finite or non-affine");
@@ -103,11 +103,11 @@ bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
     // FPF on the source-local rest pose -> chosen indices; pair with the
     // source-local current pose. Same tolerance rule as ValidateDeform.
     size_t const nPts = surface.restPoints.size();
-    std::vector<GfVec3d> driverRest(nPts), driverNow(nPts);
-    GfRange3d extent;
+    std::vector<UsdGenVec3d> driverRest(nPts), driverNow(nPts);
+    UsdGenRange3d extent;
     for (size_t i = 0; i < nPts; ++i) {
-        driverRest[i] = surfaceToSource.TransformAffine(GfVec3d(surface.restPoints[i]));
-        driverNow[i] = surfaceToSource.TransformAffine(GfVec3d(surface.points[i]));
+        driverRest[i] = surfaceToSource.TransformAffine(UsdGenVec3d(surface.restPoints[i]));
+        driverNow[i] = surfaceToSource.TransformAffine(UsdGenVec3d(surface.points[i]));
         extent.UnionWith(driverRest[i]);
     }
     double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
@@ -138,11 +138,11 @@ bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
         int const faceIdx = source.skinPrim[c];
         if (faceIdx < 0 || faceIdx >= int(surface.faceVertexCounts.size()))
             return Fail(diagnostics, "Deform root binding references an invalid face");
-        GfVec3f local = GatherRootLocal(surface.points, surface.faceVertexIndices,
+        UsdGenVec3f local = GatherRootLocal(surface.points, surface.faceVertexIndices,
                                         faceStart[faceIdx],
                                         surface.faceVertexCounts[faceIdx],
                                         source.skinPrimUv[c]);
-        GfVec3d mapped = surfaceToSource.TransformAffine(GfVec3d(local));
+        UsdGenVec3d mapped = surfaceToSource.TransformAffine(UsdGenVec3d(local));
         out->rootTargets[3 * c] = float(mapped[0]);
         out->rootTargets[3 * c + 1] = float(mapped[1]);
         out->rootTargets[3 * c + 2] = float(mapped[2]);

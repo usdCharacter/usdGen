@@ -5,6 +5,11 @@
 // and the read view with the payload's field names.
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
 #include "usdGen/compile/types.h"
 #include "usdGenSurface/export.h"
 #include "usdGen/registries/engineTokens.h"
@@ -20,7 +25,7 @@ namespace usdGen {
 class UsdGenRegistrar;
 
 /// A surface geometry sample at an absolute time (R23).
-struct UsdGenSurfaceSample { double time; VtVec3fArray points; };
+struct UsdGenSurfaceSample { double time; UsdGenVec3fArray points; };
 
 // The Default-time mesh-normal interpolation transported by UsdGenRestAPI.
 // Invalid is deliberately distinct from None: a nonempty malformed snapshot
@@ -38,35 +43,35 @@ enum class UsdGenSurfaceNormalDomain : uint8_t {
 struct UsdGenSurfaceData
 {
     UsdGenSurfaceId id = 0;
-    VtIntArray     faceVertexCounts, faceVertexIndices;
+    UsdGenIntArray     faceVertexCounts, faceVertexIndices;
     // USD subdivision opinions, captured identically by stage/Hydra builders.
-    TfToken subdivisionScheme = UsdGenTokens().none, orientation = UsdGenTokens().rightHanded;
-    TfToken interpolateBoundary = UsdGenTokens().edgeAndCorner,
+    UsdGenToken subdivisionScheme = UsdGenTokens().none, orientation = UsdGenTokens().rightHanded;
+    UsdGenToken interpolateBoundary = UsdGenTokens().edgeAndCorner,
         faceVaryingLinearInterpolation = UsdGenTokens().cornersPlus1;
-    TfToken triangleSubdivisionRule = UsdGenTokens().catmullClark,
+    UsdGenToken triangleSubdivisionRule = UsdGenTokens().catmullClark,
         creaseMethod = UsdGenTokens().uniform;
-    VtIntArray holeIndices, creaseIndices, creaseLengths, cornerIndices;
-    VtFloatArray creaseSharpnesses, cornerSharpnesses;
-    VtVec3fArray   restPoints;        // usdGen/rest/points (S12), UsdTimeCode::Default()
-    VtVec3fArray   restNormals;       // usdGen/rest/normals, Default-time Mesh normals
+    UsdGenIntArray holeIndices, creaseIndices, creaseLengths, cornerIndices;
+    UsdGenFloatArray creaseSharpnesses, cornerSharpnesses;
+    UsdGenVec3fArray   restPoints;        // usdGen/rest/points (S12), UsdTimeCode::Default()
+    UsdGenVec3fArray   restNormals;       // usdGen/rest/normals, Default-time Mesh normals
     UsdGenSurfaceNormalDomain restNormalDomain = UsdGenSurfaceNormalDomain::None;
     bool          restFromCurrentPoints = false; // compatibility fallback, never a valid RBF binding
-    VtVec3fArray   points;            // deformed, at the graph time
+    UsdGenVec3fArray   points;            // deformed, at the graph time
     /// Sorted by time; samples[0].time == the graph time (R23).
     std::vector<UsdGenSurfaceSample> samples;
-    VtVec3fArray   velocities;        // motion profile P1 only; empty otherwise
-    VtVec2fArray   uv;                // the surface's primary uv set
+    UsdGenVec3fArray   velocities;        // motion profile P1 only; empty otherwise
+    UsdGenVec2fArray   uv;                // the surface's primary uv set
     // A GeomSubset target (R15) carries its parent Mesh's full geometry
     // above, so face ids stay parent-mesh ids, plus its sorted, unique faces
     // here. isSubset makes subsetFaces authoritative even when empty (an
     // empty subset selects no face); otherwise empty == whole mesh.
-    VtIntArray     subsetFaces;
+    UsdGenIntArray     subsetFaces;
     bool           isSubset = false;
-    VtFloatArray   densityMultiplier; // per-face scatter density scale from
+    UsdGenFloatArray   densityMultiplier; // per-face scatter density scale from
                                      // usdGen:paint:density (face means,
                                      // clamped >= 0, non-finite -> 0);
                                      // empty == all 1.0
-    GfMatrix4d     worldMatrix{1.0};  // post-flattening, resetXformStack (S4)
+    UsdGenMatrix4d     worldMatrix{1.0};  // post-flattening, resetXformStack (S4)
     uint64_t       surfaceGeneration = 0; // bumped by any points/topology change
 };
 
@@ -95,7 +100,7 @@ enum UsdGenSurfaceInputSlot : UsdGenSlot {
 
 enum UsdGenSurfaceInputValue : uint8_t {
     kUsdGenSurfaceValueId,                    // int (UsdGenSurfaceId; the compiler assigns it)
-    kUsdGenSurfaceValueSubdivisionScheme,     // TfToken ...
+    kUsdGenSurfaceValueSubdivisionScheme,     // UsdGenToken ...
     kUsdGenSurfaceValueOrientation,
     kUsdGenSurfaceValueInterpolateBoundary,
     kUsdGenSurfaceValueFaceVaryingLinearInterpolation,
@@ -104,7 +109,7 @@ enum UsdGenSurfaceInputValue : uint8_t {
     kUsdGenSurfaceValueRestNormalDomain,      // int
     kUsdGenSurfaceValueRestFromCurrentPoints, // bool
     kUsdGenSurfaceValueIsSubset,              // bool
-    kUsdGenSurfaceValueWorldMatrix,           // GfMatrix4d
+    kUsdGenSurfaceValueWorldMatrix,           // UsdGenMatrix4d
     kUsdGenSurfaceValues
 };
 
@@ -115,7 +120,7 @@ USDGEN_SURFACE_API UsdGenTypeId UsdGenRegisterSurfaceInputKind(UsdGenRegistrar &
 struct UsdGenSurfaceSampleView
 {
     double time = 0.0;
-    UsdGenSpan<const GfVec3f> points;
+    UsdGenSpan<const UsdGenVec3f> points;
 };
 
 /// The samples of a surface, in time order. No allocation.
@@ -154,7 +159,7 @@ public:
 private:
     size_t _count = 0;
     UsdGenSurfaceSample const *_samples = nullptr;   // payload-backed
-    UsdGenSpan<const GfVec3f> _points;               // record-backed
+    UsdGenSpan<const UsdGenVec3f> _points;               // record-backed
     UsdGenSpan<const double> _times;
     UsdGenSpan<const int> _counts;
 };
@@ -175,21 +180,21 @@ struct UsdGenSurfaceInputView
     UsdGenNodeKey owner;   // the Mesh a GeomSubset belongs to (host-filled); else invalid
     UsdGenSurfaceId id = 0;
     UsdGenSpan<const int> faceVertexCounts, faceVertexIndices;
-    TfToken subdivisionScheme, orientation, interpolateBoundary, faceVaryingLinearInterpolation,
+    UsdGenToken subdivisionScheme, orientation, interpolateBoundary, faceVaryingLinearInterpolation,
         triangleSubdivisionRule, creaseMethod;
     UsdGenSpan<const int> holeIndices, creaseIndices, creaseLengths, cornerIndices;
     UsdGenSpan<const float> creaseSharpnesses, cornerSharpnesses;
-    UsdGenSpan<const GfVec3f> restPoints, restNormals;
+    UsdGenSpan<const UsdGenVec3f> restPoints, restNormals;
     UsdGenSurfaceNormalDomain restNormalDomain = UsdGenSurfaceNormalDomain::None;
     bool restFromCurrentPoints = false;
-    UsdGenSpan<const GfVec3f> points;
+    UsdGenSpan<const UsdGenVec3f> points;
     UsdGenSurfaceSamples samples;
-    UsdGenSpan<const GfVec3f> velocities;
-    UsdGenSpan<const GfVec2f> uv;
+    UsdGenSpan<const UsdGenVec3f> velocities;
+    UsdGenSpan<const UsdGenVec2f> uv;
     UsdGenSpan<const int> subsetFaces;
     bool isSubset = false;
     UsdGenSpan<const float> densityMultiplier;
-    GfMatrix4d worldMatrix{1.0};
+    UsdGenMatrix4d worldMatrix{1.0};
     uint64_t surfaceGeneration = 0;
     /// Keeps a record's columns alive: a view may outlive its spec.
     UsdGenRef<const UsdGenElementSet> data;
@@ -227,7 +232,7 @@ USDGEN_SURFACE_API void UsdGenSetSurfaceId(UsdGenInputRecord &record, UsdGenSurf
 /// Packs 'data' into a UsdGenSurfaceInput record. Compile phase: allocates.
 USDGEN_SURFACE_API UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &data,
                                                       UsdGenNodeKey key, UsdGenNodeKey owner,
-                                                      TfToken const &label,
+                                                      UsdGenToken const &label,
                                                       UsdGenInputColumnCache *cache = nullptr);
 /// The Default-space variant of a surface record: points (and the one sample
 /// kept) are its rest points, no velocities, a rest-content generation.

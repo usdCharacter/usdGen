@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "exprVkRun.h"
+#include "usdGen/api/token.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
 #include <cmath>
@@ -11,7 +12,7 @@
 namespace usdGen::vulkan {
 namespace {
 // A destination's name without "usdGen:"; compares text, never interns.
-std::string_view Local(TfToken const &t) {
+std::string_view Local(UsdGenToken const &t) {
     std::string_view s = t.GetString();
     if (s.compare(0, 7, "usdGen:") == 0)
         s.remove_prefix(7);
@@ -89,7 +90,7 @@ void ExprVkRun::Quarantine() noexcept {
         state_->build->Quarantine();
 }
 std::shared_ptr<const ChargedBuffer> ExprVkRun::owners() const noexcept { return state_->ownerMap; }
-ExprVkParameterField const *ExprVkRun::Find(TfToken const &t) const {
+ExprVkParameterField const *ExprVkRun::Find(UsdGenToken const &t) const {
     return Find(std::string_view(t.GetString()));
 }
 ExprVkParameterField const *ExprVkRun::Find(std::string_view name) const {

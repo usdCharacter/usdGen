@@ -2,25 +2,15 @@
 // SPDX-License-Identifier: MIT
 
 #include "exprVkProgram.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #include "usdGenExpr/exprInput.h"
 
 #include "usdGen/expressions/exprMath.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
 
-#include "pxr/base/gf/half.h"
-#include "pxr/base/gf/vec2d.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec4d.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/gf/vec4f.h"
-#include "pxr/base/gf/vec2h.h"
-#include "pxr/base/gf/vec3h.h"
-#include "pxr/base/gf/vec4h.h"
-#include "pxr/base/gf/vec2i.h"
-#include "pxr/base/gf/vec3i.h"
-#include "pxr/base/gf/vec4i.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -170,7 +160,7 @@ static_assert(static_cast<unsigned>(Type::Float64) == 8);
 void Error(std::vector<std::string>* diagnostics, std::string const& message) {
     if (diagnostics) diagnostics->push_back(message);
 }
-std::string CanonicalName(TfToken const& name) {
+std::string CanonicalName(UsdGenToken const& name) {
     auto value = name.GetString();
     if (value.compare(0, 7, "usdGen:") == 0) value.erase(0, 7);
     return value;
@@ -195,13 +185,13 @@ bool SameShape(expr::ValueShape const& a, expr::ValueShape const& b) {
         a.columns == b.columns && a.isArray == b.isArray;
 }
 template<class T>
-bool ScalarLiteral(VtValue const& value, std::vector<double>* output) {
+bool ScalarLiteral(UsdGenValue const& value, std::vector<double>* output) {
     if (!value.IsHolding<T>()) return false;
     output->assign(1, static_cast<double>(value.UncheckedGet<T>()));
     return std::isfinite((*output)[0]);
 }
 template<class T>
-bool VectorLiteral(VtValue const& value, unsigned count, std::vector<double>* output) {
+bool VectorLiteral(UsdGenValue const& value, unsigned count, std::vector<double>* output) {
     if (!value.IsHolding<T>() || count != T::dimension) return false;
     output->resize(count);
     auto const& vector = value.UncheckedGet<T>();
@@ -213,7 +203,7 @@ bool VectorLiteral(VtValue const& value, unsigned count, std::vector<double>* ou
 }
 // Exact copy of the CUDA lane's literal rule: the exact finite native type,
 // int64/uint64 limited to 2^53.
-bool Literal(VtValue const& value, expr::ValueShape const& shape,
+bool Literal(UsdGenValue const& value, expr::ValueShape const& shape,
              std::vector<double>* output) {
     unsigned n = shape.components;
     if (n == 1) {
@@ -230,7 +220,7 @@ bool Literal(VtValue const& value, expr::ValueShape const& shape,
             if (!value.IsHolding<uint64_t>() ||
                 value.UncheckedGet<uint64_t>() > (uint64_t(1) << 53)) return false;
             return ScalarLiteral<uint64_t>(value, output);
-        case Type::Float16: return ScalarLiteral<GfHalf>(value, output);
+        case Type::Float16: return ScalarLiteral<UsdGenHalf>(value, output);
         case Type::Float32: return ScalarLiteral<float>(value, output);
         case Type::Float64: return ScalarLiteral<double>(value, output);
         default: return false;
@@ -238,17 +228,17 @@ bool Literal(VtValue const& value, expr::ValueShape const& shape,
     }
     switch (shape.scalar) {
     case Type::Float16:
-        return VectorLiteral<GfVec2h>(value, n, output) ||
-            VectorLiteral<GfVec3h>(value, n, output) || VectorLiteral<GfVec4h>(value, n, output);
+        return VectorLiteral<UsdGenVec2h>(value, n, output) ||
+            VectorLiteral<UsdGenVec3h>(value, n, output) || VectorLiteral<UsdGenVec4h>(value, n, output);
     case Type::Float32:
-        return VectorLiteral<GfVec2f>(value, n, output) ||
-            VectorLiteral<GfVec3f>(value, n, output) || VectorLiteral<GfVec4f>(value, n, output);
+        return VectorLiteral<UsdGenVec2f>(value, n, output) ||
+            VectorLiteral<UsdGenVec3f>(value, n, output) || VectorLiteral<UsdGenVec4f>(value, n, output);
     case Type::Float64:
-        return VectorLiteral<GfVec2d>(value, n, output) ||
-            VectorLiteral<GfVec3d>(value, n, output) || VectorLiteral<GfVec4d>(value, n, output);
+        return VectorLiteral<UsdGenVec2d>(value, n, output) ||
+            VectorLiteral<UsdGenVec3d>(value, n, output) || VectorLiteral<UsdGenVec4d>(value, n, output);
     case Type::Int32:
-        return VectorLiteral<GfVec2i>(value, n, output) ||
-            VectorLiteral<GfVec3i>(value, n, output) || VectorLiteral<GfVec4i>(value, n, output);
+        return VectorLiteral<UsdGenVec2i>(value, n, output) ||
+            VectorLiteral<UsdGenVec3i>(value, n, output) || VectorLiteral<UsdGenVec4i>(value, n, output);
     default: return false;
     }
 }

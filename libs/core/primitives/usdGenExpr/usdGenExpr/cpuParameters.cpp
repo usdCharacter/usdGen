@@ -1,4 +1,7 @@
 #include "usdGenExpr/cpuParameters.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenExpr/exprInput.h"
@@ -10,21 +13,7 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/token.h"
 
-#include "pxr/base/gf/half.h"
-#include "pxr/base/gf/matrix4d.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec2d.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec2h.h"
-#include "pxr/base/gf/vec2i.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/gf/vec3h.h"
-#include "pxr/base/gf/vec3i.h"
-#include "pxr/base/gf/vec4d.h"
-#include "pxr/base/gf/vec4f.h"
-#include "pxr/base/gf/vec4h.h"
-#include "pxr/base/gf/vec4i.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -32,7 +21,6 @@
 #include <iterator>
 #include <string_view>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -85,17 +73,17 @@ uint64_t MixDouble(uint64_t h, double value)
 
 // Closest-point barycentric of p in triangle (a, b, c):
 // p = a + s(b-a) + t(c-a). False when the triangle is degenerate.
-bool TriCoords(GfVec3d const &a, GfVec3d const &b, GfVec3d const &c,
-               GfVec3d const &p, double *s, double *t)
+bool TriCoords(UsdGenVec3d const &a, UsdGenVec3d const &b, UsdGenVec3d const &c,
+               UsdGenVec3d const &p, double *s, double *t)
 {
-    GfVec3d const e0 = b - a, e1 = c - a, ap = p - a;
-    double const d00 = GfDot(e0, e0);
-    double const d01 = GfDot(e0, e1);
-    double const d11 = GfDot(e1, e1);
+    UsdGenVec3d const e0 = b - a, e1 = c - a, ap = p - a;
+    double const d00 = UsdGenDot(e0, e0);
+    double const d01 = UsdGenDot(e0, e1);
+    double const d11 = UsdGenDot(e1, e1);
     double const denom = d00 * d11 - d01 * d01;
     if (!(denom > 1e-18 * d00 * d11)) return false;
-    double const d20 = GfDot(ap, e0);
-    double const d21 = GfDot(ap, e1);
+    double const d20 = UsdGenDot(ap, e0);
+    double const d21 = UsdGenDot(ap, e1);
     *s = (d11 * d20 - d01 * d21) / denom;
     *t = (d00 * d21 - d01 * d20) / denom;
     return true;
@@ -107,7 +95,7 @@ bool TriCoords(GfVec3d const &a, GfVec3d const &b, GfVec3d const &c,
 // first). False when the quad is degenerate, a corner index is out of
 // range, or p sits outside both halves past tolerance.
 bool PaintQuadUV(float const *points, size_t numPoints, int const *indices,
-                 int begin, GfVec3f const &p, double *u, double *v)
+                 int begin, UsdGenVec3f const &p, double *u, double *v)
 {
     int iv[4];
     for (int k = 0; k < 4; ++k) {
@@ -115,12 +103,12 @@ bool PaintQuadUV(float const *points, size_t numPoints, int const *indices,
         if (id < 0 || size_t(id) >= numPoints) return false;
         iv[k] = id;
     }
-    auto at = [&](int k) -> GfVec3d {
-        return GfVec3d(double(points[size_t(iv[k]) * 3]),
+    auto at = [&](int k) -> UsdGenVec3d {
+        return UsdGenVec3d(double(points[size_t(iv[k]) * 3]),
                        double(points[size_t(iv[k]) * 3 + 1]),
                        double(points[size_t(iv[k]) * 3 + 2]));
     };
-    GfVec3d const pp{double(p[0]), double(p[1]), double(p[2])};
+    UsdGenVec3d const pp{double(p[0]), double(p[1]), double(p[2])};
     double s = 0.0, t = 0.0;
     // Triangle A (v0, v1, v2): u = s + t, v = t.
     if (TriCoords(at(0), at(1), at(2), pp, &s, &t) && s >= -1e-6 &&
@@ -140,14 +128,14 @@ bool PaintQuadUV(float const *points, size_t numPoints, int const *indices,
 }
 
 template <class T>
-bool ScalarLiteral(VtValue const &value, std::vector<double> *output)
+bool ScalarLiteral(UsdGenValue const &value, std::vector<double> *output)
 {
     if (!value.IsHolding<T>()) return false;
     output->assign(1, static_cast<double>(value.UncheckedGet<T>()));
     return std::isfinite((*output)[0]);
 }
 template <class T>
-bool VectorLiteral(VtValue const &value, unsigned count, std::vector<double> *output)
+bool VectorLiteral(UsdGenValue const &value, unsigned count, std::vector<double> *output)
 {
     if (!value.IsHolding<T>() || count != T::dimension) return false;
     output->resize(count);
@@ -162,7 +150,7 @@ bool VectorLiteral(VtValue const &value, unsigned count, std::vector<double> *ou
 /// The literal the expression receives as $value. Identical admission to
 /// cudaParameters.cpp's Literal(): the exact native type, finite, and int64
 /// limited to the range SeExpr's doubles represent exactly.
-bool Literal(VtValue const &value, expr::ValueShape const &shape,
+bool Literal(UsdGenValue const &value, expr::ValueShape const &shape,
              std::vector<double> *output)
 {
     const unsigned n = shape.components;
@@ -180,7 +168,7 @@ bool Literal(VtValue const &value, expr::ValueShape const &shape,
             if (!value.IsHolding<uint64_t>() ||
                 value.UncheckedGet<uint64_t>() > (uint64_t(1) << 53)) return false;
             return ScalarLiteral<uint64_t>(value, output);
-        case Type::Float16: return ScalarLiteral<GfHalf>(value, output);
+        case Type::Float16: return ScalarLiteral<UsdGenHalf>(value, output);
         case Type::Float32: return ScalarLiteral<float>(value, output);
         case Type::Float64: return ScalarLiteral<double>(value, output);
         default: return false;
@@ -188,17 +176,17 @@ bool Literal(VtValue const &value, expr::ValueShape const &shape,
     }
     switch (shape.scalar) {
     case Type::Float16:
-        return VectorLiteral<GfVec2h>(value, n, output) ||
-            VectorLiteral<GfVec3h>(value, n, output) || VectorLiteral<GfVec4h>(value, n, output);
+        return VectorLiteral<UsdGenVec2h>(value, n, output) ||
+            VectorLiteral<UsdGenVec3h>(value, n, output) || VectorLiteral<UsdGenVec4h>(value, n, output);
     case Type::Float32:
-        return VectorLiteral<GfVec2f>(value, n, output) ||
-            VectorLiteral<GfVec3f>(value, n, output) || VectorLiteral<GfVec4f>(value, n, output);
+        return VectorLiteral<UsdGenVec2f>(value, n, output) ||
+            VectorLiteral<UsdGenVec3f>(value, n, output) || VectorLiteral<UsdGenVec4f>(value, n, output);
     case Type::Float64:
-        return VectorLiteral<GfVec2d>(value, n, output) ||
-            VectorLiteral<GfVec3d>(value, n, output) || VectorLiteral<GfVec4d>(value, n, output);
+        return VectorLiteral<UsdGenVec2d>(value, n, output) ||
+            VectorLiteral<UsdGenVec3d>(value, n, output) || VectorLiteral<UsdGenVec4d>(value, n, output);
     case Type::Int32:
-        return VectorLiteral<GfVec2i>(value, n, output) ||
-            VectorLiteral<GfVec3i>(value, n, output) || VectorLiteral<GfVec4i>(value, n, output);
+        return VectorLiteral<UsdGenVec2i>(value, n, output) ||
+            VectorLiteral<UsdGenVec3i>(value, n, output) || VectorLiteral<UsdGenVec4i>(value, n, output);
     default: return false;
     }
 }
@@ -234,7 +222,7 @@ double Decode(unsigned char const *bytes, Type type, size_t index)
     case Type::UInt64: { uint64_t v; std::memcpy(&v, bytes + index * 8, 8); return double(v); }
     case Type::Float16: {
         uint16_t bits; std::memcpy(&bits, bytes + index * 2, 2);
-        GfHalf half; half.setBits(bits); return double(float(half));
+        UsdGenHalf half; half.setBits(bits); return double(float(half));
     }
     case Type::Float32: { float v; std::memcpy(&v, bytes + index * 4, 4); return double(v); }
     case Type::Float64: { double v; std::memcpy(&v, bytes + index * 8, 8); return v; }
@@ -271,7 +259,7 @@ bool MapToken(UsdGenMapInputView const &map, char const *name, std::string *out)
 {
     UsdGenParamValue const *param = FindMapParam(map, name);
     if (!param) return false;
-    if (param->value.IsHolding<TfToken>()) *out = param->value.UncheckedGet<TfToken>().GetString();
+    if (param->value.IsHolding<UsdGenToken>()) *out = param->value.UncheckedGet<UsdGenToken>().GetString();
     else if (param->value.IsHolding<std::string>()) *out = param->value.UncheckedGet<std::string>();
     else return false;
     return true;
@@ -281,7 +269,7 @@ double MapNumber(UsdGenMapInputView const &map, char const *name, double fallbac
 {
     UsdGenParamValue const *param = FindMapParam(map, name);
     if (!param) return fallback;
-    VtValue const &v = param->value;
+    UsdGenValue const &v = param->value;
     if (v.IsHolding<float>()) return v.UncheckedGet<float>();
     if (v.IsHolding<double>()) return v.UncheckedGet<double>();
     if (v.IsHolding<int>()) return v.UncheckedGet<int>();
@@ -290,16 +278,16 @@ double MapNumber(UsdGenMapInputView const &map, char const *name, double fallbac
 
 /// The space the groom is generated and published in: the description's.
 /// Sampled geometry is brought into it through its own world matrix.
-GfMatrix4d ToGroomSpace(UsdGenGraphSpec const &desc, UsdGenGeometryInputView const &geometry)
+UsdGenMatrix4d ToGroomSpace(UsdGenGraphSpec const &desc, UsdGenGeometryInputView const &geometry)
 {
     return geometry.worldMatrix * desc.xformMatrix.GetInverse();
 }
 
-void TransformPoints(UsdGenSpan<const GfVec3f> in, GfMatrix4d const &m, std::vector<float> *out)
+void TransformPoints(UsdGenSpan<const UsdGenVec3f> in, UsdGenMatrix4d const &m, std::vector<float> *out)
 {
     out->resize(in.size() * 3);
     for (size_t i = 0; i < in.size(); ++i) {
-        GfVec3d const p = m.Transform(GfVec3d(in[i]));
+        UsdGenVec3d const p = m.Transform(UsdGenVec3d(in[i]));
         (*out)[i * 3] = float(p[0]);
         (*out)[i * 3 + 1] = float(p[1]);
         (*out)[i * 3 + 2] = float(p[2]);
@@ -315,14 +303,14 @@ expr::SamplerGeometrySource ToSamplerSource(UsdGenGraphSpec const &desc,
     case UsdGenGeometryKind::Curves: source.kind = expr::SamplerGeometrySource::Kind::Curves; break;
     case UsdGenGeometryKind::Points: source.kind = expr::SamplerGeometrySource::Kind::Points; break;
     }
-    GfMatrix4d const m = ToGroomSpace(desc, geometry);
+    UsdGenMatrix4d const m = ToGroomSpace(desc, geometry);
     TransformPoints(geometry.points, m, &source.points);
     if (!geometry.rest.empty()) TransformPoints(geometry.rest, m, &source.rest);
     if (!geometry.normals.empty()) {
-        GfMatrix4d const normalMatrix = m.GetInverse().GetTranspose();
+        UsdGenMatrix4d const normalMatrix = m.GetInverse().GetTranspose();
         source.normals.resize(geometry.normals.size() * 3);
         for (size_t i = 0; i < geometry.normals.size(); ++i) {
-            GfVec3d n = normalMatrix.TransformDir(GfVec3d(geometry.normals[i]));
+            UsdGenVec3d n = normalMatrix.TransformDir(UsdGenVec3d(geometry.normals[i]));
             double const length = n.GetLength();
             if (length > 0.0) n /= length;
             source.normals[i * 3] = float(n[0]);
@@ -381,7 +369,7 @@ bool HasLimitScatter(UsdGenGraphSpec const& desc, UsdGenOpNode const& node) {
 }
 
 /// The destination without `usdGen:`; interns only a prefixed name (compile scope).
-TfToken CanonicalName(TfToken const &name)
+UsdGenToken CanonicalName(UsdGenToken const &name)
 {
     std::string const &text = name.GetString();
     constexpr char kPrefix[] = "usdGen:";
@@ -391,7 +379,7 @@ TfToken CanonicalName(TfToken const &name)
 }
 
 /// Text of `name` without `usdGen:`.
-std::string_view StripPrefix(TfToken const &name)
+std::string_view StripPrefix(UsdGenToken const &name)
 {
     std::string_view text(name.GetString());
     constexpr std::string_view kPrefix("usdGen:");
@@ -435,8 +423,8 @@ bool UsdGenParseMapOptions(UsdGenMapInputView const &map, UsdGenMapOptions *out,
     o.offset = MapNumber(map, "map:offset", 0.0);
     o.fallback = MapNumber(map, "map:default", 0.0);
     if (UsdGenParamValue const *clamp = FindMapParam(map, "map:clamp")) {
-        if (clamp->value.IsHolding<GfVec2f>()) {
-            GfVec2f const range = clamp->value.UncheckedGet<GfVec2f>();
+        if (clamp->value.IsHolding<UsdGenVec2f>()) {
+            UsdGenVec2f const range = clamp->value.UncheckedGet<UsdGenVec2f>();
             o.clamp = true;
             o.clampLo = range[0];
             o.clampHi = range[1];
@@ -635,7 +623,7 @@ bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphSpec const &desc,
         UsdGenSurfaceInputView const *surface = &surfaceView;
         if (geometry.rootPrim.size() != curves)
             return fail(state, call + " needs root face ids, and this input carries none");
-        UsdGenSpan<const GfVec3f> const corners = surface->restPoints.empty() ? surface->points
+        UsdGenSpan<const UsdGenVec3f> const corners = surface->restPoints.empty() ? surface->points
                                                                               : surface->restPoints;
         size_t const faceCount = surface->faceVertexCounts.size();
         bool const limitUV=HasLimitScatter(desc,node) && geometry.rootUV.size()==curves;
@@ -684,10 +672,10 @@ bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphSpec const &desc,
                 double sample = sum / double(n);
                 if (n == 4 && positions && cornerIds) {
                     size_t const root = offsets_[c];
-                    GfVec3f const p =
+                    UsdGenVec3f const p =
                         geometry.rest.size() == geometry.totalCvs && root < geometry.rest.size()
                         ? geometry.rest[root]
-                        : GfVec3f(geometry.px[root], geometry.py[root], geometry.pz[root]);
+                        : UsdGenVec3f(geometry.px[root], geometry.py[root], geometry.pz[root]);
                     double u = 0.0, v = 0.0;
                     bool located=false;
                     if(limitUV) {u=geometry.rootUV[c][0];v=geometry.rootUV[c][1];located=true;}
@@ -725,9 +713,9 @@ bool UsdGenCpuParameters::PrepareSamplers(UsdGenGraphSpec const &desc,
         size_t misses = 0;
         for (size_t c = 0; c < curves; ++c) {
             size_t const root = offsets_[c];
-            GfVec3f const p = geometry.rest.size() == geometry.totalCvs && root < geometry.rest.size()
+            UsdGenVec3f const p = geometry.rest.size() == geometry.totalCvs && root < geometry.rest.size()
                 ? geometry.rest[root]
-                : GfVec3f(geometry.px[root], geometry.py[root], geometry.pz[root]);
+                : UsdGenVec3f(geometry.px[root], geometry.py[root], geometry.pz[root]);
             int ptexFace = -1;
             float u = 0.0f, v = 0.0f;
             bool located=false;
@@ -770,7 +758,7 @@ bool UsdGenCpuParameters::Clear() noexcept
     return had;
 }
 
-UsdGenExpressionValue const *UsdGenCpuParameters::Find(TfToken const &destination) const noexcept
+UsdGenExpressionValue const *UsdGenCpuParameters::Find(UsdGenToken const &destination) const noexcept
 {
     // Fast path: a node with no connected expressions matches nothing, so
     // skip the canonicalization (a string copy plus a token-registry
@@ -895,7 +883,7 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode con
                 UsdGenInputRecord const *sampled = FindGeometry(desc, path);
                 sourceDigest = Mix(sourceDigest, sampled ? sampled->generation : ~uint64_t(0));
                 if (sampled) {
-                    GfMatrix4d const m = ToGroomSpace(desc, UsdGenGeometryInputView::Of(*sampled));
+                    UsdGenMatrix4d const m = ToGroomSpace(desc, UsdGenGeometryInputView::Of(*sampled));
                     for (int r = 0; r < 4; ++r)
                         for (int c = 0; c < 4; ++c) sourceDigest = MixDouble(sourceDigest, m[r][c]);
                 }
@@ -959,7 +947,7 @@ bool UsdGenCpuParameters::Evaluate(UsdGenGraphSpec const &desc, UsdGenOpNode con
     // $dPduref, $dPdv/$dPdvref and $faceId. A producer that did not publish a
     // full per-curve plane leaves the channel null, which keeps the variable
     // unavailable rather than inventing a frame.
-    auto rootFrame = [&](UsdGenSpan<const GfVec3f> const &plane) -> float const * {
+    auto rootFrame = [&](UsdGenSpan<const UsdGenVec3f> const &plane) -> float const * {
         return curveCount && plane.size() == curveCount
             ? reinterpret_cast<float const *>(plane.cdata()) : nullptr;
     };

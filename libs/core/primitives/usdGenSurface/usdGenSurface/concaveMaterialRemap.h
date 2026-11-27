@@ -4,15 +4,13 @@
 
 #include "usdGenSurface/export.h"
 
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 
 #include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -21,7 +19,7 @@ namespace usdGen {
 /// the resulting nondegenerate triangles.  `triangles` is unchanged on
 /// failure, including self-intersecting or collapsed input polygons.
 USDGEN_SURFACE_API bool UsdGenTriangulateConcaveMaterialSlots(
-    std::vector<GfVec2f> const &actual, std::vector<std::array<int, 3>> *triangles,
+    std::vector<UsdGenVec2f> const &actual, std::vector<std::array<int, 3>> *triangles,
     std::string *error = nullptr);
 
 /// Resolves a canonical point through a previously triangulated N-slot
@@ -30,8 +28,8 @@ USDGEN_SURFACE_API bool UsdGenTriangulateConcaveMaterialSlots(
 /// as the one-shot remap below.
 USDGEN_SURFACE_API bool UsdGenLocateConcaveMaterialPoint(
     size_t slotCount, std::vector<std::array<int, 3>> const &triangles,
-    GfVec2f const &canonicalPoint, std::array<int, 3> *slots,
-    GfVec3f *weights, std::string *error = nullptr);
+    UsdGenVec2f const &canonicalPoint, std::array<int, 3> *slots,
+    UsdGenVec3f *weights, std::string *error = nullptr);
 
 /// Maps a point in the canonical unit regular N-gon to a simple actual
 /// N-slot polygon. Slot IDs remain the input order; no geometry sorting or
@@ -41,8 +39,8 @@ USDGEN_SURFACE_API bool UsdGenLocateConcaveMaterialPoint(
 /// only floating-point roundoff and are deterministic on a shared diagonal.
 /// On failure outputs remain unchanged.
 USDGEN_SURFACE_API bool UsdGenRemapConcaveMaterialPoint(
-    std::vector<GfVec2f> const &actual, GfVec2f const &canonicalPoint,
-    std::array<int, 3> *slots, GfVec3f *weights,
+    std::vector<UsdGenVec2f> const &actual, UsdGenVec2f const &canonicalPoint,
+    std::array<int, 3> *slots, UsdGenVec3f *weights,
     std::string *error = nullptr);
 
 } // namespace usdGen

@@ -19,20 +19,19 @@
 #define USDGEN_OPS_SCATTER_MODES_H
 
 #include "usdGen/curveBuffer.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace scatter {
@@ -59,7 +58,7 @@ struct ModeConfig
     /// (ReadModeConfig fills them from the view's op; Scatter sets them too).
     struct Names
     {
-        TfToken leftHanded, densityMap, strandIndex, strandSeed;
+        UsdGenToken leftHanded, densityMap, strandIndex, strandSeed;
     } names;
 
     /// True when the roots come from the generation-order generator below
@@ -105,7 +104,7 @@ struct ModeStats
 /// (index, tri+1, vertex+1, bits(pos.xyz), bits(bary.xyz)) seeded with
 /// 0x14650fb0739d0383, murmur fmix64, 24-bit float. `tri` is the fan
 /// triangle index over the WHOLE mesh (OBJ face order), -1 for vertex roots.
-float RootHash01(uint64_t index, int tri, int vertex, GfVec3f const &pos, GfVec3f const &bary);
+float RootHash01(uint64_t index, int tri, int vertex, UsdGenVec3f const &pos, UsdGenVec3f const &bary);
 
 /// Builds the generator's output into `buf` (roots, frames, Morton order,
 /// planes strandIndex/strandSeed). `stats` is optional.
@@ -131,7 +130,7 @@ public:
     /// Keeps a root when it lies within the guide-proximity region and the
     /// density-map product m passes `m > 0 && (m >= 0.999 || h <= m)`, with h
     /// a curveId-keyed hash (stable under density edits, like the ids).
-    bool Keep(GfVec3f const &pos, uint64_t curveId) const;
+    bool Keep(UsdGenVec3f const &pos, uint64_t curveId) const;
 
 private:
     struct Impl;
@@ -140,7 +139,7 @@ private:
 
 /// Inserts the uniform int planes strandIndex / strandSeed (sorted by name).
 void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
-                     VtIntArray index, VtIntArray seed);
+                     UsdGenIntArray index, UsdGenIntArray seed);
 
 }  // namespace scatter
 }  // namespace usdGen

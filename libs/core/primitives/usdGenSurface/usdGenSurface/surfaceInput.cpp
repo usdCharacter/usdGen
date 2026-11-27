@@ -1,6 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/limitSurface.h"
 
 #include "usdGen/registries/opRegistry.h"
@@ -26,7 +31,7 @@ struct SurfaceInputState {
 };
 
 std::atomic<SurfaceInputState *> gSurfaceInput{nullptr};
-GfMatrix4d const kIdentity(1.0);
+UsdGenMatrix4d const kIdentity(1.0);
 
 SurfaceInputState const *State() noexcept
 {
@@ -36,13 +41,13 @@ SurfaceInputState const *State() noexcept
 }
 
 template <class T>
-UsdGenSpan<const T> Arr(VtArray<T> const &a) noexcept
+UsdGenSpan<const T> Arr(UsdGenCowArray<T> const &a) noexcept
 {
     return {a.cdata(), a.size()};
 }
 
 template <class T>
-void CopyTo(UsdGenSpan<const T> from, VtArray<T> *to)
+void CopyTo(UsdGenSpan<const T> from, UsdGenCowArray<T> *to)
 {
     to->assign(from.begin(), from.end());
 }
@@ -79,7 +84,7 @@ private:
     uint64_t _h = 1469598103934665603ULL;
 };
 
-void MixMatrix(UsdGenInputDigest &d, int lane, GfMatrix4d const &m)
+void MixMatrix(UsdGenInputDigest &d, int lane, UsdGenMatrix4d const &m)
 {
     for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
         uint64_t bits = 0;
@@ -263,7 +268,7 @@ UsdGenInputRecord const *UsdGenFindSurfaceInput(UsdGenGraphSpec const &spec, Usd
 void UsdGenSetSurfaceId(UsdGenInputRecord &record, UsdGenSurfaceId id) noexcept
 {
     if (kUsdGenSurfaceValueId < record.values.size())
-        record.values[kUsdGenSurfaceValueId].value = VtValue(int(id));
+        record.values[kUsdGenSurfaceValueId].value = UsdGenValue(int(id));
 }
 
 // ---- samples ----------------------------------------------------------------------
@@ -273,7 +278,7 @@ UsdGenSurfaceSamples UsdGenSurfaceSamples::Of(UsdGenInputRecord const &record) n
     UsdGenSurfaceSamples s;
     s._times = record.Column<double>(kUsdGenSurfaceInputSampleTimes);
     s._counts = record.Column<int>(kUsdGenSurfaceInputSampleCounts);
-    s._points = record.Column<GfVec3f>(kUsdGenSurfaceInputSamplePoints);
+    s._points = record.Column<UsdGenVec3f>(kUsdGenSurfaceInputSamplePoints);
     s._count = std::min(s._times.size(), s._counts.size());
     return s;
 }
@@ -314,32 +319,32 @@ UsdGenSurfaceInputView UsdGenSurfaceInputView::Of(UsdGenInputRecord const &recor
     v.id = UsdGenSurfaceId(record.Get<int>(kUsdGenSurfaceValueId, 0));
     v.faceVertexCounts = record.Column<int>(kUsdGenSurfaceInputFaceVertexCounts);
     v.faceVertexIndices = record.Column<int>(kUsdGenSurfaceInputFaceVertexIndices);
-    v.subdivisionScheme = record.Get<TfToken>(kUsdGenSurfaceValueSubdivisionScheme, tk.none);
-    v.orientation = record.Get<TfToken>(kUsdGenSurfaceValueOrientation, tk.rightHanded);
-    v.interpolateBoundary = record.Get<TfToken>(kUsdGenSurfaceValueInterpolateBoundary, tk.edgeAndCorner);
+    v.subdivisionScheme = record.Get<UsdGenToken>(kUsdGenSurfaceValueSubdivisionScheme, tk.none);
+    v.orientation = record.Get<UsdGenToken>(kUsdGenSurfaceValueOrientation, tk.rightHanded);
+    v.interpolateBoundary = record.Get<UsdGenToken>(kUsdGenSurfaceValueInterpolateBoundary, tk.edgeAndCorner);
     v.faceVaryingLinearInterpolation =
-        record.Get<TfToken>(kUsdGenSurfaceValueFaceVaryingLinearInterpolation, tk.cornersPlus1);
+        record.Get<UsdGenToken>(kUsdGenSurfaceValueFaceVaryingLinearInterpolation, tk.cornersPlus1);
     v.triangleSubdivisionRule =
-        record.Get<TfToken>(kUsdGenSurfaceValueTriangleSubdivisionRule, tk.catmullClark);
-    v.creaseMethod = record.Get<TfToken>(kUsdGenSurfaceValueCreaseMethod, tk.uniform);
+        record.Get<UsdGenToken>(kUsdGenSurfaceValueTriangleSubdivisionRule, tk.catmullClark);
+    v.creaseMethod = record.Get<UsdGenToken>(kUsdGenSurfaceValueCreaseMethod, tk.uniform);
     v.holeIndices = record.Column<int>(kUsdGenSurfaceInputHoleIndices);
     v.creaseIndices = record.Column<int>(kUsdGenSurfaceInputCreaseIndices);
     v.creaseLengths = record.Column<int>(kUsdGenSurfaceInputCreaseLengths);
     v.cornerIndices = record.Column<int>(kUsdGenSurfaceInputCornerIndices);
     v.creaseSharpnesses = record.Column<float>(kUsdGenSurfaceInputCreaseSharpnesses);
     v.cornerSharpnesses = record.Column<float>(kUsdGenSurfaceInputCornerSharpnesses);
-    v.restPoints = record.Column<GfVec3f>(kUsdGenSurfaceInputRestPoints);
-    v.restNormals = record.Column<GfVec3f>(kUsdGenSurfaceInputRestNormals);
+    v.restPoints = record.Column<UsdGenVec3f>(kUsdGenSurfaceInputRestPoints);
+    v.restNormals = record.Column<UsdGenVec3f>(kUsdGenSurfaceInputRestNormals);
     v.restNormalDomain = UsdGenSurfaceNormalDomain(uint8_t(record.Get<int>(kUsdGenSurfaceValueRestNormalDomain, 0)));
     v.restFromCurrentPoints = record.Get<bool>(kUsdGenSurfaceValueRestFromCurrentPoints, false);
-    v.points = record.Column<GfVec3f>(kUsdGenSurfaceInputPoints);
+    v.points = record.Column<UsdGenVec3f>(kUsdGenSurfaceInputPoints);
     v.samples = UsdGenSurfaceSamples::Of(record);
-    v.velocities = record.Column<GfVec3f>(kUsdGenSurfaceInputVelocities);
-    v.uv = record.Column<GfVec2f>(kUsdGenSurfaceInputUv);
+    v.velocities = record.Column<UsdGenVec3f>(kUsdGenSurfaceInputVelocities);
+    v.uv = record.Column<UsdGenVec2f>(kUsdGenSurfaceInputUv);
     v.subsetFaces = record.Column<int>(kUsdGenSurfaceInputSubsetFaces);
     v.isSubset = record.Get<bool>(kUsdGenSurfaceValueIsSubset, false);
     v.densityMultiplier = record.Column<float>(kUsdGenSurfaceInputDensityMultiplier);
-    v.worldMatrix = record.Get<GfMatrix4d>(kUsdGenSurfaceValueWorldMatrix, kIdentity);
+    v.worldMatrix = record.Get<UsdGenMatrix4d>(kUsdGenSurfaceValueWorldMatrix, kIdentity);
     v.surfaceGeneration = record.generation;
     v.data = record.data;
     return v;
@@ -385,7 +390,7 @@ UsdGenSurfaceInputView UsdGenSurfaceInputView::Of(UsdGenSurfaceData const &d, Us
 // ---- packer -----------------------------------------------------------------------
 
 UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &d, UsdGenNodeKey key,
-                                      UsdGenNodeKey owner, TfToken const &label,
+                                      UsdGenNodeKey owner, UsdGenToken const &label,
                                       UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenSurfaceInputKind());
@@ -401,7 +406,7 @@ UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &d, UsdGenNodeKey 
     w.Array(kUsdGenSurfaceInputRestPoints, d.restPoints);
     w.Array(kUsdGenSurfaceInputRestNormals, d.restNormals);
     w.Array(kUsdGenSurfaceInputPoints, d.points);
-    std::vector<GfVec3f> samplePoints;
+    std::vector<UsdGenVec3f> samplePoints;
     std::vector<double> sampleTimes;
     std::vector<int> sampleCounts;
     sampleTimes.reserve(d.samples.size());
@@ -418,17 +423,17 @@ UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &d, UsdGenNodeKey 
     w.Array(kUsdGenSurfaceInputUv, d.uv);
     w.Array(kUsdGenSurfaceInputSubsetFaces, d.subsetFaces);
     w.Array(kUsdGenSurfaceInputDensityMultiplier, d.densityMultiplier);
-    w.Value(kUsdGenSurfaceValueId, VtValue(int(d.id)));
-    w.Value(kUsdGenSurfaceValueSubdivisionScheme, VtValue(d.subdivisionScheme));
-    w.Value(kUsdGenSurfaceValueOrientation, VtValue(d.orientation));
-    w.Value(kUsdGenSurfaceValueInterpolateBoundary, VtValue(d.interpolateBoundary));
-    w.Value(kUsdGenSurfaceValueFaceVaryingLinearInterpolation, VtValue(d.faceVaryingLinearInterpolation));
-    w.Value(kUsdGenSurfaceValueTriangleSubdivisionRule, VtValue(d.triangleSubdivisionRule));
-    w.Value(kUsdGenSurfaceValueCreaseMethod, VtValue(d.creaseMethod));
-    w.Value(kUsdGenSurfaceValueRestNormalDomain, VtValue(int(d.restNormalDomain)));
-    w.Value(kUsdGenSurfaceValueRestFromCurrentPoints, VtValue(d.restFromCurrentPoints));
-    w.Value(kUsdGenSurfaceValueIsSubset, VtValue(d.isSubset));
-    w.Value(kUsdGenSurfaceValueWorldMatrix, VtValue(d.worldMatrix));
+    w.Value(kUsdGenSurfaceValueId, UsdGenValue(int(d.id)));
+    w.Value(kUsdGenSurfaceValueSubdivisionScheme, UsdGenValue(d.subdivisionScheme));
+    w.Value(kUsdGenSurfaceValueOrientation, UsdGenValue(d.orientation));
+    w.Value(kUsdGenSurfaceValueInterpolateBoundary, UsdGenValue(d.interpolateBoundary));
+    w.Value(kUsdGenSurfaceValueFaceVaryingLinearInterpolation, UsdGenValue(d.faceVaryingLinearInterpolation));
+    w.Value(kUsdGenSurfaceValueTriangleSubdivisionRule, UsdGenValue(d.triangleSubdivisionRule));
+    w.Value(kUsdGenSurfaceValueCreaseMethod, UsdGenValue(d.creaseMethod));
+    w.Value(kUsdGenSurfaceValueRestNormalDomain, UsdGenValue(int(d.restNormalDomain)));
+    w.Value(kUsdGenSurfaceValueRestFromCurrentPoints, UsdGenValue(d.restFromCurrentPoints));
+    w.Value(kUsdGenSurfaceValueIsSubset, UsdGenValue(d.isSubset));
+    w.Value(kUsdGenSurfaceValueWorldMatrix, UsdGenValue(d.worldMatrix));
     return w.Finish(key, owner, label, d.surfaceGeneration);
 }
 
