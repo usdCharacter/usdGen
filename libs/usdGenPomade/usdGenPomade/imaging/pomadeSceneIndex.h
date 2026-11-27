@@ -39,6 +39,7 @@
 #ifndef USDGEN_POMADE_SCENE_INDEX_PLUGIN_H
 #define USDGEN_POMADE_SCENE_INDEX_PLUGIN_H
 
+#include "usdGenPomade/api.h"
 #include "usdGenPomade/pomadeGizmo.h"
 #include "usdGenPomade/pomadeRegistry.h"
 
@@ -65,7 +66,7 @@ struct PomadeStagedModel;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class UsdGenPomadeSceneIndex final
+class USDGENPOMADE_API UsdGenPomadeSceneIndex final
     : public HdSingleInputFilteringSceneIndexBase
     , public usdGenPomade::PomadePublishTarget
 {

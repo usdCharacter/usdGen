@@ -43,6 +43,7 @@
 #ifndef USDGEN_POMADE_HIERARCHY_H
 #define USDGEN_POMADE_HIERARCHY_H
 
+#include "usdGenPomade/api.h"
 #include "usdGenPomade/pomadeTube.h"
 
 #include <algorithm>
@@ -69,14 +70,14 @@ struct PomadeSubdivideDesc {
     float edgeC = 0.0f;
 };
 
-bool PomadeValidateSubdivide(PomadeSubdivideDesc const &params,
+USDGENPOMADE_API bool PomadeValidateSubdivide(PomadeSubdivideDesc const &params,
                             std::string *err);
 
 // K14 subdivide: parent -> `params.count` children (§2.3). `parentFrames`
 // are the K4 frames at the parent center CVs (size nCv). Children inherit
 // regionId/fill layout, get level + 1, tubeId = parent*16 + 1 + childIndex,
 // and parentTubeId/childIndex links. Zero deltas by construction.
-bool PomadeSubdivideTubeCpu(PomadeTubeDesc const &parent,
+USDGENPOMADE_API bool PomadeSubdivideTubeCpu(PomadeTubeDesc const &parent,
                            std::vector<PomadeFrame> const &parentFrames,
                            PomadeSubdivideDesc const &params,
                            std::vector<PomadeTubeDesc> *children,
@@ -87,7 +88,7 @@ bool PomadeSubdivideTubeCpu(PomadeTubeDesc const &parent,
 // precision; sections re-fit to the union of the child rings at each of
 // the first child's section t values. Used for child-edit refresh (unless
 // lockParents), on-the-fly parents, and merge.
-bool PomadeParentAverageCpu(std::vector<PomadeTubeDesc> const &children,
+USDGENPOMADE_API bool PomadeParentAverageCpu(std::vector<PomadeTubeDesc> const &children,
                            PomadeTubeDesc *parentOut, std::string *err);
 
 // K14 merge: children -> parent. When `roundTripParent` is non-null and
@@ -97,14 +98,14 @@ bool PomadeParentAverageCpu(std::vector<PomadeTubeDesc> const &children,
 // inherited holding boundary; internal K14 cuts stay child-local. Without a
 // hint it uses the K7 average.
 // Merging a selected sibling subset works the same way over the subset.
-bool PomadeMergeTubesCpu(std::vector<PomadeTubeDesc> const &children,
+USDGENPOMADE_API bool PomadeMergeTubesCpu(std::vector<PomadeTubeDesc> const &children,
                         PomadeSubdivideDesc const &params,
                         PomadeTubeDesc const *roundTripParent,
                         PomadeTubeDesc *parentOut, std::string *err,
                         std::vector<PomadeTubeDesc> const *priorChildren = nullptr);
 
 // Polyline arc length of center CVs (double accumulation, float result).
-float PomadeCenterArcLength(float const *cx, float const *cy, float const *cz,
+USDGENPOMADE_API float PomadeCenterArcLength(float const *cx, float const *cy, float const *cz,
                            int nCv);
 
 // V0b (plan/18 §7 G1/G4): which child cell of a subdivided parent a world
@@ -116,7 +117,7 @@ float PomadeCenterArcLength(float const *cx, float const *cy, float const *cz,
 // the per-child mesh fill need (every root belongs to exactly one child).
 // `childRootCenters` is 3 floats per child in childIndex order. Ties take the
 // lowest index; -1 when childCount <= 0.
-int PomadeOwningChildCell(float const parentRootCenter[3],
+USDGENPOMADE_API int PomadeOwningChildCell(float const parentRootCenter[3],
                          PomadeFrame const &parentRootFrame,
                          float const *childRootCenters, int childCount,
                          float const p[3]);
@@ -159,27 +160,27 @@ inline void PomadeClearDeltas(PomadeTubeDesc const &like,
 // Derive ONE child (shared code path with PomadeSubdivideTubeCpu: runs the
 // same subdivision and picks childIndex, so hydrate and K6 re-derive
 // bit-identical children).
-bool PomadeDeriveChildCpu(PomadeTubeDesc const &parent,
+USDGENPOMADE_API bool PomadeDeriveChildCpu(PomadeTubeDesc const &parent,
                          std::vector<PomadeFrame> const &parentFrames,
                          PomadeSubdivideDesc const &params, int childIndex,
                          PomadeTubeDesc *derived, std::string *err);
 
 // Deltas of actual against derived, in the derived frames.
-bool PomadeComputeDeltasCpu(PomadeTubeDesc const &actual,
+USDGENPOMADE_API bool PomadeComputeDeltasCpu(PomadeTubeDesc const &actual,
                            PomadeTubeDesc const &derived,
                            std::vector<PomadeFrame> const &derivedFrames,
                            PomadeShapeDeltas *deltas, std::string *err);
 
 // Rescale a center curve about its root to targetLen (uniform along-curve,
 // shape-preserving). Used by K6 and sculpt length preservation.
-bool PomadeRescaleCenterLength(float const *cx, float const *cy,
+USDGENPOMADE_API bool PomadeRescaleCenterLength(float const *cx, float const *cy,
                               float const *cz, int nCv, float targetLen,
                               std::vector<float> *ox, std::vector<float> *oy,
                               std::vector<float> *oz, std::string *err);
 
 // Arc-length resample of every section ring to ringVerts (child-relative
 // coords preserved). Used to refit K7 aggregates to a parent layout.
-bool PomadeResampleDescRingsCpu(PomadeTubeDesc const &tube, int ringVerts,
+USDGENPOMADE_API bool PomadeResampleDescRingsCpu(PomadeTubeDesc const &tube, int ringVerts,
                                PomadeTubeDesc *out, std::string *err);
 
 // Adjacent-station slot alignment, the K14 rule PomadeSubdivideTubeCpu
@@ -196,7 +197,7 @@ bool PomadeResampleDescRingsCpu(PomadeTubeDesc const &tube, int ringVerts,
 // left bit-identical.  `outFrom` (optional) receives the renumbering, new
 // slot i = old slot outFrom[i], when it returns true.  Returns false
 // (section untouched) when already aligned or when the ring sizes differ.
-bool PomadeAlignSectionRingCpu(PomadeTubeSection *section,
+USDGENPOMADE_API bool PomadeAlignSectionRingCpu(PomadeTubeSection *section,
                               PomadeTubeSection const &neighbour,
                               std::vector<int> *outFrom);
 
@@ -210,7 +211,7 @@ bool PomadeAlignSectionRingCpu(PomadeTubeSection *section,
 // rescales to the committed basis). A moved parent re-partitions, so ring
 // counts may change across the call: section deltas resample by arc length
 // (centers always match; section-count or t drift still fails loudly).
-bool PomadeHierarchicalSculptCpu(
+USDGENPOMADE_API bool PomadeHierarchicalSculptCpu(
     PomadeTubeDesc const &parentNew,
     std::vector<PomadeFrame> const &parentNewFrames,
     PomadeSubdivideDesc const &params, int childIndex,
@@ -224,7 +225,7 @@ bool PomadeHierarchicalSculptCpu(
 // applies each (one subdivide per parent per move instead of two per
 // child — the TN-1 fix; bit-identical, since the inputs are). Errors
 // keep the PomadeHierarchicalSculptCpu spellings.
-bool PomadeHierarchicalSculptApplyCpu(
+USDGENPOMADE_API bool PomadeHierarchicalSculptApplyCpu(
     PomadeTubeDesc const &derivedNew, PomadeTubeDesc const &oldActual,
     PomadeTubeDesc const &oldDerived, PomadeShapeDeltas const &oldStored,
     bool lockChildren, bool preserveLength, PomadeTubeDesc *outActual,
