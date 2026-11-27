@@ -22,6 +22,11 @@ struct VulkanQueueTimeline::Request {
 namespace {
 constexpr uint32_t kQueued = 0, kDone = 1, kWaiter = 2;
 constexpr uint32_t kMaxBatches = VulkanQueueTimeline::kMaxBatches;
+std::atomic<uint64_t> g_waits{0};
+}
+
+uint64_t VulkanQueueTimelineWaitsForTesting() noexcept {
+    return g_waits.load(std::memory_order_relaxed);
 }
 
 VulkanQueueTimeline::VulkanQueueTimeline(VkDevice d, VkQueue q, VkSemaphore s) noexcept
@@ -178,6 +183,7 @@ VkResult VulkanQueueTimeline::Poll(uint64_t* value) noexcept {
 }
 
 VkResult VulkanQueueTimeline::Wait(uint64_t value, uint64_t timeoutNs) noexcept {
+    g_waits.fetch_add(1, std::memory_order_relaxed);
     VkResult r = Check(value);
     if (r != VK_NOT_READY) return r;
     VkSemaphoreWaitInfo wait{};

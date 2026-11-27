@@ -61,6 +61,7 @@ public:
 
     /// Blocks until `value` signals or `timeoutNs` passes (VK_TIMEOUT).
     /// For synchronous API boundaries, shutdown, device loss and tests.
+    /// Every call counts in VulkanQueueTimelineWaitsForTesting().
     VkResult Wait(uint64_t value, uint64_t timeoutNs) noexcept;
 
     /// The newest value known to have signaled (no driver call).
@@ -94,6 +95,10 @@ private:
     std::atomic<uint64_t> completed_{0};
     std::atomic<uint64_t> submits_{0}, combined_{0}, parks_{0};
 };
+
+/// Process-wide count of VulkanQueueTimeline::Wait calls (every timeline).
+/// Tests assert deltas: a warm cook makes none.
+uint64_t VulkanQueueTimelineWaitsForTesting() noexcept;
 
 } // namespace usdGen::vulkan
 
