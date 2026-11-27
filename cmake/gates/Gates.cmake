@@ -351,3 +351,54 @@ foreach(_usdgen_gate_target IN LISTS _usdgen_gate_targets)
         endif()
     endforeach()
 endforeach()
+
+# Step 12.2: header tiers. Only api/ (and api/ext/ for extensions) is
+# reachable outside the engine; tests/internal is the white-box exception.
+set(USDGEN_INTERNAL_INCLUDE_PATTERN "#[ ]*include[ ]*[<\"]usdGen/(registries|compile|exec)/")
+add_test(NAME testUsdGenNoInternalIncludes
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-internal-includes
+        -DDIRS=libs/core/primitives,libs/core/backends,libs/hosts,libs/app,libs/usdGenPomade,tests,plugin
+        "-DEXCLUDE_PATHS=^tests/internal/"
+        "-DPATTERN=${USDGEN_INTERNAL_INCLUDE_PATTERN}"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noInternalIncludes.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+# Hosts and the app use the host API, never the extension SDK. The Hydra
+# adapters (usdGenHydra/primitives) register publishers: they are extensions.
+set(USDGEN_EXT_INCLUDE_PATTERN "#[ ]*include[ ]*[<\"]usdGen/api/ext/")
+add_test(NAME testUsdGenHostsNoExtIncludes
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=hosts-no-ext-includes
+        -DDIRS=libs/hosts,libs/app,libs/usdGenPomade
+        "-DEXCLUDE_PATHS=^libs/hosts/usdGenHydra/primitives/"
+        "-DPATTERN=${USDGEN_EXT_INCLUDE_PATTERN}"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/hostsNoExtIncludes.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+# api/ headers include only api/, the installed usdGenMath headers and the
+# standard library. The .cpp files under api/ are the engine's own sources.
+add_test(NAME testUsdGenApiSelfContained
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=api-self-contained
+        -DDIRS=libs/core/usdGen/usdGen/api
+        "-DEXCLUDE_PATHS=[.]cpp$"
+        "-DPATTERN=#[ ]*include[ ]*\""
+        "-DEXCLUDE=#[ ]*include[ ]*\"(usdGen/api/|usdGenMath/(half|vec|matrix|quat|range|math|rbf)[.]h\")"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/apiSelfContained.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoInternalIncludes testUsdGenHostsNoExtIncludes testUsdGenApiSelfContained
+    PROPERTIES LABELS "T0;build;gate;gate:api")
+
+# Each api header compiles alone (a build failure, not a test).
+file(GLOB_RECURSE _usdgen_api_headers RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen
+    ${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen/usdGen/api/*.h)
+set(_usdgen_api_probe "")
+foreach(_h IN LISTS _usdgen_api_headers)
+    string(MAKE_C_IDENTIFIER "${_h}" _id)
+    file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/apiProbe/${_id}.cpp CONTENT "#include \"${_h}\"\n")
+    list(APPEND _usdgen_api_probe ${CMAKE_BINARY_DIR}/apiProbe/${_id}.cpp)
+endforeach()
+add_library(usdGenApiHeaderProbe OBJECT ${_usdgen_api_probe})
+target_link_libraries(usdGenApiHeaderProbe PRIVATE usdGen)
