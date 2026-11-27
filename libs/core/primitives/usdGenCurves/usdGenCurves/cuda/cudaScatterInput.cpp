@@ -1,3 +1,6 @@
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
 #include "usdGenCurves/cuda/cudaScatterInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/ops/scatter.h"
@@ -227,7 +230,7 @@ namespace {
 thread_local std::unique_ptr<gpu::ScatterGrowRoots> t_convertShell;
 // Pooled capture shells (bit-identical): PrepareCudaScatterInput builds a
 // fresh capture per call and destroys it after the convert, churning the
-// touched VtArray pages through the kernel's page-table teardown every
+// touched UsdGenCowArray pages through the kernel's page-table teardown every
 // call (~100% sys time by rusage split; the process runs with a raised
 // dynamic mmap threshold, so the churn spells as brk growth/contraction
 // rather than munmap). Capture already clear()s every plane it fills
@@ -407,7 +410,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     auto* prep = shell.get();
     // Adopted planes (bit-identical): the six layout-identical planes move
     // out of the capture buffer in O(1) instead of copying element-wise.
-    // VtArray moves steal the buffer pointer, so the roots own the exact
+    // UsdGenCowArray moves steal the buffer pointer, so the roots own the exact
     // bytes the capture gathered; the deleter donates them back to the
     // idle capture shell (see RecycleConvertShell), so sequential
     // converts reuse every buffer. Only positions still copies: it

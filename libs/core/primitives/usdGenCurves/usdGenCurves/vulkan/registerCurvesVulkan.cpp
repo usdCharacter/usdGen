@@ -3,6 +3,7 @@
 // Vulkan kernel rows for the built-in curve ops (step 8 moves them into
 // usdGenCurvesVulkan). The lane reads stage and paramMap; it includes no op
 // header.
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 
 #include "usdGen/api/graphSpec.h"

@@ -1,6 +1,7 @@
 #ifndef USDGEN_CUDA_SURFACE_INPUT_H
 #define USDGEN_CUDA_SURFACE_INPUT_H
 
+#include "usdGen/api/cowArray.h"
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"

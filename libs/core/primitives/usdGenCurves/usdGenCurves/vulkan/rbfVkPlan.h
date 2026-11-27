@@ -30,6 +30,7 @@
 // budgets above kRbfVkPlanMaxBudget reject (shared signed matrix-index safety bound).
 #pragma once
 
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -38,7 +39,6 @@
 #include "usdGenMath/rbf.h"
 
 #include "usdGenMath/math.h"
-#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>

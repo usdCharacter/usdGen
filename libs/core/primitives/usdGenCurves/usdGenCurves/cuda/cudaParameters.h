@@ -2,6 +2,7 @@
 #define USDGEN_CUDA_PARAMETERS_H
 #ifdef USDGEN_ENABLE_CUDA
 
+#include "usdGen/api/token.h"
 #include "usdGenExpr/cuda/expressionContext.h"
 #include "usdGenExpr/cuda/expression.h"
 #include "usdGen/executionPlan.h"
