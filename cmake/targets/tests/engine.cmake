@@ -141,8 +141,11 @@ endforeach()
 # Offline validation utility (test-only: the stage-sourced graph builder is
 # fenced to test utilities): cooks every description of a stage on the CPU
 # lane and prints per-description strand/CV counts, optionally baking them.
-add_executable(usdGenCookStats tools/cookStats.cpp)
-target_link_libraries(usdGenCookStats PRIVATE usdGenTestUtilsHd)
+# It drives the private compiler and scheduler, so it needs the internals.
+if(USDGEN_EXPORT_INTERNALS)
+    add_executable(usdGenCookStats tools/cookStats.cpp)
+    target_link_libraries(usdGenCookStats PRIVATE usdGenTestUtilsHd)
+endif()
 
 # M1 T0 perf benches (E-1/E-7 via --threads; E-2 sparse; carried in from
 # prototypes/data-plane-benchmark, 11 §2.2).
