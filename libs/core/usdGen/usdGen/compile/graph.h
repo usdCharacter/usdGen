@@ -22,9 +22,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 namespace usdGen {
 class UsdGenOpRecord;
 
@@ -99,13 +96,13 @@ struct UsdGenCompiledNode : UsdGenPooled
     // paramView.expressions points here.
     std::unique_ptr<UsdGenParamEvaluatorState> expressions;
     uint64_t               lastExpressionDigest = 0;  // the digest last evaluated
-    std::vector<std::pair<TfToken, uint32_t>> paramRouting;  // param name -> UsdGenDirtyBits
+    std::vector<std::pair<UsdGenToken, uint32_t>> paramRouting;  // param name -> UsdGenDirtyBits
     std::vector<UsdGenNodeId> descendants;       // strict descendants, topological order
     // Slot order is the operator declaration order.  The scheduler resolves
     // these names to the current upstream planes on each preparation, since a
     // topology revision may replace the backing VtArrays.
-    std::vector<TfToken> outputPrimvars;
-    std::vector<TfToken> inputPrimvars;
+    std::vector<UsdGenToken> outputPrimvars;
+    std::vector<UsdGenToken> inputPrimvars;
     UsdGenSurfaceId        surface = 0;
     bool                   hasSurface = false;
     std::vector<UsdGenNodeKey> inputRefs;            // UsdGenOpNode::inputSets targets
@@ -148,14 +145,14 @@ public:
 
 
     // --- dirty routing targets (03 §5.2 hops 2-3; the imaging router feeds these) ---
-    void DirtyParameter(NodeId id, TfToken const &param);
+    void DirtyParameter(NodeId id, UsdGenToken const &param);
     /// One-shot value dirty with no parameter name (a time reader's clock moved).
     void DirtyValue(NodeId id);
     void DirtyCapture(NodeId id);
     void DirtyTopology(NodeId id);
     void DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
                       uint64_t generation = UINT64_MAX);
-    void DirtyChunks(NodeId id, TfSpan<const UsdGenChunkId> chunks);
+    void DirtyChunks(NodeId id, UsdGenSpan<const UsdGenChunkId> chunks);
     /// Bumps the capture epoch of every node whose UsdGenOpNode::maps names this prim
     /// (asset path edit, ReloadMaps(), textureGeneration bump). §3.6, UsdGenDirtyMap.
     void DirtyMap(UsdGenNodeKey mapPrim, uint64_t generation = UINT64_MAX);
@@ -202,8 +199,8 @@ public:
     UsdGenGraphSpec const &RestSpec() const;
     UsdGenOpNode const &OpNode(NodeId id) const;
     /// Immutable descriptor-value identities resolved during compilation.
-    TfSpan<const UsdGenResolvedReferenceValue> ReferenceValues() const;
-    TfSpan<const UsdGenResolvedMapValue> MapValues() const;
+    UsdGenSpan<const UsdGenResolvedReferenceValue> ReferenceValues() const;
+    UsdGenSpan<const UsdGenResolvedMapValue> MapValues() const;
 
     /// Make an owning routing snapshot.  This is intentionally a fresh copy:
     /// callers can hand the result to an asynchronous imaging owner without

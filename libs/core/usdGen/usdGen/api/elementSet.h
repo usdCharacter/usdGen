@@ -41,7 +41,7 @@ struct UsdGenChunkGroup {
     uint16_t id = 0;
     uint32_t firstChunk = 0, chunkCount = 0;
     uint32_t live[kUsdGenMaxLevels] = {};        // live elements, live level-2 items, ...
-    float    extentMin[3] = { 3.4e38f,  3.4e38f,  3.4e38f};   // GfRange3f empty state
+    float    extentMin[3] = { 3.4e38f,  3.4e38f,  3.4e38f};   // UsdGenRange3f empty state
     float    extentMax[3] = {-3.4e38f, -3.4e38f, -3.4e38f};
     uint32_t dirtyRoles = 0;                     // bit (1 << UsdGenChannelRole) written this run
 };
@@ -148,7 +148,7 @@ public:
             ? UsdGenSpan<const uint32_t>(_offsets[level], size_t(_count[level - 1]) + 1)
             : UsdGenSpan<const uint32_t>();
     }
-    /// Size in T: the column's bytes / sizeof(T) (a packed float3 column reads as GfVec3f).
+    /// Size in T: the column's bytes / sizeof(T) (a packed float3 column reads as UsdGenVec3f).
     template <class T>
     UsdGenSpan<const T> Column(UsdGenSlot s, uint8_t sample = 0) const noexcept
     {

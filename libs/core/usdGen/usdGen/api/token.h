@@ -4,7 +4,7 @@
 // the token swap (11.5). UsdGenInternToken (registries/token.h) is the only
 // text -> token door; UsdGenFindToken only looks up.
 #pragma once
-#include "usdGen/registries/token.h"
+#include "pxr/base/tf/token.h"
 
 #include <string>
 #include <string_view>

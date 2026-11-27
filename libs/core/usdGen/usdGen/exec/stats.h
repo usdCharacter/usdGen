@@ -7,15 +7,13 @@
 #ifndef USDGEN_STATS_H
 #define USDGEN_STATS_H
 
-#include "pxr/pxr.h"
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/token.h"
 #include "usdGen/api/nodeKey.h"
 
 #include <array>
 #include <cstdint>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -36,7 +34,7 @@ struct UsdGenCommitTiming
 /// ("op03_clumpBig is 60 % of your frame").
 struct UsdGenNodeStats
 {
-    TfToken  type;
+    UsdGenToken  type;
     UsdGenNodeKey key;     // the operator (the host maps it back for display)
     double   captureMs = 0.0, lastEvalMs = 0.0, meanEvalMs = 0.0;
     uint64_t elementsIn = 0, elementsOut = 0;

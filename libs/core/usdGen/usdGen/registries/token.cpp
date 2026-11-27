@@ -24,12 +24,12 @@ void UsdGenReadTokenCheckSetting() noexcept
     gTokenChecks.store(!(value && value[0] == '0' && value[1] == '\0'), std::memory_order_relaxed);
 }
 
-TfToken UsdGenInternToken(std::string_view text)
+UsdGenToken UsdGenInternToken(std::string_view text)
 {
     gTotalInterns.fetch_add(1, std::memory_order_relaxed);
     if (tCompileScopeDepth == 0 && UsdGenOpRegistryFrozenIfBuilt())
         gExecInterns.fetch_add(1, std::memory_order_relaxed);
-    return TfToken(std::string(text));
+    return UsdGenToken(std::string(text));
 }
 
 uint64_t UsdGenExecInternCount() noexcept

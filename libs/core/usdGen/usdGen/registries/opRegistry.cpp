@@ -19,7 +19,7 @@ UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
 
 namespace {
 std::atomic<UsdGenOpRegistry *> gOpRegistry{nullptr};
-TfToken const kNoToken;
+UsdGenToken const kNoToken;
 }  // namespace
 
 // The interner asks whether interns are exec-phase without creating the
@@ -32,7 +32,7 @@ bool UsdGenOpRegistryFrozenIfBuilt() noexcept
 
 // ---- UsdGenOpRecord ---------------------------------------------------------
 
-UsdGenParamSlot UsdGenOpRecord::FindParam(TfToken const &name) const noexcept
+UsdGenParamSlot UsdGenOpRecord::FindParam(UsdGenToken const &name) const noexcept
 {
     if (!_tables || name.IsEmpty()) return kUsdGenNoParam;
     Tables const &t = *_tables;
@@ -43,12 +43,12 @@ UsdGenParamSlot UsdGenOpRecord::FindParam(TfToken const &name) const noexcept
     }
 }
 
-TfToken const &UsdGenOpRecord::ParamName(UsdGenParamSlot s) const noexcept
+UsdGenToken const &UsdGenOpRecord::ParamName(UsdGenParamSlot s) const noexcept
 {
     return _tables && s < _tables->paramNames.size() ? _tables->paramNames[s] : kNoToken;
 }
 
-int UsdGenOpRecord::EnumIndex(UsdGenParamSlot s, TfToken const &value) const noexcept
+int UsdGenOpRecord::EnumIndex(UsdGenParamSlot s, UsdGenToken const &value) const noexcept
 {
     if (!_tables || s >= _tables->enumerants.size()) return -1;
     auto const &names = _tables->enumerants[s];
@@ -60,63 +60,63 @@ int UsdGenOpRecord::EnumIndex(UsdGenParamSlot s, TfToken const &value) const noe
 int UsdGenOpRecord::EnumIndex(UsdGenParamSlot s, std::string const &value) const noexcept
 {
     if (s >= _def.params.size()) return -1;
-    TfSpan<char const *const> const names = _def.params[s].enumerants;
+    UsdGenSpan<char const *const> const names = _def.params[s].enumerants;
     for (size_t i = 0; i < names.size(); ++i)
         if (value == names[i]) return int(i);
     return -1;
 }
 
 template <class T>
-static TfSpan<const T> SpanOf(std::vector<T> const &v) noexcept
+static UsdGenSpan<const T> SpanOf(std::vector<T> const &v) noexcept
 {
-    return TfSpan<const T>(v.data(), v.size());
+    return UsdGenSpan<const T>(v.data(), v.size());
 }
 
-TfSpan<const std::pair<TfToken, uint32_t>> UsdGenOpRecord::Routing() const noexcept
+UsdGenSpan<const std::pair<UsdGenToken, uint32_t>> UsdGenOpRecord::Routing() const noexcept
 {
-    return _tables ? SpanOf(_tables->routing) : TfSpan<const std::pair<TfToken, uint32_t>>();
+    return _tables ? SpanOf(_tables->routing) : UsdGenSpan<const std::pair<UsdGenToken, uint32_t>>();
 }
-TfSpan<const UsdGenParamSlot> UsdGenOpRecord::DigestSlots() const noexcept
+UsdGenSpan<const UsdGenParamSlot> UsdGenOpRecord::DigestSlots() const noexcept
 {
-    return _tables ? SpanOf(_tables->digest) : TfSpan<const UsdGenParamSlot>();
+    return _tables ? SpanOf(_tables->digest) : UsdGenSpan<const UsdGenParamSlot>();
 }
-TfSpan<const TfToken> UsdGenOpRecord::ParamNames() const noexcept
+UsdGenSpan<const UsdGenToken> UsdGenOpRecord::ParamNames() const noexcept
 {
-    return _tables ? SpanOf(_tables->paramNames) : TfSpan<const TfToken>();
+    return _tables ? SpanOf(_tables->paramNames) : UsdGenSpan<const UsdGenToken>();
 }
-TfSpan<const TfToken> UsdGenOpRecord::ReferenceInputs() const noexcept
+UsdGenSpan<const UsdGenToken> UsdGenOpRecord::ReferenceInputs() const noexcept
 {
-    return _tables ? SpanOf(_tables->referenceInputs) : TfSpan<const TfToken>();
+    return _tables ? SpanOf(_tables->referenceInputs) : UsdGenSpan<const UsdGenToken>();
 }
-TfSpan<const UsdGenPlane> UsdGenOpRecord::InputPlanes() const noexcept
+UsdGenSpan<const UsdGenPlane> UsdGenOpRecord::InputPlanes() const noexcept
 {
-    return _tables ? SpanOf(_tables->inputPlanes) : TfSpan<const UsdGenPlane>();
+    return _tables ? SpanOf(_tables->inputPlanes) : UsdGenSpan<const UsdGenPlane>();
 }
-TfSpan<const UsdGenPlane> UsdGenOpRecord::OutputPlanes() const noexcept
+UsdGenSpan<const UsdGenPlane> UsdGenOpRecord::OutputPlanes() const noexcept
 {
-    return _tables ? SpanOf(_tables->outputPlanes) : TfSpan<const UsdGenPlane>();
+    return _tables ? SpanOf(_tables->outputPlanes) : UsdGenSpan<const UsdGenPlane>();
 }
-TfSpan<const TfToken> UsdGenOpRecord::MapRelationships() const noexcept
+UsdGenSpan<const UsdGenToken> UsdGenOpRecord::MapRelationships() const noexcept
 {
-    return _tables ? SpanOf(_tables->mapRelationships) : TfSpan<const TfToken>();
+    return _tables ? SpanOf(_tables->mapRelationships) : UsdGenSpan<const UsdGenToken>();
 }
-TfToken const &UsdGenOpRecord::Token(uint16_t i) const noexcept
+UsdGenToken const &UsdGenOpRecord::Token(uint16_t i) const noexcept
 {
     return _tables && i < _tables->tokens.size() ? _tables->tokens[i] : kNoToken;
 }
-TfToken const &UsdGenOpRecord::OutputType() const noexcept
+UsdGenToken const &UsdGenOpRecord::OutputType() const noexcept
 {
     return _tables ? _tables->outputType : kNoToken;
 }
-TfSpan<const TfToken> UsdGenOpRecord::InputTypes() const noexcept
+UsdGenSpan<const UsdGenToken> UsdGenOpRecord::InputTypes() const noexcept
 {
-    return _tables ? SpanOf(_tables->inputTypes) : TfSpan<const TfToken>();
+    return _tables ? SpanOf(_tables->inputTypes) : UsdGenSpan<const UsdGenToken>();
 }
-bool UsdGenOpRecord::AcceptsInput(TfToken const &producerType) const noexcept
+bool UsdGenOpRecord::AcceptsInput(UsdGenToken const &producerType) const noexcept
 {
-    TfSpan<const TfToken> const accepted = InputTypes();
+    UsdGenSpan<const UsdGenToken> const accepted = InputTypes();
     if (accepted.empty()) return producerType.IsEmpty();
-    for (TfToken const &t : accepted)
+    for (UsdGenToken const &t : accepted)
         if (t == producerType) return true;
     return false;
 }
@@ -153,7 +153,7 @@ UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept
     return *winner;
 }
 
-UsdGenOpId UsdGenOpRegistry::Find(TfToken const &name) const noexcept
+UsdGenOpId UsdGenOpRegistry::Find(UsdGenToken const &name) const noexcept
 {
     if (name.IsEmpty()) return UsdGenOpId::Invalid;
     constexpr size_t mask = 2 * kUsdGenMaxOps - 1;

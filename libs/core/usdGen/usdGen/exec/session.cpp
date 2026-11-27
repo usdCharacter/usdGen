@@ -9,7 +9,6 @@
 #include <stdexcept>
 #include <utility>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 namespace {
 // Leaked on purpose: the runtime owns a TBB arena, and a static destructor in

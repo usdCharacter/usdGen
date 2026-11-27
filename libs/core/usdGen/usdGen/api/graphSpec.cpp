@@ -38,7 +38,7 @@ UsdGenNodeKey UsdGenNodeKeyOfText(std::string const &text) noexcept
 
 namespace {
 
-TfToken const kNoLabel;
+UsdGenToken const kNoLabel;
 
 UsdGenNodeLabel const *FindLabel(std::vector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key)
 {
@@ -68,7 +68,7 @@ std::string UsdGenGraphSpec::Label(UsdGenNodeKey key) const
     return text;
 }
 
-UsdGenNodeKey UsdGenGraphSpec::DeriveKey(UsdGenNodeKey parent, TfToken const &child)
+UsdGenNodeKey UsdGenGraphSpec::DeriveKey(UsdGenNodeKey parent, UsdGenToken const &child)
 {
     std::string text = Label(parent);
     text += '/';
@@ -81,13 +81,13 @@ UsdGenNodeKey UsdGenGraphSpec::DeriveKey(UsdGenNodeKey parent, TfToken const &ch
     return key;
 }
 
-TfToken const &UsdGenGraphSpec::LabelToken(UsdGenNodeKey key) const noexcept
+UsdGenToken const &UsdGenGraphSpec::LabelToken(UsdGenNodeKey key) const noexcept
 {
     UsdGenNodeLabel const *label = key.IsValid() ? FindLabel(labels, key) : nullptr;
     return label && !label->parent.IsValid() ? label->text : kNoLabel;
 }
 
-TfToken const &UsdGenGraphSpec::DerivedName(UsdGenNodeKey key) const noexcept
+UsdGenToken const &UsdGenGraphSpec::DerivedName(UsdGenNodeKey key) const noexcept
 {
     UsdGenNodeLabel const *label = key.IsValid() ? FindLabel(labels, key) : nullptr;
     return label && label->parent.IsValid() ? label->text : kNoLabel;
@@ -159,7 +159,7 @@ void UsdGenInputRecordWriter::Share(UsdGenSlot slot, UsdGenElementSet const &fro
     _staged[slot] = from.Has(fromSlot) ? Staged{nullptr, 0, &from, fromSlot} : Staged{};
 }
 
-void UsdGenInputRecordWriter::Value(size_t index, VtValue value)
+void UsdGenInputRecordWriter::Value(size_t index, UsdGenValue value)
 {
     if (index < _values.size() && (!_desc || index < _desc->attributes.size()))
         _values[index].value = std::move(value);
@@ -171,7 +171,7 @@ void UsdGenInputRecordWriter::Extra(UsdGenParamValue value)
 }
 
 UsdGenInputRecord UsdGenInputRecordWriter::Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
-                                                  TfToken const &label, uint64_t generation)
+                                                  UsdGenToken const &label, uint64_t generation)
 {
     UsdGenInputRecord record;
     record.key = key;

@@ -28,14 +28,14 @@ namespace {
 // Written by registration only (before the freeze); read after it.
 UsdGenPublisherDef gPublishers[kUsdGenMaxTypes];
 
-TfToken InternPlaneRate(UsdGenPlaneRate rate)
+UsdGenToken InternPlaneRate(UsdGenPlaneRate rate)
 {
     UsdGenEngineTokens const &t = UsdGenTokens();
     return rate == UsdGenPlaneRate::Vertex ? t.vertex
         : rate == UsdGenPlaneRate::Uniform ? t.uniform : t.constant;
 }
 
-void FillPlanes(TfSpan<const UsdGenPlaneDecl> decls, std::vector<UsdGenPlane> *out)
+void FillPlanes(UsdGenSpan<const UsdGenPlaneDecl> decls, std::vector<UsdGenPlane> *out)
 {
     UsdGenEngineTokens const &t = UsdGenTokens();
     for (UsdGenPlaneDecl const &d : decls) {
@@ -48,8 +48,8 @@ void FillPlanes(TfSpan<const UsdGenPlaneDecl> decls, std::vector<UsdGenPlane> *o
     }
 }
 
-bool HashInsert(std::vector<std::pair<TfToken, UsdGenParamSlot>> *hash, size_t mask,
-                TfToken const &key, UsdGenParamSlot slot)
+bool HashInsert(std::vector<std::pair<UsdGenToken, UsdGenParamSlot>> *hash, size_t mask,
+                UsdGenToken const &key, UsdGenParamSlot slot)
 {
     for (size_t i = key.Hash() & mask;; i = (i + 1) & mask) {
         auto &entry = (*hash)[i];
@@ -62,7 +62,7 @@ bool HashInsert(std::vector<std::pair<TfToken, UsdGenParamSlot>> *hash, size_t m
 }
 
 /// Dirty bits of one routed parameter: compiler.cpp ClassifyParamBits.
-uint32_t RoutingBits(UsdGenEngineTokens const &t, TfToken const &name,
+uint32_t RoutingBits(UsdGenEngineTokens const &t, UsdGenToken const &name,
                      UsdGenParamClass cls, uint8_t countChanges)
 {
     if (cls == UsdGenParamClass::Value) return UsdGenDirtyParameter;
@@ -89,7 +89,7 @@ UsdGenOpId UsdGenRegistrar::RegisterOp(UsdGenOpDef const &def)
         def.tokens.size() > kUsdGenMaxOpTokens)
         return UsdGenOpId::Invalid;
     UsdGenCompileTokenScope scope;
-    TfToken const name = UsdGenInternToken(def.name);
+    UsdGenToken const name = UsdGenInternToken(def.name);
     if (ops.Find(name) != UsdGenOpId::Invalid) return UsdGenOpId::Invalid;
 
     UsdGenEngineTokens const &et = UsdGenTokens();
@@ -105,7 +105,7 @@ UsdGenOpId UsdGenRegistrar::RegisterOp(UsdGenOpDef const &def)
     for (size_t s = 0; s < n; ++s) {
         UsdGenParamDecl const &decl = def.params[s];
         if (!decl.name || !*decl.name) return UsdGenOpId::Invalid;
-        TfToken const param = UsdGenInternToken(decl.name);
+        UsdGenToken const param = UsdGenInternToken(decl.name);
         if (!HashInsert(&tables->hash, tables->mask, param, UsdGenParamSlot(s)))
             return UsdGenOpId::Invalid;
         for (size_t e = 0; e < decl.enumerants.size(); ++e) {
@@ -144,7 +144,7 @@ UsdGenOpId UsdGenRegistrar::RegisterOp(UsdGenOpDef const &def)
     }
     if (def.outputType && *def.outputType) tables->outputType = UsdGenInternToken(def.outputType);
     for (char const *type : def.inputTypes)
-        tables->inputTypes.push_back(type && *type ? UsdGenInternToken(type) : TfToken());
+        tables->inputTypes.push_back(type && *type ? UsdGenInternToken(type) : UsdGenToken());
     FillPlanes(def.inputPlanes, &tables->inputPlanes);
     FillPlanes(def.outputPlanes, &tables->outputPlanes);
 
@@ -177,7 +177,7 @@ UsdGenTypeId UsdGenRegistrar::RegisterType(UsdGenTypeDef const &def)
                        def.layout->channels.size() >= kUsdGenNoSlot))
         return UsdGenTypeId::Invalid;
     UsdGenCompileTokenScope scope;
-    TfToken const name = UsdGenInternToken(def.name);
+    UsdGenToken const name = UsdGenInternToken(def.name);
     if (types.Find(name) != UsdGenTypeId::Invalid) return UsdGenTypeId::Invalid;
     types._defs[types._count] = def;
     types._names[types._count] = name;

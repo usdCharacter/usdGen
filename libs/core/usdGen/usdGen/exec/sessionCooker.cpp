@@ -5,7 +5,7 @@
 #include "usdGen/sessionCooker.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
-#include "usdGen/debugCodes.h"
+#include "usdGen/api/debug.h"
 #include "usdGen/digest.h"
 #include "usdGen/executionBackend.h"
 #include "usdGen/registries/backend.h"
@@ -14,10 +14,7 @@
 #include "usdGen/api/publishDesc.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
-
-
-#include "pxr/pxr.h"
-#include "pxr/base/trace/trace.h"
+#include "usdGen/api/trace.h"
 
 #include <algorithm>
 #include <atomic>
@@ -33,8 +30,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 namespace {
@@ -52,7 +47,7 @@ class _CommitPhases
 {
 public:
     _CommitPhases()
-        : _enabled(TfDebug::IsEnabled(USDGEN_COMMIT)),
+        : _enabled(UsdGenDebugEnabled(UsdGenDebugCode::Commit)),
           _start(std::chrono::steady_clock::now()), _mark(_start) {}
 
     void Phase(char const *name, size_t rebuilt = SIZE_MAX, size_t total = 0)
@@ -77,7 +72,7 @@ public:
         if (!_enabled) return;
         double const total = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - _start).count();
-        TfDebug::Helper().Msg("usdGen commit    %s frame %g: %s; %s; total %.2f ms [ms: %s]\n",
+        UsdGenDebugMsg("usdGen commit    %s frame %g: %s; %s; total %.2f ms [ms: %s]\n",
                               spec.DescriptionText(), frame, outcome,
                               compile.empty() ? "no compile" : compile.c_str(), total,
                               _text.c_str());
@@ -258,7 +253,7 @@ void _CacheDigestTerms(_CacheArrayTerms const &terms)
     }
 }
 
-void _CacheMixMatrix(uint64_t *hash, GfMatrix4d const &value)
+void _CacheMixMatrix(uint64_t *hash, UsdGenMatrix4d const &value)
 {
     for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
         uint64_t bits = 0;
@@ -634,7 +629,7 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
         // Device plans capture the exact immutable request. Keep all common
         // reset, baseline and dirty handling above; only compilation is
         // supplied by the explicitly injected provider.
-        TRACE_SCOPE("usdGen compile");
+        USDGEN_TRACE_SCOPE("usdGen compile");
         auto const compileStart = std::chrono::steady_clock::now();
         bool const firstCompile = _graph.NodeCount() == 0;
         // A new descriptor recompiles incrementally (gate E-6): an operator
@@ -652,7 +647,7 @@ bool UsdGenSessionCooker::_Prepare(std::shared_ptr<const UsdGenGraphSpec> desc,
         // A plan describes the graph compiled with it; any other compile drops it.
         if (cr.ok && !(deviceCompiler && reusesPlan)) _devicePlan.reset();
         ++_stats.recompiles;
-        if (TfDebug::IsEnabled(USDGEN_COMMIT)) {
+        if (UsdGenDebugEnabled(UsdGenDebugCode::Commit)) {
             char buffer[256];
             std::snprintf(buffer, sizeof(buffer),
                 "%s compile (%s) %.2f ms, %zu of %d nodes rebuilt%s",
@@ -827,7 +822,7 @@ void UsdGenSessionCooker::CookDeviceAsync(UsdGenExecutionRuntime& runtime,
     std::shared_ptr<UsdGenSessionDeviceProvider> provider,
     DeviceReturnBinder bindReturn, CookCompletion completion, CoalescedHooks hooks)
 {
-    TF_UNUSED(reason);
+    (void)reason;
     // This function returns before the pipeline can start this session's
     // next work item (the async completion gate retains the work lane), so
     // it is the sole writer of the cooked epoch.
@@ -1213,7 +1208,7 @@ bool UsdGenSessionCooker::CommitCacheCandidate(
     // never reaches here.
     auto rejectBecause = [this, &candidate](char const *why) {
         ++_stats.executionCacheAdmissionFailures;
-        TF_DEBUG(USDGEN_COMMIT).Msg("usdGen cache     key %016llx not admitted: %s\n",
+        USDGEN_DEBUG_MSG(Commit,"usdGen cache     key %016llx not admitted: %s\n",
                                     (unsigned long long)candidate.key.Hash(), why);
         return false;
     };
@@ -1271,7 +1266,7 @@ bool UsdGenSessionCooker::CommitCacheCandidate(
     }
     if (!admitted) return rejectBecause(reason.empty() ? "store refused" : reason.c_str());
     ++_stats.executionCacheAdmissions;
-    TF_DEBUG(USDGEN_COMMIT).Msg("usdGen cache     key %016llx admitted, %.1f MB (domain %.1f of %.1f MB, %zu entries)\n",
+    USDGEN_DEBUG_MSG(Commit,"usdGen cache     key %016llx admitted, %.1f MB (domain %.1f of %.1f MB, %zu entries)\n",
         (unsigned long long)candidate.key.Hash(), candidate.bytes / 1048576.0,
         _executionCacheDomain ? _executionCacheDomain->Bytes() / 1048576.0 : 0.0,
         _executionCacheDomain ? _executionCacheDomain->MaxBytes() / 1048576.0 : 0.0,
@@ -1292,10 +1287,10 @@ UsdGenStats publishedStats, bool invalidateValues,
     struct LastCooked { uint64_t& out; uint64_t epoch; ~LastCooked() { out = epoch; } }
         lastCooked{_lastCookedEpoch, workEpoch};
     const auto t0 = std::chrono::steady_clock::now();
-    TRACE_FUNCTION();
+    USDGEN_TRACE_FUNCTION();
     _CommitPhases phases;
-    TF_UNUSED(reason);
-    TF_UNUSED(callerDevice);
+    (void)reason;
+    (void)callerDevice;
     // Once populated, replace the complete pose together. Streaming updates
     // would display mixed poses and disable capture-direct point updates.
     // Geometry notices can precede the host's current-frame notice, so the
@@ -1316,13 +1311,13 @@ UsdGenStats publishedStats, bool invalidateValues,
     // Keep the exact domain alive for every publication in this cook.
     auto cacheDomain = _executionCacheDomain;
     UsdGenExecutionCacheKey cacheKey = [&] {
-        TRACE_SCOPE("usdGen execution cache key");
+        USDGEN_TRACE_SCOPE("usdGen execution cache key");
         return _MakeExecutionCacheKey(_graph, _desc,
             _ExecutionCacheContext(_desc, _context, -1,
                 cacheDomain ? cacheDomain->Epoch() : 0), frame);
     }();
     phases.Phase("cache key");
-    TF_DEBUG(USDGEN_COMMIT).Msg("usdGen cache     frame %g looks up key %016llx\n",
+    USDGEN_DEBUG_MSG(Commit,"usdGen cache     frame %g looks up key %016llx\n",
                                 frame, (unsigned long long)cacheKey.Hash());
 
     // Cache lookup occurs after preparation so the key contains the compiled
@@ -1647,7 +1642,7 @@ std::unordered_map<UsdGenNodeId, UsdGenNodeStats> UsdGenSessionCooker::NodeStats
         if (entry.first >= static_cast<UsdGenNodeId>(_graph.NodeCount())) continue;
         UsdGenCompiledNode const& n = _graph.Node(entry.first);
         UsdGenNodeStats& s = out[entry.first];
-        s.type = n.record ? n.record->Name() : TfToken(); s.key = n.desc ? n.desc->key : UsdGenNodeKey();
+        s.type = n.record ? n.record->Name() : UsdGenToken(); s.key = n.desc ? n.desc->key : UsdGenNodeKey();
         s.captureMs = entry.second.captureMs; s.lastEvalMs = entry.second.evalMs;
         s.meanEvalMs = entry.second.evalMs; s.elementsOut = _graph.NodeOutput(n.id).Count(1);
         for (UsdGenChunkDirtyBits bit : n.chunkDirty) if (bit) ++s.chunksDirty;

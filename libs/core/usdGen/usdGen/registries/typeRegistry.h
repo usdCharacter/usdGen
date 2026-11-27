@@ -5,12 +5,11 @@
 #include "usdGen/export.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/registries/handles.h"
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/token.h"
 #include <atomic>
 #include <cstdint>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 struct UsdGenMapInputView;
@@ -66,9 +65,9 @@ struct UsdGenTypeDef {
 class USDGEN_CORE_API UsdGenTypeRegistry {
 public:
     static UsdGenTypeRegistry const &Get() noexcept;
-    UsdGenTypeId Find(TfToken const &name) const noexcept;   // compile phase only
+    UsdGenTypeId Find(UsdGenToken const &name) const noexcept;   // compile phase only
     UsdGenTypeDef const &Def(UsdGenTypeId) const noexcept;
-    TfToken const &Name(UsdGenTypeId) const noexcept;
+    UsdGenToken const &Name(UsdGenTypeId) const noexcept;
     uint32_t Count() const noexcept { return _count; }
     /// The first type with kUsdGenTypeDefaultPrimitive and a layout, else Invalid.
     UsdGenTypeId DefaultPrimitive() const noexcept;
@@ -81,7 +80,7 @@ private:
     friend UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
     UsdGenTypeRegistry();
     UsdGenTypeDef _defs[kUsdGenMaxTypes];
-    TfToken _names[kUsdGenMaxTypes];
+    UsdGenToken _names[kUsdGenMaxTypes];
     uint32_t _count = 0;
     std::atomic<bool> _frozen{false};
 };
