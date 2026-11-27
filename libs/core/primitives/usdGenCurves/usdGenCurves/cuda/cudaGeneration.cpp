@@ -7,6 +7,7 @@
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCurves/cuda/scatterGrow.h"
 #include "usdGen/gpu/cudaRetirement.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
 
 #include <algorithm>
 #include <atomic>
@@ -58,7 +59,26 @@ class SourceOwner;
 
 class CudaConsumerRetirementPayload final : public UsdGenExecutionRetirementPayload {
 public:
-    struct CallbackState {
+    // The lane continuation that signals retirement once the event ran.
+    struct CallbackState final : CudaCompletion {
+        CallbackState(UsdGenExecutionRetirementSignal signal_, std::atomic<bool>* quarantined_,
+                      cudaEvent_t event_)
+            : signal(std::move(signal_)), quarantined(quarantined_) {
+            event = event_;
+            taskRun = &CallbackState::Done;
+        }
+        static void Done(UsdGenTask* task) noexcept {
+            // Copy first: the worker may release the payload as Signal
+            // dispatches it, so never touch the state afterward.
+            auto const* state = static_cast<CallbackState const*>(task);
+            auto signal = state->signal;
+            auto* quarantined = state->quarantined;
+            if (state->status == cudaSuccess) signal.SignalSuccess();
+            else {
+                if (quarantined) quarantined->store(true);
+                signal.SignalFailure();
+            }
+        }
         UsdGenExecutionRetirementSignal signal;
         std::atomic<bool>* quarantined = nullptr;
     };
@@ -68,7 +88,7 @@ public:
                                   UsdGenExecutionRetirementSignal signal_,
                                   std::atomic<bool>* quarantined_)
         : owner(std::move(owner_)), event(event_), device(device_),
-          callback{std::move(signal_), quarantined_} {}
+          callback(std::move(signal_), quarantined_, event_) {}
 
     bool IsComplete() noexcept override {
         if (!IsCudaRetirementBackendOpen()) return false;
@@ -239,28 +259,16 @@ public:
         bool const selected = cudaGetDevice(&previous) == cudaSuccess &&
             cudaSetDevice(payload_->device) == cudaSuccess;
         cudaStream_t const stream = reinterpret_cast<cudaStream_t>(stream_);
-        bool const recorded = selected && cudaEventRecord(payload_->event, stream) == cudaSuccess;
-        bool const callback = recorded &&
-            cudaStreamAddCallback(stream, [](cudaStream_t, cudaError_t status, void *data) {
-                // Copy first: the worker may release the payload as Signal
-                // dispatches it, so never touch callback userdata afterward.
-                auto const* callback = static_cast<CudaConsumerRetirementPayload::CallbackState*>(data);
-                auto signal = callback->signal;
-                auto* quarantined = callback->quarantined;
-                if (status == cudaSuccess) signal.SignalSuccess();
-                else {
-                    if (quarantined) quarantined->store(true);
-                    signal.SignalFailure();
-                }
-            }, &payload_->callback, 0) == cudaSuccess;
+        // The completion lane runs the continuation when the event finished.
+        bool const submitted = selected && CudaCompletionSubmit(&payload_->callback, stream);
         if (selected && previous != payload_->device) cudaSetDevice(previous);
-        if (!recorded || !callback) {
+        if (!submitted) {
             // The event/callback sequence cannot prove this stream terminal.
             // Poison future acquires before handing the payload to retention.
             payload_->owner->quarantined_.store(true);
         }
         ticket_.Retire(std::move(payload_));
-        if (!recorded || !callback) signal_.SignalFailure();
+        if (!submitted) signal_.SignalFailure();
     }
 
 private:

@@ -10,6 +10,7 @@
 #ifdef USDGEN_TEST_CUDA_SOURCE_PARITY
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGenCurves/cuda/generation.h"
+#include "usdGen/exec/session.h"
 #endif
 
 #include <cmath>
@@ -84,11 +85,14 @@ static bool CudaParity(UsdGenGraphDesc d, UsdGenCurveBuffer const& cpu) {
         for (auto const& e : diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
         return false;
     }
-    auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
-    if (!workspace) return false;
-    auto generation = ExecuteCudaGraph(*plan, *workspace, 1, 1, &diagnostics);
+    UsdGenSession session;
+    session.SetDevicePublicationEnabled(true);
+    usdGenUsd::SetGraphDesc(session, d);
+    auto const published = session.Commit(1, UsdGenCommitReason::SetTime);
+    std::shared_ptr<const UsdGenDeviceGeneration> generation;
+    if (published) generation = published->device;
     if (!generation) {
-        for (auto const& e : diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
+        for (auto const& e : session.LastDiagnostics().errors) std::fprintf(stderr,"%s\n",e.c_str());
         return false;
     }
     auto lease = gpu::AcquireGeometry(generation, nullptr);

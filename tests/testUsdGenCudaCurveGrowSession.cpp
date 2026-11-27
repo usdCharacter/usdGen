@@ -5,6 +5,7 @@
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -808,7 +809,7 @@ int main() {
     CHECK(Read(old.Geometry().points,&oldPoints,stream)&&Read(old.Geometry().widths,&oldWidths,stream));
 
     auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(workspace);
-    auto direct=ExecuteCudaGraph(*plan,*workspace,1,100,&diagnostics);
+    auto direct=ExecuteCudaPlanForTesting(plan,*workspace,1,100,&diagnostics);
     CHECK(direct&&!diagnostics.HasErrors()&&CheckGeneration(direct,reference,stream));
 
     // Public callers are allowed to use an asynchronous native source then
@@ -824,7 +825,7 @@ int main() {
     if(!mixedSourceOk) for(auto const& error:diagnostics.errors) std::fprintf(stderr,"mixed source: %s\n",error.c_str());
     CHECK(mixedSourceOk&&!diagnostics.HasErrors());
     for(size_t i=0;i<CudaExecutionJobOperatorCount(*mixedJob);++i) {
-        bool const operatorOk=ExecuteCudaJobOperator(*mixedJob,i);
+        bool const operatorOk=RunCudaJobOperatorForTesting(mixedJob,i);
         if(!operatorOk) for(auto const& error:diagnostics.errors) std::fprintf(stderr,"mixed operator %zu: %s\n",i,error.c_str());
         CHECK(operatorOk&&!diagnostics.HasErrors());
     }
@@ -918,7 +919,7 @@ int main() {
     CHECK(growNoisePlan&&!growNoiseDiagnostics.HasErrors());
     auto growNoiseWorkspace=CreateCudaExecutionWorkspace(-1,&growNoiseDiagnostics);
     CHECK(growNoiseWorkspace);
-    auto growNoiseDirect=ExecuteCudaGraph(*growNoisePlan,*growNoiseWorkspace,1,150,
+    auto growNoiseDirect=ExecuteCudaPlanForTesting(growNoisePlan,*growNoiseWorkspace,1,150,
                                           &growNoiseDiagnostics);
     for(auto const& error:growNoiseDiagnostics.errors)
         std::fprintf(stderr,"grow-noise direct: %s\n",error.c_str());
@@ -967,7 +968,7 @@ int main() {
     auto resampledGrowNoisePlan=CompileCudaGraph(usdGenUsd::Lower(resampledGrowNoise),
                                                   &growNoiseDiagnostics);
     CHECK(resampledGrowNoisePlan&&!growNoiseDiagnostics.HasErrors());
-    auto resampledGrowNoiseDirect=ExecuteCudaGraph(*resampledGrowNoisePlan,
+    auto resampledGrowNoiseDirect=ExecuteCudaPlanForTesting(resampledGrowNoisePlan,
         *growNoiseWorkspace,1,152,&growNoiseDiagnostics);
     CHECK(resampledGrowNoiseDirect&&!growNoiseDiagnostics.HasErrors()&&
           CheckGeneration(resampledGrowNoiseDirect,resampledGrowNoiseReference,
@@ -980,7 +981,7 @@ int main() {
     auto generatedRestPlan=CompileCudaGraph(usdGenUsd::Lower(generatedRestGrowNoise),
                                              &growNoiseDiagnostics);
     CHECK(generatedRestPlan&&!growNoiseDiagnostics.HasErrors());
-    auto generatedRestDirect=ExecuteCudaGraph(*generatedRestPlan,
+    auto generatedRestDirect=ExecuteCudaPlanForTesting(generatedRestPlan,
         *growNoiseWorkspace,1,153,&growNoiseDiagnostics);
     CHECK(generatedRestDirect&&!growNoiseDiagnostics.HasErrors()&&
           CheckGeneration(generatedRestDirect,generatedRestReference,stream));
@@ -1007,7 +1008,7 @@ int main() {
         growNoiseDiagnostics={};
         auto resampledPlan=CompileCudaGraph(usdGenUsd::Lower(resampled),&growNoiseDiagnostics);
         CHECK(resampledPlan&&!growNoiseDiagnostics.HasErrors());
-        auto directResampled=ExecuteCudaGraph(*resampledPlan,*growNoiseWorkspace,
+        auto directResampled=ExecuteCudaPlanForTesting(resampledPlan,*growNoiseWorkspace,
             1,154+resampleTo,&growNoiseDiagnostics);
         CHECK(directResampled&&!growNoiseDiagnostics.HasErrors()&&
               CheckGeneration(directResampled,expected,stream));
@@ -1025,7 +1026,7 @@ int main() {
     growNoiseDiagnostics={};
     auto emptyGrowNoisePlan=CompileCudaGraph(usdGenUsd::Lower(emptyGrowNoise),&growNoiseDiagnostics);
     CHECK(emptyGrowNoisePlan&&!growNoiseDiagnostics.HasErrors());
-    auto emptyGrowNoiseDirect=ExecuteCudaGraph(*emptyGrowNoisePlan,
+    auto emptyGrowNoiseDirect=ExecuteCudaPlanForTesting(emptyGrowNoisePlan,
         *growNoiseWorkspace,1,158,&growNoiseDiagnostics);
     CHECK(emptyGrowNoiseDirect&&!growNoiseDiagnostics.HasErrors()&&
           CheckGeneration(emptyGrowNoiseDirect,emptyGrowNoiseReference,stream));
@@ -1118,7 +1119,7 @@ int main() {
         auto reorderPlan=CompileCudaGraph(usdGenUsd::Lower(noiseBeforeGrow),&reorderDiagnostics);
         auto reorderWorkspace=CreateCudaExecutionWorkspace(-1,&reorderDiagnostics);
         CHECK(reorderPlan&&reorderWorkspace&&!reorderDiagnostics.HasErrors());
-        auto generation=ExecuteCudaGraph(*reorderPlan,*reorderWorkspace,1,169,&reorderDiagnostics);
+        auto generation=ExecuteCudaPlanForTesting(reorderPlan,*reorderWorkspace,1,169,&reorderDiagnostics);
         CHECK(generation&&!reorderDiagnostics.HasErrors()&&
               CheckGeneration(generation,expected,stream));
     }
@@ -1154,7 +1155,7 @@ int main() {
     CHECK(positiveLengthPlan&&!positiveLengthDiagnostics.HasErrors());
     auto positiveLengthWorkspace=CreateCudaExecutionWorkspace(-1,&positiveLengthDiagnostics);
     CHECK(positiveLengthWorkspace);
-    auto positiveLengthDirect=ExecuteCudaGraph(*positiveLengthPlan,*positiveLengthWorkspace,
+    auto positiveLengthDirect=ExecuteCudaPlanForTesting(positiveLengthPlan,*positiveLengthWorkspace,
         1,170,&positiveLengthDiagnostics);
     CHECK(positiveLengthDirect&&!positiveLengthDiagnostics.HasErrors()&&
           CheckGeneration(positiveLengthDirect,positiveLengthReference,stream));
@@ -1193,7 +1194,7 @@ int main() {
     positiveLengthDiagnostics={};
     auto cutExtendPlan=CompileCudaGraph(usdGenUsd::Lower(cutExtend),&positiveLengthDiagnostics);
     CHECK(cutExtendPlan&&!positiveLengthDiagnostics.HasErrors());
-    auto cutExtendDirect=ExecuteCudaGraph(*cutExtendPlan,*positiveLengthWorkspace,1,172,&positiveLengthDiagnostics);
+    auto cutExtendDirect=ExecuteCudaPlanForTesting(cutExtendPlan,*positiveLengthWorkspace,1,172,&positiveLengthDiagnostics);
     CHECK(cutExtendDirect&&!positiveLengthDiagnostics.HasErrors()&&
           CheckGeneration(cutExtendDirect,cutExtendReference,stream));
     UsdGenSession cutExtendSession;
@@ -1209,7 +1210,7 @@ int main() {
     UsdGenDiagnostics allCullDiagnostics;
     auto allCullPlan=CompileCudaGraph(usdGenUsd::Lower(allCull),&allCullDiagnostics);
     CHECK(allCullPlan&&!allCullDiagnostics.HasErrors());
-    auto allCullDirect=ExecuteCudaGraph(*allCullPlan,*positiveLengthWorkspace,1,173,&allCullDiagnostics);
+    auto allCullDirect=ExecuteCudaPlanForTesting(allCullPlan,*positiveLengthWorkspace,1,173,&allCullDiagnostics);
     CHECK(allCullDirect&&!allCullDiagnostics.HasErrors()&&
           allCullDirect->Geometry().elementCount==0&&allCullDirect->Geometry().pointCount==0&&
           CheckGeneration(allCullDirect,allCullReference,stream));
@@ -1228,7 +1229,7 @@ int main() {
     UsdGenDiagnostics partialDiagnostics;
     auto partialPlan=CompileCudaGraph(usdGenUsd::Lower(partialCull),&partialDiagnostics);
     CHECK(partialPlan&&!partialDiagnostics.HasErrors());
-    auto partialDirect=ExecuteCudaGraph(*partialPlan,*positiveLengthWorkspace,1,176,&partialDiagnostics);
+    auto partialDirect=ExecuteCudaPlanForTesting(partialPlan,*positiveLengthWorkspace,1,176,&partialDiagnostics);
     CHECK(partialDirect&&!partialDiagnostics.HasErrors()&&partialDirect->Geometry().elementCount==1&&
           partialDirect->Geometry().pointCount==4&&CheckGeneration(partialDirect,partialReference,stream));
     {
@@ -1277,7 +1278,7 @@ int main() {
         CHECK(GrowLengthScaleReference(quarter,.25f,&expected));
         UsdGenDiagnostics repeatDiagnostics;
         auto repeatPlan=CompileCudaGraph(usdGenUsd::Lower(repeated),&repeatDiagnostics);CHECK(repeatPlan&&!repeatDiagnostics.HasErrors());
-        auto repeatDirect=ExecuteCudaGraph(*repeatPlan,*positiveLengthWorkspace,1,180,&repeatDiagnostics);
+        auto repeatDirect=ExecuteCudaPlanForTesting(repeatPlan,*positiveLengthWorkspace,1,180,&repeatDiagnostics);
         CHECK(repeatDirect&&!repeatDiagnostics.HasErrors()&&CheckGeneration(repeatDirect,expected,stream));
         UsdGenSession repeatSession;repeatSession.SetDevicePublicationEnabled(true);usdGenUsd::SetGraphDesc(repeatSession, repeated);
         auto published=repeatSession.Commit(1,UsdGenCommitReason::SetTime);
@@ -1295,7 +1296,7 @@ int main() {
         UsdGenDiagnostics resampledDiagnostics;
         auto resampledPlan=CompileCudaGraph(usdGenUsd::Lower(resampledLength),&resampledDiagnostics);
         CHECK(resampledPlan&&!resampledDiagnostics.HasErrors());
-        auto resampledDirect=ExecuteCudaGraph(*resampledPlan,*positiveLengthWorkspace,
+        auto resampledDirect=ExecuteCudaPlanForTesting(resampledPlan,*positiveLengthWorkspace,
             1,174+resampleTo,&resampledDiagnostics);
         CHECK(resampledDirect&&!resampledDiagnostics.HasErrors()&&
               CheckGeneration(resampledDirect,resampledReference,stream));
@@ -1361,7 +1362,7 @@ int main() {
             for(auto const& error:mixedCaseDiagnostics.errors) std::fprintf(stderr,"mixed compile: %s\n",error.c_str());
             CHECK(mixedCasePlan&&!mixedCaseDiagnostics.HasErrors());
             auto mixedCaseWorkspace=CreateCudaExecutionWorkspace(-1,&mixedCaseDiagnostics);CHECK(mixedCaseWorkspace);
-            auto mixedCaseDirect=ExecuteCudaGraph(*mixedCasePlan,*mixedCaseWorkspace,1,300+variant,&mixedCaseDiagnostics);
+            auto mixedCaseDirect=ExecuteCudaPlanForTesting(mixedCasePlan,*mixedCaseWorkspace,1,300+variant,&mixedCaseDiagnostics);
             for(auto const& error:mixedCaseDiagnostics.errors) std::fprintf(stderr,"mixed execute: %s\n",error.c_str());
             CHECK(mixedCaseDirect&&!mixedCaseDiagnostics.HasErrors()&&CheckGeneration(mixedCaseDirect,expected,stream));
             usdGenUsd::SetGraphDesc(mixedCaseSession, mixedCaseDesc);
@@ -1642,7 +1643,7 @@ int main() {
                        use.access==UsdGenExecutionResourceAccess::Read&&use.producerTask==pre->id;
             }));
             }
-            auto dagDirect=ExecuteCudaGraph(*dagPlan,*dagWorkspace,1,400+variant,&dagDiagnostics,held);
+            auto dagDirect=ExecuteCudaPlanForTesting(dagPlan,*dagWorkspace,1,400+variant,&dagDiagnostics,held);
             for(auto const& error:dagDiagnostics.errors) std::fprintf(stderr,"Noise DAG execute variant=%zu terminal=%s: %s\n",variant,dagDesc.terminal.GetText(),error.c_str());
             CHECK(dagDirect&&!dagDiagnostics.HasErrors()&&CheckGeneration(dagDirect,expected,stream,sourceRootContract));
             CHECK(UsdGenCurveLayoutBasisOf(dagDirect->Geometry().layoutMetadata)==expectedBasis);
@@ -1790,7 +1791,7 @@ int main() {
             UsdGenCurveBuffer expected;CHECK(NoiseDagReference(chainDesc,&expected));
             dagDiagnostics={};auto chainPlan=CompileCudaGraph(usdGenUsd::Lower(chainDesc),&dagDiagnostics);CHECK(chainPlan&&!dagDiagnostics.HasErrors());
             CHECK(GetCudaExecutionPlanMetadata(*chainPlan)->Shape()==UsdGenExecutionPlanShape::SourceRootedUnaryDag);
-            auto chainDirect=ExecuteCudaGraph(*chainPlan,*dagWorkspace,1,550+variant,&dagDiagnostics);
+            auto chainDirect=ExecuteCudaPlanForTesting(chainPlan,*dagWorkspace,1,550+variant,&dagDiagnostics);
             CHECK(chainDirect&&!dagDiagnostics.HasErrors()&&CheckGeneration(chainDirect,expected,stream,true));
             usdGenUsd::SetGraphDesc(dagSession, chainDesc);auto result=dagSession.Commit(100+variant,UsdGenCommitReason::SetTime);
             CHECK(result&&result->device&&!dagSession.LastDiagnostics().HasErrors()&&
@@ -1814,7 +1815,7 @@ int main() {
     CHECK(liftedSessionResult&&liftedSessionResult->device&&!liftedSession.LastDiagnostics().HasErrors());
     CHECK(CheckGeneration(liftedSessionResult->device,liftedReference,stream));
     auto liftedWorkspace=CreateCudaExecutionWorkspace(-1,&liftedDiagnostics); CHECK(liftedWorkspace);
-    auto liftedDirect=ExecuteCudaGraph(*liftedPlan,*liftedWorkspace,3,103,&liftedDiagnostics);
+    auto liftedDirect=ExecuteCudaPlanForTesting(liftedPlan,*liftedWorkspace,3,103,&liftedDiagnostics);
     CHECK(liftedDirect&&!liftedDiagnostics.HasErrors()&&CheckGeneration(liftedDirect,liftedReference,stream));
 
     // No authored rest is valid for a deformed/current C3 source.  The
@@ -1839,7 +1840,7 @@ int main() {
           CheckNoNamed(currentOnlySessionResult->device,stream));
     auto currentOnlyWorkspace=CreateCudaExecutionWorkspace(-1,&currentOnlyDiagnostics);
     CHECK(currentOnlyWorkspace);
-    auto currentOnlyDirect=ExecuteCudaGraph(*currentOnlyPlan,*currentOnlyWorkspace,4,104,
+    auto currentOnlyDirect=ExecuteCudaPlanForTesting(currentOnlyPlan,*currentOnlyWorkspace,4,104,
                                              &currentOnlyDiagnostics);
     CHECK(currentOnlyDirect&&!currentOnlyDiagnostics.HasErrors()&&
           CheckGeneration(currentOnlyDirect,currentOnlyReference,stream)&&
@@ -1862,7 +1863,7 @@ int main() {
           CheckGeneration(emptySessionResult->device,emptyReference,stream)&&
           CheckNoNamed(emptySessionResult->device,stream));
     auto emptyWorkspace=CreateCudaExecutionWorkspace(-1,&emptyDiagnostics); CHECK(emptyWorkspace);
-    auto emptyDirect=ExecuteCudaGraph(*emptyPlan,*emptyWorkspace,5,105,&emptyDiagnostics);
+    auto emptyDirect=ExecuteCudaPlanForTesting(emptyPlan,*emptyWorkspace,5,105,&emptyDiagnostics);
     CHECK(emptyDirect&&!emptyDiagnostics.HasErrors()&&
           CheckGeneration(emptyDirect,emptyReference,stream)&&CheckNoNamed(emptyDirect,stream));
 
@@ -1894,7 +1895,7 @@ int main() {
             sourceDiagnostics={};
             auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(terminalSource),&sourceDiagnostics);
             CHECK(sourcePlan&&!sourceDiagnostics.HasErrors());
-            auto sourceDirect=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1,200+variant,&sourceDiagnostics,retainedSource);
+            auto sourceDirect=ExecuteCudaPlanForTesting(sourcePlan,*sourceWorkspace,1,200+variant,&sourceDiagnostics,retainedSource);
             for(auto const& error:sourceDiagnostics.errors) std::fprintf(stderr,"%s\n",error.c_str());
             CHECK(sourceDirect&&!sourceDiagnostics.HasErrors()&&CheckGeneration(sourceDirect,expected,stream,true));
             CHECK(UsdGenCurveLayoutBasisOf(sourceDirect->Geometry().layoutMetadata)==UsdGenCurveLayoutBasis::CatmullRom);

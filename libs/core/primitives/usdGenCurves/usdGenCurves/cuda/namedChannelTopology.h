@@ -109,7 +109,8 @@ private:
 // Unsupported metadata is rejected rather than retyped, truncated, or
 // inherited across the changed topology. This compatibility wrapper is built
 // on CudaNamedChannelTopologyCandidate and synchronizes only after its
-// terminal callback has been installed.
+// terminal callback has been installed.  Test hook: the cook uses the
+// candidate directly.
 std::shared_ptr<const UsdGenDeviceGeneration>
 TransformCudaNamedChannelsForResample(
     std::shared_ptr<const UsdGenDeviceGeneration> const& source,

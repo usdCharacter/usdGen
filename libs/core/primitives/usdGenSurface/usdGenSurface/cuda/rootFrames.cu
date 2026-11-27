@@ -230,6 +230,7 @@ cudaError_t CudaRestRootFrames::Storage::waitOn(cudaStream_t stream) const {
 CudaRestRootFrames::~CudaRestRootFrames() {
     int previous = -1; bool const owns = ready_ || active_.curveCount || pendingStorage_.curveCount || error_.size();
     bool const selected = !owns || (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 && cudaSetDevice(deviceIndex_) == cudaSuccess);
+    // shutdown wait: destructor.
     bool const synchronized = !owns || (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess) &&
         (!active_.curveCount || (active_.waitOn(nullptr) == cudaSuccess && cudaStreamSynchronize(nullptr) == cudaSuccess)));
     if (!selected || !synchronized) { active_.quarantine(); pendingStorage_.quarantine(); error_.quarantine(); pendingBadRootCount_.quarantine(); ready_ = nullptr; if (selected && previous >= 0 && previous != deviceIndex_) cudaSetDevice(previous); return; }
@@ -276,6 +277,7 @@ RootFrameStatus CudaRestRootFrames::Apply(
     size_t const validationWork = std::max(vertices.size, std::max(indices.size, std::max(faceCount, std::max(normals.size, curveCount))));
     ValidateInput<<<Blocks(validationWork), 256, 0, stream>>>(vertices, offsets, faceCount, indices, rootPrim, rootUV, normals, normalDomain, authoredFrames, error_.data());
     int validationError = 0;
+    // shutdown wait: test hook: synchronous CudaRestRootFrames::Apply, no Session caller (kernel tests).
     if (cudaGetLastError() != cudaSuccess || cudaMemcpyAsync(&validationError, error_.data(), sizeof(validationError), cudaMemcpyDeviceToHost, stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess) { quarantinePending(); return fail(RootFrameStatus::CudaError, "root-frame validation failed"); }
     if (validationError) { discardPending(); return fail(validationError == kNonFinite ? RootFrameStatus::NonFiniteInput : validationError == kBadTopology ? RootFrameStatus::InvalidTopology : validationError == kBadRoot ? RootFrameStatus::InvalidRootBinding : RootFrameStatus::InvalidArgument, "invalid root-frame input"); }
     if (curveCount && (cudaMemsetAsync(pendingStorage_.origin.data(), 0, curveCount*sizeof(float3), stream) != cudaSuccess ||
@@ -295,8 +297,10 @@ RootFrameStatus CudaRestRootFrames::Finish(cudaStream_t stream) {
     if (validateStream(stream) != cudaSuccess) return fail(RootFrameStatus::InvalidArgument, "completion stream device does not match root frames");
     if (!pending_) return RootFrameStatus::NoPendingUpdate;
     int error = 0; uint32_t bad = 0;
+    // shutdown wait: test hook: synchronous CudaRestRootFrames::Finish, no Session caller (kernel tests).
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess || cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess || cudaMemcpyAsync(&bad, pendingBadRootCount_.data(), sizeof(bad), cudaMemcpyDeviceToHost, stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess) { quarantinePending(); return fail(RootFrameStatus::CudaError, "root-frame completion failed"); }
     if (error) { discardPending(); return fail(error == kNonFinite ? RootFrameStatus::NonFiniteInput : error == kBadTopology ? RootFrameStatus::InvalidTopology : error == kBadRoot ? RootFrameStatus::InvalidRootBinding : error == kBadAuthoredFrame ? RootFrameStatus::InvalidAuthoredFrame : RootFrameStatus::InvalidArgument, "invalid root-frame input"); }
+    // shutdown wait: test hook: synchronous CudaRestRootFrames::Finish, no Session caller (kernel tests).
     if (active_.curveCount && (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)) { quarantinePending(); return fail(RootFrameStatus::CudaError, "active root-frame consumer fence failed"); }
     active_.swap(pendingStorage_); pendingStorage_.clear(); pendingBadRootCount_.reset(0); badRootCount_ = bad; pending_ = false; ++generation_; diagnostic_.clear(); return RootFrameStatus::Ok;
 }

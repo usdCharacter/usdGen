@@ -103,6 +103,7 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
     if (launch != cudaSuccess) {
         // The helper can have queued work before reporting a later launch
         // error. Retire the same-stream H2D span copy before hostSpans dies.
+        // shutdown wait: test hook: synchronous CudaToolSession::RefreshTileBounds, no Session caller (kernel tests).
         gpu::CudaFenceStream(stream_);
         return Fail("point-edit bounds launch failed");
     }
@@ -110,6 +111,7 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
     cudaError_t const statusCopy = cudaMemcpyAsync(&status, boundsStatus_.data(),
         sizeof(status), cudaMemcpyDeviceToHost, stream_);
     // Always retire every queued launch even if status-copy enqueue failed.
+    // shutdown wait: test hook: synchronous CudaToolSession::RefreshTileBounds, no Session caller (kernel tests).
     cudaError_t const statusFence = gpu::CudaFenceStream(stream_);
     if (statusCopy != cudaSuccess || statusFence != cudaSuccess || status != 0)
         return Fail("point-edit bounds validation failed");
@@ -122,6 +124,7 @@ bool CudaToolSession::RefreshTileBounds(CudaGeometryLease const& lease,
         maximumCopy = cudaMemcpyAsync(maximums.data(), boundsMaximums_.data(),
             count * sizeof(float3), cudaMemcpyDeviceToHost, stream_);
     }
+    // shutdown wait: test hook: synchronous CudaToolSession::RefreshTileBounds, no Session caller (kernel tests).
     cudaError_t const boundsFence = gpu::CudaFenceStream(stream_);
     if (minimumCopy != cudaSuccess || maximumCopy != cudaSuccess ||
         boundsFence != cudaSuccess)

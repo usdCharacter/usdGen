@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 //
 // CUDA cook timings: Scatter -> Grow -> Width -> Length on one quad, cooked
-// through the direct executor (ExecuteCudaGraph) and through a Session with
-// device publication (the asynchronous relay path). Prints medians in ms.
+// through a Session with device publication (the asynchronous relay path).
+// Prints medians in ms.
 //   benchUsdGenCudaCook [--density N] [--runs N]
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "../testBackend.h"
@@ -86,27 +86,11 @@ int main(int argc, char** argv) {
     };
     UsdGenGraphDesc desc = Desc(density);
     UsdGenDiagnostics diagnostics;
-    auto plan = CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics);
-    if (!plan) { std::fprintf(stderr, "compile failed\n"); return 1; }
-    auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
-    if (!workspace) { std::fprintf(stderr, "workspace failed\n"); return 1; }
-    std::shared_ptr<const UsdGenDeviceGeneration> previous;
-    std::vector<double> direct;
-    size_t curves = 0;
-    for (int run = 0; run != runs + 3; ++run) {
-        auto const t0 = Clock::now();
-        auto next = ExecuteCudaGraph(*plan, *workspace, 1.0 + run, 1000 + uint64_t(run),
-                                     &diagnostics, previous);
-        auto const t1 = Clock::now();
-        if (!next || diagnostics.HasErrors()) {
-            for (auto const& e : diagnostics.errors) std::fprintf(stderr, "%s\n", e.c_str());
-            return 1;
-        }
-        curves = next->Geometry().elementCount;
-        previous = std::move(next);
-        if (run >= 3) direct.push_back(ms(t0, t1));
+    if (!CompileCudaGraph(usdGenUsd::Lower(desc), &diagnostics)) {
+        std::fprintf(stderr, "compile failed\n");
+        return 1;
     }
-    previous.reset();
+    size_t curves = 0;
     std::vector<double> session;
     {
         UsdGenSession s;
@@ -120,12 +104,11 @@ int main(int argc, char** argv) {
                 for (auto const& e : s.LastDiagnostics().errors) std::fprintf(stderr, "%s\n", e.c_str());
                 return 1;
             }
+            curves = gen->device->Geometry().elementCount;
             if (run >= 3) session.push_back(ms(t0, t1));
         }
     }
-    std::printf("cuda.cook curves=%zu runs=%d direct.median=%.3f ms direct.min=%.3f ms "
-                "session.median=%.3f ms session.min=%.3f ms\n",
-                curves, runs, Median(direct), *std::min_element(direct.begin(), direct.end()),
-                Median(session), *std::min_element(session.begin(), session.end()));
+    std::printf("cuda.cook curves=%zu runs=%d session.median=%.3f ms session.min=%.3f ms\n",
+                curves, runs, Median(session), *std::min_element(session.begin(), session.end()));
     return 0;
 }

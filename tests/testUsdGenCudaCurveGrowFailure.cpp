@@ -1,4 +1,5 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionResources.h"
@@ -113,7 +114,7 @@ int main(int argc, char** argv) {
     if (!oldWorkspace)
         for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(oldWorkspace);
-    auto previous = ExecuteCudaGraph(*plan, *oldWorkspace, 1, 1, &diagnostics);
+    auto previous = ExecuteCudaPlanForTesting(plan, *oldWorkspace, 1, 1, &diagnostics);
     CHECK(previous);
     auto old = gpu::AcquireGeometry(previous, nullptr);
     CHECK(old);
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
         CHECK(predecessorPlan);
         predecessorWorkspace = CreateCudaExecutionWorkspace(device, &predecessorDiagnostics);
         CHECK(predecessorWorkspace);
-        predecessor = ExecuteCudaGraph(*predecessorPlan, *predecessorWorkspace, 1, 17,
+        predecessor = ExecuteCudaPlanForTesting(predecessorPlan, *predecessorWorkspace, 1, 17,
                                         &predecessorDiagnostics);
         CHECK(predecessor);
         predecessorLease = gpu::AcquireGeometry(predecessor, nullptr);

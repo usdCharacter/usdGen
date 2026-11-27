@@ -35,6 +35,8 @@ public:
                               DeviceView<const int32_t> indices,
                               DeviceView<const float3> absolutePositions,
                               cudaStream_t stream);
+    // Apply and Finish block on `stream`: interactive tool path
+    // (CudaToolSession), not a cook.
     PointOverrideStatus Finish(cudaStream_t stream);
 
     DeviceView<const float3> view() const noexcept;

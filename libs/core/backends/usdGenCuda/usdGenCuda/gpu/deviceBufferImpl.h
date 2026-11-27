@@ -145,6 +145,7 @@ template <class T> cudaError_t DeviceBuffer<T>::synchronizeUse() const {
     if (cudaGetDevice(&previous) != cudaSuccess || device_ < 0 ||
         cudaSetDevice(device_) != cudaSuccess)
         return cudaErrorInvalidDevice;
+    // shutdown wait: only destructors call synchronizeUse.
     cudaError_t const status = cudaEventSynchronize(ready_);
     if (previous != device_) (void)cudaSetDevice(previous);
     return status;

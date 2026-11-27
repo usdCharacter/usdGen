@@ -1,7 +1,8 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGenCurves/cuda/cudaExecutionQueue.h"
+#include "cudaExecutionQueueFixture.h"
 #include "usdGenCurves/cuda/generation.h"
 
 #include <algorithm>
@@ -162,7 +163,7 @@ static int RbfCases(cudaStream_t stream) {
     UsdGenDiagnostics diagnostics;
     auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(sourceDesc),&diagnostics); CHECK(sourcePlan);
     auto sourceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(sourceWorkspace);
-    auto source=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1.,1,&diagnostics); CHECK(source);
+    auto source=ExecuteCudaPlanForTesting(sourcePlan,*sourceWorkspace,1.,1,&diagnostics); CHECK(source);
     Packet original; CHECK(Capture(source,&original,stream));
     CHECK(!original.ids.empty() && !std::is_sorted(original.ids.begin(),original.ids.end()));
     auto compose=[](UsdGenGraphDesc d,int variant) {
@@ -211,7 +212,7 @@ static int RbfCases(cudaStream_t stream) {
         for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
         CHECK(plan && !diagnostics.HasErrors());
         auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(workspace);
-        auto actual=ExecuteCudaGraph(*plan,*workspace,1.,10+variant,&diagnostics);
+        auto actual=ExecuteCudaPlanForTesting(plan,*workspace,1.,10+variant,&diagnostics);
         if(variant==6) {
             CHECK(!actual && diagnostics.HasErrors()); diagnostics={};
             UsdGenExecutionRuntime runtime(4); UsdGenCudaExecutionQueue queue(runtime,-1,&diagnostics);
@@ -232,7 +233,7 @@ static int RbfCases(cudaStream_t stream) {
         CHECK(actual && !diagnostics.HasErrors());
         auto oraclePlan=CompileCudaGraph(usdGenUsd::Lower(compose(AsC3(sourceDesc,original),variant)),&diagnostics); CHECK(oraclePlan);
         auto oracleWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(oracleWorkspace);
-        auto expected=ExecuteCudaGraph(*oraclePlan,*oracleWorkspace,1.,100,&diagnostics); CHECK(expected);
+        auto expected=ExecuteCudaPlanForTesting(oraclePlan,*oracleWorkspace,1.,100,&diagnostics); CHECK(expected);
         Packet a,b,old; CHECK(Capture(actual,&a,stream) && Capture(expected,&b,stream) && Same(a,b));
         if(variant==2) CHECK(!a.ids.empty() && a.ids.size()<original.ids.size());
         else CHECK(a.ids.size()==original.ids.size());
@@ -247,14 +248,14 @@ static int RbfCases(cudaStream_t stream) {
         auto const fieldRolledBack=cudaRbfFieldRollbackAttemptCountForTesting();
         auto const surfaceAccepted=cudaRbfSurfaceAcceptAttemptCountForTesting();
         auto const surfaceRolledBack=cudaRbfSurfaceRollbackAttemptCountForTesting();
-        failNextCudaSynchronousFinalizationForTesting(); diagnostics={};
-        CHECK(!ExecuteCudaGraph(*plan,*workspace,2.,200,&diagnostics,actual) && diagnostics.HasErrors());
+        failNextCudaRbfFinalizationForTesting(); diagnostics={};
+        CHECK(!ExecuteCudaPlanForTesting(plan,*workspace,2.,200,&diagnostics,actual) && diagnostics.HasErrors());
         CHECK(sameStats(stats,GetCudaBindingStats(*workspace)) && Capture(actual,&b,stream) && Same(a,b));
         CHECK(cudaRbfFieldAcceptAttemptCountForTesting()==fieldAccepted &&
             cudaRbfSurfaceAcceptAttemptCountForTesting()==surfaceAccepted &&
             cudaRbfFieldRollbackAttemptCountForTesting()==fieldRolledBack+stats.size() &&
             cudaRbfSurfaceRollbackAttemptCountForTesting()==surfaceRolledBack+stats.size());
-        diagnostics={}; auto retry=ExecuteCudaGraph(*plan,*workspace,3.,201,&diagnostics,actual);
+        diagnostics={}; auto retry=ExecuteCudaPlanForTesting(plan,*workspace,3.,201,&diagnostics,actual);
         CHECK(retry && Capture(retry,&b,stream) && Same(a,b));
         auto after=GetCudaBindingStats(*workspace); CHECK(after.size()==stats.size());
         for(size_t i=0;i<after.size();++i) CHECK(after[i].identity==stats[i].identity &&
@@ -277,7 +278,7 @@ static int RbfCases(cudaStream_t stream) {
     for(auto& node:sourceDesc.nodes) if(node.type==TfToken("UsdGenScatter")) node.params[0].value=VtValue(0.f);
     diagnostics={}; auto emptyPlan=CompileCudaGraph(usdGenUsd::Lower(compose(sourceDesc,0)),&diagnostics); CHECK(emptyPlan);
     auto emptyWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(emptyWorkspace);
-    auto empty=ExecuteCudaGraph(*emptyPlan,*emptyWorkspace,1.,300,&diagnostics);
+    auto empty=ExecuteCudaPlanForTesting(emptyPlan,*emptyWorkspace,1.,300,&diagnostics);
     CHECK(empty && empty->Geometry().alreadyDeformed && empty->Geometry().pointCount==0 && empty->Geometry().elementCount==0);
     UsdGenExecutionRuntime runtime(4); UsdGenCudaExecutionQueue queue(runtime,-1,&diagnostics);
     CHECK(queue.Valid() && queue.Submit(emptyPlan,1.)); queue.Drain();
@@ -296,7 +297,7 @@ int main(int argc,char** argv) {
         auto sourceDesc=Source(); UsdGenDiagnostics diagnostics;
         auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(sourceDesc),&diagnostics); CHECK(sourcePlan);
         auto sourceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(sourceWorkspace);
-        auto source=ExecuteCudaGraph(*sourcePlan,*sourceWorkspace,1.,1,&diagnostics); CHECK(source);
+        auto source=ExecuteCudaPlanForTesting(sourcePlan,*sourceWorkspace,1.,1,&diagnostics); CHECK(source);
         Packet original; CHECK(Capture(source,&original,stream));
         CHECK(!original.ids.empty() && !std::is_sorted(original.ids.begin(),original.ids.end()) &&
               original.t.size()==original.ids.size() && original.b.size()==original.ids.size() && original.n.size()==original.ids.size());
@@ -307,7 +308,7 @@ int main(int argc,char** argv) {
             for(auto const& e:diagnostics.errors) std::fprintf(stderr,"%s\n",e.c_str());
             CHECK(plan && !diagnostics.HasErrors());
             auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(workspace);
-            auto actual=ExecuteCudaGraph(*plan,*workspace,1.,uint64_t(10+variant),&diagnostics);
+            auto actual=ExecuteCudaPlanForTesting(plan,*workspace,1.,uint64_t(10+variant),&diagnostics);
             if(variant==6) {
                 CHECK(!actual && diagnostics.HasErrors()); diagnostics={};
                 UsdGenExecutionRuntime runtime(4); UsdGenCudaExecutionQueue queue(runtime,-1,&diagnostics);
@@ -329,7 +330,7 @@ int main(int argc,char** argv) {
             auto referenceDesc=Descendants(AsC3(sourceDesc,original),variant);
             auto referencePlan=CompileCudaGraph(usdGenUsd::Lower(referenceDesc),&diagnostics); CHECK(referencePlan);
             auto referenceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(referenceWorkspace);
-            auto expected=ExecuteCudaGraph(*referencePlan,*referenceWorkspace,1.,100,&diagnostics);
+            auto expected=ExecuteCudaPlanForTesting(referencePlan,*referenceWorkspace,1.,100,&diagnostics);
             for(auto const& e:diagnostics.errors) std::fprintf(stderr,"oracle: %s\n",e.c_str());
             CHECK(expected);
             Packet a,b,old; CHECK(Capture(actual,&a,stream) && Capture(expected,&b,stream) && Same(a,b));

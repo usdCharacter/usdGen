@@ -221,6 +221,7 @@ CudaRbfCurveDeformer::~CudaRbfCurveDeformer() {
         (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 &&
          cudaSetDevice(deviceIndex_) == cudaSuccess);
     const bool synchronized = !ownsBuffers || freshUsed_ ||
+        // shutdown wait: destructor.
         (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     if (!selected || !synchronized) {
         if (ownsBuffers) {
@@ -332,6 +333,7 @@ RbfStatus CudaRbfCurveDeformer::deformImpl(
     int shapeError = 0;
     if (cudaMemcpyAsync(&shapeError, flags_.data(), sizeof(shapeError),
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook: synchronous CudaRbfCurveDeformer::Deform, no Session caller (kernel tests).
         CudaFenceStream(stream) != cudaSuccess)
         return RbfStatus::CudaError;
     if (shapeError == kNonFinite) return RbfStatus::NonFiniteInput;
@@ -362,6 +364,7 @@ RbfStatus CudaRbfCurveDeformer::Finish(CudaRbfBinding& rbf, cudaStream_t stream)
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, flags_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook: synchronous CudaRbfCurveDeformer::Finish, no Session caller (kernel tests).
         CudaFenceStream(stream) != cudaSuccess)
         return RbfStatus::CudaError;
     pending_ = false;
@@ -375,6 +378,7 @@ RbfStatus CudaRbfCurveDeformer::Finish(CudaRbfBinding& rbf, cudaStream_t stream)
     if (error != 0) return RbfStatus::CudaError;
     if (cudaMemcpyAsync(destination.data, staged_.data(),
                         staged_.size() * sizeof(float3), cudaMemcpyDeviceToDevice,
+                        // shutdown wait: test hook: synchronous CudaRbfCurveDeformer::Finish, no Session caller (kernel tests).
                         stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
         return RbfStatus::CudaError;
     return RbfStatus::Ok;

@@ -16,8 +16,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/clumpMotion.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/clumpMotion.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecution.cpp 11
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecution.h 3
-libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecutionQueue.cpp 1
-libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecutionQueue.h 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaGeneration.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaParameters.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaParameters.h 1

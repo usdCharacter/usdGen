@@ -243,11 +243,13 @@ CudaCurveResample::~CudaCurveResample() {
     const bool selected = !owns || (cudaGetDevice(&previous) == cudaSuccess && device_ >= 0 &&
                                     cudaSetDevice(device_) == cudaSuccess);
     const bool producerFinished = !owns ||
+        // shutdown wait: destructor.
         (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     // DeviceBuffer::release does not wait for a recorded consumer event.
     // Honor recordUse() before freeing output storage on the owning device.
     const bool consumersFinished = !owns || (selected && producerFinished &&
         active_.waitOn(nullptr) == cudaSuccess && staging_.waitOn(nullptr) == cudaSuccess &&
+        // shutdown wait: destructor.
         cudaStreamSynchronize(nullptr) == cudaSuccess);
     if (!selected || !producerFinished || !consumersFinished) {
         active_.quarantine(); staging_.quarantine(); error_.quarantine(); ready_ = nullptr;
@@ -271,10 +273,13 @@ cudaError_t CudaCurveResample::validateStream(cudaStream_t stream) const { retur
 CurveResampleStatus CudaCurveResample::finishError(int error) const {
     return error == kNonFinite ? CurveResampleStatus::NonFiniteInput : CurveResampleStatus::InvalidArgument;
 }
+// Test hook: only Apply's failure path calls it.
 void CudaCurveResample::discardStaging(cudaStream_t stream) noexcept {
+    // shutdown wait: test hook.
     if (CudaFenceStream(stream) == cudaSuccess) staging_.clear(); else staging_.quarantine();
 }
 
+// Test hook: no production caller (relays use ApplyFresh).
 CurveResampleStatus CudaCurveResample::Apply(DeviceCurveGeometryView geometry,
     DeviceView<const float> inputHairT, DeviceView<const int32_t> inputRootPrim,
     DeviceView<const float2> inputRootUV, int32_t targetPointCount,
@@ -317,6 +322,7 @@ CurveResampleStatus CudaCurveResample::Apply(DeviceCurveGeometryView geometry,
     int error = 0;
     if (cudaGetLastError() != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook.
         CudaFenceStream(stream) != cudaSuccess) return CurveResampleStatus::CudaError;
     if (error) return finishError(error);
 
@@ -348,6 +354,7 @@ CurveResampleStatus CudaCurveResample::Apply(DeviceCurveGeometryView geometry,
     return CurveResampleStatus::Ok;
 }
 
+// Test hook: no production caller (relays use FinishFreshAsync).
 CurveResampleStatus CudaCurveResample::Finish(cudaStream_t stream) {
     if (freshPending_ || unprovenUpload_ || freshUploadFailed_)
         return CurveResampleStatus::InvalidArgument;
@@ -356,9 +363,11 @@ CurveResampleStatus CudaCurveResample::Finish(cudaStream_t stream) {
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook.
         CudaFenceStream(stream) != cudaSuccess) return CurveResampleStatus::CudaError;
     if (error) { pending_ = false; staging_.clear(); return finishError(error); }
     if (active_.curveOffsets.size() &&
+        // shutdown wait: test hook.
         (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess))
         return CurveResampleStatus::CudaError;
     active_.swap(staging_); staging_.clear(); pending_ = false;

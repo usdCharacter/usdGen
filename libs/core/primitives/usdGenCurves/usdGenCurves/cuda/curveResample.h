@@ -26,6 +26,8 @@ public:
         int32_t targetPointCount, cudaStream_t stream,
         UsdGenExecutionMemoryReservation* reservation = nullptr);
     CurveResampleStatus Finish(cudaStream_t);
+    // Apply/Finish are test hooks: they fence the stream. Cooks use the
+    // fresh path below.
     // Fresh-only asynchronous continuation. ApplyFresh performs the same
     // device validation as Apply but leaves its status on the stream; the
     // callback is a native CUDA callback and must only signal a host relay.

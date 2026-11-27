@@ -15,7 +15,8 @@ struct CurveTopologyCompareResult {
 // synchronously publishes only the scalar result; geometry never crosses to
 // the host.  cudaErrorInvalidValue denotes a malformed topology (including
 // bad offset sentinels), while a well-formed but different topology returns
-// cudaSuccess and sets equal=false.
+// cudaSuccess and sets equal=false.  Test hook: the cook uses
+// CudaCurveTopologyCompare.
 cudaError_t CompareCurveTopology(DeviceCurveGeometryView a,
                                  DeviceCurveGeometryView b,
                                  cudaStream_t stream, bool* equal,

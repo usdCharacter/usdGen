@@ -192,6 +192,7 @@ StyleStatus DecodeError(int code) {
 
 CudaStyleOps::~CudaStyleOps() {
     if (ready_) {
+        // shutdown wait: destructor.
         cudaEventSynchronize(ready_);
         cudaEventDestroy(ready_);
     }
@@ -368,6 +369,7 @@ StyleStatus CudaStyleOps::Noise(DeviceCurveGeometryView, float, uint32_t,
 
 StyleStatus CudaStyleOps::finishPublication(cudaStream_t stream) {
     if (pointCount_ == 0) {
+        // shutdown wait: test hook (CudaStyleOps has no cook caller; kernel tests only).
         if (CudaFenceStream(stream) != cudaSuccess) return StyleStatus::CudaError;
         pending_ = false;
         scalarOutput_ = {};
@@ -384,6 +386,7 @@ StyleStatus CudaStyleOps::finishPublication(cudaStream_t stream) {
                                  pointCount_ * sizeof(float), cudaMemcpyDeviceToDevice,
                                  stream);
     }
+    // shutdown wait: test hook (CudaStyleOps has no cook caller; kernel tests only).
     if (result != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
         return StyleStatus::CudaError;
     pending_ = false;
@@ -399,6 +402,7 @@ StyleStatus CudaStyleOps::Finish(cudaStream_t stream) {
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost,
                         stream) != cudaSuccess ||
+        // shutdown wait: test hook (CudaStyleOps has no cook caller; kernel tests only).
         CudaFenceStream(stream) != cudaSuccess)
         return StyleStatus::CudaError;
     if (code != 0) {
