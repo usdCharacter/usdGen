@@ -14,6 +14,11 @@
 #include <string>
 #include <vector>
 
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 using namespace usdGen;
 using namespace usdGen::vulkan;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "Vulkan source width job check failed: %s (%d)\n", #x, __LINE__); return 1; } } while (false)

@@ -27,20 +27,20 @@ std::atomic<bool> g_counting{false};
 std::atomic<bool> g_tracing{false};
 std::atomic<uint64_t> g_count{0};
 
-struct TraceSlot
+struct AllocTraceSlot
 {
     void *frames[kUsdGenAllocTraceFrames];
     int count;
     std::size_t bytes;
 };
-TraceSlot g_trace[kUsdGenAllocTraceSlots];
+AllocTraceSlot g_trace[kUsdGenAllocTraceSlots];
 
 inline void Note(std::size_t bytes)
 {
     if (!g_counting.load(std::memory_order_relaxed)) return;
     uint64_t const n = g_count.fetch_add(1, std::memory_order_relaxed);
     if (!g_tracing.load(std::memory_order_relaxed) || n >= kUsdGenAllocTraceSlots) return;
-    TraceSlot &s = g_trace[n];
+    AllocTraceSlot &s = g_trace[n];
     s.bytes = bytes;
 #ifdef _WIN32
     s.count = RtlCaptureStackBackTrace(2, kUsdGenAllocTraceFrames, s.frames, nullptr);
@@ -160,7 +160,7 @@ void UsdGenEngineAllocCounting(bool on)
         PatchLoadedModules();
 #endif
         g_count.store(0, std::memory_order_relaxed);
-        for (TraceSlot &s : g_trace) s.count = 0;
+        for (AllocTraceSlot &s : g_trace) s.count = 0;
     }
     g_counting.store(on, std::memory_order_seq_cst);
 }
@@ -182,7 +182,7 @@ int UsdGenEngineAllocTrace(int slot, void **frames, int maxFrames, std::size_t *
     if (slot < 0 || slot >= kUsdGenAllocTraceSlots ||
         uint64_t(slot) >= g_count.load(std::memory_order_relaxed))
         return 0;
-    TraceSlot const &s = g_trace[slot];
+    AllocTraceSlot const &s = g_trace[slot];
     int const n = s.count < maxFrames ? s.count : maxFrames;
     for (int i = 0; i < n; ++i) frames[i] = s.frames[i];
     if (bytes) *bytes = s.bytes;

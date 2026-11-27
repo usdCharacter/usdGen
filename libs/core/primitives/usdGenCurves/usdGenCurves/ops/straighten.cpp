@@ -20,7 +20,6 @@
 
 
 #include "usdGenMath/math.h"
-#include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
 #include <cmath>

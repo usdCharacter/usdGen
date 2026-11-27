@@ -14,7 +14,6 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
-#include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
 #include <cmath>
@@ -31,7 +30,6 @@
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 

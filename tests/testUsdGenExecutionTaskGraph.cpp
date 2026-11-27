@@ -13,6 +13,11 @@
 #include <string>
 #include <type_traits>
 
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 using namespace usdGen;
 using Pipeline = UsdGenExecutionPipeline;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #c); return 1; } } while (false)

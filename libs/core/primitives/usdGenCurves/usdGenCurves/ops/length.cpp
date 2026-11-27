@@ -32,7 +32,6 @@
 #include "usdGen/ops/wholeStrand.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
-#include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
 #include <cmath>

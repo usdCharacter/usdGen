@@ -11,6 +11,11 @@
 
 #include <cstdint>
 
+#include "pxr/pxr.h"
+#include "pxr/base/vt/types.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 namespace usdGen {
 
 /// A UsdGenOpInputs over one builder buffer (the buffer must outlive it).

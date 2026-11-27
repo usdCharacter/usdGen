@@ -16,6 +16,11 @@
 #include <cstdio>
 #include <vector>
 
+#include "pxr/pxr.h"
+#include "pxr/base/vt/types.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 using namespace usdGen;
 
 namespace {

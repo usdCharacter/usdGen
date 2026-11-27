@@ -6,6 +6,11 @@
 #include <memory>
 #include <string>
 
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 namespace {
 
 class FakeOwner;

@@ -17,6 +17,11 @@
 #include <string>
 #include <vector>
 
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 using namespace usdGen;
 using namespace usdGen::gpu;
 

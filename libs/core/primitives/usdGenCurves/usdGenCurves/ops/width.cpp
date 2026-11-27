@@ -15,7 +15,6 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
 #include <cmath>
