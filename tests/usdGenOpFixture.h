@@ -134,7 +134,7 @@ inline std::vector<PXR_NS::TfToken> OutputPlaneNames(
         emit(view.View(), -1, sink);
         return out;
     }
-    for (usdGen::UsdGenPlane const &plane : record.OutputPlanes()) out.push_back(plane.name);
+    for (usdGen::UsdGenChannelDesc const &plane : record.OutputPlanes()) out.push_back(plane.name);
     return out;
 }
 

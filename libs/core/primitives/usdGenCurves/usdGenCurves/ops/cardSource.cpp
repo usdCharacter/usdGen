@@ -533,7 +533,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
         plane->arity = 1;
         plane->i = UsdGenIntArray(R);
     }
-    UsdGenSpan<const UsdGenPlane> const declared = Record().OutputPlanes();
+    UsdGenSpan<const UsdGenChannelDesc> const declared = Record().OutputPlanes();
     cardIndex.name = declared[kPlaneCardIndex].name;
     strandIndex.name = declared[kPlaneStrandIndex].name;
     strandSeed.name = declared[kPlaneStrandSeed].name;

@@ -122,7 +122,7 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
         return true;
     };
     // The record's static planes.
-    auto bind = [&](UsdGenSpan<const UsdGenPlane> planes, std::vector<UsdGenToken> *slots,
+    auto bind = [&](UsdGenSpan<const UsdGenChannelDesc> planes, std::vector<UsdGenToken> *slots,
                     char const *direction) {
         if (planes.size() > kUsdGenMaxExtraPlaneSlots) {
             result->errors.push_back(std::string("UsdGenCompiler: operator '") +
@@ -159,7 +159,7 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
 }
 
 /// Same slot names in the same order, without allocating.
-bool SameSlots(UsdGenSpan<const UsdGenPlane> planes, std::vector<UsdGenToken> const &slots)
+bool SameSlots(UsdGenSpan<const UsdGenChannelDesc> planes, std::vector<UsdGenToken> const &slots)
 {
     if (planes.size() != slots.size()) return false;
     for (size_t i = 0; i < slots.size(); ++i)

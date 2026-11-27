@@ -17,7 +17,7 @@ struct UsdGenOpRecord::Tables {
     std::vector<std::pair<UsdGenToken, uint32_t>> routing;
     std::vector<UsdGenParamSlot> digest;
     std::vector<UsdGenToken> referenceInputs;
-    std::vector<UsdGenPlane> inputPlanes, outputPlanes;
+    std::vector<UsdGenChannelDesc> inputPlanes, outputPlanes;   // layouts, registry order
     std::vector<UsdGenToken> mapRelationships;
     std::vector<UsdGenToken> tokens;
     UsdGenToken outputType;                              // empty: the default primitive

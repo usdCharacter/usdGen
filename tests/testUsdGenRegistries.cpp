@@ -295,8 +295,8 @@ void TestRecord()
     Check(r.ReferenceInputs().size() == 1 && r.ReferenceInputs()[0] == TfToken("guides"),
           "reference inputs");
     Check(r.InputPlanes().size() == 1 && r.InputPlanes()[0].name == TfToken("clumpId_0") &&
-              r.InputPlanes()[0].interpolation == UsdGenTokens().uniform &&
-              r.InputPlanes()[0].type == UsdGenTokens().int_,
+              r.InputPlanes()[0].level == 1 &&   // uniform
+              r.InputPlanes()[0].scalar == UsdGenScalar::I32,
           "input plane layout");
     Check(r.OutputPlanes().empty(), "no static outputs");
     Check(r.MapRelationships().size() == 1 &&

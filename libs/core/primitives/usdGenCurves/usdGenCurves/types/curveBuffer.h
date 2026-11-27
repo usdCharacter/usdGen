@@ -27,6 +27,26 @@
 
 namespace usdGen {
 
+/// One named curve plane (03 §1.2): a buffer's extra planes and publication's.
+/// R24 pins type/arity per emitted name:
+///   clumpId_<level> : uniform int,       arity 1
+///   clumpCenter_<level> : uniform float,  arity 3 (rest anchor)
+///   clumpCenterId_<level> : uniform int,  arity 2 (exact uint64 words)
+///   clumpWeight_<level> : vertex float,   arity 1 (effective cohesion)
+///   guideIndex      : uniform int[],     arity 3
+///   guideWeight     : uniform float[],   arity 3
+/// `int[3]`/`float[3]` are not USD type names. Exactly one of `f`/`i` holds
+/// the payload.
+struct UsdGenPlane
+{
+    UsdGenToken      name;
+    UsdGenToken      interpolation;   // vertex | uniform | constant
+    UsdGenToken      type;            // float | int
+    uint8_t      arity = 1;
+    UsdGenFloatArray f;
+    UsdGenIntArray   i;
+};
+
 /// One chunk (03 §1.2). Surface-major, then Morton order over rest roots (§1.7).
 struct UsdGenChunkDesc
 {

@@ -88,13 +88,13 @@ UsdGenSpan<const UsdGenToken> UsdGenOpRecord::ReferenceInputs() const noexcept
 {
     return _tables ? SpanOf(_tables->referenceInputs) : UsdGenSpan<const UsdGenToken>();
 }
-UsdGenSpan<const UsdGenPlane> UsdGenOpRecord::InputPlanes() const noexcept
+UsdGenSpan<const UsdGenChannelDesc> UsdGenOpRecord::InputPlanes() const noexcept
 {
-    return _tables ? SpanOf(_tables->inputPlanes) : UsdGenSpan<const UsdGenPlane>();
+    return _tables ? SpanOf(_tables->inputPlanes) : UsdGenSpan<const UsdGenChannelDesc>();
 }
-UsdGenSpan<const UsdGenPlane> UsdGenOpRecord::OutputPlanes() const noexcept
+UsdGenSpan<const UsdGenChannelDesc> UsdGenOpRecord::OutputPlanes() const noexcept
 {
-    return _tables ? SpanOf(_tables->outputPlanes) : UsdGenSpan<const UsdGenPlane>();
+    return _tables ? SpanOf(_tables->outputPlanes) : UsdGenSpan<const UsdGenChannelDesc>();
 }
 UsdGenSpan<const UsdGenToken> UsdGenOpRecord::MapRelationships() const noexcept
 {

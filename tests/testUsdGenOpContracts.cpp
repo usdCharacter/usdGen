@@ -71,10 +71,10 @@ std::vector<std::string> Names(TfSpan<const TfToken> tokens)
     return out;
 }
 
-std::vector<std::string> Names(TfSpan<const UsdGenPlane> planes)
+std::vector<std::string> Names(TfSpan<const UsdGenChannelDesc> planes)
 {
     std::vector<std::string> out;
-    for (UsdGenPlane const &p : planes) out.push_back(p.name.GetString());
+    for (UsdGenChannelDesc const &p : planes) out.push_back(p.name.GetString());
     return out;
 }
 

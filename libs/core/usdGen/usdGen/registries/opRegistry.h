@@ -6,7 +6,7 @@
 #include "usdGen/export.h"
 #include "usdGen/registries/opDef.h"
 #include "usdGen/registries/paramEvaluator.h"
-#include "usdGen/compile/types.h"        // UsdGenPlane
+#include "usdGen/api/channel.h"
 #include "usdGen/api/token.h"
 #include <atomic>
 #include <memory>
@@ -42,8 +42,8 @@ public:
     UsdGenSpan<const UsdGenParamSlot> DigestSlots() const noexcept;             // == TypeClassTable::digestParams
     UsdGenSpan<const UsdGenToken> ParamNames() const noexcept;                          // per slot, no "usdGen:"
     UsdGenSpan<const UsdGenToken> ReferenceInputs() const noexcept;
-    UsdGenSpan<const UsdGenPlane> InputPlanes() const noexcept;                 // layouts filled, no payload
-    UsdGenSpan<const UsdGenPlane> OutputPlanes() const noexcept;                // static outputs only
+    UsdGenSpan<const UsdGenChannelDesc> InputPlanes() const noexcept;           // declared layouts
+    UsdGenSpan<const UsdGenChannelDesc> OutputPlanes() const noexcept;          // static outputs only
     UsdGenSpan<const UsdGenToken> MapRelationships() const noexcept;
     UsdGenToken const &Token(uint16_t i) const noexcept;                        // Def().tokens[i]
     /// Typed ports (interned names; empty: the default primitive).

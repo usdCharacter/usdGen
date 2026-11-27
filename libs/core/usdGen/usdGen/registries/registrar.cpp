@@ -28,23 +28,22 @@ namespace {
 // Written by registration only (before the freeze); read after it.
 UsdGenPublisherDef gPublishers[kUsdGenMaxTypes];
 
-UsdGenToken InternPlaneRate(UsdGenPlaneRate rate)
+/// Element level of a plane rate: vertex 2, uniform 1, constant 0.
+uint8_t PlaneLevel(UsdGenPlaneRate rate)
 {
-    UsdGenEngineTokens const &t = UsdGenTokens();
-    return rate == UsdGenPlaneRate::Vertex ? t.vertex
-        : rate == UsdGenPlaneRate::Uniform ? t.uniform : t.constant;
+    return rate == UsdGenPlaneRate::Vertex ? 2 : rate == UsdGenPlaneRate::Uniform ? 1 : 0;
 }
 
-void FillPlanes(UsdGenSpan<const UsdGenPlaneDecl> decls, std::vector<UsdGenPlane> *out)
+void FillPlanes(UsdGenSpan<const UsdGenPlaneDecl> decls, std::vector<UsdGenChannelDesc> *out)
 {
-    UsdGenEngineTokens const &t = UsdGenTokens();
     for (UsdGenPlaneDecl const &d : decls) {
-        UsdGenPlane plane;
-        plane.name = UsdGenInternToken(d.name);
-        plane.interpolation = InternPlaneRate(d.rate);
-        plane.type = d.scalar == UsdGenPlaneScalar::Int ? t.int_ : t.float_;
-        plane.arity = d.arity;
-        out->push_back(std::move(plane));
+        UsdGenChannelDesc desc;
+        desc.name = UsdGenInternToken(d.name);
+        desc.level = PlaneLevel(d.rate);
+        desc.scalar = d.scalar == UsdGenPlaneScalar::Int ? UsdGenScalar::I32 : UsdGenScalar::F32;
+        desc.arity = d.arity;
+        desc.flags = d.arity > 1 ? uint8_t(kUsdGenChannelPacked) : uint8_t(0);
+        out->push_back(desc);
     }
 }
 

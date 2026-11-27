@@ -73,25 +73,12 @@ UsdGenElementSet const *OutputOrEmpty(UsdGenGraph const &graph, UsdGenCompiledNo
 }
 
 /// The emitting op's declared layout for `name`, if it declares one.
-UsdGenPlane const *DeclaredOutputPlane(UsdGenOpRecord const *record, UsdGenToken const &name)
+UsdGenChannelDesc const *DeclaredOutputPlane(UsdGenOpRecord const *record, UsdGenToken const &name)
 {
     if (!record) return nullptr;
-    for (UsdGenPlane const &plane : record->OutputPlanes())
+    for (UsdGenChannelDesc const &plane : record->OutputPlanes())
         if (plane.name == name) return &plane;
     return nullptr;
-}
-
-/// A plane descriptor as a channel.
-UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p)
-{
-    auto const &tk = UsdGenTokens();
-    UsdGenChannelDesc d;
-    d.name = p.name;
-    d.arity = p.arity;
-    d.level = p.interpolation == tk.vertex ? 2 : p.interpolation == tk.constant ? 0 : 1;
-    d.scalar = p.type == tk.int_ ? UsdGenScalar::I32 : UsdGenScalar::F32;
-    d.flags = p.arity > 1 ? uint8_t(kUsdGenChannelPacked) : uint8_t(0);
-    return d;
 }
 
 /// A first producer's layout (R24): the op's declaration, else the layout's
@@ -100,7 +87,7 @@ UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p)
 UsdGenChannelDesc DefaultOutputChannel(UsdGenOpRecord const *record,
                                        UsdGenElementLayout const &layout, UsdGenToken const &name)
 {
-    if (UsdGenPlane const *declared = DeclaredOutputPlane(record, name)) return PlaneDesc(*declared);
+    if (UsdGenChannelDesc const *declared = DeclaredOutputPlane(record, name)) return *declared;
     UsdGenChannelDesc d;
     bool fixed = false;
     if (layout.namedChannel && layout.namedChannel(name, &d, &fixed)) {

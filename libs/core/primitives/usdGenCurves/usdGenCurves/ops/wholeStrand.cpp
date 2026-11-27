@@ -116,12 +116,11 @@ UsdGenWholeStrandOp::UsdGenWholeStrandOp(UsdGenOpRecord const &record)
     : UsdGenOp(record)
     , _mask(record.FindParam(UsdGenTokens().mask))
 {
-    UsdGenEngineTokens const &t = UsdGenTokens();
-    for (UsdGenPlane const &plane : record.OutputPlanes()) {
+    for (UsdGenChannelDesc const &plane : record.OutputPlanes()) {
         UsdGenStrandPlaneSpec spec;
         spec.name = plane.name;
-        spec.cv = plane.interpolation == t.vertex;
-        spec.isInt = plane.type == t.int_;
+        spec.cv = plane.level == 2;   // vertex
+        spec.isInt = plane.scalar == UsdGenScalar::I32;
         _specs.push_back(spec);
     }
 }

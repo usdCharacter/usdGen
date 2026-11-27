@@ -8,7 +8,7 @@
 namespace usdGen {
 
 struct UsdGenEngineTokens {
-    // plane rate / scalar (UsdGenPlane, types.h)
+    // plane rate / scalar of named planes
     UsdGenToken vertex, uniform, constant, float_, int_;
     // base node parameters (compiler.cpp:779-801) and the "usdGen:" prefix
     UsdGenToken input, surface, seed, enabled, guides, mask, usdGenPrefix;
