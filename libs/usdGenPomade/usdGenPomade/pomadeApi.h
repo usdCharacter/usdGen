@@ -71,7 +71,7 @@ int USDGENPOMADE_API Pomade_HasCudaMirror(PomadeModelContext const *ctx);
 /* The P6 OOM-fallback reason: "" while the mirror is healthy (or the
  * context is null), otherwise why the mirror was dropped and the model
  * continues CPU-only. Valid for the model's lifetime (sticky). */
-const char *USDGENPOMADE_API Pomade_GetDeviceFallbackReason(
+USDGENPOMADE_API const char *Pomade_GetDeviceFallbackReason(
     PomadeModelContext const *ctx);
 
 /* P6 undo: restore the most recent pre-mutation snapshot (tube +
@@ -361,7 +361,7 @@ int USDGENPOMADE_API Pomade_ReadRefillDrops(PomadeModelContext const *ctx,
                                           int *outCount);
 /* The reason the index-th dropped tube was skipped ("" when out of
  * range). The string stays valid until the next call on this thread. */
-const char *USDGENPOMADE_API Pomade_GetRefillDropReason(
+USDGENPOMADE_API const char *Pomade_GetRefillDropReason(
     PomadeModelContext const *ctx, int index);
 /* The current guide set (guide-major points + per-guide counts).
  * `outXYZ` must hold 3 * guides * cv floats, `outCounts` guides ints;
@@ -912,7 +912,7 @@ int USDGENPOMADE_API Pomade_GetRedoDepth(PomadeModelContext const *ctx);
 int USDGENPOMADE_API Pomade_GetUndoLabel(PomadeModelContext const *ctx,
                                        int depth, char *out, int cap);
 
-const char *USDGENPOMADE_API Pomade_GetLastError(void);
+USDGENPOMADE_API const char *Pomade_GetLastError(void);
 
 #ifdef __cplusplus
 }  /* extern "C" */

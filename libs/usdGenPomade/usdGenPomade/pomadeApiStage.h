@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 /* The message for the last failed call on this thread (never null). */
-const char *USDGENPOMADE_API Pomade_StageGetLastError(void);
+USDGENPOMADE_API const char *Pomade_StageGetLastError(void);
 
 /* Hydrate `ctx` from a committed groom (plan/17 §2.5). `layerOrStage` names
  * either an open SdfLayer identifier (an anonymous live layer included) or a
