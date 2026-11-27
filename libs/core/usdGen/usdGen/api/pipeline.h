@@ -1,6 +1,7 @@
 #ifndef USDGEN_EXECUTION_PIPELINE_H
 #define USDGEN_EXECUTION_PIPELINE_H
 
+#include "usdGen/api/export.h"
 #include <atomic>
 #include <cstdint>
 #include <exception>
@@ -12,7 +13,7 @@ namespace usdGen {
 
 // Shared private scheduler. Independent description pipelines use the same
 // worker budget; ownership of a description never serializes unrelated ones.
-class UsdGenExecutionRuntime {
+class USDGEN_API UsdGenExecutionRuntime {
 public:
     explicit UsdGenExecutionRuntime(int concurrency = 8);
     ~UsdGenExecutionRuntime();
@@ -31,9 +32,9 @@ private:
 // Submission is not a synchronous acceptance acknowledgement. Requests become
 // current when accepted by the command owner, in monotonically increasing
 // ticket order; out-of-order older arrivals and completions are superseded.
-class UsdGenExecutionPipeline {
+class USDGEN_API UsdGenExecutionPipeline {
 public:
-    class CommandTicket {
+    class USDGEN_API CommandTicket {
     public:
         CommandTicket() noexcept;
         ~CommandTicket();
@@ -48,7 +49,7 @@ public:
         explicit CommandTicket(std::shared_ptr<State> state) noexcept;
         friend class UsdGenExecutionPipeline;
     };
-    class CommandMailbox {
+    class USDGEN_API CommandMailbox {
     public:
         CommandMailbox() noexcept;
         ~CommandMailbox();
@@ -64,7 +65,7 @@ public:
         friend class UsdGenExecutionPipeline;
     };
     enum class Outcome { Published, Superseded, Failed };
-    struct Cancellation {
+    struct USDGEN_API Cancellation {
         uint64_t epoch = 0;
         bool Superseded() const noexcept;
     private:
@@ -163,7 +164,7 @@ private:
 // Complete belongs to one externally scheduled owner. The ring is owner-only:
 // frontend code may read counters and issue, but never examines completion
 // slots. CAS reserves an available sequence and never waits for another call.
-class UsdGenExecutionSequenceWindow {
+class USDGEN_API UsdGenExecutionSequenceWindow {
 public:
     explicit UsdGenExecutionSequenceWindow(uint64_t capacity);
     uint64_t TryIssue() noexcept;

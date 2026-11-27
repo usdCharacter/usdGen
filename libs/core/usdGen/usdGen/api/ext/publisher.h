@@ -22,7 +22,7 @@ struct UsdGenDiagnostics;
 class UsdGenGraph;
 class UsdGenWorkDispatcher;
 
-class UsdGenPublication : public UsdGenRefCounted, public UsdGenPooled
+class USDGEN_API UsdGenPublication : public UsdGenRefCounted, public UsdGenPooled
 {
 public:
     explicit UsdGenPublication(UsdGenTypeId t, uint8_t k = 0) noexcept : type(t), kind(k) {}
@@ -33,7 +33,7 @@ public:
 
 /// Per-cook-owner state a publisher keeps across cooks (caches, warnings).
 /// Owned by the cooker; only `build` sees it, on the cook lane.
-class UsdGenPublisherState : public UsdGenPooled
+class USDGEN_API UsdGenPublisherState : public UsdGenPooled
 {
 public:
     virtual ~UsdGenPublisherState() = default;
@@ -87,6 +87,6 @@ struct UsdGenPublisherDef
 };
 
 /// The publisher registered for a primitive type; null when none.
-USDGEN_CORE_API UsdGenPublisherDef const *UsdGenFindPublisher(UsdGenTypeId primitive) noexcept;
+USDGEN_API UsdGenPublisherDef const *UsdGenFindPublisher(UsdGenTypeId primitive) noexcept;
 
 }  // namespace usdGen

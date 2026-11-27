@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // What an op library tells the engine about one op: plain data plus hooks.
 #pragma once
+#include "usdGen/api/export.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/valueShape.h"        // expr::Domain, expr::ScalarType
@@ -56,7 +57,7 @@ struct UsdGenMapSlotDecl {
 };
 
 /// Receives emitted planes during compile; interns names (compile scope).
-class UsdGenPlaneSink {
+class USDGEN_API UsdGenPlaneSink {
 public:
     virtual void Add(std::string const &name, UsdGenPlaneRate, UsdGenPlaneScalar,
                      uint8_t arity) = 0;

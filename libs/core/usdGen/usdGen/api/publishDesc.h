@@ -35,7 +35,7 @@ struct UsdGenPreviewValues {
 };
 
 /// State the primitive's hooks keep across cooks; the publisher's state owns it.
-class USDGEN_CORE_API UsdGenPublishHookState : public UsdGenPooled {
+class USDGEN_API UsdGenPublishHookState : public UsdGenPooled {
 public:
     virtual ~UsdGenPublishHookState();
 };

@@ -27,11 +27,12 @@
 
 #pragma once
 
+#include "usdGen/api/export.h"
 #include <cstddef>
 
 namespace usdGen {
 
-class UsdGenWorkerPool
+class USDGEN_INTERNAL_API UsdGenWorkerPool
 {
 public:
     /// Spawns `workers` persistent threads, pinned to the fast-core set

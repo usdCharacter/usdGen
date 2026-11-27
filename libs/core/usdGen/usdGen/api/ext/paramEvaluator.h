@@ -58,7 +58,7 @@ struct UsdGenEvaluatedParam
 
 /// Per compiled node; owned by the node. Evaluate runs once per cook over
 /// the node's input, before its capture identity is taken.
-class UsdGenParamEvaluatorState : public UsdGenPooled
+class USDGEN_API UsdGenParamEvaluatorState : public UsdGenPooled
 {
 public:
     virtual ~UsdGenParamEvaluatorState() = default;
@@ -97,6 +97,6 @@ struct UsdGenParamEvaluatorDef
 
 /// A fresh state from the registered evaluator; null when none is
 /// registered. Compile phase.
-USDGEN_CORE_API std::unique_ptr<UsdGenParamEvaluatorState> UsdGenCreateParamEvaluatorState();
+USDGEN_API std::unique_ptr<UsdGenParamEvaluatorState> UsdGenCreateParamEvaluatorState();
 
 }  // namespace usdGen

@@ -18,9 +18,9 @@ struct UsdGenTraceSink {
 };
 /// Release-store; null turns tracing off. The sink outlives every scope that
 /// loaded it.
-USDGEN_CORE_API void UsdGenSetTraceSink(UsdGenTraceSink const *sink) noexcept;
+USDGEN_API void UsdGenSetTraceSink(UsdGenTraceSink const *sink) noexcept;
 /// Acquire load.
-USDGEN_CORE_API UsdGenTraceSink const *UsdGenGetTraceSink() noexcept;
+USDGEN_API UsdGenTraceSink const *UsdGenGetTraceSink() noexcept;
 
 class UsdGenTraceScope {
 public:

@@ -1,21 +1,45 @@
-// usdGen — engine core export macro.
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
 //
-// libusdGen.so is built with hidden visibility (CXX_VISIBILITY_PRESET hidden)
-// and LINKER:--exclude-libs,ALL so that gate B-1 keeps third-party symbols
-// out of its dynamic table. Symbols that are part of the installed M0 public
-// surface must therefore be marked USDGEN_CORE_API explicitly; at M0 that is
-// usdGen::GetVersionString() only.
+// usdGen export macros (brief 3.3). USDGEN_API marks the installed surface
+// (api/ and api/ext/); USDGEN_INTERNAL_API marks private classes and
+// functions that tests drive, exported only with USDGEN_EXPORT_INTERNALS.
 #ifndef USDGEN_EXPORT_H
 #define USDGEN_EXPORT_H
 
 #if defined(_WIN32)
-#  if defined(usdGen_EXPORTS)
-#    define USDGEN_CORE_API __declspec(dllexport)
-#  else
-#    define USDGEN_CORE_API __declspec(dllimport)
-#  endif
+#  define USDGEN_DLL_EXPORT __declspec(dllexport)
+#  define USDGEN_DLL_IMPORT __declspec(dllimport)
 #else
-#  define USDGEN_CORE_API __attribute__((visibility("default")))
+#  define USDGEN_DLL_EXPORT __attribute__((visibility("default")))
+#  define USDGEN_DLL_IMPORT __attribute__((visibility("default")))
 #endif
+
+#if defined(usdGen_EXPORTS)
+#  define USDGEN_API USDGEN_DLL_EXPORT
+#else
+#  define USDGEN_API USDGEN_DLL_IMPORT
+#endif
+
+// For a function whose address must stay a constant expression in importers
+// (MSVC: the address of a dllimport function is not one). Importers call it
+// through the import library's thunk.
+#if defined(usdGen_EXPORTS)
+#  define USDGEN_API_NO_IMPORT USDGEN_DLL_EXPORT
+#else
+#  define USDGEN_API_NO_IMPORT
+#endif
+
+// A PUBLIC compile definition of usdGen when the option is ON (12.3f), so
+// importers agree.
+#if defined(USDGEN_EXPORT_INTERNALS)
+#  define USDGEN_INTERNAL_API USDGEN_API
+#else
+#  define USDGEN_INTERNAL_API
+#endif
+
+// Old spelling; 12.3b replaces its last use (usdGenSurface/limitSurface.h)
+// and 12.3f deletes it.
+#define USDGEN_CORE_API USDGEN_API
 
 #endif  // USDGEN_EXPORT_H

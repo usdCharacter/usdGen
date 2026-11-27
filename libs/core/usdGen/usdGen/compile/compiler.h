@@ -9,6 +9,7 @@
 #ifndef USDGEN_COMPILER_H
 #define USDGEN_COMPILER_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/compile.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/api/graphSpec.h"
@@ -26,7 +27,7 @@ namespace usdGen {
 class UsdGenExecutionPlanHandle;
 struct UsdGenDiagnostics;
 
-class UsdGenCompiler
+class USDGEN_INTERNAL_API UsdGenCompiler
 {
 public:
     /// Fills *out (moves the compiled state). ok=false leaves *out untouched.

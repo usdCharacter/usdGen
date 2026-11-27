@@ -12,14 +12,14 @@ namespace usdGen {
 // UsdGenInternToken (api/token.h) counts every call.
 
 /// Interns made after UsdGenFreezeRegistries() outside any compile scope.
-USDGEN_CORE_API uint64_t UsdGenExecInternCount() noexcept;
+USDGEN_API uint64_t UsdGenExecInternCount() noexcept;
 /// Every intern, compile scope included.
-USDGEN_CORE_API uint64_t UsdGenTotalInternCount() noexcept;
+USDGEN_API uint64_t UsdGenTotalInternCount() noexcept;
 /// False only when USDGEN_TOKEN_CHECKS=0 (read once at registry creation).
-USDGEN_CORE_API bool UsdGenTokenChecksEnabled() noexcept;
+USDGEN_API bool UsdGenTokenChecksEnabled() noexcept;
 
 /// RAII, this thread: interns while alive count as compile interns.
-class USDGEN_CORE_API UsdGenCompileTokenScope {
+class USDGEN_API UsdGenCompileTokenScope {
 public:
     UsdGenCompileTokenScope() noexcept;
     ~UsdGenCompileTokenScope();

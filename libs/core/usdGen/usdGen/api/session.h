@@ -1,6 +1,7 @@
 #ifndef USDGEN_SESSION_H
 #define USDGEN_SESSION_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/pipeline.h"
 #include "usdGen/api/hostData.h"
 #include "usdGen/api/backend.h"
@@ -119,7 +120,7 @@ struct UsdGenSessionCommitRequest
     std::optional<bool> devicePublication;
 };
 
-class UsdGenSession
+class USDGEN_API UsdGenSession
 {
 public:
     using SnapshotPtr = std::shared_ptr<const UsdGenSessionSnapshot>;
@@ -239,7 +240,7 @@ public:
     void EndDensityDrag();
 
 private:
-    friend std::unique_ptr<UsdGenSession> CreateUsdGenDeviceSession(
+    friend USDGEN_INTERNAL_API std::unique_ptr<UsdGenSession> CreateUsdGenDeviceSession(
         int, uint64_t, std::shared_ptr<UsdGenExecutionCacheDomain>,
         std::shared_ptr<UsdGenSessionDeviceProvider>,
         UsdGenSessionDeviceObservers const&);

@@ -24,7 +24,7 @@ class UsdGenStatus {
 public:
     UsdGenStatus() noexcept = default;                       // Ok
     /// The message is allocated in usdGen.
-    USDGEN_CORE_API static UsdGenStatus Error(UsdGenStatusCode code, std::string_view message);
+    USDGEN_API static UsdGenStatus Error(UsdGenStatusCode code, std::string_view message);
     bool ok() const noexcept { return _code == UsdGenStatusCode::Ok; }
     UsdGenStatusCode code() const noexcept { return _code; }
     std::string_view message() const noexcept { return _message.View(); }
@@ -37,8 +37,8 @@ private:
 enum class UsdGenSeverity : uint8_t { Status, Warning, Error, CodingError };
 using UsdGenReportFn = void (*)(void *user, UsdGenSeverity, char const *message) noexcept;
 /// Set before cooking; null restores the default.
-USDGEN_CORE_API void UsdGenSetReportSink(UsdGenReportFn fn, void *user) noexcept;
+USDGEN_API void UsdGenSetReportSink(UsdGenReportFn fn, void *user) noexcept;
 /// printf-style; replaces TF_STATUS, TF_WARN, TF_RUNTIME_ERROR, TF_CODING_ERROR.
-USDGEN_CORE_API void UsdGenReport(UsdGenSeverity s, char const *fmt, ...) noexcept USDGEN_PRINTF_FORMAT(2, 3);
+USDGEN_API void UsdGenReport(UsdGenSeverity s, char const *fmt, ...) noexcept USDGEN_PRINTF_FORMAT(2, 3);
 
 }  // namespace usdGen

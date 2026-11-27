@@ -1,6 +1,7 @@
 #ifndef USDGEN_EXECUTION_TASK_GRAPH_H
 #define USDGEN_EXECUTION_TASK_GRAPH_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/pipeline.h"
 
 #include <cstdint>
@@ -15,7 +16,7 @@ namespace usdGen {
 
 // Shared, backend-neutral ready-task dispatcher.  It does not reserve memory:
 // callers remain responsible for actual DeviceBuffer byte admission.
-class UsdGenExecutionTaskGraph {
+class USDGEN_API UsdGenExecutionTaskGraph {
 public:
     using Cancellation = UsdGenExecutionPipeline::Cancellation;
     using Publish = UsdGenExecutionPipeline::Publish;

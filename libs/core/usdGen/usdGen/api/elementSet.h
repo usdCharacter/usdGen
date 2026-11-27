@@ -77,17 +77,17 @@ class UsdGenChannelTable final : public UsdGenRefCounted, public UsdGenPooled {
 public:
     /// Dynamic entries naming a static channel replace its descriptor (same
     /// slot); a repeated dynamic name keeps the last entry.
-    USDGEN_CORE_API static UsdGenRef<const UsdGenChannelTable>
+    USDGEN_API static UsdGenRef<const UsdGenChannelTable>
         Make(UsdGenElementLayout const &, UsdGenSpan<const UsdGenChannelDesc> dynamic);
     /// This table plus 'added' (same-name entries replaced); returns this when nothing changes.
-    USDGEN_CORE_API UsdGenRef<const UsdGenChannelTable>
+    USDGEN_API UsdGenRef<const UsdGenChannelTable>
         With(UsdGenSpan<const UsdGenChannelDesc> added) const;
     UsdGenElementLayout const &Layout() const noexcept { return *_layout; }
     uint16_t Size() const noexcept { return uint16_t(_descs.size()); }
     uint16_t StaticCount() const noexcept { return _staticCount; }
     UsdGenChannelDesc const &operator[](UsdGenSlot s) const noexcept { return _descs[s]; }
     /// Compile/prepare time only (binary search over the dynamic runs).
-    USDGEN_CORE_API UsdGenSlot Find(UsdGenToken const &name) const noexcept;
+    USDGEN_API UsdGenSlot Find(UsdGenToken const &name) const noexcept;
     /// Slots of the dynamic run at 'level' (levels 0 and 1 share a run).
     UsdGenSpan<const UsdGenSlot> DynamicRun(uint8_t level) const noexcept
     {
@@ -162,7 +162,7 @@ public:
     uint64_t TopologyVersion() const noexcept { return _topologyVersion; }
     uint64_t ValueVersion() const noexcept { return _valueVersion; }     // bumped by every Seal that wrote a column
     uint64_t ValueVersion(UsdGenSlot s) const noexcept { return s < _versions.size() ? _versions[s] : 0; }
-    USDGEN_CORE_API UsdGenElementSetView View() const noexcept;           // no allocation
+    USDGEN_API UsdGenElementSetView View() const noexcept;           // no allocation
     uint8_t ArenaCount() const noexcept { return _arenaCount; }
     UsdGenArena const &ArenaAt(uint8_t i) const noexcept { return *_arenas[i]; }
     /// The column's arena and byte offset; a device mirror uses the same offsets.
@@ -171,11 +171,11 @@ public:
     uint8_t DeltaArena() const noexcept { return _delta; }
     /// True when the column lives in this set's delta arena.
     bool OwnsColumn(UsdGenSlot s) const noexcept { return Has(s) && _columnArena[s] == _delta; }
-    USDGEN_CORE_API uint64_t ColumnOffset(UsdGenSlot) const noexcept;
+    USDGEN_API uint64_t ColumnOffset(UsdGenSlot) const noexcept;
     /// Marks every arena shared (cache store, host handoff).
-    USDGEN_CORE_API void Export() const noexcept;
+    USDGEN_API void Export() const noexcept;
     /// No channels written, every count 0 (level 0: 1). Allocates: compile time.
-    USDGEN_CORE_API static UsdGenRef<const UsdGenElementSet> Empty(UsdGenElementLayout const &);
+    USDGEN_API static UsdGenRef<const UsdGenElementSet> Empty(UsdGenElementLayout const &);
 
 private:
     friend class UsdGenWriteSet;

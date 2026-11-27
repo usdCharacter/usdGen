@@ -57,18 +57,18 @@ using UsdGenDevicePlanCompiler = std::function<
 
 /// Compile phase (allocates). ok=false leaves *out untouched; Recompile
 /// rebuilds only the nodes whose digest moved.
-USDGEN_CORE_API UsdGenCompileResult UsdGenCompile(UsdGenGraphSpec const &spec,
+USDGEN_API UsdGenCompileResult UsdGenCompile(UsdGenGraphSpec const &spec,
                                                   UsdGenCompiledGraph *out);
-USDGEN_CORE_API UsdGenCompileResult UsdGenRecompile(UsdGenGraphSpec const &spec,
+USDGEN_API UsdGenCompileResult UsdGenRecompile(UsdGenGraphSpec const &spec,
                                                     UsdGenCompiledGraph *out);
 /// UsdGenCompile plus the device plan, compiled after the graph. Both
 /// outputs stay untouched on failure.
-USDGEN_CORE_API UsdGenCompileResult UsdGenCompileWithDevicePlan(
+USDGEN_API UsdGenCompileResult UsdGenCompileWithDevicePlan(
     UsdGenGraphSpec const &spec, UsdGenCompiledGraph *out,
     UsdGenDevicePlanCompiler const &device,
     std::shared_ptr<const UsdGenExecutionPlanHandle> *plan);
 /// The same for an explicitly injected device provider.
-USDGEN_CORE_API UsdGenCompileResult UsdGenCompileInjectedDevice(
+USDGEN_API UsdGenCompileResult UsdGenCompileInjectedDevice(
     UsdGenGraphSpec const &spec, UsdGenCompiledGraph *out,
     UsdGenDevicePlanCompiler const &device,
     std::shared_ptr<const UsdGenExecutionPlanHandle> *plan);
@@ -89,24 +89,24 @@ struct UsdGenCompiledNodeView
     bool hasOutputPlanes = false;
 };
 
-USDGEN_CORE_API int UsdGenCompiledNodeCount(UsdGenCompiledGraph const &graph) noexcept;
-USDGEN_CORE_API UsdGenNodeId UsdGenCompiledTerminal(UsdGenCompiledGraph const &graph) noexcept;
-USDGEN_CORE_API UsdGenCompiledNodeView UsdGenCompiledNodeAt(UsdGenCompiledGraph const &graph,
+USDGEN_API int UsdGenCompiledNodeCount(UsdGenCompiledGraph const &graph) noexcept;
+USDGEN_API UsdGenNodeId UsdGenCompiledTerminal(UsdGenCompiledGraph const &graph) noexcept;
+USDGEN_API UsdGenCompiledNodeView UsdGenCompiledNodeAt(UsdGenCompiledGraph const &graph,
                                                           UsdGenNodeId id);
-USDGEN_CORE_API UsdGenElementSet const &UsdGenCompiledNodeOutput(
+USDGEN_API UsdGenElementSet const &UsdGenCompiledNodeOutput(
     UsdGenCompiledGraph const &graph, UsdGenNodeId id);
 /// kUsdGenInvalidNode when no node has 'key'.
-USDGEN_CORE_API UsdGenNodeId UsdGenCompiledNodeIdForKey(UsdGenCompiledGraph const &graph,
+USDGEN_API UsdGenNodeId UsdGenCompiledNodeIdForKey(UsdGenCompiledGraph const &graph,
                                                         UsdGenNodeKey key);
 /// The spec the graph was compiled from.
-USDGEN_CORE_API UsdGenGraphSpec const &UsdGenCompiledSpec(
+USDGEN_API UsdGenGraphSpec const &UsdGenCompiledSpec(
     UsdGenCompiledGraph const &graph) noexcept;
 
 /// Host dirtying between cooks.
-USDGEN_CORE_API void UsdGenCompiledDirtyGeometry(UsdGenCompiledGraph &graph, UsdGenNodeKey prim);
-USDGEN_CORE_API void UsdGenCompiledDirtyInput(UsdGenCompiledGraph &graph, UsdGenNodeKey input,
+USDGEN_API void UsdGenCompiledDirtyGeometry(UsdGenCompiledGraph &graph, UsdGenNodeKey prim);
+USDGEN_API void UsdGenCompiledDirtyInput(UsdGenCompiledGraph &graph, UsdGenNodeKey input,
                                               uint64_t generation = UINT64_MAX);
-USDGEN_CORE_API void UsdGenCompiledDirtyMap(UsdGenCompiledGraph &graph, UsdGenNodeKey map,
+USDGEN_API void UsdGenCompiledDirtyMap(UsdGenCompiledGraph &graph, UsdGenNodeKey map,
                                             uint64_t generation = UINT64_MAX);
 
 }  // namespace usdGen

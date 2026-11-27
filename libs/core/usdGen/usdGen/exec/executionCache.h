@@ -6,6 +6,7 @@
 #ifndef USDGEN_EXECUTION_CACHE_H
 #define USDGEN_EXECUTION_CACHE_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/ext/device/deviceGeneration.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/api/epoch.h"
@@ -33,7 +34,7 @@ struct UsdGenGeneration;   // generationStore.h; the Store holds it by shared_pt
 /// Immutable cache identity.  `frameBits` preserves exact floating-point
 /// sample identity, including signed zero and NaN payloads, without making
 /// floating-point equality part of the contract.
-struct UsdGenExecutionCacheKey {
+struct USDGEN_INTERNAL_API UsdGenExecutionCacheKey {
     UsdGenNodeKey description;
     UsdGenEpoch planDigest{};
     uint64_t layoutDigest = 0;
@@ -318,7 +319,7 @@ struct UsdGenExecutionCacheDomainKeyHasher {
     }
 };
 
-class UsdGenExecutionCacheDomain
+class USDGEN_INTERNAL_API UsdGenExecutionCacheDomain
     : public std::enable_shared_from_this<UsdGenExecutionCacheDomain> {
 public:
     using Store = UsdGenExecutionCacheStore<UsdGenGeneration>;

@@ -8,6 +8,7 @@
 #ifndef USDGEN_GENERATION_STORE_H
 #define USDGEN_GENERATION_STORE_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/generation.h"
 #include "usdGen/api/primRef.h"
 #include "usdGen/api/ext/device/deviceGeneration.h"
@@ -23,7 +24,7 @@
 #include <vector>
 namespace usdGen {
 
-class UsdGenGenerationStore
+class USDGEN_INTERNAL_API UsdGenGenerationStore
 {
 public:
     using PreparedPublication = UsdGenSharedCell<UsdGenGeneration const>::Prepared;

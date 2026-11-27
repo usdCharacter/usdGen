@@ -27,6 +27,7 @@
 // installs a process-lifetime object without a function-local static.
 #pragma once
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/epoch.h"
 
 #include <atomic>
@@ -44,11 +45,11 @@ struct UsdGenSharedCellHolder : UsdGenEpochNode {
 };
 
 /// A holder from the free stack, or a new one (may throw bad_alloc).
-UsdGenSharedCellHolder *UsdGenSharedCellAcquire(std::shared_ptr<const void> value);
+USDGEN_API UsdGenSharedCellHolder *UsdGenSharedCellAcquire(std::shared_ptr<const void> value);
 /// Returns a never-published holder to the free stack.
-void UsdGenSharedCellRecycle(UsdGenSharedCellHolder *h) noexcept;
+USDGEN_API void UsdGenSharedCellRecycle(UsdGenSharedCellHolder *h) noexcept;
 /// Recycles a displaced holder once no reader can still see it.
-void UsdGenSharedCellRetire(UsdGenSharedCellHolder *h) noexcept;
+USDGEN_API void UsdGenSharedCellRetire(UsdGenSharedCellHolder *h) noexcept;
 
 class UsdGenSharedCellBase {
 public:
@@ -199,9 +200,9 @@ bool UsdGenCowUpdateIf(UsdGenSharedCell<T const> &cell, Edit &&edit)
 }
 
 /// Sequence word UsdGenLazyLeaked waiters park on (sharedCell.cpp).
-uint32_t UsdGenLazyLeakedSequence() noexcept;
-void UsdGenLazyLeakedPark(uint32_t seen) noexcept;
-void UsdGenLazyLeakedPublished() noexcept;
+USDGEN_API uint32_t UsdGenLazyLeakedSequence() noexcept;
+USDGEN_API void UsdGenLazyLeakedPark(uint32_t seen) noexcept;
+USDGEN_API void UsdGenLazyLeakedPublished() noexcept;
 
 /// Installs a process-lifetime object into a constant-initialized atomic
 /// pointer (no function-local static, no guard lock). Exactly one caller

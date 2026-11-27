@@ -20,6 +20,6 @@ struct UsdGenEngineTokens {
 };
 
 /// Valid from the first registry access for the life of the process.
-USDGEN_CORE_API UsdGenEngineTokens const &UsdGenTokens() noexcept;
+USDGEN_API UsdGenEngineTokens const &UsdGenTokens() noexcept;
 
 }  // namespace usdGen

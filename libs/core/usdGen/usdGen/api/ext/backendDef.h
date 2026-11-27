@@ -58,20 +58,20 @@ struct UsdGenBackendDef {
 
 /// kUsdGenBackendCpu for "cpu" and "cpuReference", the handle of a registered
 /// name, else Invalid. Compile and lowering phase only.
-USDGEN_CORE_API UsdGenBackendId UsdGenFindBackend(UsdGenToken const &name) noexcept;
+USDGEN_API UsdGenBackendId UsdGenFindBackend(UsdGenToken const &name) noexcept;
 /// The same by text, without interning: safe on any thread after the freeze.
-USDGEN_CORE_API UsdGenBackendId UsdGenFindBackend(char const *name) noexcept;
+USDGEN_API UsdGenBackendId UsdGenFindBackend(char const *name) noexcept;
 /// Null for kUsdGenBackendCpu and Invalid.
-USDGEN_CORE_API UsdGenBackendDef const *UsdGenGetBackend(UsdGenBackendId) noexcept;
+USDGEN_API UsdGenBackendDef const *UsdGenGetBackend(UsdGenBackendId) noexcept;
 /// "cpu", a registered name, or "invalid".
-USDGEN_CORE_API char const *UsdGenBackendName(UsdGenBackendId) noexcept;
+USDGEN_API char const *UsdGenBackendName(UsdGenBackendId) noexcept;
 /// The opaque program def registered for (backend, primitive type); null if none.
-USDGEN_CORE_API void const *UsdGenFindDeviceProgram(UsdGenBackendId, UsdGenTypeId) noexcept;
+USDGEN_API void const *UsdGenFindDeviceProgram(UsdGenBackendId, UsdGenTypeId) noexcept;
 
 /// Directory of the module holding 'anchor' (any object or function of it),
 /// with a trailing separator, NUL-terminated in buffer. Its length; 0 when
 /// unknown or longer than capacity - 1.
-USDGEN_CORE_API size_t UsdGenModuleDirectory(void const *anchor, char *buffer,
+USDGEN_API size_t UsdGenModuleDirectory(void const *anchor, char *buffer,
                                              size_t capacity) noexcept;
 
 }  // namespace usdGen

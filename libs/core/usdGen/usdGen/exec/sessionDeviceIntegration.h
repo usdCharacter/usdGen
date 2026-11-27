@@ -2,6 +2,7 @@
 #ifndef USDGEN_SESSION_DEVICE_INTEGRATION_H
 #define USDGEN_SESSION_DEVICE_INTEGRATION_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/session.h"
 #include "usdGen/api/ext/device/sessionDeviceProvider.h"
 
@@ -22,7 +23,7 @@ struct UsdGenSessionDeviceObservers {
 // cache domain obtained through ExecutionCacheDomain::AcquireShared. Equal
 // labels on a separately constructed cache are rejected. Session destruction
 // never closes that shared native domain.
-std::unique_ptr<UsdGenSession> CreateUsdGenDeviceSession(
+USDGEN_INTERNAL_API std::unique_ptr<UsdGenSession> CreateUsdGenDeviceSession(
     int threadLimit, uint64_t commandCapacity,
     std::shared_ptr<UsdGenExecutionCacheDomain>,
     std::shared_ptr<UsdGenSessionDeviceProvider>,

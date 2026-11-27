@@ -27,22 +27,22 @@ public:
     };
 
     /// The calling thread's arena.
-    USDGEN_CORE_API static UsdGenScratchArena &ForThread();
+    USDGEN_API static UsdGenScratchArena &ForThread();
 
     /// A base block allocated by one thread for an arena that another
     /// thread adopts (UsdGenWorkerPool, for its workers): the adopting
     /// thread's first scope then needs no heap. FreeBaseBlock returns one
     /// that was never adopted.
-    USDGEN_CORE_API static Block *NewBaseBlock();
-    USDGEN_CORE_API static void FreeBaseBlock(Block *block) noexcept;
+    USDGEN_API static Block *NewBaseBlock();
+    USDGEN_API static void FreeBaseBlock(Block *block) noexcept;
     /// Makes `block` this arena's base block; frees it instead when the
     /// arena already holds one.
-    USDGEN_CORE_API void AdoptBaseBlock(Block *block) noexcept;
+    USDGEN_API void AdoptBaseBlock(Block *block) noexcept;
 
-    USDGEN_CORE_API void *Alloc(std::size_t bytes, std::size_t align);
+    USDGEN_API void *Alloc(std::size_t bytes, std::size_t align);
     Mark Save() const { return {_block, _top}; }
-    USDGEN_CORE_API void Rewind(Mark mark) noexcept;
-    USDGEN_CORE_API ~UsdGenScratchArena();
+    USDGEN_API void Rewind(Mark mark) noexcept;
+    USDGEN_API ~UsdGenScratchArena();
 
     constexpr UsdGenScratchArena() = default;
     UsdGenScratchArena(UsdGenScratchArena const &) = delete;

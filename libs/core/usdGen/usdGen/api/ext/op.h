@@ -14,6 +14,7 @@
 #ifndef USDGEN_OP_H
 #define USDGEN_OP_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/api/diagnostics.h"
 #include "usdGen/api/pool.h"
@@ -204,7 +205,7 @@ private:
 
 /// Compile phase: resolve node.params into out[0, rec.ParamCount()). A param
 /// binds the slot declared with exactly its name; the first one wins.
-USDGEN_CORE_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
+USDGEN_API void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
                                          UsdGenResolvedParam *out);
 
 /// Stack resolution for validators that have no compiled node. Compile
@@ -233,7 +234,7 @@ private:
 /// payload types (generators: their primitive's capture type). Lifetime:
 /// owned by the compiled node, keyed by the
 /// node's capture epoch (03 §3.4).
-struct UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptures
+struct USDGEN_API UsdGenCapture : UsdGenPooled   // pool-allocated, recycled across recaptures
 {
     virtual ~UsdGenCapture() = default;
     /// True when this capture is usable for the given upstream topology;
@@ -357,7 +358,7 @@ struct UsdGenConfigureContext
 /// The operator kernel interface. Everything static about an op (type,
 /// topology effect, role, arity, traits, parameters, planes) lives in its
 /// registered record (registries/opDef.h); the instance holds only state.
-class UsdGenOp : public UsdGenPooled
+class USDGEN_API UsdGenOp : public UsdGenPooled
 {
 public:
     explicit UsdGenOp(UsdGenOpRecord const &record) noexcept : _record(&record) {}

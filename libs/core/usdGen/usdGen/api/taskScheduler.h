@@ -16,6 +16,7 @@
 //   joins the calling worker, and during process detach it joins nothing.
 #pragma once
 
+#include "usdGen/api/export.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -30,7 +31,7 @@ struct UsdGenTask {
     Run taskRun = nullptr;
 };
 
-class UsdGenTaskScheduler {
+class USDGEN_API UsdGenTaskScheduler {
 public:
     /// Spawns max(1, workers) threads.
     explicit UsdGenTaskScheduler(int workers);
@@ -58,7 +59,7 @@ private:
 /// zero; Release wakes only when someone is parked. The waking Release reads
 /// nothing after its decrement, so a waiter may free the counter as soon as
 /// it sees zero (the wake is keyed by address only).
-class UsdGenPendingCount {
+class USDGEN_API UsdGenPendingCount {
 public:
     void Add(uint32_t n = 1) noexcept { _word.fetch_add(n, std::memory_order_seq_cst); }
     void Release(uint32_t n = 1) noexcept;
@@ -76,15 +77,15 @@ private:
 /// the range is exhausted leave without touching it, so nesting is safe.
 /// Rethrows the first body exception after every started chunk finished.
 /// maxWorkers caps the threads used (0: the scheduler's worker count + 1).
-void UsdGenParallelFor(size_t count, void (*body)(size_t, void *), void *payload,
+USDGEN_API void UsdGenParallelFor(size_t count, void (*body)(size_t, void *), void *payload,
                        size_t maxWorkers = 0);
 
 /// Threads UsdGenParallelFor may use: the process workers plus the caller.
-int UsdGenParallelForConcurrency();
+USDGEN_API int UsdGenParallelForConcurrency();
 
 /// UsdGenParallelFor as a block runner (usdGenMath::rbf::ParallelFor::run):
 /// body(user, i, i + 1) for i in [0, count). ctx is unused.
-void UsdGenParallelForBlocks(void *ctx, size_t count,
+USDGEN_API void UsdGenParallelForBlocks(void *ctx, size_t count,
                              void (*body)(void *user, size_t begin, size_t end), void *user);
 
 }  // namespace usdGen

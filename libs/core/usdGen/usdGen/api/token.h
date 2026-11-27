@@ -29,8 +29,8 @@ struct UsdGenTokenRep {
 };
 
 class UsdGenToken;
-USDGEN_CORE_API UsdGenToken UsdGenInternToken(std::string_view text);
-USDGEN_CORE_API UsdGenToken UsdGenFindToken(std::string_view text) noexcept;
+USDGEN_API UsdGenToken UsdGenInternToken(std::string_view text);
+USDGEN_API UsdGenToken UsdGenFindToken(std::string_view text) noexcept;
 
 /// Host token interop (tests only; tests/utils/pxrInterop.h specialises it).
 /// A specialisation has value = true, static UsdGenToken In(H const &) and
@@ -50,7 +50,7 @@ public:
     char const *GetText() const noexcept { return _rep ? _rep->text : ""; }
     char const *data() const noexcept { return GetText(); }
     /// The empty string when empty.
-    USDGEN_CORE_API std::string const &GetString() const noexcept;
+    USDGEN_API std::string const &GetString() const noexcept;
     std::string_view View() const noexcept
     {
         return _rep ? std::string_view(_rep->text, _rep->size) : std::string_view();
@@ -88,8 +88,8 @@ public:
     struct HashFunctor { size_t operator()(UsdGenToken t) const noexcept { return t.Hash(); } };
 
 private:
-    friend USDGEN_CORE_API UsdGenToken UsdGenInternToken(std::string_view);
-    friend USDGEN_CORE_API UsdGenToken UsdGenFindToken(std::string_view) noexcept;
+    friend USDGEN_API UsdGenToken UsdGenInternToken(std::string_view);
+    friend USDGEN_API UsdGenToken UsdGenFindToken(std::string_view) noexcept;
     constexpr explicit UsdGenToken(UsdGenTokenRep const *r) noexcept : _rep(r) {}
     UsdGenTokenRep const *_rep = nullptr;
 };
