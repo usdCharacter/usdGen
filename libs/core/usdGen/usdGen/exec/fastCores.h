@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include "usdGen/api/export.h"
+
 #include <vector>
 
 namespace usdGen {
@@ -19,11 +21,11 @@ namespace usdGen {
 // The process-allowed max-frequency core count where the topology
 // qualifies (heterogeneous, readable, not disabled), else 0. Sizing a
 // worker set to this count engages pinning by construction.
-int FastCoreCount();
+USDGEN_INTERNAL_API int FastCoreCount();
 
 // The ordered process-allowed max-frequency CPU ids where the topology
 // qualifies and the fast count covers `workers`, else empty (declines
 // rather than oversubscribing).
-std::vector<int> FastCoreList(int workers);
+USDGEN_INTERNAL_API std::vector<int> FastCoreList(int workers);
 
 } // namespace usdGen
