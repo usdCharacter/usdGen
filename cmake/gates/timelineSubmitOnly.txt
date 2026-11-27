@@ -16,10 +16,3 @@ libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/styleVkPipeline.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/topologyPipeline.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/widthBlendPipeline.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/widthPipeline.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkApply.cpp 4
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkContext.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkEvaluate.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkPack.cpp 2
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/mapVkImage.cpp 2
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/rootFrameGatherPipeline.cpp 2
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/rootFramesPipeline.cpp 4

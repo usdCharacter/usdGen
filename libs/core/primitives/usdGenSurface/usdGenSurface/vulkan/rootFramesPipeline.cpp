@@ -8,13 +8,13 @@
 // Two-submit Begin (CUDA ValidateInput mid-Apply-sync parity):
 //   cmd1: host->compute barrier, validate dispatch (rootFramesValidate.comp,
 //         bindings 0..6, push {curves,faceCount,vertexCount,indexCount,
-//         normalsCount,normalDomain}), compute->host barrier; submitted with a
-//         private fence, waited, status read back INSIDE Begin. Any nonzero
+//         normalsCount,normalDomain}), compute->host barrier; submitted on the
+//         queue timeline, waited, status read back INSIDE Begin. Any nonzero
 //         status rejects the Begin with beginStatus and NO outputs.
 //   cmd2: fill outputs/badRoot zero, build dispatch (rootFrames.comp,
 //         bindings 0..13, push {curves,faceCount,vertexCount,indexCount,
 //         normalDomain,hasNormals}); submitted asynchronously on the
-//         candidate fence. Poll reads status + badRootCount.
+//         queue timeline. Poll checks its value, reads status + badRootCount.
 //
 // Authored-frames path (authoredFrames non-null): no dispatch at all. The
 // host validates every matrix with the verbatim CUDA ValidAuthoredFrame port
@@ -226,14 +226,12 @@ struct RootFramesPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> status, badRoot;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE, proofFence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the build submit
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX, badRootCount = 0, curves = 0;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
-        if (proofFence) vkDestroyFence(d, proofFence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -274,7 +272,7 @@ VkResult RootFramesPipeline::Candidate::Poll(uint32_t* semanticStatus, uint32_t*
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
         auto d = s.native->context->device();
-        VkResult r = vkGetFenceStatus(d, s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         void* data = nullptr;
@@ -309,6 +307,8 @@ std::unique_ptr<RootFramesPipeline::Candidate> RootFramesPipeline::Begin(
     if (beginStatus) *beginStatus = RootFramesBeginStatus::Ok;
     auto context = info.restVerts ? info.restVerts->context() : nullptr;
     if (!context || context != native_->context) return {};
+    VulkanQueueTimeline* const timeline = context->computeTimeline();
+    if (!timeline) return {};
 
     // ---- Host shape contract (buffer-size contracts per shader header) ----
     auto check = [&](std::shared_ptr<ChargedBuffer const> const& b, VkDeviceSize bytes) {
@@ -539,15 +539,11 @@ std::unique_ptr<RootFramesPipeline::Candidate> RootFramesPipeline::Begin(
             r = vkEndCommandBuffer(commands[0]);
         }
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkFenceCreateInfo fi{}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &s->proofFence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1; submit.pCommandBuffers = &commands[0];
         s->pending = true; // proof owns the same allocations as the final submit
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->proofFence);
-        if (r == VK_SUCCESS)
-            r = vkWaitForFences(d, 1, &s->proofFence, VK_TRUE, 10000000000ull);
+        // Begin's synchronous contract: the build reads indices only the
+        // validate pass proved in range, so wait on the proof's value.
+        uint64_t const proofValue = timeline->Submit(&commands[0], 1, &r);
+        if (proofValue) r = timeline->Wait(proofValue, 10000000000ull);
         if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
         s->pending = false;
         uint32_t semantic = 0;
@@ -559,8 +555,6 @@ std::unique_ptr<RootFramesPipeline::Candidate> RootFramesPipeline::Begin(
                 vkUnmapMemory(d, s->status->memory());
             }
         }
-        vkDestroyFence(d, s->proofFence, nullptr);
-        s->proofFence = VK_NULL_HANDLE;
         if (r != VK_SUCCESS) { finish(r); return {}; }
         if (semantic != 0) return reject(RootFramesBeginStatus(semantic));
 
@@ -597,8 +591,6 @@ std::unique_ptr<RootFramesPipeline::Candidate> RootFramesPipeline::Begin(
             r = vkEndCommandBuffer(commands[1]);
         }
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try { admitted = beforeSubmit(); }
@@ -606,9 +598,8 @@ std::unique_ptr<RootFramesPipeline::Candidate> RootFramesPipeline::Begin(
             if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
         }
         s->pending = true;  // arm retention before native submission
-        submit.pCommandBuffers = &commands[1];
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+        s->value = timeline->Submit(&commands[1], 1, &r);
+        if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
         finish(VK_SUCCESS); return candidate;
     } catch (std::bad_alloc const&) { finish(VK_ERROR_OUT_OF_HOST_MEMORY); return {}; }
 }
