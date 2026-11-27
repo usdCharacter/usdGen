@@ -271,6 +271,21 @@ add_test(NAME testUsdGenHydraNoCurvesInclude
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenHydraNoCurvesInclude PROPERTIES LABELS "T0;build;gate;gate:hydra")
 
+# Gate 9a (step 9.3): the engine (libs/core/usdGen) carries no Hydra
+# vocabulary (presentation, primvar and curve-basis words). "pinned" is
+# matched as a literal and Material only as a word: the epoch's pinned slots
+# and the inputs' materialize hook are not Hydra words. Empty baseline.
+add_test(NAME testUsdGenNoHydraInEngine
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-hydra-in-engine
+        -DDIRS=libs/core/usdGen
+        "-DPATTERN=primvars|displayColor|[Pp]urpose|[Vv]isibility([^(]|$)|(^|[^A-Za-z])[Mm]aterial([^A-Za-z]|$)|allPurpose|scalpShadow|hairT|hairId|bakeColor|velocities|Hd[A-Z]|[Ss]torm|bspline|catmullRom|\"pinned\"|nonperiodic|cubic"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noHydraInEngine.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoHydraInEngine PROPERTIES LABELS "T0;build;gate;gate:hydra")
+
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
 target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)

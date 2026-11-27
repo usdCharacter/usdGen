@@ -16,9 +16,9 @@ enum class UsdGenPublishRole : uint8_t {
     Scene = 0,             // the node itself
     Tile,                  // tile_NNNN ('index' is the tile id)
     ScalpShadow,           // the scalp-shadow cap
-    ScalpShadowMaterial,   // its synthetic material
-    PreviewMaterial,       // usdGen:preview material, lit
-    PreviewMaterialFlat,   // usdGen:preview material, flat
+    ScalpShadowMaterial,   // its synthetic shader
+    PreviewMaterial,       // usdGen:preview shader, lit
+    PreviewMaterialFlat,   // usdGen:preview shader, flat
     Instancer              // inst_NNNN (M6)
 };
 

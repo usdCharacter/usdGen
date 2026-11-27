@@ -42,7 +42,8 @@ public:
 
 struct UsdGenPublishDesc {
     UsdGenPublishKind kind = UsdGenPublishKind::None;
-    UsdGenToken type, basis, wrap;          // Lines: "cubic", "bspline", "pinned"
+    // Lines: the host's type, basis and wrap words.
+    UsdGenToken type, basis, wrap;
     UsdGenToken materialClass;              // "hair"
     /// Optional hooks, called from the publisher's build on the cook lane.
     UsdGenPublishHookState *(*createState)() = nullptr;
