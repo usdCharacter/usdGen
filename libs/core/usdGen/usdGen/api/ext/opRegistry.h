@@ -79,9 +79,9 @@ public:
 
 private:
     friend class UsdGenRegistrar;
-    friend void UsdGenFreezeRegistries();
-    friend UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;
-    friend UsdGenOpRegistry &UsdGenBuildOpRegistry(char const *manifest);
+    friend void ::usdGen::UsdGenFreezeRegistries();
+    friend UsdGenOpRegistry &::usdGen::UsdGenMutableOpRegistry() noexcept;
+    friend UsdGenOpRegistry &::usdGen::UsdGenBuildOpRegistry(char const *manifest);
     explicit UsdGenOpRegistry(char const *manifest);
     UsdGenOpRecord _records[kUsdGenMaxOps];
     uint32_t _count = 0;

@@ -125,7 +125,7 @@ protected:
     virtual ~UsdGenRefCounted() = default;
 
 private:
-    friend void UsdGenRefCountedDestroy(UsdGenRefCounted const *) noexcept;
+    friend void ::usdGen::UsdGenRefCountedDestroy(UsdGenRefCounted const *) noexcept;
     mutable std::atomic<uint32_t> refs_{0};
 };
 

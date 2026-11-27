@@ -41,7 +41,7 @@ public:
     /// unregistered type, a missing build, or after freeze.
     bool RegisterPublisher(UsdGenPublisherDef const &);
 private:
-    friend bool UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
+    friend bool ::usdGen::UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
     friend class UsdGenOpRegistry;
     explicit UsdGenRegistrar(UsdGenOpRegistry &ops) noexcept : _ops(&ops) {}
     UsdGenOpRegistry *_ops;

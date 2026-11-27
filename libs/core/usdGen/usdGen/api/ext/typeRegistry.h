@@ -76,8 +76,8 @@ public:
     }
 private:
     friend class UsdGenRegistrar;
-    friend void UsdGenFreezeRegistries();
-    friend UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
+    friend void ::usdGen::UsdGenFreezeRegistries();
+    friend UsdGenTypeRegistry &::usdGen::UsdGenMutableTypeRegistry() noexcept;
     UsdGenTypeRegistry();
     UsdGenTypeDef _defs[kUsdGenMaxTypes];
     UsdGenToken _names[kUsdGenMaxTypes];

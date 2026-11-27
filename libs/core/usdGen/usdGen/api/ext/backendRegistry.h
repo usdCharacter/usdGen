@@ -34,8 +34,8 @@ public:
     UsdGenSpan<const UsdGenOpId> Ops(UsdGenBackendId) const noexcept;
 private:
     friend class UsdGenRegistrar;
-    friend void UsdGenFreezeRegistries();
-    friend UsdGenBackendRegistry &UsdGenMutableBackendRegistry() noexcept;
+    friend void ::usdGen::UsdGenFreezeRegistries();
+    friend UsdGenBackendRegistry &::usdGen::UsdGenMutableBackendRegistry() noexcept;
     UsdGenBackendRegistry();
     UsdGenKernelDef _kernels[kUsdGenMaxBackends][kUsdGenMaxOps];
     bool _present[kUsdGenMaxBackends][kUsdGenMaxOps] = {};
