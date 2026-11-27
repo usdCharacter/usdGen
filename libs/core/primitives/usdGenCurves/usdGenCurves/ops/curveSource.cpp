@@ -12,9 +12,6 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/tf/diagnostic.h"
-#include "pxr/base/tf/getenv.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,7 +19,6 @@
 #include <limits>
 #include <vector>
 #include "usdGen/registries/registrar.h"
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -95,7 +91,7 @@ bool BuildAuthoredPlanes(UsdGenCaptureContext const &ctx,
    try {
       for (UsdGenAuthoredPlaneView const &authored : curveSet->authoredPlanes) {
          size_t elements = 0;
-         TfToken interpolation;
+         UsdGenToken interpolation;
          std::vector<UsdGenPlane> *destination = extraCv;
          switch (authored.domain) {
          case UsdGenAuthoredPlaneDomain::Point:
@@ -279,18 +275,18 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
       } else {
          UsdGenCurveSetInputView const foundView = UsdGenCurveSetInputView::Of(*foundRecord);
          UsdGenCurveSetInputView const *found = &foundView;
-         auto token = [&](char const *key, TfToken const &value) {
+         auto token = [&](char const *key, UsdGenToken const &value) {
             std::string const text = value.GetString();
             bytes(key, std::strlen(key));
             bytes(text.data(), text.size());
          };
-         auto vec3 = [&](char const *key, UsdGenSpan<const GfVec3f> values) {
+         auto vec3 = [&](char const *key, UsdGenSpan<const UsdGenVec3f> values) {
             bytes(key, std::strlen(key)); feed("size", values.size());
-            for (GfVec3f const &v : values) bytes(&v[0], 3 * sizeof(float));
+            for (UsdGenVec3f const &v : values) bytes(&v[0], 3 * sizeof(float));
          };
-         auto vec2 = [&](char const *key, UsdGenSpan<const GfVec2f> values) {
+         auto vec2 = [&](char const *key, UsdGenSpan<const UsdGenVec2f> values) {
             bytes(key, std::strlen(key)); feed("size", values.size());
-            for (GfVec2f const &v : values) bytes(&v[0], 2 * sizeof(float));
+            for (UsdGenVec2f const &v : values) bytes(&v[0], 2 * sizeof(float));
          };
          token("curveRole", found->curveRole);
          token("type", found->type); token("basis", found->basis); token("wrap", found->wrap);
@@ -301,13 +297,13 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          bytes(found->frozenEpoch.data(), found->frozenEpoch.size());
          // Ordinary C3 points stay source-local. Root binding consumes only
          // the surface-to-source transform, not shared ancestor motion.
-         TfToken const &none = Record().Token(kTokNone);
+         UsdGenToken const &none = Record().Token(kTokNone);
          bool const cageMode = p->GetToken(kInterpolationMode, none) != none;
          UsdGenInputRecord const *bound = p->node->surfaces.size() == 1
              ? UsdGenFindSurfaceInput(*ctx.desc, p->node->surfaces.front())
              : nullptr;
          if (!cageMode && bound) {
-            GfMatrix4d const relative =
+            UsdGenMatrix4d const relative =
                 UsdGenSurfaceInputView::Of(*bound).worldMatrix * found->worldMatrix.GetInverse();
             bytes(relative.GetArray(), 16 * sizeof(double));
             bool validWorld = std::isfinite(found->worldMatrix.GetDeterminant()) &&
@@ -328,7 +324,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          if (!found->curveId.empty()) bytes(found->curveId.cdata(), found->curveId.size() * sizeof(uint64_t));
          vec2("skinPrimUv", found->skinPrimUv);
          feed("rootFrame", found->rootFrame.size());
-         for (GfMatrix4d const &frame : found->rootFrame)
+         for (UsdGenMatrix4d const &frame : found->rootFrame)
             bytes(&frame[0][0], 16 * sizeof(double));
          feed("authoredPlanes", found->authoredPlanes.size());
          for (UsdGenAuthoredPlaneView const &plane : found->authoredPlanes) {
@@ -358,9 +354,9 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
                feed(key, values.size());
                if (!values.empty()) bytes(values.cdata(), values.size() * sizeof(float));
             };
-            auto vec3i = [&](char const *key, UsdGenSpan<const GfVec3i> values) {
+            auto vec3i = [&](char const *key, UsdGenSpan<const UsdGenVec3i> values) {
                feed(key, values.size());
-               for (GfVec3i const &value : values)
+               for (UsdGenVec3i const &value : values)
                   bytes(&value[0], 3 * sizeof(int));
             };
             ints("cageOwnerIds", cage.ownerIds);
@@ -393,7 +389,7 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          // even on a static rest snapshot. Root capture reads the rest data
          // below, so playback must not regenerate a rest-bound source.
          // Surface-cage interpolation has additional surface dependencies.
-         TfToken const &none = Record().Token(kTokNone);
+         UsdGenToken const &none = Record().Token(kTokNone);
          if (p->GetToken(kInterpolationMode, none) != none)
             feed("surfaceGeneration", found->surfaceGeneration);
          feed("restFromCurrentPoints", found->restFromCurrentPoints);
@@ -405,10 +401,10 @@ UsdGenEpoch UsdGenCurveSourceOp::CaptureDigest(UsdGenCaptureContext const &ctx) 
          if (!found->faceVertexIndices.empty())
             bytes(found->faceVertexIndices.cdata(), found->faceVertexIndices.size() * sizeof(int));
          feed("surfaceRestPoints", found->restPoints.size());
-         for (GfVec3f const &point : found->restPoints)
+         for (UsdGenVec3f const &point : found->restPoints)
             bytes(&point[0], 3 * sizeof(float));
          feed("surfaceRestNormals", found->restNormals.size());
-         for (GfVec3f const &normal : found->restNormals)
+         for (UsdGenVec3f const &normal : found->restNormals)
             bytes(&normal[0], 3 * sizeof(float));
          // Ordinary C3 already hashes the relative binding transform above.
          if (p->GetToken(kInterpolationMode, none) != none ||
@@ -440,7 +436,7 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
                                   UsdGenCapture *out,
                                   UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(in);
+    (void)in;
    if (!ctx.desc) {
       if (diag) diag->Error("UsdGenCurveSource::Capture: no graph description");
       return false;
@@ -472,8 +468,8 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
                                "' was not found");
          return false;
       }
-      TfToken const &none = Record().Token(kTokNone);
-      TfToken const &interpolationMode = ctx.params
+      UsdGenToken const &none = Record().Token(kTokNone);
+      UsdGenToken const &interpolationMode = ctx.params
           ? ctx.params->GetToken(kInterpolationMode, none)
           : none;
       if (interpolationMode != none &&
@@ -628,7 +624,7 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
       int const srcCount = surf.faceVertexCounts[c];
       int const n = resampleTo > 0 ? resampleTo : srcCount;
       for (int i = 0; i < n; ++i) {
-         GfVec3f p(0.0f);
+         UsdGenVec3f p(0.0f);
          if (srcCount > 0) {
             // ragged: source CV i verbatim (t == i, f == 0); uniform: walk
             // the source polyline at an even index step (linear resample).
@@ -639,8 +635,8 @@ bool UsdGenCurveSourceOp::Capture(UsdGenCaptureContext const &ctx,
             if (j > srcCount - 1) j = srcCount - 1;
             int const j2 = std::min(j + 1, srcCount - 1);
             float const f = float(t - double(j));
-            GfVec3f const &a = surf.restPoints[srcBase + size_t(j)];
-            GfVec3f const &b = surf.restPoints[srcBase + size_t(j2)];
+            UsdGenVec3f const &a = surf.restPoints[srcBase + size_t(j)];
+            UsdGenVec3f const &b = surf.restPoints[srcBase + size_t(j2)];
             p = a + f * (b - a);
          }
          buf.px[dst] = p[0];

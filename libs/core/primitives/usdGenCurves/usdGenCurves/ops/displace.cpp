@@ -23,8 +23,7 @@
 
 #include "usdGen/ops/opUtil.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,7 +32,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -85,7 +83,7 @@ uint32_t UsdGenDisplaceOp::PlanesTouched() const
 
 bool UsdGenDisplaceOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const *unknown = nullptr;
+    UsdGenToken const *unknown = nullptr;
     int const mode = UsdGenStylerEnum(params, kMode, kModeHeight, &unknown);
     if (mode < 0) {
         if (diag) diag->Error("UsdGenDisplace: unknown usdGen:mode '" + unknown->GetString() + "'");
@@ -131,7 +129,7 @@ bool UsdGenDisplaceOp::Capture(
     UsdGenDiagnostics *diag)
 {
     UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
-    TF_UNUSED(out);
+    (void)out;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
     // Literals and the mode token are validated here (the CPU lane never
@@ -183,7 +181,7 @@ void UsdGenDisplaceOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(captureIn);
+    (void)captureIn;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const mapField =
         p ? p->GetScalarField(kMap, 0.0) : UsdGenParamField{0.0};
@@ -213,7 +211,7 @@ void UsdGenDisplaceOp::Evaluate(
         // The map sample is per strand root (04 §3: sampled per root); the
         // remaining controls vary per CV.
         float const sample = static_cast<float>(mapField.Value(curve, cvBase + g));
-        GfVec3f const N = rootN ? rootN[c] : GfVec3f(0.0f, 0.0f, 1.0f);
+        UsdGenVec3f const N = rootN ? rootN[c] : UsdGenVec3f(0.0f, 0.0f, 1.0f);
         for (size_t i = 0; i < n; ++i) {
             size_t const o = g + i;
             size_t const cv = cvBase + o;

@@ -17,8 +17,7 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,7 +26,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -37,7 +35,7 @@ namespace {
 
 struct UsdGenDirectionCapture final : public UsdGenCapture
 {
-    VtVec3fArray sourceDir;   // per strand, nearest-sample tangent; empty when unbound
+    UsdGenVec3fArray sourceDir;   // per strand, nearest-sample tangent; empty when unbound
     uint64_t upstreamTopologyVersion = 0;
     uint64_t upstreamValueVersion = 0;
     uint32_t upstreamCurves = 0;
@@ -66,17 +64,17 @@ using CloudIndex = nanoflann::KDTreeSingleIndexAdaptor<
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetValue(name, VtValue());
-        v.IsHolding<VtVec2fArray>()) {
-        return v.UncheckedGet<VtVec2fArray>();
+    if (UsdGenValue const v = p->GetValue(name, UsdGenValue());
+        v.IsHolding<UsdGenVec2fArray>()) {
+        return v.UncheckedGet<UsdGenVec2fArray>();
     }
     return {};
 }
 
-inline GfVec3f Normalized(GfVec3f v, GfVec3f const &fallback)
+inline UsdGenVec3f Normalized(UsdGenVec3f v, UsdGenVec3f const &fallback)
 {
     float const l = v.GetLength();
     return l > 1e-12f ? v / l : fallback;
@@ -86,22 +84,22 @@ constexpr float kPi = 3.14159265358979323846f;
 
 // Rodrigues rotation of v about axis by radians. A zero-length axis is the
 // identity (never a NaN); length is preserved up to float rounding.
-inline GfVec3f RotateAxisAngle(GfVec3f const &v, GfVec3f const &axis, float radians)
+inline UsdGenVec3f RotateAxisAngle(UsdGenVec3f const &v, UsdGenVec3f const &axis, float radians)
 {
     float const l = axis.GetLength();
     if (!(l > 1e-12f) || radians == 0.0f) return v;
-    GfVec3f const a = axis / l;
+    UsdGenVec3f const a = axis / l;
     float const c = std::cos(radians), s = std::sin(radians);
-    GfVec3f const cross(a[1] * v[2] - a[2] * v[1],
+    UsdGenVec3f const cross(a[1] * v[2] - a[2] * v[1],
                         a[2] * v[0] - a[0] * v[2],
                         a[0] * v[1] - a[1] * v[0]);
-    float const t = 1.0f - c, d = GfDot(a, v);
-    return GfVec3f(v[0] * c + cross[0] * s + a[0] * d * t,
+    float const t = 1.0f - c, d = UsdGenDot(a, v);
+    return UsdGenVec3f(v[0] * c + cross[0] * s + a[0] * d * t,
                    v[1] * c + cross[1] * s + a[1] * d * t,
                    v[2] * c + cross[2] * s + a[2] * d * t);
 }
 
-inline GfVec3f RotateAboutAxisDeg(GfVec3f const &v, GfVec3f const &axis, float degrees)
+inline UsdGenVec3f RotateAboutAxisDeg(UsdGenVec3f const &v, UsdGenVec3f const &axis, float degrees)
 {
     if (degrees == 0.0f) return v;
     return RotateAxisAngle(v, axis, degrees * (kPi / 180.0f));
@@ -109,20 +107,20 @@ inline GfVec3f RotateAboutAxisDeg(GfVec3f const &v, GfVec3f const &axis, float d
 
 // Axis and angle of the minimal rotation taking unit a onto unit b. Aligned
 // vectors give angle 0; opposed vectors pick a perpendicular axis and pi.
-inline void RotationFromTo(GfVec3f const &a, GfVec3f const &b,
-                           GfVec3f *axis, float *angle)
+inline void RotationFromTo(UsdGenVec3f const &a, UsdGenVec3f const &b,
+                           UsdGenVec3f *axis, float *angle)
 {
-    GfVec3f const c = GfCross(a, b);
-    float const s = c.GetLength(), d = GfDot(a, b);
+    UsdGenVec3f const c = UsdGenCross(a, b);
+    float const s = c.GetLength(), d = UsdGenDot(a, b);
     if (s < 1e-9f) {
         if (d > 0.0f) {
-            *axis = GfVec3f(1.0f, 0.0f, 0.0f);
+            *axis = UsdGenVec3f(1.0f, 0.0f, 0.0f);
             *angle = 0.0f;
             return;
         }
         *axis = std::fabs(a[0]) < 0.9f
-            ? Normalized(GfCross(a, GfVec3f(1.0f, 0.0f, 0.0f)), GfVec3f(0.0f, 1.0f, 0.0f))
-            : Normalized(GfCross(a, GfVec3f(0.0f, 1.0f, 0.0f)), GfVec3f(1.0f, 0.0f, 0.0f));
+            ? Normalized(UsdGenCross(a, UsdGenVec3f(1.0f, 0.0f, 0.0f)), UsdGenVec3f(0.0f, 1.0f, 0.0f))
+            : Normalized(UsdGenCross(a, UsdGenVec3f(0.0f, 1.0f, 0.0f)), UsdGenVec3f(1.0f, 0.0f, 0.0f));
         *angle = kPi;
         return;
     }
@@ -131,12 +129,12 @@ inline void RotationFromTo(GfVec3f const &a, GfVec3f const &b,
 }
 
 // v rotated by `amount` (clamped to [0,1]) of the minimal from->to angle.
-inline GfVec3f RotateToward(GfVec3f const &v, GfVec3f const &from,
-                            GfVec3f const &to, float amount)
+inline UsdGenVec3f RotateToward(UsdGenVec3f const &v, UsdGenVec3f const &from,
+                            UsdGenVec3f const &to, float amount)
 {
     if (amount <= 0.0f) return v;
     if (amount > 1.0f) amount = 1.0f;
-    GfVec3f axis(1.0f, 0.0f, 0.0f);
+    UsdGenVec3f axis(1.0f, 0.0f, 0.0f);
     float angle = 0.0f;
     RotationFromTo(from, to, &axis, &angle);
     if (angle == 0.0f) return v;
@@ -152,7 +150,7 @@ struct Mat3 {
         return r;
     }
     // The Rodrigues matrix: (FromAxisAngle(a, t) * v) == RotateAxisAngle(v, a, t).
-    static Mat3 FromAxisAngle(GfVec3f const &a, float radians)
+    static Mat3 FromAxisAngle(UsdGenVec3f const &a, float radians)
     {
         float const c = std::cos(radians), s = std::sin(radians), t = 1.0f - c;
         float const x = a[0], y = a[1], z = a[2];
@@ -172,9 +170,9 @@ struct Mat3 {
                     m[i][2] * b.m[2][j];
         return r;
     }
-    GfVec3f operator*(GfVec3f const &v) const
+    UsdGenVec3f operator*(UsdGenVec3f const &v) const
     {
-        return GfVec3f(m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+        return UsdGenVec3f(m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
                        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
                        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2]);
     }
@@ -184,11 +182,11 @@ struct Mat3 {
 // lift, then the followSkinContour blend toward the tangent-plane projection.
 // The result is always unit: a zero-length base direction falls back to the
 // root normal (the strand then combs toward N rather than emitting NaNs).
-inline GfVec3f ShapeTarget(GfVec3f d, GfVec3f const &T, GfVec3f const &B,
-                           GfVec3f const &N, float tiltU, float tiltV,
+inline UsdGenVec3f ShapeTarget(UsdGenVec3f d, UsdGenVec3f const &T, UsdGenVec3f const &B,
+                           UsdGenVec3f const &N, float tiltU, float tiltV,
                            float tiltN, float aroundN, float lift, float follow)
 {
-    GfVec3f const fallback = Normalized(N, GfVec3f(0.0f, 0.0f, 1.0f));
+    UsdGenVec3f const fallback = Normalized(N, UsdGenVec3f(0.0f, 0.0f, 1.0f));
     d = Normalized(d, fallback);
     if (tiltU != 0.0f) d = RotateAboutAxisDeg(d, T, tiltU);
     if (tiltV != 0.0f) d = RotateAboutAxisDeg(d, B, tiltV);
@@ -197,7 +195,7 @@ inline GfVec3f ShapeTarget(GfVec3f d, GfVec3f const &T, GfVec3f const &B,
     if (lift != 0.0f) d = RotateAboutAxisDeg(d, B, lift);
     d = Normalized(d, fallback);
     if (follow != 0.0f) {
-        GfVec3f const c = d - fallback * GfDot(d, fallback);
+        UsdGenVec3f const c = d - fallback * UsdGenDot(d, fallback);
         if (c.GetLength() > 1e-12f)
             d = Normalized(d + (c / c.GetLength() - d) * follow, d);
     }
@@ -248,7 +246,7 @@ uint32_t UsdGenDirectionOp::PlanesTouched() const
 
 bool UsdGenDirectionOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const *unknown = nullptr;
+    UsdGenToken const *unknown = nullptr;
     if (UsdGenStylerEnum(params, kMode, kModeRigid, &unknown) < 0) {
         if (diag) diag->Error("UsdGenDirection: unknown usdGen:mode '" + unknown->GetString() + "'");
         return false;
@@ -284,25 +282,25 @@ bool UsdGenDirectionOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *d
             diag->Error("UsdGenDirection: usdGen:followSkinContour must be finite and in [0, 1]");
         return false;
     }
-    VtValue const direction = params.GetValue(kDirection, VtValue());
-    if (!direction.IsEmpty() && !direction.IsHolding<GfVec3f>()) {
+    UsdGenValue const direction = params.GetValue(kDirection, UsdGenValue());
+    if (!direction.IsEmpty() && !direction.IsHolding<UsdGenVec3f>()) {
         if (diag) diag->Error("UsdGenDirection: usdGen:direction must be vector3f");
         return false;
     }
-    if (direction.IsHolding<GfVec3f>()) {
-        GfVec3f const v = direction.UncheckedGet<GfVec3f>();
+    if (direction.IsHolding<UsdGenVec3f>()) {
+        UsdGenVec3f const v = direction.UncheckedGet<UsdGenVec3f>();
         if (!Finite(v[0]) || !Finite(v[1]) || !Finite(v[2])) {
             if (diag) diag->Error("UsdGenDirection: usdGen:direction must be finite");
             return false;
         }
     }
-    VtValue const knots = params.GetValue(kKnots, VtValue());
-    if (!knots.IsEmpty() && !knots.IsHolding<VtVec2fArray>()) {
+    UsdGenValue const knots = params.GetValue(kKnots, UsdGenValue());
+    if (!knots.IsEmpty() && !knots.IsHolding<UsdGenVec2fArray>()) {
         if (diag) diag->Error("UsdGenDirection: usdGen:direction:knots must be float2[]");
         return false;
     }
-    if (knots.IsHolding<VtVec2fArray>()) {
-        for (GfVec2f const &knot : knots.UncheckedGet<VtVec2fArray>()) {
+    if (knots.IsHolding<UsdGenVec2fArray>()) {
+        for (UsdGenVec2f const &knot : knots.UncheckedGet<UsdGenVec2fArray>()) {
             if (!Finite(knot[0]) || !Finite(knot[1])) {
                 if (diag) diag->Error("UsdGenDirection: usdGen:direction:knots must be finite");
                 return false;
@@ -417,15 +415,15 @@ bool UsdGenDirectionOp::Capture(
         size_t const first = guideSpans[m], count = guideSpans[m + 1] - first;
         for (size_t j = 0; j < count; ++j) {
             size_t const s = first + j;
-            GfVec3f const pos = opUtil::RestPoint(guides, s);
+            UsdGenVec3f const pos = opUtil::RestPoint(guides, s);
             cloud.points[s * 3] = pos[0];
             cloud.points[s * 3 + 1] = pos[1];
             cloud.points[s * 3 + 2] = pos[2];
             size_t const a = first + (j > 0 ? j - 1 : 0);
             size_t const b = first + (j + 1 < count ? j + 1 : j);
-            GfVec3f t = opUtil::RestPoint(guides, b) - opUtil::RestPoint(guides, a);
+            UsdGenVec3f t = opUtil::RestPoint(guides, b) - opUtil::RestPoint(guides, a);
             float const l = t.GetLength();
-            if (l <= 1e-12f) t = GfVec3f(0.0f, 1.0f, 0.0f);
+            if (l <= 1e-12f) t = UsdGenVec3f(0.0f, 1.0f, 0.0f);
             else t /= l;
             tangents[s * 3] = t[0];
             tangents[s * 3 + 1] = t[1];
@@ -435,13 +433,13 @@ bool UsdGenDirectionOp::Capture(
     CloudIndex index(3, cloud, nanoflann::KDTreeSingleIndexAdaptorParams(10));
     cap.sourceDir.resize(R);
     for (size_t c = 0; c < R; ++c) {
-        GfVec3f const rootPos = opUtil::RestPoint(upstream, spans[c]);
+        UsdGenVec3f const rootPos = opUtil::RestPoint(upstream, spans[c]);
         float const query[3] = {rootPos[0], rootPos[1], rootPos[2]};
         uint32_t found = 0;
         float distSq = 0.0f;
         if (!index.knnSearch(query, 1, &found, &distSq) || found >= nSamples)
             return fail("direction:source query failed");
-        cap.sourceDir[c] = GfVec3f(tangents[size_t(found) * 3],
+        cap.sourceDir[c] = UsdGenVec3f(tangents[size_t(found) * 3],
                                    tangents[size_t(found) * 3 + 1],
                                    tangents[size_t(found) * 3 + 2]);
     }
@@ -465,12 +463,12 @@ void UsdGenDirectionOp::Evaluate(
         p ? p->GetScalarField(kLift, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
         p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
-    GfVec3f litDirection(0.0f, 1.0f, 0.0f);
+    UsdGenVec3f litDirection(0.0f, 1.0f, 0.0f);
     double tiltU = 0.0, tiltV = 0.0, tiltN = 0.0, aroundN = 0.0, follow = 0.0;
     bool perSegment = false;
     if (p) {
-        VtValue const v = p->GetValue(kDirection, VtValue());
-        if (v.IsHolding<GfVec3f>()) litDirection = v.UncheckedGet<GfVec3f>();
+        UsdGenValue const v = p->GetValue(kDirection, UsdGenValue());
+        if (v.IsHolding<UsdGenVec3f>()) litDirection = v.UncheckedGet<UsdGenVec3f>();
         tiltU = p->GetDouble(kTiltU, 0.0);
         tiltV = p->GetDouble(kTiltV, 0.0);
         tiltN = p->GetDouble(kTiltN, 0.0);
@@ -480,7 +478,7 @@ void UsdGenDirectionOp::Evaluate(
     }
     bool const sourceBound = !cap.sourceDir.empty();
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, kKnots);
+    UsdGenVec2fArray const knots = ReadRampKnots(p, kKnots);
     bool const rampFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
@@ -498,7 +496,7 @@ void UsdGenDirectionOp::Evaluate(
     size_t const cvBase = view->desc ? size_t(view->desc->firstCv) : 0;
     auto const *cvOff = view->cvOffsets;
     bool const ragged = cvOff != nullptr;
-    GfVec3f const fallbackT(1.0f, 0.0f, 0.0f), fallbackB(0.0f, 1.0f, 0.0f),
+    UsdGenVec3f const fallbackT(1.0f, 0.0f, 0.0f), fallbackB(0.0f, 1.0f, 0.0f),
         fallbackN(0.0f, 0.0f, 1.0f);
 
     for (uint32_t c = 0; c < view->curveCount; ++c) {
@@ -509,20 +507,20 @@ void UsdGenDirectionOp::Evaluate(
         size_t const root = cvBase + g;
         float const amount = static_cast<float>(amountField.Value(curve, root));
         float const lift = static_cast<float>(liftField.Value(curve, root));
-        GfVec3f base;
+        UsdGenVec3f base;
         if (sourceBound && curve < cap.sourceDir.size()) {
             base = cap.sourceDir[curve];
         } else if (directionField.connected) {
-            base = GfVec3f(float(directionField.Value(curve, root, 0)),
+            base = UsdGenVec3f(float(directionField.Value(curve, root, 0)),
                            float(directionField.Value(curve, root, 1)),
                            float(directionField.Value(curve, root, 2)));
         } else {
             base = litDirection;
         }
-        GfVec3f const T = rootT ? rootT[c] : fallbackT;
-        GfVec3f const B = rootB ? rootB[c] : fallbackB;
-        GfVec3f const N = rootN ? rootN[c] : fallbackN;
-        GfVec3f const target = ShapeTarget(base, T, B, N, float(tiltU), float(tiltV),
+        UsdGenVec3f const T = rootT ? rootT[c] : fallbackT;
+        UsdGenVec3f const B = rootB ? rootB[c] : fallbackB;
+        UsdGenVec3f const N = rootN ? rootN[c] : fallbackN;
+        UsdGenVec3f const target = ShapeTarget(base, T, B, N, float(tiltU), float(tiltV),
                                            float(tiltN), float(aroundN), lift,
                                            float(follow));
         auto rampAt = [&](size_t i) {
@@ -534,7 +532,7 @@ void UsdGenDirectionOp::Evaluate(
             return std::clamp(
                 static_cast<float>(maskField.Value(curve, cvBase + g + i)), 0.0f, 1.0f);
         };
-        GfVec3f const rootPos(inPx[g], inPy[g], inPz[g]);
+        UsdGenVec3f const rootPos(inPx[g], inPy[g], inPz[g]);
         px[g] = inPx[g]; py[g] = inPy[g]; pz[g] = inPz[g];
         if (n < 2) continue;
         if (amount == 0.0f) {
@@ -547,11 +545,11 @@ void UsdGenDirectionOp::Evaluate(
             // Rigid: every CV offset turns about the root by w_i of the
             // root-segment->target angle. A zero-length root segment has no
             // frame, so the strand keeps its input shape.
-            GfVec3f const from = Normalized(
-                GfVec3f(inPx[g + 1] - inPx[g], inPy[g + 1] - inPy[g],
+            UsdGenVec3f const from = Normalized(
+                UsdGenVec3f(inPx[g + 1] - inPx[g], inPy[g + 1] - inPy[g],
                         inPz[g + 1] - inPz[g]),
-                GfVec3f(0.0f));
-            if (from == GfVec3f(0.0f)) {
+                UsdGenVec3f(0.0f));
+            if (from == UsdGenVec3f(0.0f)) {
                 for (size_t i = 1; i < n; ++i) {
                     px[g + i] = inPx[g + i];
                     py[g + i] = inPy[g + i];
@@ -566,8 +564,8 @@ void UsdGenDirectionOp::Evaluate(
                     px[o] = inPx[o]; py[o] = inPy[o]; pz[o] = inPz[o];
                     continue;
                 }
-                GfVec3f const turned = RotateToward(
-                    GfVec3f(inPx[o] - rootPos[0], inPy[o] - rootPos[1],
+                UsdGenVec3f const turned = RotateToward(
+                    UsdGenVec3f(inPx[o] - rootPos[0], inPy[o] - rootPos[1],
                             inPz[o] - rootPos[2]),
                     from, target, w);
                 px[o] = rootPos[0] + turned[0];
@@ -587,7 +585,7 @@ void UsdGenDirectionOp::Evaluate(
             float w = amount * (rK - prevR) * maskAt(k);
             prevR = rK;
             size_t const o = g + k, q = g + k + 1;
-            GfVec3f const seg(inPx[q] - inPx[o], inPy[q] - inPy[o], inPz[q] - inPz[o]);
+            UsdGenVec3f const seg(inPx[q] - inPx[o], inPy[q] - inPy[o], inPz[q] - inPz[o]);
             if (seg.GetLength() <= 1e-12f) {
                 if (identQ) {
                     px[q] = inPx[q]; py[q] = inPy[q]; pz[q] = inPz[q];
@@ -602,9 +600,9 @@ void UsdGenDirectionOp::Evaluate(
                 continue;
             }
             if (w != 0.0f) {
-                GfVec3f const d = Normalized(cumul * seg, GfVec3f(0.0f));
-                if (d != GfVec3f(0.0f)) {
-                    GfVec3f axis(1.0f, 0.0f, 0.0f);
+                UsdGenVec3f const d = Normalized(cumul * seg, UsdGenVec3f(0.0f));
+                if (d != UsdGenVec3f(0.0f)) {
+                    UsdGenVec3f axis(1.0f, 0.0f, 0.0f);
                     float angle = 0.0f;
                     RotationFromTo(d, target, &axis, &angle);
                     if (angle != 0.0f) {
@@ -613,7 +611,7 @@ void UsdGenDirectionOp::Evaluate(
                     }
                 }
             }
-            GfVec3f const turned = cumul * seg;
+            UsdGenVec3f const turned = cumul * seg;
             px[q] = px[o] + turned[0];
             py[q] = py[o] + turned[1];
             pz[q] = pz[o] + turned[2];

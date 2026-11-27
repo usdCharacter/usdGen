@@ -9,7 +9,6 @@
 #include <limits>
 #include <numeric>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -28,20 +27,20 @@ bool Finite(double v) { return std::isfinite(v); }
 
 }  // namespace
 
-bool UsdGenCollideClosestOnTriangle(GfVec3d const &p, GfVec3d const &a,
-                                    GfVec3d const &b, GfVec3d const &c,
-                                    GfVec3d *closest, double *dist2)
+bool UsdGenCollideClosestOnTriangle(UsdGenVec3d const &p, UsdGenVec3d const &a,
+                                    UsdGenVec3d const &b, UsdGenVec3d const &c,
+                                    UsdGenVec3d *closest, double *dist2)
 {
-    GfVec3d const n = GfCross(b - a, c - a);
+    UsdGenVec3d const n = UsdGenCross(b - a, c - a);
     double const len = n.GetLength();
     if (!(len > 0.0) || !Finite(len)) return false;
-    GfVec3d const ab = b - a, ac = c - a, ap = p - a;
-    double const d1 = GfDot(ab, ap), d2 = GfDot(ac, ap);
+    UsdGenVec3d const ab = b - a, ac = c - a, ap = p - a;
+    double const d1 = UsdGenDot(ab, ap), d2 = UsdGenDot(ac, ap);
     if (d1 <= 0.0 && d2 <= 0.0) {
         *closest = a;
     } else {
-        GfVec3d const bp = p - b;
-        double const d3 = GfDot(ab, bp), d4 = GfDot(ac, bp);
+        UsdGenVec3d const bp = p - b;
+        double const d3 = UsdGenDot(ab, bp), d4 = UsdGenDot(ac, bp);
         if (d3 >= 0.0 && d4 <= d3) {
             *closest = b;
         } else {
@@ -49,8 +48,8 @@ bool UsdGenCollideClosestOnTriangle(GfVec3d const &p, GfVec3d const &a,
             if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
                 *closest = a + ab * (d1 / (d1 - d3));
             } else {
-                GfVec3d const cp = p - c;
-                double const d5 = GfDot(ab, cp), d6 = GfDot(ac, cp);
+                UsdGenVec3d const cp = p - c;
+                double const d5 = UsdGenDot(ab, cp), d6 = UsdGenDot(ac, cp);
                 if (d6 >= 0.0 && d5 <= d6) {
                     *closest = c;
                 } else {
@@ -71,8 +70,8 @@ bool UsdGenCollideClosestOnTriangle(GfVec3d const &p, GfVec3d const &a,
             }
         }
     }
-    GfVec3d const d = p - *closest;
-    *dist2 = GfDot(d, d);
+    UsdGenVec3d const d = p - *closest;
+    *dist2 = UsdGenDot(d, d);
     return true;
 }
 
@@ -84,12 +83,12 @@ void UsdGenCollideExactBvh::Clear()
     _magnitude = 0.0;
 }
 
-void UsdGenCollideExactBvh::Add(GfVec3f const &a, GfVec3f const &b, GfVec3f const &c)
+void UsdGenCollideExactBvh::Add(UsdGenVec3f const &a, UsdGenVec3f const &b, UsdGenVec3f const &c)
 {
     uint32_t const sequence = _nextSequence++;
     // The scan's degeneracy test, on the same double-converted corners.
-    GfVec3d const ad(a), bd(b), cd(c);
-    double const len = GfCross(bd - ad, cd - ad).GetLength();
+    UsdGenVec3d const ad(a), bd(b), cd(c);
+    double const len = UsdGenCross(bd - ad, cd - ad).GetLength();
     if (!(len > 0.0) || !Finite(len)) return;
     Tri t;
     t.a = a;
@@ -97,7 +96,7 @@ void UsdGenCollideExactBvh::Add(GfVec3f const &a, GfVec3f const &b, GfVec3f cons
     t.c = c;
     t.sequence = sequence;
     _tris.push_back(t);
-    for (GfVec3f const *v : {&a, &b, &c})
+    for (UsdGenVec3f const *v : {&a, &b, &c})
         for (int k = 0; k < 3; ++k)
             _magnitude = std::max(_magnitude, std::fabs(double((*v)[k])));
 }
@@ -106,7 +105,7 @@ void UsdGenCollideExactBvh::Build()
 {
     _nodes.clear();
     if (_tris.empty()) return;
-    std::vector<GfVec3f> centroids(_tris.size());
+    std::vector<UsdGenVec3f> centroids(_tris.size());
     for (size_t i = 0; i < _tris.size(); ++i)
         centroids[i] = (_tris[i].a + _tris[i].b + _tris[i].c) / 3.0f;
     std::vector<uint32_t> order(_tris.size());
@@ -120,7 +119,7 @@ void UsdGenCollideExactBvh::Build()
 }
 
 int UsdGenCollideExactBvh::BuildRange(uint32_t first, uint32_t count,
-                                      std::vector<GfVec3f> const &centroids,
+                                      std::vector<UsdGenVec3f> const &centroids,
                                       std::vector<uint32_t> &order, int depth)
 {
     int const index = int(_nodes.size());
@@ -133,12 +132,12 @@ int UsdGenCollideExactBvh::BuildRange(uint32_t first, uint32_t count,
     }
     for (uint32_t i = first; i < first + count; ++i) {
         Tri const &t = _tris[order[i]];
-        for (GfVec3f const *v : {&t.a, &t.b, &t.c})
+        for (UsdGenVec3f const *v : {&t.a, &t.b, &t.c})
             for (int k = 0; k < 3; ++k) {
                 node.lo[k] = std::min(node.lo[k], (*v)[k]);
                 node.hi[k] = std::max(node.hi[k], (*v)[k]);
             }
-        GfVec3f const &cc = centroids[order[i]];
+        UsdGenVec3f const &cc = centroids[order[i]];
         for (int k = 0; k < 3; ++k) {
             clo[k] = std::min(clo[k], cc[k]);
             chi[k] = std::max(chi[k], cc[k]);
@@ -165,7 +164,7 @@ int UsdGenCollideExactBvh::BuildRange(uint32_t first, uint32_t count,
     return index;
 }
 
-UsdGenCollideHit UsdGenCollideExactBvh::Closest(GfVec3d const &p, double limitDist2) const
+UsdGenCollideHit UsdGenCollideExactBvh::Closest(UsdGenVec3d const &p, double limitDist2) const
 {
     UsdGenCollideHit best;
     if (_nodes.empty()) return best;
@@ -191,8 +190,8 @@ UsdGenCollideHit UsdGenCollideExactBvh::Closest(GfVec3d const &p, double limitDi
         if (node.left < 0) {
             for (uint32_t i = node.first; i < node.first + node.count; ++i) {
                 Tri const &t = _tris[i];
-                GfVec3d const a(t.a), b(t.b), c(t.c);
-                GfVec3d q;
+                UsdGenVec3d const a(t.a), b(t.b), c(t.c);
+                UsdGenVec3d q;
                 double d2 = 0.0;
                 if (!UsdGenCollideClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
                 if (!(d2 >= 0.0)) continue;

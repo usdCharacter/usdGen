@@ -25,9 +25,8 @@
 #include "usdGen/ops/strandUtil.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/vt/array.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -37,7 +36,6 @@
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace clumpRef {
@@ -166,7 +164,7 @@ public:
     bool Build(UsdGenCurveSetView const &guides, size_t ng, std::string *error);
     size_t Count() const { return _length.size(); }
     float Length(size_t g) const { return _length[g]; }
-    GfVec3f Sample(size_t g, float a) const;
+    UsdGenVec3f Sample(size_t g, float a) const;
 private:
     size_t _ng = 0;
     std::vector<float> _table;     // 3 * ng per guide
@@ -178,7 +176,7 @@ private:
 /// segment pointing against the running direction is bent back to
 /// 0.25 seg + 0.75 |seg| dir, and the running direction follows
 /// normalize(0.5 dir + 0.5 unit(seg)). `out` has 3n floats.
-void SynthesizeCenterCurve(GuideTable const &table, size_t g, GfVec3f const &root,
+void SynthesizeCenterCurve(GuideTable const &table, size_t g, UsdGenVec3f const &root,
                            float length, size_t n, float *out);
 
 // ---------------------------------------------------------------------------
@@ -190,7 +188,7 @@ using WeightFn = std::function<float(uint32_t c, size_t i, size_t n)>;
 
 /// Point i of a curve of n CVs read from another curve of m CVs at the
 /// same parameter (exact when n == m).
-GfVec3f SampleAtParameter(float const *p, size_t m, size_t i, size_t n);
+UsdGenVec3f SampleAtParameter(float const *p, size_t m, size_t i, size_t n);
 
 /// Saved per-strand overrides, indexed by strandIndex (`strandIndex` per
 /// curve): INT_MIN keeps the result, -1 unclumps (restore toward the
@@ -200,7 +198,7 @@ GfVec3f SampleAtParameter(float const *p, size_t m, size_t i, size_t n);
 /// the member rooted nearest the members' mean root (weight * flyaway
 /// amount for flyaways). The caller checks the saved count.
 void ApplyOverrides(std::vector<uint32_t> const &A, std::vector<int> const &strandIndex,
-                    VtIntArray const &overrides, float const *roots,
+                    UsdGenIntArray const &overrides, float const *roots,
                     std::vector<float> const &snapshot, std::vector<float> *points,
                     std::vector<uint32_t> const &spans, std::vector<int32_t> *clumpId,
                     std::vector<char> const &flyaway, float flyawayAmount,

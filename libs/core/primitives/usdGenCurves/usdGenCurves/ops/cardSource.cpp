@@ -25,7 +25,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -74,7 +73,7 @@ constexpr UsdGenPlaneDecl kOutputs[] = {
     {"strandIndex", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1},
     {"strandSeed", UsdGenPlaneRate::Uniform, UsdGenPlaneScalar::Int, 1},
 };
-VtValue const kNoValue;
+UsdGenValue const kNoValue;
 
 std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &record, void *)
 {
@@ -186,47 +185,47 @@ struct Root
     uint32_t source = 0;       // library curve (non-braid) or braid strand number
     uint32_t card = 0;         // spine curve
     uint64_t id = 0;
-    GfVec3f offset{0.0f};      // braid: root offset in the card root frame
+    UsdGenVec3f offset{0.0f};      // braid: root offset in the card root frame
 };
 
 struct Scalp
 {
     strand::TriangleBvh bvh;
-    std::vector<GfVec3f> faceNormal;   // per polygon, area-weighted fan normal
+    std::vector<UsdGenVec3f> faceNormal;   // per polygon, area-weighted fan normal
     bool valid = false;
 };
 
-void RootFrameAt(Scalp const &scalp, strand::ClosestHit const &hit, GfVec3f const &fallbackN,
-                 int *face, GfVec2f *uv, GfVec3f *T, GfVec3f *N, GfVec3f *B)
+void RootFrameAt(Scalp const &scalp, strand::ClosestHit const &hit, UsdGenVec3f const &fallbackN,
+                 int *face, UsdGenVec2f *uv, UsdGenVec3f *T, UsdGenVec3f *N, UsdGenVec3f *B)
 {
     *face = -1;
-    *uv = GfVec2f(0.0f);
-    GfVec3f n = fallbackN;
-    GfVec3f e0(1.0f, 0.0f, 0.0f), e1(0.0f, 0.0f, 1.0f);
+    *uv = UsdGenVec2f(0.0f);
+    UsdGenVec3f n = fallbackN;
+    UsdGenVec3f e0(1.0f, 0.0f, 0.0f), e1(0.0f, 0.0f, 1.0f);
     if (scalp.valid && hit.hit) {
         strand::FanTriangle const &t = scalp.bvh.Triangles()[size_t(hit.triangle)];
         *face = t.face;
         *uv = scalp.bvh.Uv(hit.triangle, hit.bary);
         n = (t.face >= 0 && size_t(t.face) < scalp.faceNormal.size())
             ? scalp.faceNormal[size_t(t.face)] : scalp.bvh.FaceNormal(hit.triangle);
-        VtVec3fArray const &P = scalp.bvh.Points();
+        UsdGenVec3fArray const &P = scalp.bvh.Points();
         e0 = P[size_t(t.v[1])] - P[size_t(t.v[0])];
         e1 = P[size_t(t.v[2])] - P[size_t(t.v[0])];
     }
     // Scatter's frame: N the face normal, T a fan edge Gram-Schmidt'd against
     // N (the other edge when the first is nearly normal), B = N x T.
-    float const d = GfDot(e0, n);
-    GfVec3f tangent = d * d > 0.81f * GfDot(e0, e0) ? e1 - n * GfDot(e1, n) : e0 - n * d;
+    float const d = UsdGenDot(e0, n);
+    UsdGenVec3f tangent = d * d > 0.81f * UsdGenDot(e0, e0) ? e1 - n * UsdGenDot(e1, n) : e0 - n * d;
     float const tl = tangent.GetLength();
     if (tl < 1e-9f) {
-        tangent = std::fabs(n[0]) > 0.9f ? GfVec3f(0.0f, 1.0f, 0.0f) : GfVec3f(1.0f, 0.0f, 0.0f);
-        tangent = strand::Normalize(tangent - n * GfDot(tangent, n), GfVec3f(1.0f, 0.0f, 0.0f));
+        tangent = std::fabs(n[0]) > 0.9f ? UsdGenVec3f(0.0f, 1.0f, 0.0f) : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+        tangent = strand::Normalize(tangent - n * UsdGenDot(tangent, n), UsdGenVec3f(1.0f, 0.0f, 0.0f));
     } else {
         tangent /= tl;
     }
     *T = tangent;
     *N = n;
-    *B = strand::Normalize(GfCross(n, tangent), GfVec3f(0.0f, 0.0f, 1.0f));
+    *B = strand::Normalize(UsdGenCross(n, tangent), UsdGenVec3f(0.0f, 0.0f, 1.0f));
 }
 
 }  // namespace
@@ -329,21 +328,21 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
         whole.subsetFaces = {};
         strand::BuildSurfaceBvh(whole, true, &scalp.bvh);
         scalp.valid = !scalp.bvh.Empty();
-        VtVec3fArray const &P = scalp.bvh.Points();
+        UsdGenVec3fArray const &P = scalp.bvh.Points();
         if (scalp.valid && !P.empty()) {
-            GfVec3f lo = P[0], hi = P[0];
-            for (GfVec3f const &p : P)
+            UsdGenVec3f lo = P[0], hi = P[0];
+            for (UsdGenVec3f const &p : P)
                 for (int k = 0; k < 3; ++k) { lo[k] = std::min(lo[k], p[k]); hi[k] = std::max(hi[k], p[k]); }
             gctx.bboxCentre = (lo + hi) * 0.5f;
             float const diagonal = (hi - lo).GetLength();
             sceneLength = std::isfinite(diagonal) && diagonal > 1e-4f ? diagonal : 1.0f;
             int maxFace = -1;
             for (strand::FanTriangle const &t : scalp.bvh.Triangles()) maxFace = std::max(maxFace, t.face);
-            scalp.faceNormal.assign(size_t(maxFace + 1), GfVec3f(0.0f));
+            scalp.faceNormal.assign(size_t(maxFace + 1), UsdGenVec3f(0.0f));
             for (strand::FanTriangle const &t : scalp.bvh.Triangles())
                 scalp.faceNormal[size_t(t.face)] +=
-                    GfCross(P[size_t(t.v[1])] - P[size_t(t.v[0])], P[size_t(t.v[2])] - P[size_t(t.v[0])]);
-            for (GfVec3f &n : scalp.faceNormal) n = strand::Normalize(n, GfVec3f(0.0f, 1.0f, 0.0f), 1e-20f);
+                    UsdGenCross(P[size_t(t.v[1])] - P[size_t(t.v[0])], P[size_t(t.v[2])] - P[size_t(t.v[0])]);
+            for (UsdGenVec3f &n : scalp.faceNormal) n = strand::Normalize(n, UsdGenVec3f(0.0f, 1.0f, 0.0f), 1e-20f);
         }
     }
     if (!scalp.valid && diag && !cards.empty())
@@ -396,7 +395,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
                 if (frac < 1.0 &&
                     double(strand::SplitMix64(id ^ 0x5a17c4ull) >> 11) * (1.0 / 9007199254740992.0) >= frac)
                     continue;
-                roots.push_back({si, curve, span.card, id, GfVec3f(0.0f)});
+                roots.push_back({si, curve, span.card, id, UsdGenVec3f(0.0f)});
             }
         }
     } else {
@@ -417,7 +416,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
             for (long q = 0; q < n; ++q) {
                 double const a = std::fmod(0.7548776662466927 * double(q) + 0.5, 1.0);
                 double const b = std::fmod(0.5698402909980532 * double(q) + 0.5, 1.0);
-                GfVec3f const offset(float((2.0 * a - 1.0) * 1.5 * W),
+                UsdGenVec3f const offset(float((2.0 * a - 1.0) * 1.5 * W),
                                      float((2.0 * b - 1.0) * ((1.0 - f) + 0.35 * f) * 0.5 * W), 0.0f);
                 roots.push_back({0, uint32_t(q), c, card::StrandId(k.id, uint64_t(q), 0), offset});
             }
@@ -428,36 +427,36 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     size_t const R = roots.size();
     size_t const n = size_t(s.cvCount);
     std::vector<float> points(R * n * 3);
-    std::vector<GfVec3f> rootT(R), rootN(R), rootB(R);
+    std::vector<UsdGenVec3f> rootT(R), rootN(R), rootB(R);
     std::vector<int> rootPrim(R, -1);
-    std::vector<GfVec2f> rootUV(R, GfVec2f(0.0f));
+    std::vector<UsdGenVec2f> rootUV(R, UsdGenVec2f(0.0f));
     float const depthScale = 1.0f - s.rootFlatten;
     UsdGenCurveSetView const &lb = library.buffer;
 
     // Braid strands: the processed spine and its root frame per card.
-    std::map<uint32_t, std::pair<std::vector<GfVec3f>, std::vector<GfVec3f>>> braidPaths;
+    std::map<uint32_t, std::pair<std::vector<UsdGenVec3f>, std::vector<UsdGenVec3f>>> braidPaths;
     if (s.braid) {
         for (Root const &r : roots) {
             if (braidPaths.count(r.card)) continue;
             card::Card const &k = cards[r.card];
-            std::vector<GfVec3f> path = card::ProcessSpine(k, gctx);
-            GfVec3f n0, s0;
+            std::vector<UsdGenVec3f> path = card::ProcessSpine(k, gctx);
+            UsdGenVec3f n0, s0;
             bool found = false;
             card::RootFrame(k, gctx, &n0, &s0, &found);
             float const a = strand::BezierProfile(0.0f, k.twistRoot, k.twistMid, k.twistMidShift,
                                                   k.twistTip) * 0.017453292f *
                 (k.MirrorSecondary() ? -1.0f : 1.0f);
             // Transported (axis1, axis2) frame along the path.
-            std::vector<GfVec3f> T;
+            std::vector<UsdGenVec3f> T;
             std::vector<float> flat(3 * path.size());
             for (size_t i = 0; i < path.size(); ++i) strand::Store(flat.data(), i, path[i]);
             strand::PolylineTangents(flat.data(), path.size(), &T);
-            GfVec3f axis1 = strand::Rotate(s0, T.empty() ? GfVec3f(0, 1, 0) : T[0], a);
-            std::vector<GfVec3f> frame(2 * path.size());
+            UsdGenVec3f axis1 = strand::Rotate(s0, T.empty() ? UsdGenVec3f(0, 1, 0) : T[0], a);
+            std::vector<UsdGenVec3f> frame(2 * path.size());
             for (size_t i = 0; i < path.size(); ++i) {
-                axis1 = strand::Normalize(axis1 - T[i] * GfDot(axis1, T[i]), axis1);
+                axis1 = strand::Normalize(axis1 - T[i] * UsdGenDot(axis1, T[i]), axis1);
                 frame[2 * i] = axis1;
-                frame[2 * i + 1] = strand::Normalize(GfCross(T[i], axis1), GfVec3f(0, 0, 1));
+                frame[2 * i + 1] = strand::Normalize(UsdGenCross(T[i], axis1), UsdGenVec3f(0, 0, 1));
             }
             braidPaths[r.card] = {std::move(path), std::move(frame)};
         }
@@ -466,14 +465,14 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     ParallelFor(ctx.dispatcher, R, [&](size_t k) {
         Root const &r = roots[k];
         std::vector<float> mapped;
-        GfVec3f mappedNormal(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f mappedNormal(0.0f, 1.0f, 0.0f);
         if (!s.braid) {
             card::Span const &span = spans[r.span];
             uint32_t const first = library.spans[r.source], count = library.spans[r.source + 1] - first;
             mapped.resize(3 * size_t(count));
             for (uint32_t i = 0; i < count; ++i) {
-                GfVec3f const q = opUtil::RestPoint(lb, first + i);
-                GfVec3f p, nrm;
+                UsdGenVec3f const q = opUtil::RestPoint(lb, first + i);
+                UsdGenVec3f p, nrm;
                 card::CardSurface(span, q[0] + 0.5f, q[1] + 0.5f, q[2] * depthScale, &p, &nrm);
                 strand::Store(mapped.data(), i, p);
                 if (i == 0) mappedNormal = nrm;
@@ -511,26 +510,26 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
     buf.totalCurves = uint32_t(R);
     buf.totalCvs = uint32_t(R * n);
     buf.topologyVersion = 1;
-    buf.px = VtFloatArray(R * n);
-    buf.py = VtFloatArray(R * n);
-    buf.pz = VtFloatArray(R * n);
-    buf.rest = VtVec3fArray(R * n);
-    buf.hairT = VtFloatArray(R * n);
-    buf.curveId = VtArray<uint64_t>(R);
-    buf.rootPrim = VtIntArray(R);
-    buf.rootUV = VtVec2fArray(R);
-    buf.rootT = VtVec3fArray(R);
-    buf.rootN = VtVec3fArray(R);
-    buf.rootB = VtVec3fArray(R);
+    buf.px = UsdGenFloatArray(R * n);
+    buf.py = UsdGenFloatArray(R * n);
+    buf.pz = UsdGenFloatArray(R * n);
+    buf.rest = UsdGenVec3fArray(R * n);
+    buf.hairT = UsdGenFloatArray(R * n);
+    buf.curveId = UsdGenCowArray<uint64_t>(R);
+    buf.rootPrim = UsdGenIntArray(R);
+    buf.rootUV = UsdGenVec2fArray(R);
+    buf.rootT = UsdGenVec3fArray(R);
+    buf.rootN = UsdGenVec3fArray(R);
+    buf.rootB = UsdGenVec3fArray(R);
     UsdGenPlane cardIndex, strandIndex, strandSeed;
     UsdGenEngineTokens const &tokens = UsdGenTokens();
     for (auto *plane : {&cardIndex, &strandIndex, &strandSeed}) {
         plane->interpolation = tokens.uniform;
         plane->type = tokens.int_;
         plane->arity = 1;
-        plane->i = VtIntArray(R);
+        plane->i = UsdGenIntArray(R);
     }
-    TfSpan<const UsdGenPlane> const declared = Record().OutputPlanes();
+    UsdGenSpan<const UsdGenPlane> const declared = Record().OutputPlanes();
     cardIndex.name = declared[kPlaneCardIndex].name;
     strandIndex.name = declared[kPlaneStrandIndex].name;
     strandSeed.name = declared[kPlaneStrandSeed].name;
@@ -542,7 +541,7 @@ bool UsdGenCardSourceOp::Capture(UsdGenCaptureContext const &ctx, UsdGenOpInputs
             buf.px[o] = p[0];
             buf.py[o] = p[1];
             buf.pz[o] = p[2];
-            buf.rest[o] = GfVec3f(p[0], p[1], p[2]);
+            buf.rest[o] = UsdGenVec3f(p[0], p[1], p[2]);
             buf.hairT[o] = n > 1 ? float(i) / float(n - 1) : 0.0f;
         }
         buf.curveId[c] = roots[k].id;

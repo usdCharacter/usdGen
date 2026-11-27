@@ -35,7 +35,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -228,12 +227,12 @@ float Knot(float u, float guideLength, float rate, bool noKnots, float fadeIn, f
 /// normal is normalize(seed x up) (up = +Y, +X when |seed.y| >= 0.95), then
 /// each point projects the previous normal off its central-difference
 /// tangent; binormal = T x N.
-void Frames(std::vector<GfVec3f> const &C, GfVec3f const &seed, std::vector<GfVec3f> *N,
-            std::vector<GfVec3f> *B)
+void Frames(std::vector<UsdGenVec3f> const &C, UsdGenVec3f const &seed, std::vector<UsdGenVec3f> *N,
+            std::vector<UsdGenVec3f> *B)
 {
     int const n = int(C.size());
-    N->assign(size_t(n), GfVec3f(1, 0, 0));
-    B->assign(size_t(n), GfVec3f(1, 0, 0));
+    N->assign(size_t(n), UsdGenVec3f(1, 0, 0));
+    B->assign(size_t(n), UsdGenVec3f(1, 0, 0));
     if (n <= 0) return;
     float const sx = seed[0], sy = seed[1], sz = seed[2];
     float upx = 0.0f, upy = 1.0f;
@@ -280,13 +279,13 @@ void Frames(std::vector<GfVec3f> const &C, GfVec3f const &seed, std::vector<GfVe
             if (bl > 1e-6f) { bx /= bl; by /= bl; bz /= bl; }
             else { bx = 1.0f; by = 0.0f; bz = 0.0f; }
         }
-        (*N)[size_t(j)] = GfVec3f(nx, ny, nz);
-        (*B)[size_t(j)] = GfVec3f(bx, by, bz);
+        (*N)[size_t(j)] = UsdGenVec3f(nx, ny, nz);
+        (*B)[size_t(j)] = UsdGenVec3f(bx, by, bz);
     }
 }
 
 /// Dot product in the reference's evaluation order (x, y, then z).
-inline float Dot(GfVec3f const &a, GfVec3f const &b)
+inline float Dot(UsdGenVec3f const &a, UsdGenVec3f const &b)
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
@@ -294,15 +293,15 @@ inline float Dot(GfVec3f const &a, GfVec3f const &b)
 /// Concentric square-to-disk slots: each member's offset from its group
 /// centre, normalised per group by the largest |offset| along each axis,
 /// mapped onto the disk (Shirley-Chiu) and scaled by (radiusA, radiusC).
-void DiskSlots(std::vector<GfVec3f> const &rankRoots, std::vector<int> const &group,
-               std::vector<GfVec3f> const &centres, GfVec3f const &axisA,
-               GfVec3f const &axisC, float radiusA, float radiusC, std::vector<float> *u,
+void DiskSlots(std::vector<UsdGenVec3f> const &rankRoots, std::vector<int> const &group,
+               std::vector<UsdGenVec3f> const &centres, UsdGenVec3f const &axisA,
+               UsdGenVec3f const &axisC, float radiusA, float radiusC, std::vector<float> *u,
                std::vector<float> *v)
 {
     size_t const m = rankRoots.size();
     std::vector<float> maxA(centres.size(), 0.0f), maxC(centres.size(), 0.0f);
     for (size_t r = 0; r < m; ++r) {
-        GfVec3f const d = rankRoots[r] - centres[size_t(group[r])];
+        UsdGenVec3f const d = rankRoots[r] - centres[size_t(group[r])];
         maxA[size_t(group[r])] = std::max(std::fabs(Dot(axisA, d)), maxA[size_t(group[r])]);
         maxC[size_t(group[r])] = std::max(std::fabs(Dot(axisC, d)), maxC[size_t(group[r])]);
     }
@@ -310,7 +309,7 @@ void DiskSlots(std::vector<GfVec3f> const &rankRoots, std::vector<int> const &gr
     v->assign(m, 0.0f);
     for (size_t r = 0; r < m; ++r) {
         size_t const k = size_t(group[r]);
-        GfVec3f const d = rankRoots[r] - centres[k];
+        UsdGenVec3f const d = rankRoots[r] - centres[k];
         float const a = maxA[k] <= 1e-8f ? 0.0f : Dot(d, axisA) / maxA[k];
         float const b = maxC[k] <= 1e-8f ? 0.0f : Dot(d, axisC) / maxC[k];
         float phi = 0.0f, rad = 0.0f;
@@ -337,16 +336,16 @@ float ReferenceLength(UsdGenCaptureContext const &ctx, Settings const &s)
         length = s.referenceLength;
     } else if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size()) {
         UsdGenSurfaceInputView const &surface = UsdGenSurfaceAt(*ctx.desc, ctx.surface);
-        UsdGenSpan<const GfVec3f> const points = surface.restPoints.empty() ? surface.points
+        UsdGenSpan<const UsdGenVec3f> const points = surface.restPoints.empty() ? surface.points
                                                                             : surface.restPoints;
         if (!points.empty()) {
-            GfVec3f lo = points[0], hi = points[0];
-            for (GfVec3f const &q : points)
+            UsdGenVec3f lo = points[0], hi = points[0];
+            for (UsdGenVec3f const &q : points)
                 for (int d = 0; d < 3; ++d) {
                     lo[d] = std::min(lo[d], q[d]);
                     hi[d] = std::max(hi[d], q[d]);
                 }
-            GfVec3f const e = hi - lo;
+            UsdGenVec3f const e = hi - lo;
             length = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
         }
     }
@@ -428,14 +427,14 @@ struct GuideCurve
     std::vector<float> points;   // xyz
     std::vector<float> cum;      // arc length
     float length = 0.0f;
-    GfVec3f root{0.0f};
-    GfVec3f seed{0.0f, 1.0f, 0.0f};
+    UsdGenVec3f root{0.0f};
+    UsdGenVec3f seed{0.0f, 1.0f, 0.0f};
 };
 
 struct StrandInfo
 {
     float length = 0.0f;
-    GfVec3f root{0.0f};
+    UsdGenVec3f root{0.0f};
     bool fly = false;
 };
 
@@ -470,7 +469,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
 
     // Spine and frames.
     float const inv = 1.0f / float(int(n) - 1);
-    std::vector<GfVec3f> C(n), N, B;
+    std::vector<UsdGenVec3f> C(n), N, B;
     size_t const gn = guide.points.size() / 3;
     for (size_t j = 0; j < n; ++j)
         C[j] = strand::SampleArc(guide.points.data(), gn, guide.cum, float(j) * inv * Lg);
@@ -479,15 +478,15 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
     // Mean root and PCA of the root offsets in the root frame.
     float mx = 0.0f, my = 0.0f, mz = 0.0f;
     for (uint32_t c : members) {
-        GfVec3f const &q = info[c].root;
+        UsdGenVec3f const &q = info[c].root;
         mx = q[0] + mx;
         my = q[1] + my;
         mz = q[2] + mz;
     }
-    GfVec3f const mean(mx / float(m), my / float(m), mz / float(m));
+    UsdGenVec3f const mean(mx / float(m), my / float(m), mz / float(m));
     float sxx = 0.0f, sxy = 0.0f, syy = 0.0f;
     for (uint32_t c : members) {
-        GfVec3f const d = info[c].root - mean;
+        UsdGenVec3f const d = info[c].root - mean;
         float const a = Dot(N[0], d), b = Dot(B[0], d);
         sxx = sxx + a * a;
         sxy = sxy + b * a;
@@ -495,8 +494,8 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
     }
     float const theta = std::atan2(sxy + sxy, sxx - syy) * 0.5f;
     float const ct = std::cos(theta), st = std::sin(theta);
-    GfVec3f const A0 = N[0] * ct + B[0] * st;
-    GfVec3f const X0 = N[0] * -st + B[0] * ct;
+    UsdGenVec3f const A0 = N[0] * ct + B[0] * st;
+    UsdGenVec3f const X0 = N[0] * -st + B[0] * ct;
 
     // Rank by projection on the wide axis; three lanes by rank.
     std::vector<std::pair<float, uint32_t>> keyed(m);
@@ -507,7 +506,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
     std::stable_sort(keyed.begin(), keyed.end(),
                      [](auto const &a, auto const &b) { return a.first < b.first; });
     std::vector<uint32_t> rankToMember(m);
-    std::vector<GfVec3f> rankRoots(m);
+    std::vector<UsdGenVec3f> rankRoots(m);
     std::vector<int> lane(m);
     for (size_t r = 0; r < m; ++r) {
         rankToMember[r] = members[keyed[r].second];
@@ -516,10 +515,10 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
     }
 
     // In-lane slots around each lane's mean root.
-    std::vector<GfVec3f> laneCentre(3, GfVec3f(0.0f));
+    std::vector<UsdGenVec3f> laneCentre(3, UsdGenVec3f(0.0f));
     int laneCount[3] = {0, 0, 0};
     for (size_t r = 0; r < m; ++r) {
-        GfVec3f &sum = laneCentre[size_t(lane[r])];
+        UsdGenVec3f &sum = laneCentre[size_t(lane[r])];
         for (int d = 0; d < 3; ++d) sum[d] = rankRoots[r][d] + sum[d];
         ++laneCount[lane[r]];
     }
@@ -532,7 +531,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
     bool const bundle = w.tailActive || w.noKnots;
     if (bundle) {
         std::vector<int> one(m, 0);
-        DiskSlots(rankRoots, one, std::vector<GfVec3f>{mean}, A0, X0, w.halfWidth * kSqrt3,
+        DiskSlots(rankRoots, one, std::vector<UsdGenVec3f>{mean}, A0, X0, w.halfWidth * kSqrt3,
                   w.depth * kSqrt3, &tailU, &tailV);
     }
 
@@ -557,8 +556,8 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
 
     // Envelopes and rotated frames per spine point.
     std::vector<float> fade(n, 1.0f), rad(n, 1.0f), tailBlend(n, 0.0f), cinch(n, 1.0f);
-    std::vector<GfVec3f> A(n), X(n), tailA, tailX;
-    if (bundle) { tailA.assign(n, GfVec3f(0.0f)); tailX.assign(n, GfVec3f(0.0f)); }
+    std::vector<UsdGenVec3f> A(n), X(n), tailA, tailX;
+    if (bundle) { tailA.assign(n, UsdGenVec3f(0.0f)); tailX.assign(n, UsdGenVec3f(0.0f)); }
     float const tailFadeStart = w.tailStart - w.tailFade;
     for (size_t j = 0; j < n; ++j) {
         float const t = float(int(j)) * inv;
@@ -587,7 +586,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
     }
 
     // Lane curves plus the slot axes scaled by the pinch/bulge bundle radius.
-    std::vector<GfVec3f> laneC(3 * n), laneA(3 * n), laneXs(3 * n);
+    std::vector<UsdGenVec3f> laneC(3 * n), laneA(3 * n), laneXs(3 * n);
     for (size_t l = 0; l < 3; ++l) {
         for (size_t j = 0; j < n; ++j) {
             size_t const i = l * n + j;
@@ -595,7 +594,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
             float const radius = ((1.0f - cross) * w.bulge + cross * w.pinch) * rad[j];
             float const rf = rad[j] * fade[j];
             float const x = laneX[i], y = laneY[i];
-            laneC[i] = GfVec3f(C[j][0] + (A[j][0] * x + X[j][0] * y) * rf,
+            laneC[i] = UsdGenVec3f(C[j][0] + (A[j][0] * x + X[j][0] * y) * rf,
                                (X[j][1] * y + A[j][1] * x) * rf + C[j][1],
                                (X[j][2] * y + A[j][2] * x) * rf + C[j][2]);
             laneA[i] = A[j] * radius;
@@ -629,7 +628,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
             }
         }
         float *P = strands.P(c);
-        auto apply = [&](size_t k, float weight, GfVec3f const &target) {
+        auto apply = [&](size_t k, float weight, UsdGenVec3f const &target) {
             float const keep = 1.0f - weight;
             P[3 * k] = target[0] * weight + P[3 * k] * keep;
             P[3 * k + 1] = P[3 * k + 1] * keep + target[1] * weight;
@@ -653,7 +652,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
                                                         om * tailBlend[size_t(i0)];
                 float const keepLane = 1.0f - tb;
                 size_t const a0 = row + size_t(i0), a1 = row + size_t(i1);
-                GfVec3f target;
+                UsdGenVec3f target;
                 for (int d = 0; d < 3; ++d) {
                     float const xs = laneXs[a0][d] * om + fr * laneXs[a1][d];
                     float const as = laneA[a0][d] * om + fr * laneA[a1][d];
@@ -676,7 +675,7 @@ void BraidGuide(int g, GuideCurve const &guide, std::vector<uint32_t> const &mem
                 float const tb = w.noKnots ? 1.0f : tailBlend[k];
                 float const keepLane = 1.0f - tb;
                 size_t const i = row + k;
-                GfVec3f target;
+                UsdGenVec3f target;
                 for (int d = 0; d < 3; ++d)
                     target[d] = laneC[i][d] + keepLane * (laneXs[i][d] * v + laneA[i][d] * u);
                 if (bundle && tb > 1e-6f)
@@ -746,16 +745,16 @@ bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         }
         gc.length = count ? strand::ArcLengths(gc.points.data(), count, &gc.cum) : 0.0f;
         if (count) gc.root = strand::Load(gc.points.data(), 0);
-        GfVec3f seed(0.0f);
+        UsdGenVec3f seed(0.0f);
         float seedLength = 0.0f;
         if (count > 1) {
             seed = strand::Load(gc.points.data(), 1) - gc.root;
             seedLength = seed.GetLength();
         }
         if (seedLength > 1e-6f) {
-            gc.seed = GfVec3f(seed[0] / seedLength, seed[1] / seedLength, seed[2] / seedLength);
+            gc.seed = UsdGenVec3f(seed[0] / seedLength, seed[1] / seedLength, seed[2] / seedLength);
         } else if (guides.rootN.size() == G) {
-            gc.seed = strand::Normalize(guides.rootN[g], GfVec3f(0.0f, 1.0f, 0.0f));
+            gc.seed = strand::Normalize(guides.rootN[g], UsdGenVec3f(0.0f, 1.0f, 0.0f));
         }
     }
 
@@ -799,7 +798,7 @@ bool UsdGenBraidOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
             float best = 0.0f;
             for (size_t k = 0; k < G; ++k) {
                 if (guideSpans[k + 1] == guideSpans[k]) continue;
-                GfVec3f const d = info[c].root - guideCurves[k].root;
+                UsdGenVec3f const d = info[c].root - guideCurves[k].root;
                 float const d2 = Dot(d, d);
                 if (g < 0 || d2 < best) { best = d2; g = int(k); }
             }

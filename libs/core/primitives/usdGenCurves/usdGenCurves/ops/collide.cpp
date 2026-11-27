@@ -29,9 +29,7 @@
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/ops/strandUtil.h"
 
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,7 +45,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -92,7 +89,7 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
     return std::make_unique<UsdGenCollideOp>(r);
 }
 
-TfToken const &ResolveType(UsdGenParamView const &p)
+UsdGenToken const &ResolveType(UsdGenParamView const &p)
 {
     return p.GetToken(kResolveType, p.op->Token(kTokFlexible));
 }
@@ -107,11 +104,11 @@ void EmittedPlanes(UsdGenParamView const &p, int, UsdGenPlaneSink &sink)
         sink.Add(p.op->Token(kTokUnresolved).GetString(), UsdGenPlaneRate::Uniform,
                  UsdGenPlaneScalar::Float, 1);
 }
-TfToken const &DeepMode(UsdGenParamView const &p)
+UsdGenToken const &DeepMode(UsdGenParamView const &p)
 {
     return p.GetToken(kDeepMode, p.op->Token(kTokCollide));
 }
-/// Mix a name's text (what Mix(TfToken) did) without interning it.
+/// Mix a name's text (what Mix(UsdGenToken) did) without interning it.
 void MixText(opUtil::Digest *d, char const *text)
 {
     for (; *text; ++text) d->Mix(uint64_t(uint8_t(*text)));
@@ -128,18 +125,18 @@ constexpr int kRelaxMaxWindow = 10;           // min(n,1000)/min(n,100) <= 10
 struct UsdGenCollideCollider
 {
     struct Triangle {
-        GfVec3d a, b, c;
-        GfVec2d ua, ub, uc;
-        GfVec3d lo, hi;
+        UsdGenVec3d a, b, c;
+        UsdGenVec2d ua, ub, uc;
+        UsdGenVec3d lo, hi;
         int face = -1;
     };
     struct Node {
-        GfVec3d lo, hi;
+        UsdGenVec3d lo, hi;
         int left = -1, right = -1;
         uint32_t begin = 0, end = 0;
     };
     struct FaceCandidate {
-        GfVec3d lo, hi;
+        UsdGenVec3d lo, hi;
         uint32_t begin = 0, end = 0;
         int face = -1;
         int root = -1;
@@ -147,16 +144,16 @@ struct UsdGenCollideCollider
     uint32_t geometry = 0;      // desc.surfaces index with points/topology
     std::vector<int> faces;     // empty == whole mesh, else sorted unique ids
     bool hasFaces = true;       // false == authored selection contains only holes
-    std::vector<GfVec3d> points; // posed vertices in description-local space
+    std::vector<UsdGenVec3d> points; // posed vertices in description-local space
     bool closed = false;        // oriented, watertight selected face boundary
-    GfVec3d center{0.0};        // bounds center for deterministic stiff fan
+    UsdGenVec3d center{0.0};        // bounds center for deterministic stiff fan
     std::shared_ptr<UsdGenCollisionLimitSurface const> limit;
-    GfMatrix4d localToGroom{1.0};
+    UsdGenMatrix4d localToGroom{1.0};
     std::vector<Triangle> triangles;
     std::vector<uint32_t> order;
     std::vector<Node> bvh;
     std::vector<FaceCandidate> faceCandidates;
-    GfVec3d controlLo{0.0}, controlHi{0.0};
+    UsdGenVec3d controlLo{0.0}, controlHi{0.0};
     double proxyError = 0.0;
     double contactTolerance = 0.0;
     double normalSign = 1.0;
@@ -189,11 +186,11 @@ double Sanitize(double v) { return Finite(v) ? v : 0.0; }
 // Unit face normal of a non-degenerate triangle; +Z when degenerate (the
 // winning triangle is non-degenerate by construction, so the fallback is
 // unreachable — it only keeps the hot path total).
-GfVec3d UnitNormal(GfVec3d const &a, GfVec3d const &b, GfVec3d const &c)
+UsdGenVec3d UnitNormal(UsdGenVec3d const &a, UsdGenVec3d const &b, UsdGenVec3d const &c)
 {
-    GfVec3d const n = GfCross(b - a, c - a);
+    UsdGenVec3d const n = UsdGenCross(b - a, c - a);
     double const l = n.GetLength();
-    return (l > 0.0 && Finite(l)) ? n / l : GfVec3d(0.0, 0.0, 1.0);
+    return (l > 0.0 && Finite(l)) ? n / l : UsdGenVec3d(0.0, 0.0, 1.0);
 }
 
 bool FindSurface(UsdGenGraphSpec const *desc, UsdGenNodeKey path,
@@ -213,19 +210,19 @@ bool FindSurface(UsdGenGraphSpec const *desc, UsdGenNodeKey path,
 // Ericson 5.1.5 closest point on triangle abc. False when the triangle is
 // degenerate (zero area); the caller skips those. Non-degenerate edges are
 // all nonzero, so the three interior divisions are exact and safe.
-bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
-                       GfVec3d const &c, GfVec3d *closest, double *dist2)
+bool ClosestOnTriangle(UsdGenVec3d const &p, UsdGenVec3d const &a, UsdGenVec3d const &b,
+                       UsdGenVec3d const &c, UsdGenVec3d *closest, double *dist2)
 {
-    GfVec3d const n = GfCross(b - a, c - a);
+    UsdGenVec3d const n = UsdGenCross(b - a, c - a);
     double const len = n.GetLength();
     if (!(len > 0.0) || !Finite(len)) return false;
-    GfVec3d const ab = b - a, ac = c - a, ap = p - a;
-    double const d1 = GfDot(ab, ap), d2 = GfDot(ac, ap);
+    UsdGenVec3d const ab = b - a, ac = c - a, ap = p - a;
+    double const d1 = UsdGenDot(ab, ap), d2 = UsdGenDot(ac, ap);
     if (d1 <= 0.0 && d2 <= 0.0) {
         *closest = a;
     } else {
-        GfVec3d const bp = p - b;
-        double const d3 = GfDot(ab, bp), d4 = GfDot(ac, bp);
+        UsdGenVec3d const bp = p - b;
+        double const d3 = UsdGenDot(ab, bp), d4 = UsdGenDot(ac, bp);
         if (d3 >= 0.0 && d4 <= d3) {
             *closest = b;
         } else {
@@ -233,8 +230,8 @@ bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
             if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
                 *closest = a + ab * (d1 / (d1 - d3));
             } else {
-                GfVec3d const cp = p - c;
-                double const d5 = GfDot(ab, cp), d6 = GfDot(ac, cp);
+                UsdGenVec3d const cp = p - c;
+                double const d5 = UsdGenDot(ab, cp), d6 = UsdGenDot(ac, cp);
                 if (d6 >= 0.0 && d5 <= d6) {
                     *closest = c;
                 } else {
@@ -255,8 +252,8 @@ bool ClosestOnTriangle(GfVec3d const &p, GfVec3d const &a, GfVec3d const &b,
             }
         }
     }
-    GfVec3d const d = p - *closest;
-    *dist2 = GfDot(d, d);
+    UsdGenVec3d const d = p - *closest;
+    *dist2 = UsdGenDot(d, d);
     return true;
 }
 
@@ -265,11 +262,11 @@ struct ClosestHit
     bool found = false;
     bool inside = false;
     size_t collider = 0;
-    GfVec3d q{0.0}, a{0.0}, b{0.0}, c{0.0}; // point and winning corners
-    GfVec3d normal{0.0, 0.0, 1.0};
+    UsdGenVec3d q{0.0}, a{0.0}, b{0.0}, c{0.0}; // point and winning corners
+    UsdGenVec3d normal{0.0, 0.0, 1.0};
     int face = -1;
     uint32_t proxyTriangle = ~uint32_t(0);
-    GfVec2d uv{0.0};
+    UsdGenVec2d uv{0.0};
     double dist2 = 0.0;
 };
 
@@ -309,8 +306,8 @@ public:
     }
 };
 
-double BoxDistance2(GfVec3d const &p, GfVec3d const &lo,
-                    GfVec3d const &hi)
+double BoxDistance2(UsdGenVec3d const &p, UsdGenVec3d const &lo,
+                    UsdGenVec3d const &hi)
 {
     double d2 = 0.0;
     for (int k = 0; k < 3; ++k) {
@@ -320,8 +317,8 @@ double BoxDistance2(GfVec3d const &p, GfVec3d const &lo,
     return d2;
 }
 
-double BoxBoxDistance2(GfVec3d const &aLo, GfVec3d const &aHi,
-                       GfVec3d const &bLo, GfVec3d const &bHi)
+double BoxBoxDistance2(UsdGenVec3d const &aLo, UsdGenVec3d const &aHi,
+                       UsdGenVec3d const &bLo, UsdGenVec3d const &bHi)
 {
     double d2 = 0.0;
     for (int k = 0; k < 3; ++k) {
@@ -336,40 +333,40 @@ double BoxBoxDistance2(GfVec3d const &aLo, GfVec3d const &aHi,
 // particular a Catmull-Clark non-quad has disjoint tiled subface domains.
 // Restrict each closest-point solve to its seed facet; adjacent facets are
 // separate BVH candidates, so an optimizer never crosses a subface seam.
-GfVec2d ClampToFacet(GfVec2d const &uv,
+UsdGenVec2d ClampToFacet(UsdGenVec2d const &uv,
                      UsdGenCollideCollider::Triangle const &t)
 {
-    GfVec3d q;
+    UsdGenVec3d q;
     double d2 = 0.0;
-    ClosestOnTriangle(GfVec3d(uv[0], uv[1], 0),
-                      GfVec3d(t.ua[0], t.ua[1], 0),
-                      GfVec3d(t.ub[0], t.ub[1], 0),
-                      GfVec3d(t.uc[0], t.uc[1], 0), &q, &d2);
-    return GfVec2d(q[0], q[1]);
+    ClosestOnTriangle(UsdGenVec3d(uv[0], uv[1], 0),
+                      UsdGenVec3d(t.ua[0], t.ua[1], 0),
+                      UsdGenVec3d(t.ub[0], t.ub[1], 0),
+                      UsdGenVec3d(t.uc[0], t.uc[1], 0), &q, &d2);
+    return UsdGenVec2d(q[0], q[1]);
 }
 
-GfVec2d ClampToSearchDomain(UsdGenCollideCollider const &c,
+UsdGenVec2d ClampToSearchDomain(UsdGenCollideCollider const &c,
                            UsdGenCollideCollider::Triangle const &t,
-                           GfVec2d const &uv)
+                           UsdGenVec2d const &uv)
 {
     if (c.limit->FaceHasSubFaces(t.face))
         return ClampToFacet(uv,t);
     if (c.limit->FaceIsTriangle(t.face)) {
-        GfVec3d closest;
+        UsdGenVec3d closest;
         double d2 = 0.0;
-        ClosestOnTriangle(GfVec3d(uv[0],uv[1],0),
-            GfVec3d(0,0,0),GfVec3d(1,0,0),GfVec3d(0,1,0),
+        ClosestOnTriangle(UsdGenVec3d(uv[0],uv[1],0),
+            UsdGenVec3d(0,0,0),UsdGenVec3d(1,0,0),UsdGenVec3d(0,1,0),
             &closest,&d2);
-        return GfVec2d(closest[0],closest[1]);
+        return UsdGenVec2d(closest[0],closest[1]);
     }
-    return GfVec2d(std::clamp(uv[0],0.0,1.0),
+    return UsdGenVec2d(std::clamp(uv[0],0.0,1.0),
                    std::clamp(uv[1],0.0,1.0));
 }
 
 bool FacetContains(UsdGenCollideCollider::Triangle const &t,
-                   GfVec2d const &uv)
+                   UsdGenVec2d const &uv)
 {
-    GfVec2d const a=t.ub-t.ua,b=t.uc-t.ua,x=uv-t.ua;
+    UsdGenVec2d const a=t.ub-t.ua,b=t.uc-t.ua,x=uv-t.ua;
     double const determinant=a[0]*b[1]-a[1]*b[0];
     if (determinant == 0.0) return false;
     double const u=(x[0]*b[1]-x[1]*b[0])/determinant;
@@ -395,7 +392,7 @@ uint32_t LocateLimitFacet(UsdGenCollideCollider const &c,
     for (auto const &face : c.faceCandidates) {
         if (face.face != hit.face) continue;
         for (uint32_t id=face.begin;id<face.end;++id) {
-            GfVec2d const clamped=ClampToFacet(hit.uv,c.triangles[id]);
+            UsdGenVec2d const clamped=ClampToFacet(hit.uv,c.triangles[id]);
             double const d2=(clamped-hit.uv).GetLengthSq();
             if (d2<best) { best=d2; winner=id; }
         }
@@ -404,10 +401,10 @@ uint32_t LocateLimitFacet(UsdGenCollideCollider const &c,
 }
 
 bool LimitPoint(UsdGenCollideCollider const &c, int face,
-                GfVec2d const &uv, GfVec3d *p,
-                GfVec3d *du, GfVec3d *dv)
+                UsdGenVec2d const &uv, UsdGenVec3d *p,
+                UsdGenVec3d *du, UsdGenVec3d *dv)
 {
-    GfVec3d local, localDu, localDv;
+    UsdGenVec3d local, localDu, localDv;
     if (!c.limit->Evaluate(face, uv[0], uv[1],
                            &local, &localDu, &localDv)) return false;
     *p = c.localToGroom.Transform(local);
@@ -420,42 +417,42 @@ bool LimitPoint(UsdGenCollideCollider const &c, int face,
 
 bool RefineLimitHit(UsdGenCollideCollider const &c,
                     UsdGenCollideCollider::Triangle const &t,
-                    GfVec3d const &p, ClosestHit *hit,
+                    UsdGenVec3d const &p, ClosestHit *hit,
                     bool lockToFacet = false)
 {
-    GfVec3d proxy;
+    UsdGenVec3d proxy;
     double proxyD2 = 0.0;
     if (!ClosestOnTriangle(p, t.a, t.b, t.c, &proxy, &proxyD2)) return false;
-    GfVec3d const e1 = t.b - t.a, e2 = t.c - t.a, x = proxy - t.a;
-    double const aa = GfDot(e1, e1), ab = GfDot(e1, e2);
-    double const bb = GfDot(e2, e2), ar = GfDot(e1, x), br = GfDot(e2, x);
+    UsdGenVec3d const e1 = t.b - t.a, e2 = t.c - t.a, x = proxy - t.a;
+    double const aa = UsdGenDot(e1, e1), ab = UsdGenDot(e1, e2);
+    double const bb = UsdGenDot(e2, e2), ar = UsdGenDot(e1, x), br = UsdGenDot(e2, x);
     double const det = aa * bb - ab * ab;
     if (!(det > 0.0)) return false;
     double const s = std::clamp((ar * bb - br * ab) / det, 0.0, 1.0);
     double const r = std::clamp((br * aa - ar * ab) / det, 0.0, 1.0 - s);
-    GfVec2d uv = t.ua + (t.ub - t.ua) * s + (t.uc - t.ua) * r;
-    GfVec3d q, du, dv;
+    UsdGenVec2d uv = t.ua + (t.ub - t.ua) * s + (t.uc - t.ua) * r;
+    UsdGenVec3d q, du, dv;
     if (!LimitPoint(c, t.face, uv, &q, &du, &dv)) return false;
     double d2 = (p - q).GetLengthSq();
     for (int iteration = 0; iteration < 12; ++iteration) {
-        GfVec3d const residual = p - q;
-        double const a = GfDot(du, du), b = GfDot(du, dv);
-        double const d = GfDot(dv, dv), determinant = a * d - b * b;
+        UsdGenVec3d const residual = p - q;
+        double const a = UsdGenDot(du, du), b = UsdGenDot(du, dv);
+        double const d = UsdGenDot(dv, dv), determinant = a * d - b * b;
         if (!(determinant > 1e-12 * a * d) || !Finite(determinant))
             break;
-        GfVec2d const step((GfDot(du, residual) * d -
-                            GfDot(dv, residual) * b) / determinant,
-                           (GfDot(dv, residual) * a -
-                            GfDot(du, residual) * b) / determinant);
+        UsdGenVec2d const step((UsdGenDot(du, residual) * d -
+                            UsdGenDot(dv, residual) * b) / determinant,
+                           (UsdGenDot(dv, residual) * a -
+                            UsdGenDot(du, residual) * b) / determinant);
         bool improved = false;
         for (double scale = 1.0; scale >= 1.0 / 128.0; scale *= 0.5) {
-            GfVec2d const trial = lockToFacet
+            UsdGenVec2d const trial = lockToFacet
                 ? ClampToFacet(uv + step * scale,t)
                 : ClampToSearchDomain(c,t,uv + step * scale);
             // A clamped/rounded step at the current UV cannot improve d2.
             // Keep trying smaller steps, but do not evaluate the same patch.
             if (trial == uv) continue;
-            GfVec3d tq, tu, tv;
+            UsdGenVec3d tq, tu, tv;
             if (!LimitPoint(c, t.face, trial, &tq, &tu, &tv)) continue;
             double const trialD2 = (p - tq).GetLengthSq();
             if (trialD2 < d2) {
@@ -469,7 +466,7 @@ bool RefineLimitHit(UsdGenCollideCollider const &c,
     hit->found = true;
     hit->q = q; hit->a = t.a; hit->b = t.b; hit->c = t.c;
     hit->dist2 = d2; hit->face = t.face; hit->uv = uv;
-    GfVec3d const n = GfCross(du, dv);
+    UsdGenVec3d const n = UsdGenCross(du, dv);
     double const length = n.GetLength();
     hit->normal = (length > 0.0 ? n / length :
                    UnitNormal(t.a, t.b, t.c)) * c.normalSign;
@@ -477,7 +474,7 @@ bool RefineLimitHit(UsdGenCollideCollider const &c,
 }
 
 bool ClosestOnHitFacet(UsdGenCollideCapture const &cap,
-                       GfVec3d const &p, ClosestHit *hit)
+                       UsdGenVec3d const &p, ClosestHit *hit)
 {
     if (hit->collider >= cap.colliders.size()) return false;
     auto const &collider = cap.colliders[hit->collider];
@@ -504,9 +501,9 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
     auto surface = std::make_shared<UsdGenCollisionLimitSurface>();
     if (!surface->Build(mesh, error)) return false;
     c->limit = std::move(surface);
-    GfVec3d lo(0.0), hi(0.0);
+    UsdGenVec3d lo(0.0), hi(0.0);
     bool seeded = false;
-    for (GfVec3d const &point : c->points) {
+    for (UsdGenVec3d const &point : c->points) {
         if (!seeded) { lo = hi = point; seeded = true; }
         for (int k = 0; k < 3; ++k) {
             lo[k] = std::min(lo[k], point[k]);
@@ -528,7 +525,7 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
         double maximumDeviation = 0.0;
         auto addFace = [&](int face) {
             if (!c->limit->HasFace(face)) return true;
-            std::vector<GfVec2d> uv;
+            std::vector<UsdGenVec2d> uv;
             std::vector<std::array<int, 3>> facets;
             if (!c->limit->TessellateFace(face, rate, &uv, &facets)) {
                 *error = "OpenSubdiv could not tessellate limit face " +
@@ -539,27 +536,27 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
                 *error = "limit-surface proxy exceeds one million triangles";
                 return false;
             }
-            GfVec3d controlLo, controlHi;
+            UsdGenVec3d controlLo, controlHi;
             if (!c->limit->FaceControlBounds(face,&controlLo,&controlHi)) {
                 *error = "OpenSubdiv did not provide limit control bounds";
                 return false;
             }
-            GfVec3d faceLo(0.0), faceHi(0.0);
+            UsdGenVec3d faceLo(0.0), faceHi(0.0);
             bool boundsSeeded = false;
             for (int mask = 0; mask < 8; ++mask) {
-                GfVec3d const local(mask & 1 ? controlHi[0] : controlLo[0],
+                UsdGenVec3d const local(mask & 1 ? controlHi[0] : controlLo[0],
                     mask & 2 ? controlHi[1] : controlLo[1],
                     mask & 4 ? controlHi[2] : controlLo[2]);
-                GfVec3d const v = c->localToGroom.Transform(local);
+                UsdGenVec3d const v = c->localToGroom.Transform(local);
                 if (!boundsSeeded) { faceLo = faceHi = v; boundsSeeded = true; }
                 for (int k = 0; k < 3; ++k) {
                     faceLo[k] = std::min(faceLo[k], v[k]);
                     faceHi[k] = std::max(faceHi[k], v[k]);
                 }
             }
-            std::vector<GfVec3d> positions(uv.size());
+            std::vector<UsdGenVec3d> positions(uv.size());
             for (size_t i = 0; i < uv.size(); ++i) {
-                GfVec3d du, dv;
+                UsdGenVec3d du, dv;
                 if (!LimitPoint(*c, face, uv[i], &positions[i], &du, &dv)) {
                     *error = "OpenSubdiv returned a non-finite limit point";
                     return false;
@@ -575,10 +572,10 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
                 t.a = positions[size_t(facet[0])];
                 t.b = positions[size_t(facet[1])];
                 t.c = positions[size_t(facet[2])];
-                if (!(GfCross(t.b - t.a, t.c - t.a).GetLength() > 0.0))
+                if (!(UsdGenCross(t.b - t.a, t.c - t.a).GetLength() > 0.0))
                     continue;
                 t.lo = t.hi = t.a;
-                for (GfVec3d const &v : {t.b,t.c})
+                for (UsdGenVec3d const &v : {t.b,t.c})
                     for (int k = 0; k < 3; ++k) {
                         t.lo[k] = std::min(t.lo[k],v[k]);
                         t.hi[k] = std::max(t.hi[k],v[k]);
@@ -587,11 +584,11 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
                 // space.  The safety factor keeps neighboring curved patches
                 // in the search even when their proxy chord is farther away.
                 for (auto const &sample : {
-                         std::pair<GfVec2d, GfVec3d>{(t.ua+t.ub)*0.5,(t.a+t.b)*0.5},
+                         std::pair<UsdGenVec2d, UsdGenVec3d>{(t.ua+t.ub)*0.5,(t.a+t.b)*0.5},
                          {(t.ub+t.uc)*0.5,(t.b+t.c)*0.5},
                          {(t.uc+t.ua)*0.5,(t.c+t.a)*0.5},
                          {(t.ua+t.ub+t.uc)/3.0,(t.a+t.b+t.c)/3.0}}) {
-                    GfVec3d actual, du, dv;
+                    UsdGenVec3d actual, du, dv;
                     if (!LimitPoint(*c, face, sample.first, &actual, &du, &dv)) {
                         *error = "OpenSubdiv could not evaluate proxy convergence";
                         return false;
@@ -639,7 +636,7 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
             }
         double signedVolume6 = 0.0;
         for (auto const &t : c->triangles)
-            signedVolume6 += GfDot(t.a, GfCross(t.b,t.c));
+            signedVolume6 += UsdGenDot(t.a, UsdGenCross(t.b,t.c));
         c->outwardSign = signedVolume6 < 0.0 ? -1.0 : 1.0;
         c->order.resize(c->triangles.size());
         std::iota(c->order.begin(), c->order.end(), uint32_t(0));
@@ -648,8 +645,8 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
         auto build = [&](auto &&self, uint32_t begin, uint32_t end) -> int {
             int const index = int(c->bvh.size());
             c->bvh.emplace_back();
-            GfVec3d nlo = c->triangles[c->order[begin]].lo;
-            GfVec3d nhi = c->triangles[c->order[begin]].hi;
+            UsdGenVec3d nlo = c->triangles[c->order[begin]].lo;
+            UsdGenVec3d nhi = c->triangles[c->order[begin]].hi;
             for (uint32_t i = begin + 1; i < end; ++i) {
                 auto const &t = c->triangles[c->order[i]];
                 for (int k = 0; k < 3; ++k) {
@@ -660,7 +657,7 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
             c->bvh[index].lo = nlo; c->bvh[index].hi = nhi;
             c->bvh[index].begin = begin; c->bvh[index].end = end;
             if (end - begin <= 8) return index;
-            GfVec3d const extent = nhi - nlo;
+            UsdGenVec3d const extent = nhi - nlo;
             int axis = extent[1] > extent[0] ? 1 : 0;
             if (extent[2] > extent[axis]) axis = 2;
             uint32_t const middle = begin + (end - begin) / 2;
@@ -697,19 +694,19 @@ bool BuildLimitProxy(UsdGenCollideCollider *c,
 // oriented closed mesh the sum has magnitude 4*pi inside and zero outside.
 // Capture only enables this for watertight meshes, so open skins retain their
 // unsigned surface-shell behavior.
-double SolidAngle(GfVec3d const &p, GfVec3d const &a,
-                  GfVec3d const &b, GfVec3d const &c)
+double SolidAngle(UsdGenVec3d const &p, UsdGenVec3d const &a,
+                  UsdGenVec3d const &b, UsdGenVec3d const &c)
 {
-    GfVec3d const u = a - p, v = b - p, w = c - p;
+    UsdGenVec3d const u = a - p, v = b - p, w = c - p;
     double const lu = u.GetLength(), lv = v.GetLength(), lw = w.GetLength();
-    double const numerator = GfDot(u, GfCross(v, w));
-    double const denominator = lu * lv * lw + GfDot(u, v) * lw +
-                               GfDot(v, w) * lu + GfDot(w, u) * lv;
+    double const numerator = UsdGenDot(u, UsdGenCross(v, w));
+    double const denominator = lu * lv * lw + UsdGenDot(u, v) * lw +
+                               UsdGenDot(v, w) * lu + UsdGenDot(w, u) * lv;
     return 2.0 * std::atan2(numerator, denominator);
 }
 
 ClosestHit ClosestOnLimit(UsdGenCollideCollider const &c,
-                          GfVec3d const &p)
+                          UsdGenVec3d const &p)
 {
     ClosestHit best;
     if (c.bvh.empty()) return best;
@@ -732,7 +729,7 @@ ClosestHit ClosestOnLimit(UsdGenCollideCollider const &c,
                     double const reach = std::sqrt(proxyBest) + c.proxyError;
                     if (BoxDistance2(p, t.lo, t.hi) > reach * reach) continue;
                 }
-                GfVec3d chord;
+                UsdGenVec3d chord;
                 double distance2=0.0;
                 if (!ClosestOnTriangle(p,t.a,t.b,t.c,&chord,&distance2))
                     continue;
@@ -833,8 +830,8 @@ ClosestHit ClosestOnLimit(UsdGenCollideCollider const &c,
     return best;
 }
 
-bool RayBox(GfVec3d const &start, GfVec3d const &direction,
-            GfVec3d const &lo, GfVec3d const &hi,
+bool RayBox(UsdGenVec3d const &start, UsdGenVec3d const &direction,
+            UsdGenVec3d const &lo, UsdGenVec3d const &hi,
             double tLimit, double padding)
 {
     double near = 0.0, far = tLimit;
@@ -854,13 +851,13 @@ bool RayBox(GfVec3d const &start, GfVec3d const &direction,
     return true;
 }
 
-bool SegmentTriangleHit(GfVec3d const &, GfVec3d const &,
-                        GfVec3d const &, GfVec3d const &,
-                        GfVec3d const &, double *);
+bool SegmentTriangleHit(UsdGenVec3d const &, UsdGenVec3d const &,
+                        UsdGenVec3d const &, UsdGenVec3d const &,
+                        UsdGenVec3d const &, double *);
 
 // Ray parity uses the accelerated proxy only for classification.  Contact
 // positions and normals are always refined against Bfr's posed limit.
-bool InsideLimit(UsdGenCollideCollider const &c, GfVec3d const &p,
+bool InsideLimit(UsdGenCollideCollider const &c, UsdGenVec3d const &p,
                  ClosestHit const *nearest = nullptr)
 {
     if (!c.closed || c.bvh.empty()) return false;
@@ -868,7 +865,7 @@ bool InsideLimit(UsdGenCollideCollider const &c, GfVec3d const &p,
     if (!nearest) { local = ClosestOnLimit(c,p); nearest = &local; }
     if (nearest->found && nearest->dist2 <=
         c.proxyError*c.proxyError*4.0) {
-        double const side = GfDot(p-nearest->q,
+        double const side = UsdGenDot(p-nearest->q,
             nearest->normal*c.outwardSign*c.normalSign);
         if (std::abs(side) > std::max(1e-12,c.proxyError*1e-5))
             return side < 0.0;
@@ -876,7 +873,7 @@ bool InsideLimit(UsdGenCollideCollider const &c, GfVec3d const &p,
     auto const &root = c.bvh[0];
     double const reach = (root.hi - root.lo).GetLength() * 4.0;
     if (!(reach > 0.0)) return false;
-    GfVec3d const direction = GfVec3d(1.0, 0.371391, 0.117647) * reach;
+    UsdGenVec3d const direction = UsdGenVec3d(1.0, 0.371391, 0.117647) * reach;
     std::vector<double> crossings;
     auto visit = [&](auto &&self, int index) -> void {
         auto const &node = c.bvh[size_t(index)];
@@ -912,7 +909,7 @@ bool InsideLimit(UsdGenCollideCollider const &c, GfVec3d const &p,
 // validated the meshes (the desc is immutable within a run); the guard
 // below keeps it from ever producing NaN output regardless.
 ClosestHit ClosestOnColliders(UsdGenGraphSpec const *desc,
-                              UsdGenCollideCapture const &cap, GfVec3d const &p,
+                              UsdGenCollideCapture const &cap, UsdGenVec3d const &p,
                               double maxOffset = std::numeric_limits<double>::infinity())
 {
     ClosestHit best;
@@ -963,10 +960,10 @@ ClosestHit ClosestOnColliders(UsdGenGraphSpec const *desc,
                             size_t(v1) >= collider.points.size() ||
                             size_t(v2) >= collider.points.size())
                             continue;
-                        GfVec3d const &a = collider.points[size_t(v0)];
-                        GfVec3d const &b = collider.points[size_t(v1)];
-                        GfVec3d const &c = collider.points[size_t(v2)];
-                        GfVec3d q;
+                        UsdGenVec3d const &a = collider.points[size_t(v0)];
+                        UsdGenVec3d const &b = collider.points[size_t(v1)];
+                        UsdGenVec3d const &c = collider.points[size_t(v2)];
+                        UsdGenVec3d q;
                         double d2 = 0.0;
                         if (!ClosestOnTriangle(p, a, b, c, &q, &d2)) continue;
                         if (!(d2 >= 0.0)) continue;
@@ -1002,7 +999,7 @@ ClosestHit ClosestOnColliders(UsdGenGraphSpec const *desc,
 // as contact resolution, so cut detection never substitutes proxy depth.
 bool SignedDepthOnClosed(UsdGenGraphSpec const *desc,
                          UsdGenCollideCapture const &cap, size_t ci,
-                         GfVec3d const &p, double *depth, GfVec3d *boundary)
+                         UsdGenVec3d const &p, double *depth, UsdGenVec3d *boundary)
 {
     if (!desc || ci >= cap.colliders.size())
         return false;
@@ -1040,10 +1037,10 @@ bool SignedDepthOnClosed(UsdGenGraphSpec const *desc,
                         size_t(v0)>=collider.points.size() ||
                         size_t(v1)>=collider.points.size() ||
                         size_t(v2)>=collider.points.size()) continue;
-                    GfVec3d const &a=collider.points[size_t(v0)];
-                    GfVec3d const &b=collider.points[size_t(v1)];
-                    GfVec3d const &c=collider.points[size_t(v2)];
-                    GfVec3d q; double d2=0.0;
+                    UsdGenVec3d const &a=collider.points[size_t(v0)];
+                    UsdGenVec3d const &b=collider.points[size_t(v1)];
+                    UsdGenVec3d const &c=collider.points[size_t(v2)];
+                    UsdGenVec3d q; double d2=0.0;
                     if (!ClosestOnTriangle(p,a,b,c,&q,&d2)) continue;
                     winding += SolidAngle(p,a,b,c);
                     if (!local.found || d2<local.dist2) {
@@ -1070,11 +1067,11 @@ void PublishEvalFailure(UsdGenEvalContext const &ctx,uint32_t code)
                current,code,std::memory_order_release,std::memory_order_relaxed)) {}
 }
 
-GfVec3d OutwardAtBoundary(UsdGenGraphSpec const *desc,
+UsdGenVec3d OutwardAtBoundary(UsdGenGraphSpec const *desc,
                           UsdGenCollideCapture const &cap,
-                          ClosestHit const &hit, GfVec3d const &p)
+                          ClosestHit const &hit, UsdGenVec3d const &p)
 {
-    GfVec3d const normal = hit.normal;
+    UsdGenVec3d const normal = hit.normal;
     if (hit.collider >= cap.colliders.size() ||
         !cap.colliders[hit.collider].closed)
         return normal;
@@ -1094,9 +1091,9 @@ GfVec3d OutwardAtBoundary(UsdGenGraphSpec const *desc,
     return normal;
 }
 
-GfVec3d HitDirection(UsdGenGraphSpec const *desc,
+UsdGenVec3d HitDirection(UsdGenGraphSpec const *desc,
                      UsdGenCollideCapture const &cap,
-                     ClosestHit const &hit, GfVec3d const &p,
+                     ClosestHit const &hit, UsdGenVec3d const &p,
                      bool inside)
 {
     double const edge = std::max({(hit.b - hit.a).GetLength(),
@@ -1115,24 +1112,24 @@ GfVec3d HitDirection(UsdGenGraphSpec const *desc,
     return (inside ? hit.q - p : p - hit.q) / distance;
 }
 
-bool SegmentTriangleHit(GfVec3d const &start, GfVec3d const &end,
-                        GfVec3d const &a, GfVec3d const &b,
-                        GfVec3d const &c, double *fraction)
+bool SegmentTriangleHit(UsdGenVec3d const &start, UsdGenVec3d const &end,
+                        UsdGenVec3d const &a, UsdGenVec3d const &b,
+                        UsdGenVec3d const &c, double *fraction)
 {
-    GfVec3d const ray = end - start, ab = b - a, ac = c - a;
-    GfVec3d const cross = GfCross(ray, ac);
-    double const det = GfDot(ab, cross);
+    UsdGenVec3d const ray = end - start, ab = b - a, ac = c - a;
+    UsdGenVec3d const cross = UsdGenCross(ray, ac);
+    double const det = UsdGenDot(ab, cross);
     double const scale = ab.GetLength() * ray.GetLength() * ac.GetLength();
     if (!(scale > 0.0) || std::abs(det) <= 1e-12 * scale)
         return false;
     double const invDet = 1.0 / det;
-    GfVec3d const s = start - a;
-    double const u = GfDot(s, cross) * invDet;
+    UsdGenVec3d const s = start - a;
+    double const u = UsdGenDot(s, cross) * invDet;
     if (u < -1e-10 || u > 1.0 + 1e-10) return false;
-    GfVec3d const q = GfCross(s, ab);
-    double const v = GfDot(ray, q) * invDet;
+    UsdGenVec3d const q = UsdGenCross(s, ab);
+    double const v = UsdGenDot(ray, q) * invDet;
     if (v < -1e-10 || u + v > 1.0 + 1e-10) return false;
-    double const t = GfDot(ac, q) * invDet;
+    double const t = UsdGenDot(ac, q) * invDet;
     if (t < -1e-7 || t >= 1.0 - 1e-7) return false;
     *fraction = std::max(0.0, t);
     return true;
@@ -1140,41 +1137,41 @@ bool SegmentTriangleHit(GfVec3d const &start, GfVec3d const &end,
 
 bool RefineLimitCrossing(UsdGenCollideCollider const &collider,
                           UsdGenCollideCollider::Triangle const &triangle,
-                          GfVec3d const &start, GfVec3d const &end,
+                          UsdGenVec3d const &start, UsdGenVec3d const &end,
                           double seed, double *fraction,
                           ClosestHit *hit)
 {
-    GfVec3d const ray = end - start;
-    GfVec3d proxy = start + ray * seed;
+    UsdGenVec3d const ray = end - start;
+    UsdGenVec3d proxy = start + ray * seed;
     double proxyD2 = 0.0;
     if (!ClosestOnTriangle(proxy, triangle.a, triangle.b, triangle.c,
                            &proxy, &proxyD2)) return false;
-    GfVec3d const e1 = triangle.b - triangle.a;
-    GfVec3d const e2 = triangle.c - triangle.a;
-    GfVec3d const x = proxy - triangle.a;
-    double const aa = GfDot(e1,e1), ab = GfDot(e1,e2), bb = GfDot(e2,e2);
+    UsdGenVec3d const e1 = triangle.b - triangle.a;
+    UsdGenVec3d const e2 = triangle.c - triangle.a;
+    UsdGenVec3d const x = proxy - triangle.a;
+    double const aa = UsdGenDot(e1,e1), ab = UsdGenDot(e1,e2), bb = UsdGenDot(e2,e2);
     double const det = aa*bb-ab*ab;
     if (!(det > 0.0)) return false;
-    GfVec2d uv = triangle.ua + (triangle.ub-triangle.ua)*
-        ((GfDot(e1,x)*bb-GfDot(e2,x)*ab)/det) +
+    UsdGenVec2d uv = triangle.ua + (triangle.ub-triangle.ua)*
+        ((UsdGenDot(e1,x)*bb-UsdGenDot(e2,x)*ab)/det) +
         (triangle.uc-triangle.ua)*
-        ((GfDot(e2,x)*aa-GfDot(e1,x)*ab)/det);
+        ((UsdGenDot(e2,x)*aa-UsdGenDot(e1,x)*ab)/det);
     uv = ClampToFacet(uv,triangle);
     double t = seed;
-    GfVec3d q, du, dv;
+    UsdGenVec3d q, du, dv;
     for (int iteration = 0; iteration < 12; ++iteration) {
         if (!LimitPoint(collider, triangle.face, uv, &q, &du, &dv))
             return false;
-        GfVec3d const residual = start + ray*t - q;
+        UsdGenVec3d const residual = start + ray*t - q;
         if (residual.GetLength() <= collider.contactTolerance*0.1) break;
-        double const denominator = GfDot(du, GfCross(dv, ray));
+        double const denominator = UsdGenDot(du, UsdGenCross(dv, ray));
         double const scale = du.GetLength()*dv.GetLength()*ray.GetLength();
         if (!(scale > 0.0) ||
             std::abs(denominator) < 1e-12*scale) break;
-        GfVec2d const step(GfDot(residual, GfCross(dv, ray))/denominator,
-                           GfDot(du, GfCross(residual, ray))/denominator);
-        double const dt = GfDot(du, GfCross(dv, residual))/denominator;
-        GfVec2d const next = ClampToFacet(uv + step,triangle);
+        UsdGenVec2d const step(UsdGenDot(residual, UsdGenCross(dv, ray))/denominator,
+                           UsdGenDot(du, UsdGenCross(residual, ray))/denominator);
+        double const dt = UsdGenDot(du, UsdGenCross(dv, residual))/denominator;
+        UsdGenVec2d const next = ClampToFacet(uv + step,triangle);
         double const nt = std::clamp(t - dt, 0.0, 1.0);
         if (next == uv && nt == t) break;
         uv = next; t = nt;
@@ -1188,7 +1185,7 @@ bool RefineLimitCrossing(UsdGenCollideCollider const &collider,
     hit->a = triangle.a; hit->b = triangle.b; hit->c = triangle.c;
     hit->face = triangle.face; hit->uv = uv;
     hit->dist2 = 0.0;
-    GfVec3d const n = GfCross(du,dv);
+    UsdGenVec3d const n = UsdGenCross(du,dv);
     double const normalLength = n.GetLength();
     hit->normal = (normalLength > 0.0 ? n/normalLength :
         UnitNormal(triangle.a,triangle.b,triangle.c)) *
@@ -1203,7 +1200,7 @@ bool RefineLimitCrossing(UsdGenCollideCollider const &collider,
 // exit hit does, so a boundary-to-opposite-side segment is caught.
 ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                                 UsdGenCollideCapture const &cap,
-                                GfVec3d const &start, GfVec3d const &end,
+                                UsdGenVec3d const &start, UsdGenVec3d const &end,
                                 bool completePolygonHit=false)
 {
     ClosestHit best;
@@ -1218,7 +1215,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
             for (auto const &face : collider.faceCandidates) {
                 if (!RayBox(start,end-start,face.lo,face.hi,first,0.0))
                     continue;
-                GfVec3d const ray = end-start;
+                UsdGenVec3d const ray = end-start;
                 double const length2 = ray.GetLengthSq();
                 if (!(length2 > 0.0)) continue;
                 auto refine = [&](uint32_t id, double seed) {
@@ -1234,7 +1231,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                         // sub-precision inside/outside probe at grazing entry.
                         candidate.normal *= collider.outwardSign *
                                             collider.normalSign;
-                        if (!(GfDot(candidate.normal,ray) < 0.0)) return;
+                        if (!(UsdGenDot(candidate.normal,ray) < 0.0)) return;
                     } else if (fraction == 0.0 &&
                         !InsideLimit(collider,start+ray*1e-6)) return;
                     first = fraction;
@@ -1275,9 +1272,9 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                                collider.proxyError)) {
                         processed.push_back(id);
                         if (seed == 0.0) {
-                            GfVec3d const center =
+                            UsdGenVec3d const center =
                                 (triangle.a+triangle.b+triangle.c)/3.0;
-                            seed = std::clamp(GfDot(center-start,ray)/length2,
+                            seed = std::clamp(UsdGenDot(center-start,ray)/length2,
                                               0.0,1.0);
                         }
                         refine(id,seed);
@@ -1286,7 +1283,7 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                 // For a missed chord, segment-box distance is a lower bound
                 // on its unchanged center-projection score.  Once eight
                 // closer seeds exist, skip entire farther subtrees.
-                GfVec3d segLo, segHi;
+                UsdGenVec3d segLo, segHi;
                 for (int k=0; k<3; ++k) {
                     segLo[k]=std::min(start[k],end[k]);
                     segHi[k]=std::max(start[k],end[k]);
@@ -1312,11 +1309,11 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                     if (std::binary_search(processed.begin(),processed.end(),id))
                         continue;
                     auto const &triangle = collider.triangles[id];
-                    GfVec3d const center =
+                    UsdGenVec3d const center =
                         (triangle.a+triangle.b+triangle.c)/3.0;
                     double const projected = std::clamp(
-                        GfDot(center-start,ray)/length2,0.0,1.0);
-                    GfVec3d proxy;
+                        UsdGenDot(center-start,ray)/length2,0.0,1.0);
+                    UsdGenVec3d proxy;
                     double distance2 = 0.0;
                     if (!ClosestOnTriangle(start+ray*projected,
                             triangle.a,triangle.b,triangle.c,
@@ -1336,10 +1333,10 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
                 for (auto const &entry : seeds) {
                     if (entry.second == ~uint32_t(0)) break;
                     auto const &triangle = collider.triangles[entry.second];
-                    GfVec3d const center =
+                    UsdGenVec3d const center =
                         (triangle.a+triangle.b+triangle.c)/3.0;
                     double const seed = std::clamp(
-                        GfDot(center-start,ray)/length2,0.0,1.0);
+                        UsdGenDot(center-start,ray)/length2,0.0,1.0);
                     refine(entry.second,seed);
                 }
             }
@@ -1354,20 +1351,20 @@ ClosestHit FirstClosedSegmentHit(UsdGenGraphSpec const *desc,
             if (use) {
                 ++fi;
                 if (n >= 3) {
-                    GfVec3d const &a = collider.points[size_t(surf.faceVertexIndices[off])];
+                    UsdGenVec3d const &a = collider.points[size_t(surf.faceVertexIndices[off])];
                     for (int k = 1; k + 1 < n; ++k) {
-                        GfVec3d const &b = collider.points[size_t(
+                        UsdGenVec3d const &b = collider.points[size_t(
                             surf.faceVertexIndices[off + size_t(k)])];
-                        GfVec3d const &c = collider.points[size_t(
+                        UsdGenVec3d const &c = collider.points[size_t(
                             surf.faceVertexIndices[off + size_t(k) + 1])];
                         double t = 0.0;
                         if (!SegmentTriangleHit(start, end, a, b, c, &t) ||
                             t >= first)
                             continue;
-                        GfVec3d const geometricNormal =
+                        UsdGenVec3d const geometricNormal =
                             UnitNormal(a,b,c) * collider.outwardSign;
                         if (completePolygonHit) {
-                            if (!(GfDot(geometricNormal,end-start) < 0.0))
+                            if (!(UsdGenDot(geometricNormal,end-start) < 0.0))
                                 continue;
                         } else if (t == 0.0) {
                             ClosestHit const probe = ClosestOnColliders(
@@ -1425,7 +1422,7 @@ bool ValidateColliderMesh(std::string const &label, UsdGenSurfaceInputView const
                  "' has a faceVertexCounts/faceVertexIndices mismatch";
         return false;
     }
-    for (GfVec3f const &v : geometry.points) {
+    for (UsdGenVec3f const &v : geometry.points) {
         if (!Finite(v[0]) || !Finite(v[1]) || !Finite(v[2])) {
             *error = "collider surface '" + label +
                      "' has non-finite points";
@@ -1499,10 +1496,10 @@ bool ValidateColliderMesh(std::string const &label, UsdGenSurfaceInputView const
         int const n = geometry.faceVertexCounts[f];
         if (n < 3) return;
         for (int k = 1; k + 1 < n; ++k) {
-            GfVec3d const a(geometry.points[size_t(geometry.faceVertexIndices[off])]);
-            GfVec3d const b(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k)])]);
-            GfVec3d const c(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k) + 1])]);
-            GfVec3d const cr = GfCross(b - a, c - a);
+            UsdGenVec3d const a(geometry.points[size_t(geometry.faceVertexIndices[off])]);
+            UsdGenVec3d const b(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k)])]);
+            UsdGenVec3d const c(geometry.points[size_t(geometry.faceVertexIndices[off + size_t(k) + 1])]);
+            UsdGenVec3d const cr = UsdGenCross(b - a, c - a);
             double const l = cr.GetLength();
             if (l > 0.0 && Finite(l)) ++valid;
             else ++skipped;
@@ -1568,14 +1565,14 @@ void BuildRelaxBvh(UsdGenSurfaceInputView const &geometry, std::vector<int> cons
                            faces.empty() ? nullptr : &restricted);
     kept.reserve(all.size());
     for (strand::FanTriangle const &t : all) {
-        GfVec3d const a(geometry.points[size_t(t.v[0])]);
-        GfVec3d const b(geometry.points[size_t(t.v[1])]);
-        GfVec3d const c(geometry.points[size_t(t.v[2])]);
-        double const l = GfCross(b - a, c - a).GetLength();
+        UsdGenVec3d const a(geometry.points[size_t(t.v[0])]);
+        UsdGenVec3d const b(geometry.points[size_t(t.v[1])]);
+        UsdGenVec3d const c(geometry.points[size_t(t.v[2])]);
+        double const l = UsdGenCross(b - a, c - a).GetLength();
         if (l > 0.0 && Finite(l)) kept.push_back(t);
     }
     // The BVH owns its points: it outlives the input record.
-    bvh->Build(VtVec3fArray(geometry.points.begin(), geometry.points.end()), kept);
+    bvh->Build(UsdGenVec3fArray(geometry.points.begin(), geometry.points.end()), kept);
 }
 
 // --- relax ------------------------------------------------------------------
@@ -1584,7 +1581,7 @@ struct RelaxSample
 {
     bool hit = false;
     float d = 0.0f;              // signed distance (negative inside)
-    GfVec3f n{0.0f, 0.0f, 1.0f}; // unit gradient of d (outward)
+    UsdGenVec3f n{0.0f, 0.0f, 1.0f}; // unit gradient of d (outward)
 };
 
 // Signed distance to the union of the colliders (minimum over colliders,
@@ -1592,7 +1589,7 @@ struct RelaxSample
 // the interpolated vertex normal at it, and the gradient is the unit
 // direction away from (outside) / toward (inside) the closest point. A
 // point on the surface (within ~1e-6 relative) takes the vertex normal.
-RelaxSample SignedDistance(std::vector<strand::TriangleBvh> const &bvhs, GfVec3f const &p)
+RelaxSample SignedDistance(std::vector<strand::TriangleBvh> const &bvhs, UsdGenVec3f const &p)
 {
     RelaxSample best;
     float const scale = 1.0f + std::max(std::fabs(p[0]), std::max(std::fabs(p[1]), std::fabs(p[2])));
@@ -1600,18 +1597,18 @@ RelaxSample SignedDistance(std::vector<strand::TriangleBvh> const &bvhs, GfVec3f
         if (bvh.Empty()) continue;
         strand::ClosestHit const h = bvh.Closest(p);
         if (!h.hit) continue;
-        GfVec3f const surfaceN = bvh.Normal(h.triangle, h.bary);
-        GfVec3f const diff = p - h.point;
+        UsdGenVec3f const surfaceN = bvh.Normal(h.triangle, h.bary);
+        UsdGenVec3f const diff = p - h.point;
         float const len = diff.GetLength();
         RelaxSample s;
         s.hit = true;
         if (len > 1e-6f * scale) {
-            float const sign = GfDot(diff, surfaceN) < 0.0f ? -1.0f : 1.0f;
+            float const sign = UsdGenDot(diff, surfaceN) < 0.0f ? -1.0f : 1.0f;
             s.d = sign * len;
             float const k = sign / len;
-            s.n = GfVec3f(diff[0] * k, diff[1] * k, diff[2] * k);
+            s.n = UsdGenVec3f(diff[0] * k, diff[1] * k, diff[2] * k);
         } else {
-            s.d = GfDot(diff, surfaceN);
+            s.d = UsdGenDot(diff, surfaceN);
             s.n = surfaceN;
         }
         if (!best.hit || s.d < best.d) best = s;
@@ -1629,7 +1626,7 @@ int RelaxWindow(size_t n)
     return int(std::clamp<long>(w, 1, kRelaxMaxWindow));
 }
 
-inline GfVec3f Mul(GfVec3f const &v, float s) { return GfVec3f(v[0] * s, v[1] * s, v[2] * s); }
+inline UsdGenVec3f Mul(UsdGenVec3f const &v, float s) { return UsdGenVec3f(v[0] * s, v[1] * s, v[2] * s); }
 
 // One strand, in place: `in` is the upstream strand (A), `out` receives the
 // result. Between iterations `out[k]` (k >= 1) holds Wk; inside an iteration
@@ -1643,9 +1640,9 @@ bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
                  float *ox, float *oy, float *oz, size_t n,
                  float clearRoot, float clearTip, int iterations)
 {
-    auto in = [&](size_t k) { return GfVec3f(ix[k], iy[k], iz[k]); };
-    auto out = [&](size_t k) { return GfVec3f(ox[k], oy[k], oz[k]); };
-    auto put = [&](size_t k, GfVec3f const &v) { ox[k] = v[0]; oy[k] = v[1]; oz[k] = v[2]; };
+    auto in = [&](size_t k) { return UsdGenVec3f(ix[k], iy[k], iz[k]); };
+    auto out = [&](size_t k) { return UsdGenVec3f(ox[k], oy[k], oz[k]); };
+    auto put = [&](size_t k, UsdGenVec3f const &v) { ox[k] = v[0]; oy[k] = v[1]; oz[k] = v[2]; };
     for (size_t k = 0; k < n; ++k) { ox[k] = ix[k]; oy[k] = iy[k]; oz[k] = iz[k]; }
     if (n < 2 || iterations < 1) return false;
     float const span = float(n - 1);
@@ -1660,13 +1657,13 @@ bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
     if (!penetrating) return false;
 
     size_t const w = size_t(RelaxWindow(n));
-    GfVec3f ring[kRelaxMaxWindow];
+    UsdGenVec3f ring[kRelaxMaxWindow];
     for (int it = 0; it < iterations; ++it) {
         // Disp[k] = (Wk[k] - A[k]) + n * 0.8 * (clear(k) - d) when inside the
         // clearance, sampled at the current Wk.
         for (size_t k = 1; k < n; ++k) {
-            GfVec3f const wk = out(k);
-            GfVec3f disp = wk - in(k);
+            UsdGenVec3f const wk = out(k);
+            UsdGenVec3f disp = wk - in(k);
             RelaxSample const s = SignedDistance(bvhs, wk);
             float const c = clearance(k);
             if (s.hit && s.d < c) disp += Mul(s.n, kRelaxGain * (c - s.d));
@@ -1677,31 +1674,31 @@ bool RelaxStrand(std::vector<strand::TriangleBvh> const &bvhs,
         // Disp[0] == 0 (the root never moves).
         for (size_t k = 1; k + 1 < n; ++k) {
             size_t const lo = k > w ? k - w : 0;
-            GfVec3f const a = lo == 0 ? GfVec3f(0.0f) : ring[lo % w];
-            GfVec3f const b = out(k);
-            GfVec3f const c = out(std::min(n - 1, k + w));
+            UsdGenVec3f const a = lo == 0 ? UsdGenVec3f(0.0f) : ring[lo % w];
+            UsdGenVec3f const b = out(k);
+            UsdGenVec3f const c = out(std::min(n - 1, k + w));
             ring[k % w] = b;
             put(k, Mul(a, 0.25f) + Mul(b, 0.5f) + Mul(c, 0.25f));
         }
         {
             size_t const last = n - 1;
             size_t const lo = last > w ? last - w : 0;
-            GfVec3f const a = lo == 0 ? GfVec3f(0.0f) : ring[lo % w];
+            UsdGenVec3f const a = lo == 0 ? UsdGenVec3f(0.0f) : ring[lo % w];
             put(last, Mul(out(last), 0.5f) + Mul(a, 0.5f));
         }
         // Wk = A + S, then follow-the-leader from the fixed root restores
         // every rest segment length |A[k] - A[k-1]|.
-        GfVec3f prev = in(0);
+        UsdGenVec3f prev = in(0);
         for (size_t k = 1; k < n; ++k) {
-            GfVec3f const a = in(k);
+            UsdGenVec3f const a = in(k);
             float const seg = (a - in(k - 1)).GetLength();
-            GfVec3f const target = a + out(k);
-            GfVec3f const dir = target - prev;
+            UsdGenVec3f const target = a + out(k);
+            UsdGenVec3f const dir = target - prev;
             float const len = dir.GetLength();
-            GfVec3f const unit = len > kRelaxMinSegment
-                ? GfVec3f(dir[0] / len, dir[1] / len, dir[2] / len)
-                : GfVec3f(0.0f, 1.0f, 0.0f);
-            GfVec3f const wk = prev + Mul(unit, seg);
+            UsdGenVec3f const unit = len > kRelaxMinSegment
+                ? UsdGenVec3f(dir[0] / len, dir[1] / len, dir[2] / len)
+                : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+            UsdGenVec3f const wk = prev + Mul(unit, seg);
             put(k, wk);
             prev = wk;
         }
@@ -1726,14 +1723,14 @@ bool UsdGenCollideOp::Bind(UsdGenParamView const &params,
                            UsdGenDiagnostics *diag)
 {
     UsdGenOpRecord const &rec = *params.op;
-    TfToken const &resolveType = ResolveType(params);
+    UsdGenToken const &resolveType = ResolveType(params);
     if (resolveType != rec.Token(kTokFlexible) && resolveType != rec.Token(kTokStiff) &&
         resolveType != rec.Token(kTokRelax)) {
         if (diag) diag->Error("UsdGenCollide: unknown usdGen:resolveType '" +
                               resolveType.GetString() + "'");
         return false;
     }
-    TfToken const &deepMode = DeepMode(params);
+    UsdGenToken const &deepMode = DeepMode(params);
     if (deepMode != rec.Token(kTokCollide) && deepMode != rec.Token(kTokCutThenCollide)) {
         if (diag) diag->Error("UsdGenCollide: unknown usdGen:deepPenetrationMode '" +
                               deepMode.GetString() + "'");
@@ -1804,7 +1801,7 @@ UsdGenEpoch UsdGenCollideOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
             for (float v : *values) d.Mix(double(v));
         }
         d.Mix(uint64_t(s.points.size()));
-        for (GfVec3f const &v : s.points)
+        for (UsdGenVec3f const &v : s.points)
             for (int k = 0; k < 3; ++k) d.Mix(double(v[k]));
         d.Mix(uint64_t(s.isSubset));
     };
@@ -1912,8 +1909,8 @@ bool UsdGenCollideOp::Capture(
     // and published tile points are description-local; map collider geometry
     // into that frame once so every collision query and offset uses groom
     // units, including under parent transforms and nonuniform scale.
-    GfMatrix4d const &groomWorld = ctx.desc->xformMatrix;
-    auto affine = [](GfMatrix4d const &m) {
+    UsdGenMatrix4d const &groomWorld = ctx.desc->xformMatrix;
+    auto affine = [](UsdGenMatrix4d const &m) {
         for (int row = 0; row < 4; ++row)
             for (int col = 0; col < 4; ++col)
                 if (!Finite(m[row][col])) return false;
@@ -1925,7 +1922,7 @@ bool UsdGenCollideOp::Capture(
         return false;
     }
     double groomDeterminant = 0.0;
-    GfMatrix4d const worldToGroom = groomWorld.GetInverse(&groomDeterminant);
+    UsdGenMatrix4d const worldToGroom = groomWorld.GetInverse(&groomDeterminant);
     if (!Finite(groomDeterminant) || groomDeterminant == 0.0) {
         if (diag) diag->Error("UsdGenCollide: description world matrix must be invertible");
         return false;
@@ -1967,7 +1964,7 @@ bool UsdGenCollideOp::Capture(
                                   "' world matrix must be finite and affine");
             return false;
         }
-        GfMatrix4d const colliderToGroom = mesh.worldMatrix * worldToGroom;
+        UsdGenMatrix4d const colliderToGroom = mesh.worldMatrix * worldToGroom;
         double const colliderDeterminant = colliderToGroom.GetDeterminant();
         if (!Finite(colliderDeterminant) || colliderDeterminant == 0.0) {
             if (diag) diag->Error("UsdGenCollide: collider '" + label() +
@@ -1986,8 +1983,8 @@ bool UsdGenCollideOp::Capture(
                     return false;
                 }
         collider.points.reserve(mesh.points.size());
-        for (GfVec3f const &local : mesh.points) {
-            GfVec3d const point = colliderToGroom.Transform(GfVec3d(local));
+        for (UsdGenVec3f const &local : mesh.points) {
+            UsdGenVec3d const point = colliderToGroom.Transform(UsdGenVec3d(local));
             if (!Finite(point[0]) || !Finite(point[1]) || !Finite(point[2])) {
                 if (diag) diag->Error("UsdGenCollide: collider '" + label() +
                                       "' has non-finite transformed points");
@@ -2002,7 +1999,7 @@ bool UsdGenCollideOp::Capture(
             // Polygon entry normals need the same geometric winding contract
             // as limit entries. Use groom-space points, including reflections,
             // and an origin on the mesh to avoid translation cancellation.
-            GfVec3d const origin = collider.points.front();
+            UsdGenVec3d const origin = collider.points.front();
             double volume6 = 0.0;
             size_t offset = 0, selected = 0;
             for (size_t face=0;face<mesh.faceVertexCounts.size();++face) {
@@ -2016,14 +2013,14 @@ bool UsdGenCollideOp::Capture(
                     for (int k=1;k+1<count;++k) {
                         auto const &b=collider.points[size_t(mesh.faceVertexIndices[offset+size_t(k)])];
                         auto const &c=collider.points[size_t(mesh.faceVertexIndices[offset+size_t(k+1)])];
-                        volume6 += GfDot(a-origin,GfCross(b-origin,c-origin));
+                        volume6 += UsdGenDot(a-origin,UsdGenCross(b-origin,c-origin));
                     }
                 }
                 offset += size_t(count);
             }
             collider.outwardSign = volume6 < 0.0 ? -1.0 : 1.0;
         }
-        TfToken const scheme = mesh.subdivisionScheme;
+        UsdGenToken const scheme = mesh.subdivisionScheme;
         UsdGenOpRecord const &rec = *p->op;
         if (scheme == rec.Token(kTokNone)) {
             WarnOnce(diag, label(), mesh, collider.faces,
@@ -2064,7 +2061,7 @@ bool UsdGenCollideOp::Capture(
                 "using polygon collision");
         }
         if (collider.hasFaces && collider.closed) {
-            GfVec3d lo(0.0), hi(0.0);
+            UsdGenVec3d lo(0.0), hi(0.0);
             bool seeded = false;
             size_t fi = 0, off = 0;
             for (size_t f = 0; f < mesh.faceVertexCounts.size(); ++f) {
@@ -2075,7 +2072,7 @@ bool UsdGenCollideOp::Capture(
                 if (use) {
                     ++fi;
                     for (int k = 0; k < n; ++k) {
-                        GfVec3d const &point = collider.points[size_t(
+                        UsdGenVec3d const &point = collider.points[size_t(
                             mesh.faceVertexIndices[off + size_t(k)])];
                         if (!seeded) { lo = point; hi = point; seeded = true; }
                         for (int axis = 0; axis < 3; ++axis) {
@@ -2173,20 +2170,20 @@ void UsdGenCollideOp::Evaluate(
     bool cutPrepared = false;
     constexpr size_t kMaxDepthIntervals = 256;
     constexpr size_t kMaxDepthEvaluations = 1024;
-    GfVec3d *shortenedSource=view->pointScratch;
+    UsdGenVec3d *shortenedSource=view->pointScratch;
     auto copyInput = [&](size_t o) {
         if (!cutPrepared) { px[o] = inPx[o]; py[o] = inPy[o]; pz[o] = inPz[o]; }
     };
-    auto current = [&](size_t o, int it) -> GfVec3d {
+    auto current = [&](size_t o, int it) -> UsdGenVec3d {
         if (it == 0 && !cutPrepared)
-            return GfVec3d(inPx[o], inPy[o], inPz[o]);
-        return GfVec3d(px[o], py[o], pz[o]);
+            return UsdGenVec3d(inPx[o], inPy[o], inPz[o]);
+        return UsdGenVec3d(px[o], py[o], pz[o]);
     };
-    auto source = [&](size_t o) -> GfVec3d {
+    auto source = [&](size_t o) -> UsdGenVec3d {
         return cutPrepared ? shortenedSource[o]
-                           : GfVec3d(inPx[o],inPy[o],inPz[o]);
+                           : UsdGenVec3d(inPx[o],inPy[o],inPz[o]);
     };
-    auto store = [&](size_t o, GfVec3d const &v) {
+    auto store = [&](size_t o, UsdGenVec3d const &v) {
         px[o] = float(v[0]); py[o] = float(v[1]); pz[o] = float(v[2]);
     };
     // The optional per-curve unresolved flag (relax nodes only).
@@ -2255,12 +2252,12 @@ void UsdGenCollideOp::Evaluate(
 
     ContactQueryCache<4> pointQueries;
     ContactQueryCache<7> segmentQueries;
-    auto closest = [&](GfVec3d const &point, double offset) {
+    auto closest = [&](UsdGenVec3d const &point, double offset) {
         return pointQueries.Find({point[0], point[1], point[2], offset}, [&] {
             return ClosestOnColliders(ctx.desc, cap, point, offset);
         });
     };
-    auto firstCrossing = [&](GfVec3d const &start, GfVec3d const &end,
+    auto firstCrossing = [&](UsdGenVec3d const &start, UsdGenVec3d const &end,
                              bool completePolygonHit = false) {
         return segmentQueries.Find({start[0], start[1], start[2],
                                     end[0], end[1], end[2],
@@ -2308,15 +2305,15 @@ void UsdGenCollideOp::Evaluate(
             double *arc=view->scalarScratch+g;
             arc[0]=0.0;
             for (size_t i=1;i<n;++i) {
-                GfVec3d const a(inPx[g+i-1],inPy[g+i-1],inPz[g+i-1]);
-                GfVec3d const b(inPx[g+i],inPy[g+i],inPz[g+i]);
+                UsdGenVec3d const a(inPx[g+i-1],inPy[g+i-1],inPz[g+i-1]);
+                UsdGenVec3d const b(inPx[g+i],inPy[g+i],inPz[g+i]);
                 arc[i]=arc[i-1]+(b-a).GetLength();
             }
             double const total=arc[n-1];
             double cut=0.0;
             for (size_t i=0;i+1<n;++i) {
-                GfVec3d const a(inPx[g+i],inPy[g+i],inPz[g+i]);
-                GfVec3d const b(inPx[g+i+1],inPy[g+i+1],inPz[g+i+1]);
+                UsdGenVec3d const a(inPx[g+i],inPy[g+i],inPz[g+i]);
+                UsdGenVec3d const b(inPx[g+i+1],inPy[g+i+1],inPz[g+i+1]);
                 double const segmentLength=(b-a).GetLength();
                 if (!(segmentLength>0.0)) continue;
                 double const wa=std::clamp(
@@ -2340,9 +2337,9 @@ void UsdGenCollideOp::Evaluate(
                 for (size_t ci=0;ci<cap.colliders.size();++ci) {
                     if (!cap.colliders[ci].closed) continue;
                     auto const &closedCollider=cap.colliders[ci];
-                    GfVec3d const segmentLo(
+                    UsdGenVec3d const segmentLo(
                         std::min(a[0],b[0]),std::min(a[1],b[1]),std::min(a[2],b[2]));
-                    GfVec3d const segmentHi(
+                    UsdGenVec3d const segmentHi(
                         std::max(a[0],b[0]),std::max(a[1],b[1]),std::max(a[2],b[2]));
                     if (segmentHi[0]<closedCollider.controlLo[0] ||
                         segmentLo[0]>closedCollider.controlHi[0] ||
@@ -2350,7 +2347,7 @@ void UsdGenCollideOp::Evaluate(
                         segmentLo[1]>closedCollider.controlHi[1] ||
                         segmentHi[2]<closedCollider.controlLo[2] ||
                         segmentLo[2]>closedCollider.controlHi[2]) continue;
-                    struct DepthSample { double d=0.0; GfVec3d q{0.0}; };
+                    struct DepthSample { double d=0.0; UsdGenVec3d q{0.0}; };
                     struct Interval { double a,b,upper; DepthSample sa,sb,sm; };
                     bool queryFailed=false;
                     size_t depthEvaluations=0;
@@ -2399,8 +2396,8 @@ void UsdGenCollideOp::Evaluate(
                         // Apply that bound to both cached half intervals.
                         double const splitUpper=std::max(
                             (da.d+dm.d+half)*0.5,(dm.d+db.d+half)*0.5);
-                        GfVec3d const pa=a+(b-a)*ta,pb=a+(b-a)*tb;
-                        auto fixedBoundaryUpper=[&](GfVec3d const &q) {
+                        UsdGenVec3d const pa=a+(b-a)*ta,pb=a+(b-a)*tb;
+                        auto fixedBoundaryUpper=[&](UsdGenVec3d const &q) {
                             return std::max((pa-q).GetLength(),(pb-q).GetLength());
                         };
                         double const boundaryUpper=std::min({
@@ -2479,15 +2476,15 @@ void UsdGenCollideOp::Evaluate(
                     }
                 }
                 for (size_t i=0;i<n;++i)
-                    shortenedSource[g+i]=GfVec3d(px[g+i],py[g+i],pz[g+i]);
+                    shortenedSource[g+i]=UsdGenVec3d(px[g+i],py[g+i],pz[g+i]);
                 cutPrepared=true;
             }
         }
         for (int it = 0; it < iterations; ++it) {
             if (!stiff) {
                 bool flexibleChanged=false;
-                auto storeFlexible=[&](size_t o,GfVec3d const &v) {
-                    GfVec3d const before=current(o,it);
+                auto storeFlexible=[&](size_t o,UsdGenVec3d const &v) {
+                    UsdGenVec3d const before=current(o,it);
                     float const x=float(v[0]),y=float(v[1]),z=float(v[2]);
                     flexibleChanged = flexibleChanged ||
                         x!=float(before[0]) || y!=float(before[1]) ||
@@ -2503,7 +2500,7 @@ void UsdGenCollideOp::Evaluate(
                     // strand. Independent nearest-face queries can send a
                     // lower CV to the bottom of a box and its neighbor to
                     // the top, leaving their connecting segment inside it.
-                    GfVec3d const original=source(o);
+                    UsdGenVec3d const original=source(o);
                     double const off = Sanitize(offsetField.Value(curve, cv));
                     if (hasClosed && !cutMode) {
                         ClosestHit const reference =
@@ -2512,7 +2509,7 @@ void UsdGenCollideOp::Evaluate(
                             if (!anchored || anchor.collider != reference.collider) {
                                 ClosestHit entry;
                                 if (i > 0) {
-                                    GfVec3d const previous=source(o-1);
+                                    UsdGenVec3d const previous=source(o-1);
                                     entry = firstCrossing(previous, original);
                                 }
                                 anchor = entry.found &&
@@ -2521,15 +2518,15 @@ void UsdGenCollideOp::Evaluate(
                             }
                             anchored = true;
                         } else if (i > 0) {
-                            GfVec3d const previous=source(o-1);
+                            UsdGenVec3d const previous=source(o-1);
                             ClosestHit const crossing =
                                 firstCrossing(previous, original);
                             ClosestHit correctedCrossing;
                             bool onEnteredFace = false;
                             if (anchored) {
-                                GfVec3d const correctedPrevious(
+                                UsdGenVec3d const correctedPrevious(
                                     px[o - 1], py[o - 1], pz[o - 1]);
-                                GfVec3d const candidate = current(o, it);
+                                UsdGenVec3d const candidate = current(o, it);
                                 correctedCrossing = firstCrossing(
                                     correctedPrevious, candidate);
                                 ClosestHit anchoredFace = anchor;
@@ -2555,7 +2552,7 @@ void UsdGenCollideOp::Evaluate(
                         if (it == 0) copyInput(o);
                         continue;
                     }
-                    GfVec3d const pos = current(o, it);
+                    UsdGenVec3d const pos = current(o, it);
                     if (cutMode) {
                         // Cut-flex collision is a projected iteration over the
                         // geometry actually stored by this sweep.  Correct the
@@ -2565,16 +2562,16 @@ void UsdGenCollideOp::Evaluate(
                         // next sweep instead of selecting a discontinuous
                         // closest point on the original entry facet.
                         ClosestHit entry;
-                        GfVec3d previous=pos;
+                        UsdGenVec3d previous=pos;
                         if (i>0) {
-                            previous=GfVec3d(px[o-1],py[o-1],pz[o-1]);
+                            previous=UsdGenVec3d(px[o-1],py[o-1],pz[o-1]);
                             entry=firstCrossing(previous,pos,true);
                         }
                         if (entry.found) {
-                            GfVec3d normal=entry.normal;
+                            UsdGenVec3d normal=entry.normal;
                             double const length=normal.GetLength();
                             if (length>0.0) normal/=length;
-                            double const side=GfDot(pos-entry.q,normal);
+                            double const side=UsdGenDot(pos-entry.q,normal);
                             double const amount=std::max(0.0,off-side);
                             storeFlexible(o,pos+normal*(amount*push*m));
                             continue;
@@ -2591,7 +2588,7 @@ void UsdGenCollideOp::Evaluate(
                             if (it==0) copyInput(o);
                             continue;
                         }
-                        GfVec3d const dir=HitDirection(
+                        UsdGenVec3d const dir=HitDirection(
                             ctx.desc,cap,hit,pos,hit.inside);
                         storeFlexible(o,pos+dir*(pen*push*m));
                         continue;
@@ -2601,9 +2598,9 @@ void UsdGenCollideOp::Evaluate(
                         bool const faceReady=ClosestOnHitFacet(
                             cap,original,&face);
                         if (faceReady) {
-                            GfVec3d const outward = HitDirection(
+                            UsdGenVec3d const outward = HitDirection(
                                 ctx.desc, cap, face, original, true);
-                            GfVec3d const target = face.q + outward * off;
+                            UsdGenVec3d const target = face.q + outward * off;
                             storeFlexible(o, pos + (target - pos) * (push * m));
                             continue;
                         }
@@ -2626,7 +2623,7 @@ void UsdGenCollideOp::Evaluate(
                         if (it == 0) copyInput(o);
                         continue;
                     }
-                    GfVec3d const dir = HitDirection(
+                    UsdGenVec3d const dir = HitDirection(
                         ctx.desc, cap, hit, pos, hit.inside);
                     storeFlexible(o, pos + dir * s);
                 }
@@ -2640,7 +2637,7 @@ void UsdGenCollideOp::Evaluate(
                 // translates rigidly, otherwise the downstream CVs rotate
                 // about the last clean CV. Both preserve segment lengths.
                 size_t hinge = n;  // first index with pen > 0, else n
-                GfVec3d target(0.0);
+                UsdGenVec3d target(0.0);
                 double hingeMask = 1.0;
                 for (size_t i = 0; i < n; ++i) {
                     size_t const o = g + i;
@@ -2649,7 +2646,7 @@ void UsdGenCollideOp::Evaluate(
                         Sanitize(pushField.Value(curve, cv));
                     double const m = std::clamp(
                         Sanitize(maskField.Value(curve, cv)), 0.0, 1.0);
-                    GfVec3d const pos = current(o, it);
+                    UsdGenVec3d const pos = current(o, it);
                     double const off = Sanitize(offsetField.Value(curve, cv));
                     ClosestHit const hit =
                         closest(pos, std::max(0.0,off));
@@ -2658,7 +2655,7 @@ void UsdGenCollideOp::Evaluate(
                         entry = firstCrossing(current(g + i - 1, it), pos);
                     bool const solidContact = entry.found || hit.inside;
                     double pen = 0.0;
-                    GfVec3d dir(0.0, 0.0, 1.0);
+                    UsdGenVec3d dir(0.0, 0.0, 1.0);
                     ClosestHit face = entry.found ? entry : hit;
                     if (face.found) {
                         if (entry.found)
@@ -2682,13 +2679,13 @@ void UsdGenCollideOp::Evaluate(
                             // exterior side of the actual entry face plane.
                             // The fixed-length target is the smallest swivel
                             // satisfying that one-sided constraint.
-                            GfVec3d const h = current(g + i - 1, it);
-                            GfVec3d const from = pos - h;
+                            UsdGenVec3d const h = current(g + i - 1, it);
+                            UsdGenVec3d const from = pos - h;
                             double const length = from.GetLength();
-                            GfVec3d normal = entry.normal;
-                            if (GfDot(normal, from) > 0.0) normal = -normal;
+                            UsdGenVec3d normal = entry.normal;
+                            if (UsdGenDot(normal, from) > 0.0) normal = -normal;
                             double const startSide =
-                                GfDot(h - entry.q, normal);
+                                UsdGenDot(h - entry.q, normal);
                             double const edge = std::max({
                                 (entry.b - entry.a).GetLength(),
                                 (entry.c - entry.b).GetLength(),
@@ -2696,31 +2693,31 @@ void UsdGenCollideOp::Evaluate(
                             double const margin =
                                 1e-5 * std::max(edge, length);
                             double const normalTarget = off + margin - startSide;
-                            double const normalNow = GfDot(from, normal);
+                            double const normalNow = UsdGenDot(from, normal);
                             if (length > 0.0 &&
                                 startSide >= -margin &&
                                 normalTarget > normalNow &&
                                 normalTarget < length) {
-                                GfVec3d tangent =
+                                UsdGenVec3d tangent =
                                     from - normal * normalNow;
                                 if (tangent.GetLength() < 1e-5 * length) {
                                     tangent = source(o)-source(o-1);
-                                    tangent -= normal * GfDot(tangent, normal);
+                                    tangent -= normal * UsdGenDot(tangent, normal);
                                 }
                                 if (tangent.GetLength() < 1e-5 * length) {
                                     tangent = h -
                                         cap.colliders[entry.collider].center;
-                                    tangent -= normal * GfDot(tangent, normal);
+                                    tangent -= normal * UsdGenDot(tangent, normal);
                                 }
                                 if (tangent.GetLength() < 1e-8) {
-                                    GfVec3d const axis =
+                                    UsdGenVec3d const axis =
                                         std::abs(normal[0]) < 0.9
-                                        ? GfVec3d(1, 0, 0)
-                                        : GfVec3d(0, 0, 1);
-                                    tangent = GfCross(normal, axis);
+                                        ? UsdGenVec3d(1, 0, 0)
+                                        : UsdGenVec3d(0, 0, 1);
+                                    tangent = UsdGenCross(normal, axis);
                                 }
                                 tangent.Normalize();
-                                GfVec3d const planeTarget =
+                                UsdGenVec3d const planeTarget =
                                     h + normal * normalTarget +
                                     tangent * std::sqrt(length * length -
                                         normalTarget * normalTarget);
@@ -2729,25 +2726,25 @@ void UsdGenCollideOp::Evaluate(
                                 // broad solid. Use the established longer-
                                 // reach swivel if any candidate CV or whole
                                 // segment would still cross that solid.
-                                GfVec3f const fromF{
+                                UsdGenVec3f const fromF{
                                     float(from[0]), float(from[1]),
                                     float(from[2])};
-                                GfVec3d const to = planeTarget - h;
-                                GfVec3f const toF{
+                                UsdGenVec3d const to = planeTarget - h;
+                                UsdGenVec3f const toF{
                                     float(to[0]), float(to[1]),
                                     float(to[2])};
                                 bool spanClear = true;
-                                GfVec3d previous = h;
+                                UsdGenVec3d previous = h;
                                 for (size_t j = i; j < n; ++j) {
-                                    GfVec3d const rel = current(g + j, it) - h;
-                                    GfVec3f const relF{
+                                    UsdGenVec3d const rel = current(g + j, it) - h;
+                                    UsdGenVec3f const relF{
                                         float(rel[0]), float(rel[1]),
                                         float(rel[2])};
-                                    GfVec3f const rotated = opUtil::RotateOnto(
+                                    UsdGenVec3f const rotated = opUtil::RotateOnto(
                                         relF, fromF, toF,
                                         float(std::clamp(push * m, 0.0, 1.0)));
-                                    GfVec3d const candidate = h +
-                                        GfVec3d(double(rotated[0]),
+                                    UsdGenVec3d const candidate = h +
+                                        UsdGenVec3d(double(rotated[0]),
                                                  double(rotated[1]),
                                                  double(rotated[2]));
                                     ClosestHit const candidateHit =
@@ -2774,36 +2771,36 @@ void UsdGenCollideOp::Evaluate(
                         }
                         if (!lateralOverride && solidContact && i > 0 &&
                             push * m > 0.0) {
-                            GfVec3d const h = current(g + i - 1, it);
-                            GfVec3d const from = pos - h, toward = target - h;
-                            GfVec3f const fromF{
+                            UsdGenVec3d const h = current(g + i - 1, it);
+                            UsdGenVec3d const from = pos - h, toward = target - h;
+                            UsdGenVec3f const fromF{
                                 float(from[0]),float(from[1]),float(from[2])};
                             double const lf = from.GetLength();
                             double const lt = toward.GetLength();
                             if (lf > 0.0 &&
                                 (lt == 0.0 ||
-                                 GfDot(from, -dir) > 1e-8 ||
+                                 UsdGenDot(from, -dir) > 1e-8 ||
                                  (lt > 0.0 &&
-                                  GfDot(from, toward) / (lf * lt) > 0.98))) {
+                                  UsdGenDot(from, toward) / (lf * lt) > 0.98))) {
                                 // Shortening the hinge vector cannot rotate
                                 // a rigid strand out. Preserve its original
                                 // travel along the entry face where possible;
                                 // radial distance from the solid center only
                                 // breaks an axial tie (upright bottom hit).
-                                GfVec3d const outward = dir;
-                                GfVec3d lateral=source(o)-source(o-1);
-                                lateral -= outward * GfDot(lateral, outward);
+                                UsdGenVec3d const outward = dir;
+                                UsdGenVec3d lateral=source(o)-source(o-1);
+                                lateral -= outward * UsdGenDot(lateral, outward);
                                 if (lateral.GetLength() < 1e-5 * lf) {
                                     lateral = h -
                                         cap.colliders[face.collider].center;
-                                    lateral -= outward * GfDot(lateral, outward);
+                                    lateral -= outward * UsdGenDot(lateral, outward);
                                 }
                                 if (lateral.GetLength() < 1e-8) {
-                                    GfVec3d const axis =
+                                    UsdGenVec3d const axis =
                                         std::abs(outward[0]) < 0.9
-                                        ? GfVec3d(1, 0, 0)
-                                        : GfVec3d(0, 0, 1);
-                                    lateral = GfCross(outward, axis);
+                                        ? UsdGenVec3d(1, 0, 0)
+                                        : UsdGenVec3d(0, 0, 1);
+                                    lateral = UsdGenCross(outward, axis);
                                 }
                                 lateral.Normalize();
                                 double reach = lf;
@@ -2811,30 +2808,30 @@ void UsdGenCollideOp::Evaluate(
                                     reach = std::max(reach,
                                         (current(g + j, it) - h).GetLength());
                                 double const clearance = std::max(0.0,
-                                    GfDot(face.q - h, -outward) - 1e-5);
+                                    UsdGenDot(face.q - h, -outward) - 1e-5);
                                 double const axial = std::clamp(
                                     clearance / reach, 0.0, 0.95);
-                                GfVec3d const desired =
+                                UsdGenVec3d const desired =
                                     lateral * std::sqrt(1.0 - axial * axial) -
                                     outward * axial;
                                 target = h + desired * lf;
-                                auto spanClears = [&](GfVec3d const &hingeTarget,
+                                auto spanClears = [&](UsdGenVec3d const &hingeTarget,
                                                       size_t *badIndex) {
-                                    GfVec3f const hingeToF{
+                                    UsdGenVec3f const hingeToF{
                                         float(hingeTarget[0] - h[0]),
                                         float(hingeTarget[1] - h[1]),
                                         float(hingeTarget[2] - h[2])};
-                                    GfVec3d previous = h;
+                                    UsdGenVec3d previous = h;
                                     for (size_t j = i; j < n; ++j) {
-                                        GfVec3d const rel =
+                                        UsdGenVec3d const rel =
                                             current(g + j, it) - h;
-                                        GfVec3f const relF{
+                                        UsdGenVec3f const relF{
                                             float(rel[0]), float(rel[1]),
                                             float(rel[2])};
-                                        GfVec3f const rotated = opUtil::RotateOnto(
+                                        UsdGenVec3f const rotated = opUtil::RotateOnto(
                                             relF, fromF, hingeToF,
                                             float(std::clamp(push * m, 0.0, 1.0)));
-                                        GfVec3d const candidate = h + GfVec3d(
+                                        UsdGenVec3d const candidate = h + UsdGenVec3d(
                                             double(rotated[0]),double(rotated[1]),
                                             double(rotated[2]));
                                         ClosestHit const candidateHit =
@@ -2854,11 +2851,11 @@ void UsdGenCollideOp::Evaluate(
                                     target,&primaryBad);
                                 bool mirrorClear = false;
                                 if (!primaryClear) {
-                                    GfVec3d const mirrored =
+                                    UsdGenVec3d const mirrored =
                                         -lateral * std::sqrt(
                                             1.0 - axial * axial) -
                                         outward * axial;
-                                    GfVec3d const mirroredTarget =
+                                    UsdGenVec3d const mirroredTarget =
                                         h + mirrored * lf;
                                     mirrorClear = spanClears(
                                         mirroredTarget,&mirrorBad);
@@ -2895,33 +2892,33 @@ void UsdGenCollideOp::Evaluate(
                     continue;
                 }
                 size_t const ho = g + hinge;
-                GfVec3d const hp = current(ho, it);
+                UsdGenVec3d const hp = current(ho, it);
                 if (hinge == 0) {
-                    GfVec3d const shift = target - hp;
+                    UsdGenVec3d const shift = target - hp;
                     for (size_t i = 0; i < n; ++i)
                         store(g + i, current(g + i, it) + shift);
                     continue;
                 }
                 if (it == 0)
                     for (size_t i = 0; i < hinge; ++i) copyInput(g + i);
-                GfVec3d const h = current(g + hinge - 1, it);
-                GfVec3d const from = hp - h, to = target - h;
-                if (from == GfVec3d(0.0) || to == GfVec3d(0.0)) {
+                UsdGenVec3d const h = current(g + hinge - 1, it);
+                UsdGenVec3d const from = hp - h, to = target - h;
+                if (from == UsdGenVec3d(0.0) || to == UsdGenVec3d(0.0)) {
                     // Collapsed hinge segment: rigid translation instead.
-                    GfVec3d const shift = target - hp;
+                    UsdGenVec3d const shift = target - hp;
                     for (size_t i = hinge; i < n; ++i)
                         store(g + i, current(g + i, it) + shift);
                     continue;
                 }
-                GfVec3f const fromF{float(from[0]), float(from[1]), float(from[2])};
-                GfVec3f const toF{float(to[0]), float(to[1]), float(to[2])};
+                UsdGenVec3f const fromF{float(from[0]), float(from[1]), float(from[2])};
+                UsdGenVec3f const toF{float(to[0]), float(to[1]), float(to[2])};
                 for (size_t i = hinge; i < n; ++i) {
                     size_t const o = g + i;
-                    GfVec3d const rel = current(o, it) - h;
-                    GfVec3f const relF{float(rel[0]), float(rel[1]), float(rel[2])};
-                    GfVec3f const rotated =
+                    UsdGenVec3d const rel = current(o, it) - h;
+                    UsdGenVec3f const relF{float(rel[0]), float(rel[1]), float(rel[2])};
+                    UsdGenVec3f const rotated =
                         opUtil::RotateOnto(relF, fromF, toF, float(hingeMask));
-                    store(o, h + GfVec3d(double(rotated[0]),
+                    store(o, h + UsdGenVec3d(double(rotated[0]),
                                          double(rotated[1]),
                                          double(rotated[2])));
                 }
