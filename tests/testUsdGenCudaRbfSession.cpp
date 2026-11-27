@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "pxr/base/gf/vec2f.h"
 #include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"
@@ -9,7 +10,6 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); return 1; } } while (false)

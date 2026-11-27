@@ -4,6 +4,7 @@
 // End-to-end proof for the deliberately narrow descriptor -> native Vulkan
 // source/width executor.  CPU construction below is an independent oracle for
 // C3 canonicalization; GPU bytes are always read back from the publication.
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/vulkan/planExecutor.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -30,7 +31,6 @@
 #include <iterator>
 #include <memory>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

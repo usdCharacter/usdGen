@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/pxrInterop.h"
 #include "usdGen/executionBackend.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -17,7 +18,6 @@
 #include <limits>
 #include <set>
 #include <string>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

@@ -157,7 +157,7 @@ _ResolveExecutionBackend(UsdPrim const &prim, std::vector<std::string> *errors)
         return usdGen::UsdGenBackendId::Invalid;
     }
     TfToken const name = value.UncheckedGet<TfToken>();
-    usdGen::UsdGenBackendId const backend = usdGen::UsdGenFindBackend(name);
+    usdGen::UsdGenBackendId const backend = usdGen::UsdGenFindBackend(usdGenUsd::ToToken(name));
     if (backend == usdGen::UsdGenBackendId::Invalid && !name.IsEmpty())
         errors->push_back("no backend named '" + name.GetString() + "' is registered");
     return backend;
@@ -220,7 +220,7 @@ _PullParams(UsdPrim const &prim, double time,
             continue;  // no authored/default opinion at all
         }
         UsdGenParamValue p;
-        p.name = TfToken(s.substr(7));  // strip "usdGen:" (02 §0.7)
+        p.name = usdGenUsd::ToToken(s.substr(7));  // strip "usdGen:" (02 §0.7)
         p.value = usdGenUsd::ToEngineValue(value);
         p.animated = attr.ValueMightBeTimeVarying();
         params->push_back(std::move(p));
@@ -330,8 +330,8 @@ _CapturePaintMap(UsdStageRefPtr const &stage, UsdPrim const &prim,
         size_t defaultFaceVarying = 0;
         for (int c : defaultCounts) defaultFaceVarying += size_t(c);
         map->paintSurface = meshPath;
-        map->paintPrimvar = primvarName;
-        map->paintInterpolation = UsdGeomTokens->faceVarying;
+        map->paintPrimvar = usdGenUsd::ToToken(primvarName);
+        map->paintInterpolation = usdGenUsd::ToToken(UsdGeomTokens->faceVarying);
         map->paintValues.assign(defaultFaceVarying, defaultValue);
         return;
     }
@@ -395,8 +395,8 @@ _CapturePaintMap(UsdStageRefPtr const &stage, UsdPrim const &prim,
         UsdGenMaskPaintValues(counts, subsetFaces, fallback, &folded);
     }
     map->paintSurface = meshPath;
-    map->paintPrimvar = primvarName;
-    map->paintInterpolation = interp;
+    map->paintPrimvar = usdGenUsd::ToToken(primvarName);
+    map->paintInterpolation = usdGenUsd::ToToken(interp);
     map->paintValues = folded;
 }
 
@@ -547,11 +547,15 @@ _BuildSurface(UsdStageRefPtr const &stage, SdfPath const &path, double time,
     UsdPrim const meshPrim = mesh.GetPrim();
 
     out->path = path;
-    mesh.GetSubdivisionSchemeAttr().Get(&out->subdivisionScheme);
-    mesh.GetOrientationAttr().Get(&out->orientation);
-    mesh.GetInterpolateBoundaryAttr().Get(&out->interpolateBoundary);
-    mesh.GetFaceVaryingLinearInterpolationAttr().Get(&out->faceVaryingLinearInterpolation);
-    mesh.GetTriangleSubdivisionRuleAttr().Get(&out->triangleSubdivisionRule);
+    auto getToken = [](UsdAttribute const &attr, usdGen::UsdGenToken *field) {
+        TfToken value;
+        if (attr.Get(&value)) *field = usdGenUsd::ToToken(value);
+    };
+    getToken(mesh.GetSubdivisionSchemeAttr(), &out->subdivisionScheme);
+    getToken(mesh.GetOrientationAttr(), &out->orientation);
+    getToken(mesh.GetInterpolateBoundaryAttr(), &out->interpolateBoundary);
+    getToken(mesh.GetFaceVaryingLinearInterpolationAttr(), &out->faceVaryingLinearInterpolation);
+    getToken(mesh.GetTriangleSubdivisionRuleAttr(), &out->triangleSubdivisionRule);
     mesh.GetHoleIndicesAttr().Get(&out->holeIndices);
     mesh.GetCreaseIndicesAttr().Get(&out->creaseIndices);
     mesh.GetCreaseLengthsAttr().Get(&out->creaseLengths);
@@ -710,7 +714,7 @@ std::set<TfToken> const s_reservedCurvePlanes{
     TfToken("rest"), TfToken("widths"), TfToken("st"),
     TfToken("skinprim"), TfToken("skinprimuv"), TfToken("displayColor"),
     TfToken("usdGen:curveId"), TfToken("usdGen:rootFrame"),
-    TfToken("usdGen:role"), usdGen::UsdGenSourceColorPlane()};
+    TfToken("usdGen:role"), TfToken("usdGenSourceColor")};   // UsdGenSourceColorPlane()
 
 void
 _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
@@ -732,7 +736,7 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
     _GetTyped(curves.GetTypeAttr(), UsdTimeCode(time), &out->type);
     _GetTyped(curves.GetBasisAttr(), UsdTimeCode(time), &out->basis);
     _GetTyped(curves.GetWrapAttr(), UsdTimeCode(time), &out->wrap);
-    out->widthsInterpolation = curves.GetWidthsInterpolation();
+    out->widthsInterpolation = usdGenUsd::ToToken(curves.GetWidthsInterpolation());
 
     _GetTyped(curves.GetCurveVertexCountsAttr(), UsdTimeCode(time),
               &out->curveVertexCounts);
@@ -744,7 +748,7 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
     UsdGeomPrimvar widthsPrimvar = UsdGeomPrimvarsAPI(prim).GetPrimvar(TfToken("widths"));
     if (widthsPrimvar && widthsPrimvar.HasValue()) {
         widthsPrimvar.Get(&out->widths, UsdTimeCode(time));
-        out->widthsInterpolation = widthsPrimvar.GetInterpolation();
+        out->widthsInterpolation = usdGenUsd::ToToken(widthsPrimvar.GetInterpolation());
     } else {
         _GetTyped(curves.GetWidthsAttr(), UsdTimeCode(time), &out->widths);
     }
@@ -810,7 +814,7 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
         if (name.IsEmpty() || reserved.count(name)) continue;
         bool const nativeClump = isClump(name.GetString());
         usdGen::UsdGenAuthoredPlaneDesc plane;
-        plane.name = name;
+        plane.name = usdGenUsd::ToToken(name);
         TfToken const interpolation = pv.GetInterpolation();
         size_t expected = 0;
         if (interpolation == UsdGeomTokens->vertex) {
@@ -929,7 +933,7 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
         _GetToken(prim, "usdGen:role", &curveRole);
     }
     if (!curveRole.IsEmpty()) {
-        out->curveRole = curveRole;
+        out->curveRole = usdGenUsd::ToToken(curveRole);
     }
 
     // frozenEpoch: constant string primvar "usdgen1:sha1:..." (S42).
@@ -1113,8 +1117,8 @@ BuildGraphDescFromStage(
                 std::string const n = a.GetName().GetString();
                 if (n.rfind("outputs:", 0) != 0) continue;
                 usdGen::UsdGenExpressionOutputDesc output;
-                output.name = TfToken(n.substr(8));
-                output.nativeType = a.GetTypeName().GetAsToken();
+                output.name = usdGenUsd::ToToken(n.substr(8));
+                output.nativeType = usdGenUsd::ToToken(a.GetTypeName().GetAsToken());
                 VtValue declaration;
                 output.shape = _ExpressionShape(
                     a.GetTypeName(), a.Get(&declaration, UsdTimeCode::Default())
@@ -1374,7 +1378,7 @@ BuildGraphDescFromStage(
         if (UsdPrim prim = stage->GetPrimAtPath(p)) {
             TfToken type;
             _GetToken(prim, "usdGen:type", &type);
-            map.type = type.IsEmpty() ? prim.GetPrimTypeInfo().GetTypeName() : type;
+            map.type = usdGenUsd::ToToken(type.IsEmpty() ? prim.GetPrimTypeInfo().GetTypeName() : type);
             SdfAssetPath asset;
             if (_GetTyped(prim.GetAttribute(TfToken("usdGen:map:file")),
                           UsdTimeCode::Default(), &asset)) {

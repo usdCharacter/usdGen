@@ -27,6 +27,7 @@
 // Needs the schema plugin (typed groom prims), so this registers with the
 // _usdgen_m1_env environment like every adapter-dependent T1 test.
 
+#include "utils/pxrInterop.h"
 #include "usdGenPomade/pomadeApi.h"
 #include "usdGenPomade/pomadeApiStage.h"
 #include "usdGenPomade/pomadeCommit.h"

@@ -5,6 +5,7 @@
 // result at cook time.  Preview state must not affect either authored asset;
 // runtime density must not cause Pomade to rebake it.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -50,7 +51,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

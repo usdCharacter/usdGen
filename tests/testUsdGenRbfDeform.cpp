@@ -19,6 +19,7 @@
 // moved: no universal dirty, the tiles' points and occlusion but not their
 // widths or colours, the drivers with the stage's own locators; the scene
 // globals' frame alone cooks nothing (the example reads no $frame).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/lower.h"
@@ -69,7 +70,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

@@ -16,6 +16,7 @@
 // a new contract version, not an M1 edit (02 §8.1/§8.5). No skip path: this
 // test always asserts.
 
+#include "utils/pxrInterop.h"
 #include "pxr/pxr.h"
 #include "pxr/base/tf/token.h"
 #include "pxr/usd/sdf/types.h"

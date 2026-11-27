@@ -9,9 +9,9 @@
 //     whose C++ value lives in sdf
 // and every row names a registered type; unknown names resolve to nothing.
 
+#include "utils/pxrInterop.h"
 #include "usdGenUsd/resolve/sdfValueShape.h"
 #include "usdGenExpr/expressions/valueShape.h"
-#include "utils/pxrInterop.h"
 
 #include "pxr/base/tf/token.h"
 #include "pxr/base/tf/type.h"

@@ -25,6 +25,7 @@
 // the digests must not depend on it). USDGEN_GOLDEN_VERBOSE=1 prints
 // diagnostics.
 
+#include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "nodeSets.h"

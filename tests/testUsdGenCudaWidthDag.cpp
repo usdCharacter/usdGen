@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -27,7 +28,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

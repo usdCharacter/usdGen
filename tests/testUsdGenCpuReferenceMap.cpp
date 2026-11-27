@@ -2,6 +2,7 @@
 // descriptors become immutable compiled values, and reference-role capture
 // finishes before ordinary curve work regardless of Kahn tie-break order.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -22,7 +23,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

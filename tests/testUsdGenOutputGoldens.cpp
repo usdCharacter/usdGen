@@ -20,6 +20,7 @@
 // design change; never to make a refactor pass). USDGEN_GOLDEN_VERBOSE=1
 // prints each cook's diagnostics.
 
+#include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "nodeSets.h"

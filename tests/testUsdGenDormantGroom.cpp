@@ -3,6 +3,7 @@
 // every Description is deactivated) is dormant: stage events that would
 // re-capture and re-cook it are no-ops until it is shown or enabled again,
 // and waking it cooks the edits it slept through before its tiles reappear.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGen/op.h"

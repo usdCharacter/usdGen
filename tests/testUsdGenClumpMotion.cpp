@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
+#include "utils/pxrInterop.h"
 #include "usdGen/clumpMotion.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -13,7 +14,6 @@
 #include <cstring>
 #include <limits>
 #include <string>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

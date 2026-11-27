@@ -13,6 +13,7 @@
 //   * editing the guide curves recooks the published strands;
 //   * retargeting the expression's input:guideCurves recooks them;
 //   * retargeting a UsdGenPtexMap's file recooks the clumps.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/lower.h"
@@ -44,7 +45,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

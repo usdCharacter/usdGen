@@ -30,6 +30,7 @@
 //
 // Scatter Evaluate is intentionally absent: it is an empty identity hook
 // (ops/scatter.cpp), so there is nothing to time.
+#include "../utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/curveBuffer.h"
@@ -79,7 +80,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "../utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

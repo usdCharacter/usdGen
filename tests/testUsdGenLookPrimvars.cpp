@@ -18,6 +18,7 @@
 //   (d) a look-only edit rebuilds the tiles (nothing else would announce it).
 //
 // Exit: 0 pass, 1 fail.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/sessionCooker.h"
@@ -32,7 +33,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

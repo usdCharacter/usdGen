@@ -1,10 +1,10 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootFrames.h"
 
 #include <cmath>
 #include <cstdio>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

@@ -5,6 +5,7 @@
 // UsdGenTilePublication at commit time (curveBuffer.h) — this file reads it
 // and never writes to it (no hashing, no hairId derivation here).
 #include "usdGenHydraCurves/usdGenTilePublisher.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGenUsd/convert/math.h"
 
 #include "usdGenUsd/walk/usdGenTokens.h"
@@ -288,8 +289,8 @@ _Assemble(usdGen::UsdGenTilePublication const &tile,
             // is published at all (a user-bound material otherwise gets the
             // Sdr default tips).
             VtVec3fArray packed(1, GfVec3f(plane.f[0], plane.f[1], plane.f[2]));
-            _Add(&pvNames, &pvValues, plane.name,
-                 _Primvar(_Samp(packed), plane.interpolation, TfToken("color")));
+            _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),
+                 _Primvar(_Samp(packed), usdGenUsd::ToTf(plane.interpolation), TfToken("color")));
             continue;
         }
         if ((plane.name == "furTauP" || plane.name == "furTauN") &&
@@ -299,8 +300,8 @@ _Assemble(usdGen::UsdGenTilePublication const &tile,
             VtVec3fArray packed(totalCvs);
             for (size_t i = 0; i < totalCvs; ++i)
                 packed[i] = GfVec3f(plane.f[3*i], plane.f[3*i+1], plane.f[3*i+2]);
-            _Add(&pvNames, &pvValues, plane.name,
-                 _Primvar(_Samp(packed), plane.interpolation));
+            _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),
+                 _Primvar(_Samp(packed), usdGenUsd::ToTf(plane.interpolation)));
             continue;
         }
         if (plane.type == "int") {
@@ -308,8 +309,8 @@ _Assemble(usdGen::UsdGenTilePublication const &tile,
         } else {
             values = _Samp(plane.f);
         }
-        _Add(&pvNames, &pvValues, plane.name,
-             _Primvar(values, plane.interpolation, TfToken(), plane.arity));
+        _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),
+             _Primvar(values, usdGenUsd::ToTf(plane.interpolation), TfToken(), plane.arity));
     }
 
     // Motion (06 §4.1 velocities row): real data in P1, an HdBlockDataSource
@@ -980,8 +981,8 @@ UsdGenTilePublisher::BuildScalpShadowDataSource(
         for (size_t i = 0; i < points; ++i) {
             packed[i] = GfVec3f(plane.f[3*i], plane.f[3*i+1], plane.f[3*i+2]);
         }
-        _Add(&pvNames, &pvValues, plane.name,
-             _Primvar(_Samp(packed), plane.interpolation));
+        _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),
+             _Primvar(_Samp(packed), usdGenUsd::ToTf(plane.interpolation)));
     }
     _Add(&names, &values, TfToken("primvars"),
          _Container(std::move(pvNames), std::move(pvValues)));

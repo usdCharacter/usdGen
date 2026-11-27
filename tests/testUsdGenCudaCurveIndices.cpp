@@ -1,5 +1,6 @@
 // Test-only readback oracle. Production index generation never reads offsets,
 // generated indices, primitive IDs, or draw counts back to the host.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/cuda/stormIndices.h"
 #include "usdGenCuda/gpu/deviceBuffer.h"
 #include "usdGenCurves/cuda/curveCompaction.h"

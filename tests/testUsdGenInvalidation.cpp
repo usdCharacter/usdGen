@@ -18,6 +18,7 @@
 //
 // Tier T1 (registered as such in CMake); engine-only bodies (gate B-1).
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -36,7 +37,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

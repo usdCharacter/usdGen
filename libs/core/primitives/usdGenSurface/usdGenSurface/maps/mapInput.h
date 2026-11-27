@@ -116,7 +116,7 @@ USDGEN_SURFACE_API UsdGenInputRecord const *UsdGenFindMapInput(UsdGenGraphSpec c
 
 /// Packs 'data' into a UsdGenMapInput record. Compile phase: allocates.
 USDGEN_SURFACE_API UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &data, UsdGenNodeKey key,
-                                                  UsdGenNodeKey paintSurface, UsdGenToken const &label,
+                                                  UsdGenNodeKey paintSurface, UsdGenText const &label,
                                                   UsdGenInputColumnCache *cache = nullptr);
 
 /// Copies a view into a payload (engine-made variants of an input).

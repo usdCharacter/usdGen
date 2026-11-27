@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // End-to-end parity through the two production Session executors. Device
 // readback below is confined to the test; no host geometry oracle is published.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
@@ -27,7 +28,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -97,7 +97,7 @@ Packet ReadCuda(DeviceGeneration const& generation) {
                 bytes, cudaMemcpyDeviceToHost, stream) == cudaSuccess));
             // The named lease must outlive its submitted copy.
             CHECK(cudaStreamSynchronize(stream) == cudaSuccess);
-            CHECK(packet.planes.emplace(metadata.name, std::move(plane)).second);
+            CHECK(packet.planes.emplace(metadata.name.GetString(), std::move(plane)).second);
         }
     }
     CHECK(cudaStreamDestroy(stream) == cudaSuccess);
@@ -138,7 +138,7 @@ Packet ReadVulkan(DeviceGeneration const& generation) {
         for (auto const& plane : lease.Planes()) {
             size_t bytes = 0; CHECK(UsdGenDeviceChannelStorageBytes(plane.metadata, &bytes));
             CHECK(bytes == plane.bytes);
-            CHECK(packet.planes.emplace(plane.metadata.name,
+            CHECK(packet.planes.emplace(plane.metadata.name.GetString(),
                 Plane{plane.metadata, std::vector<unsigned char>(bytes)}).second);
             if (!bytes) continue;
             VkBufferCreateInfo bi{}; bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -150,7 +150,7 @@ Packet ReadVulkan(DeviceGeneration const& generation) {
             CHECK(output && output->MarkSubmitted(fence, generation) == VK_SUCCESS);
             VkBufferCopy copy{0, 0, bytes};
             vkCmdCopyBuffer(command, plane.buffer, output->buffer(), 1, &copy);
-            names.push_back(plane.metadata.name); staging.push_back(std::move(output));
+            names.push_back(plane.metadata.name.GetString()); staging.push_back(std::move(output));
         }
         VkMemoryBarrier after{}; after.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;

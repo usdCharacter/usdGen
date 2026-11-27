@@ -11,6 +11,7 @@
 //   - primitive layouts register through the type registry
 
 #include "usdGen/api/elementSet.h"
+#include "utils/testToken.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/writeSet.h"
@@ -42,7 +43,7 @@ UsdGenChannelDesc Desc(char const *name, UsdGenScalar scalar, uint8_t arity, uin
                        UsdGenChannelRole role = UsdGenChannelRole::Other, uint8_t flags = 0)
 {
     UsdGenChannelDesc d;
-    d.name = UsdGenToken(name);
+    d.name = TestToken(name);
     d.scalar = scalar;
     d.arity = arity;
     d.level = level;
@@ -101,14 +102,14 @@ void TestChannelTable()
     auto t = UsdGenChannelTable::Make(layout, UsdGenSpan<const UsdGenChannelDesc>(dyn, 4));
     Check(t->Size() == kStatics + 4 && t->StaticCount() == kStatics, "table size");
     // Runs: (level <= 1) alpha, beta; (level 2) gamma, zeta.
-    Check((*t)[kStatics + 0].name == UsdGenToken("alpha") && (*t)[kStatics + 1].name == UsdGenToken("beta") &&
-              (*t)[kStatics + 2].name == UsdGenToken("gamma") && (*t)[kStatics + 3].name == UsdGenToken("zeta"),
+    Check((*t)[kStatics + 0].name == TestToken("alpha") && (*t)[kStatics + 1].name == TestToken("beta") &&
+              (*t)[kStatics + 2].name == TestToken("gamma") && (*t)[kStatics + 3].name == TestToken("zeta"),
           "dynamic order (max(level,1), name)");
     Check(t->DynamicRun(0).size() == 2 && t->DynamicRun(1).size() == 2 && t->DynamicRun(1)[0] == kStatics &&
               t->DynamicRun(2).size() == 2 && t->DynamicRun(2)[1] == kStatics + 3 && t->DynamicRun(3).empty(),
           "dynamic runs");
-    Check(t->Find(UsdGenToken("width")) == kWidth && t->Find(UsdGenToken("zeta")) == kStatics + 3 &&
-              t->Find(UsdGenToken("beta")) == kStatics + 1 && t->Find(UsdGenToken("nope")) == kUsdGenNoSlot,
+    Check(t->Find(TestToken("width")) == kWidth && t->Find(TestToken("zeta")) == kStatics + 3 &&
+              t->Find(TestToken("beta")) == kStatics + 1 && t->Find(TestToken("nope")) == kUsdGenNoSlot,
           "find");
 
     auto same = t->With(UsdGenSpan<const UsdGenChannelDesc>(dyn + 1, 2));
@@ -116,8 +117,8 @@ void TestChannelTable()
     UsdGenChannelDesc const more[] = {Desc("beta", UsdGenScalar::F32, 2, 0), Desc("delta", UsdGenScalar::F32, 1, 2)};
     auto u = t->With(UsdGenSpan<const UsdGenChannelDesc>(more, 2));
     Check(u.Get() != t.Get() && u->Size() == t->Size() + 1, "With adds");
-    Check((*u)[u->Find(UsdGenToken("beta"))].arity == 2, "With replaces same-name entries");
-    Check(u->Find(UsdGenToken("delta")) == kStatics + 2 && u->Find(UsdGenToken("zeta")) == kStatics + 4,
+    Check((*u)[u->Find(TestToken("beta"))].arity == 2, "With replaces same-name entries");
+    Check(u->Find(TestToken("delta")) == kStatics + 2 && u->Find(TestToken("zeta")) == kStatics + 4,
           "With keeps run order");
     auto again = UsdGenChannelTable::Make(layout, UsdGenSpan<const UsdGenChannelDesc>(dyn, 4));
     Check(again->Digest() == t->Digest() && u->Digest() != t->Digest(), "digest is content identity");
@@ -234,7 +235,7 @@ void TestFreshAndDerive()
     UsdGenChannelDesc const extra[] = {Desc("curl", UsdGenScalar::F32, 1, 2)};
     auto ext = table->With(UsdGenSpan<const UsdGenChannelDesc>(extra, 1));
     UsdGenWriteSet we = UsdGenWriteSet::Derive(s, ext);
-    UsdGenSlot const curl = ext->Find(UsdGenToken("curl"));
+    UsdGenSlot const curl = ext->Find(TestToken("curl"));
     we.Plan(UsdGenSpan<const UsdGenSlot>(&curl, 1));
     UsdGenSpan<float> c = we.Write<float>(curl);
     for (float &x : c) x = 7.0f;
@@ -375,7 +376,7 @@ void TestTypeRegistry()
     Check(UsdGenRegisterStatic(&RegisterTestType), "register");
     Check(g_registered != UsdGenTypeId::Invalid && g_rejected == UsdGenTypeId::Invalid, "layout validated");
     UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
-    UsdGenTypeId const id = types.Find(UsdGenToken("UsdGenTestElementSet"));
+    UsdGenTypeId const id = types.Find(TestToken("UsdGenTestElementSet"));
     Check(id == g_registered && types.Def(id).layout == &Layout().layout && types.Def(id).limits[1] == 4096,
           "type def carries the layout");
 }

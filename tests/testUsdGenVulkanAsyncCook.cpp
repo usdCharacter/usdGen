@@ -7,6 +7,7 @@
 // (2) 20 DeformPipeline poses through the asynchronous begin (Launch, then
 // Poll checks the proof and apply values) make no Wait call either and
 // match the synchronous Begin bit for bit.
+#include "utils/pxrInterop.h"
 #include "testBackend.h"
 #include "usdGen/exec/session.h"
 #include "usdGenUsd/lower.h"

@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -27,7 +28,6 @@
 #include <limits>
 #include <map>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #c); return 1; } } while (false)

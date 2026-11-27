@@ -12,6 +12,7 @@
 //   Smooth box: hand-computed Jacobi box pass, fixed endpoints;
 //   Resample spacing: per-strand counts, ragged layout, arc-length
 //     uniformity, hairT, carried planes, a ragged downstream sweep.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -27,7 +28,6 @@
 #include <cstring>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

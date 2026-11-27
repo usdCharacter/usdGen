@@ -23,6 +23,7 @@
 // section only (the engine and Hydra sections are CPU paths). An unavailable
 // backend prints the Session diagnostics and exits 77 (cpu: 1).
 
+#include "../utils/pxrInterop.h"
 #include "usdGen/allocCounter.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "../testBackend.h"
@@ -58,7 +59,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "../utils/pxrInterop.h"
 
 // ---- allocation counter ----------------------------------------------------
 // The count lives in usdGen (allocCounter.h). On ELF this replacement

@@ -20,6 +20,7 @@
 // CUDA test's expectedX/expectedWidths/expectedHairT) verify the Vulkan leg
 // in every build. Exits 77 when either backend is unavailable, after running
 // the available Vulkan oracle checks. Available-device failures fail the test.
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -58,7 +59,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -132,7 +132,7 @@ static bool Capture(std::vector<ResampleVkPipeline::Candidate::OutputPlane> cons
             if (!ReadVulkanBytes(native, context, plane.owner->buffer(), size_t(plane.bytes), plane.owner, &bytes))
                 return false;
         }
-        if (!packet->emplace(plane.metadata.name, std::move(bytes)).second) return false;
+        if (!packet->emplace(plane.metadata.name.GetString(), std::move(bytes)).second) return false;
     }
     return true;
 }
@@ -590,7 +590,7 @@ int main(int argc, char** argv) {
                 CHECK(plane.bytes->waitOn(nullptr) == cudaSuccess);
                 std::vector<uint8_t> bytes(plane.bytes->size());
                 CHECK(cudaMemcpy(bytes.data(), plane.bytes->data(), bytes.size(), cudaMemcpyDeviceToHost) == cudaSuccess);
-                auto it = vulkan.find(plane.metadata.name);
+                auto it = vulkan.find(plane.metadata.name.GetString());
                 CHECK(it != vulkan.end());
                 if (plane.metadata.name == "f") {
                     auto tf = As<float>(bytes);

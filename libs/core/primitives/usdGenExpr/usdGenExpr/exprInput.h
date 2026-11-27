@@ -191,9 +191,9 @@ USDGEN_EXPR_API UsdGenInputRecord const *UsdGenFindGeometryInput(UsdGenGraphSpec
 
 /// Packers. Compile phase: allocate.
 USDGEN_EXPR_API UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &data,
-                                                         UsdGenNodeKey key, UsdGenToken const &label);
+                                                         UsdGenNodeKey key, UsdGenText const &label);
 USDGEN_EXPR_API UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &data,
-                                                       UsdGenNodeKey key, UsdGenToken const &label,
+                                                       UsdGenNodeKey key, UsdGenText const &label,
                                                        UsdGenInputColumnCache *cache = nullptr);
 
 }  // namespace usdGen

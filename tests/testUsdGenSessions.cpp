@@ -7,6 +7,7 @@
 // that both indices republish identically: same generation id, same prim paths,
 // same frame, and identical prim set.
 
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
@@ -24,7 +25,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

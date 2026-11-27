@@ -12,6 +12,7 @@
 //       missing/degenerate collider meshes);
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -40,7 +41,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

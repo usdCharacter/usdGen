@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenHydraCurves/previewColor.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGen/registries/token.h"
 
 #include <algorithm>
@@ -14,9 +15,8 @@ namespace usdGen {
 namespace {
 
 // Made at load, not on first use: no function-local static to guard.
-TfToken const kColorRgb = UsdGenInternToken("rgb"), kColorIds = UsdGenInternToken("ids"),
-    kColorGray = UsdGenInternToken("gray"), kColorViridis = UsdGenInternToken("viridis");
-TfToken const kShadingFlat = UsdGenInternToken("flat");
+TfToken const kColorRgb("rgb"), kColorIds("ids"), kColorGray("gray"), kColorViridis("viridis");
+TfToken const kShadingFlat("flat");
 
 double Clamp01(double v) { return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v); }
 

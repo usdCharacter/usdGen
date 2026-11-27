@@ -16,6 +16,7 @@
 // Tier T0: engine core only, no stage, no Hydra (gate B-1). Standalone
 // main(): PASS/FAIL + exit code.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
@@ -34,7 +35,6 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

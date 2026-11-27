@@ -1,4 +1,5 @@
 // End-to-end CUDA session tile publication: Source -> Length(cull) -> Width.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
@@ -16,7 +17,6 @@
 #include <cstdio>
 #include <cstdint>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::gpu;

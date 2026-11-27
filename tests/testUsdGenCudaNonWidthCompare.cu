@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/nonWidthCompare.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGen/executionResources.h"

@@ -7,6 +7,7 @@
 // the median of per-repeat medians, p90/min over retained frame samples.
 // Counters from Engine::GetRenderStats() via lowercase-substring key mapping;
 // a missing counter is JSON null, never 0. Thresholds live ctest-side.
+#include "../utils/pxrInterop.h"
 #include "eglctx.h"
 
 #include <pxr/base/gf/vec2d.h>

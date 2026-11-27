@@ -38,7 +38,8 @@ UsdGenNodeKey UsdGenNodeKeyOfText(std::string const &text) noexcept
 
 namespace {
 
-UsdGenToken const kNoLabel;
+UsdGenText const kNoLabel;
+UsdGenToken const kNoName;
 
 UsdGenNodeLabel const *FindLabel(std::vector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key)
 {
@@ -56,7 +57,7 @@ void AppendLabel(std::vector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key,
         AppendLabel(labels, label->parent, out, depth + 1);
         out->push_back('/');
     }
-    out->append(label->text.GetString());
+    out->append(label->text.View().data(), label->text.View().size());
 }
 
 }  // namespace
@@ -77,11 +78,11 @@ UsdGenNodeKey UsdGenGraphSpec::DeriveKey(UsdGenNodeKey parent, UsdGenToken const
     auto const it = std::lower_bound(labels.begin(), labels.end(), key,
         [](UsdGenNodeLabel const &l, UsdGenNodeKey k) { return l.key < k; });
     if (it == labels.end() || it->key != key)
-        labels.insert(it, UsdGenNodeLabel{key, parent, child});
+        labels.insert(it, UsdGenNodeLabel{key, parent, UsdGenText(child.View()), child});
     return key;
 }
 
-UsdGenToken const &UsdGenGraphSpec::LabelToken(UsdGenNodeKey key) const noexcept
+UsdGenText const &UsdGenGraphSpec::LabelText(UsdGenNodeKey key) const noexcept
 {
     UsdGenNodeLabel const *label = key.IsValid() ? FindLabel(labels, key) : nullptr;
     return label && !label->parent.IsValid() ? label->text : kNoLabel;
@@ -90,7 +91,7 @@ UsdGenToken const &UsdGenGraphSpec::LabelToken(UsdGenNodeKey key) const noexcept
 UsdGenToken const &UsdGenGraphSpec::DerivedName(UsdGenNodeKey key) const noexcept
 {
     UsdGenNodeLabel const *label = key.IsValid() ? FindLabel(labels, key) : nullptr;
-    return label && label->parent.IsValid() ? label->text : kNoLabel;
+    return label && label->parent.IsValid() ? label->name : kNoName;
 }
 
 namespace {
@@ -171,7 +172,7 @@ void UsdGenInputRecordWriter::Extra(UsdGenParamValue value)
 }
 
 UsdGenInputRecord UsdGenInputRecordWriter::Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
-                                                  UsdGenToken const &label, uint64_t generation)
+                                                  UsdGenText const &label, uint64_t generation)
 {
     UsdGenInputRecord record;
     record.key = key;
@@ -260,8 +261,8 @@ bool UsdGenGraphSpec::LabelLess(UsdGenNodeKey a, UsdGenNodeKey b) const
     UsdGenNodeLabel const *lb = b.IsValid() ? FindLabel(labels, b) : nullptr;
     // Host labels compare without allocating; derived ones build their text.
     if ((!la || !la->parent.IsValid()) && (!lb || !lb->parent.IsValid())) {
-        char const *ta = la ? la->text.GetText() : "";
-        char const *tb = lb ? lb->text.GetText() : "";
+        char const *ta = la ? la->text.c_str() : "";
+        char const *tb = lb ? lb->text.c_str() : "";
         return std::strcmp(ta, tb) < 0;
     }
     return Label(a) < Label(b);

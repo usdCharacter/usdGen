@@ -1,5 +1,6 @@
 // UsdGenResample contracts, expression targets, and CPU cooks: uniform and
 // keepParam resampling, mask hold, length restore, and cvCount validation.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -15,7 +16,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

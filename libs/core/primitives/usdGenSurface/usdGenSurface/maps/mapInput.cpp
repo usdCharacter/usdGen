@@ -276,7 +276,7 @@ UsdGenMapInputView UsdGenMapInputView::Of(UsdGenMapData const &d, UsdGenNodeKey 
 }
 
 UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &d, UsdGenNodeKey key,
-                                  UsdGenNodeKey paintSurface, UsdGenToken const &label,
+                                  UsdGenNodeKey paintSurface, UsdGenText const &label,
                                   UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenMapInputKind());

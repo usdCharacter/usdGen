@@ -31,6 +31,7 @@
 // Host admission tables and loader checks always run. Each device leg runs
 // when its backend is available; the test fails only on a run check, and the
 // summary banner states explicitly which parity legs were proven.
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -78,7 +79,6 @@
 #ifdef __linux__
 #include <unistd.h>
 #endif
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -936,7 +936,7 @@ bool VulkanSourceSnapshot(VulkanDevice const& dev, UsdGenGraphDesc const& d,
             UsdGenDeviceChannelSemantic::Generic)
             continue;
         NamedSnapshot n;
-        n.name = plane.metadata.name;
+        n.name = plane.metadata.name.GetString();
         n.type = plane.metadata.type;
         n.domain = plane.metadata.domain;
         n.elements = plane.metadata.elementCount;
@@ -1243,7 +1243,7 @@ struct CudaSourceLeg {
             for (auto const& plane : rebuilt) {
                 if (!plane.bytes) return false;
                 NamedSnapshot n;
-                n.name = plane.metadata.name;
+                n.name = plane.metadata.name.GetString();
                 n.type = plane.metadata.type;
                 n.domain = plane.metadata.domain;
                 n.elements = plane.metadata.elementCount;

@@ -1,9 +1,9 @@
+#include "utils/pxrInterop.h"
 #include "pxr/base/gf/vec2f.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaSurfaceInput.h"
 #include <cstdio>
 #include <limits>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

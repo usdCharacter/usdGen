@@ -20,6 +20,7 @@
 // source carries the full channel set; its CUDA holder class has no call
 // sites upstream. The widthOverlapWitness port itself is proven by the
 // dedicated device test, not here.
+#include "utils/pxrInterop.h"
 #include "usdGen/executionBackend.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -46,7 +47,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

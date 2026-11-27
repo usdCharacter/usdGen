@@ -29,6 +29,7 @@
 // EvaluateHost times (n=400, 1M CVs) are measured too. Without the flag
 // the Vulkan legs are skipped; an unavailable device skips (exit 77).
 
+#include "../utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/graph.h"
@@ -70,7 +71,6 @@
 #include "../vulkanReadbackFixture.h"
 #include <fstream>
 #endif
-#include "../utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

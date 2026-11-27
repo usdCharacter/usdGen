@@ -488,7 +488,7 @@ UsdGenCurveSetInputView UsdGenCurveSetInputView::Of(UsdGenCurveSetData const &d,
 // ---- packer ---------------------------------------------------------------------
 
 UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &d, UsdGenNodeKey key,
-                                       UsdGenToken const &label, UsdGenInputColumnCache *cache)
+                                       UsdGenText const &label, UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenCurveSetInputKind());
     w.UseCache(cache, key);
@@ -620,7 +620,7 @@ bool MaterializeReference(UsdGenInputRecord const &record,
         *error = "reference curve set has an empty path";
         return false;
     }
-    std::string const &label = record.label.GetString();
+    std::string const label(record.label.View());
     uint64_t totalCvs = 0;
     for (int count : curves.curveVertexCounts) {
         if (count < 0) {

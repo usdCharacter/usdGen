@@ -4,6 +4,7 @@
 // Warm CUDA Session cooks never block a thread on the GPU: 20 cooks after
 // warm-up make no CudaFenceStream call, and their completions arrive through
 // the completion lane (step 8.7). Allocations per cook are printed (R11).
+#include "utils/pxrInterop.h"
 #include "testBackend.h"
 #include "usdGen/exec/allocCounter.h"
 #include "usdGen/exec/session.h"
@@ -22,7 +23,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

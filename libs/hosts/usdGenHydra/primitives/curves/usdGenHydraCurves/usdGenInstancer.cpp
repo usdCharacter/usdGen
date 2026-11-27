@@ -5,6 +5,7 @@
 // their canonical sources (usdGenMath/usdGenMath/hash.h, .../ramp.cpp).
 // The float op order matches ramp.cpp's EvalOne exactly.
 #include "usdGenHydraCurves/usdGenInstancer.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGenUsd/convert/math.h"
 
 #include "pxr/base/gf/matrix4d.h"
@@ -996,9 +997,9 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                 continue;
             }
             usdGen::UsdGenPlane plane;
-            plane.name = name;
-            plane.interpolation = TfToken("instance");
-            plane.type = TfToken("float");
+            plane.name = usdGenUsd::ToToken(name);
+            plane.interpolation = usdGenUsd::ToToken("instance");
+            plane.type = usdGenUsd::ToToken("float");
             plane.arity = 3;
             // Uninitialized sizing (bit-identical): the resize + full
             // overwrite below folds into resize(count, fill), whose filler
@@ -1068,16 +1069,16 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
                 break;
             }
         }
-        if (!found || (found->type != TfToken("float") &&
-                       found->type != TfToken("int")) ||
+        if (!found || (found->type != "float" &&
+                       found->type != "int") ||
             found->arity == 0) {
             out.unresolvedPrimvars.push_back(name);
             continue;
         }
         size_t const expect = size_t(n) * found->arity;
         usdGen::UsdGenPlane plane;
-        plane.name = name;
-        plane.interpolation = TfToken("instance");
+        plane.name = usdGenUsd::ToToken(name);
+        plane.interpolation = usdGenUsd::ToToken("instance");
         plane.type = found->type;
         plane.arity = found->arity;
         if (found->interpolation == TfToken("constant")) {
@@ -1238,7 +1239,7 @@ UsdGenInstancer::BuildInstancerDataSource(
                 sampled = _Samp(plane.f);
                 elementSize = plane.arity;
             }
-            _Add(&pvNames, &pvValues, plane.name,
+            _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),
                  _InstancePrimvar(sampled, role, elementSize));
         }
         _Add(&names, &values, TfToken("primvars"),

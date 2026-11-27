@@ -19,6 +19,7 @@
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
+#include "usdGen/api/text.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
@@ -112,7 +113,7 @@ struct UsdGenInputRecord
     UsdGenNodeKey key;
     UsdGenNodeKey owner;            // GeomSubset: its Mesh; paint map: its surface
     UsdGenTypeId  kind = UsdGenTypeId::Invalid;
-    UsdGenToken       label;            // the host path text; diagnostics only
+    UsdGenText        label;            // the host path text; diagnostics only
     UsdGenRef<const UsdGenElementSet> data;
     std::vector<UsdGenParamValue> values;
     uint64_t      generation = 0;   // content identity the host bumps on any edit
@@ -209,7 +210,7 @@ public:
     /// Values appended after the InputDesc's attributes (map parameters).
     USDGEN_CORE_API void Extra(UsdGenParamValue value);
     USDGEN_CORE_API UsdGenInputRecord Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
-                                             UsdGenToken const &label, uint64_t generation);
+                                             UsdGenText const &label, uint64_t generation);
 
 private:
     struct Staged {
@@ -251,7 +252,8 @@ struct UsdGenNodeLabel
 {
     UsdGenNodeKey key;
     UsdGenNodeKey parent;     // valid for a derived key
-    UsdGenToken       text;
+    UsdGenText    text;
+    UsdGenToken   name;       // a derived key: its child name
 };
 
 /// FNV-1a64 of a path text: the key a host gives a path that collides with
@@ -296,13 +298,13 @@ struct UsdGenGraphSpec
     void SortInputs();
     /// The text of 'key' (its prim path), else empty. Allocates: diagnostics only.
     std::string Label(UsdGenNodeKey key) const;
-    /// The host label token of 'key' without allocating; empty for a
+    /// The host label text of 'key' without allocating; empty for a
     /// derived or unknown key.
-    UsdGenToken const &LabelToken(UsdGenNodeKey key) const noexcept;
+    UsdGenText const &LabelText(UsdGenNodeKey key) const noexcept;
     /// The child name of a derived key (DeriveKey); empty for a host key.
     UsdGenToken const &DerivedName(UsdGenNodeKey key) const noexcept;
     /// The description's path text (expr::DescriptionId hashes it).
-    char const *DescriptionText() const noexcept { return LabelToken(description).GetText(); }
+    char const *DescriptionText() const noexcept { return LabelText(description).c_str(); }
     /// The key of a synthetic child of 'parent' (an engine-made node or
     /// input), keyed like the host keys the path <parent>/<child>, and its
     /// label. Compile phase: allocates.

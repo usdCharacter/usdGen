@@ -2,6 +2,7 @@
 // publication snapshots.  The held Capture operator makes owner/work
 // separation observable without a timing-dependent sleep.
 
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
@@ -27,7 +28,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

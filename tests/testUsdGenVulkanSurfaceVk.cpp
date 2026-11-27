@@ -36,6 +36,7 @@
 //
 // Usage: testUsdGenVulkanSurfaceVk deformEvaluate.spv deformApply.spv
 
+#include "utils/pxrInterop.h"
 #include "usdGenSurface/vulkan/surfaceVk.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -70,7 +71,6 @@
 #endif
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

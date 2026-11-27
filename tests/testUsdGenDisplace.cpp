@@ -8,6 +8,7 @@
 //       the mask envelope, and connected-expression cooks for the map
 //       (per strand root) and the amount (per CV);
 //   (3) mode=vector and unknown modes fail closed.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -23,7 +24,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

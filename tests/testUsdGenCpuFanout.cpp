@@ -5,6 +5,7 @@
 // aliases for untouched planes, so evaluation order and authored node order
 // cannot leak one sibling's writes into the other or into the terminal branch.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
@@ -34,7 +35,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

@@ -15,6 +15,7 @@
 
 // The Hydra material schemas first: a header below pulls in <windows.h>,
 // whose `interface` macro breaks materialNetworkSchema.h.
+#include "utils/pxrInterop.h"
 #include "pxr/imaging/hd/dataSource.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "pxr/imaging/hd/materialBindingSchema.h"

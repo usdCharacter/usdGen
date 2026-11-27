@@ -15,6 +15,7 @@
 // reproduce a fresh compile's output bit for bit, and recycling must never
 // write into a buffer something still holds.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/allocCounter.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
@@ -49,7 +50,6 @@
 #include <new>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 // The count lives in usdGen (allocCounter.h). On ELF this replacement
 // interposes on every module and feeds it; on Windows usdGen wraps every

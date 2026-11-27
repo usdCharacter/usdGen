@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/executionBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/sessionBackendExecutor.h"

@@ -5,6 +5,7 @@
 // through a Session with device publication (the asynchronous relay path).
 // Prints medians in ms.
 //   benchUsdGenCudaCook [--density N] [--runs N]
+#include "../utils/pxrInterop.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "../testBackend.h"
 #include "usdGenUsd/lower.h"

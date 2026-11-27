@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "cudaExecutionQueueFixture.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"

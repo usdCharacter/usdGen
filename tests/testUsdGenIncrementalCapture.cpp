@@ -1,5 +1,6 @@
 // Incremental capture regression: unrelated dirties must not rescan every
 // adopted groom or rebuild unrelated session state.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 

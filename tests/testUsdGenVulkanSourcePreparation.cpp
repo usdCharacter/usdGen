@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "usdGen/curveLoader.h"
 #include "usdGenUsd/lower.h"
@@ -14,7 +15,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

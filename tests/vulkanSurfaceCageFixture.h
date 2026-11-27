@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 #ifndef USDGEN_TEST_VULKAN_SURFACE_CAGE_FIXTURE_H
 #define USDGEN_TEST_VULKAN_SURFACE_CAGE_FIXTURE_H
+#include "utils/pxrInterop.h"
 #include "usdGenUsd/lower.h"
 #include <Ptexture.h>
 #include <memory>
 #include <string>
-#include "utils/pxrInterop.h"
 
 namespace usdGen::test {
 // Categorical maps reserve zero for outside; a tube ID is encoded as ID+1.

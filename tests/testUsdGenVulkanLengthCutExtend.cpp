@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
@@ -55,7 +56,7 @@ static bool Capture(std::shared_ptr<NativeOwner> const& n,
     auto add = [&](VulkanSourceGeneration::PlaneView const& p) {
         std::vector<uint8_t> b;
         return ReadVulkanBytes(n, c, p.buffer, p.bytes, g, &b) &&
-            out->emplace(p.metadata.name, std::move(b)).second;
+            out->emplace(p.metadata.name.GetString(), std::move(b)).second;
     };
     for (auto const& p : g->planes()) if (!add(p)) return false;
     for (auto const& p : g->sourceFrames()) if (!add(p)) return false;
@@ -67,7 +68,7 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     s.totalCurves = 2; s.totalCvs = 7; s.topologyVersion = 92; s.valueVersion = 17;
     s.cvOffsets = {0, 3, 7}; s.curveId = {401, 907}; s.rootPrim = {12, 44};
     s.rootUV = {{.2f,.3f},{.7f,.8f}}; s.rootT = {{1,0,0},{0,1,0}};
-    s.rootB = {{0,1,0},{0,0,1}}; s.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.25f,.75f}};
+    s.rootB = {{0,1,0},{0,0,1}}; s.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.25f,.75f}};
     s.px = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,2,2, 10,10,13,13};
     s.py = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,2, 10,12,12,12};
     s.pz = VtFloatArray(7, 0.f);
@@ -76,16 +77,16 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     s.width = VtFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.4f,.8f,1};
     UsdGenChunkDesc chunk; chunk.firstCurve = 0; chunk.curveCount = 2; chunk.liveCount = 2;
     chunk.firstCv = 0; chunk.cvCount = 0; chunk.tile = 3; chunk.surface = 1; s.chunks = {chunk};
-    UsdGenPlane p; p.name = TfToken("privateVertex"); p.interpolation = TfToken("vertex");
-    p.type = TfToken("float"); p.arity = 1; p.f = {3,4,5,6,7,8,9}; s.extraCv = {p};
-    UsdGenPlane q; q.name = TfToken("privateUniform"); q.interpolation = TfToken("uniform");
-    q.type = TfToken("int"); q.i = {18,19}; s.extraCurve = {maskPlane, q};
+    UsdGenPlane p; p.name = TestToken("privateVertex"); p.interpolation = TestToken("vertex");
+    p.type = TestToken("float"); p.arity = 1; p.f = {3,4,5,6,7,8,9}; s.extraCv = {p};
+    UsdGenPlane q; q.name = TestToken("privateUniform"); q.interpolation = TestToken("uniform");
+    q.type = TestToken("int"); q.i = {18,19}; s.extraCurve = {maskPlane, q};
     i.geometry.alreadyDeformed = true;
     i.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline,
                                 UsdGenCurveLayoutWrap::Pinned);
     i.geometry.tiles = {{3,0,2,0,7}};
     uint32_t named[] = {73, 81};
-    i.additionalNamed.push_back({{TfToken("namedCurve"), UsdGenDeviceValueType::UInt32,
+    i.additionalNamed.push_back({{TestToken("namedCurve"), UsdGenDeviceValueType::UInt32,
         UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, Bytes(named, 2)});
     return i;
 }
@@ -113,7 +114,7 @@ int main(int argc, char** argv) {
     unsigned featureHooks = 0;
     auto old = LengthScalePipeline::Create(context, scaleCode, &status);
     CHECK(old && !old->HasCutExtend());
-    auto oldCut = old->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
+    auto oldCut = old->BeginCutExtend(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 2.f, true, &status,
         [&] { ++featureHooks; return true; });
     CHECK(!oldCut && status == VK_ERROR_FEATURE_NOT_PRESENT && featureHooks == 0 &&
@@ -121,7 +122,7 @@ int main(int argc, char** argv) {
           pool->Snapshot().byKind == liveBaseline.byKind); old.reset();
     auto oldSet = LengthScalePipeline::CreateWithSet(context, scaleCode, setCode, &status);
     CHECK(oldSet && !oldSet->HasCutExtend());
-    oldCut = oldSet->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
+    oldCut = oldSet->BeginCutExtend(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 2.f, true, &status,
         [&] { ++featureHooks; return true; });
     CHECK(!oldCut && status == VK_ERROR_FEATURE_NOT_PRESENT && featureHooks == 0 &&
@@ -131,7 +132,7 @@ int main(int argc, char** argv) {
     auto pipeline = LengthScalePipeline::CreateWithCutExtend(context, scaleCode, setCode, cutCode, &status);
     CHECK(pipeline && pipeline->HasSet() && pipeline->HasCutExtend());
     auto run = [&](std::shared_ptr<const VulkanSourceGeneration> const& g, float value, bool absolute) {
-        auto c = pipeline->BeginCutExtend(g->PlaneOwner(TfToken("points")), g->PlaneOwner(TfToken("curveOffsets")),
+        auto c = pipeline->BeginCutExtend(g->PlaneOwner(TestToken("points")), g->PlaneOwner(TestToken("curveOffsets")),
             g->curveCount(), g->pointCount(), value, absolute, &status);
         if (!c || status != VK_SUCCESS || !Prove(native))
             return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{}, UINT32_MAX);
@@ -146,7 +147,7 @@ int main(int argc, char** argv) {
     Packet original; CHECK(Capture(native, context, base, &original));
     CHECK(original.count("stableIds") && original.count("rest") && original.count("sourceRootT"));
     auto verifyChild = [&](std::shared_ptr<const VulkanSourceGeneration> const& child, float const* points) {
-        CHECK(child && child->PlaneOwner(TfToken("points")) != base->PlaneOwner(TfToken("points")));
+        CHECK(child && child->PlaneOwner(TestToken("points")) != base->PlaneOwner(TestToken("points")));
         CHECK(child->topologyVersion() == base->topologyVersion());
         for (auto const& plane : base->planes()) if (plane.metadata.name != "points")
             CHECK(child->PlaneOwner(plane.metadata.name) == base->PlaneOwner(plane.metadata.name));
@@ -182,7 +183,7 @@ int main(int argc, char** argv) {
     CHECK(pressure);
     auto saturatedBaseline = pool->Snapshot();
     unsigned admissionHooks = 0;
-    auto noRoom = pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
+    auto noRoom = pipeline->BeginCutExtend(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 3.f, true, &status,
         [&] { ++admissionHooks; return true; });
     auto saturatedAfter = pool->Snapshot();
@@ -193,13 +194,13 @@ int main(int argc, char** argv) {
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes &&
           pool->Snapshot().byKind == baseline.byKind);
     auto beforeHookFailure = pool->Snapshot();
-    auto hookFalse = pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
+    auto hookFalse = pipeline->BeginCutExtend(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 3.f, true, &status,
         [&] { ++admissionHooks; return false; });
     auto afterHookFalse = pool->Snapshot();
     CHECK(!hookFalse && status == VK_ERROR_OUT_OF_DEVICE_MEMORY && admissionHooks == 1 &&
           afterHookFalse.usedBytes == beforeHookFailure.usedBytes && afterHookFalse.byKind == beforeHookFailure.byKind);
-    auto hookThrow = pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
+    auto hookThrow = pipeline->BeginCutExtend(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 3.f, true, &status,
         [&]() -> bool { ++admissionHooks; throw std::runtime_error("cut admission"); });
     auto afterHookThrow = pool->Snapshot();
@@ -209,7 +210,7 @@ int main(int argc, char** argv) {
         [&] { ++admissionHooks; return true; });
     CHECK(empty && status == VK_SUCCESS && empty->succeeded() && admissionHooks == 2);
     auto invalid = [&](float value) {
-        return pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
+        return pipeline->BeginCutExtend(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")),
             base->curveCount(), base->pointCount(), value, true, &status,
             [&] { ++admissionHooks; return true; });
     };

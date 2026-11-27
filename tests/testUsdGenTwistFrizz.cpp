@@ -13,6 +13,7 @@
 //          frame, profile weighting (midShift 0..1), restLength as the
 //          reference length, clump-shared seeds and lengths, knot-mask
 //          attenuation; the root never moves; cooks are deterministic.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -30,7 +31,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

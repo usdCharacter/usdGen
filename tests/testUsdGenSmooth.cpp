@@ -8,6 +8,7 @@
 //   (4) connected-expression cooks (per-strand strength and mask);
 //   (5) the neighbours contract (in-radius averaging, far strands unchanged,
 //       the iterations closed form).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -22,7 +23,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

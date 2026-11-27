@@ -38,6 +38,7 @@
 // USDGEN_RBFVK_RETRY_SECONDS override the retry schedule for iteration
 // only (defaults 5 and 60).
 
+#include "utils/pxrInterop.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
@@ -72,7 +73,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

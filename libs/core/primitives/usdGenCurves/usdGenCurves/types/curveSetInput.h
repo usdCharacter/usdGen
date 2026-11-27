@@ -72,8 +72,7 @@ struct UsdGenSurfaceCagePayload
 /// itself is reserved by the compiler for authored planes.
 inline UsdGenToken const &UsdGenSourceColorPlane()
 {
-    static UsdGenToken const name("usdGenSourceColor");
-    return name;
+    return UsdGenCurveTokens().sourceColor;
 }
 
 /// One authored C3 BasisCurves input as a host captures it: a guide set, a
@@ -294,7 +293,7 @@ USDGEN_CURVES_API UsdGenInputRecord const *UsdGenFindCurveSetInput(UsdGenGraphSp
 
 /// Packs 'data' into a UsdGenCurveSetInput record. Compile phase: allocates.
 USDGEN_CURVES_API UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &data,
-                                                       UsdGenNodeKey key, UsdGenToken const &label,
+                                                       UsdGenNodeKey key, UsdGenText const &label,
                                                        UsdGenInputColumnCache *cache = nullptr);
 
 /// Copies a view's arrays into a payload (engine-made variants of an input).

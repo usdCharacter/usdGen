@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/pxrInterop.h"
 #include "usdGen/curveLoader.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
@@ -19,7 +20,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -95,7 +95,7 @@ static bool ReadFrames(std::shared_ptr<NativeOwner> const& native,
     for (auto const& frame : generation->sourceFrames()) {
         std::vector<uint8_t> bytes;
         if (!ReadVulkanBytes(native, context, frame.buffer, frame.bytes, generation, &bytes) ||
-            !result->emplace(frame.metadata.name, std::move(bytes)).second) return false;
+            !result->emplace(frame.metadata.name.GetString(), std::move(bytes)).second) return false;
     }
     return true;
 }
@@ -118,7 +118,7 @@ static bool SamePublicPlanes(std::shared_ptr<NativeOwner> const& native,
         for (auto const& plane : generation->planes()) {
             std::vector<uint8_t> bytes;
             if (!ReadVulkanBytes(native, context, plane.buffer, plane.bytes, generation, &bytes) ||
-                !result->emplace(plane.metadata.name, std::move(bytes)).second) return false;
+                !result->emplace(plane.metadata.name.GetString(), std::move(bytes)).second) return false;
         }
         return true;
     };

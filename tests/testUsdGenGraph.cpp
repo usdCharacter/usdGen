@@ -12,6 +12,7 @@
 //
 // Tier T0: engine core only (no Hydra, no stage — gate B-1).
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -26,7 +27,6 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

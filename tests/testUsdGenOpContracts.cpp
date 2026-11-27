@@ -13,6 +13,7 @@
 // primitive, point}. Must equal tests/golden/opContracts.txt byte for byte;
 // USDGEN_GOLDEN_WRITE=1 rewrites it (a design change, never a refactor fix).
 
+#include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 
 #include "usdGen/compiler.h"
@@ -64,10 +65,10 @@ std::string Join(std::vector<std::string> const &v)
     return s.empty() ? "-" : s;
 }
 
-std::vector<std::string> Names(TfSpan<const TfToken> tokens)
+std::vector<std::string> Names(UsdGenSpan<const UsdGenToken> tokens)
 {
     std::vector<std::string> out;
-    for (TfToken const &t : tokens) out.push_back(t.GetString());
+    for (UsdGenToken t : tokens) out.push_back(t.GetString());
     return out;
 }
 

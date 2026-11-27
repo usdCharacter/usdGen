@@ -26,6 +26,7 @@
 //  (12) inline rotation quat matches ExtractRotationQuat bit for bit.
 //  (13) threaded ranges: two big bakes agree bitwise on every output,
 //       incl. the per-CV gather and the arity-2 pack at 40K curves.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/usdGenInstancer.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 
@@ -53,7 +54,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGenImaging;

@@ -7,6 +7,7 @@
 //   E-8 1-thread vs 8-thread terminal      : bitwise identical (ALWAYS hard)
 // E-2 lives in benchUsdGenSparse (same 1%-chunk form).
 
+#include "../utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -31,7 +32,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "../utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

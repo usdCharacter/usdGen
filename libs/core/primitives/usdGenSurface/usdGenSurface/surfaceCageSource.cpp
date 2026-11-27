@@ -51,10 +51,9 @@ bool Finite(UsdGenMatrix4d const &matrix) {
 template <class Params>
 UsdGenParamValue const *FindParam(Params const &params, char const *name)
 {
-    UsdGenToken const key(name);
     UsdGenParamValue const *found = nullptr;
     for (UsdGenParamValue const &param : params) {
-        if (param.name != key) continue;
+        if (param.name != name) continue;   // text compare: no intern
         if (found) return nullptr; // duplicate means malformed, never pick one.
         found = &param;
     }

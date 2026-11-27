@@ -11,6 +11,7 @@
 // are owned by gate L-3 (`13-codebase-alignment.md` §2); this test pins the
 // combiner they bake into.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenOpFixture.h"
 #include "bufferOpCalls.h"

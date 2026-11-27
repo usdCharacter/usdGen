@@ -11,6 +11,7 @@
 //   (3) every malformed layer fails closed;
 //   (4) run-twice determinism;
 //   (5) the CUDA backend explicitly rejects a sculpt graph.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -27,7 +28,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

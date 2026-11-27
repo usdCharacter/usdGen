@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/limitSurface.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -14,7 +15,6 @@
 #include <cstdio>
 #include <map>
 #include <vector>
-#include "utils/pxrInterop.h"
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE
 #define CHECK(c) do {if(!(c)){std::fprintf(stderr,"FAIL %d: %s\n",__LINE__,#c);return 1;}}while(false)

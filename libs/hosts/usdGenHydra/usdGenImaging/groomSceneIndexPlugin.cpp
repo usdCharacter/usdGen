@@ -1,6 +1,7 @@
 // Caller-boundary Hydra capture -> per-scene owner -> independent session work.
 // One immutable scene snapshot and ordered notices; no application mutex.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
@@ -349,7 +350,7 @@ bool DescReadsTime(Desc const& desc) {
     auto const& registry = usdGen::UsdGenOpRegistry::Get();
     for (auto const& node : desc.nodes) {
         if (!node.enabled && node.expressionBindings.empty()) continue;
-        usdGen::UsdGenOpId const id = registry.Find(node.type);
+        usdGen::UsdGenOpId const id = registry.Find(usdGenUsd::ToToken(node.type));
         if (id != usdGen::UsdGenOpId::Invalid &&
             registry.Record(id).Has(usdGen::kUsdGenOpReadsTime |
                                     usdGen::kUsdGenOpSamplesFrameInputs))

@@ -8,6 +8,7 @@
 #define USDGENUSD_GRAPH_DESC_H
 
 #include "usdGenUsd/convert/math.h"   // Gf and usdGenMath interconvert (before any mixed use)
+#include "usdGenUsd/convert/token.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGenUsd/presentation.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -53,7 +54,7 @@ struct UsdGenGeometryDesc : UsdGenGeometryData
 struct UsdGenExpressionBinding {
     // 'output' empty means the connection named the expression PRIM rather
     // than one of its outputs; UsdGenFindExpressionOutput resolves it.
-    SdfPath expression; TfToken output = UsdGenTokens().result; TfToken nativeType = UsdGenTokens().float_; TfToken destination;
+    SdfPath expression; TfToken output = usdGenUsd::ToTf(UsdGenTokens().result); TfToken nativeType = usdGenUsd::ToTf(UsdGenTokens().float_); TfToken destination;
     expr::ValueShape destinationShape; expr::Domain domain = expr::Domain::Groom;
     VtValue literal;
 };
@@ -123,7 +124,7 @@ struct UsdGenPreviewDesc
     SdfPath  source;                    // empty == no preview
     TfToken  colorMap = *usdGenUsd::s_presentationHeat;   // heat | viridis | gray | ids | rgb
     GfVec2f  range{0.0f, 1.0f};
-    TfToken  evaluation = UsdGenTokens().primitive;   // for an expression prim source
+    TfToken  evaluation = usdGenUsd::ToTf(UsdGenTokens().primitive);   // for an expression prim source
     TfToken  shading = *usdGenUsd::s_presentationLit;     // lit | flat
 
     bool Active() const { return !source.IsEmpty(); }

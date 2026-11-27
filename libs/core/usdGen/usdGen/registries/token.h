@@ -9,9 +9,7 @@
 
 namespace usdGen {
 
-/// The only text -> UsdGenToken conversion in libs/usdGen (gate
-/// testUsdGenNoTokenIntern). Counts every call.
-USDGEN_CORE_API UsdGenToken UsdGenInternToken(std::string_view text);
+// UsdGenInternToken (api/token.h) counts every call.
 
 /// Interns made after UsdGenFreezeRegistries() outside any compile scope.
 USDGEN_CORE_API uint64_t UsdGenExecInternCount() noexcept;

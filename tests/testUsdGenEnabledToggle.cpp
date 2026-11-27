@@ -6,6 +6,7 @@
 // This test drives the same builder the viewport uses (BuildGraphDescFromStage)
 // so an edit that never reaches the engine is caught here rather than in a
 // render.
+#include "utils/pxrInterop.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"

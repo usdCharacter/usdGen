@@ -17,6 +17,7 @@
 //      installed schema library and fires the compute-extent registration.
 //      This process re-execs itself with PXR_PLUGINPATH_NAME set before any
 //      USD symbol is touched (plugin path is read at Plug discovery time).
+#include "utils/pxrInterop.h"
 #include "pxr/pxr.h"
 #include "pxr/base/gf/range3d.h"
 #include "pxr/base/gf/vec3f.h"

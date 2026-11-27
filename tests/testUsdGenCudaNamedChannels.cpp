@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/executionResources.h"
 #include "testBackend.h"
 #include "usdGen/executionRetirement.h"

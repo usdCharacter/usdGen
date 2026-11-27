@@ -5,6 +5,7 @@
 //   (2) deterministic CPU cooks over small hand-built bent topologies (fixed
 //       seeds): the per-plane blend toward the root->tip line, exact roots and
 //       tips, identity at zero effect, and one connected-expression cook.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -20,7 +21,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

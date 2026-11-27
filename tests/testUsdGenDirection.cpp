@@ -8,6 +8,7 @@
 //       direction:knots ramp, tilt/lift/followSkinContour shaping, identity at
 //       zero effect, direction:source tangents, connected-expression and mask
 //       cooks, and fail-closed validation.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -23,7 +24,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -176,7 +176,7 @@ static void CheckRegistryContracts()
     std::vector<TfToken> topoV, valueV;   // routed decls, as the routing snapshot splits them
     for (UsdGenParamSlot s = 0; s < rec.ParamCount(); ++s)
         (rec.ParamClass(s) == UsdGenParamClass::Value ? valueV : topoV).push_back(rec.ParamName(s));
-    TfSpan<const TfToken> const refs = rec.ReferenceInputs();
+    UsdGenSpan<const UsdGenToken> const refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("direction:source"),
           "Direction declares the direction:source reference input");
     Check(usdGenTest::OutputPlaneNames(rec).empty(), "Direction emits no output primvars");

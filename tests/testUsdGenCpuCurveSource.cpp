@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -20,7 +21,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

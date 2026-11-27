@@ -8,6 +8,7 @@
 // the cooked points equal the baked points verbatim, a downstream operator
 // consumes the pulled geometry, and an empty reference fails closed.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -33,7 +34,6 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

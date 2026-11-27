@@ -16,6 +16,8 @@ struct UsdGenCurveTokenTable {
     // curve loader options (curveLoader.cpp)
     UsdGenToken useRest, usdGenUseRest, resampleTo, idSource, staleAction, rebind, expectEpoch,
         primvar, index, warn, ignore, block, never, onError, always;
+    // the forwarded source displayColor plane (UsdGenSourceColorPlane)
+    UsdGenToken sourceColor;
 };
 
 /// Valid for the life of the process.

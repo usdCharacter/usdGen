@@ -12,6 +12,7 @@
 // timing-soft (plan/09-imaging.md §5.2) and asserted only under
 // USDGEN_GATE=1.
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 
 #include "pxr/pxr.h"

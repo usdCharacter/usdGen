@@ -8,6 +8,7 @@
 // fallback (0,1,0) while still emitting roots. Both emission paths (the
 // one-pass emitRange fan and the two-pass fanFace+spill fan) must publish
 // the fallback on every rootN.
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -24,7 +25,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

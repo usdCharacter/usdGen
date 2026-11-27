@@ -17,6 +17,7 @@
 // Requires the plugin path at runtime (adapters publish the Hydra values):
 // run under ctest, which supplies it.
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"

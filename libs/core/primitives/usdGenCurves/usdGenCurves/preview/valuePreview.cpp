@@ -336,8 +336,8 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
             binding.domain = Domain::Primitive;
             binding.literal = UsdGenValue(0.0f);
             node.expressionBindings.push_back(std::move(binding));
-            _mapDesc.inputs.push_back(UsdGenMapRecord(copy, copyKey, map->paintSurface, UsdGenToken()));
-            _mapDesc.inputs.push_back(UsdGenExpressionRecord(expression, copyKey, UsdGenToken()));
+            _mapDesc.inputs.push_back(UsdGenMapRecord(copy, copyKey, map->paintSurface, UsdGenText()));
+            _mapDesc.inputs.push_back(UsdGenExpressionRecord(expression, copyKey, UsdGenText()));
         }
         _mapDesc.SortInputs();
         std::string message;

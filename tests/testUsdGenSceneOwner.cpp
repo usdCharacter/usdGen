@@ -1,5 +1,6 @@
 // Scene-owner lifecycle tests: adoption is explicit-owner work, while scene
 // reads remain snapshot-only and removal cannot leave stale ownership behind.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 

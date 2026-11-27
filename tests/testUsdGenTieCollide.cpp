@@ -16,6 +16,7 @@
 //       non-penetrating identity, determinism, fail-closed edges.
 //   (3) Collide flexible over a bumpy many-triangle mesh is bit-identical to
 //       the brute-force first-win closest-point scan it replaced.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -32,7 +33,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

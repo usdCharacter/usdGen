@@ -192,7 +192,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
             }
             node.enabled = true; node.inputSets = {curvesKey}; node.surfaces.clear();
             lowerToSource(node, true);
-            desc.inputs.push_back(UsdGenCurveSetRecord(curves, curvesKey, UsdGenToken()));
+            desc.inputs.push_back(UsdGenCurveSetRecord(curves, curvesKey, UsdGenText()));
             desc.SortInputs();
         }
     }

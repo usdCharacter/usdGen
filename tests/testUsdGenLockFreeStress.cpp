@@ -7,6 +7,7 @@
 // publications), the pipeline's newest-wins mailbox, the memory reservation
 // word, and a 64-thread Submit/Visible run against one Session. Tracked
 // values live in a never-reused poisoned arena, so reading a freed one fails.
+#include "utils/pxrInterop.h"
 #include "usdGen/epoch.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionCache.h"
@@ -33,7 +34,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "testBackend.h"
 #include "usdGenCurves/cuda/generation.h"

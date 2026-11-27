@@ -8,6 +8,7 @@
 // enters the native owner; no callback in this fixture is permitted to touch
 // mutable Session state directly from the Vulkan waiter.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/executionPipeline.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -46,7 +47,6 @@
 #include <future>
 #include <cstring>
 #include <cstdlib>
-#include "utils/pxrInterop.h"
 
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "CHECK failed: %s at %d\n", #condition, __LINE__); std::abort(); } } while (false)
 

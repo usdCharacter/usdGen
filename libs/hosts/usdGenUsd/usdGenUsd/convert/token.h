@@ -1,0 +1,42 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+// Host and engine tokens, converted explicitly. ToToken looks the text up
+// first and interns (as a compile-phase intern) only text the engine has
+// never seen. ToTf returns an immortal TfToken cached per token Id().
+#pragma once
+#include "usdGen/api/token.h"
+#include "usdGenUsd/convert/math.h"
+
+#include "pxr/base/tf/token.h"
+#include "pxr/base/vt/array.h"
+
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace usdGenUsd {
+
+usdGen::UsdGenToken ToToken(PXR_NS::TfToken const &t);
+usdGen::UsdGenToken ToToken(std::string_view text);
+inline usdGen::UsdGenToken ToToken(char const *text) { return ToToken(std::string_view(text ? text : "")); }
+inline usdGen::UsdGenToken ToToken(std::string const &text) { return ToToken(std::string_view(text)); }
+PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
+
+usdGen::UsdGenTokenVector ToTokens(std::vector<PXR_NS::TfToken> const &t);
+std::vector<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenVector const &t);
+PXR_NS::VtArray<usdGen::UsdGenToken> ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t);
+PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(PXR_NS::VtArray<usdGen::UsdGenToken> const &t);
+
+/// Engine token fields read a host value as TfToken (convert/math.h HostRep).
+template <>
+struct HostRep<usdGen::UsdGenToken> {
+    using Type = PXR_NS::TfToken;
+    static usdGen::UsdGenToken In(Type const &h) { return ToToken(h); }
+};
+template <>
+struct HostRep<PXR_NS::VtArray<usdGen::UsdGenToken>> {
+    using Type = PXR_NS::VtArray<PXR_NS::TfToken>;
+    static PXR_NS::VtArray<usdGen::UsdGenToken> In(Type const &h) { return ToTokens(h); }
+};
+
+}  // namespace usdGenUsd

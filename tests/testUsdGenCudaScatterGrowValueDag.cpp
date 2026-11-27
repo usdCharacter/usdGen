@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"
 #include "testBackend.h"
@@ -12,7 +13,6 @@
 #include <cstring>
 #include <map>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #x); return 1; } } while (false)

@@ -232,7 +232,7 @@ USDGEN_SURFACE_API void UsdGenSetSurfaceId(UsdGenInputRecord &record, UsdGenSurf
 /// Packs 'data' into a UsdGenSurfaceInput record. Compile phase: allocates.
 USDGEN_SURFACE_API UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &data,
                                                       UsdGenNodeKey key, UsdGenNodeKey owner,
-                                                      UsdGenToken const &label,
+                                                      UsdGenText const &label,
                                                       UsdGenInputColumnCache *cache = nullptr);
 /// The Default-space variant of a surface record: points (and the one sample
 /// kept) are its rest points, no velocities, a rest-content generation.

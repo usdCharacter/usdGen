@@ -302,7 +302,7 @@ UsdGenGeometryInputView UsdGenGeometryInputView::Of(UsdGenGeometryData const &d,
 }
 
 UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &d, UsdGenNodeKey key,
-                                         UsdGenToken const &label)
+                                         UsdGenText const &label)
 {
     UsdGenInputRecordWriter w(UsdGenExpressionInputKind());
     w.Value(kUsdGenExpressionValueSource, UsdGenValue(d.source));
@@ -312,7 +312,7 @@ UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &d, UsdGenNo
 }
 
 UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &d, UsdGenNodeKey key,
-                                       UsdGenToken const &label, UsdGenInputColumnCache *cache)
+                                       UsdGenText const &label, UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenGeometryInputKind());
     w.UseCache(cache, key);

@@ -39,6 +39,7 @@ UsdGenCurveTokenTable *MakeCurveTokens()
     t->never = i("never");
     t->onError = i("onError");
     t->always = i("always");
+    t->sourceColor = i("usdGenSourceColor");
     return t;
 }
 

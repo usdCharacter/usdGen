@@ -8,6 +8,7 @@
 //   - the partition and group hooks equal UsdGenGraph::Repartition on 10 fixtures
 //   - UsdGenCurveChunk over a generic chunk view (testUsdGenCurveSetChunk.cpp)
 
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "nodeSets.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -30,7 +31,6 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

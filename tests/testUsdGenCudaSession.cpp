@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
@@ -22,7 +23,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); return 1; } } while (false)

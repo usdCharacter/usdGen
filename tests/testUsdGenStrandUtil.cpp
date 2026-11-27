@@ -5,6 +5,7 @@
 // reference random streams, the root/mid/tip Bezier profile, arc-length
 // sampling, transport frames, root re-snap, and the triangle BVH against a
 // brute-force closest-point scan.
+#include "utils/pxrInterop.h"
 #include "usdGen/ops/strandUtil.h"
 
 #include <cmath>
@@ -15,7 +16,6 @@
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/types.h"
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

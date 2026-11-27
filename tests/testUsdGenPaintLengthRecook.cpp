@@ -12,6 +12,7 @@
 // paint something else". The test cooks, rewrites only the length primvar
 // (every corner 1.0 -> 0.3), cooks again through the real UsdImaging chain
 // and asserts the strands got shorter; then does the same for width.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"

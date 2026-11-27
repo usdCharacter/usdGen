@@ -3,6 +3,7 @@
 // testUsdGenCurveSet, part 2: UsdGenCurveChunk over a generic chunk view.
 // A TU of its own: curveBuffer.h's legacy UsdGenChunkView must not be visible.
 
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/exec/chunkView.h"
@@ -18,7 +19,6 @@
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/types.h"
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -38,7 +38,7 @@ void Expect(bool ok, char const *what)
 UsdGenChannelDesc Dyn(char const *name, UsdGenScalar scalar, uint8_t arity, uint8_t level)
 {
     UsdGenChannelDesc d;
-    d.name = UsdGenToken(name);
+    d.name = ToToken(name);
     d.scalar = scalar;
     d.arity = arity;
     d.level = level;
@@ -62,10 +62,10 @@ int RunCurveChunkTests()
     };
     auto node = UsdGenChannelTable::Make(layout, UsdGenSpan<const UsdGenChannelDesc>(nodeDyn, 3));
     auto in = UsdGenChannelTable::Make(layout, UsdGenSpan<const UsdGenChannelDesc>(inDyn, 3));
-    UsdGenSlot const clumpId = node->Find(UsdGenToken("clumpId_0"));
-    UsdGenSlot const weight = node->Find(UsdGenToken("clumpWeight_0"));
-    UsdGenSlot const mask = node->Find(UsdGenToken("mask"));
-    UsdGenSlot const guideWeight = in->Find(UsdGenToken("guideWeight"));
+    UsdGenSlot const clumpId = node->Find(ToToken("clumpId_0"));
+    UsdGenSlot const weight = node->Find(ToToken("clumpWeight_0"));
+    UsdGenSlot const mask = node->Find(ToToken("mask"));
+    UsdGenSlot const guideWeight = in->Find(ToToken("guideWeight"));
     Expect(clumpId != kUsdGenNoSlot && weight != kUsdGenNoSlot && mask != kUsdGenNoSlot &&
                guideWeight != kUsdGenNoSlot,
            "chunk tables");
@@ -149,10 +149,10 @@ int RunCurveChunkTests()
            "emitted planes in declaration order, typed");
     Expect(c.inCount == 1 && c.InF(0) == gw.data() + 12 && !c.inI[0], "consumed planes");
     UsdGenEngineTokens const &tk = UsdGenTokens();
-    Expect(c.extraCvCount == 2 && c.extraCv[0].name == UsdGenToken("clumpWeight_0") &&
+    Expect(c.extraCvCount == 2 && c.extraCv[0].name == ToToken("clumpWeight_0") &&
                c.extraCv[0].interpolation == tk.vertex && c.extraCv[0].type == tk.float_ &&
                c.extraCv[1].type == tk.int_ && c.extraCv[1].arity == 2 &&
-               c.inExtraCv[1].name == UsdGenToken("mask"),
+               c.inExtraCv[1].name == ToToken("mask"),
            "remapped plane descriptors");
     Expect(c.extraCvF[0] == w.data() && !c.extraCvI[0] && c.extraCvI[1] == mk.data() && !c.extraCvF[1],
            "remapped bases are whole-column");

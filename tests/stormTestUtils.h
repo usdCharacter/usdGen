@@ -6,6 +6,7 @@
 #ifndef USDGEN_TESTS_STORMTESTUTILS_H
 #define USDGEN_TESTS_STORMTESTUTILS_H
 
+#include "utils/pxrInterop.h"
 #include "pxr/pxr.h"
 #include "pxr/base/plug/registry.h"
 #include "pxr/base/tf/registryManager.h"

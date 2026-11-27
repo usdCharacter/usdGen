@@ -9,6 +9,7 @@
 // order, MSVC shuffle, coverage quantile) or are invariants that fail when
 // the math is wrong (counts, spacing, proximity radius, thinning fraction,
 // stable strand identity, determinism).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -30,7 +31,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

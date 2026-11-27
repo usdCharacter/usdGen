@@ -1,6 +1,7 @@
 // Stock-Hydra data-source contract: this intentionally uses only public
 // BasisCurves and primvar schema payloads.  It does not load or reference a
 // private HdSt provider.
+#include "utils/pxrInterop.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenHydraCurves/usdGenTilePublisher.h"

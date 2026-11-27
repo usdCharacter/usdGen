@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/vulkan/sourceWidthJob.h"
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"
@@ -251,7 +252,7 @@ int main(int argc, char** argv) {
         CHECK(Prove(native));
         CHECK(job->NotifyCompletion()); owner.Drain(); // WidthPending -> terminal callback
         CHECK(callbackOk && callbacks == 1 && finalState == VulkanSourceWidthJob::State::Ready && finalStatus == VK_SUCCESS);
-        auto width = result->PlaneOwner(TfToken("width")); CHECK(width && width->sizeBytes() == 8);
+        auto width = result->PlaneOwner(TestToken("width")); CHECK(width && width->sizeBytes() == 8);
         CHECK(job->state() == VulkanSourceWidthJob::State::Ready);
         CHECK(owner.OutstandingCommands() == 0 && !job->NotifyCompletion());
         result.reset(); job.reset(); owner.Drain(); CHECK(weakRequest.expired());
@@ -370,7 +371,7 @@ int main(int argc, char** argv) {
                 CHECK(std::isfinite(tiles[0].extentMin[axis]) && std::isfinite(tiles[0].extentMax[axis]) &&
                     tiles[0].extentMin[axis] <= tiles[0].extentMax[axis]);
             CHECK(result->valueVersion() == 5 && result->topologyVersion() == 3);
-            auto width = result->PlaneOwner(TfToken("width")); CHECK(width && width->sizeBytes() == 8);
+            auto width = result->PlaneOwner(TestToken("width")); CHECK(width && width->sizeBytes() == 8);
 
             // WithTiles validation, host-side on the tiled result.
             std::vector<UsdGenDeviceTileMetadata> gap{{0, 0, 1, 1, 2, {0, 0, 0}, {1, 1, 1}, true}};
@@ -384,7 +385,7 @@ int main(int argc, char** argv) {
             auto reattached = VulkanSourceGeneration::WithTiles(result, tiles, &reason);
             CHECK(reattached && reattached->valueVersion() == 5 && reattached->topologyVersion() == 3 &&
                 reattached->NonWidthIdentity() == result->NonWidthIdentity() &&
-                reattached->PlaneOwner(TfToken("points")) == result->PlaneOwner(TfToken("points")));
+                reattached->PlaneOwner(TestToken("points")) == result->PlaneOwner(TestToken("points")));
             CHECK(owner.OutstandingCommands() == 0 && !job->NotifyCompletion());
             tiled = std::move(result); job.reset(); owner.Drain();
             CHECK(context->resources()->Snapshot().usedBytes > 0);
@@ -504,7 +505,7 @@ int main(int argc, char** argv) {
         {
             // Readback borrows the plane; release every shared owner before
             // the ledger check below.
-            auto widths = result->PlaneOwner(TfToken("width"));
+            auto widths = result->PlaneOwner(TestToken("width"));
             CHECK(widths && widths->sizeBytes() == 8);
             std::vector<uint8_t> bytes;
             CHECK(ReadVulkanBytes(native, context, widths->buffer(), 8, result, &bytes) &&
@@ -574,7 +575,7 @@ int main(int argc, char** argv) {
             result = std::move(generation);
             callbackOk = result && state == VulkanSourceWidthJob::State::Ready &&
                          resultStatus == VK_SUCCESS && result->context() == context &&
-                         result->valueVersion() == 6 && result->PlaneOwner(TfToken("points"));
+                         result->valueVersion() == 6 && result->PlaneOwner(TestToken("points"));
         }));
         owner.Drain();                         // Created -> UploadPending
         CHECK(Prove(native));

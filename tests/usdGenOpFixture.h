@@ -3,6 +3,7 @@
 // Hand-driven op tests: the registered record, and a view whose parameters are
 // resolved to the record's slots (what the compiler hands an op).
 #pragma once
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"

@@ -19,6 +19,7 @@
 // output carries the snapshot's rest and named planes instead of the
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -41,7 +42,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -243,7 +243,7 @@ static void CheckRegistryContracts()
     Check(record.Def().lane == UsdGenLane::Chunked, "Freeze is a Curves-role chain node");
     Check(record.Def().geometryInputArity == 1, "Freeze consumes one chain input");
     Check(!record.Has(kUsdGenOpGenerator), "Freeze is not a generator");
-    TfSpan<const TfToken> const refs = record.ReferenceInputs();
+    UsdGenSpan<const UsdGenToken> const refs = record.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("frozen:curves"),
           "Freeze declares the frozen:curves reference input");
     Check(record.OutputPlanes().empty(), "Freeze emits no output primvars");

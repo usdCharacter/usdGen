@@ -18,6 +18,7 @@
 // per-format byte helper exists in the installed headers).
 //
 // Exit: 0 pass, 77 SKIP (no usable EGL device context on this host), 1 fail.
+#include "utils/pxrInterop.h"
 #include "eglctx.h"
 
 #include "pxr/pxr.h"

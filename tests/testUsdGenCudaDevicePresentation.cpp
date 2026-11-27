@@ -1,6 +1,7 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
 // with the accepted device generation (its host data, usdGenUsd
 // DevicePresentation), including tool point revisions.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"

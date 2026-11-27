@@ -7,6 +7,7 @@
 // cook"; with USDGEN_TOKEN_CHECKS=0 (the "off" run) it is a warning and the
 // run succeeds. An intern inside UsdGenCompileTokenScope never fails a run.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -23,7 +24,6 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

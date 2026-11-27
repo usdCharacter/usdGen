@@ -14,6 +14,7 @@
 //       stiffness:knots, unknown stiffness:interpolation);
 //   (4) CUDA-backend explicit rejection: Wind is CPU-only (no capability
 //       matrix row, like Clump), so ValidateCudaGraph refuses a Wind graph.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -33,7 +34,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/cudaScatterInput.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/types/curveCapture.h"
@@ -11,7 +12,6 @@
 #include <limits>
 #include <memory>
 #include <string>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

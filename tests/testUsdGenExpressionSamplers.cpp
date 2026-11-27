@@ -8,6 +8,7 @@
 //   * UsdGenCpuParameters resolves the inputs against a UsdGenGraphDesc and
 //     re-resolves when the sampled geometry changes;
 //   * ptex() reads a UsdGenPtexMap at the strand root, or a UsdGenPaintMap (bilinear at the root's face-local uv).
+#include "utils/pxrInterop.h"
 #include "usdGen/cpuParameters.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/expressions/cpuEvaluator.h"
@@ -27,7 +28,6 @@
 #include <filesystem>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

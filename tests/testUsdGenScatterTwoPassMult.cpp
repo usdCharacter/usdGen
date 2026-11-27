@@ -11,6 +11,7 @@
 // exactly 1.0) with a {2.0, 0.5, 1.0, 0.0} mult cycle pin per-face counts
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -27,7 +28,6 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

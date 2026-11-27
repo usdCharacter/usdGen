@@ -1,4 +1,5 @@
 // Session-store owner serialization and snapshot/lifetime contract tests.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenImaging/usdGenImagingSession.h"
@@ -16,7 +17,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGenImaging;
 

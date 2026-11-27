@@ -15,6 +15,7 @@
 // shorter strands sampling the braid at u * Lf / Lg, tail relax + cinch +
 // bundle slot, knot-mask zeros at crossings, flyaways keyed by strandIndex,
 // no-guide pass-through, determinism (repeat cooks, 1 vs 4 threads).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -31,7 +32,6 @@
 #include <map>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -290,7 +290,7 @@ static void CheckRegistry()
     Check(op != nullptr, "UsdGenBraid is registered");
     if (!op) return;
     UsdGenOpRecord const &rec = op->Record();
-    TfSpan<const TfToken> refs = rec.ReferenceInputs();
+    UsdGenSpan<const UsdGenToken> refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("guides"), "Braid declares the guides reference");
     std::vector<TfToken> const out = usdGenTest::OutputPlaneNames(rec);
     bool clump = false, mask = false;

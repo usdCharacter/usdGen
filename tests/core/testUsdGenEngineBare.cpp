@@ -16,6 +16,7 @@
 #include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
+#include "usdGen/registries/token.h"
 #include "usdGen/registries/typeRegistry.h"
 
 #include "pxr/base/tf/token.h"
@@ -80,7 +81,8 @@ UsdGenGraphSpec OneNodeSpec(char const *type)
     UsdGenGraphSpec spec;
     UsdGenOpNode node;
     node.key = UsdGenNodeKeyOfText("/Groom/Op");
-    node.type = TfToken(type);
+    UsdGenCompileTokenScope scope;   // test data, not a cook intern
+    node.type = UsdGenInternToken(type);
     spec.nodes.push_back(node);
     spec.terminal = node.key;
     spec.description = UsdGenNodeKeyOfText("/Groom");

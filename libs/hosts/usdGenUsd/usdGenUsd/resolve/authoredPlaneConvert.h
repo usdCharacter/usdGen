@@ -19,6 +19,7 @@
 
 #include "usdGen/api/graphSpec.h"
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenUsd/convert/token.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"
@@ -55,7 +56,7 @@ inline bool ConvertAuthoredPlane(TfToken const &planeName, VtValue const &value,
 {
     if (planeName.IsEmpty() || !out) return false;
     UsdGenAuthoredPlaneDesc plane;
-    plane.name = planeName;
+    plane.name = usdGenUsd::ToToken(planeName);
     auto floats = [&](float const *data, size_t count, uint8_t arity) {
         plane.type = UsdGenAuthoredPlaneType::Float32;
         plane.arity = arity;

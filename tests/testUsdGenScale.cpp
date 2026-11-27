@@ -7,6 +7,7 @@
 //       seeds): the geometric contract, roots behavior, widthToo, the
 //       scale:knots ramp, the per-curve scaleRandom draw, identity at zero
 //       effect, one connected-expression cook, and fail-closed validation.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -28,7 +29,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

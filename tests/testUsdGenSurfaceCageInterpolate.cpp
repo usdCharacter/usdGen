@@ -1,4 +1,5 @@
 // Pure runtime contract for sparse surface-cage C3 interpolation.
+#include "utils/pxrInterop.h"
 #include "usdGen/surfaceCageInterpolate.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/surfaceCageSource.h"
@@ -12,7 +13,6 @@
 #include <filesystem>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

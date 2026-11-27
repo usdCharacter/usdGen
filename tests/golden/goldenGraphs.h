@@ -6,6 +6,7 @@
 #ifndef USDGEN_TESTS_GOLDEN_GRAPHS_H
 #define USDGEN_TESTS_GOLDEN_GRAPHS_H
 
+#include "../utils/pxrInterop.h"
 #include "usdGenUsd/lower.h"
 
 #include "pxr/pxr.h"

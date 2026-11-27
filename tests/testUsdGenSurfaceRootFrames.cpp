@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/surfaceRootFrames.h"
 #include "usdGenUsd/lower.h"
 
@@ -10,7 +11,6 @@
 #include "usdGenSurface/cuda/rootFrames.h"
 #include <cuda_runtime.h>
 #endif
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

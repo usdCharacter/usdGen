@@ -3,6 +3,7 @@
 // brush bake -> groom recook path). Value-leaf and structural-primvar
 // dirties re-capture; a bare coarse container dirty keeps the
 // pre-existing SurfacePoints route; an unrelated surface stays quiet.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGen/graph.h"
 #include "usdGen/session.h"

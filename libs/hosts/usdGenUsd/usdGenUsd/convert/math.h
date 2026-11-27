@@ -153,7 +153,8 @@ struct HostRep<PXR_NS::VtArray<E>, std::enable_if_t<!std::is_void<HostMathOf<E>>
 };
 
 /// VtValues: a held Gf math value or array becomes the usdGenMath one
-/// (ToEngineValue), and back (ToHostValue). Anything else is unchanged.
+/// (ToEngineValue), and back (ToHostValue); TfToken and token arrays become
+/// UsdGenToken ones and back (convert/token.h). Anything else is unchanged.
 /// Every value the engine reads goes through ToEngineValue (UsdGenValue is
 /// VtValue until the value swap, and IsHolding is exact).
 PXR_NS::VtValue ToEngineValue(PXR_NS::VtValue const &v);

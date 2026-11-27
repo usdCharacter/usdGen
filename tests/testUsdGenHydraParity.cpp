@@ -12,6 +12,7 @@
 // run under ctest (ENVIRONMENT carries it) or sourced bin/_env.sh by hand.
 // Fixture dir arrives as USDGEN_TEST_FIXTURE_DIR (absolute source path).
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
@@ -36,7 +37,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

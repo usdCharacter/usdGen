@@ -8,10 +8,10 @@
 // enters the native owner; no callback in this fixture is permitted to touch
 // mutable Session state directly from the Vulkan waiter.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/executionPipeline.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "utils/pxrInterop.h"
 #include "nodeSets.h"
 #include "usdGen/executionResources.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"

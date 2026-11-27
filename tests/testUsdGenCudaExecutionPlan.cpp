@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -12,7 +13,6 @@
 #include <limits>
 #include <memory>
 #include <string>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

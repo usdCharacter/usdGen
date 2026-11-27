@@ -1,6 +1,7 @@
 // testUsdGenAsyncImagingSession -- imaging-owner request pairing, callback
 // re-entry, retirement, and terminal shutdown behavior.
 
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
@@ -30,7 +31,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/executionPlan.h"
 

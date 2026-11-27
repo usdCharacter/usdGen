@@ -16,6 +16,7 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
@@ -34,7 +35,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

@@ -9,6 +9,7 @@
 // Create+Bind is reported separately as a cold metric and is not folded into
 // those limits.  Timing failures remain informational unless USDGEN_GATE=1.
 
+#include "../utils/pxrInterop.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootBindings.h"
 
@@ -27,7 +28,6 @@
 #include <tbb/task_arena.h>
 #include <utility>
 #include <vector>
-#include "../utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

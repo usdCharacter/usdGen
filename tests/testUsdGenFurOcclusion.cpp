@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/furOcclusion.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenHydraCurves/publication.h"

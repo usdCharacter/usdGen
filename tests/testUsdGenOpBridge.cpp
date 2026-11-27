@@ -9,6 +9,7 @@
 //  - UsdGenCurveBufferSetView (tests/curveBufferSetView.h) shows a buffer as
 //    a set over the buffer's own arrays and rebinds without allocating.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compile/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/compile/graph.h"
@@ -31,7 +32,6 @@
 #include <string>
 #include <type_traits>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

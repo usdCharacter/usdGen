@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // usdGenUsd/convert/math.h: the value conversions.
 #include "usdGenUsd/convert/math.h"
+#include "usdGenUsd/convert/token.h"
 
 namespace usdGenUsd {
 
@@ -58,12 +59,18 @@ template <class H> struct ToHostOp { static bool Run(PXR_NS::VtValue const &v, P
 PXR_NS::VtValue ToEngineValue(PXR_NS::VtValue const &v)
 {
     if (v.IsEmpty()) return v;
+    if (v.IsHolding<PXR_NS::TfToken>()) return PXR_NS::VtValue(ToToken(v.UncheckedGet<PXR_NS::TfToken>()));
+    if (v.IsHolding<PXR_NS::VtArray<PXR_NS::TfToken>>())
+        return PXR_NS::VtValue(ToTokens(v.UncheckedGet<PXR_NS::VtArray<PXR_NS::TfToken>>()));
     return Convert<ToEngineOp, USDGEN_MATH_HOST_TYPES>(v);
 }
 
 PXR_NS::VtValue ToHostValue(PXR_NS::VtValue const &v)
 {
     if (v.IsEmpty()) return v;
+    if (v.IsHolding<usdGen::UsdGenToken>()) return PXR_NS::VtValue(ToTf(v.UncheckedGet<usdGen::UsdGenToken>()));
+    if (v.IsHolding<PXR_NS::VtArray<usdGen::UsdGenToken>>())
+        return PXR_NS::VtValue(ToTfs(v.UncheckedGet<PXR_NS::VtArray<usdGen::UsdGenToken>>()));
     return Convert<ToHostOp, USDGEN_MATH_HOST_TYPES>(v);
 }
 

@@ -6,6 +6,7 @@
 //   (2) expression-target validation through UsdGenCompiler (one valid binding
 //       compiles, one wrong-destination and one wrong-domain binding fail);
 //   (3) deterministic CPU cooks over small hand-built topologies (fixed seeds).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -22,7 +23,6 @@
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -180,7 +180,7 @@ static void CheckRegistryContracts()
         UsdGenOpRecord const &rec = op->Record();
         Check(rec.Def().countChanges == 0,
               name + " has TopologyEffect None");
-        TfSpan<const TfToken> const refs = rec.ReferenceInputs();
+        UsdGenSpan<const UsdGenToken> const refs = rec.ReferenceInputs();
         std::vector<TfToken> const primvars = usdGenTest::OutputPlaneNames(rec);
         if (expect.reference) {
             Check(refs.size() == 1 && refs[0] == TfToken(expect.reference),

@@ -8,6 +8,7 @@
 // all-varying sort. The sort must return the stable key order in every shape:
 // each case pins its shape premise from the reference morton keys plus the
 // full sort contract (sorted, stable, exact permutation).
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -26,7 +27,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

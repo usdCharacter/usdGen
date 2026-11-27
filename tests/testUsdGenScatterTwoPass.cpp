@@ -4,6 +4,7 @@
 // family, stable curve ids, morton order with face-major ties, and
 // bit-exact positions/uv/frames, including the overflow-fan recompute
 // (ntri > 2), restricted capture, flip, and error parity.
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -22,7 +23,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

@@ -390,7 +390,7 @@ UsdGenSurfaceInputView UsdGenSurfaceInputView::Of(UsdGenSurfaceData const &d, Us
 // ---- packer -----------------------------------------------------------------------
 
 UsdGenInputRecord UsdGenSurfaceRecord(UsdGenSurfaceData const &d, UsdGenNodeKey key,
-                                      UsdGenNodeKey owner, UsdGenToken const &label,
+                                      UsdGenNodeKey owner, UsdGenText const &label,
                                       UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenSurfaceInputKind());
