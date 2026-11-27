@@ -20,6 +20,7 @@
 // without a device. Device sections need one NVIDIA Vulkan device; without
 // one the test exits 77. vkCreateDevice failures retry (environmental tenant
 // load): 5 attempts with a 60s wait between them.
+#include "utils/pxrInterop.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
 #include "testBackend.h"
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
@@ -47,6 +48,11 @@
 #include <thread>
 #include <chrono>
 #include <vector>
+
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
 
 using namespace usdGen;
 using namespace usdGen::vulkan;

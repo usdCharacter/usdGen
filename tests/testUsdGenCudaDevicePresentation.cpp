@@ -1,6 +1,7 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
 // with the accepted device generation (its host data, usdGenUsd
 // DevicePresentation), including tool point revisions.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
@@ -56,7 +57,7 @@ static UsdGenGraphDesc MakeDesc()
     hair.widths = {.2f, .2f, .2f, .2f};
     hair.widthsInterpolation = TfToken("vertex");
     hair.skinPrim = {0, 0};
-    hair.skinPrimUv = {GfVec2f(.25f, .25f), GfVec2f(.5f, .25f)};
+    hair.skinPrimUv = {usdGen::UsdGenVec2f(.25f, .25f), usdGen::UsdGenVec2f(.5f, .25f)};
     hair.points = {{0, 0, 0}, {0, 1, 0}, {.5f, 0, 0}, {.5f, 1, 0}};
     hair.rest = hair.points;
     desc.curveSets.push_back(hair);

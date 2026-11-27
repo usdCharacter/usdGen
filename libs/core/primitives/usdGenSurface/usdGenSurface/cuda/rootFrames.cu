@@ -89,7 +89,7 @@ __device__ float3 AuthoredNormal(DeviceView<const float3> normals,
 __device__ bool ValidAuthoredFrame(double const* m, float3* origin, float3* t,
                                    float3* b, float3* n) {
     for (int i = 0; i != 16; ++i) if (!Finite(m[i])) return false;
-    // GfMatrix4d is row-major and applies row vectors: rows are transformed
+    // UsdGenMatrix4d is row-major and applies row vectors: rows are transformed
     // local basis directions and row 3 is the translated origin.
     if (m[3] != 0.0 || m[7] != 0.0 || m[11] != 0.0 || m[15] != 1.0) return false;
     double const tx=m[0], ty=m[1], tz=m[2], bx=m[4], by=m[5], bz=m[6], nx=m[8], ny=m[9], nz=m[10];

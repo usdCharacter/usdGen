@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"
 #include "testBackend.h"

@@ -33,15 +33,13 @@
 #include "usdGen/ops/strandUtil.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/token.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace card {
@@ -54,7 +52,7 @@ enum Orientation : int { kFree = 0, kMeshNormal = 1, kSurface = 2, kConform = 3 
 /// Field meanings follow the spine-prim plane contract (card_planes).
 struct Card
 {
-    std::vector<GfVec3f> points;   // the spine as authored, root first
+    std::vector<UsdGenVec3f> points;   // the spine as authored, root first
     uint64_t id = 0, twinId = 0;
     int mirrorPlane = 0;           // 0: x, 1: z, 2: y (about the scalp bbox centre)
     int layer = 0, uvId = -1;
@@ -62,7 +60,7 @@ struct Card
     float vBias[3] = {0.5f, 0.5f, 0.5f};
     int cardType = kRibbon, orientation = kSurface, widthSegments = 1;
     int rootTri = -1;
-    GfVec3f rootBary{0.0f};
+    UsdGenVec3f rootBary{0.0f};
     bool erased = false;
     float distributionMask = 1.0f, lengthMask = 1.0f;
     float width = 0.05f, widthRoot = 0.5f, widthMid = 0.5f, widthMidShift = 0.5f,
@@ -91,7 +89,7 @@ struct Span
     uint32_t rows = 0, cols = 0;
     bool flipU = false, tube = false;
     float vBias = 0.5f;
-    std::vector<GfVec3f> V, N;     // rows * cols, row-major (vertex (i, j) = i * cols + j)
+    std::vector<UsdGenVec3f> V, N;     // rows * cols, row-major (vertex (i, j) = i * cols + j)
     std::vector<float> rowParam;   // per row: normalised arc length of the un-sunk spine
     std::vector<float> rowWidth;   // per row: |V[i,last] - V[i,0]| (tube: ring perimeter)
     float length = 0.0f;           // sum of row-to-row distances along column cols / 2
@@ -103,7 +101,7 @@ struct Context
     /// Closest-point structure over the WHOLE scalp mesh (triangles in fan
     /// order, so Card::rootTri indexes it), or null when no surface is bound.
     strand::TriangleBvh const *scalp = nullptr;
-    GfVec3f bboxCentre{0.0f};      // scalp bounding-box centre (mirror plane)
+    UsdGenVec3f bboxCentre{0.0f};      // scalp bounding-box centre (mirror plane)
     /// Largest distance between Card::rootTri/rootBary on the scalp and the
     /// spine root for the binding to be trusted (else the closest scalp
     /// point gives the root normal). Scene units.
@@ -114,12 +112,12 @@ struct Context
 };
 
 /// The working spine after length scale, frizz and push-out (no smoothing).
-std::vector<GfVec3f> ProcessSpine(Card const &card, Context const &ctx);
+std::vector<UsdGenVec3f> ProcessSpine(Card const &card, Context const &ctx);
 
 /// Root normal N0 and side reference S0 of a card (mirrored from its twin
 /// for a mirror-secondary card). `twinFound` reports whether the twin was
 /// found (it decides the normal sign and the Conform sign).
-void RootFrame(Card const &card, Context const &ctx, GfVec3f *n0, GfVec3f *s0,
+void RootFrame(Card const &card, Context const &ctx, UsdGenVec3f *n0, UsdGenVec3f *s0,
                bool *twinFound);
 
 /// Builds the spans of card `index` of ctx.cards (empty for braids, cards
@@ -135,8 +133,8 @@ bool Included(Card const &card);
 /// Point and normal of the card surface at (u, v) in [0,1]^2 of the tile
 /// (u across, v root -> tip), pushed `depth` row widths along the normal.
 /// v is un-biased by the span's longitudinal bias; u is mirrored by flipU.
-void CardSurface(Span const &span, float u, float v, float depth, GfVec3f *position,
-                 GfVec3f *normal);
+void CardSurface(Span const &span, float u, float v, float depth, UsdGenVec3f *position,
+                 UsdGenVec3f *normal);
 
 /// Render-mesh size of a set of spans: sum rows * cols vertices and
 /// sum 6 (rows - 1)(cols - 1) triangle indices.
@@ -177,7 +175,7 @@ inline uint64_t StrandId(uint64_t cardId, uint64_t j, int strip)
 
 /// Uniform Catmull-Rom subdivision with clamped end neighbours: 4 samples per
 /// segment at tau = 0, .25, .5, .75 plus the last point (4n - 3 points).
-std::vector<GfVec3f> CatmullRom4(std::vector<GfVec3f> const &p);
+std::vector<UsdGenVec3f> CatmullRom4(std::vector<UsdGenVec3f> const &p);
 
 }  // namespace card
 }  // namespace usdGen

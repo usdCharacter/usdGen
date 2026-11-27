@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"

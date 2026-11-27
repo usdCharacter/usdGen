@@ -7,6 +7,7 @@
 //   E-8 1-thread vs 8-thread terminal      : bitwise identical (ALWAYS hard)
 // E-2 lives in benchUsdGenSparse (same 1%-chunk form).
 
+#include "../utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -73,13 +74,13 @@ UsdGenGraphDesc MakeG3()
     s.path = SdfPath("/groom/surface");
     s.id = 0;
     const int NX = 400, NY = 250;
-    s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
-    s.uv = VtVec2fArray((NX + 1) * (NY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((NX + 1) * (NY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((NX + 1) * (NY + 1));
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             const int k = j * (NX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
     s.faceVertexIndices = VtIntArray(NX * NY * 4);
@@ -137,8 +138,8 @@ UsdGenGraphDesc MakeChain(int n)
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/chain/surface");
     s.id = 0;
-    s.restPoints = VtVec3fArray(4, GfVec3f(0.f, 0.f, 0.f));
-    s.uv = VtVec2fArray(4, GfVec2f(0.f, 0.f));
+    s.restPoints = usdGen::UsdGenVec3fArray(4, usdGen::UsdGenVec3f(0.f, 0.f, 0.f));
+    s.uv = usdGen::UsdGenVec2fArray(4, usdGen::UsdGenVec2f(0.f, 0.f));
     s.faceVertexCounts = VtIntArray(1, 4);
     s.faceVertexIndices = VtIntArray({0, 1, 2, 3});
     d.surfaces.push_back(std::move(s));

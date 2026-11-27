@@ -22,17 +22,17 @@ namespace usdGen {
 struct UsdGenPaintRoutingRef
 {
     UsdGenSurfaceId surface = 0;
-    TfToken primvar;
+    UsdGenToken primvar;
 };
 
 struct UsdGenGraphRoutingNode
 {
     UsdGenNodeId id = kUsdGenInvalidNode;
     UsdGenNodeKey key;
-    TfToken type;
-    std::vector<TfToken> topologyParameters;
-    std::vector<TfToken> valueParameters;
-    std::vector<std::pair<TfToken, uint32_t>> paramRouting;
+    UsdGenToken type;
+    std::vector<UsdGenToken> topologyParameters;
+    std::vector<UsdGenToken> valueParameters;
+    std::vector<std::pair<UsdGenToken, uint32_t>> paramRouting;
     UsdGenSurfaceId surface = 0;
     bool hasSurface = false;
     std::vector<UsdGenNodeKey> inputRefs;

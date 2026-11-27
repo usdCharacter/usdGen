@@ -6,12 +6,13 @@
 #include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/api/token.h"
+#include "usdGenCurves/types/curveTokens.h"
 
 #include <algorithm>
 #include <cmath>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -52,7 +53,7 @@ struct UsdGenWholeStrandCapture final : public UsdGenCapture
 };
 
 // A named plane of the upstream view: curve rate (levels 0-1) or vertex rate.
-UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, TfToken const &name,
+UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, UsdGenToken const &name,
                                  UsdGenPlaneView *storage)
 {
     uint32_t const n = perCv ? v.ExtraCvCount() : v.ExtraCurveCount();
@@ -63,12 +64,9 @@ UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, TfToke
     return nullptr;
 }
 
-const TfToken sStrandSeed = UsdGenInternToken("strandSeed");
-const TfToken sStrandIndex = UsdGenInternToken("strandIndex");
-
 }  // namespace
 
-int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
+int const *UsdGenStrandSet::CurveInt(UsdGenToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlaneView plane;
@@ -79,7 +77,7 @@ int const *UsdGenStrandSet::CurveInt(TfToken const &name) const
     return p->i.cdata();
 }
 
-float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
+float const *UsdGenStrandSet::CurveFloat(UsdGenToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlaneView plane;
@@ -90,7 +88,7 @@ float const *UsdGenStrandSet::CurveFloat(TfToken const &name) const
     return p->f.cdata();
 }
 
-float const *UsdGenStrandSet::CvFloat(TfToken const &name) const
+float const *UsdGenStrandSet::CvFloat(UsdGenToken const &name) const
 {
     if (!upstream) return nullptr;
     UsdGenPlaneView plane;
@@ -102,13 +100,13 @@ float const *UsdGenStrandSet::CvFloat(TfToken const &name) const
 
 uint32_t UsdGenStrandSet::Seed(uint32_t c) const
 {
-    if (int const *s = CurveInt(sStrandSeed)) return uint32_t(s[c]);
+    if (int const *s = CurveInt(UsdGenCurveTokens().strandSeed)) return uint32_t(s[c]);
     return Index(c);
 }
 
 uint32_t UsdGenStrandSet::Index(uint32_t c) const
 {
-    if (int const *s = CurveInt(sStrandIndex)) return uint32_t(s[c]);
+    if (int const *s = CurveInt(UsdGenCurveTokens().strandIndex)) return uint32_t(s[c]);
     return c;
 }
 
@@ -116,12 +114,11 @@ UsdGenWholeStrandOp::UsdGenWholeStrandOp(UsdGenOpRecord const &record)
     : UsdGenOp(record)
     , _mask(record.FindParam(UsdGenTokens().mask))
 {
-    UsdGenEngineTokens const &t = UsdGenTokens();
-    for (UsdGenPlane const &plane : record.OutputPlanes()) {
+    for (UsdGenChannelDesc const &plane : record.OutputPlanes()) {
         UsdGenStrandPlaneSpec spec;
         spec.name = plane.name;
-        spec.cv = plane.interpolation == t.vertex;
-        spec.isInt = plane.type == t.int_;
+        spec.cv = plane.level == 2;   // vertex
+        spec.isInt = plane.scalar == UsdGenScalar::I32;
         _specs.push_back(spec);
     }
 }

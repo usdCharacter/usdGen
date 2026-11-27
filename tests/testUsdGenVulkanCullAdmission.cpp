@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/vulkan/lengthCompactionPipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "vulkanReadbackFixture.h"
@@ -39,10 +40,10 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     VulkanSourceGenerationCreateInfo info; info.context = std::move(context);
     auto& s = info.source;
     s.totalCurves = 4; s.totalCvs = 8; s.topologyVersion = 41; s.valueVersion = 42;
-    s.px = {0,1, 0,1, 0,1, 0,1}; s.py = VtFloatArray(8, 0.f); s.pz = VtFloatArray(8, 0.f);
+    s.px = {0,1, 0,1, 0,1, 0,1}; s.py = usdGen::UsdGenFloatArray(8, 0.f); s.pz = usdGen::UsdGenFloatArray(8, 0.f);
     s.rest.reserve(8); s.width.reserve(8); s.hairT.reserve(8);
     for (uint32_t i = 0; i != 8; ++i) {
-        s.rest.push_back(GfVec3f(float(i), 0, 0)); s.width.push_back(float(i) + .5f);
+        s.rest.push_back(usdGen::UsdGenVec3f(float(i), 0, 0)); s.width.push_back(float(i) + .5f);
         s.hairT.push_back(float(i) / 8.f);
     }
     s.cvOffsets = {0,2,4,6,8}; s.curveId = {10,11,12,13};
@@ -50,7 +51,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     s.rootT = {{1,0,0},{1,0,0},{1,0,0},{1,0,0}};
     s.rootB = {{0,1,0},{0,1,0},{0,1,0},{0,1,0}};
     s.rootN = {{0,0,1},{0,0,1},{0,0,1},{0,0,1}};
-    UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{1.f,1.f,1.f,1.f}}; s.extraCurve = {maskPlane};
+    UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{1.f,1.f,1.f,1.f}}; s.extraCurve = {maskPlane};
     s.chunks = {{0,2,2,0,0,3,1,{}}, {2,2,2,4,0,4,1,{}}};
     info.geometry.alreadyDeformed = true;
     info.geometry.tiles = {{3,0,2,0,4}, {4,2,2,4,4}};
@@ -64,7 +65,7 @@ static bool Capture(std::shared_ptr<NativeOwner> const& native,
     auto add = [&](VulkanSourceGeneration::PlaneView const& plane) {
         std::vector<uint8_t> bytes;
         return ReadVulkanBytes(native, context, plane.buffer, plane.bytes, generation, &bytes) &&
-            packet->emplace(plane.metadata.name, std::move(bytes)).second;
+            packet->emplace(plane.metadata.name.GetString(), std::move(bytes)).second;
     };
     for (auto const& plane : generation->planes()) if (!add(plane)) return false;
     for (auto const& plane : generation->sourceFrames()) if (!add(plane)) return false;

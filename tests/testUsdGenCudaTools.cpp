@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/tools.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"

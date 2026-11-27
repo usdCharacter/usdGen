@@ -9,6 +9,11 @@
 // per-root broadcast. Every edge fails closed with a UsdGenDiagnostics
 // message; see exprOp.h for the contract.
 #include "usdGen/ops/exprOp.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -24,7 +29,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -109,12 +113,12 @@ uint32_t UsdGenExprOp::PlanesTouched() const
 bool UsdGenExprOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
     UsdGenOpRecord const &rec = *params.op;
-    TfToken const mode = params.GetToken(kMode, rec.Token(kTokCv));
+    UsdGenToken const mode = params.GetToken(kMode, rec.Token(kTokCv));
     if (mode != rec.Token(kTokCv) && mode != rec.Token(kTokCurve)) {
         if (diag) diag->Error("UsdGenExprOp: unknown usdGen:mode '" + mode.GetString() + "'");
         return false;
     }
-    TfToken const returnType = params.GetToken(kReturnType, rec.Token(kTokDisplacement));
+    UsdGenToken const returnType = params.GetToken(kReturnType, rec.Token(kTokDisplacement));
     if (returnType != rec.Token(kTokDisplacement) && returnType != rec.Token(kTokWidth) &&
         returnType != rec.Token(kTokColor)) {
         if (diag) diag->Error("UsdGenExprOp: unknown usdGen:expr:returnType '" +
@@ -133,8 +137,8 @@ bool UsdGenExprOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
     if (source && !source->value.IsEmpty()) {
         if (source->value.IsHolding<std::string>())
             text = source->value.UncheckedGet<std::string>();
-        else if (source->value.IsHolding<TfToken>())
-            text = source->value.UncheckedGet<TfToken>().GetString();
+        else if (source->value.IsHolding<UsdGenToken>())
+            text = source->value.UncheckedGet<UsdGenToken>().GetString();
         else {
             if (diag) diag->Error("UsdGenExprOp: usdGen:expr:source must be a string");
             return false;
@@ -156,7 +160,7 @@ UsdGenEpoch UsdGenExprOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     // callers too (the scheduler folds them in separately as well).
     opUtil::Digest digest;
     if (UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr) {
-        digest.Mix(p->GetValue(kSource, VtValue(std::string())));
+        digest.Mix(p->GetValue(kSource, UsdGenValue(std::string())));
         digest.Mix(p->GetToken(kMode, p->op->Token(kTokCv)));
         digest.Mix(p->GetToken(kReturnType, p->op->Token(kTokDisplacement)));
     }
@@ -207,8 +211,8 @@ bool UsdGenExprOp::Capture(
     if (UsdGenParamValue const *authored = sourceSlot ? sourceSlot->authored : nullptr) {
         if (authored->value.IsHolding<std::string>())
             source = authored->value.UncheckedGet<std::string>();
-        else if (authored->value.IsHolding<TfToken>())
-            source = authored->value.UncheckedGet<TfToken>().GetString();
+        else if (authored->value.IsHolding<UsdGenToken>())
+            source = authored->value.UncheckedGet<UsdGenToken>().GetString();
     }
     expr::FrontendOptions options;
     options.domain = domain;
@@ -297,7 +301,7 @@ bool UsdGenExprOp::Capture(
     view.hairT = upstream.hairT.empty() ? nullptr : upstream.hairT.cdata();
     view.rootUV = upstream.rootUV.empty() ? nullptr
         : reinterpret_cast<float const *>(upstream.rootUV.cdata());
-    auto rootFrame = [&](UsdGenSpan<const GfVec3f> plane) -> float const * {
+    auto rootFrame = [&](UsdGenSpan<const UsdGenVec3f> plane) -> float const * {
         return curveCount && plane.size() == curveCount
             ? reinterpret_cast<float const *>(plane.cdata()) : nullptr;
     };
@@ -324,7 +328,7 @@ bool UsdGenExprOp::Capture(
         return false;
     }
     expr::CpuExpressionInputs const inputs = context.Inputs();
-    VtFloatArray field(inputs.count * components, 0.0f);
+    UsdGenFloatArray field(inputs.count * components, 0.0f);
     expr::CpuExpressionOutput output;
     output.data = field.empty() ? nullptr : &field[0];
     output.count = inputs.count;
@@ -379,7 +383,7 @@ void UsdGenExprOp::Evaluate(
     // capture gets a bit-for-bit pass-through instead of an overrun.
     bool const isDisplacement = cap.components == 3;
     bool const isWidth = cap.components == 1;
-    auto arrayData = [](VtFloatArray const &a) -> float const * {
+    auto arrayData = [](UsdGenFloatArray const &a) -> float const * {
         return a.empty() ? nullptr : a.cdata();
     };
     float const *field = cap.modeCv ? arrayData(cap.perCv) : arrayData(cap.perCurve);

@@ -10,6 +10,7 @@
 // Graphs are hand-built: a CurveSource of short root strands (roots on the
 // XZ plane, root normal +Y) -> GuideInterpolate with a reference guide set.
 // Expected values are computed by hand from the reference rules.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"

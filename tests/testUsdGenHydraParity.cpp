@@ -12,6 +12,7 @@
 // run under ctest (ENVIRONMENT carries it) or sourced bin/_env.sh by hand.
 // Fixture dir arrives as USDGEN_TEST_FIXTURE_DIR (absolute source path).
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
@@ -412,7 +413,7 @@ def Xform "World" {
 )USD"), "load animated transformed collider parity fixture");
         UsdImagingCreateSceneIndicesInfo info; info.stage = stage;
         auto sis = UsdImagingCreateSceneIndices(info);
-        GfMatrix4d previous(1.0);
+        usdGen::UsdGenMatrix4d previous(1.0);
         for (double time : {0.0, 1.0}) {
             UsdGenGraphDescBuildOptions opts; opts.time = time;
             auto const a = BuildGraphDescFromStage(stage, SdfPath("/World/Coat"), opts);
@@ -425,9 +426,9 @@ def Xform "World" {
                 });
             Check(found != a.surfaces.end(), "animated collider surface is resolved");
             if (found != a.surfaces.end()) {
-                GfMatrix4d const relative = found->worldMatrix *
+                usdGen::UsdGenMatrix4d const relative = found->worldMatrix *
                     a.xformMatrix.GetInverse();
-                Check(std::abs(relative.Transform(GfVec3d(0))[1] -
+                Check(std::abs(relative.Transform(usdGen::UsdGenVec3d(0))[1] -
                     (time == 0.0 ? 1.45 : 0.45)) < 1e-6,
                     "collider xform samples editable parent translate at graph time");
                 if (time != 0.0)

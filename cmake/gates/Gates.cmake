@@ -6,6 +6,7 @@
 #                              initialisation under libs/ (MSVC guards
 #                              those with a lock when contended)
 #   testUsdGenNoPxrIncludes    no pxr/ include below the hosts
+#   testUsdGenNoPxrNamesBelowHosts no pxr name below the hosts
 #   testUsdGenNoPxrLink_*      no pxr library linked below the hosts
 #   testUsdGenWarmAllocations  no heap allocation in a warm cook
 #
@@ -64,6 +65,21 @@ add_test(NAME testUsdGenNoPxrIncludes
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPxrIncludes PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
+# Step 11: no pxr name below the hosts. Includes alone undercount: names
+# arrive through headers. Comment lines are no hit. Empty at 11.8.
+set(USDGEN_PXR_NAME_PATTERN
+    "(^|[^A-Za-z0-9_])(Tf|Gf|Vt|Trace|Arch|Work|PxOsd|Hd|Hgi|Hio|Sdf|UsdGeom|UsdImaging|UsdTimeCode|UsdStage)[A-Z]|(^|[^A-Za-z0-9_])(PXR|TF|TRACE|ARCH|GF|VT)_[A-Z]|pxr::")
+add_test(NAME testUsdGenNoPxrNamesBelowHosts
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-pxr-names-below-hosts
+        "-DDIRS=${_usdgen_below_dirs}"
+        "-DPATTERN=${USDGEN_PXR_NAME_PATTERN}"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noPxrNames.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoPxrNamesBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
+
 # Step 7: no Sdf type or sdf include below the hosts (SdfPath is a host
 # NodeKey map, Sdf value types are usdGenExpr's closed table). Empty baseline.
 add_test(NAME testUsdGenNoSdfBelowHosts
@@ -89,12 +105,31 @@ add_test(NAME testUsdGenNoPxrUsdImagingBelowHosts
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPxrUsdImagingBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
-# 8.6f: the runtimes and primitives join (baselines noPxrLink_<t>.txt).
-foreach(_t usdGen usdGenMath usdGenCuda usdGenVulkan usdGenSurface usdGenExpr usdGenCurves
-        usdGenCurvesCuda usdGenCurvesVulkan)
-    if(NOT TARGET ${_t})
+# 8.6f, 11.8: every library with a source under libs/base or libs/core
+# (engine, math, runtimes, primitives, their GPU targets) links no pxr
+# library. Baselines noPxrLink_<t>.txt are empty; a missing one is empty.
+set(_usdgen_below_link_targets)
+get_property(_usdgen_dir_targets DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_t IN LISTS _usdgen_dir_targets)
+    get_target_property(_type ${_t} TYPE)
+    if(NOT _type MATCHES "^(SHARED|STATIC|MODULE|OBJECT)_LIBRARY$")
         continue()
     endif()
+    get_target_property(_srcs ${_t} SOURCES)
+    foreach(_s IN LISTS _srcs)
+        if(NOT _s MATCHES "^[$]<" AND _s MATCHES "(^|/)libs/(base|core)/")
+            list(APPEND _usdgen_below_link_targets ${_t})
+            break()
+        endif()
+    endforeach()
+endforeach()
+foreach(_t usdGen usdGenMath usdGenSurface usdGenExpr usdGenCurves usdGenCuda usdGenCurvesCuda)
+    if(NOT _t IN_LIST _usdgen_below_link_targets)
+        message(FATAL_ERROR "Gates.cmake: ${_t} is missing from the below-hosts link gate")
+    endif()
+endforeach()
+message(STATUS "usdGen link gate: ${_usdgen_below_link_targets}")
+foreach(_t IN LISTS _usdgen_below_link_targets)
     add_test(NAME testUsdGenNoPxrLink_${_t}
         COMMAND ${CMAKE_COMMAND}
             -DNAME=no-pxr-link-below-hosts
@@ -112,8 +147,8 @@ endforeach()
 # usdGenCurves either (publication lives in usdGenHydraCurves).
 # usdGenPomade (app layer) may link usdGenCuda (one block cache, D12).
 set(_usdgen_link_gate_rows
-    "usdGenCuda|ALLOW|^(usdGen|CUDA::(cudart|cuda_driver|cusolver)|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
-    "usdGenVulkan|ALLOW|^(usdGen|Vulkan::Vulkan|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
+    "usdGenCuda|ALLOW|^(usdGen|CUDA::(cudart|cuda_driver|cusolver)|Threads::Threads|Synchronization|dl)$"
+    "usdGenVulkan|ALLOW|^(usdGen|Vulkan::Vulkan|Threads::Threads|Synchronization|dl)$"
     "usdGen|DENY|^(usdGen(Cuda|Vulkan|Curves|Surface|Expr|Gpu|WithPrimitives|_ptex|_seexpr|ExprFrontend)|CUDA::.*|Vulkan::.*|pxOsd|hio)$"
     "usdGenImaging|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan|Curves|WithPrimitives))$"
     "usdGenHydraCurves|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan|Curves|WithPrimitives))$")
@@ -140,19 +175,17 @@ endforeach()
 #
 #   testUsdGenNoOpNameLiterals    no op type name literal in the engine
 #                                 outside an op's registration line
-#   testUsdGenNoTokenIntern       no TfToken built from text or a string:
-#                                 the interner is the one door
+#   testUsdGenTokenNoTextCtor     UsdGenToken has no constructor from text:
+#                                 the interner is the one door (step 11.5)
 #   testUsdGenEngineNoOpCoupling  no op header and no cast to an op class
 #                                 outside ops/
 #
 # Gate 1's exclude omits the registration line's trailing ';' (a ';' would
 # split the ctest argument).
 set(USDGEN_OP_NAME_LITERAL_PATTERN
-    "TfToken[ ]*[({][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
+    "UsdGenInternToken[ ]*[(][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
 set(USDGEN_OP_NAME_LITERAL_EXCLUDE
     "^[ ]*//|^[ ]*[A-Za-z_][A-Za-z0-9_]*[.]name[ ]*=[ ]*\"UsdGen[A-Z][A-Za-z]*\"")
-set(USDGEN_TOKEN_INTERN_PATTERN
-    "TfToken[ ]*[({][ ]*[^ )}]|TfToken[ ]+[A-Za-z_][A-Za-z0-9_]*[ ]*[({][ ]*\"")
 set(USDGEN_OP_COUPLING_PATTERN
     "#[ ]*include[ ]*\"usdGen/ops/|(dynamic|static)_cast<[ ]*(const[ ]+)?UsdGen[A-Za-z]*Op[ ]*(const[ ]*)?[*&]")
 
@@ -165,15 +198,13 @@ add_test(NAME testUsdGenNoOpNameLiterals
         "-DEXCLUDE=${USDGEN_OP_NAME_LITERAL_EXCLUDE}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noOpNameLiterals.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
-add_test(NAME testUsdGenNoTokenIntern
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-        -DNAME=no-token-intern
-        -DDIRS=libs/core
-        "-DPATTERN=${USDGEN_TOKEN_INTERN_PATTERN}"
-        "-DEXCLUDE=^[ ]*//"
-        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noTokenIntern.txt
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+# The probe is one line, usdGen::UsdGenToken t("x"); it must not compile.
+add_executable(testUsdGenTokenNoTextCtorProbe EXCLUDE_FROM_ALL tests/gates/tokenNoTextCtor.cpp)
+target_link_libraries(testUsdGenTokenNoTextCtorProbe PRIVATE usdGen)
+add_test(NAME testUsdGenTokenNoTextCtor
+    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target testUsdGenTokenNoTextCtorProbe
+            --config $<CONFIG>)
+set_tests_properties(testUsdGenTokenNoTextCtor PROPERTIES WILL_FAIL TRUE)
 add_test(NAME testUsdGenEngineNoOpCoupling
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -184,7 +215,7 @@ add_test(NAME testUsdGenEngineNoOpCoupling
         "-DPATTERN=${USDGEN_OP_COUPLING_PATTERN}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/engineNoOpCoupling.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
-set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenNoTokenIntern
+set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenTokenNoTextCtor
     testUsdGenEngineNoOpCoupling PROPERTIES LABELS "T0;build;gate;gate:registries")
 
 # Step 5.6: the engine works on element sets; the curve builder buffer, its

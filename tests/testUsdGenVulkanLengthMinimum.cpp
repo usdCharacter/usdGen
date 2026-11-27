@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
@@ -51,7 +52,7 @@ static bool Capture(std::shared_ptr<NativeOwner> const& native,
     auto add = [&](VulkanSourceGeneration::PlaneView const& view) {
         std::vector<uint8_t> bytes;
         return ReadVulkanBytes(native, context, view.buffer, view.bytes, generation, &bytes) &&
-            packet->emplace(view.metadata.name, std::move(bytes)).second;
+            packet->emplace(view.metadata.name.GetString(), std::move(bytes)).second;
     };
     for (auto const& view : generation->planes()) if (!add(view)) return false;
     for (auto const& view : generation->sourceFrames()) if (!add(view)) return false;
@@ -63,16 +64,16 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> co
     source.totalCurves = 2; source.totalCvs = 7; source.topologyVersion = 94; source.valueVersion = 17;
     source.cvOffsets = {0, 3, 7}; source.curveId = {401, 907}; source.rootPrim = {12, 44};
     source.rootUV = {{.2f,.3f},{.7f,.8f}}; source.rootT = {{1,0,0},{0,1,0}};
-    source.rootB = {{0,1,0},{0,0,1}}; source.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.25f,.75f}};
-    source.px = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,1,1,10,11,12,14};
-    source.py = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,3,0,0,0,0}; source.pz = VtFloatArray(7, 0.f);
-    source.rest = {GfVec3f(0,0,0),GfVec3f(0,10,0),GfVec3f(0,30,0),GfVec3f(9,9,9),GfVec3f(19,9,9),GfVec3f(29,9,9),GfVec3f(49,9,9)};
-    source.width = VtFloatArray(7, 1.f); source.hairT = {0,.75f,1,.5f,0,.75f,.25f};
+    source.rootB = {{0,1,0},{0,0,1}}; source.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.25f,.75f}};
+    source.px = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,1,1,10,11,12,14};
+    source.py = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,0,3,0,0,0,0}; source.pz = usdGen::UsdGenFloatArray(7, 0.f);
+    source.rest = {usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,10,0),usdGen::UsdGenVec3f(0,30,0),usdGen::UsdGenVec3f(9,9,9),usdGen::UsdGenVec3f(19,9,9),usdGen::UsdGenVec3f(29,9,9),usdGen::UsdGenVec3f(49,9,9)};
+    source.width = usdGen::UsdGenFloatArray(7, 1.f); source.hairT = {0,.75f,1,.5f,0,.75f,.25f};
     UsdGenChunkDesc chunk; chunk.firstCurve=0; chunk.curveCount=2; chunk.liveCount=2; chunk.firstCv=0; chunk.cvCount=0; chunk.tile=3; chunk.surface=1; source.chunks={chunk};
-    UsdGenPlane vertex; vertex.name=TfToken("privateVertex"); vertex.interpolation=TfToken("vertex"); vertex.type=TfToken("float"); vertex.arity=1; vertex.f={3,4,5,6,7,8,9}; source.extraCv={vertex};
-    UsdGenPlane uniform; uniform.name=TfToken("privateUniform"); uniform.interpolation=TfToken("uniform"); uniform.type=TfToken("int"); uniform.i={18,19}; source.extraCurve={maskPlane, uniform};
+    UsdGenPlane vertex; vertex.name=TestToken("privateVertex"); vertex.interpolation=TestToken("vertex"); vertex.type=TestToken("float"); vertex.arity=1; vertex.f={3,4,5,6,7,8,9}; source.extraCv={vertex};
+    UsdGenPlane uniform; uniform.name=TestToken("privateUniform"); uniform.interpolation=TestToken("uniform"); uniform.type=TestToken("int"); uniform.i={18,19}; source.extraCurve={maskPlane, uniform};
     info.geometry.alreadyDeformed=true; info.geometry.layoutMetadata=UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,UsdGenCurveLayoutBasis::BSpline,UsdGenCurveLayoutWrap::Pinned); info.geometry.tiles={{3,0,2,0,7}};
-    uint32_t named[] = {73,81}; info.additionalNamed.push_back({{TfToken("namedCurve"),UsdGenDeviceValueType::UInt32,UsdGenDeviceDomain::Primitive,2,1,4,true},Bytes(named,2)});
+    uint32_t named[] = {73,81}; info.additionalNamed.push_back({{TestToken("namedCurve"),UsdGenDeviceValueType::UInt32,UsdGenDeviceDomain::Primitive,2,1,4,true},Bytes(named,2)});
     return info;
 }
 static std::shared_ptr<const VulkanSourceGeneration> Upload(std::shared_ptr<NativeOwner> const& native,
@@ -97,15 +98,15 @@ int main(int argc, char** argv) {
     auto pipeline=LengthScalePipeline::CreateWithMinimum(context,scale,set,cut,reparam,minimum,&status); CHECK(pipeline && pipeline->HasMinimum());
     unsigned missingHooks=0;
     LengthScalePipeline::MinimumControls missingControls;
-    CHECK(!old->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),base->PlaneOwner(TfToken("hairT")),2,7,missingControls,&status,[&]{++missingHooks;return true;}) && status==VK_ERROR_FEATURE_NOT_PRESENT && missingHooks==0);
+    CHECK(!old->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),base->PlaneOwner(TestToken("hairT")),2,7,missingControls,&status,[&]{++missingHooks;return true;}) && status==VK_ERROR_FEATURE_NOT_PRESENT && missingHooks==0);
     auto run=[&](std::shared_ptr<const VulkanSourceGeneration> const& generation, LengthScalePipeline::MinimumControls controls) {
-        auto candidate=pipeline->BeginMinimum(generation->PlaneOwner(TfToken("points")),generation->PlaneOwner(TfToken("curveOffsets")),generation->PlaneOwner(TfToken("hairT")),generation->curveCount(),generation->pointCount(),controls,&status);
+        auto candidate=pipeline->BeginMinimum(generation->PlaneOwner(TestToken("points")),generation->PlaneOwner(TestToken("curveOffsets")),generation->PlaneOwner(TestToken("hairT")),generation->curveCount(),generation->pointCount(),controls,&status);
         if (!candidate || status!=VK_SUCCESS || !Prove(native)) return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{},UINT32_MAX);
         uint32_t semantic=UINT32_MAX; if (candidate->Poll(&semantic)!=VK_SUCCESS) return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{},UINT32_MAX);
         return std::pair<std::unique_ptr<LengthScalePipeline::Candidate>,uint32_t>(std::move(candidate),semantic);
     };
     auto runRaw=[&](std::shared_ptr<const ChargedBuffer> hair, LengthScalePipeline::MinimumControls controls) {
-        auto candidate=pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),std::move(hair),base->curveCount(),base->pointCount(),controls,&status);
+        auto candidate=pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),std::move(hair),base->curveCount(),base->pointCount(),controls,&status);
         if (!candidate || status!=VK_SUCCESS || !Prove(native)) return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{},UINT32_MAX);
         uint32_t semantic=UINT32_MAX; if (candidate->Poll(&semantic)!=VK_SUCCESS) return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{},UINT32_MAX);
         return std::pair<std::unique_ptr<LengthScalePipeline::Candidate>,uint32_t>(std::move(candidate),semantic);
@@ -115,7 +116,7 @@ int main(int argc, char** argv) {
     };
     Packet original; CHECK(Capture(native,context,base,&original)); CHECK(original.count("stableIds") && original.count("privateVertex") && original.count("sourceRootT"));
     auto verify=[&](std::shared_ptr<const VulkanSourceGeneration> const& child,float const* expected) {
-        CHECK(child && child->PlaneOwner(TfToken("points"))!=base->PlaneOwner(TfToken("points")));
+        CHECK(child && child->PlaneOwner(TestToken("points"))!=base->PlaneOwner(TestToken("points")));
         for(auto const& plane:base->planes()) if(plane.metadata.name!="points") CHECK(child->PlaneOwner(plane.metadata.name)==base->PlaneOwner(plane.metadata.name));
         for(auto const& frame:base->sourceFrames()) CHECK(child->SourceFrameOwner(frame.metadata.name)==base->SourceFrameOwner(frame.metadata.name));
         CHECK(child->topologyVersion()==base->topologyVersion() &&
@@ -148,8 +149,8 @@ int main(int argc, char** argv) {
     Packet sourceAgain, firstAgain; CHECK(Capture(native,context,base,&sourceAgain)&&sourceAgain==original&&Capture(native,context,children.front(),&firstAgain)&&firstAgain==firstInitial);
     auto radialControls=controls(1,true,3,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam);
     auto omitted=runRaw({},radialControls); CHECK(omitted.first&&omitted.second==0&&omitted.first->succeeded()&&omitted.first->usesHairT()&&!omitted.first->usesReparam()&&!VulkanSourceGeneration::WithPoints(base,*omitted.first,34));
-    auto foreign=Upload(native,Source(context)); CHECK(foreign&&foreign->PlaneOwner(TfToken("hairT"))!=base->PlaneOwner(TfToken("hairT")));
-    auto foreignCandidate=runRaw(foreign->PlaneOwner(TfToken("hairT")),radialControls); CHECK(foreignCandidate.first&&foreignCandidate.second==0&&foreignCandidate.first->succeeded()&&foreignCandidate.first->usesHairT()&&!foreignCandidate.first->usesReparam()&&!VulkanSourceGeneration::WithPoints(base,*foreignCandidate.first,35));
+    auto foreign=Upload(native,Source(context)); CHECK(foreign&&foreign->PlaneOwner(TestToken("hairT"))!=base->PlaneOwner(TestToken("hairT")));
+    auto foreignCandidate=runRaw(foreign->PlaneOwner(TestToken("hairT")),radialControls); CHECK(foreignCandidate.first&&foreignCandidate.second==0&&foreignCandidate.first->succeeded()&&foreignCandidate.first->usesHairT()&&!foreignCandidate.first->usesReparam()&&!VulkanSourceGeneration::WithPoints(base,*foreignCandidate.first,35));
     auto badHair=[&](float value, LengthScalePipeline::MinimumControls controlsForCase) {
         VkBufferCreateInfo bi{}; bi.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size=base->pointCount()*sizeof(float); bi.usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE;
         auto hair=ChargedBuffer::Create(context,bi,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,UsdGenExecutionResourceKind::Scratch); CHECK(hair);
@@ -162,7 +163,7 @@ int main(int argc, char** argv) {
     // omission above must not silently override an existing predecessor plane.
     {
         auto fallbackInfo = Source(context); fallbackInfo.source.hairT.clear();
-        auto fallback = Upload(native, std::move(fallbackInfo)); CHECK(fallback && !fallback->PlaneOwner(TfToken("hairT")));
+        auto fallback = Upload(native, std::move(fallbackInfo)); CHECK(fallback && !fallback->PlaneOwner(TestToken("hairT")));
         Packet beforeFallback; CHECK(Capture(native, context, fallback, &beforeFallback));
         auto fallbackResult = run(fallback, controls(1,true,3,
             LengthScalePipeline::MinimumControls::Method::CutExtend,
@@ -170,7 +171,7 @@ int main(int argc, char** argv) {
         CHECK(fallbackResult.first && fallbackResult.second == 0 && fallbackResult.first->usesHairT() &&
               fallbackResult.first->usesReparam() && !fallbackResult.first->hairTOwner());
         auto fallbackChild = VulkanSourceGeneration::WithPoints(fallback, *fallbackResult.first, 37);
-        CHECK(fallbackChild && !fallbackChild->PlaneOwner(TfToken("hairT")));
+        CHECK(fallbackChild && !fallbackChild->PlaneOwner(TestToken("hairT")));
         Packet fallbackPacket, fallbackAgain;
         CHECK(Capture(native, context, fallbackChild, &fallbackPacket) &&
               fallbackPacket.size() == beforeFallback.size());
@@ -183,18 +184,18 @@ int main(int argc, char** argv) {
     }
     auto liveBaseline=pool->Snapshot();
     auto invalidHair=[&](std::shared_ptr<const ChargedBuffer> hair, UsdGenExecutionResourceSnapshot const& before) {
-        unsigned hooks=0; auto candidate=pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),std::move(hair),base->curveCount(),base->pointCount(),radialControls,&status,[&]{++hooks;return true;});
+        unsigned hooks=0; auto candidate=pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),std::move(hair),base->curveCount(),base->pointCount(),radialControls,&status,[&]{++hooks;return true;});
         CHECK(!candidate&&status==VK_ERROR_INITIALIZATION_FAILED&&hooks==0&&sameLedger(pool->Snapshot(),before));
     };
     { VkBufferCreateInfo bi{}; bi.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size=base->pointCount()*sizeof(float)-sizeof(float); bi.usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE; auto hair=ChargedBuffer::Create(context,bi,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,UsdGenExecutionResourceKind::Scratch); CHECK(hair); auto before=pool->Snapshot(); invalidHair(hair,before); }
     { VkBufferCreateInfo bi{}; bi.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size=base->pointCount()*sizeof(float); bi.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT; bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE; auto hair=ChargedBuffer::Create(context,bi,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,UsdGenExecutionResourceKind::Scratch); CHECK(hair); auto before=pool->Snapshot(); invalidHair(hair,before); }
     { auto foreignContext=DeviceContext::Create(ci); CHECK(foreignContext); VkBufferCreateInfo bi{}; bi.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size=base->pointCount()*sizeof(float); bi.usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT; bi.sharingMode=VK_SHARING_MODE_EXCLUSIVE; auto hair=ChargedBuffer::Create(foreignContext,bi,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,UsdGenExecutionResourceKind::Scratch); CHECK(hair); auto before=pool->Snapshot(); invalidHair(hair,before); }
     CHECK(sameLedger(pool->Snapshot(),liveBaseline));
-    auto malformed=radialControls; malformed.method=static_cast<LengthScalePipeline::MinimumControls::Method>(99); unsigned malformedHooks=0; CHECK(!pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),base->PlaneOwner(TfToken("hairT")),2,7,malformed,&status,[&]{++malformedHooks;return true;})&&malformedHooks==0&&sameLedger(pool->Snapshot(),liveBaseline));
-    auto pressure=pool->TryReserve(liveBaseline.usableBytes-liveBaseline.usedBytes,UsdGenExecutionResourceKind::Scratch); CHECK(pressure); auto saturated=pool->Snapshot(); unsigned pressureHooks=0; CHECK(!pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),base->PlaneOwner(TfToken("hairT")),2,7,radialControls,&status,[&]{++pressureHooks;return true;})&&status==VK_ERROR_OUT_OF_DEVICE_MEMORY&&pressureHooks==0&&sameLedger(pool->Snapshot(),saturated)); pressure->Release(); CHECK(sameLedger(pool->Snapshot(),liveBaseline));
-    unsigned admissionHooks=0; auto hookFalse=pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),base->PlaneOwner(TfToken("hairT")),2,7,radialControls,&status,[&]{++admissionHooks;return false;}); CHECK(!hookFalse&&status==VK_ERROR_OUT_OF_DEVICE_MEMORY&&admissionHooks==1&&sameLedger(pool->Snapshot(),liveBaseline)); auto hookThrow=pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),base->PlaneOwner(TfToken("hairT")),2,7,radialControls,&status,[&]() -> bool {++admissionHooks;throw 1;}); CHECK(!hookThrow&&status==VK_ERROR_UNKNOWN&&admissionHooks==2&&sameLedger(pool->Snapshot(),liveBaseline));
+    auto malformed=radialControls; malformed.method=static_cast<LengthScalePipeline::MinimumControls::Method>(99); unsigned malformedHooks=0; CHECK(!pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),base->PlaneOwner(TestToken("hairT")),2,7,malformed,&status,[&]{++malformedHooks;return true;})&&malformedHooks==0&&sameLedger(pool->Snapshot(),liveBaseline));
+    auto pressure=pool->TryReserve(liveBaseline.usableBytes-liveBaseline.usedBytes,UsdGenExecutionResourceKind::Scratch); CHECK(pressure); auto saturated=pool->Snapshot(); unsigned pressureHooks=0; CHECK(!pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),base->PlaneOwner(TestToken("hairT")),2,7,radialControls,&status,[&]{++pressureHooks;return true;})&&status==VK_ERROR_OUT_OF_DEVICE_MEMORY&&pressureHooks==0&&sameLedger(pool->Snapshot(),saturated)); pressure->Release(); CHECK(sameLedger(pool->Snapshot(),liveBaseline));
+    unsigned admissionHooks=0; auto hookFalse=pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),base->PlaneOwner(TestToken("hairT")),2,7,radialControls,&status,[&]{++admissionHooks;return false;}); CHECK(!hookFalse&&status==VK_ERROR_OUT_OF_DEVICE_MEMORY&&admissionHooks==1&&sameLedger(pool->Snapshot(),liveBaseline)); auto hookThrow=pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),base->PlaneOwner(TestToken("hairT")),2,7,radialControls,&status,[&]() -> bool {++admissionHooks;throw 1;}); CHECK(!hookThrow&&status==VK_ERROR_UNKNOWN&&admissionHooks==2&&sameLedger(pool->Snapshot(),liveBaseline));
     Packet sourceFinal, firstFinal; CHECK(Capture(native,context,base,&sourceFinal)&&sourceFinal==original&&Capture(native,context,children.front(),&firstFinal)&&firstFinal==firstInitial);
     auto zero=Upload(native,Source(context,true));CHECK(zero);auto failed=run(zero,controls(0,true,3,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam));CHECK(failed.first&&failed.second!=0&&!failed.first->succeeded()&&!failed.first->output()&&!VulkanSourceGeneration::WithPoints(zero,*failed.first,33));auto empty=pipeline->BeginMinimum({}, {}, {},0,0,controls(1,true,3,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam),&status);CHECK(empty&&empty->succeeded());
-    for(float invalid:{-1.f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}){auto c=controls(1,true,invalid,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam);unsigned hooks=0;CHECK(!pipeline->BeginMinimum(base->PlaneOwner(TfToken("points")),base->PlaneOwner(TfToken("curveOffsets")),base->PlaneOwner(TfToken("hairT")),2,7,c,&status,[&]{++hooks;return true;})&&hooks==0);auto e=controls(1,true,invalid,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam);CHECK(!pipeline->BeginMinimum({}, {}, {},0,0,e,&status));}
+    for(float invalid:{-1.f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}){auto c=controls(1,true,invalid,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam);unsigned hooks=0;CHECK(!pipeline->BeginMinimum(base->PlaneOwner(TestToken("points")),base->PlaneOwner(TestToken("curveOffsets")),base->PlaneOwner(TestToken("hairT")),2,7,c,&status,[&]{++hooks;return true;})&&hooks==0);auto e=controls(1,true,invalid,LengthScalePipeline::MinimumControls::Method::Scale,LengthScalePipeline::MinimumControls::Rebuild::KeepParam);CHECK(!pipeline->BeginMinimum({}, {}, {},0,0,e,&status));}
     empty.reset();failed.first.reset();zero.reset();foreignCandidate.first.reset();foreign.reset();omitted.first.reset();sameChild.reset();same.first.reset();nonbindingChild.reset();nonbinding.first.reset();bindingChild.reset();binding.first.reset();children.clear();old.reset();pipeline.reset();base.reset();CHECK(sameLedger(pool->Snapshot(),ledger));std::puts("Vulkan minimum Length COW: PASS");return 0;
 }

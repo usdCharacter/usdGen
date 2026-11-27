@@ -18,7 +18,6 @@
 #include <stdexcept>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -123,15 +122,15 @@ UsdGenGraphSpec const &UsdGenGraph::RestSpec() const
     return *_restDesc;
 }
 
-TfSpan<const UsdGenResolvedReferenceValue> UsdGenGraph::ReferenceValues() const
+UsdGenSpan<const UsdGenResolvedReferenceValue> UsdGenGraph::ReferenceValues() const
 {
-    return TfSpan<const UsdGenResolvedReferenceValue>(
+    return UsdGenSpan<const UsdGenResolvedReferenceValue>(
         _referenceValues.data(), _referenceValues.size());
 }
 
-TfSpan<const UsdGenResolvedMapValue> UsdGenGraph::MapValues() const
+UsdGenSpan<const UsdGenResolvedMapValue> UsdGenGraph::MapValues() const
 {
-    return TfSpan<const UsdGenResolvedMapValue>(_mapValues.data(),
+    return UsdGenSpan<const UsdGenResolvedMapValue>(_mapValues.data(),
                                                  _mapValues.size());
 }
 
@@ -161,7 +160,7 @@ UsdGenGraph::RoutingSnapshot() const
         UsdGenCompiledNode const &node = *nodePtr;
         UsdGenGraphRoutingNode copy;
         copy.id = node.id;
-        copy.type = node.record ? node.record->Name() : TfToken();
+        copy.type = node.record ? node.record->Name() : UsdGenToken();
         copy.hasSurface = node.hasSurface;
         copy.surface = node.surface;
         copy.paramRouting = node.paramRouting;
@@ -192,7 +191,7 @@ UsdGenGraph::RoutingSnapshot() const
                 for (UsdGenInputRecord const &mapRecord : _desc->Inputs(mapKind)) {
                     if (mapRecord.key != mapRef) continue;
                     UsdGenNodeKey paintSurface;
-                    TfToken paintPrimvar;
+                    UsdGenToken paintPrimvar;
                     if (!mapInput->paintSource(mapRecord, &paintSurface, &paintPrimvar)) break;
                     if (paintPrimvar.IsEmpty()) break;
                     for (size_t s = 0;
@@ -322,7 +321,7 @@ void UsdGenGraph::MarkNode(UsdGenNodeId id, uint32_t bits)
     }
 }
 
-void UsdGenGraph::DirtyParameter(UsdGenNodeId id, TfToken const &param)
+void UsdGenGraph::DirtyParameter(UsdGenNodeId id, UsdGenToken const &param)
 {
     if (id >= _nodes.size() || !_nodes[id]) return;
     UsdGenCompiledNode &n = *_nodes[id];
@@ -391,7 +390,7 @@ void UsdGenGraph::DirtySurface(UsdGenSurfaceId surface, uint32_t bits,
     }
 }
 
-void UsdGenGraph::DirtyChunks(UsdGenNodeId id, TfSpan<const UsdGenChunkId> chunks)
+void UsdGenGraph::DirtyChunks(UsdGenNodeId id, UsdGenSpan<const UsdGenChunkId> chunks)
 {
     if (id >= _nodes.size() || !_nodes[id]) return;
     UsdGenCompiledNode &n = *_nodes[id];
@@ -509,7 +508,7 @@ bool UsdGenGraph::Repartition(uint32_t elements, uint32_t fallbackStride)
             _groups[g].id = _groupScratch[g].id;
             _groups[g].firstChunk = _groupScratch[g].firstChunk;
             _groups[g].chunkCount = _groupScratch[g].chunkCount;
-            for (int k = 0; k < 3; ++k) {   // GfRange3f's empty state
+            for (int k = 0; k < 3; ++k) {   // UsdGenRange3f's empty state
                 _groups[g].extentMin[k] = inf;
                 _groups[g].extentMax[k] = -inf;
             }
@@ -565,7 +564,7 @@ void UsdGenGraph::_PropagateDescendantBits(uint32_t bits,
 {
     // Kept for interface symmetry with the pre-M1 scaffold; MarkNode() does
     // the actual descendant propagation.
-    TF_UNUSED(bits);
+    (void)bits;
 }
 
 }  // namespace usdGen

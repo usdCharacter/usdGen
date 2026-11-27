@@ -81,6 +81,7 @@ public:
         if (!a.empty()) Bytes(a.cdata(), a.size() * sizeof(a[0]));
     }
     void Token(TfToken const &t) { Bytes(t.GetText(), t.size()); Word(t.size()); }
+    void Token(usdGen::UsdGenToken t) { Bytes(t.GetText(), t.size()); Word(t.size()); }
     uint64_t Value() const { return _h ? _h : 1; }
 
 private:

@@ -6,15 +6,14 @@
 #include "usdGen/export.h"
 #include "usdGen/registries/opDef.h"
 #include "usdGen/registries/paramEvaluator.h"
-#include "usdGen/compile/types.h"        // UsdGenPlane
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/channel.h"
+#include "usdGen/api/token.h"
 #include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenRegistrar;
@@ -26,36 +25,36 @@ UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;   // registrar-only
 class USDGEN_CORE_API UsdGenOpRecord {
 public:
     UsdGenOpId Id() const noexcept { return _id; }
-    TfToken const &Name() const noexcept { return _name; }
+    UsdGenToken const &Name() const noexcept { return _name; }
     UsdGenOpDef const &Def() const noexcept { return _def; }
     bool Has(uint32_t trait) const noexcept { return (_def.traits & trait) != 0; }
 
     /// Accepts "x" and "usdGen:x". Pointer compares; never interns.
-    UsdGenParamSlot FindParam(TfToken const &name) const noexcept;
+    UsdGenParamSlot FindParam(UsdGenToken const &name) const noexcept;
     uint16_t ParamCount() const noexcept { return uint16_t(_def.params.size()); }
-    TfToken const &ParamName(UsdGenParamSlot) const noexcept;
+    UsdGenToken const &ParamName(UsdGenParamSlot) const noexcept;
     UsdGenParamClass ParamClass(UsdGenParamSlot s) const noexcept { return _def.params[s].cls; }
-    int EnumIndex(UsdGenParamSlot, TfToken const &value) const noexcept;     // -1: no match
+    int EnumIndex(UsdGenParamSlot, UsdGenToken const &value) const noexcept;     // -1: no match
     int EnumIndex(UsdGenParamSlot, std::string const &value) const noexcept;
     UsdGenParamSlot EnabledSlot() const noexcept { return _enabled; }        // kUsdGenNoParam if undeclared
 
-    TfSpan<const std::pair<TfToken, uint32_t>> Routing() const noexcept;    // == TypeClassTable::routing
-    TfSpan<const UsdGenParamSlot> DigestSlots() const noexcept;             // == TypeClassTable::digestParams
-    TfSpan<const TfToken> ParamNames() const noexcept;                          // per slot, no "usdGen:"
-    TfSpan<const TfToken> ReferenceInputs() const noexcept;
-    TfSpan<const UsdGenPlane> InputPlanes() const noexcept;                 // layouts filled, no payload
-    TfSpan<const UsdGenPlane> OutputPlanes() const noexcept;                // static outputs only
-    TfSpan<const TfToken> MapRelationships() const noexcept;
-    TfToken const &Token(uint16_t i) const noexcept;                        // Def().tokens[i]
+    UsdGenSpan<const std::pair<UsdGenToken, uint32_t>> Routing() const noexcept;    // == TypeClassTable::routing
+    UsdGenSpan<const UsdGenParamSlot> DigestSlots() const noexcept;             // == TypeClassTable::digestParams
+    UsdGenSpan<const UsdGenToken> ParamNames() const noexcept;                          // per slot, no "usdGen:"
+    UsdGenSpan<const UsdGenToken> ReferenceInputs() const noexcept;
+    UsdGenSpan<const UsdGenChannelDesc> InputPlanes() const noexcept;           // declared layouts
+    UsdGenSpan<const UsdGenChannelDesc> OutputPlanes() const noexcept;          // static outputs only
+    UsdGenSpan<const UsdGenToken> MapRelationships() const noexcept;
+    UsdGenToken const &Token(uint16_t i) const noexcept;                        // Def().tokens[i]
     /// Typed ports (interned names; empty: the default primitive).
-    TfToken const &OutputType() const noexcept;
-    TfSpan<const TfToken> InputTypes() const noexcept;                      // empty: the default only
-    bool AcceptsInput(TfToken const &producerType) const noexcept;
+    UsdGenToken const &OutputType() const noexcept;
+    UsdGenSpan<const UsdGenToken> InputTypes() const noexcept;                      // empty: the default only
+    bool AcceptsInput(UsdGenToken const &producerType) const noexcept;
 
 private:
     friend class UsdGenRegistrar;
     UsdGenOpId _id = UsdGenOpId::Invalid;
-    TfToken _name;
+    UsdGenToken _name;
     UsdGenOpDef _def;
     UsdGenParamSlot _enabled = kUsdGenNoParam;
     struct Tables;                       // interned names, hash slots, routing; built at registration
@@ -70,7 +69,7 @@ public:
     bool IsFrozen() const noexcept { return _frozen.load(std::memory_order_acquire); }
     uint32_t Count() const noexcept { return _count; }
     /// Compile phase only. Pointer-hash probe; never interns.
-    UsdGenOpId Find(TfToken const &name) const noexcept;
+    UsdGenOpId Find(UsdGenToken const &name) const noexcept;
     UsdGenOpRecord const &Record(UsdGenOpId id) const noexcept { return _records[UsdGenIndex(id)]; }
     std::unique_ptr<UsdGenOp> Create(UsdGenOpId id) const;
     /// First default-extension load failure; empty when all loaded.
@@ -85,7 +84,7 @@ private:
     UsdGenOpRegistry();
     UsdGenOpRecord _records[kUsdGenMaxOps];
     uint32_t _count = 0;
-    struct NameSlot { TfToken name; UsdGenOpId id = UsdGenOpId::Invalid; };
+    struct NameSlot { UsdGenToken name; UsdGenOpId id = UsdGenOpId::Invalid; };
     NameSlot _byName[2 * kUsdGenMaxOps];
     UsdGenParamEvaluatorDef _paramEvaluator;
     std::string _initError;              // first extension load failure

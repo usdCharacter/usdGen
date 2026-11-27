@@ -3,6 +3,7 @@
 // Vulkan kernel rows for the built-in curve ops (step 8 moves them into
 // usdGenCurvesVulkan). The lane reads stage and paramMap; it includes no op
 // header.
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 
 #include "usdGen/api/graphSpec.h"
@@ -16,6 +17,8 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <atomic>
 
@@ -70,7 +73,7 @@ UsdGenVulkanTokens *MakeTokens()
 }
 
 void Register(UsdGenRegistrar &r, UsdGenOpId op, UsdGenVulkanStage stage,
-              TfSpan<const UsdGenParamSlot> paramMap = {},
+              UsdGenSpan<const UsdGenParamSlot> paramMap = {},
               bool (*profileLut)(UsdGenParamView const &, float *, size_t) = nullptr)
 {
     if (op == UsdGenOpId::Invalid) return;
@@ -97,7 +100,7 @@ UsdGenVulkanTokens const &UsdGenVkTokens() noexcept
     return *winner;
 }
 
-UsdGenVulkanKernel UsdGenVulkanKernelOf(TfToken const &type) noexcept
+UsdGenVulkanKernel UsdGenVulkanKernelOf(UsdGenToken const &type) noexcept
 {
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenOpId const id = ops.Find(type);

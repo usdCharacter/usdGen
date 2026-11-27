@@ -42,7 +42,7 @@ enum UsdGenExecutionCapabilityFlag : uint32_t {
 // that the backend recognizes the operator family; per-node validation may
 // still reject a configuration with a precise diagnostic.
 struct UsdGenExecutionCapability {
-    TfToken type;
+    UsdGenToken type;
     uint32_t capabilityVersion = 0;
     int minimumAlgorithmVersion = 0;
     int maximumAlgorithmVersion = 0;
@@ -62,7 +62,7 @@ public:
     std::vector<UsdGenExecutionCapability> const& Capabilities() const noexcept {
         return _capabilities;
     }
-    UsdGenExecutionCapability const* Find(TfToken const& type) const noexcept {
+    UsdGenExecutionCapability const* Find(UsdGenToken const& type) const noexcept {
         for (auto const& capability : _capabilities)
             if (capability.type == type) return &capability;
         return nullptr;
@@ -251,7 +251,7 @@ struct UsdGenExecutionTaskMetadata {
     uint64_t authoredOrderKey = 0;
     UsdGenExecutionTaskKind kind = UsdGenExecutionTaskKind::Operator;
     UsdGenNodeKey key;
-    TfToken type;
+    UsdGenToken type;
     // Input to dependency lowering.  Direct semantic ordering is inferred
     // from ResourceUse::inputValue; only a publication lifetime join may be
     // declared directly here.  Keeping this separate prevents an executor
@@ -531,7 +531,7 @@ private:
 
 struct UsdGenCompiledOperatorCapability {
     UsdGenNodeKey key;
-    TfToken type;
+    UsdGenToken type;
     uint64_t authoredOrderKey = 0;
     uint32_t capabilityVersion = 0;
     uint32_t flags = UsdGenCapabilityNone;

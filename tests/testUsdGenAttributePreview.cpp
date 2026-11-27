@@ -11,6 +11,7 @@
 //     dirties primvars/displayColor/primvarValue only, and ClearPreview
 //     restores upstream (structural);
 //   * invalid Sets fail closed and leave any previous preview in place.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/attributePreviewSceneIndex.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/maps/attributeMap.h"

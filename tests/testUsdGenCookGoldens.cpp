@@ -25,6 +25,7 @@
 // the digests must not depend on it). USDGEN_GOLDEN_VERBOSE=1 prints
 // diagnostics.
 
+#include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "nodeSets.h"
@@ -144,6 +145,12 @@ struct Fnv128
         U64(a.size());
         if (!a.empty()) Bytes(a.cdata(), a.size() * sizeof(T));
     }
+    template <class T>
+    void Arr(usdGen::UsdGenCowArray<T> const &a)
+    {
+        U64(a.size());
+        if (!a.empty()) Bytes(a.cdata(), a.size() * sizeof(T));
+    }
     std::string Hex() const
     {
         char buf[40];
@@ -154,6 +161,14 @@ struct Fnv128
 
 template <class T>
 std::string ArrayValue(VtArray<T> const &a)
+{
+    Fnv128 h;
+    h.Arr(a);
+    return "n=" + std::to_string(a.size()) + " " + h.Hex();
+}
+
+template <class T>
+std::string ArrayValue(usdGen::UsdGenCowArray<T> const &a)
 {
     Fnv128 h;
     h.Arr(a);

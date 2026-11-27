@@ -8,6 +8,7 @@
 // the cooked points equal the baked points verbatim, a downstream operator
 // consumes the pulled geometry, and an empty reference fails closed.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -51,11 +52,11 @@ SdfPath const kDescription("/World/Groom/Hair");
 SdfPath const kBaked("/World/Baked");
 
 // Baked strands: 2 curves x 3 CVs with authored ids, widths and rest.
-VtVec3fArray BakedPoints()
+usdGen::UsdGenVec3fArray BakedPoints()
 {
-    return VtVec3fArray{
-        GfVec3f(0.0f, 0.0f, 0.0f), GfVec3f(0.0f, 1.0f, 0.1f), GfVec3f(0.0f, 2.0f, 0.2f),
-        GfVec3f(1.0f, 0.0f, 0.0f), GfVec3f(1.0f, 1.0f, 0.1f), GfVec3f(1.0f, 2.0f, 0.4f)};
+    return usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0.0f, 0.0f, 0.0f), usdGen::UsdGenVec3f(0.0f, 1.0f, 0.1f), usdGen::UsdGenVec3f(0.0f, 2.0f, 0.2f),
+        usdGen::UsdGenVec3f(1.0f, 0.0f, 0.0f), usdGen::UsdGenVec3f(1.0f, 1.0f, 0.1f), usdGen::UsdGenVec3f(1.0f, 2.0f, 0.4f)};
 }
 
 // A description whose stack is ReferenceSource -> Width. |withTarget| false
@@ -65,14 +66,14 @@ UsdStageRefPtr MakeStage(bool withTarget, bool malformedClump = false)
     UsdStageRefPtr stage = UsdStage::CreateInMemory("referenceSource");
     UsdGeomXform::Define(stage, SdfPath("/World"));
 
-    VtVec3fArray const points = BakedPoints();
+    usdGen::UsdGenVec3fArray const points = BakedPoints();
     UsdGeomBasisCurves baked =
         UsdGeomBasisCurves::Define(stage, kBaked);
     baked.CreateTypeAttr().Set(UsdGeomTokens->cubic);
     baked.CreateBasisAttr().Set(UsdGeomTokens->bspline);
     baked.CreateWrapAttr().Set(UsdGeomTokens->pinned);
     baked.CreateCurveVertexCountsAttr().Set(VtIntArray{3, 3});
-    baked.CreatePointsAttr().Set(points);
+    baked.CreatePointsAttr().Set(ToHost(points));
     baked.CreateWidthsAttr().Set(VtFloatArray{0.01f, 0.02f, 0.03f, 0.04f, 0.05f, 0.06f});
     baked.SetWidthsInterpolation(UsdGeomTokens->vertex);
     baked.GetPrim().AddAppliedSchema(TfToken("UsdGenCurveAPI"));
@@ -82,7 +83,7 @@ UsdStageRefPtr MakeStage(bool withTarget, bool malformedClump = false)
         .Set(TfToken("hair"));
     bakedPv.CreatePrimvar(TfToken("rest"), SdfValueTypeNames->Point3fArray,
                           UsdGeomTokens->vertex)
-        .Set(points);
+        .Set(ToHost(points));
     bakedPv.CreatePrimvar(TfToken("usdGen:curveId"), SdfValueTypeNames->UInt64Array,
                           UsdGeomTokens->uniform)
         .Set(VtArray<uint64_t>{7, 9});
@@ -274,7 +275,7 @@ void CheckCook(UsdGenGraphDesc const &desc, bool checkNative = false)
     if (sourceId == kUsdGenInvalidNode || widthId == kUsdGenInvalidNode) return;
     UsdGenCurveBuffer const source = NodeBuffer(graph, sourceId);
     UsdGenCurveBuffer const output = NodeBuffer(graph, widthId);
-    VtVec3fArray const baked = BakedPoints();
+    usdGen::UsdGenVec3fArray const baked = BakedPoints();
     bool pointsVerbatim = source.totalCurves == 2 && source.totalCvs == 6;
     for (size_t i = 0; pointsVerbatim && i < baked.size(); ++i)
         pointsVerbatim = source.px[i] == baked[i][0] &&

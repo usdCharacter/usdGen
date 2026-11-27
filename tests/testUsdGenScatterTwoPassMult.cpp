@@ -11,6 +11,7 @@
 // exactly 1.0) with a {2.0, 0.5, 1.0, 0.0} mult cycle pin per-face counts
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -43,8 +44,8 @@ static UsdGenSurfaceDesc Surface()
     int const w = 200, h = 100;
     for (int y = 0; y <= h; ++y)
         for (int x = 0; x <= w; ++x) {
-            s.restPoints.push_back(GfVec3f(float(x), float(y), 0.0f));
-            s.uv.push_back(GfVec2f(float(x) / float(w), float(y) / float(h)));
+            s.restPoints.push_back(usdGen::UsdGenVec3f(float(x), float(y), 0.0f));
+            s.uv.push_back(usdGen::UsdGenVec2f(float(x) / float(w), float(y) / float(h)));
         }
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
@@ -151,12 +152,12 @@ int main()
     // engine's own fan spelling (not assumed from the coordinates).
     for (size_t f = 0; f < nFaces; ++f) {
         size_t const cbase = f * 4;
-        GfVec3f const p0 = s.restPoints[s.faceVertexIndices[cbase]];
+        usdGen::UsdGenVec3f const p0 = s.restPoints[s.faceVertexIndices[cbase]];
         double area = 0.0;
         for (int t = 1; t + 1 < 4; ++t) {
-            GfVec3f const pb = s.restPoints[s.faceVertexIndices[cbase + size_t(t)]];
-            GfVec3f const pc = s.restPoints[s.faceVertexIndices[cbase + size_t(t) + 1]];
-            GfVec3f const x = GfCross(pb - p0, pc - p0);
+            usdGen::UsdGenVec3f const pb = s.restPoints[s.faceVertexIndices[cbase + size_t(t)]];
+            usdGen::UsdGenVec3f const pc = s.restPoints[s.faceVertexIndices[cbase + size_t(t) + 1]];
+            usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(pb - p0, pc - p0);
             area += double(0.5f * std::sqrt(
                 x[0] * x[0] + x[1] * x[1] + x[2] * x[2]));
         }

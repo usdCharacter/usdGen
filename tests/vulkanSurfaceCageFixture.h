@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #ifndef USDGEN_TEST_VULKAN_SURFACE_CAGE_FIXTURE_H
 #define USDGEN_TEST_VULKAN_SURFACE_CAGE_FIXTURE_H
+#include "utils/pxrInterop.h"
 #include "usdGenUsd/lower.h"
 #include <Ptexture.h>
 #include <memory>

@@ -17,6 +17,7 @@
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/width.h"
 #include "usdGen/ops/widthBlend.h"
+#include "usdGen/api/span.h"
 
 namespace usdGen {
 
@@ -49,7 +50,7 @@ constexpr UsdGenParamSlot kBlendMap[kBlendCount] = {widthBlendP::kWeight};
 
 void Add(UsdGenRegistrar &r, UsdGenOpId op, UsdGenCudaStage stage, uint32_t version,
          int minimumAlgorithm, int maximumAlgorithm, uint32_t flags,
-         TfSpan<const UsdGenParamSlot> paramMap = {})
+         UsdGenSpan<const UsdGenParamSlot> paramMap = {})
 {
     if (op == UsdGenOpId::Invalid) return;
     UsdGenKernelDef k;

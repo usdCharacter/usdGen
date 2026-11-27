@@ -5,6 +5,7 @@
 // RBF playback binding and the prim-set signature; the diff of two
 // publications and their cache charge. Moved out of sessionCooker (6.3).
 #include "usdGenHydraCurves/publisher.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGenHydraCurves/curveColumns.h"
 #include "usdGenHydraCurves/furOcclusion.h"
 #include "usdGenHydraCurves/previewColor.h"
@@ -12,10 +13,11 @@
 #include "usdGenHydraCurves/register.h"
 #include "usdGenHydraCurves/tokens.h"
 #include "usdGenUsd/lower.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/publishDesc.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/exec/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGen/exec/generationStore.h"
 #include "usdGen/exec/scheduler.h"
 #include "usdGen/registries/engineTokens.h"
@@ -116,10 +118,10 @@ usdGenUsd::UsdGenPresentation const &PresentationOf(UsdGenGraphSpec const &spec)
 }
 
 // Look constants published on tiles (addLookConstant below).
-TfToken const kHairTipColor = UsdGenInternToken("hairTipColor");
-TfToken const kHairColorRamp = UsdGenInternToken("hairColorRamp");
-TfToken const kHairRandomHue = UsdGenInternToken("hairRandomHue");
-TfToken const kHairRandomValue = UsdGenInternToken("hairRandomValue");
+TfToken const kHairTipColor("hairTipColor");
+TfToken const kHairColorRamp("hairColorRamp");
+TfToken const kHairRandomHue("hairRandomHue");
+TfToken const kHairRandomValue("hairRandomValue");
 
 /// The preview colours of one cook, indexed like the terminal buffer.
 struct UsdGenPreviewColors
@@ -237,7 +239,7 @@ _PresentationScalars _BuildPresentationScalars(
 {
     usdGenUsd::UsdGenPresentation const &p = PresentationOf(desc);
     _PresentationScalars result;
-    result.xformMatrix = desc.xformMatrix;
+    result.xformMatrix = usdGenUsd::ToHost(desc.xformMatrix);
     result.purpose = p.purpose;
     result.visibility = p.visibility;
     result.material = UsdGenPrimRef{p.material};
@@ -304,7 +306,7 @@ constexpr uint32_t kGroupWidthDirty = 1u << uint32_t(UsdGenChannelRole::Width);
 
 // A named per-curve (cv false) or per-CV plane of the terminal.
 std::optional<UsdGenCurvePlane> _FindPlane(UsdGenCurveColumns const &term, bool cv,
-                                          TfToken const &name)
+                                          UsdGenToken name)
 {
     uint32_t const n = cv ? term.ExtraCvCount() : term.ExtraCurveCount();
     for (uint32_t k = 0; k < n; ++k) {
@@ -459,7 +461,7 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
     pub.hairId.reserve(tv.live[0]);
 
     std::optional<UsdGenCurvePlane> const displayColor =
-        _FindPlane(term, false, hydraCurvesTokens::displayColor());
+        _FindPlane(term, false, usdGenUsd::ToToken(hydraCurvesTokens::displayColor()));
     struct ExtraPlanePublication {
         std::optional<UsdGenCurvePlane> source;
         UsdGenPlane output;
@@ -471,8 +473,8 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
     std::optional<UsdGenCurvePlane> sourceColor =
         _FindPlane(term, false, UsdGenHydraSourceColorPlane());
     if (!sourceColor) sourceColor = _FindPlane(term, true, UsdGenHydraSourceColorPlane());
-    auto addExtraPlane = [&](UsdGenCurvePlane const& plane, TfToken expectedInterpolation) {
-        if (plane.name == hydraCurvesTokens::displayColor() ||
+    auto addExtraPlane = [&](UsdGenCurvePlane const& plane, UsdGenToken expectedInterpolation) {
+        if (plane.name == hydraCurvesTokens::displayColor().GetString() ||
             plane.name == UsdGenHydraSourceColorPlane()) return;
         size_t const elements = expectedInterpolation == UsdGenTokens().constant ? 1 :
             expectedInterpolation == UsdGenTokens().vertex ? term.totalCvs : term.totalCurves;
@@ -506,7 +508,7 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
             addExtraPlane(p, UsdGenTokens().constant);
         else if (p.interpolation == UsdGenTokens().uniform)
             addExtraPlane(p, UsdGenTokens().uniform);
-        else if (p.name != hydraCurvesTokens::displayColor())
+        else if (p.name != hydraCurvesTokens::displayColor().GetString())
             throw std::runtime_error("invalid per-curve extra-plane interpolation for '" +
                                      p.name.GetString() + "'");
     }
@@ -544,10 +546,10 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
         // An authored plane of the same name wins: the user asked for it by
         // hand, and two planes with one name is not a publishable tile.
         if (std::any_of(extraPlanes.begin(), extraPlanes.end(),
-                        [&](auto const& e) { return e.output.name == name; }))
+                        [&](auto const& e) { return e.output.name == name.GetString(); }))
             return;
         UsdGenPlane plane;
-        plane.name = name;
+        plane.name = usdGenUsd::ToToken(name);
         plane.interpolation = UsdGenTokens().constant;
         plane.type = UsdGenTokens().float_;
         plane.arity = static_cast<decltype(plane.arity)>(v.size());
@@ -1227,13 +1229,13 @@ UsdGenRef<const UsdGenPublication> Diff(UsdGenPublication const *prevPublication
                     paired = true;
                     if (pa.interpolation != pb.interpolation || pa.arity != pb.arity ||
                         pa.type != pb.type)
-                        td.newPrimvars.push_back(pb.name);
+                        td.newPrimvars.push_back(usdGenUsd::ToTf(pb.name));
                     else
-                        mark(pb.name, !pa.f.IsIdentical(pb.f) ||
+                        mark(usdGenUsd::ToTf(pb.name), !pa.f.IsIdentical(pb.f) ||
                                      !pa.i.IsIdentical(pb.i));
                     break;
                 }
-                if (!paired) td.newPrimvars.push_back(pb.name);
+                if (!paired) td.newPrimvars.push_back(usdGenUsd::ToTf(pb.name));
             }
             // Primvar-set growth not visible in payloads (e.g. empty->empty)
             // still comes from the signatures.

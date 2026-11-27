@@ -22,6 +22,7 @@
 //   Offsets come from the undisplaced curve; the root never moves.
 // Floating-point evaluation order follows the reference.
 #include "usdGen/ops/frizz.h"
+#include "usdGen/api/span.h"
 
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
@@ -33,7 +34,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 

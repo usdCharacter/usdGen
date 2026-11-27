@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "vulkanReadbackFixture.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
@@ -35,7 +36,7 @@ static bool Capture(std::shared_ptr<NativeOwner> const& native,
     for (auto const& plane : generation->planes()) {
         std::vector<uint8_t> bytes;
         if (!ReadVulkanBytes(native, context, plane.buffer, plane.bytes, generation, &bytes) ||
-            !result->emplace(plane.metadata.name, std::move(bytes)).second) return false;
+            !result->emplace(plane.metadata.name.GetString(), std::move(bytes)).second) return false;
         if (plane.bytes && !plane.buffer) return false;
     }
     return true;
@@ -45,33 +46,33 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     auto& b = info.source;
     b.totalCurves = 2; b.totalCvs = 8; b.topologyVersion = 3; b.valueVersion = 5;
     b.px = {0,1,2,3,4,5,6,7}; b.py = {1,2,1,2,1,2,1,2}; b.pz = {2,2,2,2,2,2,2,2};
-    b.rest = VtVec3fArray(8, GfVec3f(3,4,5)); b.width = VtFloatArray(8, 3.f);
+    b.rest = usdGen::UsdGenVec3fArray(8, usdGen::UsdGenVec3f(3,4,5)); b.width = usdGen::UsdGenFloatArray(8, 3.f);
     b.hairT = {0,.25f,.75f,1,0,.25f,.75f,1}; b.curveId = {7,19}; b.cvOffsets = {0,4,8};
-    b.rootPrim = {3,7}; b.rootUV = {GfVec2f(.2f,.4f), GfVec2f(.7f,.8f)};
-    b.rootT = VtVec3fArray(2, GfVec3f(0,1,0)); b.rootB = VtVec3fArray(2, GfVec3f(0,0,1));
-    b.rootN = VtVec3fArray(2, GfVec3f(1,0,0)); UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.25f,1.f}};
+    b.rootPrim = {3,7}; b.rootUV = {usdGen::UsdGenVec2f(.2f,.4f), usdGen::UsdGenVec2f(.7f,.8f)};
+    b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,1,0)); b.rootB = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,0,1));
+    b.rootN = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(1,0,0)); UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.25f,1.f}};
     UsdGenChunkDesc chunk; chunk.curveCount = 2; chunk.liveCount = 2; chunk.cvCount = 4;
-    chunk.tile = 9; chunk.surface = 2; chunk.boundsRest = GfRange3f(GfVec3f(0), GfVec3f(8));
+    chunk.tile = 9; chunk.surface = 2; chunk.boundsRest = usdGen::UsdGenRange3f(usdGen::UsdGenVec3f(0), usdGen::UsdGenVec3f(8));
     b.chunks = {chunk};
-    UsdGenPlane vf; vf.name = TfToken("vFloat"); vf.interpolation = TfToken("vertex");
-    vf.type = TfToken("float"); vf.arity = 3; vf.f = VtFloatArray(24, 1.25f);
-    UsdGenPlane vi; vi.name = TfToken("vInt"); vi.interpolation = TfToken("vertex");
-    vi.type = TfToken("int"); vi.i = {1,2,3,4,5,6,7,8}; b.extraCv = {vf,vi};
-    UsdGenPlane cf; cf.name = TfToken("constantFloat"); cf.interpolation = TfToken("constant");
-    cf.type = TfToken("float"); cf.arity = 2; cf.f = {2,7};
-    UsdGenPlane gi; gi.name = TfToken("guideIndex"); gi.interpolation = TfToken("uniform");
-    gi.type = TfToken("int"); gi.arity = 3; gi.i = {3,2,1,7,8,9};
-    UsdGenPlane gf; gf.name = TfToken("guideWeight"); gf.interpolation = TfToken("uniform");
-    gf.type = TfToken("float"); gf.arity = 3; gf.f = {.2f,.3f,.5f,.1f,.2f,.7f};
+    UsdGenPlane vf; vf.name = TestToken("vFloat"); vf.interpolation = TestToken("vertex");
+    vf.type = TestToken("float"); vf.arity = 3; vf.f = usdGen::UsdGenFloatArray(24, 1.25f);
+    UsdGenPlane vi; vi.name = TestToken("vInt"); vi.interpolation = TestToken("vertex");
+    vi.type = TestToken("int"); vi.i = {1,2,3,4,5,6,7,8}; b.extraCv = {vf,vi};
+    UsdGenPlane cf; cf.name = TestToken("constantFloat"); cf.interpolation = TestToken("constant");
+    cf.type = TestToken("float"); cf.arity = 2; cf.f = {2,7};
+    UsdGenPlane gi; gi.name = TestToken("guideIndex"); gi.interpolation = TestToken("uniform");
+    gi.type = TestToken("int"); gi.arity = 3; gi.i = {3,2,1,7,8,9};
+    UsdGenPlane gf; gf.name = TestToken("guideWeight"); gf.interpolation = TestToken("uniform");
+    gf.type = TestToken("float"); gf.arity = 3; gf.f = {.2f,.3f,.5f,.1f,.2f,.7f};
     b.extraCurve = {cf,maskPlane,gi,gf};
     info.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::CatmullRom, UsdGenCurveLayoutWrap::Pinned);
     info.geometry.alreadyDeformed = true;
     UsdGenDeviceTileMetadata tile{9,0,2,0,8}; tile.extentMin = {0,0,0}; tile.extentMax = {8,8,8}; tile.boundsValid = true;
     info.geometry.tiles = {tile};
     float tileValue = 2.5f;
-    info.additionalNamed.push_back({{TfToken("tileValue"),UsdGenDeviceValueType::Float32,UsdGenDeviceDomain::Tile,1,1,4,true}, Bytes(&tileValue,1)});
+    info.additionalNamed.push_back({{TestToken("tileValue"),UsdGenDeviceValueType::Float32,UsdGenDeviceDomain::Tile,1,1,4,true}, Bytes(&tileValue,1)});
     uint64_t toolValue = 123;
-    info.additionalNamed.push_back({{TfToken("toolValue"),UsdGenDeviceValueType::UInt64,UsdGenDeviceDomain::Tool,1,1,8,true}, Bytes(&toolValue,1)});
+    info.additionalNamed.push_back({{TestToken("toolValue"),UsdGenDeviceValueType::UInt64,UsdGenDeviceDomain::Tool,1,1,8,true}, Bytes(&toolValue,1)});
     return info;
 }
 int main(int argc, char** argv) {
@@ -116,8 +117,8 @@ int main(int argc, char** argv) {
     CHECK(a->InclusiveRetainedBytes()==a->ExclusiveRetainedBytes());
     {
         auto again = upload->TakeReady(); CHECK(again);
-        CHECK(again->PlaneOwner(TfToken("points")) == a->PlaneOwner(TfToken("points")));
-        CHECK(!a->PlaneOwner(TfToken("sourceRootT")));
+        CHECK(again->PlaneOwner(TestToken("points")) == a->PlaneOwner(TestToken("points")));
+        CHECK(!a->PlaneOwner(TestToken("sourceRootT")));
     }
     CHECK(a->curveCount() == 2 && a->pointCount() == 8 && a->topologyVersion() == 3 && a->valueVersion() == 5);
     CHECK(a->geometry().alreadyDeformed && UsdGenCurveLayoutBasisOf(a->geometry().layoutMetadata) == UsdGenCurveLayoutBasis::CatmullRom);
@@ -154,10 +155,10 @@ int main(int argc, char** argv) {
     CHECK(original.at("rootUV") == Bytes(info.source.rootUV.cdata(),2));
     CHECK(original.at("curveMask") == Bytes(info.source.extraCurve[1].f.cdata(),2));
     for (auto const& p:info.source.extraCv) CHECK(original.at(p.name.GetString()) ==
-        (p.type == TfToken("int") ? Bytes(p.i.cdata(),p.i.size()) : Bytes(p.f.cdata(),p.f.size())));
+        (p.type == TestToken("int") ? Bytes(p.i.cdata(),p.i.size()) : Bytes(p.f.cdata(),p.f.size())));
     for (auto const& p:info.source.extraCurve) CHECK(original.at(p.name.GetString()) ==
-        (p.type == TfToken("int") ? Bytes(p.i.cdata(),p.i.size()) : Bytes(p.f.cdata(),p.f.size())));
-    for (auto const& p:info.additionalNamed) CHECK(original.at(p.metadata.name) == p.bytes);
+        (p.type == TestToken("int") ? Bytes(p.i.cdata(),p.i.size()) : Bytes(p.f.cdata(),p.f.size())));
+    for (auto const& p:info.additionalNamed) CHECK(original.at(p.metadata.name.GetString()) == p.bytes);
     CHECK(original.count("sourceRootT") == 0 && original.count("sourceRootB") == 0 && original.count("sourceRootN") == 0);
     for (auto const& p:a->planes()) {
         if (p.metadata.name == "width") CHECK(p.metadata.semantic == UsdGenDeviceChannelSemantic::Widths);
@@ -170,7 +171,7 @@ int main(int argc, char** argv) {
             candidate->Poll() != SourceGenerationStatus::Ready) return std::shared_ptr<const VulkanSourceGeneration>{};
         return candidate->TakeReady();
     };
-    auto revised = info; revised.source.px[0] = 10; revised.source.rest[0] = GfVec3f(9);
+    auto revised = info; revised.source.px[0] = 10; revised.source.rest[0] = usdGen::UsdGenVec3f(9);
     revised.source.width[0] = 7; revised.source.extraCv[0].f[0] = 9; revised.source.valueVersion = 6;
     auto b = publish(revised); CHECK(b);
     CHECK(b->geometry().alreadyDeformed && b->geometry().tiles.size() == 1 &&
@@ -200,7 +201,7 @@ int main(int argc, char** argv) {
         CHECK(!raw.empty() && raw.size() % 4 == 0);
         std::vector<uint32_t> code(raw.size()/4); std::memcpy(code.data(),raw.data(),raw.size());
         auto pipeline = WidthPipeline::Create(context,code,&status); CHECK(pipeline);
-        auto candidate = pipeline->Begin(a->PlaneOwner(TfToken("width")),a->pointCount(),4.f,1,&status);
+        auto candidate = pipeline->Begin(a->PlaneOwner(TestToken("width")),a->pointCount(),4.f,1,&status);
         CHECK(candidate && !candidate->succeeded());
         CHECK(!VulkanSourceGeneration::WithWidth(a,*candidate,6,&reason));
         CHECK(Prove(native)); uint32_t semantic=UINT32_MAX;
@@ -228,7 +229,7 @@ int main(int argc, char** argv) {
         auto expected=original; std::vector<float> four(8,4.f); expected["width"]=Bytes(four.data(),four.size());
         CHECK(observed==expected && checkFrames(child));
         candidate.reset();
-        auto next=pipeline->Begin(child->PlaneOwner(TfToken("width")),8,2.f,0,&status); CHECK(next && Prove(native));
+        auto next=pipeline->Begin(child->PlaneOwner(TestToken("width")),8,2.f,0,&status); CHECK(next && Prove(native));
         CHECK(next->Poll(&semantic)==VK_SUCCESS && semantic==0);
         auto grandchild=VulkanSourceGeneration::WithWidth(child,*next,7,&reason); CHECK(grandchild);
         CHECK(grandchild->InclusiveRetainedBytes()==child->InclusiveRetainedBytes()+grandchild->ExclusiveRetainedBytes());
@@ -236,8 +237,8 @@ int main(int argc, char** argv) {
         CHECK(Capture(native,context,grandchild,&observed));
         std::vector<float> eight(8,8.f); expected["width"]=Bytes(eight.data(),eight.size()); CHECK(observed==expected);
         CHECK(Capture(native,context,a,&observed) && observed==original && checkFrames(a));
-        CHECK(grandchild->PlaneOwner(TfToken("points"))==a->PlaneOwner(TfToken("points")));
-        auto shortCandidate=pipeline->Begin(a->PlaneOwner(TfToken("width")),4,1.f,0,&status); CHECK(shortCandidate && Prove(native));
+        CHECK(grandchild->PlaneOwner(TestToken("points"))==a->PlaneOwner(TestToken("points")));
+        auto shortCandidate=pipeline->Begin(a->PlaneOwner(TestToken("width")),4,1.f,0,&status); CHECK(shortCandidate && Prove(native));
         CHECK(shortCandidate->Poll(&semantic)==VK_SUCCESS && semantic==0);
         CHECK(!VulkanSourceGeneration::WithWidth(a,*shortCandidate,8,&reason));
         auto emptyCandidate=pipeline->Begin({},0,1.f,0,&status); CHECK(emptyCandidate && emptyCandidate->succeeded());
@@ -256,7 +257,7 @@ int main(int argc, char** argv) {
         auto otherPipeline=WidthPipeline::Create(otherContext,code,&status); CHECK(otherPipeline);
         auto wrongEmpty=otherPipeline->Begin({},0,1.f,0,&status); CHECK(wrongEmpty && wrongEmpty->succeeded());
         CHECK(!VulkanSourceGeneration::WithWidth(e,*wrongEmpty,2,&reason));
-        auto badSemantic=pipeline->Begin(a->PlaneOwner(TfToken("width")),8,std::numeric_limits<float>::max(),0,&status);
+        auto badSemantic=pipeline->Begin(a->PlaneOwner(TestToken("width")),8,std::numeric_limits<float>::max(),0,&status);
         CHECK(badSemantic && Prove(native));
         CHECK(badSemantic->Poll(&semantic)==VK_SUCCESS && semantic==2 && !badSemantic->succeeded());
         CHECK(!VulkanSourceGeneration::WithWidth(a,*badSemantic,9,&reason));
@@ -279,8 +280,8 @@ int main(int argc, char** argv) {
         auto lengthPipeline = LengthScalePipeline::Create(context, loadCode(argv[3]), &status);
         CHECK(widthPipeline && lengthPipeline);
         auto run = [&](float factor) {
-            auto candidate = lengthPipeline->Begin(a->PlaneOwner(TfToken("points")),
-                a->PlaneOwner(TfToken("curveOffsets")), a->curveCount(), a->pointCount(), factor, &status);
+            auto candidate = lengthPipeline->Begin(a->PlaneOwner(TestToken("points")),
+                a->PlaneOwner(TestToken("curveOffsets")), a->curveCount(), a->pointCount(), factor, &status);
             if (!candidate || status != VK_SUCCESS || candidate->succeeded() || !Prove(native)) return decltype(candidate){};
             uint32_t semantic = UINT32_MAX;
             if (candidate->Poll(&semantic) != VK_SUCCESS || semantic != 0 || !candidate->succeeded()) return decltype(candidate){};
@@ -329,38 +330,38 @@ int main(int argc, char** argv) {
         auto notDeformedInfo = info;
         notDeformedInfo.geometry.alreadyDeformed = false;
         auto notDeformed = publish(notDeformedInfo); CHECK(notDeformed);
-        auto undeformedRun = lengthPipeline->Begin(notDeformed->PlaneOwner(TfToken("points")),
-            notDeformed->PlaneOwner(TfToken("curveOffsets")), 2, 8, 2.5f, &status);
+        auto undeformedRun = lengthPipeline->Begin(notDeformed->PlaneOwner(TestToken("points")),
+            notDeformed->PlaneOwner(TestToken("curveOffsets")), 2, 8, 2.5f, &status);
         CHECK(undeformedRun && Prove(native));
         uint32_t undeformedStatus = UINT32_MAX;
         CHECK(undeformedRun->Poll(&undeformedStatus) == VK_SUCCESS && undeformedStatus == 0);
         auto undeformedChild = VulkanSourceGeneration::WithPoints(notDeformed, *undeformedRun, 30, &reason);
         CHECK(undeformedChild && !undeformedChild->geometry().alreadyDeformed &&
               !undeformedChild->geometry().tiles[0].boundsValid);
-        CHECK(undeformedChild->PlaneOwner(TfToken("rest")) == notDeformed->PlaneOwner(TfToken("rest")));
-        CHECK(pointsChild->PlaneOwner(TfToken("points")) != a->PlaneOwner(TfToken("points")));
+        CHECK(undeformedChild->PlaneOwner(TestToken("rest")) == notDeformed->PlaneOwner(TestToken("rest")));
+        CHECK(pointsChild->PlaneOwner(TestToken("points")) != a->PlaneOwner(TestToken("points")));
         for (auto const& plane : a->planes()) {
-            if (plane.metadata.name == "points") CHECK(pointsChild->PlaneOwner(TfToken("points")) == scaledRun->output());
+            if (plane.metadata.name == "points") CHECK(pointsChild->PlaneOwner(TestToken("points")) == scaledRun->output());
             else CHECK(pointsChild->PlaneOwner(plane.metadata.name) == a->PlaneOwner(plane.metadata.name));
         }
         CHECK(pointsChild->geometry().alreadyDeformed && !pointsChild->geometry().tiles[0].boundsValid);
         CHECK(checkFrames(pointsChild));
-        auto widthCandidate = widthPipeline->Begin(pointsChild->PlaneOwner(TfToken("width")), pointsChild->pointCount(), 2.f, 0, &status);
+        auto widthCandidate = widthPipeline->Begin(pointsChild->PlaneOwner(TestToken("width")), pointsChild->pointCount(), 2.f, 0, &status);
         CHECK(widthCandidate && Prove(native)); uint32_t widthSemantic = UINT32_MAX;
         CHECK(widthCandidate->Poll(&widthSemantic) == VK_SUCCESS && widthSemantic == 0);
         auto pointsAndWidth = VulkanSourceGeneration::WithWidth(pointsChild, *widthCandidate, 23, &reason);
-        CHECK(pointsAndWidth && pointsAndWidth->PlaneOwner(TfToken("points")) == pointsChild->PlaneOwner(TfToken("points")));
+        CHECK(pointsAndWidth && pointsAndWidth->PlaneOwner(TestToken("points")) == pointsChild->PlaneOwner(TestToken("points")));
         CHECK(pointsAndWidth->geometry().alreadyDeformed && !pointsAndWidth->geometry().tiles[0].boundsValid);
         CHECK(checkFrames(pointsAndWidth));
 
         auto beforeHook = pool->Snapshot(); int hookCalls = 0;
-        auto rejected = lengthPipeline->Begin(a->PlaneOwner(TfToken("points")), a->PlaneOwner(TfToken("curveOffsets")),
+        auto rejected = lengthPipeline->Begin(a->PlaneOwner(TestToken("points")), a->PlaneOwner(TestToken("curveOffsets")),
             a->curveCount(), a->pointCount(), 2.f, &status, [&] { ++hookCalls; return false; });
         CHECK(!rejected && hookCalls == 1);
         CHECK(pool->Snapshot().usedBytes == beforeHook.usedBytes && pool->Snapshot().byKind == beforeHook.byKind);
-        CHECK(!lengthPipeline->Begin(a->PlaneOwner(TfToken("points")), a->PlaneOwner(TfToken("curveOffsets")),
+        CHECK(!lengthPipeline->Begin(a->PlaneOwner(TestToken("points")), a->PlaneOwner(TestToken("curveOffsets")),
             a->curveCount(), a->pointCount(), std::numeric_limits<float>::quiet_NaN(), &status));
-        CHECK(!lengthPipeline->Begin(a->PlaneOwner(TfToken("points")), a->PlaneOwner(TfToken("curveOffsets")),
+        CHECK(!lengthPipeline->Begin(a->PlaneOwner(TestToken("points")), a->PlaneOwner(TestToken("curveOffsets")),
             a->curveCount(), a->pointCount(), std::numeric_limits<float>::infinity(), &status));
 
         VkBufferCreateInfo malformedInfo{}; malformedInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -372,20 +373,20 @@ int main(int argc, char** argv) {
         uint32_t badOffsets[3] = {0, 9, 8}; void* malformedMapped = nullptr;
         CHECK(vkMapMemory(native->device, malformedOffsets->memory(), 0, malformedInfo.size, 0, &malformedMapped) == VK_SUCCESS);
         std::memcpy(malformedMapped, badOffsets, malformedInfo.size); vkUnmapMemory(native->device, malformedOffsets->memory());
-        auto malformed = lengthPipeline->Begin(a->PlaneOwner(TfToken("points")), malformedOffsets, 2, 8, 2.f, &status);
+        auto malformed = lengthPipeline->Begin(a->PlaneOwner(TestToken("points")), malformedOffsets, 2, 8, 2.f, &status);
         CHECK(malformed && Prove(native)); uint32_t malformedStatus = UINT32_MAX;
         CHECK(malformed->Poll(&malformedStatus) == VK_SUCCESS && malformedStatus != 0 && !malformed->succeeded());
         CHECK(!VulkanSourceGeneration::WithPoints(a, *malformed, 24, &reason));
-        auto overflow = lengthPipeline->Begin(a->PlaneOwner(TfToken("points")), a->PlaneOwner(TfToken("curveOffsets")), 2, 8,
+        auto overflow = lengthPipeline->Begin(a->PlaneOwner(TestToken("points")), a->PlaneOwner(TestToken("curveOffsets")), 2, 8,
             std::numeric_limits<float>::max(), &status);
         CHECK(overflow && Prove(native)); uint32_t overflowStatus = UINT32_MAX;
         CHECK(overflow->Poll(&overflowStatus) == VK_SUCCESS && overflowStatus != 0 && !overflow->succeeded());
         CHECK(!VulkanSourceGeneration::WithPoints(a, *overflow, 25, &reason));
-        auto foreignOffsets = lengthPipeline->Begin(a->PlaneOwner(TfToken("points")), b->PlaneOwner(TfToken("curveOffsets")), 2, 8, 1.f, &status);
+        auto foreignOffsets = lengthPipeline->Begin(a->PlaneOwner(TestToken("points")), b->PlaneOwner(TestToken("curveOffsets")), 2, 8, 1.f, &status);
         CHECK(foreignOffsets && Prove(native)); uint32_t foreignStatus = UINT32_MAX;
         CHECK(foreignOffsets->Poll(&foreignStatus) == VK_SUCCESS && foreignStatus == 0);
         CHECK(!VulkanSourceGeneration::WithPoints(a, *foreignOffsets, 26, &reason));
-        auto empty = lengthPipeline->Begin(e->PlaneOwner(TfToken("points")), e->PlaneOwner(TfToken("curveOffsets")), 0, 0, 1.f, &status);
+        auto empty = lengthPipeline->Begin(e->PlaneOwner(TestToken("points")), e->PlaneOwner(TestToken("curveOffsets")), 0, 0, 1.f, &status);
         CHECK(empty && empty->succeeded());
         auto emptyChild = VulkanSourceGeneration::WithPoints(e, *empty, 1, &reason); CHECK(emptyChild);
         CHECK(emptyChild->pointCount() == 0 && emptyChild->ExclusiveRetainedBytes() == 0);
@@ -401,8 +402,8 @@ int main(int argc, char** argv) {
         };
         auto widths = WidthPipeline::Create(context, loadCode(argv[2]), &status); CHECK(widths);
         auto blends = WidthBlendPipeline::Create(context, loadCode(argv[3]), &status); CHECK(blends);
-        auto leftRun = widths->Begin(a->PlaneOwner(TfToken("width")), 8, 2.f, 0, &status);
-        auto rightRun = widths->Begin(a->PlaneOwner(TfToken("width")), 8, 3.f, 0, &status);
+        auto leftRun = widths->Begin(a->PlaneOwner(TestToken("width")), 8, 2.f, 0, &status);
+        auto rightRun = widths->Begin(a->PlaneOwner(TestToken("width")), 8, 3.f, 0, &status);
         CHECK(leftRun && rightRun && Prove(native));
         uint32_t semantic = UINT32_MAX;
         CHECK(leftRun->Poll(&semantic) == VK_SUCCESS && semantic == 0);
@@ -412,7 +413,7 @@ int main(int argc, char** argv) {
         CHECK(left && right && left->NonWidthIdentity() == right->NonWidthIdentity());
         CHECK(left->NonWidthIdentity() != b->NonWidthIdentity());
         for (float weight : {0.f, 0.25f, 1.f}) {
-            auto candidate = blends->Begin(left->PlaneOwner(TfToken("width")), right->PlaneOwner(TfToken("width")), 8, weight, &status);
+            auto candidate = blends->Begin(left->PlaneOwner(TestToken("width")), right->PlaneOwner(TestToken("width")), 8, weight, &status);
             CHECK(candidate && !candidate->output() && Prove(native));
             CHECK(candidate->Poll(&semantic) == VK_SUCCESS && semantic == 0);
             auto child = VulkanSourceGeneration::WithWidthBlend(left, right, *candidate, 8, &reason);
@@ -433,7 +434,7 @@ int main(int argc, char** argv) {
             CHECK(checkFrames(child));
             CHECK(Capture(native, context, a, &observed) && observed == original);
         }
-        auto foreign = blends->Begin(left->PlaneOwner(TfToken("width")), b->PlaneOwner(TfToken("width")), 8, 0.5f, &status);
+        auto foreign = blends->Begin(left->PlaneOwner(TestToken("width")), b->PlaneOwner(TestToken("width")), 8, 0.5f, &status);
         CHECK(foreign && Prove(native) && foreign->Poll(&semantic) == VK_SUCCESS && semantic == 0);
         CHECK(!VulkanSourceGeneration::WithWidthBlend(left, b, *foreign, 9, &reason));
         auto emptyOther = publish(empty); CHECK(emptyOther);
@@ -443,10 +444,10 @@ int main(int argc, char** argv) {
         CHECK(!VulkanSourceGeneration::WithWidthBlend(e, emptyOther, *emptyRun, 1, &reason));
         auto before = pool->Snapshot();
         int hooks = 0;
-        CHECK(!blends->Begin(left->PlaneOwner(TfToken("width")), right->PlaneOwner(TfToken("width")), 8, 0.5f, &status,
+        CHECK(!blends->Begin(left->PlaneOwner(TestToken("width")), right->PlaneOwner(TestToken("width")), 8, 0.5f, &status,
                             [&] { ++hooks; return false; }));
         CHECK(hooks == 1 && pool->Snapshot().usedBytes == before.usedBytes);
-        CHECK(!blends->Begin(left->PlaneOwner(TfToken("width")), right->PlaneOwner(TfToken("width")), 8,
+        CHECK(!blends->Begin(left->PlaneOwner(TestToken("width")), right->PlaneOwner(TestToken("width")), 8,
                             std::numeric_limits<float>::quiet_NaN(), &status));
         VkBufferCreateInfo malformedInfo{};
         malformedInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -463,7 +464,7 @@ int main(int argc, char** argv) {
             std::memcpy(mapped, data, sizeof(data));
             vkUnmapMemory(native->device, malformed->memory());
             // Even endpoint zero validates the unselected right input.
-            auto invalid = blends->Begin(left->PlaneOwner(TfToken("width")), malformed, 8, 0.f, &status);
+            auto invalid = blends->Begin(left->PlaneOwner(TestToken("width")), malformed, 8, 0.f, &status);
             CHECK(invalid && Prove(native));
             CHECK(invalid->Poll(&semantic) == VK_SUCCESS && semantic != 0 && !invalid->output());
         }
@@ -474,10 +475,10 @@ int main(int argc, char** argv) {
         case 0: bad.source.px.pop_back(); break;
         case 1: bad.source.cvOffsets[1] = -1; break;
         case 2: bad.source.rootN.clear(); break;
-        case 3: bad.source.extraCv[0].type = TfToken("unknown"); break;
+        case 3: bad.source.extraCv[0].type = TestToken("unknown"); break;
         case 4: bad.source.extraCv[0].f.pop_back(); break;
         case 5: bad.additionalNamed[0].bytes.pop_back(); break;
-        case 6: bad.additionalNamed[0].metadata.name=TfToken("width"); break;
+        case 6: bad.additionalNamed[0].metadata.name=TestToken("width"); break;
         case 7: bad.geometry.tiles[0].pointCount = 999; break;
         case 8: bad.source.chunks[0].curveCount = 999; break;
         case 9: bad.source.curveId = {7,7}; break;

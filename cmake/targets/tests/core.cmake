@@ -115,6 +115,32 @@ add_executable(testUsdGenValueTypeTable tests/testUsdGenValueTypeTable.cpp)
 target_link_libraries(testUsdGenValueTypeTable PRIVATE usdGenUsd sdf tf)
 add_test(NAME testUsdGenValueTypeTable COMMAND testUsdGenValueTypeTable)
 set_tests_properties(testUsdGenValueTypeTable PROPERTIES LABELS "T0;valueType" TIMEOUT 60)
+# Step 11.4: usdGenMath against Gf 26.08, bit for bit (half conversions exhaustive).
+add_executable(testUsdGenMathGfParity tests/usdGenUsd/testUsdGenMathGfParity.cpp)
+target_link_libraries(testUsdGenMathGfParity PRIVATE usdGenMath gf tf)
+add_test(NAME testUsdGenMathGfParity COMMAND testUsdGenMathGfParity)
+set_tests_properties(testUsdGenMathGfParity PROPERTIES LABELS "T0;math" TIMEOUT 300)
+
+add_executable(testUsdGenToken tests/usdGenUsd/testUsdGenToken.cpp)
+target_link_libraries(testUsdGenToken PRIVATE usdGen usdGenUsd tf)
+add_test(NAME testUsdGenToken COMMAND testUsdGenToken)
+set_tests_properties(testUsdGenToken PROPERTIES LABELS "T0;registries" TIMEOUT 300)
+# Step 11.6: CowArray detach parity with VtArray, external arenas, zero-copy host conversions.
+add_executable(testUsdGenCowArray tests/usdGenUsd/testUsdGenCowArray.cpp)
+target_link_libraries(testUsdGenCowArray PRIVATE usdGen usdGenUsd tf vt gf)
+add_test(NAME testUsdGenCowArray COMMAND testUsdGenCowArray)
+set_tests_properties(testUsdGenCowArray PROPERTIES LABELS "T0;elementSet" TIMEOUT 60)
+# Step 11.8: env parsing as TfGetenv, TF_DEBUG as TfDebug, trace and report sinks.
+add_executable(testUsdGenDiagnostics tests/usdGenUsd/testUsdGenDiagnostics.cpp)
+target_link_libraries(testUsdGenDiagnostics PRIVATE usdGen usdGenUsd tf)
+add_test(NAME testUsdGenDiagnostics COMMAND testUsdGenDiagnostics)
+set_tests_properties(testUsdGenDiagnostics PROPERTIES LABELS "T0;registries" TIMEOUT 60
+    ENVIRONMENT "TF_DEBUG=USDGEN_C* USDGEN_SCH* -USDGEN_SCHEDULE USDGEN_FUR")
+# Step 11.7: UsdGenValue against VtValue: every value-type row round trips, exact types, hash laws.
+add_executable(testUsdGenValue tests/usdGenUsd/testUsdGenValue.cpp)
+target_link_libraries(testUsdGenValue PRIVATE usdGen usdGenUsd sdf tf vt gf)
+add_test(NAME testUsdGenValue COMMAND testUsdGenValue)
+set_tests_properties(testUsdGenValue PROPERTIES LABELS "T0;valueType" TIMEOUT 60)
 add_executable(testUsdGenNodeKeyMap tests/testUsdGenNodeKeyMap.cpp)
 target_link_libraries(testUsdGenNodeKeyMap PRIVATE usdGenUsd)
 add_test(NAME testUsdGenNodeKeyMap COMMAND testUsdGenNodeKeyMap)

@@ -20,6 +20,7 @@
 // "set <prim> strands=<n>" per operator, and the card render-mesh size of all
 // cards ("mesh vertices=<v> indices=<i>"). --dump writes one line per strand:
 // <prim> <curveId hex> <strandIndex> <cardIndex> <root xyz> <tip xyz>.
+#include "utils/pxrInterop.h"
 #include "usdGenUsd/resolve/authoredPlaneConvert.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -58,11 +59,11 @@ static void Check(bool v, std::string const &s)
     else std::printf("ok: %s\n", s.c_str());
 }
 static bool Near(float a, float b, float tol = 1e-5f) { return std::fabs(a - b) <= tol; }
-static bool Near(GfVec3f const &a, GfVec3f const &b, float tol = 1e-5f)
+static bool Near(usdGen::UsdGenVec3f const &a, usdGen::UsdGenVec3f const &b, float tol = 1e-5f)
 {
     return (a - b).GetLength() <= tol;
 }
-static std::string Str(GfVec3f const &v)
+static std::string Str(usdGen::UsdGenVec3f const &v)
 {
     char buf[96];
     std::snprintf(buf, sizeof(buf), "(%.6f, %.6f, %.6f)", v[0], v[1], v[2]);
@@ -84,8 +85,8 @@ static UsdGenSurfaceDesc FlatScalp()
     for (int iz = 0; iz <= nz; ++iz)
         for (int ix = 0; ix <= nx; ++ix) {
             float const x = -0.2f + 0.05f * float(ix), z = -0.1f + 0.05f * float(iz);
-            s.restPoints.push_back(GfVec3f(x, 0.0f, z));
-            s.uv.push_back(GfVec2f(x, z));
+            s.restPoints.push_back(usdGen::UsdGenVec3f(x, 0.0f, z));
+            s.uv.push_back(usdGen::UsdGenVec2f(x, z));
         }
     auto at = [&](int ix, int iz) { return iz * (nx + 1) + ix; };
     for (int iz = 0; iz < nz; ++iz)
@@ -102,7 +103,7 @@ static UsdGenSurfaceDesc FlatScalp()
 static card::Card StraightCard(uint64_t id = 1000)
 {
     card::Card c;
-    c.points = {GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0), GfVec3f(0.2f, 0, 0)};
+    c.points = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(0.2f, 0, 0)};
     c.id = id;
     c.uvId = 3;
     c.tile[0] = c.tile[1] = c.tile[2] = 1;
@@ -110,7 +111,7 @@ static card::Card StraightCard(uint64_t id = 1000)
     c.orientation = card::kSurface;
     // The root (0,0,0) is corner 0 of quad 28 (ix 4, iz 2) -> fan triangle 56.
     c.rootTri = 56;
-    c.rootBary = GfVec3f(1.0f, 0.0f, 0.0f);
+    c.rootBary = usdGen::UsdGenVec3f(1.0f, 0.0f, 0.0f);
     return c;
 }
 
@@ -129,7 +130,7 @@ struct Geometry
     {
         strand::BuildSurfaceBvh(usdGenUsd::Lower(surface), true, &bvh);
         ctx.scalp = &bvh;
-        ctx.bboxCentre = GfVec3f(0.1f, 0.0f, 0.0f);
+        ctx.bboxCentre = usdGen::UsdGenVec3f(0.1f, 0.0f, 0.0f);
         ctx.cards = &cards;
     }
     std::vector<card::Span> Build(card::Card c, bool smooth = true)
@@ -159,9 +160,9 @@ static void TestGeometry()
             uniform = uniform && Near(s.rowParam[i], x / 0.2f);
             widths = widths && Near(s.rowWidth[i], 0.01f);
             // Surface side = normalize(first segment x N0) = +Z; column 0 at -S.
-            edges = edges && Near(s.V[i * 2], GfVec3f(x, 0, -0.005f)) &&
-                Near(s.V[i * 2 + 1], GfVec3f(x, 0, 0.005f));
-            normals = normals && Near(s.N[i * 2], GfVec3f(0, 1, 0));
+            edges = edges && Near(s.V[i * 2], usdGen::UsdGenVec3f(x, 0, -0.005f)) &&
+                Near(s.V[i * 2 + 1], usdGen::UsdGenVec3f(x, 0, 0.005f));
+            normals = normals && Near(s.N[i * 2], usdGen::UsdGenVec3f(0, 1, 0));
         }
         Check(uniform, "Catmull-Rom rows (clamped ends), row parameter = normalised arc length");
         Check(widths, "row width = width * root profile (0.02 * 0.5)");
@@ -169,17 +170,17 @@ static void TestGeometry()
         Check(normals, "card normal B = S x T = +Y");
         Check(s.flipU && !s.tube && Near(s.length, 0.2f), "ribbon span: flipU, middle-column length");
 
-        GfVec3f p, n;
+        usdGen::UsdGenVec3f p, n;
         card::CardSurface(s, 0.8f, 0.5f, 0.1f, &p, &n);
         // flipU: u 0.8 -> 0.2 -> z = -0.005 * 0.8 + 0.005 * 0.2; depth 0.1 row widths along +Y.
-        Check(Near(p, GfVec3f(0.1f, 0.001f, -0.003f)) && Near(n, GfVec3f(0, 1, 0)),
+        Check(Near(p, usdGen::UsdGenVec3f(0.1f, 0.001f, -0.003f)) && Near(n, usdGen::UsdGenVec3f(0, 1, 0)),
               "cardSurface(0.8, 0.5, 0.1) = (0.1, 0.001, -0.003) " + Str(p));
         card::Span biased = s;
         biased.vBias = 0.25f;
         card::CardSurface(biased, 0.5f, 0.5f, 0.0f, &p, &n);
-        Check(Near(p, GfVec3f(0.15f, 0, 0)), "longitudinal bias 0.25 un-biases v 0.5 -> 0.75 " + Str(p));
+        Check(Near(p, usdGen::UsdGenVec3f(0.15f, 0, 0)), "longitudinal bias 0.25 un-biases v 0.5 -> 0.75 " + Str(p));
         card::CardSurface(s, 0.5f, -1.0f, 0.0f, &p, &n);
-        Check(Near(p, GfVec3f(0, 0, 0)), "cardSurface clamps v below the root");
+        Check(Near(p, usdGen::UsdGenVec3f(0, 0, 0)), "cardSurface clamps v below the root");
     }
     {
         auto spans = g.Build(StraightCard(), false);
@@ -191,7 +192,7 @@ static void TestGeometry()
         c.widthSegments = 2;
         c.centerRidge = 0.5f;
         auto spans = g.Build(c);
-        Check(spans[0].cols == 3 && Near(spans[0].V[4 * 3 + 1], GfVec3f(0.1f, 0.0025f, 0.0f)),
+        Check(spans[0].cols == 3 && Near(spans[0].V[4 * 3 + 1], usdGen::UsdGenVec3f(0.1f, 0.0025f, 0.0f)),
               "centre ridge raises the middle column by ridge * half width");
         c.ridgeRootFlatten = 1.0f;
         spans = g.Build(c);
@@ -218,15 +219,15 @@ static void TestGeometry()
         c.twistRoot = 90.0f;
         auto spans = g.Build(c);
         // S' = rot(+Z, T = +X, 90 deg) = -Y: column 0 (at -S') goes to +Y.
-        Check(Near(spans[0].V[0], GfVec3f(0, 0.005f, 0)) && Near(spans[0].V[1], GfVec3f(0, -0.005f, 0)),
+        Check(Near(spans[0].V[0], usdGen::UsdGenVec3f(0, 0.005f, 0)) && Near(spans[0].V[1], usdGen::UsdGenVec3f(0, -0.005f, 0)),
               "twist root 90 deg stands the root row up (" + Str(spans[0].V[0]) + ")");
-        Check(Near(spans[0].V[8 * 2], GfVec3f(0.2f, 0, -0.005f)), "twist profile returns to 0 at the tip");
+        Check(Near(spans[0].V[8 * 2], usdGen::UsdGenVec3f(0.2f, 0, -0.005f)), "twist profile returns to 0 at the tip");
     }
     {
         card::Card c = StraightCard();
         c.lengthMax = 0.5f;
         auto spans = g.Build(c);
-        Check(Near(spans[0].V[8 * 2], GfVec3f(0.1f, 0, -0.005f)), "length.max 0.5 halves the card");
+        Check(Near(spans[0].V[8 * 2], usdGen::UsdGenVec3f(0.1f, 0, -0.005f)), "length.max 0.5 halves the card");
         c.lengthMin = 0.5f;
         c.lengthMax = 1.0f;
         c.lengthRandomize = 1.0f;
@@ -248,7 +249,7 @@ static void TestGeometry()
         float const perimeter = 12.0f * 2.0f * 0.005f * std::sin(3.14159265f / 12.0f);
         Check(Near(spans[0].rowWidth[3], perimeter), "tube row width = ring perimeter");
         Check(Near(spans[0].V[0], spans[0].V[12]), "tube ring seam duplicated");
-        c.points = {GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0)};
+        c.points = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0)};
         spans = g.Build(c);
         Check(spans[0].rows == 5, "a 2-point tube is still subdivided (4n-3)");
     }
@@ -261,7 +262,7 @@ static void TestGeometry()
         Check(spans.size() == 2 && spans[1].strip == 1 && spans[1].tile == 4,
               "cross: two strips, the second on tile2");
         // Strip 1 is turned 90 deg about T: S' = -Y, half width * crossWidth.
-        Check(Near(spans[1].V[4 * 2], GfVec3f(0.1f, 0.0025f, 0)) && Near(spans[1].rowWidth[4], 0.005f),
+        Check(Near(spans[1].V[4 * 2], usdGen::UsdGenVec3f(0.1f, 0.0025f, 0)) && Near(spans[1].rowWidth[4], 0.005f),
               "cross strip 1 stands upright at crossWidth");
     }
     {
@@ -273,11 +274,11 @@ static void TestGeometry()
         card::Card cross = StraightCard();
         cross.cardType = card::kCross;
         cross.widthSegments = 2;
-        cross.points.push_back(GfVec3f(0.3f, 0, 0));
+        cross.points.push_back(usdGen::UsdGenVec3f(0.3f, 0, 0));
         add(cross);
         card::Card tube = StraightCard();
         tube.cardType = card::kTube;
-        tube.points = {GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0)};
+        tube.points = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0)};
         add(tube);
         uint64_t v = 0, x = 0;
         card::MeshCounts(all, &v, &x);
@@ -289,19 +290,19 @@ static void TestGeometry()
         card::Card c = StraightCard();
         c.orientation = card::kFree;
         auto spans = g.Build(c);
-        Check(Near(spans[0].V[0], GfVec3f(0, 0, -0.005f)), "Free side = chord x N0");
+        Check(Near(spans[0].V[0], usdGen::UsdGenVec3f(0, 0, -0.005f)), "Free side = chord x N0");
         c.orientation = card::kConform;
         spans = g.Build(c);
-        Check(Near(spans[0].V[0], GfVec3f(0, 0, -0.005f)) && Near(spans[0].N[0], GfVec3f(0, 1, 0)),
+        Check(Near(spans[0].V[0], usdGen::UsdGenVec3f(0, 0, -0.005f)) && Near(spans[0].N[0], usdGen::UsdGenVec3f(0, 1, 0)),
               "Conform on a flat scalp keeps the card flat");
         c.orientation = card::kMeshNormal;
-        c.points = {GfVec3f(0, 0, 0), GfVec3f(0.1f, 0.05f, 0), GfVec3f(0.15f, 0.12f, 0)};
+        c.points = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0.05f, 0), usdGen::UsdGenVec3f(0.15f, 0.12f, 0)};
         spans = g.Build(c);
         bool fixedSide = true;
         // N0 = +Y, chord in the XY plane: S0 = chord x N0 = +Z, and every row keeps it.
         for (uint32_t i = 0; i < spans[0].rows; ++i) {
-            GfVec3f const side = spans[0].V[i * 2 + 1] - spans[0].V[i * 2];
-            fixedSide = fixedSide && Near(strand::Normalize(side, GfVec3f(0.0f)), GfVec3f(0, 0, 1), 1e-4f);
+            usdGen::UsdGenVec3f const side = spans[0].V[i * 2 + 1] - spans[0].V[i * 2];
+            fixedSide = fixedSide && Near(strand::Normalize(side, usdGen::UsdGenVec3f(0.0f)), usdGen::UsdGenVec3f(0, 0, 1), 1e-4f);
         }
         if (!fixedSide) std::printf("  side row 0 %s\n", Str(spans[0].V[1] - spans[0].V[0]).c_str());
         Check(fixedSide, "Mesh Normal keeps one sideways direction on a bending card");
@@ -311,8 +312,8 @@ static void TestGeometry()
         // twin's root frame mirrored, so its grid is the mirror image of the primary's, its
         // normal sign flips back to the mirrored normal, and its U is not flipped.
         card::Card a = StraightCard(10), b = StraightCard(20);
-        a.points = {GfVec3f(0, 0, 0), GfVec3f(-0.1f, 0, 0), GfVec3f(-0.2f, 0, 0)};
-        b.points = {GfVec3f(0.2f, 0, 0), GfVec3f(0.3f, 0, 0), GfVec3f(0.4f, 0, 0)};
+        a.points = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(-0.1f, 0, 0), usdGen::UsdGenVec3f(-0.2f, 0, 0)};
+        b.points = {usdGen::UsdGenVec3f(0.2f, 0, 0), usdGen::UsdGenVec3f(0.3f, 0, 0), usdGen::UsdGenVec3f(0.4f, 0, 0)};
         a.twinId = 20;
         b.twinId = 10;
         b.rootTri = -1;   // the secondary reads the twin's binding
@@ -324,8 +325,8 @@ static void TestGeometry()
         auto sa = card::BuildCard(0, g.ctx), sb = card::BuildCard(1, g.ctx);
         bool mirrored = sa.size() == 1 && sb.size() == 1;
         for (size_t v = 0; mirrored && v < sa[0].V.size(); ++v) {
-            GfVec3f const m(0.2f - sa[0].V[v][0], sa[0].V[v][1], sa[0].V[v][2]);
-            GfVec3f const n(-sa[0].N[v][0], sa[0].N[v][1], sa[0].N[v][2]);
+            usdGen::UsdGenVec3f const m(0.2f - sa[0].V[v][0], sa[0].V[v][1], sa[0].V[v][2]);
+            usdGen::UsdGenVec3f const n(-sa[0].N[v][0], sa[0].N[v][1], sa[0].N[v][2]);
             mirrored = Near(sb[0].V[v], m) && Near(sb[0].N[v], n);
         }
         Check(mirrored, "mirror-secondary grid and normals are the twin's mirror image (twist 30 deg)");
@@ -374,7 +375,7 @@ static UsdGenAuthoredPlaneDesc FloatPlane(char const *name, std::vector<float> c
 
 struct SpineSpec
 {
-    std::vector<GfVec3f> points;
+    std::vector<usdGen::UsdGenVec3f> points;
     int id, layer, uvId, tile, tile2, type;
     int erased = 0;
     int rootTri = -1;   // fan triangle whose corner 0 is the root (bary (1, 0, 0))
@@ -394,7 +395,7 @@ static UsdGenCurveSetDesc SpineSet(std::vector<SpineSpec> const &cards)
     bary.arity = 3;
     for (SpineSpec const &c : cards) {
         set.curveVertexCounts.push_back(int(c.points.size()));
-        for (GfVec3f const &p : c.points) set.points.push_back(p);
+        for (usdGen::UsdGenVec3f const &p : c.points) set.points.push_back(p);
         idLo.push_back(c.id); idHi.push_back(0); layer.push_back(c.layer); uvId.push_back(c.uvId);
         tile.push_back(c.tile); tile2.push_back(c.tile2); type.push_back(c.type);
         erased.push_back(c.erased); segs.push_back(1); width.push_back(0.02f); vBias.push_back(0.5f);
@@ -423,7 +424,7 @@ static UsdGenCurveSetDesc LibrarySet(std::vector<LibStrand> const &strands)
     std::vector<int> uv, tile, index, count;
     for (LibStrand const &s : strands) {
         set.curveVertexCounts.push_back(5);
-        for (int k = 0; k < 5; ++k) set.points.push_back(GfVec3f(s.x, -0.5f + 0.25f * float(k), 0.1f));
+        for (int k = 0; k < 5; ++k) set.points.push_back(usdGen::UsdGenVec3f(s.x, -0.5f + 0.25f * float(k), 0.1f));
         uv.push_back(s.uvId); tile.push_back(s.tile); index.push_back(s.index); count.push_back(s.count);
     }
     set.rest = set.points;
@@ -441,9 +442,9 @@ struct Fixture
         desc.description = SdfPath("/cards");
         desc.terminal = SdfPath("/cards/source");
         desc.surfaces = {FlatScalp()};
-        std::vector<GfVec3f> const along = {GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0), GfVec3f(0.2f, 0, 0)};
-        std::vector<GfVec3f> const cross = {GfVec3f(0, 0, 0.05f), GfVec3f(0.1f, 0, 0.05f),
-                                            GfVec3f(0.2f, 0, 0.05f)};
+        std::vector<usdGen::UsdGenVec3f> const along = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(0.2f, 0, 0)};
+        std::vector<usdGen::UsdGenVec3f> const cross = {usdGen::UsdGenVec3f(0, 0, 0.05f), usdGen::UsdGenVec3f(0.1f, 0, 0.05f),
+                                            usdGen::UsdGenVec3f(0.2f, 0, 0.05f)};
         // Spine order puts the layer-1 card first: emission order is by layer.
         desc.curveSets = {
             SpineSet({{cross, 2000, 1, 3, 2, 2, card::kCross, 0, 80},
@@ -549,18 +550,18 @@ static void TestGenerator()
     // depth 0.1 * (1 - 0.5) row widths (0.01) -> +0.0005 along +Y, snapped to y = 0 at the root.
     for (uint32_t c = 0; c < out.totalCurves; ++c) {
         if (index->i[c] != 2) continue;
-        GfVec3f const root(out.px[c * 6], out.py[c * 6], out.pz[c * 6]);
-        GfVec3f const tip(out.px[c * 6 + 5], out.py[c * 6 + 5], out.pz[c * 6 + 5]);
-        Check(Near(root, GfVec3f(0, 0, -0.003f)), "root snapped onto the scalp " + Str(root));
-        Check(Near(tip, GfVec3f(0.2f, 0.0005f, -0.003f)), "tip on the card, pushed by depth " + Str(tip));
-        GfVec3f const mid(out.px[c * 6 + 3], out.py[c * 6 + 3], out.pz[c * 6 + 3]);
+        usdGen::UsdGenVec3f const root(out.px[c * 6], out.py[c * 6], out.pz[c * 6]);
+        usdGen::UsdGenVec3f const tip(out.px[c * 6 + 5], out.py[c * 6 + 5], out.pz[c * 6 + 5]);
+        Check(Near(root, usdGen::UsdGenVec3f(0, 0, -0.003f)), "root snapped onto the scalp " + Str(root));
+        Check(Near(tip, usdGen::UsdGenVec3f(0.2f, 0.0005f, -0.003f)), "tip on the card, pushed by depth " + Str(tip));
+        usdGen::UsdGenVec3f const mid(out.px[c * 6 + 3], out.py[c * 6 + 3], out.pz[c * 6 + 3]);
         Check(Near(mid[1], 0.0005f) && mid[0] > 0.11f && mid[0] < 0.13f,
               "body keeps the card depth after the root snap " + Str(mid));
         // x = 0 is the edge between faces 15 and 16 (row iz = 1 of 12 quads).
         Check(out.rootPrim[c] == 15 || out.rootPrim[c] == 16,
               "rootPrim is the scalp face under the root (" + std::to_string(out.rootPrim[c]) + ")");
-        Check(Near(out.rootN[c], GfVec3f(0, 1, 0)) && Near(GfDot(out.rootT[c], out.rootN[c]), 0.0f) &&
-              Near(out.rootB[c], GfCross(out.rootN[c], out.rootT[c])),
+        Check(Near(out.rootN[c], usdGen::UsdGenVec3f(0, 1, 0)) && Near(usdGen::UsdGenDot(out.rootT[c], out.rootN[c]), 0.0f) &&
+              Near(out.rootB[c], usdGen::UsdGenCross(out.rootN[c], out.rootT[c])),
               "root frame: N = face normal, T _|_ N, B = N x T");
         Check(Near(out.rootUV[c][0], 0.0f) && Near(out.rootUV[c][1], -0.003f), "rootUV at the snapped root");
         Check(Near(out.rest[c * 6 + 5], tip), "rest = generated points");
@@ -595,9 +596,9 @@ static void TestGenerator()
         // roots spread on the R2 sequence around the spine root and snapped to the scalp.
         Fixture g;
         g.Set("cardSource:braid", VtValue(true));
-        g.desc.curveSets[0] = SpineSet({{{GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0), GfVec3f(0.2f, 0, 0)},
+        g.desc.curveSets[0] = SpineSet({{{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(0.2f, 0, 0)},
                                          6000, 0, 3, 1, 1, card::kBraid, 0, 56},
-                                        {{GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0)}, 7000, 0, 3, 1, 1,
+                                        {{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0)}, 7000, 0, 3, 1, 1,
                                          card::kRibbon, 0, 56}});
         UsdGenCurveBuffer b;
         bool const cooked = Cook(g.desc, &b);
@@ -659,7 +660,8 @@ template <class T>
 static T Get(SdfLayerHandle const &layer, SdfPath const &prim, std::string const &name)
 {
     VtValue const v = Default(layer, prim, name);
-    return v.IsHolding<T>() ? v.UncheckedGet<T>() : T();
+    using H = typename usdGenUsd::HostRep<T>::Type;   // engine math reads the Gf type
+    return v.IsHolding<H>() ? T(usdGenUsd::HostRep<T>::In(v.UncheckedGet<H>())) : T();
 }
 
 static bool ReadCurveSet(SdfLayerHandle const &layer, SdfPath const &path, UsdGenCurveSetDesc *out)
@@ -671,7 +673,7 @@ static bool ReadCurveSet(SdfLayerHandle const &layer, SdfPath const &path, UsdGe
     out->type = TfToken("linear");
     out->wrap = TfToken("nonperiodic");
     out->curveVertexCounts = Get<VtIntArray>(layer, path, "curveVertexCounts");
-    out->points = Get<VtVec3fArray>(layer, path, "points");
+    out->points = Get<usdGen::UsdGenVec3fArray>(layer, path, "points");
     out->rest = out->points;
     size_t total = 0;
     for (int c : out->curveVertexCounts) total += size_t(std::max(c, 0));
@@ -695,7 +697,7 @@ static bool ReadMesh(SdfLayerHandle const &layer, SdfPath const &path, UsdGenSur
     out->path = path;
     out->faceVertexCounts = Get<VtIntArray>(layer, path, "faceVertexCounts");
     out->faceVertexIndices = Get<VtIntArray>(layer, path, "faceVertexIndices");
-    out->restPoints = Get<VtVec3fArray>(layer, path, "points");
+    out->restPoints = Get<usdGen::UsdGenVec3fArray>(layer, path, "points");
     out->points = out->restPoints;
     TfToken interpolation;
     VtValue normals = Default(layer, path, "primvars:normals", &interpolation);
@@ -704,12 +706,12 @@ static bool ReadMesh(SdfLayerHandle const &layer, SdfPath const &path, UsdGenSur
         if (interpolation.IsEmpty()) interpolation = TfToken("vertex");
     }
     if (normals.IsHolding<VtVec3fArray>()) {
-        out->restNormals = normals.UncheckedGet<VtVec3fArray>();
+        out->restNormals = ToEngine(normals.UncheckedGet<VtVec3fArray>());
         out->restNormalDomain = interpolation == TfToken("faceVarying")
             ? UsdGenSurfaceNormalDomain::FaceVarying : UsdGenSurfaceNormalDomain::Vertex;
     }
     VtValue const st = Default(layer, path, "primvars:st");
-    if (st.IsHolding<VtVec2fArray>()) out->uv = st.UncheckedGet<VtVec2fArray>();
+    if (st.IsHolding<VtVec2fArray>()) out->uv = ToEngine(st.UncheckedGet<VtVec2fArray>());
     out->surfaceGeneration = 1;
     return !out->faceVertexCounts.empty() && !out->restPoints.empty();
 }
@@ -731,7 +733,7 @@ static UsdGenCurveBuffer BufferFromSet(UsdGenCurveSetDesc const &set)
     b.cvOffsets = VtIntArray(set.curveVertexCounts.size() + 1, 0);
     for (size_t c = 0; c < set.curveVertexCounts.size(); ++c)
         b.cvOffsets[c + 1] = b.cvOffsets[c] + set.curveVertexCounts[c];
-    for (GfVec3f const &p : set.points) {
+    for (usdGen::UsdGenVec3f const &p : set.points) {
         b.px.push_back(p[0]); b.py.push_back(p[1]); b.pz.push_back(p[2]);
     }
     for (UsdGenAuthoredPlaneDesc const &a : set.authoredPlanes) {

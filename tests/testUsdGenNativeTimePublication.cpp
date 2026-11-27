@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Native time-driven scene-index publication regressions.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGen/op.h"

@@ -1,4 +1,5 @@
 #include "usdGenSurface/concaveMaterialRemap.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -6,7 +7,6 @@
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -17,33 +17,33 @@ bool Fail(std::string const &message, std::string *error)
     return false;
 }
 
-bool Finite(GfVec2f const &point)
+bool Finite(UsdGenVec2f const &point)
 {
     return std::isfinite(point[0]) && std::isfinite(point[1]);
 }
 
-double Cross(GfVec2f const &a, GfVec2f const &b, GfVec2f const &c)
+double Cross(UsdGenVec2f const &a, UsdGenVec2f const &b, UsdGenVec2f const &c)
 {
     return (double(b[0]) - double(a[0])) * (double(c[1]) - double(a[1])) -
            (double(b[1]) - double(a[1])) * (double(c[0]) - double(a[0]));
 }
 
-double PolygonArea2(std::vector<GfVec2f> const &points)
+double PolygonArea2(std::vector<UsdGenVec2f> const &points)
 {
     double area = 0.0;
     for (size_t i = 0; i != points.size(); ++i) {
-        GfVec2f const &a = points[i];
-        GfVec2f const &b = points[(i + 1) % points.size()];
+        UsdGenVec2f const &a = points[i];
+        UsdGenVec2f const &b = points[(i + 1) % points.size()];
         area += double(a[0]) * double(b[1]) - double(a[1]) * double(b[0]);
     }
     return area;
 }
 
-double Scale2(std::vector<GfVec2f> const &points)
+double Scale2(std::vector<UsdGenVec2f> const &points)
 {
     double minX = points.front()[0], maxX = minX;
     double minY = points.front()[1], maxY = minY;
-    for (GfVec2f const &point : points) {
+    for (UsdGenVec2f const &point : points) {
         minX = std::min(minX, double(point[0])); maxX = std::max(maxX, double(point[0]));
         minY = std::min(minY, double(point[1])); maxY = std::max(maxY, double(point[1]));
     }
@@ -51,7 +51,7 @@ double Scale2(std::vector<GfVec2f> const &points)
     return dx * dx + dy * dy;
 }
 
-bool OnSegment(GfVec2f const &a, GfVec2f const &b, GfVec2f const &p,
+bool OnSegment(UsdGenVec2f const &a, UsdGenVec2f const &b, UsdGenVec2f const &p,
                double crossEpsilon, double coordinateEpsilon)
 {
     return std::abs(Cross(a, b, p)) <= crossEpsilon &&
@@ -61,8 +61,8 @@ bool OnSegment(GfVec2f const &a, GfVec2f const &b, GfVec2f const &p,
         double(p[1]) <= std::max(double(a[1]), double(b[1])) + coordinateEpsilon;
 }
 
-bool SegmentsIntersect(GfVec2f const &a, GfVec2f const &b,
-                       GfVec2f const &c, GfVec2f const &d, double crossEpsilon,
+bool SegmentsIntersect(UsdGenVec2f const &a, UsdGenVec2f const &b,
+                       UsdGenVec2f const &c, UsdGenVec2f const &d, double crossEpsilon,
                        double coordinateEpsilon)
 {
     double const abC = Cross(a, b, c), abD = Cross(a, b, d);
@@ -78,7 +78,7 @@ bool SegmentsIntersect(GfVec2f const &a, GfVec2f const &b,
            OnSegment(c, d, b, crossEpsilon, coordinateEpsilon);
 }
 
-bool HasSelfIntersection(std::vector<GfVec2f> const &points, double crossEpsilon,
+bool HasSelfIntersection(std::vector<UsdGenVec2f> const &points, double crossEpsilon,
                          double coordinateEpsilon)
 {
     size_t const count = points.size();
@@ -95,8 +95,8 @@ bool HasSelfIntersection(std::vector<GfVec2f> const &points, double crossEpsilon
     return false;
 }
 
-bool Barycentric(GfVec2f const &point, GfVec2f const &a, GfVec2f const &b,
-                 GfVec2f const &c, double determinantEpsilon,
+bool Barycentric(UsdGenVec2f const &point, UsdGenVec2f const &a, UsdGenVec2f const &b,
+                 UsdGenVec2f const &c, double determinantEpsilon,
                  double weightEpsilon, std::array<float, 3> *weights)
 {
     double const determinant = Cross(a, b, c);
@@ -119,9 +119,9 @@ bool Barycentric(GfVec2f const &point, GfVec2f const &a, GfVec2f const &b,
     return true;
 }
 
-std::vector<GfVec2f> CanonicalPolygon(size_t count)
+std::vector<UsdGenVec2f> CanonicalPolygon(size_t count)
 {
-    std::vector<GfVec2f> polygon;
+    std::vector<UsdGenVec2f> polygon;
     polygon.reserve(count);
     double const step = 2.0 * std::acos(-1.0) / double(count);
     for (size_t i = 0; i != count; ++i) {
@@ -131,7 +131,7 @@ std::vector<GfVec2f> CanonicalPolygon(size_t count)
     return polygon;
 }
 
-bool EarTriangulate(std::vector<GfVec2f> const &polygon, double epsilon,
+bool EarTriangulate(std::vector<UsdGenVec2f> const &polygon, double epsilon,
                     double coordinateEpsilon,
                     std::vector<std::array<uint32_t, 3>> *triangles)
 {
@@ -188,13 +188,13 @@ bool EarTriangulate(std::vector<GfVec2f> const &polygon, double epsilon,
 } // namespace
 
 bool UsdGenTriangulateConcaveMaterialSlots(
-    std::vector<GfVec2f> const &actual, std::vector<std::array<int, 3>> *triangles,
+    std::vector<UsdGenVec2f> const &actual, std::vector<std::array<int, 3>> *triangles,
     std::string *error)
 {
     if (error) error->clear();
     if (!triangles) return Fail("concave material triangulation has null output", error);
     if (actual.size() < 3) return Fail("concave material triangulation has invalid polygon", error);
-    for (GfVec2f const &point : actual)
+    for (UsdGenVec2f const &point : actual)
         if (!Finite(point)) return Fail("concave material triangulation has non-finite polygon", error);
     double const scale2 = Scale2(actual);
     if (!(scale2 > 0.0) || !std::isfinite(scale2))
@@ -219,14 +219,14 @@ bool UsdGenTriangulateConcaveMaterialSlots(
 
 bool UsdGenLocateConcaveMaterialPoint(
     size_t slotCount, std::vector<std::array<int, 3>> const &triangles,
-    GfVec2f const &canonicalPoint, std::array<int, 3> *slots,
-    GfVec3f *weights, std::string *error)
+    UsdGenVec2f const &canonicalPoint, std::array<int, 3> *slots,
+    UsdGenVec3f *weights, std::string *error)
 {
     if (error) error->clear();
     if (!slots || !weights) return Fail("concave material lookup has null output", error);
     if (slotCount < 3 || triangles.size() != slotCount - 2 || !Finite(canonicalPoint))
         return Fail("concave material lookup has invalid topology or point", error);
-    std::vector<GfVec2f> const canonical = CanonicalPolygon(slotCount);
+    std::vector<UsdGenVec2f> const canonical = CanonicalPolygon(slotCount);
     constexpr double epsilon = 2.0e-6;
     for (std::array<int, 3> const &triangle : triangles) {
         if (triangle[0] < 0 || triangle[1] < 0 || triangle[2] < 0 ||
@@ -240,15 +240,15 @@ bool UsdGenLocateConcaveMaterialPoint(
                          epsilon, epsilon, &bary))
             continue;
         *slots = triangle;
-        *weights = GfVec3f(bary[0], bary[1], bary[2]);
+        *weights = UsdGenVec3f(bary[0], bary[1], bary[2]);
         return true;
     }
     return Fail("concave material lookup point lies outside canonical polygon", error);
 }
 
 bool UsdGenRemapConcaveMaterialPoint(
-    std::vector<GfVec2f> const &actual, GfVec2f const &canonicalPoint,
-    std::array<int, 3> *slots, GfVec3f *weights,
+    std::vector<UsdGenVec2f> const &actual, UsdGenVec2f const &canonicalPoint,
+    std::array<int, 3> *slots, UsdGenVec3f *weights,
     std::string *error)
 {
     if (error) error->clear();

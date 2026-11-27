@@ -136,9 +136,18 @@ install(FILES
 # only (sol S-6: the previous install(DIRECTORY) rules appended directory
 # basenames a second time — include/usdGen/usdGen/*.h — and installed .cpp
 # files; duplicate rules for schema/imaging are removed).
-# N-7 (plan §1.2): usdGenMath is not an installed target, so no math headers
-# are installed either — they stay in-tree until the public math headers
-# land in M7; the old include/usdGenMath rule is gone.
+# N-7 (plan §1.2): usdGenMath is not an installed target (its archive stays
+# private). Step 11.4: the api headers name the engine's own math types, so
+# the math headers they include are installed (include/usdGenMath).
+install(FILES
+    libs/base/usdGenMath/usdGenMath/half.h
+    libs/base/usdGenMath/usdGenMath/vec.h
+    libs/base/usdGenMath/usdGenMath/matrix.h
+    libs/base/usdGenMath/usdGenMath/quat.h
+    libs/base/usdGenMath/usdGenMath/range.h
+    libs/base/usdGenMath/usdGenMath/math.h
+    libs/base/usdGenMath/usdGenMath/rbf.h
+    DESTINATION include/usdGenMath)
 # The Session routing bridge deliberately carries cooker/private COW
 # mechanics and is not part of the installed adapter surface.
 install(DIRECTORY libs/core/usdGen/usdGen/

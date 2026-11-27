@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Informational timings; correctness failures are always fatal. Run on a quiet
 // host, never alongside the documentation renderer. No absolute timing gates.
+#include "../utils/pxrInterop.h"
 #include "usdGen/clumpMotion.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/ops/wind.h"

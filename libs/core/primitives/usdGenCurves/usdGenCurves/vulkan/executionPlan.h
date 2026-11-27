@@ -5,11 +5,13 @@
 #ifndef USDGEN_VULKAN_EXECUTION_PLAN_H
 #define USDGEN_VULKAN_EXECUTION_PLAN_H
 
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/curveGrowPipeline.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/vulkan/exprVkProgram.h"
 #include "usdGen/executionBackend.h"
 #include "usdGenCurves/vulkan/vkStages.h"
+#include "usdGen/api/token.h"
 #include <array>
 
 #include <memory>
@@ -125,10 +127,10 @@ struct VulkanSourceControls {
     bool hasAuthoredRest = false;
     bool restFromCurrentPoints = false;
     bool stableIdsSynthesized = false;
-    TfToken idSource = UsdGenVkTokens().primvar;
+    UsdGenToken idSource = UsdGenVkTokens().primvar;
     std::string expectEpoch;
-    TfToken staleAction = UsdGenVkTokens().warn;
-    TfToken rebind = UsdGenVkTokens().onError;
+    UsdGenToken staleAction = UsdGenVkTokens().warn;
+    UsdGenToken rebind = UsdGenVkTokens().onError;
     // CurveSource resampleTo literal. 0 keeps the source layout (no stage);
     // >= 2 lowers to an implicit leading internal Resample stage.
     int resampleTo = 0;

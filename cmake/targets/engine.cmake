@@ -14,6 +14,10 @@ file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/usdGen/*.cpp)
 include(cmake/IncludeShim.cmake)
 set(USDGEN_ENGINE_INCLUDE_DIRS
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen>
+    # Step 11.2: api and engine headers name the math types, so the
+    # "usdGenMath/<type>.h" root is part of usdGen's interface (D16). Headers
+    # only: the alias-phase math types are inline over Gf; no link to usdGenMath.
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath>
     $<BUILD_INTERFACE:${USDGEN_SHIM_DIR}>)
 # Primitive roots: each primitive target publishes its own; usdGen publishes
 # none (step 8.5). The backends still read primitive headers in their public
@@ -38,16 +42,15 @@ endif()
 target_include_directories(usdGen PUBLIC
     ${USDGEN_ENGINE_INCLUDE_DIRS}
     $<INSTALL_INTERFACE:include>)
-# Public headers expose TfToken/GfVec3f/VtArray, so those base libs must be
-# PUBLIC for consumers (tests) to link them transitively. No sdf (step 7.4):
-# SdfPath and Sdf value types live in the hosts (usdGenUsd links sdf).
+# No pxr library (step 11.8, Option B): the API spells the engine's own base
+# types, and trace, debug and report go through host-installed sinks. Hosts
+# link what they use (usdGenUsd re-exports tf gf vt sdf).
 # usdGenMath is PRIVATE (N-7, plan §1.2): it is not installed, so it must
 # not sit in usdGen's export interface (install(EXPORT) would then reference
 # a non-installed target); usdGen's own sources still see its headers
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
-    PUBLIC tf gf vt
-    PRIVATE usdGenMath arch js plug ts ar work trace ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath ${CMAKE_DL_LIBS})
 if(WIN32)
     target_link_libraries(usdGen PRIVATE Synchronization)  # WaitOnAddress
 endif()

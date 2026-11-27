@@ -30,6 +30,7 @@
 //
 // Scatter Evaluate is intentionally absent: it is an empty identity hook
 // (ops/scatter.cpp), so there is nothing to time.
+#include "../utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/curveBuffer.h"
@@ -195,8 +196,8 @@ UsdGenGraphDesc MakeDesc(int nx, int ny, int seed = 42)
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
     s.id = 0;
-    s.restPoints = VtVec3fArray((nx + 1) * (ny + 1));
-    s.uv = VtVec2fArray((nx + 1) * (ny + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((nx + 1) * (ny + 1));
+    s.uv = usdGen::UsdGenVec2fArray((nx + 1) * (ny + 1));
     for (int j = 0; j <= ny; ++j)
         for (int i = 0; i <= nx; ++i) {
             int const k = j * (nx + 1) + i;
@@ -357,7 +358,7 @@ UsdGenCurveBuffer GrowForBake(UsdGenCurveBuffer const &roots, int cvs)
     b.pz.resize(b.totalCvs);
     for (uint32_t c = 0; c < n; ++c) {
         float const ox = roots.px[c], oy = roots.py[c], oz = roots.pz[c];
-        GfVec3f const d = roots.rootN[c];
+        GfVec3f const d = ToHost(roots.rootN[c]);
         for (int i = 0; i < cvs; ++i) {
             float const t = float(i) / float(cvs - 1);
             uint32_t const o = c * uint32_t(cvs) + uint32_t(i);
@@ -418,9 +419,9 @@ static usdGenImaging::UsdGenInstanceCurveData const *InstanceData(usdGen::UsdGen
     d.py = b.py;
     d.pz = b.pz;
     d.curveId = b.curveId;
-    d.rootT = b.rootT;
-    d.rootN = b.rootN;
-    d.rootB = b.rootB;
+    d.rootT = ToHost(b.rootT);
+    d.rootN = ToHost(b.rootN);
+    d.rootB = ToHost(b.rootB);
     d.cvOffsets = b.cvOffsets;
     d.extraCurve = b.extraCurve;
     g_instanceData.push_back(std::move(d));

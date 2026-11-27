@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/executionPlan.h"
 
@@ -12,6 +13,11 @@
 #include <limits>
 #include <string>
 #include <type_traits>
+
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
 
 using namespace usdGen;
 using Pipeline = UsdGenExecutionPipeline;

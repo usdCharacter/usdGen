@@ -19,7 +19,9 @@
 #include "usdGen/scheduler.h"
 #include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/debugCodes.h"
+#include "usdGen/api/debug.h"
+#include "usdGen/api/env.h"
+#include "usdGen/api/status.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
@@ -27,16 +29,14 @@
 #include "usdGen/types.h"
 #include "usdGen/api/writeSet.h"
 #include "usdGen/exec/epoch.h"
-
-#include "pxr/pxr.h"
-#include "pxr/base/gf/range3f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/getenv.h"
-#include "pxr/base/trace/trace.h"
-#include "pxr/base/vt/array.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/trace.h"
+#include "usdGen/api/cowArray.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cmath>
@@ -46,9 +46,6 @@
 #include <optional>
 #include <utility>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 namespace usdGen {
 
 namespace {
@@ -56,11 +53,8 @@ namespace {
 int ResolveThreadLimit(int requested)
 {
     if (requested > 0) return requested;
-    const std::string env = TfGetenv("USDGEN_THREAD_LIMIT");  // 26.08: std::string
-    if (!env.empty()) {
-        const int parsed = std::atoi(env.c_str());
-        if (parsed > 0) return parsed;
-    }
+    const int parsed = UsdGenGetEnvInt("USDGEN_THREAD_LIMIT", 0);
+    if (parsed > 0) return parsed;
     // 03 §5.3: the topology-aware default. The measured 8-thread knee
     // (EV-001/EV-008) is the floor; on heterogeneous Linux with more fast
     // cores than that, the arena spans every fast core — pinning engages
@@ -80,34 +74,21 @@ UsdGenElementSet const *OutputOrEmpty(UsdGenGraph const &graph, UsdGenCompiledNo
 }
 
 /// The emitting op's declared layout for `name`, if it declares one.
-UsdGenPlane const *DeclaredOutputPlane(UsdGenOpRecord const *record, TfToken const &name)
+UsdGenChannelDesc const *DeclaredOutputPlane(UsdGenOpRecord const *record, UsdGenToken const &name)
 {
     if (!record) return nullptr;
-    for (UsdGenPlane const &plane : record->OutputPlanes())
+    for (UsdGenChannelDesc const &plane : record->OutputPlanes())
         if (plane.name == name) return &plane;
     return nullptr;
-}
-
-/// A plane descriptor as a channel.
-UsdGenChannelDesc PlaneDesc(UsdGenPlane const &p)
-{
-    auto const &tk = UsdGenTokens();
-    UsdGenChannelDesc d;
-    d.name = p.name;
-    d.arity = p.arity;
-    d.level = p.interpolation == tk.vertex ? 2 : p.interpolation == tk.constant ? 0 : 1;
-    d.scalar = p.type == tk.int_ ? UsdGenScalar::I32 : UsdGenScalar::F32;
-    d.flags = p.arity > 1 ? uint8_t(kUsdGenChannelPacked) : uint8_t(0);
-    return d;
 }
 
 /// A first producer's layout (R24): the op's declaration, else the layout's
 /// named-channel hook, else one float per element. A later writer takes the
 /// upstream channel's layout instead.
 UsdGenChannelDesc DefaultOutputChannel(UsdGenOpRecord const *record,
-                                       UsdGenElementLayout const &layout, TfToken const &name)
+                                       UsdGenElementLayout const &layout, UsdGenToken const &name)
 {
-    if (UsdGenPlane const *declared = DeclaredOutputPlane(record, name)) return PlaneDesc(*declared);
+    if (UsdGenChannelDesc const *declared = DeclaredOutputPlane(record, name)) return *declared;
     UsdGenChannelDesc d;
     bool fixed = false;
     if (layout.namedChannel && layout.namedChannel(name, &d, &fixed)) {
@@ -122,7 +103,7 @@ UsdGenChannelDesc DefaultOutputChannel(UsdGenOpRecord const *record,
 
 /// A channel whose layout the emitting op fixes regardless of upstream.
 bool IsFixedLayoutPlane(UsdGenOpRecord const *record, UsdGenElementLayout const &layout,
-                        TfToken const &name)
+                        UsdGenToken const &name)
 {
     if (!record || !record->Has(kUsdGenOpFixedOutputPlaneLayout)) return false;
     if (DeclaredOutputPlane(record, name)) return true;
@@ -180,7 +161,7 @@ PointColumns PointColumnsOf(UsdGenElementSetView const &v)
 }
 
 /// A dynamic (named, non-static) channel of 'table', or kUsdGenNoSlot.
-UsdGenSlot DynamicSlot(UsdGenChannelTable const *table, TfToken const &name)
+UsdGenSlot DynamicSlot(UsdGenChannelTable const *table, UsdGenToken const &name)
 {
     if (!table) return kUsdGenNoSlot;
     UsdGenSlot const s = table->Find(name);
@@ -245,7 +226,7 @@ struct OutputScratch
     std::vector<ColumnPlan> plans;
     std::vector<UsdGenSlot> own;
     std::vector<UsdGenChannelDesc> added;
-    std::vector<std::pair<TfToken, ColumnPlan>> named;   // emitted, then remapped
+    std::vector<std::pair<UsdGenToken, ColumnPlan>> named;   // emitted, then remapped
 };
 
 void Mix(uint64_t *h, uint64_t v)
@@ -377,7 +358,7 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
     if (extrasFromInput) {
         UsdGenChannelTable const *inT = &up->Channels();
         UsdGenChannelTable const *oldT = &prior->Channels();
-        for (TfToken const &name : node.outputPrimvars) {
+        for (UsdGenToken const &name : node.outputPrimvars) {
             UsdGenSlot const source = DynamicSlot(inT, name);
             UsdGenSlot const old = DynamicSlot(oldT, name);
             bool const fixedLayout = IsFixedLayoutPlane(node.record, inT->Layout(), name);
@@ -477,7 +458,7 @@ void PrepareNodeForEval(UsdGenGraph const &graph, UsdGenCompiledNode &node, UsdG
     // Named planes: emitted and remapped ones are the node's own; the rest
     // alias the input's (or stay the capture's).
     for (UsdGenSlot s = t.StaticCount(); s < t.Size(); ++s) {
-        TfToken const &name = t[s].name;
+        UsdGenToken const &name = t[s].name;
         if (!extrasFromInput) {
             S.plans[s] = PlanKeep(prior, DynamicSlot(&prior->Channels(), name));
             continue;
@@ -500,13 +481,13 @@ UsdGenEpoch WithExternalValueIdentity(UsdGenEpoch digest,
         digest[1] ^= ~value;
         digest[1] *= 0x100000001b3ULL;
     };
-    TfSpan<const UsdGenResolvedReferenceValue> const references = graph.ReferenceValues();
+    UsdGenSpan<const UsdGenResolvedReferenceValue> const references = graph.ReferenceValues();
     for (uint32_t index : node.referenceValues) {
         if (index >= references.size()) { mix(UINT64_MAX); continue; }
         mix(references[index].identity);
         mix(references[index].generation);
     }
-    TfSpan<const UsdGenResolvedMapValue> const maps = graph.MapValues();
+    UsdGenSpan<const UsdGenResolvedMapValue> const maps = graph.MapValues();
     for (uint32_t index : node.mapValues) {
         if (index >= maps.size()) { mix(UINT64_MAX - 1); continue; }
         mix(maps[index].identity);
@@ -537,7 +518,7 @@ struct NodeSweepPayload
     uint32_t planes;
     std::atomic<uint32_t> failureCode{0};
     bool deferCompletion = false;
-    std::vector<GfVec3d> pointScratch;
+    std::vector<UsdGenVec3d> pointScratch;
     std::vector<double> scalarScratch;
     std::vector<uint8_t> didEval;  // one byte per chunk: a bit-packed
                                    // vector<bool> makes 64 workers share one
@@ -821,7 +802,7 @@ void InterleaveTile(size_t index, void *payload)
     if (pl.tn->chunks.size() < tv.firstChunk + tv.chunkCount) return;
 
     PointColumns const &term = pl.term;
-    GfRange3f extent;
+    UsdGenRange3f extent;
     uint64_t liveElements = 0, liveItems = 0;
     float const *tpx = term.p[0].empty() ? nullptr : term.p[0].cdata();
     float const *tpy = term.p[1].empty() ? nullptr : term.p[1].cdata();
@@ -852,8 +833,8 @@ void InterleaveTile(size_t index, void *payload)
                 liveItems += uint64_t(cd.live) * cd.stride[1];
             }
             UsdGenChunkExtent const &e = pl.extents[tv.firstChunk + i];
-            extent.UnionWith(GfRange3f(GfVec3f(e.min[0], e.min[1], e.min[2]),
-                                       GfVec3f(e.max[0], e.max[1], e.max[2])));
+            extent.UnionWith(UsdGenRange3f(UsdGenVec3f(e.min[0], e.min[1], e.min[2]),
+                                       UsdGenVec3f(e.max[0], e.max[1], e.max[2])));
             continue;
         }
         // Ragged path (03 §1.3): per-element item spans come from the
@@ -871,7 +852,7 @@ void InterleaveTile(size_t index, void *payload)
                 for (uint32_t v = 0; v < len; ++v) {
                     size_t const p = size_t(p0) + v;
                     if (p >= nPx) break;
-                    extent.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
+                    extent.ExtendBy(UsdGenVec3f(tpx[p], tpy[p], tpz[p]));
                 }
             }
             continue;
@@ -884,7 +865,7 @@ void InterleaveTile(size_t index, void *payload)
             for (uint32_t v = 0; v < cd.stride[1]; ++v) {
                 size_t const p = o + v;
                 if (p >= nPx) break;
-                extent.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
+                extent.ExtendBy(UsdGenVec3f(tpx[p], tpy[p], tpz[p]));
             }
         }
     }
@@ -943,10 +924,10 @@ UsdGenRunResult UsdGenScheduler::Run(
     TileCompleted tileCompleted,
     Superseded const &superseded)
 {
-    TF_UNUSED(generationRequested);
+    (void)generationRequested;
     if (!_scratch) _scratch = std::make_unique<UsdGenRunScratch>();
     if (_scratch->running.exchange(true, std::memory_order_acquire)) {
-        TF_CODING_ERROR("UsdGenScheduler::Run is not reentrant");
+        UsdGenReport(UsdGenSeverity::CodingError, "UsdGenScheduler::Run is not reentrant");
         UsdGenRunResult refused;
         refused.diagnostics.Error("UsdGen: scheduler is already running");
         return refused;
@@ -955,7 +936,7 @@ UsdGenRunResult UsdGenScheduler::Run(
     UsdGenCookTokenCheck const tokenCheck;
     UsdGenRunResult result = _Run(graph, evalCtx, tileCompleted, superseded);
     UsdGenCookInternFails(tokenCheck, &result.diagnostics);
-    result.nodeStats = TfSpan<const UsdGenNodeRunStats>(_scratch->nodeStats);
+    result.nodeStats = UsdGenSpan<const UsdGenNodeRunStats>(_scratch->nodeStats);
     _scratch->running.store(false, std::memory_order_release);
     // Cook-lane drain: what this cook retired is freed by the cook, not left
     // to an idle worker (a no-op on a pinned thread or with nothing due).
@@ -969,7 +950,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
     TileCompleted const &tileCompleted,
     Superseded const &superseded)
 {
-    TRACE_FUNCTION();
+    USDGEN_TRACE_FUNCTION();
     UsdGenRunScratch &S = *_scratch;
 
     UsdGenRunResult result;
@@ -1069,7 +1050,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
     auto prepareNode = [&](int pos, NodeExecution *job) -> bool {
         UsdGenCompiledNode &node = graph.Node(pos);
         UsdGenOp &op = *node.op;
-        TRACE_SCOPE("usdGen prepare");   // a dynamic name interns a token per node
+        USDGEN_TRACE_SCOPE("usdGen prepare");   // a dynamic name interns a token per node
         UsdGenDiagnostics nodeDiag;
         bool const hasUp = !node.inputs.empty();
         UsdGenElementSet const *up = hasUp
@@ -1088,9 +1069,9 @@ UsdGenRunResult UsdGenScheduler::_Run(
         inputs.count = static_cast<uint32_t>(job->inputSets.size());
         job->captureStart = std::chrono::steady_clock::now();
 
-        TfSpan<const UsdGenResolvedReferenceValue> const graphReferences =
+        UsdGenSpan<const UsdGenResolvedReferenceValue> const graphReferences =
             graph.ReferenceValues();
-        TfSpan<const UsdGenResolvedMapValue> const graphMaps = graph.MapValues();
+        UsdGenSpan<const UsdGenResolvedMapValue> const graphMaps = graph.MapValues();
         job->referenceSets.reserve(node.referenceValues.size());
         job->resolvedReferences.reserve(node.referenceValues.size());
         for (uint32_t value : node.referenceValues) {
@@ -1243,8 +1224,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
             !node.capture->ValidForTopology(inputs.Primary()) ? "input changed" : nullptr;
         job->reCaptured = job->recaptureReason != nullptr;
         if (job->reCaptured) {
-            TRACE_SCOPE("usdGen capture");
-            TRACE_COUNTER_DELTA("usdGen nodes captured", 1);
+            USDGEN_TRACE_SCOPE("usdGen capture");
+            USDGEN_TRACE_COUNTER("usdGen nodes captured", 1);
             cctx.previousCapture = node.capture.get();
             // Recycled through retirement: the spare is the capture replaced
             // one re-capture ago, so the newer generation no longer shares
@@ -1496,7 +1477,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
 
             while (S.jobs.size() < frontier.size())
                 S.jobs.push_back(std::make_unique<NodeExecution>());
-            TfSpan<const std::unique_ptr<NodeExecution>> const jobs(
+            UsdGenSpan<const std::unique_ptr<NodeExecution>> const jobs(
                 S.jobs.data(), frontier.size());
             for (size_t j = 0; j < frontier.size(); ++j) {
                 jobs[j]->Reset();
@@ -1574,8 +1555,8 @@ UsdGenRunResult UsdGenScheduler::_Run(
                 }
             }
             if (!work.empty()) {
-                TRACE_SCOPE("usdGen chunk sweep");
-                TRACE_COUNTER_DELTA("usdGen chunks evaluated", double(work.size()));
+                USDGEN_TRACE_SCOPE("usdGen chunk sweep");
+                USDGEN_TRACE_COUNTER("usdGen chunks evaluated", double(work.size()));
                 for (auto const &job : jobs)
                     if (job->shouldSweep)
                         job->evaluationStart = std::chrono::steady_clock::now();
@@ -1667,7 +1648,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                     for (uint8_t b : job.sweep.didEval) if (b) ++st.chunksEvaluated;
                     S.nodeStats.push_back(st);
                 }
-                if (TfDebug::IsEnabled(USDGEN_SCHEDULE)) {
+                if (UsdGenDebugEnabled(UsdGenDebugCode::Schedule)) {
                     size_t evaluated = 0;
                     for (uint8_t b : job.sweep.didEval) evaluated += b != 0;
                     double const captureMs = std::chrono::duration<double, std::milli>(
@@ -1676,7 +1657,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
                         ? std::chrono::duration<double, std::milli>(
                               std::chrono::steady_clock::now() - job.evaluationStart).count()
                         : 0.0;
-                    TfDebug::Helper().Msg(
+                    UsdGenDebugMsg(
                         "usdGen schedule  %-12s %-18s %-22s prepare %8.2f ms  eval %4zu/%-4zu chunks %8.2f ms%s\n",
                         NodeLabel(graph, node).c_str(),
                         node.desc ? node.desc->type.GetText() : "?",
@@ -1733,7 +1714,7 @@ UsdGenRunResult UsdGenScheduler::_Run(
         if (ok) fusedExtents = extentScratch.data();
     }
     if (nTiles > 0) {
-        TRACE_SCOPE("usdGen interleave tiles");
+        USDGEN_TRACE_SCOPE("usdGen interleave tiles");
         InterleavePayload ip;
         ip.graph = &graph;
         ip.tn = &tn;

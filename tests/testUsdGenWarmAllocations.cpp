@@ -15,6 +15,7 @@
 // reproduce a fresh compile's output bit for bit, and recycling must never
 // write into a buffer something still holds.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/allocCounter.h"
 #include "nodeSets.h"
 #include "usdGen/compiler.h"
@@ -97,13 +98,13 @@ void AddSurface(UsdGenGraphDesc *d)
     constexpr int NX = 100, NY = 100;   // 100 area units at density 100: ~10k roots
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
-    s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
-    s.uv = VtVec2fArray((NX + 1) * (NY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((NX + 1) * (NY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((NX + 1) * (NY + 1));
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             int const k = j * (NX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
     s.faceVertexIndices = VtIntArray(NX * NY * 4);
@@ -233,6 +234,13 @@ UsdGenCurveBuffer FreshCook(UsdGenGraphDesc const &desc)
 
 template <class T>
 bool SameBits(VtArray<T> const &a, VtArray<T> const &b)
+{
+    return a.size() == b.size() &&
+        (a.empty() || std::memcmp(a.cdata(), b.cdata(), a.size() * sizeof(T)) == 0);
+}
+
+template <class T>
+bool SameBits(usdGen::UsdGenCowArray<T> const &a, usdGen::UsdGenCowArray<T> const &b)
 {
     return a.size() == b.size() &&
         (a.empty() || std::memcmp(a.cdata(), b.cdata(), a.size() * sizeof(T)) == 0);

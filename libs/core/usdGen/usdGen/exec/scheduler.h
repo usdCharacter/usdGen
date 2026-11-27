@@ -24,9 +24,6 @@
 #include <functional>
 #include <memory>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 namespace usdGen {
 
 /// Per-node timing/counters for one Run (03 §9.2; feeds UsdGenNodeStats).
@@ -47,7 +44,7 @@ struct UsdGenRunResult
     UsdGenDiagnostics diagnostics; // node diagnostics for this run
     /// One entry per node with work. Points into the scheduler; valid until
     /// its next Run.
-    TfSpan<const UsdGenNodeRunStats> nodeStats;
+    UsdGenSpan<const UsdGenNodeRunStats> nodeStats;
 };
 
 /// The work dispatcher handed to Capture() for intra-node parallelism (03 §8.1).

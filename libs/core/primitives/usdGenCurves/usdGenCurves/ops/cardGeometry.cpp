@@ -5,6 +5,7 @@
 // with the reference clamps and constants, so grids match the imported
 // groom's own card mesh up to float rounding.
 #include "usdGen/ops/cardGeometry.h"
+#include "usdGenMath/math.h"
 
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/registries/engineTokens.h"
@@ -13,7 +14,6 @@
 #include <cmath>
 #include <cstring>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace card {
@@ -27,7 +27,7 @@ constexpr uint64_t kGolden = 0x9E3779B97F4A7C15ull;
 inline float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float Finite(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
 
-inline GfVec3f Nrm(GfVec3f const &v, GfVec3f const &fallback = GfVec3f(1.0f, 0.0f, 0.0f))
+inline UsdGenVec3f Nrm(UsdGenVec3f const &v, UsdGenVec3f const &fallback = UsdGenVec3f(1.0f, 0.0f, 0.0f))
 {
     return strand::Normalize(v, fallback, 1e-6f);
 }
@@ -35,20 +35,20 @@ inline GfVec3f Nrm(GfVec3f const &v, GfVec3f const &fallback = GfVec3f(1.0f, 0.0
 /// Mirror plane index -> mirrored coordinate axis (0: x, 1: z, 2: y).
 inline int PlaneAxis(int plane) { return plane == 1 ? 2 : (plane == 2 ? 1 : 0); }
 
-inline GfVec3f MirrorPoint(GfVec3f p, int plane, GfVec3f const &centre)
+inline UsdGenVec3f MirrorPoint(UsdGenVec3f p, int plane, UsdGenVec3f const &centre)
 {
     int const a = PlaneAxis(plane);
     p[a] = 2.0f * centre[a] - p[a];
     return p;
 }
 
-inline GfVec3f MirrorVector(GfVec3f v, int plane)
+inline UsdGenVec3f MirrorVector(UsdGenVec3f v, int plane)
 {
     v[PlaneAxis(plane)] = -v[PlaneAxis(plane)];
     return v;
 }
 
-float CumulativeLengths(std::vector<GfVec3f> const &p, std::vector<float> *s)
+float CumulativeLengths(std::vector<UsdGenVec3f> const &p, std::vector<float> *s)
 {
     s->assign(p.size(), 0.0f);
     float acc = 0.0f;
@@ -61,11 +61,11 @@ float CumulativeLengths(std::vector<GfVec3f> const &p, std::vector<float> *s)
 
 /// Polyline point at arc length x: linear inside, linear extrapolation past
 /// either end along the first / last segment direction.
-GfVec3f SampleArcExtrapolated(std::vector<GfVec3f> const &p, std::vector<float> const &s,
+UsdGenVec3f SampleArcExtrapolated(std::vector<UsdGenVec3f> const &p, std::vector<float> const &s,
                               float x)
 {
     size_t const n = p.size();
-    if (n < 2) return n ? p[0] : GfVec3f(0.0f);
+    if (n < 2) return n ? p[0] : UsdGenVec3f(0.0f);
     float const L = s[n - 1];
     if (x <= 0.0f) return p[0] + Nrm(p[1] - p[0]) * x;
     if (x >= L) return p[n - 1] + Nrm(p[n - 1] - p[n - 2]) * (x - L);
@@ -91,7 +91,7 @@ Card const *FindTwin(Card const &card, Context const &ctx)
 
 // --- spine stages -------------------------------------------------------------------
 
-void LengthScale(Card const &card, std::vector<GfVec3f> *P)
+void LengthScale(Card const &card, std::vector<UsdGenVec3f> *P)
 {
     float lo = Clamp(card.lengthMin, 0.01f, 2.0f), hi = Clamp(card.lengthMax, 0.01f, 2.0f);
     if (hi < lo) std::swap(lo, hi);
@@ -103,11 +103,11 @@ void LengthScale(Card const &card, std::vector<GfVec3f> *P)
     std::vector<float> s;
     float const L = CumulativeLengths(*P, &s);
     if (!(std::fabs(scale - 1.0f) > 1e-4f) || !(L > 1e-6f)) return;
-    std::vector<GfVec3f> const orig = *P;
+    std::vector<UsdGenVec3f> const orig = *P;
     for (size_t i = 0; i < P->size(); ++i) (*P)[i] = SampleArcExtrapolated(orig, s, scale * s[i]);
 }
 
-void Frizz(Card const &card, std::vector<GfVec3f> *P)
+void Frizz(Card const &card, std::vector<UsdGenVec3f> *P)
 {
     size_t const n = P->size();
     if (n < 3) return;
@@ -124,37 +124,37 @@ void Frizz(Card const &card, std::vector<GfVec3f> *P)
     uint64_t const seed = SeedOf(card);
     float const phi = strand::Hash01(seed * 0xD8163841ull) * 2.0f * kPi;
     float const ofs = strand::Hash01(seed * 0x1B873593ull) * 1000.0f;
-    GfVec3f const chord = Nrm((*P)[n - 1] - (*P)[0]);
-    GfVec3f const R = std::fabs(chord[1]) >= 0.95f ? GfVec3f(1, 0, 0) : GfVec3f(0, 1, 0);
+    UsdGenVec3f const chord = Nrm((*P)[n - 1] - (*P)[0]);
+    UsdGenVec3f const R = std::fabs(chord[1]) >= 0.95f ? UsdGenVec3f(1, 0, 0) : UsdGenVec3f(0, 1, 0);
     float const root = strand::Clamp01(card.frizzRoot), mid = strand::Clamp01(card.frizzMid),
                 shift = strand::Clamp01(card.frizzMidShift), tip = strand::Clamp01(card.frizzTip);
     float const cphi = std::cos(phi), sphi = std::sin(phi);
-    std::vector<GfVec3f> disp(n, GfVec3f(0.0f));
-    GfVec3f X(0.0f);
+    std::vector<UsdGenVec3f> disp(n, UsdGenVec3f(0.0f));
+    UsdGenVec3f X(0.0f);
     bool haveX = false;
     for (size_t i = 1; i < n; ++i) {
         float const t = s[i] / L;
         float const w = strand::Clamp01(strand::BezierProfile(t, root, mid, shift, tip, 0.0f, 1.0f));
-        GfVec3f d = i + 1 < n ? (*P)[i + 1] - (*P)[i] : (*P)[i] - (*P)[i - 1];
+        UsdGenVec3f d = i + 1 < n ? (*P)[i + 1] - (*P)[i] : (*P)[i] - (*P)[i - 1];
         float const dl = d.GetLength();
         if (dl <= 1e-6f) continue;
         d /= dl;
         bool found = false;
-        GfVec3f Xn;
+        UsdGenVec3f Xn;
         if (haveX) {
-            GfVec3f const xc = X - d * GfDot(X, d);
+            UsdGenVec3f const xc = X - d * UsdGenDot(X, d);
             float const l = xc.GetLength();
             if (l > 1e-6f) { Xn = xc / l; found = true; }
         }
         if (!found) {
-            GfVec3f const xc = GfCross(d, R);
+            UsdGenVec3f const xc = UsdGenCross(d, R);
             float const l = xc.GetLength();
             if (l <= 1e-6f) continue;
             Xn = xc / l;
         }
         X = Xn;
         haveX = true;
-        GfVec3f const Y = Nrm(GfCross(d, X));
+        UsdGenVec3f const Y = Nrm(UsdGenCross(d, X));
         if (w > 1e-4f) {
             float pn = 0.0f;
             if (noise > 1e-4f) pn = strand::ValueNoise1(t * 4.0f + ofs, kGolden) * noise * 2.0f * kPi;
@@ -168,17 +168,17 @@ void Frizz(Card const &card, std::vector<GfVec3f> *P)
 }
 
 /// Signed distance to the scalp: closest point, interpolated normal, (p - q).n.
-bool ScalpDistance(Context const &ctx, GfVec3f const &p, GfVec3f *normal, float *sd)
+bool ScalpDistance(Context const &ctx, UsdGenVec3f const &p, UsdGenVec3f *normal, float *sd)
 {
     if (!ctx.scalp || ctx.scalp->Empty()) return false;
     strand::ClosestHit const hit = ctx.scalp->Closest(p);
     if (!hit.hit) return false;
     *normal = ctx.scalp->Normal(hit.triangle, hit.bary);
-    *sd = GfDot(p - hit.point, *normal);
+    *sd = UsdGenDot(p - hit.point, *normal);
     return true;
 }
 
-void PushOut(Card const &card, Context const &ctx, std::vector<GfVec3f> *P)
+void PushOut(Card const &card, Context const &ctx, std::vector<UsdGenVec3f> *P)
 {
     size_t const n = P->size();
     if (!card.pushOutEnabled || n < 2 || !ctx.scalp || ctx.scalp->Empty()) return;
@@ -186,25 +186,25 @@ void PushOut(Card const &card, Context const &ctx, std::vector<GfVec3f> *P)
     auto threshold = [&](size_t i) { return d0 + (d1 - d0) * (float(i) / float(n - 1)); };
     bool any = false;
     for (size_t i = 1; i < n && !any; ++i) {
-        GfVec3f nrm;
+        UsdGenVec3f nrm;
         float sd = 0.0f;
         any = ScalpDistance(ctx, (*P)[i], &nrm, &sd) && sd < threshold(i);
     }
     if (!any) return;
-    std::vector<GfVec3f> const orig = *P;
+    std::vector<UsdGenVec3f> const orig = *P;
     std::vector<float> seg(n, 0.0f);
     for (size_t i = 1; i < n; ++i) seg[i] = (orig[i] - orig[i - 1]).GetLength();
     int const K = std::min(std::max(int(std::lround(strand::Clamp01(card.pushOutSmoothness) * 4.0f)), 1), 8);
-    std::vector<GfVec3f> disp(n, GfVec3f(0.0f)), tmp(n);
+    std::vector<UsdGenVec3f> disp(n, UsdGenVec3f(0.0f)), tmp(n);
     for (int iteration = 0; iteration < 16; ++iteration) {
         for (size_t i = 1; i < n; ++i) {
-            GfVec3f nrm;
+            UsdGenVec3f nrm;
             float sd = 0.0f;
             float const thr = threshold(i);
             if (ScalpDistance(ctx, (*P)[i], &nrm, &sd) && sd < thr) disp[i] += nrm * ((thr - sd) * 0.8f);
         }
         for (size_t i = 0; i < n; ++i) {
-            GfVec3f acc(0.0f);
+            UsdGenVec3f acc(0.0f);
             for (int k = -K; k <= K; ++k) {
                 long const j = std::min(std::max(long(i) + k, 0L), long(n) - 1);
                 acc += disp[size_t(j)];
@@ -212,7 +212,7 @@ void PushOut(Card const &card, Context const &ctx, std::vector<GfVec3f> *P)
             tmp[i] = acc / float(2 * K + 1);
         }
         disp.swap(tmp);
-        disp[0] = GfVec3f(0.0f);
+        disp[0] = UsdGenVec3f(0.0f);
         (*P)[0] = orig[0];
         for (size_t i = 1; i < n; ++i) (*P)[i] = orig[i] + disp[i];
         for (size_t i = 1; i < n; ++i)
@@ -222,16 +222,16 @@ void PushOut(Card const &card, Context const &ctx, std::vector<GfVec3f> *P)
 
 // --- root normal and side reference ------------------------------------------------
 
-GfVec3f OwnRootNormal(Card const &card, Context const &ctx)
+UsdGenVec3f OwnRootNormal(Card const &card, Context const &ctx)
 {
-    std::vector<GfVec3f> const &p = card.points;
+    std::vector<UsdGenVec3f> const &p = card.points;
     strand::TriangleBvh const *scalp = ctx.scalp;
     if (scalp && !scalp->Empty() && card.rootTri >= 0 &&
         size_t(card.rootTri) < scalp->TriangleCount()) {
-        GfVec3f b(Clamp(card.rootBary[0], 0.0f, 1.0f), Clamp(card.rootBary[1], 0.0f, 1.0f),
+        UsdGenVec3f b(Clamp(card.rootBary[0], 0.0f, 1.0f), Clamp(card.rootBary[1], 0.0f, 1.0f),
                   Clamp(card.rootBary[2], 0.0f, 1.0f));
         float const sum = b[0] + b[1] + b[2];
-        b = sum > 1e-8f ? b / sum : GfVec3f(1.0f, 0.0f, 0.0f);
+        b = sum > 1e-8f ? b / sum : UsdGenVec3f(1.0f, 0.0f, 0.0f);
         // The binding indexes the scalp's fan triangles in face order. When
         // it does not land on the authored root (re-triangulated or
         // re-ordered mesh) the closest scalp point stands in.
@@ -241,39 +241,39 @@ GfVec3f OwnRootNormal(Card const &card, Context const &ctx)
         strand::ClosestHit const hit = scalp->Closest(p[0]);
         if (hit.hit) return scalp->Normal(hit.triangle, hit.bary);
     }
-    if (p.size() < 2) return GfVec3f(0.0f, 1.0f, 0.0f);
+    if (p.size() < 2) return UsdGenVec3f(0.0f, 1.0f, 0.0f);
     return Nrm(p[1] - p[0]);
 }
 
 /// Free / Mesh Normal side: perpendicular to the root -> tip chord.
-GfVec3f SideFromChord(std::vector<GfVec3f> const &spine, GfVec3f const &N, int excludedAxis)
+UsdGenVec3f SideFromChord(std::vector<UsdGenVec3f> const &spine, UsdGenVec3f const &N, int excludedAxis)
 {
     if (spine.size() >= 2) {
-        GfVec3f const ch = spine.back() - spine.front();
+        UsdGenVec3f const ch = spine.back() - spine.front();
         float const l = ch.GetLength();
         if (l > 1e-8f) {
-            GfVec3f const c = ch / l;
-            if ((c - N * GfDot(c, N)).GetLength() > 0.02f) {
-                GfVec3f const x = GfCross(c, N);
-                if (GfDot(x, x) > 1e-12f) return Nrm(x);
+            UsdGenVec3f const c = ch / l;
+            if ((c - N * UsdGenDot(c, N)).GetLength() > 0.02f) {
+                UsdGenVec3f const x = UsdGenCross(c, N);
+                if (UsdGenDot(x, x) > 1e-12f) return Nrm(x);
             }
         }
     }
     for (int axis : {1, 0, 2}) {
         if (axis == excludedAxis) continue;
-        GfVec3f e(0.0f);
+        UsdGenVec3f e(0.0f);
         e[axis] = 1.0f;
-        if (std::fabs(GfDot(N, e)) < 0.95f) {
-            GfVec3f const x = GfCross(N, e);
-            if (GfDot(x, x) > 1e-8f) return Nrm(x);
+        if (std::fabs(UsdGenDot(N, e)) < 0.95f) {
+            UsdGenVec3f const x = UsdGenCross(N, e);
+            if (UsdGenDot(x, x) > 1e-8f) return Nrm(x);
         }
     }
-    return GfVec3f(1.0f, 0.0f, 0.0f);
+    return UsdGenVec3f(1.0f, 0.0f, 0.0f);
 }
 
 /// Surface / Conform side: perpendicular to the first near-root segment that
 /// is not parallel to the root normal.
-GfVec3f SideFromRootSegment(std::vector<GfVec3f> const &spine, GfVec3f const &N, int excludedAxis)
+UsdGenVec3f SideFromRootSegment(std::vector<UsdGenVec3f> const &spine, UsdGenVec3f const &N, int excludedAxis)
 {
     if (spine.size() >= 2) {
         std::vector<float> s;
@@ -281,11 +281,11 @@ GfVec3f SideFromRootSegment(std::vector<GfVec3f> const &spine, GfVec3f const &N,
         float acc = 0.0f;
         for (size_t i = 0; i + 1 < spine.size(); ++i) {
             if (0.25f * L < acc) break;
-            GfVec3f const seg = spine[i + 1] - spine[i];
+            UsdGenVec3f const seg = spine[i + 1] - spine[i];
             float const l = seg.GetLength();
             acc += l;
             if (l >= 1e-8f) {
-                GfVec3f const x = GfCross(seg / l, N);
+                UsdGenVec3f const x = UsdGenCross(seg / l, N);
                 float const xl = x.GetLength();
                 if (xl > 0.35f) return x / xl;
             }
@@ -294,7 +294,7 @@ GfVec3f SideFromRootSegment(std::vector<GfVec3f> const &spine, GfVec3f const &N,
     return SideFromChord(spine, N, excludedAxis);
 }
 
-void OwnRootFrame(Card const &card, Context const &ctx, GfVec3f *n0, GfVec3f *s0)
+void OwnRootFrame(Card const &card, Context const &ctx, UsdGenVec3f *n0, UsdGenVec3f *s0)
 {
     *n0 = OwnRootNormal(card, ctx);
     int const excluded = card.twinId != 0 ? PlaneAxis(card.mirrorPlane) : -1;
@@ -305,53 +305,53 @@ void OwnRootFrame(Card const &card, Context const &ctx, GfVec3f *n0, GfVec3f *s0
 
 // --- frames ---------------------------------------------------------------------------
 
-struct Frame { GfVec3f T, S, B; };
+struct Frame { UsdGenVec3f T, S, B; };
 
-void Frames(std::vector<GfVec3f> const &C, GfVec3f const &side0, int orientation,
-            std::vector<GfVec3f> const *conformN, float sign, std::vector<Frame> *out)
+void Frames(std::vector<UsdGenVec3f> const &C, UsdGenVec3f const &side0, int orientation,
+            std::vector<UsdGenVec3f> const *conformN, float sign, std::vector<Frame> *out)
 {
     size_t const m = C.size();
     out->resize(m);
-    GfVec3f prev = side0;
+    UsdGenVec3f prev = side0;
     for (size_t i = 0; i < m; ++i) {
-        GfVec3f const T = Nrm(C[std::min(i + 1, m - 1)] - C[i > 0 ? i - 1 : 0]);
-        GfVec3f const ref = orientation == kMeshNormal ? side0 : prev;
-        GfVec3f S = ref - T * GfDot(ref, T);
-        if (GfDot(S, S) < 1e-8f) S = prev;
+        UsdGenVec3f const T = Nrm(C[std::min(i + 1, m - 1)] - C[i > 0 ? i - 1 : 0]);
+        UsdGenVec3f const ref = orientation == kMeshNormal ? side0 : prev;
+        UsdGenVec3f S = ref - T * UsdGenDot(ref, T);
+        if (UsdGenDot(S, S) < 1e-8f) S = prev;
         S = Nrm(S);
-        if (GfDot(S, S) < 0.5f) S = prev;
+        if (UsdGenDot(S, S) < 0.5f) S = prev;
         if (orientation == kConform && conformN) {
-            GfVec3f c = GfCross(T, (*conformN)[i]) * sign;
+            UsdGenVec3f c = UsdGenCross(T, (*conformN)[i]) * sign;
             float const cl = c.GetLength();
             float const w = strand::SmoothStep01((cl - 0.17365f) / 0.32635f);
             if (w > 0.0f) {
                 c /= cl;
-                float const angle = std::atan2(GfDot(GfCross(S, c), T), GfDot(S, c));
-                GfVec3f const S2 = Nrm(strand::Rotate(S, T, angle * w));
-                if (GfDot(S2, S2) > 0.5f) S = S2;
+                float const angle = std::atan2(UsdGenDot(UsdGenCross(S, c), T), UsdGenDot(S, c));
+                UsdGenVec3f const S2 = Nrm(strand::Rotate(S, T, angle * w));
+                if (UsdGenDot(S2, S2) > 0.5f) S = S2;
             }
         }
         prev = S;
-        (*out)[i] = Frame{T, S, Nrm(GfCross(S, T))};
+        (*out)[i] = Frame{T, S, Nrm(UsdGenCross(S, T))};
     }
 }
 
 /// Scalp normals along the sunk spine, smoothed twice (Conform). False when a
 /// query fails (the card then behaves as Surface).
-bool ConformNormals(std::vector<GfVec3f> const &C, Context const &ctx, bool mirrored,
-                    int plane, std::vector<GfVec3f> *out)
+bool ConformNormals(std::vector<UsdGenVec3f> const &C, Context const &ctx, bool mirrored,
+                    int plane, std::vector<UsdGenVec3f> *out)
 {
     if (!ctx.scalp || ctx.scalp->Empty()) return false;
     size_t const m = C.size();
     out->resize(m);
     for (size_t i = 0; i < m; ++i) {
-        GfVec3f const q = mirrored ? MirrorPoint(C[i], plane, ctx.bboxCentre) : C[i];
+        UsdGenVec3f const q = mirrored ? MirrorPoint(C[i], plane, ctx.bboxCentre) : C[i];
         strand::ClosestHit const hit = ctx.scalp->Closest(q);
         if (!hit.hit) return false;
-        GfVec3f const n = ctx.scalp->Normal(hit.triangle, hit.bary);
+        UsdGenVec3f const n = ctx.scalp->Normal(hit.triangle, hit.bary);
         (*out)[i] = mirrored ? MirrorVector(n, plane) : n;
     }
-    std::vector<GfVec3f> tmp(m);
+    std::vector<UsdGenVec3f> tmp(m);
     for (int pass = 0; pass < 2; ++pass) {
         for (size_t i = 0; i < m; ++i)
             tmp[i] = Nrm((*out)[i > 0 ? i - 1 : 0] + (*out)[i] * 2.0f + (*out)[std::min(i + 1, m - 1)],
@@ -406,14 +406,14 @@ bool Included(Card const &card)
         card.points.size() >= 2 && card.cardType != kBraid;
 }
 
-std::vector<GfVec3f> CatmullRom4(std::vector<GfVec3f> const &p)
+std::vector<UsdGenVec3f> CatmullRom4(std::vector<UsdGenVec3f> const &p)
 {
     size_t const n = p.size();
     if (n < 2) return p;
-    std::vector<GfVec3f> out;
+    std::vector<UsdGenVec3f> out;
     out.reserve(4 * n - 3);
     for (size_t i = 0; i + 1 < n; ++i) {
-        GfVec3f const &P0 = p[i > 0 ? i - 1 : 0], &P1 = p[i], &P2 = p[i + 1],
+        UsdGenVec3f const &P0 = p[i > 0 ? i - 1 : 0], &P1 = p[i], &P2 = p[i + 1],
                       &P3 = p[std::min(i + 2, n - 1)];
         for (int k = 0; k < 4; ++k) {
             float const t = 0.25f * float(k), t2 = t * t, t3 = t2 * t;
@@ -425,18 +425,18 @@ std::vector<GfVec3f> CatmullRom4(std::vector<GfVec3f> const &p)
     return out;
 }
 
-std::vector<GfVec3f> ProcessSpine(Card const &card, Context const &ctx)
+std::vector<UsdGenVec3f> ProcessSpine(Card const &card, Context const &ctx)
 {
-    std::vector<GfVec3f> P = card.points;
+    std::vector<UsdGenVec3f> P = card.points;
     if (P.size() < 2) return P;
     // Mirror-secondary cards share the twin's seed. The length stage commutes
     // with the mirror; frizz does not (its frame is handed), so it runs in the
     // twin's space.
     LengthScale(card, &P);
     if (card.MirrorSecondary()) {
-        for (GfVec3f &p : P) p = MirrorPoint(p, card.mirrorPlane, ctx.bboxCentre);
+        for (UsdGenVec3f &p : P) p = MirrorPoint(p, card.mirrorPlane, ctx.bboxCentre);
         Frizz(card, &P);
-        for (GfVec3f &p : P) p = MirrorPoint(p, card.mirrorPlane, ctx.bboxCentre);
+        for (UsdGenVec3f &p : P) p = MirrorPoint(p, card.mirrorPlane, ctx.bboxCentre);
     } else {
         Frizz(card, &P);
     }
@@ -444,7 +444,7 @@ std::vector<GfVec3f> ProcessSpine(Card const &card, Context const &ctx)
     return P;
 }
 
-void RootFrame(Card const &card, Context const &ctx, GfVec3f *n0, GfVec3f *s0, bool *twinFound)
+void RootFrame(Card const &card, Context const &ctx, UsdGenVec3f *n0, UsdGenVec3f *s0, bool *twinFound)
 {
     *twinFound = false;
     if (card.MirrorSecondary()) {
@@ -468,7 +468,7 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
     if (honourInclude && !Included(card)) return spans;
 
     bool const tube = card.cardType == kTube;
-    std::vector<GfVec3f> P = ProcessSpine(card, ctx);
+    std::vector<UsdGenVec3f> P = ProcessSpine(card, ctx);
     size_t const n = P.size();
     if (ctx.smooth && n >= 2 && (n >= 3 || tube)) P = CatmullRom4(P);
     std::vector<float> s;
@@ -476,7 +476,7 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
     float const invL = L > 1e-6f ? 1.0f / L : 0.0f;
     size_t const rows = P.size();
 
-    GfVec3f N0, S0;
+    UsdGenVec3f N0, S0;
     bool twinFound = false;
     RootFrame(card, ctx, &N0, &S0, &twinFound);
     bool const secondary = card.MirrorSecondary();
@@ -484,7 +484,7 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
     float const sN = (secondary && twinFound) ? -1.0f : 1.0f;
 
     // Sink the root along N0, faded out over F.
-    std::vector<GfVec3f> C = P;
+    std::vector<UsdGenVec3f> C = P;
     if (card.sink > 1e-6f) {
         float const F = std::min(L, std::max(2.0f * card.width, 0.25f * L));
         for (size_t i = 0; i < rows; ++i) {
@@ -493,7 +493,7 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
         }
     }
 
-    std::vector<GfVec3f> conformN;
+    std::vector<UsdGenVec3f> conformN;
     bool const conform = card.orientation == kConform &&
         ConformNormals(C, ctx, secondary && twinFound, card.mirrorPlane, &conformN);
     std::vector<Frame> frames;
@@ -535,20 +535,20 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
             span.rowParam[i] = t;
             float const hw = strand::Clamp01(strand::BezierProfile(t, r, m, card.widthMidShift, tp)) *
                 card.width * 0.5f * strip.widthFactor;
-            GfVec3f const T = frames[i].T;
-            GfVec3f S = frames[i].S, B = frames[i].B;
+            UsdGenVec3f const T = frames[i].T;
+            UsdGenVec3f S = frames[i].S, B = frames[i].B;
             if (hasTwist || std::fabs(strip.angle) > 1e-6f) {
                 float const a = (strand::BezierProfile(t, card.twistRoot, card.twistMid,
                                                        card.twistMidShift, card.twistTip) *
                                      kDegToRad + strip.angle) * sT;
                 S = Nrm(strand::Rotate(S, T, a));
-                B = Nrm(GfCross(S, T));
+                B = Nrm(UsdGenCross(S, T));
             }
             float const flatR = rrf > 0.0f
                 ? 1.0f - (1.0f - strand::SmoothStep01(t / (0.3f * rrf))) * rrf : 1.0f;
             for (uint32_t j = 0; j < cols; ++j) {
                 float const u = cols < 2 ? 0.5f : float(j) / float(cols - 1);
-                GfVec3f p, nv;
+                UsdGenVec3f p, nv;
                 if (!tube) {
                     float const x = 2.0f * u - 1.0f;
                     p = C[i] + S * (x * hw);
@@ -563,7 +563,7 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
                 span.V[i * cols + j] = p;
                 span.N[i * cols + j] = nv;
             }
-            GfVec3f const *row = &span.V[i * cols];
+            UsdGenVec3f const *row = &span.V[i * cols];
             if (tube) {
                 float w = 0.0f;
                 for (uint32_t j = 1; j < cols; ++j) w += (row[j] - row[j - 1]).GetLength();
@@ -580,11 +580,11 @@ std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclu
     return spans;
 }
 
-void CardSurface(Span const &span, float u, float v, float depth, GfVec3f *position,
-                 GfVec3f *normal)
+void CardSurface(Span const &span, float u, float v, float depth, UsdGenVec3f *position,
+                 UsdGenVec3f *normal)
 {
-    *position = GfVec3f(0.0f);
-    *normal = GfVec3f(1.0f, 0.0f, 0.0f);
+    *position = UsdGenVec3f(0.0f);
+    *normal = UsdGenVec3f(1.0f, 0.0f, 0.0f);
     uint32_t const rows = span.rows, cols = span.cols;
     if (rows < 2 || cols < 2 || span.V.size() < size_t(rows) * cols) return;
     v = strand::Clamp01(v);
@@ -603,13 +603,13 @@ void CardSurface(Span const &span, float u, float v, float depth, GfVec3f *posit
     float const x = float(cols - 1) * u;
     uint32_t const j = uint32_t(std::min(std::max(int(x), 0), int(cols) - 2));
     float const sx = x - float(j);
-    auto bilerp = [&](std::vector<GfVec3f> const &A) {
+    auto bilerp = [&](std::vector<UsdGenVec3f> const &A) {
         size_t const a = (i - 1) * cols + j, c = i * cols + j;
         return (A[a] * (1.0f - sx) + A[a + 1] * sx) * (1.0f - t) +
                (A[c] * (1.0f - sx) + A[c + 1] * sx) * t;
     };
-    GfVec3f p = bilerp(span.V);
-    GfVec3f const nrm = Nrm(bilerp(span.N));
+    UsdGenVec3f p = bilerp(span.V);
+    UsdGenVec3f const nrm = Nrm(bilerp(span.N));
     if (depth != 0.0f)
         p += nrm * (depth * ((1.0f - t) * span.rowWidth[i - 1] + t * span.rowWidth[i]));
     *position = p;
@@ -704,7 +704,7 @@ bool DecodeCards(UsdGenCurveSetView const &b, std::vector<Card> *cards, std::str
         k.orientation = orient.Int(c, kSurface);
         k.widthSegments = segs.Int(c, 1);
         k.rootTri = rootTri.Int(c, -1);
-        if (bary) k.rootBary = GfVec3f(bary->f[3 * c], bary->f[3 * c + 1], bary->f[3 * c + 2]);
+        if (bary) k.rootBary = UsdGenVec3f(bary->f[3 * c], bary->f[3 * c + 1], bary->f[3 * c + 2]);
         k.erased = erased.Int(c, 0) != 0;
         k.distributionMask = dmask.Float(c, 1.0f);
         k.lengthMask = lmask.Float(c, 1.0f);

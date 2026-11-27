@@ -17,6 +17,7 @@
 // whole path is covered: both graph-desc builders' capture, the authored-plane
 // machinery that carries it through the graph, and the cooker's precedence.
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"

@@ -173,7 +173,6 @@ libs/core/usdGen/usdGen/compile/graph.cpp 2
 libs/core/usdGen/usdGen/compile/graph.h 3
 libs/core/usdGen/usdGen/exec/allocCounter.cpp 1
 libs/core/usdGen/usdGen/exec/allocCounter.h 1
-libs/core/usdGen/usdGen/exec/debugCodes.cpp 1
 libs/core/usdGen/usdGen/exec/device/deviceGeneration.cpp 1
 libs/core/usdGen/usdGen/exec/device/executionBackend.cpp 2
 libs/core/usdGen/usdGen/exec/device/executionBackend.h 3
@@ -220,7 +219,7 @@ libs/core/usdGen/usdGen/registries/typeRegistry.h 1
 libs/core/usdGen/version.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/attributePreviewSceneIndex.h 2
 libs/hosts/usdGenHydra/usdGenImaging/cleanupQueue.h 1
-libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 5
+libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 4
 libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/testHook.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenBrushApi.cpp 1
@@ -228,7 +227,6 @@ libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.h 1
-libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.cpp 5
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.h 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenShadersDiscoveryPlugin.cpp 1

@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootFrames.h"
@@ -12,9 +13,9 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace {
 
-bool Near(GfVec3d const &a, GfVec3f const &b)
+bool Near(usdGen::UsdGenVec3d const &a, usdGen::UsdGenVec3f const &b)
 {
-    GfVec3d const d = a - GfVec3d(b[0], b[1], b[2]);
+    usdGen::UsdGenVec3d const d = a - usdGen::UsdGenVec3d(b[0], b[1], b[2]);
     return std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) <= 1.0e-5;
 }
 
@@ -29,13 +30,13 @@ UsdGenSurfaceDesc Ngon()
     return surface;
 }
 
-bool Bind(UsdGenSurfaceDesc const &surface, VtVec3fArray const &roots,
+bool Bind(UsdGenSurfaceDesc const &surface, usdGen::UsdGenVec3fArray const &roots,
           UsdGenSurfaceRootBindingResult *result, std::string *error)
 {
-    return UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(surface), roots, GfMatrix4d(1.0), result, error);
+    return UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(surface), roots, usdGen::UsdGenMatrix4d(1.0), result, error);
 }
 
-bool Reconstructs(UsdGenSurfaceDesc const &surface, VtVec3fArray const &roots,
+bool Reconstructs(UsdGenSurfaceDesc const &surface, usdGen::UsdGenVec3fArray const &roots,
                   UsdGenSurfaceRootBindingResult const &bindings, std::string *error)
 {
     UsdGenSurfaceRootFrameResult frames;
@@ -67,11 +68,11 @@ int main()
     // Probe each fan's radial, outer, and diagonal edge. They may have an
     // equivalent adjacent fan representation, but all must reconstruct the
     // exact closest point under the root-frame n-gon convention.
-    VtVec3fArray edges;
+    usdGen::UsdGenVec3fArray edges;
     for (int fan = 0; fan != 3; ++fan) {
-        GfVec3f const a = surface.restPoints[0];
-        GfVec3f const b = surface.restPoints[fan + 1];
-        GfVec3f const c = surface.restPoints[fan + 2];
+        usdGen::UsdGenVec3f const a = surface.restPoints[0];
+        usdGen::UsdGenVec3f const b = surface.restPoints[fan + 1];
+        usdGen::UsdGenVec3f const c = surface.restPoints[fan + 2];
         edges.push_back(a * .6f + b * .4f);       // v=0 radial
         edges.push_back(b * .4f + c * .6f);       // u+v=1 outer edge
         edges.push_back(a * .6f + c * .4f);       // u=0 radial

@@ -20,6 +20,7 @@
 // design change; never to make a refactor pass). USDGEN_GOLDEN_VERBOSE=1
 // prints each cook's diagnostics.
 
+#include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "nodeSets.h"
@@ -118,6 +119,13 @@ std::string Hex(uint64_t h)
 
 template <class T>
 std::string ArrayValue(VtArray<T> const &a)
+{
+    return "n=" + std::to_string(a.size()) + " " +
+        Hex(a.empty() ? kFnvOffset : Fnv(a.cdata(), a.size() * sizeof(T)));
+}
+
+template <class T>
+std::string ArrayValue(usdGen::UsdGenCowArray<T> const &a)
 {
     return "n=" + std::to_string(a.size()) + " " +
         Hex(a.empty() ? kFnvOffset : Fnv(a.cdata(), a.size() * sizeof(T)));

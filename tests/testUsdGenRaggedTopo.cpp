@@ -25,6 +25,7 @@
 // Tier T0/T1 list: standalone main(), links usdGen. No CMake registration
 // here (out of scope for this ticket).
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"

@@ -17,8 +17,7 @@
 #include "usdGen/registries/engineTokens.h"
 
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,8 +26,8 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -106,7 +105,7 @@ bool UsdGenWaveOp::Capture(
     UsdGenDiagnostics *diag)
 {
     UsdGenCurveSetView const upstream = UsdGenCurveSetView::Of(in.Primary());
-    TF_UNUSED(out);
+    (void)out;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
     // Literals are validated here (the CPU lane never calls Bind) and every
@@ -170,7 +169,7 @@ void UsdGenWaveOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(captureIn);
+    (void)captureIn;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     UsdGenParamField const freqUField =
         p ? p->GetScalarField(kFrequencyU, 1.0) : UsdGenParamField{1.0};
@@ -198,8 +197,8 @@ void UsdGenWaveOp::Evaluate(
         size_t const curve = curveBase + c;
         float const freqU = static_cast<float>(freqUField.Value(curve, cvBase + g));
         float const freqN = static_cast<float>(freqNField.Value(curve, cvBase + g));
-        GfVec3f const T = rootT ? rootT[c] : GfVec3f(1.0f, 0.0f, 0.0f);
-        GfVec3f const N = rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f const T = rootT ? rootT[c] : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+        UsdGenVec3f const N = rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f);
         float s = 0.0f;
         for (size_t i = 0; i < n; ++i) {
             size_t const o = g + i;

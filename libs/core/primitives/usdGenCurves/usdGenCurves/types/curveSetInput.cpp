@@ -9,6 +9,11 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <atomic>
@@ -45,13 +50,13 @@ CurveInputState const *State() noexcept
 }
 
 template <class T>
-UsdGenSpan<const T> Arr(VtArray<T> const &a) noexcept
+UsdGenSpan<const T> Arr(UsdGenCowArray<T> const &a) noexcept
 {
     return {a.cdata(), a.size()};
 }
 
 constexpr size_t kPlaneInfo = 5;   // type, domain, arity, floats, ints
-GfMatrix4d const kIdentity(1.0);
+UsdGenMatrix4d const kIdentity(1.0);
 
 bool MaterializeReference(UsdGenInputRecord const &record,
                           UsdGenRef<const UsdGenElementSet> *out, std::string *error);
@@ -63,7 +68,7 @@ bool ValidateRecord(UsdGenGraphSpec const &desc, UsdGenInputRecord const &record
     constexpr char const *kReservedNames[] = {
         "points", "rest", "widths", "hairT", "curveOffsets", "curveId",
         "skinprim", "skinprimuv", "displayColor"};
-    auto reserved = [&](TfToken const &name) {
+    auto reserved = [&](UsdGenToken const &name) {
         for (char const *r : kReservedNames)
             if (std::strcmp(name.GetText(), r) == 0) return true;
         return false;
@@ -82,7 +87,7 @@ bool ValidateRecord(UsdGenGraphSpec const &desc, UsdGenInputRecord const &record
         }
         pointCount += static_cast<size_t>(count);
     }
-    std::set<TfToken> names;
+    std::set<UsdGenToken> names;
     for (UsdGenAuthoredPlaneView const &plane : curveSet.authoredPlanes) {
         bool const validName = !plane.name.IsEmpty() && names.insert(plane.name).second;
         if (!validName) {
@@ -145,7 +150,7 @@ bool ValidateRecord(UsdGenGraphSpec const &desc, UsdGenInputRecord const &record
     return ok;
 }
 
-void MixMatrix(UsdGenInputDigest &d, int lane, GfMatrix4d const &m)
+void MixMatrix(UsdGenInputDigest &d, int lane, UsdGenMatrix4d const &m)
 {
     for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
         uint64_t bits = 0;
@@ -204,9 +209,9 @@ bool RecordLane(UsdGenInputRecord const &record, UsdGenLane *out)
 /// The authored plane names, as many as UsdGenAuthoredPlanes::Of reads.
 UsdGenSpan<const UsdGenToken> AuthoredChannels(UsdGenInputRecord const &record)
 {
-    VtValue const *names = record.Value(kUsdGenCurveValuePlaneNames);
-    if (!names || !names->IsHolding<VtTokenArray>()) return {};
-    VtTokenArray const &array = names->UncheckedGet<VtTokenArray>();
+    UsdGenValue const *names = record.Value(kUsdGenCurveValuePlaneNames);
+    if (!names || !names->IsHolding<UsdGenTokenArray>()) return {};
+    UsdGenTokenArray const &array = names->UncheckedGet<UsdGenTokenArray>();
     size_t const count =
         std::min(array.size(), record.Column<int>(kUsdGenCurveInputPlaneInfo).size() / kPlaneInfo);
     return {array.cdata(), count};
@@ -328,9 +333,9 @@ UsdGenInputRecord const *UsdGenFindCurveSetInput(UsdGenGraphSpec const &spec, Us
 UsdGenAuthoredPlanes UsdGenAuthoredPlanes::Of(UsdGenInputRecord const &record) noexcept
 {
     UsdGenAuthoredPlanes p;
-    VtValue const *names = record.Value(kUsdGenCurveValuePlaneNames);
-    if (!names || !names->IsHolding<VtTokenArray>()) return p;
-    p._names = names->UncheckedGet<VtTokenArray>();
+    UsdGenValue const *names = record.Value(kUsdGenCurveValuePlaneNames);
+    if (!names || !names->IsHolding<UsdGenTokenArray>()) return p;
+    p._names = names->UncheckedGet<UsdGenTokenArray>();
     p._info = record.Column<int>(kUsdGenCurveInputPlaneInfo);
     p._count = std::min(p._names.size(), p._info.size() / kPlaneInfo);
     p._floats = record.Column<float>(kUsdGenCurveInputPlaneFloats);
@@ -392,22 +397,22 @@ UsdGenCurveSetInputView UsdGenCurveSetInputView::Of(UsdGenInputRecord const &rec
     UsdGenCurveSetInputView v;
     v.key = record.key;
     v.role = UsdGenLane(uint8_t(record.Get<int>(kUsdGenCurveValueRole, 0)));
-    v.curveRole = record.Get<TfToken>(kUsdGenCurveValueCurveRole, TfToken());
+    v.curveRole = record.Get<UsdGenToken>(kUsdGenCurveValueCurveRole, UsdGenToken());
     v.curveVertexCounts = record.Column<int>(kUsdGenCurveInputCounts);
-    v.points = record.Column<GfVec3f>(kUsdGenCurveInputPoints);
-    v.rest = record.Column<GfVec3f>(kUsdGenCurveInputRest);
+    v.points = record.Column<UsdGenVec3f>(kUsdGenCurveInputPoints);
+    v.rest = record.Column<UsdGenVec3f>(kUsdGenCurveInputRest);
     v.restFromCurrentPoints = record.Get<bool>(kUsdGenCurveValueRestFromCurrentPoints, false);
-    v.worldMatrix = record.Get<GfMatrix4d>(kUsdGenCurveValueWorldMatrix, kIdentity);
+    v.worldMatrix = record.Get<UsdGenMatrix4d>(kUsdGenCurveValueWorldMatrix, kIdentity);
     v.widths = record.Column<float>(kUsdGenCurveInputWidths);
-    v.type = record.Get<TfToken>(kUsdGenCurveValueType, UsdGenCurveTokens().cubic);
-    v.basis = record.Get<TfToken>(kUsdGenCurveValueBasis, UsdGenCurveTokens().bspline);
-    v.wrap = record.Get<TfToken>(kUsdGenCurveValueWrap, UsdGenCurveTokens().pinned);
-    v.widthsInterpolation = record.Get<TfToken>(kUsdGenCurveValueWidthsInterpolation, UsdGenCurveTokens().vertexWidths);
+    v.type = record.Get<UsdGenToken>(kUsdGenCurveValueType, UsdGenCurveTokens().cubic);
+    v.basis = record.Get<UsdGenToken>(kUsdGenCurveValueBasis, UsdGenCurveTokens().bspline);
+    v.wrap = record.Get<UsdGenToken>(kUsdGenCurveValueWrap, UsdGenCurveTokens().pinned);
+    v.widthsInterpolation = record.Get<UsdGenToken>(kUsdGenCurveValueWidthsInterpolation, UsdGenCurveTokens().vertexWidths);
     v.skinPrim = record.Column<int>(kUsdGenCurveInputSkinPrim);
     v.curveId = record.Column<uint64_t>(kUsdGenCurveInputCurveId);
-    v.skinPrimUv = record.Column<GfVec2f>(kUsdGenCurveInputSkinPrimUv);
-    v.rootFrame = record.Column<GfMatrix4d>(kUsdGenCurveInputRootFrame);
-    if (VtValue const *epoch = record.Value(kUsdGenCurveValueFrozenEpoch);
+    v.skinPrimUv = record.Column<UsdGenVec2f>(kUsdGenCurveInputSkinPrimUv);
+    v.rootFrame = record.Column<UsdGenMatrix4d>(kUsdGenCurveInputRootFrame);
+    if (UsdGenValue const *epoch = record.Value(kUsdGenCurveValueFrozenEpoch);
         epoch && epoch->IsHolding<std::string>()) {
         v.frozenEpochHolder = *epoch;   // shares the held string
         v.frozenEpoch = v.frozenEpochHolder.UncheckedGet<std::string>();
@@ -421,12 +426,12 @@ UsdGenCurveSetInputView UsdGenCurveSetInputView::Of(UsdGenInputRecord const &rec
         c.ownerCvCounts = record.Column<int>(kUsdGenCurveInputCageOwnerCvCounts);
         c.ownerEdgeBias = record.Column<float>(kUsdGenCurveInputCageOwnerEdgeBias);
         c.ownerLengthProfileOffsets = record.Column<int>(kUsdGenCurveInputCageOwnerLengthProfileOffsets);
-        c.ownerLengthProfile = record.Column<GfVec2f>(kUsdGenCurveInputCageOwnerLengthProfile);
+        c.ownerLengthProfile = record.Column<UsdGenVec2f>(kUsdGenCurveInputCageOwnerLengthProfile);
         c.normalizedT = record.Column<float>(kUsdGenCurveInputCageNormalizedT);
-        c.triangles = record.Column<GfVec3i>(kUsdGenCurveInputCageTriangles);
+        c.triangles = record.Column<UsdGenVec3i>(kUsdGenCurveInputCageTriangles);
         c.triangleOwnerIndices = record.Column<int>(kUsdGenCurveInputCageTriangleOwnerIndices);
-        c.triangleRootCharts = record.Column<GfVec2f>(kUsdGenCurveInputCageTriangleRootCharts);
-        c.ownerChartCentroids = record.Column<GfVec2f>(kUsdGenCurveInputCageOwnerChartCentroids);
+        c.triangleRootCharts = record.Column<UsdGenVec2f>(kUsdGenCurveInputCageTriangleRootCharts);
+        c.ownerChartCentroids = record.Column<UsdGenVec2f>(kUsdGenCurveInputCageOwnerChartCentroids);
         c.ownerChartMeanRadii = record.Column<float>(kUsdGenCurveInputCageOwnerChartMeanRadii);
         v.surfaceCage = UsdGenSurfaceCageRef(c);
     }
@@ -483,7 +488,7 @@ UsdGenCurveSetInputView UsdGenCurveSetInputView::Of(UsdGenCurveSetData const &d,
 // ---- packer ---------------------------------------------------------------------
 
 UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &d, UsdGenNodeKey key,
-                                       TfToken const &label, UsdGenInputColumnCache *cache)
+                                       UsdGenText const &label, UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenCurveSetInputKind());
     w.UseCache(cache, key);
@@ -498,7 +503,7 @@ UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &d, UsdGenNodeKe
     std::vector<int> info;
     std::vector<float> floats;
     std::vector<int> ints;
-    VtTokenArray names;
+    UsdGenTokenArray names;
     info.reserve(d.authoredPlanes.size() * kPlaneInfo);
     names.reserve(d.authoredPlanes.size());
     for (UsdGenAuthoredPlaneDesc const &plane : d.authoredPlanes) {
@@ -529,22 +534,22 @@ UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &d, UsdGenNodeKe
         w.Array(kUsdGenCurveInputCageOwnerChartCentroids, c->ownerChartCentroids);
         w.Array(kUsdGenCurveInputCageOwnerChartMeanRadii, c->ownerChartMeanRadii);
     }
-    w.Value(kUsdGenCurveValueRole, VtValue(int(d.role)));
-    w.Value(kUsdGenCurveValueCurveRole, VtValue(d.curveRole));
-    w.Value(kUsdGenCurveValueType, VtValue(d.type));
-    w.Value(kUsdGenCurveValueBasis, VtValue(d.basis));
-    w.Value(kUsdGenCurveValueWrap, VtValue(d.wrap));
-    w.Value(kUsdGenCurveValueWidthsInterpolation, VtValue(d.widthsInterpolation));
-    w.Value(kUsdGenCurveValueRestFromCurrentPoints, VtValue(d.restFromCurrentPoints));
-    w.Value(kUsdGenCurveValueWorldMatrix, VtValue(d.worldMatrix));
-    w.Value(kUsdGenCurveValueFrozenEpoch, VtValue(d.frozenEpoch));
-    w.Value(kUsdGenCurveValuePlaneNames, VtValue(std::move(names)));
-    w.Value(kUsdGenCurveValueSurfaceCage, VtValue(bool(d.surfaceCage)));
+    w.Value(kUsdGenCurveValueRole, UsdGenValue(int(d.role)));
+    w.Value(kUsdGenCurveValueCurveRole, UsdGenValue(d.curveRole));
+    w.Value(kUsdGenCurveValueType, UsdGenValue(d.type));
+    w.Value(kUsdGenCurveValueBasis, UsdGenValue(d.basis));
+    w.Value(kUsdGenCurveValueWrap, UsdGenValue(d.wrap));
+    w.Value(kUsdGenCurveValueWidthsInterpolation, UsdGenValue(d.widthsInterpolation));
+    w.Value(kUsdGenCurveValueRestFromCurrentPoints, UsdGenValue(d.restFromCurrentPoints));
+    w.Value(kUsdGenCurveValueWorldMatrix, UsdGenValue(d.worldMatrix));
+    w.Value(kUsdGenCurveValueFrozenEpoch, UsdGenValue(d.frozenEpoch));
+    w.Value(kUsdGenCurveValuePlaneNames, UsdGenValue(std::move(names)));
+    w.Value(kUsdGenCurveValueSurfaceCage, UsdGenValue(bool(d.surfaceCage)));
     return w.Finish(key, UsdGenNodeKey{}, label, d.curveGeneration);
 }
 
 template <class T>
-static void CopyTo(UsdGenSpan<const T> from, VtArray<T> *to)
+static void CopyTo(UsdGenSpan<const T> from, UsdGenCowArray<T> *to)
 {
     to->assign(from.begin(), from.end());
 }
@@ -615,7 +620,7 @@ bool MaterializeReference(UsdGenInputRecord const &record,
         *error = "reference curve set has an empty path";
         return false;
     }
-    std::string const &label = record.label.GetString();
+    std::string const label(record.label.View());
     uint64_t totalCvs = 0;
     for (int count : curves.curveVertexCounts) {
         if (count < 0) {
@@ -644,7 +649,7 @@ bool MaterializeReference(UsdGenInputRecord const &record,
     // payload.  Validate it before constructing the shared value: an absent
     // rest plane follows the CUDA/reference contract and falls back to the
     // authored points, while a present plane must be complete and finite.
-    for (GfVec3f const &rest : curves.rest) {
+    for (UsdGenVec3f const &rest : curves.rest) {
         if (!std::isfinite(rest[0]) || !std::isfinite(rest[1]) ||
             !std::isfinite(rest[2])) {
             *error = "reference curve set '" + label + "' has non-finite rest points";
@@ -676,19 +681,19 @@ bool MaterializeReference(UsdGenInputRecord const &record,
     CopyTo(curves.skinPrim, &buffer.rootPrim);
     CopyTo(curves.skinPrimUv, &buffer.rootUV);
     if (!curves.rootFrame.empty()) {
-        // GfMatrix4d is row-major/row-vector.  Root-frame consumers use the
+        // UsdGenMatrix4d is row-major/row-vector.  Root-frame consumers use the
         // same tangent/binormal/normal row convention as the CPU kernels.
         buffer.rootT.resize(buffer.totalCurves);
         buffer.rootB.resize(buffer.totalCurves);
         buffer.rootN.resize(buffer.totalCurves);
         for (uint32_t i = 0; i < buffer.totalCurves; ++i) {
-            GfMatrix4d const &frame = curves.rootFrame[i];
-            GfVec3d const tangent = frame.GetRow3(0);
-            GfVec3d const binormal = frame.GetRow3(1);
-            GfVec3d const normal = frame.GetRow3(2);
-            buffer.rootT[i] = GfVec3f(tangent);
-            buffer.rootB[i] = GfVec3f(binormal);
-            buffer.rootN[i] = GfVec3f(normal);
+            UsdGenMatrix4d const &frame = curves.rootFrame[i];
+            UsdGenVec3d const tangent = frame.GetRow3(0);
+            UsdGenVec3d const binormal = frame.GetRow3(1);
+            UsdGenVec3d const normal = frame.GetRow3(2);
+            buffer.rootT[i] = UsdGenVec3f(tangent);
+            buffer.rootB[i] = UsdGenVec3f(binormal);
+            buffer.rootN[i] = UsdGenVec3f(normal);
         }
     }
     buffer.px.resize(buffer.totalCvs);
@@ -698,7 +703,7 @@ bool MaterializeReference(UsdGenInputRecord const &record,
     uint32_t cv = 0;
     for (int count : curves.curveVertexCounts) {
         for (int i = 0; i < count; ++i, ++cv) {
-            GfVec3f const &point = curves.points[cv];
+            UsdGenVec3f const &point = curves.points[cv];
             buffer.px[cv] = point[0];
             buffer.py[cv] = point[1];
             buffer.pz[cv] = point[2];

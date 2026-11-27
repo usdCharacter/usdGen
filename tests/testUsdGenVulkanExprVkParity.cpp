@@ -34,6 +34,7 @@
 // 5x with 60s waits: tenant load), then falls back to llvmpipe as secondary
 // evidence and reports NVIDIA as retry-pending.
 
+#include "utils/pxrInterop.h"
 #include "usdGenExpr/vulkan/exprVkApply.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenExpr/vulkan/exprVkContext.h"

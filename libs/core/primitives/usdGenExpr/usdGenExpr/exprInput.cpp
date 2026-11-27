@@ -1,6 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenExpr/exprInput.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -31,6 +36,48 @@ namespace {
 using Outputs = std::vector<UsdGenExpressionOutputDesc>;
 using Slots = std::vector<UsdGenExpressionSlot>;
 
+uint64_t HashMix(uint64_t h, uint64_t v) noexcept { return math_detail::HashMix(h, v); }
+
+uint64_t HashOf(uint64_t h, UsdGenExpressionOutputDesc const &o) noexcept
+{
+    h = HashMix(h, o.name.Hash());
+    h = HashMix(h, o.nativeType.Hash());
+    for (uint64_t v : {uint64_t(o.shape.scalar), uint64_t(o.shape.elementCount), uint64_t(o.shape.components),
+                       uint64_t(o.shape.rows), uint64_t(o.shape.columns), uint64_t(o.shape.isArray)})
+        h = HashMix(h, v);
+    return h;
+}
+
+uint64_t HashOf(uint64_t h, UsdGenExpressionSlot const &s) noexcept
+{
+    h = HashMix(h, s.name.Hash());
+    for (std::vector<UsdGenNodeKey> const *keys : {&s.targets, &s.geometries, &s.maps}) {
+        h = HashMix(h, keys->size());
+        for (UsdGenNodeKey const key : *keys) h = HashMix(h, key.value);
+    }
+    return h;
+}
+
+/// A vector payload of usdGenExpr.
+template <class V, uint64_t Tag>
+struct VectorBox final : UsdGenBoxed, UsdGenPooled {
+    static constexpr uint64_t kBoxTag = Tag;
+    explicit VectorBox(V const &v) : value(v) {}
+    uint64_t Hash() const noexcept override
+    {
+        uint64_t h = HashMix(0xcbf29ce484222325ull, value.size());
+        for (auto const &e : value) h = HashOf(h, e);
+        return h;
+    }
+    bool Equal(UsdGenBoxed const &o) const noexcept override
+    {
+        return value == static_cast<VectorBox const &>(o).value;
+    }
+    V value;
+};
+using OutputsBox = VectorBox<Outputs, UsdGenBoxTag("usdGenExpr.outputs")>;
+using SlotsBox = VectorBox<Slots, UsdGenBoxTag("usdGenExpr.slots")>;
+
 struct ExprInputState {
     UsdGenToken expressionAttributes[kUsdGenExpressionValues];
     UsdGenElementLayout expressionLayout;
@@ -44,7 +91,7 @@ struct ExprInputState {
 };
 
 std::atomic<ExprInputState *> gExprInput{nullptr};
-GfMatrix4d const kIdentity(1.0);
+UsdGenMatrix4d const kIdentity(1.0);
 
 ExprInputState const *State() noexcept
 {
@@ -54,7 +101,7 @@ ExprInputState const *State() noexcept
 }
 
 template <class T>
-UsdGenSpan<const T> Arr(VtArray<T> const &a) noexcept
+UsdGenSpan<const T> Arr(UsdGenCowArray<T> const &a) noexcept
 {
     return {a.cdata(), a.size()};
 }
@@ -222,25 +269,47 @@ UsdGenInputRecord const *UsdGenFindGeometryInput(UsdGenGraphSpec const &spec, Us
     return spec.FindInput(UsdGenGeometryInputKind(), key);
 }
 
+UsdGenValue UsdGenExpressionOutputsValue(Outputs const &outputs)
+{
+    return UsdGenValue::Box(OutputsBox::kBoxTag, UsdGenRef<const UsdGenBoxed>(new OutputsBox(outputs)));
+}
+
+UsdGenValue UsdGenExpressionSlotsValue(Slots const &slots)
+{
+    return UsdGenValue::Box(SlotsBox::kBoxTag, UsdGenRef<const UsdGenBoxed>(new SlotsBox(slots)));
+}
+
+Outputs const *UsdGenExpressionOutputsOf(UsdGenValue const &v) noexcept
+{
+    OutputsBox const *box = v.GetBoxed<OutputsBox>();
+    return box ? &box->value : nullptr;
+}
+
+Slots const *UsdGenExpressionSlotsOf(UsdGenValue const &v) noexcept
+{
+    SlotsBox const *box = v.GetBoxed<SlotsBox>();
+    return box ? &box->value : nullptr;
+}
+
 UsdGenExpressionInputView UsdGenExpressionInputView::Of(UsdGenInputRecord const &record) noexcept
 {
     UsdGenExpressionInputView v;
     v.key = record.key;
-    if (VtValue const *source = record.Value(kUsdGenExpressionValueSource);
+    if (UsdGenValue const *source = record.Value(kUsdGenExpressionValueSource);
         source && source->IsHolding<std::string>()) {
         v.sourceHolder = *source;
         v.source = v.sourceHolder.UncheckedGet<std::string>();
     }
-    if (VtValue const *outputs = record.Value(kUsdGenExpressionValueOutputs);
-        outputs && outputs->IsHolding<Outputs>()) {
+    if (UsdGenValue const *outputs = record.Value(kUsdGenExpressionValueOutputs);
+        outputs && UsdGenExpressionOutputsOf(*outputs)) {
         v.outputsHolder = *outputs;
-        Outputs const &o = v.outputsHolder.UncheckedGet<Outputs>();
+        Outputs const &o = *UsdGenExpressionOutputsOf(v.outputsHolder);
         v.outputs = {o.data(), o.size()};
     }
-    if (VtValue const *inputs = record.Value(kUsdGenExpressionValueInputs);
-        inputs && inputs->IsHolding<Slots>()) {
+    if (UsdGenValue const *inputs = record.Value(kUsdGenExpressionValueInputs);
+        inputs && UsdGenExpressionSlotsOf(*inputs)) {
         v.inputsHolder = *inputs;
-        Slots const &s = v.inputsHolder.UncheckedGet<Slots>();
+        Slots const &s = *UsdGenExpressionSlotsOf(v.inputsHolder);
         v.inputs = {s.data(), s.size()};
     }
     return v;
@@ -265,13 +334,13 @@ UsdGenGeometryInputView UsdGenGeometryInputView::Of(UsdGenInputRecord const &rec
                                                         int(UsdGenGeometryKind::Points))));
     v.counts = record.Column<int>(kUsdGenGeometryInputCounts);
     v.indices = record.Column<int>(kUsdGenGeometryInputIndices);
-    v.points = record.Column<GfVec3f>(kUsdGenGeometryInputPoints);
-    v.rest = record.Column<GfVec3f>(kUsdGenGeometryInputRest);
-    v.normals = record.Column<GfVec3f>(kUsdGenGeometryInputNormals);
+    v.points = record.Column<UsdGenVec3f>(kUsdGenGeometryInputPoints);
+    v.rest = record.Column<UsdGenVec3f>(kUsdGenGeometryInputRest);
+    v.normals = record.Column<UsdGenVec3f>(kUsdGenGeometryInputNormals);
     v.ids = record.Column<uint64_t>(kUsdGenGeometryInputIds);
     v.subsetFaces = record.Column<int>(kUsdGenGeometryInputSubsetFaces);
     v.isSubset = record.Get<bool>(kUsdGenGeometryValueIsSubset, false);
-    v.worldMatrix = record.Get<GfMatrix4d>(kUsdGenGeometryValueWorldMatrix, kIdentity);
+    v.worldMatrix = record.Get<UsdGenMatrix4d>(kUsdGenGeometryValueWorldMatrix, kIdentity);
     v.generation = record.generation;
     v.data = record.data;
     return v;
@@ -297,17 +366,17 @@ UsdGenGeometryInputView UsdGenGeometryInputView::Of(UsdGenGeometryData const &d,
 }
 
 UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &d, UsdGenNodeKey key,
-                                         TfToken const &label)
+                                         UsdGenText const &label)
 {
     UsdGenInputRecordWriter w(UsdGenExpressionInputKind());
-    w.Value(kUsdGenExpressionValueSource, VtValue(d.source));
-    w.Value(kUsdGenExpressionValueOutputs, VtValue(d.outputs));
-    w.Value(kUsdGenExpressionValueInputs, VtValue(d.inputs));
+    w.Value(kUsdGenExpressionValueSource, UsdGenValue(d.source));
+    w.Value(kUsdGenExpressionValueOutputs, UsdGenExpressionOutputsValue(d.outputs));
+    w.Value(kUsdGenExpressionValueInputs, UsdGenExpressionSlotsValue(d.inputs));
     return w.Finish(key, UsdGenNodeKey{}, label, 0);
 }
 
 UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &d, UsdGenNodeKey key,
-                                       TfToken const &label, UsdGenInputColumnCache *cache)
+                                       UsdGenText const &label, UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenGeometryInputKind());
     w.UseCache(cache, key);
@@ -318,9 +387,9 @@ UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &d, UsdGenNodeKe
     w.Array(kUsdGenGeometryInputNormals, d.normals);
     w.Array(kUsdGenGeometryInputIds, d.ids);
     w.Array(kUsdGenGeometryInputSubsetFaces, d.subsetFaces);
-    w.Value(kUsdGenGeometryValueKind, VtValue(int(d.kind)));
-    w.Value(kUsdGenGeometryValueIsSubset, VtValue(d.isSubset));
-    w.Value(kUsdGenGeometryValueWorldMatrix, VtValue(d.worldMatrix));
+    w.Value(kUsdGenGeometryValueKind, UsdGenValue(int(d.kind)));
+    w.Value(kUsdGenGeometryValueIsSubset, UsdGenValue(d.isSubset));
+    w.Value(kUsdGenGeometryValueWorldMatrix, UsdGenValue(d.worldMatrix));
     return w.Finish(key, UsdGenNodeKey{}, label, d.generation);
 }
 

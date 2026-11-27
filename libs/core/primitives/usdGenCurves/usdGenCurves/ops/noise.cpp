@@ -24,8 +24,7 @@
 #include "usdGenMath/usdGenMath/ramp.h"
 #include "SeExpr2/Noise.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <atomic>
@@ -33,8 +32,10 @@
 #include <cstring>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -42,18 +43,18 @@ using namespace noiseP;
 
 namespace {
 
-VtValue const kNoValue;
+UsdGenValue const kNoValue;
 
 
 /// Read a float2[] ramp-knots property (02 §2.17 scalar ramp). Missing or
 /// differently typed values fall back to the caller's default.
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
-    VtVec2fArray knots;
+    UsdGenVec2fArray knots;
     if (p) {
-        if (VtValue const &v = p->GetValue(slot, kNoValue);
-            v.IsHolding<VtVec2fArray>()) {
-            knots = v.UncheckedGet<VtVec2fArray>();
+        if (UsdGenValue const &v = p->GetValue(slot, kNoValue);
+            v.IsHolding<UsdGenVec2fArray>()) {
+            knots = v.UncheckedGet<UsdGenVec2fArray>();
         }
     }
     return knots;
@@ -319,8 +320,8 @@ bool UsdGenNoiseOp::Capture(
         for (size_t c = 0; c < nCurve; ++c) {
             float hvec[3];
             HashVec3(ctx.seed, ids ? ids[c] : 0, hvec);
-            const GfVec3f root =
-                GfVec3f(px[c * cvCount], py[c * cvCount], pz[c * cvCount]);
+            const UsdGenVec3f root =
+                UsdGenVec3f(px[c * cvCount], py[c * cvCount], pz[c * cvCount]);
             for (int k = 0; k < 3; ++k)
                 base[c * 3 + k] = root[k] * correlation + (1.0f - correlation) * hvec[k];
         }
@@ -344,7 +345,7 @@ bool UsdGenNoiseOp::Capture(
     // spatial field, hence "correlated"); correlation = 0 is fully
     // decorrelated per curve by the hash offset.
     auto *field = cap.perCv.data();
-    std::vector<GfVec3f> groupBases(cap.clumpMotion.levels.size());
+    std::vector<UsdGenVec3f> groupBases(cap.clumpMotion.levels.size());
     std::vector<bool> groupValid(cap.clumpMotion.levels.size(), false);
     for (size_t c = 0; c < nCurve; ++c) {
         float hvec[3];
@@ -355,10 +356,10 @@ bool UsdGenNoiseOp::Capture(
         const int octaves = static_cast<int>(octavesField.Value(c, g));
         const float lacunarity = static_cast<float>(lacunarityField.Value(c, g));
         const float gain = static_cast<float>(gainField.Value(c, g));
-        const GfVec3f root = ragged
-            ? GfVec3f(px[g], py[g], pz[g])
-            : (cvCount > 0 ? GfVec3f(px[g], py[g], pz[g])
-                           : GfVec3f(0.0f, 0.0f, 0.0f));
+        const UsdGenVec3f root = ragged
+            ? UsdGenVec3f(px[g], py[g], pz[g])
+            : (cvCount > 0 ? UsdGenVec3f(px[g], py[g], pz[g])
+                           : UsdGenVec3f(0.0f, 0.0f, 0.0f));
         const float baseX = root[0] * correlation + (1.0f - correlation) * hvec[0];
         const float baseY = root[1] * correlation + (1.0f - correlation) * hvec[1];
         const float baseZ = root[2] * correlation + (1.0f - correlation) * hvec[2];
@@ -371,7 +372,7 @@ bool UsdGenNoiseOp::Capture(
             float hash[3];
             HashVec3(ctx.seed, group.centerId, hash);
             groupBases[li] = group.restAnchor * correlation +
-                GfVec3f(hash[0], hash[1], hash[2]) * (1.0f - correlation);
+                UsdGenVec3f(hash[0], hash[1], hash[2]) * (1.0f - correlation);
         }
 
         float rootOut = 0.0f;
@@ -455,13 +456,13 @@ void UsdGenNoiseOp::Evaluate(
     // Worker-local storage avoids per-chunk allocations. Empty knots use
     // scalar 1.0 below; there is no shared table with static exit lifetime.
     float const *lutPtr = nullptr;
-    VtVec2fArray const magKnots = ReadRampKnots(p, kMagKnots);
+    UsdGenVec2fArray const magKnots = ReadRampKnots(p, kMagKnots);
     bool const magFlat = magKnots.empty();
     thread_local std::vector<float> tLut;
     if (!magFlat) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(magKnots, p ? p->GetToken(kMagInterp, Record().Token(kTokCatmullRom))
-                : Record().Token(kTokCatmullRom), tLut.data(), kUsdGenRampLutSize);
+        UsdGenBuildRampLut(magKnots, UsdGenParseRampInterp((p ? p->GetToken(kMagInterp, Record().Token(kTokCatmullRom))
+                : Record().Token(kTokCatmullRom)).GetText()), tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
     const size_t cv = size_t(view->cvCount);
@@ -481,7 +482,7 @@ void UsdGenNoiseOp::Evaluate(
                                 : view->Cv(c, 0);
         const size_t curve = curveBase + c;
         const bool cumulative = cumulativeField.Value(curve, firstCv + g) != 0.0;
-        const GfVec3f n = rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f);
+        const UsdGenVec3f n = rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f);
         float runSum = 0.0f;
         for (size_t i = 0; i < nCVs; ++i) {
             const size_t o = g + i;

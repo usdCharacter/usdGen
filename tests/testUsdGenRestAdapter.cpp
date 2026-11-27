@@ -3,6 +3,7 @@
 // Default() (not time-varying), plus faceVertexCounts/Indices + st leaves;
 // assert refusal (nullptr + warn) on a GeomSubset (R15).
 // Unchanged by the locator fix (fixed usdGen/rest/* locators).
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/restApiSchemaAdapter.h"
 #include "usdGenImaging/usdGenRestApiDataSource.h"
 

@@ -4,6 +4,7 @@
 // nothing; scales multiply; malformed multipliers fail closed; and the
 // multiplier joins the capture digest so a repaint recooks instead of
 // reading back cached pre-stroke roots.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/compiler.h"

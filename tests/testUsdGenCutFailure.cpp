@@ -3,6 +3,7 @@
 
 // Transactional CPU publication coverage for fallible vertex remappers.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"

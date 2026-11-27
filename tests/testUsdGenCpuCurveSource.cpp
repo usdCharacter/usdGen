@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -42,7 +43,7 @@ static UsdGenGraphDesc Desc() {
     curves.curveId = {40, 7};
     curves.skinPrim = {2, 1};
     curves.skinPrimUv = {{.2f,.3f}, {.4f,.5f}};
-    curves.rootFrame = {GfMatrix4d(1.0), GfMatrix4d(1.0)};
+    curves.rootFrame = {usdGen::UsdGenMatrix4d(1.0), usdGen::UsdGenMatrix4d(1.0)};
     UsdGenAuthoredPlaneDesc cv;
     cv.name = TfToken("sourceValue");
     cv.type = UsdGenAuthoredPlaneType::Float32;
@@ -184,15 +185,15 @@ int main() {
     CHECK(out.curveId == VtArray<uint64_t>({7,40}));
     CHECK(out.cvOffsets == VtIntArray({0,2,5}));
     CHECK(out.px == VtFloatArray({120,121,110,111,112}));
-    CHECK(out.rest == VtVec3fArray({GfVec3f(20,0,0),GfVec3f(21,0,0),
-        GfVec3f(10,0,0),GfVec3f(11,0,0),GfVec3f(12,0,0)}));
+    CHECK(out.rest == usdGen::UsdGenVec3fArray({usdGen::UsdGenVec3f(20,0,0),usdGen::UsdGenVec3f(21,0,0),
+        usdGen::UsdGenVec3f(10,0,0),usdGen::UsdGenVec3f(11,0,0),usdGen::UsdGenVec3f(12,0,0)}));
     CHECK(out.width == VtFloatArray({.4f,.5f,.1f,.2f,.3f}));
     CHECK(out.hairT == VtFloatArray({0,1,0,.5f,1}));
     CHECK(out.rootPrim == VtIntArray({1,2}));
-    CHECK(out.rootUV == VtVec2fArray({GfVec2f(.4f,.5f), GfVec2f(.2f,.3f)}));
-    CHECK(out.rootT == VtVec3fArray(2,GfVec3f(1,0,0)));
-    CHECK(out.rootB == VtVec3fArray(2,GfVec3f(0,1,0)));
-    CHECK(out.rootN == VtVec3fArray(2,GfVec3f(0,0,1)));
+    CHECK(out.rootUV == usdGen::UsdGenVec2fArray({usdGen::UsdGenVec2f(.4f,.5f), usdGen::UsdGenVec2f(.2f,.3f)}));
+    CHECK(out.rootT == usdGen::UsdGenVec3fArray(2,usdGen::UsdGenVec3f(1,0,0)));
+    CHECK(out.rootB == usdGen::UsdGenVec3fArray(2,usdGen::UsdGenVec3f(0,1,0)));
+    CHECK(out.rootN == usdGen::UsdGenVec3fArray(2,usdGen::UsdGenVec3f(0,0,1)));
     CHECK(out.extraCv.size() == 1 && out.extraCv[0].f == VtFloatArray({3,4,0,1,2}));
     CHECK(out.extraCurve.size() == 1 && out.extraCurve[0].i == VtIntArray({7,40}));
     CHECK(d.curveSets[0].curveId == VtArray<uint64_t>({40,7}));
@@ -257,9 +258,9 @@ int main() {
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,1).diagnostics.HasErrors());
             auto const frozen = OutputView(frameGraph);
             auto posed = derived;
-            posed.surfaces[0].points[0] += GfVec3f(0,0,2);
+            posed.surfaces[0].points[0] += usdGen::UsdGenVec3f(0,0,2);
             posed.surfaces[0].surfaceGeneration = 91;
-            posed.surfaces[0].worldMatrix.SetTranslate(GfVec3d(.4,0,0));
+            posed.surfaces[0].worldMatrix.SetTranslate(usdGen::UsdGenVec3d(.4,0,0));
             posed.curveSets[0].worldMatrix = posed.surfaces[0].worldMatrix;
             posed.surfaces[0].samples.push_back({38,posed.surfaces[0].points});
             CHECK(usdGenUsd::Recompile(frameCompiler, posed,&frameGraph).ok);
@@ -278,7 +279,7 @@ int main() {
             frameCtx.desc = &frameGraph.Spec();
             CHECK(!frameScheduler.Run(frameGraph,frameCtx,3).diagnostics.HasErrors());
             CHECK(OutputBuffer(frameGraph).rootN != priorNormals &&
-                  priorNormals == VtVec3fArray(2,GfVec3f(0,0,1)));
+                  priorNormals == usdGen::UsdGenVec3fArray(2,usdGen::UsdGenVec3f(0,0,1)));
         }
         auto old = framed;
         // Drop the authored second curve (stable ID 7) while preserving all
@@ -302,7 +303,7 @@ int main() {
         // binding still names a valid face, but no surface rest payload is
         // required to consume the already-authored frame.
         auto explicitFrames = derived;
-        explicitFrames.curveSets[0].rootFrame.assign(2,GfMatrix4d(1.0));
+        explicitFrames.curveSets[0].rootFrame.assign(2,usdGen::UsdGenMatrix4d(1.0));
         explicitFrames.surfaces[0].restPoints.clear();
         CHECK(Run(explicitFrames,&framed) && framed.totalCurves == 2);
         derived.surfaces[0].faceVertexCounts = {5};
@@ -355,8 +356,8 @@ int main() {
         CHECK(output.totalCvs == 8 && output.rest.size() == 8);
         CHECK(output.px[0] == 120 && output.px[4] == 110);
         CHECK(output.pz[3] == 1 && output.pz[7] == 1);
-        CHECK(output.rest[0] == GfVec3f(20,0,0) && output.rest[3] == GfVec3f(20,0,1));
-        CHECK(output.rest[4] == GfVec3f(10,0,0) && output.rest[7] == GfVec3f(10,0,1));
+        CHECK(output.rest[0] == usdGen::UsdGenVec3f(20,0,0) && output.rest[3] == usdGen::UsdGenVec3f(20,0,1));
+        CHECK(output.rest[4] == usdGen::UsdGenVec3f(10,0,0) && output.rest[7] == usdGen::UsdGenVec3f(10,0,1));
         CHECK(OutputView(graph).rest.cdata() != sourceView.rest.cdata());
         CHECK(source.rest == sourceRest);
     }
@@ -387,7 +388,7 @@ int main() {
     CHECK(Run(current, &out) && out.px == VtFloatArray({120,121,110,111,112}));
     current.curveSets[0].rest.clear();
     CHECK(Run(current, &out) && out.rest.size() == out.totalCvs);
-    CHECK(out.rest[0] == GfVec3f(120,0,0) && out.rest[2] == GfVec3f(110,0,0));
+    CHECK(out.rest[0] == usdGen::UsdGenVec3f(120,0,0) && out.rest[2] == usdGen::UsdGenVec3f(110,0,0));
     auto empty = d;
     auto& e = empty.curveSets[0];
     e.curveVertexCounts.clear(); e.points.clear(); e.rest.clear();
@@ -398,10 +399,10 @@ int main() {
     auto exact = d;
     auto& x = exact.curveSets[0];
     x.curveVertexCounts = {14};
-    x.points = VtVec3fArray(14,GfVec3f(0)); x.points[8] = GfVec3f(1000000,0,0);
+    x.points = usdGen::UsdGenVec3fArray(14,usdGen::UsdGenVec3f(0)); x.points[8] = usdGen::UsdGenVec3f(1000000,0,0);
     x.rest = x.points; x.widths = VtFloatArray(14,.25f);
     x.curveId = {9}; x.skinPrim = {0}; x.skinPrimUv = {{0,0}};
-    x.rootFrame = {GfMatrix4d(1.0)}; x.authoredPlanes.clear();
+    x.rootFrame = {usdGen::UsdGenMatrix4d(1.0)}; x.authoredPlanes.clear();
     CHECK(Run(exact,&out) && out.cvOffsets.empty());
     CHECK(out.px[7] == 0 && out.px[8] == 1000000 && out.rest == x.rest);
 

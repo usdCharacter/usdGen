@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenSurface/maps/mapInput.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/imagePayload.h"
 
 #include "usdGen/registries/opRegistry.h"
@@ -9,7 +12,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -38,13 +43,26 @@ MapInputState const *State() noexcept
 
 using ImagePayloadPtr = std::shared_ptr<const UsdGenImagePayload>;
 
+/// The record's image payload value: a Boxed payload of usdGenSurface
+/// (pointer identity, as the shared_ptr it holds).
+struct ImagePayloadBox final : UsdGenBoxed, UsdGenPooled {
+    static constexpr uint64_t kBoxTag = UsdGenBoxTag("usdGenSurface.imagePayload");
+    explicit ImagePayloadBox(ImagePayloadPtr p) : payload(std::move(p)) {}
+    uint64_t Hash() const noexcept override { return uint64_t(reinterpret_cast<uintptr_t>(payload.get())); }
+    bool Equal(UsdGenBoxed const &o) const noexcept override
+    {
+        return payload == static_cast<ImagePayloadBox const &>(o).payload;
+    }
+    ImagePayloadPtr payload;
+};
+
 /// Intake: the map type's handle, once per compile.
 void ResolveTypeId(UsdGenInputRecord &record)
 {
     if (record.values.size() <= kUsdGenMapValueTypeId) return;
-    TfToken const &type = record.Get<TfToken>(kUsdGenMapValueType, TfToken());
+    UsdGenToken const &type = record.Get<UsdGenToken>(kUsdGenMapValueType, UsdGenToken());
     record.values[kUsdGenMapValueTypeId].value =
-        VtValue(int(UsdGenMutableTypeRegistry().Find(type)));
+        UsdGenValue(int(UsdGenMutableTypeRegistry().Find(type)));
 }
 
 // FNV-1a 64-bit (the compiler's map value identity, moved here).
@@ -78,7 +96,7 @@ uint64_t Fnv1aText(uint64_t h, std::string_view s)
     return h;
 }
 
-uint64_t Fnv1aToken(uint64_t h, TfToken const &t)
+uint64_t Fnv1aToken(uint64_t h, UsdGenToken const &t)
 {
     return Fnv1aI64(Fnv1aCstr(h, t.GetText()), static_cast<int64_t>(t.Hash()));
 }
@@ -233,21 +251,21 @@ UsdGenMapInputView UsdGenMapInputView::Of(UsdGenInputRecord const &record) noexc
     UsdGenMapInputView v;
     v.key = record.key;
     v.paintSurface = record.owner;
-    v.type = record.Get<TfToken>(kUsdGenMapValueType, TfToken());
-    if (VtValue const *path = record.Value(kUsdGenMapValueResolvedAssetPath);
+    v.type = record.Get<UsdGenToken>(kUsdGenMapValueType, UsdGenToken());
+    if (UsdGenValue const *path = record.Value(kUsdGenMapValueResolvedAssetPath);
         path && path->IsHolding<std::string>()) {
         v.resolvedAssetPathHolder = *path;
         v.resolvedAssetPath = v.resolvedAssetPathHolder.UncheckedGet<std::string>();
     }
     v.textureGeneration = record.generation;
-    v.paintPrimvar = record.Get<TfToken>(kUsdGenMapValuePaintPrimvar, TfToken());
-    v.paintInterpolation = record.Get<TfToken>(kUsdGenMapValuePaintInterpolation, TfToken());
+    v.paintPrimvar = record.Get<UsdGenToken>(kUsdGenMapValuePaintPrimvar, UsdGenToken());
+    v.paintInterpolation = record.Get<UsdGenToken>(kUsdGenMapValuePaintInterpolation, UsdGenToken());
     v.paintValues = record.Column<float>(kUsdGenMapInputPaintValues);
     if (record.values.size() > kUsdGenMapValues)
         v.params = {record.values.data() + kUsdGenMapValues, record.values.size() - kUsdGenMapValues};
-    if (VtValue const *image = record.Value(kUsdGenMapValueImagePayload);
-        image && image->IsHolding<ImagePayloadPtr>())
-        v.imagePayload = image->UncheckedGet<ImagePayloadPtr>();
+    if (UsdGenValue const *image = record.Value(kUsdGenMapValueImagePayload);
+        image && image->GetBoxed<ImagePayloadBox>())
+        v.imagePayload = image->GetBoxed<ImagePayloadBox>()->payload;
     v.typeId = UsdGenTypeId(uint16_t(record.Get<int>(kUsdGenMapValueTypeId,
                                                      int(UsdGenTypeId::Invalid))));
     v.data = record.data;
@@ -273,18 +291,19 @@ UsdGenMapInputView UsdGenMapInputView::Of(UsdGenMapData const &d, UsdGenNodeKey 
 }
 
 UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &d, UsdGenNodeKey key,
-                                  UsdGenNodeKey paintSurface, TfToken const &label,
+                                  UsdGenNodeKey paintSurface, UsdGenText const &label,
                                   UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenMapInputKind());
     w.UseCache(cache, key);
     w.Array(kUsdGenMapInputPaintValues, d.paintValues);
-    w.Value(kUsdGenMapValueType, VtValue(d.type));
-    w.Value(kUsdGenMapValueResolvedAssetPath, VtValue(d.resolvedAssetPath));
-    w.Value(kUsdGenMapValuePaintPrimvar, VtValue(d.paintPrimvar));
-    w.Value(kUsdGenMapValuePaintInterpolation, VtValue(d.paintInterpolation));
-    w.Value(kUsdGenMapValueImagePayload, VtValue(d.imagePayload));
-    w.Value(kUsdGenMapValueTypeId, VtValue(int(d.typeId)));
+    w.Value(kUsdGenMapValueType, UsdGenValue(d.type));
+    w.Value(kUsdGenMapValueResolvedAssetPath, UsdGenValue(d.resolvedAssetPath));
+    w.Value(kUsdGenMapValuePaintPrimvar, UsdGenValue(d.paintPrimvar));
+    w.Value(kUsdGenMapValuePaintInterpolation, UsdGenValue(d.paintInterpolation));
+    w.Value(kUsdGenMapValueImagePayload,
+            UsdGenValue::Box(ImagePayloadBox::kBoxTag, UsdGenRef<const UsdGenBoxed>(new ImagePayloadBox(d.imagePayload))));
+    w.Value(kUsdGenMapValueTypeId, UsdGenValue(int(d.typeId)));
     for (UsdGenParamValue const &param : d.params) w.Extra(param);
     return w.Finish(key, paintSurface, label, d.textureGeneration);
 }

@@ -11,6 +11,7 @@
 // synthetic in-memory (one prim per registered type); the codeless schema
 // plugin is discovered via PXR_PLUGINPATH_NAME (ctest ENVIRONMENT).
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/primAdapter.h"
 
 #include "pxr/pxr.h"

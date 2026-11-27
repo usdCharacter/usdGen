@@ -8,6 +8,7 @@
 #ifndef USDGENUSD_PRESENTATION_H
 #define USDGENUSD_PRESENTATION_H
 
+#include "usdGenUsd/convert/math.h"
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/api/primRef.h"
 

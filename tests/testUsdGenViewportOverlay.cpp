@@ -43,6 +43,7 @@
 // where HdsiLegacyDisplayStyleOverrideSceneIndex and
 // UsdImagingSelectionSceneIndex sit in UsdImagingGLEngine.
 
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenHydraCurves/usdGenTilePublisher.h"

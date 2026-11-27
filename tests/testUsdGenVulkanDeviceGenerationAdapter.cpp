@@ -4,6 +4,7 @@
 // Vulkan device-generation adapter contract.  This test keeps the source
 // capture/readback boundary separate from neutral publication: production
 // publication must expose metadata and owners, never geometry bytes.
+#include "utils/testToken.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
@@ -50,7 +51,7 @@ template<class T> static std::vector<uint8_t> Bytes(T const* p, size_t n) {
 // native source planes retain their private Vulkan names.
 static std::string PublicName(UsdGenDeviceChannelMetadata const& metadata) {
     switch (metadata.semantic) {
-    case UsdGenDeviceChannelSemantic::Generic: return metadata.name;
+    case UsdGenDeviceChannelSemantic::Generic: return metadata.name.GetString();
     case UsdGenDeviceChannelSemantic::Points: return "points";
     case UsdGenDeviceChannelSemantic::RestPoints: return "rest";
     case UsdGenDeviceChannelSemantic::Widths: return "widths";
@@ -69,12 +70,12 @@ static VulkanSourcePrepareInfo SourceFixture() {
     auto& b = in.source;
     b.totalCurves = 2; b.totalCvs = 4; b.topologyVersion = 11; b.valueVersion = 23;
     b.px = {0,1,2,3}; b.py = {0,1,0,1}; b.pz = {0,0,1,1};
-    b.rest = VtVec3fArray(4, GfVec3f(2,3,4)); b.width = VtFloatArray(4, 1.f);
+    b.rest = usdGen::UsdGenVec3fArray(4, usdGen::UsdGenVec3f(2,3,4)); b.width = usdGen::UsdGenFloatArray(4, 1.f);
     b.hairT = {0,.5f,.5f,1}; b.curveId = {5,9}; b.cvOffsets = {0,2,4};
-    b.rootPrim = {3,7}; b.rootUV = {GfVec2f(.2f,.3f),GfVec2f(.4f,.5f)};
-    b.rootT = VtVec3fArray(2, GfVec3f(1,0,0));
-    b.rootB = VtVec3fArray(2, GfVec3f(0,1,0));
-    b.rootN = VtVec3fArray(2, GfVec3f(0,0,1));
+    b.rootPrim = {3,7}; b.rootUV = {usdGen::UsdGenVec2f(.2f,.3f),usdGen::UsdGenVec2f(.4f,.5f)};
+    b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(1,0,0));
+    b.rootB = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,1,0));
+    b.rootN = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,0,1));
     in.geometry.topologyVersion = 11; in.geometry.valueVersion = 23;
     in.geometry.elementCount = 2; in.geometry.pointCount = 4;
     in.geometry.alreadyDeformed = true;
@@ -84,7 +85,7 @@ static VulkanSourcePrepareInfo SourceFixture() {
     tile.pointCount = 4; tile.boundsValid = true; tile.extentMin = {0,0,0};
     tile.extentMax = {3,1,1}; in.geometry.tiles = {tile};
     uint32_t guide[] = {3,7};
-    in.additionalNamed.push_back({{TfToken("guideId"), UsdGenDeviceValueType::UInt32,
+    in.additionalNamed.push_back({{TestToken("guideId"), UsdGenDeviceValueType::UInt32,
         UsdGenDeviceDomain::Primitive, 2, 1, 4, true,
         UsdGenDeviceChannelSemantic::Generic}, Bytes(guide, 2)});
     return in;
@@ -188,7 +189,7 @@ int main(int argc, char** argv) {
         CHECK(plane.metadata.name != "sourceRootT" && plane.metadata.name != "sourceRootB" && plane.metadata.name != "sourceRootN");
 
     auto widthPipeline=WidthPipeline::Create(context,code); CHECK(widthPipeline);
-    auto candidate=widthPipeline->Begin(nativeGeneration->PlaneOwner(TfToken("width")),4,2.f,0);
+    auto candidate=widthPipeline->Begin(nativeGeneration->PlaneOwner(TestToken("width")),4,2.f,0);
     CHECK(candidate && Prove(native));
     uint32_t semantic=UINT32_MAX;
     CHECK(candidate->Poll(&semantic)==VK_SUCCESS && semantic==0);

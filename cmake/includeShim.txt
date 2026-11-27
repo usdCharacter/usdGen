@@ -18,7 +18,6 @@ usdGen/cudaSurfaceInput.h usdGenCurves/cuda/cudaSurfaceInput.h
 usdGen/curveBuffer.h usdGenCurves/types/curveBuffer.h
 usdGen/curveLoader.h usdGenCurves/curveLoader.h
 usdGen/curveRootCapture.h usdGenCurves/curveRootCapture.h
-usdGen/debugCodes.h usdGen/exec/debugCodes.h
 usdGen/deviceGeneration.h usdGen/exec/device/deviceGeneration.h
 usdGen/digest.h usdGen/compile/digest.h
 usdGen/epoch.h usdGen/exec/epoch.h

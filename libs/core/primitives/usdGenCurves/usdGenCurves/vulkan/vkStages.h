@@ -4,13 +4,14 @@
 // parameter indices (UsdGenKernelDef::paramMap) and the lane's vocabulary.
 // No Vulkan SDK types. Defined in usdGenCurvesVulkan (registerCurvesVulkan.cpp).
 #pragma once
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/export.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenRegistrar;
@@ -40,11 +41,11 @@ enum Scatter : uint16_t { kScDensity, kScFlip, kScSubdivisionLevel, kScCount };
 /// once (compile scope); valid for the life of the process.
 struct UsdGenVulkanTokens {
     // CurveSource idSource / staleAction / rebind values
-    TfToken primvar, index, warn, ignore, block, never, onError, always;
+    UsdGenToken primvar, index, warn, ignore, block, never, onError, always;
     // other ops' literal values the lane admits
-    TfToken surfaceCage, scale, set, cull, cutExtend, keepParam, reparam, surfaceNormal, vector;
+    UsdGenToken surfaceCage, scale, set, cull, cutExtend, keepParam, reparam, surfaceNormal, vector;
     // lane vocabulary
-    TfToken regionMapRel /* usdGen:regionMap */, exprSource /* expr:source */,
+    UsdGenToken regionMapRel /* usdGen:regionMap */, exprSource /* expr:source */,
         capturedRoots /* __vulkanCapturedRoots */, owners /* __vulkanOwners */,
         resampleTransform /* VulkanResampleTransform */, sourceAlias /* VulkanSourceAlias */,
         lengthTransform /* VulkanLengthTransform */, publication /* VulkanPublication */;
@@ -63,21 +64,21 @@ struct UsdGenVulkanKernel {
     }
     UsdGenParamSlot Slot(uint16_t k) const noexcept { return kernel->paramMap[k]; }
     /// The declared spelling of backend parameter k.
-    TfToken const &Param(uint16_t k) const noexcept { return record->ParamName(Slot(k)); }
+    UsdGenToken const &Param(uint16_t k) const noexcept { return record->ParamName(Slot(k)); }
     /// name spells backend parameter k as FindParam accepts it ("x" or
     /// "usdGen:x" unless the op declares "usdGen:x" separately).
-    bool Names(uint16_t k, TfToken const &name) const noexcept {
+    bool Names(uint16_t k, UsdGenToken const &name) const noexcept {
         return record->FindParam(name) == Slot(k);
     }
     /// name spells the op's enabled parameter, with or without "usdGen:".
-    bool NamesEnabled(TfToken const &name) const noexcept {
+    bool NamesEnabled(UsdGenToken const &name) const noexcept {
         UsdGenParamSlot const s = record->EnabledSlot();
         return s != kUsdGenNoParam && record->FindParam(name) == s;
     }
 };
 
 /// The Vulkan kernel of the op named type. Pointer probes; never interns.
-USDGEN_CURVES_VULKAN_API UsdGenVulkanKernel UsdGenVulkanKernelOf(TfToken const &type) noexcept;
+USDGEN_CURVES_VULKAN_API UsdGenVulkanKernel UsdGenVulkanKernelOf(UsdGenToken const &type) noexcept;
 /// The first op whose Vulkan kernel has stage s.
 USDGEN_CURVES_VULKAN_API UsdGenVulkanKernel UsdGenVulkanKernelFor(UsdGenVulkanStage s) noexcept;
 

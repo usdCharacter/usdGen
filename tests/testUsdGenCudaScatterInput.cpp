@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/cudaScatterInput.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/types/curveCapture.h"

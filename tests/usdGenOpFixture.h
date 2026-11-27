@@ -3,6 +3,7 @@
 // Hand-driven op tests: the registered record, and a view whose parameters are
 // resolved to the record's slots (what the compiler hands an op).
 #pragma once
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -134,7 +135,7 @@ inline std::vector<PXR_NS::TfToken> OutputPlaneNames(
         emit(view.View(), -1, sink);
         return out;
     }
-    for (usdGen::UsdGenPlane const &plane : record.OutputPlanes()) out.push_back(plane.name);
+    for (usdGen::UsdGenChannelDesc const &plane : record.OutputPlanes()) out.push_back(plane.name);
     return out;
 }
 

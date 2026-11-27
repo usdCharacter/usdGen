@@ -3,6 +3,8 @@
 #include "usdGen/clumpMotion.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,7 +14,6 @@
 #include <set>
 #include <tuple>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -23,7 +24,7 @@ bool Fail(std::string const &message, std::string *error)
     return false;
 }
 
-bool ParseLevel(TfToken const &name, char const *prefix, int *level)
+bool ParseLevel(UsdGenToken const &name, char const *prefix, int *level)
 {
     std::string const &s = name.GetString();
     size_t const n = std::strlen(prefix);
@@ -173,7 +174,7 @@ bool UsdGenBuildClumpMotion(UsdGenCurveBuffer const &buffer,
             uint64_t previousKey = 0;
             int32_t previousMembership = -1;
             for (auto const &[key, membership, c] : members) {
-                GfVec3f const rest(anchor->f[size_t(c) * 3],
+                UsdGenVec3f const rest(anchor->f[size_t(c) * 3],
                                    anchor->f[size_t(c) * 3 + 1],
                                    anchor->f[size_t(c) * 3 + 2]);
                 if (!std::isfinite(rest[0]) || !std::isfinite(rest[1]) ||

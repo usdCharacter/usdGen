@@ -3,6 +3,7 @@
 // recompile, not a value sweep). The tileTarget sibling still routes
 // Topology on the terminal; an unknown usdGen leaf on the description
 // stays quiet; a whole-container resync still routes structural.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGen/graph.h"
 #include "usdGen/session.h"

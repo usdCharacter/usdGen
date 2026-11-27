@@ -8,6 +8,7 @@
 // fallback (0,1,0) while still emitting roots. Both emission paths (the
 // one-pass emitRange fan and the two-pass fanFace+spill fan) must publish
 // the fallback on every rootN.
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -38,10 +39,10 @@ PXR_NAMESPACE_USING_DIRECTIVE
 static void AddBowtie(UsdGenSurfaceDesc *s, float x0)
 {
     int const vb = int(s->restPoints.size());
-    s->restPoints.push_back(GfVec3f(x0, 0.0f, 0.0f));
-    s->restPoints.push_back(GfVec3f(x0 + 1.0f, 1.0f, 0.0f));
-    s->restPoints.push_back(GfVec3f(x0 + 1.0f, 0.0f, 0.0f));
-    s->restPoints.push_back(GfVec3f(x0, 1.0f, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0, 0.0f, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0 + 1.0f, 1.0f, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0 + 1.0f, 0.0f, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0, 1.0f, 0.0f));
     s->faceVertexCounts.push_back(4);
     for (int k = 0; k < 4; ++k)
         s->faceVertexIndices.push_back(vb + k);
@@ -93,21 +94,21 @@ static bool RunDirect(UsdGenGraphDesc const &d, UsdGenCurveBuffer *out)
 // Reference fan of face f, spelled as the engine's (fanFace in
 // ops/scatter.cpp): per-triangle weights, area sum, normal accumulator.
 static void TestFan(UsdGenSurfaceDesc const &s, size_t f, double *area,
-                    GfVec3f *nAcc)
+                    usdGen::UsdGenVec3f *nAcc)
 {
     size_t cbase = 0;
     for (size_t g = 0; g < f; ++g)
         cbase += size_t(s.faceVertexCounts[g]);
     int const nc = s.faceVertexCounts[f];
-    GfVec3f const p0 = s.restPoints[s.faceVertexIndices[cbase]];
+    usdGen::UsdGenVec3f const p0 = s.restPoints[s.faceVertexIndices[cbase]];
     *area = 0.0;
-    *nAcc = GfVec3f(0.0f, 0.0f, 0.0f);
+    *nAcc = usdGen::UsdGenVec3f(0.0f, 0.0f, 0.0f);
     for (int t = 1; t + 1 < nc; ++t) {
-        GfVec3f const pb =
+        usdGen::UsdGenVec3f const pb =
             s.restPoints[s.faceVertexIndices[cbase + size_t(t)]];
-        GfVec3f const pc =
+        usdGen::UsdGenVec3f const pc =
             s.restPoints[s.faceVertexIndices[cbase + size_t(t) + 1]];
-        GfVec3f const x = GfCross(pb - p0, pc - p0);
+        usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(pb - p0, pc - p0);
         float const w = 0.5f * std::sqrt(
             x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
         *area += double(w);
@@ -123,9 +124,9 @@ static bool CheckBowties(UsdGenSurfaceDesc const &s, int seed,
     // face has exactly unit area and an exactly-zero accumulator.
     for (size_t f = 0; f < nFaces; ++f) {
         double area = 0.0;
-        GfVec3f nAcc(0.0f);
+        usdGen::UsdGenVec3f nAcc(0.0f);
         TestFan(s, f, &area, &nAcc);
-        if (area != 1.0 || nAcc != GfVec3f(0.0f, 0.0f, 0.0f))
+        if (area != 1.0 || nAcc != usdGen::UsdGenVec3f(0.0f, 0.0f, 0.0f))
             return false;
     }
     // Density 1.0 over unit area: expected exactly 1.0, frac 0, so each
@@ -136,7 +137,7 @@ static bool CheckBowties(UsdGenSurfaceDesc const &s, int seed,
     faceOf.reserve(nFaces * 2);
     for (uint32_t f = 0; f < uint32_t(nFaces); ++f)
         faceOf[UsdGenCurveId(seed, f, 0)] = f;
-    GfVec3f const fallback(0.0f, 1.0f, 0.0f);
+    usdGen::UsdGenVec3f const fallback(0.0f, 1.0f, 0.0f);
     for (uint32_t i = 0; i < b.totalCurves; ++i) {
         auto it = faceOf.find(b.curveId[i]);
         if (it == faceOf.end())

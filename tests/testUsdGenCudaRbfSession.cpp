@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "pxr/base/gf/vec2f.h"
 #include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"
@@ -253,7 +254,7 @@ int main() {
     usdGenUsd::SetGraphDesc(session, bad); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     auto mismatch = restChanged;
-    mismatch.curveSets[0].worldMatrix.SetTranslate(GfVec3d(1,0,0));
+    mismatch.curveSets[0].worldMatrix.SetTranslate(usdGen::UsdGenVec3d(1,0,0));
     usdGenUsd::SetGraphDesc(session, mismatch); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     mismatch = restChanged;

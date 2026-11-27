@@ -23,6 +23,11 @@
 //     so a painted mask never renumbers strands (strandIndex keeps the
 //     generation index).
 #include "usdGen/ops/scatterModes.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 
@@ -44,7 +49,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace scatter {
@@ -64,28 +68,28 @@ inline uint32_t FloatBits(float f)
 }
 
 // (P0 w0 + P1 w1) + P2 w2 per component: the reference's float order.
-inline GfVec3f Blend3(GfVec3f const &p0, GfVec3f const &p1, GfVec3f const &p2,
+inline UsdGenVec3f Blend3(UsdGenVec3f const &p0, UsdGenVec3f const &p1, UsdGenVec3f const &p2,
                       float w0, float w1, float w2)
 {
-    return GfVec3f(p0[0] * w0 + p1[0] * w1 + p2[0] * w2,
+    return UsdGenVec3f(p0[0] * w0 + p1[0] * w1 + p2[0] * w2,
                    p0[1] * w0 + p1[1] * w1 + p2[1] * w2,
                    p0[2] * w0 + p1[2] * w1 + p2[2] * w2);
 }
 
-inline GfVec2f Blend2(GfVec2f const &p0, GfVec2f const &p1, GfVec2f const &p2,
+inline UsdGenVec2f Blend2(UsdGenVec2f const &p0, UsdGenVec2f const &p1, UsdGenVec2f const &p2,
                       float w0, float w1, float w2)
 {
-    return GfVec2f(p0[0] * w0 + p1[0] * w1 + p2[0] * w2,
+    return UsdGenVec2f(p0[0] * w0 + p1[0] * w1 + p2[0] * w2,
                    p0[1] * w0 + p1[1] * w1 + p2[1] * w2);
 }
 
-inline float Dist2(GfVec3f const &a, GfVec3f const &b)
+inline float Dist2(UsdGenVec3f const &a, UsdGenVec3f const &b)
 {
     float const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
     return dx * dx + dy * dy + dz * dz;
 }
 
-inline GfVec3f Unit(GfVec3f const &v, GfVec3f const &fallback)
+inline UsdGenVec3f Unit(UsdGenVec3f const &v, UsdGenVec3f const &fallback)
 {
     float const l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
     return l > 1e-12f ? v / l : fallback;
@@ -112,37 +116,37 @@ inline uint64_t CellKey(int64_t x, int64_t y, int64_t z)
 
 struct Root
 {
-    GfVec3f pos{0.0f};
-    GfVec3f normal{0.0f, 1.0f, 0.0f};
-    GfVec2f uv{0.0f};
+    UsdGenVec3f pos{0.0f};
+    UsdGenVec3f normal{0.0f, 1.0f, 0.0f};
+    UsdGenVec2f uv{0.0f};
     int tri = -1;                    // local triangle: mask sampling and frame
-    GfVec3f sampleBary{1.0f, 0.0f, 0.0f};
+    UsdGenVec3f sampleBary{1.0f, 0.0f, 0.0f};
     int hashTri = -1;                // whole-mesh fan index for the root hash
     int vertex = -1;
-    GfVec3f hashBary{0.0f};
+    UsdGenVec3f hashBary{0.0f};
     int face = -1;
     uint64_t uid = 0;                // nonzero: guide id (perGuide)
 };
 
 struct Surface
 {
-    VtVec3fArray points;
+    UsdGenVec3fArray points;
     std::vector<strand::FanTriangle> tris;
     std::vector<int> globalTri;
     std::vector<float> area;
     float areaTotal = 0.0f;
     std::vector<float> cdf;              // running sum of area / areaTotal
-    std::vector<GfVec3f> cornerNormal;   // 3 per triangle
-    std::vector<GfVec2f> cornerUv;       // 3 per triangle, empty without UVs
-    std::vector<GfVec3f> vertexNormal;   // per point
-    std::vector<GfVec2f> vertexUv;       // per point, empty without UVs
+    std::vector<UsdGenVec3f> cornerNormal;   // 3 per triangle
+    std::vector<UsdGenVec2f> cornerUv;       // 3 per triangle, empty without UVs
+    std::vector<UsdGenVec3f> vertexNormal;   // per point
+    std::vector<UsdGenVec2f> vertexUv;       // per point, empty without UVs
     std::vector<int> vertexTri;          // first incident triangle, -1 none
     std::vector<int8_t> vertexCorner;    // its corner slot
     strand::TriangleBvh bvh;
     bool bvhBuilt = false;
 
     bool HasUv() const { return !cornerUv.empty(); }
-    GfVec3f const &P(size_t t, int k) const { return points[size_t(tris[t].v[k])]; }
+    UsdGenVec3f const &P(size_t t, int k) const { return points[size_t(tris[t].v[k])]; }
 
     void Build(UsdGenSurfaceInputView const &s)
     {
@@ -176,9 +180,9 @@ struct Surface
         area.assign(nt, 0.0f);
         float total = 0.0f;
         for (size_t i = 0; i < nt; ++i) {
-            GfVec3f const e1 = P(i, 1) - P(i, 0);
-            GfVec3f const e2 = P(i, 2) - P(i, 0);
-            GfVec3f const x = GfCross(e1, e2);
+            UsdGenVec3f const e1 = P(i, 1) - P(i, 0);
+            UsdGenVec3f const e2 = P(i, 2) - P(i, 0);
+            UsdGenVec3f const x = UsdGenCross(e1, e2);
             area[i] = 0.5f * std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
             total += area[i];
         }
@@ -200,13 +204,13 @@ struct Surface
 
         // Normals: the authored rest normals (vertex or faceVarying), else
         // area-weighted vertex normals.
-        UsdGenSpan<const GfVec3f> const rn = s.restNormals;
+        UsdGenSpan<const UsdGenVec3f> const rn = s.restNormals;
         bool const nVertex = s.restNormalDomain == UsdGenSurfaceNormalDomain::Vertex &&
                              rn.size() == np;
         bool const nFaceVarying = s.restNormalDomain == UsdGenSurfaceNormalDomain::FaceVarying &&
                                   rn.size() == indices.size();
-        cornerNormal.assign(3 * nt, GfVec3f(0.0f, 1.0f, 0.0f));
-        vertexNormal.assign(np, GfVec3f(0.0f, 1.0f, 0.0f));
+        cornerNormal.assign(3 * nt, UsdGenVec3f(0.0f, 1.0f, 0.0f));
+        vertexNormal.assign(np, UsdGenVec3f(0.0f, 1.0f, 0.0f));
         if (nVertex || nFaceVarying) {
             for (size_t i = 0; i < nt; ++i)
                 for (int k = 0; k < 3; ++k)
@@ -217,15 +221,15 @@ struct Surface
                 vertexNormal[v] = cornerNormal[3 * size_t(vertexTri[v]) + size_t(vertexCorner[v])];
             }
         } else {
-            std::vector<GfVec3d> vn(np, GfVec3d(0.0));
+            std::vector<UsdGenVec3d> vn(np, UsdGenVec3d(0.0));
             for (size_t i = 0; i < nt; ++i) {
-                GfVec3d const a(P(i, 0)), b(P(i, 1)), c(P(i, 2));
-                GfVec3d const fn = GfCross(b - a, c - a);
+                UsdGenVec3d const a(P(i, 0)), b(P(i, 1)), c(P(i, 2));
+                UsdGenVec3d const fn = UsdGenCross(b - a, c - a);
                 for (int k = 0; k < 3; ++k) vn[size_t(tris[i].v[k])] += fn;
             }
             for (size_t v = 0; v < np; ++v) {
                 double const l = vn[v].GetLength();
-                if (l > 1e-300) vertexNormal[v] = GfVec3f(vn[v] / l);
+                if (l > 1e-300) vertexNormal[v] = UsdGenVec3f(vn[v] / l);
             }
             for (size_t i = 0; i < nt; ++i)
                 for (int k = 0; k < 3; ++k)
@@ -235,7 +239,7 @@ struct Surface
         // UVs: vertex-interpolated (the imported layout) or faceVarying.
         cornerUv.clear();
         vertexUv.clear();
-        UsdGenSpan<const GfVec2f> const uv = s.uv;
+        UsdGenSpan<const UsdGenVec2f> const uv = s.uv;
         bool const uvVertex = !uv.empty() && uv.size() == np;
         bool const uvFaceVarying = !uv.empty() && !uvVertex && uv.size() == indices.size();
         if (uvVertex || uvFaceVarying) {
@@ -244,7 +248,7 @@ struct Surface
                 for (int k = 0; k < 3; ++k)
                     cornerUv[3 * i + size_t(k)] =
                         uv[size_t(uvVertex ? tris[i].v[k] : tris[i].corner[k])];
-            vertexUv.assign(np, GfVec2f(0.0f));
+            vertexUv.assign(np, UsdGenVec2f(0.0f));
             for (size_t v = 0; v < np; ++v) {
                 if (uvVertex) vertexUv[v] = uv[v];
                 else if (vertexTri[v] >= 0)
@@ -260,15 +264,15 @@ struct Surface
         bvhBuilt = true;
     }
 
-    GfVec3f FaceNormal(size_t t) const
+    UsdGenVec3f FaceNormal(size_t t) const
     {
-        GfVec3f const x = GfCross(P(t, 1) - P(t, 0), P(t, 2) - P(t, 0));
-        return Unit(x, GfVec3f(0.0f, 1.0f, 0.0f));
+        UsdGenVec3f const x = UsdGenCross(P(t, 1) - P(t, 0), P(t, 2) - P(t, 0));
+        return Unit(x, UsdGenVec3f(0.0f, 1.0f, 0.0f));
     }
 
-    GfVec3f InterpNormal(size_t t, float w0, float w1, float w2) const
+    UsdGenVec3f InterpNormal(size_t t, float w0, float w1, float w2) const
     {
-        GfVec3f const n = Blend3(cornerNormal[3 * t], cornerNormal[3 * t + 1],
+        UsdGenVec3f const n = Blend3(cornerNormal[3 * t], cornerNormal[3 * t + 1],
                                  cornerNormal[3 * t + 2], w0, w1, w2);
         float const l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
         return l > 1e-12f ? n / l : FaceNormal(t);
@@ -280,7 +284,7 @@ struct Surface
         Root r;
         r.tri = int(t);
         r.hashTri = globalTri[t];
-        r.sampleBary = r.hashBary = GfVec3f(w0, w1, w2);
+        r.sampleBary = r.hashBary = UsdGenVec3f(w0, w1, w2);
         r.pos = Blend3(P(t, 0), P(t, 1), P(t, 2), w0, w1, w2);
         if (HasUv())
             r.uv = Blend2(cornerUv[3 * t], cornerUv[3 * t + 1], cornerUv[3 * t + 2], w0, w1, w2);
@@ -300,7 +304,7 @@ struct Surface
         return RootAt(t, w0, a, b);
     }
 
-    GfVec3f SamplePoint(size_t t, float a, float b) const
+    UsdGenVec3f SamplePoint(size_t t, float a, float b) const
     {
         if (a + b > 1.0f) {
             a = 1.0f - a;
@@ -316,10 +320,10 @@ struct Surface
 
 struct Guides
 {
-    std::vector<GfVec3f> roots;      // rest root of each eligible guide, in order
+    std::vector<UsdGenVec3f> roots;      // rest root of each eligible guide, in order
     std::vector<uint64_t> ids;
     std::vector<int> skinPrim;
-    std::vector<GfVec2f> skinUv;
+    std::vector<UsdGenVec2f> skinUv;
 };
 
 UsdGenReferenceSet const *GuideSet(UsdGenCaptureContext const &ctx)
@@ -357,7 +361,7 @@ bool LoadGuides(UsdGenCaptureContext const &ctx, Guides *out, std::string *error
         out->roots.push_back(point(first));
         out->ids.push_back(b->curveId.size() == b->totalCurves ? b->curveId[c] : uint64_t(c));
         out->skinPrim.push_back(b->rootPrim.size() == b->totalCurves ? b->rootPrim[c] : -1);
-        out->skinUv.push_back(b->rootUV.size() == b->totalCurves ? b->rootUV[c] : GfVec2f(0.0f));
+        out->skinUv.push_back(b->rootUV.size() == b->totalCurves ? b->rootUV[c] : UsdGenVec2f(0.0f));
     }
     return true;
 }
@@ -366,7 +370,7 @@ struct Proximity
 {
     bool active = false;
     float cutoff2 = -1.0f;
-    std::vector<GfVec3f> roots;
+    std::vector<UsdGenVec3f> roots;
     double inv = 0.0;
     std::unordered_map<uint64_t, std::vector<uint32_t>> grid;
 
@@ -376,14 +380,14 @@ struct Proximity
         inv = 1.0 / cell;
         grid.clear();
         for (size_t i = 0; i < roots.size(); ++i) {
-            GfVec3f const &g = roots[i];
+            UsdGenVec3f const &g = roots[i];
             grid[CellKey(int64_t(std::floor(g[0] * inv)), int64_t(std::floor(g[1] * inv)),
                          int64_t(std::floor(g[2] * inv)))].push_back(uint32_t(i));
         }
     }
 
     /// Some guide root within sqrt(cutoff2): the 27 cells around p.
-    bool Within(GfVec3f const &p) const
+    bool Within(UsdGenVec3f const &p) const
     {
         int64_t const ix = int64_t(std::floor(p[0] * inv));
         int64_t const iy = int64_t(std::floor(p[1] * inv));
@@ -399,7 +403,7 @@ struct Proximity
         return false;
     }
 
-    bool Accept(GfVec3f const &p) const
+    bool Accept(UsdGenVec3f const &p) const
     {
         if (!active || cutoff2 < 0.0f) return true;
         if (roots.empty()) return false;
@@ -407,11 +411,11 @@ struct Proximity
     }
 
     /// Some guide root g with |g - c| <= R (the domain test).
-    bool AnyWithin(GfVec3f const &c, float R) const
+    bool AnyWithin(UsdGenVec3f const &c, float R) const
     {
         double const span = 2.0 * double(R) * inv + 3.0;
         if (span * span * span > double(std::max<size_t>(roots.size(), 27))) {
-            for (GfVec3f const &g : roots)
+            for (UsdGenVec3f const &g : roots)
                 if (std::sqrt(Dist2(g, c)) <= R) return true;
             return false;
         }
@@ -435,7 +439,7 @@ struct Proximity
 /// Coverage cutoff^2: the `coverage` quantile (linear interpolation) of the
 /// squared distance to the nearest guide root over 2000 area-uniform samples
 /// drawn with mt19937(42). This CDF divides the running SUM by the total.
-float CoverageCutoff2(Surface const &s, std::vector<GfVec3f> const &roots, float coverage)
+float CoverageCutoff2(Surface const &s, std::vector<UsdGenVec3f> const &roots, float coverage)
 {
     size_t const nt = s.tris.size();
     if (nt == 0 || roots.empty()) return 0.0f;
@@ -452,9 +456,9 @@ float CoverageCutoff2(Surface const &s, std::vector<GfVec3f> const &roots, float
         size_t const t = LowerBound(cdf, u);
         float const a = strand::Mt01(rng);
         float const b = strand::Mt01(rng);
-        GfVec3f const p = s.SamplePoint(t, a, b);
+        UsdGenVec3f const p = s.SamplePoint(t, a, b);
         float best = std::numeric_limits<float>::max();
-        for (GfVec3f const &g : roots) best = std::min(best, Dist2(p, g));
+        for (UsdGenVec3f const &g : roots) best = std::min(best, Dist2(p, g));
         d2[k] = best;
     }
     std::sort(d2.begin(), d2.end());
@@ -505,8 +509,8 @@ struct Picker
 float BuildDomain(Surface const &s, Proximity const &prox, Picker *pick)
 {
     float const Rg = std::sqrt(prox.cutoff2);
-    GfVec3f lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
-    for (GfVec3f const &g : prox.roots)
+    UsdGenVec3f lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
+    for (UsdGenVec3f const &g : prox.roots)
         for (int k = 0; k < 3; ++k) {
             lo[k] = std::min(lo[k], g[k]);
             hi[k] = std::max(hi[k], g[k]);
@@ -514,7 +518,7 @@ float BuildDomain(Surface const &s, Proximity const &prox, Picker *pick)
     float aDom = 0.0f;
     for (size_t i = 0; i < s.tris.size(); ++i) {
         if (!(s.area[i] > 0.0f)) continue;
-        GfVec3f const c = (s.P(i, 0) + s.P(i, 1) + s.P(i, 2)) / 3.0f;
+        UsdGenVec3f const c = (s.P(i, 0) + s.P(i, 1) + s.P(i, 2)) / 3.0f;
         float rad = 0.0f;
         for (int k = 0; k < 3; ++k) rad = std::max(rad, std::sqrt(Dist2(s.P(i, k), c)));
         float const R = rad + Rg;
@@ -577,22 +581,22 @@ void UvGridScatter(Surface const &s, Proximity const &prox, uint32_t target,
     uint32_t const n = uint32_t(std::ceil(std::sqrt(double(target))));
     int const G = std::clamp(int(std::sqrt(double(nt))), 16, 256);
     std::vector<std::vector<uint32_t>> cells(size_t(G) * size_t(G));
-    std::vector<GfVec2f> tuv(3 * nt);
+    std::vector<UsdGenVec2f> tuv(3 * nt);
     auto cellOf = [G](float x) {
         float const c = std::floor(float(G) * x);
         return c < 0.0f ? 0 : (c >= float(G) ? G - 1 : int(c));
     };
     for (size_t t = 0; t < nt; ++t) {
-        GfVec2f const a = s.cornerUv[3 * t], b = s.cornerUv[3 * t + 1], c = s.cornerUv[3 * t + 2];
+        UsdGenVec2f const a = s.cornerUv[3 * t], b = s.cornerUv[3 * t + 1], c = s.cornerUv[3 * t + 2];
         float const su = std::floor(std::min({a[0], b[0], c[0]}));
         float const sv = std::floor(std::min({a[1], b[1], c[1]}));
-        GfVec2f const shift(su, sv);
+        UsdGenVec2f const shift(su, sv);
         tuv[3 * t] = a - shift;
         tuv[3 * t + 1] = b - shift;
         tuv[3 * t + 2] = c - shift;
         float u0 = std::numeric_limits<float>::max(), v0 = u0, u1 = -u0, v1 = -u0;
         for (int k = 0; k < 3; ++k) {
-            GfVec2f const &q = tuv[3 * t + size_t(k)];
+            UsdGenVec2f const &q = tuv[3 * t + size_t(k)];
             u0 = std::min(u0, q[0]); u1 = std::max(u1, q[0]);
             v0 = std::min(v0, q[1]); v1 = std::max(v1, q[1]);
         }
@@ -606,14 +610,14 @@ void UvGridScatter(Surface const &s, Proximity const &prox, uint32_t target,
     for (uint32_t row = 0; row < n; ++row) {
         for (uint32_t col = 0; col < n; ++col) {
             if (out->size() >= target) return;
-            GfVec2f const q((float(col) + 0.5f) / float(n), (float(row) + 0.5f) / float(n));
+            UsdGenVec2f const q((float(col) + 0.5f) / float(n), (float(row) + 0.5f) / float(n));
             int const cx = cellOf(q[0] - std::floor(q[0]));
             int const cy = cellOf(q[1] - std::floor(q[1]));
             for (uint32_t t : cells[size_t(cy) * size_t(G) + size_t(cx)]) {
-                GfVec2f const &a = tuv[3 * size_t(t)];
-                GfVec2f const v0 = tuv[3 * size_t(t) + 1] - a;
-                GfVec2f const v1 = tuv[3 * size_t(t) + 2] - a;
-                GfVec2f const v2 = q - a;
+                UsdGenVec2f const &a = tuv[3 * size_t(t)];
+                UsdGenVec2f const v0 = tuv[3 * size_t(t) + 1] - a;
+                UsdGenVec2f const v1 = tuv[3 * size_t(t) + 2] - a;
+                UsdGenVec2f const v2 = q - a;
                 float const d00 = v0[0] * v0[0] + v0[1] * v0[1];
                 float const d01 = v0[0] * v1[0] + v0[1] * v1[1];
                 float const d11 = v1[0] * v1[0] + v1[1] * v1[1];
@@ -648,7 +652,7 @@ void VertexScatter(Surface const &s, Proximity const &prox, uint32_t target, std
         if (out->size() >= target) break;
         int const t = s.vertexTri[v];
         if (t < 0) continue;  // not on the bound surface
-        GfVec3f const &p = s.points[v];
+        UsdGenVec3f const &p = s.points[v];
         if (!prox.Accept(p)) continue;
         uint64_t key = (uint64_t(FloatBits(p[0])) ^ 0x14650fb0739d0383ull) * 0x100000001b3ull;
         key = (key ^ uint64_t(FloatBits(p[1]))) * 0x100000001b3ull;
@@ -658,11 +662,11 @@ void VertexScatter(Surface const &s, Proximity const &prox, uint32_t target, std
         r.pos = p;
         r.vertex = int(v);
         r.tri = t;
-        r.sampleBary = GfVec3f(0.0f);
+        r.sampleBary = UsdGenVec3f(0.0f);
         r.sampleBary[s.vertexCorner[v]] = 1.0f;
         r.hashTri = -1;
-        r.hashBary = GfVec3f(0.0f);  // inferred: unset record field
-        r.normal = Unit(s.vertexNormal[v], GfVec3f(0.0f, 1.0f, 0.0f));
+        r.hashBary = UsdGenVec3f(0.0f);  // inferred: unset record field
+        r.normal = Unit(s.vertexNormal[v], UsdGenVec3f(0.0f, 1.0f, 0.0f));
         if (s.HasUv()) r.uv = s.vertexUv[v];
         r.face = s.tris[size_t(t)].face;
         out->push_back(r);
@@ -674,8 +678,8 @@ void EvenScatter(Surface const &s, Picker const &pick, Proximity const &prox, ui
                  float r0, std::mt19937 &rng, std::vector<Root> *out, ModeStats *st)
 {
     if (target == 0 || s.tris.empty()) return;
-    GfVec3f lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
-    for (GfVec3f const &p : s.points)
+    UsdGenVec3f lo(std::numeric_limits<float>::max()), hi(-std::numeric_limits<float>::max());
+    for (UsdGenVec3f const &p : s.points)
         for (int k = 0; k < 3; ++k) {
             lo[k] = std::min(lo[k], p[k]);
             hi[k] = std::max(hi[k], p[k]);
@@ -734,7 +738,7 @@ void EvenScatter(Surface const &s, Picker const &pick, Proximity const &prox, ui
         inv = 1.0 / double(r);
         grid.clear();
         for (size_t i = 0; i < out->size(); ++i) {
-            GfVec3f const &p = (*out)[i].pos;
+            UsdGenVec3f const &p = (*out)[i].pos;
             grid[CellKey(cellIndex(p[0]), cellIndex(p[1]), cellIndex(p[2]))].push_back(uint32_t(i));
         }
     };
@@ -840,30 +844,30 @@ void GuideScatter(Surface &s, Guides const &guides, std::vector<Root> *out)
 /// Tangent frame at a root: N the root normal, T the root triangle's first
 /// edge Gram-Schmidt'd against N (second edge when nearly parallel), the
 /// same construction the random path uses.
-void RootFrame(Surface const &s, Root const &r, bool flip, GfVec3f *T, GfVec3f *N, GfVec3f *B)
+void RootFrame(Surface const &s, Root const &r, bool flip, UsdGenVec3f *T, UsdGenVec3f *N, UsdGenVec3f *B)
 {
-    GfVec3f const n = Unit(r.normal, GfVec3f(0.0f, 1.0f, 0.0f));
-    GfVec3f t(0.0f);
+    UsdGenVec3f const n = Unit(r.normal, UsdGenVec3f(0.0f, 1.0f, 0.0f));
+    UsdGenVec3f t(0.0f);
     float tLen = 0.0f;
     if (r.tri >= 0) {
         size_t const ti = size_t(r.tri);
-        GfVec3f e0 = s.P(ti, 1) - s.P(ti, 0);
-        float const e0d = GfDot(e0, n);
-        if (e0d * e0d > 0.81f * GfDot(e0, e0)) {
+        UsdGenVec3f e0 = s.P(ti, 1) - s.P(ti, 0);
+        float const e0d = UsdGenDot(e0, n);
+        if (e0d * e0d > 0.81f * UsdGenDot(e0, e0)) {
             e0 = s.P(ti, 2) - s.P(ti, 0);
-            t = e0 - n * GfDot(e0, n);
+            t = e0 - n * UsdGenDot(e0, n);
         } else {
             t = e0 - n * e0d;
         }
-        tLen = std::sqrt(GfDot(t, t));
+        tLen = std::sqrt(UsdGenDot(t, t));
     }
     if (tLen < 1e-9f) {
-        t = std::fabs(n[0]) > 0.9f ? GfVec3f(0.0f, 1.0f, 0.0f) : GfVec3f(1.0f, 0.0f, 0.0f);
-        t = Unit(t - n * GfDot(t, n), GfVec3f(1.0f, 0.0f, 0.0f));
+        t = std::fabs(n[0]) > 0.9f ? UsdGenVec3f(0.0f, 1.0f, 0.0f) : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+        t = Unit(t - n * UsdGenDot(t, n), UsdGenVec3f(1.0f, 0.0f, 0.0f));
     } else {
         t = t / tLen;
     }
-    GfVec3f b = Unit(GfCross(n, t), GfVec3f(0.0f, 0.0f, 1.0f));
+    UsdGenVec3f b = Unit(UsdGenCross(n, t), UsdGenVec3f(0.0f, 0.0f, 1.0f));
     if (flip) {
         t = -t;
         b = -b;
@@ -877,7 +881,7 @@ void RootFrame(Surface const &s, Root const &r, bool flip, GfVec3f *T, GfVec3f *
 
 // ---------------------------------------------------------------------------
 
-float RootHash01(uint64_t index, int tri, int vertex, GfVec3f const &pos, GfVec3f const &bary)
+float RootHash01(uint64_t index, int tri, int vertex, UsdGenVec3f const &pos, UsdGenVec3f const &bary)
 {
     uint64_t h = 0x14650fb0739d0383ull;
     auto mix = [&h](uint64_t v) { h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); };
@@ -902,8 +906,8 @@ int AuthoredEnum(UsdGenParamView const &p, UsdGenParamSlot slot, int fallback)
 {
     UsdGenResolvedParam const *r = p.Slot(slot);
     if (!r || !r->authored) return fallback;
-    VtValue const &v = r->authored->value;
-    return v.IsHolding<TfToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
+    UsdGenValue const &v = r->authored->value;
+    return v.IsHolding<UsdGenToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
 }
 
 }  // namespace
@@ -960,9 +964,9 @@ bool ReadModeConfig(UsdGenParamView const *p, ModeConfig *out, std::string *erro
 }
 
 void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
-                     VtIntArray index, VtIntArray seed)
+                     UsdGenIntArray index, UsdGenIntArray seed)
 {
-    auto insert = [buf](TfToken const &name, VtIntArray values) {
+    auto insert = [buf](UsdGenToken const &name, UsdGenIntArray values) {
         UsdGenPlane plane;
         plane.name = name;
         plane.interpolation = UsdGenTokens().uniform;
@@ -971,7 +975,7 @@ void SetStrandPlanes(UsdGenCurveBuffer *buf, ModeConfig::Names const &names,
         plane.i = std::move(values);
         auto &planes = buf->extraCurve;
         auto it = std::lower_bound(planes.begin(), planes.end(), name,
-            [](UsdGenPlane const &a, TfToken const &b) { return a.name < b; });
+            [](UsdGenPlane const &a, UsdGenToken const &b) { return a.name < b; });
         if (it != planes.end() && it->name == name) *it = std::move(plane);
         else planes.insert(it, std::move(plane));
     };
@@ -1020,7 +1024,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
             size_t const t = size_t(pick.domain[LowerBound(pick.cdfDom, strand::Mt01(rng2))]);
             float const a = strand::Mt01(rng2);
             float const b = strand::Mt01(rng2);
-            GfVec3f const p = s.SamplePoint(t, a, b);
+            UsdGenVec3f const p = s.SamplePoint(t, a, b);
             if (!prox.active || prox.cutoff2 < 0.0f || prox.Within(p)) ++hits;
         }
         st.calibrationHits = hits;
@@ -1115,11 +1119,11 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
             int const corners[3] = {t.corner[0] - faceStart[size_t(t.face)],
                                     t.corner[1] - faceStart[size_t(t.face)],
                                     t.corner[2] - faceStart[size_t(t.face)]};
-            GfVec3f pos, du, dv;
+            UsdGenVec3f pos, du, dv;
             if (!limit.EvaluateCagePoint(t.face, corners, r.sampleBary, &pos, &du, &dv))
                 return fail("limit patch evaluation failed");
-            GfVec3f n = GfCross(du, dv);
-            float const len = std::sqrt(GfDot(n, n));
+            UsdGenVec3f n = UsdGenCross(du, dv);
+            float const len = std::sqrt(UsdGenDot(n, n));
             if (len > 1e-12f) {
                 n /= len;
                 r.normal = leftHanded ? -n : n;
@@ -1137,7 +1141,7 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
     std::vector<uint64_t> keys(N);
     std::vector<uint32_t> order(N);
     for (size_t k = 0; k < N; ++k) {
-        GfVec3f const &p = roots[survivors[k]].pos;
+        UsdGenVec3f const &p = roots[survivors[k]].pos;
         keys[k] = UsdGenMortonKey3(p[0], p[1], p[2], 64.0f);
         order[k] = uint32_t(k);
     }
@@ -1145,17 +1149,17 @@ bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
                      [&keys](uint32_t a, uint32_t b) { return keys[a] < keys[b]; });
 
     uint64_t const seedFold = UsdGenHash64(uint64_t(uint32_t(ctx.seed)), kSaltScatterModes);
-    buf->px = VtFloatArray(N);
-    buf->py = VtFloatArray(N);
-    buf->pz = VtFloatArray(N);
-    buf->hairT = VtFloatArray(N, 0.0f);
-    buf->curveId = VtArray<uint64_t>(N);
-    buf->rootPrim = VtIntArray(N);
-    buf->rootUV = VtVec2fArray(N);
-    buf->rootT = VtVec3fArray(N);
-    buf->rootN = VtVec3fArray(N);
-    buf->rootB = VtVec3fArray(N);
-    VtIntArray strandIndex(N), strandSeed(N);
+    buf->px = UsdGenFloatArray(N);
+    buf->py = UsdGenFloatArray(N);
+    buf->pz = UsdGenFloatArray(N);
+    buf->hairT = UsdGenFloatArray(N, 0.0f);
+    buf->curveId = UsdGenCowArray<uint64_t>(N);
+    buf->rootPrim = UsdGenIntArray(N);
+    buf->rootUV = UsdGenVec2fArray(N);
+    buf->rootT = UsdGenVec3fArray(N);
+    buf->rootN = UsdGenVec3fArray(N);
+    buf->rootB = UsdGenVec3fArray(N);
+    UsdGenIntArray strandIndex(N), strandSeed(N);
     for (size_t k = 0; k < N; ++k) {
         uint32_t const gen = survivors[order[k]];
         Root const &r = roots[gen];
@@ -1216,7 +1220,7 @@ bool RandomPathFilter::Init(UsdGenCaptureContext const &ctx, ModeConfig const &c
 
 bool RandomPathFilter::Active() const { return _impl->active; }
 
-bool RandomPathFilter::Keep(GfVec3f const &pos, uint64_t curveId) const
+bool RandomPathFilter::Keep(UsdGenVec3f const &pos, uint64_t curveId) const
 {
     Impl const &im = *_impl;
     if (!im.active) return true;

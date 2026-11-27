@@ -16,31 +16,27 @@
 #include "usdGen/registries/handles.h"
 #include "usdGen/registries/typeRegistry.h"
 #include "usdGen/api/valueShape.h"
-
-#include "pxr/pxr.h"
-#include "pxr/base/gf/matrix4d.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3i.h"
-#include "pxr/base/tf/token.h"
-#include "pxr/base/vt/array.h"
-#include "pxr/base/vt/value.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/text.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 namespace usdGen {
 
 /// One authored usdGen:* property, resolved. 'name' is the property name with
 /// the 'usdGen:' prefix stripped (C1 registry, docs/freezes/C1.md).
 struct UsdGenParamValue
 {
-    TfToken name;                // "clump:size", "width:knots", "surface"
-    VtValue value;               // scalar, token, array, or resolved asset path
+    UsdGenToken name;                // "clump:size", "width:knots", "surface"
+    UsdGenValue value;               // scalar, token, array, or resolved asset path
     bool    animated = false;    // authored with a .spline / time samples
 };
 
@@ -48,18 +44,18 @@ struct UsdGenParamValue
 /// the connection named the expression PRIM rather than one of its outputs;
 /// UsdGenFindExpressionOutput resolves it.
 struct UsdGenParamBinding {
-    UsdGenNodeKey expression; TfToken output = UsdGenTokens().result; TfToken nativeType = UsdGenTokens().float_; TfToken destination;
+    UsdGenNodeKey expression; UsdGenToken output = UsdGenTokens().result; UsdGenToken nativeType = UsdGenTokens().float_; UsdGenToken destination;
     expr::ValueShape destinationShape; expr::Domain domain = expr::Domain::Groom;
-    VtValue literal;
+    UsdGenValue literal;
 };
 
 /// S11 ramp encodings, already resolved by the adapter (02-schema.md §2.17).
 struct UsdGenRampDesc
 {
-    VtVec2fArray knots;          // scalar ramp: (position, value), sorted by x
-    VtFloatArray positions;     // colour ramp
-    VtVec3fArray colors;        // colour ramp
-    TfToken      interpolation; // the host's ramp interpolation token (R11)
+    UsdGenVec2fArray knots;          // scalar ramp: (position, value), sorted by x
+    UsdGenFloatArray positions;     // colour ramp
+    UsdGenVec3fArray colors;        // colour ramp
+    UsdGenToken      interpolation; // the host's ramp interpolation token (R11)
 };
 
 /// The authored relationship slot which consumes a map. usdGen:map is the
@@ -69,15 +65,15 @@ struct UsdGenRampDesc
 struct UsdGenMapBinding
 {
     UsdGenNodeKey map;
-    TfToken       relationship;
+    UsdGenToken       relationship;
 };
 
 /// One operator (was UsdGenNodeDesc). Builder order is the Kahn tie-break.
 struct UsdGenOpNode
 {
     UsdGenNodeKey                key;          // the operator prim (identity)
-    TfToken                      type;         // the operator's schema type name
-    TfToken                      mode;         // usdGen:mode, when the type has one
+    UsdGenToken                      type;         // the operator's schema type name
+    UsdGenToken                      mode;         // usdGen:mode, when the type has one
     bool                         enabled = true;
     int                          seed = 0;
     std::vector<UsdGenNodeKey>   inputs;       // compiler-owned hierarchy dependency edges
@@ -100,7 +96,7 @@ struct UsdGenOpNode
 struct UsdGenResolvedMapValue
 {
     UsdGenNodeKey key;
-    TfToken     type;
+    UsdGenToken     type;
     std::string resolvedAssetPath;
     uint64_t    textureGeneration = 0;
     uint64_t    identity = 0;
@@ -117,7 +113,7 @@ struct UsdGenInputRecord
     UsdGenNodeKey key;
     UsdGenNodeKey owner;            // GeomSubset: its Mesh; paint map: its surface
     UsdGenTypeId  kind = UsdGenTypeId::Invalid;
-    TfToken       label;            // the host path text; diagnostics only
+    UsdGenText        label;            // the host path text; diagnostics only
     UsdGenRef<const UsdGenElementSet> data;
     std::vector<UsdGenParamValue> values;
     uint64_t      generation = 0;   // content identity the host bumps on any edit
@@ -127,24 +123,25 @@ struct UsdGenInputRecord
     {
         return data ? data->Column<T>(slot) : UsdGenSpan<const T>();
     }
-    VtValue const *Value(size_t index) const noexcept
+    UsdGenValue const *Value(size_t index) const noexcept
     {
         return index < values.size() ? &values[index].value : nullptr;
     }
     template <class T>
     T const &Get(size_t index, T const &fallback) const noexcept
     {
-        VtValue const *v = Value(index);
+        UsdGenValue const *v = Value(index);
         return v && v->IsHolding<T>() ? v->UncheckedGet<T>() : fallback;
     }
 };
 
 /// Host-owned memo of the columns a host packed. A column whose source
-/// VtArray is the same buffer as at the last packing of that input is shared
+/// array is the same buffer as at the last packing of that input is shared
 /// from the previous record instead of copied, so an unchanged input keeps
 /// its column addresses across lowerings and identity-keyed caches hit. It
-/// holds each source array (a held buffer is immutable, so the same address
-/// is the same bytes) and the set its column lives in. Not thread-safe; one
+/// pins each source array's arena (an adopted host buffer or a pool arena;
+/// a pinned buffer is immutable, so the same address is the same bytes) and
+/// the set its column lives in. Not thread-safe; one
 /// per host builder.
 class UsdGenInputColumnCache
 {
@@ -164,7 +161,7 @@ private:
         UsdGenSlot slot = kUsdGenNoSlot;
         void const *data = nullptr;
         size_t bytes = 0;
-        VtValue source;                            // holds the source buffer
+        UsdGenRef<const UsdGenArena> source;       // pins the source buffer
         UsdGenRef<const UsdGenElementSet> set;     // holds the column
         uint64_t used = 0;
     };
@@ -191,10 +188,10 @@ public:
     /// A host array: with a column cache (UseCache), an unchanged buffer
     /// shares the previous record's column. Empty leaves the column absent.
     template <class T>
-    void Array(UsdGenSlot slot, VtArray<T> const &array)
+    void Array(UsdGenSlot slot, UsdGenCowArray<T> const &array)
     {
         Column(slot, array.cdata(), array.size());
-        if (_cache && !array.empty() && slot < _sources.size()) _sources[slot] = VtValue(array);
+        if (_cache && !array.empty() && slot < _sources.size()) _sources[slot] = array.ArenaRef();
     }
     template <class T>
     void Array(UsdGenSlot slot, UsdGenSpan<T> array)
@@ -210,11 +207,11 @@ public:
     /// Shares 'from''s column (same scalar and arity) without copying.
     USDGEN_CORE_API void Share(UsdGenSlot slot, UsdGenElementSet const &from, UsdGenSlot fromSlot);
     /// The value at 'index' (the InputDesc's attribute order).
-    USDGEN_CORE_API void Value(size_t index, VtValue value);
+    USDGEN_CORE_API void Value(size_t index, UsdGenValue value);
     /// Values appended after the InputDesc's attributes (map parameters).
     USDGEN_CORE_API void Extra(UsdGenParamValue value);
     USDGEN_CORE_API UsdGenInputRecord Finish(UsdGenNodeKey key, UsdGenNodeKey owner,
-                                             TfToken const &label, uint64_t generation);
+                                             UsdGenText const &label, uint64_t generation);
 
 private:
     struct Staged {
@@ -228,7 +225,7 @@ private:
     UsdGenElementLayout const *_layout = nullptr;
     UsdGenInputDesc const *_desc = nullptr;
     std::vector<Staged> _staged;
-    std::vector<VtValue> _sources;   // UseCache: the host arrays staged per slot
+    std::vector<UsdGenRef<const UsdGenArena>> _sources;   // UseCache: the arenas staged per slot
     std::vector<UsdGenParamValue> _values;
     UsdGenInputColumnCache *_cache = nullptr;
     UsdGenNodeKey _cacheKey;
@@ -243,8 +240,8 @@ private:
 struct UsdGenPreviewSpec
 {
     UsdGenNodeKey source;                         // invalid == no preview
-    TfToken  attribute;                           // the operator attribute; empty for a prim
-    TfToken  evaluation = UsdGenTokens().primitive;   // for an expression prim source
+    UsdGenToken  attribute;                           // the operator attribute; empty for a prim
+    UsdGenToken  evaluation = UsdGenTokens().primitive;   // for an expression prim source
     uint8_t  mapChannels = 1;                     // a map source: 3 reads its first three channels
 
     bool Active() const { return source.IsValid(); }
@@ -256,7 +253,8 @@ struct UsdGenNodeLabel
 {
     UsdGenNodeKey key;
     UsdGenNodeKey parent;     // valid for a derived key
-    TfToken       text;
+    UsdGenText    text;
+    UsdGenToken   name;       // a derived key: its child name
 };
 
 /// FNV-1a64 of a path text: the key a host gives a path that collides with
@@ -273,7 +271,7 @@ struct UsdGenGraphSpec
     /// within a kind (a surface's id is its index in its run).
     std::vector<UsdGenInputRecord> inputs;
     UsdGenPreviewSpec              preview;
-    GfMatrix4d                     xformMatrix{1.0}; // description world matrix (post-flattening, S4)
+    UsdGenMatrix4d                     xformMatrix{1.0}; // description world matrix (post-flattening, S4)
     float    defaultWidth = 0.01f;                 // usdGen:width:default
     int      tileTarget = 64;                      // uniform int usdGen:tileTarget
     double   time = 0.0;
@@ -301,17 +299,17 @@ struct UsdGenGraphSpec
     void SortInputs();
     /// The text of 'key' (its prim path), else empty. Allocates: diagnostics only.
     std::string Label(UsdGenNodeKey key) const;
-    /// The host label token of 'key' without allocating; empty for a
+    /// The host label text of 'key' without allocating; empty for a
     /// derived or unknown key.
-    TfToken const &LabelToken(UsdGenNodeKey key) const noexcept;
+    UsdGenText const &LabelText(UsdGenNodeKey key) const noexcept;
     /// The child name of a derived key (DeriveKey); empty for a host key.
-    TfToken const &DerivedName(UsdGenNodeKey key) const noexcept;
+    UsdGenToken const &DerivedName(UsdGenNodeKey key) const noexcept;
     /// The description's path text (expr::DescriptionId hashes it).
-    char const *DescriptionText() const noexcept { return LabelToken(description).GetText(); }
+    char const *DescriptionText() const noexcept { return LabelText(description).c_str(); }
     /// The key of a synthetic child of 'parent' (an engine-made node or
     /// input), keyed like the host keys the path <parent>/<child>, and its
     /// label. Compile phase: allocates.
-    UsdGenNodeKey DeriveKey(UsdGenNodeKey parent, TfToken const &child);
+    UsdGenNodeKey DeriveKey(UsdGenNodeKey parent, UsdGenToken const &child);
     /// Label(a) < Label(b): the order of the host's paths (prim paths order as
     /// their text).
     bool LabelLess(UsdGenNodeKey a, UsdGenNodeKey b) const;

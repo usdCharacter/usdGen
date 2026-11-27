@@ -8,6 +8,7 @@
 //   * UsdGenCpuParameters resolves the inputs against a UsdGenGraphDesc and
 //     re-resolves when the sampled geometry changes;
 //   * ptex() reads a UsdGenPtexMap at the strand root, or a UsdGenPaintMap (bilinear at the root's face-local uv).
+#include "utils/pxrInterop.h"
 #include "usdGen/cpuParameters.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/expressions/cpuEvaluator.h"
@@ -337,8 +338,8 @@ UsdGenGraphDesc Description(char const *source)
     guides.path = SdfPath("/Groom/Guides");
     guides.kind = UsdGenGeometryKind::Curves;
     guides.counts = VtIntArray{2, 2, 2};
-    guides.points = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(0, 1, 0), GfVec3f(1, 0, 0),
-                                 GfVec3f(1, 1, 0), GfVec3f(3, 0, 0), GfVec3f(3, 1, 0)};
+    guides.points = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 1, 0), usdGen::UsdGenVec3f(1, 0, 0),
+                                 usdGen::UsdGenVec3f(1, 1, 0), usdGen::UsdGenVec3f(3, 0, 0), usdGen::UsdGenVec3f(3, 1, 0)};
     guides.generation = 1;
     desc.geometries.push_back(guides);
 
@@ -387,8 +388,8 @@ void CheckParameters()
           "the region field is the nearest guide index per strand");
 
     // Moving a guide (a new generation) re-resolves the sampler.
-    desc.geometries[0].points[4] = GfVec3f(0.3f, 0, 0);
-    desc.geometries[0].points[5] = GfVec3f(0.3f, 1, 0);
+    desc.geometries[0].points[4] = usdGen::UsdGenVec3f(0.3f, 0, 0);
+    desc.geometries[0].points[5] = usdGen::UsdGenVec3f(0.3f, 1, 0);
     desc.geometries[0].generation = 2;
     errors.clear();
     ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
@@ -397,7 +398,7 @@ void CheckParameters()
           "a guide edit changes the sampled region and reports the change");
 
     // A world matrix on the guides moves them into the groom's space.
-    desc.geometries[0].worldMatrix.SetTranslate(GfVec3d(10, 0, 0));
+    desc.geometries[0].worldMatrix.SetTranslate(usdGen::UsdGenVec3d(10, 0, 0));
     ok = parameters.Evaluate(usdGenUsd::Lower(desc), usdGenUsd::Lower(desc.nodes[0]), UsdGenCurveSetView::Of(strands), 0, 0, 0, &changed, &errors);
     value = parameters.Find(TfToken("region"));
     Check(ok && value && value->values[1] == 0, "sampled geometry follows its world matrix");
@@ -446,8 +447,8 @@ void CheckPtexParameters()
     surface.path = SdfPath("/Groom/Skin");
     surface.faceVertexCounts = VtIntArray{4, 4};
     surface.faceVertexIndices = VtIntArray{0, 1, 2, 3, 1, 4, 5, 2};
-    surface.restPoints = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(1.5f, 0, 0), GfVec3f(1.5f, 0, 1),
-                                      GfVec3f(0, 0, 1), GfVec3f(3, 0, 0), GfVec3f(3, 0, 1)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1.5f, 0, 0), usdGen::UsdGenVec3f(1.5f, 0, 1),
+                                      usdGen::UsdGenVec3f(0, 0, 1), usdGen::UsdGenVec3f(3, 0, 0), usdGen::UsdGenVec3f(3, 0, 1)};
     desc.surfaces.push_back(surface);
     desc.nodes[0].surfaces = {surface.path};
     UsdGenMapDesc map;
@@ -457,7 +458,7 @@ void CheckPtexParameters()
     map.params.push_back({TfToken("map:filter"), VtValue(TfToken("nearest")), false});
     map.params.push_back({TfToken("map:scale"), VtValue(2.0f), false});
     map.params.push_back({TfToken("map:offset"), VtValue(1.0f), false});
-    map.params.push_back({TfToken("map:clamp"), VtValue(GfVec2f(0, 0)), false});
+    map.params.push_back({TfToken("map:clamp"), VtValue(usdGen::UsdGenVec2f(0, 0)), false});
     desc.maps.push_back(map);
     desc.expressions[0].inputs[0].name = TfToken("clumpMap");
     desc.expressions[0].inputs[0].targets = {map.path};
@@ -536,8 +537,8 @@ void CheckPaintParameters()
     surface.path = SdfPath("/Groom/Skin");
     surface.faceVertexCounts = VtIntArray{4, 4};
     surface.faceVertexIndices = VtIntArray{0, 1, 2, 3, 1, 4, 5, 2};
-    surface.restPoints = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(1.5f, 0, 0), GfVec3f(1.5f, 0, 1),
-                                      GfVec3f(0, 0, 1), GfVec3f(3, 0, 0), GfVec3f(3, 0, 1)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1.5f, 0, 0), usdGen::UsdGenVec3f(1.5f, 0, 1),
+                                      usdGen::UsdGenVec3f(0, 0, 1), usdGen::UsdGenVec3f(3, 0, 0), usdGen::UsdGenVec3f(3, 0, 1)};
     desc.surfaces.push_back(surface);
     desc.nodes[0].surfaces = {surface.path};
     UsdGenMapDesc map;
@@ -549,7 +550,7 @@ void CheckPaintParameters()
     map.paintValues = VtFloatArray{0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 2.0f, 2.0f, 2.0f};
     map.params.push_back({TfToken("map:scale"), VtValue(2.0f), false});
     map.params.push_back({TfToken("map:offset"), VtValue(1.0f), false});
-    map.params.push_back({TfToken("map:clamp"), VtValue(GfVec2f(0, 0)), false});
+    map.params.push_back({TfToken("map:clamp"), VtValue(usdGen::UsdGenVec2f(0, 0)), false});
     desc.maps.push_back(map);
     desc.expressions[0].inputs[0].name = TfToken("lengthMap");
     desc.expressions[0].inputs[0].targets = {map.path};

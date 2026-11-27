@@ -219,7 +219,7 @@ endif()
 add_library(usdGenCurvesCuda SHARED ${_usdgen_curves_cuda_sources})
 target_link_libraries(usdGenCurvesCuda
     PUBLIC usdGenCuda usdGen
-    PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+    PRIVATE usdGenSurface usdGenExpr usdGenCurves usdGenMath ${CMAKE_DL_LIBS})
 target_include_directories(usdGenCurvesCuda PUBLIC
     ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
     "$<INSTALL_INTERFACE:include>")

@@ -12,6 +12,7 @@
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/primRef.h"
 #include "usdGen/compile/types.h"
+#include "usdGen/api/plane.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/publisher.h"
 

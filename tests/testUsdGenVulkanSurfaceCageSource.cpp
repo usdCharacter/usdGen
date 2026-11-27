@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/vulkan/csourceVkCapture.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"

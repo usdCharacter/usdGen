@@ -18,6 +18,7 @@
 //
 // Tier T1 (registered as such in CMake); engine-only bodies (gate B-1).
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
 #include "usdGenUsd/lower.h"
@@ -67,13 +68,13 @@ UsdGenGraphDesc MakeG3(int NX = 250, int NY = 10)
     s.path = SdfPath("/groom/surface");
     s.id = 0;
     const int np = (NX + 1) * (NY + 1);
-    s.restPoints = VtVec3fArray(np);
-    s.uv = VtVec2fArray(np);
+    s.restPoints = usdGen::UsdGenVec3fArray(np);
+    s.uv = usdGen::UsdGenVec2fArray(np);
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             const int k = j * (NX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
     s.faceVertexIndices = VtIntArray(NX * NY * 4);

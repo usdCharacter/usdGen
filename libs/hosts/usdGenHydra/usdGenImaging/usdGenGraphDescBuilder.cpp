@@ -7,12 +7,13 @@
 // honored by sweeping every usdGen:* attribute of every participating prim
 // into UsdGenNodeDesc::params, whether or not a dedicated field exists.
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 #include "usdGenUsd/walk/usdGenGraphDescShared.h"
 #include "usdGenUsd/walk/usdGenTokens.h"
 
 #include "usdGenUsd/resolve/authoredPlaneConvert.h"
-#include "usdGen/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGenUsd/resolve/sdfValueShape.h"
 
 #include "pxr/base/trace/trace.h"
@@ -227,12 +228,13 @@ _HGetTyped(HdContainerDataSourceHandle const &root, _HdTime t, T *out,
     if (!_HSampledValue(root, t, &value, elems)) {
         return false;
     }
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;   // engine fields read the Gf type
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return true;
     }
-    if (value.CanCast<T>()) {
-        *out = value.template Cast<T>().template UncheckedGet<T>();
+    if (value.CanCast<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.template Cast<H>().template UncheckedGet<H>());
         return true;
     }
     return false;
@@ -246,8 +248,9 @@ _HGetDedicated(HdContainerDataSourceHandle const &root, _HdTime t, T *out,
 {
     VtValue value;
     if (!_HSampledValue(root, t, &value, elems)) return;
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return;
     }
     errors->push_back(path.GetString() + ": " + name + " has wrong authored type");
@@ -263,6 +266,16 @@ _HGetToken(HdContainerDataSourceHandle const &root, _HdTime t, TfToken *out,
         return true;
     }
     return false;
+}
+
+bool
+_HGetToken(HdContainerDataSourceHandle const &root, _HdTime t, usdGen::UsdGenToken *out,
+           std::initializer_list<char const*> elems)
+{
+    TfToken v;
+    if (!_HGetToken(root, t, &v, elems)) return false;
+    *out = usdGenUsd::ToToken(v);
+    return true;
 }
 
 // Backend selection is intentionally stricter than the ordinary token
@@ -290,7 +303,7 @@ _HResolveExecutionBackend(HdContainerDataSourceHandle const &root,
         return usdGen::UsdGenBackendId::Invalid;
     }
     TfToken const name = value.UncheckedGet<TfToken>();
-    usdGen::UsdGenBackendId const backend = usdGen::UsdGenFindBackend(name);
+    usdGen::UsdGenBackendId const backend = usdGen::UsdGenFindBackend(usdGenUsd::ToToken(name));
     if (backend == usdGen::UsdGenBackendId::Invalid && !name.IsEmpty())
         errors->push_back("no backend named '" + name.GetString() + "' is registered");
     return backend;
@@ -401,7 +414,7 @@ std::set<TfToken> const s_reservedCurvePlanes{
     TfToken("points"), TfToken("rest"), TfToken("widths"), TfToken("st"),
     TfToken("skinprim"), TfToken("skinprimuv"), TfToken("displayColor"),
     TfToken("usdGen:curveId"), TfToken("usdGen:rootFrame"),
-    TfToken("usdGen:role"), usdGen::UsdGenSourceColorPlane()};
+    TfToken("usdGen:role"), TfToken("usdGenSourceColor")};   // UsdGenSourceColorPlane()
 
 // Mirror the Stage builder's generic authored-plane import. Hydra presents
 // primvars by local name and flattens indexed values before GetPrimvarValue.
@@ -432,7 +445,7 @@ _HForwardAuthoredPlanes(HdContainerDataSourceHandle const &primDs,
         if (HdTokenDataSourceHandle const source = primvar.GetInterpolation())
             interpolation = source->GetTypedValue(t);
         usdGen::UsdGenAuthoredPlaneDesc plane;
-        plane.name = name;
+        plane.name = usdGenUsd::ToToken(name);
         size_t expected = 0;
         if (interpolation == TfToken("vertex")) {
             plane.domain = usdGen::UsdGenAuthoredPlaneDomain::Point;
@@ -451,12 +464,12 @@ _HForwardAuthoredPlanes(HdContainerDataSourceHandle const &primDs,
         if (value.IsHolding<VtFloatArray>()) {
             plane.type = usdGen::UsdGenAuthoredPlaneType::Float32;
             plane.arity = 1;
-            plane.floatValues = value.UncheckedGet<VtFloatArray>();
+            plane.floatValues = usdGenUsd::ToCow(value.UncheckedGet<VtFloatArray>());
             elements = plane.floatValues.size();
         } else if (value.IsHolding<VtIntArray>()) {
             plane.type = usdGen::UsdGenAuthoredPlaneType::Int32;
             plane.arity = 1;
-            plane.intValues = value.UncheckedGet<VtIntArray>();
+            plane.intValues = usdGenUsd::ToCow(value.UncheckedGet<VtIntArray>());
             elements = plane.intValues.size();
         } else {
             auto const flatten = [&](auto const &array, auto *values, uint8_t arity) {
@@ -525,12 +538,13 @@ _HPrimvarTyped(HdContainerDataSourceHandle const &primDs, char const *name,
     if (!_HPrimvarValue(primDs, name, t, &value)) {
         return false;
     }
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return true;
     }
-    if (value.CanCast<T>()) {
-        *out = value.template Cast<T>().template UncheckedGet<T>();
+    if (value.CanCast<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.template Cast<H>().template UncheckedGet<H>());
         return true;
     }
     return false;
@@ -640,8 +654,8 @@ _HPullUsdGen(HdContainerDataSourceHandle const &usdGen, _HdTime t,
             continue;
         }
         UsdGenParamValue p;
-        p.name = TfToken(full.substr(7));  // strip "usdGen:" (02 §0.7)
-        p.value = v;
+        p.name = usdGenUsd::ToToken(full.substr(7));  // strip "usdGen:" (02 §0.7)
+        p.value = usdGenUsd::ToEngineValue(v);
         // P6 follow-up: HdSampledDataSource exposes no ValueMightBeTimeVarying
         // equivalent; fixtures are static so false holds. Animated-param
         // detection (e.g. via GetContributingSampleTimesForInterval) arrives
@@ -794,7 +808,8 @@ _HBuildSurface(HdSceneIndexBase &input, SdfPath const &path, double time,
         bool valid = _HGetTyped(rest, 0.0, &out->restPoints, {"points"}) &&
             _HGetTyped(rest, 0.0, &restCounts, {"faceVertexCounts"}) &&
             _HGetTyped(rest, 0.0, &restIndices, {"faceVertexIndices"});
-        if (!valid || restCounts != out->faceVertexCounts || restIndices != out->faceVertexIndices) {
+        if (!valid || restCounts != usdGenUsd::ToVt(out->faceVertexCounts) ||
+            restIndices != usdGenUsd::ToVt(out->faceVertexIndices)) {
             errors->push_back(path.GetString() + ": missing rest data or animated/rest topology mismatch");
             out->restFromCurrentPoints = true;
         }
@@ -823,7 +838,7 @@ _HBuildSurface(HdSceneIndexBase &input, SdfPath const &path, double time,
                     out->restNormalDomain = UsdGenSurfaceNormalDomain::Invalid;
                     errors->push_back(path.GetString() + ": rest normals have invalid value type");
                 } else {
-                    out->restNormals = normalValue.UncheckedGet<VtVec3fArray>();
+                    out->restNormals = usdGenUsd::ToEngine(normalValue.UncheckedGet<VtVec3fArray>());
                     if (!out->restNormals.empty()) {
                         HdSampledDataSourceHandle const interpolation =
                             HdSampledDataSource::Cast(rest->Get(TfToken("normalsInterpolation")));
@@ -931,7 +946,7 @@ _HBuildSubsetSurface(HdSceneIndexBase &input, SdfPath const &path,
         UsdGenAppendSubsetFaces(indices, faceCount, member, meshPath, &faces,
                                 errors);
     }
-    out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount);
+    out->subsetFaces = usdGenUsd::ToCow(UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount));
 }
 
 template <class T>
@@ -1018,7 +1033,7 @@ _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
 
     HdContainerDataSourceHandle const topo =
         _HChild(_HChild(primDs, "basisCurves"), "topology");
-    out->type = out->basis = out->wrap = TfToken();
+    out->type = out->basis = out->wrap = usdGen::UsdGenToken();
     _HGetToken(topo, t, &out->type, {"type"});
     _HGetToken(topo, t, &out->basis, {"basis"});
     _HGetToken(topo, t, &out->wrap, {"wrap"});
@@ -1043,7 +1058,7 @@ _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
         if (restPoints) {
             VtValue const value = restPoints->GetValue(t);
             if (value.IsHolding<VtVec3fArray>()) {
-                out->rest = value.UncheckedGet<VtVec3fArray>();
+                out->rest = usdGenUsd::ToEngine(value.UncheckedGet<VtVec3fArray>());
                 curveRestRead = true;
             }
         }
@@ -1118,7 +1133,7 @@ _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
         _HGetToken(ug, t, &curveRole, {"role"});
     }
     if (!curveRole.IsEmpty()) {
-        out->curveRole = curveRole;
+        out->curveRole = usdGenUsd::ToToken(curveRole);
     }
 
     // frozenEpoch: constant string primvar "usdgen1:sha1:..." (S42).
@@ -1194,7 +1209,7 @@ _HBuildGeometry(HdSceneIndexBase &input, SdfPath const &path, _HdTime t,
             std::vector<int> faces;
             UsdGenAppendSubsetFaces(indices, out->counts.size(), path, meshPath,
                                     &faces, errors);
-            out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), false, 0);
+            out->subsetFaces = usdGenUsd::ToCow(UsdGenFinalizeSubsetFaces(std::move(faces), false, 0));
         }
         out->generation = UsdGenGeometryContentHash(*out);
         return;
@@ -1281,7 +1296,7 @@ _HReadNode(HdSceneIndexBase &input, SdfPath const &p, _HdTime t)
             bool const arrayCountKnown = _BindingArrayCount(
                 binding.nativeType, binding.literal, &arrayElementCount);
             binding.destinationShape = usdGen::expr::ValueShapeFromNativeType(
-                binding.nativeType, arrayElementCount, arrayCountKnown);
+                usdGenUsd::ToToken(binding.nativeType), arrayElementCount, arrayCountKnown);
             node.expressionBindings.push_back(std::move(binding));
         }
     }
@@ -1450,8 +1465,8 @@ _HCapturePaintMap(HdSceneIndexBase &input,
         size_t defaultFaceVarying = 0;
         for (int c : defaultCounts) defaultFaceVarying += size_t(c);
         map->paintSurface = meshPath;
-        map->paintPrimvar = primvarName;
-        map->paintInterpolation = TfToken("faceVarying");
+        map->paintPrimvar = usdGenUsd::ToToken(primvarName);
+        map->paintInterpolation = usdGenUsd::ToToken("faceVarying");
         map->paintValues.assign(defaultFaceVarying, defaultValue);
         return;
     }
@@ -1519,9 +1534,9 @@ _HCapturePaintMap(HdSceneIndexBase &input,
         UsdGenMaskPaintValues(counts, subsetFaces, fallback, &folded);
     }
     map->paintSurface = meshPath;
-    map->paintPrimvar = primvarName;
-    map->paintInterpolation = interp;
-    map->paintValues = folded;
+    map->paintPrimvar = usdGenUsd::ToToken(primvarName);
+    map->paintInterpolation = usdGenUsd::ToToken(interp);
+    map->paintValues = usdGenUsd::ToCow(folded);
 }
 
 }  // namespace
@@ -1757,7 +1772,7 @@ CaptureGraphDescFromHydra(
             if (type.IsEmpty()) {
                 type = primType.IsEmpty() ? _HUsdTypeName(primDs) : primType;
             }
-            map.type = type;
+            map.type = usdGenUsd::ToToken(type);
             SdfAssetPath asset;
             if (_HGetTyped(ug, t, &asset, {"map", "file"})) {
                 // Stage-free by value (S13): the RESOLVED path travels.

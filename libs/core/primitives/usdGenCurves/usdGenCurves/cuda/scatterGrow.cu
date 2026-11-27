@@ -728,13 +728,13 @@ __global__ void GrowKernel(float3 const* roots, uint64_t const* ids,
 
 template <class T> cudaError_t Allocate(DeviceBuffer<T>& dst, std::vector<T> const& src,
                                          UsdGenExecutionMemoryReservation* r) { return dst.reset(src.size(), r); }
-// Count twin for the VtArray-backed roots planes (Allocate only sizes).
+// Count twin for the UsdGenCowArray-backed roots planes (Allocate only sizes).
 template <class T> cudaError_t Allocate(DeviceBuffer<T>& dst, size_t n,
                                         UsdGenExecutionMemoryReservation* r) { return dst.reset(n, r); }
 template <class T> cudaError_t Copy(DeviceBuffer<T>& dst, std::vector<T> const& src, cudaStream_t s) {
     return src.empty() ? cudaSuccess : cudaMemcpyAsync(dst.data(), src.data(), src.size()*sizeof(T), cudaMemcpyHostToDevice, s);
 }
-// Pointer/size twin for the VtArray-backed roots planes: same empty
+// Pointer/size twin for the UsdGenCowArray-backed roots planes: same empty
 // short-circuit (a null base with zero elements never reaches the copy),
 // same bytes.
 template <class T> cudaError_t Copy(DeviceBuffer<T>& dst, T const* src, size_t n, cudaStream_t s) {

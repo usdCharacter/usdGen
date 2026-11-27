@@ -1,5 +1,6 @@
 // Real Storm buffer allocation/computation and GL rasterization. Only the
 // final image is read back; generated geometry never crosses the host.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/cudaGlComputation.h"
 #include "usdGen/executionPipeline.h"
 #include "cudaGlFixture.h"

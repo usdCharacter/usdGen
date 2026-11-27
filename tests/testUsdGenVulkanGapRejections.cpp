@@ -20,6 +20,7 @@
 // source carries the full channel set; its CUDA holder class has no call
 // sites upstream. The widthOverlapWitness port itself is proven by the
 // dedicated device test, not here.
+#include "utils/pxrInterop.h"
 #include "usdGen/executionBackend.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -285,7 +286,7 @@ int main() {
         binding.expression=expression.path;binding.destination=TfToken("width");
         binding.destinationShape=output.shape;binding.domain=expr::Domain::Point;
         binding.literal=VtValue(.125f);desc.nodes[1].expressionBindings.push_back(binding);
-        desc.nodes[1].params.push_back({TfToken("width:knots"),VtValue(VtVec2fArray{{0,1},{1,.5f}}),false});
+        desc.nodes[1].params.push_back({TfToken("width:knots"),VtValue(usdGen::UsdGenVec2fArray{{0,1},{1,.5f}}),false});
         UsdGenDiagnostics diagnostics;auto handle=CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc),&diagnostics);
         bool ok=handle&&!diagnostics.HasErrors();
         if(ok){auto plan=std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -625,10 +626,10 @@ int main() {
     {
         // 125-vertex grid surface: FPF selects exactly 101.
         auto big = MakeRootedDesc();
-        VtVec3fArray pts;
+        usdGen::UsdGenVec3fArray pts;
         for (int i = 0; i < 125; ++i) {
             int x = i % 5, y = (i / 5) % 5, z = i / 25;
-            pts.push_back(GfVec3f(float(x) + float((i * 37) % 11) * 0.013f,
+            pts.push_back(usdGen::UsdGenVec3f(float(x) + float((i * 37) % 11) * 0.013f,
                                   float(y) + float((i * 53) % 13) * 0.017f,
                                   float(z) * 0.8f + float((i * 29) % 7) * 0.019f));
         }
@@ -680,7 +681,7 @@ int main() {
     }
     {
         auto desc = MakeDesc();
-        desc.curveSets[0].rootFrame = VtMatrix4dArray(1, GfMatrix4d(1.0));
+        desc.curveSets[0].rootFrame = usdGen::UsdGenMatrix4dArray(1, usdGen::UsdGenMatrix4d(1.0));
         desc.curveSets[0].skinPrim = {0};
         desc.curveSets[0].skinPrimUv = {{.2f, .2f}};
         desc.nodes[0].params.back().value = VtValue(TfToken("onError"));
@@ -691,7 +692,7 @@ int main() {
     }
     {
         auto desc = MakeDesc();
-        desc.curveSets[0].rootFrame = VtMatrix4dArray(1, GfMatrix4d(1.0));
+        desc.curveSets[0].rootFrame = usdGen::UsdGenMatrix4dArray(1, usdGen::UsdGenMatrix4d(1.0));
         desc.curveSets[0].skinPrim = {0};
         desc.curveSets[0].skinPrimUv = {{.2f, .2f}};
         desc.nodes[0].params.back().value = VtValue(TfToken("always"));
@@ -872,9 +873,9 @@ int main() {
         b.totalCurves = 2; b.totalCvs = 4;
         b.topologyVersion = 11; b.valueVersion = 12;
         b.px = {0, 1, 2, 3}; b.py = {1, 2, 3, 4}; b.pz = {2, 3, 4, 5};
-        b.rest = VtVec3fArray(4);
-        b.rest[0] = GfVec3f(9, 8, 7); b.rest[1] = GfVec3f(6, 5, 4);
-        b.rest[2] = GfVec3f(3, 2, 1); b.rest[3] = GfVec3f(0, -1, -2);
+        b.rest = usdGen::UsdGenVec3fArray(4);
+        b.rest[0] = usdGen::UsdGenVec3f(9, 8, 7); b.rest[1] = usdGen::UsdGenVec3f(6, 5, 4);
+        b.rest[2] = usdGen::UsdGenVec3f(3, 2, 1); b.rest[3] = usdGen::UsdGenVec3f(0, -1, -2);
         b.width = {1, 2, 3, 4};
         b.curveId = {17, 29};
         b.cvOffsets = {0, 2, 4};

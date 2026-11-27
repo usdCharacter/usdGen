@@ -9,6 +9,7 @@
 //   - UsdGenRootSetView reads Scatter's cooked roots field for field
 //   - view -> RootSet -> view is bitwise; the partition hook chunks roots
 
+#include "utils/pxrInterop.h"
 #include "nodeSets.h"
 #include "usdGenSurface/types/rootSet.h"
 #include "usdGenCurves/types/curveSet.h"

@@ -29,6 +29,7 @@
 // EvaluateHost times (n=400, 1M CVs) are measured too. Without the flag
 // the Vulkan legs are skipped; an unavailable device skips (exit 77).
 
+#include "../utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/graph.h"
@@ -120,9 +121,9 @@ double Hash01(uint64_t k)
 // --- field microbench fixture (built once, outside timing) ------------------
 
 struct FieldFixture {
-    std::vector<GfVec3d> rest;
-    std::vector<GfVec3d> posed;
-    std::vector<GfVec3d> queries;
+    std::vector<usdGen::UsdGenVec3d> rest;
+    std::vector<usdGen::UsdGenVec3d> posed;
+    std::vector<usdGen::UsdGenVec3d> queries;
 };
 
 FieldFixture MakeFieldFixture(int samples, size_t queryCount)
@@ -131,16 +132,16 @@ FieldFixture MakeFieldFixture(int samples, size_t queryCount)
     f.rest.resize(size_t(samples));
     f.posed.resize(size_t(samples));
     for (int i = 0; i < samples; ++i) {
-        GfVec3d p(Hash01(uint64_t(i) * 3), Hash01(uint64_t(i) * 3 + 1),
+        usdGen::UsdGenVec3d p(Hash01(uint64_t(i) * 3), Hash01(uint64_t(i) * 3 + 1),
                   Hash01(uint64_t(i) * 3 + 2));
-        f.rest[i] = p * 2.0 - GfVec3d(1.0);
-        f.posed[i] = f.rest[i] + GfVec3d(0.2 * std::sin(3.0 * p[1]), 0.1 * p[0] * p[2],
+        f.rest[i] = p * 2.0 - usdGen::UsdGenVec3d(1.0);
+        f.posed[i] = f.rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * p[1]), 0.1 * p[0] * p[2],
                                          -0.15 * std::cos(2.0 * p[0]));
     }
     f.queries.resize(queryCount);
     for (size_t i = 0; i < queryCount; ++i)
-        f.queries[i] = GfVec3d(Hash01(1001 + i * 3), Hash01(1001 + i * 3 + 1),
-                               Hash01(1001 + i * 3 + 2)) * 2.0 - GfVec3d(1.0);
+        f.queries[i] = usdGen::UsdGenVec3d(Hash01(1001 + i * 3), Hash01(1001 + i * 3 + 1),
+                               Hash01(1001 + i * 3 + 2)) * 2.0 - usdGen::UsdGenVec3d(1.0);
     return f;
 }
 
@@ -159,15 +160,15 @@ UsdGenGraphDesc MakeD1(double density)
     s.path = SdfPath("/groom/surface");
     s.id = 0;
     const int NX = 400, NY = 250;
-    s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
-    s.uv = VtVec2fArray((NX + 1) * (NY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((NX + 1) * (NY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((NX + 1) * (NY + 1));
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             const int k = j * (NX + 1) + i;
             float const x = float(i) * 0.1f, y = float(j) * 0.1f;
             float const z = 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f);
-            s.restPoints[k] = GfVec3f(x, y, z);
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(x, y, z);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.points = s.restPoints;
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
@@ -519,14 +520,14 @@ void PoseSurface(UsdGenSurfaceDesc *s, int k)
     // Read rest through a const reference: s is non-const, so s->restPoints[i]
     // would take the mutating subscript and detach (deep-copy) the shared
     // 1.2MB rest buffer on every pose.
-    VtVec3fArray const &rp = s->restPoints;
+    usdGen::UsdGenVec3fArray const &rp = s->restPoints;
     size_t const n = rp.size();
     s->points.resize(n);
     double const t = 0.35 * double(k);
     for (size_t i = 0; i < n; ++i) {
-        GfVec3f const r = rp[i];
+        usdGen::UsdGenVec3f const r = rp[i];
         float const bend = float(0.6 * std::sin(0.05 * r[0] + t) * std::cos(0.04 * r[1] - 0.5 * t));
-        s->points[i] = GfVec3f(r[0], r[1], r[2] + bend);
+        s->points[i] = usdGen::UsdGenVec3f(r[0], r[1], r[2] + bend);
     }
 }
 
@@ -562,7 +563,7 @@ int main(int argc, char **argv)
         EmitMetric("cpu_rbf_bind", bindMs);
 
         std::vector<double> tSolve, tDisp;
-        std::vector<GfVec3d> disp(f.queries.size());
+        std::vector<usdGen::UsdGenVec3d> disp(f.queries.size());
         uint64_t checksum = 0;
         for (int i = 0; i < 9; ++i) {
             t0 = NowMs();
@@ -577,7 +578,7 @@ int main(int argc, char **argv)
             // checksum is comparable across the change.
             field.DisplaceBatch(f.queries.data(), disp.data(), f.queries.size(), kParallel);
             double acc[3] = {0, 0, 0};
-            for (GfVec3d const &d : disp) {
+            for (usdGen::UsdGenVec3d const &d : disp) {
                 acc[0] += d[0]; acc[1] += d[1]; acc[2] += d[2];
             }
             tDisp.push_back(NowMs() - t0);

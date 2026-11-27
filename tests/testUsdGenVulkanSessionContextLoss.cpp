@@ -8,6 +8,7 @@
 // enters the native owner; no callback in this fixture is permitted to touch
 // mutable Session state directly from the Vulkan waiter.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/executionPipeline.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -173,7 +174,8 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     }
     UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     out->points.resize(buffer.totalCvs);
-    out->rest.assign(buffer.rest.begin(), buffer.rest.end());
+    auto const hostRest = usdGenUsd::ToHost(buffer.rest);
+    out->rest.assign(hostRest.begin(), hostRest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
         out->points[i] = {buffer.px[i], buffer.py[i], buffer.pz[i]};
     out->curveOffsets.assign(buffer.cvOffsets.begin(), buffer.cvOffsets.end());

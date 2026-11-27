@@ -46,14 +46,15 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | Gate | Baseline now | Target |
 |---|---|---|
 | `testUsdGenNoLocks` (locks, atomic shared_ptr, TBB) | empty | empty |
-| `testUsdGenNoGuardedStatics` | 4 (usdGenMath ramp.cpp) | empty |
-| `testUsdGenNoPxrIncludes` | see `noPxrIncludes.txt` | empty under libs/core |
-| `testUsdGenNoPxrLink_usdGen` | tf gf vt arch js plug ts ar work trace | none |
+| `testUsdGenNoGuardedStatics` | empty (11.3b) | empty |
+| `testUsdGenNoPxrIncludes` | empty (11.8) | empty under libs/base, libs/core |
+| `testUsdGenNoPxrNamesBelowHosts` (11.0: Tf/Gf/Vt/Trace/Arch/Work/Sdf/Hd... names and `PXR_`/`TF_` macros under libs/base, libs/core; comments do not count) | empty (11.8) | empty |
+| `testUsdGenNoPxrLink_usdGen` | empty (11.8) | empty |
 | `testUsdGenNoSdfBelowHosts` (no `Sdf*`, no `pxr/usd/sdf` under libs/base, libs/core) | empty | empty |
-| `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
+| `testUsdGenNoPxrLink_usdGenMath` | empty (11.4) | empty |
 | `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted); 0 interns each | 0 / 0 |
 | `testUsdGenNoOpNameLiterals` | empty | empty |
-| `testUsdGenNoTokenIntern` | token.cpp | token.cpp only |
+| `testUsdGenTokenNoTextCtor` (11.5, replaces `testUsdGenNoTokenIntern`: `UsdGenToken t("x")` must not compile) | green | stays |
 | `testUsdGenEngineNoOpCoupling` | empty | empty |
 | `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
 | `testUsdGenNoShimIncludes` (old include spellings) | see `noShimIncludes.txt` | empty at step 12 |
@@ -67,8 +68,7 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoHydraInEngine` (9a: presentation, primvar and curve-basis words in libs/core/usdGen) | empty | empty |
 | `testUsdGenHydraNoCurvesInclude` (9b: no usdGenCurves or curve-publication include in libs/hosts/usdGenHydra) | empty | empty |
 | `testUsdGenNoPxrLink_{usdGenCuda,usdGenVulkan}` | empty | empty |
-| `testUsdGenNoPxrLink_{usdGenSurface,usdGenExpr,usdGenCurves}` | arch work trace | none (11) |
-| `testUsdGenNoPxrLink_{usdGenCurvesCuda,usdGenCurvesVulkan}` | arch | none (11) |
+| `testUsdGenNoPxrLink_<t>` for every library with a source under libs/base or libs/core (11.8: usdGenSurface, usdGenExpr, usdGenCurves, usdGenCurves{Cuda,Vulkan}, usdGen{Surface,Expr}{Cuda,Vulkan}) | empty | empty |
 | `testUsdGenNoPxrUsdImagingBelowHosts` (10a: no `pxr/usd`, `pxr/imaging` include under libs/base, libs/core) | empty | empty |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
@@ -417,7 +417,7 @@ M9 (9.2-9.5). Done:
 - **Gate:** turn on the include gate for `pxr/usd` and `pxr/imaging` under libs/core.
 - **Done:** pxOsd is gone from the link baseline. This is all option A would have given.
 
-### 11. Base types
+### 11. Base types. Done
 
 - **Goal:**
   - Add Token, the usdGenMath types, CowArray, Value and Status, first as aliases of Tf, Gf and Vt.
@@ -425,6 +425,75 @@ M9 (9.2-9.5). Done:
   - Swap in the arena-backed implementations and add host conversions.
 - **Done:** `noPxrIncludes.txt` is empty for libs/core, both link baselines are empty, and usdGenMath (today it links arch tf gf vt work) moves to `libs/base`.
 - **Depends on:** 7 and 10.
+
+M11 (11.0-11.8). Done:
+
+- **11.0:** golden files are per toolchain (`cookDigests.<os>-<cc>.txt`, `cpuOutput.<os>-<cc>.txt`); a missing toolchain file writes `<name>.actual.txt` and CI uploads it; usdGen and usdGenMath drop the pxr libraries they never used; gate `testUsdGenNoPxrNamesBelowHosts`.
+- **11.1-11.2:** alias headers, then the rename over libs/base and libs/core (R1-R6, `tools/restructure/rename11.sh`).
+- **11.3:** the op registry stores `UsdGenChannelDesc`; `UsdGenPlane` leaves compile/types.h (it is `usdGen/api/plane.h` since M11, see fix 1); ramp takes a parsed `UsdGenRampInterp` (noGuardedStatics empty).
+- **11.4:** usdGenMath's own vectors, matrices, quaternions, ranges and half with Gf 26.08's bytes and arithmetic (`matrix.cpp` in Gf's operation order); `testUsdGenMathGfParity` (every engine operation bit for bit, 10^6 inverses, all half conversions); hosts convert through `usdGenUsd/convert/math.h`.
+- **11.5:** `UsdGenToken`: immortal reps interned in usdGen (lock-free open-addressed table, FNV-1a 64 hash, TfToken's order); no text constructor (`testUsdGenTokenNoTextCtor` replaces `testUsdGenNoTokenIntern`); graph labels are `UsdGenText`; `testUsdGenToken` (order parity over 100k texts, 64-thread intern stress).
+- **11.6:** `UsdGenCowArray` over a one-column `UsdGenArena` with VtArray's detach rule; zero-copy `ToCow`/`ToVt`; the input column cache pins arenas instead of a VtValue; `testUsdGenCowArray`.
+- **11.7:** `UsdGenValue` (the value-type table's kinds plus boxed payloads; `IsHolding` exact; hash covers the kind, +0 == -0) and `UsdGenStatus`; `usdGenUsd/convert/value.h`; `testUsdGenValue`.
+- **11.8:** trace, debug, env and report are the engine's own; usdGenUsd installs the report sink and owns the TfDebug codes, usdGenImaging installs the trace sink; usdGen, usdGenMath, the primitives and the GPU targets link no pxr library and the link gate covers every library with a source under libs/base or libs/core.
+
+Milestone verification M11 (Windows, RTX 4090, MSVC 14.36, CUDA 12.6, Vulkan on): clean configure and full build; serial `ctest -L '^(T0|T1)$'` after the fixes: 474 run, 458 pass, 14 skipped, 2 failed. `testUsdGenScenePublication` fails as on main; `testPomadeSoakSmoke` misses its 33 ms worst-case budgets at 55-100% CPU from other worktrees, and 2a04d46 fails it the same way at the same load with equal p50s (4 alternating runs). The first full run also failed `testUsdGenPomadeCommit` TN-4, `testUsdGenPomadeHierarchy` TN-1 and `testUsdGenPomadeIndex` G6 (load timing; they passed in the second run). Goldens, opContracts and cook digests byte-identical; warm cook and param edit 0 / 0 allocations, 0 interns. T3 (`-L T3 -E 'Soak|Perf'`): 17 of 29 pass, as at M8b; the 12 failures are the pixel readbacks without an OpenGL 4.5 context, and 2a04d46 fails the sampled ones (Publish, Output, Pick, Sculpt) identically.
+
+Fixes:
+1. `testUsdGenHydraNoCurvesInclude` (gate 9b) failed: 11.3a moved `UsdGenPlane` into `usdGenCurves/types/curveBuffer.h`, and `usdGenHydraCurves/publication.h` included it. `UsdGenPlane` is `usdGen/api/plane.h`: the named-plane type a primitive and its adapter share; the engine never reads it.
+2. `testUsdGenCudaHierarchy` failed: its 11.6 compile fix put a `UsdGenVec3fArray` in the `VtValue` given to `UsdAttribute::Set` (Sdf type mismatch, the normals were never authored). It converts with `ToHost`.
+3. Linux: `testUsdGenFreeze.cpp` had `cond ? VtFloatArray() : <UsdGenFloatArray>`, ambiguous for Clang and GCC (MSVC took it). The snapshots are engine arrays.
+4. Load-time interning: 19 namespace-scope `UsdGenInternToken` initializers in usdGenCurves (curveRootCapture, wholeStrand, valuePreview, surfaceCageSource) and usdGenCurvesCuda (cudaExecution) built and used the interner while the extension loaded (the Linux load-order trap). They are `UsdGenCurveTokens()` members, interned in `usdGenRegister`.
+5. Install tree: the api headers include `usdGenMath/{math,vec,rbf}.h`, which were not installed. The math headers (half, vec, matrix, quat, range, math, rbf) install to `include/usdGenMath`; every installed api header compiles alone against the install tree (Clang for Linux, GCC 13 headers, no pxr include root).
+
+CUDA-off trees (CI configurations, built with MSVC): CUDA-off/Vulkan-off `-L '^(T0|T1)$'` 235 run, 6 failed: ScenePublication, `testUsdGenWorkerPool` (two workers), and the Pomade timing checks (TN-1, TN-4, G6, soak). CUDA-off/Vulkan-on `-L '^vulkan$'` 130 run, 2 failed: `testUsdGenVulkanRetirementStress` (the close did not race admission) and `testUsdGenVulkanDeform` (hetero suffix run count). Both fail intermittently on the CUDA-on tree and on 2a04d46 at 100% CPU; they passed in the idle-er full run.
+
+Linux audit (no Linux machine): the Clang-for-Linux syntax pass over all 551 translation units of both CUDA-off trees finds only the known misses (usdNoodles' Windows Python headers, `isatty` in the SeExpr lexer), the intended `tokenNoTextCtor` probe and fix 3. Load-time initializers under libs/ after fix 4: nothing in an extension library interns, reads env or touches the debug word at load. Host rows only: usdGenUsd's report sink and usdGenImaging's trace sink (an atomic store into the already loaded usdGen), usdGenUsd's `TF_REGISTRY_FUNCTION(TfDebug)` (moved from usdGen); libs/core keeps constant data (`UsdGenValue const kNoValue`, `UsdGenMatrix4d const kIdentity(1.0)`, `UsdGenText const kNoLabel`, token.cpp's empty string). Imports: usdGen.dll, usdGen{Surface,Expr,Curves}, usdGenCuda, usdGenVulkan and usdGenCurves{Cuda,Vulkan} import no OpenUSD DLL; usdGenUsd imports tf gf vt sdf arch hio, usdGenHydraCurves hd sdf vt gf trace tf arch. GCC-sensitive items: half and vector bit casts use `memcpy`; the token compare code widens plain `char` as TfToken does (parity per platform; on aarch64 bytes >= 0x80 order as TfToken orders them there); FNV-1a and the compare code read bytes, so no byte-order dependence; no aggregate or constexpr construct the syntax pass rejects. Left as is: `convert/array.h` reinterprets element pointers inline in a header for zero-copy `ToCow`/`ToVt` (the design wanted a .cpp); an adopted buffer is never written while pinned, so no function writes through one type and reads through the other.
+
+Bench, main (b741e6c) against M11, CPU, 4 threads, medians of 5 alternating rounds, machine not idle (CPU 57% before the run, other worktrees building and testing):
+
+| Metric | main | M11 |
+|---|---|---|
+| Cold cook, 100k curves | 227.5 ms | 166.5 ms |
+| Warm recook | 204.7 ms | 154.2 ms |
+| Param-edit recook | 174.5 ms | 5.13 ms |
+| Hydra publish | 918.6 ms | 494.0 ms |
+| Hydra pull | 0.51 ms | 0.57 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 |
+
+2a04d46 (M8b+M9+M10) against M11, same conditions (CPU 96% before the run):
+
+| Metric | 2a04d46 | M11 |
+|---|---|---|
+| Cold cook, 100k curves | 209.1 ms | 158.2 ms |
+| Warm recook | 193.3 ms | 148.1 ms |
+| Param-edit recook | 6.89 ms | 5.13 ms |
+| Hydra publish | 481.3 ms | 347.8 ms |
+| Hydra pull | 0.525 ms | 0.524 ms |
+| Allocations, Hydra publish / pull | 14,462 / 430 | 14,353 / 481 |
+
+No row of cook.cold, cook.warm or hydra.publish regresses; the own math and arrays inline as Gf and VtArray did. `hydra.pull` allocates 51 more per pull (a foreign data source per zero-copy `ToVt`); its time is flat.
+
+GPU Session section, 2a04d46 against M11, 5 alternating rounds (CPU 82% before CUDA, 63% before Vulkan):
+
+| Metric | CUDA 2a04d46 | CUDA M11 | Vulkan 2a04d46 | Vulkan M11 |
+|---|---|---|---|---|
+| session.cold | 31.0 ms | 30.3 ms | 254.1 ms | 274.4 ms |
+| session.warm | 8.82 ms | 8.57 ms | 84.1 ms | 92.1 ms |
+| session.paramEdit | 29.8 ms | 29.5 ms | 162.5 ms | 168.8 ms |
+
+Vulkan read +8% cold and +10% warm in this run and +11% / +4% in a second; 8 alternating rounds of 9 runs gave 248.1 / 249.1 ms cold, 87.1 / 85.6 ms warm and 169.1 / 159.7 ms param edit (2a04d46 / M11), so it is load noise. The warm CUDA Session cook allocates 842 times (852 at 2a04d46).
+
+Left over (step 11):
+
+| What | Where it goes |
+|---|---|
+| `cookDigests.linux-gcc.txt` and `cpuOutput.linux-gcc.txt` (11.0b) are not committed; both golden tests skip on Linux until the CI artifact is | next CI run |
+| Linux CI run: math parity and goldens on GCC, the install check, the load-order fix on glibc | when the branch is pushed |
+| Out-of-line usdGenMath functions (`GetInverse`, `GetDeterminant`, `RotateInto`, rbf) live in the private static usdGenMath; an installed-tree consumer that calls them does not link | 12 (api and the math headers are the install surface) |
+| `convert/array.h` zero-copy casts are inline in a header | 12, or a design call |
+| `hydra.pull` allocations 430 -> 481 (foreign data sources for zero-copy `ToVt`) | 13 (host facades) |
+| `testUsdGenVulkanRetirementStress` and `testUsdGenVulkanDeform` hetero-count checks fail under full CPU load, also at 2a04d46 | test robustness, any step |
 
 ### 12. Install only api/
 

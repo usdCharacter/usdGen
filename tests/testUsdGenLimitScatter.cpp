@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/limitSurface.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -19,7 +20,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 #define CHECK(c) do {if(!(c)){std::fprintf(stderr,"FAIL %d: %s\n",__LINE__,#c);return 1;}}while(false)
 static UsdGenSurfaceDesc Surface() {
     UsdGenSurfaceDesc s;s.path=SdfPath("/Scalp");s.subdivisionScheme=TfToken("catmullClark");
-    for(int y=-1;y<=2;++y)for(int x=-1;x<=2;++x)s.restPoints.push_back(GfVec3f(x,y,x*x+y*y));
+    for(int y=-1;y<=2;++y)for(int x=-1;x<=2;++x)s.restPoints.push_back(usdGen::UsdGenVec3f(x,y,x*x+y*y));
     for(int y=0;y<3;++y)for(int x=0;x<3;++x){s.faceVertexCounts.push_back(4);for(int i:{y*4+x,y*4+x+1,(y+1)*4+x+1,(y+1)*4+x})s.faceVertexIndices.push_back(i);}
     s.points=s.restPoints;s.subsetFaces={4};return s;
 }
@@ -37,7 +38,7 @@ static bool Run(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out,int threads=2) {
 }
 static UsdGenSurfaceDesc BigGrid(int w,int h) {
     UsdGenSurfaceDesc s;s.path=SdfPath("/Scalp");s.subdivisionScheme=TfToken("catmullClark");
-    for(int y=0;y<=h;++y)for(int x=0;x<=w;++x)s.restPoints.push_back(GfVec3f(float(x),float(y),0));
+    for(int y=0;y<=h;++y)for(int x=0;x<=w;++x)s.restPoints.push_back(usdGen::UsdGenVec3f(float(x),float(y),0));
     for(int y=0;y<h;++y)for(int x=0;x<w;++x){s.faceVertexCounts.push_back(4);int i0=y*(w+1)+x;for(int i:{i0,i0+1,i0+w+2,i0+w+1})s.faceVertexIndices.push_back(i);}
     s.points=s.restPoints;return s;
 }
@@ -66,7 +67,7 @@ static bool RunDirect(UsdGenGraphDesc const& d,UsdGenCurveBuffer* out) {
 // cage (x, y), so a root's rootUV is the cage point it was drawn at.
 static UsdGenSurfaceDesc MixedSurface() {
     UsdGenSurfaceDesc s;s.path=SdfPath("/Scalp");s.subdivisionScheme=TfToken("catmullClark");
-    for(int y=-3;y<=4;++y)for(int x=-3;x<=4;++x){s.restPoints.push_back(GfVec3f(float(x),float(y),float(x*x+y*y)));s.uv.push_back(GfVec2f(float(x),float(y)));}
+    for(int y=-3;y<=4;++y)for(int x=-3;x<=4;++x){s.restPoints.push_back(usdGen::UsdGenVec3f(float(x),float(y),float(x*x+y*y)));s.uv.push_back(usdGen::UsdGenVec2f(float(x),float(y)));}
     auto id=[](int x,int y){return (y+3)*8+(x+3);};
     for(int y=-3;y<4;++y)for(int x=-3;x<4;++x){
         int const a=id(x,y),b=id(x+1,y),c=id(x+1,y+1),d=id(x,y+1);
@@ -90,10 +91,10 @@ static int MixedTopology() {
     std::vector<int> start(s.faceVertexCounts.size()+1,0);
     for(size_t f=0;f<s.faceVertexCounts.size();++f)start[f+1]=start[f]+s.faceVertexCounts[f];
     UsdGenLimitSurface limit;CHECK(limit.Build(usdGenUsd::Lower(s),3,&error));
-    GfVec3f p,du,dv,q,qu,qv;
+    usdGen::UsdGenVec3f p,du,dv,q,qu,qv;
     int const anyTri[3]={0,1,2};
     CHECK(!limit.Evaluate(0,.5f,.5f,&p,&du,&dv));   // (u,v) addressing is for quads
-    CHECK(limit.EvaluateCagePoint(0,anyTri,GfVec3f(1,1,1),&p,&du,&dv));
+    CHECK(limit.EvaluateCagePoint(0,anyTri,usdGen::UsdGenVec3f(1,1,1),&p,&du,&dv));
     // Every shared edge and vertex is the same limit point from both faces.
     struct Use{int face,local;};
     std::vector<std::vector<Use>> uses(s.restPoints.size());
@@ -114,8 +115,8 @@ static int MixedTopology() {
                 int const c0[3]={k,(k+1)%n,third(k,(k+1)%n,n)};
                 int const c1[3]={other.local,lb,third(other.local,lb,no)};
                 for(float t:{0.f,.2f,.5f,.8f,1.f}){
-                    CHECK(limit.EvaluateCagePoint(int(f),c0,GfVec3f(1-t,t,0),&p,&du,&dv));
-                    CHECK(limit.EvaluateCagePoint(other.face,c1,GfVec3f(1-t,t,0),&q,&qu,&qv));
+                    CHECK(limit.EvaluateCagePoint(int(f),c0,usdGen::UsdGenVec3f(1-t,t,0),&p,&du,&dv));
+                    CHECK(limit.EvaluateCagePoint(other.face,c1,usdGen::UsdGenVec3f(1-t,t,0),&q,&qu,&qv));
                     CHECK((p-q).GetLength()<2e-5);
                 }
                 ++edges;
@@ -125,54 +126,54 @@ static int MixedTopology() {
     CHECK(edges>=88);   // 84 grid edges and the 4 triangle diagonals
     // No seam inside a face: walking a line through every corner sub-patch
     // moves the limit point in small, even steps (a sub-patch mix-up jumps).
-    auto smoothWalk=[&](UsdGenLimitSurface const& L,int f,int const c[3],GfVec3f from,GfVec3f to,GfVec3f const& cageNormal){
-        GfVec3f prev,pu,pv,cur,cu,cv;float worst=0,total=0;int const steps=400;
+    auto smoothWalk=[&](UsdGenLimitSurface const& L,int f,int const c[3],usdGen::UsdGenVec3f from,usdGen::UsdGenVec3f to,usdGen::UsdGenVec3f const& cageNormal){
+        usdGen::UsdGenVec3f prev,pu,pv,cur,cu,cv;float worst=0,total=0;int const steps=400;
         if(!L.EvaluateCagePoint(f,c,from,&prev,&pu,&pv))return false;
         for(int i=1;i<=steps;++i){
-            GfVec3f const w=from+(to-from)*(float(i)/steps);
+            usdGen::UsdGenVec3f const w=from+(to-from)*(float(i)/steps);
             if(!L.EvaluateCagePoint(f,c,w,&cur,&cu,&cv))return false;
-            if(GfDot(GfCross(cu,cv),cageNormal)<=0)return false;   // the face's own winding
+            if(usdGen::UsdGenDot(usdGen::UsdGenCross(cu,cv),cageNormal)<=0)return false;   // the face's own winding
             float const step=(cur-prev).GetLength();worst=std::max(worst,step);total+=step;prev=cur;
         }
         return total>0 && worst<4*total/steps;
     };
     for(size_t f=0;f<8;++f){
-        GfVec3f const& A=s.restPoints[size_t(s.faceVertexIndices[size_t(start[f])])];
-        GfVec3f const& B=s.restPoints[size_t(s.faceVertexIndices[size_t(start[f]+1)])];
-        GfVec3f const& C=s.restPoints[size_t(s.faceVertexIndices[size_t(start[f]+2)])];
-        GfVec3f const cage=GfCross(B-A,C-A);
+        usdGen::UsdGenVec3f const& A=s.restPoints[size_t(s.faceVertexIndices[size_t(start[f])])];
+        usdGen::UsdGenVec3f const& B=s.restPoints[size_t(s.faceVertexIndices[size_t(start[f]+1)])];
+        usdGen::UsdGenVec3f const& C=s.restPoints[size_t(s.faceVertexIndices[size_t(start[f]+2)])];
+        usdGen::UsdGenVec3f const cage=usdGen::UsdGenCross(B-A,C-A);
         for(int k=0;k<3;++k){   // corner k to the opposite edge's midpoint, through the centre
-            GfVec3f from(0),to(.5f,.5f,.5f);from[k]=1;to[k]=0;
-            CHECK(smoothWalk(limit,int(f),anyTri,from*.98f+GfVec3f(.01f,.01f,.01f),to*.98f+GfVec3f(.01f,.01f,.01f)/1.f,cage));
+            usdGen::UsdGenVec3f from(0),to(.5f,.5f,.5f);from[k]=1;to[k]=0;
+            CHECK(smoothWalk(limit,int(f),anyTri,from*.98f+usdGen::UsdGenVec3f(.01f,.01f,.01f),to*.98f+usdGen::UsdGenVec3f(.01f,.01f,.01f)/1.f,cage));
         }
-        CHECK(smoothWalk(limit,int(f),anyTri,GfVec3f(.8f,.15f,.05f),GfVec3f(.05f,.15f,.8f),cage));
+        CHECK(smoothWalk(limit,int(f),anyTri,usdGen::UsdGenVec3f(.8f,.15f,.05f),usdGen::UsdGenVec3f(.05f,.15f,.8f),cage));
     }
     // A quad keeps its (u,v) patch addressing: the triangle (0,1,2) maps affinely.
     {
         int const f=int(s.faceVertexCounts.size())-1;
         CHECK(s.faceVertexCounts[size_t(f)]==4);
-        CHECK(limit.EvaluateCagePoint(f,anyTri,GfVec3f(.2f,.5f,.3f),&p,&du,&dv));
+        CHECK(limit.EvaluateCagePoint(f,anyTri,usdGen::UsdGenVec3f(.2f,.5f,.3f),&p,&du,&dv));
         CHECK(limit.Evaluate(f,.8f,.3f,&q,&qu,&qv));
         CHECK((p-q).GetLength()<1e-6 && (du-qu).GetLength()<1e-5 && (dv-qv).GetLength()<1e-5);
     }
     // An n-gon: one pentagon, its five sub-patches seamless and meeting at the centre.
     {
         UsdGenSurfaceDesc g;g.path=SdfPath("/Penta");g.subdivisionScheme=TfToken("catmullClark");
-        for(int k=0;k<5;++k){double a=2*3.14159265358979*k/5;g.restPoints.push_back(GfVec3f(float(std::cos(a)),float(std::sin(a)*1.3),float(.2*k)));}
+        for(int k=0;k<5;++k){double a=2*3.14159265358979*k/5;g.restPoints.push_back(usdGen::UsdGenVec3f(float(std::cos(a)),float(std::sin(a)*1.3),float(.2*k)));}
         g.faceVertexCounts={5};g.faceVertexIndices={0,1,2,3,4};g.points=g.restPoints;
         UsdGenLimitSurface pl;CHECK(pl.Build(usdGenUsd::Lower(g),3,&error));
         int const tri0[3]={0,1,2},tri1[3]={0,2,3},edge23[3]={2,3,0};
-        GfVec3f a,b;
-        CHECK(pl.EvaluateCagePoint(0,tri0,GfVec3f(0,0,1),&a,&du,&dv));   // corner 2 from two fan triangles
-        CHECK(pl.EvaluateCagePoint(0,tri1,GfVec3f(0,1,0),&b,&du,&dv));
+        usdGen::UsdGenVec3f a,b;
+        CHECK(pl.EvaluateCagePoint(0,tri0,usdGen::UsdGenVec3f(0,0,1),&a,&du,&dv));   // corner 2 from two fan triangles
+        CHECK(pl.EvaluateCagePoint(0,tri1,usdGen::UsdGenVec3f(0,1,0),&b,&du,&dv));
         CHECK((a-b).GetLength()<1e-5);
-        CHECK(pl.EvaluateCagePoint(0,tri1,GfVec3f(0,.5f,.5f),&a,&du,&dv));   // edge 2-3 midpoint
-        CHECK(pl.EvaluateCagePoint(0,edge23,GfVec3f(.5f,.5f,0),&b,&du,&dv));
+        CHECK(pl.EvaluateCagePoint(0,tri1,usdGen::UsdGenVec3f(0,.5f,.5f),&a,&du,&dv));   // edge 2-3 midpoint
+        CHECK(pl.EvaluateCagePoint(0,edge23,usdGen::UsdGenVec3f(.5f,.5f,0),&b,&du,&dv));
         CHECK((a-b).GetLength()<1e-5);
-        GfVec3f const cage=GfCross(g.restPoints[1]-g.restPoints[0],g.restPoints[2]-g.restPoints[0]);
+        usdGen::UsdGenVec3f const cage=usdGen::UsdGenCross(g.restPoints[1]-g.restPoints[0],g.restPoints[2]-g.restPoints[0]);
         // corner 0 to edge 2-3 crosses sub-patches 0, 1/4, 2/3 and the centre
-        CHECK(smoothWalk(pl,0,tri1,GfVec3f(.97f,.015f,.015f),GfVec3f(.02f,.49f,.49f),cage));
-        CHECK(smoothWalk(pl,0,tri0,GfVec3f(.05f,.9f,.05f),GfVec3f(.05f,.05f,.9f),cage));
+        CHECK(smoothWalk(pl,0,tri1,usdGen::UsdGenVec3f(.97f,.015f,.015f),usdGen::UsdGenVec3f(.02f,.49f,.49f),cage));
+        CHECK(smoothWalk(pl,0,tri0,usdGen::UsdGenVec3f(.05f,.9f,.05f),usdGen::UsdGenVec3f(.05f,.05f,.9f),cage));
     }
     // Even scatter at level 3: the same strands as on the cage (ids, faces,
     // UVs), each moved to the limit point under its cage point with the limit
@@ -189,27 +190,27 @@ static int MixedTopology() {
         size_t const j=it->second;
         CHECK(smooth.rootPrim[i]==cage.rootPrim[j] && smooth.rootUV[i]==cage.rootUV[j]);
         int const f=smooth.rootPrim[i],n=s.faceVertexCounts[size_t(f)];
-        GfVec2f const x=smooth.rootUV[i];
+        usdGen::UsdGenVec2f const x=smooth.rootUV[i];
         // the cage point's barycentrics in the face's fan triangle that holds it
         bool found=false;
         for(int k=1;k+1<n&&!found;++k){
-            GfVec2f const A=s.uv[size_t(s.faceVertexIndices[size_t(start[size_t(f)])])];
-            GfVec2f const B=s.uv[size_t(s.faceVertexIndices[size_t(start[size_t(f)]+k)])];
-            GfVec2f const C=s.uv[size_t(s.faceVertexIndices[size_t(start[size_t(f)]+k+1)])];
+            usdGen::UsdGenVec2f const A=s.uv[size_t(s.faceVertexIndices[size_t(start[size_t(f)])])];
+            usdGen::UsdGenVec2f const B=s.uv[size_t(s.faceVertexIndices[size_t(start[size_t(f)]+k)])];
+            usdGen::UsdGenVec2f const C=s.uv[size_t(s.faceVertexIndices[size_t(start[size_t(f)]+k+1)])];
             double const det=double(B[0]-A[0])*(C[1]-A[1])-double(B[1]-A[1])*(C[0]-A[0]);
             double const w1=(double(x[0]-A[0])*(C[1]-A[1])-double(x[1]-A[1])*(C[0]-A[0]))/det;
             double const w2=(double(B[0]-A[0])*(x[1]-A[1])-double(B[1]-A[1])*(x[0]-A[0]))/det;
             if(w1<-1e-4||w2<-1e-4||w1+w2>1+1e-4)continue;
             int const corners[3]={0,k,k+1};
-            CHECK(limit.EvaluateCagePoint(f,corners,GfVec3f(float(1-w1-w2),float(w1),float(w2)),&p,&du,&dv));
+            CHECK(limit.EvaluateCagePoint(f,corners,usdGen::UsdGenVec3f(float(1-w1-w2),float(w1),float(w2)),&p,&du,&dv));
             found=true;
         }
         CHECK(found);
-        GfVec3f const root(smooth.px[i],smooth.py[i],smooth.pz[i]);
+        usdGen::UsdGenVec3f const root(smooth.px[i],smooth.py[i],smooth.pz[i]);
         CHECK((root-p).GetLength()<2e-4);
-        GfVec3f normal=GfCross(du,dv);normal.Normalize();
+        usdGen::UsdGenVec3f normal=usdGen::UsdGenCross(du,dv);normal.Normalize();
         CHECK((smooth.rootN[i]-normal).GetLength()<1e-3);
-        if((GfVec3f(cage.px[j],cage.py[j],cage.pz[j])-root).GetLength()>1e-3)++moved;
+        if((usdGen::UsdGenVec3f(cage.px[j],cage.py[j],cage.pz[j])-root).GetLength()>1e-3)++moved;
         if(n==3)++triangles;
         if(x[0]>=0&&x[0]<=3&&x[1]>=0&&x[1]<=3){
             ++regular;
@@ -243,7 +244,7 @@ static bool SameRoots(UsdGenCurveBuffer const& a,UsdGenCurveBuffer const& b) {
 int main() {
     auto s=Surface();std::string error;
     UsdGenLimitSurface limit;CHECK(limit.Build(usdGenUsd::Lower(s),3,&error));
-    GfVec3f p,du,dv;CHECK(limit.Evaluate(4,.3f,.4f,&p,&du,&dv));
+    usdGen::UsdGenVec3f p,du,dv;CHECK(limit.Evaluate(4,.3f,.4f,&p,&du,&dv));
     CHECK(std::abs(p[0]-.3)<1e-5 && std::abs(p[1]-.4)<1e-5);
     // Independent analytic uniform bicubic B-spline, not cage interpolation.
     CHECK(std::abs(p[2]-(.09+.16+2.0/3))<1e-5);
@@ -255,7 +256,7 @@ int main() {
         CHECK(a.rootPrim[i]==4 && u>=0 && u<=1 && v>=0 && v<=1);
         CHECK(std::abs(a.px[i]-u)<1e-5 && std::abs(a.py[i]-v)<1e-5);
         CHECK(std::abs(a.pz[i]-(u*u+v*v+2.0/3))<2e-5);
-        GfVec3f normal(-2*u,-2*v,1);normal.Normalize();
+        usdGen::UsdGenVec3f normal(-2*u,-2*v,1);normal.Normalize();
         CHECK((a.rootN[i]-normal).GetLength()<2e-5);
     }
     auto left=s;left.orientation=TfToken("leftHanded");CHECK(Run(Desc(left,3),&b));
@@ -315,17 +316,17 @@ int main() {
     // Pose and parent motion are downstream deformation inputs, not rest
     // scatter inputs. Rest/topology/UV/paint edits must still invalidate.
     // Input records are immutable: edit the host desc and lower again.
-    auto e=d0;e.surfaces[0].points[0]+=GfVec3f(0,0,3);
-    e.surfaces[0].worldMatrix.SetTranslate(GfVec3d(2,0,0));
+    auto e=d0;e.surfaces[0].points[0]+=usdGen::UsdGenVec3f(0,0,3);
+    e.surfaces[0].worldMatrix.SetTranslate(usdGen::UsdGenVec3d(2,0,0));
     e.surfaces[0].surfaceGeneration=99;
     e.surfaces[0].samples.push_back({42,e.surfaces[0].points});
     sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)==op.CaptureDigest(c1));
-    e.surfaces[0].restPoints[0]+=GfVec3f(0,0,1);sp1=usdGenUsd::Lower(e);
+    e.surfaces[0].restPoints[0]+=usdGen::UsdGenVec3f(0,0,1);sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     e=d0;e.surfaces[0].subsetFaces={3};sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
-    e=d0;e.surfaces[0].uv.push_back(GfVec2f(.2f,.3f));sp1=usdGenUsd::Lower(e);
+    e=d0;e.surfaces[0].uv.push_back(usdGen::UsdGenVec2f(.2f,.3f));sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));
     e=d0;e.surfaces[0].densityMultiplier.assign(9,.5f);sp1=usdGenUsd::Lower(e);
     CHECK(op.CaptureDigest(c0)!=op.CaptureDigest(c1));

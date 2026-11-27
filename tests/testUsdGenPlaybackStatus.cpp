@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenBrushApi.h"
 #include "usdGenImaging/testHook.h"

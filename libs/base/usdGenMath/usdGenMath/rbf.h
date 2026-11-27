@@ -16,17 +16,18 @@
 #ifndef USDGEN_MATH_RBF_H
 #define USDGEN_MATH_RBF_H
 
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 
 #include <cmath>
 #include <cstddef>
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenMath {
 namespace rbf {
+
+using usdGen::UsdGenVec3d;
 
 /// Runs body over [0, count) in blocks; serial when run is null.
 struct ParallelFor {
@@ -46,20 +47,20 @@ public:
     /// Factors the system for `rest`. False, with the reason, for fewer than
     /// four samples, non-finite input, zero extent, or samples that do not
     /// span 3D (coplanar or collinear: the affine term is then undetermined).
-    bool Bind(std::vector<GfVec3d> const &rest, std::string *error);
+    bool Bind(std::vector<UsdGenVec3d> const &rest, std::string *error);
 
     /// Coefficients for the samples at `current` (same order as the bound
     /// rest samples).
-    bool Solve(std::vector<GfVec3d> const &current, std::string *error);
+    bool Solve(std::vector<UsdGenVec3d> const &current, std::string *error);
 
     /// F(x) - x: the displacement of a rest-space point.
     ///
     /// Defined inline below: the deform strands loop and the field
     /// microbench call this once per CV, so a call boundary here costs a
-    /// prologue, a 2KB stack carve, and a by-memory GfVec3d return on every
+    /// prologue, a 2KB stack carve, and a by-memory UsdGenVec3d return on every
     /// query. The arithmetic is unchanged (same operations in the same
     /// order), so inlined queries are bitwise what the call returned.
-    inline GfVec3d Displacement(GfVec3d const &x) const;
+    inline UsdGenVec3d Displacement(UsdGenVec3d const &x) const;
 
     /// A run of queries: ds[t] is bitwise Displacement(qs[t]) for every t.
     ///
@@ -73,11 +74,11 @@ public:
     /// fills zeros. Large batches split over `parallel` when given;
     /// every query still runs the same operations, so the bits match the
     /// serial loop.
-    void DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count,
+    void DisplaceBatch(UsdGenVec3d const *qs, UsdGenVec3d *ds, size_t count,
                        ParallelFor const &parallel = {}) const;
 
     /// A planar run of queries: (dx[t], dy[t], dz[t]) is bitwise
-    /// Displacement(GfVec3d(qx[t], qy[t], qz[t])) for every t.
+    /// Displacement(UsdGenVec3d(qx[t], qy[t], qz[t])) for every t.
     ///
     /// The deform strands loop's queries already sit in planar float
     /// planes, so this entry skips the AoS transpose (and the vld3/vst3
@@ -92,15 +93,15 @@ public:
     bool Bound() const { return _order != 0; }
     size_t SampleCount() const { return _rest.size(); }
     // Immutable normalized field data for renderer compute kernels.
-    std::vector<GfVec3d> const& Samples() const { return _rest; }
+    std::vector<UsdGenVec3d> const& Samples() const { return _rest; }
     std::vector<double> const& Coefficients() const { return _coefficients; }
-    GfVec3d Centre() const { return _centre; }
+    UsdGenVec3d Centre() const { return _centre; }
     double Scale() const { return _scale; }
 
 private:
-    std::vector<GfVec3d> _rest;        // normalised rest samples
+    std::vector<UsdGenVec3d> _rest;        // normalised rest samples
     std::vector<double> _restX, _restY, _restZ;   // the same, one array per axis
-    GfVec3d _centre{0.0};
+    UsdGenVec3d _centre{0.0};
     double _scale = 1.0;
     // 1/_scale, computed once per bind: Displacement normalises every query
     // by _scale, and the compiler lowers that to a reciprocal plus three
@@ -116,14 +117,14 @@ private:
 /// Up to `budget` well-spread indices into `points`: exact duplicates
 /// (within `epsilon`) are dropped, then farthest-point sampling starts at the
 /// first point. Deterministic for a given input.
-std::vector<size_t> SelectSamples(std::vector<GfVec3d> const &points, size_t budget,
+std::vector<size_t> SelectSamples(std::vector<UsdGenVec3d> const &points, size_t budget,
                                   double epsilon);
 
-inline GfVec3d CubicField::Displacement(GfVec3d const &x) const
+inline UsdGenVec3d CubicField::Displacement(UsdGenVec3d const &x) const
 {
     size_t const n = _rest.size(), m = _order;
-    if (!m) return GfVec3d(0.0);
-    GfVec3d const y = (x - _centre) * _invScale;
+    if (!m) return UsdGenVec3d(0.0);
+    UsdGenVec3d const y = (x - _centre) * _invScale;
     double const *cx = &_coefficients[0], *cy = &_coefficients[m], *cz = &_coefficients[2 * m];
 
     // The kernel row gets a loop of its own, which the compiler vectorizes
@@ -153,7 +154,7 @@ inline GfVec3d CubicField::Displacement(GfVec3d const &x) const
         oy += cy[i] * k[i];
         oz += cz[i] * k[i];
     }
-    return GfVec3d(ox, oy, oz) * _scale;
+    return UsdGenVec3d(ox, oy, oz) * _scale;
 }
 
 }  // namespace rbf

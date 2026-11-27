@@ -1,4 +1,5 @@
 // Pure runtime contract for sparse surface-cage C3 interpolation.
+#include "utils/pxrInterop.h"
 #include "usdGen/surfaceCageInterpolate.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/surfaceCageSource.h"
@@ -30,7 +31,7 @@ bool Near(float a, float b, float tolerance = 1.0e-5f)
     return std::abs(a - b) <= tolerance;
 }
 
-bool Near(GfVec3f const &a, GfVec3f const &b, float tolerance = 1.0e-5f)
+bool Near(usdGen::UsdGenVec3f const &a, usdGen::UsdGenVec3f const &b, float tolerance = 1.0e-5f)
 {
     return Near(a[0], b[0], tolerance) && Near(a[1], b[1], tolerance) &&
            Near(a[2], b[2], tolerance);
@@ -62,16 +63,16 @@ UsdGenSurfaceDesc Surface(bool ngon, float scale = 1.0f)
 {
     UsdGenSurfaceDesc surface;
     if (!ngon) {
-        surface.restPoints = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(scale, 0, 0),
-                                           GfVec3f(scale, scale, 0), GfVec3f(0, scale, 0)};
+        surface.restPoints = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(scale, 0, 0),
+                                           usdGen::UsdGenVec3f(scale, scale, 0), usdGen::UsdGenVec3f(0, scale, 0)};
         surface.faceVertexCounts = VtIntArray{4};
         surface.faceVertexIndices = VtIntArray{0, 1, 2, 3};
     } else {
-        surface.restPoints = VtVec3fArray{GfVec3f(0.50f * scale, 0.00f, 0),
-                                           GfVec3f(1.00f * scale, 0.35f * scale, 0),
-                                           GfVec3f(0.80f * scale, 1.00f * scale, 0),
-                                           GfVec3f(0.20f * scale, 1.00f * scale, 0),
-                                           GfVec3f(0.00f, 0.35f * scale, 0)};
+        surface.restPoints = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0.50f * scale, 0.00f, 0),
+                                           usdGen::UsdGenVec3f(1.00f * scale, 0.35f * scale, 0),
+                                           usdGen::UsdGenVec3f(0.80f * scale, 1.00f * scale, 0),
+                                           usdGen::UsdGenVec3f(0.20f * scale, 1.00f * scale, 0),
+                                           usdGen::UsdGenVec3f(0.00f, 0.35f * scale, 0)};
         surface.faceVertexCounts = VtIntArray{5};
         surface.faceVertexIndices = VtIntArray{0, 1, 2, 3, 4};
     }
@@ -98,14 +99,14 @@ UsdGenSurfaceCageInput Input(UsdGenSurfaceDesc surface,
     owner.cvCount = 4;
     owner.defaultWidth = 0.2f;
     owner.edgeBias = 0.0f;
-    owner.chartCentroid = GfVec2f(0.0f, 0.0f);
+    owner.chartCentroid = usdGen::UsdGenVec2f(0.0f, 0.0f);
     owner.chartMeanRadius = rootScale;
     input.owners.push_back(owner);
     input.ownerLengthProfileOffsets = VtIntArray{0, 2};
     // Constant half-length proves sampling follows authored normalized t,
     // not an arc-length reconstruction.
-    input.ownerLengthProfile = VtVec2fArray{GfVec2f(0.0f, 0.5f),
-                                             GfVec2f(1.0f, 0.5f)};
+    input.ownerLengthProfile = usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0.0f, 0.5f),
+                                             usdGen::UsdGenVec2f(1.0f, 0.5f)};
     for (int guide = 0; guide != 3; ++guide) {
         UsdGenSurfaceCageGuide rail;
         rail.ownerTubeId = 41;
@@ -124,12 +125,12 @@ UsdGenSurfaceCageInput Input(UsdGenSurfaceDesc surface,
         // three-rail blend but invalid for the new whole-ring containment
         // contract. A Z-only separation preserves the y/t assertion below.
         float const zOffset = guide == 2 ? rootScale : 0.0f;
-        rail.points = VtVec3fArray{GfVec3f(rootX, rootY, 2.0f),
-                                    GfVec3f(x, 4.0f, 1.0f + zOffset),
-                                    GfVec3f(x, 5.0f, zOffset)};
-        rail.rest = VtVec3fArray{GfVec3f(rootX, rootY, 0.0f),
-                                  GfVec3f(x, 4.0f, 1.0f + zOffset),
-                                  GfVec3f(x, 5.0f, zOffset)};
+        rail.points = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(rootX, rootY, 2.0f),
+                                    usdGen::UsdGenVec3f(x, 4.0f, 1.0f + zOffset),
+                                    usdGen::UsdGenVec3f(x, 5.0f, zOffset)};
+        rail.rest = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(rootX, rootY, 0.0f),
+                                  usdGen::UsdGenVec3f(x, 4.0f, 1.0f + zOffset),
+                                  usdGen::UsdGenVec3f(x, 5.0f, zOffset)};
         rail.normalizedT = VtFloatArray{0.0f, 0.25f, 1.0f};
         rail.widths = VtFloatArray{0.1f, 0.2f, 0.3f};
         input.guides.push_back(std::move(rail));
@@ -137,18 +138,18 @@ UsdGenSurfaceCageInput Input(UsdGenSurfaceDesc surface,
     UsdGenSurfaceCageTriangle triangle;
     triangle.ownerTubeId = 41;
     triangle.guides = {{0, 1, 2}};
-    triangle.rootChart = {{GfVec2f(-rootScale, 0), GfVec2f(rootScale, 0),
-                           GfVec2f(0, rootScale)}};
+    triangle.rootChart = {{usdGen::UsdGenVec2f(-rootScale, 0), usdGen::UsdGenVec2f(rootScale, 0),
+                           usdGen::UsdGenVec2f(0, rootScale)}};
     input.triangles.push_back(triangle);
     return input;
 }
 
-bool InsidePolygon(GfVec2f const &point, std::vector<GfVec2f> const &polygon)
+bool InsidePolygon(usdGen::UsdGenVec2f const &point, std::vector<usdGen::UsdGenVec2f> const &polygon)
 {
     bool inside = false;
     for (size_t i = 0, previous = polygon.size() - 1; i != polygon.size(); previous = i++) {
-        GfVec2f const &a = polygon[previous];
-        GfVec2f const &b = polygon[i];
+        usdGen::UsdGenVec2f const &a = polygon[previous];
+        usdGen::UsdGenVec2f const &b = polygon[i];
         float const cross = (b[0] - a[0]) * (point[1] - a[1]) -
                             (b[1] - a[1]) * (point[0] - a[0]);
         float const dot = (point[0] - a[0]) * (point[0] - b[0]) +
@@ -173,26 +174,26 @@ UsdGenSurfaceCageInput ConcaveInput(UsdGenSurfaceDesc surface,
     input.ownerMap.options.channelCount = 1;
     input.ownerMap.channel = 0;
     input.densityMultiplier = 1.0f;
-    input.owners.push_back({41, 90.0f, 37, 3, 0.1f, 0.0f, GfVec2f(0.5f), 1.0f});
+    input.owners.push_back({41, 90.0f, 37, 3, 0.1f, 0.0f, usdGen::UsdGenVec2f(0.5f), 1.0f});
     input.ownerLengthProfileOffsets = VtIntArray{0, 2};
-    input.ownerLengthProfile = VtVec2fArray{GfVec2f(0.0f, 1.0f), GfVec2f(1.0f, 1.0f)};
-    std::array<GfVec2f, 4> const root{{GfVec2f(0, 0), GfVec2f(1, 0),
-                                         GfVec2f(1, 1), GfVec2f(0, 1)}};
-    std::array<GfVec2f, 4> const terminal{{GfVec2f(0, 0), GfVec2f(1, 0),
-                                             GfVec2f(.2f, .2f), GfVec2f(0, 1)}};
+    input.ownerLengthProfile = usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0.0f, 1.0f), usdGen::UsdGenVec2f(1.0f, 1.0f)};
+    std::array<usdGen::UsdGenVec2f, 4> const root{{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(1, 0),
+                                         usdGen::UsdGenVec2f(1, 1), usdGen::UsdGenVec2f(0, 1)}};
+    std::array<usdGen::UsdGenVec2f, 4> const terminal{{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(1, 0),
+                                             usdGen::UsdGenVec2f(.2f, .2f), usdGen::UsdGenVec2f(0, 1)}};
     for (int slot = 0; slot != 4; ++slot) {
         UsdGenSurfaceCageGuide guide;
         guide.ownerTubeId = 41; guide.curveId = uint64_t(200 + slot);
-        guide.points = VtVec3fArray{GfVec3f(root[size_t(slot)][0], root[size_t(slot)][1], 0),
-                                    GfVec3f(terminal[size_t(slot)][0], terminal[size_t(slot)][1], 1)};
+        guide.points = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(root[size_t(slot)][0], root[size_t(slot)][1], 0),
+                                    usdGen::UsdGenVec3f(terminal[size_t(slot)][0], terminal[size_t(slot)][1], 1)};
         guide.rest = guide.points;
         guide.normalizedT = VtFloatArray{0.0f, 1.0f};
         guide.widths = VtFloatArray{0.1f, 0.1f};
         input.guides.push_back(std::move(guide));
     }
     input.triangles = {
-        {41, {{0, 1, 2}}, {{GfVec2f(0, 0), GfVec2f(1, 0), GfVec2f(1, 1)}}},
-        {41, {{0, 2, 3}}, {{GfVec2f(0, 0), GfVec2f(1, 1), GfVec2f(0, 1)}}}};
+        {41, {{0, 1, 2}}, {{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(1, 0), usdGen::UsdGenVec2f(1, 1)}}},
+        {41, {{0, 2, 3}}, {{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(1, 1), usdGen::UsdGenVec2f(0, 1)}}}};
     return input;
 }
 
@@ -202,32 +203,32 @@ void CheckConcaveContainment(std::shared_ptr<const UsdGenPtexTexture> const &tex
     UsdGenSurfaceCageResult output;
     std::string error;
     bool const ok = UsdGenInterpolateSurfaceCage(input, &output, &error);
-    std::vector<GfVec2f> const concave{{GfVec2f(0, 0), GfVec2f(1, 0),
-                                         GfVec2f(.2f, .2f), GfVec2f(0, 1)}};
+    std::vector<usdGen::UsdGenVec2f> const concave{{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(1, 0),
+                                         usdGen::UsdGenVec2f(.2f, .2f), usdGen::UsdGenVec2f(0, 1)}};
     bool terminalsInside = ok && !output.curveVertexCounts.empty();
     for (size_t base = 0, curve = 0; terminalsInside && curve != output.curveVertexCounts.size(); ++curve) {
-        GfVec3f const &tip = output.points[base + size_t(output.curveVertexCounts[curve] - 1)];
-        terminalsInside = Near(tip[2], 1.0f) && InsidePolygon(GfVec2f(tip[0], tip[1]), concave);
+        usdGen::UsdGenVec3f const &tip = output.points[base + size_t(output.curveVertexCounts[curve] - 1)];
+        terminalsInside = Near(tip[2], 1.0f) && InsidePolygon(usdGen::UsdGenVec2f(tip[0], tip[1]), concave);
         base += size_t(output.curveVertexCounts[curve]);
     }
     Check(terminalsInside,
           ("concave terminal cage keeps every runtime point inside its material ring: " + error).c_str());
 
     std::array<int, 3> slots;
-    GfVec3f weights;
+    usdGen::UsdGenVec3f weights;
     bool const direct = UsdGenRemapConcaveMaterialPoint(
-        concave, GfVec2f(0.4f, 0.4f), &slots, &weights, &error);
-    GfVec2f const remapped = direct
+        concave, usdGen::UsdGenVec2f(0.4f, 0.4f), &slots, &weights, &error);
+    usdGen::UsdGenVec2f const remapped = direct
         ? concave[size_t(slots[0])] * weights[0] + concave[size_t(slots[1])] * weights[1] +
               concave[size_t(slots[2])] * weights[2]
-        : GfVec2f(0.0f);
+        : usdGen::UsdGenVec2f(0.0f);
     Check(direct && InsidePolygon(remapped, concave),
           ("concave canonical transfer contains the root-square 0.4,0.4 witness: " + error).c_str());
 
     // Thin K14 material cells remain valid when their double-precision area
     // is nonzero. This used to be rejected by a percentage-of-bounds cutoff.
-    std::vector<GfVec2f> const thin{{GfVec2f(0, 0), GfVec2f(.01f, 0),
-                                     GfVec2f(.000001f, .000000001f)}};
+    std::vector<usdGen::UsdGenVec2f> const thin{{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(.01f, 0),
+                                     usdGen::UsdGenVec2f(.000001f, .000000001f)}};
     std::vector<std::array<int, 3>> thinTriangles;
     bool const thinOk = UsdGenTriangulateConcaveMaterialSlots(thin, &thinTriangles, &error);
     Check(thinOk && thinTriangles.size() == 1,
@@ -240,7 +241,7 @@ void CheckWorldMetricBridge(std::string const &mapFile)
     // the transient in world space.  This catches a tempting but incorrect
     // surface-local bridge implementation that disagrees with Fill.
     UsdGenSurfaceCageInput const input = Input(Surface(false), nullptr);
-    GfMatrix4d world(1.0);
+    usdGen::UsdGenMatrix4d world(1.0);
     world[0][0] = 3.0; world[1][1] = 2.0;
     world[3][0] = 7.0; world[3][1] = -1.0;
 
@@ -283,14 +284,14 @@ void CheckWorldMetricBridge(std::string const &mapFile)
     payload->ownerSeeds = VtIntArray{73};
     payload->ownerCvCounts = VtIntArray{4};
     payload->ownerEdgeBias = VtFloatArray{0.0f};
-    payload->ownerChartCentroids = VtVec2fArray{GfVec2f(0.0f)};
+    payload->ownerChartCentroids = usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0.0f)};
     payload->ownerChartMeanRadii = VtFloatArray{1.0f};
     payload->ownerLengthProfileOffsets = VtIntArray{0, 2};
-    payload->ownerLengthProfile = VtVec2fArray{GfVec2f(0.0f, 0.5f), GfVec2f(1.0f, 0.5f)};
-    payload->triangles = VtVec3iArray{GfVec3i(0, 1, 2)};
+    payload->ownerLengthProfile = usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0.0f, 0.5f), usdGen::UsdGenVec2f(1.0f, 0.5f)};
+    payload->triangles = usdGen::UsdGenVec3iArray{usdGen::UsdGenVec3i(0, 1, 2)};
     payload->triangleOwnerIndices = VtIntArray{0};
-    payload->triangleRootCharts = {GfVec2f(-1.0f, 0.0f), GfVec2f(1.0f, 0.0f),
-                                   GfVec2f(0.0f, 1.0f)};
+    payload->triangleRootCharts = {usdGen::UsdGenVec2f(-1.0f, 0.0f), usdGen::UsdGenVec2f(1.0f, 0.0f),
+                                   usdGen::UsdGenVec2f(0.0f, 1.0f)};
     for (UsdGenSurfaceCageGuide const &guide : input.guides) {
         sparse.curveVertexCounts.push_back(int(guide.points.size()));
         sparse.points.insert(sparse.points.end(), guide.points.begin(), guide.points.end());
@@ -323,9 +324,9 @@ void CheckWorldMetricBridge(std::string const &mapFile)
           ("bridge measures transformed scalp area in world space: " + error).c_str());
     UsdGenCurveSetData dense;
     bool const built = UsdGenBuildSurfaceCageCurveSet(usdGenUsd::Lower(desc), usdGenUsd::Lower(node), usdGenUsd::Lower(sparse), &dense, &error);
-    bool worldRoots = built && !dense.points.empty() && dense.worldMatrix == GfMatrix4d(1.0);
+    bool worldRoots = built && !dense.points.empty() && dense.worldMatrix == usdGen::UsdGenMatrix4d(1.0);
     for (size_t begin = 0, curve = 0; worldRoots && curve != dense.curveVertexCounts.size(); ++curve) {
-        GfVec3f const &root = dense.points[begin];
+        usdGen::UsdGenVec3f const &root = dense.points[begin];
         worldRoots = root[0] >= 7.0f && root[0] <= 10.0f &&
                      root[1] >= -1.0f && root[1] <= 1.0f && Near(root[2], 0.0f);
         begin += size_t(dense.curveVertexCounts[curve]);

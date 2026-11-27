@@ -88,7 +88,7 @@ int main(int argc,char** argv) try {
                 root.push_back(GfVec3f(plane.f[i.root*3],plane.f[i.root*3+1],plane.f[i.root*3+2]));
                 tip.push_back(GfVec3f(plane.f[i.tip*3],plane.f[i.tip*3+1],plane.f[i.tip*3+2]));
             }
-            pv.CreatePrimvar(plane.name,SdfValueTypeNames->Float3Array,UsdGeomTokens->varying).Set(root);
+            pv.CreatePrimvar(TfToken(plane.name.GetString()),SdfValueTypeNames->Float3Array,UsdGeomTokens->varying).Set(root);
             std::string tipName=plane.name.GetString();tipName.insert(3,"Tip");
             pv.CreatePrimvar(TfToken(tipName),SdfValueTypeNames->Float3Array,UsdGeomTokens->varying).Set(tip);
         }

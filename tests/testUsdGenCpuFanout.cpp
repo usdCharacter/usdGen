@@ -5,6 +5,7 @@
 // aliases for untouched planes, so evaluation order and authored node order
 // cannot leak one sibling's writes into the other or into the terminal branch.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
@@ -162,11 +163,11 @@ UsdGenGraphDesc MakeFanout(std::string const &terminalName,
     curves.id = 0;
     curves.faceVertexCounts = VtIntArray{4, 4};
     curves.faceVertexIndices = VtIntArray{0, 1, 2, 3, 4, 5, 6, 7};
-    curves.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(0, 0, 1),
-        GfVec3f(0, 0, 2), GfVec3f(0, 0, 3),
-        GfVec3f(1, 0, 0), GfVec3f(1, 0, 1),
-        GfVec3f(1, 0, 2), GfVec3f(1, 0, 3)};
+    curves.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 0, 1),
+        usdGen::UsdGenVec3f(0, 0, 2), usdGen::UsdGenVec3f(0, 0, 3),
+        usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 0, 1),
+        usdGen::UsdGenVec3f(1, 0, 2), usdGen::UsdGenVec3f(1, 0, 3)};
     curves.points = curves.restPoints;
     desc.surfaces.push_back(std::move(curves));
 
@@ -622,10 +623,10 @@ void TestGrowAngularLift()
     roots.px = {10.0f, 10.0f};
     roots.py = {20.0f, 20.0f};
     roots.pz = {30.0f, 31.0f};
-    roots.rest = {GfVec3f(0, 0, 0), GfVec3f(0, 0, 1)};
-    roots.rootT = {GfVec3f(0, 1, 0)};
-    roots.rootB = {GfVec3f(0, 0, 1)};
-    roots.rootN = {GfVec3f(1, 0, 0)};
+    roots.rest = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 0, 1)};
+    roots.rootT = {usdGen::UsdGenVec3f(0, 1, 0)};
+    roots.rootB = {usdGen::UsdGenVec3f(0, 0, 1)};
+    roots.rootN = {usdGen::UsdGenVec3f(1, 0, 0)};
     UsdGenCaptureContext context;
     context.params = &params;
     context.desc = nullptr;
@@ -633,14 +634,14 @@ void TestGrowAngularLift()
     Check(grow.Capture(context, UsdGenBufferInputs(roots), capture.get(), &diagnostics),
           "Grow captures angular lift without mutating input");
     auto const &lifted = UsdGenCaptureBuffer(*capture).rest;
-    Check(lifted.size() == 3 && lifted[0] == GfVec3f(0, 0, 0) &&
+    Check(lifted.size() == 3 && lifted[0] == usdGen::UsdGenVec3f(0, 0, 0) &&
               std::fabs(lifted[1][0]) < 1.e-5f &&
               std::fabs(lifted[1][1] - 0.5f) < 1.e-5f &&
               std::fabs(lifted[1][2]) < 1.e-5f &&
               std::fabs(lifted[2][0]) < 1.e-5f &&
               std::fabs(lifted[2][1] - 1.0f) < 1.e-5f &&
               std::fabs(lifted[2][2]) < 1.e-5f &&
-              roots.rest[1] == GfVec3f(0, 0, 1),
+              roots.rest[1] == usdGen::UsdGenVec3f(0, 0, 1),
           "Grow rotates surfaceNormal about root-frame B");
 
     node.params.back().value = VtValue(-90.0);
@@ -703,7 +704,7 @@ void TestGrowAngularLift()
           "Grow capture digest includes angular lift");
     changed.params.back().value = VtValue(90.0);
     changed.params.push_back({TfToken("directionVector"),
-                              VtValue(GfVec3f(1, 0, 0)), false});
+                              VtValue(usdGen::UsdGenVec3f(1, 0, 0)), false});
     changedView.Set(&changed);   // the parameter vector reallocated
     digestContext.params = &changedParams;
     auto const vectorDigest = grow.CaptureDigest(digestContext);
@@ -734,8 +735,8 @@ UsdGenGraphDesc MakeScatterValidationDesc(double density)
     surface.id = 0;
     surface.faceVertexCounts = VtIntArray{3};
     surface.faceVertexIndices = VtIntArray{0, 1, 2};
-    surface.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(0, 1, 0)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(0, 1, 0)};
     surface.points = surface.restPoints;
     desc.surfaces = {surface};
     UsdGenNodeDesc scatter;
@@ -765,9 +766,9 @@ void TestGrowAzimuth()
     roots.totalCurves = roots.totalCvs = count;
     roots.px.assign(count, 0); roots.py.assign(count, 0); roots.pz.assign(count, 0);
     roots.curveId.resize(count);
-    roots.rootT.assign(count, GfVec3f(1,0,0));
-    roots.rootB.assign(count, GfVec3f(0,1,0));
-    roots.rootN.assign(count, GfVec3f(0,0,1));
+    roots.rootT.assign(count, usdGen::UsdGenVec3f(1,0,0));
+    roots.rootB.assign(count, usdGen::UsdGenVec3f(0,1,0));
+    roots.rootN.assign(count, usdGen::UsdGenVec3f(0,0,1));
     for (uint32_t c=0;c<count;++c) roots.curveId[c] = c+100;
     auto capture = [&]() {
         paramsView.Set(&node);   // the node's parameters change between captures
@@ -800,7 +801,7 @@ void TestGrowAzimuth()
           UsdGenCaptureBuffer(*reordered).rest[3] == UsdGenCaptureBuffer(*random).rest[1],
           "Grow random azimuth follows stable IDs when strand order changes");
     std::swap(roots.curveId[0], roots.curveId[1]);
-    GfVec3f mean(0);
+    usdGen::UsdGenVec3f mean(0);
     int quadrants[4] = {};
     bool shape = true;
     for(uint32_t c=0;c<count;++c) {
@@ -809,7 +810,7 @@ void TestGrowAzimuth()
         ++quadrants[(v[0]<0 ? 1:0)+(v[1]<0 ? 2:0)];
         shape &= std::fabs(v.GetLength()-1.f)<1e-5f &&
                  std::fabs(v[2]-UsdGenCaptureBuffer(*zero).rest[1][2])<1e-5f &&
-                 UsdGenCaptureBuffer(*random).rest[c*2] == GfVec3f(0);
+                 UsdGenCaptureBuffer(*random).rest[c*2] == usdGen::UsdGenVec3f(0);
     }
     mean /= float(count);
     Check(shape && std::fabs(mean[0])<.04f && std::fabs(mean[1])<.04f &&
@@ -819,8 +820,8 @@ void TestGrowAzimuth()
     // parameter charts turn T/B by 90 degrees, while N stays smooth.
     // No chart should receive one common azimuth or a preferred direction.
     roots.rootPrim.resize(count);
-    GfVec3f const tangents[4] = {GfVec3f(1,0,0),GfVec3f(0,1,0),GfVec3f(-1,0,0),GfVec3f(0,-1,0)};
-    GfVec3f const binormals[4] = {GfVec3f(0,1,0),GfVec3f(-1,0,0),GfVec3f(0,-1,0),GfVec3f(1,0,0)};
+    usdGen::UsdGenVec3f const tangents[4] = {usdGen::UsdGenVec3f(1,0,0),usdGen::UsdGenVec3f(0,1,0),usdGen::UsdGenVec3f(-1,0,0),usdGen::UsdGenVec3f(0,-1,0)};
+    usdGen::UsdGenVec3f const binormals[4] = {usdGen::UsdGenVec3f(0,1,0),usdGen::UsdGenVec3f(-1,0,0),usdGen::UsdGenVec3f(0,-1,0),usdGen::UsdGenVec3f(1,0,0)};
     for(uint32_t c=0;c<count;++c) {
         uint32_t const face=c/(count/4);
         roots.rootPrim[c]=int(face);
@@ -829,10 +830,10 @@ void TestGrowAzimuth()
     auto charts=capture();
     bool isotropicCharts=true;
     for(uint32_t face=0;face<4;++face) {
-        GfVec3f chartMean(0);
+        usdGen::UsdGenVec3f chartMean(0);
         int bins[4]={};
         for(uint32_t c=face*(count/4);c<(face+1)*(count/4);++c) {
-            GfVec3f const v=UsdGenCaptureBuffer(*charts).rest[c*2+1];
+            usdGen::UsdGenVec3f const v=UsdGenCaptureBuffer(*charts).rest[c*2+1];
             chartMean+=v;
             ++bins[(v[0]<0 ? 1:0)+(v[1]<0 ? 2:0)];
         }
@@ -846,7 +847,7 @@ void TestGrowAzimuth()
     Check(UsdGenCaptureBuffer(*renamedFaces).rest == UsdGenCaptureBuffer(*charts).rest,
           "Grow direction does not use face ID as a random input");
     roots.rootPrim.clear();
-    roots.rootT.assign(count,GfVec3f(1,0,0)); roots.rootB.assign(count,GfVec3f(0,1,0));
+    roots.rootT.assign(count,usdGen::UsdGenVec3f(1,0,0)); roots.rootB.assign(count,usdGen::UsdGenVec3f(0,1,0));
     // Evaluate as two nonzero-offset chunks; captured randomness must not
     // depend on how the scheduler partitions the strands.
     bool equal = true;
@@ -862,7 +863,7 @@ void TestGrowAzimuth()
         UsdGenEvalContext eval; eval.params=&params;
         grow.Evaluate(eval, *random, view.View());
         for(uint32_t i=0;i<count;++i)
-            equal &= GfVec3f(x[i],y[i],z[i]) == UsdGenCaptureBuffer(*random).rest[begin*2+i];
+            equal &= usdGen::UsdGenVec3f(x[i],y[i],z[i]) == UsdGenCaptureBuffer(*random).rest[begin*2+i];
     }
     Check(equal, "Grow posed/rest azimuth agrees across chunk boundaries");
     auto const digest = grow.CaptureDigest(context);
@@ -1001,9 +1002,9 @@ void TestAuthoredSourcePlanes()
     // provenance; retain two 2-CV source curves independently of the mesh.
     surface.faceVertexCounts = VtIntArray{3, 3};
     surface.faceVertexIndices = VtIntArray{0, 1, 2, 1, 3, 2};
-    surface.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(0, 0, 1),
-        GfVec3f(1, 0, 0), GfVec3f(1, 0, 1)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 0, 1),
+        usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 0, 1)};
     surface.points = surface.restPoints;
     desc.surfaces.push_back(surface);
 
@@ -1017,7 +1018,7 @@ void TestAuthoredSourcePlanes()
     sourceCurves.curveId = {0, 1};
     sourceCurves.skinPrim = {0, 1};
     sourceCurves.skinPrimUv = {{0, 0}, {0, 0}};
-    sourceCurves.rootFrame = {GfMatrix4d(1.0), GfMatrix4d(1.0)};
+    sourceCurves.rootFrame = {usdGen::UsdGenMatrix4d(1.0), usdGen::UsdGenMatrix4d(1.0)};
     UsdGenAuthoredPlaneDesc point;
     point.name = TfToken("cvPayload");
     point.type = UsdGenAuthoredPlaneType::Float32;
@@ -1336,10 +1337,10 @@ void TestCowAliasesRefreshAfterTopologyRevision()
     surface.faceVertexCounts = VtIntArray{4, 4, 4};
     surface.faceVertexIndices = VtIntArray{
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
-    surface.restPoints.push_back(GfVec3f(2, 0, 0));
-    surface.restPoints.push_back(GfVec3f(2, 0, 1));
-    surface.restPoints.push_back(GfVec3f(2, 0, 2));
-    surface.restPoints.push_back(GfVec3f(2, 0, 3));
+    surface.restPoints.push_back(usdGen::UsdGenVec3f(2, 0, 0));
+    surface.restPoints.push_back(usdGen::UsdGenVec3f(2, 0, 1));
+    surface.restPoints.push_back(usdGen::UsdGenVec3f(2, 0, 2));
+    surface.restPoints.push_back(usdGen::UsdGenVec3f(2, 0, 3));
     surface.points = surface.restPoints;
     Check(usdGenUsd::Compile(compiler, desc, &graph).ok,
           "COW refresh fixture recompiles a changed source topology");
@@ -1496,11 +1497,11 @@ void TestOrderedWidthBlend()
     curves.id = 0;
     curves.faceVertexCounts = VtIntArray{4, 4};
     curves.faceVertexIndices = VtIntArray{0, 1, 2, 3, 4, 5, 6, 7};
-    curves.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(0, 0, 1),
-        GfVec3f(0, 0, 2), GfVec3f(0, 0, 3),
-        GfVec3f(1, 0, 0), GfVec3f(1, 0, 1),
-        GfVec3f(1, 0, 2), GfVec3f(1, 0, 3)};
+    curves.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 0, 1),
+        usdGen::UsdGenVec3f(0, 0, 2), usdGen::UsdGenVec3f(0, 0, 3),
+        usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 0, 1),
+        usdGen::UsdGenVec3f(1, 0, 2), usdGen::UsdGenVec3f(1, 0, 3)};
     curves.points = curves.restPoints;
     desc.surfaces.push_back(std::move(curves));
 

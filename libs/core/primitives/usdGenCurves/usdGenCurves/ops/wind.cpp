@@ -25,8 +25,7 @@
 #include "usdGenMath/usdGenMath/ramp.h"
 #include "SeExpr2/Noise.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -34,8 +33,11 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -57,8 +59,8 @@ constexpr double kTau = 6.2831853071795864769;
 
 struct UsdGenWindCapture final : public UsdGenCapturePayload
 {
-    VtVec3fArray rootRest;   // per-curve rest root, pinned at capture
-    VtVec3fArray cvRest;     // per-CV rest position for coherent billow
+    UsdGenVec3fArray rootRest;   // per-curve rest root, pinned at capture
+    UsdGenVec3fArray cvRest;     // per-CV rest position for coherent billow
     UsdGenClumpMotion clumps; // native group anchors and effective per-CV cohesion
     bool hasActiveClumps = false;
     std::vector<size_t> groupBase; // flattened group offsets for chunk-local gust cache
@@ -83,20 +85,20 @@ struct UsdGenWindCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-bool FiniteVec3(GfVec3f const &v)
+bool FiniteVec3(UsdGenVec3f const &v)
 {
     return Finite(v[0]) && Finite(v[1]) && Finite(v[2]);
 }
 
 /// Read a float2[] ramp-knots property (02 §2.17 scalar ramp). Missing or
 /// differently typed values fall back to the caller's default.
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
-    VtVec2fArray knots;
+    UsdGenVec2fArray knots;
     if (p) {
-        if (VtValue const v = UsdGenAuthoredValue(*p, slot);
-            v.IsHolding<VtVec2fArray>()) {
-            knots = v.UncheckedGet<VtVec2fArray>();
+        if (UsdGenValue const v = UsdGenAuthoredValue(*p, slot);
+            v.IsHolding<UsdGenVec2fArray>()) {
+            knots = v.UncheckedGet<UsdGenVec2fArray>();
         }
     }
     return knots;
@@ -111,7 +113,7 @@ void HashVec3(uint32_t seed, uint64_t curveId, float out[3])
     out[2] = UsdGenDraw01(int(seed), curveId, kSaltWind + 2u);
 }
 
-float SampleGust(uint32_t seed, uint64_t id, GfVec3f const &root, float drift)
+float SampleGust(uint32_t seed, uint64_t id, UsdGenVec3f const &root, float drift)
 {
     float hvec[3];
     HashVec3(seed, id, hvec);
@@ -171,13 +173,13 @@ uint32_t UsdGenWindOp::PlanesTouched() const
 
 bool UsdGenWindOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    VtValue const direction = UsdGenAuthoredValue(params, kDirection);
-    if (!direction.IsEmpty() && !direction.IsHolding<GfVec3f>()) {
+    UsdGenValue const direction = UsdGenAuthoredValue(params, kDirection);
+    if (!direction.IsEmpty() && !direction.IsHolding<UsdGenVec3f>()) {
         if (diag) diag->Error("UsdGenWind: usdGen:direction must be vector3f");
         return false;
     }
-    if (direction.IsHolding<GfVec3f>()) {
-        GfVec3f const v = direction.UncheckedGet<GfVec3f>();
+    if (direction.IsHolding<UsdGenVec3f>()) {
+        UsdGenVec3f const v = direction.UncheckedGet<UsdGenVec3f>();
         if (!FiniteVec3(v)) {
             if (diag) diag->Error("UsdGenWind: usdGen:direction must be finite");
             return false;
@@ -204,20 +206,20 @@ bool UsdGenWindOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
             return false;
         }
     }
-    VtValue const knots = UsdGenAuthoredValue(params, kKnots);
-    if (!knots.IsEmpty() && !knots.IsHolding<VtVec2fArray>()) {
+    UsdGenValue const knots = UsdGenAuthoredValue(params, kKnots);
+    if (!knots.IsEmpty() && !knots.IsHolding<UsdGenVec2fArray>()) {
         if (diag) diag->Error("UsdGenWind: usdGen:stiffness:knots must be float2[]");
         return false;
     }
-    if (knots.IsHolding<VtVec2fArray>()) {
-        for (GfVec2f const &knot : knots.UncheckedGet<VtVec2fArray>()) {
+    if (knots.IsHolding<UsdGenVec2fArray>()) {
+        for (UsdGenVec2f const &knot : knots.UncheckedGet<UsdGenVec2fArray>()) {
             if (!Finite(knot[0]) || !Finite(knot[1])) {
                 if (diag) diag->Error("UsdGenWind: usdGen:stiffness:knots must be finite");
                 return false;
             }
         }
     }
-    TfToken const interp = params.GetToken(kInterp, Record().Token(kTokCatmullRom));
+    UsdGenToken const interp = params.GetToken(kInterp, Record().Token(kTokCatmullRom));
     if (interp != Record().Token(kTokLinear) && interp != Record().Token(kTokCatmullRom) &&
         interp != Record().Token(kTokBspline) && interp != Record().Token(kTokConstant)) {
         if (diag)
@@ -323,7 +325,7 @@ bool UsdGenWindOp::Capture(
             double const dz = directionField.Value(c, root, 2);
             if (!Finite(dx) || !Finite(dy) || !Finite(dz))
                 return fail("per-strand direction must be finite");
-            GfVec3f const v{float(dx), float(dy), float(dz)};
+            UsdGenVec3f const v{float(dx), float(dy), float(dz)};
             if (v.GetLength() <= 1e-12f)
                 return fail("per-strand direction must be nonzero");
         }
@@ -364,13 +366,13 @@ void UsdGenWindOp::Evaluate(
         p ? p->GetScalarField(kHighStrength, 0.0) : UsdGenParamField{0.0};
     UsdGenParamField const maskField =
         p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
-    GfVec3f litDirection(0.0f, 0.0f, 1.0f);
+    UsdGenVec3f litDirection(0.0f, 0.0f, 1.0f);
     double stiffness = 0.0;
     double lowFrequency = 0.25, highFrequency = 1.25;
     double lowRate = 0.2, highRate = 0.8;
     if (p) {
-        VtValue const v = UsdGenAuthoredValue(*p, kDirection);
-        if (v.IsHolding<GfVec3f>()) litDirection = v.UncheckedGet<GfVec3f>();
+        UsdGenValue const v = UsdGenAuthoredValue(*p, kDirection);
+        if (v.IsHolding<UsdGenVec3f>()) litDirection = v.UncheckedGet<UsdGenVec3f>();
         stiffness = p->GetDouble(kStiffness, 0.0);
         lowFrequency = p->GetDouble(kLowFrequency, lowFrequency);
         highFrequency = p->GetDouble(kHighFrequency, highFrequency);
@@ -388,13 +390,14 @@ void UsdGenWindOp::Evaluate(
     double const highPhase = kTau * UsdGenDraw01(ctx.seed, 0, kSaltWind + 4u);
     float const drift = float(tSec) * kGustTimeRate;
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, kKnots);
+    UsdGenVec2fArray const knots = ReadRampKnots(p, kKnots);
     bool const stiffFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!stiffFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kInterp, Record().Token(kTokCatmullRom)) : Record().Token(kTokCatmullRom),
+            UsdGenParseRampInterp((p ? p->GetToken(kInterp, Record().Token(kTokCatmullRom))
+                                     : Record().Token(kTokCatmullRom)).GetText()),
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }
@@ -435,9 +438,9 @@ void UsdGenWindOp::Evaluate(
         size_t const g = ragged ? size_t(cvOff[c] - cvOff[0]) : view->Cv(c, 0);
         if (!n) continue;
         size_t const curve = curveBase + c;
-        GfVec3f dir = litDirection;
+        UsdGenVec3f dir = litDirection;
         if (directionField.connected) {
-            dir = GfVec3f(float(directionField.Value(curve, cvBase + g, 0)),
+            dir = UsdGenVec3f(float(directionField.Value(curve, cvBase + g, 0)),
                           float(directionField.Value(curve, cvBase + g, 1)),
                           float(directionField.Value(curve, cvBase + g, 2)));
         }
@@ -469,7 +472,7 @@ void UsdGenWindOp::Evaluate(
                     curveGroupGust[li] = g0 * sampledGroupGust[slot];
                 }
                 if (lowStrength != 0.0f || highStrength != 0.0f) {
-                    double const coordinate = GfDot(group.restAnchor, dir);
+                    double const coordinate = UsdGenDot(group.restAnchor, dir);
                     if (lowStrength != 0.0f)
                         curveGroupLow[li] = lowStrength * float(std::sin(
                             kTau * (lowFrequency * coordinate - lowRate * tSec) + lowPhase));
@@ -481,8 +484,8 @@ void UsdGenWindOp::Evaluate(
         }
         float gust = 0.0f;
         if (g0 != 0.0f) {
-            GfVec3f const root = curve < cap.rootRest.size()
-                ? cap.rootRest[curve] : GfVec3f(0.0f, 0.0f, 0.0f);
+            UsdGenVec3f const root = curve < cap.rootRest.size()
+                ? cap.rootRest[curve] : UsdGenVec3f(0.0f, 0.0f, 0.0f);
             float hvec[3];
             HashVec3(ctx.seed, ids ? ids[c] : uint64_t(curve), hvec);
             float const in3[3] = {root[0] * kGustSpaceFreq + hvec[0] + drift,
@@ -506,9 +509,9 @@ void UsdGenWindOp::Evaluate(
             float billow = 0.0f;
             float lowBillow = 0.0f, highBillow = 0.0f;
             if (lowStrength != 0.0f || highStrength != 0.0f) {
-                GfVec3f const rest = cv < cap.cvRest.size()
-                    ? cap.cvRest[cv] : GfVec3f(inPx[o], inPy[o], inPz[o]);
-                double const coordinate = GfDot(rest, dir);
+                UsdGenVec3f const rest = cv < cap.cvRest.size()
+                    ? cap.cvRest[cv] : UsdGenVec3f(inPx[o], inPy[o], inPz[o]);
+                double const coordinate = UsdGenDot(rest, dir);
                 if (lowStrength != 0.0f)
                     lowBillow = lowStrength * float(std::sin(
                         kTau * (lowFrequency * coordinate - lowRate * tSec) + lowPhase)) * t * t;

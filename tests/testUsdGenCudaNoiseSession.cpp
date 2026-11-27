@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "pxr/base/gf/vec2f.h"
 #include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"

@@ -1,18 +1,15 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-// The engine's one text -> TfToken door, with intern counters.
+// The engine's one text -> UsdGenToken door, with intern counters.
 #pragma once
 #include "usdGen/export.h"
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/token.h"
 #include <cstdint>
 #include <string_view>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
-/// The only text -> TfToken conversion in libs/usdGen (gate
-/// testUsdGenNoTokenIntern). Counts every call.
-USDGEN_CORE_API TfToken UsdGenInternToken(std::string_view text);
+// UsdGenInternToken (api/token.h) counts every call.
 
 /// Interns made after UsdGenFreezeRegistries() outside any compile scope.
 USDGEN_CORE_API uint64_t UsdGenExecInternCount() noexcept;

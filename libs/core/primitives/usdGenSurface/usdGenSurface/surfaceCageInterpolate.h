@@ -8,6 +8,8 @@
 #define USDGEN_SURFACE_CAGE_INTERPOLATE_H
 
 #include "usdGenSurface/export.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/maps/ptexMap.h"
@@ -18,7 +20,6 @@
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -31,10 +32,10 @@ struct UsdGenSurfaceCageGuide
 {
     int ownerTubeId = -1;
     uint64_t curveId = 0;
-    VtVec3fArray points;
-    VtVec3fArray rest;
-    VtFloatArray normalizedT;
-    VtFloatArray widths;
+    UsdGenVec3fArray points;
+    UsdGenVec3fArray rest;
+    UsdGenFloatArray normalizedT;
+    UsdGenFloatArray widths;
 };
 
 /// Exactly three sparse rails define a cage triangle.  The explicit owner is
@@ -47,9 +48,9 @@ struct UsdGenSurfaceCageTriangle
     // Captured chart positions of the three sparse root rails.  They are
     // used only for an owner's authored radial length profile; Ptex lookup
     // still comes from the sampled rest-surface point.
-    std::array<GfVec2f, 3> rootChart{{GfVec2f(0.0f, 0.0f),
-                                       GfVec2f(0.0f, 0.0f),
-                                       GfVec2f(0.0f, 0.0f)}};
+    std::array<UsdGenVec2f, 3> rootChart{{UsdGenVec2f(0.0f, 0.0f),
+                                       UsdGenVec2f(0.0f, 0.0f),
+                                       UsdGenVec2f(0.0f, 0.0f)}};
 };
 
 /// Captured per-leaf output controls.  The owner-indexed flattened length
@@ -63,7 +64,7 @@ struct UsdGenSurfaceCageOwner
     uint32_t cvCount = 0;
     float defaultWidth = 0.01f;
     float edgeBias = 0.0f;
-    GfVec2f chartCentroid{0.0f, 0.0f};
+    UsdGenVec2f chartCentroid{0.0f, 0.0f};
     float chartMeanRadius = 1.0f;
 };
 
@@ -92,8 +93,8 @@ struct UsdGenSurfaceCageInput
     // float2 (normalised radial input, profile length multiplier).  Every
     // owner needs at least one finite pair; x is strictly increasing in
     // [0,1].  Linear interpolation clamps outside its authored domain.
-    VtIntArray ownerLengthProfileOffsets;
-    VtVec2fArray ownerLengthProfile;
+    UsdGenIntArray ownerLengthProfileOffsets;
+    UsdGenVec2fArray ownerLengthProfile;
     UsdGenSurfaceData surface;   // owned: the input outlives the spec it came from
     UsdGenSurfaceCageOwnerMap ownerMap;
     float densityMultiplier = 1.0f;
@@ -105,15 +106,15 @@ struct UsdGenSurfaceCageInput
 /// decision.  `points[base]` and `rest[base]` equal the sampled rest root.
 struct UsdGenSurfaceCageResult
 {
-    VtIntArray curveVertexCounts;
-    VtVec3fArray points;
-    VtVec3fArray rest;
-    VtFloatArray widths;
-    VtFloatArray hairT;
-    VtArray<uint64_t> curveId;
-    VtIntArray rootPrim;
-    VtVec2fArray rootUV;
-    VtIntArray ownerTubeId;
+    UsdGenIntArray curveVertexCounts;
+    UsdGenVec3fArray points;
+    UsdGenVec3fArray rest;
+    UsdGenFloatArray widths;
+    UsdGenFloatArray hairT;
+    UsdGenCowArray<uint64_t> curveId;
+    UsdGenIntArray rootPrim;
+    UsdGenVec2fArray rootUV;
+    UsdGenIntArray ownerTubeId;
 };
 
 /// Scatters rest roots, accepts only categorical Ptex owner values exactly

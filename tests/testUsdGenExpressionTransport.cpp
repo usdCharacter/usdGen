@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"

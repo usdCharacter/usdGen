@@ -7,6 +7,7 @@
 // that both indices republish identically: same generation id, same prim paths,
 // same frame, and identical prim set.
 
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
@@ -82,13 +83,13 @@ UsdGenGraphDesc MakeDoubleGraph(int NX = 50, int NY = 5)
     s0.path = SdfPath("/groom/surface0");
     s0.id = 0;
     const int np0 = (NX + 1) * (NY + 1);
-    s0.restPoints = VtVec3fArray(np0);
-    s0.uv = VtVec2fArray(np0);
+    s0.restPoints = usdGen::UsdGenVec3fArray(np0);
+    s0.uv = usdGen::UsdGenVec2fArray(np0);
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             const int k = j * (NX + 1) + i;
-            s0.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s0.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s0.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s0.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s0.faceVertexCounts = VtIntArray(NX * NY, 4);
     s0.faceVertexIndices = VtIntArray(NX * NY * 4);
@@ -107,13 +108,13 @@ UsdGenGraphDesc MakeDoubleGraph(int NX = 50, int NY = 5)
     UsdGenSurfaceDesc s1;
     s1.path = SdfPath("/groom/surface1");
     s1.id = 1;
-    s1.restPoints = VtVec3fArray(np0);
-    s1.uv = VtVec2fArray(np0);
+    s1.restPoints = usdGen::UsdGenVec3fArray(np0);
+    s1.uv = usdGen::UsdGenVec2fArray(np0);
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             const int k = j * (NX + 1) + i;
-            s1.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s1.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s1.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s1.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s1.faceVertexCounts = VtIntArray(NX * NY, 4);
     s1.faceVertexIndices = VtIntArray(NX * NY * 4);

@@ -4,7 +4,12 @@
 // program and the gprims its samplers read, as a host captures them, their
 // record layouts and InputDescs, the packers and the read views.
 #pragma once
-#include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/graphSpec.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGenExpr/export.h"
 #include "usdGenExpr/expressions/context.h"
@@ -19,7 +24,7 @@ namespace usdGen {
 
 class UsdGenRegistrar;
 
-struct UsdGenExpressionOutputDesc { TfToken name = UsdGenTokens().result; TfToken nativeType = UsdGenTokens().float_; expr::ValueShape shape; };
+struct UsdGenExpressionOutputDesc { UsdGenToken name = UsdGenTokens().result; UsdGenToken nativeType = UsdGenTokens().float_; expr::ValueShape shape; };
 
 /// One input:<name> relationship of an expression: the external data
 /// geoSampler("<name>", ...) and ptex("<name>") read. 'targets' is the
@@ -27,7 +32,7 @@ struct UsdGenExpressionOutputDesc { TfToken name = UsdGenTokens().result; TfToke
 /// in namespace order; 'maps' the map prims, in order.
 struct UsdGenExpressionSlot
 {
-    TfToken name;                            // "guideCurves" for input:guideCurves
+    UsdGenToken name;                            // "guideCurves" for input:guideCurves
     std::vector<UsdGenNodeKey> targets;
     std::vector<UsdGenNodeKey> geometries;
     std::vector<UsdGenNodeKey> maps;
@@ -38,22 +43,13 @@ USDGEN_EXPR_API bool operator==(UsdGenExpressionSlot const &, UsdGenExpressionSl
 inline bool operator!=(UsdGenExpressionOutputDesc const &a, UsdGenExpressionOutputDesc const &b) noexcept { return !(a == b); }
 inline bool operator!=(UsdGenExpressionSlot const &a, UsdGenExpressionSlot const &b) noexcept { return !(a == b); }
 
-// TfHash support: the record holds outputs and slots as VtValues.
-template <class HashState>
-void TfHashAppend(HashState &h, UsdGenExpressionOutputDesc const &o)
-{
-    h.Append(o.name, o.nativeType, uint32_t(o.shape.scalar), o.shape.elementCount,
-             o.shape.components, o.shape.rows, o.shape.columns, o.shape.isArray);
-}
-template <class HashState>
-void TfHashAppend(HashState &h, UsdGenExpressionSlot const &s)
-{
-    h.Append(s.name);
-    for (std::vector<UsdGenNodeKey> const *keys : {&s.targets, &s.geometries, &s.maps}) {
-        h.Append(keys->size());
-        for (UsdGenNodeKey const key : *keys) h.Append(key.value);
-    }
-}
+/// The record's outputs and slots values: Boxed payloads of usdGenExpr
+/// (allocated and freed here).
+USDGEN_EXPR_API UsdGenValue UsdGenExpressionOutputsValue(std::vector<UsdGenExpressionOutputDesc> const &outputs);
+USDGEN_EXPR_API UsdGenValue UsdGenExpressionSlotsValue(std::vector<UsdGenExpressionSlot> const &slots);
+/// The payload a value holds, or null.
+USDGEN_EXPR_API std::vector<UsdGenExpressionOutputDesc> const *UsdGenExpressionOutputsOf(UsdGenValue const &v) noexcept;
+USDGEN_EXPR_API std::vector<UsdGenExpressionSlot> const *UsdGenExpressionSlotsOf(UsdGenValue const &v) noexcept;
 
 /// An expression program as a host captures it; travels as a
 /// UsdGenExpressionInput record (values: source, outputs, slots).
@@ -71,7 +67,7 @@ struct UsdGenExpressionData
 /// prim connection is ambiguous.
 template <class Expression>
 inline UsdGenExpressionOutputDesc const *
-UsdGenFindExpressionOutput(Expression const &expression, TfToken const &output)
+UsdGenFindExpressionOutput(Expression const &expression, UsdGenToken const &output)
 {
     if (!output.IsEmpty()) {
         for (UsdGenExpressionOutputDesc const &o : expression.outputs)
@@ -92,18 +88,18 @@ enum class UsdGenGeometryKind : uint8_t { Mesh, Curves, Points };
 struct UsdGenGeometryData
 {
     UsdGenGeometryKind kind = UsdGenGeometryKind::Points;
-    VtIntArray         counts;       // faceVertexCounts | curveVertexCounts | empty
-    VtIntArray         indices;      // faceVertexIndices (mesh)
-    VtVec3fArray       points;       // at the graph time
-    VtVec3fArray       rest;         // Default-time rest when the prim has one, else empty
-    VtVec3fArray       normals;      // points: optional per-point normals
-    VtArray<uint64_t>  ids;          // curves: usdGen:curveId; points: ids (optional)
+    UsdGenIntArray         counts;       // faceVertexCounts | curveVertexCounts | empty
+    UsdGenIntArray         indices;      // faceVertexIndices (mesh)
+    UsdGenVec3fArray       points;       // at the graph time
+    UsdGenVec3fArray       rest;         // Default-time rest when the prim has one, else empty
+    UsdGenVec3fArray       normals;      // points: optional per-point normals
+    UsdGenCowArray<uint64_t>  ids;          // curves: usdGen:curveId; points: ids (optional)
     // A GeomSubset input (R15): the arrays above are its parent Mesh's, and
     // only subsetFaces (sorted parent face ids) and their points are sampled.
     // isSubset keeps an empty subset empty.
-    VtIntArray         subsetFaces;
+    UsdGenIntArray         subsetFaces;
     bool               isSubset = false;
-    GfMatrix4d         worldMatrix{1.0};
+    UsdGenMatrix4d         worldMatrix{1.0};
     /// Content identity of everything above, computed by the builder. Any
     /// edit of the prim's data changes it, so a consumer's capture identity
     /// can fold it instead of rehashing arrays.
@@ -131,7 +127,7 @@ enum UsdGenGeometryInputSlot : UsdGenSlot {
 enum UsdGenGeometryInputValue : uint8_t {
     kUsdGenGeometryValueKind,          // int (UsdGenGeometryKind)
     kUsdGenGeometryValueIsSubset,      // bool
-    kUsdGenGeometryValueWorldMatrix,   // GfMatrix4d
+    kUsdGenGeometryValueWorldMatrix,   // UsdGenMatrix4d
     kUsdGenGeometryValues
 };
 
@@ -155,7 +151,7 @@ struct UsdGenExpressionInputView
     UsdGenSpan<const UsdGenExpressionOutputDesc> outputs;
     UsdGenSpan<const UsdGenExpressionSlot> inputs;
     /// Keep a record's values alive (shared, no copy): a view may outlive its spec.
-    VtValue sourceHolder, outputsHolder, inputsHolder;
+    UsdGenValue sourceHolder, outputsHolder, inputsHolder;
 };
 
 /// Read view of a sampled gprim with the payload's field names.
@@ -170,11 +166,11 @@ struct UsdGenGeometryInputView
     UsdGenNodeKey key;
     UsdGenGeometryKind kind = UsdGenGeometryKind::Points;
     UsdGenSpan<const int> counts, indices;
-    UsdGenSpan<const GfVec3f> points, rest, normals;
+    UsdGenSpan<const UsdGenVec3f> points, rest, normals;
     UsdGenSpan<const uint64_t> ids;
     UsdGenSpan<const int> subsetFaces;
     bool isSubset = false;
-    GfMatrix4d worldMatrix{1.0};
+    UsdGenMatrix4d worldMatrix{1.0};
     uint64_t generation = 0;
     UsdGenRef<const UsdGenElementSet> data;   // keeps a record's columns alive
 };
@@ -186,9 +182,9 @@ USDGEN_EXPR_API UsdGenInputRecord const *UsdGenFindGeometryInput(UsdGenGraphSpec
 
 /// Packers. Compile phase: allocate.
 USDGEN_EXPR_API UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &data,
-                                                         UsdGenNodeKey key, TfToken const &label);
+                                                         UsdGenNodeKey key, UsdGenText const &label);
 USDGEN_EXPR_API UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &data,
-                                                       UsdGenNodeKey key, TfToken const &label,
+                                                       UsdGenNodeKey key, UsdGenText const &label,
                                                        UsdGenInputColumnCache *cache = nullptr);
 
 }  // namespace usdGen

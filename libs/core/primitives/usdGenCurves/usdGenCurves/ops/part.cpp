@@ -15,8 +15,7 @@
 
 #include <nanoflann.hpp>
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -24,8 +23,9 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -130,7 +130,7 @@ UsdGenEpoch UsdGenPartOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     opUtil::Digest d;
     if (UsdGenParamView const *p = ctx.params) {
         d.Mix(Record().ParamName(kRadius));
-        d.Mix(p->GetValue(kRadius, VtValue()));
+        d.Mix(p->GetValue(kRadius, UsdGenValue()));
     }
     d.Mix(uint64_t(ctx.seed));
     d.Mix(ctx.upstreamGeneration);
@@ -180,18 +180,18 @@ bool UsdGenPartOp::Capture(
         size_t const first = partSpans[m], count = partSpans[m + 1] - first;
         for (size_t j = 0; j < count; ++j) {
             size_t const s = first + j;
-            GfVec3f const pos = opUtil::RestPoint(parting, s);
+            UsdGenVec3f const pos = opUtil::RestPoint(parting, s);
             cloud.points[s * 3] = pos[0];
             cloud.points[s * 3 + 1] = pos[1];
             cloud.points[s * 3 + 2] = pos[2];
             sampleCurve[s] = uint32_t(m);
             size_t const a = first + (j > 0 ? j - 1 : 0);
             size_t const b = first + (j + 1 < count ? j + 1 : j);
-            GfVec3f const pa = opUtil::RestPoint(parting, a);
-            GfVec3f const pb = opUtil::RestPoint(parting, b);
-            GfVec3f t = pb - pa;
+            UsdGenVec3f const pa = opUtil::RestPoint(parting, a);
+            UsdGenVec3f const pb = opUtil::RestPoint(parting, b);
+            UsdGenVec3f t = pb - pa;
             float const l = t.GetLength();
-            if (l <= 1e-12f) t = GfVec3f(0.0f, 1.0f, 0.0f);
+            if (l <= 1e-12f) t = UsdGenVec3f(0.0f, 1.0f, 0.0f);
             else t /= l;
             tangents[s * 3] = t[0];
             tangents[s * 3 + 1] = t[1];
@@ -218,7 +218,7 @@ bool UsdGenPartOp::Capture(
         float const mask = std::clamp(
             static_cast<float>(maskField.Value(c, root)), 0.0f, 1.0f);
         if (mask == 0.0f || strength == 0.0) continue;   // unparted: -1
-        GfVec3f const rootPos = opUtil::RestPoint(upstream, root);
+        UsdGenVec3f const rootPos = opUtil::RestPoint(upstream, root);
         float const query[3] = {rootPos[0], rootPos[1], rootPos[2]};
         uint32_t found = 0;
         float distSq = 0.0f;
@@ -226,17 +226,17 @@ bool UsdGenPartOp::Capture(
             return fail("parting query failed");
         double const effR = radius * strength;
         if (double(std::sqrt(distSq)) > effR) continue;   // too far: -1
-        GfVec3f const u(tangents[size_t(found) * 3], tangents[size_t(found) * 3 + 1],
+        UsdGenVec3f const u(tangents[size_t(found) * 3], tangents[size_t(found) * 3 + 1],
                         tangents[size_t(found) * 3 + 2]);
-        GfVec3f const toStrand = rootPos - GfVec3f(cloud.points[size_t(found) * 3],
+        UsdGenVec3f const toStrand = rootPos - UsdGenVec3f(cloud.points[size_t(found) * 3],
                                                    cloud.points[size_t(found) * 3 + 1],
                                                    cloud.points[size_t(found) * 3 + 2]);
-        GfVec3f N = upstream.rootN.size() == R ? upstream.rootN[c]
-                                               : GfVec3f(0.0f, 1.0f, 0.0f);
-        if (N.GetLength() <= 1e-12f) N = GfVec3f(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f N = upstream.rootN.size() == R ? upstream.rootN[c]
+                                               : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+        if (N.GetLength() <= 1e-12f) N = UsdGenVec3f(0.0f, 1.0f, 0.0f);
         else N.Normalize();
-        GfVec3f const sideVec = GfCross(u, toStrand);
-        int const side = GfDot(sideVec, N) >= 0.0f ? 0 : 1;
+        UsdGenVec3f const sideVec = UsdGenCross(u, toStrand);
+        int const side = UsdGenDot(sideVec, N) >= 0.0f ? 0 : 1;
         cap.partId[c] = int32_t(sampleCurve[found] * 2 + uint32_t(side));
     }
     return true;
@@ -249,7 +249,7 @@ void UsdGenPartOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(ctx);
+    (void)ctx;
     auto const &cap = static_cast<UsdGenPartCapture const &>(captureIn);
     // Points pass through: this kernel only publishes the side assignment.
     // view->outI[slot][c] is chunk-local (uniform plane sliced at firstCurve).

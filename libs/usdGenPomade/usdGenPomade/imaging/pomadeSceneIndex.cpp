@@ -1,5 +1,6 @@
 // usdGenPomade imaging — Pomade scene index implementation (plan/18 §2.1-§2.2).
 #include "usdGenPomade/imaging/pomadeSceneIndex.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGenPomade/pomadeModel.h"
 #include "usdGenPomade/pomadePublish.h"
 #include "usdGenPomade/pomadeRegistry.h"
@@ -126,6 +127,7 @@ template <class T>
 HdSampledDataSourceHandle
 _Samp(T const &v)
 {
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     return HdRetainedTypedSampledDataSource<T>::New(v);
 }
 

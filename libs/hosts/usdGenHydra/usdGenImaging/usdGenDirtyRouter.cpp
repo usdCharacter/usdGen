@@ -2,6 +2,7 @@
 // 03 §5.1/§5.2 hop 1). Table construction from a compiled graph; routing is
 // one hash lookup per notice entry plus a longest-prefix walk (I7, S17).
 #include "usdGenImaging/usdGenDirtyRouter.h"
+#include "usdGenUsd/convert/token.h"
 
 #include "usdGen/sharedCell.h"
 #include "usdGenImaging/primAdapter.h"
@@ -130,11 +131,11 @@ UsdGenDirtyRouter::Rebuild(usdGen::UsdGenGraphRoutingSnapshot const &snapshot)
         TfTokenVector siblingNames;
         siblingNames.reserve(node.paramRouting.size());
         for (auto const &routing : node.paramRouting) {
-            siblingNames.push_back(routing.first);
+            siblingNames.push_back(usdGenUsd::ToTf(routing.first));
         }
         for (auto const &routing : node.paramRouting) {
             HdDataSourceLocator const loc =
-                _ParamLocator(routing.first, siblingNames);
+                _ParamLocator(usdGenUsd::ToTf(routing.first), siblingNames);
             // Contract §3.1 debug assert: every paramRouting name resolves
             // to a mapped absolute locator. The adapter's cached
             // Mappings(type) is authoritative — flag staleness loudly.
@@ -238,7 +239,7 @@ UsdGenDirtyRouter::Rebuild(usdGen::UsdGenGraphRoutingSnapshot const &snapshot)
                 paint.surface >= snapshot.surfaceKeys.size())
                 continue;
             table[meshOf(paint.surface)].prefixes.emplace_back(
-                _Loc({TfToken("primvars"), paint.primvar}),
+                _Loc({TfToken("primvars"), usdGenUsd::ToTf(paint.primvar)}),
                 Entry{node.id, usdGen::UsdGenDirtyMap |
                                    usdGen::UsdGenDirtyCapture});
         }

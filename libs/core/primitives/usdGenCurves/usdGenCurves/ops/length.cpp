@@ -32,7 +32,6 @@
 #include "usdGen/ops/wholeStrand.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
-#include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
 #include <cmath>
@@ -40,8 +39,12 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -56,23 +59,23 @@ inline uint64_t doubleAsBits(double d)
     return u;
 }
 
-// Reads a `float2` property — GfVec2f or 2-element VtFloatArray; lo/hi swapped
+// Reads a `float2` property — UsdGenVec2f or 2-element UsdGenFloatArray; lo/hi swapped
 // when hi < lo. Returns false when absent/unparseable. (`length:random`,
 // 02 §2.6 float2 — plan/04:1033.)
-VtValue const kNoValue;
-TfToken const kNoToken;
+UsdGenValue const kNoValue;
+UsdGenToken const kNoToken;
 
 bool ReadVec2Prop(UsdGenParamView const *p, UsdGenParamSlot slot, double* lo, double* hi)
 {
     if (!p)
         return false;
-    VtValue const &v = p->GetValue(slot, kNoValue);
+    UsdGenValue const &v = p->GetValue(slot, kNoValue);
     float x = 0.0f, y = 0.0f;
-    if (v.IsHolding<GfVec2f>()) {
-        const GfVec2f vec = v.UncheckedGet<GfVec2f>();
+    if (v.IsHolding<UsdGenVec2f>()) {
+        const UsdGenVec2f vec = v.UncheckedGet<UsdGenVec2f>();
         x = vec[0]; y = vec[1];
-    } else if (v.IsHolding<VtFloatArray>()) {
-        const VtFloatArray& arr = v.UncheckedGet<VtFloatArray>();
+    } else if (v.IsHolding<UsdGenFloatArray>()) {
+        const UsdGenFloatArray& arr = v.UncheckedGet<UsdGenFloatArray>();
         if (arr.size() != 2)
             return false;
         x = arr[0]; y = arr[1];
@@ -149,8 +152,8 @@ bool FiniteParam(UsdGenParamView const &p, UsdGenParamSlot slot, double fallback
 // An authored token value that is none of the slot's enumerants.
 bool UnknownEnum(UsdGenParamView const &p, UsdGenParamSlot slot)
 {
-    VtValue const &v = p.GetValue(slot, kNoValue);
-    return (v.IsHolding<TfToken>() || v.IsHolding<std::string>()) && p.GetEnum(slot, -1) < 0;
+    UsdGenValue const &v = p.GetValue(slot, kNoValue);
+    return (v.IsHolding<UsdGenToken>() || v.IsHolding<std::string>()) && p.GetEnum(slot, -1) < 0;
 }
 
 constexpr char const *kModes[] = {"scale", "set", "cull", "randomRange"};

@@ -19,6 +19,7 @@
 //     repoints the file layer, leaving the live versioned reference;
 //   * the Clump wiring offer fires only for unconnected usdGen:clump:map.
 
+#include "utils/pxrInterop.h"
 #include "usdGenPomade/pomadeApi.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenPomade/pomadeApiStage.h"

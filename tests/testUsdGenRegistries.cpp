@@ -7,6 +7,7 @@
 // decls (checked against the compiler's routing for every built-in op), type
 // and kernel registries, the interner's counters and expression admission.
 
+#include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 
 #include "usdGen/compiler.h"
@@ -273,11 +274,11 @@ void TestRecord()
     Check(r.ParamClass(5) == UsdGenParamClass::Topology, "ParamClass");
     Check(r.EnabledSlot() == 2, "EnabledSlot");
     Check(ops.Record(g_reg.plain).EnabledSlot() == kUsdGenNoParam, "EnabledSlot undeclared");
-    Check(r.EnumIndex(3, TfToken("b")) == 1, "EnumIndex token");
+    Check(r.EnumIndex(3, ToToken("b")) == 1, "EnumIndex token");
     Check(r.EnumIndex(3, std::string("c")) == 2, "EnumIndex string");
-    Check(r.EnumIndex(3, TfToken("z")) == -1 && r.EnumIndex(3, std::string("z")) == -1,
+    Check(r.EnumIndex(3, ToToken("z")) == -1 && r.EnumIndex(3, std::string("z")) == -1,
           "EnumIndex no match");
-    Check(r.EnumIndex(4, TfToken("a")) == -1, "EnumIndex on a non-enum param");
+    Check(r.EnumIndex(4, ToToken("a")) == -1, "EnumIndex on a non-enum param");
 
     // Routing: compiler.cpp ClassifyParamBits rules; routed=false is absent.
     auto const routing = r.Routing();
@@ -295,8 +296,8 @@ void TestRecord()
     Check(r.ReferenceInputs().size() == 1 && r.ReferenceInputs()[0] == TfToken("guides"),
           "reference inputs");
     Check(r.InputPlanes().size() == 1 && r.InputPlanes()[0].name == TfToken("clumpId_0") &&
-              r.InputPlanes()[0].interpolation == UsdGenTokens().uniform &&
-              r.InputPlanes()[0].type == UsdGenTokens().int_,
+              r.InputPlanes()[0].level == 1 &&   // uniform
+              r.InputPlanes()[0].scalar == UsdGenScalar::I32,
           "input plane layout");
     Check(r.OutputPlanes().empty(), "no static outputs");
     Check(r.MapRelationships().size() == 1 &&
@@ -322,7 +323,7 @@ void TestNoInternLookups()
     for (int i = 0; i < 10000; ++i) {
         hits += ops.Find(length) != UsdGenOpId::Invalid;
         hits += r.FindParam(mode) != kUsdGenNoParam;
-        hits += r.EnumIndex(3, b) == 1;
+        hits += r.EnumIndex(3, ToToken(b)) == 1;
         hits += r.EnumIndex(3, c) == 2;
         hits += UsdGenTypeRegistry::Get().Find(ptex) != UsdGenTypeId::Invalid;
     }

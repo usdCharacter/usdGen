@@ -4,6 +4,10 @@
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/curveRootCapture.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +17,6 @@
 #include <utility>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -51,11 +54,11 @@ struct SourceDiagnosticContext {
     }
 };
 
-bool Finite(GfVec3f const &v)
+bool Finite(UsdGenVec3f const &v)
 {
     return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
 }
-bool Finite(GfMatrix4d const &m)
+bool Finite(UsdGenMatrix4d const &m)
 {
     for (int r = 0; r != 4; ++r)
         for (int c = 0; c != 4; ++c)
@@ -65,19 +68,19 @@ bool Finite(GfMatrix4d const &m)
 
 /// The first authored param with exactly this name (op.h's slot rule), or
 /// empty.
-VtValue Authored(UsdGenParamView const *params, TfToken const &name)
+UsdGenValue Authored(UsdGenParamView const *params, UsdGenToken const &name)
 {
     if (params && params->node)
         for (UsdGenParamValue const &p : params->node->params)
             if (p.name == name) return p.value;
-    return VtValue();
+    return UsdGenValue();
 }
 
-bool ReadBool(UsdGenParamView const *params, TfToken const &name,
+bool ReadBool(UsdGenParamView const *params, UsdGenToken const &name,
               bool fallback, bool *out, UsdGenDiagnostics *diag)
 {
     if (!params) { *out = fallback; return true; }
-    VtValue const value = Authored(params, name);
+    UsdGenValue const value = Authored(params, name);
     if (value.IsEmpty()) { *out = fallback; return true; }
     if (!value.IsHolding<bool>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be bool");
@@ -85,11 +88,11 @@ bool ReadBool(UsdGenParamView const *params, TfToken const &name,
     return true;
 }
 
-bool ReadInt(UsdGenParamView const *params, TfToken const &name,
+bool ReadInt(UsdGenParamView const *params, UsdGenToken const &name,
              int fallback, int *out, UsdGenDiagnostics *diag)
 {
     if (!params) { *out = fallback; return true; }
-    VtValue const value = Authored(params, name);
+    UsdGenValue const value = Authored(params, name);
     if (value.IsEmpty()) { *out = fallback; return true; }
     if (!value.IsHolding<int>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be int");
@@ -97,24 +100,24 @@ bool ReadInt(UsdGenParamView const *params, TfToken const &name,
     return true;
 }
 
-bool ReadToken(UsdGenParamView const *params, TfToken const &name,
-               TfToken const &fallback, TfToken *out, UsdGenDiagnostics *diag)
+bool ReadToken(UsdGenParamView const *params, UsdGenToken const &name,
+               UsdGenToken const &fallback, UsdGenToken *out, UsdGenDiagnostics *diag)
 {
     if (!params) { *out = fallback; return true; }
-    VtValue const value = Authored(params, name);
+    UsdGenValue const value = Authored(params, name);
     if (value.IsEmpty()) { *out = fallback; return true; }
-    if (!value.IsHolding<TfToken>())
+    if (!value.IsHolding<UsdGenToken>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be token");
-    *out = value.UncheckedGet<TfToken>();
+    *out = value.UncheckedGet<UsdGenToken>();
     return true;
 }
 
-bool ReadString(UsdGenParamView const *params, TfToken const &name,
+bool ReadString(UsdGenParamView const *params, UsdGenToken const &name,
                 std::string *out, UsdGenDiagnostics *diag)
 {
     out->clear();
     if (!params) return true;
-    VtValue const value = Authored(params, name);
+    UsdGenValue const value = Authored(params, name);
     if (value.IsEmpty()) return true;
     if (!value.IsHolding<std::string>())
         return Fail(diag, "parameter '" + name.GetString() + "' must be string");
@@ -125,9 +128,9 @@ bool ReadString(UsdGenParamView const *params, TfToken const &name,
 struct Options {
     bool useRest = true;
     int resampleTo = 0;
-    TfToken idSource = UsdGenCurveTokens().primvar;
-    TfToken staleAction = UsdGenCurveTokens().warn;
-    TfToken rebind = UsdGenCurveTokens().onError;
+    UsdGenToken idSource = UsdGenCurveTokens().primvar;
+    UsdGenToken staleAction = UsdGenCurveTokens().warn;
+    UsdGenToken rebind = UsdGenCurveTokens().onError;
     std::string expectedEpoch;
 };
 
@@ -173,7 +176,7 @@ bool BuildSourcePlanes(UsdGenCurveSetInputView const &source,
             if (authored.name.IsEmpty() || authored.arity == 0 || authored.arity > 16)
                 return Fail(diag, "authored plane has an invalid name or arity");
             size_t elements = 0;
-            TfToken interpolation;
+            UsdGenToken interpolation;
             std::vector<UsdGenPlane> *destination = cv;
             switch (authored.domain) {
             case UsdGenAuthoredPlaneDomain::Point:
@@ -327,14 +330,14 @@ UsdGenInputRecord const *FindSurface(UsdGenCaptureContext const &ctx)
     return UsdGenFindSurfaceInput(*ctx.desc, ctx.params->node->surfaces.front());
 }
 
-void PutFrame(GfMatrix4d const &frame, UsdGenCurveBuffer *out, size_t index)
+void PutFrame(UsdGenMatrix4d const &frame, UsdGenCurveBuffer *out, size_t index)
 {
-    GfVec3d const t = frame.GetRow3(0);
-    GfVec3d const b = frame.GetRow3(1);
-    GfVec3d const n = frame.GetRow3(2);
-    out->rootT[index] = GfVec3f(t);
-    out->rootB[index] = GfVec3f(b);
-    out->rootN[index] = GfVec3f(n);
+    UsdGenVec3d const t = frame.GetRow3(0);
+    UsdGenVec3d const b = frame.GetRow3(1);
+    UsdGenVec3d const n = frame.GetRow3(2);
+    out->rootT[index] = UsdGenVec3f(t);
+    out->rootB[index] = UsdGenVec3f(b);
+    out->rootN[index] = UsdGenVec3f(n);
 }
 
 } // namespace
@@ -385,13 +388,13 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
         total > size_t(std::numeric_limits<int>::max()) ||
         source.points.size() != total)
         return Fail(diag, "C3 points cardinality must equal sum(curveVertexCounts)");
-    for (GfVec3f const &point : source.points)
+    for (UsdGenVec3f const &point : source.points)
         if (!Finite(point)) return Fail(diag, "C3 points contain non-finite values");
     // Validate an unselected rest snapshot as well.  It is still descriptor
     // data and must not become usable later through a retained COW capture.
     if (!source.rest.empty() && source.rest.size() != total)
         return Fail(diag, "C3 rest cardinality must equal sum(curveVertexCounts)");
-    for (GfVec3f const &point : source.rest)
+    for (UsdGenVec3f const &point : source.rest)
         if (!Finite(point)) return Fail(diag, "C3 rest contains non-finite values");
     if (options.useRest) {
         if (source.restFromCurrentPoints || source.rest.size() != total)
@@ -519,8 +522,8 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
     // the evaluator (including a rest-space source); `rest` is transported
     // independently for binding/deformation.  useRest is admission/space
     // policy, never permission to overwrite current points with rest.
-    UsdGenSpan<const GfVec3f> const positions = source.points;
-    UsdGenSpan<const GfVec3f> const restPositions = source.rest.empty() ? source.points : source.rest;
+    UsdGenSpan<const UsdGenVec3f> const positions = source.points;
+    UsdGenSpan<const UsdGenVec3f> const restPositions = source.rest.empty() ? source.points : source.rest;
     size_t dst = 0;
     for (size_t sorted = 0; sorted != order.size(); ++sorted) {
         size_t const old = order[sorted];
@@ -540,12 +543,12 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
             uint32_t const lo = options.resampleTo ? static_cast<uint32_t>(position) : i;
             uint32_t const hi = options.resampleTo ? std::min(lo + 1, count - 1) : i;
             float const alpha = options.resampleTo ? position - float(lo) : 0.0f;
-            GfVec3f const point = positions[first + lo] +
+            UsdGenVec3f const point = positions[first + lo] +
                 (positions[first + hi] - positions[first + lo]) * alpha;
             candidate.px[dst] = point[0];
             candidate.py[dst] = point[1];
             candidate.pz[dst] = point[2];
-            GfVec3f const rest = restPositions[first + lo] +
+            UsdGenVec3f const rest = restPositions[first + lo] +
                 (restPositions[first + hi] - restPositions[first + lo]) * alpha;
             candidate.rest[dst] = rest;
             if (source.widths.empty()) {

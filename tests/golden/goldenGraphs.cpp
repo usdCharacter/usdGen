@@ -3,6 +3,7 @@
 //
 // In-code golden graphs. Every array is a closed-form function of its
 // indices so the descriptors are identical on every run and platform.
+#include "../utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 #include "usdGenUsd/lower.h"
 
@@ -51,8 +52,8 @@ UsdGenSurfaceDesc Skin(char const *leaf, int faces, float size, bool deform)
     for (int j = 0; j <= faces; ++j)
         for (int i = 0; i <= faces; ++i) {
             float const x = h * float(i), z = h * float(j);
-            s.restPoints.push_back(GfVec3f(x, Bump(x, z), z));
-            s.uv.push_back(GfVec2f(float(i) / float(faces), float(j) / float(faces)));
+            s.restPoints.push_back(usdGen::UsdGenVec3f(x, Bump(x, z), z));
+            s.uv.push_back(usdGen::UsdGenVec2f(float(i) / float(faces), float(j) / float(faces)));
         }
     auto at = [&](int i, int j) { return j * (faces + 1) + i; };
     for (int j = 0; j < faces; ++j)
@@ -64,8 +65,8 @@ UsdGenSurfaceDesc Skin(char const *leaf, int faces, float size, bool deform)
     s.points = s.restPoints;
     if (deform)
         for (size_t k = 0; k < s.points.size(); ++k) {
-            GfVec3f &p = s.points[k];
-            p += GfVec3f(0.04f * std::sin(2.0f * p[2]), 0.12f * p[0] * p[2],
+            usdGen::UsdGenVec3f &p = s.points[k];
+            p += usdGen::UsdGenVec3f(0.04f * std::sin(2.0f * p[2]), 0.12f * p[0] * p[2],
                          0.03f * std::cos(3.0f * p[0]));
         }
     s.surfaceGeneration = deform ? 2 : 1;
@@ -100,9 +101,9 @@ UsdGenAuthoredPlaneDesc FloatPlane(char const *name, std::vector<float> const &v
     return p;
 }
 
-GfVec3f GuideRoot(int g)
+usdGen::UsdGenVec3f GuideRoot(int g)
 {
-    return GfVec3f(0.2f + 0.3f * float(g % kGuideSide), 0.0f, 0.2f + 0.3f * float(g / kGuideSide));
+    return usdGen::UsdGenVec3f(0.2f + 0.3f * float(g % kGuideSide), 0.0f, 0.2f + 0.3f * float(g / kGuideSide));
 }
 
 /// 8x8 strands, one per skin face, each with its own lean and droop (some
@@ -120,13 +121,13 @@ UsdGenCurveSetDesc Hair(bool withPlanes)
     for (int c = 0; c < n; ++c) {
         float const x = (float(c % kHairSide) + 0.5f) / float(kHairSide);
         float const z = (float(c / kHairSide) + 0.5f) / float(kHairSide);
-        GfVec3f const root(x, Bump(x, z), z);
+        usdGen::UsdGenVec3f const root(x, Bump(x, z), z);
         float const a = 0.7f * float(c), droop = 0.2f + 0.04f * float(c % 31);
         float length = 0.0f;
-        GfVec3f prev = root;
+        usdGen::UsdGenVec3f prev = root;
         for (int i = 0; i < kHairCvs; ++i) {
             float const t = float(i) / float(kHairCvs - 1);
-            GfVec3f const p = root + GfVec3f(0.25f * t * std::cos(a),
+            usdGen::UsdGenVec3f const p = root + usdGen::UsdGenVec3f(0.25f * t * std::cos(a),
                                              0.6f * t - droop * t * t,
                                              0.25f * t * std::sin(a));
             length += float((p - prev).GetLength());
@@ -136,18 +137,18 @@ UsdGenCurveSetDesc Hair(bool withPlanes)
         }
         set.curveId.push_back(uint64_t(1000 + 17 * c));
         set.skinPrim.push_back(c);
-        set.skinPrimUv.push_back(GfVec2f(0.5f, 0.5f));
-        GfMatrix4d frame(1.0);
-        frame.SetRow(0, GfVec4d(1, 0, 0, 0));
-        frame.SetRow(1, GfVec4d(0, 0, -1, 0));
-        frame.SetRow(2, GfVec4d(0, 1, 0, 0));
-        frame.SetRow(3, GfVec4d(root[0], root[1], root[2], 1));
+        set.skinPrimUv.push_back(usdGen::UsdGenVec2f(0.5f, 0.5f));
+        usdGen::UsdGenMatrix4d frame(1.0);
+        frame.SetRow(0, usdGen::UsdGenVec4d(1, 0, 0, 0));
+        frame.SetRow(1, usdGen::UsdGenVec4d(0, 0, -1, 0));
+        frame.SetRow(2, usdGen::UsdGenVec4d(0, 1, 0, 0));
+        frame.SetRow(3, usdGen::UsdGenVec4d(root[0], root[1], root[2], 1));
         set.rootFrame.push_back(frame);
         // nearest guide on the 3x3 lattice
         int best = 0;
         float bestD = 1e30f;
         for (int g = 0; g < kGuideSide * kGuideSide; ++g) {
-            float const d = float((GuideRoot(g) - GfVec3f(x, 0.0f, z)).GetLengthSq());
+            float const d = float((GuideRoot(g) - usdGen::UsdGenVec3f(x, 0.0f, z)).GetLengthSq());
             if (d < bestD) { bestD = d; best = g; }
         }
         primary.push_back(best);
@@ -182,17 +183,17 @@ UsdGenCurveSetDesc Guides(char const *leaf, float scale)
     int const n = kGuideSide * kGuideSide;
     set.curveVertexCounts.assign(size_t(n), kGuideCvs);
     for (int g = 0; g < n; ++g) {
-        GfVec3f const root = GuideRoot(g);
+        usdGen::UsdGenVec3f const root = GuideRoot(g);
         float const a = 1.3f * float(g);
         for (int i = 0; i < kGuideCvs; ++i) {
             float const t = float(i) / float(kGuideCvs - 1);
-            set.points.push_back(root + scale * GfVec3f(0.15f * t * std::cos(a), 0.8f * t,
+            set.points.push_back(root + scale * usdGen::UsdGenVec3f(0.15f * t * std::cos(a), 0.8f * t,
                                                         0.15f * t * std::sin(a)));
         }
         set.curveId.push_back(uint64_t(50 + g));
         set.skinPrim.push_back(g);
-        set.skinPrimUv.push_back(GfVec2f(0.5f, 0.5f));
-        set.rootFrame.push_back(GfMatrix4d(1.0));
+        set.skinPrimUv.push_back(usdGen::UsdGenVec2f(0.5f, 0.5f));
+        set.rootFrame.push_back(usdGen::UsdGenMatrix4d(1.0));
     }
     set.rest = set.points;
     set.widths.assign(set.points.size(), 0.02f);
@@ -211,9 +212,9 @@ UsdGenCurveSetDesc Roots()
     size_t const n = hair.curveVertexCounts.size();
     set.curveVertexCounts.assign(n, 2);
     for (size_t c = 0; c < n; ++c) {
-        GfVec3f const r = hair.points[c * kHairCvs];
+        usdGen::UsdGenVec3f const r = hair.points[c * kHairCvs];
         set.points.push_back(r);
-        set.points.push_back(r + GfVec3f(0.0f, 0.01f, 0.0f));
+        set.points.push_back(r + usdGen::UsdGenVec3f(0.0f, 0.01f, 0.0f));
     }
     set.rest = set.points;
     set.widths.assign(set.points.size(), 0.02f);
@@ -290,12 +291,12 @@ UsdGenGraphDesc OnGrown(UsdGenNodeDesc const *op, bool deformSkin, int skinFaces
 }
 
 /// A closed axis-aligned box (outward winding) the hair passes through.
-UsdGenSurfaceDesc Box(char const *leaf, GfVec3f const &lo, GfVec3f const &hi)
+UsdGenSurfaceDesc Box(char const *leaf, usdGen::UsdGenVec3f const &lo, usdGen::UsdGenVec3f const &hi)
 {
     UsdGenSurfaceDesc s;
     s.path = P(leaf);
     for (int k = 0; k < 8; ++k)
-        s.restPoints.push_back(GfVec3f(k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1],
+        s.restPoints.push_back(usdGen::UsdGenVec3f(k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1],
                                        k & 4 ? hi[2] : lo[2]));
     s.points = s.restPoints;
     int const quads[6][4] = {{0, 2, 3, 1}, {4, 5, 7, 6}, {0, 1, 5, 4},
@@ -308,7 +309,7 @@ UsdGenSurfaceDesc Box(char const *leaf, GfVec3f const &lo, GfVec3f const &hi)
     return s;
 }
 
-VtValue Ramp(std::vector<GfVec2f> const &knots) { return VtValue(VtVec2fArray(knots.begin(), knots.end())); }
+VtValue Ramp(std::vector<usdGen::UsdGenVec2f> const &knots) { return VtValue(usdGen::UsdGenVec2fArray(knots.begin(), knots.end())); }
 
 // ---- card fixture (mirrors testUsdGenCardSource) ----------------------------
 
@@ -327,7 +328,7 @@ UsdGenCurveSetDesc CardSpines()
     for (Spec const &c : cards) {
         set.curveVertexCounts.push_back(3);
         for (int k = 0; k < 3; ++k)
-            set.points.push_back(GfVec3f(c.x + 0.1f * float(k), Bump(c.x, c.z), c.z));
+            set.points.push_back(usdGen::UsdGenVec3f(c.x + 0.1f * float(k), Bump(c.x, c.z), c.z));
         idLo.push_back(c.id); idHi.push_back(0); layer.push_back(c.layer);
         uvId.push_back(c.uvId); tile.push_back(c.tile); tile2.push_back(c.tile);
         type.push_back(c.type); erased.push_back(0); segs.push_back(1);
@@ -361,7 +362,7 @@ UsdGenCurveSetDesc CardLibrary()
     for (Lib const &s : strands) {
         set.curveVertexCounts.push_back(5);
         for (int k = 0; k < 5; ++k)
-            set.points.push_back(GfVec3f(s.x, -0.5f + 0.25f * float(k), 0.1f));
+            set.points.push_back(usdGen::UsdGenVec3f(s.x, -0.5f + 0.25f * float(k), 0.1f));
         uv.push_back(s.uvId); tile.push_back(s.tile); index.push_back(s.index);
         count.push_back(s.count);
     }
@@ -402,9 +403,9 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
         if (!tuned) desc.nodes[1].params.clear();
         else
             desc.nodes[1].params.insert(desc.nodes[1].params.end(),
-                {Param("lengthRandom", V(GfVec2f(0.6f, 1.3f))), Param("lift", V(0.2f)),
+                {Param("lengthRandom", V(usdGen::UsdGenVec2f(0.6f, 1.3f))), Param("lift", V(0.2f)),
                  Param("direction", V(TfToken("vector"))),
-                 Param("directionVector", V(GfVec3f(0.3f, 1.0f, 0.1f)))});
+                 Param("directionVector", V(usdGen::UsdGenVec3f(0.3f, 1.0f, 0.1f)))});
         return desc;
     }
     if (type == "UsdGenCurveSource") {
@@ -472,7 +473,7 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
     if (type == "UsdGenCollide") {
         UsdGenGraphDesc desc = Base();
         desc.surfaces.push_back(Skin("skin", kSkinFaces, 1.0f, false));
-        desc.surfaces.push_back(Box("box", GfVec3f(0.3f, 0.15f, 0.3f), GfVec3f(0.7f, 0.45f, 0.7f)));
+        desc.surfaces.push_back(Box("box", usdGen::UsdGenVec3f(0.3f, 0.15f, 0.3f), usdGen::UsdGenVec3f(0.7f, 0.45f, 0.7f)));
         desc.curveSets.push_back(Hair(true));
         desc.nodes.push_back(CurveSource("source", P("hair")));
         op.inputs = {P("source")};
@@ -491,7 +492,7 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
         parting.role = UsdGenLane::Reference;
         parting.curveRole = TfToken("guide");
         parting.curveVertexCounts = {3};
-        parting.points = {GfVec3f(0.5f, 0, -0.1f), GfVec3f(0.45f, 0, 0.5f), GfVec3f(0.55f, 0, 1.1f)};
+        parting.points = {usdGen::UsdGenVec3f(0.5f, 0, -0.1f), usdGen::UsdGenVec3f(0.45f, 0, 0.5f), usdGen::UsdGenVec3f(0.55f, 0, 1.1f)};
         parting.rest = parting.points;
         op.references = {parting.path};
         Tune(&op, tuned, {Param("part:radius", V(0.15f)), Param("part:strength", V(0.8f))});
@@ -503,7 +504,7 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
         UsdGenCurveSetDesc snap = Hair(false);
         snap.path = P("snap");
         snap.role = UsdGenLane::Reference;
-        for (GfVec3f &p : snap.points) p += GfVec3f(0.0f, 0.0f, 0.1f * p[1]);
+        for (usdGen::UsdGenVec3f &p : snap.points) p += usdGen::UsdGenVec3f(0.0f, 0.0f, 0.1f * p[1]);
         snap.rest = snap.points;
         op.references = {snap.path};
         Tune(&op, tuned, {Param("frozen:tier", V(TfToken("sublayer")))});
@@ -513,8 +514,8 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
     }
     if (type == "UsdGenTieClump") {
         op.references = {P("guides")};
-        op.params = {Param("tie:positions", V(VtVec3fArray{GfVec3f(0.25f, 0.4f, 0.25f),
-                                                           GfVec3f(0.75f, 0.3f, 0.6f)})),
+        op.params = {Param("tie:positions", V(usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0.25f, 0.4f, 0.25f),
+                                                           usdGen::UsdGenVec3f(0.75f, 0.3f, 0.6f)})),
                      Param("tie:entryCounts", V(VtIntArray{2, 1})),
                      Param("tie:guideIndices", V(VtIntArray{0, 1, 5})),
                      Param("tie:vertexIndices", V(VtIntArray{3, 3, 2}))};
@@ -538,16 +539,16 @@ UsdGenGraphDesc MakeOp(std::string const &type, bool tuned)
         op.params = {Param("sculpt:curveIds", V(VtArray<uint64_t>{1000, 1017, 1153})),
                      Param("sculpt:cvOffsets", V(VtIntArray{0, 8, 16, 24})),
                      Param("sculpt:deltas", V([] {
-                         VtVec3fArray d;
+                         usdGen::UsdGenVec3fArray d;
                          for (int i = 0; i < 24; ++i)
-                             d.push_back(GfVec3f(0.01f * float(i % 8), 0.0f, -0.005f * float(i % 8)));
+                             d.push_back(usdGen::UsdGenVec3f(0.01f * float(i % 8), 0.0f, -0.005f * float(i % 8)));
                          return d;
                      }()))};
         Tune(&op, tuned, {Param("sculpt:weight", V(0.7f))});
         return OnHair(op);
     }
-    VtValue const rise = Ramp({GfVec2f(0.0f, 0.2f), GfVec2f(1.0f, 1.0f)});
-    VtValue const dip = Ramp({GfVec2f(0.0f, 1.0f), GfVec2f(0.5f, 0.3f), GfVec2f(1.0f, 0.8f)});
+    VtValue const rise = Ramp({usdGen::UsdGenVec2f(0.0f, 0.2f), usdGen::UsdGenVec2f(1.0f, 1.0f)});
+    VtValue const dip = Ramp({usdGen::UsdGenVec2f(0.0f, 1.0f), usdGen::UsdGenVec2f(0.5f, 0.3f), usdGen::UsdGenVec2f(1.0f, 0.8f)});
     std::map<std::string, Tuning> const tuning = {
         {"UsdGenNoise", {Param("noise:magnitude", V(0.08f)), Param("noise:frequency", V(4.0f)),
                          Param("noise:octaves", V(3)), Param("noise:magnitude:knots", rise)}},

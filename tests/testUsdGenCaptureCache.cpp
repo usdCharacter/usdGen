@@ -1,4 +1,5 @@
 // Exact read-count, value, topology and diagnostic oracles for node capture.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "pxr/imaging/hd/retainedDataSource.h"

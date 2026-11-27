@@ -11,6 +11,7 @@
 #define USDGEN_VULKAN_EXPR_VK_PLAN_H
 
 #include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGen/api/token.h"
 #include "exprVkProgram.h"
 
 #include <string>
@@ -22,14 +23,14 @@ namespace usdGen::vulkan {
 // string, not a binding) expression/output are empty, destination is
 // "expr:source", and the literal is zeros (the program cannot read $value).
 struct ExprVkStageBinding {
-    TfToken destination;
+    UsdGenToken destination;
     expr::Domain domain = expr::Domain::Groom;
     expr::ScalarType type = expr::ScalarType::Float32;
     uint32_t components = 1;
     expr::IRProgram ir;
     std::vector<double> literal;
     UsdGenNodeKey expression;
-    TfToken output;
+    UsdGenToken output;
 };
 
 struct ExprVkWidthData {

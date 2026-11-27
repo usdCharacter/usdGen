@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/session.h"
@@ -141,7 +142,7 @@ int main() {
     auto newRest = rbfDesc.surfaces[0].restPoints;
     newRest[0][0] = -.1f;
     UsdGeomMesh scalp(rbfStage->GetPrimAtPath(SdfPath("/Scalp")));
-    CHECK(scalp.GetPointsAttr().Set(newRest, UsdTimeCode::Default()));
+    CHECK(scalp.GetPointsAttr().Set(ToHost(newRest), UsdTimeCode::Default()));
     rbfIndices.stageSceneIndex->ApplyPendingUpdates();
     CHECK(notice.rest);
     auto editedDesc = usdGenImaging::BuildGraphDescFromHydra(
@@ -158,13 +159,13 @@ int main() {
     // Rest normals are a separate Default-time surface binding: authored
     // Default normals/interpolation must agree through Stage and Hydra,
     // while a current-time normal sample cannot replace them.
-    VtVec3fArray defaultRestNormals(rbfDesc.surfaces[0].restPoints.size(),
-                                    GfVec3f(0, 0, 1));
-    VtVec3fArray posedNormals(rbfDesc.surfaces[0].restPoints.size(),
-                              GfVec3f(0, 1, 0));
-    CHECK(scalp.CreateNormalsAttr(VtValue(defaultRestNormals)));
+    usdGen::UsdGenVec3fArray defaultRestNormals(rbfDesc.surfaces[0].restPoints.size(),
+                                    usdGen::UsdGenVec3f(0, 0, 1));
+    usdGen::UsdGenVec3fArray posedNormals(rbfDesc.surfaces[0].restPoints.size(),
+                              usdGen::UsdGenVec3f(0, 1, 0));
+    CHECK(scalp.CreateNormalsAttr(VtValue(ToHost(defaultRestNormals))));
     CHECK(scalp.SetNormalsInterpolation(TfToken("vertex")));
-    CHECK(scalp.GetNormalsAttr().Set(VtValue(posedNormals), UsdTimeCode(24)));
+    CHECK(scalp.GetNormalsAttr().Set(VtValue(ToHost(posedNormals)), UsdTimeCode(24)));
     rbfIndices.stageSceneIndex->ApplyPendingUpdates();
     usdGenImaging::UsdGenGraphDescBuildOptions normalOptions;
     normalOptions.time = 24.0;

@@ -8,6 +8,7 @@
 // enters the native owner; no callback in this fixture is permitted to touch
 // mutable Session state directly from the Vulkan waiter.
 
+#include "utils/pxrInterop.h"
 #include "usdGen/executionPipeline.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -247,7 +248,8 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     }
     UsdGenCurveBuffer const buffer = NodeBuffer(graph, usdGenUsd::NodeIdForPath(graph, desc.terminal));
     out->points.resize(buffer.totalCvs);
-    out->rest.assign(buffer.rest.begin(), buffer.rest.end());
+    auto const hostRest = usdGenUsd::ToHost(buffer.rest);
+    out->rest.assign(hostRest.begin(), hostRest.end());
     for (size_t i = 0; i != buffer.totalCvs; ++i)
         out->points[i] = {buffer.px[i], buffer.py[i], buffer.pz[i]};
     out->curveOffsets.assign(buffer.cvOffsets.begin(), buffer.cvOffsets.end());
@@ -258,7 +260,8 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
     out->hairT.assign(buffer.hairT.begin(), buffer.hairT.end());
     out->width.assign(buffer.width.begin(), buffer.width.end());
     out->rootPrim.assign(buffer.rootPrim.begin(), buffer.rootPrim.end());
-    out->rootUV.assign(buffer.rootUV.begin(), buffer.rootUV.end());
+    auto const hostUV = usdGenUsd::ToHost(buffer.rootUV);
+    out->rootUV.assign(hostUV.begin(), hostUV.end());
     out->named.clear();
     for (auto const* collection : {&buffer.extraCv, &buffer.extraCurve}) {
         for (auto const& plane : *collection) {
@@ -374,7 +377,7 @@ static UsdGenGraphDesc MakeProviderRootDescriptor(bool withLength, bool useRest,
     auto& curves = desc.curveSets.front();
     curves.rest = curves.points;
     curves.skinPrim = {0, 0}; curves.skinPrimUv = {{.20f,.30f}, {.60f,.20f}};
-    curves.rootFrame.resize(2, GfMatrix4d(1.0));
+    curves.rootFrame.resize(2, usdGen::UsdGenMatrix4d(1.0));
     curves.rootFrame[0][3][0] = 20.0; curves.rootFrame[1][3][0] = 10.0;
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/SessionProvider/Scalp"); surface.id = 31;

@@ -1,4 +1,5 @@
 // Hydra notices belong to the serialized frontend, never a scene worker.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "pxr/imaging/hd/retainedDataSource.h"

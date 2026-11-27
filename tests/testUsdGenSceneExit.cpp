@@ -1,6 +1,7 @@
 // Process-exit lifetime regression.  The holder is constructed before the
 // scene service singleton and takes the index after Synchronize, then drops
 // it before return so pipeline Shutdown still runs with TBB workers alive.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 
 #include "pxr/imaging/hd/retainedDataSource.h"

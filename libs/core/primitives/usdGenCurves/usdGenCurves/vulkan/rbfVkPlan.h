@@ -30,6 +30,7 @@
 // budgets above kRbfVkPlanMaxBudget reject (shared signed matrix-index safety bound).
 #pragma once
 
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -37,9 +38,7 @@
 #include "usdGen/op.h"
 #include "usdGenMath/rbf.h"
 
-#include "pxr/base/gf/matrix4d.h"
-#include "pxr/base/gf/range3d.h"
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -48,7 +47,6 @@
 #include <string>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen::vulkan {
 
@@ -64,7 +62,7 @@ inline bool Fail(UsdGenDiagnostics* diagnostics, std::string const& message) {
 
 // Copy of the native-free check in executionPlan.cpp (aligned with C3
 // root capture): row-vector affine, translation in matrix[3][0..2].
-inline bool IsFiniteInvertibleAffine(GfMatrix4d const& matrix) {
+inline bool IsFiniteInvertibleAffine(UsdGenMatrix4d const& matrix) {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!std::isfinite(matrix[row][column])) return false;
@@ -72,7 +70,7 @@ inline bool IsFiniteInvertibleAffine(GfMatrix4d const& matrix) {
         matrix[2][3] != 0.0 || matrix[3][3] != 1.0)
         return false;
     double determinant = 0.0;
-    GfMatrix4d const inverse = matrix.GetInverse(&determinant);
+    UsdGenMatrix4d const inverse = matrix.GetInverse(&determinant);
     if (!std::isfinite(determinant) ||
         std::abs(determinant) <= std::numeric_limits<double>::epsilon())
         return false;
@@ -85,7 +83,7 @@ inline bool IsFiniteInvertibleAffine(GfMatrix4d const& matrix) {
 
 // Forward-only application needs no inverse (the surface matrix maps
 // posed points description-ward; only the source matrix is inverted).
-inline bool IsFiniteAffine(GfMatrix4d const& matrix) {
+inline bool IsFiniteAffine(UsdGenMatrix4d const& matrix) {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!std::isfinite(matrix[row][column])) return false;
@@ -108,26 +106,26 @@ inline bool ReadFloat(UsdGenParamValue const& param, float* value) {
 // (The legacy RootPosition in executionPlan.cpp:400 shares the old triangle
 // divergence; the identity path it serves is preserved bit-for-bit and out
 // of scope.)
-inline GfVec3f GatherRoot(UsdGenSurfaceInputView const& surface,
+inline UsdGenVec3f GatherRoot(UsdGenSurfaceInputView const& surface,
                           std::vector<uint32_t> const& faceStart,
-                          int faceIdx, GfVec2f const& uv) {
+                          int faceIdx, UsdGenVec2f const& uv) {
     auto const& indices = surface.faceVertexIndices;
     auto const& pts = surface.points;
     uint32_t const base = faceStart[faceIdx];
     int const n = surface.faceVertexCounts[faceIdx];
     float const u = uv[0], v = uv[1];
-    GfVec3f const a(pts[indices[base]]);
-    GfVec3f const b(pts[indices[base + 1]]);
-    GfVec3f const c(pts[indices[base + 2]]);
+    UsdGenVec3f const a(pts[indices[base]]);
+    UsdGenVec3f const b(pts[indices[base + 1]]);
+    UsdGenVec3f const c(pts[indices[base + 2]]);
     if (n == 3) {
         float const w = 1.0f - u - v;
-        return GfVec3f(a[0] * w + b[0] * u + c[0] * v,
+        return UsdGenVec3f(a[0] * w + b[0] * u + c[0] * v,
                        a[1] * w + b[1] * u + c[1] * v,
                        a[2] * w + b[2] * u + c[2] * v);
     }
-    GfVec3f const d(pts[indices[base + 3]]);
+    UsdGenVec3f const d(pts[indices[base + 3]]);
     float const u0 = 1.0f - u, v0 = 1.0f - v;
-    return GfVec3f(a[0] * u0 * v0 + b[0] * u * v0 + c[0] * u * v + d[0] * u0 * v,
+    return UsdGenVec3f(a[0] * u0 * v0 + b[0] * u * v0 + c[0] * u * v + d[0] * u0 * v,
                    a[1] * u0 * v0 + b[1] * u * v0 + c[1] * u * v + d[1] * u0 * v,
                    a[2] * u0 * v0 + b[2] * u * v0 + c[2] * u * v + d[2] * u0 * v);
 }
@@ -145,7 +143,7 @@ inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
         !node.maps.empty() || !node.mapBindings.empty() ||
         !node.ramps.empty())
         return Fail(diagnostics, "Deform requires one pose surface and no references/maps");
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     int budget = 100;
     for (auto const& param : node.params) {
         if (param.animated) return Fail(diagnostics, "Deform requires non-animated literal controls");
@@ -198,26 +196,26 @@ inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
     // surfaceVk convention (a transform animation moves rest and pose
     // together, ops/deform.cpp:99-100), so in-budget and out-of-budget
     // Deform bake the same field for the same scene.
-    GfMatrix4d const relative = surface->worldMatrix * desc.xformMatrix.GetInverse();
+    UsdGenMatrix4d const relative = surface->worldMatrix * desc.xformMatrix.GetInverse();
     size_t const nPts = surface->restPoints.size();
-    std::vector<GfVec3d> driverRest(nPts), driverNow(nPts);
-    GfRange3d extent;
+    std::vector<UsdGenVec3d> driverRest(nPts), driverNow(nPts);
+    UsdGenRange3d extent;
     for (size_t i = 0; i < nPts; ++i) {
-        driverRest[i] = relative.Transform(GfVec3d(surface->restPoints[i]));
-        driverNow[i] = relative.Transform(GfVec3d(surface->points[i]));
+        driverRest[i] = relative.Transform(UsdGenVec3d(surface->restPoints[i]));
+        driverNow[i] = relative.Transform(UsdGenVec3d(surface->points[i]));
         extent.UnionWith(driverRest[i]);
     }
     double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
     auto chosen = usdGenMath::rbf::SelectSamples(driverRest, size_t(budget), std::max(1e-12, size * 1e-7));
     // No <4 rejection: below-minimum counts flow to RbfVkBinding::Bind,
     // which reports the exact CUDA InvalidArgument result.
-    GfMatrix4d const toLocal = source->worldMatrix.GetInverse();
+    UsdGenMatrix4d const toLocal = source->worldMatrix.GetInverse();
     out->sampleCount = int(chosen.size());
     out->restSamples.assign(3 * chosen.size(), 0.0f);
     out->posedSamples.assign(3 * chosen.size(), 0.0f);
     for (size_t k = 0; k < chosen.size(); ++k) {
-        GfVec3d const restLocal = toLocal.Transform(driverRest[chosen[k]]);
-        GfVec3d const posedLocal = toLocal.Transform(driverNow[chosen[k]]);
+        UsdGenVec3d const restLocal = toLocal.Transform(driverRest[chosen[k]]);
+        UsdGenVec3d const posedLocal = toLocal.Transform(driverNow[chosen[k]]);
         out->restSamples[3*k]   = float(restLocal[0]);
         out->restSamples[3*k+1] = float(restLocal[1]);
         out->restSamples[3*k+2] = float(restLocal[2]);
@@ -237,8 +235,8 @@ inline bool RbfVkValidateDeformGap(UsdGenGraphSpec const& desc,
         int const faceIdx = source->skinPrim[c];
         if (faceIdx < 0 || faceIdx >= int(surface->faceVertexCounts.size()))
             return Fail(diagnostics, "Deform root binding references an invalid face");
-        GfVec3f gathered = rbfVkPlanDetail::GatherRoot(*surface, faceStart, faceIdx, source->skinPrimUv[c]);
-        GfVec3d const local = toLocal.Transform(relative.Transform(GfVec3d(gathered)));
+        UsdGenVec3f gathered = rbfVkPlanDetail::GatherRoot(*surface, faceStart, faceIdx, source->skinPrimUv[c]);
+        UsdGenVec3d const local = toLocal.Transform(relative.Transform(UsdGenVec3d(gathered)));
         out->rootTargets[3*c]   = float(local[0]);
         out->rootTargets[3*c+1] = float(local[1]);
         out->rootTargets[3*c+2] = float(local[2]);

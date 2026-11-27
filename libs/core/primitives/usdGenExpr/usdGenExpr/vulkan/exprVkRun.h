@@ -3,6 +3,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_RUN_H
 #define USDGEN_VULKAN_EXPR_VK_RUN_H
 #include "exprVkParameters.h"
+#include "usdGen/api/token.h"
 #include <functional>
 #include <string_view>
 namespace usdGen::vulkan {
@@ -23,7 +24,7 @@ class ExprVkRun {
     VkResult ComputeHostStep();
     VkResult CommitHostStep();
     void Quarantine() noexcept;
-    ExprVkParameterField const *Find(TfToken const &) const;
+    ExprVkParameterField const *Find(UsdGenToken const &) const;
     /// By destination text, with or without "usdGen:". Never interns.
     ExprVkParameterField const *Find(std::string_view) const;
     std::shared_ptr<const ChargedBuffer> owners() const noexcept;

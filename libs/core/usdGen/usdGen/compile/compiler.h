@@ -19,7 +19,6 @@
 #include <memory>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 

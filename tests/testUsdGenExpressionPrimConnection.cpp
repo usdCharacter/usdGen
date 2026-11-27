@@ -5,6 +5,7 @@
 //
 // Covers usdGen:mask specifically, because that is the operator envelope the
 // UsdGenMaskAPI block was replaced with, but the resolution is generic.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"

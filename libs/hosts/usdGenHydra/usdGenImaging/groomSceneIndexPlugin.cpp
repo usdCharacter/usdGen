@@ -1,6 +1,7 @@
 // Caller-boundary Hydra capture -> per-scene owner -> independent session work.
 // One immutable scene snapshot and ordered notices; no application mutex.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
@@ -14,7 +15,7 @@
 #include "pxr/imaging/hd/extComputationPrimvarsSchema.h"
 #include "pxr/imaging/hd/extentSchema.h"
 #include "pxr/imaging/hd/xformSchema.h"
-#include "usdGen/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
@@ -349,7 +350,7 @@ bool DescReadsTime(Desc const& desc) {
     auto const& registry = usdGen::UsdGenOpRegistry::Get();
     for (auto const& node : desc.nodes) {
         if (!node.enabled && node.expressionBindings.empty()) continue;
-        usdGen::UsdGenOpId const id = registry.Find(node.type);
+        usdGen::UsdGenOpId const id = registry.Find(usdGenUsd::ToToken(node.type));
         if (id != usdGen::UsdGenOpId::Invalid &&
             registry.Record(id).Has(usdGen::kUsdGenOpReadsTime |
                                     usdGen::kUsdGenOpSamplesFrameInputs))
@@ -1556,6 +1557,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         uint64_t const attachmentEpoch = g->attachmentEpoch;
         uint64_t const structuralRevision = g->structuralRevision;
         uint64_t const animationPose = g->animationPose;
+        usdGenUsd::SyncDebugCodes();   // TfDebug state reaches the engine once per commit
         Session::CommitRequest request;
         request.reason = usdGen::UsdGenCommitReason::NoticeBatchEnd;
         request.desc = g->desc;

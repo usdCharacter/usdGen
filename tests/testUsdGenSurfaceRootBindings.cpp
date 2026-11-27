@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/surfaceRootFrames.h"
@@ -14,7 +15,7 @@ static bool Near(double a, double b) { return std::abs(a-b) < 1.e-5; }
 
 // Most numerical fixtures express roots in the same local space as the mesh.
 static bool UsdGenBuildRestSurfaceRootBindings(UsdGenSurfaceDesc const& surface,
-    VtVec3fArray const& roots, UsdGenSurfaceRootBindingResult* result, std::string* error) {
+    usdGen::UsdGenVec3fArray const& roots, UsdGenSurfaceRootBindingResult* result, std::string* error) {
     return usdGen::UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(surface),roots,surface.worldMatrix,result,error);
 }
 
@@ -31,16 +32,16 @@ static UsdGenSurfaceDesc OneParentFace(UsdGenSurfaceDesc const& surface, size_t 
     return single;
 }
 
-static double Distance2(GfVec3d const& a, GfVec3f const& b)
+static double Distance2(usdGen::UsdGenVec3d const& a, usdGen::UsdGenVec3f const& b)
 {
-    GfVec3d const d = a - GfVec3d(b[0], b[1], b[2]);
+    usdGen::UsdGenVec3d const d = a - usdGen::UsdGenVec3d(b[0], b[1], b[2]);
     return d[0]*d[0] + d[1]*d[1] + d[2]*d[2];
 }
 
 // A deliberately slow parent-face exhaustive oracle.  Fixtures keep <=8
 // faces, so the production k=8 candidate pass considers this same set.
 static bool MatchesExhaustiveParents(UsdGenSurfaceDesc const& surface,
-                                     VtVec3fArray const& roots, std::string* error)
+                                     usdGen::UsdGenVec3fArray const& roots, std::string* error)
 {
     UsdGenSurfaceRootBindingResult combined;
     if (!UsdGenBuildRestSurfaceRootBindings(surface, roots, &combined, error)) return false;
@@ -50,7 +51,7 @@ static bool MatchesExhaustiveParents(UsdGenSurfaceDesc const& surface,
     for (size_t root = 0; root != roots.size(); ++root) {
         double bestDistance2 = std::numeric_limits<double>::infinity();
         int bestFace = -1;
-        GfVec2f bestUv(0.0f);
+        usdGen::UsdGenVec2f bestUv(0.0f);
         for (size_t face = 0; face != surface.faceVertexCounts.size(); ++face) {
             auto single = OneParentFace(surface, face);
             UsdGenSurfaceRootBindingResult one;
@@ -84,7 +85,7 @@ int main() {
     surface.restPoints = {{0,0,0},{1,0,0},{0,1,0}};
     surface.points = surface.restPoints;
     surface.faceVertexCounts = {3}; surface.faceVertexIndices = {0,1,2};
-    VtVec3fArray roots = {{.2f,.3f,2}, {-2,0,1}, {2,2,0}};
+    usdGen::UsdGenVec3fArray roots = {{.2f,.3f,2}, {-2,0,1}, {2,2,0}};
     auto retainedRoots = roots;
     UsdGenSurfaceRootBindingResult result;
     std::string error;
@@ -100,7 +101,7 @@ int main() {
           Near(frames.frames[0][3][2],0));
 
     auto prior = result;
-    auto reject = [&](UsdGenSurfaceDesc const& s, VtVec3fArray const& p) {
+    auto reject = [&](UsdGenSurfaceDesc const& s, usdGen::UsdGenVec3fArray const& p) {
         return !UsdGenBuildRestSurfaceRootBindings(s,p,&result,&error) && !error.empty() &&
             result.rootPrim == prior.rootPrim && result.rootUV == prior.rootUV;
     };
@@ -118,14 +119,14 @@ int main() {
     // of Scatter subsets. No source or surface transform is baked into UVs.
     auto duplicate = surface;
     duplicate.faceVertexCounts = {3,3}; duplicate.faceVertexIndices = {0,1,2,0,1,2};
-    duplicate.subsetFaces = {1}; duplicate.worldMatrix.SetTranslate(GfVec3d(10,20,30));
+    duplicate.subsetFaces = {1}; duplicate.worldMatrix.SetTranslate(usdGen::UsdGenVec3d(10,20,30));
     CHECK(UsdGenBuildRestSurfaceRootBindings(duplicate,roots,&result,&error));
     CHECK(result.rootPrim == VtIntArray({0,0,0}));
     CHECK(MatchesExhaustiveParents(duplicate, roots, &error));
     // A differently transformed source is converted to surface-local before
     // projection. Translation is not silently ignored or applied twice.
-    GfMatrix4d sourceTransform(1.0);
-    sourceTransform.SetTranslate(GfVec3d(10.2,20.3,32));
+    usdGen::UsdGenMatrix4d sourceTransform(1.0);
+    sourceTransform.SetTranslate(usdGen::UsdGenVec3d(10.2,20.3,32));
     CHECK(usdGen::UsdGenBuildRestSurfaceRootBindings(usdGenUsd::Lower(duplicate),{{0,0,0}},
         sourceTransform,&result,&error));
     CHECK(Near(result.rootUV[0][0],.2) && Near(result.rootUV[0][1],.3));
@@ -142,13 +143,13 @@ int main() {
     adversarial.points = adversarial.restPoints;
     adversarial.faceVertexCounts = {3,3,4};
     adversarial.faceVertexIndices = {0,1,2, 3,4,5, 6,7,8,9};
-    VtVec3fArray adversarialRoots = {{0,0,0}, {2.25f,.75f,.1875f},
+    usdGen::UsdGenVec3fArray adversarialRoots = {{0,0,0}, {2.25f,.75f,.1875f},
                                      {-2,-2,1}, {3,1,1}};
     CHECK(UsdGenBuildRestSurfaceRootBindings(adversarial,adversarialRoots,&result,&error));
     CHECK(result.rootPrim[0] == 1 && result.rootPrim[1] == 2);
     CHECK(MatchesExhaustiveParents(adversarial, adversarialRoots, &error));
     auto translatedAdversarial = adversarial;
-    translatedAdversarial.worldMatrix.SetTranslate(GfVec3d(1.e6, -2.e6, 3.e6));
+    translatedAdversarial.worldMatrix.SetTranslate(usdGen::UsdGenVec3d(1.e6, -2.e6, 3.e6));
     CHECK(MatchesExhaustiveParents(translatedAdversarial, adversarialRoots, &error));
 
     // Coincident bilinear quads exercise exact geometry ties after the AABB
@@ -167,10 +168,10 @@ int main() {
     auto quad = surface;
     quad.restPoints = {{0,0,0},{1,0,0},{1,1,1},{0,1,0}};
     quad.faceVertexCounts = {4}; quad.faceVertexIndices = {0,1,2,3};
-    VtVec3fArray quadRoots;
+    usdGen::UsdGenVec3fArray quadRoots;
     for (int i=0; i!=7; ++i) {
         float const u = float(i+1)/8, v = float(7-i)/8;
-        quadRoots.push_back(GfVec3f(u,v,u*v));
+        quadRoots.push_back(usdGen::UsdGenVec3f(u,v,u*v));
     }
     CHECK(UsdGenBuildRestSurfaceRootBindings(quad,quadRoots,&result,&error));
     CHECK(result.unresolvedCount == 0 && result.rootPrim.size() == quadRoots.size());
@@ -184,7 +185,7 @@ int main() {
     CHECK(result.unresolvedCount == 0 && Near(result.rootUV[0][0],0) &&
           Near(result.rootUV[0][1],0) && Near(result.rootUV[1][0],1) &&
           Near(result.rootUV[1][1],1));
-    VtVec3fArray quadBoundary = {{0,0,0},{1,0,0},{1,1,1},{0,1,0},
+    usdGen::UsdGenVec3fArray quadBoundary = {{0,0,0},{1,0,0},{1,1,1},{0,1,0},
                                   {.5f,0,0},{1,.5f,.5f},{.5f,1,.5f},{0,.5f,0}};
     CHECK(UsdGenBuildRestSurfaceRootBindings(quad,quadBoundary,&result,&error));
     CHECK(MatchesExhaustiveParents(quad, quadBoundary, &error));
@@ -192,7 +193,7 @@ int main() {
     auto ngon = surface;
     ngon.restPoints = {{0,0,0},{2,0,0},{3,1,0},{1,3,0},{-1,1,0}};
     ngon.faceVertexCounts = {5}; ngon.faceVertexIndices = {0,1,2,3,4};
-    VtVec3fArray fanRoots;
+    usdGen::UsdGenVec3fArray fanRoots;
     for (int fan=0; fan!=3; ++fan)
         fanRoots.push_back(ngon.restPoints[fan+1]*.2f + ngon.restPoints[fan+2]*.3f);
     CHECK(UsdGenBuildRestSurfaceRootBindings(ngon,fanRoots,&result,&error));
@@ -203,7 +204,7 @@ int main() {
         for (int axis=0; axis!=3; ++axis)
             CHECK(Near(frames.frames[i][3][axis],fanRoots[i][axis]));
     }
-    auto collapsed = surface; collapsed.restPoints.assign(3,GfVec3f(0,0,0));
+    auto collapsed = surface; collapsed.restPoints.assign(3,usdGen::UsdGenVec3f(0,0,0));
     CHECK(UsdGenBuildRestSurfaceRootBindings(collapsed,roots,&result,&error));
     CHECK(result.unresolvedCount == 3 && result.rootPrim == VtIntArray(3,-1));
     for (size_t i=0; i!=3; ++i) CHECK(!result.valid[i] && result.unresolved[i]);
@@ -226,14 +227,14 @@ int main() {
         CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("always"),&captured,&error));
         CHECK(captured.rebound == 2 && captured.dropped == 0 &&
               Near(captured.rootUV[0][0],.1) && Near(captured.rootUV[0][1],.2));
-        CHECK(old.rootUV[0] == GfVec2f(.6f,.1f) && curves.skinPrim[1] == 999);
+        CHECK(old.rootUV[0] == usdGen::UsdGenVec2f(.6f,.1f) && curves.skinPrim[1] == 999);
         CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("never"),&captured,&error));
         CHECK(captured.dropped == 1 && captured.valid[0] && !captured.valid[1] &&
               captured.rootPrim[1] == -1 && captured.dropMask[1]);
         // Failed always-rebind must not retain the previous valid flags.
         CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(collapsed)),TfToken("always"),&captured,&error));
         CHECK(captured.dropped == 2 && captured.rebound == 0);
-        curves.rootFrame.assign(2,GfMatrix4d(1.0));
+        curves.rootFrame.assign(2,usdGen::UsdGenMatrix4d(1.0));
         curves.skinPrim.clear(); curves.skinPrimUv.clear();
         CHECK(UsdGenCaptureCurveRoots(usdGenUsd::Lower(curves),usdGenUsd::Addr(usdGenUsd::View(surface)),TfToken("never"),&captured,&error));
         CHECK(captured.dropped == 2 && !captured.valid[0] && !captured.valid[1]);
@@ -241,7 +242,7 @@ int main() {
         CHECK(captured.rebound == 2 && captured.dropped == 0);
         auto transformed = surface;
         transformed.restPoints = {{0,0,0},{0,0,1},{1,-1,0}};
-        transformed.worldMatrix.SetScale(GfVec3d(2,1,1));
+        transformed.worldMatrix.SetScale(usdGen::UsdGenVec3d(2,1,1));
         curves.curveVertexCounts = {2};
         curves.points = {{0,0,0},{0,0,1}}; curves.rest = curves.points;
         curves.rootFrame.clear(); curves.skinPrim = {0}; curves.skinPrimUv = {{.2f,.3f}};

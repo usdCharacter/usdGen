@@ -12,6 +12,7 @@
 //       missing/degenerate collider meshes);
 //   (4) determinism (two cooks bit-identical) and CUDA-backend explicit
 //       rejection (no capability-matrix row, like Clump).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -64,7 +65,7 @@ static bool Near(float a, float b, float tol = kTol)
 // fixture (surface-free, rebind never): valid skin bindings plus identity
 // root frames, so rootT=(1,0,0), rootB=(0,1,0), rootN=(0,0,1).
 static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
-                                          std::vector<GfVec3f> const &roots,
+                                          std::vector<usdGen::UsdGenVec3f> const &roots,
                                           int cvs, float step)
 {
     UsdGenCurveSetDesc set;
@@ -77,15 +78,15 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
     for (size_t c = 0; c < n; ++c)
         for (int i = 0; i < cvs; ++i)
             set.points[c * size_t(cvs) + size_t(i)] =
-                roots[c] + GfVec3f(0.0f, float(i) * step, 0.0f);
+                roots[c] + usdGen::UsdGenVec3f(0.0f, float(i) * step, 0.0f);
     set.rest = set.points;
     set.widths.assign(n * size_t(cvs), 0.1f);
     set.curveId.resize(n);
     for (size_t c = 0; c < n; ++c) set.curveId[c] = uint64_t(c);
     set.skinPrim.resize(n);
     for (size_t c = 0; c < n; ++c) set.skinPrim[c] = int(c);
-    set.skinPrimUv.assign(n, GfVec2f(0.2f, 0.3f));
-    set.rootFrame.assign(n, GfMatrix4d(1.0));
+    set.skinPrimUv.assign(n, usdGen::UsdGenVec2f(0.2f, 0.3f));
+    set.rootFrame.assign(n, usdGen::UsdGenMatrix4d(1.0));
     return set;
 }
 
@@ -112,7 +113,7 @@ static UsdGenNodeDesc OpNode(char const *path, char const *type,
 }
 
 static UsdGenSurfaceDesc TriangleSurface(SdfPath const &path,
-                                         GfVec3f a, GfVec3f b, GfVec3f c)
+                                         usdGen::UsdGenVec3f a, usdGen::UsdGenVec3f b, usdGen::UsdGenVec3f c)
 {
     UsdGenSurfaceDesc s;
     s.path = path;
@@ -218,13 +219,13 @@ static UsdGenGraphDesc CollideDesc(std::vector<UsdGenParamValue> const &params)
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/collide");
     desc.defaultWidth = 0.01f;
-    std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(3, 0, 0)};
     desc.curveSets.push_back(
         StraightStrands(SdfPath("/collide/hair"), roots, 6, 0.25f));
     desc.surfaces.push_back(TriangleSurface(
         SdfPath("/collide/collider"),
-        GfVec3f(-10, -10, -0.25f), GfVec3f(10, -10, -0.25f),
-        GfVec3f(0, 10, -0.25f)));
+        usdGen::UsdGenVec3f(-10, -10, -0.25f), usdGen::UsdGenVec3f(10, -10, -0.25f),
+        usdGen::UsdGenVec3f(0, 10, -0.25f)));
     desc.nodes.push_back(
         SourceNode(SdfPath("/collide/source"), SdfPath("/collide/hair")));
     UsdGenNodeDesc collide = OpNode("/collide/op", "UsdGenCollide",
@@ -246,7 +247,7 @@ static UsdGenGraphDesc StiffDesc(std::vector<UsdGenParamValue> const &params)
     UsdGenGraphDesc desc = CollideDesc(params);
     desc.surfaces.front() = TriangleSurface(
         SdfPath("/collide/collider"),
-        GfVec3f(-2, 3, -0.1f), GfVec3f(2, 3, -0.1f), GfVec3f(0, 1, -0.1f));
+        usdGen::UsdGenVec3f(-2, 3, -0.1f), usdGen::UsdGenVec3f(2, 3, -0.1f), usdGen::UsdGenVec3f(0, 1, -0.1f));
     return desc;
 }
 
@@ -255,7 +256,7 @@ static UsdGenGraphDesc CubeDesc(std::vector<UsdGenParamValue> const &params)
     UsdGenGraphDesc desc = CollideDesc(params);
     desc.curveSets.front() = StraightStrands(
         SdfPath("/collide/hair"),
-        {GfVec3f(0.5f, 0, 0.5f), GfVec3f(2, 0, 2)}, 6, 0.1f);
+        {usdGen::UsdGenVec3f(0.5f, 0, 0.5f), usdGen::UsdGenVec3f(2, 0, 2)}, 6, 0.1f);
     desc.surfaces.front() = ClosedCube(SdfPath("/collide/collider"));
     return desc;
 }
@@ -294,7 +295,7 @@ static void CheckColliderWorldTransforms()
     // this fails if the collision kernel silently treats local points as
     // groom-space points (the editable xformOp case).
     UsdGenGraphDesc raised = base;
-    raised.surfaces.front().worldMatrix.SetTranslate(GfVec3d(0, 2, 0));
+    raised.surfaces.front().worldMatrix.SetTranslate(usdGen::UsdGenVec3d(0, 2, 0));
     UsdGenCurveBuffer raisedOut;
     Check(Cook(raised, &raisedOut), "Translated collider cooks");
     Check(SamePoints(raisedOut, plain),
@@ -310,7 +311,7 @@ static void CheckColliderWorldTransforms()
     Check(!scheduler.Run(liveGraph, liveContext, 1).diagnostics.HasErrors(),
           "Raised collider live cook runs");
     VtFloatArray const raisedPx = OutputBuffer(liveGraph).px;
-    raised.surfaces.front().worldMatrix = GfMatrix4d(1.0);
+    raised.surfaces.front().worldMatrix = usdGen::UsdGenMatrix4d(1.0);
     Check(usdGenUsd::Recompile(compiler, raised, &liveGraph).ok,
           "Animated collider world transform recompiles");
     liveContext.desc = &liveGraph.Spec();
@@ -331,12 +332,12 @@ static void CheckColliderWorldTransforms()
           "Animated collider recook matches fresh local collider cook");
     Check(SamePoints(baseOut, parentOut),
           "Shared parent transform cancels from collider-to-groom frame");
-    GfMatrix4d scale(1.0), rotation(1.0), translationParent(1.0);
-    scale.SetScale(GfVec3d(2.0, 0.7, 1.3));
-    rotation.SetRotate(GfRotation(GfVec3d(0, 0, 1), 37.0));
-    translationParent.SetTranslate(GfVec3d(4, 5, 6));
-    GfMatrix4d const complexParent = scale * rotation * translationParent;
-    sharedParent.xformMatrix = complexParent;
+    usdGen::UsdGenMatrix4d scale(1.0), rotation(1.0), translationParent(1.0);
+    scale.SetScale(usdGen::UsdGenVec3d(2.0, 0.7, 1.3));
+    rotation = GfMatrix4d(1.0).SetRotate(GfRotation(GfVec3d(0, 0, 1), 37.0));
+    translationParent.SetTranslate(usdGen::UsdGenVec3d(4, 5, 6));
+    usdGen::UsdGenMatrix4d const complexParent = scale * rotation * translationParent;
+    sharedParent.xformMatrix = ToHost(complexParent);
     sharedParent.surfaces.front().worldMatrix = complexParent;
     Check(Cook(sharedParent, &parentOut),
           "Shared scaled and rotated parent collider cooks");
@@ -365,18 +366,18 @@ static void CheckColliderWorldTransforms()
     // explicit transformed-points oracle must agree with the authored
     // matrix, including the closed-solid winding and derived face normals.
     UsdGenGraphDesc scaled = base;
-    GfMatrix4d relative(1.0);
-    relative.SetScale(GfVec3d(-1.5, 0.7, 2.0));
-    GfMatrix4d translation(1.0);
-    translation.SetTranslate(GfVec3d(1.2, 0.08, -0.35));
+    usdGen::UsdGenMatrix4d relative(1.0);
+    relative.SetScale(usdGen::UsdGenVec3d(-1.5, 0.7, 2.0));
+    usdGen::UsdGenMatrix4d translation(1.0);
+    translation.SetTranslate(usdGen::UsdGenVec3d(1.2, 0.08, -0.35));
     relative *= translation;
     scaled.xformMatrix.SetTranslate(GfVec3d(4, 5, 6));
     scaled.surfaces.front().worldMatrix = relative * scaled.xformMatrix;
     // The oracle is geometry authored elsewhere: its Default-time rest moves
     // with it (operators before a deform read the rest), so both do.
     UsdGenGraphDesc oracle = base;
-    for (GfVec3f &point : oracle.surfaces.front().points)
-        point = GfVec3f(relative.Transform(GfVec3d(point)));
+    for (usdGen::UsdGenVec3f &point : oracle.surfaces.front().points)
+        point = usdGen::UsdGenVec3f(relative.Transform(usdGen::UsdGenVec3d(point)));
     oracle.surfaces.front().restPoints = oracle.surfaces.front().points;
     UsdGenCurveBuffer scaledOut, oracleOut;
     Check(Cook(scaled, &scaledOut) && Cook(oracle, &oracleOut),
@@ -471,7 +472,7 @@ static void CheckClosedCubeCook()
               "Collide cut-flex preserves authored partial response");
     UsdGenGraphDesc reversedFace = reversed;
     reversedFace.curveSets.front() = StraightStrands(
-        SdfPath("/collide/hair"), {GfVec3f(0.5f, 0.12f, 0.5f)}, 2, 0);
+        SdfPath("/collide/hair"), {usdGen::UsdGenVec3f(0.5f, 0.12f, 0.5f)}, 2, 0);
     reversedFace.nodes.back().params.front().value = VtValue(0.02f);
     UsdGenCurveBuffer reversedFaceOut;
     Check(Cook(reversedFace, &reversedFaceOut),
@@ -485,8 +486,8 @@ static void CheckClosedCubeCook()
 
     UsdGenGraphDesc withSkin = desc;
     withSkin.surfaces.insert(withSkin.surfaces.begin(), TriangleSurface(
-        SdfPath("/collide/skin"), GfVec3f(-2, 0.18f, -2),
-        GfVec3f(4, 0.18f, -2), GfVec3f(-2, 0.18f, 4)));
+        SdfPath("/collide/skin"), usdGen::UsdGenVec3f(-2, 0.18f, -2),
+        usdGen::UsdGenVec3f(4, 0.18f, -2), usdGen::UsdGenVec3f(-2, 0.18f, 4)));
     withSkin.nodes.back().surfaces = {SdfPath("/collide/skin"),
                                        SdfPath("/collide/collider")};
     UsdGenCurveBuffer nearSkin;
@@ -516,7 +517,7 @@ static void CheckClosedCubeCook()
         {TfToken("offset"), VtValue(0.0f), false},
         {TfToken("pushAmount"), VtValue(1.0f), false}});
     sparse.curveSets.front() = StraightStrands(
-        SdfPath("/collide/hair"), {GfVec3f(0.5f, 0, 0.5f)}, 2, 0.4f);
+        SdfPath("/collide/hair"), {usdGen::UsdGenVec3f(0.5f, 0, 0.5f)}, 2, 0.4f);
     UsdGenCurveBuffer sparseOut;
     Check(Cook(sparse, &sparseOut), "Collide sparse entry cook runs");
     if (sparseOut.totalCvs == 2)
@@ -526,7 +527,7 @@ static void CheckClosedCubeCook()
     UsdGenGraphDesc boundaryStart = sparse;
     boundaryStart.curveSets.front() = StraightStrands(
         SdfPath("/collide/hair"),
-        {GfVec3f(0.5f, 0.12f, 0.5f)}, 2, 0.28f);
+        {usdGen::UsdGenVec3f(0.5f, 0.12f, 0.5f)}, 2, 0.28f);
     UsdGenCurveBuffer boundaryOut;
     Check(Cook(boundaryStart, &boundaryOut),
           "Collide boundary-start sparse strand cooks");
@@ -564,9 +565,9 @@ static void CheckClosedCubeCook()
               "Collide stiff boundary-start swivel preserves length and root");
 
     UsdGenGraphDesc tiny = sparse;
-    for (GfVec3f &point : tiny.surfaces.front().points) point *= 1e-5f;
+    for (usdGen::UsdGenVec3f &point : tiny.surfaces.front().points) point *= 1e-5f;
     tiny.surfaces.front().restPoints = tiny.surfaces.front().points;
-    for (GfVec3f &point : tiny.curveSets.front().points) point *= 1e-5f;
+    for (usdGen::UsdGenVec3f &point : tiny.curveSets.front().points) point *= 1e-5f;
     tiny.curveSets.front().rest = tiny.curveSets.front().points;
     UsdGenCurveBuffer tinyOut;
     Check(Cook(tiny, &tinyOut), "Collide small-scale closed cube cooks");
@@ -576,8 +577,8 @@ static void CheckClosedCubeCook()
 
     UsdGenGraphDesc crossing = sparse;
     auto &hair = crossing.curveSets.front();
-    hair.points = {GfVec3f(0.1f, 0.2f, 0.5f),
-                   GfVec3f(1.5f, 0.2f, 0.5f)};
+    hair.points = {usdGen::UsdGenVec3f(0.1f, 0.2f, 0.5f),
+                   usdGen::UsdGenVec3f(1.5f, 0.2f, 0.5f)};
     hair.rest = hair.points;
     UsdGenCurveBuffer crossingOut;
     Check(Cook(crossing, &crossingOut),
@@ -633,17 +634,17 @@ static void CheckClosedCubeCook()
               "Collide cut-flex refined limit entry is winding independent");
     UsdGenGraphDesc twoSolids = sparse;
     UsdGenSurfaceDesc second = ClosedCube(SdfPath("/collide/second"));
-    for (GfVec3f &point : second.points) point[0] += 1.5f;
+    for (usdGen::UsdGenVec3f &point : second.points) point[0] += 1.5f;
     second.restPoints = second.points;
     twoSolids.surfaces.push_back(second);
     twoSolids.nodes.back().surfaces.push_back(SdfPath("/collide/second"));
     auto &four = twoSolids.curveSets.front();
     four = StraightStrands(SdfPath("/collide/hair"),
-                           {GfVec3f(0.5f, 0, 0.5f)}, 4, 0.1f);
-    four.points = {GfVec3f(0.5f, 0, 0.5f),
-                   GfVec3f(0.5f, 0.2f, 0.5f),
-                   GfVec3f(1.2f, 0.2f, 0.5f),
-                   GfVec3f(2.0f, 0.2f, 0.5f)};
+                           {usdGen::UsdGenVec3f(0.5f, 0, 0.5f)}, 4, 0.1f);
+    four.points = {usdGen::UsdGenVec3f(0.5f, 0, 0.5f),
+                   usdGen::UsdGenVec3f(0.5f, 0.2f, 0.5f),
+                   usdGen::UsdGenVec3f(1.2f, 0.2f, 0.5f),
+                   usdGen::UsdGenVec3f(2.0f, 0.2f, 0.5f)};
     four.rest = four.points;
     UsdGenCurveBuffer twoOut;
     Check(Cook(twoSolids, &twoOut), "Collide two closed solids cook");
@@ -681,7 +682,7 @@ static void CheckClosedCubeCook()
     cutTwoFloor.surfaces.push_back(floor);
     cutTwoFloor.nodes.back().surfaces.push_back(floor.path);
     auto &floorHair=cutTwoFloor.curveSets.front();
-    floorHair.points.push_back(GfVec3f(2.0f,-0.2f,0.5f));
+    floorHair.points.push_back(usdGen::UsdGenVec3f(2.0f,-0.2f,0.5f));
     floorHair.rest=floorHair.points;
     floorHair.curveVertexCounts={5}; floorHair.widths.push_back(0.1f);
     UsdGenCurveBuffer floorOut,floorRepeat;
@@ -726,7 +727,7 @@ static void CheckClosedCubeCook()
     }
     UsdGenGraphDesc separated = stiffCube;
     separated.curveSets.front() = StraightStrands(
-        SdfPath("/collide/hair"), {GfVec3f(2, 0, 2)}, 6, 0.1f);
+        SdfPath("/collide/hair"), {usdGen::UsdGenVec3f(2, 0, 2)}, 6, 0.1f);
     separated.nodes.back().params.push_back(
         {TfToken("iterations"), VtValue(1), false});
     UsdGenCurveBuffer once, repeated;
@@ -780,7 +781,7 @@ static void CheckClosedCubeCook()
         {TfToken("resolveType"), VtValue(TfToken("stiff")), false}});
     auto &sideHair = nearSide.curveSets.front();
     sideHair = StraightStrands(SdfPath("/collide/hair"),
-                               {GfVec3f(0.28f, 0, 0.5f)}, 6, 0.1f);
+                               {usdGen::UsdGenVec3f(0.28f, 0, 0.5f)}, 6, 0.1f);
     sideHair.points = {{0.28f, 0, 0.5f}, {0.285f, 0.1f, 0.5f},
                        {0.31f, 0.2f, 0.5f}, {0.335f, 0.3f, 0.5f},
                        {0.36f, 0.4f, 0.5f}, {0.385f, 0.5f, 0.5f}};
@@ -794,7 +795,7 @@ static void CheckClosedCubeCook()
             if (i >= 2 && sideOut.py[i] > 0.12f)
                 outsideSide &= sideOut.px[i] <= 0.3001f;
             if (i > 0) {
-                GfVec3f const d = sideHair.points[i] - sideHair.points[i - 1];
+                usdGen::UsdGenVec3f const d = sideHair.points[i] - sideHair.points[i - 1];
                 lengths &= Near(SegLen(sideOut, i - 1, i),
                                 d.GetLength(), 4e-4f);
             }
@@ -812,7 +813,7 @@ static void CheckClosedCubeCook()
         {TfToken("pushAmount"), VtValue(1.0f), false},
         {TfToken("iterations"), VtValue(6), false}});
     auto &box = corner.surfaces.front();
-    for (GfVec3f &point : box.points) {
+    for (usdGen::UsdGenVec3f &point : box.points) {
         point[0] = point[0] < 0.5f ? 0.29f : 0.71f;
         point[1] = point[1] < 0.3f ? 0.04f : 0.40f;
         point[2] = point[2] < 0.5f ? 0.29f : 0.71f;
@@ -820,7 +821,7 @@ static void CheckClosedCubeCook()
     box.restPoints = box.points;
     auto &strand = corner.curveSets.front();
     strand = StraightStrands(SdfPath("/collide/hair"),
-                              {GfVec3f(0.287946f, 0, 0.296759f)}, 9, 0);
+                              {usdGen::UsdGenVec3f(0.287946f, 0, 0.296759f)}, 9, 0);
     strand.points = {
         {0.287946f, 0, 0.296759f},
         {0.291095f, 0.019052f, 0.296402f},
@@ -881,12 +882,12 @@ static UsdGenSurfaceDesc ClosedIcosphere(SdfPath const &path)
     s.path = path;
     double const phi = (1.0 + std::sqrt(5.0)) * 0.5;
     double const radius = 0.5;
-    GfVec3d const center(0.5, 0.60247475, 0.5);
-    std::array<GfVec3d, 12> const base = {{
+    usdGen::UsdGenVec3d const center(0.5, 0.60247475, 0.5);
+    std::array<usdGen::UsdGenVec3d, 12> const base = {{
         {-1, phi, 0}, {1, phi, 0}, {-1, -phi, 0}, {1, -phi, 0},
         {0, -1, phi}, {0, 1, phi}, {0, -1, -phi}, {0, 1, -phi},
         {phi, 0, -1}, {phi, 0, 1}, {-phi, 0, -1}, {-phi, 0, 1}}};
-    for (GfVec3d point : base) {
+    for (usdGen::UsdGenVec3d point : base) {
         point.Normalize();
         s.points.emplace_back(center + point * radius);
     }
@@ -896,10 +897,10 @@ static UsdGenSurfaceDesc ClosedIcosphere(SdfPath const &path)
         {3, 9, 4}, {3, 4, 2}, {3, 2, 6}, {3, 6, 8}, {3, 8, 9},
         {4, 9, 5}, {2, 4, 11}, {6, 2, 10}, {8, 6, 7}, {9, 8, 1}};
     for (auto &f : faces) {
-        GfVec3d const a(s.points[size_t(f[0])]);
-        GfVec3d const b(s.points[size_t(f[1])]);
-        GfVec3d const c(s.points[size_t(f[2])]);
-        if (GfDot(GfCross(b - a, c - a), a - center) < 0.0)
+        usdGen::UsdGenVec3d const a(s.points[size_t(f[0])]);
+        usdGen::UsdGenVec3d const b(s.points[size_t(f[1])]);
+        usdGen::UsdGenVec3d const c(s.points[size_t(f[2])]);
+        if (usdGen::UsdGenDot(usdGen::UsdGenCross(b - a, c - a), a - center) < 0.0)
             std::swap(f[1], f[2]);
     }
     for (int level = 0; level < 2; ++level) {
@@ -908,8 +909,8 @@ static UsdGenSurfaceDesc ClosedIcosphere(SdfPath const &path)
             auto const key = std::minmax(i, j);
             auto const found = middle.find(key);
             if (found != middle.end()) return found->second;
-            GfVec3d point = GfVec3d(s.points[size_t(i)]) +
-                            GfVec3d(s.points[size_t(j)]) - center * 2.0;
+            usdGen::UsdGenVec3d point = usdGen::UsdGenVec3d(s.points[size_t(i)]) +
+                            usdGen::UsdGenVec3d(s.points[size_t(j)]) - center * 2.0;
             point.Normalize();
             int const index = int(s.points.size());
             s.points.emplace_back(center + point * radius);
@@ -939,23 +940,23 @@ static bool ClearOfConvexSolid(UsdGenSurfaceDesc const &solid,
                                UsdGenCurveBuffer const &strand)
 {
     for (size_t i = 0; i < strand.totalCvs; ++i) {
-        GfVec3d const p(strand.px[i], strand.py[i], strand.pz[i]);
-        GfVec3d const q = i ? GfVec3d(strand.px[i - 1], strand.py[i - 1],
+        usdGen::UsdGenVec3d const p(strand.px[i], strand.py[i], strand.pz[i]);
+        usdGen::UsdGenVec3d const q = i ? usdGen::UsdGenVec3d(strand.px[i - 1], strand.py[i - 1],
                                        strand.pz[i - 1]) : p;
         double enter = 0.0, leave = 1.0, furthest = -1e9;
         for (size_t f = 0; f < solid.faceVertexCounts.size(); ++f) {
             size_t const o = f * 3;
-            GfVec3d const a(solid.points[size_t(solid.faceVertexIndices[o])]);
-            GfVec3d const b(solid.points[size_t(solid.faceVertexIndices[o + 1])]);
-            GfVec3d const c(solid.points[size_t(solid.faceVertexIndices[o + 2])]);
-            GfVec3d normal = GfCross(b - a, c - a);
+            usdGen::UsdGenVec3d const a(solid.points[size_t(solid.faceVertexIndices[o])]);
+            usdGen::UsdGenVec3d const b(solid.points[size_t(solid.faceVertexIndices[o + 1])]);
+            usdGen::UsdGenVec3d const c(solid.points[size_t(solid.faceVertexIndices[o + 2])]);
+            usdGen::UsdGenVec3d normal = usdGen::UsdGenCross(b - a, c - a);
             normal.Normalize();
-            double const atEnd = GfDot(normal, p - a);
+            double const atEnd = usdGen::UsdGenDot(normal, p - a);
             furthest = std::max(furthest, atEnd);
             if (i == 0) continue;
             // Clip against a slightly inset convex hull: mere surface
             // contact is legal; a positive interval inside is not.
-            double const atStart = GfDot(normal, q - a) + 1e-5;
+            double const atStart = usdGen::UsdGenDot(normal, q - a) + 1e-5;
             double const inward = atEnd + 1e-5 - atStart;
             if (std::abs(inward) < 1e-14) {
                 if (atStart > 0.0) { enter = 1.0; leave = 0.0; }
@@ -971,21 +972,21 @@ static bool ClearOfConvexSolid(UsdGenSurfaceDesc const &solid,
 }
 
 
-static bool RayTriangleRadius(GfVec3d const &direction, GfVec3d const &a,
-                              GfVec3d const &b, GfVec3d const &c,
+static bool RayTriangleRadius(usdGen::UsdGenVec3d const &direction, usdGen::UsdGenVec3d const &a,
+                              usdGen::UsdGenVec3d const &b, usdGen::UsdGenVec3d const &c,
                               double *radius)
 {
-    GfVec3d const e1=b-a,e2=c-a,p=GfCross(direction,e2);
-    double const det=GfDot(e1,p);
+    usdGen::UsdGenVec3d const e1=b-a,e2=c-a,p=usdGen::UsdGenCross(direction,e2);
+    double const det=usdGen::UsdGenDot(e1,p);
     if (std::abs(det)<1e-12) return false;
     double const inv=1.0/det;
-    GfVec3d const t=-a;
-    double const u=GfDot(t,p)*inv;
+    usdGen::UsdGenVec3d const t=-a;
+    double const u=usdGen::UsdGenDot(t,p)*inv;
     if (u < -1e-9 || u > 1.0+1e-9) return false;
-    GfVec3d const q=GfCross(t,e1);
-    double const v=GfDot(direction,q)*inv;
+    usdGen::UsdGenVec3d const q=usdGen::UsdGenCross(t,e1);
+    double const v=usdGen::UsdGenDot(direction,q)*inv;
     if (v < -1e-9 || u+v > 1.0+1e-9) return false;
-    double const hit=GfDot(e2,q)*inv;
+    double const hit=usdGen::UsdGenDot(e2,q)*inv;
     if (!(hit>0.0)) return false;
     *radius=hit;
     return true;
@@ -1107,8 +1108,8 @@ static void CheckStiffSubdivisionHingeCycle()
     shield.restPoints = shield.points;
     shield.faceVertexCounts = {4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4};
     shield.faceVertexIndices = {3,2,1,0,5,4,2,3,7,6,4,5,9,8,6,7,2,11,10,1,4,12,11,2,6,13,12,4,8,14,13,6,11,16,15,10,12,17,16,11,13,18,17,12,14,19,18,13,16,21,20,15,17,22,21,16,18,23,22,17,19,24,23,18,25,26,27,28,28,27,29,30,30,29,31,32,32,31,33,34,26,35,36,27,27,36,37,29,29,37,38,31,31,38,39,33,35,40,41,36,36,41,42,37,37,42,43,38,38,43,44,39,40,45,46,41,41,46,47,42,42,47,48,43,43,48,49,44,0,50,51,3,3,51,52,5,5,52,53,7,7,53,54,9,50,55,56,51,51,56,57,52,52,57,58,53,53,58,59,54,55,60,61,56,56,61,62,57,57,62,63,58,58,63,64,59,60,25,28,61,61,28,30,62,62,30,32,63,63,32,34,64,21,66,65,20,22,67,66,21,23,68,67,22,24,69,68,23,66,71,70,65,67,72,71,66,68,73,72,67,69,74,73,68,71,76,75,70,72,77,76,71,73,78,77,72,74,79,78,73,76,46,45,75,77,47,46,76,78,48,47,77,79,49,48,78,1,80,50,0,10,81,80,1,15,82,81,10,20,65,82,15,80,83,55,50,81,84,83,80,82,85,84,81,65,70,85,82,83,86,60,55,84,87,86,83,85,88,87,84,70,75,88,85,86,26,25,60,87,35,26,86,88,40,35,87,75,45,40,88,9,54,89,8,8,89,90,14,14,90,91,19,19,91,69,24,54,59,92,89,89,92,93,90,90,93,94,91,91,94,74,69,59,64,95,92,92,95,96,93,93,96,97,94,94,97,79,74,64,34,33,95,95,33,39,96,96,39,44,97,97,44,49,79};
-    shield.worldMatrix = GfMatrix4d(1.0).SetTranslate(
-        GfVec3d(0.5, 0.525, 0.5486111111111112));
+    shield.worldMatrix = usdGen::UsdGenMatrix4d(1.0).SetTranslate(
+        usdGen::UsdGenVec3d(0.5, 0.525, 0.5486111111111112));
     UsdGenSurfaceDesc floor;
     floor.path = SdfPath("/collide/floor");
     floor.subdivisionScheme = TfToken("none");
@@ -1157,20 +1158,20 @@ static void CheckStiffSubdivisionHingeCycle()
     bool const oracleBuilt=limit.Build(usdGenUsd::Lower(shield),6,&why);
     Check(oracleBuilt,"stiff hinge-cycle independent Far oracle builds");
     if (!oracleBuilt) return;
-    struct Tri { GfVec3d a,b,c; };
+    struct Tri { usdGen::UsdGenVec3d a,b,c; };
     std::vector<Tri> tris;
     int constexpr resolution=32;
     for (int face=0;face<int(shield.faceVertexCounts.size());++face) {
-        std::vector<GfVec3d> samples(size_t(resolution+1)*size_t(resolution+1));
+        std::vector<usdGen::UsdGenVec3d> samples(size_t(resolution+1)*size_t(resolution+1));
         for (int y=0;y<=resolution;++y) for (int x=0;x<=resolution;++x) {
-            GfVec3f p,du,dv;
+            usdGen::UsdGenVec3f p,du,dv;
             bool const evaluated=limit.Evaluate(
                 face,float(x)/resolution,float(y)/resolution,&p,&du,&dv);
             if (!evaluated) {
                 Check(false,"stiff hinge-cycle Far oracle evaluates");
                 return;
             }
-            samples[size_t(y)*(resolution+1)+x]=GfVec3d(p);
+            samples[size_t(y)*(resolution+1)+x]=usdGen::UsdGenVec3d(p);
         }
         for (int y=0;y<resolution;++y) for (int x=0;x<resolution;++x) {
             auto const p00=samples[size_t(y)*(resolution+1)+x];
@@ -1180,11 +1181,11 @@ static void CheckStiffSubdivisionHingeCycle()
             tris.push_back({p00,p10,p11}); tris.push_back({p00,p11,p01});
         }
     }
-    auto clearance = [&](GfVec3d world) {
-        GfVec3d const local=world-GfVec3d(0.5,0.525,0.5486111111111112);
+    auto clearance = [&](usdGen::UsdGenVec3d world) {
+        usdGen::UsdGenVec3d const local=world-usdGen::UsdGenVec3d(0.5,0.525,0.5486111111111112);
         double const length=local.GetLength();
         if (!(length>0.0)) return -1e9;
-        GfVec3d const direction=local/length;
+        usdGen::UsdGenVec3d const direction=local/length;
         double radius=-1e9,hit=0;
         for (auto const &t:tris)
             if (RayTriangleRadius(direction,t.a,t.b,t.c,&hit)) radius=std::max(radius,hit);
@@ -1193,10 +1194,10 @@ static void CheckStiffSubdivisionHingeCycle()
     };
     bool clear=true,lengths=true,root=true;
     for (size_t i=0;i<18;++i) {
-        GfVec3d const p(out.px[i],out.py[i],out.pz[i]);
+        usdGen::UsdGenVec3d const p(out.px[i],out.py[i],out.pz[i]);
         clear &= clearance(p)>=-2e-4 && p[1]>=-2e-4;
         if (i) {
-            GfVec3d const a(out.px[i-1],out.py[i-1],out.pz[i-1]);
+            usdGen::UsdGenVec3d const a(out.px[i-1],out.py[i-1],out.pz[i-1]);
             for (int s=1;s<128;++s)
                 clear &= clearance(a+(p-a)*(double(s)/128.0))>=-2e-4;
             lengths &= Near(float((p-a).GetLength()),
@@ -1218,7 +1219,7 @@ static void CheckStiffSphereCycle()
     desc.surfaces.front() = ClosedIcosphere(SdfPath("/collide/collider"));
     auto &hair = desc.curveSets.front();
     hair = StraightStrands(SdfPath("/collide/hair"),
-                            {GfVec3f(0.610770583f, 0, 0.216808140f)}, 18, 0);
+                            {usdGen::UsdGenVec3f(0.610770583f, 0, 0.216808140f)}, 18, 0);
     // Two successive states of a strand that previously alternated forever
     // against a curved closed collider. Both must clear in one more sweep.
     hair.points = {
@@ -1271,8 +1272,8 @@ static double CurveLength(UsdGenCurveBuffer const &b, size_t first, size_t count
 {
     double length=0.0;
     for (size_t i=1;i<count;++i) {
-        GfVec3d const a(b.px[first+i-1],b.py[first+i-1],b.pz[first+i-1]);
-        GfVec3d const c(b.px[first+i],b.py[first+i],b.pz[first+i]);
+        usdGen::UsdGenVec3d const a(b.px[first+i-1],b.py[first+i-1],b.pz[first+i-1]);
+        usdGen::UsdGenVec3d const c(b.px[first+i],b.py[first+i],b.pz[first+i]);
         length+=(c-a).GetLength();
     }
     return length;
@@ -1289,7 +1290,7 @@ static void CheckDeepPenetrationCut()
             {TfToken("deepPenetrationMode"),VtValue(TfToken(mode)),false},
             {TfToken("cutDepthThreshold"),VtValue(threshold),false}});
         desc.curveSets.front()=StraightStrands(SdfPath("/collide/hair"),
-            {GfVec3f(0.5f,0,0.5f)},6,0.1f);
+            {usdGen::UsdGenVec3f(0.5f,0,0.5f)},6,0.1f);
         return desc;
     };
     UsdGenCurveBuffer legacy,explicitLegacy,below,equal,above,repeat;
@@ -1299,7 +1300,7 @@ static void CheckDeepPenetrationCut()
         {TfToken("iterations"),VtValue(32),false},
         {TfToken("resolveType"),VtValue(TfToken("stiff")),false}});
     omitted.curveSets.front()=StraightStrands(SdfPath("/collide/hair"),
-        {GfVec3f(0.5f,0,0.5f)},6,0.1f);
+        {usdGen::UsdGenVec3f(0.5f,0,0.5f)},6,0.1f);
     Check(Cook(omitted,&explicitLegacy) && SamePoints(legacy,explicitLegacy),
           "default Collide remains bit-identical to explicit legacy mode");
     Check(Cook(make("cutThenCollide",0.3f),&below) &&
@@ -1318,8 +1319,8 @@ static void CheckDeepPenetrationCut()
 
     auto crossing=make("cutThenCollide",0.1f);
     auto &hair=crossing.curveSets.front();
-    hair=StraightStrands(SdfPath("/collide/hair"),{GfVec3f(0.5f,0,0.5f)},2,0);
-    hair.points[1]=GfVec3f(0.5f,0.6f,0.5f); hair.rest=hair.points;
+    hair=StraightStrands(SdfPath("/collide/hair"),{usdGen::UsdGenVec3f(0.5f,0,0.5f)},2,0);
+    hair.points[1]=usdGen::UsdGenVec3f(0.5f,0.6f,0.5f); hair.rest=hair.points;
     UsdGenCurveBuffer crossed;
     Check(Cook(crossing,&crossed) && CurveLength(crossed,0,2)<0.59,
           "outside-endpoint segment interior contributes deep cut depth");
@@ -1349,7 +1350,7 @@ static void CheckDeepPenetrationCut()
 
     auto longCurve=make("cutThenCollide",0.1f);
     longCurve.curveSets.front()=StraightStrands(SdfPath("/collide/hair"),
-        {GfVec3f(0.5f,0,0.5f)},65,0.01f);
+        {usdGen::UsdGenVec3f(0.5f,0,0.5f)},65,0.01f);
     UsdGenCurveBuffer longOut;
     Check(Cook(longCurve,&longOut) && longOut.totalCvs==65 &&
           CurveLength(longOut,0,65)<0.63,
@@ -1389,12 +1390,12 @@ static void CheckDeepPenetrationCut()
         desc.nodes.back().params.push_back(
             {TfToken("cutBlendDepth"),VtValue(0.02),false});
         auto &surface=desc.surfaces.front();
-        for (GfVec3f &p:surface.points)
+        for (usdGen::UsdGenVec3f &p:surface.points)
             p[1]=p[1]<0.3f ? -10.0f : 10.0f;
         surface.restPoints=surface.points;
         auto &curves=desc.curveSets.front();
         curves=StraightStrands(SdfPath("/collide/hair"),
-            {GfVec3f(0.5f,0.0f,0.5f)},6,0.1f);
+            {usdGen::UsdGenVec3f(0.5f,0.0f,0.5f)},6,0.1f);
         return desc;
     };
     for (double const x:{0.0,0.25,0.5,0.75,1.0}) {
@@ -1416,9 +1417,9 @@ static void CheckDeepPenetrationCut()
     double boundaryMotion=0.0;
     for(size_t sample=1;sample<boundaryGeometry.size();++sample)
         for(size_t cv=0;cv<boundaryGeometry[sample].totalCvs;++cv) {
-            GfVec3d const a(boundaryGeometry[sample-1].px[cv],
+            usdGen::UsdGenVec3d const a(boundaryGeometry[sample-1].px[cv],
                 boundaryGeometry[sample-1].py[cv],boundaryGeometry[sample-1].pz[cv]);
-            GfVec3d const b(boundaryGeometry[sample].px[cv],
+            usdGen::UsdGenVec3d const b(boundaryGeometry[sample].px[cv],
                 boundaryGeometry[sample].py[cv],boundaryGeometry[sample].pz[cv]);
             boundaryMotion=std::max(boundaryMotion,(b-a).GetLength());
         }
@@ -1470,13 +1471,13 @@ static void CheckCutVertexPlaneChunks()
         hair.curveVertexCounts.push_back(count);
         for (int i=0;i<count;++i) {
             float const y=count==2 ? float(i)*0.6f : float(i)*0.3f;
-            hair.points.push_back(GfVec3f(0.5f,y,0.5f));
+            hair.points.push_back(usdGen::UsdGenVec3f(0.5f,y,0.5f));
             hair.widths.push_back(count==2 ? 1.0f+2.0f*float(i)
                                             : 1.0f+float(i));
         }
         hair.curveId.push_back(uint64_t(1000+c)); hair.skinPrim.push_back(c);
-        hair.skinPrimUv.push_back(GfVec2f(0.2f,0.3f));
-        hair.rootFrame.push_back(GfMatrix4d(1.0));
+        hair.skinPrimUv.push_back(usdGen::UsdGenVec2f(0.2f,0.3f));
+        hair.rootFrame.push_back(usdGen::UsdGenMatrix4d(1.0));
     }
     hair.rest=hair.points;
     UsdGenAuthoredPlaneDesc fp;
@@ -1549,8 +1550,8 @@ static void CheckCutTemporalCurve7000()
         for (auto const &point:points) { auto const &p=point.GetJsArray();
             hair.points.emplace_back(float(number(p[0])),float(number(p[1])),float(number(p[2]))); }
         hair.rest=hair.points; hair.widths.assign(points.size(),0.01f);
-        hair.curveId={7000}; hair.skinPrim={0}; hair.skinPrimUv={GfVec2f(0)};
-        hair.rootFrame={GfMatrix4d(1)}; desc.curveSets={hair};
+        hair.curveId={7000}; hair.skinPrim={0}; hair.skinPrimUv={usdGen::UsdGenVec2f(0)};
+        hair.rootFrame={usdGen::UsdGenMatrix4d(1)}; desc.curveSets={hair};
         std::vector<SdfPath> colliderPaths;
         for (auto const &targetValue:r.at("targets").GetJsArray()) {
             auto const &target=targetValue.GetJsObject(); UsdGenSurfaceDesc surface;
@@ -1582,8 +1583,8 @@ static void CheckCutTemporalCurve7000()
     }
     double worst=0.0; size_t worstFrame=0,worstCv=0;
     for(size_t f=1;ok && f<outputs.size();++f) for(size_t i=0;i<outputs[f].totalCvs;++i) {
-        GfVec3d a(outputs[f-1].px[i],outputs[f-1].py[i],outputs[f-1].pz[i]);
-        GfVec3d b(outputs[f].px[i],outputs[f].py[i],outputs[f].pz[i]);
+        usdGen::UsdGenVec3d a(outputs[f-1].px[i],outputs[f-1].py[i],outputs[f-1].pz[i]);
+        usdGen::UsdGenVec3d b(outputs[f].px[i],outputs[f].py[i],outputs[f].pz[i]);
         double const motion=(b-a).GetLength()/incomingLength;
         if (motion>worst) { worst=motion; worstFrame=f; worstCv=i; }
     }
@@ -1599,8 +1600,8 @@ static void CheckCutTemporalCurve7000()
         ok &= Cook(fixtures[3],&legacyA) && Cook(fixtures[4],&legacyB);
         double legacyJump=0.0;
         for(size_t i=0;i<legacyA.totalCvs;++i) {
-            GfVec3d a(legacyA.px[i],legacyA.py[i],legacyA.pz[i]);
-            GfVec3d b(legacyB.px[i],legacyB.py[i],legacyB.pz[i]);
+            usdGen::UsdGenVec3d a(legacyA.px[i],legacyA.py[i],legacyA.pz[i]);
+            usdGen::UsdGenVec3d b(legacyB.px[i],legacyB.py[i],legacyB.pz[i]);
             legacyJump=std::max(legacyJump,(b-a).GetLength()/incomingLength);
         }
         ok &= legacyJump>0.5;
@@ -1651,8 +1652,8 @@ static void CheckCutProjectedCurve1870()
     hair.curveVertexCounts={int(hair.points.size())}; hair.rest=hair.points;
     for (auto const &v:curve.at("widths").GetJsObject().at("value").GetJsArray())
         hair.widths.push_back(float(number(v)));
-    hair.curveId={1870}; hair.skinPrim={0}; hair.skinPrimUv={GfVec2f(0)};
-    hair.rootFrame={GfMatrix4d(1)};
+    hair.curveId={1870}; hair.skinPrim={0}; hair.skinPrimUv={usdGen::UsdGenVec2f(0)};
+    hair.rootFrame={usdGen::UsdGenMatrix4d(1)};
     UsdGenCurveBuffer incoming; incoming.totalCvs=uint32_t(hair.points.size());
     incoming.px.resize(hair.points.size()); incoming.py.resize(hair.points.size());
     incoming.pz.resize(hair.points.size());
@@ -1696,8 +1697,8 @@ static void CheckCutProjectedCurve1870()
     double worst=0.0;
     for(size_t f=1;f<outputs.size();++f)
         for(size_t i=0;i<outputs[f].totalCvs;++i) {
-            GfVec3d const a(outputs[f-1].px[i],outputs[f-1].py[i],outputs[f-1].pz[i]);
-            GfVec3d const b(outputs[f].px[i],outputs[f].py[i],outputs[f].pz[i]);
+            usdGen::UsdGenVec3d const a(outputs[f-1].px[i],outputs[f-1].py[i],outputs[f-1].pz[i]);
+            usdGen::UsdGenVec3d const b(outputs[f].px[i],outputs[f].py[i],outputs[f].pz[i]);
             worst=std::max(worst,(b-a).GetLength()/incomingLength);
         }
     ok &= outputs.size()==poses.size() && std::isfinite(worst) &&
@@ -1922,8 +1923,8 @@ static void CheckTwoSurfaceCook()
                                         {TfToken("pushAmount"), VtValue(1.0f), false}});
     desc.surfaces.push_back(TriangleSurface(
         SdfPath("/collide/skin"),
-        GfVec3f(-10, -10, -100), GfVec3f(10, -10, -100),
-        GfVec3f(0, 10, -100)));
+        usdGen::UsdGenVec3f(-10, -10, -100), usdGen::UsdGenVec3f(10, -10, -100),
+        usdGen::UsdGenVec3f(0, 10, -100)));
     desc.nodes.back().surfaces = {SdfPath("/collide/skin"),
                                   SdfPath("/collide/collider")};
     UsdGenCurveBuffer out, solo;
@@ -1944,17 +1945,17 @@ static void CheckSubsetColliderCook()
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/collide");
     desc.defaultWidth = 0.01f;
-    std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(3, 0, 0)};
     desc.curveSets.push_back(
         StraightStrands(SdfPath("/collide/hair"), roots, 6, 0.25f));
     UsdGenSurfaceDesc parent;
     parent.path = SdfPath("/collide/parent");
     parent.faceVertexCounts = {3, 3};
     parent.faceVertexIndices = {0, 1, 2, 3, 4, 5};
-    parent.points = {GfVec3f(-10, -10, -0.25f), GfVec3f(10, -10, -0.25f),
-                     GfVec3f(0, 10, -0.25f),
-                     GfVec3f(0, 0, -100), GfVec3f(1, 0, -100),
-                     GfVec3f(0, 1, -100)};
+    parent.points = {usdGen::UsdGenVec3f(-10, -10, -0.25f), usdGen::UsdGenVec3f(10, -10, -0.25f),
+                     usdGen::UsdGenVec3f(0, 10, -0.25f),
+                     usdGen::UsdGenVec3f(0, 0, -100), usdGen::UsdGenVec3f(1, 0, -100),
+                     usdGen::UsdGenVec3f(0, 1, -100)};
     parent.restPoints = parent.points;
     desc.surfaces.push_back(parent);
     UsdGenSurfaceDesc subset;
@@ -1981,7 +1982,7 @@ static void CheckSubsetColliderCook()
     UsdGenCurveBuffer plain, moved;
     Check(CookSourceOnly(desc, SdfPath("/collide/source"), &plain),
           "Subset transform source cooks");
-    desc.surfaces.front().worldMatrix.SetTranslate(GfVec3d(0, 0, -10));
+    desc.surfaces.front().worldMatrix.SetTranslate(usdGen::UsdGenVec3d(0, 0, -10));
     Check(Cook(desc, &moved), "Transformed subset parent mesh cooks");
     Check(SamePoints(moved, plain),
           "Subset collider reads its parent mesh world matrix");
@@ -2072,7 +2073,7 @@ static void CheckEdgesFailClosed()
         {TfToken("cutDepthThreshold"),VtValue(0.1),false},
         {TfToken("cutBlendDepth"),VtValue(0.02),false}});
     varyingBlend.curveSets.front()=StraightStrands(SdfPath("/collide/hair"),
-        {GfVec3f(0.5f,0,0.5f),GfVec3f(0.5f,0,0.5f)},6,0.1f);
+        {usdGen::UsdGenVec3f(0.5f,0,0.5f),usdGen::UsdGenVec3f(0.5f,0,0.5f)},6,0.1f);
     AddBinding(varyingBlend,SdfPath("/collide/op"),
                SdfPath("/collide/Expressions/blend"),"0.01 + 0.01 * $primIndex",
                TfToken("float"),FloatShape(),TfToken("cutBlendDepth"),
@@ -2108,8 +2109,8 @@ static void CheckEdgesFailClosed()
     Check(!Cook(wildFace, &out), "Collide with an out-of-range subset face fails closed");
     UsdGenGraphDesc flat = CollideDesc({{TfToken("offset"), VtValue(0.5f), false},
                                         {TfToken("pushAmount"), VtValue(1.0f), false}});
-    flat.surfaces.front().points = {GfVec3f(0, 0, 0), GfVec3f(1, 0, 0),
-                                    GfVec3f(2, 0, 0)};
+    flat.surfaces.front().points = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0),
+                                    usdGen::UsdGenVec3f(2, 0, 0)};
     // Collide without a deform reads the collider's Default-time rest.
     flat.surfaces.front().restPoints = flat.surfaces.front().points;
     Check(!Cook(flat, &out), "Collide with an all-degenerate collider fails closed");
@@ -2172,7 +2173,7 @@ static UsdGenSurfaceDesc RaisedLimitGrid()
     s.subdivisionScheme = TfToken("catmullClark");
     for (int y = 0; y < 3; ++y)
         for (int x = 0; x < 3; ++x)
-            s.points.push_back(GfVec3f(float(x), float(y),
+            s.points.push_back(usdGen::UsdGenVec3f(float(x), float(y),
                                        x == 1 && y == 1 ? 1.0f : 0.0f));
     s.restPoints = s.points;
     s.faceVertexCounts = {4,4,4,4};
@@ -2182,7 +2183,7 @@ static UsdGenSurfaceDesc RaisedLimitGrid()
 }
 
 static UsdGenGraphDesc OneLimitStrand(UsdGenSurfaceDesc const &surface,
-                                      GfVec3f const &root, float offset)
+                                      usdGen::UsdGenVec3f const &root, float offset)
 {
     UsdGenGraphDesc desc = CollideDesc({
         {TfToken("offset"), VtValue(offset), false},
@@ -2202,7 +2203,7 @@ static void CheckAnalyticLimitContact(double scale)
     double const curvature = 0.1;
     for (int y=0; y<4; ++y)
         for (int x=0; x<4; ++x)
-            s.points.push_back(GfVec3f(float(scale*x),float(scale*y),
+            s.points.push_back(usdGen::UsdGenVec3f(float(scale*x),float(scale*y),
                 float(scale*curvature*(x*x+y*y))));
     s.restPoints = s.points;
     for (int y=0; y<3; ++y)
@@ -2218,27 +2219,27 @@ static void CheckAnalyticLimitContact(double scale)
     Check(built,"regular curved Catmull-Clark patch builds");
     if (!built) return;
     double const u=.37,v=.41;
-    GfVec3d actual,du,dv;
+    usdGen::UsdGenVec3d actual,du,dv;
     bool const evaluated = limit.Evaluate(4,u,v,&actual,&du,&dv);
     Check(evaluated,"regular curved Catmull-Clark patch evaluates");
     if (!evaluated) return;
-    GfVec3d const analytic(scale*(1+u),scale*(1+v),
+    usdGen::UsdGenVec3d const analytic(scale*(1+u),scale*(1+v),
         scale*curvature*((1+u)*(1+u)+(1+v)*(1+v)+2.0/3.0));
-    GfVec3d const analyticDu(scale,0,scale*2*curvature*(1+u));
-    GfVec3d const analyticDv(0,scale,scale*2*curvature*(1+v));
+    usdGen::UsdGenVec3d const analyticDu(scale,0,scale*2*curvature*(1+u));
+    usdGen::UsdGenVec3d const analyticDv(0,scale,scale*2*curvature*(1+v));
     double const tolerance = std::max(1e-12,scale*1e-5);
     Check((actual-analytic).GetLength() < tolerance &&
           (du-analyticDu).GetLength() < tolerance &&
           (dv-analyticDv).GetLength() < tolerance,
           "regular Bfr limit matches independent bicubic quadratic oracle");
-    GfVec3d lower, upper;
+    usdGen::UsdGenVec3d lower, upper;
     bool const bounded = limit.FaceControlBounds(4,&lower,&upper);
     Check(bounded,"regular curved limit provides a face bound");
     if (bounded) {
         bool encloses = true;
         for (int iu=0; iu<=16; ++iu)
             for (int iv=0; iv<=16; ++iv) {
-                GfVec3d sample,su,sv;
+                usdGen::UsdGenVec3d sample,su,sv;
                 if (!limit.Evaluate(4,double(iu)/16.0,double(iv)/16.0,
                                     &sample,&su,&sv)) {
                     encloses = false;
@@ -2253,15 +2254,15 @@ static void CheckAnalyticLimitContact(double scale)
         Check(upper[2] < scale*1.2,
               "regular Bernstein bound is tighter than the support cage");
     }
-    GfVec3d const cross = GfCross(analyticDu,analyticDv);
-    GfVec3d const normal = cross/cross.GetLength();
-    GfVec3d const initial = analytic + normal*(scale*0.01);
+    usdGen::UsdGenVec3d const cross = usdGen::UsdGenCross(analyticDu,analyticDv);
+    usdGen::UsdGenVec3d const normal = cross/cross.GetLength();
+    usdGen::UsdGenVec3d const initial = analytic + normal*(scale*0.01);
     UsdGenCurveBuffer out;
-    auto desc = OneLimitStrand(s,GfVec3f(initial),float(scale*0.02));
+    auto desc = OneLimitStrand(s,usdGen::UsdGenVec3f(initial),float(scale*0.02));
     bool cooked = Cook(desc,&out);
     Check(cooked,"regular curved limit contact cooks");
     if (cooked && out.totalCvs) {
-        GfVec3d const contact(out.px[0],out.py[0],out.pz[0]);
+        usdGen::UsdGenVec3d const contact(out.px[0],out.py[0],out.pz[0]);
         double const error =
             (contact-(analytic+normal*(scale*0.02))).GetLength();
         if (error >= tolerance)
@@ -2277,37 +2278,37 @@ static void CheckClosedLimitBoundary(double scale)
 {
     UsdGenSurfaceDesc s = ClosedCube(SdfPath("/collide/collider"));
     s.subdivisionScheme = TfToken("catmullClark");
-    for (GfVec3f &p : s.points) p *= float(scale);
+    for (usdGen::UsdGenVec3f &p : s.points) p *= float(scale);
     s.restPoints = s.points;
     UsdGenCollisionLimitSurface limit;
     std::string why;
     bool const built = limit.Build(usdGenUsd::Lower(s),&why);
     Check(built,"closed Catmull-Clark cube limit builds");
     if (!built) return;
-    GfVec3d q,du,dv;
+    usdGen::UsdGenVec3d q,du,dv;
     bool const evaluated = limit.Evaluate(0,0.5,0.5,&q,&du,&dv);
     Check(evaluated,"closed Catmull-Clark face evaluates");
     if (!evaluated) return;
-    GfVec3d const cross = GfCross(du,dv);
-    GfVec3d const outward = cross/cross.GetLength();
+    usdGen::UsdGenVec3d const cross = usdGen::UsdGenCross(du,dv);
+    usdGen::UsdGenVec3d const outward = cross/cross.GetLength();
     UsdGenCurveBuffer out;
-    auto desc = OneLimitStrand(s,GfVec3f(q-outward*(scale*1e-4)),
+    auto desc = OneLimitStrand(s,usdGen::UsdGenVec3f(q-outward*(scale*1e-4)),
                                float(scale*1e-3));
     bool cooked = Cook(desc,&out);
     Check(cooked,"near-shell closed limit inside cook runs");
     if (cooked && out.totalCvs) {
-        GfVec3d const actual(out.px[0],out.py[0],out.pz[0]);
+        usdGen::UsdGenVec3d const actual(out.px[0],out.py[0],out.pz[0]);
         Check((actual-(q+outward*(scale*1e-3))).GetLength() <
               std::max(1e-12,scale*2e-5),
               "near-shell inside point exits the true limit at scale");
     }
-    desc = OneLimitStrand(s,GfVec3f(q+outward*(scale*3e-3)),
+    desc = OneLimitStrand(s,usdGen::UsdGenVec3f(q+outward*(scale*3e-3)),
                           float(scale*1e-3));
-    GfVec3f const outside = desc.curveSets[0].points[0];
+    usdGen::UsdGenVec3f const outside = desc.curveSets[0].points[0];
     cooked = Cook(desc,&out);
     Check(cooked,"near-shell closed limit outside cook runs");
     if (cooked && out.totalCvs)
-        Check(GfVec3f(out.px[0],out.py[0],out.pz[0]) == outside,
+        Check(usdGen::UsdGenVec3f(out.px[0],out.py[0],out.pz[0]) == outside,
               "near-shell outside point remains unchanged");
 }
 
@@ -2321,25 +2322,25 @@ static void CheckCurvedLimitSegment()
         Check(false,"curved closed segment fixture builds");
         return;
     }
-    GfVec3d q,du,dv;
+    usdGen::UsdGenVec3d q,du,dv;
     if (!limit.Evaluate(0,0.5,0.5,&q,&du,&dv)) {
         Check(false,"curved closed segment fixture evaluates");
         return;
     }
-    GfVec3d const cross = GfCross(du,dv);
-    GfVec3d const outward = cross/cross.GetLength();
-    GfVec3d const tangent = du/du.GetLength();
-    GfVec3f const start(q+tangent*0.11-outward*0.0005);
-    GfVec3f const end(q-tangent*0.11-outward*0.0005);
+    usdGen::UsdGenVec3d const cross = usdGen::UsdGenCross(du,dv);
+    usdGen::UsdGenVec3d const outward = cross/cross.GetLength();
+    usdGen::UsdGenVec3d const tangent = du/du.GetLength();
+    usdGen::UsdGenVec3f const start(q+tangent*0.11-outward*0.0005);
+    usdGen::UsdGenVec3f const end(q-tangent*0.11-outward*0.0005);
     UsdGenCurveBuffer out;
     auto endpoint = OneLimitStrand(s,start,0.0f);
     bool const startCooked = Cook(endpoint,&out);
     bool const startOutside = startCooked && out.totalCvs &&
-        GfVec3f(out.px[0],out.py[0],out.pz[0]) == start;
+        usdGen::UsdGenVec3f(out.px[0],out.py[0],out.pz[0]) == start;
     endpoint = OneLimitStrand(s,end,0.0f);
     bool const endCooked = Cook(endpoint,&out);
     bool const endOutside = endCooked && out.totalCvs &&
-        GfVec3f(out.px[0],out.py[0],out.pz[0]) == end;
+        usdGen::UsdGenVec3f(out.px[0],out.py[0],out.pz[0]) == end;
     Check(startOutside && endOutside,
           "curved crossing segment endpoints are outside limit");
     auto desc = OneLimitStrand(s,start,0.0f);
@@ -2350,8 +2351,8 @@ static void CheckCurvedLimitSegment()
     bool const cooked = Cook(desc,&out);
     Check(cooked,"curved closed segment cooks");
     if (cooked && out.totalCvs >= 2)
-        Check(GfVec3f(out.px[0],out.py[0],out.pz[0]) == start &&
-              (GfVec3f(out.px[1],out.py[1],out.pz[1])-end).GetLength() > 1e-4,
+        Check(usdGen::UsdGenVec3f(out.px[0],out.py[0],out.pz[0]) == start &&
+              (usdGen::UsdGenVec3f(out.px[1],out.py[1],out.pz[1])-end).GetLength() > 1e-4,
               "closed curved surface catches an exterior-to-exterior strand");
 }
 
@@ -2366,25 +2367,25 @@ static void CheckSubdivisionLimit()
     UsdGenCollisionLimitSurface limit;
     std::string why;
     Check(limit.Build(usdGenUsd::Lower(grid),&why), "Catmull-Clark posed limit builds");
-    GfVec3d q, du, dv;
+    usdGen::UsdGenVec3d q, du, dv;
     Check(limit.Evaluate(0,0.5,0.5,&q,&du,&dv),
           "Catmull-Clark limit position and derivatives evaluate");
     if (limit.HasFace(0)) {
-        GfVec3d normal = GfCross(du,dv).GetNormalized();
-        GfVec3d const p = q + normal*0.01;
+        usdGen::UsdGenVec3d normal = usdGen::UsdGenCross(du,dv).GetNormalized();
+        usdGen::UsdGenVec3d const p = q + normal*0.01;
         UsdGenCurveBuffer out;
-        auto desc = OneLimitStrand(grid,GfVec3f(p),0.03f);
+        auto desc = OneLimitStrand(grid,usdGen::UsdGenVec3f(p),0.03f);
         Check(Cook(desc,&out),"Catmull-Clark limit contact cooks");
         if (out.totalCvs >= 1) {
-            GfVec3d const actual(out.px[0],out.py[0],out.pz[0]);
+            usdGen::UsdGenVec3d const actual(out.px[0],out.py[0],out.pz[0]);
             Check((actual-(q+normal*0.03)).GetLength() < 0.002,
                   "contact offset follows posed limit normal");
         }
-        desc = OneLimitStrand(grid,GfVec3f(1,1,1),0.03f);
+        desc = OneLimitStrand(grid,usdGen::UsdGenVec3f(1,1,1),0.03f);
         Check(Cook(desc,&out),"coarse-cage point cook runs");
         if (out.totalCvs >= 1)
-            Check(GfVec3d(out.px[0],out.py[0],out.pz[0]) ==
-                  GfVec3d(1,1,1),
+            Check(usdGen::UsdGenVec3d(out.px[0],out.py[0],out.pz[0]) ==
+                  usdGen::UsdGenVec3d(1,1,1),
                   "point on coarse cage but clear of limit stays unchanged");
     }
 
@@ -2395,12 +2396,12 @@ static void CheckSubdivisionLimit()
     nonquad.points = {{0,0,0},{1,0,0},{1.5f,1,0},
                       {0.5f,1.5f,0},{-0.5f,1,0}};
     Check(limit.Build(usdGenUsd::Lower(nonquad),&why),"Catmull-Clark non-quad builds");
-    std::vector<GfVec2d> uv;
+    std::vector<usdGen::UsdGenVec2d> uv;
     std::vector<std::array<int,3>> facets;
     Check(limit.TessellateFace(0,2,&uv,&facets) && !facets.empty(),
           "non-quad Bfr domain tessellates");
     if (!facets.empty()) {
-        GfVec2d const middle = (uv[size_t(facets[0][0])] +
+        usdGen::UsdGenVec2d const middle = (uv[size_t(facets[0][0])] +
             uv[size_t(facets[0][1])] + uv[size_t(facets[0][2])])/3.0;
         Check(limit.Evaluate(0,middle[0],middle[1],&q,&du,&dv),
               "non-quad subface evaluates in its authored domain");
@@ -2409,7 +2410,7 @@ static void CheckSubdivisionLimit()
     nonquad.restPoints = nonquad.points;
     std::vector<std::string> nonquadWarnings;
     UsdGenCurveBuffer nonquadOut;
-    auto nonquadCook = OneLimitStrand(nonquad,GfVec3f(0.5f,0.5f,0.01f),
+    auto nonquadCook = OneLimitStrand(nonquad,usdGen::UsdGenVec3f(0.5f,0.5f,0.01f),
                                       0.03f);
     Check(Cook(nonquadCook,&nonquadOut,&nonquadWarnings),
           "Catmull-Clark non-quad full Collide cook runs");
@@ -2423,7 +2424,7 @@ static void CheckSubdivisionLimit()
     ccTriangle.subdivisionScheme = TfToken("catmullClark");
     std::vector<std::string> triangleWarnings;
     UsdGenCurveBuffer triangleOut;
-    auto triangleCook = OneLimitStrand(ccTriangle,GfVec3f(0,0,0.01f),0.03f);
+    auto triangleCook = OneLimitStrand(ccTriangle,usdGen::UsdGenVec3f(0,0,0.01f),0.03f);
     Check(Cook(triangleCook,&triangleOut,&triangleWarnings),
           "Catmull-Clark triangle full Collide cook runs");
     bool const triangleFallback = std::any_of(
@@ -2457,7 +2458,7 @@ static void CheckSubdivisionLimit()
     UsdGenCurveBuffer polygon;
     std::vector<std::string> warnings;
     auto none = OneLimitStrand(TriangleSurface(SdfPath("/collide/collider"),
-        {-2,-2,0},{2,-2,0},{0,2,0}),GfVec3f(0,0,0.01f),0.03f);
+        {-2,-2,0},{2,-2,0},{0,2,0}),usdGen::UsdGenVec3f(0,0,0.01f),0.03f);
     Check(Cook(none,&polygon,&warnings),"scheme none polygon cook runs");
     Check(std::any_of(warnings.begin(),warnings.end(),[](auto const &w) {
         return w.find("subdivisionScheme=none") != std::string::npos &&
@@ -2468,7 +2469,7 @@ static void CheckSubdivisionLimit()
     holedFallbackSurface.subdivisionScheme = TfToken("unsupportedScheme");
     holedFallbackSurface.holeIndices = {0};
     auto holedFallback = OneLimitStrand(holedFallbackSurface,
-                                        GfVec3f(0,0,0.01f),0.03f);
+                                        usdGen::UsdGenVec3f(0,0,0.01f),0.03f);
     UsdGenCurveBuffer holedOut;
     Check(Cook(holedFallback,&holedOut),
           "all-hole unsupported subdivision fallback cooks as empty");
@@ -2478,7 +2479,7 @@ static void CheckSubdivisionLimit()
     grid.points[4][2] = std::numeric_limits<float>::quiet_NaN();
     // Collide without a deform reads the collider's Default-time rest.
     grid.restPoints = grid.points;
-    auto invalid = OneLimitStrand(grid,GfVec3f(0,0,0),0.03f);
+    auto invalid = OneLimitStrand(grid,usdGen::UsdGenVec3f(0,0,0),0.03f);
     Check(!Cook(invalid,&polygon),"non-finite limit fails closed");
 }
 
@@ -2497,7 +2498,7 @@ static void CheckCutGrazingEntry()
     };
     auto point=[&](JsValue const &v) {
         auto const &p=v.GetJsArray();
-        return GfVec3f(float(number(p[0])),float(number(p[1])),float(number(p[2])));
+        return usdGen::UsdGenVec3f(float(number(p[0])),float(number(p[1])),float(number(p[2])));
     };
     UsdGenSurfaceDesc original; original.path=SdfPath("/collide/collider");
     original.subdivisionScheme=TfToken("catmullClark");
@@ -2511,37 +2512,37 @@ static void CheckCutGrazingEntry()
             std::reverse(surface.faceVertexIndices.begin()+std::ptrdiff_t(4*face),
                          surface.faceVertexIndices.begin()+std::ptrdiff_t(4*face+4));
         if (variant==2) surface.orientation=TfToken("leftHanded");
-        GfMatrix4d affine(1);
+        usdGen::UsdGenMatrix4d affine(1);
         if (variant==3) {
-            affine.SetScale(GfVec3d(-1.3,0.8,1.1));
-            affine.SetTranslateOnly(GfVec3d(2,-1,0.5));
+            affine.SetScale(usdGen::UsdGenVec3d(-1.3,0.8,1.1));
+            affine.SetTranslateOnly(usdGen::UsdGenVec3d(2,-1,0.5));
             surface.worldMatrix=affine;
         }
         auto oracleSurface=surface;
-        GfVec3d center(0);
+        usdGen::UsdGenVec3d center(0);
         for (auto &p:oracleSurface.points) {
-            p=GfVec3f(affine.Transform(GfVec3d(p))); center+=GfVec3d(p);
+            p=usdGen::UsdGenVec3f(affine.Transform(usdGen::UsdGenVec3d(p))); center+=usdGen::UsdGenVec3d(p);
         }
         center/=double(oracleSurface.points.size());
-        oracleSurface.worldMatrix=GfMatrix4d(1);
+        oracleSurface.worldMatrix=usdGen::UsdGenMatrix4d(1);
         UsdGenCollisionLimitSurface limit; std::string why;
         bool ok=limit.Build(usdGenUsd::Lower(oracleSurface),&why);
-        std::vector<std::pair<GfVec3d,GfVec3d>> planes;
+        std::vector<std::pair<usdGen::UsdGenVec3d,usdGen::UsdGenVec3d>> planes;
         if (ok) for (size_t face=0;face<surface.faceVertexCounts.size();++face)
             for (int u=0;u<=32;++u) for (int v=0;v<=32;++v) {
-                GfVec3d q,du,dv;
+                usdGen::UsdGenVec3d q,du,dv;
                 if (!limit.Evaluate(int(face),double(u)/32,double(v)/32,&q,&du,&dv)) {
                     ok=false; continue;
                 }
-                GfVec3d n=GfCross(du,dv); double length=n.GetLength();
+                usdGen::UsdGenVec3d n=usdGen::UsdGenCross(du,dv); double length=n.GetLength();
                 if (!(length>0)) continue;
-                n/=length; if (GfDot(n,q-center)<0) n=-n;
+                n/=length; if (usdGen::UsdGenDot(n,q-center)<0) n=-n;
                 planes.emplace_back(q,n);
             }
         for (auto const &w:data.at("witnesses").GetJsArray()) {
             auto const &witness=w.GetJsObject();
-            GfVec3f const a(affine.Transform(GfVec3d(point(witness.at("a")))));
-            GfVec3f const b(affine.Transform(GfVec3d(point(witness.at("b")))));
+            usdGen::UsdGenVec3f const a(affine.Transform(usdGen::UsdGenVec3d(point(witness.at("a")))));
+            usdGen::UsdGenVec3f const b(affine.Transform(usdGen::UsdGenVec3d(point(witness.at("b")))));
             auto desc=OneLimitStrand(surface,a,0.0f);
             desc.curveSets.front().points={a,b}; desc.curveSets.front().rest={a,b};
             desc.nodes.back().params.push_back({TfToken("deepPenetrationMode"),VtValue(TfToken("cutThenCollide")),false});
@@ -2555,16 +2556,16 @@ static void CheckCutGrazingEntry()
             UsdGenCurveBuffer output; bool cooked=Cook(desc,&output);
             ok &= cooked && output.totalCvs==2;
             if (!cooked || output.totalCvs!=2) continue;
-            GfVec3d const result(output.px[1],output.py[1],output.pz[1]);
+            usdGen::UsdGenVec3d const result(output.px[1],output.py[1],output.pz[1]);
             if (!(output.px[0]==a[0] && output.py[0]==a[1] && output.pz[0]==a[2]))
                 std::printf("  grazing root curve=%d variant=%d delta=%g\n",witness.at("curve").GetInt(),variant,
-                    (GfVec3d(output.px[0],output.py[0],output.pz[0])-GfVec3d(a)).GetLength());
+                    (usdGen::UsdGenVec3d(output.px[0],output.py[0],output.pz[0])-usdGen::UsdGenVec3d(a)).GetLength());
             ok &= output.px[0]==a[0] && output.py[0]==a[1] && output.pz[0]==a[2];
             double minimum=1;
             for (int i=0;i<=32;++i) {
-                GfVec3d const p=GfVec3d(a)+(result-GfVec3d(a))*(double(i)/32);
+                usdGen::UsdGenVec3d const p=usdGen::UsdGenVec3d(a)+(result-usdGen::UsdGenVec3d(a))*(double(i)/32);
                 double side=-1e30;
-                for (auto const &plane:planes) side=std::max(side,GfDot(p-plane.first,plane.second));
+                for (auto const &plane:planes) side=std::max(side,usdGen::UsdGenDot(p-plane.first,plane.second));
                 minimum=std::min(minimum,side);
             }
             if (minimum < -2e-5) std::printf("  grazing curve=%d variant=%d min=%g\n",witness.at("curve").GetInt(),variant,minimum);
@@ -2581,7 +2582,7 @@ static void CheckCoincidentStrandOffsets()
 {
     auto desc = CollideDesc({{TfToken("pushAmount"), VtValue(1.0f), false}});
     desc.curveSets.front() = StraightStrands(SdfPath("/collide/hair"),
-        std::vector<GfVec3f>(600, GfVec3f(0.0f)), 6, 0.25f);
+        std::vector<usdGen::UsdGenVec3f>(600, usdGen::UsdGenVec3f(0.0f)), 6, 0.25f);
     AddBinding(desc, SdfPath("/collide/op"), SdfPath("/collide/offset"),
         "0.1 + 0.001 * $primIndex", TfToken("float"), FloatShape(),
         TfToken("offset"), expr::Domain::Primitive, VtValue(0.0f));
@@ -2610,8 +2611,8 @@ int main()
     if (std::getenv("USDGEN_TEST_COLLIDE_BENCHMARK")) {
         auto surface = ClosedCube(SdfPath("/collide/collider"));
         surface.subdivisionScheme = TfToken("catmullClark");
-        auto desc = OneLimitStrand(surface, GfVec3f(0.5f, -0.1f, 0.5f), 0.01f);
-        std::vector<GfVec3f> roots;
+        auto desc = OneLimitStrand(surface, usdGen::UsdGenVec3f(0.5f, -0.1f, 0.5f), 0.01f);
+        std::vector<usdGen::UsdGenVec3f> roots;
         for (int z=0; z<16; ++z) for (int x=0; x<16; ++x)
             roots.emplace_back(0.28f + x*0.03f, -0.1f, 0.28f + z*0.03f);
         desc.curveSets.front() = StraightStrands(

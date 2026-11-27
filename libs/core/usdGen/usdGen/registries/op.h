@@ -21,18 +21,14 @@
 #include "usdGen/registries/token.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/exec/chunkView.h"
-
-#include "pxr/pxr.h"
-#include "pxr/base/tf/token.h"
+#include "usdGen/api/token.h"
 
 #include <memory>
 #include <atomic>
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 namespace usdGen {
 
 class UsdGenWorkDispatcher;  // defined in usdGen/scheduler.h
@@ -55,8 +51,9 @@ struct UsdGenDiagnostics
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
     bool HasErrors() const { return !errors.empty(); }
-    void Error(std::string msg)    { errors.push_back(std::move(msg)); }
-    void Warn(std::string msg)     { warnings.push_back(std::move(msg)); }
+    /// Out of line: every message string is allocated in usdGen.
+    USDGEN_CORE_API void Error(std::string_view msg);
+    USDGEN_CORE_API void Warn(std::string_view msg);
 };
 
 /// The exec-phase token rule: true (and an error on diag) when the phase
@@ -78,7 +75,7 @@ inline bool UsdGenCookInternFails(UsdGenCookTokenCheck const &check, UsdGenDiagn
 struct UsdGenResolvedParam
 {
     UsdGenParamValue const *authored = nullptr;   // first param with exactly the decl name
-    TfToken token;                                // token value; a std::string is interned at compile
+    UsdGenToken token;                                // token value; a std::string is interned at compile
     int32_t enumIndex = -1;                       // decl enumerant index; -1 none/unmatched
 };
 
@@ -86,7 +83,7 @@ struct UsdGenResolvedParam
 /// Bind time. Ramps arrive already resolved (03 §2.2 UsdGenRampDesc); the
 /// adapter does the S11 encoding, the kernel does the LUT (257 entries).
 ///
-/// 26.08 VtValue note: there is no GetAsSafe/SafeGet; the getters below use
+/// 26.08 UsdGenValue note: there is no GetAsSafe/SafeGet; the getters below use
 /// IsHolding<T>() + UncheckedGet<T>() with the C1 default as fallback.
 struct UsdGenParamView
 {
@@ -150,12 +147,12 @@ struct UsdGenParamView
         UsdGenResolvedParam const *r = Slot(s);
         return r && r->enumIndex >= 0 ? r->enumIndex : fallback;
     }
-    TfToken const &GetToken(UsdGenParamSlot s, TfToken const &fallback) const noexcept
+    UsdGenToken const &GetToken(UsdGenParamSlot s, UsdGenToken const &fallback) const noexcept
     {
         UsdGenResolvedParam const *r = Slot(s);
         return r && HoldsToken(r->authored) ? r->token : fallback;
     }
-    VtValue const &GetValue(UsdGenParamSlot s, VtValue const &fallback) const noexcept
+    UsdGenValue const &GetValue(UsdGenParamSlot s, UsdGenValue const &fallback) const noexcept
     {
         UsdGenResolvedParam const *r = Slot(s);
         return r && r->authored ? r->authored->value : fallback;
@@ -168,7 +165,7 @@ struct UsdGenParamView
 private:
     static bool HoldsToken(UsdGenParamValue const *p) noexcept
     {
-        return p && (p->value.IsHolding<TfToken>() || p->value.IsHolding<std::string>());
+        return p && (p->value.IsHolding<UsdGenToken>() || p->value.IsHolding<std::string>());
     }
     static bool GroomValue(UsdGenEvaluatedParam const *value, double *out) noexcept
     {

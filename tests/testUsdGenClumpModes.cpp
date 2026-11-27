@@ -17,6 +17,7 @@
 //       guideSeeded mode, saved overrides, sub-clumps projected onto the
 //       bound surface, determinism;
 //   (4) Width bezier profile (set and multiply).
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -273,7 +274,7 @@ void TestContracts()
     Check(op != nullptr, "registry creates UsdGenClump");
     if (!op) return;
     UsdGenOpRecord const &rec = op->Record();
-    TfSpan<const TfToken> const refs = rec.ReferenceInputs();
+    UsdGenSpan<const UsdGenToken> const refs = rec.ReferenceInputs();
     Check(refs.size() == 1 && refs[0] == TfToken("guides"),
           "UsdGenClump declares the guides reference input");
     std::vector<TfToken> const outs = usdGenTest::OutputPlaneNames(rec);

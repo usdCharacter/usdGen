@@ -21,8 +21,7 @@
 #include "usdGen/curveBuffer.h"
 #include "usdGen/ops/opUtil.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -31,8 +30,10 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -131,7 +132,7 @@ bool UsdGenResampleOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *di
         if (diag) diag->Error("UsdGenResample: usdGen:cvCount must be in [1, 4096]");
         return false;
     }
-    TfToken const distribution = params.GetToken(kDistribution, Record().Token(kTokUniform));
+    UsdGenToken const distribution = params.GetToken(kDistribution, Record().Token(kTokUniform));
     if (distribution != Record().Token(kTokUniform) && distribution != Record().Token(kTokKeepParam)) {
         if (diag) diag->Error("UsdGenResample: unknown usdGen:distribution '" +
                               distribution.GetString() + "'");
@@ -177,7 +178,7 @@ bool UsdGenResampleOp::Capture(
         cvCount = p->GetInt(kCvCount, 8);
         if (cvCount < 1 || cvCount > int(kUsdGenMaxCvsPerCurve))
             return fail("usdGen:cvCount must be in [1, 4096]");
-        TfToken const distribution = p->GetToken(kDistribution, Record().Token(kTokUniform));
+        UsdGenToken const distribution = p->GetToken(kDistribution, Record().Token(kTokUniform));
         if (distribution != Record().Token(kTokUniform) && distribution != Record().Token(kTokKeepParam))
             return fail("unknown usdGen:distribution '" + distribution.GetString() + "'");
         keepParam = distribution == Record().Token(kTokKeepParam);
@@ -276,10 +277,10 @@ bool UsdGenResampleOp::Capture(
     if (hasWidths && upstream.width.size() != upstream.totalCvs)
         return fail("upstream width plane cardinality does not match its CV topology");
     // Written in place: a recycled capture's arrays keep their storage.
-    VtFloatArray &resampledWidths = buf.width;
-    VtVec3fArray &resampledRest = buf.rest;
+    UsdGenFloatArray &resampledWidths = buf.width;
+    UsdGenVec3fArray &resampledRest = buf.rest;
     resampledWidths.assign(buf.totalCvs, fallbackWidth);
-    resampledRest.assign(buf.totalCvs, GfVec3f(0.0f));
+    resampledRest.assign(buf.totalCvs, UsdGenVec3f(0.0f));
     bool const hasRest = upstream.rest.size() == upstream.totalCvs;
 
     std::vector<float> &cumlen = cap.cumlen;
@@ -288,9 +289,9 @@ bool UsdGenResampleOp::Capture(
         // Arc table over the REST shape: rest resamples by arc length so the
         // rest channel stays the authored shape under deformation.
         cumlen.assign(nIn, 0.0f);
-        auto restAt = [&](uint32_t i) -> GfVec3f {
+        auto restAt = [&](uint32_t i) -> UsdGenVec3f {
             return hasRest ? upstream.rest[first + i]
-                : GfVec3f(upstream.px[first + i], upstream.py[first + i],
+                : UsdGenVec3f(upstream.px[first + i], upstream.py[first + i],
                           upstream.pz[first + i]);
         };
         for (uint32_t i = 1; i < nIn; ++i)
@@ -315,7 +316,7 @@ bool UsdGenResampleOp::Capture(
                 float const segLen = hi > lo ? cumlen[hi] - cumlen[lo] : 0.0f;
                 alpha = segLen > 0.0f ? (s - cumlen[lo]) / segLen : 0.0f;
             }
-            GfVec3f const a = restAt(lo), b = restAt(hi);
+            UsdGenVec3f const a = restAt(lo), b = restAt(hi);
             resampledRest[outBase + size_t(j)] = a + (b - a) * alpha;
             if (hasWidths) {
                 float const wa = upstream.width[first + lo];

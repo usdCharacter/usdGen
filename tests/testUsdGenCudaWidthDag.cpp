@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -317,8 +318,8 @@ bool LengthTopologyReference(UsdGenGraphDesc desc, UsdGenCurveBuffer* output) {
     TfToken mode("scale"), method("scale");
     float value = 1, threshold = 0;
     for (auto const& param : length->params) {
-        if (param.name == TfToken("length:mode")) mode = param.value.Get<TfToken>();
-        if (param.name == TfToken("length:method")) method = param.value.Get<TfToken>();
+        if (param.name == TfToken("length:mode")) mode = param.value.Get<usdGen::UsdGenToken>();
+        if (param.name == TfToken("length:method")) method = param.value.Get<usdGen::UsdGenToken>();
         if (param.name == TfToken("length:value")) value = param.value.Get<float>();
         if (param.name == TfToken("cullThreshold")) threshold = param.value.Get<float>();
     }

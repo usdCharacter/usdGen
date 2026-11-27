@@ -1,8 +1,15 @@
+// OpenSubdiv's loop scheme uses M_PI (MSVC: only with _USE_MATH_DEFINES).
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
 #include "usdGen/limitSurface.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/digest.h"
 #include "usdGen/registries/token.h"
-#include "pxr/base/gf/vec2d.h"
+#include "usdGenMath/math.h"
 #include <opensubdiv/far/patchTableFactory.h>
 #include <opensubdiv/far/patchMap.h>
 #include <opensubdiv/far/primvarRefiner.h>
@@ -19,7 +26,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 namespace {
@@ -68,7 +74,7 @@ OpenSubdiv::Sdc::Options OptionsOf(UsdGenSurfaceInputView const &s)
     UsdGenSurfaceTokenTable const &t = UsdGenSurfaceTokens();
     Options options;
     // Bilinear forces edgeAndCorner (OpenSubdiv 3.0.0 boundary-face bug).
-    TfToken const &boundary =
+    UsdGenToken const &boundary =
         s.subdivisionScheme == t.bilinear ? t.edgeAndCorner : s.interpolateBoundary;
     if (!boundary.IsEmpty()) {
         if (boundary == t.none)
@@ -80,7 +86,7 @@ OpenSubdiv::Sdc::Options OptionsOf(UsdGenSurfaceInputView const &s)
     } else {
         options.SetVtxBoundaryInterpolation(Options::VTX_BOUNDARY_EDGE_AND_CORNER);
     }
-    TfToken const &fvar = s.faceVaryingLinearInterpolation;
+    UsdGenToken const &fvar = s.faceVaryingLinearInterpolation;
     if (!fvar.IsEmpty()) {
         if (fvar == t.all)
             options.SetFVarLinearInterpolation(Options::FVAR_LINEAR_ALL);
@@ -244,16 +250,16 @@ std::unique_ptr<OpenSubdiv::Far::TopologyRefiner> BuildRefiner(UsdGenSurfaceInpu
     return std::unique_ptr<OpenSubdiv::Far::TopologyRefiner>(
         Factory::Create(in, Factory::Options(SchemeOf(s), OptionsOf(s))));
 }
-double Cross2(GfVec2d const& a, GfVec2d const& b) { return a[0]*b[1]-a[1]*b[0]; }
+double Cross2(UsdGenVec2d const& a, UsdGenVec2d const& b) { return a[0]*b[1]-a[1]*b[0]; }
 // (u,v) of p in the bilinear quad a(0,0) b(1,0) c(1,1) d(0,1), clamped to
 // [0,1]^2. The quads used here are convex kites, so the root inside the unit
 // square is the one wanted.
-GfVec2d InverseBilinear(GfVec2d const& p, GfVec2d const& a, GfVec2d const& b,
-                        GfVec2d const& c, GfVec2d const& d) {
-    GfVec2d const e=b-a, f=d-a, g=a-b+c-d, h=p-a;
+UsdGenVec2d InverseBilinear(UsdGenVec2d const& p, UsdGenVec2d const& a, UsdGenVec2d const& b,
+                        UsdGenVec2d const& c, UsdGenVec2d const& d) {
+    UsdGenVec2d const e=b-a, f=d-a, g=a-b+c-d, h=p-a;
     double const k2=Cross2(g,f), k1=Cross2(e,f)+Cross2(h,g), k0=Cross2(h,e);
     auto uFor=[&](double v) {
-        GfVec2d const den=e+g*v;
+        UsdGenVec2d const den=e+g*v;
         return std::abs(den[0])>=std::abs(den[1]) ? (h[0]-f[0]*v)/den[0] : (h[1]-f[1]*v)/den[1];
     };
     double u=0, v=0;
@@ -264,13 +270,13 @@ GfVec2d InverseBilinear(GfVec2d const& p, GfVec2d const& a, GfVec2d const& b,
         v=(-k1-w)/(2*k2); u=uFor(v);
         if(u<-1e-6||u>1+1e-6||v<-1e-6||v>1+1e-6) {v=(-k1+w)/(2*k2); u=uFor(v);}
     }
-    return GfVec2d(std::clamp(u,0.0,1.0),std::clamp(v,0.0,1.0));
+    return UsdGenVec2d(std::clamp(u,0.0,1.0),std::clamp(v,0.0,1.0));
 }
 template <class T>
-VtArray<T> Vt(UsdGenSpan<const T> s) { return VtArray<T>(s.begin(), s.end()); }
+UsdGenCowArray<T> Vt(UsdGenSpan<const T> s) { return UsdGenCowArray<T>(s.begin(), s.end()); }
 struct Vertex {
-    GfVec3f p{0};
-    void Clear() { p=GfVec3f(0); }
+    UsdGenVec3f p{0};
+    void Clear() { p=UsdGenVec3f(0); }
     void AddWithWeight(Vertex const& v, float w) { p+=v.p*w; }
 };
 }
@@ -278,14 +284,14 @@ struct UsdGenLimitSurface::State {
     std::unique_ptr<OpenSubdiv::Far::PatchTable> patches;
     std::unique_ptr<OpenSubdiv::Far::PatchMap> map;
     std::vector<Vertex> values;
-    VtIntArray holes;
+    UsdGenIntArray holes;
     std::vector<int> faceSize;   // corners per coarse face
     std::vector<int> ptexBase;   // first Ptex face of each coarse face (n-gons own n)
 };
 UsdGenLimitSurface::UsdGenLimitSurface() = default;
 UsdGenLimitSurface::~UsdGenLimitSurface() = default;
 namespace {
-void FeedSubdivText(uint64_t &h, TfToken const& tok) {
+void FeedSubdivText(uint64_t &h, UsdGenToken const& tok) {
     std::string const& str = tok.GetString();
     h = UsdGenDigestBytes(str.data(), str.size(), h);
     UsdGenDigestMixWord(h, uint64_t(str.size()));
@@ -320,7 +326,7 @@ void FeedSubdivTopology(uint64_t &h, UsdGenSurfaceInputView const& s) {
 // Same logical coverage as PxOsdMeshTopology::ComputeHash() plus s.orientation,
 // hashed with the 4-lane word-wise FNV instead of SpookyHash (which
 // re-streamed ~20MB of topology arrays at ~half the per-byte throughput).
-// Tokens feed as string bytes rather than TfToken rep bytes, so the digest
+// Tokens feed as string bytes rather than UsdGenToken rep bytes, so the digest
 // is deterministic across processes (values stay internal keys, never
 // persisted). Sizes mix between fields so no two distinct field sequences
 // concatenate ambiguously.
@@ -393,20 +399,20 @@ bool UsdGenLimitSurface::Build(UsdGenSurfaceInputView const& s, int level, std::
 namespace {
 bool EvaluatePtex(OpenSubdiv::Far::PatchTable const& patches, OpenSubdiv::Far::PatchMap const& map,
                   std::vector<Vertex> const& values, int ptexFace, float u, float v,
-                  GfVec3f* p, GfVec3f* du, GfVec3f* dv) {
+                  UsdGenVec3f* p, UsdGenVec3f* du, UsdGenVec3f* dv) {
     auto const* h=map.FindPatch(ptexFace,u,v);
     if(!h) return false;
     float w[20],wu[20],wv[20];
     patches.EvaluateBasis(*h,u,v,w,wu,wv);
     auto ids=patches.GetPatchVertices(*h);
-    *p=*du=*dv=GfVec3f(0);
+    *p=*du=*dv=UsdGenVec3f(0);
     for(int i=0;i<ids.size();++i){auto const& q=values[ids[i]].p;*p+=q*w[i];*du+=q*wu[i];*dv+=q*wv[i];}
     for(auto const* value:{p,du,dv})for(int j=0;j<3;++j)if(!std::isfinite((*value)[j]))return false;
     return true;
 }
 }
-bool UsdGenLimitSurface::EvaluateCagePoint(int face, int const corners[3], GfVec3f const& bary,
-                                           GfVec3f* p, GfVec3f* du, GfVec3f* dv) const {
+bool UsdGenLimitSurface::EvaluateCagePoint(int face, int const corners[3], UsdGenVec3f const& bary,
+                                           UsdGenVec3f* p, UsdGenVec3f* du, UsdGenVec3f* dv) const {
     if(!_state || !p || !du || !dv || !corners || face<0 || size_t(face)>=_state->faceSize.size() || IsHole(face))
         return false;
     int const n=_state->faceSize[size_t(face)];
@@ -418,12 +424,12 @@ bool UsdGenLimitSurface::EvaluateCagePoint(int face, int const corners[3], GfVec
     auto layout=[n](int k) {
         if(n==4) {
             static constexpr double square[4][2]={{0,0},{1,0},{1,1},{0,1}};
-            return GfVec2d(square[k][0],square[k][1]);
+            return UsdGenVec2d(square[k][0],square[k][1]);
         }
         double const a=2*3.14159265358979323846*double(k)/double(n);
-        return GfVec2d(std::cos(a),std::sin(a));
+        return UsdGenVec2d(std::cos(a),std::sin(a));
     };
-    GfVec2d x(0);
+    UsdGenVec2d x(0);
     for(int k=0;k<3;++k) x+=layout(corners[k])*(double(bary[k])/sum);
     int const base=_state->ptexBase[size_t(face)];
     if(n==4) {
@@ -435,16 +441,16 @@ bool UsdGenLimitSurface::EvaluateCagePoint(int face, int const corners[3], GfVec
     // edge from corner k-1 (0,1); in the regular layout that is the corner's
     // kite, the points nearer corner k than any other.
     int sub=0;double best=-1e300;
-    for(int k=0;k<n;++k){double const d=GfDot(x,layout(k));if(d>best){best=d;sub=k;}}
-    GfVec2d const a=layout(sub), next=layout((sub+1)%n), prev=layout((sub+n-1)%n);
-    GfVec2d const uv=InverseBilinear(x,a,(a+next)*0.5,GfVec2d(0),(a+prev)*0.5);
+    for(int k=0;k<n;++k){double const d=UsdGenDot(x,layout(k));if(d>best){best=d;sub=k;}}
+    UsdGenVec2d const a=layout(sub), next=layout((sub+1)%n), prev=layout((sub+n-1)%n);
+    UsdGenVec2d const uv=InverseBilinear(x,a,(a+next)*0.5,UsdGenVec2d(0),(a+prev)*0.5);
     return EvaluatePtex(*_state->patches,*_state->map,_state->values,base+sub,
                         float(uv[0]),float(uv[1]),p,du,dv);
 }
 bool UsdGenLimitSurface::IsHole(int face) const {
     return _state && std::find(_state->holes.begin(),_state->holes.end(),face)!=_state->holes.end();
 }
-bool UsdGenLimitSurface::Evaluate(int face,float u,float v,GfVec3f* p,GfVec3f* du,GfVec3f* dv) const {
+bool UsdGenLimitSurface::Evaluate(int face,float u,float v,UsdGenVec3f* p,UsdGenVec3f* du,UsdGenVec3f* dv) const {
     if(!_state || !p || !du || !dv || !std::isfinite(u)||!std::isfinite(v)||u<0||v<0||u>1||v>1||IsHole(face)) return false;
     if(face<0 || size_t(face)>=_state->faceSize.size() || _state->faceSize[size_t(face)]!=4) return false;
     return EvaluatePtex(*_state->patches,*_state->map,_state->values,_state->ptexBase[size_t(face)],u,v,p,du,dv);
@@ -493,7 +499,7 @@ bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceInputView const& s,
     for (int i : s.faceVertexIndices)
         if (i < 0 || size_t(i) >= s.points.size())
             return fail("subdivision vertex index out of range");
-    for (GfVec3f const& p : s.points)
+    for (UsdGenVec3f const& p : s.points)
         for (int k = 0; k < 3; ++k)
             if (!std::isfinite(p[k])) return fail("non-finite posed subdivision point");
     for (int f : s.holeIndices)
@@ -529,7 +535,7 @@ bool UsdGenCollisionLimitSurface::Build(UsdGenSurfaceInputView const& s,
         *state->refiner, options);
     std::vector<double> posed;
     posed.reserve(s.points.size() * 3);
-    for (GfVec3f const& p : s.points)
+    for (UsdGenVec3f const& p : s.points)
         for (int k = 0; k < 3; ++k) posed.push_back(double(p[k]));
     state->faces.resize(s.faceVertexCounts.size());
     size_t liveFaces = 0;
@@ -565,7 +571,7 @@ bool UsdGenCollisionLimitSurface::HasFace(int face) const {
 }
 
 bool UsdGenCollisionLimitSurface::FaceControlBounds(
-        int face, GfVec3d* lo, GfVec3d* hi) const {
+        int face, UsdGenVec3d* lo, UsdGenVec3d* hi) const {
     if (!HasFace(face) || !lo || !hi) return false;
     auto const& data = _state->faces[size_t(face)];
     auto const& values = data.patchPoints;
@@ -578,7 +584,7 @@ bool UsdGenCollisionLimitSurface::FaceControlBounds(
     if (data.surface->GetFaceSize() == 4 &&
         data.surface->IsRegular() && !data.surface->IsLinear() &&
         !data.surface->GetParameterization().HasSubFaces()) {
-        GfVec3d controls[4][4];
+        UsdGenVec3d controls[4][4];
         bool valid = true;
         for (int u = 0; u <= 1 && valid; ++u) {
             for (int v = 0; v <= 1; ++v) {
@@ -605,9 +611,9 @@ bool UsdGenCollisionLimitSurface::FaceControlBounds(
             }
         }
         if (valid) {
-            GfVec3d lower = controls[0][0], upper = controls[0][0];
+            UsdGenVec3d lower = controls[0][0], upper = controls[0][0];
             for (auto const& row : controls)
-                for (GfVec3d const& control : row)
+                for (UsdGenVec3d const& control : row)
                     for (int k = 0; k < 3; ++k) {
                         valid = valid && std::isfinite(control[k]);
                         lower[k] = std::min(lower[k], control[k]);
@@ -630,7 +636,7 @@ bool UsdGenCollisionLimitSurface::FaceControlBounds(
             }
         }
     }
-    *lo = *hi = GfVec3d(values[0], values[1], values[2]);
+    *lo = *hi = UsdGenVec3d(values[0], values[1], values[2]);
     for (size_t i = 3; i < values.size(); i += 3)
         for (int k = 0; k < 3; ++k) {
             (*lo)[k] = std::min((*lo)[k], values[i + size_t(k)]);
@@ -650,8 +656,8 @@ bool UsdGenCollisionLimitSurface::FaceHasSubFaces(int face) const {
 }
 
 bool UsdGenCollisionLimitSurface::Evaluate(int face, double u, double v,
-                                            GfVec3d* p, GfVec3d* du,
-                                            GfVec3d* dv) const {
+                                            UsdGenVec3d* p, UsdGenVec3d* du,
+                                            UsdGenVec3d* dv) const {
     if (!HasFace(face) || !p || !du || !dv ||
         !std::isfinite(u) || !std::isfinite(v)) return false;
     auto const& data = _state->faces[size_t(face)];
@@ -662,14 +668,14 @@ bool UsdGenCollisionLimitSurface::Evaluate(int face, double u, double v,
     for (int k = 0; k < 3; ++k)
         if (!std::isfinite(out[k]) || !std::isfinite(outDu[k]) ||
             !std::isfinite(outDv[k])) return false;
-    *p = GfVec3d(out[0], out[1], out[2]);
-    *du = GfVec3d(outDu[0], outDu[1], outDu[2]);
-    *dv = GfVec3d(outDv[0], outDv[1], outDv[2]);
+    *p = UsdGenVec3d(out[0], out[1], out[2]);
+    *du = UsdGenVec3d(outDu[0], outDu[1], outDu[2]);
+    *dv = UsdGenVec3d(outDv[0], outDv[1], outDv[2]);
     return true;
 }
 
 bool UsdGenCollisionLimitSurface::TessellateFace(int face, int rate,
-        std::vector<GfVec2d>* uv,
+        std::vector<UsdGenVec2d>* uv,
         std::vector<std::array<int, 3>>* facets) const {
     if (!HasFace(face) || !uv || !facets || rate < 1) return false;
     auto const& parameterization =

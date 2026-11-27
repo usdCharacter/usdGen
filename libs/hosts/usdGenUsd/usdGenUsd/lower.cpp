@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenUsd/lower.h"
 
+#include "usdGenUsd/convert/math.h"
+#include "usdGenUsd/convert/token.h"
+
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
@@ -106,7 +109,8 @@ public:
         spec->labels.reserve(table->Size());
         for (auto const &entry : table->Entries())
             spec->labels.push_back(UsdGenNodeLabel{entry.first, UsdGenNodeKey{},
-                                                   entry.second.GetAsToken()});
+                                                   UsdGenText(entry.second.GetString()),
+                                                   UsdGenToken()});
         spec->host = std::move(table);
     }
 
@@ -117,7 +121,7 @@ private:
 
 UsdGenInputRecord LowerCurves(UsdGenCurveSetDesc const &curves, Lowering &keys)
 {
-    return UsdGenCurveSetRecord(curves, keys.Key(curves.path), curves.path.GetAsToken(),
+    return UsdGenCurveSetRecord(curves, keys.Key(curves.path), UsdGenText(curves.path.GetString()),
                                 keys.Columns());
 }
 
@@ -129,13 +133,15 @@ UsdGenInputRecord LowerSurface(UsdGenSurfaceDesc const &surface, Lowering &keys)
     UsdGenNodeKey owner;
     if (!surface.path.IsEmpty() && !surface.path.IsAbsoluteRootPath())
         owner = keys.Key(surface.path.GetParentPath());
-    return UsdGenSurfaceRecord(surface, key, owner, surface.path.GetAsToken(), keys.Columns());
+    return UsdGenSurfaceRecord(surface, key, owner, UsdGenText(surface.path.GetString()),
+                               keys.Columns());
 }
 
 UsdGenInputRecord LowerMap(UsdGenMapDesc const &map, Lowering &keys)
 {
     UsdGenNodeKey const key = keys.Key(map.path);
-    return UsdGenMapRecord(map, key, keys.Key(map.paintSurface), map.path.GetAsToken(),
+    UsdGenMapData data = map;
+    return UsdGenMapRecord(data, key, keys.Key(map.paintSurface), UsdGenText(map.path.GetString()),
                            keys.Columns());
 }
 
@@ -147,15 +153,15 @@ UsdGenInputRecord LowerExpression(UsdGenExpressionDesc const &expression, Loweri
     data.outputs = expression.outputs;
     data.inputs.reserve(expression.inputs.size());
     for (UsdGenExpressionInputDesc const &input : expression.inputs)
-        data.inputs.push_back(UsdGenExpressionSlot{input.name, keys.Keys(input.targets),
+        data.inputs.push_back(UsdGenExpressionSlot{ToToken(input.name), keys.Keys(input.targets),
                                                    keys.Keys(input.geometries),
                                                    keys.Keys(input.maps)});
-    return UsdGenExpressionRecord(data, key, expression.path.GetAsToken());
+    return UsdGenExpressionRecord(data, key, UsdGenText(expression.path.GetString()));
 }
 
 UsdGenInputRecord LowerGeometry(UsdGenGeometryDesc const &geometry, Lowering &keys)
 {
-    return UsdGenGeometryRecord(geometry, keys.Key(geometry.path), geometry.path.GetAsToken(),
+    return UsdGenGeometryRecord(geometry, keys.Key(geometry.path), UsdGenText(geometry.path.GetString()),
                                 keys.Columns());
 }
 
@@ -163,8 +169,8 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
 {
     UsdGenOpNode out;
     out.key = keys.Key(node.path);
-    out.type = node.type;
-    out.mode = node.mode;
+    out.type = ToToken(node.type);
+    out.mode = ToToken(node.mode);
     out.enabled = node.enabled;
     out.seed = node.seed;
     out.inputs = keys.Keys(node.inputs);
@@ -174,18 +180,18 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
     out.maps = keys.Keys(node.maps);
     out.mapBindings.reserve(node.mapBindings.size());
     for (UsdGenMapBindingDesc const &binding : node.mapBindings)
-        out.mapBindings.push_back(UsdGenMapBinding{keys.Key(binding.map), binding.relationship});
+        out.mapBindings.push_back(UsdGenMapBinding{keys.Key(binding.map), ToToken(binding.relationship)});
     out.params = node.params;
     out.expressionBindings.reserve(node.expressionBindings.size());
     for (UsdGenExpressionBinding const &binding : node.expressionBindings) {
         UsdGenParamBinding b;
         b.expression = keys.Key(binding.expression);
-        b.output = binding.output;
-        b.nativeType = binding.nativeType;
-        b.destination = binding.destination;
+        b.output = ToToken(binding.output);
+        b.nativeType = ToToken(binding.nativeType);
+        b.destination = ToToken(binding.destination);
         b.destinationShape = binding.destinationShape;
         b.domain = binding.domain;
-        b.literal = binding.literal;
+        b.literal = ToEngineValue(binding.literal);
         out.expressionBindings.push_back(std::move(b));
     }
     out.ramps = node.ramps;
@@ -236,13 +242,13 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     UsdGenPreviewDesc const &preview = desc.preview;
     if (preview.source.IsPropertyPath()) {
         spec.preview.source = keys.Key(preview.source.GetPrimPath());
-        spec.preview.attribute = preview.source.GetNameToken();
+        spec.preview.attribute = ToToken(preview.source.GetNameToken());
     } else {
         spec.preview.source = keys.Key(preview.source);
     }
     presentation.previewColorMap = preview.colorMap;
     presentation.previewRange = preview.range;
-    spec.preview.evaluation = preview.evaluation;
+    spec.preview.evaluation = ToToken(preview.evaluation);
     spec.preview.mapChannels = preview.colorMap == *sRgb ? 3 : 1;
     presentation.previewShading = preview.shading;
     spec.xformMatrix = desc.xformMatrix;
@@ -257,7 +263,7 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     spec.executionBackend = desc.executionBackend;
     spec.validationErrors = desc.validationErrors;
     presentation.description = spec.description;
-    presentation.xformMatrix = spec.xformMatrix;
+    presentation.xformMatrix = ToHost(spec.xformMatrix);
     presentation.dependency = SourceDependencySurface(spec);
     spec.hostDigest = PresentationDigest(presentation);
     keys.Finish(&spec, std::move(presentation));
@@ -321,12 +327,12 @@ UsdGenParamBinding Lower(UsdGenExpressionBinding const &binding)
 {
     UsdGenParamBinding b;
     b.expression = KeyOf(binding.expression);
-    b.output = binding.output;
-    b.nativeType = binding.nativeType;
-    b.destination = binding.destination;
+    b.output = ToToken(binding.output);
+    b.nativeType = ToToken(binding.nativeType);
+    b.destination = ToToken(binding.destination);
     b.destinationShape = binding.destinationShape;
     b.domain = binding.domain;
-    b.literal = binding.literal;
+    b.literal = ToEngineValue(binding.literal);
     return b;
 }
 

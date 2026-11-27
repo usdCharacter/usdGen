@@ -8,13 +8,12 @@
 // usdGen's directory. Neither registers a curve publisher: the curves' Hydra
 // adapter (usdGenHydraCurves) does, and only before the registries freeze.
 
+#include "utils/testToken.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/publisher.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/typeRegistry.h"
-
-#include "pxr/base/tf/token.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -22,7 +21,6 @@
 #include <initializer_list>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
 
 namespace {
@@ -37,12 +35,12 @@ void Check(bool ok, std::string const &what)
 
 bool HasOp(char const *name)
 {
-    return UsdGenOpRegistry::Get().Find(TfToken(name)) != UsdGenOpId::Invalid;
+    return UsdGenOpRegistry::Get().Find(TestToken(name)) != UsdGenOpId::Invalid;
 }
 
 UsdGenTypeId TypeOf(char const *name)
 {
-    return UsdGenTypeRegistry::Get().Find(TfToken(name));
+    return UsdGenTypeRegistry::Get().Find(TestToken(name));
 }
 
 void CheckPrimitives(std::string const &mode)
@@ -50,7 +48,7 @@ void CheckPrimitives(std::string const &mode)
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     Check(HasOp("UsdGenScatter") && HasOp("UsdGenNoise") && HasOp("UsdGenExprOp"),
           mode + ": built-in ops registered");
-    Check(ops.Find(TfToken("UsdGenScatter")) == UsdGenOpId(0), mode + ": Scatter keeps op id 0");
+    Check(ops.Find(TestToken("UsdGenScatter")) == UsdGenOpId(0), mode + ": Scatter keeps op id 0");
     Check(ops.ParamEvaluator().create != nullptr, mode + ": usdGenExpr's parameter evaluator");
     UsdGenTypeId const curves = TypeOf("UsdGenCurveSet");
     Check(curves != UsdGenTypeId::Invalid, mode + ": UsdGenCurveSet type");
@@ -104,10 +102,10 @@ int RunDefaults()
     Check(UsdGenEngineEnsureInitialized(&error) && error.empty(),
           "default extensions load from usdGen's directory: " + error);
     CheckPrimitives("defaults");
-    Check(UsdGenFindBackend(TfToken("cpu")) == kUsdGenBackendCpu &&
+    Check(UsdGenFindBackend(TestToken("cpu")) == kUsdGenBackendCpu &&
               UsdGenGetBackend(kUsdGenBackendCpu) == nullptr,
           "defaults: the CPU is built in");
-    Check(UsdGenFindBackend(TfToken("noSuchBackend")) == UsdGenBackendId::Invalid,
+    Check(UsdGenFindBackend(TestToken("noSuchBackend")) == UsdGenBackendId::Invalid,
           "defaults: an unregistered name finds no backend");
     // A host that registers its publisher after the first compile is too late:
     // the type publishes nothing (the cooker says so once per session).
@@ -119,7 +117,7 @@ int RunDefaults()
     Check(UsdGenFindPublisher(TypeOf("UsdGenCurveSet")) == nullptr,
           "defaults: no curve publisher after a late registration");
 #if defined(USDGEN_TEST_VULKAN_BACKEND)
-    UsdGenBackendId const vk = UsdGenFindBackend(TfToken("vulkan"));
+    UsdGenBackendId const vk = UsdGenFindBackend(TestToken("vulkan"));
     UsdGenBackendDef const *def = UsdGenGetBackend(vk);
     Check(vk != UsdGenBackendId::Invalid && def && def->createProvider &&
               std::strcmp(UsdGenBackendName(vk), "vulkan") == 0,

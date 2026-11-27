@@ -59,8 +59,8 @@
 #include "usdGen/types.h"
 #include "usdGenMath/usdGenMath/hash.h"
 
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/vt/types.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
 
 #include <nanoflann.hpp>
 
@@ -72,8 +72,10 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -160,14 +162,14 @@ int AuthoredEnum(UsdGenParamView const &p, UsdGenParamSlot slot, int fallback)
 {
     UsdGenResolvedParam const *r = p.Slot(slot);
     if (!r || !r->authored) return fallback;
-    VtValue const &v = r->authored->value;
-    return v.IsHolding<TfToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
+    UsdGenValue const &v = r->authored->value;
+    return v.IsHolding<UsdGenToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
 }
 
 /// Clump plane name: pre-interned for the first kClumpLevels levels.
 constexpr char const *kClumpFamily[4] = {"clumpId_", "clumpCenter_", "clumpCenterId_",
                                          "clumpWeight_"};
-TfToken ClumpPlaneName(UsdGenOpRecord const &record, int level, int family)
+UsdGenToken ClumpPlaneName(UsdGenOpRecord const &record, int level, int family)
 {
     if (level >= 0 && level < kClumpLevels)
         return record.Token(uint16_t(kTokClump0 + level * 4 + family));
@@ -176,29 +178,29 @@ TfToken ClumpPlaneName(UsdGenOpRecord const &record, int level, int family)
 
 /// A point/normal array parameter as float vectors (point3f[] / normal3f[],
 /// double spellings tolerated). False when the value has another type.
-bool ReadVec3s(VtValue const &value, std::vector<guideBlend::V3> *out)
+bool ReadVec3s(UsdGenValue const &value, std::vector<guideBlend::V3> *out)
 {
     out->clear();
     if (value.IsEmpty()) return true;
-    if (value.IsHolding<VtVec3fArray>()) {
-        for (GfVec3f const &p : value.UncheckedGet<VtVec3fArray>())
+    if (value.IsHolding<UsdGenVec3fArray>()) {
+        for (UsdGenVec3f const &p : value.UncheckedGet<UsdGenVec3fArray>())
             out->push_back({p[0], p[1], p[2]});
         return true;
     }
-    if (value.IsHolding<VtVec3dArray>()) {
-        for (GfVec3d const &p : value.UncheckedGet<VtVec3dArray>())
+    if (value.IsHolding<UsdGenVec3dArray>()) {
+        for (UsdGenVec3d const &p : value.UncheckedGet<UsdGenVec3dArray>())
             out->push_back({float(p[0]), float(p[1]), float(p[2])});
         return true;
     }
     return false;
 }
 
-bool ReadInts(VtValue const &value, std::vector<int> *out)
+bool ReadInts(UsdGenValue const &value, std::vector<int> *out)
 {
     out->clear();
     if (value.IsEmpty()) return true;
-    if (!value.IsHolding<VtIntArray>()) return false;
-    VtIntArray const &a = value.UncheckedGet<VtIntArray>();
+    if (!value.IsHolding<UsdGenIntArray>()) return false;
+    UsdGenIntArray const &a = value.UncheckedGet<UsdGenIntArray>();
     out->assign(a.begin(), a.end());
     return true;
 }
@@ -210,15 +212,15 @@ bool ReadParting(UsdGenParamView const *p, Settings const &s, guideBlend::Partin
     std::vector<guideBlend::V3> points, normals;
     std::vector<int> counts;
     if (p) {
-        if (!ReadVec3s(p->GetValue(kPartPoints, VtValue()), &points)) {
+        if (!ReadVec3s(p->GetValue(kPartPoints, UsdGenValue()), &points)) {
             *error = "usdGen:part:points must be a point3f[]";
             return false;
         }
-        if (!ReadInts(p->GetValue(kPartCounts, VtValue()), &counts)) {
+        if (!ReadInts(p->GetValue(kPartCounts, UsdGenValue()), &counts)) {
             *error = "usdGen:part:counts must be an int[]";
             return false;
         }
-        if (!ReadVec3s(p->GetValue(kPartNormals, VtValue()), &normals)) {
+        if (!ReadVec3s(p->GetValue(kPartNormals, UsdGenValue()), &normals)) {
             *error = "usdGen:part:normals must be a normal3f[]";
             return false;
         }
@@ -338,7 +340,7 @@ void Resample(float const *points, size_t count, size_t n, float *out)
 
 /// The guide set's per-curve plane `name` as ints (int or float uniform,
 /// arity 1), or empty.
-std::vector<int> CurveInts(UsdGenCurveSetView const &buffer, TfToken const &name)
+std::vector<int> CurveInts(UsdGenCurveSetView const &buffer, UsdGenToken const &name)
 {
     for (uint32_t k = 0; k < buffer.ExtraCurveCount(); ++k) {
         UsdGenPlaneView const plane = buffer.ExtraCurve(k);
@@ -439,7 +441,7 @@ UsdGenEpoch UsdGenGuideInterpolateOp::CaptureDigest(UsdGenCaptureContext const &
     if (UsdGenParamView const *p = ctx.params) {
         for (UsdGenParamSlot s = 0; s < Record().ParamCount(); ++s) {
             d.Mix(Record().ParamName(s));
-            d.Mix(p->GetValue(s, VtValue()));
+            d.Mix(p->GetValue(s, UsdGenValue()));
         }
     }
     d.Mix(uint64_t(ctx.seed));
@@ -504,18 +506,18 @@ bool UsdGenGuideInterpolateOp::Capture(
     // --- strand roots, frames and regions ------------------------------------
     std::vector<float> roots(R * 3), rest(R * 3);
     for (size_t c = 0; c < R; ++c) {
-        GfVec3f const cur = opUtil::Point(upstream, rootSpans[c]);
-        GfVec3f const r = opUtil::RestPoint(upstream, rootSpans[c]);
+        UsdGenVec3f const cur = opUtil::Point(upstream, rootSpans[c]);
+        UsdGenVec3f const r = opUtil::RestPoint(upstream, rootSpans[c]);
         for (int d = 0; d < 3; ++d) { roots[c * 3 + d] = cur[d]; rest[c * 3 + d] = r[d]; }
     }
     auto hairNormal = [&](size_t c) {
         return upstream.rootN.size() == R ? opUtil::Normalized(upstream.rootN[c])
-                                          : GfVec3f(0, 1, 0);
+                                          : UsdGenVec3f(0, 1, 0);
     };
     // The root normal as authored (unit from the scatter), for the reference math.
     auto rawNormal = [&](size_t c) -> guideBlend::V3 {
         if (upstream.rootN.size() == R) {
-            GfVec3f const nrm = upstream.rootN[c];
+            UsdGenVec3f const nrm = upstream.rootN[c];
             if (nrm.GetLengthSq() > 1e-24f) return {nrm[0], nrm[1], nrm[2]};
         }
         return {0.0f, 1.0f, 0.0f};
@@ -578,15 +580,15 @@ bool UsdGenGuideInterpolateOp::Capture(
             if (guideSpans[g + 1] == guideSpans[g]) continue;
             size_t const first = guideSpans[g];
             if (guides.rootN.size() == G) {
-                GfVec3f const nrm = guides.rootN[g];
+                UsdGenVec3f const nrm = guides.rootN[g];
                 guideNormals[g] = {nrm[0], nrm[1], nrm[2]};
                 continue;
             }
-            GfVec3f const root(guides.px[first], guides.py[first], guides.pz[first]);
+            UsdGenVec3f const root(guides.px[first], guides.py[first], guides.pz[first]);
             if (!bvh.Empty()) {
                 strand::ClosestHit const hit = bvh.Closest(root);
                 if (hit.hit) {
-                    GfVec3f const nrm = bvh.Normal(hit.triangle, hit.bary);
+                    UsdGenVec3f const nrm = bvh.Normal(hit.triangle, hit.bary);
                     guideNormals[g] = {nrm[0], nrm[1], nrm[2]};
                     continue;
                 }
@@ -674,7 +676,7 @@ bool UsdGenGuideInterpolateOp::Capture(
     } else {
         // --- falloff: guides -------------------------------------------------
         std::vector<float> guideRoot(G * 3), guideShape(G * n * 3), guideLength(G * n, 0.0f);
-        std::vector<GfVec3f> guideNormal(G, GfVec3f(0, 1, 0));
+        std::vector<UsdGenVec3f> guideNormal(G, UsdGenVec3f(0, 1, 0));
         std::vector<int64_t> guideRegion(G, 0);
         std::vector<float> points;
         for (size_t g = 0; g < G; ++g) {
@@ -691,7 +693,7 @@ bool UsdGenGuideInterpolateOp::Capture(
             for (size_t k = n; k-- > 0;)
                 for (int d = 0; d < 3; ++d) shape[k * 3 + d] -= shape[d];   // root-local
             for (size_t k = 1; k < n; ++k) {
-                GfVec3f const seg(shape[k * 3] - shape[(k - 1) * 3],
+                UsdGenVec3f const seg(shape[k * 3] - shape[(k - 1) * 3],
                                   shape[k * 3 + 1] - shape[(k - 1) * 3 + 1],
                                   shape[k * 3 + 2] - shape[(k - 1) * 3 + 2]);
                 guideLength[g * n + k] = seg.GetLength();
@@ -711,7 +713,7 @@ bool UsdGenGuideInterpolateOp::Capture(
         for (uint32_t g : tables.curve) eligible[g] = 1;
 
         ParallelFor(ctx.dispatcher, R, [&](size_t c) {
-            GfVec3f const normal = hairNormal(c);
+            UsdGenVec3f const normal = hairNormal(c);
             float const *q = &rest[c * 3];
             struct Candidate { uint32_t guide; double weight; };
             Candidate keep[kMaxCandidates];
@@ -721,7 +723,7 @@ bool UsdGenGuideInterpolateOp::Capture(
             size_t const k = std::min(G, kMaxCandidates);
             size_t const hits = guideIndex.knnSearch(q, k, found, distances);
             auto angleOk = [&](uint32_t g) {
-                return s.maxAngle >= 180.0 || double(GfDot(normal, guideNormal[g])) >= cosMax - 1e-9;
+                return s.maxAngle >= 180.0 || double(UsdGenDot(normal, guideNormal[g])) >= cosMax - 1e-9;
             };
             for (size_t j = 0; j < hits; ++j) {
                 uint32_t const g = found[j];
@@ -799,29 +801,29 @@ bool UsdGenGuideInterpolateOp::Capture(
 
             // Compose, at the rest root.
             float *outRest = &restResult[c * n * 3];
-            GfVec3f previous(q[0], q[1], q[2]);
+            UsdGenVec3f previous(q[0], q[1], q[2]);
             for (size_t i = 0; i < n; ++i) {
-                GfVec3f value(0.0f);
+                UsdGenVec3f value(0.0f);
                 float length = 0.0f;
                 for (size_t j = 0; j < kept; ++j) {
                     uint32_t const g = keep[j].guide;
                     float const w = float(keep[j].weight);
                     float const *shape = &guideShape[g * n * 3];
-                    GfVec3f local = s.extrude && i > 0
-                        ? GfVec3f(shape[i * 3] - shape[(i - 1) * 3],
+                    UsdGenVec3f local = s.extrude && i > 0
+                        ? UsdGenVec3f(shape[i * 3] - shape[(i - 1) * 3],
                                   shape[i * 3 + 1] - shape[(i - 1) * 3 + 1],
                                   shape[i * 3 + 2] - shape[(i - 1) * 3 + 2])
-                        : GfVec3f(shape[i * 3], shape[i * 3 + 1], shape[i * 3 + 2]);
+                        : UsdGenVec3f(shape[i * 3], shape[i * 3 + 1], shape[i * 3 + 2]);
                     local = opUtil::RotateOnto(local, guideNormal[g], normal, float(s.skin));
                     value += local * w;
                     length += guideLength[g * n + i] * w;
                 }
-                GfVec3f point;
+                UsdGenVec3f point;
                 if (s.extrude && i > 0) {
                     float const l = value.GetLength();
-                    point = previous + (l > 1e-12f ? value * (length / l) : GfVec3f(0.0f));
+                    point = previous + (l > 1e-12f ? value * (length / l) : UsdGenVec3f(0.0f));
                 } else {
-                    point = GfVec3f(q[0], q[1], q[2]) + value;
+                    point = UsdGenVec3f(q[0], q[1], q[2]) + value;
                 }
                 previous = point;
                 for (int d = 0; d < 3; ++d) outRest[i * 3 + d] = point[d];
@@ -853,18 +855,18 @@ bool UsdGenGuideInterpolateOp::Capture(
     buf.totalCvs = uint32_t(R * n);
     buf.topologyVersion = upstream.topologyVersion + 1;
     buf.cvOffsets.clear();
-    buf.px = VtFloatArray(R * n);
-    buf.py = VtFloatArray(R * n);
-    buf.pz = VtFloatArray(R * n);
-    buf.hairT = VtFloatArray(R * n);
-    buf.width = VtFloatArray(widths.begin(), widths.end());
-    buf.rest = VtVec3fArray(R * n);
+    buf.px = UsdGenFloatArray(R * n);
+    buf.py = UsdGenFloatArray(R * n);
+    buf.pz = UsdGenFloatArray(R * n);
+    buf.hairT = UsdGenFloatArray(R * n);
+    buf.width = UsdGenFloatArray(widths.begin(), widths.end());
+    buf.rest = UsdGenVec3fArray(R * n);
     for (size_t o = 0; o < R * n; ++o) {
         buf.px[o] = cap.result[o * 3];
         buf.py[o] = cap.result[o * 3 + 1];
         buf.pz[o] = cap.result[o * 3 + 2];
         buf.hairT[o] = float(o % n) / float(n - 1);
-        buf.rest[o] = GfVec3f(restResult[o * 3], restResult[o * 3 + 1], restResult[o * 3 + 2]);
+        buf.rest[o] = UsdGenVec3f(restResult[o * 3], restResult[o * 3 + 1], restResult[o * 3 + 2]);
     }
     // Upstream planes (strandIndex, strandSeed, ...) follow their strands.
     std::string planeError;
@@ -881,7 +883,7 @@ bool UsdGenGuideInterpolateOp::Capture(
         bool perCv = false;
         return guides.FindPlane(ClumpPlaneName(record, level, 0), out, &perCv) && !perCv;
     };
-    auto erasePlane = [&buf](TfToken const &name) {
+    auto erasePlane = [&buf](UsdGenToken const &name) {
         auto eraseNamed = [&name](std::vector<UsdGenPlane> *planes) {
             planes->erase(std::remove_if(planes->begin(), planes->end(),
                 [&name](UsdGenPlane const &plane) { return plane.name == name; }), planes->end());
@@ -892,7 +894,7 @@ bool UsdGenGuideInterpolateOp::Capture(
     auto insertNamed = [&buf](UsdGenPlane plane, bool vertex) {
         auto &planes = vertex ? buf.extraCv : buf.extraCurve;
         auto it = std::lower_bound(planes.begin(), planes.end(), plane.name,
-            [](UsdGenPlane const &a, TfToken const &b) { return a.name < b; });
+            [](UsdGenPlane const &a, UsdGenToken const &b) { return a.name < b; });
         if (it != planes.end() && it->name == plane.name) *it = std::move(plane);
         else planes.insert(it, std::move(plane));
     };
@@ -905,21 +907,21 @@ bool UsdGenGuideInterpolateOp::Capture(
         outId.name = ClumpPlaneName(record, level.level, 0);
         outId.interpolation = tk.uniform;
         outId.type = tk.int_;
-        outId.i = VtIntArray(R, -1);
+        outId.i = UsdGenIntArray(R, -1);
         outCenter.name = ClumpPlaneName(record, level.level, 1);
         outCenter.interpolation = tk.uniform;
         outCenter.type = tk.float_;
         outCenter.arity = 3;
-        outCenter.f = VtFloatArray(R * 3, 0.0f);
+        outCenter.f = UsdGenFloatArray(R * 3, 0.0f);
         outCenterId.name = ClumpPlaneName(record, level.level, 2);
         outCenterId.interpolation = tk.uniform;
         outCenterId.type = tk.int_;
         outCenterId.arity = 2;
-        outCenterId.i = VtIntArray(R * 2, 0);
+        outCenterId.i = UsdGenIntArray(R * 2, 0);
         outWeight.name = ClumpPlaneName(record, level.level, 3);
         outWeight.interpolation = tk.vertex;
         outWeight.type = tk.float_;
-        outWeight.f = VtFloatArray(R * n, 0.0f);
+        outWeight.f = UsdGenFloatArray(R * n, 0.0f);
         for (size_t c = 0; c < R; ++c) {
             uint32_t selected = UINT32_MAX;
             float selectedShare = 0.0f;
@@ -976,7 +978,7 @@ bool UsdGenGuideInterpolateOp::Capture(
                 outWeight.f[c * n + i] = std::clamp(blended, 0.0f, 1.0f);
             }
         }
-        for (TfToken const &name : {outId.name, outCenter.name,
+        for (UsdGenToken const &name : {outId.name, outCenter.name,
                                     outCenterId.name, outWeight.name}) erasePlane(name);
         insertNamed(std::move(outId), false);
         insertNamed(std::move(outCenter), false);
@@ -986,17 +988,17 @@ bool UsdGenGuideInterpolateOp::Capture(
     auto insertPlane = [&buf](UsdGenPlane plane) {
         auto &planes = buf.extraCurve;
         auto it = std::lower_bound(planes.begin(), planes.end(), plane.name,
-            [](UsdGenPlane const &a, TfToken const &b) { return a.name < b; });
+            [](UsdGenPlane const &a, UsdGenToken const &b) { return a.name < b; });
         if (it != planes.end() && it->name == plane.name) *it = std::move(plane);
         else planes.insert(it, std::move(plane));
     };
-    auto intPlane = [&](TfToken const &name, std::vector<int> const &values, uint8_t arity) {
+    auto intPlane = [&](UsdGenToken const &name, std::vector<int> const &values, uint8_t arity) {
         UsdGenPlane plane;
         plane.name = name;
         plane.interpolation = tk.uniform;
         plane.type = tk.int_;
         plane.arity = arity;
-        plane.i = VtIntArray(values.begin(), values.end());
+        plane.i = UsdGenIntArray(values.begin(), values.end());
         insertPlane(std::move(plane));
     };
     intPlane(record.Token(kTokGuideIndex), planeIndex, 3);
@@ -1005,7 +1007,7 @@ bool UsdGenGuideInterpolateOp::Capture(
     weight.interpolation = tk.uniform;
     weight.type = tk.float_;
     weight.arity = 3;
-    weight.f = VtFloatArray(planeWeight.begin(), planeWeight.end());
+    weight.f = UsdGenFloatArray(planeWeight.begin(), planeWeight.end());
     insertPlane(std::move(weight));
     intPlane(record.Token(kTokPrimaryGuide), primaryGuide, 1);
     intPlane(record.Token(kTokNearestGuide), nearestGuide, 1);
@@ -1027,7 +1029,7 @@ void UsdGenGuideInterpolateOp::Evaluate(
 {
     UsdGenCurveChunk curve(chunk);
     UsdGenCurveChunk const *view = &curve;
-    TF_UNUSED(ctx);
+    (void)ctx;
     auto const &cap = static_cast<UsdGenGuideInterpolateCapture const &>(captureIn);
     size_t const n = cap.cvCount;
     size_t const curveBase = view->desc ? size_t(view->desc->firstCurve) : 0;

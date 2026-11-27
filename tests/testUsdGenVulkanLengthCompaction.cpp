@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenCurves/vulkan/lengthCompactionPipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
@@ -53,7 +54,7 @@ static bool Capture(std::shared_ptr<NativeOwner> const& native,
     auto add = [&](VulkanSourceGeneration::PlaneView const& plane) {
         std::vector<uint8_t> bytes;
         return ReadVulkanBytes(native, context, plane.buffer, plane.bytes, generation, &bytes) &&
-            packet->emplace(plane.metadata.name, std::move(bytes)).second;
+            packet->emplace(plane.metadata.name.GetString(), std::move(bytes)).second;
     };
     for (auto const& plane : generation->planes()) if (!add(plane)) return false;
     for (auto const& plane : generation->sourceFrames()) if (!add(plane)) return false;
@@ -93,10 +94,10 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     // Lengths are exactly 1, 0, 2, and 3.  The equality case is deliberately
     // curve zero: threshold 1 must retain it, preserving source order 0,2,3.
     source.px = {0,1, 4,4,4, 0,2, 0,0,0,0};
-    source.py = VtFloatArray(11, 0); source.pz = {0,0, 0,0,0, 0,0, 0,1,2,3};
+    source.py = usdGen::UsdGenFloatArray(11, 0); source.pz = {0,0, 0,0,0, 0,0, 0,1,2,3};
     source.rest.reserve(11); source.width.reserve(11); source.hairT.reserve(11);
     for (uint32_t i = 0; i != 11; ++i) {
-        source.rest.push_back(GfVec3f(float(i), float(i + 10), float(i + 20)));
+        source.rest.push_back(usdGen::UsdGenVec3f(float(i), float(i + 10), float(i + 20)));
         source.width.push_back(float(i) + .25f); source.hairT.push_back(float(i) / 10.f);
     }
     source.cvOffsets = {0,2,5,7,11}; source.curveId = {100,101,102,103};
@@ -105,13 +106,13 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     source.rootT = {{1,0,0},{0,1,0},{0,0,1},{1,1,0}};
     source.rootB = {{0,1,0},{0,0,1},{1,0,0},{0,1,1}};
     source.rootN = {{0,0,1},{1,0,0},{0,1,0},{1,0,1}};
-    UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.1f,.2f,.3f,.4f}};
-    UsdGenPlane point; point.name = TfToken("pointExtra"); point.interpolation = TfToken("vertex");
-    point.type = TfToken("float"); point.arity = 2;
+    UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.1f,.2f,.3f,.4f}};
+    UsdGenPlane point; point.name = TestToken("pointExtra"); point.interpolation = TestToken("vertex");
+    point.type = TestToken("float"); point.arity = 2;
     for (uint32_t i = 0; i != 22; ++i) point.f.push_back(float(i) + .125f);
     source.extraCv = {point};
-    UsdGenPlane primitive; primitive.name = TfToken("primitiveExtra"); primitive.interpolation = TfToken("uniform");
-    primitive.type = TfToken("int"); primitive.arity = 1; primitive.i = {30,31,32,33};
+    UsdGenPlane primitive; primitive.name = TestToken("primitiveExtra"); primitive.interpolation = TestToken("uniform");
+    primitive.type = TestToken("int"); primitive.arity = 1; primitive.i = {30,31,32,33};
     source.extraCurve = {maskPlane, primitive};
     source.chunks.resize(2);
     source.chunks[0].firstCurve = 0; source.chunks[0].curveCount = 2; source.chunks[0].liveCount = 2;
@@ -122,13 +123,13 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     info.geometry.alreadyDeformed = true;
     info.geometry.tiles = {{7,0,2,0,5}, {9,2,2,5,6}};
     float groom[] = {9.5f, 7.25f};
-    info.additionalNamed.push_back({{TfToken("GroomNamed"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 2, 8, true}, Bytes(groom, 2)});
+    info.additionalNamed.push_back({{TestToken("GroomNamed"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 2, 8, true}, Bytes(groom, 2)});
     uint32_t primitiveNamed[] = {400,401,402,403};
-    info.additionalNamed.push_back({{TfToken("PrimitiveNamed"), UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 4, 1, 4, true}, Bytes(primitiveNamed, 4)});
+    info.additionalNamed.push_back({{TestToken("PrimitiveNamed"), UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 4, 1, 4, true}, Bytes(primitiveNamed, 4)});
     // 5-byte records prove byte-addressed scatter does not overlap odd strides.
     std::vector<uint8_t> odd(5 * 10 + 4);
     for (size_t i = 0; i != odd.size(); ++i) odd[i] = uint8_t(17 + i);
-    info.additionalNamed.push_back({{TfToken("PointNamed"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 11, 1, 5, true}, std::move(odd)});
+    info.additionalNamed.push_back({{TestToken("PointNamed"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 11, 1, 5, true}, std::move(odd)});
     return info;
 }
 
@@ -149,10 +150,10 @@ static VulkanSourceGenerationCreateInfo LargeFixture(std::shared_ptr<DeviceConte
     }
     uint32_t const points = s.cvOffsets.back();
     s.totalCvs = points;
-    s.px.reserve(points); s.py = VtFloatArray(points, 0.f); s.pz = VtFloatArray(points, 0.f);
+    s.px.reserve(points); s.py = usdGen::UsdGenFloatArray(points, 0.f); s.pz = usdGen::UsdGenFloatArray(points, 0.f);
     s.rest.reserve(points); s.width.reserve(points); s.hairT.reserve(points);
     for (uint32_t c = 0; c != curves; ++c) for (uint32_t j = 0; j != c % 5; ++j) {
-        s.px.push_back(float(j)); s.rest.push_back(GfVec3f(float(c), float(j), 0));
+        s.px.push_back(float(j)); s.rest.push_back(usdGen::UsdGenVec3f(float(c), float(j), 0));
         s.width.push_back(float(c) + .5f); s.hairT.push_back(float(j));
     }
     for (uint32_t first : {0u,171u,342u}) {
@@ -167,7 +168,7 @@ static VulkanSourceGenerationCreateInfo LargeFixture(std::shared_ptr<DeviceConte
                                    UsdGenCurveLayoutWrap::Pinned);
     info.geometry.alreadyDeformed = true;
     float groom[] = {3.25f};
-    info.additionalNamed.push_back({{TfToken("LargeGroom"), UsdGenDeviceValueType::Float32,
+    info.additionalNamed.push_back({{TestToken("LargeGroom"), UsdGenDeviceValueType::Float32,
                                      UsdGenDeviceDomain::Groom, 1, 1, 4, true}, Bytes(groom, 1)});
     return info;
 }
@@ -194,18 +195,18 @@ static bool CompletePacket(std::shared_ptr<NativeOwner> const& native,
         offsets.push_back(offsets.back() + ends[curve] - begins[curve]);
     }
     for (auto const& plane : value->planes()) {
-        auto const inputIt = input.find(plane.metadata.name); if (inputIt == input.end()) return false;
+        auto const inputIt = input.find(plane.metadata.name.GetString()); if (inputIt == input.end()) return false;
         if (plane.metadata.name == "curveOffsets") {
-            if (got.at(plane.metadata.name) != Bytes(offsets.data(), offsets.size())) return false;
+            if (got.at(plane.metadata.name.GetString()) != Bytes(offsets.data(), offsets.size())) return false;
         } else if (plane.metadata.domain == UsdGenDeviceDomain::Point) {
-            if (got.at(plane.metadata.name) != Gather(inputIt->second, plane.metadata, points)) return false;
+            if (got.at(plane.metadata.name.GetString()) != Gather(inputIt->second, plane.metadata, points)) return false;
         } else if (plane.metadata.domain == UsdGenDeviceDomain::Primitive) {
-            if (got.at(plane.metadata.name) != Gather(inputIt->second, plane.metadata, curves)) return false;
-        } else if (got.at(plane.metadata.name) != inputIt->second) return false;
+            if (got.at(plane.metadata.name.GetString()) != Gather(inputIt->second, plane.metadata, curves)) return false;
+        } else if (got.at(plane.metadata.name.GetString()) != inputIt->second) return false;
     }
     for (auto const& frame : value->sourceFrames()) {
-        auto const inputIt = input.find(frame.metadata.name); if (inputIt == input.end() ||
-            got.at(frame.metadata.name) != Gather(inputIt->second, frame.metadata, curves)) return false;
+        auto const inputIt = input.find(frame.metadata.name.GetString()); if (inputIt == input.end() ||
+            got.at(frame.metadata.name.GetString()) != Gather(inputIt->second, frame.metadata, curves)) return false;
     }
     return true;
 }
@@ -218,17 +219,17 @@ static bool CompleteRaggedPacket(std::shared_ptr<NativeOwner> const& native,
     std::vector<uint32_t> offsets{0};
     for (uint32_t c : curves) offsets.push_back(offsets.back() + sourceOffsets[c + 1] - sourceOffsets[c]);
     for (auto const& plane : value->planes()) {
-        auto it = input.find(plane.metadata.name); if (it == input.end()) return false;
+        auto it = input.find(plane.metadata.name.GetString()); if (it == input.end()) return false;
         if (plane.metadata.name == "curveOffsets") {
-            if (got.at(plane.metadata.name) != Bytes(offsets.data(), offsets.size())) return false;
+            if (got.at(plane.metadata.name.GetString()) != Bytes(offsets.data(), offsets.size())) return false;
         } else if (plane.metadata.domain == UsdGenDeviceDomain::Point) {
-            if (got.at(plane.metadata.name) != Gather(it->second, plane.metadata, points)) return false;
+            if (got.at(plane.metadata.name.GetString()) != Gather(it->second, plane.metadata, points)) return false;
         } else if (plane.metadata.domain == UsdGenDeviceDomain::Primitive) {
-            if (got.at(plane.metadata.name) != Gather(it->second, plane.metadata, curves)) return false;
-        } else if (got.at(plane.metadata.name) != it->second) return false;
+            if (got.at(plane.metadata.name.GetString()) != Gather(it->second, plane.metadata, curves)) return false;
+        } else if (got.at(plane.metadata.name.GetString()) != it->second) return false;
     }
     for (auto const& frame : value->sourceFrames()) {
-        auto it = input.find(frame.metadata.name); if (it == input.end() || got.at(frame.metadata.name) != Gather(it->second, frame.metadata, curves)) return false;
+        auto it = input.find(frame.metadata.name.GetString()); if (it == input.end() || got.at(frame.metadata.name.GetString()) != Gather(it->second, frame.metadata, curves)) return false;
     }
     return true;
 }
@@ -249,7 +250,7 @@ int main(int argc, char** argv) {
     CHECK(!pipeline->Begin(base, -1.f, &status));
     CHECK(!pipeline->Begin(base, std::numeric_limits<float>::infinity(), &status));
     CHECK(!pipeline->Begin(base, std::numeric_limits<float>::quiet_NaN(), &status));
-    CHECK(!base->PlaneOwner(TfToken("sourceRootT")) && base->SourceFrameOwner(TfToken("sourceRootT")));
+    CHECK(!base->PlaneOwner(TestToken("sourceRootT")) && base->SourceFrameOwner(TestToken("sourceRootT")));
     bool admissionCalled = false;
     CHECK(!pipeline->Begin(base, 1.f, &status, [&] { admissionCalled = true; return false; }) && admissionCalled);
     auto compact = [&](std::shared_ptr<const VulkanSourceGeneration> input, float threshold, uint64_t version) {
@@ -294,8 +295,8 @@ int main(int argc, char** argv) {
     // full workgroups plus a partial ninth, checking ragged source offsets.
     auto large = Upload(native, LargeFixture(context)); CHECK(large && large->curveCount() == 513);
     Packet largeOriginal; CHECK(Capture(native, context, large, &largeOriginal));
-    CHECK(large->PlaneOwner(TfToken("sourceRootT")) == nullptr && large->SourceFrameOwner(TfToken("sourceRootT")));
-    CHECK(large->PlaneOwner(TfToken("LargeGroom")));
+    CHECK(large->PlaneOwner(TestToken("sourceRootT")) == nullptr && large->SourceFrameOwner(TestToken("sourceRootT")));
+    CHECK(large->PlaneOwner(TestToken("LargeGroom")));
     auto largeOffsets = std::vector<uint32_t>(514, 0);
     for (uint32_t c = 0; c != 513; ++c) largeOffsets[c + 1] = largeOffsets[c] + c % 5;
     std::vector<uint32_t> survivors, survivorPoints;
@@ -313,7 +314,7 @@ int main(int argc, char** argv) {
     CHECK(!largeCandidate->BeginScatter(&status, [&] { scatterAdmission = true; return false; }) && scatterAdmission);
     auto largeSubset = compact(large, 2.f, 124); CHECK(largeSubset && largeSubset->curveCount() == survivors.size());
     CHECK(CompleteRaggedPacket(native, context, largeSubset, largeOriginal, survivors, survivorPoints, largeOffsets));
-    CHECK(largeSubset->PlaneOwner(TfToken("LargeGroom")) == large->PlaneOwner(TfToken("LargeGroom")));
+    CHECK(largeSubset->PlaneOwner(TestToken("LargeGroom")) == large->PlaneOwner(TestToken("LargeGroom")));
     // Every source chunk/tile retains its identity while its range is prefix-
     // compacted.  In particular, a chunk with no survivors has zero counts
     // but still remains present for downstream tile scheduling.

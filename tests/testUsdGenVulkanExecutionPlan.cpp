@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/pxrInterop.h"
 #include "usdGen/executionBackend.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
@@ -93,7 +94,7 @@ UsdGenGraphDesc MakeRootedDesc(TfToken const& rebind = TfToken("never")) {
     auto& curves = desc.curveSets[0];
     curves.skinPrim = {0};
     curves.skinPrimUv = {{.25f, .25f}};
-    curves.rootFrame = VtMatrix4dArray(1, GfMatrix4d(1.0));
+    curves.rootFrame = usdGen::UsdGenMatrix4dArray(1, usdGen::UsdGenMatrix4d(1.0));
     return desc;
 }
 
@@ -387,7 +388,7 @@ int main() {
         source.curveId = {99, 3};
         source.skinPrim = {0, 0};
         source.skinPrimUv = {{0, 0}, {.5f, 0}};
-        source.rootFrame = VtMatrix4dArray(2, GfMatrix4d(1.0));
+        source.rootFrame = usdGen::UsdGenMatrix4dArray(2, usdGen::UsdGenMatrix4d(1.0));
         UsdGenNodeDesc deform;
         deform.path = SdfPath("/Groom/Ops/deform");
         deform.type = TfToken("UsdGenDeform");
@@ -457,9 +458,9 @@ int main() {
     CHECK(plan->Width().width == .125f && !plan->Width().replace);
 
     // The descriptor and selected C3 snapshot are owned by the plan, not its caller.
-    desc.curveSets[0].points[0] = GfVec3f(9, 9, 9);
+    desc.curveSets[0].points[0] = usdGen::UsdGenVec3f(9, 9, 9);
     desc.nodes[1].params[0].value = VtValue(.5f);
-    CHECK(plan->Source().points[0] == GfVec3f(0, 0, 0) &&
+    CHECK(plan->Source().points[0] == usdGen::UsdGenVec3f(0, 0, 0) &&
           plan->Descriptor()->nodes[1].params[0].value == VtValue(.125f) &&
           plan->Width().width == .125f);
 
@@ -540,7 +541,7 @@ int main() {
     auto randomLengthDesc = lengthDesc;
     randomLengthDesc.nodes[1].seed = -17;
     randomLengthDesc.nodes[1].params.push_back(
-        {TfToken("length:random"), VtValue(GfVec2f(1.5f, .5f)), false});
+        {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(1.5f, .5f)), false});
     auto randomLengthHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(randomLengthDesc));
     CHECK(randomLengthHandle);
     auto randomLengthPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(randomLengthHandle->Payload());
@@ -564,7 +565,7 @@ int main() {
     cull.inputs = {cullDesc.nodes[0].path};
     cull.params = {{TfToken("length:mode"), VtValue(TfToken("cull")), false},
                    {TfToken("length:value"), VtValue(1.25f), false},
-                   {TfToken("length:random"), VtValue(GfVec2f(1,1)), false},
+                   {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(1,1)), false},
                    {TfToken("minRemainingLength"), VtValue(0.0f), false},
                    {TfToken("cullThreshold"), VtValue(.25f), false}};
     auto cullWidth = cullDesc.nodes[1]; cullWidth.path = SdfPath("/Groom/Ops/cullWidth");
@@ -995,16 +996,16 @@ int main() {
 
     // Non-neutral Set controls remain rejected.
     auto badSetRandom = setDesc;
-    badSetRandom.nodes[1].params.push_back({TfToken("length:random"), VtValue(GfVec2f(1.5f, .5f)), false});
+    badSetRandom.nodes[1].params.push_back({TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(1.5f, .5f)), false});
     diagnostics = {};
     auto randomSetHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(badSetRandom), &diagnostics);
     CHECK(randomSetHandle && !diagnostics.HasErrors());
     auto randomSetPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(randomSetHandle->Payload());
     CHECK(randomSetPlan && randomSetPlan->Steps()[0].randomLo == 1.5f &&
           randomSetPlan->Steps()[0].randomHi == .5f && randomSetPlan->Steps()[0].randomSeed == 0);
-    for (VtValue invalidRange : {VtValue(GfVec2f(-1.f, 1.f)),
-                                 VtValue(GfVec2f(std::numeric_limits<float>::quiet_NaN(), 1.f)),
-                                 VtValue(GfVec2f(1.f, std::numeric_limits<float>::infinity()))}) {
+    for (VtValue invalidRange : {VtValue(usdGen::UsdGenVec2f(-1.f, 1.f)),
+                                 VtValue(usdGen::UsdGenVec2f(std::numeric_limits<float>::quiet_NaN(), 1.f)),
+                                 VtValue(usdGen::UsdGenVec2f(1.f, std::numeric_limits<float>::infinity()))}) {
         auto invalidRandom = setDesc;
         invalidRandom.nodes[1].params.push_back({TfToken("length:random"), invalidRange, false});
         CHECK(Rejects(invalidRandom));
@@ -1013,12 +1014,12 @@ int main() {
     randomWrongType.nodes[1].params.push_back({TfToken("length:random"), VtValue(1.0f), false});
     CHECK(Rejects(randomWrongType));
     auto randomDuplicate = setDesc;
-    randomDuplicate.nodes[1].params.push_back({TfToken("length:random"), VtValue(GfVec2f(1, 1)), false});
-    randomDuplicate.nodes[1].params.push_back({TfToken("length:random"), VtValue(GfVec2f(2, 2)), false});
+    randomDuplicate.nodes[1].params.push_back({TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(1, 1)), false});
+    randomDuplicate.nodes[1].params.push_back({TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(2, 2)), false});
     CHECK(Rejects(randomDuplicate));
     auto animatedRandom = setDesc;
     animatedRandom.nodes[1].params.push_back(
-        {TfToken("length:random"), VtValue(GfVec2f(1.5f, .5f)), true});
+        {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(1.5f, .5f)), true});
     CHECK(Rejects(animatedRandom));
     auto inventedSeed = setDesc;
     inventedSeed.nodes[1].params.push_back({TfToken("length:seed"), VtValue(7), false});
@@ -1095,7 +1096,7 @@ int main() {
     auto randomCull = cullDesc;
     for (auto& parameter : randomCull.nodes[1].params)
         if (parameter.name == TfToken("length:random"))
-            parameter.value = VtValue(GfVec2f(1.5f, .5f));
+            parameter.value = VtValue(usdGen::UsdGenVec2f(1.5f, .5f));
     auto randomCullHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(randomCull), &diagnostics);
     CHECK(randomCullHandle);
     auto randomCullPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(randomCullHandle->Payload());
@@ -1248,7 +1249,7 @@ int main() {
 
     // Width uses the same authored LUT profile and interpolation as CUDA.
     auto profileDesc = MakeDesc();
-    profileDesc.nodes[1].params.push_back({TfToken("width:knots"), VtValue(VtVec2fArray{}), false});
+    profileDesc.nodes[1].params.push_back({TfToken("width:knots"), VtValue(usdGen::UsdGenVec2fArray{}), false});
     profileDesc.nodes[1].params.push_back({TfToken("width:interpolation"), VtValue(TfToken("catmullRom")), false});
     auto profileHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(profileDesc));
     CHECK(profileHandle);
@@ -1263,12 +1264,12 @@ int main() {
         bad.nodes[1].params.push_back({TfToken("width:interpolation"), VtValue(TfToken("linear")), false});
         CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(bad)));
         auto knots = MakeDesc();
-        knots.nodes[1].params.push_back({TfToken("width:knots"), VtValue(VtVec2fArray{{0.f, 1.f}}), false});
+        knots.nodes[1].params.push_back({TfToken("width:knots"), VtValue(usdGen::UsdGenVec2fArray{{0.f, 1.f}}), false});
         auto knotHandle=CompileVulkanSourceWidthPlan(usdGenUsd::Lower(knots));
         CHECK(knotHandle);
         auto knotPlan=std::static_pointer_cast<const VulkanSourceWidthPlan>(knotHandle->Payload());
         CHECK(knotPlan->Steps()[0].width.extended && knotPlan->Steps()[0].width.profile[0]==1.0f);
-        knots.nodes[1].params.back().value=VtValue(VtVec2fArray{{-.1f,1.f}});
+        knots.nodes[1].params.back().value=VtValue(usdGen::UsdGenVec2fArray{{-.1f,1.f}});
         CHECK(!CompileVulkanSourceWidthPlan(usdGenUsd::Lower(knots)));
     }
 
@@ -1474,13 +1475,13 @@ int main() {
     rooted.curveSets[0].rootFrame[0][0][0] = 2.0;
     CHECK(VtIntArray(rootedPlan->Source().skinPrim.begin(), rootedPlan->Source().skinPrim.end()) ==
               VtIntArray({0}) &&
-          rootedPlan->Source().rootFrame[0] == GfMatrix4d(1.0));
+          rootedPlan->Source().rootFrame[0] == usdGen::UsdGenMatrix4d(1.0));
 
     // Source and bound surface matrices describe relative coordinates, not
     // a request to bake world-space positions into the captured C3 planes.
     for (int variant = 0; variant != 5; ++variant) {
         auto affine = MakeRootedDesc();
-        GfMatrix4d matrix(1.0);
+        usdGen::UsdGenMatrix4d matrix(1.0);
         if (variant == 0) { matrix[3][0] = 3; matrix[3][1] = -4; }
         if (variant == 1) { matrix[0][0] = 0; matrix[0][1] = 1;
                             matrix[1][0] = -1; matrix[1][1] = 0; }
@@ -1520,7 +1521,7 @@ int main() {
         auto unrelated = MakeRootedDesc();
         auto surface = unrelated.surfaces[0];
         surface.path = SdfPath("/Groom/UnusedSurface");
-        surface.worldMatrix = GfMatrix4d(0.0);
+        surface.worldMatrix = usdGen::UsdGenMatrix4d(0.0);
         unrelated.surfaces.push_back(surface);
         CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(unrelated)));
     }
@@ -1534,7 +1535,7 @@ int main() {
         if (variant == 2) bad.surfaces.push_back(bad.surfaces[0]);
         if (variant == 3) bad.curveSets[0].rootFrame[0][0][3] = 1.0;
         if (variant == 4) bad.curveSets[0].rootFrame[0][0][0] = 2.0;
-        if (variant == 5) bad.curveSets[0].rootFrame.push_back(GfMatrix4d(1.0));
+        if (variant == 5) bad.curveSets[0].rootFrame.push_back(usdGen::UsdGenMatrix4d(1.0));
         CHECK(Rejects(bad));
     }
     {
@@ -1559,7 +1560,7 @@ int main() {
     {
         auto geometric = MakeRootedDesc();
         geometric.surfaces[0].faceVertexIndices = {0, 0, 0};
-        geometric.curveSets[0].skinPrimUv[0] = GfVec2f(9, 9);
+        geometric.curveSets[0].skinPrimUv[0] = usdGen::UsdGenVec2f(9, 9);
         CHECK(CompileVulkanSourceWidthPlan(usdGenUsd::Lower(geometric)));
     }
     CHECK(!std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload())->HasRootBindings());

@@ -9,6 +9,7 @@
 //     when density or surface content moves (in-process).
 //   * Attribute-cook digest stability/sensitivity lives in
 //     testUsdGenAttributeInstance (it exercises the same lane helper).
+#include "utils/pxrInterop.h"
 #include "usdGen/digest.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/op.h"

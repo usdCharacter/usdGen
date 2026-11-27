@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGen/executionResources.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGen/executionRetirement.h"
@@ -16,6 +17,11 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
 
 using namespace usdGen;
 using namespace usdGen::gpu;

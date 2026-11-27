@@ -47,12 +47,12 @@ target_link_libraries(usdGenSurface
     PUBLIC usdGen
     # attributeBake.cpp writes Ptex files: its own PtexWriter copy, no state
     # shared with usdGen's reader cache.
-    PRIVATE usdGenMath arch work trace ${_usdgen_osd_cpu} usdGen_ptex ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath ${_usdgen_osd_cpu} usdGen_ptex ${CMAKE_DL_LIBS})
 target_include_directories(usdGenSurface PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves)
 _usdgen_add_primitive(usdGenExpr usdGenExpr ${_usdgen_curves_hosted})
 target_link_libraries(usdGenExpr
     PUBLIC usdGen usdGenSurface
-    PRIVATE usdGenMath arch work trace usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath usdGen_seexpr usdGenExprFrontend ${CMAKE_DL_LIBS})
 target_include_directories(usdGenExpr PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves>)
 _usdgen_add_primitive(usdGenCurves usdGenCurves)
 target_sources(usdGenCurves PRIVATE ${_usdgen_curves_hosted})
@@ -60,7 +60,7 @@ target_sources(usdGenCurves PRIVATE ${_usdgen_curves_hosted})
 # installed (N-7), so it stays out of the export interface.
 target_link_libraries(usdGenCurves
     PUBLIC usdGen usdGenSurface usdGenExpr $<BUILD_INTERFACE:usdGenMath>
-    PRIVATE arch work trace usdGen_seexpr ${CMAKE_DL_LIBS})
+    PRIVATE usdGen_seexpr ${CMAKE_DL_LIBS})
 # usdGen loads them at registry build (UsdGenEngineEnsureInitialized), from
 # its own directory, in this order; the backend files follow (cuda.cmake,
 # vulkan.cmake append, vulkan.cmake writes USDGEN_DEFAULT_EXTENSIONS).

@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenSurface/types/rootSet.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
 #include "usdGen/api/writeSet.h"
 #include "usdGen/registries/opRegistry.h"
@@ -240,10 +242,10 @@ UsdGenRootSetView UsdGenRootSetView::Of(UsdGenElementSetView const &s) noexcept
     v.pz = Col<float>(s, slots[kUsdGenRootPz]);
     v.curveId = Col<uint64_t>(s, slots[kUsdGenRootId]);
     v.rootPrim = Col<int>(s, slots[kUsdGenRootPrim]);
-    v.rootUV = Col<GfVec2f>(s, slots[kUsdGenRootUV], 2);
-    v.rootT = Col<GfVec3f>(s, slots[kUsdGenRootT], 3);
-    v.rootN = Col<GfVec3f>(s, slots[kUsdGenRootN], 3);
-    v.rootB = Col<GfVec3f>(s, slots[kUsdGenRootB], 3);
+    v.rootUV = Col<UsdGenVec2f>(s, slots[kUsdGenRootUV], 2);
+    v.rootT = Col<UsdGenVec3f>(s, slots[kUsdGenRootT], 3);
+    v.rootN = Col<UsdGenVec3f>(s, slots[kUsdGenRootN], 3);
+    v.rootB = Col<UsdGenVec3f>(s, slots[kUsdGenRootB], 3);
     v.totalCurves = roots;
     v.topologyVersion = s.topologyVersion;
     v.valueVersion = s.valueVersion;

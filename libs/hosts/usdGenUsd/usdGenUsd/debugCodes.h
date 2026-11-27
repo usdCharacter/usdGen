@@ -1,4 +1,6 @@
-// usdGen — TfDebug codes for tracing what the engine does per commit.
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+// usdGenUsd — TfDebug codes for what the engine does per commit.
 //
 //   TF_DEBUG=USDGEN_COMMIT     one line per cook: why it ran, compile,
 //                              cache, tiles rebuilt/carried, timings
@@ -9,12 +11,14 @@
 //   TF_DEBUG=USDGEN_FUR        one line per fur optical-depth bake: grid,
 //                              voxel size, items, work split
 //
-// Codes may be combined (TF_DEBUG="USDGEN_*"). The engine also emits
-// TRACE_SCOPE events for the same stages: record them with
+// Codes may be combined (TF_DEBUG="USDGEN_*"). The engine reads TF_DEBUG
+// itself (usdGen/api/debug.h); SyncDebugCodes() mirrors TfDebug's state
+// (TfDebug::Enable, usdview's debug menu) into it, once per commit. The
+// engine also emits trace scopes for the same stages: record them with
 // `usdview --traceToFile trace.json --traceFormat chrome` or
 // bin/trace_playback.ps1.
-#ifndef USDGEN_DEBUG_CODES_H
-#define USDGEN_DEBUG_CODES_H
+#ifndef USDGENUSD_DEBUGCODES_H
+#define USDGENUSD_DEBUGCODES_H
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/debug.h"
@@ -30,4 +34,11 @@ TF_DEBUG_CODES(
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
-#endif  // USDGEN_DEBUG_CODES_H
+namespace usdGenUsd {
+
+/// Copies the four TfDebug codes into the engine's debug bits.
+void SyncDebugCodes() noexcept;
+
+}  // namespace usdGenUsd
+
+#endif  // USDGENUSD_DEBUGCODES_H

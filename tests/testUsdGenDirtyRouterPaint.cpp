@@ -6,6 +6,7 @@
 // wiring's ptex("lengthPaint") lands). A non-paint map contributes no
 // paint ref; a bare coarse container dirty keeps the pre-existing
 // SurfacePoints route; unrelated surfaces and primvars stay quiet.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/compiler.h"

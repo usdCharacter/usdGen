@@ -1,6 +1,7 @@
 // Live C3 rest adapter regression.  The adapter must read Default-time curve
 // values dynamically, preserve whether primvars:rest was authored, and dirty
 // its dedicated root when either source changes.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/curveApiSchemaAdapter.h"
 
 #include "pxr/pxr.h"

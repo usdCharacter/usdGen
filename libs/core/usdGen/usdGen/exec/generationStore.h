@@ -14,15 +14,12 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/publisher.h"
 
-#include "pxr/base/gf/matrix4d.h"
+#include "usdGenMath/math.h"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 namespace usdGen {
 
 struct UsdGenGeneration

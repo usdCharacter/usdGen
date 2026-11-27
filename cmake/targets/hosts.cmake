@@ -14,8 +14,10 @@ add_library(usdGenUsd SHARED ${USDGEN_USD_SOURCES})
 target_include_directories(usdGenUsd PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd>
     $<INSTALL_INTERFACE:include>)
+# tf gf vt sdf are PUBLIC: its headers spell them, and tests that link
+# usdGenUsd get them from here (usdGen links no pxr library, step 11.8).
 target_link_libraries(usdGenUsd
-    PUBLIC usdGenWithPrimitives sdf tf
+    PUBLIC usdGenWithPrimitives sdf tf gf vt
     PRIVATE usd hio)
 set_target_properties(usdGenUsd PROPERTIES
     CXX_VISIBILITY_PRESET default

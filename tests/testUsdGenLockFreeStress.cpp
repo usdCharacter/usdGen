@@ -7,6 +7,7 @@
 // publications), the pipeline's newest-wins mailbox, the memory reservation
 // word, and a 64-thread Submit/Visible run against one Session. Tracked
 // values live in a never-reused poisoned arena, so reading a freed one fails.
+#include "utils/pxrInterop.h"
 #include "usdGen/epoch.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionCache.h"
@@ -539,10 +540,10 @@ UsdGenGraphDesc SessionDesc()
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/stress/surface");
     surface.id = 0;
-    surface.restPoints = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(1, 0, 0),
-                                      GfVec3f(0, 1, 0), GfVec3f(1, 1, 0)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0),
+                                      usdGen::UsdGenVec3f(0, 1, 0), usdGen::UsdGenVec3f(1, 1, 0)};
     surface.points = surface.restPoints;
-    surface.uv = VtVec2fArray{GfVec2f(0, 0), GfVec2f(1, 0), GfVec2f(0, 1), GfVec2f(1, 1)};
+    surface.uv = usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0, 0), usdGen::UsdGenVec2f(1, 0), usdGen::UsdGenVec2f(0, 1), usdGen::UsdGenVec2f(1, 1)};
     surface.faceVertexCounts = VtIntArray{4};
     surface.faceVertexIndices = VtIntArray{0, 1, 3, 2};
     d.surfaces.push_back(std::move(surface));

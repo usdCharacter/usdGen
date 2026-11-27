@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/testToken.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
@@ -46,7 +47,7 @@ static bool Capture(std::shared_ptr<NativeOwner> const& n,
     out->clear();
     auto add = [&](VulkanSourceGeneration::PlaneView const& p) {
         std::vector<uint8_t> b;
-        return ReadVulkanBytes(n, c, p.buffer, p.bytes, g, &b) && out->emplace(p.metadata.name, std::move(b)).second;
+        return ReadVulkanBytes(n, c, p.buffer, p.bytes, g, &b) && out->emplace(p.metadata.name.GetString(), std::move(b)).second;
     };
     for (auto const& p : g->planes()) if (!add(p)) return false;
     for (auto const& p : g->sourceFrames()) if (!add(p)) return false;
@@ -57,19 +58,19 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     s.totalCurves = 2; s.totalCvs = 7; s.topologyVersion = 91; s.valueVersion = 17;
     s.cvOffsets = {0, 3, 7}; s.curveId = {401, 907}; s.rootPrim = {12, 44};
     s.rootUV = {{.2f,.3f},{.7f,.8f}}; s.rootT = {{1,0,0},{0,1,0}};
-    s.rootB = {{0,1,0},{0,0,1}}; s.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.25f,.75f}};
-    s.px = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0, 1, 2, 0, 0, 0, 0};
-    s.py = VtFloatArray(7, 0.f); s.pz = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,0, 0,1,2,3};
+    s.rootB = {{0,1,0},{0,0,1}}; s.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.25f,.75f}};
+    s.px = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0, 1, 2, 0, 0, 0, 0};
+    s.py = usdGen::UsdGenFloatArray(7, 0.f); s.pz = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,0,0, 0,1,2,3};
     // Rest lengths differ by 10x, so using the rest plane for normalization
     // would fail the exact current-polyline target test below.
-    s.rest = {GfVec3f(0,0,0),GfVec3f(0,10,0),GfVec3f(0,20,0),GfVec3f(0,0,0),GfVec3f(0,0,10),GfVec3f(0,0,20),GfVec3f(0,0,30)};
-    s.width = VtFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.333f,.667f,1};
+    s.rest = {usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,10,0),usdGen::UsdGenVec3f(0,20,0),usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,0,10),usdGen::UsdGenVec3f(0,0,20),usdGen::UsdGenVec3f(0,0,30)};
+    s.width = usdGen::UsdGenFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.333f,.667f,1};
     UsdGenChunkDesc chunk; chunk.firstCurve = 0; chunk.curveCount = 2; chunk.liveCount = 2; chunk.firstCv = 0; chunk.cvCount = 0; chunk.tile = 3; chunk.surface = 1; s.chunks = {chunk};
-    UsdGenPlane p; p.name = TfToken("privateVertex"); p.interpolation = TfToken("vertex"); p.type = TfToken("float"); p.arity = 1; p.f = {3,4,5,6,7,8,9}; s.extraCv = {p};
-    UsdGenPlane q; q.name = TfToken("privateUniform"); q.interpolation = TfToken("uniform"); q.type = TfToken("int"); q.i = {18,19}; s.extraCurve = {maskPlane, q};
+    UsdGenPlane p; p.name = TestToken("privateVertex"); p.interpolation = TestToken("vertex"); p.type = TestToken("float"); p.arity = 1; p.f = {3,4,5,6,7,8,9}; s.extraCv = {p};
+    UsdGenPlane q; q.name = TestToken("privateUniform"); q.interpolation = TestToken("uniform"); q.type = TestToken("int"); q.i = {18,19}; s.extraCurve = {maskPlane, q};
     i.geometry.alreadyDeformed = true; i.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic, UsdGenCurveLayoutBasis::BSpline, UsdGenCurveLayoutWrap::Pinned);
     i.geometry.tiles = {{3,0,2,0,7}};
-    uint32_t named[] = {73, 81}; i.additionalNamed.push_back({{TfToken("namedCurve"), UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, Bytes(named,2)});
+    uint32_t named[] = {73, 81}; i.additionalNamed.push_back({{TestToken("namedCurve"), UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, Bytes(named,2)});
     return i;
 }
 static std::shared_ptr<const VulkanSourceGeneration> Upload(std::shared_ptr<NativeOwner> const& n, VulkanSourceGenerationCreateInfo i) {
@@ -86,10 +87,10 @@ int main(int argc, char** argv) {
     auto context = DeviceContext::Create(ci); CHECK(context); auto pool = context->resources(); auto baseline = pool->Snapshot(); VkResult status = VK_SUCCESS;
     auto base = Upload(native, Source(context)); CHECK(base);
     auto scaleOnly = LengthScalePipeline::Create(context, scaleCode, &status); CHECK(scaleOnly && !scaleOnly->HasSet());
-    CHECK(!scaleOnly->BeginSet(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")), 2, 7, 2.f, &status) && status == VK_ERROR_FEATURE_NOT_PRESENT);
+    CHECK(!scaleOnly->BeginSet(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")), 2, 7, 2.f, &status) && status == VK_ERROR_FEATURE_NOT_PRESENT);
     auto pipeline = LengthScalePipeline::CreateWithSet(context, scaleCode, setCode, &status); CHECK(pipeline && pipeline->HasSet());
     auto run = [&](std::shared_ptr<const VulkanSourceGeneration> const& g, float target) {
-        auto c = pipeline->BeginSet(g->PlaneOwner(TfToken("points")), g->PlaneOwner(TfToken("curveOffsets")), g->curveCount(), g->pointCount(), target, &status);
+        auto c = pipeline->BeginSet(g->PlaneOwner(TestToken("points")), g->PlaneOwner(TestToken("curveOffsets")), g->curveCount(), g->pointCount(), target, &status);
         if (!c || status != VK_SUCCESS || !Prove(native)) return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{}, UINT32_MAX);
         uint32_t sem = UINT32_MAX; if (c->Poll(&sem) != VK_SUCCESS) return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{}, UINT32_MAX);
         return std::pair<std::unique_ptr<LengthScalePipeline::Candidate>,uint32_t>(std::move(c), sem);
@@ -97,7 +98,7 @@ int main(int argc, char** argv) {
     Packet original; CHECK(Capture(native, context, base, &original));
     auto exact = run(base, 6.f); CHECK(exact.second == 0 && exact.first->succeeded());
     std::string reason; auto child = VulkanSourceGeneration::WithPoints(base, *exact.first, 18, &reason); CHECK(child);
-    CHECK(child->PlaneOwner(TfToken("points")) == exact.first->output() && child->PlaneOwner(TfToken("points")) != base->PlaneOwner(TfToken("points")));
+    CHECK(child->PlaneOwner(TestToken("points")) == exact.first->output() && child->PlaneOwner(TestToken("points")) != base->PlaneOwner(TestToken("points")));
     CHECK(child->topologyVersion() == base->topologyVersion() && child->valueVersion() == 18);
     for (auto const& plane : base->planes()) if (plane.metadata.name != "points")
         CHECK(child->PlaneOwner(plane.metadata.name) == base->PlaneOwner(plane.metadata.name));
@@ -105,7 +106,7 @@ int main(int argc, char** argv) {
         CHECK(child->SourceFrameOwner(frame.metadata.name) == base->SourceFrameOwner(frame.metadata.name));
         CHECK(!child->PlaneOwner(frame.metadata.name));
     }
-    CHECK(child->SourceFrameOwner(TfToken("sourceRootT")) == base->SourceFrameOwner(TfToken("sourceRootT"))); CHECK(child->geometry().alreadyDeformed == base->geometry().alreadyDeformed); CHECK(UsdGenCurveLayoutTypeOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutTypeOf(base->geometry().layoutMetadata) && UsdGenCurveLayoutBasisOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutBasisOf(base->geometry().layoutMetadata) && UsdGenCurveLayoutWrapOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutWrapOf(base->geometry().layoutMetadata)); CHECK(child->chunks().size() == base->chunks().size() && child->chunks()[0].firstCurve == base->chunks()[0].firstCurve && child->chunks()[0].curveCount == base->chunks()[0].curveCount);
+    CHECK(child->SourceFrameOwner(TestToken("sourceRootT")) == base->SourceFrameOwner(TestToken("sourceRootT"))); CHECK(child->geometry().alreadyDeformed == base->geometry().alreadyDeformed); CHECK(UsdGenCurveLayoutTypeOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutTypeOf(base->geometry().layoutMetadata) && UsdGenCurveLayoutBasisOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutBasisOf(base->geometry().layoutMetadata) && UsdGenCurveLayoutWrapOf(child->geometry().layoutMetadata) == UsdGenCurveLayoutWrapOf(base->geometry().layoutMetadata)); CHECK(child->chunks().size() == base->chunks().size() && child->chunks()[0].firstCurve == base->chunks()[0].firstCurve && child->chunks()[0].curveCount == base->chunks()[0].curveCount);
     Packet changed; CHECK(Capture(native, context, child, &changed) && changed.size() == original.size());
     CHECK(original.count("stableIds") && original.count("rest") && original.count("sourceRootT"));
     for (auto const& plane : original) if (plane.first != "points") CHECK(changed.at(plane.first) == plane.second);
@@ -119,11 +120,11 @@ int main(int argc, char** argv) {
     Packet zeroBefore, zeroAfter;
     CHECK(Capture(native, context, zeroCurrent, &zeroBefore) && Capture(native, context, noOpChild, &zeroAfter) && zeroBefore == zeroAfter);
     auto zeroTarget = run(base, 0.f); CHECK(zeroTarget.second == 0 && zeroTarget.first->succeeded()); auto collapsed = VulkanSourceGeneration::WithPoints(base, *zeroTarget.first, 19, &reason); CHECK(collapsed); Packet collapsedPacket; CHECK(Capture(native, context, collapsed, &collapsedPacket)); std::vector<float> collapsedPoints(21); std::memcpy(collapsedPoints.data(), collapsedPacket["points"].data(), collapsedPacket["points"].size()); CHECK(collapsedPoints[0] == collapsedPoints[3] && collapsedPoints[3] == collapsedPoints[6] && collapsedPoints[2] == collapsedPoints[5] && collapsedPoints[5] == collapsedPoints[8] && collapsedPoints[9] == collapsedPoints[12] && collapsedPoints[12] == collapsedPoints[18] && collapsedPoints[11] == collapsedPoints[14] && collapsedPoints[14] == collapsedPoints[20]);
-    auto badHook = pipeline->BeginSet(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")), 2, 7, 2.f, &status, [] { return false; }); CHECK(!badHook && status == VK_ERROR_OUT_OF_DEVICE_MEMORY);
-    for (float v : {-1.f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()}) CHECK(!pipeline->BeginSet(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")), 2, 7, v, &status));
+    auto badHook = pipeline->BeginSet(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")), 2, 7, 2.f, &status, [] { return false; }); CHECK(!badHook && status == VK_ERROR_OUT_OF_DEVICE_MEMORY);
+    for (float v : {-1.f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()}) CHECK(!pipeline->BeginSet(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")), 2, 7, v, &status));
     auto empty = pipeline->BeginSet({}, {}, 0, 0, 3.f, &status); CHECK(empty && empty->succeeded());
-    CHECK(!pipeline->BeginSet(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")), 2, 0, 1.f, &status));
-    CHECK(!pipeline->BeginSet(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")), UINT32_MAX, 7, 1.f, &status));
+    CHECK(!pipeline->BeginSet(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")), 2, 0, 1.f, &status));
+    CHECK(!pipeline->BeginSet(base->PlaneOwner(TestToken("points")), base->PlaneOwner(TestToken("curveOffsets")), UINT32_MAX, 7, 1.f, &status));
     exact.first.reset(); zeroTarget.first.reset(); rejectedSemantic.first.reset(); empty.reset();
     zeroNoop.first.reset(); noOpChild.reset();
     collapsed.reset(); pipeline.reset(); scaleOnly.reset(); child.reset(); zeroCurrent.reset(); base.reset();

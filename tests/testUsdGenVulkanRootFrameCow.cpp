@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "utils/pxrInterop.h"
 #include "usdGen/curveLoader.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
@@ -81,7 +82,7 @@ static bool Near(float value, float expected, float tolerance = 2.e-6f) {
     return std::abs(value - expected) <= tolerance;
 }
 
-static bool NearVec(GfVec3f const& value, GfVec3f const& expected) {
+static bool NearVec(usdGen::UsdGenVec3f const& value, usdGen::UsdGenVec3f const& expected) {
     return Near(value[0], expected[0]) && Near(value[1], expected[1]) &&
         Near(value[2], expected[2]);
 }
@@ -94,7 +95,7 @@ static bool ReadFrames(std::shared_ptr<NativeOwner> const& native,
     for (auto const& frame : generation->sourceFrames()) {
         std::vector<uint8_t> bytes;
         if (!ReadVulkanBytes(native, context, frame.buffer, frame.bytes, generation, &bytes) ||
-            !result->emplace(frame.metadata.name, std::move(bytes)).second) return false;
+            !result->emplace(frame.metadata.name.GetString(), std::move(bytes)).second) return false;
     }
     return true;
 }
@@ -117,7 +118,7 @@ static bool SamePublicPlanes(std::shared_ptr<NativeOwner> const& native,
         for (auto const& plane : generation->planes()) {
             std::vector<uint8_t> bytes;
             if (!ReadVulkanBytes(native, context, plane.buffer, plane.bytes, generation, &bytes) ||
-                !result->emplace(plane.metadata.name, std::move(bytes)).second) return false;
+                !result->emplace(plane.metadata.name.GetString(), std::move(bytes)).second) return false;
         }
         return true;
     };
@@ -141,12 +142,12 @@ int main(int argc, char** argv) {
     rootedDesc.curveSets[0].rootFrame.clear();
     auto const sourcePoints = rootedDesc.curveSets[0].points;
     auto const sourceRest = rootedDesc.curveSets[0].rest;
-    GfMatrix4d relative(1.0);
+    usdGen::UsdGenMatrix4d relative(1.0);
     relative[0][0] = 0.; relative[0][1] = 2.;
     relative[1][0] = -3.; relative[1][1] = 0.;
     relative[2][2] = .5;
     relative[3][0] = 5.; relative[3][1] = -2.; relative[3][2] = 7.;
-    GfMatrix4d sourceWorld(1.0);
+    usdGen::UsdGenMatrix4d sourceWorld(1.0);
     sourceWorld[0][0] = 0.; sourceWorld[0][1] = -1.;
     sourceWorld[1][0] = 1.; sourceWorld[1][1] = 0.;
     sourceWorld[3][0] = 11.; sourceWorld[3][1] = -13.; sourceWorld[3][2] = 17.;
@@ -163,11 +164,11 @@ int main(int argc, char** argv) {
         CHECK(NearVec(rooted.rootT[curve], {0,1,0}) &&
               NearVec(rooted.rootB[curve], {-1,0,0}) &&
               NearVec(rooted.rootN[curve], {0,0,1}));
-    CHECK(rooted.rootUV == VtVec2fArray({GfVec2f(.7f,.1f), GfVec2f(.2f,.2f)}));
-    CHECK(NearVec(GfVec3f(rooted.px[0], rooted.py[0], rooted.pz[0]), {.7f,.1f,0}) &&
-          rooted.rest[0] == GfVec3f(.7f,.1f,0) &&
-          NearVec(GfVec3f(rooted.px[3], rooted.py[3], rooted.pz[3]), {.2f,.2f,0}) &&
-          rooted.rest[3] == GfVec3f(.2f,.2f,0) &&
+    CHECK(rooted.rootUV == usdGen::UsdGenVec2fArray({usdGen::UsdGenVec2f(.7f,.1f), usdGen::UsdGenVec2f(.2f,.2f)}));
+    CHECK(NearVec(usdGen::UsdGenVec3f(rooted.px[0], rooted.py[0], rooted.pz[0]), {.7f,.1f,0}) &&
+          rooted.rest[0] == usdGen::UsdGenVec3f(.7f,.1f,0) &&
+          NearVec(usdGen::UsdGenVec3f(rooted.px[3], rooted.py[3], rooted.pz[3]), {.2f,.2f,0}) &&
+          rooted.rest[3] == usdGen::UsdGenVec3f(.2f,.2f,0) &&
           rootedDesc.curveSets[0].points == sourcePoints && rootedDesc.curveSets[0].rest == sourceRest);
 
     // Equal object transforms cancel in the same relative expression.  This
@@ -180,8 +181,8 @@ int main(int argc, char** argv) {
         CHECK(NearVec(equalRooted.rootT[curve], {1,0,0}) &&
               NearVec(equalRooted.rootB[curve], {0,1,0}) &&
               NearVec(equalRooted.rootN[curve], {0,0,1}));
-    CHECK(NearVec(GfVec3f(equalRooted.px[0], equalRooted.py[0], equalRooted.pz[0]), {.7f,.1f,0}) &&
-          equalRooted.rest[0] == GfVec3f(.7f,.1f,0));
+    CHECK(NearVec(usdGen::UsdGenVec3f(equalRooted.px[0], equalRooted.py[0], equalRooted.pz[0]), {.7f,.1f,0}) &&
+          equalRooted.rest[0] == usdGen::UsdGenVec3f(.7f,.1f,0));
 
     bool unavailable = false; auto native = CreateTimelineNative(&unavailable); if (unavailable) return 77;
     CHECK(native);
@@ -203,14 +204,14 @@ int main(int argc, char** argv) {
         CHECK(plane.metadata.name != "sourceRootT" && plane.metadata.name != "sourceRootB" && plane.metadata.name != "sourceRootN");
     BytesByName originalFrames; CHECK(ReadFrames(native, context, base, &originalFrames));
     CHECK(originalFrames.size() == 3 &&
-          originalFrames.at("sourceRootT") == std::vector<uint8_t>(reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()), reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()) + rooted.rootT.size() * sizeof(GfVec3f)) &&
-          originalFrames.at("sourceRootB") == std::vector<uint8_t>(reinterpret_cast<uint8_t const*>(rooted.rootB.cdata()), reinterpret_cast<uint8_t const*>(rooted.rootB.cdata()) + rooted.rootB.size() * sizeof(GfVec3f)) &&
-          originalFrames.at("sourceRootN") == std::vector<uint8_t>(reinterpret_cast<uint8_t const*>(rooted.rootN.cdata()), reinterpret_cast<uint8_t const*>(rooted.rootN.cdata()) + rooted.rootN.size() * sizeof(GfVec3f)));
+          originalFrames.at("sourceRootT") == std::vector<uint8_t>(reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()), reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()) + rooted.rootT.size() * sizeof(usdGen::UsdGenVec3f)) &&
+          originalFrames.at("sourceRootB") == std::vector<uint8_t>(reinterpret_cast<uint8_t const*>(rooted.rootB.cdata()), reinterpret_cast<uint8_t const*>(rooted.rootB.cdata()) + rooted.rootB.size() * sizeof(usdGen::UsdGenVec3f)) &&
+          originalFrames.at("sourceRootN") == std::vector<uint8_t>(reinterpret_cast<uint8_t const*>(rooted.rootN.cdata()), reinterpret_cast<uint8_t const*>(rooted.rootN.cdata()) + rooted.rootN.size() * sizeof(usdGen::UsdGenVec3f)));
     // The private GPU frame payload is the derived affine basis above, not a
     // CPU operator result or an authored rootFrame.
     CHECK(originalFrames.at("sourceRootT") == std::vector<uint8_t>(
               reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()),
-              reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()) + rooted.rootT.size() * sizeof(GfVec3f)) &&
+              reinterpret_cast<uint8_t const*>(rooted.rootT.cdata()) + rooted.rootT.size() * sizeof(usdGen::UsdGenVec3f)) &&
           NearVec(rooted.rootT[0], {0,1,0}) && NearVec(rooted.rootB[0], {-1,0,0}) &&
           NearVec(rooted.rootN[0], {0,0,1}));
 

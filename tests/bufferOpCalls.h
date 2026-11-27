@@ -11,6 +11,11 @@
 
 #include <cstdint>
 
+#include "pxr/pxr.h"
+#include "pxr/base/vt/types.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
 namespace usdGen {
 
 /// A UsdGenOpInputs over one builder buffer (the buffer must outlive it).
@@ -45,10 +50,10 @@ struct UsdGenTestChunk
     uint64_t const *curveId = nullptr;
     int const *rootPrim = nullptr;
     int const *cvOffsets = nullptr;     // absolute, at the chunk's first curve; null = uniform
-    GfVec2f const *rootUV = nullptr;
-    GfVec3f const *rootT = nullptr, *rootN = nullptr, *rootB = nullptr;
+    usdGen::UsdGenVec2f const *rootUV = nullptr;
+    usdGen::UsdGenVec3f const *rootT = nullptr, *rootN = nullptr, *rootB = nullptr;
     float const *rampLut = nullptr;
-    GfVec3d *pointScratch = nullptr;
+    usdGen::UsdGenVec3d *pointScratch = nullptr;
     double *scalarScratch = nullptr;
     UsdGenChunkExtent *extentSlot = nullptr;
     uint32_t curveCount = 0, cvCount = 0, inCvCount = 0, inFirstCv = 0;
@@ -75,10 +80,10 @@ struct UsdGenTestChunk
         _out[kUsdGenCurveHairT] = hairT;
         _out[kUsdGenCurveId] = const_cast<uint64_t *>(curveId);
         _out[kUsdGenCurveRootPrim] = const_cast<int *>(rootPrim);
-        _out[kUsdGenCurveRootUV] = const_cast<GfVec2f *>(rootUV);
-        _out[kUsdGenCurveRootT] = const_cast<GfVec3f *>(rootT);
-        _out[kUsdGenCurveRootN] = const_cast<GfVec3f *>(rootN);
-        _out[kUsdGenCurveRootB] = const_cast<GfVec3f *>(rootB);
+        _out[kUsdGenCurveRootUV] = const_cast<usdGen::UsdGenVec2f *>(rootUV);
+        _out[kUsdGenCurveRootT] = const_cast<usdGen::UsdGenVec3f *>(rootT);
+        _out[kUsdGenCurveRootN] = const_cast<usdGen::UsdGenVec3f *>(rootN);
+        _out[kUsdGenCurveRootB] = const_cast<usdGen::UsdGenVec3f *>(rootB);
         _in[kUsdGenCurvePx] = inPx;
         _in[kUsdGenCurvePy] = inPy;
         _in[kUsdGenCurvePz] = inPz;

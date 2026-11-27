@@ -8,6 +8,7 @@
 //   * smooth visibly softens a hard 1/0 edge that only persists as 4 corners
 //     per quad (the cross-face corner smoother);
 //   * the overlay entry points reach an attached preview scene index.
+#include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenBrushApi.h"
 #include "usdGenImaging/attributePreviewSceneIndex.h"
 

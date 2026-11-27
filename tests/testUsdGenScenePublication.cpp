@@ -1,5 +1,6 @@
 // Integration coverage for per-scene publication ownership.  The target is
 // registered by the integration owner.
+#include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"

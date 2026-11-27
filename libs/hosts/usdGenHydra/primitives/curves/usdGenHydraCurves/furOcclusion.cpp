@@ -1,8 +1,9 @@
 #include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenUsd/convert/token.h"
 #include "usdGenHydraCurves/tokens.h"
 #include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/exec/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGen/exec/scheduler.h"
 
 #include "pxr/base/gf/matrix4f.h"
@@ -53,6 +54,10 @@ constexpr uint32_t kJobCurves = 4096;
 constexpr size_t   kJobCvs    = 16384;
 
 bool Reserved(TfToken const& name) {
+    for (auto n : names) if (name == n) return true;
+    return name == kDensityName;
+}
+bool Reserved(UsdGenToken name) {
     for (auto n : names) if (name == n) return true;
     return name == kDensityName;
 }
@@ -540,11 +545,11 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
     if(!points.empty()) {
         for(int which=0;which<2;++which) {
             UsdGenPlane plane;
-            plane.name=PlaneName(which);
+            plane.name=usdGenUsd::ToToken(PlaneName(which));
             plane.interpolation=UsdGenTokens().vertex;
             plane.type=UsdGenTokens().float_;
             plane.arity=3;
-            plane.f=which?tauN:tauP;
+            plane.f=usdGenUsd::ToCow(which?tauN:tauP);
             out->extraUniform.push_back(std::move(plane));
         }
         GfVec3f lo=points[0], hi=points[0];
@@ -1397,7 +1402,7 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
             out.erase(std::remove_if(out.begin(),out.end(),
                 [](auto const& p){return Reserved(p.name);}),out.end());
             for(auto name:names) {
-                UsdGenPlane plane;plane.name=NameToken(name);plane.interpolation=UsdGenTokens().vertex;
+                UsdGenPlane plane;plane.name=usdGenUsd::ToToken(NameToken(name));plane.interpolation=UsdGenTokens().vertex;
                 plane.type=UsdGenTokens().float_;plane.arity=3;
                 // Every element below is written; zero-filling six floats per
                 // CV first costs more than the gather itself on a full groom.
@@ -1407,7 +1412,7 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                 out.push_back(std::move(plane));
             }
             if(params.localDensity) {
-                UsdGenPlane plane;plane.name=hydraCurvesTokens::furDensity();
+                UsdGenPlane plane;plane.name=usdGenUsd::ToToken(hydraCurvesTokens::furDensity());
                 plane.interpolation=UsdGenTokens().vertex;plane.type=UsdGenTokens().float_;plane.arity=1;
                 plane.f.resize((*tiles)[t].points.size(), [](float* b, float* e) {
                     std::uninitialized_default_construct(b, e);
@@ -1512,7 +1517,7 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
         for(char const* name:names) {
             bool found=false;
             for(UsdGenPlane const& plane:cap->extraUniform)
-                if(plane.name==NameToken(name)) {
+                if(usdGenUsd::ToTf(plane.name)==NameToken(name)) {
                     found = plane.arity==3 && plane.f.size()==cap->points.size()*3;
                     break;
                 }
@@ -1543,9 +1548,9 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     }
 
     auto plane=[](UsdGenScalpShadowPublication const& cap,char const* name)
-        -> VtFloatArray const& {
+        -> VtFloatArray {
         for(UsdGenPlane const& p:cap.extraUniform)
-            if(p.name==NameToken(name)) return p.f;
+            if(usdGenUsd::ToTf(p.name)==NameToken(name)) return usdGenUsd::ToVt(p.f);
         return kNoPlane;
     };
     bool sameAlbedo=true;
@@ -1620,7 +1625,7 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     out.faceVertexCounts=counts; out.faceVertexIndices=indices;
     for(int which=0;which<2;++which) {
         UsdGenPlane p;
-        p.name=PlaneName(which);
+        p.name=usdGenUsd::ToToken(PlaneName(which));
         p.interpolation=UsdGenTokens().vertex;
         p.type=UsdGenTokens().float_;
         p.arity=3;
@@ -1629,7 +1634,7 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     }
     if(!sameAlbedo) {
         UsdGenPlane p;
-        p.name=hydraCurvesTokens::furCapAlbedo();
+        p.name=usdGenUsd::ToToken(hydraCurvesTokens::furCapAlbedo());
         p.interpolation=UsdGenTokens().vertex;
         p.type=UsdGenTokens().float_;
         p.arity=3;

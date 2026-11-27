@@ -13,6 +13,7 @@
 //          frame, profile weighting (midShift 0..1), restLength as the
 //          reference length, clump-shared seeds and lengths, knot-mask
 //          attenuation; the root never moves; cooks are deterministic.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -106,7 +107,7 @@ static void AddFloat(UsdGenCurveSetDesc &set, char const *name, std::vector<floa
 }
 
 // Straight strands along +Y from the given roots: cvs points, `step` apart.
-static UsdGenCurveSetDesc Strands(std::vector<GfVec3f> const &roots, int cvs, float step,
+static UsdGenCurveSetDesc Strands(std::vector<usdGen::UsdGenVec3f> const &roots, int cvs, float step,
                                   Planes const &planes)
 {
     UsdGenCurveSetDesc set;
@@ -117,14 +118,14 @@ static UsdGenCurveSetDesc Strands(std::vector<GfVec3f> const &roots, int cvs, fl
     set.curveVertexCounts.assign(n, cvs);
     for (size_t c = 0; c < n; ++c)
         for (int i = 0; i < cvs; ++i)
-            set.points.push_back(roots[c] + GfVec3f(0.0f, float(i) * step, 0.0f));
+            set.points.push_back(roots[c] + usdGen::UsdGenVec3f(0.0f, float(i) * step, 0.0f));
     set.rest = set.points;
     set.widths.assign(n * size_t(cvs), 0.01f);
     for (size_t c = 0; c < n; ++c) {
         set.curveId.push_back(uint64_t(c));
         set.skinPrim.push_back(int(c));
-        set.skinPrimUv.push_back(GfVec2f(0.2f, 0.3f));
-        set.rootFrame.push_back(GfMatrix4d(1.0));
+        set.skinPrimUv.push_back(usdGen::UsdGenVec2f(0.2f, 0.3f));
+        set.rootFrame.push_back(usdGen::UsdGenMatrix4d(1.0));
     }
     AddInt(set, "primaryGuide", planes.primaryGuide);
     AddInt(set, "clumpId_0", planes.clumpId);
@@ -188,7 +189,7 @@ static bool Cook(UsdGenGraphDesc const &desc, UsdGenCurveBuffer *out)
     return true;
 }
 
-static GfVec3f Pt(UsdGenCurveBuffer const &b, size_t cv) { return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]); }
+static usdGen::UsdGenVec3f Pt(UsdGenCurveBuffer const &b, size_t cv) { return usdGen::UsdGenVec3f(b.px[cv], b.py[cv], b.pz[cv]); }
 
 static bool SameBits(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 {
@@ -220,7 +221,7 @@ static void TestRegistry()
 
 // Angle (deg) of the offset of `p` from the axis line x = cx, z = 0 (the
 // strands grow along +Y, so the twist axis is +Y): v' = (vx cos, 0, -vx sin).
-static double AngleAbout(GfVec3f const &p, double cx, double vx)
+static double AngleAbout(usdGen::UsdGenVec3f const &p, double cx, double vx)
 {
     double const ox = (p[0] - cx) / vx, oz = -p[2] / vx;
     return std::atan2(oz, ox) * 180.0 / kPi;
@@ -230,7 +231,7 @@ static void TestTwistProfile()
 {
     Planes pl;
     pl.primaryGuide = {0, 0};
-    auto curves = Strands({GfVec3f(0.1f, 0, 0), GfVec3f(-0.1f, 0, 0)}, 5, 0.25f, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(-0.1f, 0, 0)}, 5, 0.25f, pl);
     struct Case { double ms, amount; char const *label; };
     for (Case const &cs : {Case{0.5, 1.0, "midShift 0.5"}, Case{0.25, 1.0, "midShift 0.25"},
                            Case{0.5, 1.5, "amount 1.5"}}) {
@@ -245,7 +246,7 @@ static void TestTwistProfile()
         for (int k = 0; k < 5; ++k) {
             double const t = k / 4.0;
             double const expected = Bezier(t, 10, 40, cs.ms, 90) * cs.amount;
-            GfVec3f const a = Pt(out, size_t(k)), b = Pt(out, size_t(5 + k));
+            usdGen::UsdGenVec3f const a = Pt(out, size_t(k)), b = Pt(out, size_t(5 + k));
             angles = angles && std::fabs(AngleAbout(a, 0.0, 0.1) - expected) < 1e-3 &&
                      std::fabs(AngleAbout(b, 0.0, -0.1) - expected) < 1e-3;
             radius = radius && Near(std::hypot(a[0], a[2]), 0.1f) && Near(std::hypot(b[0], b[2]), 0.1f);
@@ -273,9 +274,9 @@ static void TestTwistGrouping()
     Planes pl;
     pl.primaryGuide = {0, 0, 1, 1, 2, -1};
     pl.clumpId = {0, 1, 0, 1, -1, -1};
-    std::vector<GfVec3f> const roots = {GfVec3f(0.1f, 0, 0), GfVec3f(-0.1f, 0, 0),
-                                        GfVec3f(1.1f, 0, 0), GfVec3f(0.9f, 0, 0),
-                                        GfVec3f(5, 0, 0), GfVec3f(7, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(-0.1f, 0, 0),
+                                        usdGen::UsdGenVec3f(1.1f, 0, 0), usdGen::UsdGenVec3f(0.9f, 0, 0),
+                                        usdGen::UsdGenVec3f(5, 0, 0), usdGen::UsdGenVec3f(7, 0, 0)};
     auto curves = Strands(roots, 3, 0.5f, pl);
     Params const base = {{"twist:root", F(30)}, {"twist:mid", F(30)}, {"twist:tip", F(30)}};
     double const c30 = std::cos(kPi / 6), s30 = std::sin(kPi / 6);
@@ -322,7 +323,7 @@ static void TestTwistMirror()
         pl.mirrorSign = {1, -1};
         // The group's representative is the first strand in strandIndex order.
         pl.strandIndex = repIsMirrored ? std::vector<int>{1, 0} : std::vector<int>{0, 1};
-        auto curves = Strands({GfVec3f(0.1f, 0, 0), GfVec3f(-0.1f, 0, 0)}, 3, 0.5f, pl);
+        auto curves = Strands({usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(-0.1f, 0, 0)}, 3, 0.5f, pl);
         UsdGenCurveBuffer out;
         bool const ok = Cook(Graph(curves, "UsdGenTwist", p), &out);
         double const expected = repIsMirrored ? -30.0 : 30.0;
@@ -341,7 +342,7 @@ static void TestTwistNoise()
     pl.primaryGuide = {0, 0};
     pl.strandSeed = {11, 12};
     int const n = 9;
-    auto curves = Strands({GfVec3f(0.1f, 0, 0), GfVec3f(-0.1f, 0, 0)}, n, 0.125f, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(-0.1f, 0, 0)}, n, 0.125f, pl);
     double const noise = 0.5;
     Params const p = {{"twist:root", F(10)}, {"twist:mid", F(20)}, {"twist:tip", F(40)},
                       {"twist:noise", F(noise)}};
@@ -386,11 +387,11 @@ static void TestTwistResnap()
     plane.path = SdfPath("/groom/scalp");
     plane.faceVertexCounts = {4};
     plane.faceVertexIndices = {0, 1, 2, 3};
-    plane.points = {GfVec3f(-10, -10, 0), GfVec3f(10, -10, 0), GfVec3f(10, 10, 0), GfVec3f(-10, 10, 0)};
+    plane.points = {usdGen::UsdGenVec3f(-10, -10, 0), usdGen::UsdGenVec3f(10, -10, 0), usdGen::UsdGenVec3f(10, 10, 0), usdGen::UsdGenVec3f(-10, 10, 0)};
     plane.restPoints = plane.points;
     Planes pl;
     pl.primaryGuide = {0, 0};
-    auto curves = Strands({GfVec3f(0.1f, 0, 0), GfVec3f(-0.1f, 0, 0)}, 5, 0.25f, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0.1f, 0, 0), usdGen::UsdGenVec3f(-0.1f, 0, 0)}, 5, 0.25f, pl);
     Params p = {{"twist:root", F(90)}, {"twist:mid", F(90)}, {"twist:tip", F(90)}};
     Params noSnap = p;
     noSnap.push_back({"twist:resnapRoot", B(false)});
@@ -422,12 +423,12 @@ struct FrizzExpect
 
 // Expected offset at arc length `arc` of a straight +Y strand: frame
 // N = T x (1,0,0) = (0,0,-1), B = T x N = (-1,0,0).
-static GfVec3f FrizzOffset(FrizzExpect const &e, uint32_t seed, double refL, double arc,
+static usdGen::UsdGenVec3f FrizzOffset(FrizzExpect const &e, uint32_t seed, double refL, double arc,
                            double mask = 1.0)
 {
     double const u = arc / refL;
     double const w = std::min(1.0, std::max(0.0, Bezier(std::min(1.0, u), e.root, e.mid, e.ms, e.tip))) * mask;
-    if (w <= 1e-4) return GfVec3f(0.0f);
+    if (w <= 1e-4) return usdGen::UsdGenVec3f(0.0f);
     uint64_t const key = uint64_t(int64_t(int32_t(seed)));
     double const phi = U01(SM(key * 0x8DA6B343ull)) * 2 * kPi;
     double const rot = e.shared ? 0.0 : U01(SM(key * 0xD8163841ull)) * 2 * kPi;
@@ -445,7 +446,7 @@ static GfVec3f FrizzOffset(FrizzExpect const &e, uint32_t seed, double refL, dou
     double const ox = wx * std::cos(rot) - wz * std::sin(rot);
     double const oz = wx * std::sin(rot) + wz * std::cos(rot);
     double const s = w * e.amplitude * refL;
-    return GfVec3f(float(-s * oz), 0.0f, float(-s * ox));
+    return usdGen::UsdGenVec3f(float(-s * oz), 0.0f, float(-s * ox));
 }
 
 static Params FrizzParams(FrizzExpect const &e)
@@ -459,18 +460,18 @@ static Params FrizzParams(FrizzExpect const &e)
 
 // Compares curve `c` (n CVs, `step` apart, root at `root`) against the expected
 // offsets; the root must be untouched.
-static bool MatchStrand(UsdGenCurveBuffer const &out, size_t c, int n, float step, GfVec3f root,
+static bool MatchStrand(UsdGenCurveBuffer const &out, size_t c, int n, float step, usdGen::UsdGenVec3f root,
                         FrizzExpect const &e, uint32_t seed, double refL,
                         std::vector<float> const &mask = {}, float tol = 2e-5f)
 {
     bool good = out.px.size() >= (c + 1) * size_t(n);
     for (int k = 0; good && k < n; ++k) {
         size_t const cv = c * size_t(n) + size_t(k);
-        GfVec3f const base = root + GfVec3f(0.0f, step * float(k), 0.0f);
-        GfVec3f const expected =
-            k == 0 ? GfVec3f(0.0f)
+        usdGen::UsdGenVec3f const base = root + usdGen::UsdGenVec3f(0.0f, step * float(k), 0.0f);
+        usdGen::UsdGenVec3f const expected =
+            k == 0 ? usdGen::UsdGenVec3f(0.0f)
                    : FrizzOffset(e, seed, refL, double(step) * k, mask.empty() ? 1.0 : mask[size_t(k)]);
-        GfVec3f const got = Pt(out, cv) - base;
+        usdGen::UsdGenVec3f const got = Pt(out, cv) - base;
         good = good && Near(got[0], expected[0], tol) && Near(got[1], expected[1], tol) &&
                Near(got[2], expected[2], tol);
         if (!good)
@@ -486,7 +487,7 @@ static void TestFrizzWaves()
     pl.strandSeed = {7};
     int const n = 9;
     float const step = 0.125f;
-    auto curves = Strands({GfVec3f(0.3f, 0, 0.2f)}, n, step, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0.3f, 0, 0.2f)}, n, step, pl);
     FrizzExpect e;
     e.amplitude = 0.05; e.wavesX = 1.5; e.wavesZ = 0.5;
     UsdGenCurveBuffer out, again;
@@ -494,7 +495,7 @@ static void TestFrizzWaves()
                     Cook(Graph(curves, "UsdGenFrizz", FrizzParams(e)), &again);
     Check(ok, "frizz waves cook");
     if (!ok) return;
-    Check(MatchStrand(out, 0, n, step, GfVec3f(0.3f, 0, 0.2f), e, 7, 1.0),
+    Check(MatchStrand(out, 0, n, step, usdGen::UsdGenVec3f(0.3f, 0, 0.2f), e, 7, 1.0),
           "frizz waves only: offsets = amplitude * refL * (x N + z B), root fixed");
     Check(SameBits(out, again), "frizz cook is deterministic");
     float maxOff = 0.0f;
@@ -506,9 +507,9 @@ static void TestFrizzWaves()
     Planes rl = pl;
     rl.restLength = {2.0f};
     UsdGenCurveBuffer longer;
-    bool const ok2 = Cook(Graph(Strands({GfVec3f(0.3f, 0, 0.2f)}, n, step, rl), "UsdGenFrizz",
+    bool const ok2 = Cook(Graph(Strands({usdGen::UsdGenVec3f(0.3f, 0, 0.2f)}, n, step, rl), "UsdGenFrizz",
                                 FrizzParams(e)), &longer);
-    Check(ok2 && MatchStrand(longer, 0, n, step, GfVec3f(0.3f, 0, 0.2f), e, 7, 2.0),
+    Check(ok2 && MatchStrand(longer, 0, n, step, usdGen::UsdGenVec3f(0.3f, 0, 0.2f), e, 7, 2.0),
           "frizz uses the upstream restLength as the reference length");
 
     // Gates: no waves and no noise, or a negligible amplitude, is a no-op.
@@ -532,14 +533,14 @@ static void TestFrizzNoise()
     pl.strandSeed = {21};
     int const n = 17;
     float const step = 1.0f / 16.0f;
-    auto curves = Strands({GfVec3f(0, 0, 0)}, n, step, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0, 0, 0)}, n, step, pl);
     UsdGenCurveBuffer smooth, sharp;
     for (int s = 0; s < 2; ++s) {
         FrizzExpect e;
         e.amplitude = 0.05; e.noise = 0.8; e.noiseSize = 0.25; e.sharp = double(s);
         UsdGenCurveBuffer &out = s ? sharp : smooth;
         bool const ok = Cook(Graph(curves, "UsdGenFrizz", FrizzParams(e)), &out);
-        Check(ok && MatchStrand(out, 0, n, step, GfVec3f(0.0f), e, 21, 1.0),
+        Check(ok && MatchStrand(out, 0, n, step, usdGen::UsdGenVec3f(0.0f), e, 21, 1.0),
               s ? "frizz noise only, sharpness 1 (piecewise linear) matches the formula"
                 : "frizz noise only, sharpness 0 (smoothstep) matches the formula");
     }
@@ -556,7 +557,7 @@ static void TestFrizzProfile()
     pl.strandSeed = {5};
     int const n = 9;
     float const step = 0.125f;
-    auto curves = Strands({GfVec3f(0, 0, 0)}, n, step, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0, 0, 0)}, n, step, pl);
     struct Case { double root, mid, ms, tip; char const *label; };
     for (Case const &cs : {Case{0, 0.5, 0.5, 1, "default ramp (w = t)"},
                            Case{0, 1, 0.5, 0, "bump 2t(1-t)"},
@@ -567,7 +568,7 @@ static void TestFrizzProfile()
         e.root = cs.root; e.mid = cs.mid; e.ms = cs.ms; e.tip = cs.tip;
         UsdGenCurveBuffer out;
         bool const ok = Cook(Graph(curves, "UsdGenFrizz", FrizzParams(e)), &out);
-        Check(ok && MatchStrand(out, 0, n, step, GfVec3f(0.0f), e, 5, 1.0),
+        Check(ok && MatchStrand(out, 0, n, step, usdGen::UsdGenVec3f(0.0f), e, 5, 1.0),
               std::string("frizz profile weighting: ") + cs.label);
     }
 }
@@ -583,8 +584,8 @@ static void TestFrizzClumps()
     pl.restLength = {1.0f, 2.0f, 1.0f, 1.0f};
     int const n = 9;
     float const step = 0.125f;
-    std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(2, 0, 0),
-                                        GfVec3f(3, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(2, 0, 0),
+                                        usdGen::UsdGenVec3f(3, 0, 0)};
     auto curves = Strands(roots, n, step, pl);
     FrizzExpect e;
     e.amplitude = 0.05; e.wavesX = 1.0; e.wavesZ = 2.0; e.noise = 0.3; e.noiseSize = 0.2;
@@ -623,7 +624,7 @@ static void TestFrizzKnotMask()
     pl.knotMask = mask;
     int const n = 5;
     float const step = 0.25f;
-    auto curves = Strands({GfVec3f(0, 0, 0)}, n, step, pl);
+    auto curves = Strands({usdGen::UsdGenVec3f(0, 0, 0)}, n, step, pl);
     FrizzExpect e;
     e.amplitude = 0.05; e.wavesX = 1.0; e.wavesZ = 1.0;
     Params keep = FrizzParams(e);
@@ -631,9 +632,9 @@ static void TestFrizzKnotMask()
     UsdGenCurveBuffer masked, unmasked;
     bool const ok = Cook(Graph(curves, "UsdGenFrizz", keep), &masked) &&
                     Cook(Graph(curves, "UsdGenFrizz", FrizzParams(e)), &unmasked);
-    Check(ok && MatchStrand(masked, 0, n, step, GfVec3f(0.0f), e, 9, 1.0, mask),
+    Check(ok && MatchStrand(masked, 0, n, step, usdGen::UsdGenVec3f(0.0f), e, 9, 1.0, mask),
           "preserveKnots: offsets attenuated by braidKnotMask");
-    Check(ok && MatchStrand(unmasked, 0, n, step, GfVec3f(0.0f), e, 9, 1.0),
+    Check(ok && MatchStrand(unmasked, 0, n, step, usdGen::UsdGenVec3f(0.0f), e, 9, 1.0),
           "preserveKnots off: braidKnotMask ignored");
     Check(ok && masked.px[1] == 0.0f && masked.pz[1] == 0.0f, "knot mask 0 pins the point");
 }
@@ -642,9 +643,9 @@ static void TestFrizzKnotMask()
 static void TestParallelDeterminism()
 {
     Planes pl;
-    std::vector<GfVec3f> roots;
+    std::vector<usdGen::UsdGenVec3f> roots;
     for (int i = 0; i < 600; ++i) {
-        roots.push_back(GfVec3f(0.01f * float(i % 30), 0.0f, 0.013f * float(i / 30)));
+        roots.push_back(usdGen::UsdGenVec3f(0.01f * float(i % 30), 0.0f, 0.013f * float(i / 30)));
         pl.primaryGuide.push_back(i % 7);
         pl.clumpId.push_back(i % 5 == 0 ? -1 : i % 11);
         pl.strandSeed.push_back(int((uint32_t(i) * 2654435761u) & 0x7fffffffu));

@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "pxr/base/gf/vec2f.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaSurfaceInput.h"

@@ -4,6 +4,7 @@
 // family, stable curve ids, morton order with face-major ties, and
 // bit-exact positions/uv/frames, including the overflow-fan recompute
 // (ntri > 2), restricted capture, flip, and error parity.
+#include "utils/pxrInterop.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
@@ -40,8 +41,8 @@ static UsdGenSurfaceDesc Surface()
     int const w = 71, h = 71;
     for (int y = 0; y <= h; ++y)
         for (int x = 0; x <= w; ++x) {
-            s.restPoints.push_back(GfVec3f(float(x), float(y), 0.0f));
-            s.uv.push_back(GfVec2f(float(x) / float(w), float(y) / float(h)));
+            s.restPoints.push_back(usdGen::UsdGenVec3f(float(x), float(y), 0.0f));
+            s.uv.push_back(usdGen::UsdGenVec2f(float(x) / float(w), float(y) / float(h)));
         }
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
@@ -55,8 +56,8 @@ static UsdGenSurfaceDesc Surface()
     int const oy[8] = {0, 0, 1, 2, 3, 3, 2, 1};
     for (int k = 0; k < 8; ++k) {
         s.restPoints.push_back(
-            GfVec3f(float(ox[k]), float(oy[k]), 0.0f));
-        s.uv.push_back(GfVec2f(0.5f, 0.5f));
+            usdGen::UsdGenVec3f(float(ox[k]), float(oy[k]), 0.0f));
+        s.uv.push_back(usdGen::UsdGenVec2f(0.5f, 0.5f));
     }
     s.faceVertexCounts.push_back(8);
     for (int k = 0; k < 8; ++k)
@@ -66,12 +67,12 @@ static UsdGenSurfaceDesc Surface()
     for (int t = 0; t < 3; ++t) {
         int const vb = int(s.restPoints.size());
         float const ox = float(10 + t * 10);
-        s.restPoints.push_back(GfVec3f(ox, 0.0f, 0.0f));
-        s.restPoints.push_back(GfVec3f(ox + 2.0f, 0.0f, 0.0f));
-        s.restPoints.push_back(GfVec3f(ox + 1.0f, 1.0f, 0.0f));
-        s.restPoints.push_back(GfVec3f(ox, 1.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(ox, 0.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(ox + 2.0f, 0.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(ox + 1.0f, 1.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(ox, 1.0f, 0.0f));
         for (int k = 0; k < 4; ++k)
-            s.uv.push_back(GfVec2f(0.25f, 0.75f));
+            s.uv.push_back(usdGen::UsdGenVec2f(0.25f, 0.75f));
         s.faceVertexCounts.push_back(4);
         for (int k = 0; k < 4; ++k)
             s.faceVertexIndices.push_back(vb + k);
@@ -80,11 +81,11 @@ static UsdGenSurfaceDesc Surface()
     for (int t = 0; t < 2; ++t) {
         int const vb = int(s.restPoints.size());
         float const ox = float(t * 10);
-        s.restPoints.push_back(GfVec3f(ox, 0.0f, 0.0f));
-        s.restPoints.push_back(GfVec3f(ox + 3.0f, 0.0f, 0.0f));
-        s.restPoints.push_back(GfVec3f(0.0f, 2.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(ox, 0.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(ox + 3.0f, 0.0f, 0.0f));
+        s.restPoints.push_back(usdGen::UsdGenVec3f(0.0f, 2.0f, 0.0f));
         for (int k = 0; k < 3; ++k)
-            s.uv.push_back(GfVec2f(0.75f, 0.25f));
+            s.uv.push_back(usdGen::UsdGenVec2f(0.75f, 0.25f));
         s.faceVertexCounts.push_back(3);
         for (int k = 0; k < 3; ++k)
             s.faceVertexIndices.push_back(vb + k);
@@ -152,19 +153,19 @@ static bool SameRoots(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 // Fan triangulation spelled as the engine's (kernels.cpp canonical):
 // weight w[t] = 0.5*|cross|, areaRest = sum of weights, Nrest from the
 // accumulated normal. Independent loop, identical float ops.
-static void TestFan(GfVec3f const *rest, int const *fvi, size_t cbase, int nc,
-                    std::vector<float> *triW, GfVec3f *nRest, double *area)
+static void TestFan(usdGen::UsdGenVec3f const *rest, int const *fvi, size_t cbase, int nc,
+                    std::vector<float> *triW, usdGen::UsdGenVec3f *nRest, double *area)
 {
-    GfVec3f const p0 = rest[fvi[cbase]];
+    usdGen::UsdGenVec3f const p0 = rest[fvi[cbase]];
     double areaRest = 0.0;
-    GfVec3f nAcc(0.0f, 0.0f, 0.0f);
+    usdGen::UsdGenVec3f nAcc(0.0f, 0.0f, 0.0f);
     triW->resize(size_t(nc) - 2);
     for (int t = 1; t + 1 < nc; ++t) {
-        GfVec3f const pb = rest[fvi[cbase + size_t(t)]];
-        GfVec3f const pc = rest[fvi[cbase + size_t(t) + 1]];
-        GfVec3f const eb = pb - p0;
-        GfVec3f const ec = pc - p0;
-        GfVec3f const x = GfCross(eb, ec);
+        usdGen::UsdGenVec3f const pb = rest[fvi[cbase + size_t(t)]];
+        usdGen::UsdGenVec3f const pc = rest[fvi[cbase + size_t(t) + 1]];
+        usdGen::UsdGenVec3f const eb = pb - p0;
+        usdGen::UsdGenVec3f const ec = pc - p0;
+        usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(eb, ec);
         float const w = 0.5f * std::sqrt(
             x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
         (*triW)[size_t(t) - 1] = w;
@@ -173,7 +174,7 @@ static void TestFan(GfVec3f const *rest, int const *fvi, size_t cbase, int nc,
     }
     float const l = std::sqrt(nAcc[0] * nAcc[0] + nAcc[1] * nAcc[1] +
                               nAcc[2] * nAcc[2]);
-    *nRest = l > 1e-12f ? nAcc / l : GfVec3f(0.0f, 1.0f, 0.0f);
+    *nRest = l > 1e-12f ? nAcc / l : usdGen::UsdGenVec3f(0.0f, 1.0f, 0.0f);
     *area = areaRest;
 }
 
@@ -194,11 +195,11 @@ static uint64_t TestNf(int seed, int f, double density, double area)
 // Expected root values for (face f, index k), spelled as the engine's
 // level-0 root loop: the same three curveId-keyed draws, triangle pick,
 // blends and frame tests. Returns false for degenerate test setup.
-static bool TestRoot(GfVec3f const *rest, GfVec2f const *uv, int const *fvi,
+static bool TestRoot(usdGen::UsdGenVec3f const *rest, usdGen::UsdGenVec2f const *uv, int const *fvi,
                      size_t cbase, int nc, float const *triW, double area,
-                     GfVec3f const &nRest, int seed, int f, uint64_t k,
-                     bool flip, GfVec3f *pos, GfVec2f *puv, GfVec3f *T,
-                     GfVec3f *N, GfVec3f *B)
+                     usdGen::UsdGenVec3f const &nRest, int seed, int f, uint64_t k,
+                     bool flip, usdGen::UsdGenVec3f *pos, usdGen::UsdGenVec2f *puv, usdGen::UsdGenVec3f *T,
+                     usdGen::UsdGenVec3f *N, usdGen::UsdGenVec3f *B)
 {
     uint64_t const hSeed =
         UsdGenHash64(uint64_t(uint32_t(seed)), kSaltScatter);
@@ -226,41 +227,41 @@ static bool TestRoot(GfVec3f const *rest, GfVec2f const *uv, int const *fvi,
             break;
         }
     }
-    GfVec3f const p0 = rest[fvi[cbase]];
+    usdGen::UsdGenVec3f const p0 = rest[fvi[cbase]];
     size_t const ib = cbase + ti + 1;
     size_t const ic = ib + 1;
-    GfVec3f const pb = rest[fvi[ib]];
-    GfVec3f const pc = rest[fvi[ic]];
+    usdGen::UsdGenVec3f const pb = rest[fvi[ib]];
+    usdGen::UsdGenVec3f const pc = rest[fvi[ic]];
     float const r1 = std::sqrt(u1);
     *pos = p0 * (1.0f - r1) + pb * (u2 * r1) + pc * (r1 * (1.0f - u2));
-    *puv = GfVec2f(1.0f / 3.0f, 1.0f / 3.0f);
+    *puv = usdGen::UsdGenVec2f(1.0f / 3.0f, 1.0f / 3.0f);
     if (uv)
         *puv = uv[fvi[cbase]] * (1.0f - r1) + uv[fvi[ib]] * (u2 * r1) +
             uv[fvi[ic]] * (r1 * (1.0f - u2));
     *N = nRest;
-    GfVec3f e0 = pb - p0;
-    float const e0d = GfDot(e0, nRest);
-    float const e0l2 = GfDot(e0, e0);
+    usdGen::UsdGenVec3f e0 = pb - p0;
+    float const e0d = usdGen::UsdGenDot(e0, nRest);
+    float const e0l2 = usdGen::UsdGenDot(e0, e0);
     if (e0d * e0d > 0.81f * e0l2) {
         e0 = pc - p0;
-        *T = e0 - nRest * GfDot(e0, nRest);
+        *T = e0 - nRest * usdGen::UsdGenDot(e0, nRest);
     } else {
         *T = e0 - nRest * e0d;
     }
-    float tLen = std::sqrt(GfDot(*T, *T));
+    float tLen = std::sqrt(usdGen::UsdGenDot(*T, *T));
     if (tLen < 1e-9f) {
-        *T = std::abs(nRest[0]) > 0.9f ? GfVec3f(0.0f, 1.0f, 0.0f)
-                                       : GfVec3f(1.0f, 0.0f, 0.0f);
-        *T = *T - nRest * GfDot(*T, nRest);
+        *T = std::abs(nRest[0]) > 0.9f ? usdGen::UsdGenVec3f(0.0f, 1.0f, 0.0f)
+                                       : usdGen::UsdGenVec3f(1.0f, 0.0f, 0.0f);
+        *T = *T - nRest * usdGen::UsdGenDot(*T, nRest);
         float const l = std::sqrt((*T)[0] * (*T)[0] + (*T)[1] * (*T)[1] +
                                   (*T)[2] * (*T)[2]);
-        *T = l > 1e-12f ? *T / l : GfVec3f(0.0f, 1.0f, 0.0f);
+        *T = l > 1e-12f ? *T / l : usdGen::UsdGenVec3f(0.0f, 1.0f, 0.0f);
     } else {
         *T = *T / tLen;
     }
-    GfVec3f const x = GfCross(*N, *T);
+    usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(*N, *T);
     float const bl = std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
-    *B = bl > 1e-12f ? x / bl : GfVec3f(0.0f, 1.0f, 0.0f);
+    *B = bl > 1e-12f ? x / bl : usdGen::UsdGenVec3f(0.0f, 1.0f, 0.0f);
     if (flip) {
         *T = -*T;
         *B = -*B;
@@ -283,7 +284,7 @@ int main()
     // Independent per-face expectations: fan, area, count.
     size_t const nFaces = s.faceVertexCounts.size();
     std::vector<std::vector<float>> faceW(nFaces);
-    std::vector<GfVec3f> faceN(nFaces);
+    std::vector<usdGen::UsdGenVec3f> faceN(nFaces);
     std::vector<double> faceArea(nFaces);
     std::vector<uint64_t> faceNf(nFaces);
     size_t wantTotal = 0;
@@ -338,14 +339,14 @@ int main()
         CHECK(it != idFace.end());
         int const f = it->second.first;
         uint64_t const k = it->second.second;
-        GfVec3f pos, T, N, B;
-        GfVec2f puv;
+        usdGen::UsdGenVec3f pos, T, N, B;
+        usdGen::UsdGenVec2f puv;
         CHECK(TestRoot(s.restPoints.cdata(), s.uv.cdata(),
                        s.faceVertexIndices.cdata(), cornerOff[size_t(f)],
                        s.faceVertexCounts[size_t(f)], faceW[size_t(f)].data(),
                        faceArea[size_t(f)], faceN[size_t(f)], seed, f, k,
                        false, &pos, &puv, &T, &N, &B));
-        CHECK(pos == GfVec3f(out.px[i], out.py[i], out.pz[i]));
+        CHECK(pos == usdGen::UsdGenVec3f(out.px[i], out.py[i], out.pz[i]));
         CHECK(puv == out.rootUV[i]);
         CHECK(T == out.rootT[i] && N == out.rootN[i] && B == out.rootB[i]);
         CHECK(out.hairT[i] == 0.0f);

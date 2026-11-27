@@ -9,6 +9,7 @@
 //   * come from a multi-line source with locals and a curve() control;
 //   * follow the AUTHORED literal, so usdGen:width is still $value;
 //   * change when the expression source is edited on the stage.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"

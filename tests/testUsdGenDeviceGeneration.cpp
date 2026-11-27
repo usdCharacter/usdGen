@@ -1,3 +1,4 @@
+#include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "testBackend.h"
 #include "usdGen/deviceGeneration.h"
@@ -5,6 +6,11 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+
+#include "pxr/pxr.h"
+#include "pxr/base/tf/token.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace {
 

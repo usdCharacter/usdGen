@@ -6,16 +6,11 @@
 #ifndef USDGEN_TYPES_H
 #define USDGEN_TYPES_H
 
-#include "pxr/base/gf/range3f.h"
-#include "pxr/base/tf/token.h"
-#include "pxr/base/tf/span.h"
-#include "pxr/base/vt/array.h"
-
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -147,26 +142,6 @@ inline int ComputeNumTiles(int nChunks, int tileTarget = kUsdGenTileTargetDefaul
     n = std::max(kUsdGenTileMin, std::min(kUsdGenTileMax, n));
     return std::min(nChunks, n);
 }
-
-/// One named plane (03 §1.2): the op registry's plane layouts, the
-/// scheduler's channel mapping and publication's extra planes. R24 pins type/arity per emitted name:
-///   clumpId_<level> : uniform int,       arity 1
-///   clumpCenter_<level> : uniform float,  arity 3 (rest anchor)
-///   clumpCenterId_<level> : uniform int,  arity 2 (exact uint64 words)
-///   clumpWeight_<level> : vertex float,   arity 1 (effective cohesion)
-///   guideIndex      : uniform int[],     arity 3
-///   guideWeight     : uniform float[],   arity 3
-/// `int[3]`/`float[3]` are not USD type names. Exactly one of `f`/`i` holds
-/// the payload.
-struct UsdGenPlane
-{
-    TfToken      name;
-    TfToken      interpolation;   // vertex | uniform | constant
-    TfToken      type;            // float | int
-    uint8_t      arity = 1;
-    VtFloatArray f;
-    VtIntArray   i;
-};
 
 }  // namespace usdGen
 

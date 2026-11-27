@@ -17,6 +17,7 @@
 //       undescribed target fails at compile;
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
+#include "utils/pxrInterop.h"
 #include "usdGen/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"

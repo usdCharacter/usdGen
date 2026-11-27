@@ -1,9 +1,11 @@
 #ifndef USDGEN_CUDA_SURFACE_INPUT_H
 #define USDGEN_CUDA_SURFACE_INPUT_H
 
+#include "usdGen/api/cowArray.h"
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/cowArray.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,11 +14,11 @@ namespace usdGen {
 
 struct CudaSurfaceBindingKey {
     UsdGenNodeKey surface;
-    VtVec3fArray restPoints;
-    VtVec3fArray restNormals;
+    UsdGenVec3fArray restPoints;
+    UsdGenVec3fArray restNormals;
     UsdGenSurfaceNormalDomain restNormalDomain = UsdGenSurfaceNormalDomain::None;
-    VtIntArray faceVertexCounts;
-    VtIntArray faceVertexIndices;
+    UsdGenIntArray faceVertexCounts;
+    UsdGenIntArray faceVertexIndices;
     uint32_t sampleBudget = 0;
 };
 

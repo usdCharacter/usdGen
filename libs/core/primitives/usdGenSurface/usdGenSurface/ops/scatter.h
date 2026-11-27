@@ -7,13 +7,15 @@
 #define USDGEN_OP_SCATTER_H
 
 #include "usdGen/op.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/registries/handles.h"
 #include "usdGenCurves/export.h"
 #include "usdGenSurface/types/rootSet.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -38,14 +40,14 @@ public:
 private:
     // Static rest/topology array digests, memoized across poses (the steady
     // state rehashes megabytes of unchanged rest data every frame).
-    mutable opUtil::ContentDigestCache<GfVec3f> restPointsDigest_;
+    mutable opUtil::ContentDigestCache<UsdGenVec3f> restPointsDigest_;
     mutable opUtil::ContentDigestCache<int> faceCountsDigest_;
     mutable opUtil::ContentDigestCache<int> faceIndicesDigest_;
     mutable opUtil::ContentDigestCache<int> subsetFacesDigest_;
-    mutable opUtil::ContentDigestCache<GfVec2f> uvDigest_;
+    mutable opUtil::ContentDigestCache<UsdGenVec2f> uvDigest_;
     mutable opUtil::ContentDigestCache<float> densityMultDigest_;
     // Rest normals feed the root frames of the generation-order modes.
-    mutable opUtil::ContentDigestCache<GfVec3f> restNormalsDigest_;
+    mutable opUtil::ContentDigestCache<UsdGenVec3f> restNormalsDigest_;
     // UsdGenSubdivisionDigest re-hashes the topology arrays on top of the
     // array digests above; memoize it keyed on the same buffer identities
     // plus the scheme tokens (a miss recomputes exactly as before).
@@ -55,7 +57,7 @@ private:
         UsdGenSpan<const int> counts_, indices_, holes_, creaseIndices_, creaseLengths_,
             cornerIndices_;
         UsdGenSpan<const float> creaseSharpnesses_, cornerSharpnesses_;
-        TfToken scheme_, orientation_, interpolateBoundary_,
+        UsdGenToken scheme_, orientation_, interpolateBoundary_,
             faceVaryingLinearInterpolation_, creaseMethod_,
             triangleSubdivisionRule_;
         uint64_t digest_ = 0;

@@ -3,6 +3,7 @@
 // the codeless UsdGenDescription reports a non-empty computed extent.
 //
 // Usage: testUsdGenPluginDiscovery <schemaResourcesDir> <imagingResourcesDir> <fixture.usda>
+#include "utils/pxrInterop.h"
 #include "usdGenTestUtilsHd/testUtilsHd.h"
 
 #include "pxr/pxr.h"
