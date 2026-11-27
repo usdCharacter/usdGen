@@ -58,11 +58,11 @@ struct NonWidthComparePipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> leftPacked, rightPacked, status;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue timeline value of the submission
     uint32_t semantic = 0;
     bool pending = false, lost = false, proved = false;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
-    ~State() { auto d=native->context->device(); if(fence)vkDestroyFence(d,fence,nullptr); if(commands)vkDestroyCommandPool(d,commands,nullptr); if(descriptors)vkDestroyDescriptorPool(d,descriptors,nullptr); }
+    ~State() { auto d=native->context->device(); if(commands)vkDestroyCommandPool(d,commands,nullptr); if(descriptors)vkDestroyDescriptorPool(d,descriptors,nullptr); }
 };
 NonWidthComparePipeline::NonWidthComparePipeline(std::shared_ptr<Native> n):native_(std::move(n)) {}
 NonWidthComparePipeline::~NonWidthComparePipeline() = default;
@@ -71,6 +71,7 @@ std::shared_ptr<DeviceContext> const& NonWidthComparePipeline::context() const n
 std::shared_ptr<NonWidthComparePipeline> NonWidthComparePipeline::Create(std::shared_ptr<DeviceContext> context, std::vector<uint32_t> const& code, VkResult* result) {
     auto done=[&](VkResult r){if(result)*result=r;}; done(VK_ERROR_INITIALIZATION_FAILED);
     if(!context||code.size()<5||code.front()!=0x07230203u||code.size()>std::numeric_limits<size_t>::max()/4)return{};
+    if(!context->computeTimeline()){done(VK_ERROR_FEATURE_NOT_PRESENT);return{};}  // submits on the queue timeline
     VkPhysicalDeviceProperties props{}; vkGetPhysicalDeviceProperties(context->physicalDevice(),&props);
     if(props.limits.maxComputeWorkGroupInvocations<kLocalSize||props.limits.maxComputeWorkGroupSize[0]<kLocalSize)return{};
     try { auto n=std::make_shared<Native>(); n->context=std::move(context); auto d=n->context->device(); VkResult r;
@@ -92,12 +93,10 @@ VkResult NonWidthComparePipeline::Candidate::Poll(Status* out) {
     auto& s = *state_;
     if (s.lost) { if (out) *out = Status::LostProof; return VK_ERROR_DEVICE_LOST; }
     if (!s.proved) {
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        // The packed and status buffers are private to State, which the
+        // quarantine retains while the submission is pending.
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) { if (out) *out = Status::NotReady; return r; }
-        if (r != VK_SUCCESS) { Quarantine(); if (out) *out = Status::LostProof; return r; }
-        r = s.leftPacked->PollComplete();
-        if (r == VK_SUCCESS) r = s.rightPacked->PollComplete();
-        if (r == VK_SUCCESS) r = s.status->PollComplete();
         if (r != VK_SUCCESS) { Quarantine(); if (out) *out = Status::LostProof; return r; }
         void* p = nullptr;
         r = vkMapMemory(s.native->context->device(), s.status->memory(), 0, 4, 0, &p);
@@ -144,7 +143,7 @@ std::unique_ptr<NonWidthComparePipeline::Candidate> NonWidthComparePipeline::Beg
   VkCommandPoolCreateInfo poolInfo{};poolInfo.sType=VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;poolInfo.queueFamilyIndex=context->computeQueueFamily();r=vkCreateCommandPool(d,&poolInfo,nullptr,&s->commands);if(r){done(r);return{};}VkCommandBufferAllocateInfo ai{};ai.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;ai.commandPool=s->commands;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=1;VkCommandBuffer command=VK_NULL_HANDLE;r=vkAllocateCommandBuffers(d,&ai,&command);if(r){done(r);return{};}VkCommandBufferBeginInfo begin{};begin.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;r=vkBeginCommandBuffer(command,&begin);if(r){done(r);return{};}
   Barrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_TRANSFER_WRITE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT);vkCmdFillBuffer(command,s->leftPacked->buffer(),0,descriptorBytes,0);vkCmdFillBuffer(command,s->rightPacked->buffer(),0,descriptorBytes,0);Barrier(command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);VkDeviceSize offset=0;for(Copy const& copy:copies){VkBufferCopy region{0,offset,copy.bytes};vkCmdCopyBuffer(command,copy.left,s->leftPacked->buffer(),1,&region);vkCmdCopyBuffer(command,copy.right,s->rightPacked->buffer(),1,&region);offset+=copy.padded;}
   Barrier(command,VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_WRITE_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT);Barrier(command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_READ_BIT);vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,native_->pipeline);vkCmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_COMPUTE,native_->layout,0,1,&set,0,nullptr);uint32_t words=uint32_t(words64);vkCmdPushConstants(command,native_->layout,VK_SHADER_STAGE_COMPUTE_BIT,0,4,&words);vkCmdDispatch(command,uint32_t(groups64),1,1);Barrier(command,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_ACCESS_SHADER_WRITE_BIT,VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);r=vkEndCommandBuffer(command);if(r){done(r);return{};}
-  VkFenceCreateInfo fi{};fi.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;r=vkCreateFence(d,&fi,nullptr,&s->fence);if(r){done(r);return{};}if(beforeSubmit){bool admitted=false;try{admitted=beforeSubmit();}catch(...){done(VK_ERROR_UNKNOWN);return{};}if(!admitted){done(VK_ERROR_OUT_OF_DEVICE_MEMORY);return{};}}r=s->leftPacked->MarkSubmitted(s->fence,s);if(r==VK_SUCCESS)r=s->rightPacked->MarkSubmitted(s->fence,s);if(r==VK_SUCCESS)r=s->status->MarkSubmitted(s->fence,s);if(r!=VK_SUCCESS){s->pending=true;candidate->Quarantine();done(r);return{};}s->pending=true;VkSubmitInfo submit{};submit.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;submit.commandBufferCount=1;submit.pCommandBuffers=&command;r=vkQueueSubmit(context->computeQueue(),1,&submit,s->fence);if(r!=VK_SUCCESS){candidate->Quarantine();done(r);return{};}done(VK_SUCCESS);return candidate;
+  if(beforeSubmit){bool admitted=false;try{admitted=beforeSubmit();}catch(...){done(VK_ERROR_UNKNOWN);return{};}if(!admitted){done(VK_ERROR_OUT_OF_DEVICE_MEMORY);return{};}}s->pending=true;s->value=context->computeTimeline()->Submit(&command,1,&r);if(!s->value){candidate->Quarantine();done(r);return{};}done(VK_SUCCESS);return candidate;
  }catch(std::bad_alloc const&){done(VK_ERROR_OUT_OF_HOST_MEMORY);return{};}
 }
 } // namespace usdGen::vulkan

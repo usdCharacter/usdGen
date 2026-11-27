@@ -117,10 +117,10 @@ int main(int argc, char** argv) {
     std::memcpy(code.data(), raw.data(), raw.size());
 
     bool unavailable = false;
-    auto native = CreateNative(&unavailable);
+    auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
-    DeviceContext::CreateInfo contextInfo;
+    DeviceContext::CreateInfo contextInfo; contextInfo.timelineSemaphoreEnabled = true;
     contextInfo.instance = native->instance;
     contextInfo.physicalDevice = native->physical;
     contextInfo.device = native->device;
