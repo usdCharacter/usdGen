@@ -6,6 +6,7 @@
 #                              initialisation under libs/ (MSVC guards
 #                              those with a lock when contended)
 #   testUsdGenNoPxrIncludes    no pxr/ include below the hosts
+#   testUsdGenNoPxrNamesBelowHosts no pxr name below the hosts
 #   testUsdGenNoPxrLink_*      no pxr library linked below the hosts
 #   testUsdGenWarmAllocations  no heap allocation in a warm cook
 #
@@ -63,6 +64,21 @@ add_test(NAME testUsdGenNoPxrIncludes
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noPxrIncludes.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPxrIncludes PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
+
+# Step 11: no pxr name below the hosts. Includes alone undercount: names
+# arrive through headers. Comment lines are no hit. Empty at 11.8.
+set(USDGEN_PXR_NAME_PATTERN
+    "(^|[^A-Za-z0-9_])(Tf|Gf|Vt|Trace|Arch|Work|PxOsd|Hd|Hgi|Hio|Sdf|UsdGeom|UsdImaging|UsdTimeCode|UsdStage)[A-Z]|(^|[^A-Za-z0-9_])(PXR|TF|TRACE|ARCH|GF|VT)_[A-Z]|pxr::")
+add_test(NAME testUsdGenNoPxrNamesBelowHosts
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-pxr-names-below-hosts
+        "-DDIRS=${_usdgen_below_dirs}"
+        "-DPATTERN=${USDGEN_PXR_NAME_PATTERN}"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noPxrNames.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoPxrNamesBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
 # Step 7: no Sdf type or sdf include below the hosts (SdfPath is a host
 # NodeKey map, Sdf value types are usdGenExpr's closed table). Empty baseline.
