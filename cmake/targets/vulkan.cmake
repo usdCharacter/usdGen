@@ -186,7 +186,9 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     list(APPEND USDGEN_EXTENSION_TARGETS usdGenCurvesVulkan)
     install(TARGETS usdGenCurvesVulkan
         RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
-        LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")
+        LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+        ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+            COMPONENT usdGenImportLibraries EXCLUDE_FROM_ALL)
     # Test link lines name these; both are usdGenVulkan.
     # The curve pipelines live in usdGenCurvesVulkan, which tests use directly.
     add_library(usdGenVulkanNative INTERFACE)

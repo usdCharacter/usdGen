@@ -6,31 +6,28 @@
 # ---------------------------------------------------------------------------
 # Install rules
 # ---------------------------------------------------------------------------
-# N-7 (plan §1.2/§1.6): only the shipped targets are installed and
-# exported. usdGenMath, usdGen_seexpr and nanoflann are private dependency
-# archives (linked hidden, --exclude-libs,ALL, symbols verified out of the
-# shipped objects) — installing them would put libusdGenMath.a /
-# libusdGen_seexpr.a into lib/ and drag their unprefixed INTERFACE include
-# roots into the usdGenTargets export set.
-install(TARGETS usdGen usdGenSurface usdGenExpr usdGenCurves usdGenWithPrimitives
-        usdGenUsd usdGenHydraCurves usdGenImaging usdGenSchema usdGenShaders usdGenPomade
+# 12.5 (D16): usdGen is the one exported target (usdGen::usdGen, no pxr in
+# its interface). usdGenMath, usdGen_seexpr and nanoflann are private
+# archives and are not installed (N-7).
+install(TARGETS usdGen
     EXPORT usdGenTargets
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}")
-# usdGen loads the backends from its own directory (usdGenExtensions.txt).
-install(TARGETS usdGenCuda
-    EXPORT usdGenTargets
-    RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
-    LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
-    ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}")
+# Everything else ships as a runtime library without an export: the
+# extensions usdGen loads from its own directory (usdGenExtensions.txt), the
+# hosts Plug loads, and Pomade. Their import libraries are not installed.
+set(_usdgen_runtime_targets usdGenSurface usdGenExpr usdGenCurves usdGenCuda
+    usdGenUsd usdGenHydraCurves usdGenImaging usdGenSchema usdGenPomade)
 if(TARGET usdGenVulkan)
-    install(TARGETS usdGenVulkan usdGenVulkanNative usdGenVulkanFactory
-        EXPORT usdGenTargets
-        RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
-        LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
-        ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}")
+    list(APPEND _usdgen_runtime_targets usdGenVulkan)
 endif()
+install(TARGETS ${_usdgen_runtime_targets}
+    RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+    LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+    ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}"
+        COMPONENT usdGenImportLibraries EXCLUDE_FROM_ALL)
+unset(_usdgen_runtime_targets)
 
 
 # Schema + imaging plugin resources.
@@ -121,23 +118,16 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/usdGenConfigVersion.cmake"
     DESTINATION "${USDGEN_INSTALL_CMAKEDIR}")
 
-# Install public headers for the exported targets' $<INSTALL_INTERFACE:include>
-# dirs. The build-tree include roots are:
-#   usdGen        libs/core/usdGen     -> #include "usdGen/{api,registries,compile,exec}/..."
-#   usdGenCurves, usdGenSurface, usdGenExpr (libs/core/primitives/<name>),
-#   usdGenCuda, usdGenVulkan (libs/core/backends/<name>) -> #include "<name>/..."
-#   usdGenSchema  libs/hosts/usdGenUsd/schema -> #include "usdGenSchema/..."
-#   usdGenImaging libs/hosts/usdGenHydra -> #include "usdGenImaging/..."
-#   usdGenHydraCurves libs/hosts/usdGenHydra/primitives/curves -> #include "usdGenHydraCurves/..."
-#   usdGenPomade   libs/usdGenPomade     -> #include "usdGenPomade/..."
-# so the install mirrors the include spellings directly under
-# <prefix>/include. Trailing source slashes + FILES_MATCHING ship headers
-# only (sol S-6: the previous install(DIRECTORY) rules appended directory
-# basenames a second time — include/usdGen/usdGen/*.h — and installed .cpp
-# files; duplicate rules for schema/imaging are removed).
-# N-7 (plan §1.2): usdGenMath is not an installed target (its archive stays
-# private). Step 11.4: the api headers name the engine's own math types, so
-# the math headers they include are installed (include/usdGenMath).
+# Headers (12.5, D16): api/ (with the extension SDK, api/ext/) and the
+# usdGenMath headers it includes. Nothing else ships; testUsdGenInstallOnlyApi
+# (cmake/gates/CheckInstallApiOnly.cmake) fails on any other installed header.
+# The .cpp files under api/ are usdGen's own sources.
+install(DIRECTORY libs/core/usdGen/usdGen/api/
+    DESTINATION include/usdGen/api
+    COMPONENT usdGenHeaders
+    FILES_MATCHING PATTERN "*.h")
+# usdGenMath is not an installed target; its compiled members live in usdGen
+# (USDGEN_MATH_API). The api headers include math.h and rbf.h too.
 install(FILES
     libs/base/usdGenMath/usdGenMath/half.h
     libs/base/usdGenMath/usdGenMath/vec.h
@@ -146,35 +136,8 @@ install(FILES
     libs/base/usdGenMath/usdGenMath/range.h
     libs/base/usdGenMath/usdGenMath/math.h
     libs/base/usdGenMath/usdGenMath/rbf.h
-    DESTINATION include/usdGenMath)
-# The Session routing bridge deliberately carries cooker/private COW
-# mechanics and is not part of the installed adapter surface.
-install(DIRECTORY libs/core/usdGen/usdGen/
-    DESTINATION include/usdGen
-    FILES_MATCHING PATTERN "*.h"
-    PATTERN "sessionBackendExecutor.h" EXCLUDE)
-foreach(_usdgen_root primitives/usdGenCurves primitives/usdGenSurface
-        primitives/usdGenExpr backends/usdGenCuda backends/usdGenVulkan)
-    get_filename_component(_usdgen_name "${_usdgen_root}" NAME)
-    install(DIRECTORY libs/core/${_usdgen_root}/${_usdgen_name}/
-        DESTINATION include/${_usdgen_name}
-        FILES_MATCHING PATTERN "*.h")
-endforeach()
-install(DIRECTORY libs/hosts/usdGenUsd/usdGenUsd/
-    DESTINATION include/usdGenUsd
-    FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/hosts/usdGenUsd/schema/usdGenSchema/
-    DESTINATION include/usdGenSchema
-    FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/hosts/usdGenHydra/usdGenImaging/
-    DESTINATION include/usdGenImaging
-    FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/hosts/usdGenHydra/primitives/curves/usdGenHydraCurves/
-    DESTINATION include/usdGenHydraCurves
-    FILES_MATCHING PATTERN "*.h")
-install(DIRECTORY libs/usdGenPomade/usdGenPomade/
-    DESTINATION include/usdGenPomade
-    FILES_MATCHING PATTERN "*.h")
+    DESTINATION include/usdGenMath
+    COMPONENT usdGenHeaders)
 
 # NOTICE
 install(FILES NOTICE DESTINATION "share/usdGen")

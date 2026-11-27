@@ -1,8 +1,7 @@
 # usdGenConfig.cmake.in — CMake package config for downstream consumers
 @PACKAGE_INIT@
 
-# Resolve package-relative paths before any nested dependency find
-# (sol S-5/X-4), so a failing dependency cannot shadow them.
+# Resolve package-relative paths first (sol S-5/X-4).
 set_and_check(usdGen_PLUGIN_DIR "@PACKAGE_USDGEN_INSTALL_PLUGINDIR@")
 set_and_check(usdGen_LIBRARY_DIR "@PACKAGE_USDGEN_INSTALL_LIBDIR@")
 
@@ -12,66 +11,7 @@ set(usdGen_PLUGINPATHS
     "${usdGen_PLUGIN_DIR}/usdGenSchema/resources"
     "${usdGen_PLUGIN_DIR}/usdGenImaging/resources")
 
-include(CMakeFindDependencyMacro)
-
-# OpenUSD's garch interface references OpenGL::GL. Create it before loading
-# pxr's imported targets, on Windows as well as Unix-like hosts.
-if(NOT TARGET OpenGL::GL)
-    find_dependency(OpenGL)
-endif()
-
-# The public link interface of usdGen references pxr imported targets, TBB and
-# OpenGL. The `if(NOT TARGET usd)` guard makes usdGen coexist with a build that
-# already imported pxr (e.g. OpenUSD itself, or rigExec pulling pxr first):
-# pxrConfig is single-pass and a second find_package(pxr CONFIG) detonates
-# (plan §3.2; sol S-5/X-4).
-if(NOT TARGET usd)
-    # The stock Windows build_usd.py prefix has OpenSubdiv headers and
-    # libraries but not OpenSubdivConfig.cmake. Reconstruct the two targets
-    # pxr's export expects from the prefix supplied to CMAKE_PREFIX_PATH.
-    if(WIN32 AND NOT DEFINED PXR_FIND_OPENSUBDIV_IN_CONFIG)
-        set(PXR_FIND_OPENSUBDIV_IN_CONFIG OFF)
-    endif()
-    if(WIN32 AND NOT TARGET OpenSubdiv::osdCPU_static)
-        set(_usdgen_pxr_prefix "")
-        foreach(_usdgen_pxr_hint IN LISTS CMAKE_PREFIX_PATH)
-            if(EXISTS "${_usdgen_pxr_hint}/pxrConfig.cmake")
-                set(_usdgen_pxr_prefix "${_usdgen_pxr_hint}")
-                break()
-            endif()
-        endforeach()
-        if(NOT _usdgen_pxr_prefix AND DEFINED pxr_DIR AND
-           EXISTS "${pxr_DIR}/pxrConfig.cmake")
-            set(_usdgen_pxr_prefix "${pxr_DIR}")
-        endif()
-        if(_usdgen_pxr_prefix AND
-           EXISTS "${_usdgen_pxr_prefix}/lib/osdCPU.lib" AND
-           EXISTS "${_usdgen_pxr_prefix}/lib/osdGPU.lib")
-            foreach(_usdgen_osd_target osdCPU osdGPU)
-                add_library(OpenSubdiv::${_usdgen_osd_target}_static STATIC IMPORTED)
-                set_target_properties(OpenSubdiv::${_usdgen_osd_target}_static PROPERTIES
-                    IMPORTED_LOCATION "${_usdgen_pxr_prefix}/lib/${_usdgen_osd_target}.lib"
-                    INTERFACE_INCLUDE_DIRECTORIES "${_usdgen_pxr_prefix}/include"
-                    INTERFACE_COMPILE_DEFINITIONS
-                        "OPENSUBDIV_HAS_PATCH_SHADER_SOURCE_GLSL;OPENSUBDIV_HAS_GLSL_TRANSFORM_FEEDBACK;OPENSUBDIV_HAS_GLSL_COMPUTE;OPENSUBDIV_HAS_OPENGL")
-            endforeach()
-        endif()
-        unset(_usdgen_osd_target)
-        unset(_usdgen_pxr_hint)
-        unset(_usdgen_pxr_prefix)
-    endif()
-    find_dependency(pxr CONFIG)
-endif()
-# TBB::tbb is provided by pxrConfig when PXR_FIND_TBB_IN_CONFIG is OFF
-# (the default, and the configuration usdGen itself is built with): it becomes
-# an imported target pointing at ${usd}/lib/libtbb.so. Only fall back to a
-# system/config TBB search when that target does not already exist.
-if(NOT TARGET TBB::tbb)
-    find_dependency(TBB)
-endif()
-if(@USDGEN_ENABLE_VULKAN_RUNTIME@)
-    find_dependency(Vulkan 1.2)
-    find_dependency(Threads)
-endif()
-
+# 12.5: usdGen::usdGen is the only exported target. Its interface is the
+# api/ headers and the usdGen library; no OpenUSD, TBB, OpenGL or Vulkan
+# dependency, so nothing is found here.
 include("${CMAKE_CURRENT_LIST_DIR}/usdGenTargets.cmake")
