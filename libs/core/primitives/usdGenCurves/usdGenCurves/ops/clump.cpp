@@ -57,6 +57,10 @@
 // count) and sub-clumps (usdGen:clump:sub:*, sector centres projected onto
 // the bound surface).
 #include "usdGen/ops/clump.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -70,7 +74,7 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/gf/range3d.h"
+#include "usdGenMath/math.h"
 
 #include <nanoflann.hpp>
 
@@ -87,7 +91,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -145,11 +148,11 @@ void ParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const &body)
     }, &payload);
 }
 
-VtVec2fArray ReadKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
+UsdGenVec2fArray ReadKnots(UsdGenParamView const *p, UsdGenParamSlot slot)
 {
     if (!p) return {};
-    VtValue const v = p->GetValue(slot, VtValue());
-    return v.IsHolding<VtVec2fArray>() ? v.UncheckedGet<VtVec2fArray>() : VtVec2fArray();
+    UsdGenValue const v = p->GetValue(slot, UsdGenValue());
+    return v.IsHolding<UsdGenVec2fArray>() ? v.UncheckedGet<UsdGenVec2fArray>() : UsdGenVec2fArray();
 }
 
 enum class Centers { Density, Count, Guides, GuideSeeded };
@@ -161,8 +164,8 @@ int AuthoredEnum(UsdGenParamView const &p, UsdGenParamSlot slot, int fallback)
 {
     UsdGenResolvedParam const *r = p.Slot(slot);
     if (!r || !r->authored) return fallback;
-    VtValue const &v = r->authored->value;
-    return v.IsHolding<TfToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
+    UsdGenValue const &v = r->authored->value;
+    return v.IsHolding<UsdGenToken>() || v.IsHolding<std::string>() ? r->enumIndex : fallback;
 }
 
 struct Settings {
@@ -178,7 +181,7 @@ struct Settings {
     float flyFraction = 0.0f, flyAmount = 0.0f;
     bool subEnabled = false;
     clumpRef::SubClumpSettings sub;
-    VtIntArray overrides;
+    UsdGenIntArray overrides;
     int overrideCount = 0;
 };
 
@@ -243,15 +246,15 @@ bool ReadSettings(UsdGenParamView const *p, Settings *s, UsdGenDiagnostics *diag
                     s->flyFraction, s->flyAmount, s->sub.spread, s->sub.amount})
         if (!std::isfinite(v))
             return fail("usdGen:clump profile, flyaway and sub-clump controls must be finite");
-    VtValue const overrides = p->GetValue(kOverrides, VtValue());
-    if (overrides.IsHolding<VtIntArray>()) s->overrides = overrides.UncheckedGet<VtIntArray>();
+    UsdGenValue const overrides = p->GetValue(kOverrides, UsdGenValue());
+    if (overrides.IsHolding<UsdGenIntArray>()) s->overrides = overrides.UncheckedGet<UsdGenIntArray>();
     else if (!overrides.IsEmpty()) return fail("usdGen:clump:overrides must be an int[]");
     s->overrideCount = p->GetInt(kOverrideCount, 0);
     return true;
 }
 
 /// A uniform int plane (arity 1) of the upstream buffer, or null.
-int const *IntCurvePlane(UsdGenCurveSetView const &buffer, TfToken const &name)
+int const *IntCurvePlane(UsdGenCurveSetView const &buffer, UsdGenToken const &name)
 {
     for (uint32_t k = 0; k < buffer.ExtraCurveCount(); ++k) {
         UsdGenPlaneView const plane = buffer.ExtraCurve(k);
@@ -429,7 +432,7 @@ UsdGenEpoch UsdGenClumpOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     if (UsdGenParamView const *p = ctx.params) {
         for (UsdGenParamSlot s = 0; s < kEnabled; ++s) {   // the topology list
             d.Mix(Record().ParamName(s));
-            d.Mix(p->GetValue(s, VtValue()));
+            d.Mix(p->GetValue(s, UsdGenValue()));
         }
     }
     d.Mix(uint64_t(ctx.seed));
@@ -495,7 +498,7 @@ bool UsdGenClumpOp::Capture(
     std::vector<float> const input = shape;
     std::vector<float> roots(R * 3);
     for (size_t c = 0; c < R; ++c) {
-        GfVec3f const r = opUtil::RestPoint(upstream, spans[c]);
+        UsdGenVec3f const r = opUtil::RestPoint(upstream, spans[c]);
         roots[c * 3] = r[0]; roots[c * 3 + 1] = r[1]; roots[c * 3 + 2] = r[2];
     }
     uint64_t const *ids = upstream.curveId.size() == R ? upstream.curveId.cdata() : nullptr;
@@ -512,7 +515,7 @@ bool UsdGenClumpOp::Capture(
 
     // Knots ramp, unless the Bezier root/mid/tip profile replaces it.
     std::vector<float> profile;
-    VtVec2fArray const knots = s.bezier ? VtVec2fArray() : ReadKnots(p, kProfileKnots);
+    UsdGenVec2fArray const knots = s.bezier ? UsdGenVec2fArray() : ReadKnots(p, kProfileKnots);
     if (!knots.empty()) {
         profile.assign(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots, p ? p->GetToken(kProfileInterpolation, UsdGenCurveTokens().catmullRom)
@@ -574,10 +577,10 @@ bool UsdGenClumpOp::Capture(
         ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size());
     if (!(area > 0.0)) {
         // No bound surface: the roots' bounding box stands in for the area.
-        GfRange3d box;
+        UsdGenRange3d box;
         for (size_t c = 0; c < R; ++c)
-            box.UnionWith(GfVec3d(roots[c * 3], roots[c * 3 + 1], roots[c * 3 + 2]));
-        GfVec3d const e = box.GetSize();
+            box.UnionWith(UsdGenVec3d(roots[c * 3], roots[c * 3 + 1], roots[c * 3 + 2]));
+        UsdGenVec3d const e = box.GetSize();
         double const a = e[0] * e[1], b = e[1] * e[2], d = e[0] * e[2];
         area = std::max({a, b, d, 1e-12});
     }
@@ -609,7 +612,7 @@ bool UsdGenClumpOp::Capture(
             guideRoots.assign(G * 3, 0.0f);
             for (size_t g = 0; g < G; ++g) {
                 if (guideSpans[g + 1] == guideSpans[g]) continue;
-                GfVec3f const r = opUtil::RestPoint(*guides, guideSpans[g]);
+                UsdGenVec3f const r = opUtil::RestPoint(*guides, guideSpans[g]);
                 for (int d = 0; d < 3; ++d) guideRoots[g * 3 + d] = r[d];
             }
         }
@@ -746,7 +749,7 @@ bool UsdGenClumpOp::Capture(
                 tn = centreCurves[size_t(id)].size() / 3;
                 if (tn == 0) return;
             }
-            auto target = [&](size_t i) -> GfVec3f {
+            auto target = [&](size_t i) -> UsdGenVec3f {
                 if (tp) return clumpRef::SampleAtParameter(tp, tn, i, n);
                 // Follow the guide by arc length when the strand is no longer
                 // than it, else stretch the guide over the strand.
@@ -755,7 +758,7 @@ bool UsdGenClumpOp::Capture(
                     : (Ls <= gl ? std::min(u * Ls, gl) : u * gl);
                 return table.Sample(g, a);
             };
-            GfVec3f offset(0.0f);
+            UsdGenVec3f offset(0.0f);
             if (s.extrude) offset = strand::Load(liveRoots.data(), c) - target(0);
             for (size_t i = 0; i < n; ++i) {
                 size_t const cv = first + i;
@@ -765,7 +768,7 @@ bool UsdGenClumpOp::Capture(
                         float(std::pow(double(hairT(cv, i, n)), s.strayFalloff));
                 if (flyaway[c]) w *= flyAmount;
                 if (!(w > 1e-6f)) continue;
-                GfVec3f const T = target(i) + offset;
+                UsdGenVec3f const T = target(i) + offset;
                 float const keep = 1.0f - w;
                 for (int d = 0; d < 3; ++d)
                     shape[cv * 3 + d] = keep * shape[cv * 3 + d] + w * T[d];
@@ -827,14 +830,14 @@ bool UsdGenClumpOp::Capture(
                     regions[{parent[c], opUtil::RegionKey(value)}].push_back(uint32_t(c));
                 }
                 for (auto const &region : regions) {
-                    GfVec3d centroid(0.0);
+                    UsdGenVec3d centroid(0.0);
                     for (uint32_t c : region.second)
-                        centroid += GfVec3d(roots[c * 3], roots[c * 3 + 1], roots[c * 3 + 2]);
+                        centroid += UsdGenVec3d(roots[c * 3], roots[c * 3 + 1], roots[c * 3 + 2]);
                     centroid /= double(region.second.size());
                     uint32_t best = region.second.front();
                     double bestDistance = std::numeric_limits<double>::infinity();
                     for (uint32_t c : region.second) {
-                        GfVec3d const d = GfVec3d(roots[c * 3], roots[c * 3 + 1], roots[c * 3 + 2]) - centroid;
+                        UsdGenVec3d const d = UsdGenVec3d(roots[c * 3], roots[c * 3 + 1], roots[c * 3 + 2]) - centroid;
                         double const distance = d.GetLengthSq();
                         if (distance < bestDistance) { bestDistance = distance; best = c; }
                     }
@@ -982,9 +985,9 @@ bool UsdGenClumpOp::Capture(
             size_t const cv = first + i;
             float const keep = std::clamp(float(preserveField.Value(c, cv)), 0.0f, 1.0f);
             if (keep == 0.0f) continue;
-            GfVec3f const prev(shape[(cv - 1) * 3], shape[(cv - 1) * 3 + 1], shape[(cv - 1) * 3 + 2]);
-            GfVec3f seg(shape[cv * 3] - prev[0], shape[cv * 3 + 1] - prev[1], shape[cv * 3 + 2] - prev[2]);
-            GfVec3f const was(input[cv * 3] - input[(cv - 1) * 3],
+            UsdGenVec3f const prev(shape[(cv - 1) * 3], shape[(cv - 1) * 3 + 1], shape[(cv - 1) * 3 + 2]);
+            UsdGenVec3f seg(shape[cv * 3] - prev[0], shape[cv * 3 + 1] - prev[1], shape[cv * 3 + 2] - prev[2]);
+            UsdGenVec3f const was(input[cv * 3] - input[(cv - 1) * 3],
                               input[cv * 3 + 1] - input[(cv - 1) * 3 + 1],
                               input[cv * 3 + 2] - input[(cv - 1) * 3 + 2]);
             float const now = seg.GetLength();

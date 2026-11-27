@@ -41,7 +41,6 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 

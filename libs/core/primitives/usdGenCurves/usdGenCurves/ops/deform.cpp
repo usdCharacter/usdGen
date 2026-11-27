@@ -22,6 +22,9 @@
 // re-captures on every frame it moves; the factorization is kept while the
 // rest samples do not change. Evaluate applies usdGen:mask.
 #include "usdGen/ops/deform.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -33,9 +36,8 @@
 #include "usdGen/scheduler.h"
 #include "usdGen/exec/taskScheduler.h"
 
-#include "pxr/base/gf/matrix4d.h"
-#include "pxr/base/gf/range3d.h"
-#include "pxr/base/trace/trace.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/trace.h"
 
 #include <algorithm>
 #include <atomic>
@@ -50,7 +52,7 @@
 
 namespace usdGen {
 
-static_assert(sizeof(GfVec3d) == 3 * sizeof(double),
+static_assert(sizeof(UsdGenVec3d) == 3 * sizeof(double),
               "the selection cache memcmps rest drivers bitwise");
 
 namespace {
@@ -232,20 +234,20 @@ UsdGenInputRecord const *FindCurves(UsdGenGraphSpec const *desc, UsdGenNodeKey p
 /// results (its xyz matches Transform term for term; Solve rejects a
 /// non-finite pose the same way under either spelling). Projective layouts
 /// keep Transform.
-inline GfVec3d XformSurfacePoint(GfMatrix4d const &relative, bool affine, GfVec3f const &point)
+inline UsdGenVec3d XformSurfacePoint(UsdGenMatrix4d const &relative, bool affine, UsdGenVec3f const &point)
 {
-    return affine ? relative.TransformAffine(GfVec3d(point))
-                  : relative.Transform(GfVec3d(point));
+    return affine ? relative.TransformAffine(UsdGenVec3d(point))
+                  : relative.Transform(UsdGenVec3d(point));
 }
 
 /// Where the drivers' points live relative to the description: their prim's
 /// world matrix, brought into the description's space. A transform animation
 /// moves rest and pose together; animate the points to deform.
-GfMatrix4d DriverToGroom(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
+UsdGenMatrix4d DriverToGroom(UsdGenGraphSpec const *desc, UsdGenNodeKey path)
 {
     UsdGenInputRecord const *curves = FindCurves(desc, path);
     return curves ? UsdGenCurveSetInputView::Of(*curves).worldMatrix * desc->xformMatrix.GetInverse()
-                  : GfMatrix4d(1.0);
+                  : UsdGenMatrix4d(1.0);
 }
 
 // The CUDA program owns RBF deform nodes (it reads no other backend).
@@ -290,7 +292,7 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         d.Mix(uint64_t(p->GetInt(kRbfSamples, 100)));
         d.Mix(uint64_t(p->GetBool(kLockRoots, true)));
         d.Mix(uint64_t(p->node ? p->node->mode.Hash() : 0));
-        d.Mix(p->GetValue(kGuideRegions, VtValue()));
+        d.Mix(p->GetValue(kGuideRegions, UsdGenValue()));
     }
     d.Mix(ctx.upstreamGeneration);
     if (ctx.referenceCount == 0 && ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size()) {
@@ -300,9 +302,9 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         // epoch values differ from before; epochs compare for equality only.
         d.Mix(restDigest_.Digest(surface.data, surface.restPoints));
         if (!MixChosenPosed(&d, ctx, surface))
-            MixArray(&d, surface.points.cdata(), surface.points.size() * sizeof(GfVec3f));
+            MixArray(&d, surface.points.cdata(), surface.points.size() * sizeof(UsdGenVec3f));
         d.Mix(uint64_t(surface.restFromCurrentPoints));
-        GfMatrix4d const relative = surface.worldMatrix * ctx.desc->xformMatrix.GetInverse();
+        UsdGenMatrix4d const relative = surface.worldMatrix * ctx.desc->xformMatrix.GetInverse();
         MixArray(&d, relative.GetArray(), 16 * sizeof(double));
     }
     for (uint32_t r = 0; r < ctx.referenceCount; ++r) {
@@ -316,8 +318,8 @@ UsdGenEpoch UsdGenDeformOp::CaptureDigest(UsdGenCaptureContext const& ctx) const
         MixArray(&d, b.py.cdata(), b.py.size() * sizeof(float));
         MixArray(&d, b.pz.cdata(), b.pz.size() * sizeof(float));
         d.Mix(referenceRestDigest_.Digest(value->value->set, b.rest.cdata(),
-                                          b.rest.size() * sizeof(GfVec3f)));
-        GfMatrix4d const m = DriverToGroom(ctx.desc, value->key);
+                                          b.rest.size() * sizeof(UsdGenVec3f)));
+        UsdGenMatrix4d const m = DriverToGroom(ctx.desc, value->key);
         MixArray(&d, m.GetArray(), 16 * sizeof(double));
     }
     return d.Epoch(0x446566726dull);
@@ -343,10 +345,10 @@ bool UsdGenDeformOp::MixChosenPosed(opUtil::Digest *d, UsdGenCaptureContext cons
     if (surfaceSelection_.size() < 4) return false;
     // cdata, not operator[]: ctx.desc is shared, and a mutating subscript
     // would detach the 1.2MB posed buffer to hash 100 points out of it.
-    GfVec3f const *posed = surface.points.cdata();
+    UsdGenVec3f const *posed = surface.points.cdata();
     d->Mix(uint64_t(surfaceSelection_.size()));
     for (size_t k : surfaceSelection_)
-        d->MixBytes(&posed[k], sizeof(GfVec3f));
+        d->MixBytes(&posed[k], sizeof(UsdGenVec3f));
     ++chosenDigestHits_;
     return true;
 }
@@ -384,13 +386,13 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
     std::vector<curveWrap::Field> wrapFields;
     std::vector<int> rootRegions;
     bool regionMapped=false;
-    VtIntArray guideRegions;
+    UsdGenIntArray guideRegions;
     std::string regionError;
     if (wrap) {
         if (!UsdGenReadRootRegions(ctx,upstream,&rootRegions,&regionMapped,&regionError)) return fail(regionError);
-        auto const value=p->GetValue(kGuideRegions,VtValue(VtIntArray{}));
-        if (!value.IsHolding<VtIntArray>()) return fail("guideRegions must be an int array");
-        guideRegions=value.UncheckedGet<VtIntArray>();
+        auto const value=p->GetValue(kGuideRegions,UsdGenValue(UsdGenIntArray{}));
+        if (!value.IsHolding<UsdGenIntArray>()) return fail("guideRegions must be an int array");
+        guideRegions=value.UncheckedGet<UsdGenIntArray>();
     }
     std::vector<uint32_t> driverSpans;
     int const budget = p ? p->GetInt(kRbfSamples, 100) : 100;
@@ -398,23 +400,23 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
 
     // --- driver samples, in the description's space --------------------------
     auto const solveField = [&]() -> bool {
-        TRACE_SCOPE("usdGen deform: bind and solve the field");
+        USDGEN_TRACE_SCOPE("usdGen deform: bind and solve the field");
         // Full driver vectors, for the wrap bind and for re-selection. The
         // steady-state RBF pose path never materializes them: only the
         // chosen samples are converted and transformed (Solve consumes no
         // other driver element, so the values are unchanged).
-        std::vector<GfVec3d> driverRest, driverNow;
+        std::vector<UsdGenVec3d> driverRest, driverNow;
         std::string driverLabel;
         // Subset sources for the re-selection path below, set by whichever
         // driver branch runs.
         UsdGenSurfaceInputView surfaceView;   // outlives the branch: surfaceSrc points here
         UsdGenSurfaceInputView const *surfaceSrc = nullptr;
-        GfMatrix4d surfaceRelative;
+        UsdGenMatrix4d surfaceRelative;
         bool surfaceAffine = true;
         UsdGenCurveSetView driverView;   // outlives the branch: guideSrc points here
         UsdGenCurveSetView const *guideSrc = nullptr;
-        GfMatrix4d guideToGroom;
-        std::vector<GfVec3d> rest, now;
+        UsdGenMatrix4d guideToGroom;
+        std::vector<UsdGenVec3d> rest, now;
         std::vector<size_t> chosen;
         bool subsetsReady = false;
         if (surfaceDriven) {
@@ -438,12 +440,12 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             if (wrap) {
                 driverRest.assign(surface.restPoints.begin(), surface.restPoints.end());
                 driverNow.reserve(surface.points.size());
-                for (GfVec3f const &point : surface.points)
+                for (UsdGenVec3f const &point : surface.points)
                     driverNow.push_back(
                         XformSurfacePoint(surfaceRelative, surfaceAffine, point));
             } else {
                 // Buffer identity (not operator==, not a 1.2MB memcmp): the
-                // cache holds a VtArray reference and VtArray is
+                // cache holds a UsdGenCowArray reference and UsdGenCowArray is
                 // copy-on-write, so an in-place edit detaches the writer to
                 // a new buffer and the key misses; a hit therefore proves
                 // the bytes are unchanged, and float->double conversion is
@@ -458,7 +460,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                     rest.resize(chosen.size());
                     now.resize(chosen.size());
                     for (size_t k = 0; k < chosen.size(); ++k) {
-                        rest[k] = GfVec3d(rp[chosen[k]]);
+                        rest[k] = UsdGenVec3d(rp[chosen[k]]);
                         now[k] = XformSurfacePoint(surfaceRelative, surfaceAffine,
                                                    surface.points[chosen[k]]);
                     }
@@ -500,13 +502,13 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             guideToGroom = DriverToGroom(ctx.desc, reference.key);
             driverRest.resize(drivers.totalCvs);
             for (size_t i = 0; i < drivers.totalCvs; ++i)
-                driverRest[i] = guideToGroom.Transform(GfVec3d(opUtil::RestPoint(drivers, i)));
+                driverRest[i] = guideToGroom.Transform(UsdGenVec3d(opUtil::RestPoint(drivers, i)));
             // The RBF path transforms only the chosen posed samples after
             // selection; wrap binds whole spans, so it keeps the full fill.
             if (wrap) {
                 driverNow.resize(drivers.totalCvs);
                 for (size_t i = 0; i < drivers.totalCvs; ++i)
-                    driverNow[i] = guideToGroom.Transform(GfVec3d(opUtil::Point(drivers, i)));
+                    driverNow[i] = guideToGroom.Transform(UsdGenVec3d(opUtil::Point(drivers, i)));
             }
         }
         if (wrap) {
@@ -514,8 +516,8 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             if (driverSpans.size()<2) return fail("curveWrap requires an open center curve");
             wrapFields.resize(driverSpans.size()-1);
             for (size_t g=0;g<wrapFields.size();++g) {
-                std::vector<GfVec3d> rest(driverRest.begin()+driverSpans[g],driverRest.begin()+driverSpans[g+1]);
-                std::vector<GfVec3d> now(driverNow.begin()+driverSpans[g],driverNow.begin()+driverSpans[g+1]);
+                std::vector<UsdGenVec3d> rest(driverRest.begin()+driverSpans[g],driverRest.begin()+driverSpans[g+1]);
+                std::vector<UsdGenVec3d> now(driverNow.begin()+driverSpans[g],driverNow.begin()+driverSpans[g+1]);
                 if (!wrapFields[g].Bind(rest,now,&error)) return fail(error);
             }
             return true;
@@ -528,12 +530,12 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                 : selectionValid_ && selectionBudget_ == size_t(budget) &&
                     selectRest_.size() == driverRest.size() &&
                     std::memcmp(selectRest_.data(), driverRest.data(),
-                                driverRest.size() * sizeof(GfVec3d)) == 0;
+                                driverRest.size() * sizeof(UsdGenVec3d)) == 0;
             // The extent feeds only the re-selection epsilon, so a cache hit
             // skips the pass; the values are unchanged whenever it runs.
             double const epsilon = restUnchanged ? 0.0 : [&] {
-                GfRange3d extent;
-                for (GfVec3d const &point : driverRest) extent.UnionWith(point);
+                UsdGenRange3d extent;
+                for (UsdGenVec3d const &point : driverRest) extent.UnionWith(point);
                 double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
                 return std::max(1e-12, size * 1e-7);
             }();
@@ -563,12 +565,12 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             } else {
                 // On a hit selectRest_ is bitwise the driver rest, so either
                 // source gathers the same values.
-                GfVec3d const *restSrc =
+                UsdGenVec3d const *restSrc =
                     restUnchanged ? selectRest_.data() : driverRest.data();
                 for (size_t k = 0; k < chosen.size(); ++k) {
                     rest[k] = restSrc[chosen[k]];
                     now[k] = guideToGroom.Transform(
-                        GfVec3d(opUtil::Point(*guideSrc, chosen[k])));
+                        UsdGenVec3d(opUtil::Point(*guideSrc, chosen[k])));
                 }
             }
         }
@@ -590,7 +592,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
     if (!solveField()) return false;
 
     // --- strands ---------------------------------------------------------------
-    TRACE_SCOPE("usdGen deform: displace strands");
+    USDGEN_TRACE_SCOPE("usdGen deform: displace strands");
     std::string error;
     size_t const R = upstream.totalCurves;
     size_t const totalCvs = upstream.totalCvs;
@@ -671,7 +673,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
     // One slot per strand group (disjoint across workers, so no locking);
     // the serial reduce below folds them into chunk slots in group order,
     // which visits every stored CV exactly once in the sweep's order.
-    std::vector<GfRange3f> groupExtents;
+    std::vector<UsdGenRange3f> groupExtents;
     if (recordExtents) groupExtents.resize(groups);
     float *outPx = ctx.outPx, *outPy = ctx.outPy, *outPz = ctx.outPz;
     ParallelFor(ctx.dispatcher, groups, [&](size_t g) {
@@ -728,14 +730,14 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                     size_t const first = spanAt(c), last = spanAt(c + 1);
                     if (first >= last) continue;
                     size_t const ro = first - cvBase;
-                    GfVec3d const shift = lock.Value(c, first) != 0.0
-                        ? GfVec3d(bx[ro], by[ro], bz[ro])
-                        : GfVec3d(0.0);
+                    UsdGenVec3d const shift = lock.Value(c, first) != 0.0
+                        ? UsdGenVec3d(bx[ro], by[ro], bz[ro])
+                        : UsdGenVec3d(0.0);
                     for (size_t cv = first; cv < last; ++cv) {
-                        GfVec3d const x(opUtil::Point(upstream, cv));
+                        UsdGenVec3d const x(opUtil::Point(upstream, cv));
                         size_t const k = cv - cvBase;
-                        GfVec3d const moved =
-                            x + GfVec3d(bx[k], by[k], bz[k]) - shift;
+                        UsdGenVec3d const moved =
+                            x + UsdGenVec3d(bx[k], by[k], bz[k]) - shift;
                         float const f0 = float(moved[0]);
                         float const f1 = float(moved[1]);
                         float const f2 = float(moved[2]);
@@ -767,8 +769,8 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                     }
                 }
                 if (recordExtents)
-                    groupExtents[g] = GfRange3f(GfVec3f(mn0, mn1, mn2),
-                                                GfVec3f(mx0, mx1, mx2));
+                    groupExtents[g] = UsdGenRange3f(UsdGenVec3f(mn0, mn1, mn2),
+                                                UsdGenVec3f(mx0, mx1, mx2));
                 if (badBits) nonFinite.store(true, std::memory_order_relaxed);
                 return;
             }
@@ -777,14 +779,14 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
                 size_t const first = spanAt(c), last = spanAt(c + 1);
                 if (first >= last) continue;
                 size_t const ro = first - cvBase;
-                GfVec3d const shift = lock.Value(c, first) != 0.0
-                    ? GfVec3d(bx[ro], by[ro], bz[ro])
-                    : GfVec3d(0.0);
+                UsdGenVec3d const shift = lock.Value(c, first) != 0.0
+                    ? UsdGenVec3d(bx[ro], by[ro], bz[ro])
+                    : UsdGenVec3d(0.0);
                 for (size_t cv = first; cv < last; ++cv) {
-                    GfVec3d const x(opUtil::Point(upstream, cv));
+                    UsdGenVec3d const x(opUtil::Point(upstream, cv));
                     size_t const k = cv - cvBase;
-                    GfVec3d const moved =
-                        x + GfVec3d(bx[k], by[k], bz[k]) - shift;
+                    UsdGenVec3d const moved =
+                        x + UsdGenVec3d(bx[k], by[k], bz[k]) - shift;
                     float const f0 = float(moved[0]);
                     float const f1 = float(moved[1]);
                     float const f2 = float(moved[2]);
@@ -801,16 +803,16 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         for (size_t c = c0; c < c1; ++c) {
             size_t const first = spanAt(c), last = spanAt(c + 1);
             if (first >= last) continue;
-            auto displacement = [&](GfVec3d const &x) {
+            auto displacement = [&](UsdGenVec3d const &x) {
                 return wrapFields[driverForCurve[c]].Map(x)-x;
             };
             // The root's displacement serves as both the root CV's own and,
             // with usdGen:lockRoots, the shift of the whole strand.
-            GfVec3d const rootDisplacement = displacement(GfVec3d(opUtil::Point(upstream, first)));
-            GfVec3d const shift = lock.Value(c, first) != 0.0 ? rootDisplacement : GfVec3d(0.0);
+            UsdGenVec3d const rootDisplacement = displacement(UsdGenVec3d(opUtil::Point(upstream, first)));
+            UsdGenVec3d const shift = lock.Value(c, first) != 0.0 ? rootDisplacement : UsdGenVec3d(0.0);
             for (size_t cv = first; cv < last; ++cv) {
-                GfVec3d const x(opUtil::Point(upstream, cv));
-                GfVec3d const moved =
+                UsdGenVec3d const x(opUtil::Point(upstream, cv));
+                UsdGenVec3d const moved =
                     x + (cv == first ? rootDisplacement : displacement(x)) - shift;
                 float const f0 = float(moved[0]);
                 float const f1 = float(moved[1]);
@@ -844,7 +846,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
         // nests in exactly one chunk; verify both before writing any slot
         // so a future chunking change fails closed into the sweep's own
         // recording. Unioning group ranges in group order reproduces the
-        // sweep's per-CV ExtendBy sequence bitwise (GfRange keeps the
+        // sweep's per-CV ExtendBy sequence bitwise (UsdGenRange3d keeps the
         // incumbent on ties under either spelling).
         size_t chunk = 0;
         bool nested = ctx.chunkCount > 0 && ctx.chunks[0].first[0] == 0;
@@ -871,7 +873,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             // Reduce into locals first: the slots publish only on full
             // success, so an abandoned walk can never leave partial
             // extents behind valid spans.
-            std::vector<GfRange3f> local(ctx.chunkCount);
+            std::vector<UsdGenRange3f> local(ctx.chunkCount);
             std::vector<UsdGenChunkRange> ranges(ctx.chunkCount);
             chunk = 0;
             for (size_t g = 0; g < groups; ++g) {
@@ -893,7 +895,7 @@ bool UsdGenDeformOp::Capture(UsdGenCaptureContext const& ctx, UsdGenOpInputs con
             if (nested) {
                 for (size_t k = 0; k < ctx.chunkCount; ++k) {
                     UsdGenChunkExtent &slot = ctx.chunkExtentSlots[k];
-                    GfVec3f const &mn = local[k].GetMin(), &mx = local[k].GetMax();
+                    UsdGenVec3f const &mn = local[k].GetMin(), &mx = local[k].GetMax();
                     for (int a = 0; a < 3; ++a) { slot.min[a] = mn[a]; slot.max[a] = mx[a]; }
                     slot.range = ranges[k];
                 }
@@ -924,7 +926,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
     // which is what makes the chunked union bitwise exact. Null in every
     // graph the gate does not select: one predictable branch per CV.
     UsdGenChunkExtent *extSlot = view->extentSlot;
-    GfRange3f chunkExt;
+    UsdGenRange3f chunkExt;
     for (uint32_t c = 0; c < view->curveCount; ++c) {
         size_t const n = ragged ? size_t(cvOff[c + 1] - cvOff[c]) : size_t(view->cvCount);
         size_t const g = ragged ? size_t(cvOff[c] - cvOff[0]) : view->Cv(c, 0);
@@ -941,7 +943,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
                 view->px[o] = e0;
                 view->py[o] = e1;
                 view->pz[o] = e2;
-                if (extSlot) chunkExt.ExtendBy(GfVec3f(e0, e1, e2));
+                if (extSlot) chunkExt.ExtendBy(UsdGenVec3f(e0, e1, e2));
                 continue;
             }
             float const *r = &cap.result[cv * 3];
@@ -950,7 +952,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
             // the stores are unchanged while the loop reads a third less.
             if (m == 1.0f) {
                 view->px[o] = r[0]; view->py[o] = r[1]; view->pz[o] = r[2];
-                if (extSlot) chunkExt.ExtendBy(GfVec3f(r[0], r[1], r[2]));
+                if (extSlot) chunkExt.ExtendBy(UsdGenVec3f(r[0], r[1], r[2]));
                 continue;
             }
             float const in0 = view->inPx[o];
@@ -962,7 +964,7 @@ void UsdGenDeformOp::Evaluate(UsdGenEvalContext const& ctx, UsdGenCapture const&
             view->px[o] = e0;
             view->py[o] = e1;
             view->pz[o] = e2;
-            if (extSlot) chunkExt.ExtendBy(GfVec3f(e0, e1, e2));
+            if (extSlot) chunkExt.ExtendBy(UsdGenVec3f(e0, e1, e2));
         }
     }
     if (extSlot && view->desc) {

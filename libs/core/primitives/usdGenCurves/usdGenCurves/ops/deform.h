@@ -2,12 +2,13 @@
 #define USDGEN_OP_DEFORM_H
 
 #include "usdGen/op.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGenMath/rbf.h"
 
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 
 #include <vector>
 #include "usdGen/registries/handles.h"
@@ -63,19 +64,19 @@ public:
 private:
    // The factored system survives poses that keep the same rest samples.
    usdGenMath::rbf::CubicField field_;
-   std::vector<GfVec3d> boundRest_;
+   std::vector<UsdGenVec3d> boundRest_;
    // The farthest-point selection is a pure function of the rest drivers, so
    // it is reused while they are bitwise unchanged (the steady-state pose
    // path); any rest edit re-selects. selectRest_ holds the drivers the
    // cached selection was made from.
-   std::vector<GfVec3d> selectRest_;
+   std::vector<UsdGenVec3d> selectRest_;
    std::vector<size_t> selection_;
    size_t selectionBudget_ = 0;
    bool selectionValid_ = false;
    // The surface-driven twin of the selection cache, keyed by the rest
    // points' shared-buffer identity (pointer + size, the ContentDigestCache
-   // rule) instead of a 1.2MB memcmp. The cache holds a VtArray reference,
-   // and VtArray is copy-on-write, so any in-place edit detaches the
+   // rule) instead of a 1.2MB memcmp. The cache holds a UsdGenCowArray reference,
+   // and UsdGenCowArray is copy-on-write, so any in-place edit detaches the
    // writer to a new buffer and the key misses; a hit therefore proves the
    // bytes are unchanged and reads them straight from the surface
    // (float->double conversion is injective, so equal bytes mean equal
@@ -86,7 +87,7 @@ private:
    // hash only the posed drivers Capture will touch; the scheduler runs
    // digest and capture back to back on the commit thread, so the key
    // cannot change between the two. See MixChosenPosed.
-   mutable UsdGenSpan<const GfVec3f> surfaceRestRef_;
+   mutable UsdGenSpan<const UsdGenVec3f> surfaceRestRef_;
    mutable UsdGenRef<const UsdGenElementSet> surfaceRestOwner_;   // holds surfaceRestRef_'s memory
    mutable std::vector<size_t> surfaceSelection_;
    mutable size_t surfaceBudget_ = 0;
@@ -95,7 +96,7 @@ private:
    // surface branch then hashes only the chosen posed drivers; the guide
    // branch still hashes every frame). Shared by the surface and guide
    // branches; a rewire misses once and rehashes.
-   mutable opUtil::ContentDigestCache<GfVec3f> restDigest_;
+   mutable opUtil::ContentDigestCache<UsdGenVec3f> restDigest_;
    mutable opUtil::SetColumnDigestCache referenceRestDigest_;
 
    // Hashes the posed surface drivers Capture reads on a selection-cache

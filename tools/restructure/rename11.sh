@@ -27,7 +27,7 @@ perl -0pi -e '
 # Deduplicate identical #include lines, then remove pxr.h and the using
 # directive where no pxr name remains:
 for f in $files; do
-  perl -0pi -e '1 while s/^(#include "[^"]+"\n)((?:.*\n)*?)\1/$1$2/m' "$f"
+  perl -0pi -e '1 while s/^(#include "[^"]+"\r?\n)((?:.*\n)*?)\1/$1$2/m' "$f"
   if ! grep -qE '\b(Tf|Gf|Vt|Trace|Arch|Work|PxOsd|Hd)[A-Z]|PXR_NS|TF_|TRACE_' "$f"; then
     perl -ni -e 'print unless /^\s*(PXR_NAMESPACE_USING_DIRECTIVE|#include "pxr\/pxr\.h")\s*$/' "$f"
   fi

@@ -11,6 +11,10 @@
 // offsets by r(0). All work is per curve/CV in Evaluate; Capture only
 // validates.
 #include "usdGen/ops/curl.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -23,8 +27,7 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,7 +36,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -53,17 +55,17 @@ struct UsdGenCurlCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetValue(name, VtValue());
-        v.IsHolding<VtVec2fArray>()) {
-        return v.UncheckedGet<VtVec2fArray>();
+    if (UsdGenValue const v = p->GetValue(name, UsdGenValue());
+        v.IsHolding<UsdGenVec2fArray>()) {
+        return v.UncheckedGet<UsdGenVec2fArray>();
     }
     return {};
 }
 
-inline GfVec3f Normalized(GfVec3f v, GfVec3f const &fallback)
+inline UsdGenVec3f Normalized(UsdGenVec3f v, UsdGenVec3f const &fallback)
 {
     float const l = v.GetLength();
     return l > 1e-12f ? v / l : fallback;
@@ -105,7 +107,7 @@ uint32_t UsdGenCurlOp::PlanesTouched() const
 
 bool UsdGenCurlOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const *unknown = nullptr;
+    UsdGenToken const *unknown = nullptr;
     if (UsdGenStylerEnum(params, kAxisMode, kAxisCurveTangent, &unknown) < 0) {
         if (diag) diag->Error("UsdGenCurl: unknown usdGen:axisMode '" + unknown->GetString() + "'");
         return false;
@@ -157,7 +159,7 @@ bool UsdGenCurlOp::Capture(
     }
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!p) return true;
-    TfToken const *unknown = nullptr;
+    UsdGenToken const *unknown = nullptr;
     if (UsdGenStylerEnum(*p, kAxisMode, kAxisCurveTangent, &unknown) < 0) {
         if (diag) diag->Error("UsdGenCurl: unknown usdGen:axisMode '" + unknown->GetString() + "'");
         return false;
@@ -237,7 +239,7 @@ void UsdGenCurlOp::Evaluate(
     bool const clockwise = p ? p->GetBool(kClockwise, true) : true;
     bool const guideMode = p && UsdGenStylerEnum(*p, kAxisMode, kAxisCurveTangent) == kAxisGuide;
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, kRadiusKnots);
+    UsdGenVec2fArray const knots = ReadRampKnots(p, kRadiusKnots);
     bool const rampFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
@@ -270,19 +272,19 @@ void UsdGenCurlOp::Evaluate(
             static_cast<float>(phaseRandomField.Value(curve, cvBase + g));
         uint64_t const id = curveId ? curveId[c] : 0;
         float const individualDraw = UsdGenDraw01(int(ctx.seed), id, kSaltCurl);
-        GfVec3f frameN = rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f);
-        GfVec3f const frameB = rootB ? rootB[c] : GfVec3f(0.0f, 0.0f, 1.0f);
+        UsdGenVec3f frameN = rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f const frameB = rootB ? rootB[c] : UsdGenVec3f(0.0f, 0.0f, 1.0f);
         // Seed the rotation-minimizing normal: any vector off the first
         // tangent, projected and normalized.
         {
-            GfVec3f t0 = n > 1
-                ? GfVec3f(inPx[g + 1] - inPx[g], inPy[g + 1] - inPy[g], inPz[g + 1] - inPz[g])
-                : GfVec3f(0.0f, 1.0f, 0.0f);
-            t0 = Normalized(t0, GfVec3f(0.0f, 1.0f, 0.0f));
-            GfVec3f seed = std::fabs(GfDot(t0, GfVec3f(0.0f, 1.0f, 0.0f))) > 0.9f
-                ? GfVec3f(1.0f, 0.0f, 0.0f) : GfVec3f(0.0f, 1.0f, 0.0f);
-            seed -= t0 * GfDot(seed, t0);
-            frameN = Normalized(seed, GfVec3f(1.0f, 0.0f, 0.0f));
+            UsdGenVec3f t0 = n > 1
+                ? UsdGenVec3f(inPx[g + 1] - inPx[g], inPy[g + 1] - inPy[g], inPz[g + 1] - inPz[g])
+                : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+            t0 = Normalized(t0, UsdGenVec3f(0.0f, 1.0f, 0.0f));
+            UsdGenVec3f seed = std::fabs(UsdGenDot(t0, UsdGenVec3f(0.0f, 1.0f, 0.0f))) > 0.9f
+                ? UsdGenVec3f(1.0f, 0.0f, 0.0f) : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+            seed -= t0 * UsdGenDot(seed, t0);
+            frameN = Normalized(seed, UsdGenVec3f(1.0f, 0.0f, 0.0f));
         }
         float s = 0.0f;
         for (size_t i = 0; i < n; ++i) {
@@ -298,24 +300,24 @@ void UsdGenCurlOp::Evaluate(
             // strands without a capture-time frame table.
             size_t const a = g + (i > 0 ? i - 1 : 0);
             size_t const b = g + (i + 1 < n ? i + 1 : i);
-            GfVec3f const tangent = Normalized(
-                GfVec3f(inPx[b] - inPx[a], inPy[b] - inPy[a], inPz[b] - inPz[a]),
-                GfVec3f(0.0f, 1.0f, 0.0f));
-            GfVec3f N, B;
+            UsdGenVec3f const tangent = Normalized(
+                UsdGenVec3f(inPx[b] - inPx[a], inPy[b] - inPy[a], inPz[b] - inPz[a]),
+                UsdGenVec3f(0.0f, 1.0f, 0.0f));
+            UsdGenVec3f N, B;
             if (guideMode) {
-                N = Normalized((rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f)) -
-                    tangent * GfDot(rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f), tangent),
+                N = Normalized((rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f)) -
+                    tangent * UsdGenDot(rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f), tangent),
                     frameN);
-                B = GfCross(tangent, N);
+                B = UsdGenCross(tangent, N);
                 if (B.GetLength() < 1e-12f) B = frameB;
                 B = Normalized(B, frameB);
             } else {
                 if (i > 0) {
-                    GfVec3f proj = frameN - tangent * GfDot(frameN, tangent);
+                    UsdGenVec3f proj = frameN - tangent * UsdGenDot(frameN, tangent);
                     if (proj.GetLength() > 1e-12f) frameN = proj / proj.GetLength();
                 }
                 N = frameN;
-                B = Normalized(GfCross(tangent, N), frameB);
+                B = Normalized(UsdGenCross(tangent, N), frameB);
             }
             float const t = hairT ? hairT[o]
                 : (n > 1 ? float(i) / float(n - 1) : 0.0f);

@@ -22,27 +22,24 @@
 #ifndef USDGEN_OPS_COLLIDE_BVH_H
 #define USDGEN_OPS_COLLIDE_BVH_H
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 
 #include <cstdint>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
 /// Closest point on triangle abc (Ericson 5.1.5, double precision). False
 /// when the triangle is degenerate (zero or non-finite cross product).
-bool UsdGenCollideClosestOnTriangle(GfVec3d const &p, GfVec3d const &a,
-                                    GfVec3d const &b, GfVec3d const &c,
-                                    GfVec3d *closest, double *dist2);
+bool UsdGenCollideClosestOnTriangle(UsdGenVec3d const &p, UsdGenVec3d const &a,
+                                    UsdGenVec3d const &b, UsdGenVec3d const &c,
+                                    UsdGenVec3d *closest, double *dist2);
 
 struct UsdGenCollideHit
 {
     bool found = false;
-    GfVec3d q, a, b, c;   // closest point + the winning triangle's corners
+    UsdGenVec3d q, a, b, c;   // closest point + the winning triangle's corners
     double dist2 = 0.0;
     uint32_t sequence = 0;
 };
@@ -55,19 +52,19 @@ public:
     /// Appends triangle (a, b, c) as the next sequence number. Degenerate
     /// triangles are dropped (the scan skipped them) but still consume a
     /// sequence number, so the numbering stays the scan order.
-    void Add(GfVec3f const &a, GfVec3f const &b, GfVec3f const &c);
+    void Add(UsdGenVec3f const &a, UsdGenVec3f const &b, UsdGenVec3f const &c);
     void Build();
     bool Empty() const { return _tris.empty(); }
     size_t TriangleCount() const { return _tris.size(); }
 
     /// The (dist2, sequence)-minimal triangle among those with
     /// dist2 < limitDist2 (found == false when none). Allocation-free.
-    UsdGenCollideHit Closest(GfVec3d const &p, double limitDist2) const;
+    UsdGenCollideHit Closest(UsdGenVec3d const &p, double limitDist2) const;
 
 private:
     struct Tri
     {
-        GfVec3f a, b, c;
+        UsdGenVec3f a, b, c;
         uint32_t sequence = 0;
     };
     struct Node
@@ -76,7 +73,7 @@ private:
         int left = -1, right = -1;
         uint32_t first = 0, count = 0;
     };
-    int BuildRange(uint32_t first, uint32_t count, std::vector<GfVec3f> const &centroids,
+    int BuildRange(uint32_t first, uint32_t count, std::vector<UsdGenVec3f> const &centroids,
                    std::vector<uint32_t> &order, int depth);
 
     std::vector<Tri> _tris;       // leaf-contiguous after Build()

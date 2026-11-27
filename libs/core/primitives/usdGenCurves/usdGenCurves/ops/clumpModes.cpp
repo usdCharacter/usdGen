@@ -3,6 +3,8 @@
 //
 // usdGen — reference clump modes. See clumpModes.h.
 #include "usdGen/ops/clumpModes.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
 
 #include "usdGen/ops/opUtil.h"
 
@@ -15,7 +17,6 @@
 #include <map>
 #include <numeric>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace clumpRef {
@@ -406,41 +407,41 @@ bool GuideTable::Build(UsdGenCurveSetView const &guides, size_t ng, std::string 
     return true;
 }
 
-GfVec3f GuideTable::Sample(size_t g, float a) const
+UsdGenVec3f GuideTable::Sample(size_t g, float a) const
 {
     float const *t = &_table[3 * _ng * g];
     float const L = _length[g];
     if (!(L > 1e-6f)) return Load(t, 0);
     if (a > L) {
-        GfVec3f const last = Load(t, _ng - 1);
-        GfVec3f const dir = strand::Normalize(last - Load(t, _ng - 2), GfVec3f(0.0f));
+        UsdGenVec3f const last = Load(t, _ng - 1);
+        UsdGenVec3f const dir = strand::Normalize(last - Load(t, _ng - 2), UsdGenVec3f(0.0f));
         return last + dir * (a - L);
     }
     float const idx = Clamp01(a / L) * float(_ng - 1);
     size_t const i0 = std::min(size_t(idx), _ng - 2);
     float const f = idx - float(i0);
-    GfVec3f const p0 = Load(t, i0), p1 = Load(t, i0 + 1);
+    UsdGenVec3f const p0 = Load(t, i0), p1 = Load(t, i0 + 1);
     return p0 + (p1 - p0) * f;
 }
 
-void SynthesizeCenterCurve(GuideTable const &table, size_t g, GfVec3f const &root,
+void SynthesizeCenterCurve(GuideTable const &table, size_t g, UsdGenVec3f const &root,
                            float length, size_t n, float *out)
 {
     if (n == 0) return;
     Store(out, 0, root);
-    GfVec3f dir(0.0f);
+    UsdGenVec3f dir(0.0f);
     bool haveDir = false;
-    GfVec3f previous = table.Sample(g, 0.0f);
+    UsdGenVec3f previous = table.Sample(g, 0.0f);
     for (size_t i = 1; i < n; ++i) {
         float const a = float(i) / float(n - 1) * length;
-        GfVec3f const p = table.Sample(g, a);
-        GfVec3f seg = p - previous;
+        UsdGenVec3f const p = table.Sample(g, a);
+        UsdGenVec3f seg = p - previous;
         previous = p;
         float const segLength = seg.GetLength();
-        if (haveDir && GfDot(seg, dir) < 0.0f) seg = seg * 0.25f + dir * (0.75f * segLength);
+        if (haveDir && UsdGenDot(seg, dir) < 0.0f) seg = seg * 0.25f + dir * (0.75f * segLength);
         Store(out, i, Load(out, i - 1) + seg);
         if (segLength > 1e-12f) {
-            GfVec3f const unit = strand::Normalize(seg, dir, 1e-12f);
+            UsdGenVec3f const unit = strand::Normalize(seg, dir, 1e-12f);
             dir = haveDir ? strand::Normalize(dir * 0.5f + unit * 0.5f, unit, 1e-12f) : unit;
             haveDir = true;
         }
@@ -451,22 +452,22 @@ void SynthesizeCenterCurve(GuideTable const &table, size_t g, GfVec3f const &roo
 // Overrides and sub-clumps
 // ---------------------------------------------------------------------------
 
-GfVec3f SampleAtParameter(float const *p, size_t m, size_t i, size_t n)
+UsdGenVec3f SampleAtParameter(float const *p, size_t m, size_t i, size_t n)
 {
-    if (m == 0) return GfVec3f(0.0f);
+    if (m == 0) return UsdGenVec3f(0.0f);
     if (m == n) return Load(p, i);
     float const t = n > 1 ? float(i) / float(n - 1) : 0.0f;
     float const at = m > 1 ? t * float(m - 1) : 0.0f;
     size_t const lo = std::min(size_t(at), m - 1);
     size_t const hi = std::min(lo + 1, m - 1);
     float const f = at - float(lo);
-    GfVec3f const a = Load(p, lo), b = Load(p, hi);
+    UsdGenVec3f const a = Load(p, lo), b = Load(p, hi);
     return a + (b - a) * f;
 }
 
 namespace {
 
-inline void Pull(float *p, GfVec3f const &target, float w)
+inline void Pull(float *p, UsdGenVec3f const &target, float w)
 {
     float const keep = 1.0f - w;
     p[0] = keep * p[0] + w * target[0];
@@ -477,7 +478,7 @@ inline void Pull(float *p, GfVec3f const &target, float w)
 }  // namespace
 
 void ApplyOverrides(std::vector<uint32_t> const &A, std::vector<int> const &strandIndex,
-                    VtIntArray const &overrides, float const *roots,
+                    UsdGenIntArray const &overrides, float const *roots,
                     std::vector<float> const &snapshot, std::vector<float> *points,
                     std::vector<uint32_t> const &spans, std::vector<int32_t> *clumpId,
                     std::vector<char> const &flyaway, float flyawayAmount,
@@ -509,13 +510,13 @@ void ApplyOverrides(std::vector<uint32_t> const &A, std::vector<int> const &stra
         std::vector<uint32_t> const &members = entry.second;
         if (members.size() < 2) continue;
         for (uint32_t c : members) restore(c, 0.0f);
-        GfVec3f mean(0.0f);
+        UsdGenVec3f mean(0.0f);
         for (uint32_t c : members) mean += Load(roots, c);
         mean /= float(members.size());
         uint32_t centre = members.front();
         float best = FLT_MAX;
         for (uint32_t c : members) {
-            GfVec3f const d = Load(roots, c) - mean;
+            UsdGenVec3f const d = Load(roots, c) - mean;
             float const d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
             if (d2 < best) {
                 best = d2;
@@ -561,7 +562,7 @@ void ApplySubClumps(std::vector<uint32_t> const &A, float const *liveRoots,
         if (m < 2) continue;
         size_t const Sg = std::min(size_t(S), m);
 
-        GfVec3f centre(0.0f);
+        UsdGenVec3f centre(0.0f);
         for (uint32_t k : members) centre += Load(liveRoots, k);
         centre /= float(m);
         float sumSq = 0.0f;
@@ -581,19 +582,19 @@ void ApplySubClumps(std::vector<uint32_t> const &A, float const *liveRoots,
         size_t const ln = spans[lead + 1] - spans[lead];
         if (ln < 1) continue;
         float const *lp = &P[3 * size_t(spans[lead])];
-        GfVec3f d = Load(lp, ln - 1) - Load(lp, 0);
+        UsdGenVec3f d = Load(lp, ln - 1) - Load(lp, 0);
         float const dl = d.GetLength();
         if (!(dl > 1e-6f)) continue;
         d /= dl;
-        GfVec3f const ref = std::fabs(d[1]) >= 0.95f ? GfVec3f(1.0f, 0.0f, 0.0f)
-                                                     : GfVec3f(0.0f, 1.0f, 0.0f);
-        GfVec3f const e1 = strand::Normalize(GfCross(d, ref), GfVec3f(1.0f, 0.0f, 0.0f));
-        GfVec3f const e2 = strand::Normalize(GfCross(d, e1), GfVec3f(0.0f, 0.0f, 1.0f));
+        UsdGenVec3f const ref = std::fabs(d[1]) >= 0.95f ? UsdGenVec3f(1.0f, 0.0f, 0.0f)
+                                                     : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+        UsdGenVec3f const e1 = strand::Normalize(UsdGenCross(d, ref), UsdGenVec3f(1.0f, 0.0f, 0.0f));
+        UsdGenVec3f const e2 = strand::Normalize(UsdGenCross(d, e1), UsdGenVec3f(0.0f, 0.0f, 1.0f));
 
         angles.clear();
         for (size_t k = 0; k < m; ++k) {
-            GfVec3f const v = Load(liveRoots, members[k]) - centre;
-            angles.emplace_back(std::atan2(GfDot(v, e2), GfDot(v, e1)), k);
+            UsdGenVec3f const v = Load(liveRoots, members[k]) - centre;
+            angles.emplace_back(std::atan2(UsdGenDot(v, e2), UsdGenDot(v, e1)), k);
         }
         std::stable_sort(angles.begin(), angles.end(),
                          [](auto const &a, auto const &b) { return a.first < b.first; });
@@ -619,8 +620,8 @@ void ApplySubClumps(std::vector<uint32_t> const &A, float const *liveRoots,
 
             float sx = 0.0f, sy = 0.0f;
             for (uint32_t k : sub) {
-                GfVec3f const v = Load(liveRoots, k) - centre;
-                float const x = GfDot(v, e1), y = GfDot(v, e2);
+                UsdGenVec3f const v = Load(liveRoots, k) - centre;
+                float const x = UsdGenDot(v, e1), y = UsdGenDot(v, e2);
                 float const l = std::sqrt(x * x + y * y);
                 if (l > 1e-12f) {
                     sx += x / l;
@@ -629,7 +630,7 @@ void ApplySubClumps(std::vector<uint32_t> const &A, float const *liveRoots,
             }
             float const phi = sx * sx + sy * sy > 1e-12f
                 ? std::atan2(sy, sx) : float(j) / float(Sg) * kTwoPi;
-            GfVec3f const o = (e1 * std::cos(phi) + e2 * std::sin(phi)) * spread;
+            UsdGenVec3f const o = (e1 * std::cos(phi) + e2 * std::sin(phi)) * spread;
 
             // Mean curve of the sector, at the first member's CV count.
             size_t const cn = spans[sub.front() + 1] - spans[sub.front()];
@@ -639,7 +640,7 @@ void ApplySubClumps(std::vector<uint32_t> const &A, float const *liveRoots,
                 size_t const kn = spans[k + 1] - spans[k];
                 float const *kp = &P[3 * size_t(spans[k])];
                 for (size_t i = 0; i < cn; ++i) {
-                    GfVec3f const q = SampleAtParameter(kp, kn, i, cn);
+                    UsdGenVec3f const q = SampleAtParameter(kp, kn, i, cn);
                     curve[3 * i] += q[0];
                     curve[3 * i + 1] += q[1];
                     curve[3 * i + 2] += q[2];
@@ -647,13 +648,13 @@ void ApplySubClumps(std::vector<uint32_t> const &A, float const *liveRoots,
             }
             float const inv = 1.0f / float(sub.size());
             for (float &v : curve) v *= inv;
-            GfVec3f const T = centre + o;
-            GfVec3f landed = T;
+            UsdGenVec3f const T = centre + o;
+            UsdGenVec3f landed = T;
             if (surface && !surface->Empty()) {
                 strand::ClosestHit const hit = surface->Closest(T);
                 if (hit.hit) landed = hit.point;
             }
-            GfVec3f const c0 = Load(curve.data(), 0);
+            UsdGenVec3f const c0 = Load(curve.data(), 0);
             for (size_t i = 0; i < cn; ++i) {
                 float const u = cn > 1 ? float(i) / float(cn - 1) : 0.0f;
                 Store(curve.data(), i,

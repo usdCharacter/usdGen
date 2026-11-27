@@ -8,12 +8,15 @@
 // mode owns nothing and Evaluate memcpys the chain input to the output.
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
 #include "usdGen/ops/freeze.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/ops/opUtil.h"
 
-#include "pxr/base/tf/diagnostic.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,7 +31,7 @@ namespace usdGen {
 
 namespace {
 
-// Private copy: VtArray assignment is a CoW share, and the scheduler writes
+// Private copy: UsdGenCowArray assignment is a CoW share, and the scheduler writes
 // upstream planes through const-cast raw pointers (SweepChunk), which never
 // detaches. A shared "snapshot" would corrupt on the next upstream commit,
 // so every snapshot plane is a fresh allocation filled by memcpy.
@@ -113,20 +116,20 @@ struct UsdGenFreezeCapture final : public UsdGenCurveCapture
 namespace {
 
 // Schema: uniform string usdGen:frozen:epoch = "". Missing/empty is the
-// default; TfToken is tolerated exactly as GetToken tolerates std::string.
+// default; UsdGenToken is tolerated exactly as GetToken tolerates std::string.
 bool ReadEpoch(UsdGenParamView const *p, UsdGenParamSlot slot,
                std::string *epoch, UsdGenDiagnostics *diag, char const *what)
 {
     epoch->clear();
     if (!p) return true;
-    VtValue const v = p->GetValue(slot, VtValue());
+    UsdGenValue const v = p->GetValue(slot, UsdGenValue());
     if (v.IsEmpty()) return true;
     if (v.IsHolding<std::string>()) {
         *epoch = v.UncheckedGet<std::string>();
         return true;
     }
-    if (v.IsHolding<TfToken>()) {
-        *epoch = v.UncheckedGet<TfToken>().GetString();
+    if (v.IsHolding<UsdGenToken>()) {
+        *epoch = v.UncheckedGet<UsdGenToken>().GetString();
         return true;
     }
     if (diag)
@@ -159,7 +162,7 @@ std::unique_ptr<UsdGenOp> Create(UsdGenOpRecord const &r, void *)
     return std::make_unique<UsdGenFreezeOp>(r);
 }
 
-/// Mix a name's text (what Mix(TfToken) did) without interning it.
+/// Mix a name's text (what Mix(UsdGenToken) did) without interning it.
 void MixText(opUtil::Digest *d, char const *text)
 {
     for (; *text; ++text) d->Mix(uint64_t(uint8_t(*text)));
@@ -179,14 +182,14 @@ uint32_t UsdGenFreezeOp::PlanesTouched() const
 bool UsdGenFreezeOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
     UsdGenOpRecord const &rec = *params.op;
-    TfToken const &frozen = rec.Token(kTokFrozen);
-    TfToken const mode = params.GetToken(kMode, frozen);
+    UsdGenToken const &frozen = rec.Token(kTokFrozen);
+    UsdGenToken const mode = params.GetToken(kMode, frozen);
     if (mode != frozen && mode != rec.Token(kTokLive)) {
         if (diag) diag->Error("UsdGenFreeze: unknown usdGen:frozen:mode '" +
                               mode.GetString() + "'");
         return false;
     }
-    TfToken const tier = params.GetToken(kTier, rec.Token(kTokSession));
+    UsdGenToken const tier = params.GetToken(kTier, rec.Token(kTokSession));
     if (tier != rec.Token(kTokSession) && tier != rec.Token(kTokSublayer) &&
         tier != rec.Token(kTokPayload)) {
         if (diag) diag->Error("UsdGenFreeze: unknown usdGen:frozen:tier '" +
@@ -207,7 +210,7 @@ UsdGenEpoch UsdGenFreezeOp::CaptureDigest(UsdGenCaptureContext const &ctx) const
     char const *mode = "frozen";
     std::string epoch;
     if (ctx.params) {
-        TfToken const &t = ctx.params->GetToken(kMode, ctx.params->op->Token(kTokFrozen));
+        UsdGenToken const &t = ctx.params->GetToken(kMode, ctx.params->op->Token(kTokFrozen));
         mode = t.GetText();
         std::string validated;
         if (ReadEpoch(ctx.params, kEpoch, &validated, nullptr, ""))
@@ -238,10 +241,10 @@ bool UsdGenFreezeOp::Capture(
     if (p && !Bind(*p, diag)) return false;
 
     // p is non-null from here on in every real cook; keep the null guard.
-    TfToken const frozen = p ? p->op->Token(kTokFrozen) : TfToken();
-    TfToken const session = p ? p->op->Token(kTokSession) : TfToken();
-    TfToken const mode = p ? p->GetToken(kMode, frozen) : frozen;
-    TfToken const tier = p ? p->GetToken(kTier, session) : session;
+    UsdGenToken const frozen = p ? p->op->Token(kTokFrozen) : UsdGenToken();
+    UsdGenToken const session = p ? p->op->Token(kTokSession) : UsdGenToken();
+    UsdGenToken const mode = p ? p->GetToken(kMode, frozen) : frozen;
+    UsdGenToken const tier = p ? p->GetToken(kTier, session) : session;
     std::string epoch;
     if (!ReadEpoch(p, kEpoch, &epoch, diag, Record().Name().GetText())) return false;
     // SESSION TIER ONLY: sublayer/payload have no in-engine landing place;

@@ -11,6 +11,10 @@
 // zero-length axis bends nothing. All work is per curve/CV in Evaluate;
 // Capture only validates.
 #include "usdGen/ops/bend.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
@@ -23,8 +27,7 @@
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,7 +36,6 @@
 #include <vector>
 #include "usdGen/registries/registrar.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -53,12 +55,12 @@ struct UsdGenBendCapture final : public UsdGenCapturePayload
 
 bool Finite(double v) { return std::isfinite(v); }
 
-VtVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
+UsdGenVec2fArray ReadRampKnots(UsdGenParamView const *p, UsdGenParamSlot name)
 {
     if (!p) return {};
-    if (VtValue const v = p->GetValue(name, VtValue());
-        v.IsHolding<VtVec2fArray>()) {
-        return v.UncheckedGet<VtVec2fArray>();
+    if (UsdGenValue const v = p->GetValue(name, UsdGenValue());
+        v.IsHolding<UsdGenVec2fArray>()) {
+        return v.UncheckedGet<UsdGenVec2fArray>();
     }
     return {};
 }
@@ -67,11 +69,11 @@ inline void ReadVec2Prop(UsdGenParamView const &p, UsdGenParamSlot name,
                          double &lo, double &hi)
 {
     lo = 1.0; hi = 1.0;
-    if (VtValue const v = p.GetValue(name, VtValue()); v.IsHolding<VtFloatArray>()) {
-        VtFloatArray const a = v.UncheckedGet<VtFloatArray>();
+    if (UsdGenValue const v = p.GetValue(name, UsdGenValue()); v.IsHolding<UsdGenFloatArray>()) {
+        UsdGenFloatArray const a = v.UncheckedGet<UsdGenFloatArray>();
         if (a.size() >= 2) { lo = a[0]; hi = a[1]; }
-    } else if (v.IsHolding<GfVec2f>()) {
-        GfVec2f const r = v.UncheckedGet<GfVec2f>();
+    } else if (v.IsHolding<UsdGenVec2f>()) {
+        UsdGenVec2f const r = v.UncheckedGet<UsdGenVec2f>();
         lo = r[0]; hi = r[1];
     }
 }
@@ -111,7 +113,7 @@ uint32_t UsdGenBendOp::PlanesTouched() const
 
 bool UsdGenBendOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
 {
-    TfToken const *unknown = nullptr;
+    UsdGenToken const *unknown = nullptr;
     if (UsdGenStylerEnum(params, kAxisMode, kAxisRootDirection, &unknown) < 0) {
         if (diag) diag->Error("UsdGenBend: unknown usdGen:axisMode '" + unknown->GetString() + "'");
         return false;
@@ -126,13 +128,13 @@ bool UsdGenBendOp::Bind(UsdGenParamView const &params, UsdGenDiagnostics *diag)
         if (diag) diag->Error("UsdGenBend: usdGen:angleRandom must be finite");
         return false;
     }
-    VtValue const axis = params.GetValue(kAxis, VtValue());
-    if (!axis.IsEmpty() && !axis.IsHolding<GfVec3f>()) {
+    UsdGenValue const axis = params.GetValue(kAxis, UsdGenValue());
+    if (!axis.IsEmpty() && !axis.IsHolding<UsdGenVec3f>()) {
         if (diag) diag->Error("UsdGenBend: usdGen:axis must be vector3f");
         return false;
     }
-    if (axis.IsHolding<GfVec3f>()) {
-        GfVec3f const v = axis.UncheckedGet<GfVec3f>();
+    if (axis.IsHolding<UsdGenVec3f>()) {
+        UsdGenVec3f const v = axis.UncheckedGet<UsdGenVec3f>();
         if (!Finite(v[0]) || !Finite(v[1]) || !Finite(v[2])) {
             if (diag) diag->Error("UsdGenBend: usdGen:axis must be finite");
             return false;
@@ -253,19 +255,19 @@ void UsdGenBendOp::Evaluate(
     UsdGenParamField const maskField =
         p ? p->GetScalarField(kMask, 1.0) : UsdGenParamField{1.0};
     double litLo = 1.0, litHi = 1.0;
-    GfVec3f litAxis(1.0f, 0.0f, 0.0f);
+    UsdGenVec3f litAxis(1.0f, 0.0f, 0.0f);
     int mode = kAxisRootDirection;
     if (p) {
         ReadVec2Prop(*p, kAngleRandom, litLo, litHi);
         if (litLo > litHi) std::swap(litLo, litHi);
-        VtValue const v = p->GetValue(kAxis, VtValue());
-        if (v.IsHolding<GfVec3f>()) litAxis = v.UncheckedGet<GfVec3f>();
+        UsdGenValue const v = p->GetValue(kAxis, UsdGenValue());
+        if (v.IsHolding<UsdGenVec3f>()) litAxis = v.UncheckedGet<UsdGenVec3f>();
         mode = UsdGenStylerEnum(*p, kAxisMode, kAxisRootDirection);
     }
     bool const uniformMode = mode == kAxisUniform;
     bool const attributeMode = mode == kAxisAttribute;
     float const *lutPtr = nullptr;
-    VtVec2fArray const knots = ReadRampKnots(p, kAngleKnots);
+    UsdGenVec2fArray const knots = ReadRampKnots(p, kAngleKnots);
     bool const rampFlat = knots.empty();
     UsdGenScratchScope scratch;   // chunk-local; rewinds when Evaluate returns
     if (!rampFlat) {
@@ -301,21 +303,21 @@ void UsdGenBendOp::Evaluate(
         uint64_t const id = curveId ? curveId[c] : 0;
         float const individualDraw = UsdGenDraw01(int(ctx.seed), id, kSaltBend);
         // Per-curve bend axis. A zero-length axis bends nothing.
-        GfVec3f axis(0.0f);
+        UsdGenVec3f axis(0.0f);
         if (attributeMode) {
-            axis = rootT ? rootT[c] : GfVec3f(1.0f, 0.0f, 0.0f);
+            axis = rootT ? rootT[c] : UsdGenVec3f(1.0f, 0.0f, 0.0f);
         } else {
-            GfVec3f const a = axisField.connected
-                ? GfVec3f(float(axisField.Value(curve, cvBase + g, 0)),
+            UsdGenVec3f const a = axisField.connected
+                ? UsdGenVec3f(float(axisField.Value(curve, cvBase + g, 0)),
                           float(axisField.Value(curve, cvBase + g, 1)),
                           float(axisField.Value(curve, cvBase + g, 2)))
                 : litAxis;
             if (uniformMode) {
                 axis = a;
             } else {  // rootDirection: axis components in the root frame.
-                GfVec3f const T = rootT ? rootT[c] : GfVec3f(1.0f, 0.0f, 0.0f);
-                GfVec3f const N = rootN ? rootN[c] : GfVec3f(0.0f, 1.0f, 0.0f);
-                GfVec3f const B = rootB ? rootB[c] : GfVec3f(0.0f, 0.0f, 1.0f);
+                UsdGenVec3f const T = rootT ? rootT[c] : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+                UsdGenVec3f const N = rootN ? rootN[c] : UsdGenVec3f(0.0f, 1.0f, 0.0f);
+                UsdGenVec3f const B = rootB ? rootB[c] : UsdGenVec3f(0.0f, 0.0f, 1.0f);
                 axis = T * a[0] + N * a[1] + B * a[2];
             }
         }
