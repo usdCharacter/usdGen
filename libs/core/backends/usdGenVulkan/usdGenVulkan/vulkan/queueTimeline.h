@@ -18,6 +18,8 @@
 #ifndef USDGEN_VULKAN_QUEUE_TIMELINE_H
 #define USDGEN_VULKAN_QUEUE_TIMELINE_H
 
+#include "usdGenVulkan/export.h"
+
 #include <vulkan/vulkan.h>
 
 #include <atomic>
@@ -26,7 +28,7 @@
 
 namespace usdGen::vulkan {
 
-class VulkanQueueTimeline final {
+class USDGEN_VULKAN_API VulkanQueueTimeline final {
 public:
     /// Creates the semaphore (initial value 0). The device must have the
     /// timelineSemaphore feature enabled.
@@ -98,7 +100,7 @@ private:
 
 /// Process-wide count of VulkanQueueTimeline::Wait calls (every timeline).
 /// Tests assert deltas: a warm cook makes none.
-uint64_t VulkanQueueTimelineWaitsForTesting() noexcept;
+USDGEN_VULKAN_INTERNAL_API uint64_t VulkanQueueTimelineWaitsForTesting() noexcept;
 
 } // namespace usdGen::vulkan
 

@@ -5,6 +5,7 @@
 
 #include "usdGen/api/ext/device/executionResources.h"
 #include "memoryPool.h"
+#include "usdGenVulkan/export.h"
 #include "queueTimeline.h"
 
 #include <vulkan/vulkan.h>
@@ -20,7 +21,7 @@ namespace usdGen::vulkan {
 // The factory supplies a Vulkan 1.2+ instance and a matching physical device,
 // logical device and compute queue. Vulkan cannot reverse-query the physical
 // device from VkDevice, so their association is a trusted factory contract.
-class DeviceContext {
+class USDGEN_VULKAN_API DeviceContext {
 public:
     struct CreateInfo {
         VkInstance instance = VK_NULL_HANDLE;

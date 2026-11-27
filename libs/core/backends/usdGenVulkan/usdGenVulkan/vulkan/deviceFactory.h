@@ -3,6 +3,7 @@
 #ifndef USDGEN_VULKAN_DEVICE_FACTORY_H
 #define USDGEN_VULKAN_DEVICE_FACTORY_H
 
+#include "usdGenVulkan/export.h"
 #include "usdGen/api/pipeline.h"
 #include "usdGen/api/ext/device/executionResources.h"
 
@@ -20,7 +21,7 @@ class DeviceContext;
 // Canonical Vulkan physical-device identity. The factory assigns the resource
 // identity after reading the physical-device UUID; callers never supply a
 // resource-device id.
-class DeviceFactory {
+class USDGEN_VULKAN_API DeviceFactory {
 public:
     class Entry {
     public:

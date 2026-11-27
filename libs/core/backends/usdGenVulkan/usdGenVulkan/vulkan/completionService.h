@@ -5,6 +5,7 @@
 #define USDGEN_VULKAN_COMPLETION_SERVICE_H
 
 #include "deviceContext.h"
+#include "usdGenVulkan/export.h"
 #include "queueTimeline.h"
 #include "usdGen/api/pipeline.h"
 
@@ -23,7 +24,7 @@ namespace usdGen::vulkan {
 // vkWaitSemaphores on the context's VulkanQueueTimeline and a private
 // host-control semaphore. A watch completes when the queue timeline passes
 // its value. The bound pipeline owner serializes watch mutation.
-class VulkanCompletionService final : public std::enable_shared_from_this<VulkanCompletionService> {
+class USDGEN_VULKAN_API VulkanCompletionService final : public std::enable_shared_from_this<VulkanCompletionService> {
 public:
     enum class DeliveryResult : uint8_t { Posted, Stale, LostProof };
     using Delivery = std::function<DeliveryResult(VkResult)>;
@@ -36,7 +37,7 @@ public:
         uint32_t maxWatches = 0;
     };
 
-    class Watch final {
+    class USDGEN_VULKAN_API Watch final {
     public:
         // Destruction after MarkPhaseSubmitted is owner-confined: destroy it
         // on the bound queue owner, or keep it through explicit external
@@ -56,7 +57,7 @@ public:
         bool Retire() noexcept;
     private:
         friend class VulkanCompletionService;
-        friend uint64_t SubmitOnTimeline(VulkanCompletionService&, VkCommandBuffer const*, uint32_t,
+        friend USDGEN_VULKAN_FRIEND_API uint64_t SubmitOnTimeline(VulkanCompletionService&, VkCommandBuffer const*, uint32_t,
                                          std::shared_ptr<const void>, Delivery, VkResult*,
                                          Failure) noexcept;
         Watch(std::shared_ptr<VulkanCompletionService>, uint32_t) noexcept;
@@ -99,7 +100,7 @@ public:
 
 private:
     struct Slot;
-    friend uint64_t SubmitOnTimeline(VulkanCompletionService&, VkCommandBuffer const*, uint32_t,
+    friend USDGEN_VULKAN_FRIEND_API uint64_t SubmitOnTimeline(VulkanCompletionService&, VkCommandBuffer const*, uint32_t,
                                      std::shared_ptr<const void>, Delivery, VkResult*,
                                      Failure) noexcept;
     explicit VulkanCompletionService(CreateInfo);
@@ -142,7 +143,7 @@ private:
 // Returns 0 when nothing was queued (*result says why; no free slot is
 // VK_ERROR_TOO_MANY_OBJECTS): `delivery` is dropped unrun, unless a device
 // loss raced it. Keep `v` for a non-blocking computeTimeline()->Check(v).
-uint64_t SubmitOnTimeline(VulkanCompletionService& service, VkCommandBuffer const* commands,
+USDGEN_VULKAN_API uint64_t SubmitOnTimeline(VulkanCompletionService& service, VkCommandBuffer const* commands,
                           uint32_t count, std::shared_ptr<const void> lifetime,
                           VulkanCompletionService::Delivery delivery, VkResult* result = nullptr,
                           VulkanCompletionService::Failure failure = {}) noexcept;
