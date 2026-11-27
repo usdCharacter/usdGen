@@ -10,6 +10,8 @@
 #include "usdGen/executionBackend.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
+#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/publishDesc.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
 
@@ -256,16 +258,6 @@ void _CacheDigestTerms(_CacheArrayTerms const &terms)
     }
 }
 
-void _CacheMixVec3(uint64_t *hash, GfVec3f const &value)
-{
-    for (int i = 0; i != 3; ++i) {
-        uint32_t bits = 0;
-        float component = value[i];
-        std::memcpy(&bits, &component, sizeof(bits));
-        _CacheMix(hash, bits);
-    }
-}
-
 void _CacheMixMatrix(uint64_t *hash, GfMatrix4d const &value)
 {
     for (int row = 0; row != 4; ++row) for (int col = 0; col != 4; ++col) {
@@ -380,40 +372,17 @@ UsdGenEpoch _ExecutionPlanDigest(UsdGenGraph const &graph,
     }
     // Descriptor-wide terms can affect evaluation or presentation while a
     // compiled node remains incrementally reusable.
-    _CacheMixText(&h0, desc.basis.GetString());
     uint32_t widthBits = 0;
     std::memcpy(&widthBits, &desc.defaultWidth, sizeof(widthBits));
     _CacheMix(&h1, widthBits);
-    _CacheMixText(&h0, desc.look.bakeMode.GetString());
-    _CacheMixText(&h1, desc.look.bakeTarget.GetString());
-    _CacheMixText(&h0, desc.look.bakePrimvar.GetString());
-    _CacheMixArray(&h1, desc.look.rampColors, &terms);
-    _CacheMixArray(&h0, desc.look.rampPositions, &terms);
-    _CacheMixVec3(&h1, desc.look.rootColor);
-    _CacheMixVec3(&h0, desc.look.tipColor);
-    _CacheMixText(&h1, desc.look.rampInterpolation.GetString());
-    uint32_t rampExponentBits = 0, hueJitterBits = 0, valueJitterBits = 0;
-    std::memcpy(&rampExponentBits, &desc.look.rampExponent, sizeof(rampExponentBits));
-    std::memcpy(&hueJitterBits, &desc.look.hueJitter, sizeof(hueJitterBits));
-    std::memcpy(&valueJitterBits, &desc.look.valueJitter, sizeof(valueJitterBits));
-    _CacheMix(&h1, rampExponentBits);
-    _CacheMix(&h0, hueJitterBits);
-    _CacheMix(&h1, valueJitterBits);
-    _CacheMix(&h0, static_cast<uint64_t>(desc.look.jitterSeed));
+    // The host's presentation (look, purpose, material, preview colours...)
+    // is opaque host data: its digest keeps a presentation edit a miss.
+    _CacheMix(&h0, desc.hostDigest);
     _CacheMix(&h1, desc.preview.source.value);
     _CacheMixText(&h1, desc.preview.attribute.GetString());
-    _CacheMixText(&h0, desc.preview.colorMap.GetString());
     _CacheMixText(&h1, desc.preview.evaluation.GetString());
-    _CacheMixText(&h0, desc.preview.shading.GetString());
-    uint32_t previewLoBits = 0, previewHiBits = 0;
-    std::memcpy(&previewLoBits, &desc.preview.range[0], sizeof(previewLoBits));
-    std::memcpy(&previewHiBits, &desc.preview.range[1], sizeof(previewHiBits));
-    _CacheMix(&h1, previewLoBits);
-    _CacheMix(&h0, previewHiBits);
+    _CacheMix(&h0, static_cast<uint64_t>(desc.preview.mapChannels));
     _CacheMixMatrix(&h1, desc.xformMatrix);
-    _CacheMixText(&h0, desc.purpose.GetString());
-    _CacheMixText(&h1, desc.visibility.GetString());
-    _CacheMix(&h0, desc.material.value);
     uint64_t timeBits = 0, cpsBits = 0;
     std::memcpy(&timeBits, &desc.time, sizeof(timeBits));
     std::memcpy(&cpsBits, &desc.timeCodesPerSecond, sizeof(cpsBits));
@@ -512,62 +481,6 @@ UsdGenRef<const UsdGenPublication> _DiffGenerations(UsdGenGeneration const *prev
 uint64_t _PublishedGroups(UsdGenGeneration const *generation)
 {
     return generation && generation->publication ? generation->publication->groups : 0;
-}
-
-struct _PresentationScalars
-{
-    GfMatrix4d xformMatrix{1.0};
-    TfToken purpose;
-    TfToken visibility;
-    UsdGenPrimRef material;
-    TfToken materialPurpose{UsdGenTokens().allPurpose};
-    int refineLevel = 2;
-    UsdGenPrimRef origin;
-    UsdGenPrimRef dependency;
-};
-
-_PresentationScalars _BuildPresentationScalars(
-    UsdGenGraphSpec const &desc, UsdGenNodeKey dependencySurface)
-{
-    _PresentationScalars result;
-    result.xformMatrix = desc.xformMatrix;
-    result.purpose = desc.purpose;
-    result.visibility = desc.visibility;
-    result.material = UsdGenPrimRef{desc.material};
-    result.origin = UsdGenPrimRef{desc.description};
-    result.dependency = UsdGenPrimRef{dependencySurface};
-    return result;
-}
-
-// Device admission permits at most one source root-binding surface, and a
-// named binding absent from desc.surfaces is rejected. Return no dependency
-// for the valid empty/no-binding case; never invent one.
-UsdGenNodeKey _SourceDependencySurface(UsdGenGraphSpec const &desc)
-{
-    if (desc.nodes.empty() || desc.nodes.front().surfaces.size() != 1)
-        return UsdGenNodeKey();
-    UsdGenNodeKey const candidate = desc.nodes.front().surfaces.front();
-    UsdGenInputRecord const *found =
-        desc.FindInput(UsdGenInputKindWithRole(UsdGenInputRole::Surface), candidate);
-    return found ? found->key : UsdGenNodeKey();
-}
-
-UsdGenDevicePresentationMetadata _BuildDevicePresentation(
-    UsdGenGraphSpec const &desc)
-{
-    _PresentationScalars const scalars = _BuildPresentationScalars(
-        desc, _SourceDependencySurface(desc));
-    UsdGenDevicePresentationMetadata result;
-    result.description = desc.description;
-    result.xformMatrix = scalars.xformMatrix;
-    result.purpose = scalars.purpose;
-    result.visibility = scalars.visibility;
-    result.material = scalars.material;
-    result.materialPurpose = scalars.materialPurpose;
-    result.refineLevel = scalars.refineLevel;
-    result.origin = scalars.origin;
-    result.dependency = scalars.dependency;
-    return result;
 }
 
 char const *_LabelOf(UsdGenBackendDef const *def, char const *fallback) noexcept
@@ -802,7 +715,6 @@ bool UsdGenSessionCooker::_FinalizeDevicePublication(
     UsdGenGeneration generation;
     generation.frame = frame;
     generation.device = std::move(device);
-    generation.devicePresentation = _BuildDevicePresentation(_desc);
     generation.host = _desc.host;
     auto prepared = _store.PreparePublication(std::move(generation));
     auto fence = domain->CapturePublicationFence(key);
@@ -1703,9 +1615,24 @@ UsdGenStats publishedStats, bool invalidateValues,
 UsdGenPublisherDef const *UsdGenSessionCooker::_SelectPublisher(
     UsdGenElementSet const &terminal)
 {
-    UsdGenPublisherDef const *const publisher =
-        UsdGenFindPublisher(terminal.Channels().Layout().primitive);
-    if (!publisher || !publisher->build) return nullptr;
+    UsdGenTypeId const type = terminal.Channels().Layout().primitive;
+    UsdGenPublisherDef const *const publisher = UsdGenFindPublisher(type);
+    if (!publisher || !publisher->build) {
+        // A type with a publish desc publishes nothing without its host
+        // adapter's publisher: say so once per session.
+        if (!_warnedNoPublisher && type != UsdGenTypeId::Invalid) {
+            UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+            UsdGenPublishDesc const *const publish = types.Def(type).publish;
+            if (publish && publish->kind != UsdGenPublishKind::None) {
+                _warnedNoPublisher = true;
+                std::fprintf(stderr,
+                             "usdGen: no publisher for type %s; the host did not register one "
+                             "before the first compile\n",
+                             types.Name(type).GetText());
+            }
+        }
+        return nullptr;
+    }
     if (publisher != _publisher) {
         _publisherState = publisher->createState ? publisher->createState() : nullptr;
         _publisher = publisher;

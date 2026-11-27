@@ -11,6 +11,7 @@
 // offsets by r(0). All work is per curve/CV in Evaluate; Capture only
 // validates.
 #include "usdGen/ops/curl.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"
@@ -242,7 +243,7 @@ void UsdGenCurlOp::Evaluate(
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kRadiusInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
+            p ? p->GetToken(kRadiusInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }

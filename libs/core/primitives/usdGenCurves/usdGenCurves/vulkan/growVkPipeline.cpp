@@ -12,18 +12,18 @@ std::shared_ptr<GrowVkPipeline> GrowVkPipeline::Create(
 std::shared_ptr<DeviceContext> const& GrowVkPipeline::context() const noexcept { return geometry_->context(); }
 std::unique_ptr<GrowVkPipeline::Candidate> GrowVkPipeline::Begin(
     std::shared_ptr<const VulkanSourceGeneration> source,
-    CurveGrowPipeline::Controls const& controls, std::string const& targetPlane,
+    CurveGrowPipeline::Controls const& controls, UsdGenToken const& targetPlane,
     uint64_t version, VkResult* result, CurveGrowPipeline::BeforeSubmit beforeSubmit) {
     if (result) *result = VK_ERROR_INITIALIZATION_FAILED;
     if (!source || source->context() != context() || version <= source->valueVersion()) return {};
     auto candidate = std::unique_ptr<Candidate>(new Candidate);
     candidate->input_ = source; candidate->target_ = controls.cvCount; candidate->version_ = version;
     CurveGrowPipeline::Input input;
-    input.points = source->PlaneOwner("points"); input.rest = source->PlaneOwner("rest");
-    input.widths = source->PlaneOwner("width"); input.curveOffsets = source->PlaneOwner("curveOffsets");
-    input.stableIds = source->PlaneOwner("stableIds"); input.rootPrim = source->PlaneOwner("rootPrim");
-    input.rootUV = source->PlaneOwner("rootUV"); input.rootT = source->SourceFrameOwner("sourceRootT");
-    input.rootB = source->SourceFrameOwner("sourceRootB"); input.rootN = source->SourceFrameOwner("sourceRootN");
+    input.points = source->PlaneOwner(UsdGenCurveChannels().points); input.rest = source->PlaneOwner(UsdGenCurveChannels().rest);
+    input.widths = source->PlaneOwner(UsdGenCurveChannels().width); input.curveOffsets = source->PlaneOwner(UsdGenCurveChannels().curveOffsets);
+    input.stableIds = source->PlaneOwner(UsdGenCurveChannels().stableIds); input.rootPrim = source->PlaneOwner(UsdGenCurveChannels().rootPrim);
+    input.rootUV = source->PlaneOwner(UsdGenCurveChannels().rootUV); input.rootT = source->SourceFrameOwner(UsdGenCurveChannels().sourceRootT);
+    input.rootB = source->SourceFrameOwner(UsdGenCurveChannels().sourceRootB); input.rootN = source->SourceFrameOwner(UsdGenCurveChannels().sourceRootN);
     input.targets = source->SourceFrameOwner(targetPlane);
     // Both Begin calls submit on the serialized owner. The admission proof is
     // acquired before the first submit and the caller arms its completion

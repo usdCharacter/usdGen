@@ -8,6 +8,7 @@
 #define USDGENUSD_GRAPH_DESC_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGenUsd/presentation.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
@@ -111,22 +112,23 @@ struct UsdGenMapDesc : UsdGenMapData
     SdfPath paintSurface;   // UsdGenPaintMap: the surface carrying the primvar
 };
 
-/// usdGen:preview:* on the description (UsdGenPreviewSpec). 'source' is the
+/// usdGen:preview:* on the description (UsdGenPreviewSpec and the
+/// presentation's preview colours). 'source' is the
 /// first authored target, unresolved: a UsdGenExpression prim, a
 /// UsdGenPtexMap prim (the builders add it to 'maps') or an operator
 /// attribute path.
 struct UsdGenPreviewDesc
 {
     SdfPath  source;                    // empty == no preview
-    TfToken  colorMap = UsdGenTokens().heat;          // heat | viridis | gray | ids | rgb
+    TfToken  colorMap = *usdGenUsd::s_presentationHeat;   // heat | viridis | gray | ids | rgb
     GfVec2f  range{0.0f, 1.0f};
     TfToken  evaluation = UsdGenTokens().primitive;   // for an expression prim source
-    TfToken  shading = UsdGenTokens().lit;            // lit | flat
+    TfToken  shading = *usdGenUsd::s_presentationLit;     // lit | flat
 
     bool Active() const { return !source.IsEmpty(); }
 };
 
-/// The engine's look block with the schema fallbacks the host fills
+/// The look block with the schema fallbacks the host fills
 /// (bakeMode). publishPaths.cpp.
 UsdGenLookDesc UsdGenSchemaLook();
 
@@ -148,7 +150,7 @@ struct UsdGenGraphDesc
     SdfPath                        materialPath;   // the description's bound Material (C2)
     float    defaultWidth = 0.01f;                 // usdGen:width:default
     int      tileTarget = 64;                      // uniform int usdGen:tileTarget
-    TfToken  curveBasis = UsdGenTokens().bspline;      // usdGen:curve:basis (C2)
+    TfToken  curveBasis = *usdGenUsd::s_presentationBspline;   // usdGen:curve:basis (C2)
     double   time = 0.0;
     double   timeCodesPerSecond = 24.0; // USD default; expressions expose seconds
     UsdGenBackendId executionBackend = kUsdGenBackendCpu;   // UsdGenFindBackend at lowering

@@ -1,7 +1,9 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
 #ifndef USDGEN_FUR_OCCLUSION_H
 #define USDGEN_FUR_OCCLUSION_H
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
 
 #include <memory>
 

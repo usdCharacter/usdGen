@@ -18,6 +18,7 @@
 #include "usdGenExpr/vulkan/exprVkApply.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/deviceGeneration.h"
+#include "usdGenCurves/types/deviceChannelTokens.h"
 
 #include <memory>
 #include <string>
@@ -85,7 +86,7 @@ private:
 
 class VulkanSourceGeneration;
 
-// Mutable only until fence proof. Queue-owner confinement applies to Submit
+// Mutable only until timeline proof. Queue-owner confinement applies to Submit
 // and Poll; no native plane is exposed from this pending candidate.
 class VulkanSourceUpload final {
 public:
@@ -132,8 +133,8 @@ public:
     // Captured source T/B/N stay private and never appear in neutral planes.
     std::vector<PlaneView> const& sourceFrames() const noexcept;
     // Empty descriptors have no owner. Public plane names only are accepted.
-    std::shared_ptr<const ChargedBuffer> PlaneOwner(std::string const& name) const noexcept;
-    std::shared_ptr<const ChargedBuffer> SourceFrameOwner(std::string const& name) const noexcept;
+    std::shared_ptr<const ChargedBuffer> PlaneOwner(UsdGenToken const& name) const noexcept;
+    std::shared_ptr<const ChargedBuffer> SourceFrameOwner(UsdGenToken const& name) const noexcept;
     // Stable identity of the immutable non-width bundle. Width-only COW
     // children delegate to their base; a point edit establishes a new bundle.
     void const* NonWidthIdentity() const noexcept;
@@ -216,7 +217,7 @@ private:
     std::shared_ptr<const VulkanSourceGeneration> base_;
     std::shared_ptr<const ChargedBuffer> widthOverride_;
     std::shared_ptr<const ChargedBuffer> pointsOverride_;
-    std::vector<std::pair<std::string, std::shared_ptr<const ChargedBuffer>>> compactOwners_;
+    std::vector<std::pair<UsdGenToken, std::shared_ptr<const ChargedBuffer>>> compactOwners_;
     std::vector<PlaneView> compactFrames_;
     std::vector<UsdGenChunkDesc> compactChunks_;
     std::vector<UsdGenDeviceTileMetadata> compactTiles_;

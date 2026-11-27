@@ -64,6 +64,8 @@ public:
 
     CurveSourceStatus Set(CurveSourceInput input, cudaStream_t stream,
                           UsdGenExecutionMemoryReservation* reservation = nullptr);
+    // Test hook: synchronous replacement commit (fences the stream). Cooks
+    // use FinishFreshAsync + CommitFreshFinish.
     CurveSourceStatus Finish(cudaStream_t stream);
     // Fresh-source async terminal path. `callback` runs on CUDA's native
     // callback thread with the stream terminal status; it must only signal a

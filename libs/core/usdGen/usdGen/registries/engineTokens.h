@@ -13,16 +13,11 @@ struct UsdGenEngineTokens {
     TfToken vertex, uniform, constant, float_, int_;
     // base node parameters (compiler.cpp:779-801) and the "usdGen:" prefix
     TfToken input, surface, seed, enabled, guides, mask, usdGenPrefix;
-    // element-set input vocabulary (input payload defaults)
-    TfToken hair, cubic, bspline, catmullRom, pinned, nonperiodic, vertexWidths;
-    // publication vocabulary; step 9 moves it (sessionCooker.cpp:678-2882,
-    // generationStore.cpp:163-180, tile publication, graphDesc.h:124)
-    TfToken allPurpose, none, displayColor,
-        hairT, hairId, st, bakeColor, velocities, scalpShadow, materialScalpShadow,
-        result;
-    // S4-3 (Core-B): varying rate; desc defaults (graphDesc.h surface, look, preview)
-    TfToken varying, rightHanded, edgeAndCorner, cornersPlus1, catmullClark,
-        heat, primitive, lit;
+    // the expression output default
+    TfToken result;
+    // S4-3 (Core-B): varying rate; surface defaults; the preview evaluation default
+    TfToken varying, none, rightHanded, edgeAndCorner, cornersPlus1, catmullClark,
+        primitive;
 };
 
 /// Valid from the first registry access for the life of the process.

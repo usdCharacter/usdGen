@@ -1,10 +1,12 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // usdGen value preview colours (usdGen:preview:*, 07 §7.3): how a previewed
-// value (preview/valuePreview.h evaluates it) maps to a strand's colour.
-#ifndef USDGEN_VALUE_PREVIEW_H
-#define USDGEN_VALUE_PREVIEW_H
+// value (the publish desc's previewValues hook evaluates it) maps to a
+// strand's colour.
+#ifndef USDGEN_HYDRA_CURVES_PREVIEW_COLOR_H
+#define USDGEN_HYDRA_CURVES_PREVIEW_COLOR_H
 
+#include "usdGenHydraCurves/export.h"
 #include "usdGen/api/primRef.h"
 
 #include "pxr/base/gf/vec2f.h"

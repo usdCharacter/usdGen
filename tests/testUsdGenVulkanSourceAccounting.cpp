@@ -49,10 +49,10 @@ int main(int argc, char** argv) {
     std::memcpy(code.data(), raw.data(), raw.size());
 
     bool unavailable = false;
-    auto native = CreateNative(&unavailable);
+    auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
-    DeviceContext::CreateInfo ci;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true;
     ci.instance = native->instance;
     ci.physicalDevice = native->physical;
     ci.device = native->device;
@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
     ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 7015;
-    ci.nativeLifetime = native;
+    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{8} << 20, 0};
     auto context = DeviceContext::Create(ci);
     CHECK(context);
@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes + rootBytes);
 
     std::vector<uint8_t> copied;
-    CHECK(ReadVulkanBytes(native, context, base->PlaneOwner("width")->buffer(),
+    CHECK(ReadVulkanBytes(native, context, base->PlaneOwner(TfToken("width"))->buffer(),
         4 * sizeof(float), base, &copied));
     float capturedWidth[4]{};
     std::memcpy(capturedWidth, copied.data(), sizeof(capturedWidth));
@@ -101,7 +101,7 @@ int main(int argc, char** argv) {
     CHECK(secondUpload && secondUpload->Submit() == SourceGenerationStatus::Submitted && Prove(native));
     CHECK(secondUpload->Poll() == SourceGenerationStatus::Ready);
     auto secondBase = secondUpload->TakeReady();
-    CHECK(secondBase && secondBase->PlaneOwner("points") != base->PlaneOwner("points"));
+    CHECK(secondBase && secondBase->PlaneOwner(TfToken("points")) != base->PlaneOwner(TfToken("points")));
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes + rootBytes + secondBase->ExclusiveRetainedBytes());
     secondUpload.reset(); secondBase.reset(); prepared.reset();
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes + rootBytes);
@@ -110,14 +110,14 @@ int main(int argc, char** argv) {
     // must not produce another physical pool charge, so do not add their
     // per-generation reports together.
     auto readyAlias = upload->TakeReady();
-    CHECK(readyAlias && readyAlias->PlaneOwner("points") == base->PlaneOwner("points"));
+    CHECK(readyAlias && readyAlias->PlaneOwner(TfToken("points")) == base->PlaneOwner(TfToken("points")));
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes + rootBytes);
     readyAlias.reset();
     upload.reset();
 
     auto pipeline = WidthPipeline::Create(context, code, &status);
     CHECK(pipeline);
-    auto first = pipeline->Begin(base->PlaneOwner("width"), base->pointCount(), 2.f, 0, &status);
+    auto first = pipeline->Begin(base->PlaneOwner(TfToken("width")), base->pointCount(), 2.f, 0, &status);
     CHECK(first && Prove(native));
     uint32_t semantic = UINT32_MAX;
     CHECK(first->Poll(&semantic) == VK_SUCCESS && semantic == 0 && first->succeeded());
@@ -130,12 +130,12 @@ int main(int argc, char** argv) {
     // Candidate output adoption is an alias: two sibling wrappers reference
     // one allocation, and creating the second must not reserve again.
     auto sibling = VulkanSourceGeneration::WithWidth(base, *first, 3, &reason);
-    CHECK(sibling && sibling->PlaneOwner("width") == child->PlaneOwner("width"));
+    CHECK(sibling && sibling->PlaneOwner(TfToken("width")) == child->PlaneOwner(TfToken("width")));
     CHECK(pool->Snapshot().usedBytes == afterChild);
     first.reset(); // Releases its status scratch allocation, not the adopted output.
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes + rootBytes + firstBytes);
 
-    auto second = pipeline->Begin(child->PlaneOwner("width"), child->pointCount(), 3.f, 0, &status);
+    auto second = pipeline->Begin(child->PlaneOwner(TfToken("width")), child->pointCount(), 3.f, 0, &status);
     CHECK(second && Prove(native));
     CHECK(second->Poll(&semantic) == VK_SUCCESS && semantic == 0 && second->succeeded());
     auto const secondBytes = size_t(second->output()->allocationBytes());

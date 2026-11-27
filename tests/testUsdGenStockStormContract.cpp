@@ -2,7 +2,8 @@
 // BasisCurves and primvar schema payloads.  It does not load or reference a
 // private HdSt provider.
 #include "usdGen/curveBuffer.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenTestUtils/hydraPublishers.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenUsd/lower.h"
 
 #include "pxr/pxr.h"
@@ -51,6 +52,7 @@ SampleEquals(HdContainerDataSourceHandle const &container,
 int
 main()
 {
+    usdGenTest::EnsureHydraPublishers();
     usdGen::UsdGenTilePublication tile;
     usdGenUsd::PathRecorder keys;   // the cooked spec's path table, by hand
     tile.prim = usdGen::UsdGenPrimRef{keys(SdfPath("/stock/tile_0000"))};

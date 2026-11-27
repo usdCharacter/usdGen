@@ -57,6 +57,7 @@
 // count) and sub-clumps (usdGen:clump:sub:*, sector centres projected onto
 // the bound surface).
 #include "usdGen/ops/clump.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -514,8 +515,8 @@ bool UsdGenClumpOp::Capture(
     VtVec2fArray const knots = s.bezier ? VtVec2fArray() : ReadKnots(p, kProfileKnots);
     if (!knots.empty()) {
         profile.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(knots, p ? p->GetToken(kProfileInterpolation, UsdGenTokens().catmullRom)
-                                : UsdGenTokens().catmullRom,
+        UsdGenBuildRampLut(knots, p ? p->GetToken(kProfileInterpolation, UsdGenCurveTokens().catmullRom)
+                                : UsdGenCurveTokens().catmullRom,
                            profile.data(), kUsdGenRampLutSize);
     }
 

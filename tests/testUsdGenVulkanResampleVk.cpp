@@ -346,7 +346,7 @@ int main(int argc, char** argv) {
     CHECK(NeutralResampleControl());
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64{}; fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable) {
         std::puts("resampleVk: no supported Vulkan device; SKIP");
         return 77;
@@ -357,7 +357,7 @@ int main(int argc, char** argv) {
     if (!feats.shaderFloat64) { std::puts("resampleVk: no Float64 support; SKIP"); return 77; }
     DeviceContext::CreateInfo ci; ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
-    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7042; ci.nativeLifetime = native; ci.resources = {size_t{16} << 20, 0};
+    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7042; ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true; ci.resources = {size_t{16} << 20, 0};
     ci.shaderFloat64Enabled = true;
     auto context = DeviceContext::Create(ci); CHECK(context);
     {
@@ -570,10 +570,10 @@ int main(int argc, char** argv) {
             // Named-channel twin through the resample-mode topology transform.
             CudaNamedChannelTopologyCandidate named;
             std::vector<CudaNamedChannelTopologyCandidate::RawInputPlane> planes{
-                {{"f", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->fBytes)},
-                {{"i", UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->iBytes)},
-                {{"u", UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, asBytes(lifetime->uBytes)},
-                {{"c", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 1, 4, true}, asBytes(lifetime->cBytes)}};
+                {{TfToken("f"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->fBytes)},
+                {{TfToken("i"), UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->iBytes)},
+                {{TfToken("u"), UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, asBytes(lifetime->uBytes)},
+                {{TfToken("c"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 1, 4, true}, asBytes(lifetime->cBytes)}};
             std::string reason;
             CHECK(named.BeginRaw(input, view, std::move(planes), stream, CudaNamedChannelTopologyMode::Resample,
                 lifetime, &reason) == cudaSuccess);

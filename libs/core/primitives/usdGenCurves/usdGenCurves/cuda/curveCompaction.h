@@ -42,6 +42,8 @@ public:
         UsdGenExecutionMemoryReservation* reservation = nullptr,
         RestRootFrames frames = {});
     CurveCompactionStatus Finish(cudaStream_t stream);
+    // Apply/Finish are test hooks: they fence the stream. Cooks use the
+    // fresh two-phase path below.
 
     // Fresh two-phase continuation.  Counts validates/scans and copies only
     // {status, exact curve count, exact point count} to owned pinned storage;

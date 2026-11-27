@@ -203,10 +203,10 @@ bool ValidateUsdGenDeviceMetadata(UsdGenDeviceGeometryMetadata const& geometry,
         return false;
     }
 
-    std::vector<std::string> names;
+    std::vector<UsdGenToken> names;
     names.reserve(channels.size());
     for (UsdGenDeviceChannelMetadata const &channel : channels) {
-        if (channel.name.empty() || channel.arity == 0 ||
+        if (channel.name.IsEmpty() || channel.arity == 0 ||
             !ValidValueType(channel.type) || !ValidDomain(channel.domain) ||
             !ValidSemantic(channel.semantic) || !channel.readOnly ||
             !ValidArity(channel)) {

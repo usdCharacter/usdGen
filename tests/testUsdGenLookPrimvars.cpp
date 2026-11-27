@@ -18,10 +18,11 @@
 //   (d) a look-only edit rebuilds the tiles (nothing else would announce it).
 //
 // Exit: 0 pass, 1 fail.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/sessionCooker.h"
 #include "usdGenUsd/lower.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/imaging/hd/primvarsSchema.h"
@@ -134,6 +135,7 @@ VtValue Primvar(HdContainerDataSourceHandle const &prim, char const *name,
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     // (a) The schema-default look. "Authored" has to mean an actual opinion:
     // a description that merely applies UsdGenLookAPI resolves to a full set
     // of fallbacks, and publishing those would be indistinguishable from the

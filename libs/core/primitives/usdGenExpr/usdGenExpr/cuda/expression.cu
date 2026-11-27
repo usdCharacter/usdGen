@@ -82,6 +82,7 @@ CudaExpressionProgram::~CudaExpressionProgram() {
         freshHostError_ = nullptr; freshHostCode_ = nullptr;
         freshHostErrorPermit_.Abandon(); freshHostCodePermit_.Abandon();
     };
+    // shutdown wait: destructor.
     if (!selected || (ready_ && cudaEventSynchronize(ready_) != cudaSuccess)) {
         quarantine();
         if (selected && previous != deviceIndex_) cudaSetDevice(previous);
@@ -129,6 +130,7 @@ ExpressionStatus CudaExpressionProgram::Upload(expr::IRProgram const& program, c
     if (cudaMemcpyAsync(code_.data(), program.instructions.data(), code_.size(),
                         cudaMemcpyHostToDevice, stream) != cudaSuccess ||
         cudaEventRecord(ready_, stream) != cudaSuccess ||
+        // shutdown wait: test hook: synchronous CudaExpressionProgram::Upload, no Session caller (kernel tests).
         CudaFenceStream(stream) != cudaSuccess) return ExpressionStatus::CudaError;
     // The caller's host IR need not outlive Upload.
     instructionCount_ = program.instructions.size(); result_ = program.result;
@@ -173,6 +175,7 @@ ExpressionStatus CudaExpressionProgram::Finish(cudaStream_t stream) {
     int error = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook: synchronous CudaExpressionProgram::Finish, no Session caller (kernel tests).
         CudaFenceStream(stream) != cudaSuccess) return ExpressionStatus::CudaError;
     pending_ = false;
     return error ? ExpressionStatus::InvalidValue : ExpressionStatus::Ok;

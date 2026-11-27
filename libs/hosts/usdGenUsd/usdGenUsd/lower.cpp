@@ -15,8 +15,9 @@ namespace usdGenUsd {
 
 using namespace usdGen;
 
-PathTable::PathTable(std::vector<std::pair<UsdGenNodeKey, SdfPath>> entries)
-    : _byKey(std::move(entries))
+PathTable::PathTable(std::vector<std::pair<UsdGenNodeKey, SdfPath>> entries,
+                     UsdGenPresentation presentation)
+    : _byKey(std::move(entries)), _presentation(std::move(presentation))
 {
     std::sort(_byKey.begin(), _byKey.end(),
               [](auto const &a, auto const &b) { return a.first < b.first; });
@@ -98,9 +99,9 @@ public:
         for (SdfPath const &path : paths) keys.push_back(Key(path));
         return keys;
     }
-    void Finish(UsdGenGraphSpec *spec)
+    void Finish(UsdGenGraphSpec *spec, UsdGenPresentation presentation = UsdGenPresentation())
     {
-        auto table = std::make_shared<PathTable>(std::move(_entries));
+        auto table = std::make_shared<PathTable>(std::move(_entries), std::move(presentation));
         spec->labels.clear();
         spec->labels.reserve(table->Size());
         for (auto const &entry : table->Entries())
@@ -192,6 +193,21 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
     return out;
 }
 
+inline constexpr char kRgbText[] = "rgb";
+UsdGenTextToken<kRgbText> const sRgb{};
+
+// The source's one root-binding surface: device admission permits at most
+// one, and a binding absent from the surfaces is rejected, so none is named
+// then (never invented).
+UsdGenNodeKey SourceDependencySurface(UsdGenGraphSpec const &spec)
+{
+    if (spec.nodes.empty() || spec.nodes.front().surfaces.size() != 1) return UsdGenNodeKey();
+    UsdGenNodeKey const candidate = spec.nodes.front().surfaces.front();
+    UsdGenInputRecord const *found =
+        spec.FindInput(UsdGenInputKindWithRole(UsdGenInputRole::Surface), candidate);
+    return found ? found->key : UsdGenNodeKey();
+}
+
 }  // namespace
 
 UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
@@ -215,7 +231,8 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     for (UsdGenGeometryDesc const &geometry : desc.geometries)
         spec.inputs.push_back(LowerGeometry(geometry, keys));
     spec.SortInputs();
-    spec.look = desc.look;
+    UsdGenPresentation presentation;
+    presentation.look = desc.look;
     UsdGenPreviewDesc const &preview = desc.preview;
     if (preview.source.IsPropertyPath()) {
         spec.preview.source = keys.Key(preview.source.GetPrimPath());
@@ -223,22 +240,27 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     } else {
         spec.preview.source = keys.Key(preview.source);
     }
-    spec.preview.colorMap = preview.colorMap;
-    spec.preview.range = preview.range;
+    presentation.previewColorMap = preview.colorMap;
+    presentation.previewRange = preview.range;
     spec.preview.evaluation = preview.evaluation;
-    spec.preview.shading = preview.shading;
+    spec.preview.mapChannels = preview.colorMap == *sRgb ? 3 : 1;
+    presentation.previewShading = preview.shading;
     spec.xformMatrix = desc.xformMatrix;
-    spec.purpose = desc.purpose;
-    spec.visibility = desc.visibility;
-    spec.material = keys.Key(desc.materialPath);
+    presentation.purpose = desc.purpose;
+    presentation.visibility = desc.visibility;
+    presentation.material = keys.Key(desc.materialPath);
     spec.defaultWidth = desc.defaultWidth;
     spec.tileTarget = desc.tileTarget;
-    spec.basis = desc.curveBasis;
+    presentation.basis = desc.curveBasis;
     spec.time = desc.time;
     spec.timeCodesPerSecond = desc.timeCodesPerSecond;
     spec.executionBackend = desc.executionBackend;
     spec.validationErrors = desc.validationErrors;
-    keys.Finish(&spec);
+    presentation.description = spec.description;
+    presentation.xformMatrix = spec.xformMatrix;
+    presentation.dependency = SourceDependencySurface(spec);
+    spec.hostDigest = PresentationDigest(presentation);
+    keys.Finish(&spec, std::move(presentation));
     return spec;
 }
 
@@ -328,6 +350,38 @@ PathTable const *Paths(std::shared_ptr<const void> const &host)
     return static_cast<PathTable const *>(host.get());
 }
 PathTable const *Paths(UsdGenGraphSpec const &spec) { return Paths(spec.host); }
+
+UsdGenPresentation const *Presentation(std::shared_ptr<const void> const &host)
+{
+    PathTable const *table = Paths(host);
+    return table ? &table->Presentation() : nullptr;
+}
+UsdGenPresentation const *Presentation(UsdGenGraphSpec const &spec)
+{
+    return Presentation(spec.host);
+}
+UsdGenPresentation const *Presentation(UsdGenGeneration const &generation)
+{
+    return Presentation(generation.host);
+}
+
+std::optional<UsdGenDevicePresentationMetadata> DevicePresentation(
+    UsdGenGeneration const &generation)
+{
+    if (!generation.device) return std::nullopt;
+    UsdGenPresentation const fallback;
+    UsdGenPresentation const *p = Presentation(generation.host);
+    if (!p) p = &fallback;
+    UsdGenDevicePresentationMetadata m;
+    m.description = p->description;
+    m.xformMatrix = p->xformMatrix;
+    m.purpose = p->purpose;
+    m.visibility = p->visibility;
+    m.material = UsdGenPrimRef{p->material};
+    m.origin = UsdGenPrimRef{p->description};
+    m.dependency = UsdGenPrimRef{p->dependency};
+    return m;
+}
 PathTable const *Paths(UsdGenGeneration const &generation) { return Paths(generation.host); }
 PathTable const *Paths(UsdGenGraphRoutingSnapshot const &routing) { return Paths(routing.host); }
 

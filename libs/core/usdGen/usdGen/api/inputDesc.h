@@ -28,7 +28,7 @@ enum class UsdGenLane : uint8_t;
 
 enum UsdGenInputSlotFlag : uint8_t {
     kUsdGenInputRequired = 1,
-    kUsdGenInputPrimvar = 2,   // read primvars:<attribute>, flattening indexed
+    kUsdGenInputPrimvar = 2,   // read the <attribute> primvar, flattening indexed
     kUsdGenInputCounts = 4,    // integer counts that become Offsets(level)
 };
 

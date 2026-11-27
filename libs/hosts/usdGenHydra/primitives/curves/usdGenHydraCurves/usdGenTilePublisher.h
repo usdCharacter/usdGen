@@ -26,9 +26,8 @@
 #ifndef USDGEN_IMAGING_TILE_PUBLISHER_H
 #define USDGEN_IMAGING_TILE_PUBLISHER_H
 
-#include "usdGenImaging/api.h"
 #include "usdGenUsd/walk/staticToken.h"
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
 #include "usdGenUsd/graphDesc.h"
 
 #include "pxr/pxr.h"

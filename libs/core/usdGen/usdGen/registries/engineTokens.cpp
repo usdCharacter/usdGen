@@ -27,32 +27,14 @@ UsdGenEngineTokens *MakeEngineTokens()
     t->guides = i("guides");
     t->mask = i("mask");
     t->usdGenPrefix = i("usdGen:");
-    t->hair = i("hair");
-    t->cubic = i("cubic");
-    t->bspline = i("bspline");
-    t->catmullRom = i("catmullRom");
-    t->pinned = i("pinned");
-    t->nonperiodic = i("nonperiodic");
-    t->vertexWidths = i("vertex");
-    t->allPurpose = i("allPurpose");
-    t->none = i("none");
-    t->displayColor = i("displayColor");
-    t->hairT = i("hairT");
-    t->hairId = i("hairId");
-    t->st = i("st");
-    t->bakeColor = i("bakeColor");
-    t->velocities = i("velocities");
-    t->scalpShadow = i("scalpShadow");
-    t->materialScalpShadow = i("material_scalpShadow");
     t->result = i("result");
     t->varying = i("varying");
+    t->none = i("none");
     t->rightHanded = i("rightHanded");
     t->edgeAndCorner = i("edgeAndCorner");
     t->cornersPlus1 = i("cornersPlus1");
     t->catmullClark = i("catmullClark");
-    t->heat = i("heat");
     t->primitive = i("primitive");
-    t->lit = i("lit");
     return t;
 }
 

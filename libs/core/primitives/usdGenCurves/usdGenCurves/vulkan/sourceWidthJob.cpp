@@ -4,6 +4,7 @@
 #include "usdGenCurves/vulkan/sourceWidthJob.h"
 #include "usdGenCurves/vulkan/lengthEnvelope.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGen/registries/token.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -334,10 +335,16 @@ std::shared_ptr<VulkanSourceWidthJob> VulkanSourceWidthJob::Create(CreateInfo in
                 for (auto const &plane : info.source.source.extraCurve)
                     names.insert(plane.name.GetString());
                 for (auto const &plane : info.source.additionalNamed)
-                    names.insert(plane.metadata.name);
-                std::string name = "__usdGenDeformRoots" + std::to_string(i);
-                while (names.count(name))
-                    name += "_";
+                    names.insert(plane.metadata.name.GetString());
+                // The plan interned the name; only a collision with an
+                // authored channel (or a hand-built stage) interns here.
+                UsdGenToken name = stage.deform.rootTargetPlane;
+                if (name.IsEmpty() || names.count(name.GetString())) {
+                    std::string text = "__usdGenDeformRoots" + std::to_string(i);
+                    while (names.count(text))
+                        text += "_";
+                    name = UsdGenInternToken(text);
+                }
                 VulkanSourceNamedChannel targets;
                 targets.metadata = {name,
                                     UsdGenDeviceValueType::Float32x3,
@@ -379,7 +386,9 @@ std::shared_ptr<VulkanSourceWidthJob> VulkanSourceWidthJob::Create(CreateInfo in
                     stage.grow);
                 if (targets.size() != info.source.source.totalCurves)
                     return {};
-                stage.growTargetPlane = "__vulkanGrowTargets" + std::to_string(i);
+                if (stage.growTargetPlane.IsEmpty())
+                    stage.growTargetPlane =
+                        UsdGenInternToken("__vulkanGrowTargets" + std::to_string(i));
                 VulkanSourceNamedChannel plane;
                 plane.privateStructural = true;
                 plane.metadata = {stage.growTargetPlane,
@@ -496,7 +505,11 @@ bool VulkanSourceWidthJob::Suppressed() const noexcept {
 }
 void VulkanSourceWidthJob::Terminal(std::shared_ptr<const VulkanSourceGeneration> result,
                                     State state, VkResult status) noexcept {
-    failurePhase_.store(state_.load(std::memory_order_acquire), std::memory_order_release);
+    Terminal(std::move(result), state, status, state_.load(std::memory_order_acquire));
+}
+void VulkanSourceWidthJob::Terminal(std::shared_ptr<const VulkanSourceGeneration> result,
+                                    State state, VkResult status, State phase) noexcept {
+    failurePhase_.store(phase, std::memory_order_release);
     relay_->Settle(std::move(result), state, status, false);
 }
 void VulkanSourceWidthJob::FailOnOwner(VkResult status) {
@@ -1014,7 +1027,7 @@ void VulkanSourceWidthJob::BeginBlend() {
             marked = watch_ && watch_->MarkPhaseSubmitted();
             return marked;
         };
-    blend_ = info_.widthBlendPipeline->Begin(base_->PlaneOwner("width"), right->PlaneOwner("width"),
+    blend_ = info_.widthBlendPipeline->Begin(base_->PlaneOwner(UsdGenCurveChannels().width), right->PlaneOwner(UsdGenCurveChannels().width),
                                              base_->pointCount(), stage.blend, &status,
                                              std::move(before));
     if (!blend_) {
@@ -1343,9 +1356,9 @@ void VulkanSourceWidthJob::BeginTiles() {
     uint32_t const captureCurves = capture->curveCount();
     uint32_t const survivorCurves = value->curveCount();
     uint32_t const survivorPoints = value->pointCount();
-    auto captureIds = capture->PlaneOwner("stableIds");
-    auto survivorIds = value->PlaneOwner("stableIds");
-    auto survivorOffsets = value->PlaneOwner("curveOffsets");
+    auto captureIds = capture->PlaneOwner(UsdGenCurveChannels().stableIds);
+    auto survivorIds = value->PlaneOwner(UsdGenCurveChannels().stableIds);
+    auto survivorOffsets = value->PlaneOwner(UsdGenCurveChannels().curveOffsets);
     PicktileVkTileRequirements requirements{};
     if (!captureIds || !survivorIds || !survivorOffsets ||
         !GetPicktileVkTileRequirements(info_.tileChunkSize, info_.tileTarget, captureCurves,
@@ -1408,8 +1421,8 @@ void VulkanSourceWidthJob::BeginTiles() {
 void VulkanSourceWidthJob::BeginTileBounds() {
     auto const &value = values_.back();
     auto spans = tiles_->spans();
-    auto points = value->PlaneOwner("points");
-    auto widths = value->PlaneOwner("width");
+    auto points = value->PlaneOwner(UsdGenCurveChannels().points);
+    auto widths = value->PlaneOwner(UsdGenCurveChannels().width);
     if (!spans || !points || !widths || tileCount_ == 0 || tileCount_ > size_t(INT32_MAX) ||
         spans->sizeBytes() != VkDeviceSize(tileCount_) * sizeof(PicktileVkTileSpan)) {
         Terminal({}, State::Failed, VK_ERROR_INITIALIZATION_FAILED);
@@ -1634,15 +1647,15 @@ void VulkanSourceWidthJob::BeginLength() {
         bind("cullThreshold", controls.cullThresholdField);
         bind("enabled", controls.enabledField);
         length_ = info_.lengthPipeline->BeginDeviceV1(
-            base_->PlaneOwner("points"), base_->PlaneOwner("curveOffsets"),
-            base_->PlaneOwner("hairT"), base_->PlaneOwner("stableIds"), base_->curveCount(),
+            base_->PlaneOwner(UsdGenCurveChannels().points), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
+            base_->PlaneOwner(UsdGenCurveChannels().hairT), base_->PlaneOwner(UsdGenCurveChannels().stableIds), base_->curveCount(),
             base_->pointCount(), std::move(controls), &status, std::move(beforeSubmit));
     } else
         length_ =
             nonneutralEnvelope
                 ? info_.lengthPipeline->BeginEnvelopeV1(
-                      base_->PlaneOwner("points"), base_->PlaneOwner("curveOffsets"),
-                      base_->PlaneOwner("hairT"), base_->PlaneOwner("stableIds"),
+                      base_->PlaneOwner(UsdGenCurveChannels().points), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
+                      base_->PlaneOwner(UsdGenCurveChannels().hairT), base_->PlaneOwner(UsdGenCurveChannels().stableIds),
                       base_->curveCount(), base_->pointCount(),
                       LengthScalePipeline::EnvelopeV1Controls{
                           stage.factor, stage.minRemainingLength,
@@ -1658,8 +1671,8 @@ void VulkanSourceWidthJob::BeginLength() {
                       &status, std::move(beforeSubmit))
             : literalV1
                 ? info_.lengthPipeline->BeginLiteralV1(
-                      base_->PlaneOwner("points"), base_->PlaneOwner("curveOffsets"),
-                      base_->PlaneOwner("hairT"), base_->PlaneOwner("stableIds"),
+                      base_->PlaneOwner(UsdGenCurveChannels().points), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
+                      base_->PlaneOwner(UsdGenCurveChannels().hairT), base_->PlaneOwner(UsdGenCurveChannels().stableIds),
                       base_->curveCount(), base_->pointCount(),
                       LengthScalePipeline::LiteralV1Controls{
                           stage.factor, stage.minRemainingLength,
@@ -1674,8 +1687,8 @@ void VulkanSourceWidthJob::BeginLength() {
                       &status, std::move(beforeSubmit))
             : stage.minRemainingLength > 0
                 ? info_.lengthPipeline->BeginMinimum(
-                      base_->PlaneOwner("points"), base_->PlaneOwner("curveOffsets"),
-                      base_->PlaneOwner("hairT"), base_->curveCount(), base_->pointCount(),
+                      base_->PlaneOwner(UsdGenCurveChannels().points), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
+                      base_->PlaneOwner(UsdGenCurveChannels().hairT), base_->curveCount(), base_->pointCount(),
                       LengthScalePipeline::MinimumControls{
                           stage.factor, stage.minRemainingLength,
                           stage.lengthMode == VulkanSourceWidthStage::LengthMode::Set,
@@ -1689,23 +1702,23 @@ void VulkanSourceWidthJob::BeginLength() {
             : stage.lengthMethod == VulkanSourceWidthStage::LengthMethod::CutExtend &&
                     stage.lengthRebuild == VulkanSourceWidthStage::LengthRebuild::Reparam
                 ? info_.lengthPipeline->BeginReparam(
-                      base_->PlaneOwner("points"), base_->PlaneOwner("curveOffsets"),
-                      base_->PlaneOwner("hairT"), base_->curveCount(), base_->pointCount(),
+                      base_->PlaneOwner(UsdGenCurveChannels().points), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
+                      base_->PlaneOwner(UsdGenCurveChannels().hairT), base_->curveCount(), base_->pointCount(),
                       stage.factor, stage.lengthMode == VulkanSourceWidthStage::LengthMode::Set,
                       &status, std::move(beforeSubmit))
             : stage.lengthMethod == VulkanSourceWidthStage::LengthMethod::CutExtend
                 ? info_.lengthPipeline->BeginCutExtend(
-                      base_->PlaneOwner("points"), base_->PlaneOwner("curveOffsets"),
+                      base_->PlaneOwner(UsdGenCurveChannels().points), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
                       base_->curveCount(), base_->pointCount(), stage.factor,
                       stage.lengthMode == VulkanSourceWidthStage::LengthMode::Set, &status,
                       std::move(beforeSubmit))
             : stage.lengthMode == VulkanSourceWidthStage::LengthMode::Set
-                ? info_.lengthPipeline->BeginSet(base_->PlaneOwner("points"),
-                                                 base_->PlaneOwner("curveOffsets"),
+                ? info_.lengthPipeline->BeginSet(base_->PlaneOwner(UsdGenCurveChannels().points),
+                                                 base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
                                                  base_->curveCount(), base_->pointCount(),
                                                  stage.factor, &status, std::move(beforeSubmit))
-                : info_.lengthPipeline->Begin(base_->PlaneOwner("points"),
-                                              base_->PlaneOwner("curveOffsets"),
+                : info_.lengthPipeline->Begin(base_->PlaneOwner(UsdGenCurveChannels().points),
+                                              base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
                                               base_->curveCount(), base_->pointCount(),
                                               stage.factor, &status, std::move(beforeSubmit));
     if (!length_) {
@@ -1839,16 +1852,16 @@ void VulkanSourceWidthJob::BeginNoise() {
         vkUnmapMemory(ctx->device(), magnitudeProfile->memory());
     }
     NoisePipeline::BeginInfo info;
-    info.points = base_->PlaneOwner("points");
-    info.restPoints = base_->PlaneOwner("rest");
-    info.curveOffsets = base_->PlaneOwner("curveOffsets");
-    info.stableIds = base_->PlaneOwner("stableIds");
+    info.points = base_->PlaneOwner(UsdGenCurveChannels().points);
+    info.restPoints = base_->PlaneOwner(UsdGenCurveChannels().rest);
+    info.curveOffsets = base_->PlaneOwner(UsdGenCurveChannels().curveOffsets);
+    info.stableIds = base_->PlaneOwner(UsdGenCurveChannels().stableIds);
     info.curveCount = base_->curveCount();
     info.pointCount = base_->pointCount();
-    info.hairT = base_->PlaneOwner("hairT");
-    info.frameTangent = base_->SourceFrameOwner("sourceRootT");
-    info.frameBinormal = base_->SourceFrameOwner("sourceRootB");
-    info.frameNormal = base_->SourceFrameOwner("sourceRootN");
+    info.hairT = base_->PlaneOwner(UsdGenCurveChannels().hairT);
+    info.frameTangent = base_->SourceFrameOwner(UsdGenCurveChannels().sourceRootT);
+    info.frameBinormal = base_->SourceFrameOwner(UsdGenCurveChannels().sourceRootB);
+    info.frameNormal = base_->SourceFrameOwner(UsdGenCurveChannels().sourceRootN);
     info.frameStableIds = nullptr;
     info.frameCount = base_->curveCount();
     info.magnitudeProfile = std::move(magnitudeProfile);
@@ -1949,38 +1962,19 @@ void VulkanSourceWidthJob::BeginDeform() {
         BeginRbfVkDeform();
         return;
     }
+    // Launch submits the evaluate proof without waiting; AdvanceDeform
+    // watches its timeline value and submits the apply once it is proven.
     VkResult status = VK_ERROR_INITIALIZATION_FAILED;
-    if (info_.completionService && base_->pointCount()) {
-        auto self = shared_from_this();
-        watch_ = info_.completionService->Reserve(
-            self,
-            [self](VkResult proof) -> VulkanCompletionService::DeliveryResult {
-                if (proof == VK_SUCCESS) {
-                    self->watchProofReady_ = true;
-                    return self->NotifyCompletion()
-                               ? VulkanCompletionService::DeliveryResult::Posted
-                               : VulkanCompletionService::DeliveryResult::Stale;
-                }
-                self->NotifyFailure(proof);
-                return VulkanCompletionService::DeliveryResult::LostProof;
-            },
-            [self](VkResult proof) { self->NotifyFailure(proof); });
-        if (!watch_) {
-            RouteFailure();
-            return;
-        }
-    }
-    bool phaseMarked = false;
     DeformPipeline::BeforeSubmit beforeSubmit;
-    if (watch_)
-        beforeSubmit = [this, &phaseMarked] {
-            phaseMarked = watch_ && watch_->MarkPhaseSubmitted();
-            return phaseMarked;
+    if (info_.completionService && base_->pointCount())
+        beforeSubmit = [this] {
+            deformMarked_ = watch_ && watch_->MarkPhaseSubmitted();
+            return deformMarked_;
         };
     auto const &stage = info_.stages[stageIndex_];
     DeformPipeline::BeginInfo info;
-    info.points = base_->PlaneOwner("points");
-    info.curveOffsets = base_->curveCount() ? base_->PlaneOwner("curveOffsets") : nullptr;
+    info.points = base_->PlaneOwner(UsdGenCurveChannels().points);
+    info.curveOffsets = base_->curveCount() ? base_->PlaneOwner(UsdGenCurveChannels().curveOffsets) : nullptr;
     info.rootTargets = base_->SourceFrameOwner(stage.deform.rootTargetPlane);
     info.curveCount = base_->curveCount();
     info.pointCount = base_->pointCount();
@@ -2003,19 +1997,70 @@ void VulkanSourceWidthJob::BeginDeform() {
     bind("enabled", info.enabled);
     bind("lockRoots", info.lockRoots);
     DeformSemantic beginSemantic = DeformSemantic::Ok;
-    deform_ = info_.deformPipeline->Begin(std::move(info), &status, &beginSemantic,
-                                          std::move(beforeSubmit));
+    deformMarked_ = false;
+    deform_ = info_.deformPipeline->Launch(std::move(info), &status, &beginSemantic,
+                                           std::move(beforeSubmit));
     if (!deform_) {
-        if (watch_) {
-            if (!phaseMarked)
-                info_.completionService->CancelBeforeSubmit(*watch_);
-            watch_.reset();
-        }
-        Terminal({}, phaseMarked ? State::LostProof : State::Failed, status);
+        Terminal({}, State::Failed, status);
         return;
     }
+    AdvanceDeform();
+}
+void VulkanSourceWidthJob::AdvanceDeform() {
+    // Proof stage, never blocking: Advance checks the proof on the queue
+    // timeline. Still running: arm a watch at its value and return. Proven:
+    // Advance submitted the apply (beforeSubmit marked the watch); arm it.
+    if (info_.completionService && base_->pointCount()) {
+        auto self = shared_from_this();
+        watch_ = info_.completionService->Reserve(
+            self,
+            [self](VkResult proof) -> VulkanCompletionService::DeliveryResult {
+                if (proof == VK_SUCCESS) {
+                    self->watchProofReady_ = true;
+                    return self->NotifyCompletion()
+                               ? VulkanCompletionService::DeliveryResult::Posted
+                               : VulkanCompletionService::DeliveryResult::Stale;
+                }
+                self->NotifyFailure(proof);
+                return VulkanCompletionService::DeliveryResult::LostProof;
+            },
+            [self](VkResult proof) { self->NotifyFailure(proof); });
+        if (!watch_) {
+            RouteFailure();
+            return;
+        }
+    }
+    if (deform_->ProofValue()) {
+        deformMarked_ = false;
+        DeformSemantic semantic = DeformSemantic::Ok;
+        VkResult status = deform_->Advance(&semantic);
+        if (status == VK_NOT_READY) {
+            if (watch_ && (!watch_->MarkPhaseSubmitted() ||
+                           !info_.completionService->ArmAt(*watch_, deform_->ProofValue(),
+                                                           uint64_t(State::DeformPending)))) {
+                watch_.reset();
+                RouteFailure();
+                return;
+            }
+            auto expected = stageFrom_;
+            state_.compare_exchange_strong(expected, State::DeformPending, std::memory_order_acq_rel);
+            return;
+        }
+        if (status != VK_SUCCESS || semantic != DeformSemantic::Ok) {
+            // As the synchronous Begin: a rejected evaluation fails the stage.
+            bool const marked = deformMarked_;
+            if (watch_) {
+                if (!marked)
+                    info_.completionService->CancelBeforeSubmit(*watch_);
+                watch_.reset();
+            }
+            Terminal({}, marked ? State::LostProof : State::Failed,
+                     status == VK_SUCCESS ? VK_ERROR_INITIALIZATION_FAILED : status, stageFrom_);
+            return;
+        }
+    }
     if (watch_ &&
-        (!phaseMarked || !info_.completionService->Arm(*watch_, uint64_t(State::DeformPending)))) {
+        (!deformMarked_ || !info_.completionService->Arm(*watch_, uint64_t(State::DeformPending)))) {
         watch_.reset();
         RouteFailure();
         return;
@@ -2041,6 +2086,10 @@ void VulkanSourceWidthJob::FinishDeform() {
         }
         watch_.reset();
         watchProofReady_ = false;
+    }
+    if (deform_->ProofValue()) {
+        AdvanceDeform();
+        return;
     }
     DeformSemantic semantic = DeformSemantic::Ok;
     auto proof = deform_->Poll(&semantic);
@@ -2100,8 +2149,8 @@ void VulkanSourceWidthJob::BeginRbfVkDeform() {
         };
     auto const &stage = info_.stages[stageIndex_];
     DeformPipeline::BeginInfo info;
-    info.points = base_->PlaneOwner("points");
-    info.curveOffsets = base_->curveCount() ? base_->PlaneOwner("curveOffsets") : nullptr;
+    info.points = base_->PlaneOwner(UsdGenCurveChannels().points);
+    info.curveOffsets = base_->curveCount() ? base_->PlaneOwner(UsdGenCurveChannels().curveOffsets) : nullptr;
     info.rootTargets = base_->SourceFrameOwner(stage.deform.rootTargetPlane);
     info.curveCount = base_->curveCount();
     info.pointCount = base_->pointCount();
@@ -2192,7 +2241,7 @@ void VulkanSourceWidthJob::FinishRbfVkDeform() {
 void VulkanSourceWidthJob::BeginWidth() {
     auto const &controls = info_.stages[stageIndex_].width;
     VkResult status = VK_ERROR_INITIALIZATION_FAILED;
-    if (base_->pointCount() && !base_->PlaneOwner("width")) {
+    if (base_->pointCount() && !base_->PlaneOwner(UsdGenCurveChannels().width)) {
         Terminal({}, State::Failed, status);
         return;
     }
@@ -2224,7 +2273,7 @@ void VulkanSourceWidthJob::BeginWidth() {
             return phaseMarked;
         };
     width_ =
-        info_.widthPipeline->Begin(base_->PlaneOwner("width"), base_->pointCount(), controls.width,
+        info_.widthPipeline->Begin(base_->PlaneOwner(UsdGenCurveChannels().width), base_->pointCount(), controls.width,
                                    controls.replace ? 1u : 0u, &status, std::move(beforeSubmit));
     if (!width_) {
         if (watch_) {
@@ -2298,19 +2347,19 @@ void VulkanSourceWidthJob::FinishWidth() {
 namespace usdGen::vulkan {
 void VulkanSourceWidthJob::BeginExpressions() {
     auto const &stage = info_.stages[stageIndex_];
-    ExprVkCurveGeometry g{base_->PlaneOwner("points"),
-                          base_->PlaneOwner("rest"),
-                          base_->PlaneOwner("width"),
-                          base_->PlaneOwner("curveOffsets"),
-                          base_->PlaneOwner("stableIds"),
+    ExprVkCurveGeometry g{base_->PlaneOwner(UsdGenCurveChannels().points),
+                          base_->PlaneOwner(UsdGenCurveChannels().rest),
+                          base_->PlaneOwner(UsdGenCurveChannels().width),
+                          base_->PlaneOwner(UsdGenCurveChannels().curveOffsets),
+                          base_->PlaneOwner(UsdGenCurveChannels().stableIds),
                           base_->curveCount(),
                           base_->pointCount()};
-    ExprVkGeometryChannels ch{base_->PlaneOwner("hairT"),
-                              base_->PlaneOwner("rootUV"),
-                              base_->SourceFrameOwner("sourceRootN"),
-                              base_->SourceFrameOwner("sourceRootT"),
-                              base_->SourceFrameOwner("sourceRootB"),
-                              base_->PlaneOwner("rootPrim")};
+    ExprVkGeometryChannels ch{base_->PlaneOwner(UsdGenCurveChannels().hairT),
+                              base_->PlaneOwner(UsdGenCurveChannels().rootUV),
+                              base_->SourceFrameOwner(UsdGenCurveChannels().sourceRootN),
+                              base_->SourceFrameOwner(UsdGenCurveChannels().sourceRootT),
+                              base_->SourceFrameOwner(UsdGenCurveChannels().sourceRootB),
+                              base_->PlaneOwner(UsdGenCurveChannels().rootPrim)};
     expressions_ = std::make_unique<ExprVkRun>(
         info_.expressionContextPipeline, info_.expressionEvaluatePipeline, stage.expressionBindings,
         std::move(g), std::move(ch), stage.expressionControls);
@@ -2474,9 +2523,9 @@ void VulkanSourceWidthJob::BeginExpressionWidth() {
         return marked;
     };
     expressionWidth_ = info_.expressionWidthPipeline->Begin(
-        base_->PlaneOwner("width"), expressions_->owners(), width, mask, replace, enabled,
+        base_->PlaneOwner(UsdGenCurveChannels().width), expressions_->owners(), width, mask, replace, enabled,
         base_->pointCount(), base_->curveCount(), controls, &status, before, expressionProfile_,
-        base_->PlaneOwner("hairT"), base_->PlaneOwner("curveOffsets"));
+        base_->PlaneOwner(UsdGenCurveChannels().hairT), base_->PlaneOwner(UsdGenCurveChannels().curveOffsets));
     if (!expressionWidth_) {
         if (watch_) {
             if (!marked)

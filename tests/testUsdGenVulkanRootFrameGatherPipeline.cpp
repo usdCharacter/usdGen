@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
     CHECK(!spv.empty());
 
     bool unavailable = false;
-    auto native = CreateNative(&unavailable);
+    auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
     {   // rootFrameGather set = 15 storage bindings; skip weak devices.
@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
     info.device = native->device; info.computeQueue = native->queue;
     info.computeQueueFamily = native->family; info.physicalIndex = native->physicalIndex;
     info.resourceDeviceId = 7005; info.nativeLifetime = native;
+    info.timelineSemaphoreEnabled = true;
     info.resources = {size_t{16} << 20, 0};
     auto context = DeviceContext::Create(info);
     CHECK(context); info.nativeLifetime.reset();

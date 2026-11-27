@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
     std::vector<uint32_t> code(bytes.size() / sizeof(uint32_t));
     std::memcpy(code.data(), bytes.data(), bytes.size());
     bool unavailable = false;
-    auto native = CreateNative(&unavailable);
+    auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
     {   // scatter grow kernel needs 20 storage-buffer bindings; skip weak devices (77).
@@ -156,7 +156,7 @@ int main(int argc, char** argv) {
     info.instance = native->instance; info.physicalDevice = native->physical;
     info.device = native->device; info.computeQueue = native->queue;
     info.computeQueueFamily = native->family; info.physicalIndex = native->physicalIndex;
-    info.resourceDeviceId = 7004; info.nativeLifetime = native;
+    info.resourceDeviceId = 7004; info.nativeLifetime = native; info.timelineSemaphoreEnabled = true;
     info.resources = {size_t{16} << 20, 0};
     auto context = DeviceContext::Create(info);
     CHECK(context); info.nativeLifetime.reset();

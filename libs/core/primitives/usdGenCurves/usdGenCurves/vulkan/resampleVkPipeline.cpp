@@ -57,14 +57,13 @@ struct ResampleVkPipeline::Candidate::State : std::enable_shared_from_this<State
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
     VkCommandBuffer command = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // the submit's queue-timeline value
     Push push;
     uint32_t curves = 0, points = 0, target = 0, semantic = UINT32_MAX;
     bool pending = false, lost = false, proved = false;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -107,8 +106,7 @@ struct ResampleVkPipeline::Candidate::State : std::enable_shared_from_this<State
         VkCommandBufferAllocateInfo ca{}; ca.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         ca.commandPool = commands; ca.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ca.commandBufferCount = 1;
         r = vkAllocateCommandBuffers(d, &ca, &command); if (r != VK_SUCCESS) return false;
-        VkFenceCreateInfo f{}; f.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &f, nullptr, &fence); if (r != VK_SUCCESS) return false;
+        if (!native->context->computeTimeline()) { r = VK_ERROR_FEATURE_NOT_PRESENT; return false; }
         VkCommandBufferBeginInfo begin{}; begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         r = vkBeginCommandBuffer(command, &begin); if (r != VK_SUCCESS) return false;
         Barrier(command); vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_COMPUTE, native->pipeline);
@@ -142,13 +140,12 @@ struct ResampleVkPipeline::Candidate::State : std::enable_shared_from_this<State
             try { admitted = before(); } catch (...) { r = VK_ERROR_UNKNOWN; return false; }
             if (!admitted) { r = VK_ERROR_OUT_OF_DEVICE_MEMORY; return false; }
         }
-        VkSubmitInfo info{}; info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; info.commandBufferCount = 1; info.pCommandBuffers = &command;
-        pending = true; r = vkQueueSubmit(native->context->computeQueue(), 1, &info, fence);
-        if (r != VK_SUCCESS) { Retain(); return false; } return true;
+        pending = true; value = native->context->computeTimeline()->Submit(&command, 1u, &r);
+        if (!value) { Retain(); return false; } return true;
     }
     VkResult Prove() {
         if (lost) return VK_ERROR_DEVICE_LOST;
-        VkResult r = vkGetFenceStatus(native->context->device(), fence);
+        VkResult r = native->context->computeTimeline()->Check(value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Retain(); return r; }
         pending = false; void* data = nullptr;
@@ -229,7 +226,7 @@ std::unique_ptr<ResampleVkPipeline::Candidate> ResampleVkPipeline::Begin(
         auto candidate = std::unique_ptr<Candidate>(new Candidate(s));
         s->curves = base->curveCount(); s->points = uint32_t(outPoints64); s->target = target;
         s->push.curves = s->curves; s->push.srcPoints = base->pointCount(); s->push.target = target;
-        auto offsetsOwner = base->PlaneOwner("curveOffsets");
+        auto offsetsOwner = base->PlaneOwner(UsdGenCurveChannels().curveOffsets);
         uint64_t const offsetsBytes = (curves64 + 1) * 4;
         if (!offsetsOwner || offsetsOwner->context() != context || offsetsOwner->unproven() ||
             offsetsOwner->sizeBytes() < offsetsBytes || !(offsetsOwner->usage() & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))

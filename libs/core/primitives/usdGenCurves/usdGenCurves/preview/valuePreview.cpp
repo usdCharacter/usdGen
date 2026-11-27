@@ -51,7 +51,6 @@ using Domain = expr::Domain;
 
 // Made at load, not on first use: no function-local static to guard.
 TfToken const kPreviewDestination = UsdGenInternToken("usdGenPreview");
-TfToken const kColorRgb = UsdGenInternToken("rgb");
 TfToken const kGroom = UsdGenInternToken("groom"), kPoint = UsdGenInternToken("point");
 TfToken const kMapInput = UsdGenInternToken("map");
 TfToken const kMapChannel = UsdGenInternToken("map:channel"),
@@ -315,7 +314,7 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
     // "rgb" reads the first three texture channels unscaled; a map with fewer
     // falls back to the value an operator reads, usdGen:map:channel.
     std::string colourFailure;
-    for (int attempt = preview.colorMap == kColorRgb ? 0 : 1; attempt < 2; ++attempt) {
+    for (int attempt = preview.mapChannels == 3 ? 0 : 1; attempt < 2; ++attempt) {
         bool const colour = attempt == 0;
         unsigned const channels = colour ? 3u : 1u;
         _mapDesc.inputs.assign(surfaces.begin(), surfaces.end());

@@ -58,6 +58,7 @@ public:
                       DeviceView<uint8_t> keep,
                       cudaStream_t stream,
                       UsdGenExecutionMemoryReservation* reservation = nullptr);
+    // Test hook: blocks on `stream`; the cook uses the Fresh API below.
     StyleStatus Finish(cudaStream_t stream);
     // Fresh-only nonblocking publication.  ApplyFresh rejects capture before
     // device/stream queries or allocation.  FinishFreshAsync conditionally

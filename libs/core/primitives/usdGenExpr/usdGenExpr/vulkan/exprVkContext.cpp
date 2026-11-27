@@ -31,13 +31,12 @@ struct ExprVkContextPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> params, fields, owners, arc, status, dummy;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -141,8 +140,7 @@ VkResult ExprVkContextPipeline::Candidate::Wait(uint64_t timeoutNs,
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
-        VkResult r = vkWaitForFences(
-            s.native->context->device(), 1, &s.fence, VK_TRUE, timeoutNs);
+        VkResult r = s.native->context->computeTimeline()->Wait(s.value, timeoutNs);
         if (r != VK_SUCCESS) {
             if (r != VK_TIMEOUT) Quarantine();
             return r;
@@ -154,7 +152,7 @@ VkResult ExprVkContextPipeline::Candidate::Poll(uint32_t* semanticStatus) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         r = s.params->PollComplete();
@@ -186,6 +184,8 @@ std::unique_ptr<ExprVkContextPipeline::Candidate> ExprVkContextPipeline::Begin(
     };
     finish(ExprVkContextStatus::InvalidArgument, VK_ERROR_INITIALIZATION_FAILED);
     auto context = native_->context;
+    VulkanQueueTimeline* const timeline = context->computeTimeline();
+    if (!timeline) return {};
     if (domain != expr::Domain::Groom && domain != expr::Domain::Primitive &&
         domain != expr::Domain::Point)
         return {};
@@ -494,10 +494,6 @@ std::unique_ptr<ExprVkContextPipeline::Candidate> ExprVkContextPipeline::Begin(
             nullptr, 0, nullptr);
         r = vkEndCommandBuffer(command);
         if (r != VK_SUCCESS) { finish(ExprVkContextStatus::DeviceError, r); return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { finish(ExprVkContextStatus::DeviceError, r); return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try { admitted = beforeSubmit(); } catch (...) {
@@ -509,29 +505,16 @@ std::unique_ptr<ExprVkContextPipeline::Candidate> ExprVkContextPipeline::Begin(
                 return {};
             }
         }
-        r = s->params->MarkSubmitted(s->fence, s);
-        if (r == VK_SUCCESS) r = s->fields->MarkSubmitted(s->fence, s);
-        if (r == VK_SUCCESS) r = s->owners->MarkSubmitted(s->fence, s);
-        if (r == VK_SUCCESS) r = s->arc->MarkSubmitted(s->fence, s);
-        if (r == VK_SUCCESS) r = s->status->MarkSubmitted(s->fence, s);
-        if (r == VK_SUCCESS) r = s->dummy->MarkSubmitted(s->fence, s);
-        if (r != VK_SUCCESS) {
-            s->pending = true;
-            candidate->Quarantine();
-            finish(ExprVkContextStatus::DeviceError, r);
-            return {};
-        }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         s->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) {
-            candidate->Quarantine();
-            finish(ExprVkContextStatus::DeviceError, r);
-            return {};
-        }
+        s->value = timeline->Submit(&command, 1, &r);
+        if (!s->value) { candidate->Quarantine(); finish(ExprVkContextStatus::DeviceError, r); return {}; }
+        r = s->params->MarkSubmittedAt(s->value, s);
+        if (r == VK_SUCCESS) r = s->fields->MarkSubmittedAt(s->value, s);
+        if (r == VK_SUCCESS) r = s->owners->MarkSubmittedAt(s->value, s);
+        if (r == VK_SUCCESS) r = s->arc->MarkSubmittedAt(s->value, s);
+        if (r == VK_SUCCESS) r = s->status->MarkSubmittedAt(s->value, s);
+        if (r == VK_SUCCESS) r = s->dummy->MarkSubmittedAt(s->value, s);
+        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(ExprVkContextStatus::DeviceError, r); return {}; }
         finish(ExprVkContextStatus::Ok, VK_SUCCESS);
         return candidate;
     } catch (std::bad_alloc const&) {

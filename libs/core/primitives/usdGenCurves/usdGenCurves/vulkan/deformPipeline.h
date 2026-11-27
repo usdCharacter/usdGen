@@ -145,6 +145,8 @@ public:
     // reads its flag, runs `beforeSubmit` and submits the apply, never
     // blocking. Null on a host rejection (semantic set) or a Vulkan error.
     // The context must have its queue timeline (timelineSemaphoreEnabled).
+    // The asynchronous begin: the cook lane watches Candidate::ProofValue
+    // and advances on its delivery.
     std::unique_ptr<Candidate> Launch(
         BeginInfo info,
         VkResult* result = nullptr,
@@ -191,6 +193,11 @@ public:
     // output); any other result failed the candidate. After the proof stage
     // it reports the stage's outcome again.
     VkResult Advance(DeformSemantic* semantic = nullptr);
+
+    // The queue-timeline value the proof stage needs next (the staged copy,
+    // then the evaluate proof); 0 once the proof stage is over. Advance
+    // after it signals makes progress without blocking.
+    uint64_t ProofValue() const noexcept;
 
     Output output() const noexcept;
     bool succeeded() const noexcept;

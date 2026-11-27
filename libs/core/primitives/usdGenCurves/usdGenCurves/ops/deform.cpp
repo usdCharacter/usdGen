@@ -29,7 +29,7 @@
 #include "usdGen/ops/regionMap.h"
 
 #include "usdGen/ops/opUtil.h"
-#include "usdGen/rbfAnimation.h"
+#include "usdGen/api/deformBinding.h"
 #include "usdGen/scheduler.h"
 #include "usdGen/exec/taskScheduler.h"
 
@@ -983,7 +983,7 @@ namespace {
 // Only a static styling stack followed by one surface-driven RBF can retain
 // its upstream geometry while the surface poses (the tail-deform binding).
 bool MakeAnimationBinding(UsdGenAnimationBindingQuery const &q, UsdGenOp const &op,
-                          UsdGenRbfAnimationBinding *out)
+                          UsdGenDeformBinding *out)
 {
     UsdGenOpNode const *n = q.terminalDesc;
     UsdGenParamView const *p = q.terminalParams;

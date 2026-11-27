@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: MIT
 #include "externalRetirement.h"
 #include "completionService.h"
+#include "usdGen/exec/executionRuntimeInternal.h"
+#include "usdGen/exec/serialLane.h"
 #include "usdGen/parkingWord.h"
 #include "usdGen/sharedCell.h"
 
 #include <algorithm>
 #include <cstdlib>
-#include <thread>
+#include <exception>
 #include <utility>
 #include <vector>
 
@@ -18,9 +20,13 @@
 namespace usdGen::vulkan {
 namespace {
 
-// Test-only: runs between claiming the lane start and creating the thread;
+// Test-only: runs between claiming the lane start and admitting work;
 // false fails the start.
 std::atomic<bool (*)()> gLaneStartHook{nullptr};
+
+// True on a thread while it runs a retirement pass: Close from a callback
+// would wait for its own pass.
+thread_local bool tRetirementPass = false;
 
 // Process exit hook. A DLL's atexit runs at DLL detach, after ExitProcess has
 // killed the lane and after every exe hook; the CRT's process table runs in
@@ -57,20 +63,21 @@ public:
 
     void Close() noexcept {
         tail_.fetch_or(kClosed, std::memory_order_seq_cst);
-        Wake();
         for (uint32_t s = lane_.load(std::memory_order_acquire);;) {
             if (s == kLaneIdle) {
-                if (lane_.compare_exchange_weak(s, kLaneJoined, std::memory_order_acq_rel)) break;
+                // Nothing was ever admitted.
+                if (lane_.compare_exchange_weak(s, kLaneDone, std::memory_order_acq_rel)) break;
             } else if (s == kLaneRunning) {
-                if (!lane_.compare_exchange_weak(s, kLaneJoining, std::memory_order_acq_rel)) continue;
-                if (worker_.get_id() == std::this_thread::get_id()) std::terminate();
-                worker_.join();
-                lane_.store(kLaneJoined, std::memory_order_release);
-                UsdGenUnparkAll(lane_);
+                if (tRetirementPass) std::terminate();
+                Wake();
+                // Shutdown parks until the lane drained and quiesced. During
+                // process detach the scheduler's workers are gone: skip it.
+                if (UsdGenProcessShutdownInProgress()) break;
+                UsdGenParkWhileEqual(lane_, s);
+                s = lane_.load(std::memory_order_acquire);
+            } else if (s == kLaneDone) {
                 break;
-            } else if (s == kLaneJoined) {
-                break;
-            } else {  // starting or joining elsewhere: shutdown parks
+            } else {  // a start in flight: shutdown parks
                 UsdGenParkWhileEqual(lane_, s);
                 s = lane_.load(std::memory_order_acquire);
             }
@@ -80,7 +87,7 @@ public:
 private:
     static constexpr uint64_t kCapacity = 1024, kClosed = 1;
     static constexpr uint32_t kLaneIdle = 0, kLaneStarting = 1, kLaneRunning = 2,
-                              kLaneJoining = 3, kLaneJoined = 4;
+                              kLaneDone = 3;
 
     struct Slot {
         std::atomic<uint64_t> seq{0};
@@ -117,15 +124,12 @@ private:
         return true;
     }
 
-    void Wake() noexcept {
-        wake_.fetch_add(1, std::memory_order_seq_cst);
-        UsdGenUnparkAll(wake_);
-    }
+    void Wake() noexcept { lane.Kick(); }
 
     // Admission waits out a start in flight: a producer that claimed a slot
     // while another thread's start was about to fail would leave an accepted
     // callback with no lane to run it (Close takes Idle straight to Joined).
-    // The wait covers one thread creation, once per process.
+    // The wait covers one exit-hook registration, once per process.
     bool StartLane() noexcept {
         for (uint32_t s = lane_.load(std::memory_order_acquire);;) {
             if (s == kLaneStarting) {
@@ -137,58 +141,64 @@ private:
             if (!lane_.compare_exchange_weak(s, kLaneStarting, std::memory_order_acq_rel)) continue;
             auto const hook = gLaneStartHook.load(std::memory_order_acquire);
             bool started = (!hook || hook()) && RegisterProcessExit(CloseVulkanExternalRetirement);
-            if (started) {
-                try { worker_ = std::thread([this] { Run(); }); }
-                catch (...) { started = false; }
-            }
             lane_.store(started ? kLaneRunning : kLaneIdle, std::memory_order_release);
             UsdGenUnparkAll(lane_);
             return started;
         }
     }
 
-    void Run() noexcept {
+    // One pass on the process scheduler (UsdGenSerialLane: never two at once,
+    // no kick lost): runs every published callback in order, then, once
+    // admission is closed and drained, quiesces the tracked domains.
+    static void Pass(void* user) noexcept {
+        auto& queue = *static_cast<ExternalRetirementQueue*>(user);
+        tRetirementPass = true;
+        queue.Drain();
+        tRetirementPass = false;
+    }
+
+    void Drain() noexcept {
+        if (lane_.load(std::memory_order_acquire) == kLaneDone) return;
         for (;;) {
-            uint32_t const w = wake_.load(std::memory_order_seq_cst);
             Slot& slot = slots_[head_ % kCapacity];
-            if (slot.seq.load(std::memory_order_seq_cst) == head_ + 1) {
-                auto callback = std::move(slot.callback);
-                auto domain = std::move(slot.domain);
-                slot.callback = nullptr;
-                slot.domain.reset();
-                if (callback) {
-                    try { callback(); } catch (...) {}
-                    // Native captures are destroyed before the slot returns
-                    // to admission or Close reports this callback complete.
-                    callback = nullptr;
-                } else if (!domain.expired()) {
-                    try {
-                        domains_.erase(std::remove_if(domains_.begin(), domains_.end(),
-                            [](auto const& d) { return d.expired(); }), domains_.end());
-                        domains_.push_back(std::move(domain));
-                    } catch (...) {}
-                }
-                slot.seq.store(head_ + kCapacity, std::memory_order_release);
-                ++head_;
-                continue;
+            if (slot.seq.load(std::memory_order_seq_cst) != head_ + 1) break;
+            auto callback = std::move(slot.callback);
+            auto domain = std::move(slot.domain);
+            slot.callback = nullptr;
+            slot.domain.reset();
+            if (callback) {
+                try { callback(); } catch (...) {}
+                // Native captures are destroyed before the slot returns
+                // to admission or Close reports this callback complete.
+                callback = nullptr;
+            } else if (!domain.expired()) {
+                try {
+                    domains_.erase(std::remove_if(domains_.begin(), domains_.end(),
+                        [](auto const& d) { return d.expired(); }), domains_.end());
+                    domains_.push_back(std::move(domain));
+                } catch (...) {}
             }
-            uint64_t const t = tail_.load(std::memory_order_seq_cst);
-            if ((t >> 1) == head_ && (t & kClosed)) break;  // closed and drained
-            // Empty, or a producer is between its claim and its publish.
-            UsdGenParkWhileEqual(wake_, w);
+            slot.seq.store(head_ + kCapacity, std::memory_order_release);
+            ++head_;
         }
+        // Empty, or a producer is between its claim and its publish (its
+        // publish kicks another pass).
+        uint64_t const t = tail_.load(std::memory_order_seq_cst);
+        if ((t >> 1) != head_ || !(t & kClosed)) return;
         // Admission is closed and accepted callbacks have finished. A deferred
         // provider retains its record and every unproved resource through its
         // domain cycle.
         for (auto const& entry : domains_)
             if (auto domain = entry.lock()) domain->Quiesce();
+        domains_.clear();
+        lane_.store(kLaneDone, std::memory_order_release);
+        UsdGenUnparkAll(lane_);
     }
 
     Slot slots_[kCapacity];
     alignas(64) std::atomic<uint64_t> tail_{0};  // (claimed position << 1) | closed
-    alignas(64) std::atomic<uint32_t> wake_{0};
     std::atomic<uint32_t> lane_{kLaneIdle};
-    std::thread worker_;
+    UsdGenSerialLane lane{&ExternalRetirementQueue::Pass, this};
     uint64_t head_ = 0;  // lane only
     std::vector<std::weak_ptr<VulkanExternalRetirementDomain>> domains_;  // lane only
 };

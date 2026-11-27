@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenCurves/types/deviceChannelTokens.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGenCurves/cuda/generation.h"
 #include "usdGen/gpu/cudaCompat.h"
@@ -7,6 +8,7 @@
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCurves/cuda/scatterGrow.h"
 #include "usdGen/gpu/cudaRetirement.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
 
 #include <algorithm>
 #include <atomic>
@@ -58,7 +60,26 @@ class SourceOwner;
 
 class CudaConsumerRetirementPayload final : public UsdGenExecutionRetirementPayload {
 public:
-    struct CallbackState {
+    // The lane continuation that signals retirement once the event ran.
+    struct CallbackState final : CudaCompletion {
+        CallbackState(UsdGenExecutionRetirementSignal signal_, std::atomic<bool>* quarantined_,
+                      cudaEvent_t event_)
+            : signal(std::move(signal_)), quarantined(quarantined_) {
+            event = event_;
+            taskRun = &CallbackState::Done;
+        }
+        static void Done(UsdGenTask* task) noexcept {
+            // Copy first: the worker may release the payload as Signal
+            // dispatches it, so never touch the state afterward.
+            auto const* state = static_cast<CallbackState const*>(task);
+            auto signal = state->signal;
+            auto* quarantined = state->quarantined;
+            if (state->status == cudaSuccess) signal.SignalSuccess();
+            else {
+                if (quarantined) quarantined->store(true);
+                signal.SignalFailure();
+            }
+        }
         UsdGenExecutionRetirementSignal signal;
         std::atomic<bool>* quarantined = nullptr;
     };
@@ -68,7 +89,7 @@ public:
                                   UsdGenExecutionRetirementSignal signal_,
                                   std::atomic<bool>* quarantined_)
         : owner(std::move(owner_)), event(event_), device(device_),
-          callback{std::move(signal_), quarantined_} {}
+          callback(std::move(signal_), quarantined_, event_) {}
 
     bool IsComplete() noexcept override {
         if (!IsCudaRetirementBackendOpen()) return false;
@@ -162,7 +183,7 @@ public:
             ? payload_->scatterGrow->rootN() : payload_->compacted
             ? payload_->compacted->frames().normal : DeviceView<const float3>{};
     }
-    CudaNamedChannelPlane const* NamedChannel(std::string const& name) const noexcept {
+    CudaNamedChannelPlane const* NamedChannel(UsdGenToken const& name) const noexcept {
         for (auto const& plane : payload_->namedChannels)
             if (plane.metadata.name == name) return &plane;
         return payload_->base ? BaseOwner()->NamedChannel(name) : nullptr;
@@ -239,28 +260,16 @@ public:
         bool const selected = cudaGetDevice(&previous) == cudaSuccess &&
             cudaSetDevice(payload_->device) == cudaSuccess;
         cudaStream_t const stream = reinterpret_cast<cudaStream_t>(stream_);
-        bool const recorded = selected && cudaEventRecord(payload_->event, stream) == cudaSuccess;
-        bool const callback = recorded &&
-            cudaStreamAddCallback(stream, [](cudaStream_t, cudaError_t status, void *data) {
-                // Copy first: the worker may release the payload as Signal
-                // dispatches it, so never touch callback userdata afterward.
-                auto const* callback = static_cast<CudaConsumerRetirementPayload::CallbackState*>(data);
-                auto signal = callback->signal;
-                auto* quarantined = callback->quarantined;
-                if (status == cudaSuccess) signal.SignalSuccess();
-                else {
-                    if (quarantined) quarantined->store(true);
-                    signal.SignalFailure();
-                }
-            }, &payload_->callback, 0) == cudaSuccess;
+        // The completion lane runs the continuation when the event finished.
+        bool const submitted = selected && CudaCompletionSubmit(&payload_->callback, stream);
         if (selected && previous != payload_->device) cudaSetDevice(previous);
-        if (!recorded || !callback) {
+        if (!submitted) {
             // The event/callback sequence cannot prove this stream terminal.
             // Poison future acquires before handing the payload to retention.
             payload_->owner->quarantined_.store(true);
         }
         ticket_.Retire(std::move(payload_));
-        if (!recorded || !callback) signal_.SignalFailure();
+        if (!submitted) signal_.SignalFailure();
     }
 
 private:
@@ -455,7 +464,7 @@ static bool AppendLocalNamedChannels(
     bool replaceGeneric = false)
 {
     if (!channels) return false;
-    std::vector<std::string> names;
+    std::vector<UsdGenToken> names;
     names.reserve(planes.size());
     for (CudaNamedChannelPlane const& plane : planes) {
         auto const& metadata = plane.metadata;
@@ -470,7 +479,7 @@ static bool AppendLocalNamedChannels(
             if (reason) *reason = "CUDA named channel has unsupported domain";
             return false;
         }
-        if (metadata.name.empty() ||
+        if (metadata.name.IsEmpty() ||
             metadata.semantic != UsdGenDeviceChannelSemantic::Generic ||
             !metadata.readOnly || metadata.arity == 0 || metadata.arity > 16 ||
             (metadata.type != UsdGenDeviceValueType::Float32 &&
@@ -604,21 +613,22 @@ static std::shared_ptr<const UsdGenDeviceGeneration> MakeGeneration(
     using Type = UsdGenDeviceValueType;
     using Domain = UsdGenDeviceDomain;
     using Semantic = UsdGenDeviceChannelSemantic;
-    auto channel = [&](char const* name, Type type, Domain domain,
+    UsdGenCurveChannelTokens const& ct = UsdGenCurveChannels();
+    auto channel = [&](UsdGenToken const& name, Type type, Domain domain,
                        size_t count, unsigned arity, unsigned stride, Semantic semantic) {
         info.channels.push_back({name, type, domain, count, arity, stride, true, semantic});
     };
-    channel("points", Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::Points);
-    channel("rest", Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::RestPoints);
-    channel("widths", Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::Widths);
-    channel("hairT", Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::HairT);
+    channel(ct.points, Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::Points);
+    channel(ct.rest, Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::RestPoints);
+    channel(ct.widths, Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::Widths);
+    channel(ct.hairT, Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::HairT);
     // Offsets are topology storage (C+1), not a per-primitive value (C).
-    channel("curveOffsets", Type::UInt32, Domain::Topology, view.curveOffsets.size, 1, sizeof(uint32_t), Semantic::ElementOffsets);
-    channel("curveId", Type::UInt64, Domain::Primitive, view.curveCount, 1, sizeof(uint64_t), Semantic::StableIds);
+    channel(ct.curveOffsets, Type::UInt32, Domain::Topology, view.curveOffsets.size, 1, sizeof(uint32_t), Semantic::ElementOffsets);
+    channel(ct.curveId, Type::UInt64, Domain::Primitive, view.curveCount, 1, sizeof(uint64_t), Semantic::StableIds);
     if (rootPrim.size)
-        channel("skinprim", Type::Int32, Domain::Primitive, view.curveCount, 1, sizeof(int32_t), Semantic::RootPrim);
+        channel(ct.skinprim, Type::Int32, Domain::Primitive, view.curveCount, 1, sizeof(int32_t), Semantic::RootPrim);
     if (rootUV.size)
-        channel("skinprimuv", Type::Float32x2, Domain::Primitive, view.curveCount, 2, sizeof(float2), Semantic::RootUV);
+        channel(ct.skinprimuv, Type::Float32x2, Domain::Primitive, view.curveCount, 2, sizeof(float2), Semantic::RootUV);
     if (!AppendLocalNamedChannels(namedChannels, view, device, &info.channels, reason))
         return {};
     auto ticket = TryReserveCudaRetirement(device);
@@ -825,9 +835,9 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeNamedChannelRevisionGeneration
 
 CudaNamedChannelLease AcquireNamedChannel(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
-    std::string const& name, cudaStream_t stream) {
+    UsdGenToken const& name, cudaStream_t stream) {
     CudaNamedChannelLease result;
-    if (!generation || name.empty() || generation->Identity().backend != UsdGenCudaBackendId())
+    if (!generation || name.IsEmpty() || generation->Identity().backend != UsdGenCudaBackendId())
         return result;
     auto owner = std::dynamic_pointer_cast<SourceOwner const>(generation->Owner());
     auto const* plane = owner ? owner->NamedChannel(name) : nullptr;

@@ -1,7 +1,8 @@
-#include "usdGen/furOcclusion.h"
-#include "usdGenCurves/publish/curvePublication.h"
-#include "usdGenCurves/publish/curvePublisher.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenTestUtils/hydraPublishers.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenHydraCurves/publisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenUsd/lower.h"
 #include "pxr/base/gf/rotation.h"
 #include "pxr/imaging/hd/primvarsSchema.h"
@@ -165,6 +166,7 @@ UsdGenFurOccluder Rotate(UsdGenFurOccluder const& in,GfMatrix4d const& m) {
 }
 }
 int main() try {
+    usdGenTest::EnsureHydraPublishers();
     // ---- cross-tile occlusion, COW reuse, dirty notices, transport ----------
     std::vector<UsdGenTilePublication> tiles{Make(0,0,1),Make(1,0.2f,400)};
     Require(UsdGenBuildFurOcclusion(&tiles),"initial bake");

@@ -1,4 +1,5 @@
 #include "usdGenCurves/cuda/tools.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenImaging/usdGenImagingSession.h"
@@ -86,6 +87,7 @@ static bool SameBounds(UsdGenDeviceGeometryMetadata const& a,
 }
 
 int main() {
+    usdGenTest::EnsureHydraPublishers();
     cudaStream_t stream = nullptr, reader = nullptr;
     CHECK(cudaStreamCreateWithFlags(&stream,cudaStreamNonBlocking) == cudaSuccess);
     CHECK(cudaStreamCreateWithFlags(&reader,cudaStreamNonBlocking) == cudaSuccess);

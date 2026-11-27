@@ -84,7 +84,7 @@ static VulkanSourcePrepareInfo SourceFixture() {
     tile.pointCount = 4; tile.boundsValid = true; tile.extentMin = {0,0,0};
     tile.extentMax = {3,1,1}; in.geometry.tiles = {tile};
     uint32_t guide[] = {3,7};
-    in.additionalNamed.push_back({{"guideId", UsdGenDeviceValueType::UInt32,
+    in.additionalNamed.push_back({{TfToken("guideId"), UsdGenDeviceValueType::UInt32,
         UsdGenDeviceDomain::Primitive, 2, 1, 4, true,
         UsdGenDeviceChannelSemantic::Generic}, Bytes(guide, 2)});
     return in;
@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
         CHECK(plane.metadata.name != "sourceRootT" && plane.metadata.name != "sourceRootB" && plane.metadata.name != "sourceRootN");
 
     auto widthPipeline=WidthPipeline::Create(context,code); CHECK(widthPipeline);
-    auto candidate=widthPipeline->Begin(nativeGeneration->PlaneOwner("width"),4,2.f,0);
+    auto candidate=widthPipeline->Begin(nativeGeneration->PlaneOwner(TfToken("width")),4,2.f,0);
     CHECK(candidate && Prove(native));
     uint32_t semantic=UINT32_MAX;
     CHECK(candidate->Poll(&semantic)==VK_SUCCESS && semantic==0);

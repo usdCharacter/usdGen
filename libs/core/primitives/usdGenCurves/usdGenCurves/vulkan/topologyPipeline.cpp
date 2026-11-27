@@ -32,14 +32,13 @@ struct TopologyPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> result;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue timeline value of the submission
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;   // compare error code; 0 == well-formed
     bool equal = false;               // layout identity (valid when semantic==0)
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -57,6 +56,8 @@ std::shared_ptr<TopologyPipeline> TopologyPipeline::Create(
     auto finish = [&](VkResult r) { if (result) *result = r; };
     finish(VK_ERROR_INITIALIZATION_FAILED);
     if (!context || code.size() < 5 || code.front() != 0x07230203u) return {};
+    // Submissions go through the queue timeline.
+    if (!context->computeTimeline()) { finish(VK_ERROR_FEATURE_NOT_PRESENT); return {}; }
     VkPhysicalDeviceProperties physical{};
     vkGetPhysicalDeviceProperties(context->physicalDevice(), &physical);
     if (physical.limits.maxComputeWorkGroupInvocations < 256 ||
@@ -123,7 +124,7 @@ VkResult TopologyPipeline::Candidate::Poll(uint32_t* semanticStatus) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         s.pending = false;
@@ -273,20 +274,15 @@ std::unique_ptr<TopologyPipeline::Candidate> TopologyPipeline::BeginInternal(
             VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
         r = vkEndCommandBuffer(command);
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkFenceCreateInfo fi{}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try { admitted = beforeSubmit(); }
             catch (...) { finish(VK_ERROR_UNKNOWN); return {}; }
             if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
         }
-        VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1; submit.pCommandBuffers = &command;
         s->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+        s->value = context->computeTimeline()->Submit(&command, 1, &r);
+        if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
         finish(VK_SUCCESS); return candidate;
     } catch (std::bad_alloc const&) { finish(VK_ERROR_OUT_OF_HOST_MEMORY); return {}; }
 }

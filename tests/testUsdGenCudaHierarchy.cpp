@@ -1,4 +1,5 @@
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
@@ -46,6 +47,7 @@ public:
 };
 
 int main() {
+    usdGenTest::EnsureHydraPublishers();
     auto stage = UsdStage::Open(std::string(USDGEN_TEST_SOURCE_DIR) +
         "/examples/cuda-width-network.usda");
     CHECK(stage);

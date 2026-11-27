@@ -29,7 +29,7 @@ static VulkanSourcePrepareInfo Source() {
     b.rootB = VtVec3fArray(2, GfVec3f(0,1,0));
     b.rootN = VtVec3fArray(2, GfVec3f(0,0,1));
     std::vector<uint8_t> payload{1,2,3,4,5,6,7,8,9};
-    info.additionalNamed.push_back({{"stride5", UsdGenDeviceValueType::Float32,
+    info.additionalNamed.push_back({{TfToken("stride5"), UsdGenDeviceValueType::Float32,
         UsdGenDeviceDomain::Primitive, 2, 1, 5, true, UsdGenDeviceChannelSemantic::Generic}, payload});
     return info;
 }

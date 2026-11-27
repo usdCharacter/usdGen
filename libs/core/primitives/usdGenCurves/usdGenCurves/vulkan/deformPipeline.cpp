@@ -774,6 +774,11 @@ uint32_t DeformPipeline::Candidate::pointCount() const noexcept {
     return state_ ? state_->pointCount : 0;
 }
 
+uint64_t DeformPipeline::Candidate::ProofValue() const noexcept {
+    if (!state_ || state_->lost || state_->stage != State::Stage::Proof) return 0;
+    return state_->ProofWaitValue();
+}
+
 VkResult DeformPipeline::Candidate::Poll(DeformSemantic* semantic) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;

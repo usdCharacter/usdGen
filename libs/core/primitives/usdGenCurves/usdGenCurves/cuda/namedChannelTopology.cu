@@ -45,7 +45,7 @@ bool ValidateMetadata(UsdGenDeviceChannelMetadata const& metadata,
                       DeviceCurveGeometryView const& geometry,
                       ChannelDomain* domain, std::string* reason)
 {
-    if (metadata.name.empty() || metadata.semantic != UsdGenDeviceChannelSemantic::Generic ||
+    if (metadata.name.IsEmpty() || metadata.semantic != UsdGenDeviceChannelSemantic::Generic ||
         !metadata.readOnly || metadata.arity == 0 || metadata.arity > 16 ||
         (metadata.type != UsdGenDeviceValueType::Float32 &&
          metadata.type != UsdGenDeviceValueType::Int32) ||
@@ -422,7 +422,7 @@ cudaError_t CudaNamedChannelTopologyCandidate::Begin(
         return cudaErrorInvalidValue;
     }
 
-    std::vector<std::string> names;
+    std::vector<UsdGenToken> names;
     for (UsdGenDeviceChannelMetadata const& metadata : state.source->Channels()) {
         if (metadata.semantic != UsdGenDeviceChannelSemantic::Generic) continue;
         ChannelDomain domain;
@@ -498,7 +498,7 @@ cudaError_t CudaNamedChannelTopologyCandidate::BeginRaw(
         state.phase = Impl::Phase::Finished;
         return cudaErrorInvalidValue;
     }
-    std::vector<std::string> names;
+    std::vector<UsdGenToken> names;
     for (RawInputPlane const& input : inputs) {
         ChannelDomain domain;
         if (!ValidateMetadata(input.metadata, source, &domain, reason) ||
@@ -779,6 +779,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> Transform(
         Fail("CUDA named topology transform callback installation failed", reason);
         return {};
     }
+    // shutdown wait: test hook (TransformCudaNamedChannelsFor*: tests only; the cook uses FinishAsync).
     if (CudaFenceStream(stream) != cudaSuccess) {
         candidate.Quarantine();
         // CUDA may still deliver an already-armed callback after a failed

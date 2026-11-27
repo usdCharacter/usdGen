@@ -2,6 +2,7 @@
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "usdGenCurves/cuda/cudaParameters.h"
 #include "usdGen/executionResources.h"
 #include "usdGenCurves/cuda/generation.h"
@@ -373,19 +374,19 @@ int main() {
     CHECK(job && CudaExecutionJobOperatorCount(*job)==3);
     // Each stage runs on a freshly joined host thread: stage-local device
     // binding/restoration must not depend on a persistent worker thread.
-    bool ok=false; std::thread source([&] { ok=ExecuteCudaJobSource(*job); }); source.join(); CHECK(ok);
+    bool ok=false; std::thread source([&] { ok=RunCudaJobSourceForTesting(job); }); source.join(); CHECK(ok);
     for (size_t i=0;i<CudaExecutionJobOperatorCount(*job);++i) {
-        std::thread op([&] { ok=ExecuteCudaJobOperator(*job,i); }); op.join(); CHECK(ok);
+        std::thread op([&] { ok=RunCudaJobOperatorForTesting(job,i); }); op.join(); CHECK(ok);
     }
     std::shared_ptr<const UsdGenDeviceGeneration> staged;
-    std::thread final([&] { staged=FinalizeCudaExecutionJob(*job); }); final.join(); CHECK(staged);
+    std::thread final([&] { staged=FinalizeCudaJobForTesting(job); }); final.join(); CHECK(staged);
     int initialResourceDevice = -1;
     CHECK(cudaGetDevice(&initialResourceDevice) == cudaSuccess);
     auto initialResourcePool = FindUsdGenExecutionResourcePool(
         {usdGenTestUtils::Backend("cuda"), initialResourceDevice});
     CHECK(initialResourcePool);
     auto const unknownBefore = initialResourcePool->Snapshot();
-    auto sequential=ExecuteCudaGraph(*plan,*sequentialWorkspace,2,2,&diagnostics); CHECK(sequential);
+    auto sequential=ExecuteCudaPlanForTesting(plan,*sequentialWorkspace,2,2,&diagnostics); CHECK(sequential);
     auto const unknownAfter = initialResourcePool->Snapshot();
     CHECK(ResourceKindBytes(unknownAfter, UsdGenExecutionResourceKind::Pending) ==
               ResourceKindBytes(unknownBefore, UsdGenExecutionResourceKind::Pending) &&
@@ -397,9 +398,9 @@ int main() {
     auto syncFailureWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics);
     CHECK(syncFailureWorkspace);
     auto const syncFailureBefore = initialResourcePool->Snapshot();
-    failNextCudaSynchronousFinalizationForTesting();
+    failNextCudaRbfFinalizationForTesting();
     diagnostics = {};
-    auto syncFailure=ExecuteCudaGraph(*plan,*syncFailureWorkspace,2,3,&diagnostics);
+    auto syncFailure=ExecuteCudaPlanForTesting(plan,*syncFailureWorkspace,2,3,&diagnostics);
     CHECK(!syncFailure && diagnostics.HasErrors());
     syncFailureWorkspace.reset();
     auto const syncFailureAfter = initialResourcePool->Snapshot();
@@ -421,7 +422,7 @@ int main() {
     auto literalAdmissionWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(literalAdmissionWorkspace);
     diagnostics = {};
-    auto literalFirst = ExecuteCudaGraph(*literalLengthPlan, *literalAdmissionWorkspace,
+    auto literalFirst = ExecuteCudaPlanForTesting(literalLengthPlan, *literalAdmissionWorkspace,
                                          2, 30, &diagnostics);
     CHECK(literalFirst && !diagnostics.HasErrors() &&
           literalFirst->Geometry().elementCount == 2 &&
@@ -445,7 +446,7 @@ int main() {
     CHECK(fullFiller);
     auto const fullySaturated = literalResources->Snapshot();
     diagnostics = {};
-    auto fullyRejected = ExecuteCudaGraph(*literalLengthPlan, *literalAdmissionWorkspace,
+    auto fullyRejected = ExecuteCudaPlanForTesting(literalLengthPlan, *literalAdmissionWorkspace,
                                           2, 31, &diagnostics, literalFirst);
     uint64_t literalPeak = 0;
     CHECK(!fullyRejected && ParseLiteralLengthPeak(diagnostics, &literalPeak));
@@ -474,15 +475,15 @@ int main() {
     auto twoResampledLengthsPlan = CompileCudaGraph(usdGenUsd::Lower(twoResampledLengthsDesc), &diagnostics);
     CHECK(oneResampledLengthPlan && twoResampledLengthsPlan && !diagnostics.HasErrors());
     diagnostics = {};
-    auto rejectedOneResampledLength = ExecuteCudaGraph(
-        *oneResampledLengthPlan, *literalAdmissionWorkspace, 2, 311,
+    auto rejectedOneResampledLength = ExecuteCudaPlanForTesting(
+        oneResampledLengthPlan, *literalAdmissionWorkspace, 2, 311,
         &diagnostics, literalFirst);
     uint64_t oneResampledLengthPeak = 0;
     CHECK(!rejectedOneResampledLength &&
           ParseLiteralLengthPeak(diagnostics, &oneResampledLengthPeak));
     diagnostics = {};
-    auto rejectedTwoResampledLengths = ExecuteCudaGraph(
-        *twoResampledLengthsPlan, *literalAdmissionWorkspace, 2, 312,
+    auto rejectedTwoResampledLengths = ExecuteCudaPlanForTesting(
+        twoResampledLengthsPlan, *literalAdmissionWorkspace, 2, 312,
         &diagnostics, literalFirst);
     uint64_t twoResampledLengthsPeak = 0;
     CHECK(!rejectedTwoResampledLengths &&
@@ -504,7 +505,7 @@ int main() {
     CHECK(peakFiller);
     auto const peakSaturated = literalResources->Snapshot();
     diagnostics = {};
-    auto peakRejected = ExecuteCudaGraph(*literalLengthPlan, *literalAdmissionWorkspace,
+    auto peakRejected = ExecuteCudaPlanForTesting(literalLengthPlan, *literalAdmissionWorkspace,
                                          2, 32, &diagnostics, literalFirst);
     uint64_t repeatedPeak = 0;
     CHECK(!peakRejected && ParseLiteralLengthPeak(diagnostics, &repeatedPeak) &&
@@ -517,7 +518,7 @@ int main() {
     CHECK(literalResources->Snapshot().usedBytes == literalBaseline.usedBytes);
 
     diagnostics = {};
-    auto literalSecond = ExecuteCudaGraph(*literalLengthPlan, *literalAdmissionWorkspace,
+    auto literalSecond = ExecuteCudaPlanForTesting(literalLengthPlan, *literalAdmissionWorkspace,
                                           2, 33, &diagnostics, literalFirst);
     CHECK(literalSecond && !diagnostics.HasErrors() && literalSecond->Owner() &&
           literalSecond->Owner() != literalFirst->Owner());
@@ -574,7 +575,7 @@ int main() {
             operatorDone.store(true, std::memory_order_release);
         }) && Wait(operatorDone) && operatorOk.load(std::memory_order_acquire));
     }
-    auto asyncLiteralGeneration = FinalizeCudaExecutionJob(*asyncLiteralJob);
+    auto asyncLiteralGeneration = FinalizeCudaJobForTesting(asyncLiteralJob);
     CHECK(asyncLiteralGeneration && asyncLiteralGeneration->Geometry().elementCount == 2 &&
           asyncLiteralGeneration->Geometry().pointCount == 4);
     auto const afterLiteralAsync = literalResources->Snapshot();
@@ -588,7 +589,7 @@ int main() {
     auto partialLiteralPlan = CompileCudaGraph(usdGenUsd::Lower(partialLiteralDesc), &diagnostics);
     CHECK(partialLiteralPlan);
     diagnostics = {};
-    auto partialLiteral = ExecuteCudaGraph(*partialLiteralPlan, *literalAdmissionWorkspace,
+    auto partialLiteral = ExecuteCudaPlanForTesting(partialLiteralPlan, *literalAdmissionWorkspace,
                                            2, 36, &diagnostics, asyncLiteralGeneration);
     CHECK(partialLiteral && !diagnostics.HasErrors() &&
           partialLiteral->Geometry().elementCount == 1 &&
@@ -600,7 +601,7 @@ int main() {
     auto allCullLiteralPlan = CompileCudaGraph(usdGenUsd::Lower(allCullLiteralDesc), &diagnostics);
     CHECK(allCullLiteralPlan);
     diagnostics = {};
-    auto allCullLiteral = ExecuteCudaGraph(*allCullLiteralPlan, *literalAdmissionWorkspace,
+    auto allCullLiteral = ExecuteCudaPlanForTesting(allCullLiteralPlan, *literalAdmissionWorkspace,
                                            2, 37, &diagnostics, partialLiteral);
     CHECK(allCullLiteral && !diagnostics.HasErrors() &&
           allCullLiteral->Geometry().elementCount == 0 &&
@@ -626,8 +627,8 @@ int main() {
     releaseCudaSourceAsyncCallbackGateForTesting();
     CHECK(Wait(asyncDone) && asyncOk.load(std::memory_order_acquire) && asyncCalls == 1);
     for (size_t i=0;i<CudaExecutionJobOperatorCount(*asyncJob);++i)
-        CHECK(ExecuteCudaJobOperator(*asyncJob,i));
-    auto asyncGeneration=FinalizeCudaExecutionJob(*asyncJob); CHECK(asyncGeneration);
+        CHECK(RunCudaJobOperatorForTesting(asyncJob,i));
+    auto asyncGeneration=FinalizeCudaJobForTesting(asyncJob); CHECK(asyncGeneration);
     cudaStream_t asyncStream=nullptr; CHECK(cudaStreamCreateWithFlags(&asyncStream,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(Same(asyncGeneration,sequential,asyncStream));
     CHECK(cudaStreamDestroy(asyncStream)==cudaSuccess);
@@ -640,8 +641,8 @@ int main() {
     auto rbfSyncWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics);
     CHECK(rbfAsyncWorkspace && rbfSyncWorkspace);
     auto rbfJob=CreateCudaExecutionJob(plan,*rbfAsyncWorkspace,2,23,&diagnostics);
-    CHECK(rbfJob && ExecuteCudaJobSource(*rbfJob) && ExecuteCudaJobOperator(*rbfJob,0) &&
-          ExecuteCudaJobOperator(*rbfJob,1));
+    CHECK(rbfJob && RunCudaJobSourceForTesting(rbfJob) && RunCudaJobOperatorForTesting(rbfJob,0) &&
+          RunCudaJobOperatorForTesting(rbfJob,1));
     std::atomic<int> rbfCalls{0}; std::atomic<bool> rbfDone{false}, rbfOk{false};
     CHECK(ExecuteCudaJobOperatorAsync(rbfJob,2,[&](bool value) {
         rbfOk.store(value,std::memory_order_release); rbfCalls.fetch_add(1,std::memory_order_relaxed);
@@ -655,7 +656,7 @@ int main() {
         rbfFinalDone.store(true,std::memory_order_release);
     }));
     CHECK(Wait(rbfFinalDone) && rbfAsyncGeneration && rbfFinalCalls==1);
-    auto rbfSyncGeneration=ExecuteCudaGraph(*plan,*rbfSyncWorkspace,2,24,&diagnostics); CHECK(rbfSyncGeneration);
+    auto rbfSyncGeneration=ExecuteCudaPlanForTesting(plan,*rbfSyncWorkspace,2,24,&diagnostics); CHECK(rbfSyncGeneration);
     cudaStream_t rbfReader=nullptr; CHECK(cudaStreamCreateWithFlags(&rbfReader,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(Same(rbfAsyncGeneration,rbfSyncGeneration,rbfReader));
     CHECK(cudaStreamDestroy(rbfReader)==cudaSuccess);
@@ -691,14 +692,14 @@ int main() {
                 ok.load(std::memory_order_acquire));
             return false;
         }
-        auto stagedControl=FinalizeCudaExecutionJob(*controlJob);
+        auto stagedControl=FinalizeCudaJobForTesting(controlJob);
         int controlDevice = -1;
         if (cudaGetDevice(&controlDevice) != cudaSuccess) return false;
         auto controlPool = FindUsdGenExecutionResourcePool(
             {usdGenTestUtils::Backend("cuda"), controlDevice});
         if (!controlPool) return false;
         auto const controlBefore = controlPool->Snapshot();
-        auto legacyControl=ExecuteCudaGraph(*sourceControlPlan,*legacyWorkspace,frame,generation,&diagnostics);
+        auto legacyControl=ExecuteCudaPlanForTesting(sourceControlPlan,*legacyWorkspace,frame,generation,&diagnostics);
         auto const controlAfter = controlPool->Snapshot();
         if (ResourceKindBytes(controlAfter, UsdGenExecutionResourceKind::Pending) !=
                 ResourceKindBytes(controlBefore, UsdGenExecutionResourceKind::Pending) ||
@@ -824,8 +825,8 @@ int main() {
     std::atomic<bool> emptyDone{false}, emptyOk{false};
     CHECK(ExecuteCudaJobSourceAsync(emptyControl,[&](bool ok) { emptyOk.store(ok,std::memory_order_release); emptyDone.store(true,std::memory_order_release); }));
     CHECK(Wait(emptyDone) && emptyOk.load(std::memory_order_acquire));
-    auto emptyAsync=FinalizeCudaExecutionJob(*emptyControl);
-    auto emptyLegacy=ExecuteCudaGraph(*emptyControlPlan,*emptyLegacyWorkspace,1,204,&diagnostics);
+    auto emptyAsync=FinalizeCudaJobForTesting(emptyControl);
+    auto emptyLegacy=ExecuteCudaPlanForTesting(emptyControlPlan,*emptyLegacyWorkspace,1,204,&diagnostics);
     cudaStream_t emptyStream=nullptr; CHECK(cudaStreamCreateWithFlags(&emptyStream,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(emptyAsync && emptyLegacy && emptyAsync->Geometry().elementCount==0 && emptyAsync->Geometry().pointCount==0 &&
           emptyAsync->Geometry().tiles.empty() && Same(emptyAsync,emptyLegacy,emptyStream) &&
@@ -837,7 +838,7 @@ int main() {
     auto invalidRestPlan=CompileCudaGraph(usdGenUsd::Lower(SourceControlDesc(false,true)),&diagnostics); CHECK(invalidRestPlan);
     auto invalidRestWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(invalidRestWorkspace);
     auto invalidRestJob=CreateCudaExecutionJob(invalidRestPlan,*invalidRestWorkspace,3,205,&diagnostics); CHECK(invalidRestJob);
-    CHECK(!ExecuteCudaJobSource(*invalidRestJob));
+    CHECK(!RunCudaJobSourceForTesting(invalidRestJob));
     auto asyncSemanticFailure=[&](std::shared_ptr<const UsdGenCudaExecutionPlan> const& failingPlan,
                                   double frame, uint64_t generation) {
         auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics); if (!workspace) return false;
@@ -891,9 +892,9 @@ int main() {
     releaseCudaSourceAsyncResampleCallbackGateForTesting();
     CHECK(Wait(resampleDone) && resampleOk.load(std::memory_order_acquire) && resampleCalls == 1);
     for (size_t i=0;i<CudaExecutionJobOperatorCount(*resampleJob);++i)
-        CHECK(ExecuteCudaJobOperator(*resampleJob,i));
-    auto asyncResample=FinalizeCudaExecutionJob(*resampleJob); CHECK(asyncResample);
-    auto syncResample=ExecuteCudaGraph(*resamplePlan,*resampleWorkspace,2,25,&diagnostics); CHECK(syncResample);
+        CHECK(RunCudaJobOperatorForTesting(resampleJob,i));
+    auto asyncResample=FinalizeCudaJobForTesting(resampleJob); CHECK(asyncResample);
+    auto syncResample=ExecuteCudaPlanForTesting(resamplePlan,*resampleWorkspace,2,25,&diagnostics); CHECK(syncResample);
     cudaStream_t resampleStream=nullptr; CHECK(cudaStreamCreateWithFlags(&resampleStream,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(Same(asyncResample,syncResample,resampleStream));
     CHECK(cudaStreamDestroy(resampleStream)==cudaSuccess);
@@ -970,11 +971,11 @@ int main() {
     CHECK(!scalarFirstDone.load(std::memory_order_acquire) && cudaSourceRelayOccupiedCountForTesting()==1 &&
           !ExecuteCudaJobSourceAsync(scalarSecond,[](bool) {}));
     std::atomic<int> reentryCallbacks{0};
-    CHECK(!ExecuteCudaJobSource(*scalarFirst) &&
+    CHECK(!RunCudaJobSourceForTesting(scalarFirst) &&
           !ExecuteCudaJobSourceAsync(scalarFirst,[&](bool) { ++reentryCallbacks; }) &&
-          !ExecuteCudaJobOperator(*scalarFirst,0) &&
+          !RunCudaJobOperatorForTesting(scalarFirst,0) &&
           !ExecuteCudaJobOperatorAsync(scalarFirst,0,[&](bool) { ++reentryCallbacks; }) &&
-          !FinalizeCudaExecutionJob(*scalarFirst) &&
+          !FinalizeCudaJobForTesting(scalarFirst) &&
           !FinalizeCudaExecutionJobAsync(scalarFirst,[&](auto) { ++reentryCallbacks; }) &&
           reentryCallbacks.load(std::memory_order_acquire)==0);
     releaseCudaSourceAsyncScalarLauncherReturnGateForTesting(); releaseScalarReturn.release=nullptr;
@@ -1080,7 +1081,7 @@ int main() {
                             uint64_t generation,
                             std::shared_ptr<const UsdGenDeviceGeneration> previous = {}) {
         auto prepared=CreateCudaExecutionJob(widthPlan,*workspace,2,generation,&diagnostics,previous);
-        if (!prepared || !ExecuteCudaJobSource(*prepared) || !ExecuteCudaJobOperator(*prepared,0)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
+        if (!prepared || !RunCudaJobSourceForTesting(prepared) || !RunCudaJobOperatorForTesting(prepared,0)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
         return prepared;
     };
     auto widthAsync=prepareWidth(widthAsyncWorkspace,60); CHECK(widthAsync);
@@ -1090,9 +1091,9 @@ int main() {
         widthDone.store(true,std::memory_order_release);
     }));
     CHECK(Wait(widthDone) && widthOk.load(std::memory_order_acquire) && widthCalls == 1);
-    CHECK(ExecuteCudaJobOperator(*widthAsync,2));
-    auto widthAsyncGeneration=FinalizeCudaExecutionJob(*widthAsync); CHECK(widthAsyncGeneration);
-    auto widthSyncGeneration=ExecuteCudaGraph(*widthPlan,*widthSyncWorkspace,2,61,&diagnostics); CHECK(widthSyncGeneration);
+    CHECK(RunCudaJobOperatorForTesting(widthAsync,2));
+    auto widthAsyncGeneration=FinalizeCudaJobForTesting(widthAsync); CHECK(widthAsyncGeneration);
+    auto widthSyncGeneration=ExecuteCudaPlanForTesting(widthPlan,*widthSyncWorkspace,2,61,&diagnostics); CHECK(widthSyncGeneration);
     cudaStream_t widthReader=nullptr; CHECK(cudaStreamCreateWithFlags(&widthReader,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(Same(widthAsyncGeneration,widthSyncGeneration,widthReader));
     CHECK(cudaStreamDestroy(widthReader)==cudaSuccess);
@@ -1174,7 +1175,7 @@ int main() {
     auto invalidWidthPlan=CompileCudaGraph(usdGenUsd::Lower(WidthExpressionDesc(true)),&diagnostics); CHECK(invalidWidthPlan);
     auto semanticWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(semanticWorkspace);
     auto semantic=CreateCudaExecutionJob(invalidWidthPlan,*semanticWorkspace,2,70,&diagnostics,widthAsyncGeneration);
-    CHECK(semantic && ExecuteCudaJobSource(*semantic) && ExecuteCudaJobOperator(*semantic,0));
+    CHECK(semantic && RunCudaJobSourceForTesting(semantic) && RunCudaJobOperatorForTesting(semantic,0));
     size_t const semanticQuarantined=cudaOperatorRelayQuarantinedCountForTesting();
     std::atomic<int> semanticCalls{0}; std::atomic<bool> semanticDone{false}, semanticOk{true};
     CHECK(ExecuteCudaJobOperatorAsync(semantic,1,[&](bool ok) {
@@ -1204,7 +1205,7 @@ int main() {
     auto literalInvalidPlan=CompileCudaGraph(usdGenUsd::Lower(literalInvalidDesc),&diagnostics); CHECK(literalInvalidPlan);
     auto literalWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(literalWorkspace);
     auto literalInvalid=CreateCudaExecutionJob(literalInvalidPlan,*literalWorkspace,2,72,&diagnostics,widthAsyncGeneration);
-    CHECK(literalInvalid && ExecuteCudaJobSource(*literalInvalid) && ExecuteCudaJobOperator(*literalInvalid,0));
+    CHECK(literalInvalid && RunCudaJobSourceForTesting(literalInvalid) && RunCudaJobOperatorForTesting(literalInvalid,0));
     size_t const literalQuarantined=cudaOperatorRelayQuarantinedCountForTesting();
     std::atomic<int> literalCalls{0}; std::atomic<bool> literalDone{false}, literalOk{true};
     CHECK(ExecuteCudaJobOperatorAsync(literalInvalid,1,[&](bool ok) {
@@ -1218,7 +1219,7 @@ int main() {
     CHECK(gpu::AcquireGeometry(widthAsyncGeneration,literalLastGoodReader));
     CHECK(cudaStreamDestroy(literalLastGoodReader)==cudaSuccess);
     auto literalRetry=CreateCudaExecutionJob(widthPlan,*literalWorkspace,2,73,&diagnostics,widthAsyncGeneration);
-    CHECK(literalRetry && ExecuteCudaJobSource(*literalRetry) && ExecuteCudaJobOperator(*literalRetry,0));
+    CHECK(literalRetry && RunCudaJobSourceForTesting(literalRetry) && RunCudaJobOperatorForTesting(literalRetry,0));
     std::atomic<int> literalRetryCalls{0}; std::atomic<bool> literalRetryDone{false}, literalRetryOk{false};
     CHECK(ExecuteCudaJobOperatorAsync(literalRetry,1,[&](bool ok) {
         literalRetryOk.store(ok,std::memory_order_release); literalRetryCalls.fetch_add(1,std::memory_order_relaxed);
@@ -1268,7 +1269,7 @@ int main() {
                            uint64_t generation,
                            std::shared_ptr<const UsdGenDeviceGeneration> previous={}) {
         auto prepared=CreateCudaExecutionJob(plan,*workspace,2,generation,&diagnostics,previous);
-        if (!prepared || !ExecuteCudaJobSource(*prepared)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
+        if (!prepared || !RunCudaJobSourceForTesting(prepared)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
         return prepared;
     };
     auto lengthAsync=prepareLength(lengthPlan,lengthAsyncWorkspace,80,widthAsyncGeneration); CHECK(lengthAsync);
@@ -1279,14 +1280,14 @@ int main() {
     }));
     CHECK(Wait(lengthDone) && lengthOk.load(std::memory_order_acquire) && lengthCalls==1);
     for (size_t i=1;i<CudaExecutionJobOperatorCount(*lengthAsync);++i)
-        CHECK(ExecuteCudaJobOperator(*lengthAsync,i));
-    auto lengthAsyncGeneration=FinalizeCudaExecutionJob(*lengthAsync); CHECK(lengthAsyncGeneration);
+        CHECK(RunCudaJobOperatorForTesting(lengthAsync,i));
+    auto lengthAsyncGeneration=FinalizeCudaJobForTesting(lengthAsync); CHECK(lengthAsyncGeneration);
     // This is deliberately a non-cull fixture.  Keep the cardinality
     // assertion ahead of all value/topology comparisons so an all-culled
     // generation cannot make their changed-value oracle vacuous.
     CHECK(lengthAsyncGeneration->Geometry().elementCount==2 &&
           lengthAsyncGeneration->Geometry().pointCount==4);
-    auto lengthSyncGeneration=ExecuteCudaGraph(*lengthPlan,*lengthSyncWorkspace,2,81,&diagnostics,widthAsyncGeneration);
+    auto lengthSyncGeneration=ExecuteCudaPlanForTesting(lengthPlan,*lengthSyncWorkspace,2,81,&diagnostics,widthAsyncGeneration);
     CHECK(lengthSyncGeneration);
     cudaStream_t lengthReader=nullptr; CHECK(cudaStreamCreateWithFlags(&lengthReader,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(Same(lengthAsyncGeneration,lengthSyncGeneration,lengthReader));
@@ -1303,9 +1304,9 @@ int main() {
         cullOk.store(ok,std::memory_order_release); cullDone.store(true,std::memory_order_release);
     }));
     CHECK(Wait(cullDone) && cullOk.load(std::memory_order_acquire));
-    for (size_t i=1;i<CudaExecutionJobOperatorCount(*cullJob);++i) CHECK(ExecuteCudaJobOperator(*cullJob,i));
-    auto cullGeneration=FinalizeCudaExecutionJob(*cullJob); CHECK(cullGeneration);
-    auto cullSyncGeneration=ExecuteCudaGraph(*cullPlan,*cullSyncWorkspace,2,821,&diagnostics,widthAsyncGeneration);
+    for (size_t i=1;i<CudaExecutionJobOperatorCount(*cullJob);++i) CHECK(RunCudaJobOperatorForTesting(cullJob,i));
+    auto cullGeneration=FinalizeCudaJobForTesting(cullJob); CHECK(cullGeneration);
+    auto cullSyncGeneration=ExecuteCudaPlanForTesting(cullPlan,*cullSyncWorkspace,2,821,&diagnostics,widthAsyncGeneration);
     CHECK(cullSyncGeneration);
     cudaStream_t cullReader=nullptr; CHECK(cudaStreamCreateWithFlags(&cullReader,cudaStreamNonBlocking)==cudaSuccess);
     {
@@ -1329,8 +1330,8 @@ int main() {
         allCullOk.store(ok,std::memory_order_release); allCullDone.store(true,std::memory_order_release);
     }));
     CHECK(Wait(allCullDone) && allCullOk.load(std::memory_order_acquire));
-    for (size_t i=1;i<CudaExecutionJobOperatorCount(*allCullJob);++i) CHECK(ExecuteCudaJobOperator(*allCullJob,i));
-    auto allCullGeneration=FinalizeCudaExecutionJob(*allCullJob); CHECK(allCullGeneration);
+    for (size_t i=1;i<CudaExecutionJobOperatorCount(*allCullJob);++i) CHECK(RunCudaJobOperatorForTesting(allCullJob,i));
+    auto allCullGeneration=FinalizeCudaJobForTesting(allCullJob); CHECK(allCullGeneration);
     cudaStream_t allCullReader=nullptr; CHECK(cudaStreamCreateWithFlags(&allCullReader,cudaStreamNonBlocking)==cudaSuccess);
     {
         auto allCullLease=gpu::AcquireGeometry(allCullGeneration,allCullReader);
@@ -1363,7 +1364,7 @@ int main() {
         release(); releaseGate.release=nullptr;
         if (!blocked || !Wait(done) || !ok.load(std::memory_order_acquire) || calls!=1 ||
             cudaOperatorRelayOccupiedCountForTesting()!=0) return false;
-        return ExecuteCudaJobOperator(*first,1);
+        return RunCudaJobOperatorForTesting(first,1);
     };
     CHECK(heldLength(armCudaOperatorAsyncLengthCallbackGateForTesting,
                      waitCudaOperatorAsyncLengthCallbackGateForTesting,
@@ -1491,9 +1492,9 @@ int main() {
                             uint64_t generation,
                             std::shared_ptr<const UsdGenDeviceGeneration> previous = {}) {
         auto finalJob=CreateCudaExecutionJob(finalPlan,*workspace,2,generation,&diagnostics,std::move(previous));
-        if (!finalJob || !ExecuteCudaJobSource(*finalJob)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
+        if (!finalJob || !RunCudaJobSourceForTesting(finalJob)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
         for (size_t i=0;i<CudaExecutionJobOperatorCount(*finalJob);++i)
-            if (!ExecuteCudaJobOperator(*finalJob,i)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
+            if (!RunCudaJobOperatorForTesting(finalJob,i)) return std::shared_ptr<UsdGenCudaExecutionJob>{};
         return finalJob;
     };
     auto finishAsync = [&](std::shared_ptr<UsdGenCudaExecutionJob> const& finalJob,
@@ -1526,12 +1527,12 @@ int main() {
                                std::shared_ptr<const UsdGenDeviceGeneration> previous = {}) {
         auto candidate=CreateCudaExecutionJob(rbfPlan,*workspace,2,generation,&diagnostics,
                                               std::move(previous));
-        if (!candidate || !ExecuteCudaJobSource(*candidate))
+        if (!candidate || !RunCudaJobSourceForTesting(candidate))
             return std::shared_ptr<UsdGenCudaExecutionJob>{};
         auto const count=CudaExecutionJobOperatorCount(*candidate);
         if (!count) return std::shared_ptr<UsdGenCudaExecutionJob>{};
         for (size_t i=0;i+1<count;++i)
-            if (!ExecuteCudaJobOperator(*candidate,i))
+            if (!RunCudaJobOperatorForTesting(candidate,i))
                 return std::shared_ptr<UsdGenCudaExecutionJob>{};
         std::atomic<bool> done{false}, ok{false};
         if (!ExecuteCudaJobOperatorAsync(candidate,count-1,[&](bool value) {
@@ -1600,7 +1601,7 @@ int main() {
     // transaction if its Deform stage was submitted through the relay.
     auto syncHandoffWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(syncHandoffWorkspace);
     auto syncHandoffJob=prepareAsyncRbf(plan,syncHandoffWorkspace,117); CHECK(syncHandoffJob);
-    auto syncHandoffResult=FinalizeCudaExecutionJob(*syncHandoffJob); CHECK(syncHandoffResult);
+    auto syncHandoffResult=FinalizeCudaJobForTesting(syncHandoffJob); CHECK(syncHandoffResult);
     auto const syncHandoffStats=GetCudaBindingStats(*syncHandoffWorkspace);
     CHECK(syncHandoffStats.size()==1 && syncHandoffStats.front().identity!=0 &&
           syncHandoffStats.front().bindCount==1 && syncHandoffStats.front().solveCount==1);
@@ -1622,7 +1623,7 @@ int main() {
     std::shared_ptr<const UsdGenDeviceGeneration> finalAsyncGeneration;
     std::atomic<int> finalCalls{0};
     CHECK(finishAsync(finalAsyncJob,&finalAsyncGeneration,&finalCalls) && finalAsyncGeneration && finalCalls==1);
-    auto finalLegacy=ExecuteCudaGraph(*sameTopologyPlan,*finalLegacyWorkspace,2,100,&diagnostics,lengthAsyncGeneration);
+    auto finalLegacy=ExecuteCudaPlanForTesting(sameTopologyPlan,*finalLegacyWorkspace,2,100,&diagnostics,lengthAsyncGeneration);
     cudaStream_t finalReader=nullptr; CHECK(cudaStreamCreateWithFlags(&finalReader,cudaStreamNonBlocking)==cudaSuccess);
     // Keep the async-final publication oracle factored: a topology-version
     // disagreement must not obscure a geometry/value regression (or vice
@@ -1678,7 +1679,7 @@ int main() {
         CHECK(calls==0 && !result && cudaFinalizationRelayOccupiedCountForTesting()!=0 &&
               !FinalizeCudaExecutionJobAsync(blocked,[&](auto) { ++blockedCalls; }) && blockedCalls==0 &&
               !FinalizeCudaExecutionJobAsync(held,[](auto) {}) &&
-              !FinalizeCudaExecutionJob(*held) && !ExecuteCudaJobOperator(*held,0));
+              !FinalizeCudaJobForTesting(held) && !RunCudaJobOperatorForTesting(held,0));
         gate.release(); releaseFinalGate.release=nullptr;
         auto const deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
         while (calls.load(std::memory_order_acquire)==0 && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
@@ -1801,14 +1802,14 @@ int main() {
     CHECK(unsafeFinalFailure(failNextCudaFinalizationRelayBoundsNativeCallbackForTesting));
     CHECK(unsafeFinalFailure(failNextCudaFinalizationRelayMetadataNativeCallbackForTesting));
 
-    // No-op/source-only and illegal order are terminally latched.
+    // Illegal order is rejected at admission; source-only jobs publish.
     auto bad=CreateCudaExecutionJob(plan,*stagedWorkspace,3,3,&diagnostics); CHECK(bad);
-    CHECK(!ExecuteCudaJobOperator(*bad,0)); CHECK(!ExecuteCudaJobSource(*bad));
+    CHECK(!RunCudaJobOperatorForTesting(bad,0));
     auto sourceDesc=Desc(); sourceDesc.nodes.resize(1); sourceDesc.terminal=sourceDesc.nodes.front().path;
     auto sourcePlan=CompileCudaGraph(usdGenUsd::Lower(sourceDesc),&diagnostics); CHECK(sourcePlan);
     auto sourceOnly=CreateCudaExecutionJob(sourcePlan,*stagedWorkspace,3,3,&diagnostics); CHECK(sourceOnly);
-    CHECK(CudaExecutionJobOperatorCount(*sourceOnly)==0 && ExecuteCudaJobSource(*sourceOnly));
-    auto sourceGeneration=FinalizeCudaExecutionJob(*sourceOnly); CHECK(sourceGeneration);
+    CHECK(CudaExecutionJobOperatorCount(*sourceOnly)==0 && RunCudaJobSourceForTesting(sourceOnly));
+    auto sourceGeneration=FinalizeCudaJobForTesting(sourceOnly); CHECK(sourceGeneration);
     // A canonical empty C3 source still reaches the direct asynchronous
     // finalizer: no placeholder curve/point channels or tile ranges may be
     // manufactured for it.
@@ -1819,7 +1820,7 @@ int main() {
     auto zeroSourcePlan=CompileCudaGraph(usdGenUsd::Lower(zeroSourceDesc),&diagnostics); CHECK(zeroSourcePlan);
     auto zeroSourceWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(zeroSourceWorkspace);
     auto zeroSourceJob=CreateCudaExecutionJob(zeroSourcePlan,*zeroSourceWorkspace,3,109,&diagnostics); CHECK(zeroSourceJob);
-    CHECK(ExecuteCudaJobSource(*zeroSourceJob));
+    CHECK(RunCudaJobSourceForTesting(zeroSourceJob));
     std::shared_ptr<const UsdGenDeviceGeneration> zeroSourceGeneration;
     CHECK(finishAsync(zeroSourceJob,&zeroSourceGeneration) && zeroSourceGeneration &&
           zeroSourceGeneration->Geometry().elementCount==0 && zeroSourceGeneration->Geometry().pointCount==0 &&
@@ -1828,7 +1829,7 @@ int main() {
     // the same asynchronous tile/bounds/metadata pipeline.
     auto initialFinalWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics); CHECK(initialFinalWorkspace);
     auto initialFinal=CreateCudaExecutionJob(sourcePlan,*initialFinalWorkspace,3,108,&diagnostics); CHECK(initialFinal);
-    CHECK(ExecuteCudaJobSource(*initialFinal));
+    CHECK(RunCudaJobSourceForTesting(initialFinal));
     std::shared_ptr<const UsdGenDeviceGeneration> initialAsync;
     CHECK(finishAsync(initialFinal,&initialAsync) && initialAsync &&
           initialAsync->Geometry().topologyVersion==108);
@@ -1836,7 +1837,7 @@ int main() {
         auto workspace=CreateCudaExecutionWorkspace(-1,&diagnostics);
         if (!workspace) return false;
         auto failing=CreateCudaExecutionJob(sourcePlan,*workspace,3,111,&diagnostics);
-        if (!failing || !ExecuteCudaJobSource(*failing)) return false;
+        if (!failing || !RunCudaJobSourceForTesting(failing)) return false;
         size_t const before=cudaFinalizationRelayQuarantinedCountForTesting();
         std::shared_ptr<const UsdGenDeviceGeneration> result; std::atomic<int> calls{0};
         inject();
@@ -1846,11 +1847,11 @@ int main() {
     };
     CHECK(unsafeInitialMetadataFailure(failNextCudaFinalizationRelayMetadataCallbackInstallForTesting));
     CHECK(unsafeInitialMetadataFailure(failNextCudaFinalizationRelayMetadataNativeCallbackForTesting));
-    CHECK(!FinalizeCudaExecutionJob(*sourceOnly)); // duplicate final is latched
+    CHECK(!FinalizeCudaJobForTesting(sourceOnly)); // duplicate final is latched
     cudaStream_t retainedReader=nullptr; CHECK(cudaStreamCreateWithFlags(&retainedReader,cudaStreamNonBlocking)==cudaSuccess);
     CHECK(gpu::AcquireGeometry(sourceGeneration,retainedReader)); // retained publication remains readable
     CHECK(cudaStreamDestroy(retainedReader)==cudaSuccess);
-    CHECK(!ExecuteCudaJobOperator(*sourceOnly,0));
+    CHECK(!RunCudaJobOperatorForTesting(sourceOnly,0));
 
     // Automatic root capture must reserve the same source/output peak as an
     // equivalent authored binding.  In particular, an absent or partial
@@ -1866,7 +1867,7 @@ int main() {
         auto variantWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         if (!variantWorkspace) return false;
         diagnostics = {};
-        auto first = ExecuteCudaGraph(*variantPlan, *variantWorkspace, 2,
+        auto first = ExecuteCudaPlanForTesting(variantPlan, *variantWorkspace, 2,
                                       generation, &diagnostics);
         if (!first || diagnostics.HasErrors() ||
             first->Geometry().elementCount != 2 ||
@@ -1890,7 +1891,7 @@ int main() {
             {
                 auto priorLease = gpu::AcquireGeometry(first, reader);
                 diagnostics = {};
-                auto rejected = ExecuteCudaGraph(*variantPlan, *variantWorkspace,
+                auto rejected = ExecuteCudaPlanForTesting(variantPlan, *variantWorkspace,
                                                  2, generation + 1, &diagnostics,
                                                  first);
                 uint64_t peak = 0;
@@ -1922,7 +1923,7 @@ int main() {
         filler->Release();
         if (!rejectOk) return false;
         diagnostics = {};
-        auto direct = ExecuteCudaGraph(*variantPlan, *variantWorkspace, 2,
+        auto direct = ExecuteCudaPlanForTesting(variantPlan, *variantWorkspace, 2,
                                        generation + 2, &diagnostics, first);
         if (!direct || diagnostics.HasErrors() || !direct->Owner() ||
             direct->Owner() == priorOwner ||

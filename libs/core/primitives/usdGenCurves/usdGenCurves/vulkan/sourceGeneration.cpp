@@ -14,8 +14,8 @@ namespace usdGen::vulkan {
 struct VulkanSourceUpload::Storage {
     struct Plane {
         UsdGenDeviceChannelMetadata meta;
-        // Staging is retained/fenced with its paired immutable device-local
-        // output; neither allocation can be freed after an unproven submit.
+        // Staging is retained with its paired immutable device-local output
+        // until timeline proof; neither can be freed after an unproven submit.
         bool privateFrame = false;
         std::shared_ptr<ChargedBuffer> staging;
         std::shared_ptr<ChargedBuffer> buffer;
@@ -28,14 +28,13 @@ struct VulkanSourceUpload::Storage {
     uint32_t curves = 0, points = 0;
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer command = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t submitValue = 0;  // the upload's queue-timeline value
     std::shared_ptr<const void> submission;
     SourceGenerationStatus status = SourceGenerationStatus::InvalidInput;
     bool submitted = false, quarantined = false;
     ~Storage() {
         if (quarantined) return;
         if (pool) vkDestroyCommandPool(context->device(), pool, nullptr);
-        if (fence) vkDestroyFence(context->device(), fence, nullptr);
     }
 };
 
@@ -128,10 +127,10 @@ std::shared_ptr<VulkanSourceUpload> VulkanSourceUpload::Create(std::shared_ptr<D
         command.commandBufferCount = 1;
         r = vkAllocateCommandBuffers(s->context->device(), &command, &s->command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fence{};
-        fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(s->context->device(), &fence, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        if (!s->context->computeTimeline()) {
+            if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT;
+            return {};
+        }
         s->status = SourceGenerationStatus::Created;
         auto upload = std::shared_ptr<VulkanSourceUpload>(new VulkanSourceUpload(std::move(s)));
         if (result) *result = VK_SUCCESS;
@@ -155,39 +154,23 @@ SourceGenerationStatus VulkanSourceUpload::Submit() noexcept {
     vkCmdPipelineBarrier(storage_->command, VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
     if (vkEndCommandBuffer(storage_->command) != VK_SUCCESS) { storage_->status = SourceGenerationStatus::QueueRejected; return storage_->status; }
-    // Enter pending state before arming any native owner: every later failure
-    // is conservatively quarantined even when vkQueueSubmit itself rejects.
+    // Enter pending state before submitting: every later failure is
+    // conservatively quarantined even when the submit itself rejects. The
+    // planes stay private to this upload until Poll proves the value, so
+    // they need no per-buffer submission marks.
     storage_->submission = storage_; storage_->submitted = true;
     storage_->status = SourceGenerationStatus::Submitted;
-    for (auto const& plane : storage_->planes) {
-        if (!plane.buffer) continue;
-        if (plane.staging->MarkSubmitted(storage_->fence, storage_->submission) != VK_SUCCESS ||
-            plane.buffer->MarkSubmitted(storage_->fence, storage_->submission) != VK_SUCCESS) {
-            Quarantine(); return SourceGenerationStatus::LostProof;
-        }
-    }
-    VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1; submit.pCommandBuffers = &storage_->command;
-    if (vkQueueSubmit(storage_->context->computeQueue(), 1, &submit, storage_->fence) != VK_SUCCESS) {
-        Quarantine(); return SourceGenerationStatus::LostProof;
-    }
+    storage_->submitValue = storage_->context->computeTimeline()->Submit(&storage_->command, 1u);
+    if (!storage_->submitValue) { Quarantine(); return SourceGenerationStatus::LostProof; }
     return storage_->status;
 }
 SourceGenerationStatus VulkanSourceUpload::Poll() noexcept {
     if (!storage_) return SourceGenerationStatus::InvalidInput;
     if (storage_->status == SourceGenerationStatus::Ready) return SourceGenerationStatus::Ready;
     if (storage_->status != SourceGenerationStatus::Submitted) return SourceGenerationStatus::InvalidInput;
-    VkResult r = vkGetFenceStatus(storage_->context->device(), storage_->fence);
+    VkResult r = storage_->context->computeTimeline()->Check(storage_->submitValue);
     if (r == VK_NOT_READY) return SourceGenerationStatus::NotReady;
     if (r != VK_SUCCESS) { Quarantine(); return SourceGenerationStatus::LostProof; }
-    // Keep every staging owner until all proof checks finish: quarantine must
-    // still be able to retain a complete packet if any later owner fails.
-    for (auto const& plane : storage_->planes) {
-        if (!plane.buffer) continue;
-        if (plane.staging->PollComplete() != VK_SUCCESS || plane.buffer->PollComplete() != VK_SUCCESS) {
-            Quarantine(); return SourceGenerationStatus::LostProof;
-        }
-    }
     for (auto& plane : storage_->planes) plane.staging.reset();
     storage_->submitted = false;
     storage_->submission.reset();
@@ -306,7 +289,7 @@ std::vector<VulkanSourceGeneration::PlaneView> const& VulkanSourceGeneration::pl
 std::vector<VulkanSourceGeneration::PlaneView> const& VulkanSourceGeneration::sourceFrames() const noexcept {
     return compacted_ ? compactFrames_ : (base_ ? base_->sourceFrames() : sourceFrames_);
 }
-std::shared_ptr<const ChargedBuffer> VulkanSourceGeneration::PlaneOwner(std::string const& name) const noexcept {
+std::shared_ptr<const ChargedBuffer> VulkanSourceGeneration::PlaneOwner(UsdGenToken const& name) const noexcept {
     if (base_) {
         if (compacted_) {
             for (auto const& plane : planes_)
@@ -315,15 +298,15 @@ std::shared_ptr<const ChargedBuffer> VulkanSourceGeneration::PlaneOwner(std::str
                         if (item.first == name) return item.second;
             return {};
         }
-        if (name == "width" && widthOverride_) return widthOverride_;
-        if (name == "points" && pointsOverride_) return pointsOverride_;
+        if (name == UsdGenCurveChannels().width && widthOverride_) return widthOverride_;
+        if (name == UsdGenCurveChannels().points && pointsOverride_) return pointsOverride_;
         return base_->PlaneOwner(name);
     }
     for (auto const& plane : storage_->planes)
         if (!plane.privateFrame && plane.meta.name == name) return plane.buffer;
     return {};
 }
-std::shared_ptr<const ChargedBuffer> VulkanSourceGeneration::SourceFrameOwner(std::string const& name) const noexcept {
+std::shared_ptr<const ChargedBuffer> VulkanSourceGeneration::SourceFrameOwner(UsdGenToken const& name) const noexcept {
     if (compacted_) {
         for (auto const& plane : compactFrames_)
             if (plane.metadata.name == name)
@@ -360,12 +343,12 @@ VulkanSourceGeneration::VulkanSourceGeneration(std::shared_ptr<const VulkanSourc
     childGeometry_.alreadyDeformed = base_->geometry().alreadyDeformed;
     planes_ = base_->planes();
     bool replaced = false;
-    for (auto& plane : planes_) if (plane.metadata.name == "points") {
+    for (auto& plane : planes_) if (plane.metadata.name == UsdGenCurveChannels().points) {
         plane.buffer = pointsOverride_ ? pointsOverride_->buffer() : VK_NULL_HANDLE;
         plane.bytes = pointsOverride_ ? pointsOverride_->sizeBytes() : 0;
         replaced = true;
     }
-    if (!replaced && !base_->pointCount()) planes_.push_back({{"points", UsdGenDeviceValueType::Float32x3,
+    if (!replaced && !base_->pointCount()) planes_.push_back({{UsdGenCurveChannels().points, UsdGenDeviceValueType::Float32x3,
         UsdGenDeviceDomain::Point, 0, 3, 12, true, UsdGenDeviceChannelSemantic::Points}, VK_NULL_HANDLE, 0});
 }
 VulkanSourceGeneration::VulkanSourceGeneration(std::shared_ptr<const VulkanSourceGeneration> base,
@@ -374,12 +357,12 @@ VulkanSourceGeneration::VulkanSourceGeneration(std::shared_ptr<const VulkanSourc
     childGeometry_ = base_->geometry(); childGeometry_.valueVersion = value;
     planes_ = base_->planes();
     bool replaced = false;
-    for (auto& plane : planes_) if (plane.metadata.name == "width") {
+    for (auto& plane : planes_) if (plane.metadata.name == UsdGenCurveChannels().width) {
         plane.buffer = widthOverride_ ? widthOverride_->buffer() : VK_NULL_HANDLE;
         plane.bytes = widthOverride_ ? widthOverride_->sizeBytes() : 0;
         replaced = true;
     }
-    if (!replaced && !base_->pointCount()) planes_.push_back({{"width", UsdGenDeviceValueType::Float32,
+    if (!replaced && !base_->pointCount()) planes_.push_back({{UsdGenCurveChannels().width, UsdGenDeviceValueType::Float32,
         UsdGenDeviceDomain::Point, 0, 1, 4, true, UsdGenDeviceChannelSemantic::Widths}, VK_NULL_HANDLE, 0});
 }
 std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithWidth(
@@ -387,13 +370,13 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithWidth(
     WidthPipeline::Candidate const& candidate, uint64_t value, std::string* why) {
     if (!base || value <= base->valueVersion() || !candidate.succeeded() ||
         candidate.count() != base->pointCount() || candidate.context() != base->context() ||
-        candidate.inputOwner() != base->PlaneOwner("width")) {
+        candidate.inputOwner() != base->PlaneOwner(UsdGenCurveChannels().width)) {
         if (why) *why = "invalid width COW proof";
         return {};
     }
     auto width = candidate.output();
     if (base->pointCount()) {
-        if (!width || width == base->PlaneOwner("width") || width->context() != base->context() ||
+        if (!width || width == base->PlaneOwner(UsdGenCurveChannels().width) || width->context() != base->context() ||
             width->sizeBytes() != VkDeviceSize(base->pointCount()) * sizeof(float) ||
             !(width->usage() & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) || !(width->usage() & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) {
             if (why) *why = "invalid width COW output";
@@ -409,9 +392,9 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithExpres
     auto const width = candidate.output();
     if (!base || value <= base->valueVersion() || !candidate.succeeded() ||
         candidate.context() != base->context() ||
-        candidate.inputOwner() != base->PlaneOwner("width") ||
+        candidate.inputOwner() != base->PlaneOwner(UsdGenCurveChannels().width) ||
         candidate.pointCount() != base->pointCount() || candidate.curveCount() != base->curveCount() ||
-        (base->pointCount() && (!width || width == base->PlaneOwner("width") ||
+        (base->pointCount() && (!width || width == base->PlaneOwner(UsdGenCurveChannels().width) ||
             width->sizeBytes() != VkDeviceSize(base->pointCount()) * sizeof(float) ||
             !(width->usage() & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) ||
             !(width->usage() & VK_BUFFER_USAGE_TRANSFER_SRC_BIT))) ||
@@ -428,7 +411,7 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithGrown(
     CurveGrowPipeline::Candidate const& grow, ResampleVkPipeline::Candidate const& named,
     uint32_t target, uint64_t value, std::string* why) {
     if (!base || !grow.succeeded() || grow.context() != base->context() ||
-        grow.inputOwner() != base->PlaneOwner("points") ||
+        grow.inputOwner() != base->PlaneOwner(UsdGenCurveChannels().points) ||
         grow.curveCount() != base->curveCount() ||
         uint64_t(grow.pointCount()) != uint64_t(base->curveCount()) * target ||
         !named.succeeded() || named.inputOwner() != base || named.target() != target ||
@@ -445,7 +428,7 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithGrown(
         if (!base->curveCount()) return child;
         using T = UsdGenDeviceValueType; using D = UsdGenDeviceDomain;
         using S = UsdGenDeviceChannelSemantic;
-        auto replace = [&](char const* name, T type, D domain, uint32_t arity, S semantic,
+        auto replace = [&](UsdGenToken const& name, T type, D domain, uint32_t arity, S semantic,
                            std::shared_ptr<const ChargedBuffer> owner, bool privateFrame = false) {
             auto& views = privateFrame ? child->compactFrames_ : child->planes_;
             uint64_t count = domain == D::Point ? grow.pointCount() :
@@ -463,17 +446,17 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithGrown(
             }
             if (!found) child->compactOwners_.emplace_back(name, std::move(owner));
         };
-        replace("points", T::Float32x3, D::Point, 3, S::Points, grow.output());
-        replace("rest", T::Float32x3, D::Point, 3, S::RestPoints, grow.rest());
-        replace("width", T::Float32, D::Point, 1, S::Widths, grow.widths());
-        replace("hairT", T::Float32, D::Point, 1, S::HairT, grow.hairT());
-        replace("curveOffsets", T::UInt32, D::Topology, 1, S::ElementOffsets, grow.offsets());
-        replace("stableIds", T::UInt64, D::Primitive, 1, S::StableIds, grow.ids());
-        replace("rootPrim", T::Int32, D::Primitive, 1, S::RootPrim, grow.rootPrim());
-        replace("rootUV", T::Float32x2, D::Primitive, 2, S::RootUV, grow.rootUV());
-        replace("sourceRootT", T::Float32x3, D::Primitive, 3, S::Generic, grow.rootT(), true);
-        replace("sourceRootB", T::Float32x3, D::Primitive, 3, S::Generic, grow.rootB(), true);
-        replace("sourceRootN", T::Float32x3, D::Primitive, 3, S::Generic, grow.rootN(), true);
+        replace(UsdGenCurveChannels().points, T::Float32x3, D::Point, 3, S::Points, grow.output());
+        replace(UsdGenCurveChannels().rest, T::Float32x3, D::Point, 3, S::RestPoints, grow.rest());
+        replace(UsdGenCurveChannels().width, T::Float32, D::Point, 1, S::Widths, grow.widths());
+        replace(UsdGenCurveChannels().hairT, T::Float32, D::Point, 1, S::HairT, grow.hairT());
+        replace(UsdGenCurveChannels().curveOffsets, T::UInt32, D::Topology, 1, S::ElementOffsets, grow.offsets());
+        replace(UsdGenCurveChannels().stableIds, T::UInt64, D::Primitive, 1, S::StableIds, grow.ids());
+        replace(UsdGenCurveChannels().rootPrim, T::Int32, D::Primitive, 1, S::RootPrim, grow.rootPrim());
+        replace(UsdGenCurveChannels().rootUV, T::Float32x2, D::Primitive, 2, S::RootUV, grow.rootUV());
+        replace(UsdGenCurveChannels().sourceRootT, T::Float32x3, D::Primitive, 3, S::Generic, grow.rootT(), true);
+        replace(UsdGenCurveChannels().sourceRootB, T::Float32x3, D::Primitive, 3, S::Generic, grow.rootB(), true);
+        replace(UsdGenCurveChannels().sourceRootN, T::Float32x3, D::Primitive, 3, S::Generic, grow.rootN(), true);
         return child;
     } catch (std::bad_alloc const&) { if (why) *why = "Grow generation allocation failed"; return {}; }
 }
@@ -483,16 +466,16 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithPoints
     LengthScalePipeline::Candidate const& candidate, uint64_t value, std::string* why) {
     if (!base || value <= base->valueVersion() || !candidate.succeeded() ||
         candidate.count() != base->pointCount() || candidate.curveCount() != base->curveCount() ||
-        candidate.context() != base->context() || candidate.inputOwner() != base->PlaneOwner("points") ||
-        candidate.offsetsOwner() != base->PlaneOwner("curveOffsets") ||
-        (candidate.usesHairT() && candidate.hairTOwner() != base->PlaneOwner("hairT")) ||
-        (candidate.usesStableIds() && candidate.stableIdsOwner() != base->PlaneOwner("stableIds"))) {
+        candidate.context() != base->context() || candidate.inputOwner() != base->PlaneOwner(UsdGenCurveChannels().points) ||
+        candidate.offsetsOwner() != base->PlaneOwner(UsdGenCurveChannels().curveOffsets) ||
+        (candidate.usesHairT() && candidate.hairTOwner() != base->PlaneOwner(UsdGenCurveChannels().hairT)) ||
+        (candidate.usesStableIds() && candidate.stableIdsOwner() != base->PlaneOwner(UsdGenCurveChannels().stableIds))) {
         if (why) *why = "invalid points COW proof";
         return {};
     }
     auto points = candidate.output();
     if (base->pointCount()) {
-        if (!points || points == base->PlaneOwner("points") || points->context() != base->context() ||
+        if (!points || points == base->PlaneOwner(UsdGenCurveChannels().points) || points->context() != base->context() ||
             points->sizeBytes() != VkDeviceSize(base->pointCount()) * 3 * sizeof(float) ||
             !(points->usage() & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) ||
             !(points->usage() & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) {
@@ -535,7 +518,7 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithDeform
     if (!base || value <= base->valueVersion() || !candidate.succeeded() ||
         candidate.pointCount() != base->pointCount() ||
         candidate.context() != base->context() ||
-        candidate.inputOwner() != base->PlaneOwner("points")) {
+        candidate.inputOwner() != base->PlaneOwner(UsdGenCurveChannels().points)) {
         if (why) *why = "invalid deform COW proof";
         return {};
     }
@@ -564,7 +547,7 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithDeform
     if (!base || value <= base->valueVersion() || !candidate.succeeded() ||
         candidate.pointCount() != base->pointCount() ||
         candidate.context() != base->context() ||
-        candidate.inputOwner() != base->PlaneOwner("points")) {
+        candidate.inputOwner() != base->PlaneOwner(UsdGenCurveChannels().points)) {
         if (why) *why = "invalid deform COW proof";
         return {};
     }
@@ -765,14 +748,14 @@ std::shared_ptr<const VulkanSourceGeneration> VulkanSourceGeneration::WithWidthB
         value <= left->valueVersion() || value <= right->valueVersion() ||
         !candidate.succeeded() || candidate.count() != left->pointCount() ||
         left->pointCount() != right->pointCount() || candidate.context() != left->context() ||
-        left->context() != right->context() || candidate.leftOwner() != left->PlaneOwner("width") ||
-        candidate.rightOwner() != right->PlaneOwner("width")) {
+        left->context() != right->context() || candidate.leftOwner() != left->PlaneOwner(UsdGenCurveChannels().width) ||
+        candidate.rightOwner() != right->PlaneOwner(UsdGenCurveChannels().width)) {
         if (why) *why = "invalid width blend COW proof";
         return {};
     }
     auto width = candidate.output();
     if (left->pointCount()) {
-        if (!width || width == left->PlaneOwner("width") || width == right->PlaneOwner("width") ||
+        if (!width || width == left->PlaneOwner(UsdGenCurveChannels().width) || width == right->PlaneOwner(UsdGenCurveChannels().width) ||
             width->context() != left->context() ||
             width->sizeBytes() != VkDeviceSize(left->pointCount()) * sizeof(float) ||
             !(width->usage() & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT) ||

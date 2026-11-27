@@ -94,7 +94,7 @@ int main() {
         input.reset();
 
         CudaNamedChannelPlane plane;
-        plane.metadata = {"density", UsdGenDeviceValueType::Float32,
+        plane.metadata = {TfToken("density"), UsdGenDeviceValueType::Float32,
             UsdGenDeviceDomain::Primitive, 1, 1, sizeof(float), true,
             UsdGenDeviceChannelSemantic::Generic};
         plane.bytes = std::make_unique<DeviceBuffer<unsigned char>>();
@@ -139,7 +139,7 @@ int main() {
         CHECK(latest.Geometry().restPoints.data == old.Geometry().restPoints.data);
         CHECK(latest.Geometry().widths.data == old.Geometry().widths.data);
         CHECK(latest.RootB().data == old.RootB().data);
-        auto named = AcquireNamedChannel(revision, "density", consumer);
+        auto named = AcquireNamedChannel(revision, TfToken("density"), consumer);
         CHECK(named && named.Bytes().size == sizeof(float));
         generation.reset(); revision.reset();
         // Both generations are now held solely by consumer leases. The old

@@ -60,14 +60,14 @@ static std::shared_ptr<const ChargedBuffer> Upload(
 int main(int argc, char** argv) {
     if (argc != 2) { std::fprintf(stderr, "usage: %s topologyCompare.spv\n", argv[0]); return 1; }
     auto code = Code(argv[1]); CHECK(!code.empty());
-    bool unavailable = false; auto native = CreateNative(&unavailable);
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
     VkPhysicalDeviceProperties props{}; vkGetPhysicalDeviceProperties(native->physical, &props);
     if (props.limits.maxPerStageDescriptorStorageBuffers < 5 ||
         props.limits.maxDescriptorSetStorageBuffers < 5 ||
         props.limits.maxPushConstantsSize < 16) return 77;
-    DeviceContext::CreateInfo ci; ci.instance = native->instance;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance = native->instance;
     ci.physicalDevice = native->physical; ci.device = native->device; ci.computeQueue = native->queue;
     ci.computeQueueFamily = native->family; ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 8011; ci.nativeLifetime = native; ci.resources = {size_t{8} << 20, 0};

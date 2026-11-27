@@ -172,6 +172,8 @@ private:
     // The terminal type's publisher and the state it keeps across cooks.
     UsdGenPublisherDef const *_publisher = nullptr;
     std::unique_ptr<UsdGenPublisherState> _publisherState;
+    // The terminal type asks to be published and no publisher is registered.
+    bool _warnedNoPublisher = false;
     // USDGEN_COMMIT: why and how long the current cook compiled ("" = no compile).
     std::string _traceCompile;
     // A cook failed part-way: the next compile starts from scratch.

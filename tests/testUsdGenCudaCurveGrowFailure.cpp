@@ -1,4 +1,5 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
+#include "cudaPlanRunner.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/executionResources.h"
@@ -113,7 +114,7 @@ int main(int argc, char** argv) {
     if (!oldWorkspace)
         for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
     CHECK(oldWorkspace);
-    auto previous = ExecuteCudaGraph(*plan, *oldWorkspace, 1, 1, &diagnostics);
+    auto previous = ExecuteCudaPlanForTesting(plan, *oldWorkspace, 1, 1, &diagnostics);
     CHECK(previous);
     auto old = gpu::AcquireGeometry(previous, nullptr);
     CHECK(old);
@@ -146,7 +147,7 @@ int main(int argc, char** argv) {
     auto const oldT = copyBytes(old.RootT().data, old.RootT().size*sizeof(float3));
     auto const oldB = copyBytes(old.RootB().data, old.RootB().size*sizeof(float3));
     auto const oldN = copyBytes(old.RootN().data, old.RootN().size*sizeof(float3));
-    auto oldNamedLease = gpu::AcquireNamedChannel(previous, "value", nullptr);
+    auto oldNamedLease = gpu::AcquireNamedChannel(previous, TfToken("value"), nullptr);
     CHECK(oldNamedLease);
     auto const oldNamed = copyBytes(oldNamedLease.Bytes().data, oldNamedLease.Bytes().size);
     CHECK(oldPoints.size() == old.Geometry().pointCount*sizeof(float3) &&
@@ -179,7 +180,7 @@ int main(int argc, char** argv) {
         CHECK(predecessorPlan);
         predecessorWorkspace = CreateCudaExecutionWorkspace(device, &predecessorDiagnostics);
         CHECK(predecessorWorkspace);
-        predecessor = ExecuteCudaGraph(*predecessorPlan, *predecessorWorkspace, 1, 17,
+        predecessor = ExecuteCudaPlanForTesting(predecessorPlan, *predecessorWorkspace, 1, 17,
                                         &predecessorDiagnostics);
         CHECK(predecessor);
         predecessorLease = gpu::AcquireGeometry(predecessor, nullptr);
@@ -276,7 +277,7 @@ int main(int argc, char** argv) {
     CHECK(copyBytes(held.RootT().data, held.RootT().size*sizeof(float3)) == oldT);
     CHECK(copyBytes(held.RootB().data, held.RootB().size*sizeof(float3)) == oldB);
     CHECK(copyBytes(held.RootN().data, held.RootN().size*sizeof(float3)) == oldN);
-    auto heldNamedLease = gpu::AcquireNamedChannel(previous, "value", nullptr); CHECK(heldNamedLease);
+    auto heldNamedLease = gpu::AcquireNamedChannel(previous, TfToken("value"), nullptr); CHECK(heldNamedLease);
     CHECK(copyBytes(heldNamedLease.Bytes().data, heldNamedLease.Bytes().size) == oldNamed);
     // The failed job's owners intentionally remain quarantined to process
     // teardown; a later device sync is not substituted for its lost callback.

@@ -16,7 +16,8 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -126,6 +127,7 @@ bool SameFloatPlane(VtFloatArray const &a, VtFloatArray const &b)
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
 
     UsdGenSession session(8);
     UsdGenGraphDesc const desc = MakeG3();

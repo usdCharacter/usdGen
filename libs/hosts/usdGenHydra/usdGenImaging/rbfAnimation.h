@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 #ifndef USDGEN_IMAGING_RBF_ANIMATION_H
 #define USDGEN_IMAGING_RBF_ANIMATION_H
-#include "usdGen/rbfAnimation.h"
+#include "usdGen/api/deformBinding.h"
+#include "usdGen/api/primRef.h"
 #include "usdGenUsd/graphDesc.h"
 #include "usdGenUsd/lower.h"
 #include "pxr/base/gf/range3d.h"
@@ -13,15 +14,17 @@ namespace usdGenImaging {
 // Immutable renderer snapshot. Static computation inputs are shared across
 // poses; only the sparse coefficients, extents and transforms are replaced.
 struct RbfAnimation {
-    std::shared_ptr<const usdGen::UsdGenRbfAnimationBinding> binding;
+    usdGen::UsdGenRef<const usdGen::UsdGenDeformBinding> binding;
     std::map<SdfPath, HdContainerDataSourceHandle> computations, overlays;
     std::map<SdfPath, GfRange3d> restBounds;
     SdfPath coefficientsPath;
-    std::vector<SdfPath> tilePaths;        // per binding tile
+    std::vector<SdfPath> tilePaths;        // per binding group
     std::shared_ptr<const void> host;      // the cooked spec's path table
 };
+/// groupPrims: the published prim of each binding group, in group order.
 std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
-    std::shared_ptr<const usdGen::UsdGenRbfAnimationBinding> const& binding,
+    usdGen::UsdGenRef<const usdGen::UsdGenDeformBinding> const& binding,
+    std::vector<usdGen::UsdGenPrimRef> const& groupPrims,
     std::shared_ptr<const void> const& host, GfMatrix4d const& xform);
 std::shared_ptr<const RbfAnimation> PoseRbfAnimation(
     RbfAnimation const& previous, usdGen::UsdGenGraphDesc const& desc);

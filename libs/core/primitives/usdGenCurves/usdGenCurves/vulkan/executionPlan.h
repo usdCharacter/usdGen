@@ -59,7 +59,7 @@ struct VulkanDeformControls {
     std::vector<uint64_t> rootStableIds;
     // Assigned by native job preparation; the immutable primitive plane stays
     // private and follows every downstream GPU topology gather.
-    std::string rootTargetPlane;
+    UsdGenToken rootTargetPlane;   // interned at plan compile
     int sampleCount = 0; // [4,100] host-fit, [1,1024] device path
     float mask = 1.0f;
     float groomEnvelope = 1.0f;
@@ -112,7 +112,7 @@ struct VulkanSourceWidthStage {
     // CUDA CudaCurveResample target contract (0 = no stage, 1 invalid).
     uint32_t resampleTarget = 0;
     CurveGrowPipeline::Controls grow;
-    std::string growTargetPlane;
+    UsdGenToken growTargetPlane;   // interned at plan compile
 };
 
 // All source options admitted by this compiler.  These are copied out for a

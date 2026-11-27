@@ -83,22 +83,16 @@ private:
         UsdGenCudaExecutionWorkspace const&) noexcept;
     friend uintptr_t getCudaRestSurfaceBindingCacheIdentityForTesting(
         UsdGenCudaExecutionWorkspace const&) noexcept;
-    friend std::shared_ptr<const UsdGenDeviceGeneration> ExecuteCudaGraph(
-        UsdGenCudaExecutionPlan const&, UsdGenCudaExecutionWorkspace&, double,
-        uint64_t, UsdGenDiagnostics*, std::shared_ptr<const UsdGenDeviceGeneration> const&);
     friend struct ExecutionState;
     friend std::shared_ptr<UsdGenCudaExecutionJob> CreateCudaExecutionJob(
         std::shared_ptr<const UsdGenCudaExecutionPlan>, UsdGenCudaExecutionWorkspace&,
         double, uint64_t, UsdGenDiagnostics*, std::shared_ptr<const UsdGenDeviceGeneration>);
-    friend bool ExecuteCudaJobSource(UsdGenCudaExecutionJob&);
     friend bool ExecuteCudaJobSourceAsync(std::shared_ptr<UsdGenCudaExecutionJob>,
                                           std::function<void(bool)>);
     friend bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob>, size_t,
                                             std::function<void(bool)>);
     friend bool FinalizeCudaExecutionJobAsync(std::shared_ptr<UsdGenCudaExecutionJob>,
         std::function<void(std::shared_ptr<const UsdGenDeviceGeneration>)>);
-    friend std::shared_ptr<const UsdGenDeviceGeneration> FinalizeCudaExecutionJob(
-        UsdGenCudaExecutionJob&);
     friend class UsdGenCudaExecutionJob;
     friend struct SourceRelayService;
     friend struct OperatorRelayService;
@@ -120,17 +114,12 @@ UsdGenCudaWidthBlendGraphStats GetCudaWidthBlendGraphStats(
 uintptr_t getCudaRestSurfaceBindingCacheIdentityForTesting(
     UsdGenCudaExecutionWorkspace const&) noexcept;
 void failNextCudaWidthBlendGraphCaptureForTesting();
-std::shared_ptr<const UsdGenDeviceGeneration> ExecuteCudaGraph(
-    UsdGenCudaExecutionPlan const&, UsdGenCudaExecutionWorkspace&, double frame,
-    uint64_t generation, UsdGenDiagnostics*,
-    std::shared_ptr<const UsdGenDeviceGeneration> const& previous = {});
 std::shared_ptr<UsdGenCudaExecutionJob> CreateCudaExecutionJob(
     std::shared_ptr<const UsdGenCudaExecutionPlan>, UsdGenCudaExecutionWorkspace&,
     double, uint64_t, UsdGenDiagnostics*, std::shared_ptr<const UsdGenDeviceGeneration> = {});
 // A job retains its plan and previous publication, but borrows the workspace
 // and diagnostics.  Drain all stage tasks before either borrowed object dies.
 size_t CudaExecutionJobOperatorCount(UsdGenCudaExecutionJob const&) noexcept;
-bool ExecuteCudaJobSource(UsdGenCudaExecutionJob&);
 // Shared asynchronous CurveSource stage. The completion is invoked exactly
 // once off the native CUDA callback after its retained source payload reaches
 // a terminal success/failure state. A process-lifetime relay owns a fixed
@@ -140,8 +129,8 @@ bool ExecuteCudaJobSource(UsdGenCudaExecutionJob&);
 // the supplied closure; false means no callback was accepted.
 bool ExecuteCudaJobSourceAsync(std::shared_ptr<UsdGenCudaExecutionJob>,
                                std::function<void(bool)> completion);
-// Asynchronous Width/Length operator continuation.  Other operators retain
-// the synchronous implementation but obey the same accepted-completion contract.
+// Asynchronous Width/Length operator continuation.  Other operators run
+// inline but obey the same accepted-completion contract.
 bool ExecuteCudaJobOperatorAsync(std::shared_ptr<UsdGenCudaExecutionJob>, size_t,
                                  std::function<void(bool)> completion);
 // Asynchronous terminal publication.  A `true` return retains the callback
@@ -273,7 +262,8 @@ uint64_t cudaRbfFieldAcceptAttemptCountForTesting();
 uint64_t cudaRbfFieldRollbackAttemptCountForTesting();
 uint64_t cudaRbfSurfaceAcceptAttemptCountForTesting();
 uint64_t cudaRbfSurfaceRollbackAttemptCountForTesting();
-void failNextCudaSynchronousFinalizationForTesting();
+// Fails the next finalization that holds a pending RBF transaction.
+void failNextCudaRbfFinalizationForTesting();
 void failNextCudaFinalizationRelayTileNativeCallbackForTesting();
 void failNextCudaFinalizationRelayBoundsNativeCallbackForTesting();
 void failNextCudaFinalizationRelayMetadataNativeCallbackForTesting();
@@ -291,8 +281,6 @@ void releaseCudaFinalizationAsyncMetadataCallbackGateForTesting();
 void armCudaFinalizationAsyncMetadataLauncherReturnGateForTesting();
 void waitCudaFinalizationAsyncMetadataLauncherReturnGateForTesting();
 void releaseCudaFinalizationAsyncMetadataLauncherReturnGateForTesting();
-bool ExecuteCudaJobOperator(UsdGenCudaExecutionJob&, size_t);
-std::shared_ptr<const UsdGenDeviceGeneration> FinalizeCudaExecutionJob(UsdGenCudaExecutionJob&);
 
 }
 #endif

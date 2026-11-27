@@ -70,6 +70,7 @@ bool CudaCompletionSubmit(CudaCompletion *c, cudaStream_t stream) noexcept
     if (cudaStreamAddCallback(stream, LaneKick, nullptr, 0) != cudaSuccess) {
         // The stream cannot carry a callback: the device is being lost. Wait
         // here, in the device-loss category, so the pass below sees it done.
+        // shutdown wait: device loss: the stream cannot carry a callback.
         (void)cudaEventSynchronize(c->event);
     }
     g_lane.Kick();

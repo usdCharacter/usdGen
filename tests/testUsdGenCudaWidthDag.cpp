@@ -3,7 +3,8 @@
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGenCurves/cuda/cudaExecutionQueue.h"
+#include "cudaPlanRunner.h"
+#include "cudaExecutionQueueFixture.h"
 #include "usdGen/executionResources.h"
 #include "usdGen/graph.h"
 #include "usdGenCurves/cuda/generation.h"
@@ -446,7 +447,7 @@ bool CheckSourcePayload(std::shared_ptr<const UsdGenDeviceGeneration> const& gen
         if (!Near(uv[i].x, reference.rootUV[i][0]) || !Near(uv[i].y, reference.rootUV[i][1])) return false;
     for (auto const* planes : {&reference.extraCv, &reference.extraCurve})
         for (auto const& plane : *planes) {
-            auto channel = gpu::AcquireNamedChannel(generation, plane.name.GetString(), stream);
+            auto channel = gpu::AcquireNamedChannel(generation, plane.name, stream);
             if (!channel || plane.type != TfToken("float")) return false;
             auto bytes = channel.Bytes();
             std::vector<float> data(plane.f.size());
@@ -632,7 +633,7 @@ int main() {
         CHECK(connectedPlan && !diagnostics.HasErrors());
         auto maskWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         CHECK(maskWorkspace);
-        auto connectedGeneration = ExecuteCudaGraph(*connectedPlan, *maskWorkspace,
+        auto connectedGeneration = ExecuteCudaPlanForTesting(connectedPlan, *maskWorkspace,
                                                     1.0, 4201, &diagnostics);
         CHECK(connectedGeneration && !diagnostics.HasErrors());
         std::vector<float> connectedWidths;
@@ -654,7 +655,7 @@ int main() {
         diagnostics = {};
         auto zeroPlan = CompileCudaGraph(usdGenUsd::Lower(zeroDesc), &diagnostics);
         CHECK(zeroPlan && !diagnostics.HasErrors());
-        auto zeroGeneration = ExecuteCudaGraph(*zeroPlan, *maskWorkspace, 1.0,
+        auto zeroGeneration = ExecuteCudaPlanForTesting(zeroPlan, *maskWorkspace, 1.0,
                                                4202, &diagnostics);
         CHECK(zeroGeneration && !diagnostics.HasErrors());
         std::vector<float> zeroWidths;
@@ -788,8 +789,8 @@ int main() {
               ExpectedSourcePayloadBytes(referenceDesc));
     auto referenceWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(referenceWorkspace);
-    auto referenceGeneration = ExecuteCudaGraph(
-        *referencePlan, *referenceWorkspace, 1.0, 100, &diagnostics);
+    auto referenceGeneration = ExecuteCudaPlanForTesting(
+        referencePlan, *referenceWorkspace, 1.0, 100, &diagnostics);
     CHECK(referenceGeneration && !diagnostics.HasErrors() &&
           AllWidthsAre(referenceGeneration, .25f) &&
           referenceGeneration->Owner() &&
@@ -799,8 +800,8 @@ int main() {
     auto editedReferencePlan = CompileCudaGraph(
         usdGenUsd::Lower(editedReferenceDesc), &diagnostics);
     CHECK(editedReferencePlan && !diagnostics.HasErrors());
-    auto editedReferenceGeneration = ExecuteCudaGraph(
-        *editedReferencePlan, *referenceWorkspace, 1.0, 101, &diagnostics,
+    auto editedReferenceGeneration = ExecuteCudaPlanForTesting(
+        editedReferencePlan, *referenceWorkspace, 1.0, 101, &diagnostics,
         referenceGeneration);
     CHECK(editedReferenceGeneration && !diagnostics.HasErrors() &&
           AllWidthsAre(editedReferenceGeneration, .5f) &&
@@ -846,8 +847,8 @@ int main() {
     auto referenceLengthWorkspace = CreateCudaExecutionWorkspace(
         -1, &diagnostics);
     CHECK(referenceLengthWorkspace);
-    auto referenceLengthGeneration = ExecuteCudaGraph(
-        *referenceLengthPlan, *referenceLengthWorkspace, 1.0, 102, &diagnostics);
+    auto referenceLengthGeneration = ExecuteCudaPlanForTesting(
+        referenceLengthPlan, *referenceLengthWorkspace, 1.0, 102, &diagnostics);
     CHECK(referenceLengthGeneration && !diagnostics.HasErrors() &&
           AllWidthsAre(referenceLengthGeneration, .75f));
     {
@@ -910,7 +911,7 @@ int main() {
     cudaStream_t referenceBranchReader = nullptr;
     CHECK(cudaStreamCreateWithFlags(&referenceBranchReader,
                                     cudaStreamNonBlocking) == cudaSuccess);
-    auto referenceSourceBranchDirect = ExecuteCudaGraph(*referenceSourceBranchPlan,
+    auto referenceSourceBranchDirect = ExecuteCudaPlanForTesting(referenceSourceBranchPlan,
         *referenceLengthWorkspace, 1.0, 103, &diagnostics);
     CHECK(referenceSourceBranchDirect && !diagnostics.HasErrors() &&
           CheckSourcePayload(referenceSourceBranchDirect, referenceSourceBranch,
@@ -970,7 +971,7 @@ int main() {
             referenceLengthBranch.width[cv] = .75f;
         }
     }
-    auto referenceLengthBranchDirect = ExecuteCudaGraph(*referenceLengthBranchPlan,
+    auto referenceLengthBranchDirect = ExecuteCudaPlanForTesting(referenceLengthBranchPlan,
         *referenceLengthWorkspace, 1.0, 104, &diagnostics,
         referenceSourceBranchDirect);
     CHECK(referenceLengthBranchDirect && !diagnostics.HasErrors() &&
@@ -1019,7 +1020,7 @@ int main() {
             referenceMultipleExpected.pz[cv]=scaled[2];
         }
     }
-    auto referenceMultipleDirect=ExecuteCudaGraph(*referenceMultiplePlan,*referenceLengthWorkspace,
+    auto referenceMultipleDirect=ExecuteCudaPlanForTesting(referenceMultiplePlan,*referenceLengthWorkspace,
         1.0,105,&diagnostics,referenceSourceBranchDirect);
     CHECK(referenceMultipleDirect&&!diagnostics.HasErrors()&&
           CheckSourcePayload(referenceMultipleDirect,referenceMultipleExpected,referenceBranchReader)&&
@@ -1156,7 +1157,7 @@ int main() {
     diagnostics = {};
     auto workspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(workspace);
-    auto generation = ExecuteCudaGraph(*plan, *workspace, 1.0, 1, &diagnostics);
+    auto generation = ExecuteCudaPlanForTesting(plan, *workspace, 1.0, 1, &diagnostics);
     CHECK(generation && !diagnostics.HasErrors() && AllWidthsAre(generation, .25f));
 
     // Synchronous direct execution uses the same conservative graph peak as
@@ -1192,8 +1193,8 @@ int main() {
               ResourceKindBytes(admissionBaseline,
                                 UsdGenExecutionResourceKind::Pending));
     diagnostics = {};
-    auto rejectedDirect = ExecuteCudaGraph(
-        *plan, *workspace, 1.0, 2, &diagnostics, generation);
+    auto rejectedDirect = ExecuteCudaPlanForTesting(
+        plan, *workspace, 1.0, 2, &diagnostics, generation);
     auto const afterRejected = admissionPool->Snapshot();
     CHECK(!rejectedDirect && DiagnosticIs(diagnostics,
         "CUDA: CUDA execution job memory reservation exceeds the available device budget"));
@@ -1208,8 +1209,8 @@ int main() {
     // source and terminal Width output charged.  The delta is bounded by the
     // one graph peak, proving COW siblings were not charged twice.
     diagnostics = {};
-    auto admittedDirect = ExecuteCudaGraph(
-        *plan, *workspace, 1.0, 3, &diagnostics, generation);
+    auto admittedDirect = ExecuteCudaPlanForTesting(
+        plan, *workspace, 1.0, 3, &diagnostics, generation);
     CHECK(admittedDirect && !diagnostics.HasErrors() &&
           AllWidthsAre(admittedDirect, .25f) && admittedDirect->Owner() &&
           admittedDirect->Owner() != generation->Owner());
@@ -1251,8 +1252,8 @@ int main() {
     CHECK(staticFiller && staticFiller->Bytes() == staticFillerBytes);
     auto const staticSaturated = admissionPool->Snapshot();
     diagnostics = {};
-    auto staticRejected = ExecuteCudaGraph(
-        *staticResamplePlan, *workspace, 1.0, 4, &diagnostics, admittedDirect);
+    auto staticRejected = ExecuteCudaPlanForTesting(
+        staticResamplePlan, *workspace, 1.0, 4, &diagnostics, admittedDirect);
     auto const staticAfterRejected = admissionPool->Snapshot();
     CHECK(!staticRejected && DiagnosticIs(diagnostics,
         "CUDA: CUDA execution job memory reservation exceeds the available device budget") &&
@@ -1262,8 +1263,8 @@ int main() {
     staticFiller->Release();
     CHECK(admissionPool->Snapshot().usedBytes == staticBaseline.usedBytes);
     diagnostics = {};
-    auto staticGeneration = ExecuteCudaGraph(
-        *staticResamplePlan, *workspace, 1.0, 5, &diagnostics, admittedDirect);
+    auto staticGeneration = ExecuteCudaPlanForTesting(
+        staticResamplePlan, *workspace, 1.0, 5, &diagnostics, admittedDirect);
     CHECK(staticGeneration && !diagnostics.HasErrors() &&
           AllWidthsAre(staticGeneration, .25f));
     auto const staticAfter = admissionPool->Snapshot();
@@ -1430,8 +1431,8 @@ int main() {
     }
     auto nestedWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(nestedWorkspace);
-    auto nestedGeneration = ExecuteCudaGraph(
-        *nestedPlan, *nestedWorkspace, 1.0, 2, &diagnostics);
+    auto nestedGeneration = ExecuteCudaPlanForTesting(
+        nestedPlan, *nestedWorkspace, 1.0, 2, &diagnostics);
     CHECK(nestedGeneration && !diagnostics.HasErrors() &&
           AllWidthsAre(nestedGeneration, .25f));
 
@@ -1469,7 +1470,7 @@ int main() {
     diagnostics = {};
     auto failingPlan = CompileCudaGraph(usdGenUsd::Lower(failingDesc), &diagnostics);
     CHECK(failingPlan && !diagnostics.HasErrors());
-    auto failed = ExecuteCudaGraph(*failingPlan, *workspace, 2.0, 3,
+    auto failed = ExecuteCudaPlanForTesting(failingPlan, *workspace, 2.0, 3,
                                    &diagnostics, generation);
     CHECK(!failed && diagnostics.HasErrors() && AllWidthsAre(generation, .25f));
     std::atomic<int> failureCalls{0};
@@ -1570,8 +1571,8 @@ int main() {
               UsdGenExecutionValueStorage::JobOwnedImmutable);
     auto topologyWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(topologyWorkspace);
-    auto topologyGeneration = ExecuteCudaGraph(
-        *topologyPlan, *topologyWorkspace, 1.0, 20, &diagnostics);
+    auto topologyGeneration = ExecuteCudaPlanForTesting(
+        topologyPlan, *topologyWorkspace, 1.0, 20, &diagnostics);
     CHECK(topologyGeneration && !diagnostics.HasErrors() &&
           AllWidthsAre(topologyGeneration, .25f));
     {
@@ -1654,7 +1655,7 @@ int main() {
         CompileCudaGraph(usdGenUsd::Lower(failingTopologyDesc), &diagnostics);
     CHECK(failingTopologyPlan && !diagnostics.HasErrors());
     auto const beforeFailingTopology = resourcePool->Snapshot();
-    auto failedTopology = ExecuteCudaGraph(*failingTopologyPlan,
+    auto failedTopology = ExecuteCudaPlanForTesting(failingTopologyPlan,
         *topologyWorkspace, 2.0, 21, &diagnostics, topologyGeneration);
     auto const afterFailingTopology = resourcePool->Snapshot();
     CHECK(!failedTopology && diagnostics.HasErrors() &&
@@ -1735,7 +1736,7 @@ int main() {
               topologyBlend->dependencies.end());
     auto topologyBlendWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
     CHECK(topologyBlendWorkspace);
-    auto topologyBlendGeneration = ExecuteCudaGraph(*topologyBlendPlan,
+    auto topologyBlendGeneration = ExecuteCudaPlanForTesting(topologyBlendPlan,
         *topologyBlendWorkspace, 1.0, 30, &diagnostics);
     cudaStream_t topologyBlendReader = nullptr;
     CHECK(topologyBlendGeneration && !diagnostics.HasErrors() &&
@@ -1770,7 +1771,7 @@ int main() {
     auto swappedTopologyBlendPlan = CompileCudaGraph(usdGenUsd::Lower(swappedTopologyBlendDesc),
                                                       &diagnostics);
     auto swappedTopologyBlendDirect = swappedTopologyBlendPlan
-        ? ExecuteCudaGraph(*swappedTopologyBlendPlan, *topologyBlendWorkspace,
+        ? ExecuteCudaPlanForTesting(swappedTopologyBlendPlan, *topologyBlendWorkspace,
               1.0, 301, &diagnostics, topologyBlendGeneration) : nullptr;
     CHECK(swappedTopologyBlendDirect && !diagnostics.HasErrors() &&
           CheckGeneration(swappedTopologyBlendDirect,
@@ -1820,7 +1821,7 @@ int main() {
         diagnostics = {};
         auto lengthPlan = CompileCudaGraph(usdGenUsd::Lower(lengthCase), &diagnostics);
         CHECK(lengthPlan && !diagnostics.HasErrors());
-        auto lengthGeneration = ExecuteCudaGraph(*lengthPlan,
+        auto lengthGeneration = ExecuteCudaPlanForTesting(lengthPlan,
             *topologyBlendWorkspace, 1.0, 31, &diagnostics,
             topologyBlendGeneration);
         for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
@@ -1853,8 +1854,8 @@ int main() {
     CHECK(topologyPredecessorPlan && !diagnostics.HasErrors() &&
           topologyPredecessorMetadata && TaskByPath(
               *topologyPredecessorMetadata, "/Dag/TopologyBlend"));
-    auto topologyPredecessorGeneration = ExecuteCudaGraph(
-        *topologyPredecessorPlan, *topologyBlendWorkspace, 1.0, 32,
+    auto topologyPredecessorGeneration = ExecuteCudaPlanForTesting(
+        topologyPredecessorPlan, *topologyBlendWorkspace, 1.0, 32,
         &diagnostics, topologyBlendGeneration);
     CHECK(topologyPredecessorGeneration && !diagnostics.HasErrors() &&
           CheckGeneration(topologyPredecessorGeneration,
@@ -1892,7 +1893,7 @@ int main() {
             diagnostics = {};
             auto sourcePlan = CompileCudaGraph(usdGenUsd::Lower(sourceDesc), &diagnostics);
             CHECK(sourcePlan && !diagnostics.HasErrors());
-            auto direct = ExecuteCudaGraph(*sourcePlan, *sourceWorkspace, 1, 50 + variant,
+            auto direct = ExecuteCudaPlanForTesting(sourcePlan, *sourceWorkspace, 1, 50 + variant,
                 &diagnostics, retained);
             for (auto const& error : diagnostics.errors) std::fprintf(stderr, "%s\n", error.c_str());
             CHECK(direct && !diagnostics.HasErrors() && CheckSourcePayload(direct, expected, reader));
@@ -1907,16 +1908,16 @@ int main() {
                 // finalization must leave the selected named owners intact
                 // for a second selection by the synchronous finalizer.
                 auto job = CreateCudaExecutionJob(sourcePlan, *sourceWorkspace, 1, 60, &diagnostics);
-                CHECK(job && ExecuteCudaJobSource(*job));
+                CHECK(job && RunCudaJobSourceForTesting(job));
                 for (size_t i=0; i<CudaExecutionJobOperatorCount(*job); ++i)
-                    CHECK(ExecuteCudaJobOperator(*job, i));
+                    CHECK(RunCudaJobOperatorForTesting(job, i));
                 bool callbackCalled = false;
                 setCudaFinalizationRelayCapacityForTesting(0);
                 bool const admitted = FinalizeCudaExecutionJobAsync(job,
                     [&](auto) { callbackCalled = true; });
                 setCudaFinalizationRelayCapacityForTesting(1024);
                 CHECK(!admitted && !callbackCalled);
-                auto retried = FinalizeCudaExecutionJob(*job);
+                auto retried = FinalizeCudaJobForTesting(job);
                 CHECK(retried && !diagnostics.HasErrors() &&
                     CheckSourcePayload(retried, expected, reader));
             }
@@ -2015,7 +2016,7 @@ int main() {
     cudaStream_t branchedLengthReader = nullptr;
     CHECK(cudaStreamCreateWithFlags(&branchedLengthReader,
                                     cudaStreamNonBlocking) == cudaSuccess);
-    auto branchedLengthGeneration = ExecuteCudaGraph(*branchedLengthPlan,
+    auto branchedLengthGeneration = ExecuteCudaPlanForTesting(branchedLengthPlan,
         *branchedLengthWorkspace, 1.0, 300, &diagnostics);
     CHECK(branchedLengthGeneration && !diagnostics.HasErrors() &&
           CheckSourcePayload(branchedLengthGeneration, branchedLengthReference,
@@ -2141,7 +2142,7 @@ int main() {
     // waits for both immutable predecessors and retains their owners until
     // publication.  Endpoint results must select a source plane exactly.
     diagnostics = {};
-    auto blendGeneration = ExecuteCudaGraph(*blendPlan, *workspace, 1.0, 900,
+    auto blendGeneration = ExecuteCudaPlanForTesting(blendPlan, *workspace, 1.0, 900,
         &diagnostics);
     std::vector<float> blendedWidths;
     CHECK(blendGeneration && !diagnostics.HasErrors() &&
@@ -2152,14 +2153,14 @@ int main() {
     auto leftEndpointDesc = WidthBlendDesc(0.0f);
     diagnostics = {};
     auto leftEndpointPlan = CompileCudaGraph(usdGenUsd::Lower(leftEndpointDesc), &diagnostics);
-    auto leftEndpoint = leftEndpointPlan ? ExecuteCudaGraph(*leftEndpointPlan,
+    auto leftEndpoint = leftEndpointPlan ? ExecuteCudaPlanForTesting(leftEndpointPlan,
         *workspace, 1.0, 901, &diagnostics, blendGeneration) : nullptr;
     CHECK(leftEndpoint && !diagnostics.HasErrors() &&
           AllWidthsAre(leftEndpoint, .2f));
     auto rightEndpointDesc = WidthBlendDesc(1.0f);
     diagnostics = {};
     auto rightEndpointPlan = CompileCudaGraph(usdGenUsd::Lower(rightEndpointDesc), &diagnostics);
-    auto rightEndpoint = rightEndpointPlan ? ExecuteCudaGraph(*rightEndpointPlan,
+    auto rightEndpoint = rightEndpointPlan ? ExecuteCudaPlanForTesting(rightEndpointPlan,
         *workspace, 1.0, 902, &diagnostics, leftEndpoint) : nullptr;
     CHECK(rightEndpoint && !diagnostics.HasErrors() &&
           AllWidthsAre(rightEndpoint, .8f));
@@ -2168,7 +2169,7 @@ int main() {
                                              SdfPath("/Dag/BlendLeft")};
     diagnostics = {};
     auto swappedBlendPlan = CompileCudaGraph(usdGenUsd::Lower(swappedBlendDesc), &diagnostics);
-    auto swappedBlend = swappedBlendPlan ? ExecuteCudaGraph(*swappedBlendPlan,
+    auto swappedBlend = swappedBlendPlan ? ExecuteCudaPlanForTesting(swappedBlendPlan,
         *workspace, 1.0, 903, &diagnostics, rightEndpoint) : nullptr;
     CHECK(swappedBlend && !diagnostics.HasErrors() &&
           AllWidthsAre(swappedBlend, .65f));
@@ -2192,7 +2193,7 @@ int main() {
         auto const graphBefore = GetCudaWidthBlendGraphStats(*graphWorkspace);
         CHECK(graphBefore.captures == 0 && graphBefore.cacheBytes == 0 &&
               !graphBefore.inFlight && !graphBefore.quarantined);
-        graphFirst = ExecuteCudaGraph(*blendPlan, *graphWorkspace, 1.0,
+        graphFirst = ExecuteCudaPlanForTesting(blendPlan, *graphWorkspace, 1.0,
                                       910, &diagnostics);
         auto const graphFirstStats = GetCudaWidthBlendGraphStats(*graphWorkspace);
         auto const graphSlotBytes = 3 * ExpectedPrivateWidthBytes(blendDesc) +
@@ -2207,7 +2208,7 @@ int main() {
                   ResourceKindBytes(cacheBefore, UsdGenExecutionResourceKind::Cache) +
                       graphSlotBytes);
         diagnostics = {};
-        graphReplay = ExecuteCudaGraph(*blendPlan, *graphWorkspace, 1.0,
+        graphReplay = ExecuteCudaPlanForTesting(blendPlan, *graphWorkspace, 1.0,
                                        911, &diagnostics, graphFirst);
         auto const graphReplayStats = GetCudaWidthBlendGraphStats(*graphWorkspace);
         auto const cacheAfterReplay = graphPool->Snapshot();
@@ -2222,7 +2223,7 @@ int main() {
         diagnostics = {};
         auto graphKeyChangePlan = CompileCudaGraph(usdGenUsd::Lower(graphKeyChangeDesc), &diagnostics);
         CHECK(graphKeyChangePlan && !diagnostics.HasErrors());
-        auto graphKeyChange = ExecuteCudaGraph(*graphKeyChangePlan, *graphWorkspace, 1.0,
+        auto graphKeyChange = ExecuteCudaPlanForTesting(graphKeyChangePlan, *graphWorkspace, 1.0,
                                                 912, &diagnostics, graphReplay);
         auto const graphKeyChangeStats = GetCudaWidthBlendGraphStats(*graphWorkspace);
         auto const cacheAfterKeyChange = graphPool->Snapshot();
@@ -2249,7 +2250,7 @@ int main() {
         auto fallbackWorkspace = CreateCudaExecutionWorkspace(-1, &diagnostics);
         CHECK(fallbackWorkspace && !diagnostics.HasErrors());
         failNextCudaWidthBlendGraphCaptureForTesting();
-        auto captureRejected = ExecuteCudaGraph(*blendPlan, *fallbackWorkspace, 1.0,
+        auto captureRejected = ExecuteCudaPlanForTesting(blendPlan, *fallbackWorkspace, 1.0,
                                                 913, &diagnostics);
         auto const rejectedStats = GetCudaWidthBlendGraphStats(*fallbackWorkspace);
         CHECK(captureRejected && !diagnostics.HasErrors() &&
@@ -2257,7 +2258,7 @@ int main() {
               rejectedStats.misses == 1 && rejectedStats.cacheBytes == 0 &&
               !rejectedStats.inFlight && !rejectedStats.quarantined);
         diagnostics = {};
-        auto captureRetry = ExecuteCudaGraph(*blendPlan, *fallbackWorkspace, 1.0,
+        auto captureRetry = ExecuteCudaPlanForTesting(blendPlan, *fallbackWorkspace, 1.0,
                                              914, &diagnostics, captureRejected);
         auto const retryStats = GetCudaWidthBlendGraphStats(*fallbackWorkspace);
         CHECK(captureRetry && !diagnostics.HasErrors() && AllWidthsAre(captureRetry, .35f) &&
@@ -2294,7 +2295,7 @@ int main() {
                     use.inputValue==rightUse->outputValue && use.producerTask==rightTask->id;
             }));
         }
-        auto equalGeneration = ExecuteCudaGraph(*equalPlan, *workspace, 1.0,
+        auto equalGeneration = ExecuteCudaPlanForTesting(equalPlan, *workspace, 1.0,
                                                 920, &diagnostics, generation);
         CHECK(equalGeneration && !diagnostics.HasErrors() &&
               CheckSourcePayload(equalGeneration, equalReference, crossOriginReader));
@@ -2310,13 +2311,13 @@ int main() {
         diagnostics = {};
         auto unequalPlan = CompileCudaGraph(usdGenUsd::Lower(unequalDesc), &diagnostics);
         CHECK(unequalPlan && !diagnostics.HasErrors());
-        auto rejected = ExecuteCudaGraph(*unequalPlan, *workspace, 1.0,
+        auto rejected = ExecuteCudaPlanForTesting(unequalPlan, *workspace, 1.0,
                                          921, &diagnostics, equalGeneration);
         CHECK(!rejected && diagnostics.HasErrors() &&
               CheckSourcePayload(equalGeneration, equalReference, crossOriginReader));
         CHECK(!workspace->IsPoisoned());
         diagnostics={};
-        auto recovered=ExecuteCudaGraph(*equalPlan,*workspace,2.0,922,&diagnostics,equalGeneration);
+        auto recovered=ExecuteCudaPlanForTesting(equalPlan,*workspace,2.0,922,&diagnostics,equalGeneration);
         CHECK(recovered && !diagnostics.HasErrors() &&
               CheckSourcePayload(recovered,equalReference,crossOriginReader) &&
               CheckSourcePayload(equalGeneration,equalReference,crossOriginReader));
@@ -2359,7 +2360,7 @@ int main() {
         CHECK(CpuReference(provenanceDesc,&expected) && expected.chunks.empty());
         diagnostics={};auto provenancePlan=CompileCudaGraph(usdGenUsd::Lower(provenanceDesc),&diagnostics);CHECK(provenancePlan && !diagnostics.HasErrors());
         auto localWorkspace=CreateCudaExecutionWorkspace(-1,&diagnostics);CHECK(localWorkspace);
-        auto result=ExecuteCudaGraph(*provenancePlan,*localWorkspace,1,930+variant,&diagnostics);
+        auto result=ExecuteCudaPlanForTesting(provenancePlan,*localWorkspace,1,930+variant,&diagnostics);
         CHECK(result && !diagnostics.HasErrors() && CheckSourcePayload(result,expected,crossOriginReader));
         UsdGenSession session;session.SetDevicePublicationEnabled(true);usdGenUsd::SetGraphDesc(session, provenanceDesc);
         auto published=session.Commit(1,UsdGenCommitReason::SetTime);

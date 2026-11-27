@@ -69,6 +69,7 @@ add_executable(testUsdGenSessions
 target_link_libraries(testUsdGenSessions
     PUBLIC usdGenWithPrimitives usdGenUsd
     PUBLIC usdGenImaging
+    PRIVATE usdGenTestUtils usdGenHydraCurves
 )
 set_target_properties(testUsdGenSessions PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON

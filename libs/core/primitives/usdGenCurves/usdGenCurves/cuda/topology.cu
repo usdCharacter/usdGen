@@ -129,6 +129,7 @@ cudaError_t CompareCurveTopology(DeviceCurveGeometryView a,
         status = cudaMemcpyAsync(&host, deviceResult, sizeof(host),
                                  cudaMemcpyDeviceToHost, stream);
     cudaError_t syncStatus = cudaSuccess;
+    // shutdown wait: test hook (the cook uses CudaCurveTopologyCompare::BeginFresh).
     if (workEnqueued) syncStatus = CudaFenceStream(stream);
     if (status == cudaSuccess && syncStatus != cudaSuccess) status = syncStatus;
     // Do not free or refund an allocation after an unproven stream failure.

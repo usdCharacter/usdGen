@@ -188,6 +188,7 @@ CudaExpressionContext::~CudaExpressionContext() {
     const bool selected = !owns ||
         (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 &&
          cudaSetDevice(deviceIndex_) == cudaSuccess);
+    // shutdown wait: destructor.
     if (!selected || (ready_ && cudaEventSynchronize(ready_) != cudaSuccess)) {
         for (auto& field : fields_) field.quarantine();
         owners_.quarantine(); arcLength_.quarantine(); error_.quarantine();
@@ -459,6 +460,7 @@ ExpressionContextStatus CudaExpressionContext::Finish(cudaStream_t stream) {
     // The stream waits on ready_; the fence below proves both.
     if (!pending_ || !ready_ || cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess) return ExpressionContextStatus::CudaError;
     int error = 0;
+    // shutdown wait: test hook: synchronous CudaExpressionContext::Finish, no Session caller (kernel tests).
     if (cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess) return ExpressionContextStatus::CudaError;
     pending_ = false;
     if (error != 0) {

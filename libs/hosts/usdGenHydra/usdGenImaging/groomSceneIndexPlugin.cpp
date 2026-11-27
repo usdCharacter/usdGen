@@ -2,7 +2,7 @@
 // One immutable scene snapshot and ordered notices; no application mutex.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenEnable.h"
 #include "usdGenImaging/testHook.h"
@@ -19,7 +19,9 @@
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
-#include "usdGen/furOcclusion.h"
+#include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenHydraCurves/publisher.h"
+#include "usdGenHydraCurves/register.h"
 #include "usdGen/parkingWord.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/imaging/hd/sceneIndexPluginRegistry.h"
@@ -813,6 +815,9 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         std::shared_ptr<const SdfPathVector> dependencies;
         std::shared_ptr<const CaptureCache> cache;
         std::shared_ptr<const usdGenImaging::UsdGenDirtyRouter> router;
+        // Value-only dirt the router resolved since the last cook request;
+        // the next Cook posts it with the recaptured descriptor.
+        usdGen::UsdGenPendingDirty routed;
         std::shared_ptr<const TileMap> tiles = std::make_shared<const TileMap>();
         // Tiles shown before the current provisional cook. A failed or
         // superseded attempt restores this exact immutable baseline.
@@ -1429,8 +1434,14 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         g->generation = generation.id;
         g->publishedFrame = generation.frame;
         g->tiles = std::move(fresh);
+        // Each binding group plays back on the tile published for it.
+        std::vector<usdGen::UsdGenPrimRef> animationPrims;
+        if (published.animationBinding)
+            for (auto const& group : published.animationBinding->groups)
+                for (auto const& tile : published.tiles)
+                    if (tile.tile == group.group) { animationPrims.push_back(tile.prim); break; }
         g->animation = progressiveRenderer && published.scalpShadow.IsEmpty() ? ::usdGenImaging::BuildRbfAnimation(
-            published.animationBinding, generation.host, published.tiles.empty()
+            published.animationBinding, animationPrims, generation.host, published.tiles.empty()
                 ? GfMatrix4d(1.0) : published.tiles.front().xformMatrix) : nullptr;
         g->animationNeedsSettle = false;
         g->progressBaseline.reset();
@@ -1548,6 +1559,8 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         Session::CommitRequest request;
         request.reason = usdGen::UsdGenCommitReason::NoticeBatchEnd;
         request.desc = g->desc;
+        request.dirty = std::move(g->routed);
+        g->routed = usdGen::UsdGenPendingDirty{};
         request.callerDevice = g->device;
         // This plugin has no implemented stock-Storm device-resident
         // publication handoff. Set this per request (rather than relying on
@@ -1710,6 +1723,24 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                 });
         } catch (...) { TF_WARN("usdGen scene attachment request failed"); }
         if (!accepted) { Reveal(g); Release(seq); }
+    }
+    // Value-only locators go through the groom's router; a structural row,
+    // an unrouted usdGen locator or a namespace change falls back to the
+    // full recapture alone (the descriptor every cook carries).
+    static void RouteDirties(Groom& g, Dirtied const& dirtied, _Ingress const& packet) {
+        bool fallback = !g.router || dirtied.empty() || !packet.added.empty() ||
+            !packet.removed.empty() || packet.forceFullDiscovery ||
+            packet.recoverSourceNamespace;
+        usdGen::UsdGenPendingDirty routed;
+        if (!fallback) {
+            bool unrouted = false;
+            g.router->Route(dirtied, &routed, &unrouted);
+            fallback = unrouted || routed.structural;
+        }
+        if (fallback) { g.routed = usdGen::UsdGenPendingDirty{}; return; }
+        g.routed.surfaceTopology |= routed.surfaceTopology;
+        for (auto const& entry : routed.nodeBits) g.routed.nodeBits[entry.first] |= entry.second;
+        for (auto const& entry : routed.surfaceBits) g.routed.surfaceBits[entry.first] |= entry.second;
     }
     void Apply(_Ingress const& packet) {
         const uint64_t seq = packet.sequence;
@@ -1966,6 +1997,8 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
                             gpuPose = true;
                         }
                     }
+                    if (!duplicateGlobals && !temporal)
+                        RouteDirties(*groom, forwardDirtied, packet);
                     if (!duplicateGlobals && !temporal) {
                         ++groom->structuralRevision;
                         groom->structuralPending = true;
@@ -2119,6 +2152,8 @@ UsdGenGroomSceneIndex::UsdGenGroomSceneIndex(HdSceneIndexBaseRefPtr const& input
       _renderInstanceId(static_cast<uint32_t>(id)),
       _publishScalpShadow(publishScalpShadow),
       _stormMaterialPolicy(stormMaterialPolicy) {
+    // The curve publisher registers before this index's first compile.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
     static std::atomic<uint64_t> next{uint64_t(1) << 32};
     if (id == 0) _renderInstanceId = next.fetch_add(1);
     auto& service = SceneService();

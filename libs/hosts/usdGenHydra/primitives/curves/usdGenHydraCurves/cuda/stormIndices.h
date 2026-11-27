@@ -1,13 +1,29 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
 // GPU-native index streams for the native Storm curve primitive layouts.
 // No Hydra dependency: renderer adapters supply the basis/wrap as values.
-#ifndef USDGEN_GPU_CURVE_INDICES_H
-#define USDGEN_GPU_CURVE_INDICES_H
+#ifndef USDGEN_HYDRA_CURVES_STORM_INDICES_H
+#define USDGEN_HYDRA_CURVES_STORM_INDICES_H
 
-#include "usdGenCuda/gpu/deviceBuffer.h"
+#include <cuda_runtime.h>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
+#include <utility>
 
-namespace usdGen::gpu {
+namespace usdGen::hydraCurves {
+
+// Borrowed device pointer + element count. Converts from any such view
+// (e.g. usdGen::hydraCurves::DeviceView) so no backend header is needed here.
+template<class T> struct IndexView {
+    T* data = nullptr;
+    size_t size = 0;
+    IndexView() = default;
+    IndexView(T* d, size_t n) : data(d), size(n) {}
+    template<class U, class = std::enable_if_t<
+        std::is_convertible<decltype(std::declval<U const&>().data), T*>::value>>
+    IndexView(U const& v) : data(v.data), size(v.size) {}
+};
 
 enum class CurveIndexBasis { Linear, Bezier, BSpline, CatmullRom, CentripetalCatmullRom };
 enum class CurveIndexWrap { Nonperiodic, Periodic, Pinned, Segmented };
@@ -37,9 +53,9 @@ cudaError_t GetCurveIndexRequirements(CurveIndexOptions options,
     cudaStream_t stream = nullptr);
 
 struct CurveIndexWorkspace {
-    DeviceView<uint64_t> recordCounts;  // curveCount + 1 (last element zero)
-    DeviceView<uint64_t> recordOffsets; // curveCount + 1, exclusive scan
-    DeviceView<unsigned char> scan;
+    IndexView<uint64_t> recordCounts;  // curveCount + 1 (last element zero)
+    IndexView<uint64_t> recordOffsets; // curveCount + 1, exclusive scan
+    IndexView<unsigned char> scan;
 };
 
 // A contiguous tile of a globally-addressed curve-offset buffer.  The
@@ -47,17 +63,17 @@ struct CurveIndexWorkspace {
 // terminal value is pointBase + pointCount.  Generated indices and primitive
 // parameters are deliberately tile-local.
 struct CurveIndexSpan {
-    DeviceView<const uint32_t> curveOffsets; // curveCount + 1 global offsets
+    IndexView<const uint32_t> curveOffsets; // curveCount + 1 global offsets
     size_t curveCount = 0;
     size_t pointCount = 0;
     uint32_t pointBase = 0;
 };
 
 struct CurveIndexOutput {
-    DeviceView<int32_t> indices;        // packed records, maxRecords * arity
-    DeviceView<int32_t> primitiveParam; // maxRecords, owning curve per record
-    DeviceView<uint64_t> recordCount;   // one GPU scalar; no host readback
-    DeviceView<uint32_t> status;        // one GPU scalar: 0 valid, 1 bad offsets,
+    IndexView<int32_t> indices;        // packed records, maxRecords * arity
+    IndexView<int32_t> primitiveParam; // maxRecords, owning curve per record
+    IndexView<uint64_t> recordCount;   // one GPU scalar; no host readback
+    IndexView<uint32_t> status;        // one GPU scalar: 0 valid, 1 bad offsets,
                                        // 2 invalid segmented count
 };
 
@@ -74,7 +90,7 @@ struct CurveIndexOutput {
 // Storm's native points-index builder does not request that channel.
 // There is no implicit host topology or indexed-USD-curve remapping path.
 cudaError_t BuildCurveIndices(CurveIndexOptions options,
-    size_t curveCount, size_t pointCount, DeviceView<const uint32_t> curveOffsets,
+    size_t curveCount, size_t pointCount, IndexView<const uint32_t> curveOffsets,
     CurveIndexRequirements const& requirements, CurveIndexWorkspace workspace,
     CurveIndexOutput output, cudaStream_t stream);
 
@@ -91,10 +107,10 @@ cudaError_t BuildCurveIndices(CurveIndexOptions options, CurveIndexSpan span,
 // nonzero, the record count exceeds maxRecords, or records*indexArity cannot
 // be represented by uint32_t.  This performs no host readback or allocation
 // and is safe to place in a CUDA graph after BuildCurveIndices.
-cudaError_t PackCurveDrawCount(DeviceView<const uint64_t> recordCount,
-    DeviceView<const uint32_t> status, uint32_t indexArity,
-    size_t maxRecords, DeviceView<uint32_t> drawCount,
+cudaError_t PackCurveDrawCount(IndexView<const uint64_t> recordCount,
+    IndexView<const uint32_t> status, uint32_t indexArity,
+    size_t maxRecords, IndexView<uint32_t> drawCount,
     cudaStream_t stream);
 
-} // namespace usdGen::gpu
+} // namespace usdGen::hydraCurves
 #endif

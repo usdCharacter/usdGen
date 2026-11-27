@@ -234,6 +234,7 @@ CudaCurveGrow::~CudaCurveGrow() {
               ready_||hostError_;
     bool selected=!owns || (cudaGetDevice(&prior)==cudaSuccess&&deviceIndex_>=0&&
                             cudaSetDevice(deviceIndex_)==cudaSuccess);
+    // shutdown wait: destructor.
     bool proved=!owns || (selected&&(!ready_||cudaEventSynchronize(ready_)==cudaSuccess)&&
                           active_.synchronizeUse()==CurveGrowStatus::Ok);
     if (!proved) {

@@ -1,7 +1,7 @@
 // usdGen imaging — the live paint-preview overlay implementation.
 #include "usdGenImaging/attributePreviewSceneIndex.h"
 
-#include "usdGen/valuePreview.h"
+#include "usdGenHydraCurves/previewColor.h"
 
 #include "pxr/base/tf/envSetting.h"
 #include "pxr/base/tf/registryManager.h"

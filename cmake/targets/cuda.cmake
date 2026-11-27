@@ -173,6 +173,15 @@ if(USDGEN_ENABLE_CUDA)
     # (UsdGenDeviceGeneration::ChannelAddress): the CUDA runtime API only,
     # no backend library. Pomade shares usdGenCuda's one block cache.
     target_compile_definitions(usdGenImaging PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
+    # Storm curve index builder (step 9.4): in the adapter, CUDA-GL interop
+    # builds only. Takes only the cudaCompat.h shim from usdGenCuda, no link.
+    target_sources(usdGenHydraCurves PRIVATE
+        libs/hosts/usdGenHydra/primitives/curves/usdGenHydraCurves/cuda/stormIndices.cu)
+    target_compile_definitions(usdGenHydraCurves PUBLIC USDGEN_HAS_CUDA_GL_INTEROP)
+    target_include_directories(usdGenHydraCurves PRIVATE
+        $<TARGET_PROPERTY:usdGenCuda,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_link_libraries(usdGenHydraCurves PRIVATE CUDA::cudart CUDA::cuda_driver)
+    set_target_properties(usdGenHydraCurves PROPERTIES CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")
     target_link_libraries(usdGenImaging PUBLIC hdSt PRIVATE CUDA::cudart hgiGL)
     # Pomade CUDA lane (plan/17 P0): the tessellation kernel joins
     # usdGenPomade, and the model/transport compile their device mirrors.

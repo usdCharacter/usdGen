@@ -4,7 +4,7 @@
 // pinned draws and the R11 ramp below are local implementations citing
 // their canonical sources (usdGenMath/usdGenMath/hash.h, .../ramp.cpp).
 // The float op order matches ramp.cpp's EvalOne exactly.
-#include "usdGenImaging/usdGenInstancer.h"
+#include "usdGenHydraCurves/usdGenInstancer.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/tf/staticTokens.h"
@@ -28,7 +28,7 @@
 #include <cstring>
 #include <new>
 
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <type_traits>
 
@@ -414,13 +414,13 @@ _QuatFromFrameRows(GfVec3d const &xAxis, GfVec3d const &yAxis,
 }
 
 // Curve spans: uniform (totalCvs divisible by totalCurves) or ragged
-// cvOffsets. Mirrors the engine's span validation (curveBuffer.h detail).
+// cvOffsets. Mirrors the engine's span validation (the CurveSet's offsets).
 // Uniform spans are never materialized (bit-identical): spans[c] is
 // exactly c*per in uint32 arithmetic, so callers compute curve starts
 // inline and the ~4MB assign+fill+read traffic is gone. *perOut
 // carries per; spans stays empty. Ragged fills as before.
 bool
-_Spans(usdGen::UsdGenCurveBuffer const &curves, std::vector<uint32_t> *spans,
+_Spans(UsdGenInstanceCurveData const &curves, std::vector<uint32_t> *spans,
        uint32_t *perOut, std::string *error)
 {
     uint32_t const n = curves.totalCurves;
@@ -646,7 +646,7 @@ UsdGenInstancer::Bake(UsdGenInstanceParams const &params,
         return _Fail("instance: empty instancer path", error);
     if (!input.curves)
         return _Fail("instance: no evaluated curves", error);
-    usdGen::UsdGenCurveBuffer const &curves = *input.curves;
+    UsdGenInstanceCurveData const &curves = *input.curves;
     uint32_t const n = curves.totalCurves;
     if (n == 0)
         return _Fail("instance: no curves to instance", error);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 
@@ -388,7 +389,6 @@ UsdGenAuthoredPlaneView UsdGenAuthoredPlanes::operator[](size_t i) const noexcep
 
 UsdGenCurveSetInputView UsdGenCurveSetInputView::Of(UsdGenInputRecord const &record) noexcept
 {
-    UsdGenEngineTokens const &tk = UsdGenTokens();
     UsdGenCurveSetInputView v;
     v.key = record.key;
     v.role = UsdGenLane(uint8_t(record.Get<int>(kUsdGenCurveValueRole, 0)));
@@ -399,10 +399,10 @@ UsdGenCurveSetInputView UsdGenCurveSetInputView::Of(UsdGenInputRecord const &rec
     v.restFromCurrentPoints = record.Get<bool>(kUsdGenCurveValueRestFromCurrentPoints, false);
     v.worldMatrix = record.Get<GfMatrix4d>(kUsdGenCurveValueWorldMatrix, kIdentity);
     v.widths = record.Column<float>(kUsdGenCurveInputWidths);
-    v.type = record.Get<TfToken>(kUsdGenCurveValueType, tk.cubic);
-    v.basis = record.Get<TfToken>(kUsdGenCurveValueBasis, tk.bspline);
-    v.wrap = record.Get<TfToken>(kUsdGenCurveValueWrap, tk.pinned);
-    v.widthsInterpolation = record.Get<TfToken>(kUsdGenCurveValueWidthsInterpolation, tk.vertexWidths);
+    v.type = record.Get<TfToken>(kUsdGenCurveValueType, UsdGenCurveTokens().cubic);
+    v.basis = record.Get<TfToken>(kUsdGenCurveValueBasis, UsdGenCurveTokens().bspline);
+    v.wrap = record.Get<TfToken>(kUsdGenCurveValueWrap, UsdGenCurveTokens().pinned);
+    v.widthsInterpolation = record.Get<TfToken>(kUsdGenCurveValueWidthsInterpolation, UsdGenCurveTokens().vertexWidths);
     v.skinPrim = record.Column<int>(kUsdGenCurveInputSkinPrim);
     v.curveId = record.Column<uint64_t>(kUsdGenCurveInputCurveId);
     v.skinPrimUv = record.Column<GfVec2f>(kUsdGenCurveInputSkinPrimUv);

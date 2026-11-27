@@ -7,7 +7,8 @@
 // that both indices republish identically: same generation id, same prim paths,
 // same frame, and identical prim set.
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
@@ -162,6 +163,7 @@ UsdGenGraphDesc MakeDoubleGraph(int NX = 50, int NY = 5)
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     // Before the first compile: registries freeze there.
     UsdGenRegisterStatic(&RegisterFailingCaptureOp);
 

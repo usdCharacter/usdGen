@@ -21,7 +21,8 @@
 //
 // Timing-soft (plan 09): nothing here is budget-gated.
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/curveBuffer.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -33,7 +34,7 @@
 #include "usdGen/session.h"
 #include "usdGen/types.h"
 
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "pxr/pxr.h"
@@ -337,6 +338,7 @@ void CheckPartitionBoundaries()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     Check(UsdGenRegisterStatic(&RegisterGuideIndexWriter) &&
               UsdGenOpRegistry::Get().Find(TfToken("UsdGenTestGuideIndexWriter")) !=
                   UsdGenOpId::Invalid,

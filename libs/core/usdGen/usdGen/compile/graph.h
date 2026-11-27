@@ -7,6 +7,7 @@
 #define USDGEN_GRAPH_H
 
 #include "usdGen/api/elementSet.h"
+#include "usdGen/api/routing.h"
 #include "usdGen/executionCache.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/handles.h"
@@ -31,50 +32,6 @@ class UsdGenOpRecord;
 /// current R24 contract has only a handful of named outputs; keep an explicit
 /// bound so binding them never turns Evaluate() into an allocating path.
 constexpr uint32_t kUsdGenMaxExtraPlaneSlots = 16;
-
-/// Owning, read-only routing input detached from a compiled graph.  The
-/// imaging router may retain this value while the graph is recompiled or
-/// destroyed; none of its fields point into UsdGenGraph or an operator.
-/// One UsdGenPaintMap a node samples: the surface primvar whose edits must
-/// re-capture the node (the brush bakes the primvar, never the map prim, so
-/// the map-prim row alone would leave the snapshot stale). `surface` indexes
-/// UsdGenGraphRoutingSnapshot::meshPaths, the prim that carries the primvar.
-struct UsdGenPaintRoutingRef
-{
-    UsdGenSurfaceId surface = 0;
-    TfToken primvar;
-};
-
-struct UsdGenGraphRoutingNode
-{
-    UsdGenNodeId id = kUsdGenInvalidNode;
-    UsdGenNodeKey key;
-    TfToken type;
-    std::vector<TfToken> topologyParameters;
-    std::vector<TfToken> valueParameters;
-    std::vector<std::pair<TfToken, uint32_t>> paramRouting;
-    UsdGenSurfaceId surface = 0;
-    bool hasSurface = false;
-    std::vector<UsdGenNodeKey> inputRefs;
-    std::vector<UsdGenNodeKey> mapRefs;
-    std::vector<UsdGenMapBinding> mapBindingRefs;
-    std::vector<UsdGenNodeKey> geometryRefs;
-    std::vector<UsdGenPaintRoutingRef> paintRefs;
-};
-
-struct UsdGenGraphRoutingSnapshot
-{
-    UsdGenNodeKey description;
-    /// Per surface input: the bound target, and the Mesh prim whose
-    /// points, topology and primvars it reads. They differ only for a
-    /// GeomSubset target, whose own prim carries just indices and type (R15).
-    std::vector<UsdGenNodeKey> surfaceKeys;
-    std::vector<UsdGenNodeKey> meshKeys;
-    std::vector<UsdGenGraphRoutingNode> nodes;
-    UsdGenNodeId terminal = kUsdGenInvalidNode;
-    /// The compiled spec's opaque host data (UsdGenGraphSpec::host).
-    std::shared_ptr<const void> host;
-};
 
 /// One compiled node. Owns its UsdGenOp, its output set, its capture, its
 /// chunk dirty bytes and its digests (03 §3.2).

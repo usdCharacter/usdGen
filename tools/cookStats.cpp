@@ -13,6 +13,7 @@
 // --hash prints the reference groomer's output hash (FNV-1a over points, counts,
 // lengths, clump ids in generation order) for comparison with its build log.
 #include "usdGen/compiler.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -117,6 +118,7 @@ uint64_t ReferenceHash(UsdGenCurveBuffer const &b, std::vector<int> const &count
 
 int main(int argc, char **argv)
 {
+    usdGenTest::EnsureHydraPublishers();
     if (argc < 2) {
         std::fprintf(stderr, "usage: usdGenCookStats scene.usda [--only <substring>] [--bake out.usda] [--threads N]\n");
         return 2;

@@ -26,11 +26,11 @@ int main(int argc,char** argv) {
     CHECK(argc==9&&std::fesetround(FE_TONEAREST)==0);
     std::vector<std::vector<uint32_t>> code;
     for(int i=1;i<argc;++i) code.push_back(Code(argv[i]));
-    bool unavailable=false; auto native=CreateNative(&unavailable); if(unavailable)return 77; CHECK(native);
+    bool unavailable=false; auto native=CreateTimelineNative(&unavailable); if(unavailable)return 77; CHECK(native);
     VkPhysicalDeviceProperties properties{}; vkGetPhysicalDeviceProperties(native->physical,&properties);
     if(properties.limits.maxPerStageDescriptorStorageBuffers<6||
        properties.limits.maxDescriptorSetStorageBuffers<6||properties.limits.maxPushConstantsSize<56)return 77;
-    DeviceContext::CreateInfo ci; ci.instance=native->instance;ci.physicalDevice=native->physical;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance=native->instance;ci.physicalDevice=native->physical;
     ci.device=native->device;ci.computeQueue=native->queue;ci.computeQueueFamily=native->family;
     ci.physicalIndex=native->physicalIndex;ci.resourceDeviceId=7937;ci.nativeLifetime=native;
     ci.resources={size_t{32}<<20,0};

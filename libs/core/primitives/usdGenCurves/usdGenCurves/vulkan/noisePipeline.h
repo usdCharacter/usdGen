@@ -38,6 +38,8 @@ char const* NoiseSemanticName(NoiseSemantic) noexcept;
 // Queue-owner confined. Inputs must be immutable and have completed upload on
 // this queue before Begin. Neither Begin nor Poll waits for device completion
 // beyond Begin's own synchronous validation-readback step.
+// Submits go through the context's VulkanQueueTimeline (timelineSemaphoreEnabled);
+// without it Begin fails with VK_ERROR_FEATURE_NOT_PRESENT.
 //
 // The generate dispatch uses FP64; the device context must have
 // shaderFloat64Enabled (factory contract).

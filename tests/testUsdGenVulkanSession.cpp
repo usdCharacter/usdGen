@@ -123,7 +123,7 @@ void CheckPlanes(std::shared_ptr<NativeOwner> const& native,
             want.emplace_back("skinprimuv", Bytes(expected.rootUV));
         }
         for (auto const& named : expected.named) {
-            want.emplace_back(named.metadata.name.c_str(), named.bytes);
+            want.emplace_back(named.metadata.name.GetText(), named.bytes);
             auto found = std::find_if(planes.begin(), planes.end(), [&](auto const& plane) {
                 return plane.metadata.name == named.metadata.name;
             });
@@ -268,7 +268,7 @@ static bool BuildCpuReference(UsdGenGraphDesc desc, SixPlaneOracle* out) {
             uint64_t const elements = domain == UsdGenDeviceDomain::Point ? buffer.totalCvs :
                 domain == UsdGenDeviceDomain::Primitive ? buffer.totalCurves : 1;
             SixPlaneOracle::Named named;
-            named.metadata = {plane.name.GetString(), floats ? UsdGenDeviceValueType::Float32 : UsdGenDeviceValueType::Int32,
+            named.metadata = {plane.name, floats ? UsdGenDeviceValueType::Float32 : UsdGenDeviceValueType::Int32,
                               domain, elements, plane.arity, uint32_t(plane.arity * 4), true,
                               UsdGenDeviceChannelSemantic::Generic};
             named.bytes.resize((floats ? plane.f.size() : plane.i.size()) * 4);

@@ -56,7 +56,7 @@ target_link_libraries(usdGenExpr
 target_include_directories(usdGenExpr PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/usdGenCurves>)
 _usdgen_add_primitive(usdGenCurves usdGenCurves)
 target_sources(usdGenCurves PRIVATE ${_usdgen_curves_hosted})
-# deform.h and rbfAnimation.h expose usdGenMath/rbf.h. usdGenMath is not
+# deform.h and api/deformBinding.h expose usdGenMath/rbf.h. usdGenMath is not
 # installed (N-7), so it stays out of the export interface.
 target_link_libraries(usdGenCurves
     PUBLIC usdGen usdGenSurface usdGenExpr $<BUILD_INTERFACE:usdGenMath>

@@ -57,10 +57,10 @@ int main(int argc, char** argv) {
     auto flatCode = Code(argv[1]); auto lengthCode = Code(argv[2]); auto compareCode = Code(argv[3]);
     auto blendCode = Code(argv[4]);
     CHECK(!flatCode.empty() && !lengthCode.empty() && !compareCode.empty() && !blendCode.empty());
-    bool unavailable = false; auto native = CreateNative(&unavailable); if (unavailable) return 77; CHECK(native);
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable); if (unavailable) return 77; CHECK(native);
     DeviceContext::CreateInfo ci; ci.instance=native->instance; ci.physicalDevice=native->physical;
     ci.device=native->device; ci.computeQueue=native->queue; ci.computeQueueFamily=native->family;
-    ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7016; ci.nativeLifetime=native; ci.resources={size_t{8}<<20,0};
+    ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7016; ci.nativeLifetime=native; ci.timelineSemaphoreEnabled=true; ci.resources={size_t{8}<<20,0};
     auto context = DeviceContext::Create(ci); CHECK(context);
     VkResult status = VK_SUCCESS; auto width = WidthPipeline::Create(context, flatCode, &status); CHECK(width);
     auto length = LengthScalePipeline::Create(context, lengthCode, &status); CHECK(length);
@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
     CHECK(upload->Submit() == SourceGenerationStatus::Submitted && Prove(native)); CHECK(upload->Poll() == SourceGenerationStatus::Ready);
     auto base = upload->TakeReady(); CHECK(base);
     auto makeLength = [&](float factor, uint64_t version) {
-        auto candidate = length->Begin(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"), 1, 3, factor, &status);
+        auto candidate = length->Begin(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")), 1, 3, factor, &status);
         if (!candidate || !Prove(native)) return std::shared_ptr<const VulkanSourceGeneration>{};
         uint32_t semantic = UINT32_MAX;
         if (candidate->Poll(&semantic) != VK_SUCCESS || semantic != 0 || !candidate->succeeded())
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
 
     // Independent Length outputs do not share a non-width identity.  An
     // ordered equality proof is therefore required to blend their widths.
-    auto orderedBlend = blend->Begin(sameLeft->PlaneOwner("width"), sameRight->PlaneOwner("width"),
+    auto orderedBlend = blend->Begin(sameLeft->PlaneOwner(TfToken("width")), sameRight->PlaneOwner(TfToken("width")),
         3, .25f, &status); CHECK(orderedBlend && Prove(native));
     uint32_t blendStatus = UINT32_MAX;
     CHECK(orderedBlend->Poll(&blendStatus) == VK_SUCCESS && blendStatus == 0 && orderedBlend->succeeded());
@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
     // payloads or compatible width-buffer owners.
     CHECK(!VulkanSourceGeneration::WithWidthBlend(sameRight, sameLeft, *orderedBlend, 10,
         &reason, same.get()));
-    auto differentBlend = blend->Begin(sameLeft->PlaneOwner("width"), different->PlaneOwner("width"),
+    auto differentBlend = blend->Begin(sameLeft->PlaneOwner(TfToken("width")), different->PlaneOwner(TfToken("width")),
         3, .25f, &status); CHECK(differentBlend && Prove(native));
     CHECK(differentBlend->Poll(&blendStatus) == VK_SUCCESS && blendStatus == 0);
     CHECK(!VulkanSourceGeneration::WithWidthBlend(sameLeft, different, *differentBlend, 10,
@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
     // Width-only revisions preserve the data bundle but make the old ordered
     // proof stale: only the exact generations it proved may be joined.
     auto reviseWidth = [&](std::shared_ptr<const VulkanSourceGeneration> input, uint64_t version) {
-        auto candidate = width->Begin(input->PlaneOwner("width"), 3, 1.f, 0, &status);
+        auto candidate = width->Begin(input->PlaneOwner(TfToken("width")), 3, 1.f, 0, &status);
         if (!candidate || !Prove(native)) return std::shared_ptr<const VulkanSourceGeneration>{};
         uint32_t semantic = UINT32_MAX;
         if (candidate->Poll(&semantic) != VK_SUCCESS || semantic != 0 || !candidate->succeeded())
@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
     };
     auto revisedLeft = reviseWidth(sameLeft, 11); auto revisedRight = reviseWidth(sameRight, 12);
     CHECK(revisedLeft && revisedRight);
-    auto staleBlend = blend->Begin(revisedLeft->PlaneOwner("width"), revisedRight->PlaneOwner("width"),
+    auto staleBlend = blend->Begin(revisedLeft->PlaneOwner(TfToken("width")), revisedRight->PlaneOwner(TfToken("width")),
         3, .25f, &status); CHECK(staleBlend && Prove(native));
     CHECK(staleBlend->Poll(&blendStatus) == VK_SUCCESS && blendStatus == 0);
     CHECK(!VulkanSourceGeneration::WithWidthBlend(revisedLeft, revisedRight, *staleBlend, 13,
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     // A rejected pre-submit admission must leave the complete resource ledger
     // unchanged, not just its aggregate byte total.
     auto beforeRejectedBlend = context->resources()->Snapshot(); int rejectedHooks = 0;
-    CHECK(!blend->Begin(sameLeft->PlaneOwner("width"), sameRight->PlaneOwner("width"), 3, .25f, &status,
+    CHECK(!blend->Begin(sameLeft->PlaneOwner(TfToken("width")), sameRight->PlaneOwner(TfToken("width")), 3, .25f, &status,
                         [&] { ++rejectedHooks; return false; }));
     CHECK(rejectedHooks == 1 && SameLedger(beforeRejectedBlend, context->resources()->Snapshot()));
     auto beforeRejectedCompare = context->resources()->Snapshot();
@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
     // compare must therefore prove equality even though the width payloads
     // differ.
     auto makeWidth = [&](float factor, uint64_t version) {
-        auto candidate = width->Begin(base->PlaneOwner("width"), 3, factor, 0, &status);
+        auto candidate = width->Begin(base->PlaneOwner(TfToken("width")), 3, factor, 0, &status);
         if (!candidate || !Prove(native)) return std::shared_ptr<const VulkanSourceGeneration>{};
         uint32_t semantic = UINT32_MAX;
         if (candidate->Poll(&semantic) != VK_SUCCESS || semantic != 0 || !candidate->succeeded())
@@ -178,7 +178,7 @@ int main(int argc, char** argv) {
     // Empty sources retain the full core schema. Replacing their empty width
     // view must preserve that schema and non-width pairing in either direction.
     {
-        auto emptyWidthCandidate = width->Begin(emptyB->PlaneOwner("width"), 0, 1.f, 0, &status);
+        auto emptyWidthCandidate = width->Begin(emptyB->PlaneOwner(TfToken("width")), 0, 1.f, 0, &status);
         CHECK(emptyWidthCandidate);
         CHECK(emptyWidthCandidate->Poll() == VK_SUCCESS && emptyWidthCandidate->succeeded());
         auto emptyWithWidth = VulkanSourceGeneration::WithWidth(emptyB, *emptyWidthCandidate, 32, &reason);
@@ -199,7 +199,7 @@ int main(int argc, char** argv) {
     // non-width payload.  The comparator must include its final byte.
     auto tailInfoA = Source(context); auto tailInfoB = Source(context);
     VulkanSourceNamedChannel tailA;
-    tailA.metadata = {"tail", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point,
+    tailA.metadata = {TfToken("tail"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point,
                       3, 1, 5, true, UsdGenDeviceChannelSemantic::Generic};
     tailA.bytes = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
     auto tailB = tailA; tailB.bytes.back() = 15;
