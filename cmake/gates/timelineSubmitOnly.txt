@@ -6,7 +6,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/lengthCompactionPipeline.c
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/lengthScalePipeline.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/noisePipeline.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/nonWidthComparePipeline.cpp 1
-libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/picktileVk.cpp 10
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/pointOverridePipeline.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/rbfVkDeformPipeline.cpp 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/resampleVkPipeline.cpp 2
