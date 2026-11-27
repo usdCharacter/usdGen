@@ -4,15 +4,14 @@
 // carry-over and points-only refresh), fur occlusion and the scalp cap, the
 // RBF playback binding and the prim-set signature; the diff of two
 // publications and their cache charge. Moved out of sessionCooker (6.3).
-#include "usdGenCurves/publish/curvePublisher.h"
-#include "usdGenCurves/publish/curvePublication.h"
-#include "usdGenCurves/publish/furOcclusion.h"
-#include "usdGenCurves/publish/valuePreview.h"
+#include "usdGenHydraCurves/publisher.h"
+#include "usdGenHydraCurves/curveColumns.h"
+#include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenHydraCurves/previewColor.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenHydraCurves/register.h"
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/publishDesc.h"
-#include "usdGenCurves/types/curveSet.h"
-#include "usdGenCurves/types/curveSetInput.h"
-#include "usdGenSurface/surfaceInput.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/exec/debugCodes.h"
 #include "usdGen/exec/generationStore.h"
@@ -103,13 +102,15 @@ struct UsdGenPreviewColors
 // The CurveSet's publish hooks (curvePublishDesc.cpp); null before registration.
 UsdGenPublishDesc const *CurvePublishDesc()
 {
-    return UsdGenTypeRegistry::Get().Def(UsdGenCurveSetType()).publish;
+    UsdGenTypeId const type = UsdGenHydraCurveSetType();
+    return type == UsdGenTypeId::Invalid ? nullptr : UsdGenTypeRegistry::Get().Def(type).publish;
 }
 
 // What the publisher keeps across one cooker's cooks.
 struct _State final : UsdGenPublisherState
 {
     std::unique_ptr<UsdGenPublishHookState> hooks;   // the publish hooks' state
+    UsdGenCurveSlots slots;         // the terminal's static channel slots
     UsdGenPreviewColors colors;     // the last build's usdGen:preview colours
     // Identity of the fur density volume's non-tile inputs (occluder meshes,
     // grid parameters): the tile COW check alone cannot see them change.
@@ -122,13 +123,13 @@ struct _State final : UsdGenPublisherState
 struct TileInputs
 {
     UsdGenGraphSpec const &spec;
-    UsdGenCurveSetView const &term;
+    UsdGenCurveColumns const &term;
     UsdGenSpan<const UsdGenChunkRange> chunks;
     UsdGenPreviewColors const &colors;
 };
 
 // Colours of the previewed values, indexed like the terminal buffer.
-void PreviewColors(UsdGenGraphSpec const &spec, UsdGenCurveSetView const &term,
+void PreviewColors(UsdGenGraphSpec const &spec, UsdGenCurveColumns const &term,
                    UsdGenPreviewValues const &values, UsdGenPreviewColors *out)
 {
     out->active = values.active;
@@ -269,12 +270,12 @@ constexpr uint32_t kGroupPositionDirty = 1u << uint32_t(UsdGenChannelRole::Posit
 constexpr uint32_t kGroupWidthDirty = 1u << uint32_t(UsdGenChannelRole::Width);
 
 // A named per-curve (cv false) or per-CV plane of the terminal.
-std::optional<UsdGenPlaneView> _FindPlane(UsdGenCurveSetView const &term, bool cv,
+std::optional<UsdGenCurvePlane> _FindPlane(UsdGenCurveColumns const &term, bool cv,
                                           TfToken const &name)
 {
     uint32_t const n = cv ? term.ExtraCvCount() : term.ExtraCurveCount();
     for (uint32_t k = 0; k < n; ++k) {
-        UsdGenPlaneView const p = cv ? term.ExtraCv(k) : term.ExtraCurve(k);
+        UsdGenCurvePlane const p = cv ? term.ExtraCv(k) : term.ExtraCurve(k);
         if (p.name == name) return p;
     }
     return std::nullopt;
@@ -292,7 +293,7 @@ std::optional<UsdGenPlaneView> _FindPlane(UsdGenCurveSetView const &term, bool c
 // overwritten and no garbage is observed. wantColor selects Root (NoColor
 // passes false); every other color mode stays on the serial loop.
 bool _BuildTilePublicationBulk(
-    UsdGenChunkGroup const &tv, UsdGenCurveSetView const &term,
+    UsdGenChunkGroup const &tv, UsdGenCurveColumns const &term,
     UsdGenSpan<const UsdGenChunkRange> chunks, bool wantColor, GfVec3f const &rootColor,
     UsdGenTilePublication *pub, uint32_t *depSurface, bool *hasDep)
 {
@@ -406,7 +407,7 @@ bool _BuildTilePublicationBulk(
 UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv)
 {
     UsdGenGraphSpec const &spec = in.spec;
-    UsdGenCurveSetView const &term = in.term;
+    UsdGenCurveColumns const &term = in.term;
     UsdGenSpan<const UsdGenChunkRange> const chunks = in.chunks;
     UsdGenPreviewColors const &previewColors = in.colors;
     UsdGenTilePublication pub;
@@ -422,22 +423,22 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
     pub.hairT.reserve(tv.live[1]);
     pub.hairId.reserve(tv.live[0]);
 
-    std::optional<UsdGenPlaneView> const displayColor =
+    std::optional<UsdGenCurvePlane> const displayColor =
         _FindPlane(term, false, UsdGenTokens().displayColor);
     struct ExtraPlanePublication {
-        std::optional<UsdGenPlaneView> source;
+        std::optional<UsdGenCurvePlane> source;
         UsdGenPlane output;
     };
     std::vector<ExtraPlanePublication> extraPlanes;
     // The forwarded source colour is consumed into the tile's displayColor
     // below, never published: it is an input to the colour decision, not a
     // primvar of its own.
-    std::optional<UsdGenPlaneView> sourceColor =
-        _FindPlane(term, false, UsdGenSourceColorPlane());
-    if (!sourceColor) sourceColor = _FindPlane(term, true, UsdGenSourceColorPlane());
-    auto addExtraPlane = [&](UsdGenPlaneView const& plane, TfToken expectedInterpolation) {
+    std::optional<UsdGenCurvePlane> sourceColor =
+        _FindPlane(term, false, UsdGenHydraSourceColorPlane());
+    if (!sourceColor) sourceColor = _FindPlane(term, true, UsdGenHydraSourceColorPlane());
+    auto addExtraPlane = [&](UsdGenCurvePlane const& plane, TfToken expectedInterpolation) {
         if (plane.name == UsdGenTokens().displayColor ||
-            plane.name == UsdGenSourceColorPlane()) return;
+            plane.name == UsdGenHydraSourceColorPlane()) return;
         size_t const elements = expectedInterpolation == UsdGenTokens().constant ? 1 :
             expectedInterpolation == UsdGenTokens().vertex ? term.totalCvs : term.totalCurves;
         size_t const values = elements * plane.arity;
@@ -465,7 +466,7 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
         extraPlanes.push_back(std::move(entry));
     };
     for (uint32_t k = 0; k < term.ExtraCurveCount(); ++k) {
-        UsdGenPlaneView const p = term.ExtraCurve(k);
+        UsdGenCurvePlane const p = term.ExtraCurve(k);
         if (p.interpolation == UsdGenTokens().constant)
             addExtraPlane(p, UsdGenTokens().constant);
         else if (p.interpolation == UsdGenTokens().uniform)
@@ -693,8 +694,8 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
 
     UsdGenNodeKey dependencySurface;
     if (hasDep) {
-        for (UsdGenInputRecord const &record : UsdGenSurfaceInputs(spec))
-            if (UsdGenSurfaceInputView::Of(record).id == depSurface) {
+        for (UsdGenInputRecord const &record : UsdGenHydraSurfaceInputs(spec))
+            if (UsdGenHydraSurfaceId(record) == depSurface) {
                 dependencySurface = record.key;
                 break;
             }
@@ -719,7 +720,7 @@ UsdGenTilePublication BuildTile(TileInputs const &in, UsdGenChunkGroup const &tv
     return pub;
 }
 
-bool RefreshTilePoints(UsdGenChunkGroup const &tv, UsdGenCurveSetView const &term,
+bool RefreshTilePoints(UsdGenChunkGroup const &tv, UsdGenCurveColumns const &term,
                        UsdGenSpan<const UsdGenChunkRange> chunks,
                        UsdGenTilePublication const &previous, UsdGenTilePublication *out)
 {
@@ -824,7 +825,7 @@ UsdGenRef<const UsdGenPublication> BuildPublication(UsdGenPublishContext const &
     if (!ctx.spec || !ctx.graph || !ctx.terminal || !ctx.state) return {};
     UsdGenGraphSpec const &spec = *ctx.spec;
     _State &state = static_cast<_State &>(*ctx.state);
-    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*ctx.terminal);
+    UsdGenCurveColumns const term = UsdGenCurveColumns::Of(*ctx.terminal, &state.slots);
     UsdGenCurvePublication const *const prev =
         ctx.previous ? &UsdGenCurvePublicationOf(ctx.previous) : nullptr;
     UsdGenRef<UsdGenCurvePublication> const out = UsdGenNewCurvePublication();
@@ -1015,14 +1016,13 @@ UsdGenRef<const UsdGenPublication> BuildPublication(UsdGenPublishContext const &
         // tiles were transformed into.
         // A GeomSubset surface carries its whole parent mesh, which occludes
         // whole and once, however many subsets of it the groom binds.
-        occlusion.occluders.reserve(UsdGenSurfaceInputs(spec).size());
-        UsdGenTypeId const surfaceKind = UsdGenSurfaceInputKind();
+        occlusion.occluders.reserve(UsdGenHydraSurfaceInputs(spec).size());
         for (uint32_t i = 0; publish && publish->occluder; ++i) {
             UsdGenNodeKey const key = publish->occluder(ctx, i);
             if (!key.IsValid()) break;
-            UsdGenInputRecord const *const surfaceRecord = spec.FindInput(surfaceKind, key);
+            UsdGenInputRecord const *const surfaceRecord = UsdGenHydraFindSurface(spec, key);
             if (!surfaceRecord) continue;
-            UsdGenSurfaceInputView const surface = UsdGenSurfaceInputView::Of(*surfaceRecord);
+            UsdGenHydraSurfaceMesh const surface = UsdGenHydraSurfaceMeshOf(*surfaceRecord);
             UsdGenFurOccluder occluder;
             occluder.points.assign(surface.points.begin(), surface.points.end());
             occluder.faceVertexCounts.assign(surface.faceVertexCounts.begin(),
@@ -1105,7 +1105,7 @@ UsdGenRef<const UsdGenPublication> BuildGroupPublication(UsdGenPublishContext co
     // Streamed groups never carry preview colours: the engine streams only
     // when no preview is active.
     UsdGenPreviewColors const none{};
-    UsdGenCurveSetView const term = UsdGenCurveSetView::Of(*ctx.terminal);
+    UsdGenCurveColumns const term = UsdGenCurveColumns::Of(*ctx.terminal);
     TileInputs const inputs{*ctx.spec, term, ctx.chunks, none};
     UsdGenRef<UsdGenCurvePublication> one = UsdGenNewCurvePublication();
     one->tiles.push_back(BuildTile(inputs, ctx.groups[group]));
@@ -1296,25 +1296,25 @@ std::unique_ptr<UsdGenPublisherState> CreateState()
 bool UsdGenRbfAnimationEnabled() { return TfGetEnvSetting(USDGEN_STORM_GPU_DEFORM); }
 
 UsdGenCurvePublication::UsdGenCurvePublication() noexcept
-    : UsdGenPublication(UsdGenCurveSetType(), kUsdGenCurvePublicationKind)
+    : UsdGenPublication(UsdGenHydraCurveSetType(), kUsdGenCurvePublicationKind)
 {
 }
 
 UsdGenCurveDirtyReport::UsdGenCurveDirtyReport() noexcept
-    : UsdGenPublication(UsdGenCurveSetType(), kUsdGenCurveDirtyReportKind)
+    : UsdGenPublication(UsdGenHydraCurveSetType(), kUsdGenCurveDirtyReportKind)
 {
 }
 
 UsdGenRef<UsdGenCurvePublication> UsdGenNewCurvePublication()
 {
-    // The type id exists once the curve primitive registered.
-    (void)UsdGenEngineEnsureInitialized();
+    // The type id exists once this adapter registered.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
     return UsdGenRef<UsdGenCurvePublication>(new UsdGenCurvePublication);
 }
 
 UsdGenCurvePublication const &UsdGenCurvePublicationOf(UsdGenPublication const *p) noexcept
 {
-    return p && p->kind == kUsdGenCurvePublicationKind && p->type == UsdGenCurveSetType()
+    return p && p->kind == kUsdGenCurvePublicationKind && p->type == UsdGenHydraCurveSetType()
         ? static_cast<UsdGenCurvePublication const &>(*p) : _emptyPublication;
 }
 
@@ -1325,7 +1325,7 @@ UsdGenCurvePublication const &UsdGenCurvePublicationOf(UsdGenGeneration const &g
 
 UsdGenCurveDirtyReport const &UsdGenCurveDirtyReportOf(UsdGenPublication const *p) noexcept
 {
-    return p && p->kind == kUsdGenCurveDirtyReportKind && p->type == UsdGenCurveSetType()
+    return p && p->kind == kUsdGenCurveDirtyReportKind && p->type == UsdGenHydraCurveSetType()
         ? static_cast<UsdGenCurveDirtyReport const &>(*p) : _emptyReport;
 }
 
@@ -1335,10 +1335,18 @@ UsdGenRef<const UsdGenPublication> UsdGenDiffCurvePublications(UsdGenPublication
     return Diff(prev, next);
 }
 
+bool UsdGenCurvePublisherRegistered() noexcept
+{
+    UsdGenTypeId const type = UsdGenHydraCurveSetType();
+    UsdGenPublisherDef const *const def =
+        type == UsdGenTypeId::Invalid ? nullptr : UsdGenFindPublisher(type);
+    return def && def->build == &BuildPublication;
+}
+
 bool UsdGenRegisterCurvePublisher(UsdGenRegistrar &r)
 {
     UsdGenPublisherDef def;
-    def.primitive = UsdGenCurveSetType();
+    def.primitive = UsdGenHydraCurveSetType();
     def.build = &BuildPublication;
     def.buildGroup = &BuildGroupPublication;
     def.diff = &Diff;

@@ -8,6 +8,7 @@
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGen/sharedCell.h"
 #include "usdGenImaging/cleanupQueue.h"
+#include "usdGenHydraCurves/register.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 
 #include "usdGen/epoch.h"
@@ -354,6 +355,8 @@ UsdGenImagingSession::UsdGenImagingSession(UsdGenSessionKey const& key,
     : _key(key), _engine(std::move(engine)),
       _state(new State(_engine, frame, context, commandCapacity)) {
     (void)RetirementQueue();
+    // Publishers register before the engine's first compile freezes them.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
 }
 UsdGenImagingSession::~UsdGenImagingSession() {
     State* state = _state.release();

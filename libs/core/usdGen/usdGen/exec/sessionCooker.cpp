@@ -10,6 +10,8 @@
 #include "usdGen/executionBackend.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
+#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/publishDesc.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGen/taskScheduler.h"
 
@@ -1703,9 +1705,24 @@ UsdGenStats publishedStats, bool invalidateValues,
 UsdGenPublisherDef const *UsdGenSessionCooker::_SelectPublisher(
     UsdGenElementSet const &terminal)
 {
-    UsdGenPublisherDef const *const publisher =
-        UsdGenFindPublisher(terminal.Channels().Layout().primitive);
-    if (!publisher || !publisher->build) return nullptr;
+    UsdGenTypeId const type = terminal.Channels().Layout().primitive;
+    UsdGenPublisherDef const *const publisher = UsdGenFindPublisher(type);
+    if (!publisher || !publisher->build) {
+        // A type with a publish desc publishes nothing without its host
+        // adapter's publisher: say so once per session.
+        if (!_warnedNoPublisher && type != UsdGenTypeId::Invalid) {
+            UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
+            UsdGenPublishDesc const *const publish = types.Def(type).publish;
+            if (publish && publish->kind != UsdGenPublishKind::None) {
+                _warnedNoPublisher = true;
+                std::fprintf(stderr,
+                             "usdGen: no publisher for type %s; the host did not register one "
+                             "before the first compile\n",
+                             types.Name(type).GetText());
+            }
+        }
+        return nullptr;
+    }
     if (publisher != _publisher) {
         _publisherState = publisher->createState ? publisher->createState() : nullptr;
         _publisher = publisher;

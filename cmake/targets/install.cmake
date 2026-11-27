@@ -13,7 +13,7 @@
 # libusdGen_seexpr.a into lib/ and drag their unprefixed INTERFACE include
 # roots into the usdGenTargets export set.
 install(TARGETS usdGen usdGenSurface usdGenExpr usdGenCurves usdGenWithPrimitives
-        usdGenUsd usdGenImaging usdGenSchema usdGenShaders usdGenPomade
+        usdGenUsd usdGenHydraCurves usdGenImaging usdGenSchema usdGenShaders usdGenPomade
     EXPORT usdGenTargets
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
@@ -129,6 +129,7 @@ install(FILES
 #   the include shim (<build>/shim) -> the pre-move "usdGen/..." spellings
 #   usdGenSchema  libs/hosts/usdGenUsd/schema -> #include "usdGenSchema/..."
 #   usdGenImaging libs/hosts/usdGenHydra -> #include "usdGenImaging/..."
+#   usdGenHydraCurves libs/hosts/usdGenHydra/primitives/curves -> #include "usdGenHydraCurves/..."
 #   usdGenPomade   libs/usdGenPomade     -> #include "usdGenPomade/..."
 # so the install mirrors the include spellings directly under
 # <prefix>/include. Trailing source slashes + FILES_MATCHING ship headers
@@ -163,6 +164,9 @@ install(DIRECTORY libs/hosts/usdGenUsd/schema/usdGenSchema/
     FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY libs/hosts/usdGenHydra/usdGenImaging/
     DESTINATION include/usdGenImaging
+    FILES_MATCHING PATTERN "*.h")
+install(DIRECTORY libs/hosts/usdGenHydra/primitives/curves/usdGenHydraCurves/
+    DESTINATION include/usdGenHydraCurves
     FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY libs/usdGenPomade/usdGenPomade/
     DESTINATION include/usdGenPomade

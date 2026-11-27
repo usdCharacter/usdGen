@@ -2,7 +2,7 @@
 // One immutable scene snapshot and ordered notices; no application mutex.
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenImaging/usdGenEnable.h"
 #include "usdGenImaging/testHook.h"
@@ -19,8 +19,9 @@
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/executionSequenceWindow.h"
-#include "usdGen/furOcclusion.h"
-#include "usdGenCurves/publish/curvePublisher.h"
+#include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenHydraCurves/publisher.h"
+#include "usdGenHydraCurves/register.h"
 #include "usdGen/parkingWord.h"
 #include "pxr/base/trace/trace.h"
 #include "pxr/imaging/hd/sceneIndexPluginRegistry.h"
@@ -2126,6 +2127,8 @@ UsdGenGroomSceneIndex::UsdGenGroomSceneIndex(HdSceneIndexBaseRefPtr const& input
       _renderInstanceId(static_cast<uint32_t>(id)),
       _publishScalpShadow(publishScalpShadow),
       _stormMaterialPolicy(stormMaterialPolicy) {
+    // The curve publisher registers before this index's first compile.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
     static std::atomic<uint64_t> next{uint64_t(1) << 32};
     if (id == 0) _renderInstanceId = next.fetch_add(1);
     auto& service = SceneService();

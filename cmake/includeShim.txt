@@ -44,7 +44,6 @@ usdGen/expressions/irExec.h usdGenExpr/expressions/irExec.h
 usdGen/expressions/samplers.h usdGenExpr/expressions/samplers.h
 usdGen/expressions/valueShape.h usdGenExpr/expressions/valueShape.h
 usdGen/fastCores.h usdGen/exec/fastCores.h
-usdGen/furOcclusion.h usdGenCurves/publish/furOcclusion.h
 usdGen/generationStore.h usdGen/exec/generationStore.h
 usdGen/gpu/cudaCompat.h usdGenCuda/gpu/cudaCompat.h
 usdGen/gpu/cudaCompletionLane.h usdGenCuda/gpu/cudaCompletionLane.h
@@ -155,7 +154,6 @@ usdGen/surfaceRootFrames.h usdGenSurface/surfaceRootFrames.h
 usdGen/taskScheduler.h usdGen/exec/taskScheduler.h
 usdGen/types.h usdGen/compile/types.h
 usdGen/usdGen.h usdGen/api/usdGen.h
-usdGen/valuePreview.h usdGenCurves/publish/valuePreview.h
 usdGen/vulkan/chargedBuffer.h usdGenVulkan/vulkan/chargedBuffer.h
 usdGen/vulkan/completionService.h usdGenVulkan/vulkan/completionService.h
 usdGen/vulkan/csourceVkAdmission.h usdGenCurves/vulkan/csourceVkAdmission.h

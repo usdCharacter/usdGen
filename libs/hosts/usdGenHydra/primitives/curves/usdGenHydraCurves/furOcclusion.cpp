@@ -1,7 +1,7 @@
-#include "usdGen/furOcclusion.h"
+#include "usdGenHydraCurves/furOcclusion.h"
 
-#include "usdGen/debugCodes.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/debugCodes.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/trace/trace.h"

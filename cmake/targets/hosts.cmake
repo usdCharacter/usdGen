@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Nick Burkard
 # SPDX-License-Identifier: MIT
 #
-# Hosts: usdGenUsd, usdGenSchema, usdGenImaging, usdGenPomade, test utils, plugin resources. Included from the root CMakeLists.txt.
+# Hosts: usdGenUsd, usdGenSchema, usdGenHydraCurves, usdGenImaging, usdGenPomade, test utils, plugin resources. Included from the root CMakeLists.txt.
 
 # ---------------------------------------------------------------------------
 # usdGenUsd (SHARED, host): the only code that maps SdfPath to engine node
@@ -34,6 +34,27 @@ target_link_libraries(usdGenSchema
     PRIVATE tf usdGeom usdGenMath)
 
 # ---------------------------------------------------------------------------
+# usdGenHydraCurves (SHARED, host): the curves' Hydra adapter (step 9.2). The
+# curve publisher and publication types, fur occlusion, preview colours, the
+# tile publisher and the instancer. Reads curve sets through usdGen/api by
+# channel name; never links a primitive or a backend (link gate 9c).
+# ---------------------------------------------------------------------------
+file(GLOB USDGEN_HYDRA_CURVES_SOURCES
+    libs/hosts/usdGenHydra/primitives/curves/usdGenHydraCurves/*.cpp)
+add_library(usdGenHydraCurves SHARED ${USDGEN_HYDRA_CURVES_SOURCES})
+target_include_directories(usdGenHydraCurves PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves>
+    $<INSTALL_INTERFACE:include>)
+# usdGenMath (build tree only): publication.h reaches usdGenMath/rbf.h through
+# api/deformBinding.h.
+target_link_libraries(usdGenHydraCurves
+    PUBLIC usdGen usdGenUsd $<BUILD_INTERFACE:usdGenMath> hd sdf tf gf vt
+    PRIVATE trace work)
+set_target_properties(usdGenHydraCurves PROPERTIES
+    CXX_VISIBILITY_PRESET default
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# ---------------------------------------------------------------------------
 # usdGenImaging (SHARED — scene-index plugins + adapters)
 # ---------------------------------------------------------------------------
 file(GLOB_RECURSE USDGEN_IMAGING_SOURCES libs/hosts/usdGenHydra/usdGenImaging/*.cpp)
@@ -41,9 +62,11 @@ add_library(usdGenImaging SHARED ${USDGEN_IMAGING_SOURCES})
 target_include_directories(usdGenImaging PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra>
     $<INSTALL_INTERFACE:include>)
+# usdGenSurface and usdGenExpr stay for the brush and tools APIs (step 13).
 target_link_libraries(usdGenImaging
     PUBLIC hd hdsi hf usd usdGeom usdShade sdr usdImaging
-           sdf tf gf vt trace pxOsd usdGenWithPrimitives usdGenUsd
+           sdf tf gf vt trace pxOsd usdGen usdGenSurface usdGenExpr usdGenUsd
+           usdGenHydraCurves $<BUILD_INTERFACE:usdGenMath>
     PRIVATE hio js
     PRIVATE usdGenSchema)
 set_target_properties(usdGenImaging PROPERTIES

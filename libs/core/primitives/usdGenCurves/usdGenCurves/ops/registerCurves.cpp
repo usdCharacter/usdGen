@@ -9,7 +9,6 @@
 #include "usdGenCurves/export.h"
 #include "usdGenCurves/ops/kernelOps.h"
 #include "usdGenCurves/publish/curvePublishDesc.h"
-#include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/exprInput.h"
@@ -92,7 +91,6 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
     UsdGenRegisterCurveSetType(r, UsdGenMakeCurvePublishDesc());   // first: op defs name its type
-    UsdGenRegisterCurvePublisher(r);
     UsdGenCurvesKernelOps &k = gKernelOps;
     k.scatter = UsdGenRegisterScatterOp(r);
     k.grow = UsdGenRegisterGrowOp(r);

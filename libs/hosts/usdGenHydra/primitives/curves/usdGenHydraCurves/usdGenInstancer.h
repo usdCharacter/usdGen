@@ -6,7 +6,7 @@
 // <description>/__usdGenRender/inst_<opName> (02 §3.2), whose prototypes are
 // the description's Prototypes re-rooted as namespace children of the
 // instancer (S33). This unit is self-contained and engine-free: it bakes
-// per-instance transforms/primvars from a UsdGenCurveBuffer and assembles
+// per-instance transforms/primvars from evaluated curve columns and assembles
 // the Hydra data sources; the scene-index plugin owns session membership,
 // prototype mirroring and notice delivery (see the integration note in
 // BuildInstancerDataSource).
@@ -36,8 +36,9 @@
 #ifndef USDGEN_IMAGING_INSTANCER_H
 #define USDGEN_IMAGING_INSTANCER_H
 
-#include "usdGenCurves/publish/curvePublication.h"
-#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenHydraCurves/publication.h"
+
+#include <cstdint>
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/quatf.h"
@@ -56,13 +57,25 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenImaging {
 
+// The evaluated curves an instancer reads: the CurveSet fields it needs,
+// with UsdGenCurveBuffer's names and layout (planes share their arrays).
+struct UsdGenInstanceCurveData
+{
+    uint32_t totalCurves = 0, totalCvs = 0;
+    VtFloatArray px, py, pz;                // size == totalCvs
+    VtArray<uint64_t> curveId;              // size == totalCurves
+    VtVec3fArray rootT, rootN, rootB;       // rest root frame per curve
+    VtIntArray cvOffsets;                   // totalCurves+1 when ragged; else empty
+    std::vector<usdGen::UsdGenPlane> extraCurve;   // per-curve and constant planes
+};
+
 // Evaluated-curve input bundle for UsdGenInstancer::Bake.
 struct UsdGenInstanceCurves
 {
     // Terminal input of the UsdGenInstance node: roots (first CV of each
     // span), tangents (root segment), rootT/rootN/rootB frames and curveId.
     // Must outlive the Bake call; never retained.
-    usdGen::UsdGenCurveBuffer const *curves = nullptr;
+    UsdGenInstanceCurveData const *curves = nullptr;
     // Per-curve look bake feeding "displayColor" (02 §2.11 example). Empty =
     // absent. A per-CV array (size == totalCvs) is sampled at each curve's
     // root CV, mirroring the tile displayColor uniform-or-vertex duality
