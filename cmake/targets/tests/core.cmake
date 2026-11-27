@@ -120,6 +120,11 @@ add_executable(testUsdGenMathGfParity tests/usdGenUsd/testUsdGenMathGfParity.cpp
 target_link_libraries(testUsdGenMathGfParity PRIVATE usdGenMath gf tf)
 add_test(NAME testUsdGenMathGfParity COMMAND testUsdGenMathGfParity)
 set_tests_properties(testUsdGenMathGfParity PROPERTIES LABELS "T0;math" TIMEOUT 300)
+
+add_executable(testUsdGenToken tests/usdGenUsd/testUsdGenToken.cpp)
+target_link_libraries(testUsdGenToken PRIVATE usdGen usdGenUsd tf)
+add_test(NAME testUsdGenToken COMMAND testUsdGenToken)
+set_tests_properties(testUsdGenToken PROPERTIES LABELS "T0;registries" TIMEOUT 300)
 add_executable(testUsdGenNodeKeyMap tests/testUsdGenNodeKeyMap.cpp)
 target_link_libraries(testUsdGenNodeKeyMap PRIVATE usdGenUsd)
 add_test(NAME testUsdGenNodeKeyMap COMMAND testUsdGenNodeKeyMap)
