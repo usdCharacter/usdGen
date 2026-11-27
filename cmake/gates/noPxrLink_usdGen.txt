@@ -3,9 +3,4 @@ tf
 gf
 vt
 arch
-js
-plug
-ts
-ar
-work
 trace

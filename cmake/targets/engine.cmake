@@ -47,7 +47,7 @@ target_include_directories(usdGen PUBLIC
 # through the link, and no public header includes usdGenMath/...
 target_link_libraries(usdGen
     PUBLIC tf gf vt
-    PRIVATE usdGenMath arch js plug ts ar work trace ${CMAKE_DL_LIBS})
+    PRIVATE usdGenMath arch trace ${CMAKE_DL_LIBS})
 if(WIN32)
     target_link_libraries(usdGen PRIVATE Synchronization)  # WaitOnAddress
 endif()
