@@ -156,7 +156,7 @@ endforeach()
 #
 #   testUsdGenNoOpNameLiterals    no op type name literal in the engine
 #                                 outside an op's registration line
-#   testUsdGenNoTokenIntern       no TfToken built from text or a string:
+#   testUsdGenNoTokenIntern       no TfToken or UsdGenToken built from text or a string:
 #                                 the interner is the one door
 #   testUsdGenEngineNoOpCoupling  no op header and no cast to an op class
 #                                 outside ops/
@@ -164,11 +164,11 @@ endforeach()
 # Gate 1's exclude omits the registration line's trailing ';' (a ';' would
 # split the ctest argument).
 set(USDGEN_OP_NAME_LITERAL_PATTERN
-    "TfToken[ ]*[({][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
+    "(Tf|UsdGen)Token[ ]*[({][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
 set(USDGEN_OP_NAME_LITERAL_EXCLUDE
     "^[ ]*//|^[ ]*[A-Za-z_][A-Za-z0-9_]*[.]name[ ]*=[ ]*\"UsdGen[A-Z][A-Za-z]*\"")
 set(USDGEN_TOKEN_INTERN_PATTERN
-    "TfToken[ ]*[({][ ]*[^ )}]|TfToken[ ]+[A-Za-z_][A-Za-z0-9_]*[ ]*[({][ ]*\"")
+    "(Tf|UsdGen)Token[ ]*[({][ ]*[^ )}]|(Tf|UsdGen)Token[ ]+[A-Za-z_][A-Za-z0-9_]*[ ]*[({][ ]*\"")
 set(USDGEN_OP_COUPLING_PATTERN
     "#[ ]*include[ ]*\"usdGen/ops/|(dynamic|static)_cast<[ ]*(const[ ]+)?UsdGen[A-Za-z]*Op[ ]*(const[ ]*)?[*&]")
 
