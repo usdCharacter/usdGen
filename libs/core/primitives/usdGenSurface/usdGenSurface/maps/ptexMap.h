@@ -99,6 +99,9 @@ public:
     // re-reads files from disk. A file still held by a live texture or sampler
     // keeps serving its old data and is purged once the last holder is gone.
     static void PurgeCache();
+    // Creates the process cache (usdGenRegister, inside UsdGenEngine::Create).
+    // A first Open still creates it when the engine did not load usdGenSurface.
+    static void CreateCache();
 
 private:
     struct State;

@@ -15,6 +15,7 @@
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
 #include "usdGen/op.h"
+#include "usdGen/api/engine.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
@@ -198,9 +199,9 @@ void RegisterTestLibrary(UsdGenRegistrar &r)
 
 void TestRegistration()
 {
-    std::string error = "unset";
-    Check(UsdGenEngineEnsureInitialized(&error) && error.empty(), "UsdGenEngineEnsureInitialized");
-    Check(UsdGenEngineEnsureInitialized(), "UsdGenEngineEnsureInitialized is idempotent");
+    UsdGenStatus const created = UsdGenEngine::Create();
+    Check(created.ok(), "UsdGenEngine::Create: " + std::string(created.message()));
+    Check(UsdGenEngine::Create().ok(), "UsdGenEngine::Create is idempotent");
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     Check(ops.ParamEvaluator().create != nullptr, "usdGenExpr registers the parameter evaluator");
     Check(UsdGenCreateParamEvaluatorState() != nullptr, "an evaluator state is made");

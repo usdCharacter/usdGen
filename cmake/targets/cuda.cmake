@@ -128,7 +128,7 @@ endif()
 # usdGenVulkan's kernel rows: without the toolkit it carries the CPU-side
 # admission (capability matrix, ValidateCudaGraph) and registers "cuda" as
 # unavailable. The registry loads it after the primitives
-# (USDGEN_DEFAULT_EXTENSIONS). It is the only target that may compile
+# (usdGenExtensions.txt). It is the only target that may compile
 # deviceBuffer.cu (Gates.cmake, single block cache).
 # ---------------------------------------------------------------------------
 file(GLOB_RECURSE _usdgen_cuda_cpp_sources
@@ -158,7 +158,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT WIN32)
     target_link_options(usdGenCuda PRIVATE "LINKER:--exclude-libs,ALL")
 endif()
 add_dependencies(usdGenWithPrimitives usdGenCuda)
-list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCuda)
+list(APPEND USDGEN_EXTENSION_TARGETS usdGenCuda)
 if(USDGEN_ENABLE_CUDA)
     target_sources(usdGenCuda PRIVATE
         libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBuffer.cu
@@ -259,7 +259,7 @@ if(USDGEN_ENABLE_CUDA)
 endif()
 add_dependencies(usdGenWithPrimitives usdGenCurvesCuda)
 # Loaded after usdGenCuda: its usdGenRegister names the "cuda" backend.
-list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCurvesCuda)
+list(APPEND USDGEN_EXTENSION_TARGETS usdGenCurvesCuda)
 install(TARGETS usdGenCurvesCuda
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")

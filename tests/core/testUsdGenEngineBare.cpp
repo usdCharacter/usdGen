@@ -9,6 +9,7 @@
 // diagnostic naming its type, and the first compile freezes the registries.
 // An empty GraphSpec keeps the compiler's "no operator nodes" contract.
 
+#include "usdGen/api/engine.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
@@ -95,8 +96,8 @@ int main()
 #else
     setenv("USDGEN_EXTENSIONS", ":", 1);
 #endif
-    std::string error = "stale";
-    Check(UsdGenEngineEnsureInitialized(&error) && error.empty(), "bare engine initializes: " + error);
+    UsdGenStatus const created = UsdGenEngine::Create();
+    Check(created.ok(), "bare engine initializes: " + std::string(created.message()));
     Check(UsdGenOpRegistry::Get().Count() == 0, "no extension, no ops");
     Check(UsdGenTypeRegistry::Get().Count() == 0, "no extension, no types");
     Check(UsdGenOpRegistry::Get().ParamEvaluator().create == nullptr, "no extension, no evaluator");

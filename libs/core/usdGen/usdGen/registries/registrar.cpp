@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -227,13 +228,6 @@ std::unique_ptr<UsdGenParamEvaluatorState> UsdGenCreateParamEvaluatorState()
     return def.create ? def.create() : nullptr;
 }
 
-bool UsdGenEngineEnsureInitialized(std::string *error)
-{
-    UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
-    if (error) *error = ops.InitError();
-    return ops.InitError().empty();
-}
-
 bool UsdGenRegisterStatic(UsdGenRegisterFn fn)
 {
     UsdGenOpRegistry &ops = UsdGenMutableOpRegistry();
@@ -292,6 +286,39 @@ std::string EngineDirectory()
 // Set while this thread runs the default extensions' usdGenRegister.
 thread_local bool tRegistering = false;
 
+bool IsAbsolute(std::string const &path)
+{
+    return (!path.empty() && (path[0] == '/' || path[0] == '\\')) ||
+           (path.size() > 1 && path[1] == ':');
+}
+
+// The directory part of 'path' with its trailing separator; empty if none.
+std::string DirectoryOf(std::string const &path)
+{
+    size_t const slash = path.find_last_of("/\\");
+    return slash == std::string::npos ? std::string() : path.substr(0, slash + 1);
+}
+
+// One file name per line, in load order, relative to the manifest's
+// directory. Blank lines and '#' lines are skipped. False if unreadable.
+bool ReadManifest(std::string const &manifest, std::vector<std::string> *paths)
+{
+    std::ifstream in(manifest, std::ios::binary);
+    if (!in) return false;
+    std::string const dir = DirectoryOf(manifest);
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t begin = 0, end = line.size();
+        while (begin < end && (line[begin] == ' ' || line[begin] == '\t')) ++begin;
+        while (end > begin && (line[end - 1] == ' ' || line[end - 1] == '\t' || line[end - 1] == '\r'))
+            --end;
+        if (begin == end || line[begin] == '#') continue;
+        std::string name = line.substr(begin, end - begin);
+        paths->push_back(IsAbsolute(name) ? std::move(name) : dir + name);
+    }
+    return true;
+}
+
 }  // namespace
 
 bool UsdGenRegistering() noexcept { return tRegistering; }
@@ -325,9 +352,11 @@ size_t UsdGenModuleDirectory(void const *anchor, char *buffer, size_t capacity) 
     return n;
 }
 
-// The op registry's constructor: registers the default extensions (or
-// USDGEN_EXTENSIONS) in order. Keeps going past a failure; 'error' gets the first.
-void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, std::string *error)
+// The op registry's constructor: registers the extensions 'manifest' names,
+// else USDGEN_EXTENSIONS, else usdGenExtensions.txt beside usdGen, in order.
+// Keeps going past a failure; 'error' gets the first.
+void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, char const *manifest,
+                                 std::string *error)
 {
 #if defined(_WIN32)
     char const separator = ';';
@@ -335,7 +364,10 @@ void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, std::string *error)
     char const separator = ':';
 #endif
     std::vector<std::string> paths;
-    if (char const *list = std::getenv("USDGEN_EXTENSIONS")) {
+    if (manifest) {
+        if (!ReadManifest(manifest, &paths))
+            *error = std::string("cannot read the extension manifest '") + manifest + "'";
+    } else if (char const *list = std::getenv("USDGEN_EXTENSIONS")) {
         std::string const all(list);
         for (size_t begin = 0; begin <= all.size();) {
             size_t end = all.find(separator, begin);
@@ -344,26 +376,14 @@ void UsdGenLoadDefaultExtensions(UsdGenRegistrar &registrar, std::string *error)
             begin = end + 1;
         }
     } else {
-#if defined(USDGEN_DEFAULT_EXTENSIONS)
-        // File names joined by '|', in load order (CMake).
-        std::string const files(USDGEN_DEFAULT_EXTENSIONS);
-#else
-        std::string const files;
-#endif
+        // Written by CMake beside usdGen (and installed with it); absent: no extension.
         std::string const dir = EngineDirectory();
-        if (dir.empty() && !files.empty()) *error = "cannot locate usdGen's directory";
-        for (size_t begin = 0; !dir.empty() && begin < files.size();) {
-            size_t end = files.find('|', begin);
-            if (end == std::string::npos) end = files.size();
-            if (end > begin) paths.push_back(dir + files.substr(begin, end - begin));
-            begin = end + 1;
-        }
+        if (dir.empty()) *error = "cannot locate usdGen's directory";
+        else (void)ReadManifest(dir + "usdGenExtensions.txt", &paths);
     }
     for (std::string const &path : paths) {
         std::string message;
-        bool const absolute = (!path.empty() && (path[0] == '/' || path[0] == '\\')) ||
-                              (path.size() > 1 && path[1] == ':');
-        UsdGenRegisterFn const fn = OpenExtension(path, absolute, &message);
+        UsdGenRegisterFn const fn = OpenExtension(path, IsAbsolute(path), &message);
         if (fn) {
             tRegistering = true;
             fn(registrar);

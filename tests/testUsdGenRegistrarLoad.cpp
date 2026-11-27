@@ -9,6 +9,7 @@
 // adapter (usdGenHydraCurves) does, and only before the registries freeze.
 
 #include "utils/testToken.h"
+#include "usdGen/api/engine.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/publisher.h"
@@ -66,8 +67,8 @@ int RunLoad()
 #else
     setenv("USDGEN_EXTENSIONS", ":", 1);
 #endif
-    std::string error = "stale";
-    Check(UsdGenEngineEnsureInitialized(&error) && error.empty(), "bare engine initializes");
+    std::string error;
+    Check(UsdGenEngine::Create().ok(), "bare engine initializes");
     Check(UsdGenOpRegistry::Get().Count() == 0, "no extension, no ops");
     Check(UsdGenOpRegistry::Get().ParamEvaluator().create == nullptr, "no extension, no evaluator");
 
@@ -98,9 +99,10 @@ int RunLoad()
 
 int RunDefaults()
 {
-    std::string error = "stale";
-    Check(UsdGenEngineEnsureInitialized(&error) && error.empty(),
-          "default extensions load from usdGen's directory: " + error);
+    std::string error;
+    UsdGenStatus const created = UsdGenEngine::Create();
+    Check(created.ok(), "default extensions load from usdGen's directory: " +
+                            std::string(created.message()));
     CheckPrimitives("defaults");
     Check(UsdGenFindBackend(TestToken("cpu")) == kUsdGenBackendCpu &&
               UsdGenGetBackend(kUsdGenBackendCpu) == nullptr,

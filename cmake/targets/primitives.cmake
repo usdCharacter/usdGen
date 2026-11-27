@@ -6,7 +6,7 @@
 # ---------------------------------------------------------------------------
 # Primitives (SHARED, step 6.4): usdGenSurface <- usdGenExpr <- usdGenCurves,
 # usdGenSurface <- usdGenCurves. Each exports usdGenRegister (register.cpp);
-# UsdGenEngineEnsureInitialized loads them from usdGen's directory.
+# UsdGenEngine::Create loads them from usdGen's directory (usdGenExtensions.txt).
 # ---------------------------------------------------------------------------
 function(_usdgen_add_primitive _name _root)
     file(GLOB_RECURSE _sources "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/${_root}/*.cpp")
@@ -61,10 +61,10 @@ target_sources(usdGenCurves PRIVATE ${_usdgen_curves_hosted})
 target_link_libraries(usdGenCurves
     PUBLIC usdGen usdGenSurface usdGenExpr $<BUILD_INTERFACE:usdGenMath>
     PRIVATE usdGen_seexpr ${CMAKE_DL_LIBS})
-# usdGen loads them at registry build (UsdGenEngineEnsureInitialized), from
-# its own directory, in this order; the backend files follow (cuda.cmake,
-# vulkan.cmake append, vulkan.cmake writes USDGEN_DEFAULT_EXTENSIONS).
-set(USDGEN_DEFAULT_EXTENSION_TARGETS usdGenSurface usdGenExpr usdGenCurves)
+# usdGen loads them at UsdGenEngine::Create, from its own directory, in this
+# order; the backend files follow (cuda.cmake and vulkan.cmake append,
+# vulkan.cmake writes the manifest usdGenExtensions.txt).
+set(USDGEN_EXTENSION_TARGETS usdGenSurface usdGenExpr usdGenCurves)
 # What hosts and tests link instead of usdGen (step 6.4).
 add_library(usdGenWithPrimitives INTERFACE)
 target_link_libraries(usdGenWithPrimitives INTERFACE usdGen usdGenSurface usdGenExpr usdGenCurves)

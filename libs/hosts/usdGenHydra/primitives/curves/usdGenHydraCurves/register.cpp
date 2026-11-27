@@ -3,6 +3,7 @@
 #include "usdGenHydraCurves/register.h"
 #include "usdGenHydraCurves/curveColumns.h"
 #include "usdGenHydraCurves/publisher.h"
+#include "usdGen/api/engine.h"
 #include "usdGen/registries/registrar.h"
 
 #include <atomic>
@@ -28,7 +29,7 @@ bool UsdGenHydraCurvesEnsureRegistered(std::string *error)
         std::this_thread::yield();   // another thread registers (microseconds)
     }
     std::string reason;
-    (void)UsdGenEngineEnsureInitialized();   // the primitives register first
+    (void)UsdGenEngine::Get();   // the primitives register first
     if (!UsdGenCurvePublisherRegistered()) {
         if (UsdGenOpRegistry::Get().IsFrozen())
             reason = "the registries are frozen: register usdGenHydraCurves before the first compile";

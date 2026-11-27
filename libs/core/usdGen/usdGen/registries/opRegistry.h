@@ -20,6 +20,7 @@ class UsdGenRegistrar;
 class UsdGenOpRegistry;
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // registrar.h
 UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;   // registrar-only
+UsdGenOpRegistry &UsdGenBuildOpRegistry(char const *manifest);   // UsdGenEngine::Create only
 
 /// Immutable after RegisterOp. Every name interned once.
 class USDGEN_CORE_API UsdGenOpRecord {
@@ -63,8 +64,7 @@ private:
 
 class USDGEN_CORE_API UsdGenOpRegistry {
 public:
-    /// Built with the default extensions on first use (UsdGenEngineEnsureInitialized)
-    /// and published by CAS.
+    /// Built by UsdGenEngine::Create (called on first use) and published by CAS.
     static UsdGenOpRegistry const &Get() noexcept;
     bool IsFrozen() const noexcept { return _frozen.load(std::memory_order_acquire); }
     uint32_t Count() const noexcept { return _count; }
@@ -72,7 +72,7 @@ public:
     UsdGenOpId Find(UsdGenToken const &name) const noexcept;
     UsdGenOpRecord const &Record(UsdGenOpId id) const noexcept { return _records[UsdGenIndex(id)]; }
     std::unique_ptr<UsdGenOp> Create(UsdGenOpId id) const;
-    /// First default-extension load failure; empty when all loaded.
+    /// First manifest extension load failure; empty when all loaded.
     std::string const &InitError() const noexcept { return _initError; }
     /// The registered connected-parameter evaluator; create null when none.
     UsdGenParamEvaluatorDef const &ParamEvaluator() const noexcept { return _paramEvaluator; }
@@ -81,7 +81,8 @@ private:
     friend class UsdGenRegistrar;
     friend void UsdGenFreezeRegistries();
     friend UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept;
-    UsdGenOpRegistry();
+    friend UsdGenOpRegistry &UsdGenBuildOpRegistry(char const *manifest);
+    explicit UsdGenOpRegistry(char const *manifest);
     UsdGenOpRecord _records[kUsdGenMaxOps];
     uint32_t _count = 0;
     struct NameSlot { UsdGenToken name; UsdGenOpId id = UsdGenOpId::Invalid; };

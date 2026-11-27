@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // usdGenCurvesVulkan's registration: the curves' Vulkan device program (its
 // SPIR-V table and pipeline factory) and the Vulkan kernel rows of the
-// built-in curve ops. Loaded after usdGenVulkan (USDGEN_DEFAULT_EXTENSIONS),
+// built-in curve ops. Loaded after usdGenVulkan (usdGenExtensions.txt),
 // whose backend it names, and after usdGenCurves, whose op ids it attaches to.
 #include "usdGenCurves/vulkan/export.h"
 #include "usdGenCurves/ops/kernelOps.h"

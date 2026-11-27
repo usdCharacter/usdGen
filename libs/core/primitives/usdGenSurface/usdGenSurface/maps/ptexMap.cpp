@@ -459,6 +459,11 @@ void UsdGenPtexTexture::PurgeCache()
     if (PtexCache *cache = ProcessCache()) cache->purgeAll();
 }
 
+void UsdGenPtexTexture::CreateCache()
+{
+    (void)ProcessCache();
+}
+
 UsdGenPtexTexture::Sampler::Sampler(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
 UsdGenPtexTexture::Sampler::~Sampler() = default;

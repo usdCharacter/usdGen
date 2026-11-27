@@ -110,7 +110,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     _usdgen_hint_vulkan_loader()
     find_package(Vulkan 1.2 REQUIRED)
     # usdGenVulkan (SHARED, step 8.2): the Vulkan runtime. The registry loads it after the primitives
-    # (USDGEN_DEFAULT_EXTENSIONS); its usdGenRegister adds the Vulkan kernel
+    # (usdGenExtensions.txt); its usdGenRegister adds the Vulkan kernel
     # rows and registers the "vulkan" backend, unavailable without the
     # runtime (test-only builds), where tests inject a provider. One DSO holds the canonical UUID registry.
     add_library(usdGenVulkan SHARED ${_usdgen_vulkan_sources}
@@ -133,7 +133,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         target_compile_definitions(usdGenVulkan PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
     endif()
     add_dependencies(usdGenWithPrimitives usdGenVulkan)
-    list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenVulkan)
+    list(APPEND USDGEN_EXTENSION_TARGETS usdGenVulkan)
     # Primitive Vulkan targets (step 8.6a), each sourced by GLOB_RECURSE of
     # its folder so a git mv moves membership (reconfigure after one):
     # SHARED usdGenCurvesVulkan (usdGenCurves/vulkan/) and OBJECT
@@ -179,7 +179,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     endif()
     add_dependencies(usdGenWithPrimitives usdGenCurvesVulkan)
     # Loaded after usdGenVulkan: its usdGenRegister names the "vulkan" backend.
-    list(APPEND USDGEN_DEFAULT_EXTENSION_TARGETS usdGenCurvesVulkan)
+    list(APPEND USDGEN_EXTENSION_TARGETS usdGenCurvesVulkan)
     install(TARGETS usdGenCurvesVulkan
         RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
         LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}")
@@ -295,16 +295,15 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
         USDGEN_VULKAN_SHADER_RELATIVE_DIR="${_usdgen_vulkan_shader_relative_dir}")
 endif()
 
-# The extensions usdGen loads from its own directory when USDGEN_EXTENSIONS
-# is unset, in load order: file names joined by '|' (registrar.cpp).
-set(_usdgen_default_extensions "")
-foreach(_t IN LISTS USDGEN_DEFAULT_EXTENSION_TARGETS)
-    if(_usdgen_default_extensions STREQUAL "")
-        set(_usdgen_default_extensions "$<TARGET_FILE_NAME:${_t}>")
-    else()
-        string(APPEND _usdgen_default_extensions "|$<TARGET_FILE_NAME:${_t}>")
-    endif()
+# The extension manifest (12.0): usdGenExtensions.txt beside usdGen, one
+# file name per line in load order. UsdGenEngine::Create reads it when
+# USDGEN_EXTENSIONS is unset; the install tree carries it beside the library.
+set(_usdgen_ext_lines "")
+foreach(_t IN LISTS USDGEN_EXTENSION_TARGETS)
+    string(APPEND _usdgen_ext_lines "$<TARGET_FILE_NAME:${_t}>\n")
 endforeach()
-set_property(SOURCE libs/core/usdGen/usdGen/registries/registrar.cpp APPEND PROPERTY
-    COMPILE_DEFINITIONS "USDGEN_DEFAULT_EXTENSIONS=\"${_usdgen_default_extensions}\"")
-unset(_usdgen_default_extensions)
+file(GENERATE OUTPUT "$<TARGET_FILE_DIR:usdGen>/usdGenExtensions.txt"
+    CONTENT "${_usdgen_ext_lines}")
+install(FILES "$<TARGET_FILE_DIR:usdGen>/usdGenExtensions.txt"
+    DESTINATION "${USDGEN_INSTALL_LIBDIR}")
+unset(_usdgen_ext_lines)

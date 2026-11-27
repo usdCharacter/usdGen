@@ -52,12 +52,8 @@ USDGEN_CORE_API bool UsdGenLoadExtension(std::string const &path, std::string *e
 USDGEN_CORE_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
 USDGEN_CORE_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
 
-/// Builds the registries: loads the extensions named by USDGEN_EXTENSIONS
-/// (paths, ';' on Windows, ':' elsewhere), else the default extensions CMake
-/// names (USDGEN_DEFAULT_EXTENSIONS) from usdGen's own directory, and
-/// calls each usdGenRegister in that order. Idempotent and lock-free; every registry lookup calls it
-/// implicitly. False with 'error' when an extension failed to load. Freezing
-/// stays with the first compile, so extensions and tests can register after it.
-USDGEN_CORE_API bool UsdGenEngineEnsureInitialized(std::string *error = nullptr);
+// UsdGenEngine::Create (api/engine.h) builds the registries from the
+// extension manifest. Freezing stays with the first compile, so extensions
+// and tests can register after it.
 
 }  // namespace usdGen

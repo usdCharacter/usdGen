@@ -637,6 +637,16 @@ std::atomic<DomainRegistry*> gDomainRegistry{nullptr};
 
 }  // namespace
 
+// UsdGenEngine::Create: the empty table. Idempotent.
+void UsdGenCreateCacheDomainTable()
+{
+    if (gDomainRegistry.load(std::memory_order_acquire)) return;
+    DomainRegistry* fresh = new DomainRegistry;
+    DomainRegistry* expected = nullptr;
+    if (!gDomainRegistry.compare_exchange_strong(expected, fresh, std::memory_order_seq_cst))
+        delete fresh;
+}
+
 std::shared_ptr<UsdGenExecutionCacheDomain> UsdGenExecutionCacheDomain::AcquireShared(
     UsdGenExecutionCacheDomainKey key, size_t maxBytes)
 {

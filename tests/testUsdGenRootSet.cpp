@@ -14,6 +14,7 @@
 #include "usdGenSurface/types/rootSet.h"
 #include "usdGenCurves/types/curveSet.h"
 
+#include "usdGen/api/engine.h"
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/exec/scheduler.h"
@@ -259,8 +260,7 @@ void TestCookedRoots()
 
 int main()
 {
-    std::string error;
-    UsdGenEngineEnsureInitialized(&error);
+    (void)UsdGenEngine::Get();
     Check(UsdGenRegisterStatic(&RegisterTestPoints), "test types register before the first compile");
     TestType();
     TestPorts();

@@ -7,6 +7,7 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGenSurface/export.h"
 #include "usdGenSurface/limitSurface.h"
+#include "usdGenSurface/maps/ptexMap.h"
 
 using namespace usdGen;
 
@@ -21,4 +22,5 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
 extern "C" void usdGenRegister_usdGenSurface(UsdGenRegistrar &)
 {
     (void)UsdGenSurfaceTokens();
+    UsdGenPtexTexture::CreateCache();
 }

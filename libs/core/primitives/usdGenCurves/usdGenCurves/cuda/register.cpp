@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // usdGenCurvesCuda's registration: the CUDA kernel rows of the built-in curve
 // ops (the capability matrix reads them in every build) and the curves' CUDA
-// device program. Loaded after usdGenCuda (USDGEN_DEFAULT_EXTENSIONS), whose
+// device program. Loaded after usdGenCuda (usdGenExtensions.txt), whose
 // backend it names, and after usdGenCurves, whose op ids the rows attach to.
 #include "usdGenCurves/cuda/export.h"
 #include "usdGenCurves/cuda/cudaStages.h"

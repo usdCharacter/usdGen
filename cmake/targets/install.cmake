@@ -18,7 +18,7 @@ install(TARGETS usdGen usdGenSurface usdGenExpr usdGenCurves usdGenWithPrimitive
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${USDGEN_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${USDGEN_INSTALL_LIBDIR}")
-# usdGen loads the backends from its own directory (USDGEN_DEFAULT_EXTENSIONS).
+# usdGen loads the backends from its own directory (usdGenExtensions.txt).
 install(TARGETS usdGenCuda
     EXPORT usdGenTargets
     RUNTIME DESTINATION "${USDGEN_INSTALL_LIBDIR}"

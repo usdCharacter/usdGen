@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // usdGenVulkan's registration: the "vulkan" backend (unavailable without the
 // runtime). The primitives' kernel rows and programs register from their own
-// modules, loaded after this one (USDGEN_DEFAULT_EXTENSIONS).
+// modules, loaded after this one (usdGenExtensions.txt).
 #include "usdGenVulkan/export.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGenVulkan/vulkan/defaultProvider.h"

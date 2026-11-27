@@ -6,6 +6,7 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
 
+#include "usdGen/api/engine.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/op.h"
 
@@ -14,7 +15,7 @@
 namespace usdGen {
 
 void UsdGenReadTokenCheckSetting() noexcept;   // token.cpp
-void UsdGenLoadDefaultExtensions(UsdGenRegistrar &, std::string *error);   // registrar.cpp
+void UsdGenLoadDefaultExtensions(UsdGenRegistrar &, char const *manifest, std::string *error);   // registrar.cpp
 UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
 
 namespace {
@@ -123,18 +124,16 @@ bool UsdGenOpRecord::AcceptsInput(UsdGenToken const &producerType) const noexcep
 
 // ---- UsdGenOpRegistry -------------------------------------------------------
 
-UsdGenOpRegistry::UsdGenOpRegistry()
+UsdGenOpRegistry::UsdGenOpRegistry(char const *manifest)
 {
     UsdGenReadTokenCheckSetting();
     (void)UsdGenTokens();
     (void)UsdGenMutableTypeRegistry();
-    // The default extensions, in id order.
+    // The manifest's extensions, in id order.
     UsdGenRegistrar r(*this);
-    UsdGenLoadDefaultExtensions(r, &_initError);
+    UsdGenLoadDefaultExtensions(r, manifest, &_initError);
 }
 
-// Built on first use and published by CAS; a thread that loses the race
-// discards its own copy, so nobody waits. Never freed.
 UsdGenOpRegistry const &UsdGenOpRegistry::Get() noexcept
 {
     return UsdGenMutableOpRegistry();
@@ -144,7 +143,17 @@ UsdGenOpRegistry &UsdGenMutableOpRegistry() noexcept
 {
     if (UsdGenOpRegistry *registry = gOpRegistry.load(std::memory_order_acquire))
         return *registry;
-    UsdGenOpRegistry *fresh = new UsdGenOpRegistry;
+    (void)UsdGenEngine::Create();   // builds and publishes the registry
+    return *gOpRegistry.load(std::memory_order_acquire);
+}
+
+// Published by CAS; a thread that loses the race discards its own copy, so
+// nobody waits. Never freed.
+UsdGenOpRegistry &UsdGenBuildOpRegistry(char const *manifest)
+{
+    if (UsdGenOpRegistry *registry = gOpRegistry.load(std::memory_order_acquire))
+        return *registry;
+    UsdGenOpRegistry *fresh = new UsdGenOpRegistry(manifest);
     UsdGenOpRegistry *winner = nullptr;
     if (gOpRegistry.compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
                                             std::memory_order_acquire))

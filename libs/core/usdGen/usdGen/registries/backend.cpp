@@ -55,7 +55,7 @@ UsdGenBackendId UsdGenRegistrar::RegisterBackend(UsdGenBackendDef const &def)
         std::strcmp(def.name, "cpu") == 0 || std::strcmp(def.name, "cpuReference") == 0 ||
         FindSlot(def.name) != kUsdGenMaxBackends)
         return UsdGenBackendId::Invalid;
-    // Dense from 1 in load order (USDGEN_DEFAULT_EXTENSIONS).
+    // Dense from 1 in load order (usdGenExtensions.txt).
     uint32_t slot = kUsdGenMaxBackends;
     for (uint32_t i = 1; i < kUsdGenMaxBackends && slot == kUsdGenMaxBackends; ++i)
         if (Claim(i)) slot = i;
