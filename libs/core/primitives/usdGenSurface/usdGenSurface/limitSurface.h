@@ -16,7 +16,7 @@ struct UsdGenSurfaceTokenTable {
     UsdGenToken catmullClark, loop, bilinear, none, edgeOnly, edgeAndCorner, all,
         cornersOnly, cornersPlus1, cornersPlus2, boundaries, uniform, chaikin, smooth;
 };
-USDGEN_CORE_API UsdGenSurfaceTokenTable const &UsdGenSurfaceTokens() noexcept;
+USDGEN_SURFACE_API UsdGenSurfaceTokenTable const &UsdGenSurfaceTokens() noexcept;
 
 // Patch evaluation, not interpolation of a finitely subdivided polygon cage.
 // Build accepts any Catmull-Clark polygon topology. Evaluate addresses a quad
