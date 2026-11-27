@@ -22,6 +22,9 @@
 // re-captures on every frame it moves; the factorization is kept while the
 // rest samples do not change. Evaluate applies usdGen:mask.
 #include "usdGen/ops/deform.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"

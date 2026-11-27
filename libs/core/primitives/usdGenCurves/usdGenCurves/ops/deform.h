@@ -2,6 +2,8 @@
 #define USDGEN_OP_DEFORM_H
 
 #include "usdGen/op.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGenMath/rbf.h"

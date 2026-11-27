@@ -22,6 +22,9 @@
 // still hard-errors on every one of those states; the Evaluate fallbacks
 // only cover a literal edited after capture and can never write NaN.
 #include "usdGen/ops/collide.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/limitSurface.h"

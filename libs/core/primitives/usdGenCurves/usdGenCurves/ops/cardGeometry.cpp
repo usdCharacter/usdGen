@@ -5,6 +5,7 @@
 // with the reference clamps and constants, so grids match the imported
 // groom's own card mesh up to float rounding.
 #include "usdGen/ops/cardGeometry.h"
+#include "usdGenMath/math.h"
 
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/registries/engineTokens.h"

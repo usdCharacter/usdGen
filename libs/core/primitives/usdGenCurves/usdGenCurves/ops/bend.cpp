@@ -11,6 +11,10 @@
 // zero-length axis bends nothing. All work is per curve/CV in Evaluate;
 // Capture only validates.
 #include "usdGen/ops/bend.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"

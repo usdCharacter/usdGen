@@ -57,6 +57,10 @@
 // count) and sub-clumps (usdGen:clump:sub:*, sector centres projected onto
 // the bound surface).
 #include "usdGen/ops/clump.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"

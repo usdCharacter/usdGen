@@ -3,6 +3,8 @@
 //
 // usdGen — reference clump modes. See clumpModes.h.
 #include "usdGen/ops/clumpModes.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
 
 #include "usdGen/ops/opUtil.h"
 

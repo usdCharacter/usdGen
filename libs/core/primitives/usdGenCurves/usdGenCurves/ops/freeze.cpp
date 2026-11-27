@@ -8,6 +8,10 @@
 // mode owns nothing and Evaluate memcpys the chain input to the output.
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
 #include "usdGen/ops/freeze.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 

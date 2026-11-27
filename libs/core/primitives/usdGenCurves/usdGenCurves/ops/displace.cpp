@@ -16,6 +16,8 @@
 // map type reaches the kernel. All work is per curve/CV in Evaluate (no
 // capture payload); Capture only validates literals and connected values.
 #include "usdGen/ops/displace.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"

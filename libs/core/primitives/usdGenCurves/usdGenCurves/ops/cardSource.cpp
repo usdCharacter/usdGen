@@ -4,6 +4,10 @@
 // usdGen — UsdGenCardSourceOp implementation. See cardSource.h for the
 // behaviour and ops/cardGeometry.h for the card grids.
 #include "usdGen/ops/cardSource.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"

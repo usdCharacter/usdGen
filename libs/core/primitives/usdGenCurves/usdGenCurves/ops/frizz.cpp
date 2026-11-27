@@ -22,6 +22,7 @@
 //   Offsets come from the undisplaced curve; the root never moves.
 // Floating-point evaluation order follows the reference.
 #include "usdGen/ops/frizz.h"
+#include "usdGen/api/span.h"
 
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"

@@ -1,4 +1,7 @@
 #include "usdGen/ops/curveSource.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"

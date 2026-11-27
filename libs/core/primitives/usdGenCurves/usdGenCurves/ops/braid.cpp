@@ -19,6 +19,8 @@
 // concentric-disk slot around the members' mean root, radii sqrt(3) W and
 // sqrt(3) D), and the projection sort tie-break (strandIndex order).
 #include "usdGen/ops/braid.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/opUtil.h"
