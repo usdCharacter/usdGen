@@ -6,8 +6,7 @@
 
 #include "usdGenMath/usdGenMath/hash.h"
 
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3f.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cstring>
@@ -22,7 +21,6 @@
 #include <utility>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -37,14 +35,14 @@ bool Fail(std::string const &message, std::string *error)
 }
 
 bool Finite(float value) { return std::isfinite(value); }
-bool Finite(GfVec2f const &value) { return Finite(value[0]) && Finite(value[1]); }
-bool Finite(GfVec3f const &value) {
+bool Finite(UsdGenVec2f const &value) { return Finite(value[0]) && Finite(value[1]); }
+bool Finite(UsdGenVec3f const &value) {
     return Finite(value[0]) && Finite(value[1]) && Finite(value[2]);
 }
 
-float TriangleArea(GfVec3f const &a, GfVec3f const &b, GfVec3f const &c)
+float TriangleArea(UsdGenVec3f const &a, UsdGenVec3f const &b, UsdGenVec3f const &c)
 {
-    return 0.5f * GfCross(b - a, c - a).GetLength();
+    return 0.5f * UsdGenCross(b - a, c - a).GetLength();
 }
 
 struct FaceData
@@ -120,9 +118,9 @@ bool ValidateInput(UsdGenSurfaceCageInput const &input,
     if (!input.surface.uv.empty() &&
         input.surface.uv.size() != input.surface.restPoints.size())
         return Fail("surface-cage surface UV cardinality differs from rest positions", error);
-    for (GfVec3f const &point : input.surface.restPoints)
+    for (UsdGenVec3f const &point : input.surface.restPoints)
         if (!Finite(point)) return Fail("surface-cage rest points are non-finite", error);
-    for (GfVec2f const &uv : input.surface.uv)
+    for (UsdGenVec2f const &uv : input.surface.uv)
         if (!Finite(uv)) return Fail("surface-cage surface UVs are non-finite", error);
 
     size_t corners = 0;
@@ -143,7 +141,7 @@ bool ValidateInput(UsdGenSurfaceCageInput const &input,
                 return Fail("surface-cage surface has an out-of-range face vertex", error);
             data.vertices.push_back(vertex);
         }
-        GfVec3f const &root = input.surface.restPoints[size_t(data.vertices.front())];
+        UsdGenVec3f const &root = input.surface.restPoints[size_t(data.vertices.front())];
         for (size_t triangle = 1; triangle + 1 < data.vertices.size(); ++triangle) {
             float const area = TriangleArea(root,
                 input.surface.restPoints[size_t(data.vertices[triangle])],
@@ -184,7 +182,7 @@ bool ValidateInput(UsdGenSurfaceCageInput const &input,
                         " has invalid controls", error);
         float lastX = -1.0f;
         for (int profile = begin; profile != end; ++profile) {
-            GfVec2f const pair = input.ownerLengthProfile[size_t(profile)];
+            UsdGenVec2f const pair = input.ownerLengthProfile[size_t(profile)];
             if (!Finite(pair) || pair[0] < 0.0f || pair[0] > 1.0f ||
                 !(pair[0] > lastX) || pair[1] < 0.0f || pair[1] > 1.0f)
                 return Fail("surface-cage owner length profile is invalid", error);
@@ -227,20 +225,20 @@ bool ValidateInput(UsdGenSurfaceCageInput const &input,
                 return Fail("surface-cage triangle " + std::to_string(triangle) +
                             " has an invalid rail binding", error);
         }
-        auto rootPoint = [&](uint32_t guide) -> GfVec3f const & {
+        auto rootPoint = [&](uint32_t guide) -> UsdGenVec3f const & {
             UsdGenSurfaceCageGuide const &rail = input.guides[guide];
             return rail.rest.empty() ? rail.points.front() : rail.rest.front();
         };
-        GfVec3f const a = rootPoint(binding.guides[0]);
-        GfVec3f const b = rootPoint(binding.guides[1]);
-        GfVec3f const c = rootPoint(binding.guides[2]);
-        GfVec3d const ab(double(b[0]) - double(a[0]), double(b[1]) - double(a[1]),
+        UsdGenVec3f const a = rootPoint(binding.guides[0]);
+        UsdGenVec3f const b = rootPoint(binding.guides[1]);
+        UsdGenVec3f const c = rootPoint(binding.guides[2]);
+        UsdGenVec3d const ab(double(b[0]) - double(a[0]), double(b[1]) - double(a[1]),
                           double(b[2]) - double(a[2]));
-        GfVec3d const ac(double(c[0]) - double(a[0]), double(c[1]) - double(a[1]),
+        UsdGenVec3d const ac(double(c[0]) - double(a[0]), double(c[1]) - double(a[1]),
                           double(c[2]) - double(a[2]));
-        double const d00 = GfDot(ab, ab);
-        double const d01 = GfDot(ab, ac);
-        double const d11 = GfDot(ac, ac);
+        double const d00 = UsdGenDot(ab, ab);
+        double const d01 = UsdGenDot(ab, ac);
+        double const d11 = UsdGenDot(ac, ac);
         double const determinant = d00 * d11 - d01 * d01;
         double const tolerance = 128.0 * std::numeric_limits<double>::epsilon() * d00 * d11;
         if (!std::isfinite(determinant) || !(d00 > 0.0) || !(d11 > 0.0) ||
@@ -285,7 +283,7 @@ bool ValidateInput(UsdGenSurfaceCageInput const &input,
     return true;
 }
 
-GfVec3f SampleRail(VtVec3fArray const &values, VtFloatArray const &t, float sample)
+UsdGenVec3f SampleRail(UsdGenVec3fArray const &values, UsdGenFloatArray const &t, float sample)
 {
     sample = std::max(0.0f, std::min(1.0f, sample));
     auto const upper = std::upper_bound(t.cbegin(), t.cend(), sample);
@@ -297,7 +295,7 @@ GfVec3f SampleRail(VtVec3fArray const &values, VtFloatArray const &t, float samp
     return values[left] * (1.0f - alpha) + values[right] * alpha;
 }
 
-float SampleRail(VtFloatArray const &values, VtFloatArray const &t, float sample)
+float SampleRail(UsdGenFloatArray const &values, UsdGenFloatArray const &t, float sample)
 {
     sample = std::max(0.0f, std::min(1.0f, sample));
     auto const upper = std::upper_bound(t.cbegin(), t.cend(), sample);
@@ -310,7 +308,7 @@ float SampleRail(VtFloatArray const &values, VtFloatArray const &t, float sample
 }
 
 float ProfileLength(UsdGenSurfaceCageInput const &input, OwnerData const &owner,
-                    GfVec2f const &chart)
+                    UsdGenVec2f const &chart)
 {
     UsdGenSurfaceCageOwner const &controls = *owner.owner;
     float const radius = std::max(0.0f, std::min(1.0f,
@@ -322,8 +320,8 @@ float ProfileLength(UsdGenSurfaceCageInput const &input, OwnerData const &owner,
     if (biased >= input.ownerLengthProfile[size_t(end - 1)][0])
         return input.ownerLengthProfile[size_t(end - 1)][1];
     for (int index = begin + 1; index != end; ++index) {
-        GfVec2f const left = input.ownerLengthProfile[size_t(index - 1)];
-        GfVec2f const right = input.ownerLengthProfile[size_t(index)];
+        UsdGenVec2f const left = input.ownerLengthProfile[size_t(index - 1)];
+        UsdGenVec2f const right = input.ownerLengthProfile[size_t(index)];
         if (biased <= right[0]) {
             float const alpha = (biased - left[0]) / (right[0] - left[0]);
             return left[1] * (1.0f - alpha) + right[1] * alpha;
@@ -348,17 +346,17 @@ std::array<float, 3> BiasedWeights(std::array<float, 3> weights,
     return weights;
 }
 
-bool ProjectRingToNewellPlane(std::vector<GfVec3f> const &ring,
-                              std::vector<GfVec2f> *projected)
+bool ProjectRingToNewellPlane(std::vector<UsdGenVec3f> const &ring,
+                              std::vector<UsdGenVec2f> *projected)
 {
     if (!projected || ring.size() < 3) return false;
-    GfVec3d normal(0.0, 0.0, 0.0);
+    UsdGenVec3d normal(0.0, 0.0, 0.0);
     double minX = ring.front()[0], maxX = minX;
     double minY = ring.front()[1], maxY = minY;
     double minZ = ring.front()[2], maxZ = minZ;
     for (size_t i = 0; i != ring.size(); ++i) {
-        GfVec3f const &a = ring[i];
-        GfVec3f const &b = ring[(i + 1) % ring.size()];
+        UsdGenVec3f const &a = ring[i];
+        UsdGenVec3f const &b = ring[(i + 1) % ring.size()];
         if (!Finite(a)) return false;
         normal[0] += double(a[1] - b[1]) * double(a[2] + b[2]);
         normal[1] += double(a[2] - b[2]) * double(a[0] + b[0]);
@@ -369,44 +367,44 @@ bool ProjectRingToNewellPlane(std::vector<GfVec3f> const &ring,
     }
     double const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
     double const scale2 = dx * dx + dy * dy + dz * dz;
-    double const normal2 = GfDot(normal, normal);
+    double const normal2 = UsdGenDot(normal, normal);
     if (!(scale2 > 0.0) || !std::isfinite(scale2) || !std::isfinite(normal2) ||
         normal2 <= double(std::numeric_limits<float>::epsilon()) * scale2 * scale2)
         return false;
     normal /= std::sqrt(normal2);
-    GfVec3d axis(1.0, 0.0, 0.0);
+    UsdGenVec3d axis(1.0, 0.0, 0.0);
     if (std::abs(normal[1]) <= std::abs(normal[0]) &&
-        std::abs(normal[1]) <= std::abs(normal[2])) axis = GfVec3d(0.0, 1.0, 0.0);
+        std::abs(normal[1]) <= std::abs(normal[2])) axis = UsdGenVec3d(0.0, 1.0, 0.0);
     else if (std::abs(normal[2]) <= std::abs(normal[0]) &&
-             std::abs(normal[2]) <= std::abs(normal[1])) axis = GfVec3d(0.0, 0.0, 1.0);
-    GfVec3d const u = GfCross(axis, normal).GetNormalized();
-    GfVec3d const v = GfCross(normal, u);
-    GfVec3d const origin(ring.front()[0], ring.front()[1], ring.front()[2]);
+             std::abs(normal[2]) <= std::abs(normal[1])) axis = UsdGenVec3d(0.0, 0.0, 1.0);
+    UsdGenVec3d const u = UsdGenCross(axis, normal).GetNormalized();
+    UsdGenVec3d const v = UsdGenCross(normal, u);
+    UsdGenVec3d const origin(ring.front()[0], ring.front()[1], ring.front()[2]);
     projected->clear(); projected->reserve(ring.size());
-    for (GfVec3f const &point : ring) {
-        GfVec3d const relative = GfVec3d(point) - origin;
-        projected->emplace_back(float(GfDot(relative, u)), float(GfDot(relative, v)));
+    for (UsdGenVec3f const &point : ring) {
+        UsdGenVec3d const relative = UsdGenVec3d(point) - origin;
+        projected->emplace_back(float(UsdGenDot(relative, u)), float(UsdGenDot(relative, v)));
     }
     return true;
 }
 
-GfVec2f CanonicalPoint(OwnerData const &owner, UsdGenSurfaceCageTriangle const &binding,
+UsdGenVec2f CanonicalPoint(OwnerData const &owner, UsdGenSurfaceCageTriangle const &binding,
                        std::array<float, 3> const &weights)
 {
     size_t const count = owner.guides.size();
     uint32_t const first = owner.guides.front();
-    GfVec2f point(0.0f);
+    UsdGenVec2f point(0.0f);
     double const step = 2.0 * std::acos(-1.0) / double(count);
     for (size_t i = 0; i != 3; ++i) {
         uint32_t const slot = binding.guides[i] - first;
         double const angle = step * double(slot);
-        point += GfVec2f(float(std::cos(angle)), float(std::sin(angle))) * weights[i];
+        point += UsdGenVec2f(float(std::cos(angle)), float(std::sin(angle))) * weights[i];
     }
     return point;
 }
 
 template <class T>
-T BlendRing(std::array<int, 3> const &slots, GfVec3f const &weights,
+T BlendRing(std::array<int, 3> const &slots, UsdGenVec3f const &weights,
             std::vector<T> const &ring)
 {
     return ring[size_t(slots[0])] * weights[0] + ring[size_t(slots[1])] * weights[1] +
@@ -415,22 +413,22 @@ T BlendRing(std::array<int, 3> const &slots, GfVec3f const &weights,
 
 struct MaterialRingSample
 {
-    std::vector<GfVec3f> points, rest;
+    std::vector<UsdGenVec3f> points, rest;
     std::vector<float> widths;
     std::vector<std::array<int, 3>> triangles;
     bool allWidths = false;
     bool collapsed = false;
 };
 
-double RingExtent2(std::vector<GfVec3f> const &ring)
+double RingExtent2(std::vector<UsdGenVec3f> const &ring)
 {
     double largest = 0.0;
     for (size_t a = 0; a != ring.size(); ++a)
         for (size_t b = a + 1; b != ring.size(); ++b) {
-            GfVec3d const delta(double(ring[a][0]) - double(ring[b][0]),
+            UsdGenVec3d const delta(double(ring[a][0]) - double(ring[b][0]),
                                 double(ring[a][1]) - double(ring[b][1]),
                                 double(ring[a][2]) - double(ring[b][2]));
-            largest = std::max(largest, GfDot(delta, delta));
+            largest = std::max(largest, UsdGenDot(delta, delta));
         }
     return largest;
 }
@@ -460,7 +458,7 @@ bool BuildMaterialRingSample(UsdGenSurfaceCageInput const &input, OwnerData cons
         candidate.widths.push_back(guide.widths.empty() ? owner.owner->defaultWidth :
                                    SampleRail(guide.widths, guide.normalizedT, railT));
     }
-    std::vector<GfVec3f> rootRing;
+    std::vector<UsdGenVec3f> rootRing;
     rootRing.reserve(owner.guides.size());
     for (uint32_t guideIndex : owner.guides)
         rootRing.push_back(input.guides[guideIndex].points.front());
@@ -474,7 +472,7 @@ bool BuildMaterialRingSample(UsdGenSurfaceCageInput const &input, OwnerData cons
         *sample = std::move(candidate);
         return true;
     }
-    std::vector<GfVec2f> projected;
+    std::vector<UsdGenVec2f> projected;
     if (!ProjectRingToNewellPlane(candidate.points, &projected))
         return Fail("surface-cage target material ring is degenerate", error);
     std::string triangulateError;
@@ -488,7 +486,7 @@ bool MaterialRingPoint(UsdGenSurfaceCageInput const &input, OwnerData const &own
                        UsdGenSurfaceCageTriangle const &binding,
                        std::array<float, 3> const &rootWeights, float railT,
                        std::map<uint32_t, MaterialRingSample> *cache,
-                       GfVec3f *point, GfVec3f *rest, float *width,
+                       UsdGenVec3f *point, UsdGenVec3f *rest, float *width,
                        std::string *error)
 {
     if (!cache || !point || !rest || !width)
@@ -512,7 +510,7 @@ bool MaterialRingPoint(UsdGenSurfaceCageInput const &input, OwnerData const &own
         return Finite(*point) && Finite(*rest) && Finite(*width) && *width >= 0.0f;
     }
     std::array<int, 3> slots;
-    GfVec3f weights;
+    UsdGenVec3f weights;
     std::string remapError;
     if (!UsdGenLocateConcaveMaterialPoint(owner.guides.size(), sample->triangles,
                                           CanonicalPoint(owner, binding, rootWeights),
@@ -526,7 +524,7 @@ bool MaterialRingPoint(UsdGenSurfaceCageInput const &input, OwnerData const &own
 }
 
 bool ContainingTriangle(UsdGenSurfaceCageInput const &input,
-                        OwnerData const &owner, GfVec3f const &root,
+                        OwnerData const &owner, UsdGenVec3f const &root,
                         uint32_t *triangleOut,
                         std::array<float, 3> *weightsOut)
 {
@@ -538,22 +536,22 @@ bool ContainingTriangle(UsdGenSurfaceCageInput const &input,
     constexpr float tolerance = 2.0e-5f;
     for (uint32_t triangleIndex : owner.triangles) {
         UsdGenSurfaceCageTriangle const &binding = input.triangles[triangleIndex];
-        auto rootPoint = [&](uint32_t guide) -> GfVec3f const & {
+        auto rootPoint = [&](uint32_t guide) -> UsdGenVec3f const & {
             UsdGenSurfaceCageGuide const &rail = input.guides[guide];
             return rail.rest.empty() ? rail.points.front() : rail.rest.front();
         };
-        GfVec3f const a = rootPoint(binding.guides[0]);
-        GfVec3f const b = rootPoint(binding.guides[1]);
-        GfVec3f const c = rootPoint(binding.guides[2]);
-        GfVec3d const v0(double(b[0]) - double(a[0]), double(b[1]) - double(a[1]),
+        UsdGenVec3f const a = rootPoint(binding.guides[0]);
+        UsdGenVec3f const b = rootPoint(binding.guides[1]);
+        UsdGenVec3f const c = rootPoint(binding.guides[2]);
+        UsdGenVec3d const v0(double(b[0]) - double(a[0]), double(b[1]) - double(a[1]),
                           double(b[2]) - double(a[2]));
-        GfVec3d const v1(double(c[0]) - double(a[0]), double(c[1]) - double(a[1]),
+        UsdGenVec3d const v1(double(c[0]) - double(a[0]), double(c[1]) - double(a[1]),
                           double(c[2]) - double(a[2]));
-        GfVec3d const v2(double(root[0]) - double(a[0]), double(root[1]) - double(a[1]),
+        UsdGenVec3d const v2(double(root[0]) - double(a[0]), double(root[1]) - double(a[1]),
                           double(root[2]) - double(a[2]));
-        double const d00 = GfDot(v0, v0), d01 = GfDot(v0, v1);
-        double const d11 = GfDot(v1, v1), d20 = GfDot(v2, v0);
-        double const d21 = GfDot(v2, v1);
+        double const d00 = UsdGenDot(v0, v0), d01 = UsdGenDot(v0, v1);
+        double const d11 = UsdGenDot(v1, v1), d20 = UsdGenDot(v2, v0);
+        double const d21 = UsdGenDot(v2, v1);
         double const determinant = d00 * d11 - d01 * d01;
         double const determinantTolerance =
             128.0 * std::numeric_limits<double>::epsilon() * d00 * d11;
@@ -664,7 +662,7 @@ bool UsdGenInterpolateSurfaceCage(UsdGenSurfaceCageInput const &input,
                     int const ia = face.vertices[0];
                     int const ib = face.vertices[fan + 1];
                     int const ic = face.vertices[fan + 2];
-                    GfVec3f const root = Blend(surfaceWeights, input.surface.restPoints[size_t(ia)],
+                    UsdGenVec3f const root = Blend(surfaceWeights, input.surface.restPoints[size_t(ia)],
                                                 input.surface.restPoints[size_t(ib)],
                                                 input.surface.restPoints[size_t(ic)]);
                     int ptexFace = -1;
@@ -688,7 +686,7 @@ bool UsdGenInterpolateSurfaceCage(UsdGenSurfaceCageInput const &input,
                     if (!emittedIds.insert(id).second)
                         return Fail("surface-cage emitted a duplicate stable curve id", error);
                     UsdGenSurfaceCageTriangle const &binding = input.triangles[triangleIndex];
-                    GfVec2f const chart = Blend(rootWeights, binding.rootChart[0],
+                    UsdGenVec2f const chart = Blend(rootWeights, binding.rootChart[0],
                                                  binding.rootChart[1], binding.rootChart[2]);
                     float const profileLength = ProfileLength(input, ownerData, chart);
                     if (!Finite(profileLength))
@@ -705,7 +703,7 @@ bool UsdGenInterpolateSurfaceCage(UsdGenSurfaceCageInput const &input,
                     candidate.curveId.push_back(id);
                     candidate.rootPrim.push_back(faceValue);
                     candidate.rootUV.push_back(input.surface.uv.empty()
-                        ? GfVec2f(ptexU, ptexV)
+                        ? UsdGenVec2f(ptexU, ptexV)
                         : Blend(surfaceWeights, input.surface.uv[size_t(ia)],
                                 input.surface.uv[size_t(ib)], input.surface.uv[size_t(ic)]));
                     candidate.ownerTubeId.push_back(owner.ownerTubeId);
@@ -718,15 +716,15 @@ bool UsdGenInterpolateSurfaceCage(UsdGenSurfaceCageInput const &input,
                         UsdGenSurfaceCageGuide const &a = input.guides[binding.guides[0]];
                         UsdGenSurfaceCageGuide const &b = input.guides[binding.guides[1]];
                         UsdGenSurfaceCageGuide const &c = input.guides[binding.guides[2]];
-                        GfVec3f point, rest;
+                        UsdGenVec3f point, rest;
                         float width = owner.defaultWidth;
                         if (!MaterialRingPoint(input, ownerData, binding, weights, railT,
                                                &materialRings,
                                                &point, &rest, &width, error))
                             return false;
-                        GfVec3f const rootPoint = Blend(rootWeights, a.points.front(),
+                        UsdGenVec3f const rootPoint = Blend(rootWeights, a.points.front(),
                                                          b.points.front(), c.points.front());
-                        GfVec3f const rootRest = Blend(rootWeights,
+                        UsdGenVec3f const rootRest = Blend(rootWeights,
                             (a.rest.empty() ? a.points : a.rest).front(),
                             (b.rest.empty() ? b.points : b.rest).front(),
                             (c.rest.empty() ? c.points : c.rest).front());

@@ -23,7 +23,7 @@ class ExprVkRun {
     VkResult ComputeHostStep();
     VkResult CommitHostStep();
     void Quarantine() noexcept;
-    ExprVkParameterField const *Find(TfToken const &) const;
+    ExprVkParameterField const *Find(UsdGenToken const &) const;
     /// By destination text, with or without "usdGen:". Never interns.
     ExprVkParameterField const *Find(std::string_view) const;
     std::shared_ptr<const ChargedBuffer> owners() const noexcept;

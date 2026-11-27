@@ -25,9 +25,7 @@
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/tf/diagnostic.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -63,10 +61,10 @@ struct UsdGenScatterCapture final : public UsdGenCurveCapture
     }
 };
 
-GfVec3f Normalize3(GfVec3f const &v)
+UsdGenVec3f Normalize3(UsdGenVec3f const &v)
 {
     const float l = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    return l > 1e-12f ? v / l : GfVec3f(0.0f, 1.0f, 0.0f);
+    return l > 1e-12f ? v / l : UsdGenVec3f(0.0f, 1.0f, 0.0f);
 }
 
 // Pooled per-thread sort scratch (bit-identical): the morton/order/tmp
@@ -99,8 +97,8 @@ struct ScatterEmission {
     std::vector<float> ax, ay, az;
     std::vector<uint64_t> aids;
     std::vector<int> aPrim;
-    std::vector<GfVec2f> aUv;
-    std::vector<GfVec3f> aT, aN, aB;
+    std::vector<UsdGenVec2f> aUv;
+    std::vector<UsdGenVec3f> aT, aN, aB;
     void reserve(size_t n)
     {
         ax.reserve(n); ay.reserve(n); az.reserve(n);
@@ -151,7 +149,7 @@ struct alignas(128) ScatterEmitSlot {
 struct ScatterSpill {
     double areaRest;
     float w0, w1;
-    GfVec3f nrest;
+    UsdGenVec3f nrest;
     uint32_t nf;
 };
 static_assert(std::is_trivially_default_constructible<ScatterSpill>::value,
@@ -181,8 +179,8 @@ struct ScatterRawRoots {
     std::unique_ptr<float[]> ax, ay, az;
     std::unique_ptr<uint64_t[]> aids;
     std::unique_ptr<int[]> aPrim;
-    std::unique_ptr<GfVec2f[]> aUv;
-    std::unique_ptr<GfVec3f[]> aT, aN, aB;
+    std::unique_ptr<UsdGenVec2f[]> aUv;
+    std::unique_ptr<UsdGenVec3f[]> aT, aN, aB;
 };
 
 // Pooled two-pass emission scratch (bit-identical): pass 1's spill
@@ -201,13 +199,13 @@ struct ScatterEmissionScratch {
     size_t rawTotal = 0;
 };
 thread_local ScatterEmissionScratch t_scatterEmissionScratch;
-static_assert(std::is_trivially_default_constructible<GfVec2f>::value,
+static_assert(std::is_trivially_default_constructible<UsdGenVec2f>::value,
               "raw vec2 planes stay uninitialized");
-static_assert(std::is_trivially_default_constructible<GfVec3f>::value,
+static_assert(std::is_trivially_default_constructible<UsdGenVec3f>::value,
               "raw vec3 planes stay uninitialized");
-static_assert(std::is_trivially_copyable<GfVec2f>::value,
+static_assert(std::is_trivially_copyable<UsdGenVec2f>::value,
               "raw vec2 assignment is a plain store");
-static_assert(std::is_trivially_copyable<GfVec3f>::value,
+static_assert(std::is_trivially_copyable<UsdGenVec3f>::value,
               "raw vec3 assignment is a plain store");
 
 // Parallel-for over N slots: the scheduler's pool when Capture runs
@@ -429,7 +427,7 @@ UsdGenEpoch UsdGenScatterOp::CaptureDigest(UsdGenCaptureContext const &ctx) cons
     feed("subdivisionLevel", p ? p->GetInt(kSubdivisionLevel,0) : 0);
     // Generation-order modes: their parameters, the guide set and the
     // density maps (identity folds the painted values) are capture inputs.
-    auto tokenBits = [](TfToken const &t) {
+    auto tokenBits = [](UsdGenToken const &t) {
         opUtil::Digest d;
         d.Mix(t);
         return d.h;
@@ -497,7 +495,7 @@ bool UsdGenScatterOp::Capture(
     UsdGenCapture *out,
     UsdGenDiagnostics *diag)
 {
-    TF_UNUSED(in);
+    (void)in;
     UsdGenGraphSpec const *desc = ctx.desc;
     UsdGenParamView const *p = ctx.params ? &*ctx.params : nullptr;
     if (!desc) {
@@ -671,16 +669,16 @@ bool UsdGenScatterOp::Capture(
     // same float ops in the same order). triW takes nFan = nc - 2
     // weights; the caller provides the stack/spill buffer.
     auto fanFace = [&](size_t cbase, int nc, float *triW,
-                       GfVec3f *nAccOut, double *areaOut) {
-        GfVec3f const p0 = rest[fvi[cbase]];
+                       UsdGenVec3f *nAccOut, double *areaOut) {
+        UsdGenVec3f const p0 = rest[fvi[cbase]];
         double areaRest = 0.0;
-        GfVec3f nAcc(0.0f, 0.0f, 0.0f);
+        UsdGenVec3f nAcc(0.0f, 0.0f, 0.0f);
         for (int t = 1; t + 1 < nc; ++t) {
-            GfVec3f const pb = rest[fvi[cbase + size_t(t)]];
-            GfVec3f const pc = rest[fvi[cbase + size_t(t) + 1]];
-            GfVec3f const eb = pb - p0;
-            GfVec3f const ec = pc - p0;
-            GfVec3f const x = GfCross(eb, ec);
+            UsdGenVec3f const pb = rest[fvi[cbase + size_t(t)]];
+            UsdGenVec3f const pc = rest[fvi[cbase + size_t(t) + 1]];
+            UsdGenVec3f const eb = pb - p0;
+            UsdGenVec3f const ec = pc - p0;
+            UsdGenVec3f const x = UsdGenCross(eb, ec);
             float const w = 0.5f * std::sqrt(
                 x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
             triW[size_t(t) - 1] = w;
@@ -728,7 +726,7 @@ bool UsdGenScatterOp::Capture(
         // float sum below equals it up to fp-associativity and is used for the
         // sampling weights so the cumulative weights sum exactly to the
         // denominator.
-        GfVec3f const p0 = rest[fvi[cbase]];
+        UsdGenVec3f const p0 = rest[fvi[cbase]];
         size_t const nFan = size_t(nc) - 2;
         float *triW = triStack;
         size_t ntri = nFan;
@@ -737,37 +735,37 @@ bool UsdGenScatterOp::Capture(
             triW = triSpill.data();
         }
         double areaRest = 0.0;
-        GfVec3f nAcc(0.0f, 0.0f, 0.0f);
+        UsdGenVec3f nAcc(0.0f, 0.0f, 0.0f);
         for (int t = 1; t + 1 < nc; ++t) {
-            GfVec3f const pb = rest[fvi[cbase + size_t(t)]];
-            GfVec3f const pc = rest[fvi[cbase + size_t(t) + 1]];
+            UsdGenVec3f const pb = rest[fvi[cbase + size_t(t)]];
+            UsdGenVec3f const pc = rest[fvi[cbase + size_t(t) + 1]];
             // Inline UsdGenTriangleArea (kernels.cpp is canonical) and fuse
             // it with the nAcc cross: the area IS 0.5*|cross|, so one cross
             // feeds both the weight and the normal accumulator. Same float
-            // ops in the same order (GfVec3f::operator- and GfCross spell
+            // ops in the same order (UsdGenVec3f::operator- and GfCross spell
             // the identical subtractions/products as kernels.cpp); the
             // bench + suite checksums pin the bits. Drops the cross-TU
             // call per fan triangle plus the duplicate cross. This TU
             // builds with default contraction, so any respelling here
             // must re-verify against kernels.cpp.
-            GfVec3f const eb = pb - p0;
-            GfVec3f const ec = pc - p0;
-            GfVec3f const x = GfCross(eb, ec);
+            UsdGenVec3f const eb = pb - p0;
+            UsdGenVec3f const ec = pc - p0;
+            UsdGenVec3f const x = UsdGenCross(eb, ec);
             float const w = 0.5f * std::sqrt(
                 x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
             triW[size_t(t) - 1] = w;
             areaRest += double(w);
             nAcc += x;
         }
-        GfVec3f const Nrest = Normalize3(nAcc);
+        UsdGenVec3f const Nrest = Normalize3(nAcc);
         // Area quadrature uses a 2^level grid on each coarse patch. Actual
         // roots and frames are evaluated on the bicubic/Gregory limit patch,
         // never on these quadrature triangles. Keep coarse face IDs for Ptex.
         int const grid=level ? (1<<level) : 0;
         if(level) {
             triSpill.clear();areaRest=0;
-            std::vector<GfVec3f> samples((grid+1)*(grid+1));
-            GfVec3f du,dv;
+            std::vector<UsdGenVec3f> samples((grid+1)*(grid+1));
+            UsdGenVec3f du,dv;
             for(int y=0;y<=grid;++y) for(int x=0;x<=grid;++x)
                 if(!limit.Evaluate(f,float(x)/grid,float(y)/grid,&samples[y*(grid+1)+x],&du,&dv)) {
                     err.failed = true; err.fi = fi;
@@ -778,7 +776,7 @@ bool UsdGenScatterOp::Capture(
             for(int y=0;y<grid;++y) for(int x=0;x<grid;++x) {
                 auto const& a=samples[y*(grid+1)+x];auto const& b=samples[y*(grid+1)+x+1];
                 auto const& c=samples[(y+1)*(grid+1)+x+1];auto const& d=samples[(y+1)*(grid+1)+x];
-                float a0=.5f*GfCross(b-a,c-a).GetLength(),a1=.5f*GfCross(c-a,d-a).GetLength();
+                float a0=.5f*UsdGenCross(b-a,c-a).GetLength(),a1=.5f*UsdGenCross(c-a,d-a).GetLength();
                 triSpill.push_back(a0);triSpill.push_back(a1);areaRest+=double(a0)+double(a1);
             }
             triW = triSpill.data(); ntri = triSpill.size();
@@ -853,31 +851,31 @@ bool UsdGenScatterOp::Capture(
                     if (target < cum) { ti = t; break; }
                 }
             }
-            GfVec3f pos,T,N=Nrest;
-            GfVec2f puv;
+            UsdGenVec3f pos,T,N=Nrest;
+            UsdGenVec2f puv;
             if(level) {
                 int const cell=int(ti/2),x=cell%grid,y=cell/grid;
-                GfVec2f a(float(x)/grid,float(y)/grid);
-                GfVec2f b(float(x+1)/grid,float(y+(ti%2 ? 1:0))/grid);
-                GfVec2f c(float(x+(ti%2 ? 0:1))/grid,float(y+1)/grid);
+                UsdGenVec2f a(float(x)/grid,float(y)/grid);
+                UsdGenVec2f b(float(x+1)/grid,float(y+(ti%2 ? 1:0))/grid);
+                UsdGenVec2f c(float(x+(ti%2 ? 0:1))/grid,float(y+1)/grid);
                 float const r=std::sqrt(u1);
                 puv=a*(1-r)+b*(u2*r)+c*((1-u2)*r);
-                GfVec3f du,dv;
+                UsdGenVec3f du,dv;
                 if(!limit.Evaluate(f,puv[0],puv[1],&pos,&du,&dv)) {
                     err.failed = true; err.fi = fi;
                     break;
                 }
-                N=Normalize3(GfCross(du,dv));
+                N=Normalize3(UsdGenCross(du,dv));
                 if(leftHanded) N=-N;
-                T=Normalize3(du-N*GfDot(du,N));
+                T=Normalize3(du-N*UsdGenDot(du,N));
             } else {
             size_t const ib = cbase + ti + 1;
             size_t const ic = ib + 1;
-            GfVec3f const pb = rest[fvi[ib]];
-            GfVec3f const pc = rest[fvi[ic]];
+            UsdGenVec3f const pb = rest[fvi[ib]];
+            UsdGenVec3f const pc = rest[fvi[ic]];
             float const r1 = std::sqrt(u1);
             pos = p0 * (1.0f - r1) + pb * (u2 * r1) + pc * (r1 * (1.0f - u2));
-            puv=GfVec2f(1.0f / 3.0f, 1.0f / 3.0f);
+            puv=UsdGenVec2f(1.0f / 3.0f, 1.0f / 3.0f);
             if (uv)
                 puv = uv[fvi[cbase]] * (1.0f - r1)
                     + uv[fvi[ib]] * (u2 * r1)
@@ -886,7 +884,7 @@ bool UsdGenScatterOp::Capture(
             // edge Gram-Schmidt'd against N (plan/04 :639). Replaces the M0
             // |dot(e0,N)| > 0.5 heuristic, which produced non-orthogonal
             // frames for near-axis-aligned faces.
-            GfVec3f e0 = pb - p0;
+            UsdGenVec3f e0 = pb - p0;
             // Squared parallel-edge test (saves a sqrt plus a re-dot per
             // root): |dot| > 0.9*|e0| squares to dot*dot > 0.81*lenSq on
             // the exact float dots, and the keep path reuses the tested
@@ -896,11 +894,11 @@ bool UsdGenScatterOp::Capture(
             // random + 20M boundary-aimed edges shows 0 flips random and
             // 1 flip aimed (window ~1e-7 relative), and the bench + suite
             // checksums pin the production meshes.
-            float const e0d = GfDot(e0, Nrest);
-            float const e0l2 = GfDot(e0, e0);
+            float const e0d = UsdGenDot(e0, Nrest);
+            float const e0l2 = UsdGenDot(e0, e0);
             if (e0d * e0d > 0.81f * e0l2) {
                 e0 = pc - p0;  // e0 too normal-parallel; try the other edge
-                T = e0 - Nrest * GfDot(e0, Nrest);
+                T = e0 - Nrest * UsdGenDot(e0, Nrest);
             } else {
                 T = e0 - Nrest * e0d;
             }
@@ -910,17 +908,17 @@ bool UsdGenScatterOp::Capture(
             // path (len >= 1e-9f) takes Normalize3's division branch
             // (len is far above its 1e-12f floor) with the identical
             // divisor; the cold path runs the original spelling verbatim.
-            float tLen = GfSqrt(T * T);
+            float tLen = std::sqrt(T * T);
             if (tLen < 1e-9f) {
-                T = std::abs(Nrest[0]) > 0.9f ? GfVec3f(0.0f, 1.0f, 0.0f)
-                                             : GfVec3f(1.0f, 0.0f, 0.0f);
-                T = T - Nrest * GfDot(T, Nrest);
+                T = std::abs(Nrest[0]) > 0.9f ? UsdGenVec3f(0.0f, 1.0f, 0.0f)
+                                             : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+                T = T - Nrest * UsdGenDot(T, Nrest);
                 T = Normalize3(T);
             } else {
                 T = T / tLen;
             }
             }
-            GfVec3f B = Normalize3(GfCross(N, T));
+            UsdGenVec3f B = Normalize3(UsdGenCross(N, T));
             if (flip) { T = -T; B = -B; }  // rest frame handedness (02 §2.6)
             e.ax.push_back(pos[0]); e.ay.push_back(pos[1]); e.az.push_back(pos[2]);
             e.aids.push_back(curveId);
@@ -971,10 +969,10 @@ bool UsdGenScatterOp::Capture(
             triSpill.assign(nFan, 0.0f);
             triW = triSpill.data();
         }
-        GfVec3f nAcc(0.0f, 0.0f, 0.0f);
+        UsdGenVec3f nAcc(0.0f, 0.0f, 0.0f);
         double areaRest = 0.0;
         fanFace(cbase, nc, triW, &nAcc, &areaRest);
-        GfVec3f const Nrest = Normalize3(nAcc);
+        UsdGenVec3f const Nrest = Normalize3(nAcc);
         double mult = 1.0;
         if (hasMult) {
             mult = double(surf.densityMultiplier[size_t(f)]);
@@ -1038,8 +1036,8 @@ bool UsdGenScatterOp::Capture(
     float *ax = roots.ax.get(), *ay = roots.ay.get(), *az = roots.az.get();
     uint64_t *aids = roots.aids.get();
     int *aPrim = roots.aPrim.get();
-    GfVec2f *aUv = roots.aUv.get();
-    GfVec3f *aT = roots.aT.get(), *aN = roots.aN.get(), *aB = roots.aB.get();
+    UsdGenVec2f *aUv = roots.aUv.get();
+    UsdGenVec3f *aT = roots.aT.get(), *aN = roots.aN.get(), *aB = roots.aB.get();
     float triStack[64];
     std::vector<float> triSpill;
     triSpill.reserve(16);
@@ -1072,12 +1070,12 @@ bool UsdGenScatterOp::Capture(
             }
             // Recomputed for triW only (areaRest/Nrest come from the
             // spill); same code as pass 1, so identical values.
-            GfVec3f nAccIgnored(0.0f, 0.0f, 0.0f);
+            UsdGenVec3f nAccIgnored(0.0f, 0.0f, 0.0f);
             double areaIgnored = 0.0;
             fanFace(cbase, fvc[f], triW, &nAccIgnored, &areaIgnored);
         }
-        GfVec3f const p0 = rest[fvi[cbase]];
-        GfVec3f const Nrest = s.nrest;
+        UsdGenVec3f const p0 = rest[fvi[cbase]];
+        UsdGenVec3f const Nrest = s.nrest;
         double const areaRest = s.areaRest;
         uint64_t const faceKey = UsdGenHash64(
             hSeedScatter ^ uint64_t(uint32_t(f)), kSaltScatter);
@@ -1104,38 +1102,38 @@ bool UsdGenScatterOp::Capture(
                     if (target < cum) { ti = t; break; }
                 }
             }
-            GfVec3f pos, T, N = Nrest;
-            GfVec2f puv;
+            UsdGenVec3f pos, T, N = Nrest;
+            UsdGenVec2f puv;
             size_t const ib = cbase + ti + 1;
             size_t const ic = ib + 1;
-            GfVec3f const pb = rest[fvi[ib]];
-            GfVec3f const pc = rest[fvi[ic]];
+            UsdGenVec3f const pb = rest[fvi[ib]];
+            UsdGenVec3f const pc = rest[fvi[ic]];
             float const r1 = std::sqrt(u1);
             pos = p0 * (1.0f - r1) + pb * (u2 * r1) + pc * (r1 * (1.0f - u2));
-            puv = GfVec2f(1.0f / 3.0f, 1.0f / 3.0f);
+            puv = UsdGenVec2f(1.0f / 3.0f, 1.0f / 3.0f);
             if (uv)
                 puv = uv[fvi[cbase]] * (1.0f - r1)
                     + uv[fvi[ib]] * (u2 * r1)
                     + uv[fvi[ic]] * (r1 * (1.0f - u2));
-            GfVec3f e0 = pb - p0;
-            float const e0d = GfDot(e0, Nrest);
-            float const e0l2 = GfDot(e0, e0);
+            UsdGenVec3f e0 = pb - p0;
+            float const e0d = UsdGenDot(e0, Nrest);
+            float const e0l2 = UsdGenDot(e0, e0);
             if (e0d * e0d > 0.81f * e0l2) {
                 e0 = pc - p0;
-                T = e0 - Nrest * GfDot(e0, Nrest);
+                T = e0 - Nrest * UsdGenDot(e0, Nrest);
             } else {
                 T = e0 - Nrest * e0d;
             }
-            float tLen = GfSqrt(T * T);
+            float tLen = std::sqrt(T * T);
             if (tLen < 1e-9f) {
-                T = std::abs(Nrest[0]) > 0.9f ? GfVec3f(0.0f, 1.0f, 0.0f)
-                                             : GfVec3f(1.0f, 0.0f, 0.0f);
-                T = T - Nrest * GfDot(T, Nrest);
+                T = std::abs(Nrest[0]) > 0.9f ? UsdGenVec3f(0.0f, 1.0f, 0.0f)
+                                             : UsdGenVec3f(1.0f, 0.0f, 0.0f);
+                T = T - Nrest * UsdGenDot(T, Nrest);
                 T = Normalize3(T);
             } else {
                 T = T / tLen;
             }
-            GfVec3f B = Normalize3(GfCross(N, T));
+            UsdGenVec3f B = Normalize3(UsdGenCross(N, T));
             if (flip) { T = -T; B = -B; }
             size_t const w = cursor + size_t(k);
             ax[w] = pos[0]; ay[w] = pos[1]; az[w] = pos[2];
@@ -1228,10 +1226,10 @@ bool UsdGenScatterOp::Capture(
             raw.az.reset(new float[total]);
             raw.aids.reset(new uint64_t[total]);
             raw.aPrim.reset(new int[total]);
-            raw.aUv.reset(new GfVec2f[total]);
-            raw.aT.reset(new GfVec3f[total]);
-            raw.aN.reset(new GfVec3f[total]);
-            raw.aB.reset(new GfVec3f[total]);
+            raw.aUv.reset(new UsdGenVec2f[total]);
+            raw.aT.reset(new UsdGenVec3f[total]);
+            raw.aN.reset(new UsdGenVec3f[total]);
+            raw.aB.reset(new UsdGenVec3f[total]);
             emis.rawTotal = total;
         }
         if (partitions == 1) {
@@ -1332,8 +1330,8 @@ bool UsdGenScatterOp::Capture(
     float const *ax = nullptr, *ay = nullptr, *az = nullptr;
     uint64_t const *aids = nullptr;
     int const *aPrim = nullptr;
-    GfVec2f const *aUv = nullptr;
-    GfVec3f const *aT = nullptr, *aN = nullptr, *aB = nullptr;
+    UsdGenVec2f const *aUv = nullptr;
+    UsdGenVec3f const *aT = nullptr, *aN = nullptr, *aB = nullptr;
     if (twoPass) {
         ax = raw.ax.get(); ay = raw.ay.get(); az = raw.az.get();
         aids = raw.aids.get();
@@ -1360,7 +1358,7 @@ bool UsdGenScatterOp::Capture(
         kept.reserve(total);
         keptIndex.reserve(total);
         for (size_t i = 0; i < total; ++i) {
-            if (!filter.Keep(GfVec3f(ax[i], ay[i], az[i]), aids[i])) continue;
+            if (!filter.Keep(UsdGenVec3f(ax[i], ay[i], az[i]), aids[i])) continue;
             kept.ax.push_back(ax[i]); kept.ay.push_back(ay[i]); kept.az.push_back(az[i]);
             kept.aids.push_back(aids[i]);
             kept.aPrim.push_back(aPrim[i]);
@@ -1579,7 +1577,7 @@ bool UsdGenScatterOp::Capture(
     buf.totalCvs = uint32_t(N);
     auto emitStrandPlanes = [&]() {
         if (!filter.Active()) return;
-        VtIntArray index(N), seed(N);
+        UsdGenIntArray index(N), seed(N);
         for (size_t i = 0; i < N; ++i) {
             int const v = int(keptIndex[perm[i]]);
             index[i] = v;
@@ -1626,7 +1624,7 @@ bool UsdGenScatterOp::Capture(
         gather(buf.rootN, aN);
         gather(buf.rootB, aB);
         // Same chunking for the zero plane: clear + uninitialized resize
-        // with a zero filler (identical bytes to VtFloatArray(N, 0.0f)).
+        // with a zero filler (identical bytes to UsdGenFloatArray(N, 0.0f)).
         buf.hairT.clear();
         buf.hairT.resize(N, [](float *b, float *e) {
             for (float *d = b; d != e; ++d)
@@ -1664,8 +1662,8 @@ bool UsdGenScatterOp::Capture(
     float *dpx = buf.px.data(), *dpy = buf.py.data(), *dpz = buf.pz.data();
     uint64_t *dids = buf.curveId.data();
     int *dprim = buf.rootPrim.data();
-    GfVec2f *duv = buf.rootUV.data();
-    GfVec3f *dt = buf.rootT.data(), *dn = buf.rootN.data(),
+    UsdGenVec2f *duv = buf.rootUV.data();
+    UsdGenVec3f *dt = buf.rootT.data(), *dn = buf.rootN.data(),
             *db = buf.rootB.data();
     float *dh = buf.hairT.data();
     ScatterParallelFor(gatherDispatcher, gatherChunks, [&](size_t c) {
@@ -1682,13 +1680,13 @@ bool UsdGenScatterOp::Capture(
         for (size_t i = i0; i < i1; ++i)
             new (dprim + i) int(aPrim[perm[i]]);
         for (size_t i = i0; i < i1; ++i)
-            new (duv + i) GfVec2f(aUv[perm[i]]);
+            new (duv + i) UsdGenVec2f(aUv[perm[i]]);
         for (size_t i = i0; i < i1; ++i)
-            new (dt + i) GfVec3f(aT[perm[i]]);
+            new (dt + i) UsdGenVec3f(aT[perm[i]]);
         for (size_t i = i0; i < i1; ++i)
-            new (dn + i) GfVec3f(aN[perm[i]]);
+            new (dn + i) UsdGenVec3f(aN[perm[i]]);
         for (size_t i = i0; i < i1; ++i)
-            new (db + i) GfVec3f(aB[perm[i]]);
+            new (db + i) UsdGenVec3f(aB[perm[i]]);
         for (size_t i = i0; i < i1; ++i)
             new (dh + i) float(0.0f);
     });
@@ -1703,7 +1701,7 @@ void UsdGenScatterOp::Evaluate(
 {
     // A generator's Evaluate is identity: Capture filled the node buffer
     // (framework pre-copied the planes from the capture buffer).
-    TF_UNUSED(ctx); TF_UNUSED(capture); TF_UNUSED(chunk);
+    (void)ctx; (void)capture; (void)chunk;
 }
 
 UsdGenRootSetView UsdGenScatterRoots(UsdGenCapture const &capture) noexcept

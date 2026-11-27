@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -19,9 +18,9 @@ struct UsdGenSurfaceRootFrameResult
     // One row-vector Gf matrix per input binding: rows 0/1/2 are T/B/N and
     // row 3 is the surface-local origin. Invalid/dropped entries are a zero
     // matrix, never a plausible fallback frame.
-    VtMatrix4dArray frames;
-    VtArray<uint8_t> valid;
-    VtArray<uint8_t> dropMask;
+    UsdGenMatrix4dArray frames;
+    UsdGenCowArray<uint8_t> valid;
+    UsdGenCowArray<uint8_t> dropMask;
     uint32_t dropped = 0;
 };
 
@@ -33,14 +32,14 @@ struct UsdGenSurfaceRootFrameResult
 /// callers compact every C3 channel using the corresponding source index.
 bool UsdGenBuildRestSurfaceRootFrames(
     UsdGenSurfaceInputView const &surface,
-    VtIntArray const &rootPrim,
-    VtVec2fArray const &rootUV,
+    UsdGenIntArray const &rootPrim,
+    UsdGenVec2fArray const &rootUV,
     UsdGenSurfaceRootFrameResult *out,
     std::string *error = nullptr);
 
 /// Root-frame authored primvars are used verbatim, but must meet the same
 /// affine, orthonormal, right-handed contract as gpu/rootFrames.cu.
-bool UsdGenValidateAuthoredRootFrame(GfMatrix4d const &frame);
+bool UsdGenValidateAuthoredRootFrame(UsdGenMatrix4d const &frame);
 
 } // namespace usdGen
 

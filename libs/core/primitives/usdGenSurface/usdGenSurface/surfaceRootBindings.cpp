@@ -44,48 +44,48 @@ bool Fail(std::string const &message, std::string *error)
 }
 
 bool Finite(double value) { return std::isfinite(value); }
-bool Finite(GfVec3f const &value)
+bool Finite(UsdGenVec3f const &value)
 {
     return Finite(value[0]) && Finite(value[1]) && Finite(value[2]);
 }
-bool Finite(GfVec3d const &value)
+bool Finite(UsdGenVec3d const &value)
 {
     return Finite(value[0]) && Finite(value[1]) && Finite(value[2]);
 }
-bool Finite(GfMatrix4d const &value)
+bool Finite(UsdGenMatrix4d const &value)
 {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!Finite(value[row][column])) return false;
     return true;
 }
-bool Affine(GfMatrix4d const &value)
+bool Affine(UsdGenMatrix4d const &value)
 {
     return Finite(value) && value[0][3] == 0.0 && value[1][3] == 0.0 &&
            value[2][3] == 0.0 && value[3][3] == 1.0;
 }
 
-GfVec3d ToDouble(GfVec3f const &value)
+UsdGenVec3d ToDouble(UsdGenVec3f const &value)
 {
     return {value[0], value[1], value[2]};
 }
-double Dot(GfVec3d const &a, GfVec3d const &b)
+double Dot(UsdGenVec3d const &a, UsdGenVec3d const &b)
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
-GfVec3d Cross(GfVec3d const &a, GfVec3d const &b)
+UsdGenVec3d Cross(UsdGenVec3d const &a, UsdGenVec3d const &b)
 {
     return {a[1] * b[2] - a[2] * b[1],
             a[2] * b[0] - a[0] * b[2],
             a[0] * b[1] - a[1] * b[0]};
 }
 
-bool TransformPoint(GfMatrix4d const &matrix, GfVec3d const &point,
-                    GfVec3d *out)
+bool TransformPoint(UsdGenMatrix4d const &matrix, UsdGenVec3d const &point,
+                    UsdGenVec3d *out)
 {
     // Gf matrices use row-vector affine convention, matching the row-frame
     // convention in surfaceRootFrames and the post-flattened C3 descriptors.
-    GfVec3d const result(
+    UsdGenVec3d const result(
         point[0] * matrix[0][0] + point[1] * matrix[1][0] +
             point[2] * matrix[2][0] + matrix[3][0],
         point[0] * matrix[0][1] + point[1] * matrix[1][1] +
@@ -100,7 +100,7 @@ bool TransformPoint(GfMatrix4d const &matrix, GfVec3d const &point,
 }
 
 struct CentroidCloud {
-    std::vector<GfVec3f> points;
+    std::vector<UsdGenVec3f> points;
 
     size_t kdtree_get_point_count() const { return points.size(); }
     float kdtree_get_pt(size_t index, size_t dimension) const
@@ -115,7 +115,7 @@ using CentroidIndex = nanoflann::KDTreeSingleIndexAdaptor<
     nanoflann::L2_Simple_Adaptor<float, CentroidCloud>, CentroidCloud, 3, size_t>;
 
 struct ClosestTriangle {
-    GfVec3d point;
+    UsdGenVec3d point;
     // Barycentric weights for triangle vertices one and two.  Vertex zero's
     // weight is `1-u-v`, which is the C3 triangle/rootUV convention.
     double u = 0.0;
@@ -123,22 +123,22 @@ struct ClosestTriangle {
     double distance2 = std::numeric_limits<double>::infinity();
 };
 
-bool ClosestOnTriangle(GfVec3d const &query, GfVec3d const &a,
-                       GfVec3d const &b, GfVec3d const &c,
+bool ClosestOnTriangle(UsdGenVec3d const &query, UsdGenVec3d const &a,
+                       UsdGenVec3d const &b, UsdGenVec3d const &c,
                        ClosestTriangle *out)
 {
-    GfVec3d const ab = b - a;
-    GfVec3d const ac = c - a;
+    UsdGenVec3d const ab = b - a;
+    UsdGenVec3d const ac = c - a;
     if (Dot(Cross(ab, ac), Cross(ab, ac)) <= kAreaEpsilon) return false;
 
-    GfVec3d const ap = query - a;
+    UsdGenVec3d const ap = query - a;
     double const d1 = Dot(ab, ap);
     double const d2 = Dot(ac, ap);
     ClosestTriangle result;
     if (d1 <= 0.0 && d2 <= 0.0) {
         result.point = a;
     } else {
-        GfVec3d const bp = query - b;
+        UsdGenVec3d const bp = query - b;
         double const d3 = Dot(ab, bp);
         double const d4 = Dot(ac, bp);
         if (d3 >= 0.0 && d4 <= d3) {
@@ -149,7 +149,7 @@ bool ClosestOnTriangle(GfVec3d const &query, GfVec3d const &a,
                 result.u = d1 / (d1 - d3);
                 result.point = a + ab * result.u;
             } else {
-                GfVec3d const cp = query - c;
+                UsdGenVec3d const cp = query - c;
                 double const d5 = Dot(ab, cp);
                 double const d6 = Dot(ac, cp);
                 if (d6 >= 0.0 && d5 <= d6) {
@@ -189,11 +189,11 @@ bool ClosestOnTriangle(GfVec3d const &query, GfVec3d const &a,
 struct QuadCandidate {
     double u = 0.0;
     double v = 0.0;
-    GfVec3d point;
+    UsdGenVec3d point;
     double distance2 = std::numeric_limits<double>::infinity();
 };
 
-GfVec3d QuadPoint(std::array<GfVec3d, 4> const &p, double u, double v)
+UsdGenVec3d QuadPoint(std::array<UsdGenVec3d, 4> const &p, double u, double v)
 {
     double const a = (1.0 - u) * (1.0 - v);
     double const b = u * (1.0 - v);
@@ -201,11 +201,11 @@ GfVec3d QuadPoint(std::array<GfVec3d, 4> const &p, double u, double v)
     double const d = (1.0 - u) * v;
     return p[0] * a + p[1] * b + p[2] * c + p[3] * d;
 }
-GfVec3d QuadDu(std::array<GfVec3d, 4> const &p, double v)
+UsdGenVec3d QuadDu(std::array<UsdGenVec3d, 4> const &p, double v)
 {
     return (p[1] - p[0]) * (1.0 - v) + (p[2] - p[3]) * v;
 }
-GfVec3d QuadDv(std::array<GfVec3d, 4> const &p, double u)
+UsdGenVec3d QuadDv(std::array<UsdGenVec3d, 4> const &p, double u)
 {
     return (p[3] - p[0]) * (1.0 - u) + (p[2] - p[1]) * u;
 }
@@ -220,16 +220,16 @@ bool QuadKkt(double u, double v, double gu, double gv)
     return ok(u, gu) && ok(v, gv);
 }
 
-bool RefineQuadSeed(std::array<GfVec3d, 4> const &p, GfVec3d const &query,
+bool RefineQuadSeed(std::array<UsdGenVec3d, 4> const &p, UsdGenVec3d const &query,
                     double initialU, double initialV, QuadCandidate *out)
 {
     double u = std::clamp(initialU, 0.0, 1.0);
     double v = std::clamp(initialV, 0.0, 1.0);
     for (int iteration = 0; iteration != 32; ++iteration) {
-        GfVec3d const point = QuadPoint(p, u, v);
-        GfVec3d const residual = point - query;
-        GfVec3d const du = QuadDu(p, v);
-        GfVec3d const dv = QuadDv(p, u);
+        UsdGenVec3d const point = QuadPoint(p, u, v);
+        UsdGenVec3d const residual = point - query;
+        UsdGenVec3d const du = QuadDu(p, v);
+        UsdGenVec3d const dv = QuadDv(p, u);
         double const gu = Dot(residual, du);
         double const gv = Dot(residual, dv);
         double const distance2 = Dot(residual, residual);
@@ -262,7 +262,7 @@ bool RefineQuadSeed(std::array<GfVec3d, 4> const &p, GfVec3d const &query,
         for (int lineSearch = 0; lineSearch != 12; ++lineSearch) {
             double const nextU = std::clamp(u - scale * stepU, 0.0, 1.0);
             double const nextV = std::clamp(v - scale * stepV, 0.0, 1.0);
-            GfVec3d const nextPoint = QuadPoint(p, nextU, nextV);
+            UsdGenVec3d const nextPoint = QuadPoint(p, nextU, nextV);
             double const nextDistance2 = Dot(nextPoint - query, nextPoint - query);
             double const directional = gu * (nextU - u) + gv * (nextV - v);
             if (Finite(nextDistance2) &&
@@ -279,8 +279,8 @@ bool RefineQuadSeed(std::array<GfVec3d, 4> const &p, GfVec3d const &query,
         }
         if (!advanced) return false;
     }
-    GfVec3d const point = QuadPoint(p, u, v);
-    GfVec3d const residual = point - query;
+    UsdGenVec3d const point = QuadPoint(p, u, v);
+    UsdGenVec3d const residual = point - query;
     if (!Finite(point)) return false;
     if (QuadKkt(u, v, Dot(residual, QuadDu(p, v)), Dot(residual, QuadDv(p, u)))) {
         out->u = u; out->v = v; out->point = point;
@@ -290,13 +290,13 @@ bool RefineQuadSeed(std::array<GfVec3d, 4> const &p, GfVec3d const &query,
     return false;
 }
 
-bool ClosestOnQuad(std::array<GfVec3d, 4> const &p, GfVec3d const &query,
+bool ClosestOnQuad(std::array<UsdGenVec3d, 4> const &p, UsdGenVec3d const &query,
                    QuadCandidate *out)
 {
     // A collapsed quad has neither a reliable bilinear parameterisation nor a
     // deterministic tangent frame. Do not manufacture an edge binding.
-    GfVec3d const n0 = Cross(p[1] - p[0], p[2] - p[0]);
-    GfVec3d const n1 = Cross(p[2] - p[0], p[3] - p[0]);
+    UsdGenVec3d const n0 = Cross(p[1] - p[0], p[2] - p[0]);
+    UsdGenVec3d const n1 = Cross(p[2] - p[0], p[3] - p[0]);
     if (Dot(n0, n0) + Dot(n1, n1) <= kAreaEpsilon) return false;
 
     // Nine grid starts followed by the historical two split-triangle starts.
@@ -334,13 +334,13 @@ bool ClosestOnQuad(std::array<GfVec3d, 4> const &p, GfVec3d const &query,
     return found;
 }
 
-bool QuadAabbStrictlyWorse(std::array<GfVec3d, 4> const &p,
-                           GfVec3d const &query, double bestDistance2)
+bool QuadAabbStrictlyWorse(std::array<UsdGenVec3d, 4> const &p,
+                           UsdGenVec3d const &query, double bestDistance2)
 {
     if (!Finite(bestDistance2)) return false;
-    GfVec3d lower = p[0], upper = p[0];
+    UsdGenVec3d lower = p[0], upper = p[0];
     double scale = std::max({1.0, std::abs(query[0]), std::abs(query[1]), std::abs(query[2])});
-    for (GfVec3d const &point : p) {
+    for (UsdGenVec3d const &point : p) {
         for (int axis = 0; axis != 3; ++axis) {
             lower[axis] = std::min(lower[axis], point[axis]);
             upper[axis] = std::max(upper[axis], point[axis]);
@@ -374,7 +374,7 @@ bool Better(double distance2, size_t face, int fan, double bestDistance2,
             (face < bestFace || (face == bestFace && fan < bestFan)));
 }
 
-bool EncodeTriangleUv(int faceCount, int fan, double u, double v, GfVec2f *out)
+bool EncodeTriangleUv(int faceCount, int fan, double u, double v, UsdGenVec2f *out)
 {
     if (!Finite(u) || !Finite(v)) return false;
     float encodedU = static_cast<float>(std::clamp(u, 0.0, 1.0));
@@ -385,7 +385,7 @@ bool EncodeTriangleUv(int faceCount, int fan, double u, double v, GfVec2f *out)
     while (encodedU + encodedV > 1.0f)
         encodedU = std::nextafter(encodedU, 0.0f);
     if (faceCount == 3) {
-        *out = GfVec2f(encodedU, encodedV);
+        *out = UsdGenVec2f(encodedU, encodedV);
         return true;
     }
     // `u==1,v==0` is the only upper integer boundary a valid triangle can
@@ -412,15 +412,15 @@ bool EncodeTriangleUv(int faceCount, int fan, double u, double v, GfVec2f *out)
     float const decodedU = packed - std::floor(packed);
     if ((encodedU > 0.0f && decodedU == 0.0f) ||
         decodedU + encodedV > 1.0f) return false;
-    *out = GfVec2f(packed, encodedV);
+    *out = UsdGenVec2f(packed, encodedV);
     return true;
 }
 
-bool DecodeTriangleBinding(VtVec3fArray const &restPoints,
-                           VtIntArray const &faceVertexCounts,
-                           VtIntArray const &faceVertexIndices,
+bool DecodeTriangleBinding(UsdGenVec3fArray const &restPoints,
+                           UsdGenIntArray const &faceVertexCounts,
+                           UsdGenIntArray const &faceVertexIndices,
                            std::vector<uint32_t> const &faceOffsets,
-                           size_t face, GfVec2f const &uv, GfVec3d *out)
+                           size_t face, UsdGenVec2f const &uv, UsdGenVec3d *out)
 {
     int const count = faceVertexCounts[face];
     uint32_t const begin = faceOffsets[face];
@@ -454,9 +454,9 @@ struct UsdGenRestSurfaceBindingCache::Impl
     UsdGenNodeKey key;
     UsdGenSurfaceId id = 0;
     bool restFromCurrentPoints = false;
-    GfMatrix4d worldMatrix{1.0}, worldInverse{1.0};
-    VtVec3fArray restPoints;
-    VtIntArray faceVertexCounts, faceVertexIndices;
+    UsdGenMatrix4d worldMatrix{1.0}, worldInverse{1.0};
+    UsdGenVec3fArray restPoints;
+    UsdGenIntArray faceVertexCounts, faceVertexIndices;
     std::vector<uint32_t> faceOffsets;
     CentroidCloud centroids;
     std::unique_ptr<CentroidIndex> index;
@@ -485,12 +485,12 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceInputView const &surface,
         return {};
     }
     double determinant = 0.0;
-    GfMatrix4d const inverse = surface.worldMatrix.GetInverse(&determinant);
+    UsdGenMatrix4d const inverse = surface.worldMatrix.GetInverse(&determinant);
     if (!Finite(determinant) || std::abs(determinant) <= std::numeric_limits<double>::epsilon()) {
         Fail("automatic root binding requires an invertible surface transform", error);
         return {};
     }
-    for (GfVec3f const &point : surface.restPoints) {
+    for (UsdGenVec3f const &point : surface.restPoints) {
         if (!Finite(point)) {
             Fail("surface rest points contain non-finite values", error);
             return {};
@@ -540,7 +540,7 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceInputView const &surface,
 
         impl->centroids.points.reserve(surface.faceVertexCounts.size());
         for (size_t face = 0; face != surface.faceVertexCounts.size(); ++face) {
-            GfVec3d centroid(0.0);
+            UsdGenVec3d centroid(0.0);
             uint32_t const begin = impl->faceOffsets[face];
             uint32_t const count = static_cast<uint32_t>(surface.faceVertexCounts[face]);
             for (uint32_t corner = 0; corner != count; ++corner)
@@ -562,11 +562,11 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceInputView const &surface,
             impl->index = std::make_unique<CentroidIndex>(
                 3, impl->centroids, nanoflann::KDTreeSingleIndexAdaptorParams(10));
         impl->bytesOwned = sizeof(Impl) +
-            impl->restPoints.size() * sizeof(GfVec3f) +
+            impl->restPoints.size() * sizeof(UsdGenVec3f) +
             impl->faceVertexCounts.size() * sizeof(int) +
             impl->faceVertexIndices.size() * sizeof(int) +
             impl->faceOffsets.capacity() * sizeof(uint32_t) +
-            impl->centroids.points.capacity() * sizeof(GfVec3f);
+            impl->centroids.points.capacity() * sizeof(UsdGenVec3f);
         if (impl->index) impl->bytesOwned += impl->index->usedMemory(*impl->index);
         return std::shared_ptr<const UsdGenRestSurfaceBindingCache>(
             new UsdGenRestSurfaceBindingCache(std::move(impl)));
@@ -579,7 +579,7 @@ UsdGenRestSurfaceBindingCache::Create(UsdGenSurfaceInputView const &surface,
 namespace {
 
 template <class T>
-bool SameValues(UsdGenSpan<const T> a, VtArray<T> const &b)
+bool SameValues(UsdGenSpan<const T> a, UsdGenCowArray<T> const &b)
 {
     return a.size() == b.size() &&
         (a.cdata() == b.cdata() || std::equal(a.begin(), a.end(), b.cdata()));
@@ -603,7 +603,7 @@ size_t UsdGenRestSurfaceBindingCache::BytesOwned() const noexcept
 }
 
 bool UsdGenRestSurfaceBindingCache::Bind(
-    VtVec3fArray const &sourceRestRoots, GfMatrix4d const &sourceWorldMatrix,
+    UsdGenVec3fArray const &sourceRestRoots, UsdGenMatrix4d const &sourceWorldMatrix,
     UsdGenSurfaceRootBindingResult *out, std::string *error) const
 {
     if (error) error->clear();
@@ -613,14 +613,14 @@ bool UsdGenRestSurfaceBindingCache::Bind(
         return Fail("automatic root binding requires a finite affine source transform", error);
     if (sourceRestRoots.size() > std::numeric_limits<uint32_t>::max())
         return Fail("root-binding curve cardinality exceeds uint32", error);
-    for (GfVec3f const &root : sourceRestRoots)
+    for (UsdGenVec3f const &root : sourceRestRoots)
         if (!Finite(root)) return Fail("source rest roots contain non-finite values", error);
 
     try {
         UsdGenSurfaceRootBindingResult candidate;
         size_t const roots = sourceRestRoots.size();
         candidate.rootPrim.assign(roots, -1);
-        candidate.rootUV.assign(roots, GfVec2f(0.0f));
+        candidate.rootUV.assign(roots, UsdGenVec2f(0.0f));
         candidate.valid.assign(roots, 0);
         candidate.unresolved.assign(roots, 0);
         if (roots == 0) {
@@ -636,7 +636,7 @@ bool UsdGenRestSurfaceBindingCache::Bind(
         // a result counter/refcount. The final unresolved reduction and COW
         // publication happen after the parallel region joins.
         int *const rootPrim = candidate.rootPrim.data();
-        GfVec2f *const rootUV = candidate.rootUV.data();
+        UsdGenVec2f *const rootUV = candidate.rootUV.data();
         uint8_t *const valid = candidate.valid.data();
         uint8_t *const unresolved = candidate.unresolved.data();
         std::atomic<bool> transformFailure{false};
@@ -644,7 +644,7 @@ bool UsdGenRestSurfaceBindingCache::Bind(
             if (transformFailure.load(std::memory_order_relaxed)) return;
             std::array<size_t, kNearestFaceCount> nearestFaces{};
             std::array<float, kNearestFaceCount> nearestDistances{};
-            GfVec3d worldRoot, localRoot;
+            UsdGenVec3d worldRoot, localRoot;
             if (!TransformPoint(sourceWorldMatrix, ToDouble(sourceRestRoots[rootIndex]), &worldRoot) ||
                 !TransformPoint(_impl->worldInverse, worldRoot, &localRoot)) {
                 transformFailure.store(true, std::memory_order_relaxed);
@@ -662,8 +662,8 @@ bool UsdGenRestSurfaceBindingCache::Bind(
             std::array<size_t, kNearestFaceCount> faces = nearestFaces;
             auto const sortedEnd = faces.begin() + found;
             auto faceLess = [&](size_t a, size_t b) {
-                GfVec3f const &ca = _impl->centroids.points[a];
-                GfVec3f const &cb = _impl->centroids.points[b];
+                UsdGenVec3f const &ca = _impl->centroids.points[a];
+                UsdGenVec3f const &cb = _impl->centroids.points[b];
                 double const da = (double(ca[0]) - localRoot[0]) * (double(ca[0]) - localRoot[0]) +
                                   (double(ca[1]) - localRoot[1]) * (double(ca[1]) - localRoot[1]) +
                                   (double(ca[2]) - localRoot[2]) * (double(ca[2]) - localRoot[2]);
@@ -690,8 +690,8 @@ bool UsdGenRestSurfaceBindingCache::Bind(
             double bestDistance2 = std::numeric_limits<double>::infinity();
             size_t bestFace = std::numeric_limits<size_t>::max();
             int bestFan = std::numeric_limits<int>::max();
-            GfVec2f bestUv(0.0f);
-            GfVec3d bestPoint(0.0);
+            UsdGenVec2f bestUv(0.0f);
+            UsdGenVec3d bestPoint(0.0);
             double bestTriangleU = 0.0, bestTriangleV = 0.0;
             bool bestIsTriangle = false;
             for (auto it = faces.begin(); it != facesEnd; ++it) {
@@ -703,12 +703,12 @@ bool UsdGenRestSurfaceBindingCache::Bind(
                         _impl->faceVertexIndices[begin + corner])]);
                 };
                 if (count == 4) {
-                    std::array<GfVec3d, 4> quad = {pointAt(0), pointAt(1), pointAt(2), pointAt(3)};
+                    std::array<UsdGenVec3d, 4> quad = {pointAt(0), pointAt(1), pointAt(2), pointAt(3)};
                     if (hasBinding && QuadAabbStrictlyWorse(quad, localRoot, bestDistance2))
                         continue;
                     QuadCandidate closest;
                     if (!ClosestOnQuad(quad, localRoot, &closest)) continue;
-                    GfVec2f const uv(static_cast<float>(closest.u), static_cast<float>(closest.v));
+                    UsdGenVec2f const uv(static_cast<float>(closest.u), static_cast<float>(closest.v));
                     if (!std::isfinite(uv[0]) || !std::isfinite(uv[1])) continue;
                     if (!hasBinding || Better(closest.distance2, face, 0, bestDistance2, bestFace, bestFan)) {
                         hasBinding = true; bestDistance2 = closest.distance2;
@@ -740,8 +740,8 @@ bool UsdGenRestSurfaceBindingCache::Bind(
             }
             if (bestIsTriangle) {
                 int const count = _impl->faceVertexCounts[bestFace];
-                GfVec2f encoded;
-                GfVec3d reconstructed;
+                UsdGenVec2f encoded;
+                UsdGenVec3d reconstructed;
                 // Encoding is tested only after stable geometric selection.
                 // Therefore a nonrepresentable nearest n-gon boundary does
                 // not silently fall through to a farther face/fan candidate.
@@ -782,8 +782,8 @@ bool UsdGenRestSurfaceBindingCache::Bind(
 }
 
 bool UsdGenBuildRestSurfaceRootBindings(
-    UsdGenSurfaceInputView const &surface, VtVec3fArray const &sourceRestRoots,
-    GfMatrix4d const &sourceWorldMatrix, UsdGenSurfaceRootBindingResult *out,
+    UsdGenSurfaceInputView const &surface, UsdGenVec3fArray const &sourceRestRoots,
+    UsdGenMatrix4d const &sourceWorldMatrix, UsdGenSurfaceRootBindingResult *out,
     std::string *error)
 {
     if (error) error->clear();

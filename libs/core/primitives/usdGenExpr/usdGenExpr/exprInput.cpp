@@ -44,7 +44,7 @@ struct ExprInputState {
 };
 
 std::atomic<ExprInputState *> gExprInput{nullptr};
-GfMatrix4d const kIdentity(1.0);
+UsdGenMatrix4d const kIdentity(1.0);
 
 ExprInputState const *State() noexcept
 {
@@ -54,7 +54,7 @@ ExprInputState const *State() noexcept
 }
 
 template <class T>
-UsdGenSpan<const T> Arr(VtArray<T> const &a) noexcept
+UsdGenSpan<const T> Arr(UsdGenCowArray<T> const &a) noexcept
 {
     return {a.cdata(), a.size()};
 }
@@ -226,18 +226,18 @@ UsdGenExpressionInputView UsdGenExpressionInputView::Of(UsdGenInputRecord const 
 {
     UsdGenExpressionInputView v;
     v.key = record.key;
-    if (VtValue const *source = record.Value(kUsdGenExpressionValueSource);
+    if (UsdGenValue const *source = record.Value(kUsdGenExpressionValueSource);
         source && source->IsHolding<std::string>()) {
         v.sourceHolder = *source;
         v.source = v.sourceHolder.UncheckedGet<std::string>();
     }
-    if (VtValue const *outputs = record.Value(kUsdGenExpressionValueOutputs);
+    if (UsdGenValue const *outputs = record.Value(kUsdGenExpressionValueOutputs);
         outputs && outputs->IsHolding<Outputs>()) {
         v.outputsHolder = *outputs;
         Outputs const &o = v.outputsHolder.UncheckedGet<Outputs>();
         v.outputs = {o.data(), o.size()};
     }
-    if (VtValue const *inputs = record.Value(kUsdGenExpressionValueInputs);
+    if (UsdGenValue const *inputs = record.Value(kUsdGenExpressionValueInputs);
         inputs && inputs->IsHolding<Slots>()) {
         v.inputsHolder = *inputs;
         Slots const &s = v.inputsHolder.UncheckedGet<Slots>();
@@ -265,13 +265,13 @@ UsdGenGeometryInputView UsdGenGeometryInputView::Of(UsdGenInputRecord const &rec
                                                         int(UsdGenGeometryKind::Points))));
     v.counts = record.Column<int>(kUsdGenGeometryInputCounts);
     v.indices = record.Column<int>(kUsdGenGeometryInputIndices);
-    v.points = record.Column<GfVec3f>(kUsdGenGeometryInputPoints);
-    v.rest = record.Column<GfVec3f>(kUsdGenGeometryInputRest);
-    v.normals = record.Column<GfVec3f>(kUsdGenGeometryInputNormals);
+    v.points = record.Column<UsdGenVec3f>(kUsdGenGeometryInputPoints);
+    v.rest = record.Column<UsdGenVec3f>(kUsdGenGeometryInputRest);
+    v.normals = record.Column<UsdGenVec3f>(kUsdGenGeometryInputNormals);
     v.ids = record.Column<uint64_t>(kUsdGenGeometryInputIds);
     v.subsetFaces = record.Column<int>(kUsdGenGeometryInputSubsetFaces);
     v.isSubset = record.Get<bool>(kUsdGenGeometryValueIsSubset, false);
-    v.worldMatrix = record.Get<GfMatrix4d>(kUsdGenGeometryValueWorldMatrix, kIdentity);
+    v.worldMatrix = record.Get<UsdGenMatrix4d>(kUsdGenGeometryValueWorldMatrix, kIdentity);
     v.generation = record.generation;
     v.data = record.data;
     return v;
@@ -297,17 +297,17 @@ UsdGenGeometryInputView UsdGenGeometryInputView::Of(UsdGenGeometryData const &d,
 }
 
 UsdGenInputRecord UsdGenExpressionRecord(UsdGenExpressionData const &d, UsdGenNodeKey key,
-                                         TfToken const &label)
+                                         UsdGenToken const &label)
 {
     UsdGenInputRecordWriter w(UsdGenExpressionInputKind());
-    w.Value(kUsdGenExpressionValueSource, VtValue(d.source));
-    w.Value(kUsdGenExpressionValueOutputs, VtValue(d.outputs));
-    w.Value(kUsdGenExpressionValueInputs, VtValue(d.inputs));
+    w.Value(kUsdGenExpressionValueSource, UsdGenValue(d.source));
+    w.Value(kUsdGenExpressionValueOutputs, UsdGenValue(d.outputs));
+    w.Value(kUsdGenExpressionValueInputs, UsdGenValue(d.inputs));
     return w.Finish(key, UsdGenNodeKey{}, label, 0);
 }
 
 UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &d, UsdGenNodeKey key,
-                                       TfToken const &label, UsdGenInputColumnCache *cache)
+                                       UsdGenToken const &label, UsdGenInputColumnCache *cache)
 {
     UsdGenInputRecordWriter w(UsdGenGeometryInputKind());
     w.UseCache(cache, key);
@@ -318,9 +318,9 @@ UsdGenInputRecord UsdGenGeometryRecord(UsdGenGeometryData const &d, UsdGenNodeKe
     w.Array(kUsdGenGeometryInputNormals, d.normals);
     w.Array(kUsdGenGeometryInputIds, d.ids);
     w.Array(kUsdGenGeometryInputSubsetFaces, d.subsetFaces);
-    w.Value(kUsdGenGeometryValueKind, VtValue(int(d.kind)));
-    w.Value(kUsdGenGeometryValueIsSubset, VtValue(d.isSubset));
-    w.Value(kUsdGenGeometryValueWorldMatrix, VtValue(d.worldMatrix));
+    w.Value(kUsdGenGeometryValueKind, UsdGenValue(int(d.kind)));
+    w.Value(kUsdGenGeometryValueIsSubset, UsdGenValue(d.isSubset));
+    w.Value(kUsdGenGeometryValueWorldMatrix, UsdGenValue(d.worldMatrix));
     return w.Finish(key, UsdGenNodeKey{}, label, d.generation);
 }
 

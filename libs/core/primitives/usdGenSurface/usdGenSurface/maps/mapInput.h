@@ -23,7 +23,7 @@ class UsdGenRegistrar;
 /// One map prim as a host captures it; travels as a UsdGenMapInput record.
 struct UsdGenMapData
 {
-    TfToken      type;                // UsdGenImageMap | UsdGenPtexMap | UsdGenExprMap | ...
+    UsdGenToken      type;                // UsdGenImageMap | UsdGenPtexMap | UsdGenExprMap | ...
     std::string  resolvedAssetPath;   // stage-free (S13)
     uint64_t     textureGeneration = 0;  // bumped by ReloadMaps()
     // UsdGenPaintMap payload (empty unless type == UsdGenPaintMap): the
@@ -31,9 +31,9 @@ struct UsdGenMapData
     // usdGen:map:channel. v1 carries faceVarying float data only; any other
     // interpolation, a missing primvar, or a size mismatch leaves
     // paintValues empty and the sampler fails closed.
-    TfToken      paintPrimvar;
-    TfToken      paintInterpolation;
-    VtFloatArray paintValues;
+    UsdGenToken      paintPrimvar;
+    UsdGenToken      paintInterpolation;
+    UsdGenFloatArray paintValues;
     std::vector<UsdGenParamValue> params;
     // Optional stage-free decoded pixels for a typed ImageMap consumer. The
     // immutable payload is backend-neutral; callers replacing it must also
@@ -49,10 +49,10 @@ enum UsdGenMapInputSlot : UsdGenSlot {
 
 /// Record values of the kind; the map's own parameters follow them.
 enum UsdGenMapInputValue : uint8_t {
-    kUsdGenMapValueType,                // TfToken
+    kUsdGenMapValueType,                // UsdGenToken
     kUsdGenMapValueResolvedAssetPath,   // std::string
-    kUsdGenMapValuePaintPrimvar,        // TfToken
-    kUsdGenMapValuePaintInterpolation,  // TfToken
+    kUsdGenMapValuePaintPrimvar,        // UsdGenToken
+    kUsdGenMapValuePaintInterpolation,  // UsdGenToken
     kUsdGenMapValueImagePayload,        // std::shared_ptr<const UsdGenImagePayload>
     kUsdGenMapValueTypeId,              // int (UsdGenTypeId; the intake hook fills it)
     kUsdGenMapValues
@@ -74,11 +74,11 @@ struct UsdGenMapInputView
 
     UsdGenNodeKey key;
     UsdGenNodeKey paintSurface;       // UsdGenPaintMap: the surface carrying the primvar
-    TfToken      type;
+    UsdGenToken      type;
     std::string_view resolvedAssetPath;
     uint64_t     textureGeneration = 0;
-    TfToken      paintPrimvar;
-    TfToken      paintInterpolation;
+    UsdGenToken      paintPrimvar;
+    UsdGenToken      paintInterpolation;
     UsdGenSpan<const float> paintValues;
     UsdGenSpan<const UsdGenParamValue> params;
     std::shared_ptr<const UsdGenImagePayload> imagePayload;
@@ -86,7 +86,7 @@ struct UsdGenMapInputView
     /// Keep a record's columns and path alive; 'params' still points into
     /// the record, so a stored map view needs its record.
     UsdGenRef<const UsdGenElementSet> data;
-    VtValue resolvedAssetPathHolder;
+    UsdGenValue resolvedAssetPathHolder;
 };
 
 /// The map's type id: the intake-resolved one, else a registry probe (inputs
@@ -111,7 +111,7 @@ USDGEN_SURFACE_API UsdGenInputRecord const *UsdGenFindMapInput(UsdGenGraphSpec c
 
 /// Packs 'data' into a UsdGenMapInput record. Compile phase: allocates.
 USDGEN_SURFACE_API UsdGenInputRecord UsdGenMapRecord(UsdGenMapData const &data, UsdGenNodeKey key,
-                                                  UsdGenNodeKey paintSurface, TfToken const &label,
+                                                  UsdGenNodeKey paintSurface, UsdGenToken const &label,
                                                   UsdGenInputColumnCache *cache = nullptr);
 
 /// Copies a view into a payload (engine-made variants of an input).

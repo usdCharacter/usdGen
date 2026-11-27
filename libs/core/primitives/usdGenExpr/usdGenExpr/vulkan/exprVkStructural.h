@@ -9,7 +9,7 @@ namespace usdGen::vulkan {
 // Small groom-domain structural packets (sample counts/source mode), read only
 // after GPU proof. Geometry and point/primitive fields never cross this
 // boundary.
-using ExprVkStructuralValues = std::map<TfToken, uint32_t>;
+using ExprVkStructuralValues = std::map<UsdGenToken, uint32_t>;
 void EvaluateExprVkStructural(std::shared_ptr<ExprVkContextPipeline>,
                               std::shared_ptr<ExprVkEvaluatePipeline>,
                               std::shared_ptr<VulkanCompletionService>,

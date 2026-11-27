@@ -3,8 +3,7 @@
 #include "usdGen/api/graphSpec.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/export.h"
-#include "pxr/base/gf/vec2d.h"
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -13,7 +12,7 @@ namespace usdGen {
 // Subdivision vocabulary (Sdc scheme and tag values). usdGenSurface's
 // usdGenRegister interns it; valid for the life of the process.
 struct UsdGenSurfaceTokenTable {
-    TfToken catmullClark, loop, bilinear, none, edgeOnly, edgeAndCorner, all,
+    UsdGenToken catmullClark, loop, bilinear, none, edgeOnly, edgeAndCorner, all,
         cornersOnly, cornersPlus1, cornersPlus2, boundaries, uniform, chaikin, smooth;
 };
 USDGEN_CORE_API UsdGenSurfaceTokenTable const &UsdGenSurfaceTokens() noexcept;
@@ -29,8 +28,8 @@ public:
     ~UsdGenLimitSurface();
     bool Build(UsdGenSurfaceInputView const&, int isolationLevel, std::string* error);
     // Quad faces only: (u,v) in [0,1]^2 from corner 0, u toward corner 1.
-    bool Evaluate(int face, float u, float v, pxr::GfVec3f* p,
-                  pxr::GfVec3f* du, pxr::GfVec3f* dv) const;
+    bool Evaluate(int face, float u, float v, UsdGenVec3f* p,
+                  UsdGenVec3f* du, UsdGenVec3f* dv) const;
     // The limit point under a cage point: `corners` are the face-local corner
     // numbers (0..n-1) of a triangle inside face `face`, `bary` the point's
     // barycentrics on it. A quad maps affinely onto its patch; a triangle or
@@ -38,8 +37,8 @@ public:
     // sub-patch around the nearest corner, so shared edges and corners land
     // on the same limit point from every face. du/dv span that patch with the
     // face's own winding.
-    bool EvaluateCagePoint(int face, int const corners[3], pxr::GfVec3f const& bary,
-                           pxr::GfVec3f* p, pxr::GfVec3f* du, pxr::GfVec3f* dv) const;
+    bool EvaluateCagePoint(int face, int const corners[3], UsdGenVec3f const& bary,
+                           UsdGenVec3f* p, UsdGenVec3f* du, UsdGenVec3f* dv) const;
     bool IsHole(int face) const;
 private:
     struct State;
@@ -58,13 +57,13 @@ public:
     UsdGenCollisionLimitSurface& operator=(UsdGenCollisionLimitSurface&&) noexcept;
     bool Build(UsdGenSurfaceInputView const&, std::string* error);
     bool HasFace(int face) const;
-    bool Evaluate(int face, double u, double v, pxr::GfVec3d* p,
-                  pxr::GfVec3d* du, pxr::GfVec3d* dv) const;
+    bool Evaluate(int face, double u, double v, UsdGenVec3d* p,
+                  UsdGenVec3d* du, UsdGenVec3d* dv) const;
     bool TessellateFace(int face, int rate,
-        std::vector<pxr::GfVec2d>* uv,
+        std::vector<UsdGenVec2d>* uv,
         std::vector<std::array<int, 3>>* facets) const;
-    bool FaceControlBounds(int face, pxr::GfVec3d* lo,
-                           pxr::GfVec3d* hi) const;
+    bool FaceControlBounds(int face, UsdGenVec3d* lo,
+                           UsdGenVec3d* hi) const;
     bool FaceIsTriangle(int face) const;
     bool FaceHasSubFaces(int face) const;
 private:

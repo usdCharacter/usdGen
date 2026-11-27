@@ -8,7 +8,7 @@ struct Packet : std::enable_shared_from_this<Packet> {
     std::shared_ptr<ExprVkContextPipeline> context;
     std::shared_ptr<VulkanCompletionService> service;
     std::unique_ptr<ExprVkRun> run;
-    std::vector<TfToken> names;
+    std::vector<UsdGenToken> names;
     std::unique_ptr<VulkanCompletionService::Watch> watch;
     std::function<void(ExprVkStructuralValues, VkResult)> completion;
     std::shared_ptr<Packet> quarantine;

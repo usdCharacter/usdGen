@@ -36,7 +36,7 @@ bool UsdGenValidateExpressionInputs(UsdGenGraphSpec const &desc, std::vector<std
         if (!e.key.IsValid() || e.source.empty() || !expressionPaths.insert(e.key).second) {
             errors->push_back("expression has missing path or source"); ok = false;
         }
-        PSet<TfToken> inputNames;
+        PSet<UsdGenToken> inputNames;
         for (auto const &input : e.inputs) {
             if (input.name.IsEmpty() || !inputNames.insert(input.name).second) {
                 errors->push_back("expression " + desc.Label(e.key) +
@@ -56,7 +56,7 @@ bool UsdGenValidateExpressionInputs(UsdGenGraphSpec const &desc, std::vector<std
                     ok = false;
                 }
         }
-        PSet<TfToken> seen;
+        PSet<UsdGenToken> seen;
         for (auto const &o : e.outputs)
             if (o.name.IsEmpty() || o.nativeType.IsEmpty() || !seen.insert(o.name).second) { errors->push_back("expression " + desc.Label(e.key) + " has invalid or duplicate output"); ok = false; }
     }
@@ -67,7 +67,7 @@ bool UsdGenValidateExpressionBindingSources(UsdGenGraphSpec const &desc, UsdGenO
                                             std::vector<std::string> *errors)
 {
     bool ok = true;
-    PSet<TfToken> destinations;
+    PSet<UsdGenToken> destinations;
     for (auto const &b : node.expressionBindings) {
         UsdGenInputRecord const *ei = UsdGenFindExpressionInput(desc, b.expression);
         if (!ei) { errors->push_back("expression binding references missing expression " + desc.Label(b.expression)); ok = false; continue; }
