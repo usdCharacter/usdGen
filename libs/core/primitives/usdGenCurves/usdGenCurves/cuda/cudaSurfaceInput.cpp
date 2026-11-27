@@ -1,4 +1,5 @@
 #ifdef USDGEN_ENABLE_CUDA
+#include "usdGenMath/math.h"
 #include "usdGenCurves/cuda/cudaSurfaceInput.h"
 #include "usdGenSurface/surfaceInput.h"
 

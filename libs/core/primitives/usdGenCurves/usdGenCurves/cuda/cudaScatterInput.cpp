@@ -1,3 +1,6 @@
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
 #include "usdGenCurves/cuda/cudaScatterInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/ops/scatter.h"

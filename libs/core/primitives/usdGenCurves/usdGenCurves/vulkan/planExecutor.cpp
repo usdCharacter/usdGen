@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/planExecutor.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/vulkan/csourceVkCapture.h"

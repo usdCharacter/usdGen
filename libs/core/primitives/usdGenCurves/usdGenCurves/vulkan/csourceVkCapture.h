@@ -3,6 +3,8 @@
 #ifndef USDGEN_VULKAN_CSOURCE_VK_CAPTURE_H
 #define USDGEN_VULKAN_CSOURCE_VK_CAPTURE_H
 
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #include "usdGen/curveLoader.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"

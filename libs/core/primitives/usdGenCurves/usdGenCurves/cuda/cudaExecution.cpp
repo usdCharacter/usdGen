@@ -1,3 +1,7 @@
+#include "usdGen/api/value.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"

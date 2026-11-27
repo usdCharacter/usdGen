@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Key functions of the program interfaces: one typeinfo, in usdGenCuda; and
 // the lookup of the program a graph runs.
+#include "usdGen/api/token.h"
 #include "usdGenCuda/compile/program.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGen/api/graphSpec.h"

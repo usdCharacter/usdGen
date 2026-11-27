@@ -5,6 +5,7 @@
 #ifndef USDGEN_VULKAN_EXECUTION_PLAN_H
 #define USDGEN_VULKAN_EXECUTION_PLAN_H
 
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/curveGrowPipeline.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/vulkan/exprVkProgram.h"

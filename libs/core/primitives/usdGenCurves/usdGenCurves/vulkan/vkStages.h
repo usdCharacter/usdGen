@@ -4,6 +4,7 @@
 // parameter indices (UsdGenKernelDef::paramMap) and the lane's vocabulary.
 // No Vulkan SDK types. Defined in usdGenCurvesVulkan (registerCurvesVulkan.cpp).
 #pragma once
+#include "usdGen/api/token.h"
 #include "usdGenCurves/vulkan/export.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"

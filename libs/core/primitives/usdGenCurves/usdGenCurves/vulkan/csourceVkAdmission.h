@@ -10,6 +10,9 @@
 #ifndef USDGEN_VULKAN_CSOURCE_VK_ADMISSION_H
 #define USDGEN_VULKAN_CSOURCE_VK_ADMISSION_H
 
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
 #include "usdGen/authoredNamedChannels.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenCurves/vulkan/vkStages.h"

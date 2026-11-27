@@ -1,4 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #include "usdGenCurves/cuda/cudaParameters.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGen/gpu/cudaCompat.h"
