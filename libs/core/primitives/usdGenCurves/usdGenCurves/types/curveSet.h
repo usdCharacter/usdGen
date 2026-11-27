@@ -10,20 +10,11 @@
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
 #include "usdGen/exec/chunkView.h"
+#include "usdGenMath/vec.h"
 #include <cstddef>
 #include <cstdint>
 
-PXR_NAMESPACE_OPEN_SCOPE
-class GfVec2f;
-class GfVec3f;
-class GfVec3d;
-PXR_NAMESPACE_CLOSE_SCOPE
-
 namespace usdGen {
-
-using PXR_NS::GfVec2f;
-using PXR_NS::GfVec3f;
-using PXR_NS::GfVec3d;
 
 struct UsdGenCurveBuffer;     // usdGenCurves/types/curveBuffer.h
 struct UsdGenChunkView;       // usdGen/exec/chunkView.h
@@ -86,10 +77,10 @@ struct UsdGenCurveSetView {
     }
     USDGEN_CURVES_API static UsdGenCurveSetView Of(UsdGenCurveBuffer const &) noexcept;   // tests, builders
     UsdGenSpan<const float> px, py, pz, width, hairT;
-    UsdGenSpan<const GfVec3f> rest, rootT, rootN, rootB;
+    UsdGenSpan<const UsdGenVec3f> rest, rootT, rootN, rootB;
     UsdGenSpan<const uint64_t> curveId;
     UsdGenSpan<const int> rootPrim;
-    UsdGenSpan<const GfVec2f> rootUV;
+    UsdGenSpan<const UsdGenVec2f> rootUV;
     UsdGenSpan<const int> cvOffsets;       // empty = uniform (stored uint32, same bits)
     uint32_t totalCurves = 0, totalCvs = 0;
     uint64_t topologyVersion = 0, valueVersion = 0;
@@ -120,15 +111,15 @@ inline UsdGenCurveSetView UsdGenCurveSetView::Of(UsdGenElementSetView const &s) 
     v.px = _Col<float>(s, kUsdGenCurvePx);
     v.py = _Col<float>(s, kUsdGenCurvePy);
     v.pz = _Col<float>(s, kUsdGenCurvePz);
-    v.rest = _Col<GfVec3f>(s, kUsdGenCurveRest, 3);
+    v.rest = _Col<UsdGenVec3f>(s, kUsdGenCurveRest, 3);
     v.width = _Col<float>(s, kUsdGenCurveWidth);
     v.hairT = _Col<float>(s, kUsdGenCurveHairT);
     v.curveId = _Col<uint64_t>(s, kUsdGenCurveId);
     v.rootPrim = _Col<int>(s, kUsdGenCurveRootPrim);
-    v.rootUV = _Col<GfVec2f>(s, kUsdGenCurveRootUV, 2);
-    v.rootT = _Col<GfVec3f>(s, kUsdGenCurveRootT, 3);
-    v.rootN = _Col<GfVec3f>(s, kUsdGenCurveRootN, 3);
-    v.rootB = _Col<GfVec3f>(s, kUsdGenCurveRootB, 3);
+    v.rootUV = _Col<UsdGenVec2f>(s, kUsdGenCurveRootUV, 2);
+    v.rootT = _Col<UsdGenVec3f>(s, kUsdGenCurveRootT, 3);
+    v.rootN = _Col<UsdGenVec3f>(s, kUsdGenCurveRootN, 3);
+    v.rootB = _Col<UsdGenVec3f>(s, kUsdGenCurveRootB, 3);
     if (s.offsets[2])
         v.cvOffsets = {reinterpret_cast<int const *>(s.offsets[2]), size_t(s.count[1]) + 1};
     v.totalCurves = s.count[1];
@@ -156,15 +147,15 @@ public:
     float *width = nullptr, *hairT = nullptr;
     uint64_t const *curveId = nullptr;
     int const *rootPrim = nullptr, *cvOffsets = nullptr;
-    GfVec2f const *rootUV = nullptr;
-    GfVec3f const *rootT = nullptr, *rootN = nullptr, *rootB = nullptr;
+    UsdGenVec2f const *rootUV = nullptr;
+    UsdGenVec3f const *rootT = nullptr, *rootN = nullptr, *rootB = nullptr;
     float const *rampLut = nullptr;
     float **outF = nullptr; int **outI = nullptr; float const **inF = nullptr; int const **inI = nullptr;
     uint32_t outCount = 0, inCount = 0;
     PlaneInfo const *extraCv = nullptr; float *const *extraCvF = nullptr; int *const *extraCvI = nullptr;
     PlaneInfo const *inExtraCv = nullptr; uint32_t extraCvCount = 0;
     float const *const *inExtraCvF = nullptr; int const *const *inExtraCvI = nullptr;   // whole-column bases, like extraCvF/I
-    GfVec3d *pointScratch = nullptr; double *scalarScratch = nullptr; UsdGenChunkExtent *extentSlot = nullptr;
+    UsdGenVec3d *pointScratch = nullptr; double *scalarScratch = nullptr; UsdGenChunkExtent *extentSlot = nullptr;
     uint32_t curveCount = 0, cvCount = 0, inCvCount = 0;
     int const *inCvOffsets = nullptr; uint32_t inFirstCv = 0;
     size_t Cv(uint32_t c, uint32_t i) const { return size_t(c) * cvCount + i; }

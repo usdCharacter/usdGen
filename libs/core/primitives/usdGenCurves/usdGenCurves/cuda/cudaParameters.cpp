@@ -5,19 +5,7 @@
 #include "usdGen/gpu/cudaCompletionLane.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/registries/opRegistry.h"
-#include "pxr/base/gf/half.h"
-#include "pxr/base/gf/vec2d.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec4d.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/gf/vec4f.h"
-#include "pxr/base/gf/vec2h.h"
-#include "pxr/base/gf/vec3h.h"
-#include "pxr/base/gf/vec4h.h"
-#include "pxr/base/gf/vec2i.h"
-#include "pxr/base/gf/vec3i.h"
-#include "pxr/base/gf/vec4i.h"
+#include "usdGenMath/math.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -26,7 +14,6 @@
 #include <set>
 #include <string_view>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 namespace {
 std::atomic<bool> s_failNextFreshProgramAllocation{false};
@@ -39,13 +26,13 @@ void Error(std::vector<std::string>* diagnostics, std::string const& message) {
     if (diagnostics) diagnostics->push_back(message);
 }
 // The name without "usdGen:"; a view of the token's text, never interned.
-std::string_view CanonicalName(TfToken const& name) {
+std::string_view CanonicalName(UsdGenToken const& name) {
     std::string_view value = name.GetString();
     if (value.compare(0, 7, "usdGen:") == 0) value.remove_prefix(7);
     return value;
 }
 // The first slot of the node's op whose canonical name is destination's.
-UsdGenParamSlot DestinationSlot(UsdGenOpRecord const* record, TfToken const& destination) {
+UsdGenParamSlot DestinationSlot(UsdGenOpRecord const* record, UsdGenToken const& destination) {
     if (!record) return kUsdGenNoParam;
     std::string_view const canonical = CanonicalName(destination);
     for (UsdGenParamSlot s = 0; s != record->ParamCount(); ++s)
@@ -72,13 +59,13 @@ bool SameShape(expr::ValueShape const& a, expr::ValueShape const& b) {
         a.columns == b.columns && a.isArray == b.isArray;
 }
 template<class T>
-bool ScalarLiteral(VtValue const& value, std::vector<double>* output) {
+bool ScalarLiteral(UsdGenValue const& value, std::vector<double>* output) {
     if (!value.IsHolding<T>()) return false;
     output->assign(1, static_cast<double>(value.UncheckedGet<T>()));
     return std::isfinite((*output)[0]);
 }
 template<class T>
-bool VectorLiteral(VtValue const& value, unsigned count, std::vector<double>* output) {
+bool VectorLiteral(UsdGenValue const& value, unsigned count, std::vector<double>* output) {
     if (!value.IsHolding<T>() || count != T::dimension) return false;
     output->resize(count);
     auto const& vector = value.UncheckedGet<T>();
@@ -88,7 +75,7 @@ bool VectorLiteral(VtValue const& value, unsigned count, std::vector<double>* ou
     }
     return true;
 }
-bool Literal(VtValue const& value, expr::ValueShape const& shape,
+bool Literal(UsdGenValue const& value, expr::ValueShape const& shape,
              std::vector<double>* output) {
     unsigned n = shape.components;
     if (n == 1) {
@@ -105,7 +92,7 @@ bool Literal(VtValue const& value, expr::ValueShape const& shape,
             if (!value.IsHolding<uint64_t>() ||
                 value.UncheckedGet<uint64_t>() > (uint64_t(1) << 53)) return false;
             return ScalarLiteral<uint64_t>(value, output);
-        case Type::Float16: return ScalarLiteral<GfHalf>(value, output);
+        case Type::Float16: return ScalarLiteral<UsdGenHalf>(value, output);
         case Type::Float32: return ScalarLiteral<float>(value, output);
         case Type::Float64: return ScalarLiteral<double>(value, output);
         default: return false;
@@ -113,17 +100,17 @@ bool Literal(VtValue const& value, expr::ValueShape const& shape,
     }
     switch (shape.scalar) {
     case Type::Float16:
-        return VectorLiteral<GfVec2h>(value, n, output) ||
-            VectorLiteral<GfVec3h>(value, n, output) || VectorLiteral<GfVec4h>(value, n, output);
+        return VectorLiteral<UsdGenVec2h>(value, n, output) ||
+            VectorLiteral<UsdGenVec3h>(value, n, output) || VectorLiteral<UsdGenVec4h>(value, n, output);
     case Type::Float32:
-        return VectorLiteral<GfVec2f>(value, n, output) ||
-            VectorLiteral<GfVec3f>(value, n, output) || VectorLiteral<GfVec4f>(value, n, output);
+        return VectorLiteral<UsdGenVec2f>(value, n, output) ||
+            VectorLiteral<UsdGenVec3f>(value, n, output) || VectorLiteral<UsdGenVec4f>(value, n, output);
     case Type::Float64:
-        return VectorLiteral<GfVec2d>(value, n, output) ||
-            VectorLiteral<GfVec3d>(value, n, output) || VectorLiteral<GfVec4d>(value, n, output);
+        return VectorLiteral<UsdGenVec2d>(value, n, output) ||
+            VectorLiteral<UsdGenVec3d>(value, n, output) || VectorLiteral<UsdGenVec4d>(value, n, output);
     case Type::Int32:
-        return VectorLiteral<GfVec2i>(value, n, output) ||
-            VectorLiteral<GfVec3i>(value, n, output) || VectorLiteral<GfVec4i>(value, n, output);
+        return VectorLiteral<UsdGenVec2i>(value, n, output) ||
+            VectorLiteral<UsdGenVec3i>(value, n, output) || VectorLiteral<UsdGenVec4i>(value, n, output);
     default: return false;
     }
 }
@@ -138,7 +125,7 @@ bool EstimateMultiply(uint64_t count, uint64_t bytes, uint64_t* result) {
 }
 } // namespace
 
-CudaParameterField const* CudaParameterEvaluator::Find(TfToken const& destination) const {
+CudaParameterField const* CudaParameterEvaluator::Find(UsdGenToken const& destination) const {
     auto canonical = CanonicalName(destination);
     for (auto const& field : fields_)
         if (CanonicalName(field.destination) == canonical) return &field;
@@ -832,7 +819,7 @@ void failNextCudaGroomScalarReadbackCopyAfterOneForTesting() {
     s_failNextGroomScalarReadbackCopyAfterOne.store(true, std::memory_order_release);
 }
 
-CudaGroomScalarValue const* CudaGroomScalarReadback::Find(TfToken const& destination) const {
+CudaGroomScalarValue const* CudaGroomScalarReadback::Find(UsdGenToken const& destination) const {
     std::string_view const canonical = CanonicalName(destination);
     for (size_t i = 0; i != committedCount_; ++i)
         if (CanonicalName(committed_[i].destination) == canonical) return &committed_[i];
@@ -884,7 +871,7 @@ CudaParameterStatus CudaParameterPlan::Evaluate(
 }
 
 CudaParameterField const* CudaParameterPlan::Find(
-    TfToken const& destination) const
+    UsdGenToken const& destination) const
 {
     return evaluator_ ? evaluator_->Find(destination) : nullptr;
 }

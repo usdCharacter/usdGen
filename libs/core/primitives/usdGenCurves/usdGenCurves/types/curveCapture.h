@@ -33,9 +33,9 @@ protected:
 /// clone would silently slice the op-specific fields (the E-6 reuse defect).
 struct UsdGenCapturePayload : UsdGenCurveCapture
 {
-    VtFloatArray perCurve;      // op-specific meaning (target length, ...)
-    VtFloatArray perCv;         // op-specific meaning (noise displacement field, ...)
-    VtFloatArray rampLut;       // 257-entry op-specific LUT over hairT; empty == unused
+    UsdGenFloatArray perCurve;      // op-specific meaning (target length, ...)
+    UsdGenFloatArray perCv;         // op-specific meaning (noise displacement field, ...)
+    UsdGenFloatArray rampLut;       // 257-entry op-specific LUT over hairT; empty == unused
 
     float const *RampLut() const override { return rampLut.empty() ? nullptr : rampLut.cdata(); }
     std::unique_ptr<UsdGenCapture> Clone() const override = 0;

@@ -9,7 +9,6 @@
 #include "usdGen/op.h"
 #include <memory>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 

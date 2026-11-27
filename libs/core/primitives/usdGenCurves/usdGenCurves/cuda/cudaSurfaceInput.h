@@ -12,11 +12,11 @@ namespace usdGen {
 
 struct CudaSurfaceBindingKey {
     UsdGenNodeKey surface;
-    VtVec3fArray restPoints;
-    VtVec3fArray restNormals;
+    UsdGenVec3fArray restPoints;
+    UsdGenVec3fArray restNormals;
     UsdGenSurfaceNormalDomain restNormalDomain = UsdGenSurfaceNormalDomain::None;
-    VtIntArray faceVertexCounts;
-    VtIntArray faceVertexIndices;
+    UsdGenIntArray faceVertexCounts;
+    UsdGenIntArray faceVertexIndices;
     uint32_t sampleBudget = 0;
 };
 

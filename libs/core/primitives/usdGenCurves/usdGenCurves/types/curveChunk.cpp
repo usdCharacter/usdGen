@@ -54,10 +54,10 @@ UsdGenCurveChunk::UsdGenCurveChunk(UsdGenChunkView const &v) noexcept
     hairT = At<float>(v.out, kUsdGenCurveHairT);
     curveId = At<uint64_t>(v.out, kUsdGenCurveId);
     rootPrim = At<int>(v.out, kUsdGenCurveRootPrim);
-    rootUV = At<GfVec2f>(v.out, kUsdGenCurveRootUV);
-    rootT = At<GfVec3f>(v.out, kUsdGenCurveRootT);
-    rootN = At<GfVec3f>(v.out, kUsdGenCurveRootN);
-    rootB = At<GfVec3f>(v.out, kUsdGenCurveRootB);
+    rootUV = At<UsdGenVec2f>(v.out, kUsdGenCurveRootUV);
+    rootT = At<UsdGenVec3f>(v.out, kUsdGenCurveRootT);
+    rootN = At<UsdGenVec3f>(v.out, kUsdGenCurveRootN);
+    rootB = At<UsdGenVec3f>(v.out, kUsdGenCurveRootB);
     cvOffsets = reinterpret_cast<int const *>(v.offsets[2]);
 
     inPx = AtIn<float>(v.in, kUsdGenCurvePx);
@@ -121,7 +121,7 @@ UsdGenCurveChunk::UsdGenCurveChunk(UsdGenChunkView const &v) noexcept
         inExtraCvF = _inExtraCvF;
         inExtraCvI = _inExtraCvI;
     }
-    pointScratch = static_cast<GfVec3d *>(v.pointScratch);
+    pointScratch = static_cast<UsdGenVec3d *>(v.pointScratch);
     scalarScratch = v.scalarScratch;
     extentSlot = v.extentSlot;
 }

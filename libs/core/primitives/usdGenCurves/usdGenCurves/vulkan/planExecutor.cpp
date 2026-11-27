@@ -26,14 +26,14 @@ namespace {
 
 // The parameter token for an evaluated destination: the destination itself
 // without "usdGen:", else the op's declared spelling of local.
-TfToken ParamToken(UsdGenOpNode const &node, TfToken const &destination,
+UsdGenToken ParamToken(UsdGenOpNode const &node, UsdGenToken const &destination,
                    std::string const &local) {
     if (destination.GetString() == local)
         return destination;
     UsdGenOpRegistry const &ops = UsdGenOpRegistry::Get();
     UsdGenOpId const id = ops.Find(node.type);
     if (id != UsdGenOpId::Invalid)
-        for (TfToken const &name : ops.Record(id).ParamNames())
+        for (UsdGenToken const &name : ops.Record(id).ParamNames())
             if (name.GetString() == local)
                 return name;
     return UsdGenInternToken(local);
@@ -73,11 +73,11 @@ bool Capture(VulkanSourceWidthPlan const &plan, uint64_t topologyVersion,
         // CurveLoader handles immutable source decoding only. The compiler
         // lowered source resampling to a native topology stage.
         auto captureNode = *node;
-        TfToken const &resampleTo =
+        UsdGenToken const &resampleTo =
             UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource).Param(vulkanP::kCsResampleTo);
         for (auto &param : captureNode.params)
             if (param.name == resampleTo)
-                param.value = VtValue(0);
+                param.value = UsdGenValue(0);
         UsdGenParamView params{plan.Descriptor().get(), &captureNode};
         UsdGenCaptureContext context;
         context.desc = plan.Descriptor().get();
@@ -244,7 +244,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
         auto &node = structuralDescriptor.nodes[index];
         UsdGenOpNode structural = node;
         structural.expressionBindings.clear();
-        auto local = [](TfToken const &name) {
+        auto local = [](UsdGenToken const &name) {
             auto text = name.GetString();
             if (text.compare(0, 7, "usdGen:") == 0)
                 text.erase(0, 7);
@@ -283,13 +283,13 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                     auto &node = self->structuralDescriptor.nodes[index];
                     for (auto const &item : values) {
                         auto name = local(item.first);
-                        VtValue value;
+                        UsdGenValue value;
                         if (name == "useRest") {
                             if (item.second > 1) {
                                 self->FailOnOwner(Failure("Vulkan invalid connected useRest"));
                                 return;
                             }
-                            value = VtValue(item.second != 0);
+                            value = UsdGenValue(item.second != 0);
                         } else {
                             int32_t integer;
                             std::memcpy(&integer, &item.second, 4);
@@ -301,7 +301,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
                                 self->sourceResampleDisabled = true;
                                 integer = 2;
                             }
-                            value = VtValue(int(integer));
+                            value = UsdGenValue(int(integer));
                         }
                         auto found =
                             std::find_if(node.params.begin(), node.params.end(),

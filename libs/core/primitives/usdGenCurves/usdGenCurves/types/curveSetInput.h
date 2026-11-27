@@ -31,12 +31,12 @@ enum class UsdGenAuthoredPlaneDomain : uint8_t { Point, Primitive, Groom };
 
 struct UsdGenAuthoredPlaneDesc
 {
-    TfToken name;
+    UsdGenToken name;
     UsdGenAuthoredPlaneType type = UsdGenAuthoredPlaneType::Float32;
     UsdGenAuthoredPlaneDomain domain = UsdGenAuthoredPlaneDomain::Point;
     uint8_t arity = 1;                 // [1, 16]
-    VtFloatArray floatValues;          // populated only for Float32
-    VtIntArray intValues;              // populated only for Int32
+    UsdGenFloatArray floatValues;          // populated only for Float32
+    UsdGenIntArray intValues;              // populated only for Int32
 };
 
 /// Immutable surface-cage controls captured alongside a CurveSource's sparse
@@ -45,19 +45,19 @@ struct UsdGenAuthoredPlaneDesc
 /// density or profile edit changes the capture identity without re-reading.
 struct UsdGenSurfaceCagePayload
 {
-    VtIntArray   ownerIds;
-    VtFloatArray ownerDensities;
-    VtIntArray   ownerSeeds;
-    VtIntArray   ownerCvCounts;
-    VtFloatArray ownerEdgeBias;
-    VtIntArray   ownerLengthProfileOffsets;
-    VtVec2fArray ownerLengthProfile;
-    VtFloatArray normalizedT;           // flattened per-point rail parameter
-    VtVec3iArray triangles;              // guide-curve indices
-    VtIntArray   triangleOwnerIndices;
-    VtVec2fArray triangleRootCharts;     // 3 entries per triangle
-    VtVec2fArray ownerChartCentroids;
-    VtFloatArray ownerChartMeanRadii;
+    UsdGenIntArray   ownerIds;
+    UsdGenFloatArray ownerDensities;
+    UsdGenIntArray   ownerSeeds;
+    UsdGenIntArray   ownerCvCounts;
+    UsdGenFloatArray ownerEdgeBias;
+    UsdGenIntArray   ownerLengthProfileOffsets;
+    UsdGenVec2fArray ownerLengthProfile;
+    UsdGenFloatArray normalizedT;           // flattened per-point rail parameter
+    UsdGenVec3iArray triangles;              // guide-curve indices
+    UsdGenIntArray   triangleOwnerIndices;
+    UsdGenVec2fArray triangleRootCharts;     // 3 entries per triangle
+    UsdGenVec2fArray ownerChartCentroids;
+    UsdGenFloatArray ownerChartMeanRadii;
 };
 
 /// The source curves' own primvars:displayColor, forwarded as an authored
@@ -65,9 +65,9 @@ struct UsdGenSurfaceCagePayload
 /// resampling and compaction carry it, but the session cooker consumes it
 /// into the tile's displayColor instead of publishing it. 'displayColor'
 /// itself is reserved by the compiler for authored planes.
-inline TfToken const &UsdGenSourceColorPlane()
+inline UsdGenToken const &UsdGenSourceColorPlane()
 {
-    static TfToken const name("usdGenSourceColor");
+    static UsdGenToken const name("usdGenSourceColor");
     return name;
 }
 
@@ -77,22 +77,22 @@ inline TfToken const &UsdGenSourceColorPlane()
 struct UsdGenCurveSetData
 {
     UsdGenLane      role;              // Reference (guides, clump centres) | Chunked (a CurveSource)
-    TfToken         curveRole;         // primvars:usdGen:role: hair | guide (C3 marker)
-    VtIntArray      curveVertexCounts;
-    VtVec3fArray    points, rest;      // rest == primvars:rest; may share points' buffer
+    UsdGenToken         curveRole;         // primvars:usdGen:role: hair | guide (C3 marker)
+    UsdGenIntArray      curveVertexCounts;
+    UsdGenVec3fArray    points, rest;      // rest == primvars:rest; may share points' buffer
     // Compatibility builders may lack a Default-time C3 snapshot. CUDA
     // admission must not mistake a current-frame fallback for bound rest.
     bool            restFromCurrentPoints = false;
-    GfMatrix4d      worldMatrix{1.0}; // source object space must be explicit for deformation
-    VtFloatArray    widths;
-    TfToken         type = UsdGenCurveTokens().cubic;
-    TfToken         basis = UsdGenCurveTokens().bspline;
-    TfToken         wrap = UsdGenCurveTokens().pinned;
-    TfToken         widthsInterpolation = UsdGenCurveTokens().vertexWidths;
-    VtIntArray      skinPrim;          // primvars:skinprim (uniform int)
-    VtArray<uint64_t> curveId;         // primvars:usdGen:curveId (uniform uint64[], R12)
-    VtVec2fArray    skinPrimUv;        // primvars:skinprimuv (uniform texCoord2f, not "st")
-    VtMatrix4dArray rootFrame;         // primvars:usdGen:rootFrame; may be empty
+    UsdGenMatrix4d      worldMatrix{1.0}; // source object space must be explicit for deformation
+    UsdGenFloatArray    widths;
+    UsdGenToken         type = UsdGenCurveTokens().cubic;
+    UsdGenToken         basis = UsdGenCurveTokens().bspline;
+    UsdGenToken         wrap = UsdGenCurveTokens().pinned;
+    UsdGenToken         widthsInterpolation = UsdGenCurveTokens().vertexWidths;
+    UsdGenIntArray      skinPrim;          // primvars:skinprim (uniform int)
+    UsdGenCowArray<uint64_t> curveId;         // primvars:usdGen:curveId (uniform uint64[], R12)
+    UsdGenVec2fArray    skinPrimUv;        // primvars:skinprimuv (uniform texCoord2f, not "st")
+    UsdGenMatrix4dArray rootFrame;         // primvars:usdGen:rootFrame; may be empty
     std::string     frozenEpoch;       // constant string primvar, "usdgen1:sha1:..." (S42)
     std::vector<UsdGenAuthoredPlaneDesc> authoredPlanes;
     std::shared_ptr<const UsdGenSurfaceCagePayload> surfaceCage;
@@ -134,15 +134,15 @@ enum UsdGenCurveInputSlot : UsdGenSlot {
 /// Record values of the kind, in the InputDesc's attribute order.
 enum UsdGenCurveInputValue : uint8_t {
     kUsdGenCurveValueRole,                  // int (UsdGenLane)
-    kUsdGenCurveValueCurveRole,             // TfToken
-    kUsdGenCurveValueType,                  // TfToken
-    kUsdGenCurveValueBasis,                 // TfToken
-    kUsdGenCurveValueWrap,                  // TfToken
-    kUsdGenCurveValueWidthsInterpolation,   // TfToken
+    kUsdGenCurveValueCurveRole,             // UsdGenToken
+    kUsdGenCurveValueType,                  // UsdGenToken
+    kUsdGenCurveValueBasis,                 // UsdGenToken
+    kUsdGenCurveValueWrap,                  // UsdGenToken
+    kUsdGenCurveValueWidthsInterpolation,   // UsdGenToken
     kUsdGenCurveValueRestFromCurrentPoints, // bool
-    kUsdGenCurveValueWorldMatrix,           // GfMatrix4d
+    kUsdGenCurveValueWorldMatrix,           // UsdGenMatrix4d
     kUsdGenCurveValueFrozenEpoch,           // std::string
-    kUsdGenCurveValuePlaneNames,            // VtTokenArray, authored order
+    kUsdGenCurveValuePlaneNames,            // UsdGenTokenArray, authored order
     kUsdGenCurveValueSurfaceCage,           // bool: the cage columns are present
     kUsdGenCurveValues
 };
@@ -156,7 +156,7 @@ USDGEN_CURVES_API UsdGenTypeId UsdGenRegisterCurveSetInputKind(UsdGenRegistrar &
 /// One authored plane, read from a record or a payload.
 struct UsdGenAuthoredPlaneView
 {
-    TfToken name;
+    UsdGenToken name;
     UsdGenAuthoredPlaneType type = UsdGenAuthoredPlaneType::Float32;
     UsdGenAuthoredPlaneDomain domain = UsdGenAuthoredPlaneDomain::Point;
     uint8_t arity = 1;
@@ -207,7 +207,7 @@ private:
     USDGEN_CURVES_API void _Advance(size_t i, size_t *floats, size_t *ints) const noexcept;
     size_t _count = 0;
     UsdGenAuthoredPlaneDesc const *_descs = nullptr;   // payload-backed
-    VtTokenArray _names;                               // record-backed (shared, no copy)
+    UsdGenTokenArray _names;                               // record-backed (shared, no copy)
     UsdGenSpan<const int> _info;
     UsdGenSpan<const float> _floats;
     UsdGenSpan<const int> _ints;
@@ -222,12 +222,12 @@ struct UsdGenSurfaceCageView
     UsdGenSpan<const int>     ownerCvCounts;
     UsdGenSpan<const float>   ownerEdgeBias;
     UsdGenSpan<const int>     ownerLengthProfileOffsets;
-    UsdGenSpan<const GfVec2f> ownerLengthProfile;
+    UsdGenSpan<const UsdGenVec2f> ownerLengthProfile;
     UsdGenSpan<const float>   normalizedT;
-    UsdGenSpan<const GfVec3i> triangles;
+    UsdGenSpan<const UsdGenVec3i> triangles;
     UsdGenSpan<const int>     triangleOwnerIndices;
-    UsdGenSpan<const GfVec2f> triangleRootCharts;
-    UsdGenSpan<const GfVec2f> ownerChartCentroids;
+    UsdGenSpan<const UsdGenVec2f> triangleRootCharts;
+    UsdGenSpan<const UsdGenVec2f> ownerChartCentroids;
     UsdGenSpan<const float>   ownerChartMeanRadii;
 };
 
@@ -261,24 +261,24 @@ struct UsdGenCurveSetInputView
 
     UsdGenNodeKey   key;
     UsdGenLane      role = UsdGenLane::Chunked;
-    TfToken         curveRole;
+    UsdGenToken         curveRole;
     UsdGenSpan<const int> curveVertexCounts;
-    UsdGenSpan<const GfVec3f> points, rest;
+    UsdGenSpan<const UsdGenVec3f> points, rest;
     bool            restFromCurrentPoints = false;
-    GfMatrix4d      worldMatrix{1.0};
+    UsdGenMatrix4d      worldMatrix{1.0};
     UsdGenSpan<const float> widths;
-    TfToken         type, basis, wrap, widthsInterpolation;
+    UsdGenToken         type, basis, wrap, widthsInterpolation;
     UsdGenSpan<const int> skinPrim;
     UsdGenSpan<const uint64_t> curveId;
-    UsdGenSpan<const GfVec2f> skinPrimUv;
-    UsdGenSpan<const GfMatrix4d> rootFrame;
+    UsdGenSpan<const UsdGenVec2f> skinPrimUv;
+    UsdGenSpan<const UsdGenMatrix4d> rootFrame;
     std::string_view frozenEpoch;
     UsdGenAuthoredPlanes authoredPlanes;
     UsdGenSurfaceCageRef surfaceCage;
     uint64_t        curveGeneration = 0;
     /// Keep a record's columns and values alive: a view may outlive its spec.
     UsdGenRef<const UsdGenElementSet> data;
-    VtValue         frozenEpochHolder;
+    UsdGenValue         frozenEpochHolder;
 };
 
 /// Every curve set input of 'spec', builder order.
@@ -289,7 +289,7 @@ USDGEN_CURVES_API UsdGenInputRecord const *UsdGenFindCurveSetInput(UsdGenGraphSp
 
 /// Packs 'data' into a UsdGenCurveSetInput record. Compile phase: allocates.
 USDGEN_CURVES_API UsdGenInputRecord UsdGenCurveSetRecord(UsdGenCurveSetData const &data,
-                                                       UsdGenNodeKey key, TfToken const &label,
+                                                       UsdGenNodeKey key, UsdGenToken const &label,
                                                        UsdGenInputColumnCache *cache = nullptr);
 
 /// Copies a view's arrays into a payload (engine-made variants of an input).

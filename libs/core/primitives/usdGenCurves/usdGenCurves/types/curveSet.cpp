@@ -127,7 +127,7 @@ UsdGenSpan<const T> Col(UsdGenElementSetView const &s, UsdGenSlot slot, uint32_t
 }
 
 template <class T>
-UsdGenSpan<const T> Arr(VtArray<T> const &a) noexcept
+UsdGenSpan<const T> Arr(UsdGenCowArray<T> const &a) noexcept
 {
     return {a.cdata(), a.size()};
 }
@@ -163,7 +163,7 @@ UsdGenPlaneView PlaneOf(UsdGenPlane const &plane) noexcept
 }
 
 template <class T>
-bool Fits(VtArray<T> const &a, size_t n) noexcept { return a.empty() || a.size() == n; }
+bool Fits(UsdGenCowArray<T> const &a, size_t n) noexcept { return a.empty() || a.size() == n; }
 
 template <class T>
 void Put(UsdGenWriteSet &w, UsdGenSlot slot, T const *data, size_t count)
@@ -173,7 +173,7 @@ void Put(UsdGenWriteSet &w, UsdGenSlot slot, T const *data, size_t count)
 }
 
 template <class T>
-void Take(VtArray<T> *dst, UsdGenSpan<const T> src)
+void Take(UsdGenCowArray<T> *dst, UsdGenSpan<const T> src)
 {
     if (src.empty()) return;
     dst->resize(src.size());
