@@ -22,7 +22,7 @@ USDGEN_USD_API usdGen::UsdGenToken ToToken(PXR_NS::TfToken const &t);
 USDGEN_USD_API usdGen::UsdGenToken ToToken(std::string_view text);
 inline usdGen::UsdGenToken ToToken(char const *text) { return ToToken(std::string_view(text ? text : "")); }
 inline usdGen::UsdGenToken ToToken(std::string const &text) { return ToToken(std::string_view(text)); }
-PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
+USDGEN_USD_API PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
 
 USDGEN_USD_API usdGen::UsdGenTokenVector ToTokens(std::vector<PXR_NS::TfToken> const &t);
 USDGEN_USD_API std::vector<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenVector const &t);
