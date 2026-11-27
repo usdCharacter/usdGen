@@ -11,7 +11,9 @@
 // (FNV-1a-64 of the raw bytes): the terminal buffer's px py pz width hairT
 // rest curveId cvOffsets and root planes, every extra plane sorted by name,
 // and the session's tile publications (points, widths, vertex counts).
-// The result must equal tests/golden/cpuOutput.txt byte for byte.
+// The result must equal tests/golden/cpuOutput.<os>-<cc>.txt byte for byte.
+// A toolchain without its own file writes cpuOutput.<os>-<cc>.actual.txt
+// (CI uploads it) and skips (exit 77).
 //
 // Fixed thread count, no pointer-derived hashes, no timestamps, no absolute
 // paths in the output. USDGEN_GOLDEN_WRITE=1 rewrites the golden file (a
@@ -69,8 +71,15 @@ using namespace usdGen;
 namespace {
 
 constexpr int kThreads = 4;
-// Float bits depend on the compiler and its libm: the golden belongs to one
-// toolchain, and another skips (exit 77) rather than compare.
+// Float bits depend on the compiler and its libm: each toolchain has its own
+// golden file, and one without a file skips (exit 77) rather than compare.
+#if defined(_WIN32)
+#define USDGEN_OUTPUT_OS "windows"
+#elif defined(__APPLE__)
+#define USDGEN_OUTPUT_OS "macos"
+#else
+#define USDGEN_OUTPUT_OS "linux"
+#endif
 #if defined(_MSC_VER)
 constexpr char const *kToolchain = "msvc";
 #elif defined(__clang__)
@@ -80,6 +89,7 @@ constexpr char const *kToolchain = "gcc";
 #else
 constexpr char const *kToolchain = "unknown";
 #endif
+std::string GoldenStem() { return std::string("cpuOutput." USDGEN_OUTPUT_OS "-") + kToolchain; }
 constexpr uint64_t kFnvOffset = 14695981039346656037ull;
 constexpr uint64_t kFnvPrime = 1099511628211ull;
 
@@ -589,14 +599,11 @@ int main()
         return 1;
     }
 
-    std::string const goldenPath = std::string(USDGEN_GOLDEN_DIR) + "/cpuOutput.txt";
+    std::string const goldenName = GoldenStem() + ".txt";
+    std::string const actualName = GoldenStem() + ".actual.txt";
+    std::string const goldenPath = std::string(USDGEN_GOLDEN_DIR) + "/" + goldenName;
     bool const rewrite = write && std::strcmp(write, "1") == 0;
     std::string const expected = ReadFile(goldenPath);
-    std::string const toolchain = std::string("\n# toolchain ") + kToolchain + "\n";
-    if (!rewrite && !expected.empty() && expected.find(toolchain) == std::string::npos) {
-        std::printf("SKIP: tests/golden/cpuOutput.txt was recorded with another toolchain\n");
-        return 77;
-    }
 
     Table table;
     RunGraphs(&table);
@@ -610,11 +617,17 @@ int main()
         std::printf("wrote %s\n", goldenPath.c_str());
         return g_failures ? 1 : 0;
     }
-    if (expected.empty()) Fail("missing golden file tests/golden/cpuOutput.txt");
-    else if (expected != text) {
-        std::ofstream("cpuOutput.actual.txt", std::ios::binary) << text;
+    if (expected.empty()) {
+        // Float bits belong to one toolchain: record this one's for review.
+        std::ofstream(actualName, std::ios::binary) << text;
+        std::printf("SKIP: no tests/golden/%s for this toolchain (wrote %s)\n", goldenName.c_str(),
+                    actualName.c_str());
+        return g_failures ? 1 : 77;
+    }
+    if (expected != text) {
+        std::ofstream(actualName, std::ios::binary) << text;
         Compare(expected, text);
-        Fail("output differs from tests/golden/cpuOutput.txt (actual: cpuOutput.actual.txt)");
+        Fail("output differs from tests/golden/" + goldenName + " (actual: " + actualName + ")");
     }
     if (g_failures) std::printf("testUsdGenOutputGoldens: FAILED (%d)\n", g_failures);
     else std::printf("testUsdGenOutputGoldens: PASS\n");
