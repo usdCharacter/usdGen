@@ -7,6 +7,7 @@
 #include "usdGen/registries/typeRegistry.h"
 
 #include <cstddef>
+#include <cstdint>
 
 namespace usdGen {
 
