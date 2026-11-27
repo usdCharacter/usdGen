@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
@@ -145,7 +146,7 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         foundRecord ? UsdGenCurveSetInputView::Of(*foundRecord) : UsdGenCurveSetInputView{};
     UsdGenCurveSetInputView const *found = &foundView;
     if (!foundRecord || found->role != UsdGenLane::Chunked ||
-        found->curveRole != et.hair)
+        found->curveRole != UsdGenCurveTokens().hair)
         return Fail(diagnostics, "CurveSource target must be one resolved C3 hair curve set");
     // Current/rest points stay source-local. Only constructing absent root
     // frames from a surface requires this matrix's inverse; authored frames
@@ -174,9 +175,9 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     }
     controls->hasAuthoredRest = !found->rest.empty();
     controls->restFromCurrentPoints = found->restFromCurrentPoints;
-    if (found->type != et.cubic ||
-        (found->basis != et.bspline && found->basis != et.catmullRom) ||
-        (found->wrap != et.pinned && found->wrap != et.nonperiodic) ||
+    if (found->type != UsdGenCurveTokens().cubic ||
+        (found->basis != UsdGenCurveTokens().bspline && found->basis != UsdGenCurveTokens().catmullRom) ||
+        (found->wrap != UsdGenCurveTokens().pinned && found->wrap != UsdGenCurveTokens().nonperiodic) ||
         (found->widthsInterpolation != et.vertex &&
          found->widthsInterpolation != et.constant))
         return Fail(diagnostics, "C3 source requires cubic bspline/catmullRom, "
@@ -225,7 +226,7 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
             if (valid)
                 controls->useRest = param.value.UncheckedGet<bool>();
         } else if (name == "lane")
-            valid = param.value == VtValue(et.hair);
+            valid = param.value == VtValue(UsdGenCurveTokens().hair);
         else if (name == "idSource") {
             valid = param.value == VtValue(vk.primvar) ||
                     param.value == VtValue(vk.index);
@@ -461,7 +462,7 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
         return Fail(diagnostics, "Noise requires literal configuration");
     std::set<TfToken> seen;
     VtVec2fArray knots;
-    TfToken interpolation = UsdGenTokens().catmullRom;
+    TfToken interpolation = UsdGenCurveTokens().catmullRom;
     for (auto const &param : node.params) {
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate Noise parameter");

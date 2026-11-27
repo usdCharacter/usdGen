@@ -11,6 +11,7 @@
 #include "usdGenCurves/publish/curvePublishDesc.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
@@ -90,6 +91,7 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
 
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
+    (void)UsdGenCurveTokens();   // interned before the registries freeze
     UsdGenRegisterCurveSetType(r, UsdGenMakeCurvePublishDesc());   // first: op defs name its type
     UsdGenCurvesKernelOps &k = gKernelOps;
     k.scatter = UsdGenRegisterScatterOp(r);

@@ -6,6 +6,7 @@
 // set its materialize hook derives.
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGen/compile/types.h"
 #include "usdGenCurves/export.h"
 #include "usdGen/registries/engineTokens.h"
@@ -84,10 +85,10 @@ struct UsdGenCurveSetData
     bool            restFromCurrentPoints = false;
     GfMatrix4d      worldMatrix{1.0}; // source object space must be explicit for deformation
     VtFloatArray    widths;
-    TfToken         type = UsdGenTokens().cubic;
-    TfToken         basis = UsdGenTokens().bspline;
-    TfToken         wrap = UsdGenTokens().pinned;
-    TfToken         widthsInterpolation = UsdGenTokens().vertexWidths;
+    TfToken         type = UsdGenCurveTokens().cubic;
+    TfToken         basis = UsdGenCurveTokens().bspline;
+    TfToken         wrap = UsdGenCurveTokens().pinned;
+    TfToken         widthsInterpolation = UsdGenCurveTokens().vertexWidths;
     VtIntArray      skinPrim;          // primvars:skinprim (uniform int)
     VtArray<uint64_t> curveId;         // primvars:usdGen:curveId (uniform uint64[], R12)
     VtVec2fArray    skinPrimUv;        // primvars:skinprimuv (uniform texCoord2f, not "st")

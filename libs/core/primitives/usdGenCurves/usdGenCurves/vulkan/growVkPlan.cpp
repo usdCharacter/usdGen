@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenCurves/vulkan/growVkPlan.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/ops/scatter.h"
 #include "usdGenSurface/types/rootSet.h"
@@ -99,7 +100,6 @@ bool ValidateVulkanGrow(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
 bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec* output, UsdGenDiagnostics* diag) {
     if (!output) return false;
     UsdGenGraphSpec desc = input;
-    UsdGenEngineTokens const& et = UsdGenTokens();
     UsdGenVulkanTokens const& vk = UsdGenVkTokens();
     // Lowered sources become the op whose Vulkan stage is CurveSource.
     UsdGenVulkanKernel const source = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
@@ -123,7 +123,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
             // The record is immutable: lower a copy and repack it.
             UsdGenCurveSetData curves;
             UsdGenCopyCurveSetData(UsdGenCurveSetInputView::Of(*record), &curves);
-            curves.role = UsdGenLane::Chunked; curves.curveRole = et.hair;
+            curves.role = UsdGenLane::Chunked; curves.curveRole = UsdGenCurveTokens().hair;
             // CUDA ReferenceSource imports the snapshot as current geometry.
             node.inputSets = node.references; node.references.clear();
             lowerToSource(node, false);
@@ -167,7 +167,7 @@ bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const& input, UsdGenGraphSpec
                 return Fail(diag,"invalid captured roots");
             UsdGenNodeKey const curvesKey = desc.DeriveKey(node.key, vk.capturedRoots);
             UsdGenCurveSetData curves;
-            curves.role = UsdGenLane::Chunked; curves.curveRole = et.hair;
+            curves.role = UsdGenLane::Chunked; curves.curveRole = UsdGenCurveTokens().hair;
             curves.curveVertexCounts = VtIntArray(n,2); curves.points.resize(2*n); curves.rest.resize(2*n);
             curves.widths = VtFloatArray(2*n,desc.defaultWidth);
             if (n) {

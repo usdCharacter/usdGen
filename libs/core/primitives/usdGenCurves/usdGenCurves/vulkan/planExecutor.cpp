@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGenCurves/vulkan/planExecutor.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/vulkan/csourceVkCapture.h"
 #include "usdGenExpr/vulkan/exprVkPlan.h"
 #include "usdGenExpr/vulkan/exprVkStructural.h"
@@ -385,7 +386,7 @@ struct Relay final : std::enable_shared_from_this<Relay> {
             capture.geometry.alreadyDeformed = !plan->SourceControls().useRest;
             capture.geometry.layoutMetadata = UsdGenCurveLayout(UsdGenCurveLayoutType::Cubic,
                                                   (!plan->SourceControls().surfaceCage &&
-                                                                  plan->Source().basis == UsdGenTokens().catmullRom
+                                                                  plan->Source().basis == UsdGenCurveTokens().catmullRom
                                                               ? UsdGenCurveLayoutBasis::CatmullRom
                                                               : UsdGenCurveLayoutBasis::BSpline),
                                                   UsdGenCurveLayoutWrap::Pinned);
