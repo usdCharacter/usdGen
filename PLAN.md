@@ -69,6 +69,10 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoPxrLink_{usdGenCuda,usdGenVulkan}` | empty | empty |
 | `testUsdGenNoPxrLink_<t>` for every library with a source under libs/base or libs/core (11.8: usdGenSurface, usdGenExpr, usdGenCurves, usdGenCurves{Cuda,Vulkan}, usdGen{Surface,Expr}{Cuda,Vulkan}) | empty | empty |
 | `testUsdGenNoPxrUsdImagingBelowHosts` (10a: no `pxr/usd`, `pxr/imaging` include under libs/base, libs/core) | empty | empty |
+| `testUsdGenNoInternalIncludes` (12.2: no `usdGen/{registries,compile,exec}` include outside libs/core/usdGen and tests/internal) | usdGenVulkan `externalRetirement.cpp` 1 | empty |
+| `testUsdGenHostsNoExtIncludes` (12.2: hosts and Pomade use api/, not api/ext/) | 7 in 5 files (usdGenImaging, usdGenUsd) | empty at 13 |
+| `testUsdGenApiSelfContained` (12.2: api/ includes only api/, the usdGenMath headers and the standard library) and `usdGenApiHeaderProbe` (every api header compiles alone) | empty, builds | stays |
+| `testUsdGenInstallOnlyApi` (12.5: only `include/usdGen/api` and the usdGenMath headers install; `usdGen::usdGen` is the only exported target) | green | stays |
 
 To refresh a baseline, use the `cmake -DWRITE=ON ... -P cmake/gates/RatchetScan.cmake` line in the header of `Gates.cmake`.
 
@@ -494,10 +498,62 @@ Left over (step 11):
 | `hydra.pull` allocations 430 -> 481 (foreign data sources for zero-copy `ToVt`) | 13 (host facades) |
 | `testUsdGenVulkanRetirementStress` and `testUsdGenVulkanDeform` hetero-count checks fail under full CPU load, also at 2a04d46 | test robustness, any step |
 
-### 12. Install only api/
+### 12. Install only api/. Done
 
 - **Goal:** install only `api/`, re-home the tests that reach internal headers, and use hidden visibility.
 - **Gate:** add the install gate, which fails if anything outside `core/usdGen/api/` is installed.
+
+M12 (12.0-12.5). Done:
+
+- **12.0:** `api/engine.h`: `UsdGenEngine::Create(desc)` builds the op registry from the extension manifest (`desc.manifest`, else `USDGEN_EXTENSIONS`, else `usdGenExtensions.txt` beside usdGen, found by `GetModuleHandleEx`/`dladdr`), creates the cache-domain table and publishes the engine by CAS; `Get()` calls `Create({})` first. CMake writes the manifest from `USDGEN_EXTENSION_TARGETS` (primitives, then usdGenCuda, usdGenCurvesCuda, usdGenVulkan, usdGenCurvesVulkan; today's order) and installs it beside the library. usdGenSurface's `usdGenRegister` makes the Ptex cache. `testUsdGenEngineCreate_{get,manifest,missing}`.
+- **12.1:** the include shim is gone (`tools/restructure/rewriteShim12.py` rewrote 1,068 includes in 425 files; re-run it after a merge), with `cmake/IncludeShim.cmake`, its install rule and `testUsdGenNoShimIncludes`.
+- **12.2:** header tiers: host-facing headers in `usdGen/api/`, the extension kit (registrar, op, opDef, registries, publisher, chunkView, scratch, digest, workDispatcher, device SDK) in `usdGen/api/ext/`; splits `api/generation.h`, `api/deviceLease.h`, `api/diagnostics.h`, `api/pipeline.h`, `api/compile.h`; `tools/restructure/rewriteTiers12.py` + `tiers12.txt`. `UsdGenGraphSpec`, `UsdGenOpNode` and `UsdGenInputRecord` hold `UsdGenPoolVector`s, `UsdGenText` and `UsdGenRef<const UsdGenHostData>`. Gates `testUsdGenNoInternalIncludes`, `testUsdGenHostsNoExtIncludes`, `testUsdGenApiSelfContained` and the `usdGenApiHeaderProbe` object library (every api header compiles alone).
+- **12.3:** `export.h` per library (`USDGEN_API`, `USDGEN_{SURFACE,EXPR,CURVES,CURVES_CUDA,CURVES_VULKAN,CUDA,VULKAN,USD,HYDRA}_API`, `USDGENPOMADE_API`, each with an `*_INTERNAL_API` twin); `usdgen_hidden_library()`: hidden C++/CUDA visibility and inlines, no `WINDOWS_EXPORT_ALL_SYMBOLS`, `--no-undefined` on ELF; option `USDGEN_EXPORT_INTERNALS` (default `USDGEN_BUILD_TESTS`) exports the internals tests drive. usdGenMath's out-of-line members (`matrix.cpp`, `rbf.cpp`) are also compiled into usdGen and exported (`USDGEN_MATH_API`), so an install-tree consumer links usdGen only; build-tree users of the archive define `USDGEN_MATH_STATIC`.
+- **12.4:** tests re-homed by script into `tests/internal/<lib>`, `tests/hosts/<lib>`, `tests/api`; internal tests are labelled `internal` and left out of the build (tests disabled) without `USDGEN_EXPORT_INTERNALS`; tests in tests/api are labelled `api`.
+- **12.5:** the install ships `include/usdGen/api` (with `api/ext`) and the seven usdGenMath headers api includes; `usdGen::usdGen` is the only exported target and has no pxr, TBB, GL or Vulkan in its interface; the other libraries install as runtime only. Gate `testUsdGenInstallOnlyApi`. The consumer (`tests/consumer`) finds usdGen alone, creates the engine, compiles an empty spec and commits. CI install-check builds hidden and runs `-L '^api$|^gate:install$'` and the installed-tree tests.
+
+Deviations: `usdGenCookStats` (tools/cookStats.cpp) drives the private compiler and scheduler, so it is built only with `USDGEN_EXPORT_INTERNALS` (fix 1). Owning std types still cross in `api/session.h` and `api/diagnostics.h` (see leftovers).
+
+Milestone verification M12 (Windows, RTX 4090, MSVC 14.36, CUDA 12.6, Vulkan on). Clean configure and full build, internals ON. Test list against fcd3952 (`ctest -N`): 524 -> 530, plus `testUsdGenApiSelfContained`, `testUsdGenHostsNoExtIncludes`, `testUsdGenNoInternalIncludes`, `testUsdGenInstallOnlyApi`, `testUsdGenEngineCreate_{get,manifest,missing}`, minus `testUsdGenNoShimIncludes` (deleted with the shim); nothing else moved out of the list. Serial `ctest -L '^(T0|T1)$'`: 480 run, 465 pass, 14 skipped, 1 failed (`testUsdGenScenePublication`, as on main). The first run also failed `testUsdGenPomadeCommit` TN-4, `testUsdGenPomadeHierarchy` and `testPomadeSoakSmoke` at 30-55% CPU; each passed alone 3 times (Hierarchy once). `testUsdGenCookGoldens` takes 233 s (279 s at M11). Goldens, opContracts and cook digests byte-identical; warm cook and param edit 0 / 0. T3 (`-L T3 -E 'Soak|Perf'`): 18 of 29 pass; the 11 failures are the M11 set (HgiGL: no OpenGL 4.5 context), `testUsdviewBrushStroke` passes now.
+
+Hidden build (`USDGEN_EXPORT_INTERNALS=OFF`, CUDA and Vulkan on): builds after fix 1; `-L '^(T0|T1)$' -LE internal` 143 run, 131 pass, 12 skipped, 0 failed (api, hosts, gates, install gate). `cmake --install` into a scratch prefix, then `tests/consumer` configured with only that prefix (no OpenUSD include or library on its command lines) builds, and runs with no OpenUSD directory on PATH: engine with all seven manifest extensions, commit diagnosed "no operator nodes", PASS. `testUsdGenInstallTree` and `testUsdGenConsumer` are Unix-only; both compile for Linux (Clang, GCC 13 headers), as does every one of the 73 installed headers alone against the prefix.
+
+CUDA-off trees (CI configurations, MSVC, internals ON): CUDA-off/Vulkan-off `-L '^(T0|T1)$'` 241 run, 1 failed (ScenePublication); CUDA-off/Vulkan-on `-L '^vulkan$'` 130 run, 0 failed.
+
+Fixes:
+1. `usdGenCookStats` failed to link in the hidden build (CI install-check builds every target): it is internal-only now.
+2. `testUsdGenSchedulerAffinity` calls `FastCoreCount()` only under `__linux__`, so Windows never imported it and the Linux link would have failed: `FastCoreCount`/`FastCoreList` carry `USDGEN_INTERNAL_API`.
+3. Merged d7ae589 (`testUsdGenInstallTree` drops `pxrInterop.h`) into the re-homed file.
+
+Linux/ELF audit (no Linux machine). Both CUDA-off trees plus a CUDA-off/Vulkan-off/internals-OFF tree (the CI install-check configuration) were compiled as ELF (`clang --target=x86_64-linux-gnu -O2 -fPIC`, GCC 13 headers, `-fvisibility=hidden` and `-fvisibility-inlines-hidden` exactly where CMake sets them) and every shared library, module and executable was linked with `ld.lld` from its CMake link line (archives, shared libraries in dependency order, libstdc++, libm, libgcc_s, glibc 2.39), shared libraries with `--no-undefined`; undefined OpenUSD, OpenSubdiv, Python and GL symbols were set aside as external. Result: every library and every non-internal executable links in all three trees after fix 2; the only misses are the known compile misses (usdNoodles' Python bindings against Windows Python headers, `tokenNoTextCtor`). In the OFF tree the 82 tests/internal executables fail to link on hidden symbols, which shows the check sees hidden visibility. Exports: `usdGenRegister` is a default-visibility C symbol in all seven extensions and usdGenHydraCurves; typeinfo and vtables of `UsdGenRefCounted`, `UsdGenEpochNode`, `UsdGenPlaneSink`, `UsdGenSessionBackendExecutor` and the other class-tagged bases are dynamic symbols of libusdGen.so; no vtable or typeinfo was undefined anywhere. `dynamic_cast`s stay inside one library (op captures, SeExpr nodes, the CUDA and Vulkan generation owners); no custom exception type is thrown. Threads/dl/atomic: no `__atomic_*` call (no libatomic needed); usdGen (`pthread_*affinity_np`, `dl*`) links Threads and `CMAKE_DL_LIBS`, usdGenExpr (`dladdr`) `CMAKE_DL_LIBS`; usdGenImaging (`pthread_self`) and usdGenPomade (`pthread_mutex_*`) name no Threads, harmless on glibc >= 2.34 (ubuntu-24.04). RPATH: `$ORIGIN` on every installed library, `$ORIGIN/../..` on `_usdNoodles`; the manifest is read beside `libusdGen.so` and its relative names resolve against that directory. Load-time initializers under libs/core: constant data (`kIdentity` matrices, `kMinLaneSeparation` in braid.cpp) and the pre-existing glibc `AllocatorPolicy` (getenv + mallopt) in usdGen; nothing touches a registry at load. The installed-tree CI step puts `build/` on `LD_LIBRARY_PATH`, so its tests can bind the build tree's libusdGen.so (identical in the hidden build).
+
+Bench, CPU, 4 threads, medians of 5 alternating rounds over main (b741e6c), fcd3952 (M11) and M12; machine not idle (CPU 40% before, 34% after: other sessions):
+
+| Metric | main | fcd3952 | M12 |
+|---|---|---|---|
+| Cold cook, 100k curves | 141.4 ms | 133.6 ms | 135.1 ms |
+| Warm recook | 127.1 ms | 122.5 ms | 122.6 ms |
+| Param-edit recook | 106.7 ms | 4.27 ms | 4.35 ms |
+| Hydra publish | 696.7 ms | 307.1 ms | 304.0 ms |
+| Hydra pull | 0.46 ms | 0.49 ms | 0.49 ms |
+| session.cold / warm / paramEdit | - | 175.1 / 0.495 / 43.9 ms | 172.8 / 0.534 / 44.9 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 | 0 / 0 |
+| Allocations, Hydra publish / pull | 0 / 1 | 14,353 / 481 | 14,326 / 481 |
+
+Every cook and publish row is within 2% of fcd3952. `session.warm` read +8% (0.04 ms); 8 alternating rounds of fcd3952 against M12 (CPU 50%) gave 0.544 / 0.509 ms, cold cook 148.4 / 141.8, warm 132.3 / 133.3, publish 317.8 / 307.2: noise. Hidden visibility and the api/session split cost nothing measurable.
+
+Left over (step 12):
+
+| What | Where it goes |
+|---|---|
+| `testUsdGenHostsNoExtIncludes` baseline: 7 includes of api/ext in 5 host files (usdGenImaging `cudaGlComputation.cpp`, `groomSceneIndexPlugin.cpp` 3, `usdGenGraphDescBuilder.cpp`; usdGenUsd `convert/token.cpp`, `lower.h`) | 13 (host facades) |
+| `testUsdGenNoInternalIncludes` baseline: usdGenVulkan `externalRetirement.cpp` | 13, or any step |
+| Owning std types still cross in api/: `UsdGenDiagnostics` (`std::vector<std::string>`), `std::shared_ptr` snapshots and `std::function` callbacks in `api/session.h` | 13 (nanobind facades) |
+| `usdGenCookStats` needs the internals | 13 (port to api/) |
+| Installed-tree CI step has `build/` on `LD_LIBRARY_PATH` | next CI touch |
+| Linux CI run: hidden ELF build, `--no-undefined`, install-check OFF, the linux-gcc goldens | when the branch is pushed |
+| T3 pixel tests need an OpenGL 4.5 desktop session | CI / an interactive session |
+| `convert/array.h` zero-copy casts are inline in a header (from 11) | 13, or a design call |
 
 ### 13. nanobind
 
