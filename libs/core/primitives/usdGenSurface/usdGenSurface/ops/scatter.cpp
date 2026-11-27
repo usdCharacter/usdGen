@@ -13,6 +13,9 @@
 // (review M-3 / engine rule E-8). Roots are Morton-sorted by rest position so
 // chunk placement is surface-major (plan/04 :641).
 #include "usdGen/ops/scatter.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 

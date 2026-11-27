@@ -20,6 +20,7 @@
 #define USDGEN_VULKAN_EXPR_VK_PARAMETERS_H
 
 #include "exprVkContext.h"
+#include "usdGen/api/token.h"
 #include "exprVkEvaluate.h"
 
 #include <cstddef>

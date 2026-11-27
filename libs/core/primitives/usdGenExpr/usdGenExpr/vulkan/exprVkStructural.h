@@ -3,6 +3,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_STRUCTURAL_H
 #define USDGEN_VULKAN_EXPR_VK_STRUCTURAL_H
 #include "usdGenVulkan/vulkan/completionService.h"
+#include "usdGen/api/token.h"
 #include "exprVkRun.h"
 #include <map>
 namespace usdGen::vulkan {

@@ -1,4 +1,7 @@
 #include "usdGen/surfaceCageSource.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"

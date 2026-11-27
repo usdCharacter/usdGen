@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "exprVkRun.h"
+#include "usdGen/api/token.h"
 #include "usdGen/expressions/frontend.h"
 #include "usdGen/expressions/irExec.h"
 #include <cmath>

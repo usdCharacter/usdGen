@@ -5,6 +5,8 @@
 #define USDGEN_SURFACE_ROOT_FRAMES_H
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 #include "usdGenSurface/surfaceInput.h"
 
 #include <cstdint>

@@ -8,20 +8,13 @@
 #include "usdGen/api/elementSet.h"
 #include "usdGenSurface/export.h"
 #include "usdGen/api/ids.h"
+#include "usdGenMath/math.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
 #include <cstddef>
 #include <cstdint>
 
-PXR_NAMESPACE_OPEN_SCOPE
-class UsdGenVec2f;
-class UsdGenVec3f;
-PXR_NAMESPACE_CLOSE_SCOPE
-
 namespace usdGen {
-
-using UsdGenVec2f;
-using UsdGenVec3f;
 
 class UsdGenRegistrar;
 

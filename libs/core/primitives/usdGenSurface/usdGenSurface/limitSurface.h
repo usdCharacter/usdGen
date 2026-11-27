@@ -1,6 +1,7 @@
 #ifndef USDGEN_LIMIT_SURFACE_H
 #define USDGEN_LIMIT_SURFACE_H
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/token.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/export.h"
 #include "usdGenMath/math.h"

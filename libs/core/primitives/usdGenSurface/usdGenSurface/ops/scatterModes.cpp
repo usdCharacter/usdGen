@@ -23,6 +23,11 @@
 //     so a painted mask never renumbers strands (strandIndex keeps the
 //     generation index).
 #include "usdGen/ops/scatterModes.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 

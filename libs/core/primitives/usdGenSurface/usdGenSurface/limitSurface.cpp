@@ -1,4 +1,7 @@
 #include "usdGen/limitSurface.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/digest.h"
 #include "usdGen/registries/token.h"

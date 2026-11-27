@@ -11,6 +11,7 @@
 #define USDGEN_VULKAN_EXPR_VK_PLAN_H
 
 #include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGen/api/token.h"
 #include "exprVkProgram.h"
 
 #include <string>

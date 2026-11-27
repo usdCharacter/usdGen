@@ -3,6 +3,7 @@
 // Compile checks and dependencies of connected parameters (moved from the
 // engine's compiler, step 6.5): the evaluator's UsdGenParamEvaluatorDef hooks.
 #include "usdGenExpr/exprValidate.h"
+#include "usdGen/api/token.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGen/exec/pool.h"

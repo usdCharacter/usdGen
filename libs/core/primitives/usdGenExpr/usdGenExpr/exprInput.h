@@ -5,6 +5,11 @@
 // record layouts and InputDescs, the packers and the read views.
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGenExpr/export.h"
 #include "usdGenExpr/expressions/context.h"

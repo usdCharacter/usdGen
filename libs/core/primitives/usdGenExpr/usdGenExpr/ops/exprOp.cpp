@@ -9,6 +9,11 @@
 // per-root broadcast. Every edge fails closed with a UsdGenDiagnostics
 // message; see exprOp.h for the contract.
 #include "usdGen/ops/exprOp.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 

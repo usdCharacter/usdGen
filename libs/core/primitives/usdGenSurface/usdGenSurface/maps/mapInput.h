@@ -5,6 +5,11 @@
 // view with the payload's field names.
 #pragma once
 #include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
 #include "usdGen/registries/typeRegistry.h"
 #include "usdGenSurface/export.h"
 

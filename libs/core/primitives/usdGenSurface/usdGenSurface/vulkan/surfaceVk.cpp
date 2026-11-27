@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usdGenSurface/vulkan/surfaceVk.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 

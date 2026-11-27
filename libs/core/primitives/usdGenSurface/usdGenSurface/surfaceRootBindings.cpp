@@ -1,4 +1,7 @@
 #include "usdGen/surfaceRootBindings.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/taskScheduler.h"

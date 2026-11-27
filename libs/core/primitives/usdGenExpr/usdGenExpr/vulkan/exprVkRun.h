@@ -3,6 +3,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_RUN_H
 #define USDGEN_VULKAN_EXPR_VK_RUN_H
 #include "exprVkParameters.h"
+#include "usdGen/api/token.h"
 #include <functional>
 #include <string_view>
 namespace usdGen::vulkan {

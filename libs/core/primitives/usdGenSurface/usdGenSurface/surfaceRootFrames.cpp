@@ -1,4 +1,6 @@
 #include "usdGen/surfaceRootFrames.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 #include "usdGenSurface/surfaceInput.h"
 
 #include <cmath>

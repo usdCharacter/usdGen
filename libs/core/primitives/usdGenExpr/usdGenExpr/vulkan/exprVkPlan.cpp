@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "exprVkPlan.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 #include "usdGenCurves/types/curveTokens.h"
 
 #include "usdGen/registries/opRegistry.h"

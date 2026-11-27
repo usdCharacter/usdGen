@@ -1,6 +1,11 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenExpr/exprInput.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"

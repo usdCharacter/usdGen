@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenSurface/maps/mapInput.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/imagePayload.h"
 
 #include "usdGen/registries/opRegistry.h"

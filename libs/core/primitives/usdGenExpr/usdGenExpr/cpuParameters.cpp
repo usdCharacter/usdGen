@@ -1,4 +1,7 @@
 #include "usdGenExpr/cpuParameters.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenExpr/exprInput.h"

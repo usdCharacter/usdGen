@@ -1,4 +1,5 @@
 #include "usdGen/surfaceCageInterpolate.h"
+#include "usdGen/api/cowArray.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 

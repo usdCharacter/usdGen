@@ -7,6 +7,9 @@
 #define USDGEN_OP_SCATTER_H
 
 #include "usdGen/op.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/registries/handles.h"

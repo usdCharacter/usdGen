@@ -1,4 +1,5 @@
 #include "usdGenSurface/concaveMaterialRemap.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>

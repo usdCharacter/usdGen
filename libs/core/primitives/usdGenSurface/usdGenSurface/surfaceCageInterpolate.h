@@ -8,6 +8,8 @@
 #define USDGEN_SURFACE_CAGE_INTERPOLATE_H
 
 #include "usdGenSurface/export.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/maps/ptexMap.h"

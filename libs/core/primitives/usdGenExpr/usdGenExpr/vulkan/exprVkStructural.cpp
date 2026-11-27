@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "exprVkStructural.h"
+#include "usdGen/api/token.h"
 #include <cstring>
 namespace usdGen::vulkan {
 namespace {
