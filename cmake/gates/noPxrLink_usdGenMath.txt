@@ -1,5 +1,1 @@
 # pxr libraries usdGenMath may link. Only shrinks; the target is an empty list.
-arch
-tf
-gf
-vt
