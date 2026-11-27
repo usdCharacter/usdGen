@@ -34,6 +34,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenExpr/export.h"
 
 
 namespace usdGen {
@@ -48,7 +49,7 @@ UsdGenOpRecord const *UsdGenNodeRecord(UsdGenOpNode const &node) noexcept;
 
 /// True when the node's op has the emitsLimitSurfaceUv hook and it fires
 /// for the node's authored params.
-bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphSpec const &desc, UsdGenOpNode const &node);
+USDGEN_EXPR_API bool UsdGenNodeEmitsLimitSurfaceUv(UsdGenGraphSpec const &desc, UsdGenOpNode const &node);
 
 /// Parses a map prim's usdGen:map:* params once (the map types'
 /// parseOptions). Unauthored or mistyped params keep their defaults.
@@ -71,9 +72,14 @@ struct UsdGenExpressionValue : UsdGenEvaluatedParam
 /// is cached against a digest of the bindings and their expression sources, so
 /// editing `usdGen:expr:source` or re-pointing a connection recompiles on the
 /// next evaluation without any graph-level cooperation.
-class UsdGenCpuParameters final : public UsdGenParamEvaluatorState
+class USDGEN_EXPR_API UsdGenCpuParameters final : public UsdGenParamEvaluatorState
 {
 public:
+    UsdGenCpuParameters() = default;
+    // Not copyable (unique_ptr state); spelled out for the exported class.
+    UsdGenCpuParameters(UsdGenCpuParameters const &) = delete;
+    UsdGenCpuParameters &operator=(UsdGenCpuParameters const &) = delete;
+
     /// Compiles (if needed) and evaluates every binding on `node` over
     /// `geometry`. Returns false and fills `diagnostics` on any failure,
     /// leaving the previously published values cleared so no operator reads a
