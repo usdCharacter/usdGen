@@ -13,6 +13,8 @@
 namespace usdGen::vulkan {
 // Queue-owner confined. Inputs must be immutable and have completed upload on
 // this queue before Begin. Neither Begin nor Poll waits for device completion.
+// Submits go through the context's VulkanQueueTimeline (timelineSemaphoreEnabled);
+// without it Begin fails with VK_ERROR_FEATURE_NOT_PRESENT.
 //
 // FP64 workaround: the device is created WITHOUT shaderFloat64, but the CUDA
 // Grow target math is double-precision (curveGrow.cu GrowKernel). The host

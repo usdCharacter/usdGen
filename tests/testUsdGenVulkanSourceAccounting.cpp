@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
     ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 7015;
-    ci.nativeLifetime = native;
+    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{8} << 20, 0};
     auto context = DeviceContext::Create(ci);
     CHECK(context);

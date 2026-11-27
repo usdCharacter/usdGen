@@ -95,14 +95,13 @@ struct NoisePipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> ubo;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // the generate submit's queue-timeline value
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;
     uint32_t pointCount = 0;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -251,7 +250,7 @@ VkResult NoisePipeline::Candidate::Poll(NoiseSemantic* semantic) {
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
         auto d = s.native->context->device();
-        VkResult r = vkGetFenceStatus(d, s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         void* data = nullptr;
@@ -626,17 +625,11 @@ std::unique_ptr<NoisePipeline::Candidate> NoisePipeline::Begin(
             r = vkEndCommandBuffer(cmds[0]);
         }
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VkFence proofFence = VK_NULL_HANDLE;
-        r = vkCreateFence(d, &fi, nullptr, &proofFence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1; submit.pCommandBuffers = &cmds[0];
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, proofFence);
-        if (r == VK_SUCCESS)
-            r = vkWaitForFences(d, 1, &proofFence, VK_TRUE, 10000000000ull);
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { finish(VK_ERROR_FEATURE_NOT_PRESENT); return {}; }
+        // Still a synchronous proof (Begin reports the validate semantic).
+        uint64_t const proofValue = timeline->Submit(&cmds[0], 1u, &r);
+        if (proofValue) r = timeline->Wait(proofValue, 10000000000ull);
         uint32_t st = 0;
         if (r == VK_SUCCESS) {
             void* data = nullptr;
@@ -646,7 +639,6 @@ std::unique_ptr<NoisePipeline::Candidate> NoisePipeline::Begin(
                 vkUnmapMemory(d, s->status->memory());
             }
         }
-        vkDestroyFence(d, proofFence, nullptr);
         if (r != VK_SUCCESS) { finish(r); return {}; }
         if (st != 0) return reject(static_cast<NoiseSemantic>(st));
 
@@ -659,7 +651,7 @@ std::unique_ptr<NoisePipeline::Candidate> NoisePipeline::Begin(
             return candidate;
         }
 
-        // cmd2: zero-fill output + generate dispatch (async on candidate fence).
+        // cmd2: zero-fill output + generate dispatch (async on the queue timeline).
         r = vkBeginCommandBuffer(cmds[1], &begin);
         if (r == VK_SUCCESS) {
             vkCmdFillBuffer(cmds[1], s->outPoints->buffer(), 0, VK_WHOLE_SIZE, 0u);
@@ -690,8 +682,6 @@ std::unique_ptr<NoisePipeline::Candidate> NoisePipeline::Begin(
             r = vkEndCommandBuffer(cmds[1]);
         }
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try { admitted = beforeSubmit(); }
@@ -699,9 +689,8 @@ std::unique_ptr<NoisePipeline::Candidate> NoisePipeline::Begin(
             if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
         }
         s->pending = true;
-        submit.pCommandBuffers = &cmds[1];
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+        s->value = timeline->Submit(&cmds[1], 1u, &r);
+        if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
         finish(VK_SUCCESS);
         return candidate;
     } catch (std::bad_alloc const&) { finish(VK_ERROR_OUT_OF_HOST_MEMORY); return {}; }

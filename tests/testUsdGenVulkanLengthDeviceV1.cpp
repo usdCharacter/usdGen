@@ -35,7 +35,7 @@ int main(int argc,char**argv) {
     if(props.limits.maxPerStageDescriptorStorageBuffers<13||props.limits.maxDescriptorSetStorageBuffers<13||props.limits.maxPushConstantsSize<88)return 77;
     DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true;ci.instance=native->instance;ci.physicalDevice=native->physical;
     ci.device=native->device;ci.computeQueue=native->queue;ci.computeQueueFamily=native->family;
-    ci.physicalIndex=native->physicalIndex;ci.resourceDeviceId=7936;ci.nativeLifetime=native;
+    ci.physicalIndex=native->physicalIndex;ci.resourceDeviceId=7936;ci.nativeLifetime=native; ci.timelineSemaphoreEnabled=true;
     ci.resources={size_t{32}<<20,0};auto context=DeviceContext::Create(ci);CHECK(context);
     auto pipe=LengthScalePipeline::CreateWithDeviceV1(context,code[0],code[1],code[2],code[3],code[4],code[5],code[6],code[7]);
     auto compact=LengthCompactionPipeline::CreateWithKeep(context,code[8]);CHECK(pipe&&pipe->HasDeviceV1()&&compact);

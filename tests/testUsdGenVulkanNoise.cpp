@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
     bool unavailable = false;
     VkPhysicalDeviceFeatures fp64 = {};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(&unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(&unavailable, &fp64);
     if (unavailable) return 77;
     CHECK(native);
 
@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
     ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 8020;
-    ci.nativeLifetime = native;
+    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{32} << 20, 0};
     ci.shaderFloat64Enabled = true;
     auto context = DeviceContext::Create(ci);

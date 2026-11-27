@@ -14,8 +14,8 @@ namespace usdGen::vulkan {
 struct VulkanSourceUpload::Storage {
     struct Plane {
         UsdGenDeviceChannelMetadata meta;
-        // Staging is retained/fenced with its paired immutable device-local
-        // output; neither allocation can be freed after an unproven submit.
+        // Staging is retained with its paired immutable device-local output
+        // until timeline proof; neither can be freed after an unproven submit.
         bool privateFrame = false;
         std::shared_ptr<ChargedBuffer> staging;
         std::shared_ptr<ChargedBuffer> buffer;
@@ -28,14 +28,13 @@ struct VulkanSourceUpload::Storage {
     uint32_t curves = 0, points = 0;
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer command = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t submitValue = 0;  // the upload's queue-timeline value
     std::shared_ptr<const void> submission;
     SourceGenerationStatus status = SourceGenerationStatus::InvalidInput;
     bool submitted = false, quarantined = false;
     ~Storage() {
         if (quarantined) return;
         if (pool) vkDestroyCommandPool(context->device(), pool, nullptr);
-        if (fence) vkDestroyFence(context->device(), fence, nullptr);
     }
 };
 
@@ -128,10 +127,10 @@ std::shared_ptr<VulkanSourceUpload> VulkanSourceUpload::Create(std::shared_ptr<D
         command.commandBufferCount = 1;
         r = vkAllocateCommandBuffers(s->context->device(), &command, &s->command);
         if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
-        VkFenceCreateInfo fence{};
-        fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(s->context->device(), &fence, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { if (result) *result = r; return {}; }
+        if (!s->context->computeTimeline()) {
+            if (result) *result = VK_ERROR_FEATURE_NOT_PRESENT;
+            return {};
+        }
         s->status = SourceGenerationStatus::Created;
         auto upload = std::shared_ptr<VulkanSourceUpload>(new VulkanSourceUpload(std::move(s)));
         if (result) *result = VK_SUCCESS;
@@ -155,39 +154,23 @@ SourceGenerationStatus VulkanSourceUpload::Submit() noexcept {
     vkCmdPipelineBarrier(storage_->command, VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
     if (vkEndCommandBuffer(storage_->command) != VK_SUCCESS) { storage_->status = SourceGenerationStatus::QueueRejected; return storage_->status; }
-    // Enter pending state before arming any native owner: every later failure
-    // is conservatively quarantined even when vkQueueSubmit itself rejects.
+    // Enter pending state before submitting: every later failure is
+    // conservatively quarantined even when the submit itself rejects. The
+    // planes stay private to this upload until Poll proves the value, so
+    // they need no per-buffer submission marks.
     storage_->submission = storage_; storage_->submitted = true;
     storage_->status = SourceGenerationStatus::Submitted;
-    for (auto const& plane : storage_->planes) {
-        if (!plane.buffer) continue;
-        if (plane.staging->MarkSubmitted(storage_->fence, storage_->submission) != VK_SUCCESS ||
-            plane.buffer->MarkSubmitted(storage_->fence, storage_->submission) != VK_SUCCESS) {
-            Quarantine(); return SourceGenerationStatus::LostProof;
-        }
-    }
-    VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1; submit.pCommandBuffers = &storage_->command;
-    if (vkQueueSubmit(storage_->context->computeQueue(), 1, &submit, storage_->fence) != VK_SUCCESS) {
-        Quarantine(); return SourceGenerationStatus::LostProof;
-    }
+    storage_->submitValue = storage_->context->computeTimeline()->Submit(&storage_->command, 1u);
+    if (!storage_->submitValue) { Quarantine(); return SourceGenerationStatus::LostProof; }
     return storage_->status;
 }
 SourceGenerationStatus VulkanSourceUpload::Poll() noexcept {
     if (!storage_) return SourceGenerationStatus::InvalidInput;
     if (storage_->status == SourceGenerationStatus::Ready) return SourceGenerationStatus::Ready;
     if (storage_->status != SourceGenerationStatus::Submitted) return SourceGenerationStatus::InvalidInput;
-    VkResult r = vkGetFenceStatus(storage_->context->device(), storage_->fence);
+    VkResult r = storage_->context->computeTimeline()->Check(storage_->submitValue);
     if (r == VK_NOT_READY) return SourceGenerationStatus::NotReady;
     if (r != VK_SUCCESS) { Quarantine(); return SourceGenerationStatus::LostProof; }
-    // Keep every staging owner until all proof checks finish: quarantine must
-    // still be able to retain a complete packet if any later owner fails.
-    for (auto const& plane : storage_->planes) {
-        if (!plane.buffer) continue;
-        if (plane.staging->PollComplete() != VK_SUCCESS || plane.buffer->PollComplete() != VK_SUCCESS) {
-            Quarantine(); return SourceGenerationStatus::LostProof;
-        }
-    }
     for (auto& plane : storage_->planes) plane.staging.reset();
     storage_->submitted = false;
     storage_->submission.reset();

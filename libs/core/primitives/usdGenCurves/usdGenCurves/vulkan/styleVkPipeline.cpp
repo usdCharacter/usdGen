@@ -111,7 +111,7 @@ struct StyleVkPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> status;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // the submit's queue-timeline value
     bool pending = false, lost = false, proved = false;
     bool vectorOutput = false;
     uint32_t semantic = UINT32_MAX;
@@ -120,7 +120,6 @@ struct StyleVkPipeline::Candidate::State {
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -261,7 +260,7 @@ VkResult StyleVkPipeline::Candidate::Poll(StyleVkSemantic* semantic) {
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
         auto d = s.native->context->device();
-        VkResult r = vkGetFenceStatus(d, s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) {
             Quarantine();
@@ -538,12 +537,10 @@ std::unique_ptr<StyleVkPipeline::Candidate> StyleVkPipeline::BeginImpl(
             finish(r);
             return {};
         }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) {
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) {
             if (status) *status = StyleVkStatus::VulkanError;
-            finish(r);
+            finish(VK_ERROR_FEATURE_NOT_PRESENT);
             return {};
         }
         if (beforeSubmit) {
@@ -561,13 +558,9 @@ std::unique_ptr<StyleVkPipeline::Candidate> StyleVkPipeline::BeginImpl(
                 return {};
             }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd;
         s->pending = true;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) {
+        s->value = timeline->Submit(&cmd, 1u, &r);
+        if (!s->value) {
             candidate->Quarantine();
             if (status) *status = StyleVkStatus::VulkanError;
             finish(r);

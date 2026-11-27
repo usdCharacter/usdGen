@@ -87,14 +87,13 @@ struct RbfVkDeformPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> applyUbo;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t applyValue = 0;  // the apply submit's queue-timeline value
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;
     uint32_t pointCount = 0;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -219,7 +218,7 @@ VkResult RbfVkDeformPipeline::Candidate::Poll(DeformSemantic* semantic) {
         auto d = s.native->context->device();
         RbfVkStatus status = RbfVkStatus::Ok;
         VkResult r = VK_SUCCESS;
-        if (s.phase == State::Phase::Apply) r = vkGetFenceStatus(d, s.fence);
+        if (s.phase == State::Phase::Apply) r = s.native->context->computeTimeline()->Check(s.applyValue);
         else if (s.phase == State::Phase::Evaluate) r = s.binding->PollEvaluate(&status);
         else r = s.binding->PollSolve(&status);
         if (r == VK_NOT_READY) return r;
@@ -269,14 +268,11 @@ bool RbfVkDeformPipeline::Candidate::Advance(BeforeSubmit beforeSubmit, VkResult
                 try { if (!beforeSubmit()) return finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); }
                 catch (...) { return finish(VK_ERROR_UNKNOWN); }
             }
-            VkSubmitInfo submit{};
-            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submit.commandBufferCount = 1;
-            submit.pCommandBuffers = &s.applyCommand;
             s.pending = true;
-            auto r = vkQueueSubmit(s.native->context->computeQueue(), 1, &submit, s.fence);
+            VkResult r = VK_SUCCESS;
+            s.applyValue = s.native->context->computeTimeline()->Submit(&s.applyCommand, 1u, &r);
             s.phase = State::Phase::Apply;
-            if (r != VK_SUCCESS) { Quarantine(); return finish(r); }
+            if (!s.applyValue) { Quarantine(); return finish(r); }
             return finish(VK_SUCCESS);
         } else return finish(VK_ERROR_INITIALIZATION_FAILED);
     }
@@ -586,10 +582,6 @@ std::unique_ptr<RbfVkDeformPipeline::Candidate> RbfVkDeformPipeline::Begin(
                     0, 1, &after, 0, nullptr, 0, nullptr);
                 r = vkEndCommandBuffer(cmd);
             }
-            if (r != VK_SUCCESS) { finish(r); return {}; }
-            VkFenceCreateInfo fi{};
-            fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            r = vkCreateFence(d, &fi, nullptr, &s->fence);
             if (r != VK_SUCCESS) { finish(r); return {}; }
             s->applyCommand = cmd;
         }

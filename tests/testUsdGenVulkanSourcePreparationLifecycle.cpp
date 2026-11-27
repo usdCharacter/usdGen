@@ -128,7 +128,7 @@ int main(int argc, char** argv) {
     contextInfo.computeQueueFamily = native->family;
     contextInfo.physicalIndex = native->physicalIndex;
     contextInfo.resourceDeviceId = 7311;
-    contextInfo.nativeLifetime = native;
+    contextInfo.nativeLifetime = native; contextInfo.timelineSemaphoreEnabled = true;
     contextInfo.resources = {size_t{8} << 20, 0};
     VkResult status = VK_ERROR_UNKNOWN;
     auto context = DeviceContext::Create(contextInfo, &status);

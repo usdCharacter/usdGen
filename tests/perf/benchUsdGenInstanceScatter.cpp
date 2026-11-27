@@ -1152,7 +1152,7 @@ int RunVkDispatch(Options const &opts, UsdGenCurveBuffer const &roots)
     std::vector<uint32_t> code(bytes.size() / sizeof(uint32_t));
     std::memcpy(code.data(), bytes.data(), bytes.size());
     bool unavailable = false;
-    auto native = CreateNative(&unavailable);
+    auto native = CreateTimelineNative(&unavailable);
     if (unavailable || !native) {
         ReportSkip(opts, "vk_dispatch", "no Vulkan device");
         return 0;
@@ -1174,7 +1174,7 @@ int RunVkDispatch(Options const &opts, UsdGenCurveBuffer const &roots)
     info.computeQueueFamily = native->family;
     info.physicalIndex = native->physicalIndex;
     info.resourceDeviceId = 7004;
-    info.nativeLifetime = native;
+    info.nativeLifetime = native; info.timelineSemaphoreEnabled = true;
     info.resources = {size_t{256} << 20, 0};
     auto context = DeviceContext::Create(info);
     if (!context) {

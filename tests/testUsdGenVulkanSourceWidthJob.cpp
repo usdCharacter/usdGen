@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7014;
-    ci.nativeLifetime = native; ci.resources = {size_t{8} << 20, 0};
+    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true; ci.resources = {size_t{8} << 20, 0};
     VkResult status = VK_ERROR_UNKNOWN; auto context = DeviceContext::Create(ci, &status);
     CHECK(context && status == VK_SUCCESS);
     auto pipeline = WidthPipeline::Create(context, code, &status); CHECK(pipeline && status == VK_SUCCESS);
@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
         foreignInfo.instance = native->instance; foreignInfo.physicalDevice = native->physical;
         foreignInfo.device = native->device; foreignInfo.computeQueue = native->queue;
         foreignInfo.computeQueueFamily = native->family; foreignInfo.physicalIndex = native->physicalIndex;
-        foreignInfo.resourceDeviceId = 7015; foreignInfo.nativeLifetime = native;
+        foreignInfo.resourceDeviceId = 7015; foreignInfo.nativeLifetime = native; foreignInfo.timelineSemaphoreEnabled = true;
         foreignInfo.resources = {size_t{8} << 20, 0};
         auto foreignContext = DeviceContext::Create(foreignInfo, &status);
         CHECK(foreignContext && status == VK_SUCCESS);

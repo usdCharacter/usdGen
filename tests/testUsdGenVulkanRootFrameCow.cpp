@@ -187,7 +187,7 @@ int main(int argc, char** argv) {
     CHECK(native);
     DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
-    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7027; ci.nativeLifetime = native;
+    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7027; ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{8} << 20, 0}; auto context = DeviceContext::Create(ci); CHECK(context);
     VkResult status = VK_SUCCESS; std::string reason;
     auto upload = [&](UsdGenCurveBuffer const& source) {

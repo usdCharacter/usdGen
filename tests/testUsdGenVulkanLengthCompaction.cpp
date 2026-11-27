@@ -240,7 +240,7 @@ int main(int argc, char** argv) {
     CHECK(native);
     DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
-    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7041; ci.nativeLifetime = native; ci.resources = {size_t{16} << 20, 0};
+    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7041; ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true; ci.resources = {size_t{16} << 20, 0};
     auto context = DeviceContext::Create(ci); CHECK(context);
     auto base = Upload(native, Fixture(context)); CHECK(base && base->curveCount() == 4 && base->pointCount() == 11);
     Packet original; CHECK(Capture(native, context, base, &original));

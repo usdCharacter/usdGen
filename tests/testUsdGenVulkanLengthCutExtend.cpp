@@ -96,9 +96,9 @@ int main(int argc, char** argv) {
     CHECK(argc == 4); auto scaleCode = Code(argv[1]); auto setCode = Code(argv[2]); auto cutCode = Code(argv[3]);
     CHECK(!scaleCode.empty() && !setCode.empty() && !cutCode.empty());
     bool unavailable = false; auto native = CreateTimelineNative(&unavailable); if (unavailable) return 77; CHECK(native);
-    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance=native->instance; ci.physicalDevice=native->physical;
+    DeviceContext::CreateInfo ci; ci.instance=native->instance; ci.physicalDevice=native->physical;
     ci.device=native->device; ci.computeQueue=native->queue; ci.computeQueueFamily=native->family;
-    ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7932; ci.nativeLifetime=native;
+    ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7932; ci.nativeLifetime=native; ci.timelineSemaphoreEnabled=true;
     ci.resources={size_t{32}<<20,0};
     auto context = DeviceContext::Create(ci); CHECK(context); auto pool = context->resources();
     auto initialBaseline = pool->Snapshot();

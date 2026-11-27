@@ -87,7 +87,7 @@ int main(int argc, char** argv) {
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7004;
-    ci.nativeLifetime = native; ci.resources = {size_t{8} << 20,0};
+    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true; ci.resources = {size_t{8} << 20,0};
     auto context = DeviceContext::Create(ci); CHECK(context); ci.nativeLifetime.reset();
     auto pool = context->resources(); auto baseline = pool->Snapshot();
     auto info = Fixture(context);
@@ -251,7 +251,7 @@ int main(int argc, char** argv) {
             CHECK(plane.metadata.elementCount==0 && plane.bytes==0 && !plane.buffer); hasEmptyWidth=true;
         }
         CHECK(hasEmptyWidth);
-        auto otherInfo=ci; otherInfo.nativeLifetime=native;
+        auto otherInfo=ci; otherInfo.nativeLifetime=native; otherInfo.timelineSemaphoreEnabled=true;
         auto otherContext=DeviceContext::Create(otherInfo); CHECK(otherContext && otherContext!=context);
         auto otherPipeline=WidthPipeline::Create(otherContext,code,&status); CHECK(otherPipeline);
         auto wrongEmpty=otherPipeline->Begin({},0,1.f,0,&status); CHECK(wrongEmpty && wrongEmpty->succeeded());

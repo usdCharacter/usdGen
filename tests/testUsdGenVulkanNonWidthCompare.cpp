@@ -58,9 +58,9 @@ int main(int argc, char** argv) {
     auto blendCode = Code(argv[4]);
     CHECK(!flatCode.empty() && !lengthCode.empty() && !compareCode.empty() && !blendCode.empty());
     bool unavailable = false; auto native = CreateTimelineNative(&unavailable); if (unavailable) return 77; CHECK(native);
-    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance=native->instance; ci.physicalDevice=native->physical;
+    DeviceContext::CreateInfo ci; ci.instance=native->instance; ci.physicalDevice=native->physical;
     ci.device=native->device; ci.computeQueue=native->queue; ci.computeQueueFamily=native->family;
-    ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7016; ci.nativeLifetime=native; ci.resources={size_t{8}<<20,0};
+    ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7016; ci.nativeLifetime=native; ci.timelineSemaphoreEnabled=true; ci.resources={size_t{8}<<20,0};
     auto context = DeviceContext::Create(ci); CHECK(context);
     VkResult status = VK_SUCCESS; auto width = WidthPipeline::Create(context, flatCode, &status); CHECK(width);
     auto length = LengthScalePipeline::Create(context, lengthCode, &status); CHECK(length);

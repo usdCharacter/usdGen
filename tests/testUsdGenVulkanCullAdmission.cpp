@@ -81,7 +81,7 @@ int main(int argc, char** argv) {
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue;
     ci.computeQueueFamily = native->family; ci.physicalIndex = native->physicalIndex;
-    ci.resourceDeviceId = 7053; ci.nativeLifetime = native;
+    ci.resourceDeviceId = 7053; ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{16} << 20, 0};
     auto context = DeviceContext::Create(ci); CHECK(context);
     VkResult status = VK_SUCCESS;
