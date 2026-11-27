@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <random>
 #include <vector>
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -185,22 +186,22 @@ inline UsdGenVec3f Rotate(UsdGenVec3f const &v, UsdGenVec3f const &k, float a)
 
 /// Cumulative arc length: out[0] = 0, out[i] = sum of segment lengths to i.
 /// Returns the total length.
-float ArcLengths(float const *p, size_t n, std::vector<float> *out);
+USDGEN_CURVES_INTERNAL_API float ArcLengths(float const *p, size_t n, std::vector<float> *out);
 
 /// Point at arc length s along the polyline (linear between points). Past
 /// the tip the last segment's direction is extrapolated by (s - L); before
 /// the root the root is returned. A zero-length polyline returns the root.
-UsdGenVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float s);
+USDGEN_CURVES_INTERNAL_API UsdGenVec3f SampleArc(float const *p, size_t n, std::vector<float> const &cum, float s);
 
 /// Resample the polyline to m points uniformly in arc length over [s0, s1]
 /// (s1 may exceed the length: extrapolates straight). dst has 3*m floats.
-void ResampleArc(float const *p, size_t n, std::vector<float> const &cum,
+USDGEN_CURVES_INTERNAL_API void ResampleArc(float const *p, size_t n, std::vector<float> const &cum,
                  float s0, float s1, size_t m, float *dst);
 
 /// Rotation-minimising frames by the projection method: T[i] given (unit),
 /// N0 = normalize(T0 x up) with up = +Y, or +X when |T0.y| >= 0.95;
 /// N[i] = normalize(N[i-1] - (N[i-1].T[i]) T[i]); B[i] = T[i] x N[i].
-void TransportFrames(std::vector<UsdGenVec3f> const &T, std::vector<UsdGenVec3f> *N,
+USDGEN_CURVES_INTERNAL_API void TransportFrames(std::vector<UsdGenVec3f> const &T, std::vector<UsdGenVec3f> *N,
                      std::vector<UsdGenVec3f> *B);
 
 /// Central-difference unit tangents of a polyline (forward/backward at the
@@ -210,7 +211,7 @@ void PolylineTangents(float const *p, size_t n, std::vector<UsdGenVec3f> *T);
 /// Moves a strand so its root lands at root + delta while far CVs stay put:
 /// p0 += delta; p_k += delta * (1 - smoothstep(s_k / F)) for k >= 1 until
 /// s_k >= F, with s_k the ORIGINAL arc length and F = min(4|delta|, L/2).
-void ResnapRoot(float *p, size_t n, UsdGenVec3f const &delta);
+USDGEN_CURVES_INTERNAL_API void ResnapRoot(float *p, size_t n, UsdGenVec3f const &delta);
 
 // ---------------------------------------------------------------------------
 // Surface: fan triangles and closest-point queries
@@ -273,7 +274,7 @@ struct ClosestHit
 /// precision). Deterministic: ties keep the lowest triangle index.
 /// Also carries smooth per-corner normals and per-corner UVs so a hit can be
 /// turned into a surface frame and a texture coordinate.
-class TriangleBvh
+class USDGEN_CURVES_INTERNAL_API TriangleBvh
 {
 public:
     /// `cornerNormals` / `cornerUvs`: 3 entries per triangle, or empty
@@ -313,7 +314,7 @@ private:
 /// faceVarying, else area-weighted vertex normals of the chosen points.
 /// Corner UVs come from `surface.uv` when it is vertex- (points) or
 /// faceVarying- (face-vertex) sized.
-void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleBvh *bvh);
+USDGEN_CURVES_INTERNAL_API void BuildSurfaceBvh(UsdGenSurfaceInputView const &surface, bool rest, TriangleBvh *bvh);
 
 /// Samples a mask map at a point on the surface the BVH was built from:
 ///   UsdGenPaintMap -> barycentric blend of its faceVarying `paintValues` at

@@ -9,6 +9,7 @@
 
 #include "usdGen/api/ext/op.h"
 #include "usdGen/api/ids.h"
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -47,7 +48,7 @@ public:
 /// entries at t = k/(size-1)) with the Bezier thickness factor the CPU lane
 /// applies per point (clamp01(f), f <= 1e-6 -> 1) and returns true; returns
 /// false and leaves `lut` untouched in ramp mode.
-bool UsdGenWidthBezierLut(UsdGenParamView const &params, float *lut, size_t size);
+USDGEN_CURVES_API bool UsdGenWidthBezierLut(UsdGenParamView const &params, float *lut, size_t size);
 
 class UsdGenRegistrar;
 UsdGenOpId UsdGenRegisterWidthOp(UsdGenRegistrar &);

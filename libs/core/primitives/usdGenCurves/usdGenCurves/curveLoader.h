@@ -8,6 +8,7 @@
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/api/ext/op.h"
 #include <memory>
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -17,7 +18,7 @@ class UsdGenRestSurfaceBindingCache;
 /// Loads one authored C3 curve set into a fresh, canonical CurveBuffer.
 /// `out` is unchanged on failure. Root binding/frame capture is portable and
 /// immutable; an optional owner slot reuses validated rest-surface indices.
-class UsdGenCurveLoader final
+class USDGEN_CURVES_API UsdGenCurveLoader final
 {
 public:
     static bool Load(UsdGenCaptureContext const &ctx,

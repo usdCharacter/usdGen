@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -49,7 +50,7 @@ struct UsdGenCurveRootCaptureResult
 /// for binding/frame computation) returns false and leaves `out` untouched.
 /// Per-root unresolved binding and geometric degeneracy are successful,
 /// explicit drop entries; no unresolved root is assigned face zero.
-bool UsdGenCaptureCurveRoots(
+USDGEN_CURVES_API bool UsdGenCaptureCurveRoots(
     UsdGenCurveSetInputView const &source,
     UsdGenSurfaceInputView const *surface,
     UsdGenToken rebind,

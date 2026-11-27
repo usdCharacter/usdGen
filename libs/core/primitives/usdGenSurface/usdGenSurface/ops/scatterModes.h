@@ -31,6 +31,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -71,7 +72,7 @@ struct ModeConfig
 
 /// Parses and validates the mode parameters. False (with `error`) on an
 /// unknown token or a non-finite value.
-bool ReadModeConfig(UsdGenParamView const *params, ModeConfig *out, std::string *error);
+USDGEN_CURVES_INTERNAL_API bool ReadModeConfig(UsdGenParamView const *params, ModeConfig *out, std::string *error);
 
 /// Fills `names` from a Scatter record's tokens (scatterP::Tok).
 void FillModeNames(UsdGenOpRecord const &record, ModeConfig *config);
@@ -104,11 +105,11 @@ struct ModeStats
 /// (index, tri+1, vertex+1, bits(pos.xyz), bits(bary.xyz)) seeded with
 /// 0x14650fb0739d0383, murmur fmix64, 24-bit float. `tri` is the fan
 /// triangle index over the WHOLE mesh (OBJ face order), -1 for vertex roots.
-float RootHash01(uint64_t index, int tri, int vertex, UsdGenVec3f const &pos, UsdGenVec3f const &bary);
+USDGEN_CURVES_INTERNAL_API float RootHash01(uint64_t index, int tri, int vertex, UsdGenVec3f const &pos, UsdGenVec3f const &bary);
 
 /// Builds the generator's output into `buf` (roots, frames, Morton order,
 /// planes strandIndex/strandSeed). `stats` is optional.
-bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
+USDGEN_CURVES_INTERNAL_API bool CaptureModes(UsdGenCaptureContext const &ctx, ModeConfig const &config,
                   UsdGenSurfaceInputView const &surface, UsdGenCurveBuffer *buf,
                   UsdGenDiagnostics *diag, ModeStats *stats = nullptr);
 

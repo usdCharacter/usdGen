@@ -35,6 +35,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -57,11 +58,11 @@ struct BezierControls
 /// u_i = i/(n-1); y = Bezier((0,root),(midShift,mid),(1,tip)) at u (controls
 /// clamped to [0,1], midShift to [0.1,0.9]), or `mid` when L <= 1e-6;
 /// returns clamp01(y * clamp01(amount)).
-float ClumpWeight(float u, float length, float amount, BezierControls const &controls);
+USDGEN_CURVES_INTERNAL_API float ClumpWeight(float u, float length, float amount, BezierControls const &controls);
 
 /// Flyaway test: clamp01(fraction) > U01(SplitMix64(strandIndex)), compared
 /// in double. Unseeded, so the same strand indices fly away everywhere.
-bool IsFlyaway(uint64_t strandIndex, float fraction);
+USDGEN_CURVES_INTERNAL_API bool IsFlyaway(uint64_t strandIndex, float fraction);
 
 // ---------------------------------------------------------------------------
 // Nearest-point queries

@@ -19,7 +19,7 @@
 
 namespace usdGen {
 
-class UsdGenScatterOp final : public UsdGenOp
+class USDGEN_CURVES_INTERNAL_API UsdGenScatterOp final : public UsdGenOp
 {
 public:
     explicit UsdGenScatterOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}
