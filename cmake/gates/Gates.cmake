@@ -402,3 +402,15 @@ foreach(_h IN LISTS _usdgen_api_headers)
 endforeach()
 add_library(usdGenApiHeaderProbe OBJECT ${_usdgen_api_probe})
 target_link_libraries(usdGenApiHeaderProbe PRIVATE usdGen)
+
+# 12.5: nothing outside include/usdGen/api and the usdGenMath headers it
+# includes is installed, and usdGen::usdGen is the only exported target.
+add_test(NAME testUsdGenInstallOnlyApi
+    COMMAND ${CMAKE_COMMAND}
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DCONFIG=$<CONFIG>
+        -DPREFIX=${CMAKE_BINARY_DIR}/gateInstall
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/CheckInstallApiOnly.cmake)
+set_tests_properties(testUsdGenInstallOnlyApi PROPERTIES
+    LABELS "T0;build;gate;gate:install"
+    RUN_SERIAL ON)
