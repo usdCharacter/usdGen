@@ -625,6 +625,7 @@ SurfaceBindingStatus CudaSurfaceBinding::Bind(
             freshUnproven_ = true;
             return fail(status, message);
         }
+        // shutdown wait: test hook: synchronous CudaSurfaceBinding::Bind, no Session caller (kernel tests).
         CudaFenceStream(stream);
         discardPending();
         return fail(status, message);
@@ -716,6 +717,7 @@ SurfaceBindingStatus CudaSurfaceBinding::Update(
             freshUnproven_ = true;
             return fail(status, message);
         }
+        // shutdown wait: test hook: synchronous CudaSurfaceBinding::Update, no Session caller (kernel tests).
         CudaFenceStream(stream);
         discardPending();
         return fail(status, message);
@@ -841,6 +843,7 @@ SurfaceBindingStatus CudaSurfaceBinding::Finish(cudaStream_t stream) {
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
         (pendingBind_ && cudaMemcpyAsync(&actual, pendingActualSampleCount_.data(),
                          sizeof(actual), cudaMemcpyDeviceToHost, stream) != cudaSuccess) ||
+        // shutdown wait: test hook: synchronous CudaSurfaceBinding::Finish, no Session caller (kernel tests).
         CudaFenceStream(stream) != cudaSuccess) {
         discardPending();
         return fail(SurfaceBindingStatus::CudaError, "surface binding completion failed");

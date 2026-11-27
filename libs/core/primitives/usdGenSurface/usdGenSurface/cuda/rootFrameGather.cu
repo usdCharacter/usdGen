@@ -84,11 +84,13 @@ RootFrameGatherStatus CudaRootFrameGather::Finish(cudaStream_t stream) {
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&error, error_.data(), sizeof(error), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
         cudaMemcpyAsync(&count, pendingCount_.data(), sizeof(count), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook: synchronous CudaRootFrameGather::Finish, no Session caller (kernel tests).
         CudaFenceStream(stream) != cudaSuccess) {
         quarantinePending(); return fail(RootFrameGatherStatus::CudaError, "gather completion failed");
     }
     if (error) { discardPending(); return fail(error == kMissingId ? RootFrameGatherStatus::MissingStableId : RootFrameGatherStatus::InvalidArgument, "invalid stable-ID gather input"); }
     if (count != pendingStorage_.count) { discardPending(); return fail(RootFrameGatherStatus::CudaError, "gathered count mismatch"); }
+    // shutdown wait: test hook: synchronous CudaRootFrameGather::Finish, no Session caller (kernel tests).
     if (active_.count && (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)) { quarantinePending(); return fail(RootFrameGatherStatus::CudaError, "active gather consumer fence failed"); }
     active_.swap(pendingStorage_); pendingStorage_.clear(); pendingCount_.reset(0); pending_ = false; ++generation_; diagnostic_.clear();
     return RootFrameGatherStatus::Ok;

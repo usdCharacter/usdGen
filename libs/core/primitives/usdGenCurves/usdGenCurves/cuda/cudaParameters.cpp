@@ -351,6 +351,7 @@ CudaParameterStatus CudaParameterEvaluator::Evaluate(
         auto fail = [&](CudaParameterStatus status, char const* message) {
             // Error exits must not leave queued readers using context/literal
             // allocations that the next invocation will replace.
+            // shutdown wait: test hook: synchronous CudaParameterEvaluator::Evaluate, no Session caller (kernel tests).
             gpu::CudaFenceStream(stream);
             Error(diagnostics, binding.destination.GetString() + ": " + message);
             return status;

@@ -46,6 +46,8 @@ cudaError_t CudaFenceStream(cudaStream_t stream) noexcept;
 
 /// Test observation: lane passes run, and completions still pending.
 uint64_t CudaCompletionLanePassesForTesting() noexcept;
+/// Test observation: CudaFenceStream calls so far.
+uint64_t CudaFenceStreamCallsForTesting() noexcept;
 size_t CudaCompletionLanePendingForTesting() noexcept;
 
 }  // namespace usdGen::gpu
