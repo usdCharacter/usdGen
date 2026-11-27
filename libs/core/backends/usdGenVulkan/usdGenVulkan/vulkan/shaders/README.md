@@ -185,8 +185,8 @@ dedicated parity test rather than by compilation alone.
   (RHS/triangular-solve), Evaluate, and Apply for gap Deform configs.
   Proven by `testUsdGenVulkanRbfVkParity`.
 - `picktileVkPick.comp`, `picktileVkFootprint.comp`, `picktileVkTiles.comp`,
-  `picktileVkBounds.comp`, `picktileVkIndices.comp` (picktiles gap): picking,
-  footprint, tile spans, tile bounds, and index streams. Proven by
+  `picktileVkBounds.comp` (picktiles gap): picking, footprint, tile spans and
+  tile bounds. Proven by
   `testUsdGenVulkanPicktileVkParity`.
 
 The curvesource (csourceVk) and surface gaps added no shaders: loader

@@ -265,7 +265,6 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_footprint picktileVkFootprint)
     _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_tiles picktileVkTiles)
     _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_bounds picktileVkBounds)
-    _usdgen_compile_vulkan_shader(${_usdgen_vulkan_curve_shader_dir} picktile_indices picktileVkIndices)
     _usdgen_compile_vulkan_shader(${_usdgen_vulkan_expr_shader_dir} exprvk_evaluate exprVkEvaluate)
     _usdgen_compile_vulkan_shader(${_usdgen_vulkan_expr_shader_dir} exprvk_context exprVkContext)
     _usdgen_compile_vulkan_shader(${_usdgen_vulkan_expr_shader_dir} exprvk_width exprVkWidth)

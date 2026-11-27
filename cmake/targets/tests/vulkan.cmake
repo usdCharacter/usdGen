@@ -218,8 +218,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     if(USDGEN_ENABLE_CUDA)
         add_executable(testUsdGenVulkanPicktileVkParity tests/testUsdGenVulkanPicktileVkParity.cpp
             "${_usdgen_vulkan_picktile_pick_spv}" "${_usdgen_vulkan_picktile_footprint_spv}"
-            "${_usdgen_vulkan_picktile_tiles_spv}" "${_usdgen_vulkan_picktile_bounds_spv}"
-            "${_usdgen_vulkan_picktile_indices_spv}")
+            "${_usdgen_vulkan_picktile_tiles_spv}" "${_usdgen_vulkan_picktile_bounds_spv}")
         target_link_libraries(testUsdGenVulkanPicktileVkParity PRIVATE usdGenVulkanNative usdGenCurvesCuda usdGenWithPrimitives usdGenUsd)
         target_compile_definitions(testUsdGenVulkanPicktileVkParity PRIVATE USDGEN_ENABLE_CUDA)
         if(USDGEN_ENABLE_VULKAN_RUNTIME)
@@ -229,8 +228,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         target_compile_options(testUsdGenVulkanPicktileVkParity PRIVATE -ffp-contract=off)
         add_test(NAME testUsdGenVulkanPicktileVkParity COMMAND testUsdGenVulkanPicktileVkParity
             "${_usdgen_vulkan_picktile_pick_spv}" "${_usdgen_vulkan_picktile_footprint_spv}"
-            "${_usdgen_vulkan_picktile_tiles_spv}" "${_usdgen_vulkan_picktile_bounds_spv}"
-            "${_usdgen_vulkan_picktile_indices_spv}")
+            "${_usdgen_vulkan_picktile_tiles_spv}" "${_usdgen_vulkan_picktile_bounds_spv}")
         set_tests_properties(testUsdGenVulkanPicktileVkParity PROPERTIES
             LABELS "T1;parity;cuda;vulkan;picking;tiles" RESOURCE_LOCK usdgen_gpu
             TIMEOUT 600 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
