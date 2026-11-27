@@ -49,7 +49,7 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> co
     VulkanSourceGenerationCreateInfo info; info.context = std::move(context);
     auto& b = info.source; b.totalCurves = 1; b.totalCvs = 3;
     b.topologyVersion = 4; b.valueVersion = 4; b.px = {0,1,2}; b.py = {0,1,0}; b.pz = {0,0,0};
-    b.rest = {GfVec3f(0,0,1), GfVec3f(1,1,1), GfVec3f(2,0,1)};
+    b.rest = {usdGen::UsdGenVec3f(0,0,1), usdGen::UsdGenVec3f(1,1,1), usdGen::UsdGenVec3f(2,0,1)};
     b.width = {1,2,3}; b.hairT = {0,.5f,1}; b.curveId = {7}; b.cvOffsets = {0,3};
     return info;
 }
@@ -225,9 +225,9 @@ int main(int argc, char** argv) {
     // Captured root T/B/N frames are private source-frame planes, but remain
     // part of the non-width contract and are compared by payload bytes.
     auto frameInfoA = Source(context); auto frameInfoB = Source(context);
-    frameInfoA.source.rootT = {GfVec3f(1, 0, 0)};
-    frameInfoA.source.rootB = {GfVec3f(0, 1, 0)};
-    frameInfoA.source.rootN = {GfVec3f(0, 0, 1)};
+    frameInfoA.source.rootT = {usdGen::UsdGenVec3f(1, 0, 0)};
+    frameInfoA.source.rootB = {usdGen::UsdGenVec3f(0, 1, 0)};
+    frameInfoA.source.rootN = {usdGen::UsdGenVec3f(0, 0, 1)};
     frameInfoB.source.rootT = frameInfoA.source.rootT;
     frameInfoB.source.rootB = frameInfoA.source.rootB;
     frameInfoB.source.rootN = frameInfoA.source.rootN;

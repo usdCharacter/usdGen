@@ -11,6 +11,7 @@
 
 #include "usdGenUsd/resolve/sdfValueShape.h"
 #include "usdGenExpr/expressions/valueShape.h"
+#include "utils/pxrInterop.h"
 
 #include "pxr/base/tf/token.h"
 #include "pxr/base/tf/type.h"
@@ -89,7 +90,7 @@ void CheckName(TfToken const &name, std::set<std::string> *covered)
 
     VtValue const sdfDefault = type.GetDefaultValue();
     if (info.makeDefault) {
-        VtValue const ours = ValueTypeDefault(info);
+        VtValue const ours = usdGenUsd::ToHostValue(ValueTypeDefault(info));
         Check(ours.GetType() == sdfDefault.GetType(), n + ": default type " +
               ours.GetTypeName() + " vs " + sdfDefault.GetTypeName());
         Check(ours == sdfDefault, n + ": default value");

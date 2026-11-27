@@ -7,6 +7,7 @@
 #ifndef USDGENUSD_GRAPH_DESC_H
 #define USDGENUSD_GRAPH_DESC_H
 
+#include "usdGenUsd/convert/math.h"   // Gf and usdGenMath interconvert (before any mixed use)
 #include "usdGen/api/graphSpec.h"
 #include "usdGenUsd/presentation.h"
 #include "usdGenCurves/types/curveSetInput.h"

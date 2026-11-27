@@ -18,6 +18,7 @@
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/types.h"
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -77,10 +78,10 @@ int RunCurveChunkTests()
     std::vector<float> px(30), py(30), pz(30), width(30), hairT(30), w(30), inPx(30), inW(30), inW2(30);
     std::vector<int> mk(60), ids(10), prim(10);
     std::vector<uint64_t> cid(10);
-    std::vector<GfVec2f> uv(10);
-    std::vector<GfVec3f> rt(10), rn(10), rb(10);
+    std::vector<usdGen::UsdGenVec2f> uv(10);
+    std::vector<usdGen::UsdGenVec3f> rt(10), rn(10), rb(10);
     std::vector<float> gw(30);
-    std::vector<GfVec3d> scratch(30);
+    std::vector<usdGen::UsdGenVec3d> scratch(30);
     std::vector<double> scalar(30);
     float const lut[257] = {};
     std::vector<void *> out(node->Size(), nullptr);

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenHydraCurves/curveColumns.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGen/api/inputDesc.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
@@ -165,7 +166,8 @@ UsdGenHydraSurfaceMesh UsdGenHydraSurfaceMeshOf(UsdGenInputRecord const &record)
         if (indices != kUsdGenNoSlot) mesh.faceVertexIndices = record.Column<int>(indices);
     }
     if (gNames.worldMatrix != SIZE_MAX)
-        mesh.worldMatrix = record.Get<GfMatrix4d>(gNames.worldMatrix, GfMatrix4d(1.0));
+        mesh.worldMatrix = usdGenUsd::ToHost(
+            record.Get<usdGen::UsdGenMatrix4d>(gNames.worldMatrix, usdGen::UsdGenMatrix4d(1.0)));
     return mesh;
 }
 

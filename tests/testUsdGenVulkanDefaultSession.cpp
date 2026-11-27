@@ -85,7 +85,7 @@ Oracle CpuOracle(UsdGenGraphDesc desc) {
     std::vector<GfVec3f> points(b.totalCvs);
     for (size_t i = 0; i != b.totalCvs; ++i) points[i] = {b.px[i], b.py[i], b.pz[i]};
     return {{"points", Bytes(points)},
-            {"rest", Bytes(std::vector<GfVec3f>(b.rest.begin(), b.rest.end()))},
+            {"rest", Bytes(std::vector<usdGen::UsdGenVec3f>(b.rest.begin(), b.rest.end()))},
             {"curveOffsets", Bytes(std::vector<uint32_t>(b.cvOffsets.begin(), b.cvOffsets.end()))},
             {"curveId", Bytes(std::vector<uint64_t>(b.curveId.begin(), b.curveId.end()))},
             {"hairT", Bytes(std::vector<float>(b.hairT.begin(), b.hairT.end()))},

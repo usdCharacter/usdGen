@@ -71,8 +71,8 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     s.px = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,2,2, 10,10,13,13};
     s.py = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,2, 10,12,12,12};
     s.pz = VtFloatArray(7, 0.f);
-    s.rest = {GfVec3f(0,0,0),GfVec3f(0,10,0),GfVec3f(0,20,0),
-              GfVec3f(9,9,9),GfVec3f(9,19,9),GfVec3f(39,19,9),GfVec3f(39,19,9)};
+    s.rest = {usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,10,0),usdGen::UsdGenVec3f(0,20,0),
+              usdGen::UsdGenVec3f(9,9,9),usdGen::UsdGenVec3f(9,19,9),usdGen::UsdGenVec3f(39,19,9),usdGen::UsdGenVec3f(39,19,9)};
     s.width = VtFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.4f,.8f,1};
     UsdGenChunkDesc chunk; chunk.firstCurve = 0; chunk.curveCount = 2; chunk.liveCount = 2;
     chunk.firstCv = 0; chunk.cvCount = 0; chunk.tile = 3; chunk.surface = 1; s.chunks = {chunk};

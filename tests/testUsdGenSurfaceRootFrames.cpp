@@ -10,6 +10,7 @@
 #include "usdGenSurface/cuda/rootFrames.h"
 #include <cuda_runtime.h>
 #endif
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -64,7 +65,7 @@ gpu::RootFrameNormalDomain GpuDomain(UsdGenSurfaceNormalDomain domain)
 bool NearGpu(float value, double expected) { return std::fabs(value - float(expected)) < 1.e-5f; }
 
 bool CompareNativeCuda(UsdGenSurfaceDesc const &surface, VtIntArray const &roots,
-                       VtVec2fArray const &uv)
+                       usdGen::UsdGenVec2fArray const &uv)
 {
     UsdGenSurfaceRootFrameResult host;
     std::string error;
@@ -78,7 +79,7 @@ bool CompareNativeCuda(UsdGenSurfaceDesc const &surface, VtIntArray const &roots
     {
         std::vector<float3> vertices;
         vertices.reserve(surface.restPoints.size());
-        for (GfVec3f const &p : surface.restPoints) vertices.push_back(make_float3(p[0], p[1], p[2]));
+        for (usdGen::UsdGenVec3f const &p : surface.restPoints) vertices.push_back(make_float3(p[0], p[1], p[2]));
         std::vector<uint32_t> offsets(1, 0), indices;
         for (int count : surface.faceVertexCounts) offsets.push_back(offsets.back() + uint32_t(count));
         indices.reserve(surface.faceVertexIndices.size());
@@ -86,10 +87,10 @@ bool CompareNativeCuda(UsdGenSurfaceDesc const &surface, VtIntArray const &roots
         std::vector<int32_t> rootValues(roots.begin(), roots.end());
         std::vector<float2> uvValues;
         uvValues.reserve(uv.size());
-        for (GfVec2f const &value : uv) uvValues.push_back(make_float2(value[0], value[1]));
+        for (usdGen::UsdGenVec2f const &value : uv) uvValues.push_back(make_float2(value[0], value[1]));
         std::vector<float3> normals;
         normals.reserve(surface.restNormals.size());
-        for (GfVec3f const &n : surface.restNormals) normals.push_back(make_float3(n[0], n[1], n[2]));
+        for (usdGen::UsdGenVec3f const &n : surface.restNormals) normals.push_back(make_float3(n[0], n[1], n[2]));
 
         gpu::DeviceBuffer<float3> dVertices, dNormals;
         gpu::DeviceBuffer<uint32_t> dOffsets, dIndices;
@@ -118,7 +119,7 @@ bool CompareNativeCuda(UsdGenSurfaceDesc const &surface, VtIntArray const &roots
                     for (size_t i = 0; i != host.frames.size(); ++i) {
                         if (valid[i] != host.valid[i] || drop[i] != host.dropMask[i]) { ok = false; break; }
                         if (!host.valid[i]) continue;
-                        GfMatrix4d const &f = host.frames[i];
+                        usdGen::UsdGenMatrix4d const &f = host.frames[i];
                         ok = NearGpu(origin[i].x, f[3][0]) && NearGpu(origin[i].y, f[3][1]) && NearGpu(origin[i].z, f[3][2]) &&
                              NearGpu(tangent[i].x, f[0][0]) && NearGpu(tangent[i].y, f[0][1]) && NearGpu(tangent[i].z, f[0][2]) &&
                              NearGpu(binormal[i].x, f[1][0]) && NearGpu(binormal[i].y, f[1][1]) && NearGpu(binormal[i].z, f[1][2]) &&
@@ -170,7 +171,7 @@ int main() {
     // Parent face indices are independent of Scatter subsets and transforms
     // are transport metadata, not baked into surface-local frames.
     s.subsetFaces = {2};
-    s.worldMatrix.SetTranslate(GfVec3d(100,200,300));
+    s.worldMatrix.SetTranslate(usdGen::UsdGenVec3d(100,200,300));
     for (auto& p : s.points) p[2] = 50;
     CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0}, {{.25f,.5f}}, &frames, &error));
     CHECK(Near(frames.frames[0][3][0], .5) && Near(frames.frames[0][3][2], 0));
@@ -182,7 +183,7 @@ int main() {
         size_t const size = domain == UsdGenSurfaceNormalDomain::Constant ? 1 :
             domain == UsdGenSurfaceNormalDomain::Uniform ? 3 :
             domain == UsdGenSurfaceNormalDomain::Vertex ? 5 : 12;
-        s.restNormals.assign(size, GfVec3f(0,1,1));
+        s.restNormals.assign(size, usdGen::UsdGenVec3f(0,1,1));
         CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0,1,2},
             {{.25f,.5f},{.25f,.5f},{1.25f,.5f}}, &frames, &error));
         CHECK(frames.dropped == 0);
@@ -216,7 +217,7 @@ int main() {
 #endif
     }
     auto reject = [&](UsdGenSurfaceDesc const& invalid, VtIntArray prim,
-                      VtVec2fArray uv) {
+                      usdGen::UsdGenVec2fArray uv) {
         return !UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(invalid), prim, uv, &frames, &error) &&
             !error.empty() && frames.frames == oldFrames;
     };
@@ -240,21 +241,21 @@ int main() {
     s = Surface(); s.restPoints[1] = s.restPoints[0];
     CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {0,1}, {{0,0},{.5f,.5f}}, &frames, &error));
     CHECK(frames.dropped == 1 && frames.dropMask[0] == 1 && frames.valid[0] == 0 &&
-          frames.frames[0] == GfMatrix4d(0.0) && frames.valid[1] == 1);
+          frames.frames[0] == usdGen::UsdGenMatrix4d(0.0) && frames.valid[1] == 1);
     // A collapsed quad derivative falls back to the first projected edge.
     s = Surface(); s.restPoints[3] = s.restPoints[2];
     CHECK(UsdGenBuildRestSurfaceRootFrames(usdGenUsd::Lower(s), {1}, {{0,1}}, &frames, &error));
     CHECK(frames.valid[0] && UsdGenValidateAuthoredRootFrame(frames.frames[0]));
 
-    GfMatrix4d authored(1);
+    usdGen::UsdGenMatrix4d authored(1);
     CHECK(UsdGenValidateAuthoredRootFrame(authored));
     authored[0][0] = 2;
     CHECK(!UsdGenValidateAuthoredRootFrame(authored));
-    authored = GfMatrix4d(1); authored[2][2] = -1;
+    authored = usdGen::UsdGenMatrix4d(1); authored[2][2] = -1;
     CHECK(!UsdGenValidateAuthoredRootFrame(authored));
-    authored = GfMatrix4d(1); authored[0][3] = 1;
+    authored = usdGen::UsdGenMatrix4d(1); authored[0][3] = 1;
     CHECK(!UsdGenValidateAuthoredRootFrame(authored));
-    authored = GfMatrix4d(1); authored[3][0] = std::numeric_limits<double>::max();
+    authored = usdGen::UsdGenMatrix4d(1); authored[3][0] = std::numeric_limits<double>::max();
     CHECK(!UsdGenValidateAuthoredRootFrame(authored));
 #ifdef USDGEN_TEST_CUDA_ROOT_FRAME_PARITY
     // The shared host implementation must agree with the native device
@@ -271,7 +272,7 @@ int main() {
             domain == UsdGenSurfaceNormalDomain::Uniform ? 2 :
             domain == UsdGenSurfaceNormalDomain::Vertex ? cudaSurface.restPoints.size() :
             cudaSurface.faceVertexIndices.size();
-        cudaSurface.restNormals.assign(count, GfVec3f(0,1,1));
+        cudaSurface.restNormals.assign(count, usdGen::UsdGenVec3f(0,1,1));
         CHECK(CompareNativeCuda(cudaSurface, {0,1}, {{.25f,.5f},{.25f,.5f}}));
     }
     cudaSurface = CudaSurface();

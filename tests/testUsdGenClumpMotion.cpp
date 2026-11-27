@@ -13,6 +13,7 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;

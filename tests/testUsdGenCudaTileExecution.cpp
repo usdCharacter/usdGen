@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::gpu;

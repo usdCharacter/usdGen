@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include "../utils/pxrInterop.h"
 
 using namespace usdGen;
 namespace {

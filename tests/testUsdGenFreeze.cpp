@@ -41,6 +41,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -67,7 +68,7 @@ static expr::ValueShape FloatShape(uint32_t n = 1)
 // fixture (surface-free, rebind never): valid skin bindings plus identity
 // root frames, so rootT=(1,0,0), rootB=(0,1,0), rootN=(0,0,1).
 static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
-                                          std::vector<GfVec3f> const &roots,
+                                          std::vector<usdGen::UsdGenVec3f> const &roots,
                                           int cvs, float step,
                                           UsdGenLane role = UsdGenLane::Chunked,
                                           float width = 0.1f,
@@ -84,15 +85,15 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
     for (size_t c = 0; c < n; ++c)
         for (int i = 0; i < cvs; ++i)
             set.points[c * size_t(cvs) + size_t(i)] =
-                roots[c] + GfVec3f(0.0f, float(i) * step, 0.0f);
+                roots[c] + usdGen::UsdGenVec3f(0.0f, float(i) * step, 0.0f);
     set.rest = set.points;
     if (withWidths) set.widths.assign(n * size_t(cvs), width);
     set.curveId.resize(n);
     for (size_t c = 0; c < n; ++c) set.curveId[c] = idBase + uint64_t(c);
     set.skinPrim.resize(n);
     for (size_t c = 0; c < n; ++c) set.skinPrim[c] = int(c);
-    set.skinPrimUv.assign(n, GfVec2f(0.2f, 0.3f));
-    set.rootFrame.assign(n, GfMatrix4d(1.0));
+    set.skinPrimUv.assign(n, usdGen::UsdGenVec2f(0.2f, 0.3f));
+    set.rootFrame.assign(n, usdGen::UsdGenMatrix4d(1.0));
     return set;
 }
 
@@ -272,7 +273,7 @@ static UsdGenGraphDesc FreezeDesc(std::vector<UsdGenParamValue> const &params,
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/freeze");
     desc.defaultWidth = 0.01f;
-    std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(3, 0, 0)};
     desc.curveSets.push_back(
         StraightStrands(SdfPath("/freeze/hair"), roots, 6, 0.25f));
     desc.nodes.push_back(
@@ -281,8 +282,8 @@ static UsdGenGraphDesc FreezeDesc(std::vector<UsdGenParamValue> const &params,
         OpNode("/freeze/op", "UsdGenFreeze", SdfPath("/freeze/source"), 7);
     freeze.params = params;
     if (withSnapshot) {
-        std::vector<GfVec3f> const snapRoots = {GfVec3f(100, 0, 0),
-                                                GfVec3f(103, 0, 0)};
+        std::vector<usdGen::UsdGenVec3f> const snapRoots = {usdGen::UsdGenVec3f(100, 0, 0),
+                                                usdGen::UsdGenVec3f(103, 0, 0)};
         desc.curveSets.push_back(StraightStrands(
             SdfPath("/freeze/snap"), snapRoots, snapshotCvs, 0.5f,
             UsdGenLane::Reference, 0.5f, 7, snapshotWidths));
@@ -434,8 +435,8 @@ static void CheckImmunitySameGraph()
           "immunity fixture source carries rest");
     // Private value copies: prep rebinds rest handles, so a handle copy of
     // run-1 output would alias the live array and pass vacuously.
-    VtVec3fArray const run1UpstreamRest = PrivateCopy(NodeBuffer(graph, sourceId).rest);
-    VtVec3fArray const firstRest = PrivateCopy(OutputBuffer(graph).rest);
+    usdGen::UsdGenVec3fArray const run1UpstreamRest = PrivateCopy(NodeBuffer(graph, sourceId).rest);
+    usdGen::UsdGenVec3fArray const firstRest = PrivateCopy(OutputBuffer(graph).rest);
     Check(firstRest == run1UpstreamRest,
           "frozen output carries the snapshot rest, not a live alias");
     float *mutate = const_cast<float *>(sourceView.px.cdata());
@@ -443,9 +444,9 @@ static void CheckImmunitySameGraph()
     // Rest mutates in place; a brand-new extra plane appears upstream. Both
     // must leave the frozen output untouched (captureAuthorsRest /
     // captureOwnsTransformedPlanes keep the snapshot's planes).
-    GfVec3f *rr = const_cast<GfVec3f *>(sourceView.rest.cdata());
+    usdGen::UsdGenVec3f *rr = const_cast<usdGen::UsdGenVec3f *>(sourceView.rest.cdata());
     for (size_t o = 0; o < sourceView.rest.size(); ++o)
-        rr[o] += GfVec3f(1.0f, 2.0f, 3.0f);
+        rr[o] += usdGen::UsdGenVec3f(1.0f, 2.0f, 3.0f);
     UsdGenPlane late;
     late.name = TfToken("latePlane");
     late.interpolation = TfToken("vertex");
@@ -567,7 +568,7 @@ static void CheckAliasingKernel()
     upstream.py = {5.0f, 4.0f, 3.0f, 2.0f, 1.0f, 0.0f};
     upstream.pz.assign(6, 0.25f);
     upstream.width.assign(6, 0.2f);
-    upstream.rest.assign(6, GfVec3f(0.1f, 0.2f, 0.3f));
+    upstream.rest.assign(6, usdGen::UsdGenVec3f(0.1f, 0.2f, 0.3f));
     UsdGenPlane guideWeight;
     guideWeight.name = TfToken("guideWeight");
     guideWeight.interpolation = TfToken("vertex");
@@ -591,7 +592,7 @@ static void CheckAliasingKernel()
     if (diag.HasErrors()) return;
     Check(bool(cap->Output()), "frozen capture owns its buffer");
     FrozenCopy const snap = SnapshotOf(UsdGenCaptureBuffer(*cap));
-    VtVec3fArray const restSnap = PrivateCopy(UsdGenCaptureBuffer(*cap).rest);
+    usdGen::UsdGenVec3fArray const restSnap = PrivateCopy(UsdGenCaptureBuffer(*cap).rest);
     VtFloatArray const cvSnap = UsdGenCaptureBuffer(*cap).extraCv.empty()
         ? VtFloatArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCv[0].f);
     VtIntArray const curveSnap = UsdGenCaptureBuffer(*cap).extraCurve.empty()
@@ -606,7 +607,7 @@ static void CheckAliasingKernel()
         wz[o] = -wz[o];
         ww[o] = -ww[o];
     }
-    GfVec3f *rx = const_cast<GfVec3f *>(upstream.rest.cdata());
+    usdGen::UsdGenVec3f *rx = const_cast<usdGen::UsdGenVec3f *>(upstream.rest.cdata());
     float *gx = const_cast<float *>(upstream.extraCv[0].f.cdata());
     for (size_t o = 0; o < 6; ++o) {
         rx[o] = -rx[o];

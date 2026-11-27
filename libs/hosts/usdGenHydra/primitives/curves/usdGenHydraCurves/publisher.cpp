@@ -12,6 +12,7 @@
 #include "usdGenHydraCurves/register.h"
 #include "usdGenHydraCurves/tokens.h"
 #include "usdGenUsd/lower.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/publishDesc.h"
 #include "usdGen/compile/graph.h"
@@ -237,7 +238,7 @@ _PresentationScalars _BuildPresentationScalars(
 {
     usdGenUsd::UsdGenPresentation const &p = PresentationOf(desc);
     _PresentationScalars result;
-    result.xformMatrix = desc.xformMatrix;
+    result.xformMatrix = usdGenUsd::ToHost(desc.xformMatrix);
     result.purpose = p.purpose;
     result.visibility = p.visibility;
     result.material = UsdGenPrimRef{p.material};

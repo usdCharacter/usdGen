@@ -31,6 +31,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -100,7 +101,7 @@ struct LaneSpec
 // --- graph fixtures -------------------------------------------------------
 
 static UsdGenCurveSetDesc StraightSet(SdfPath const &path, UsdGenLane role,
-                                      std::vector<GfVec3f> const &roots, int cvs,
+                                      std::vector<usdGen::UsdGenVec3f> const &roots, int cvs,
                                       std::vector<float> const &lengths)
 {
     UsdGenCurveSetDesc set;
@@ -113,7 +114,7 @@ static UsdGenCurveSetDesc StraightSet(SdfPath const &path, UsdGenLane role,
     for (size_t c = 0; c < n; ++c) {
         float const step = lengths[c] / float(cvs - 1);
         for (int i = 0; i < cvs; ++i)
-            set.points[c * size_t(cvs) + size_t(i)] = roots[c] + GfVec3f(0.0f, float(i) * step, 0.0f);
+            set.points[c * size_t(cvs) + size_t(i)] = roots[c] + usdGen::UsdGenVec3f(0.0f, float(i) * step, 0.0f);
     }
     set.rest = set.points;
     set.widths.assign(n * size_t(cvs), 0.01f);
@@ -121,8 +122,8 @@ static UsdGenCurveSetDesc StraightSet(SdfPath const &path, UsdGenLane role,
     for (size_t c = 0; c < n; ++c) set.curveId[c] = uint64_t(c);
     set.skinPrim.resize(n);
     for (size_t c = 0; c < n; ++c) set.skinPrim[c] = int(c);
-    set.skinPrimUv.assign(n, GfVec2f(0.2f, 0.3f));
-    set.rootFrame.assign(n, GfMatrix4d(1.0));
+    set.skinPrimUv.assign(n, usdGen::UsdGenVec2f(0.2f, 0.3f));
+    set.rootFrame.assign(n, usdGen::UsdGenMatrix4d(1.0));
     return set;
 }
 
@@ -141,14 +142,14 @@ using Params = std::vector<std::pair<char const *, VtValue>>;
 
 struct Scene
 {
-    std::vector<GfVec3f> strandRoots;
+    std::vector<usdGen::UsdGenVec3f> strandRoots;
     std::vector<float> strandLengths;
     int strandCvs = 5;
-    std::vector<GfVec3f> guideRoots;
+    std::vector<usdGen::UsdGenVec3f> guideRoots;
     int guideCvs = 5;
     float guideLength = 1.0f;
     bool withGuides = true;
-    std::vector<GfVec3f> surfaceRest;   // bound surface rest points, empty = none
+    std::vector<usdGen::UsdGenVec3f> surfaceRest;   // bound surface rest points, empty = none
     std::vector<int> strandIndex;   // authored strandIndex plane, empty = none
     std::vector<int> nearestGuide;  // authored nearestGuide plane, empty = none
     Params params;
@@ -191,10 +192,10 @@ static UsdGenGraphDesc MakeDesc(Scene const &scene)
         mesh.id = 0;
         mesh.faceVertexCounts = {int(scene.surfaceRest.size())};
         for (int i = 0; i < int(scene.surfaceRest.size()); ++i) mesh.faceVertexIndices.push_back(i);
-        mesh.restPoints = VtVec3fArray(scene.surfaceRest.begin(), scene.surfaceRest.end());
+        mesh.restPoints = usdGen::UsdGenVec3fArray(scene.surfaceRest.begin(), scene.surfaceRest.end());
         // deformed points differ: the reference length must come from rest
         mesh.points = mesh.restPoints;
-        for (GfVec3f &q : mesh.points) q *= 5.0f;
+        for (usdGen::UsdGenVec3f &q : mesh.points) q *= 5.0f;
         desc.surfaces.push_back(mesh);
         braid.surfaces = {mesh.path};
     }
@@ -207,7 +208,7 @@ static UsdGenGraphDesc MakeDesc(Scene const &scene)
 struct Result
 {
     bool ok = false;
-    std::vector<std::vector<GfVec3f>> points;   // by curveId
+    std::vector<std::vector<usdGen::UsdGenVec3f>> points;   // by curveId
     std::vector<int> clumpId;                    // by curveId
     std::vector<std::vector<float>> mask;        // by curveId
     std::vector<std::string> warnings;
@@ -257,7 +258,7 @@ static Result Cook(Scene const &scene, int threads = 2)
         r.clumpId[id] = clump->i[c];
         for (size_t k = 0; k < n; ++k) {
             size_t const cv = c * n + k;
-            r.points[id].push_back(GfVec3f(out.px[cv], out.py[cv], out.pz[cv]));
+            r.points[id].push_back(usdGen::UsdGenVec3f(out.px[cv], out.py[cv], out.pz[cv]));
             r.mask[id].push_back(mask->f[cv]);
         }
     }
@@ -311,8 +312,8 @@ static void CheckRegistry()
 static Scene ThreeStrands()
 {
     Scene s;
-    s.strandRoots = {GfVec3f(0.02f, 0, 0), GfVec3f(0, 0, 0), GfVec3f(-0.02f, 0, 0)};
-    s.guideRoots = {GfVec3f(0, 0, 0)};
+    s.strandRoots = {usdGen::UsdGenVec3f(0.02f, 0, 0), usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(-0.02f, 0, 0)};
+    s.guideRoots = {usdGen::UsdGenVec3f(0, 0, 0)};
     s.params = FullPull();
     return s;
 }
@@ -331,7 +332,7 @@ static void CheckWeave()
     for (int l = 0; l < 3; ++l)
         for (int j = 0; j < 5; ++j) {
             double const t = j / 4.0;
-            GfVec3f const p = r.points[size_t(l)][size_t(j)];
+            usdGen::UsdGenVec3f const p = r.points[size_t(l)][size_t(j)];
             // P = C + A * x + X * y with A = (-1,0,0), X = (0,0,1)
             double const ex = -spec.X(l, t), ey = t, ez = spec.Y(l, t);
             double const e = std::max({std::fabs(p[0] - ex), std::fabs(p[1] - ey), std::fabs(p[2] - ez)});
@@ -341,7 +342,7 @@ static void CheckWeave()
     Check(all, "every CV sits on its lane curve C + A f(phi) W K s + X sin(2phi) D 2/sqrt3 s (max err " +
                    std::to_string(worst) + ")");
     // Known phases: lane 2 (perm 0) at t = 0.5 has phi = pi/2 -> on the spine.
-    GfVec3f const on = r.points[2][2];
+    usdGen::UsdGenVec3f const on = r.points[2][2];
     Check(Near(on[0], 0.0, 1e-6) && Near(on[1], 0.5, 1e-6) && Near(on[2], 0.0, 1e-6),
           "lane 2 crosses the guide at phi = pi/2 (t = 0.5)");
     // Lane 0 at the root: phi = 5pi/6, f = -0.9343, sin(5pi/3) = -0.866.
@@ -349,7 +350,7 @@ static void CheckWeave()
     double const x0 = 2.2 * -0.8660254037844386 / (1.2 * 0.8660254037844386 + 1.0) * 0.0225 *
                       LaneK() * s;
     double const y0 = -0.8660254037844386 * 0.6425 * 0.0225 * 2.0 / std::sqrt(3.0) * s;
-    GfVec3f const r0 = r.points[0][0];
+    usdGen::UsdGenVec3f const r0 = r.points[0][0];
     Check(Near(r0[0], -x0, 1e-6) && Near(r0[2], y0, 1e-6),
           "lane 0 root offset at phi = 5pi/6 matches the hand value");
     // Lanes 1 and 2 cross in x at t = 0.25 (phi = pi/3 + {4pi/3, 0}).
@@ -384,7 +385,7 @@ static void CheckWeave()
     for (int l = 0; l < 3 && fineOk; ++l)
         for (int j = 0; j < 9; ++j) {
             double const t = j / 8.0;
-            GfVec3f const p = f9.points[size_t(l)][size_t(j)];
+            usdGen::UsdGenVec3f const p = f9.points[size_t(l)][size_t(j)];
             fineOk = fineOk && Near(p[0], -spec.X(l, t), 2e-6) && Near(p[2], spec.Y(l, t), 2e-6);
         }
     Check(fineOk, "9-CV braid follows the same lane formula");
@@ -408,8 +409,8 @@ static void CheckProfileAndReferenceLength()
     for (int l = 0; l < 3; ++l)
         for (int j = 0; j < 5; ++j) {
             float const w = 0.8f * float(j) / 4.0f;
-            GfVec3f const in = full.strandRoots[size_t(l)] + GfVec3f(0, 0.25f * float(j), 0);
-            GfVec3f const e = in * (1.0f - w) + target.points[size_t(l)][size_t(j)] * w;
+            usdGen::UsdGenVec3f const in = full.strandRoots[size_t(l)] + usdGen::UsdGenVec3f(0, 0.25f * float(j), 0);
+            usdGen::UsdGenVec3f const e = in * (1.0f - w) + target.points[size_t(l)][size_t(j)] * w;
             ok = ok && (r.points[size_t(l)][size_t(j)] - e).GetLength() < 1e-6f;
         }
     Check(ok, "pull weight = amount * Bezier(root 0, mid .5, tip 1) = 0.8 u");
@@ -420,8 +421,8 @@ static void CheckProfileAndReferenceLength()
     Set(&byValue.params, "braid:referenceLength", VtValue(std::sqrt(5.0)));
     Scene bySurface = full;
     Set(&bySurface.params, "braid:referenceLength", VtValue(0.0));
-    bySurface.surfaceRest = {GfVec3f(-1, 0, 0), GfVec3f(1, 0, 0), GfVec3f(1, 0, 1),
-                             GfVec3f(-1, 0, 1)};
+    bySurface.surfaceRest = {usdGen::UsdGenVec3f(-1, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 0, 1),
+                             usdGen::UsdGenVec3f(-1, 0, 1)};
     Result const a = Cook(byValue), b = Cook(bySurface);
     Check(a.ok && b.ok, "surface-bound braid cooks");
     bool same = a.ok && b.ok;
@@ -449,8 +450,8 @@ static void CheckLaneAssignment()
     std::vector<float> const s = {0.005f, -0.025f, 0.015f, -0.005f, 0.025f, -0.015f};
     Scene scene;
     for (int g = 0; g < 2; ++g)
-        for (float v : s) scene.strandRoots.push_back(GfVec3f(float(g) + v, 0.0f, 0.5f * v));
-    scene.guideRoots = {GfVec3f(0, 0, 0), GfVec3f(1, 0, 0)};
+        for (float v : s) scene.strandRoots.push_back(usdGen::UsdGenVec3f(float(g) + v, 0.0f, 0.5f * v));
+    scene.guideRoots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0)};
     scene.params = FullPull();
     Result const r = Cook(scene);
     Check(r.ok, "two-guide braid cooks");
@@ -474,8 +475,8 @@ static void CheckLaneAssignment()
     Check(f.ok && f.clumpId[3] == -1, "nearestGuide = -1 leaves the strand unbraided (clumpId -1)");
     bool untouched = f.ok;
     for (int j = 0; j < 5 && untouched; ++j) {
-        GfVec3f const p = f.points[3][size_t(j)];
-        untouched = p == GfVec3f(-0.005f, 0.25f * float(j), -0.0025f);
+        usdGen::UsdGenVec3f const p = f.points[3][size_t(j)];
+        untouched = p == usdGen::UsdGenVec3f(-0.005f, 0.25f * float(j), -0.0025f);
     }
     Check(untouched, "an unbraided strand keeps its points");
     std::vector<int> count(6, 0);
@@ -527,12 +528,12 @@ static void CheckShortStrand()
     Result const r = Cook(shortScene);
     Check(ref.ok && r.ok, "short-strand braid cooks");
     if (!ref.ok || !r.ok) return;
-    auto lerp = [](GfVec3f a, GfVec3f b, float t) { return a * (1.0f - t) + b * t; };
+    auto lerp = [](usdGen::UsdGenVec3f a, usdGen::UsdGenVec3f b, float t) { return a * (1.0f - t) + b * t; };
     bool ok = true;
     for (int k = 0; k < 5; ++k) {
         int const i0 = k / 2;
         float const fr = (k % 2) ? 0.5f : 0.0f;
-        GfVec3f const e = lerp(ref.points[1][size_t(i0)], ref.points[1][size_t(std::min(i0 + 1, 4))], fr);
+        usdGen::UsdGenVec3f const e = lerp(ref.points[1][size_t(i0)], ref.points[1][size_t(std::min(i0 + 1, 4))], fr);
         ok = ok && (r.points[1][size_t(k)] - e).GetLength() < 1e-6f;
     }
     Check(ok, "a strand shorter than its guide follows the braid to u * Lf / Lg");
@@ -545,7 +546,7 @@ static void CheckTail()
 {
     // Strands lifted to z = 0.01 so the middle one starts off the guide.
     Scene scene = ThreeStrands();
-    for (GfVec3f &p : scene.strandRoots) p[2] = 0.01f;
+    for (usdGen::UsdGenVec3f &p : scene.strandRoots) p[2] = 0.01f;
     Set(&scene.params, "braid:tailLength", VtValue(0.5));
     Set(&scene.params, "braid:tailRelax", VtValue(1.0));
     Set(&scene.params, "braid:tailCinch", VtValue(1.0));
@@ -556,23 +557,23 @@ static void CheckTail()
     // t = 1: relax weight 1 - sstep((1 - .5) / .5) = 0 -> the tip stays put.
     bool tips = true;
     for (int l = 0; l < 3; ++l) {
-        GfVec3f const in = scene.strandRoots[size_t(l)] + GfVec3f(0, 1, 0);
+        usdGen::UsdGenVec3f const in = scene.strandRoots[size_t(l)] + usdGen::UsdGenVec3f(0, 1, 0);
         tips = tips && r.points[size_t(l)][4] == in;
     }
     Check(tips, "tail relax 1 leaves the tips at their input positions");
     // t = 0.75: weight 0.5, tail blend 1, lane fade 0, cinch back to 1:
     // middle strand target = C (bundle slot 0) -> z = lerp(0.01, 0, 0.5).
-    GfVec3f const mid = r.points[1][3];
+    usdGen::UsdGenVec3f const mid = r.points[1][3];
     Check(Near(mid[0], 0.0, 1e-7) && Near(mid[1], 0.75, 1e-6) && Near(mid[2], 0.005, 1e-7),
           "tail relax halves the pull at t = 0.75 (bundle centre)");
     // Outer strand: bundle slot u' = -sqrt(3) W along A = (-1,0,0).
     double const W = 0.0225, us = std::sqrt(3.0) * W;
-    GfVec3f const outer = r.points[0][3];
+    usdGen::UsdGenVec3f const outer = r.points[0][3];
     Check(Near(outer[0], 0.5 * us + 0.5 * 0.02, 1e-6) && Near(outer[2], 0.005, 1e-6),
           "outer strand relaxes toward its sqrt(3) W bundle slot");
     // t = 0.5: tail blend 1, fade 0, cinch = lerp(1, 0.02, 1) = 0.02, weight 1
     // -> the bundle is cinched to 2 % of its radius.
-    GfVec3f const cinched = r.points[0][2];
+    usdGen::UsdGenVec3f const cinched = r.points[0][2];
     Check(Near(cinched[0], 0.02 * us, 1e-6) && Near(cinched[1], 0.5, 1e-6) &&
               Near(cinched[2], 0.0, 1e-6),
           "tail cinch shrinks the bundle at the tail start");
@@ -586,8 +587,8 @@ static void CheckFlyaways()
     // i.e. curves 2 and 0.
     Scene scene;
     std::vector<float> const s = {0.025f, 0.015f, 0.005f, -0.005f, -0.015f, -0.025f};
-    for (float v : s) scene.strandRoots.push_back(GfVec3f(v, 0.0f, 0.5f * v));
-    scene.guideRoots = {GfVec3f(0, 0, 0)};
+    for (float v : s) scene.strandRoots.push_back(usdGen::UsdGenVec3f(v, 0.0f, 0.5f * v));
+    scene.guideRoots = {usdGen::UsdGenVec3f(0, 0, 0)};
     scene.strandIndex = {5, 4, 3, 2, 1, 0};
     scene.params = FullPull();
     Set(&scene.params, "braid:flyaway:fraction", VtValue(0.4));
@@ -601,7 +602,7 @@ static void CheckFlyaways()
         bool const fly = 0.4 > u01[5 - c];
         ids = ids && (fly ? r.clumpId[size_t(c)] == -1 : r.clumpId[size_t(c)] == c / 2);
         for (int j = 0; j < 5; ++j) {
-            GfVec3f const in = scene.strandRoots[size_t(c)] + GfVec3f(0, 0.25f * float(j), 0);
+            usdGen::UsdGenVec3f const in = scene.strandRoots[size_t(c)] + usdGen::UsdGenVec3f(0, 0.25f * float(j), 0);
             if (fly) {
                 still = still && r.points[size_t(c)][size_t(j)] == in;
                 masks = masks && r.mask[size_t(c)][size_t(j)] == 1.0f;
@@ -638,7 +639,7 @@ static void CheckNoGuides()
         same = same && r.clumpId[size_t(c)] == -1;
         for (int j = 0; j < 5; ++j) {
             same = same && r.points[size_t(c)][size_t(j)] ==
-                               scene.strandRoots[size_t(c)] + GfVec3f(0, 0.25f * float(j), 0);
+                               scene.strandRoots[size_t(c)] + usdGen::UsdGenVec3f(0, 0.25f * float(j), 0);
             same = same && r.mask[size_t(c)][size_t(j)] == 1.0f;
         }
     }
@@ -651,11 +652,11 @@ static void CheckDefaultsAndDeterminism()
     // A larger groom (> 2000 strands -> parallel per-guide path) with default
     // parameters, tail, spread and flyaways.
     Scene scene;
-    for (int g = 0; g < 8; ++g) scene.guideRoots.push_back(GfVec3f(float(g) * 0.2f, 0, 0));
+    for (int g = 0; g < 8; ++g) scene.guideRoots.push_back(usdGen::UsdGenVec3f(float(g) * 0.2f, 0, 0));
     for (int i = 0; i < 2400; ++i) {
         float const a = float(i) * 2.399963f;
         float const rr = 0.05f * std::sqrt(float(i % 300) / 300.0f);
-        scene.strandRoots.push_back(GfVec3f(float(i % 8) * 0.2f + rr * std::cos(a), 0.0f,
+        scene.strandRoots.push_back(usdGen::UsdGenVec3f(float(i % 8) * 0.2f + rr * std::cos(a), 0.0f,
                                             rr * std::sin(a)));
     }
     scene.strandCvs = 12;
@@ -676,9 +677,9 @@ static void CheckDefaultsAndDeterminism()
     bool finite = true;
     for (size_t s = 0; s < a.points.size(); ++s) {
         if (a.clumpId[s] >= 0) ++ids;
-        for (GfVec3f const &p : a.points[s])
+        for (usdGen::UsdGenVec3f const &p : a.points[s])
             finite = finite && std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]);
-        GfVec3f const tipIn = scene.strandRoots[s] + GfVec3f(0, 1, 0);
+        usdGen::UsdGenVec3f const tipIn = scene.strandRoots[s] + usdGen::UsdGenVec3f(0, 1, 0);
         if ((a.points[s].back() - tipIn).GetLength() > 1e-5f) ++moved;
     }
     Check(finite, "all points finite");

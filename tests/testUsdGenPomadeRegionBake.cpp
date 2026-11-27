@@ -58,6 +58,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 namespace {
 

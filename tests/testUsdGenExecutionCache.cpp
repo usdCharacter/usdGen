@@ -19,6 +19,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -43,8 +44,8 @@ UsdGenGraphDesc Description()
     surface.surfaceGeneration = 41;
     surface.faceVertexCounts = VtIntArray{3};
     surface.faceVertexIndices = VtIntArray{0, 1, 2};
-    surface.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(0, 1, 0)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(0, 1, 0)};
     surface.points = surface.restPoints;
     desc.surfaces.push_back(surface);
     UsdGenCurveSetDesc hair;
@@ -60,7 +61,7 @@ UsdGenGraphDesc Description()
     hair.curveId = {7};
     hair.skinPrim = {0};
     hair.skinPrimUv = {{0,0}};
-    hair.rootFrame = {GfMatrix4d(1.0)};
+    hair.rootFrame = {usdGen::UsdGenMatrix4d(1.0)};
     desc.curveSets.push_back(std::move(hair));
     UsdGenCurveSetDesc secondHair;
     secondHair.path = SdfPath("/cache/groomA/hair2");
@@ -875,11 +876,11 @@ int main()
         big.terminal = SdfPath("/cache/bigKey/scatter");
         UsdGenSurfaceDesc surf;
         surf.path = SdfPath("/cache/bigKey/scalp");
-        surf.restPoints = VtVec3fArray((nx + 1) * (ny + 1));
+        surf.restPoints = usdGen::UsdGenVec3fArray((nx + 1) * (ny + 1));
         for (int j = 0; j <= ny; ++j)
             for (int i = 0; i <= nx; ++i)
                 surf.restPoints[j * (nx + 1) + i] =
-                    GfVec3f(0.1f * i, 0.1f * j, 0.0f);
+                    usdGen::UsdGenVec3f(0.1f * i, 0.1f * j, 0.0f);
         surf.faceVertexCounts = VtIntArray(nx * ny, 4);
         surf.faceVertexIndices = VtIntArray(nx * ny * 4);
         for (int j = 0; j < ny; ++j)

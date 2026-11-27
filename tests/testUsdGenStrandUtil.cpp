@@ -15,6 +15,7 @@
 
 #include "pxr/pxr.h"
 #include "pxr/base/vt/types.h"
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -73,37 +74,37 @@ int main()
     float const line[9] = {0, 0, 0, 0, 1, 0, 0, 3, 0};
     std::vector<float> cum;
     float const L = ArcLengths(line, 3, &cum);
-    GfVec3f const p1 = SampleArc(line, 3, cum, 2.0f);
-    GfVec3f const p2 = SampleArc(line, 3, cum, 4.0f);
+    usdGen::UsdGenVec3f const p1 = SampleArc(line, 3, cum, 2.0f);
+    usdGen::UsdGenVec3f const p2 = SampleArc(line, 3, cum, 4.0f);
     Check(Near(L, 3.0f) && Near(p1[1], 2.0f) && Near(p2[1], 4.0f), "SampleArc interpolate/extrapolate");
     float res[3 * 4];
     ResampleArc(line, 3, cum, 0.0f, 3.0f, 4, res);
     Check(Near(res[4], 1.0f) && Near(res[7], 2.0f) && Near(res[10], 3.0f), "ResampleArc uniform");
 
     // Transport frames stay orthonormal along a bent curve.
-    std::vector<GfVec3f> T = {GfVec3f(0, 1, 0), Normalize(GfVec3f(1, 1, 0), GfVec3f(0, 1, 0)),
-                              GfVec3f(1, 0, 0)};
-    std::vector<GfVec3f> N, B;
+    std::vector<usdGen::UsdGenVec3f> T = {usdGen::UsdGenVec3f(0, 1, 0), Normalize(usdGen::UsdGenVec3f(1, 1, 0), usdGen::UsdGenVec3f(0, 1, 0)),
+                              usdGen::UsdGenVec3f(1, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> N, B;
     TransportFrames(T, &N, &B);
     bool ortho = true;
     for (size_t i = 0; i < T.size(); ++i)
-        ortho = ortho && std::fabs(GfDot(N[i], T[i])) < 1e-5f && Near(N[i].GetLength(), 1.0f) &&
-                std::fabs(GfDot(B[i], N[i])) < 1e-5f;
+        ortho = ortho && std::fabs(usdGen::UsdGenDot(N[i], T[i])) < 1e-5f && Near(N[i].GetLength(), 1.0f) &&
+                std::fabs(usdGen::UsdGenDot(B[i], N[i])) < 1e-5f;
     Check(ortho, "TransportFrames orthonormal");
 
     // Root re-snap moves the root fully and leaves far CVs alone.
     float strandPts[3 * 5] = {0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0};
-    ResnapRoot(strandPts, 5, GfVec3f(0.1f, 0, 0));
+    ResnapRoot(strandPts, 5, usdGen::UsdGenVec3f(0.1f, 0, 0));
     Check(Near(strandPts[0], 0.1f) && Near(strandPts[3], 0.0f) && Near(strandPts[12], 0.0f),
           "ResnapRoot falloff within 4|delta|");
 
     // BVH closest point equals brute force on a bumpy grid.
     int const G = 12;
-    VtVec3fArray pts;
+    usdGen::UsdGenVec3fArray pts;
     VtIntArray counts, indices;
     for (int j = 0; j <= G; ++j)
         for (int i = 0; i <= G; ++i)
-            pts.push_back(GfVec3f(float(i), 0.3f * std::sin(float(i + 2 * j)), float(j)));
+            pts.push_back(usdGen::UsdGenVec3f(float(i), 0.3f * std::sin(float(i + 2 * j)), float(j)));
     for (int j = 0; j < G; ++j)
         for (int i = 0; i < G; ++i) {
             int const v = j * (G + 1) + i;
@@ -120,7 +121,7 @@ int main()
     std::mt19937 qr(3);
     bool same = true;
     for (int q = 0; q < 300; ++q) {
-        GfVec3f const p(Mt01(qr) * 14 - 1, Mt01(qr) * 4 - 2, Mt01(qr) * 14 - 1);
+        usdGen::UsdGenVec3f const p(Mt01(qr) * 14 - 1, Mt01(qr) * 4 - 2, Mt01(qr) * 14 - 1);
         ClosestHit const hit = bvh.Closest(p);
         float best = 3e38f;
         for (size_t t = 0; t < tris.size(); ++t) {

@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -53,7 +54,7 @@ bool RestFallbackMatchesPoints(UsdGenCurveSetView const &buffer)
         buffer.pz.size() != buffer.totalCvs)
         return false;
     for (size_t i = 0; i != buffer.totalCvs; ++i) {
-        if (buffer.rest[i] != GfVec3f(buffer.px[i], buffer.py[i], buffer.pz[i]))
+        if (buffer.rest[i] != usdGen::UsdGenVec3f(buffer.px[i], buffer.py[i], buffer.pz[i]))
             return false;
     }
     return true;
@@ -281,8 +282,8 @@ UsdGenGraphDesc Fixture()
     guide.role = UsdGenLane::Reference;
     guide.curveRole = TfToken("guide");
     guide.curveVertexCounts = VtIntArray{2, 2};
-    guide.points = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(0, 1, 0),
-                                GfVec3f(1, 0, 0), GfVec3f(1, 1, 0)};
+    guide.points = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 1, 0),
+                                usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 1, 0)};
     guide.curveGeneration = 17;
     desc.curveSets.push_back(std::move(guide));
     UsdGenCurveSetDesc guideB = desc.curveSets.front();
@@ -387,7 +388,7 @@ void RunReferenceMapLowering()
           "capture receives deterministic immutable external identities");
 
     desc.curveSets[0].curveGeneration = 18;
-    desc.curveSets[0].points[0] = GfVec3f(3, 0, 0);
+    desc.curveSets[0].points[0] = usdGen::UsdGenVec3f(3, 0, 0);
     Check(usdGenUsd::Recompile(compiler, desc, &graph).ok, "reference generation edit recompiles");
     context.desc = &graph.Spec();
     Check(!scheduler.Run(graph, context, 2).diagnostics.HasErrors(),
@@ -423,7 +424,7 @@ void ValidateFailures()
           "duplicate reference values fail closed deterministically");
 
     UsdGenGraphDesc badRestSize = Fixture();
-    badRestSize.curveSets[0].rest = VtVec3fArray{GfVec3f(0, 0, 0)};
+    badRestSize.curveSets[0].rest = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0)};
     result = usdGenUsd::Compile(compiler, badRestSize, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("inconsistent topology/value array sizes") !=
@@ -431,9 +432,9 @@ void ValidateFailures()
           "reference rest cardinality fails closed deterministically");
 
     UsdGenGraphDesc badRestFinite = Fixture();
-    badRestFinite.curveSets[0].rest = VtVec3fArray{
-        GfVec3f(std::numeric_limits<float>::quiet_NaN(), 0, 0),
-        GfVec3f(0, 1, 0), GfVec3f(1, 0, 0), GfVec3f(1, 1, 0)};
+    badRestFinite.curveSets[0].rest = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(std::numeric_limits<float>::quiet_NaN(), 0, 0),
+        usdGen::UsdGenVec3f(0, 1, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 1, 0)};
     result = usdGenUsd::Compile(compiler, badRestFinite, &graph);
     Check(!result.ok && !result.errors.empty() &&
               result.errors.front().find("non-finite rest points") != std::string::npos,
@@ -545,21 +546,21 @@ UsdGenGraphDesc ReferenceChainFixture()
     reference.path = SdfPath("/referenceChain/guides");
     reference.role = UsdGenLane::Reference;
     reference.curveVertexCounts = VtIntArray{2, 2};
-    reference.points = VtVec3fArray{
-        GfVec3f(1, 2, 3), GfVec3f(1, 3, 3),
-        GfVec3f(4, 5, 6), GfVec3f(4, 6, 6)};
-    reference.rest = VtVec3fArray{
-        GfVec3f(11, 12, 13), GfVec3f(11, 13, 13),
-        GfVec3f(14, 15, 16), GfVec3f(14, 16, 16)};
+    reference.points = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(1, 2, 3), usdGen::UsdGenVec3f(1, 3, 3),
+        usdGen::UsdGenVec3f(4, 5, 6), usdGen::UsdGenVec3f(4, 6, 6)};
+    reference.rest = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(11, 12, 13), usdGen::UsdGenVec3f(11, 13, 13),
+        usdGen::UsdGenVec3f(14, 15, 16), usdGen::UsdGenVec3f(14, 16, 16)};
     reference.widths = VtFloatArray{0.1f, 0.2f, 0.3f, 0.4f};
     reference.curveId = VtArray<uint64_t>{101, 202};
     reference.skinPrim = VtIntArray{7, 8};
-    reference.skinPrimUv = VtVec2fArray{GfVec2f(0.1f, 0.2f), GfVec2f(0.3f, 0.4f)};
-    GfMatrix4d frame(1.0);
-    frame.SetRow3(0, GfVec3d(1, 0, 0));
-    frame.SetRow3(1, GfVec3d(0, 1, 0));
-    frame.SetRow3(2, GfVec3d(0, 0, 1));
-    reference.rootFrame = VtMatrix4dArray{frame, frame};
+    reference.skinPrimUv = usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0.1f, 0.2f), usdGen::UsdGenVec2f(0.3f, 0.4f)};
+    usdGen::UsdGenMatrix4d frame(1.0);
+    frame.SetRow3(0, usdGen::UsdGenVec3d(1, 0, 0));
+    frame.SetRow3(1, usdGen::UsdGenVec3d(0, 1, 0));
+    frame.SetRow3(2, usdGen::UsdGenVec3d(0, 0, 1));
+    reference.rootFrame = usdGen::UsdGenMatrix4dArray{frame, frame};
     UsdGenAuthoredPlaneDesc point;
     point.name = TfToken("referenceWeight");
     point.type = UsdGenAuthoredPlaneType::Float32;
@@ -611,15 +612,15 @@ void ValidateReferenceProducerChain()
     Check(source.totalCurves == 2 && source.totalCvs == 4 &&
               source.px == VtFloatArray{1, 1, 4, 4} &&
               source.py == VtFloatArray{2, 3, 5, 6} &&
-              source.rest == VtVec3fArray{
-                  GfVec3f(11, 12, 13), GfVec3f(11, 13, 13),
-                  GfVec3f(14, 15, 16), GfVec3f(14, 16, 16)} &&
+              source.rest == usdGen::UsdGenVec3fArray{
+                  usdGen::UsdGenVec3f(11, 12, 13), usdGen::UsdGenVec3f(11, 13, 13),
+                  usdGen::UsdGenVec3f(14, 15, 16), usdGen::UsdGenVec3f(14, 16, 16)} &&
               source.curveId == VtArray<uint64_t>{101, 202} &&
               source.rootPrim == VtIntArray{7, 8} &&
-              source.rootUV == VtVec2fArray{GfVec2f(0.1f, 0.2f), GfVec2f(0.3f, 0.4f)} &&
-              source.rootT == VtVec3fArray{GfVec3f(1, 0, 0), GfVec3f(1, 0, 0)} &&
-              source.rootB == VtVec3fArray{GfVec3f(0, 1, 0), GfVec3f(0, 1, 0)} &&
-              source.rootN == VtVec3fArray{GfVec3f(0, 0, 1), GfVec3f(0, 0, 1)},
+              source.rootUV == usdGen::UsdGenVec2fArray{usdGen::UsdGenVec2f(0.1f, 0.2f), usdGen::UsdGenVec2f(0.3f, 0.4f)} &&
+              source.rootT == usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 0, 0)} &&
+              source.rootB == usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 1, 0), usdGen::UsdGenVec3f(0, 1, 0)} &&
+              source.rootN == usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 1), usdGen::UsdGenVec3f(0, 0, 1)},
           "reference producer preserves topology, points, IDs, and roots");
     Check(source.hairT == VtFloatArray{0, 1, 0, 1} &&
               source.extraCv.size() == 1 && source.extraCurve.size() == 1 &&
@@ -634,11 +635,11 @@ void ValidateReferenceProducerChain()
         graph.ReferenceValues()[0].value;
     UsdGenCurveSetView const oldView = UsdGenCurveSetView::Of(*oldValue);
     float const oldPoint = oldView.px[0];
-    GfVec3f const oldRest = oldView.rest[0];
+    usdGen::UsdGenVec3f const oldRest = oldView.rest[0];
     VtFloatArray const oldPlane(oldView.ExtraCv(0).f.begin(), oldView.ExtraCv(0).f.end());
     desc.curveSets[0].curveGeneration = 32;
-    desc.curveSets[0].points[0] = GfVec3f(9, 8, 7);
-    desc.curveSets[0].rest[0] = GfVec3f(19, 18, 17);
+    desc.curveSets[0].points[0] = usdGen::UsdGenVec3f(9, 8, 7);
+    desc.curveSets[0].rest[0] = usdGen::UsdGenVec3f(19, 18, 17);
     Check(usdGenUsd::Recompile(compiler, desc, &graph).ok,
           "reference generation edit recompiles producer chain");
     context.desc = &graph.Spec();
@@ -649,7 +650,7 @@ void ValidateReferenceProducerChain()
               oldView.px[0] == oldPoint && oldView.rest[0] == oldRest &&
               VtFloatArray(oldView.ExtraCv(0).f.begin(), oldView.ExtraCv(0).f.end()) == oldPlane &&
               NodeBuffer(graph, newSourceId).px[0] == 9.0f &&
-              NodeBuffer(graph, newSourceId).rest[0] == GfVec3f(19, 18, 17),
+              NodeBuffer(graph, newSourceId).rest[0] == usdGen::UsdGenVec3f(19, 18, 17),
           "reference generation recapture does not mutate prior immutable COW points/rest");
 
     UsdGenGraphDesc invalid = desc;

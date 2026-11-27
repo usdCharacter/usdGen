@@ -44,6 +44,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -108,18 +109,18 @@ UsdGenPlane const *Plane(UsdGenCurveBuffer const &b, char const *name)
     return nullptr;
 }
 
-GfVec3f Cv(UsdGenCurveBuffer const &b, size_t cv) { return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]); }
+usdGen::UsdGenVec3f Cv(UsdGenCurveBuffer const &b, size_t cv) { return usdGen::UsdGenVec3f(b.px[cv], b.py[cv], b.pz[cv]); }
 
 /// Guide roots (first CVs) of the sampled geometry.
-std::vector<GfVec3f> GuideRoots(UsdGenGeometryDesc const &g)
+std::vector<usdGen::UsdGenVec3f> GuideRoots(UsdGenGeometryDesc const &g)
 {
-    std::vector<GfVec3f> roots;
+    std::vector<usdGen::UsdGenVec3f> roots;
     size_t first = 0;
     for (int n : g.counts) { roots.push_back(g.points[first]); first += size_t(n); }
     return roots;
 }
 
-size_t Nearest(std::vector<GfVec3f> const &points, GfVec3f const &q)
+size_t Nearest(std::vector<usdGen::UsdGenVec3f> const &points, usdGen::UsdGenVec3f const &q)
 {
     size_t best = 0;
     double bestDistance = 1e30;
@@ -156,20 +157,20 @@ void CheckGuideVoronoi(UsdStageRefPtr const &stage)
           "guideWeight is published per strand");
     if (!index || !weight || c.desc.geometries.empty()) return;
 
-    std::vector<GfVec3f> const roots = GuideRoots(c.desc.geometries[0]);
+    std::vector<usdGen::UsdGenVec3f> const roots = GuideRoots(c.desc.geometries[0]);
     size_t ownCell = 0, followsLean = 0;
     for (size_t s = 0; s < c.out.totalCurves; ++s) {
-        GfVec3f const root = c.out.rest[s * c.cvs];
+        usdGen::UsdGenVec3f const root = c.out.rest[s * c.cvs];
         size_t const cell = Nearest(roots, root);
         if (index->i[s * 3] == int(cell)) ++ownCell;
         // The strand leans the way its cell's guide leans.
         size_t first = 0;
         for (size_t g = 0; g < cell; ++g) first += size_t(c.desc.geometries[0].counts[g]);
         size_t const last = first + size_t(c.desc.geometries[0].counts[cell]) - 1;
-        GfVec3f guideLean = c.desc.geometries[0].points[last] - c.desc.geometries[0].points[first];
-        GfVec3f strandLean = Cv(c.out, (s + 1) * c.cvs - 1) - Cv(c.out, s * c.cvs);
+        usdGen::UsdGenVec3f guideLean = c.desc.geometries[0].points[last] - c.desc.geometries[0].points[first];
+        usdGen::UsdGenVec3f strandLean = Cv(c.out, (s + 1) * c.cvs - 1) - Cv(c.out, s * c.cvs);
         guideLean[1] = strandLean[1] = 0.0f;
-        if (GfDot(guideLean, strandLean) > 0.0f) ++followsLean;
+        if (usdGen::UsdGenDot(guideLean, strandLean) > 0.0f) ++followsLean;
     }
     double const n = double(c.out.totalCurves);
     std::printf("  heaviest guide is the voronoi cell's: %.1f%%, leans with it: %.1f%%\n",
@@ -208,7 +209,7 @@ void CheckGuidePtex(UsdStageRefPtr const &stage)
     std::vector<int> const firstIds =
         UsdGenPtexFirstFaceIds(skin->faceVertexCounts.cdata(), skin->faceVertexCounts.size());
     auto regionAt = [&](size_t strand) {
-        GfVec3f const p = c.out.rest[strand * c.cvs];
+        usdGen::UsdGenVec3f const p = c.out.rest[strand * c.cvs];
         int id = -1; float u = 0, v = 0, value = -1;
         UsdGenPtexFaceCoordinate(reinterpret_cast<float const *>(skin->restPoints.cdata()),
                                  skin->restPoints.size(), skin->faceVertexCounts.cdata(),
@@ -221,8 +222,8 @@ void CheckGuidePtex(UsdStageRefPtr const &stage)
     std::vector<int> strandRegion(c.out.totalCurves);
     for (size_t s = 0; s < c.out.totalCurves; ++s) strandRegion[s] = regionAt(s);
     // A guide's region is the region of the strand rooted nearest it.
-    std::vector<GfVec3f> const roots = GuideRoots(c.desc.geometries[0]);
-    std::vector<GfVec3f> strandRoots(c.out.totalCurves);
+    std::vector<usdGen::UsdGenVec3f> const roots = GuideRoots(c.desc.geometries[0]);
+    std::vector<usdGen::UsdGenVec3f> strandRoots(c.out.totalCurves);
     for (size_t s = 0; s < c.out.totalCurves; ++s) strandRoots[s] = c.out.rest[s * c.cvs];
     std::vector<int> guideRegion(roots.size());
     for (size_t g = 0; g < roots.size(); ++g)
@@ -296,17 +297,17 @@ void CheckClump(UsdStageRefPtr const &stage)
     size_t converging = 0, measured = 0;
     for (auto const &clump : clumps) {
         if (clump.second.size() < 6) continue;
-        GfVec3d rootCentre(0.0), tipCentre(0.0);
+        usdGen::UsdGenVec3d rootCentre(0.0), tipCentre(0.0);
         for (size_t s : clump.second) {
-            rootCentre += GfVec3d(Cv(c.out, s * c.cvs));
-            tipCentre += GfVec3d(Cv(c.out, (s + 1) * c.cvs - 1));
+            rootCentre += usdGen::UsdGenVec3d(Cv(c.out, s * c.cvs));
+            tipCentre += usdGen::UsdGenVec3d(Cv(c.out, (s + 1) * c.cvs - 1));
         }
         rootCentre /= double(clump.second.size());
         tipCentre /= double(clump.second.size());
         double rootSpread = 0.0, tipSpread = 0.0;
         for (size_t s : clump.second) {
-            GfVec3d r = GfVec3d(Cv(c.out, s * c.cvs)) - rootCentre;
-            GfVec3d t = GfVec3d(Cv(c.out, (s + 1) * c.cvs - 1)) - tipCentre;
+            usdGen::UsdGenVec3d r = usdGen::UsdGenVec3d(Cv(c.out, s * c.cvs)) - rootCentre;
+            usdGen::UsdGenVec3d t = usdGen::UsdGenVec3d(Cv(c.out, (s + 1) * c.cvs - 1)) - tipCentre;
             r[1] = t[1] = 0.0;
             rootSpread += r.GetLength();
             tipSpread += t.GetLength();
@@ -428,9 +429,9 @@ Scene MakeScene(char const *file)
 }
 
 /// Published points of every tile, concatenated in tile order.
-std::vector<GfVec3f> PublishedPoints(Scene const &scene, char const *description)
+std::vector<usdGen::UsdGenVec3f> PublishedPoints(Scene const &scene, char const *description)
 {
-    std::vector<GfVec3f> points;
+    std::vector<usdGen::UsdGenVec3f> points;
     SdfPath const render = SdfPath(description).AppendChild(TfToken("__usdGenRender"));
     SdfPathVector tiles = scene.groom->GetChildPrimPaths(render);
     std::sort(tiles.begin(), tiles.end());
@@ -442,22 +443,22 @@ std::vector<GfVec3f> PublishedPoints(Scene const &scene, char const *description
         if (!sampled) continue;
         VtValue const value = sampled->GetValue(0.0f);
         if (!value.IsHolding<VtVec3fArray>()) continue;
-        for (GfVec3f const &p : value.UncheckedGet<VtVec3fArray>()) points.push_back(p);
+        for (usdGen::UsdGenVec3f const &p : ToEngine(value.UncheckedGet<VtVec3fArray>())) points.push_back(p);
     }
     return points;
 }
 
-bool Differs(std::vector<GfVec3f> const &a, std::vector<GfVec3f> const &b)
+bool Differs(std::vector<usdGen::UsdGenVec3f> const &a, std::vector<usdGen::UsdGenVec3f> const &b)
 {
     if (a.size() != b.size()) return true;
     for (size_t i = 0; i < a.size(); ++i) if (a[i] != b[i]) return true;
     return false;
 }
 
-float MaxHeight(std::vector<GfVec3f> const &points)
+float MaxHeight(std::vector<usdGen::UsdGenVec3f> const &points)
 {
     float h = 0.0f;
-    for (GfVec3f const &p : points) h = std::max(h, p[1]);
+    for (usdGen::UsdGenVec3f const &p : points) h = std::max(h, p[1]);
     return h;
 }
 
@@ -467,7 +468,7 @@ void CheckGuideDirtyPropagation()
     Check(scene.owner != nullptr, "the guide example opens in a groom scene index");
     if (!scene.owner) return;
     scene.owner->Synchronize();
-    std::vector<GfVec3f> const before = PublishedPoints(scene, kGuideDescription);
+    std::vector<usdGen::UsdGenVec3f> const before = PublishedPoints(scene, kGuideDescription);
     Check(!before.empty(), "the guide example publishes strands through Hydra");
     if (before.empty()) return;
 
@@ -487,7 +488,7 @@ void CheckGuideDirtyPropagation()
     Check(guides.GetPointsAttr().Set(points), "lengthen the guide curves on the stage");
     scene.indices.stageSceneIndex->ApplyPendingUpdates();
     scene.owner->Synchronize();
-    std::vector<GfVec3f> const longer = PublishedPoints(scene, kGuideDescription);
+    std::vector<usdGen::UsdGenVec3f> const longer = PublishedPoints(scene, kGuideDescription);
     Check(Differs(before, longer), "a guide edit recooks the published strands");
     Check(MaxHeight(longer) > MaxHeight(before) * 1.2f, "the strands grow with their guides");
 
@@ -505,7 +506,7 @@ void CheckGuideDirtyPropagation()
           "retarget input:guideCurves on the expression prim");
     scene.indices.stageSceneIndex->ApplyPendingUpdates();
     scene.owner->Synchronize();
-    std::vector<GfVec3f> const retargeted = PublishedPoints(scene, kGuideDescription);
+    std::vector<usdGen::UsdGenVec3f> const retargeted = PublishedPoints(scene, kGuideDescription);
     Check(Differs(longer, retargeted), "retargeting an expression input recooks the strands");
 
     // 3. Edit the new target: the dependency follows the relationship.
@@ -513,7 +514,7 @@ void CheckGuideDirtyPropagation()
     sparse.GetPointsAttr().Set(sparsePoints);
     scene.indices.stageSceneIndex->ApplyPendingUpdates();
     scene.owner->Synchronize();
-    std::vector<GfVec3f> const moved = PublishedPoints(scene, kGuideDescription);
+    std::vector<usdGen::UsdGenVec3f> const moved = PublishedPoints(scene, kGuideDescription);
     Check(Differs(retargeted, moved), "editing the newly targeted geometry recooks the strands");
 }
 
@@ -522,7 +523,7 @@ void CheckClumpMapDirtyPropagation()
     Scene scene = MakeScene(kClumpScene);
     if (!scene.owner) { Check(false, "the clump example opens in a groom scene index"); return; }
     scene.owner->Synchronize();
-    std::vector<GfVec3f> const before = PublishedPoints(scene, kClumpDescription);
+    std::vector<usdGen::UsdGenVec3f> const before = PublishedPoints(scene, kClumpDescription);
     Check(!before.empty(), "the clump example publishes strands through Hydra");
     UsdAttribute file = scene.stage->GetAttributeAtPath(
         SdfPath("/World/Groom/Fur/Maps/clumpRegions.usdGen:map:file"));
@@ -530,7 +531,7 @@ void CheckClumpMapDirtyPropagation()
           "point the clump region map at another file");
     scene.indices.stageSceneIndex->ApplyPendingUpdates();
     scene.owner->Synchronize();
-    std::vector<GfVec3f> const after = PublishedPoints(scene, kClumpDescription);
+    std::vector<usdGen::UsdGenVec3f> const after = PublishedPoints(scene, kClumpDescription);
     Check(Differs(before, after), "a map prim edit recooks the clumps");
 }
 

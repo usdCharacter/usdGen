@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -77,8 +78,8 @@ UsdGenGraphDesc RaggedRootedFixture()
     hair.points.clear(); hair.rest.clear();
     for (int c = 0; c != 3; ++c)
         for (int i = 0; i != hair.curveVertexCounts[c]; ++i) {
-            hair.points.push_back(GfVec3f(float(10 * c + i), float(c), 1.0f + i));
-            hair.rest.push_back(GfVec3f(float(100 + 10 * c + i), float(10 + c), 2.0f + i));
+            hair.points.push_back(usdGen::UsdGenVec3f(float(10 * c + i), float(c), 1.0f + i));
+            hair.rest.push_back(usdGen::UsdGenVec3f(float(100 + 10 * c + i), float(10 + c), 2.0f + i));
         }
     hair.widths = VtFloatArray(9, .02f);
     hair.curveId = {30, 10, 20}; // middle curve drops; survivors sort as old 2, old 0
@@ -133,7 +134,7 @@ bool Near(double a, double b, double tolerance = 2.0e-6)
     return std::abs(a - b) <= tolerance;
 }
 
-bool NearVec(GfVec3d const& value, GfVec3d const& expected,
+bool NearVec(usdGen::UsdGenVec3d const& value, usdGen::UsdGenVec3d const& expected,
              double tolerance = 2.0e-6)
 {
     return Near(value[0], expected[0], tolerance) &&
@@ -141,7 +142,7 @@ bool NearVec(GfVec3d const& value, GfVec3d const& expected,
         Near(value[2], expected[2], tolerance);
 }
 
-GfVec3d FrameAxis(GfMatrix4d const& frame, int row)
+usdGen::UsdGenVec3d FrameAxis(usdGen::UsdGenMatrix4d const& frame, int row)
 {
     return {frame[row][0], frame[row][1], frame[row][2]};
 }
@@ -164,23 +165,23 @@ int main()
     CHECK(loaded.totalCurves == 3 && loaded.totalCvs == 9);
     CHECK(loaded.curveId == VtArray<uint64_t>({7,19,42}));
     CHECK(loaded.rootPrim == VtIntArray({0,0,0}));
-    CHECK(loaded.rootUV == VtVec2fArray({GfVec2f(.1f,.7f), GfVec2f(.2f,.2f), GfVec2f(.7f,.1f)}));
+    CHECK(loaded.rootUV == usdGen::UsdGenVec2fArray({usdGen::UsdGenVec2f(.1f,.7f), usdGen::UsdGenVec2f(.2f,.2f), usdGen::UsdGenVec2f(.7f,.1f)}));
     CHECK(loaded.rootT.size() == 3 && loaded.rootB.size() == 3 && loaded.rootN.size() == 3);
     CHECK(loaded.hairT[0] == 0.f && loaded.hairT[2] == 1.f && loaded.width[0] == .02f);
 
     // Plan and loader own immutable snapshots, and loading never edits the input descriptor.
     auto before = d;
     d.curveSets[0].curveId[0] = 999;
-    d.curveSets[0].points[0] = GfVec3f(9,9,9);
-    CHECK(plan->Source().curveId[0] == 42 && plan->Source().points[0] == GfVec3f(.2f,.2f,0));
+    d.curveSets[0].points[0] = usdGen::UsdGenVec3f(9,9,9);
+    CHECK(plan->Source().curveId[0] == 42 && plan->Source().points[0] == usdGen::UsdGenVec3f(.2f,.2f,0));
     CHECK(before.curveSets[0].curveId[0] == 42 && loaded.curveId[0] == 7);
 
     // Authored frames are copied exactly; malformed matrices and cardinalities fail closed.
     auto explicitFrames = Fixture();
-    explicitFrames.curveSets[0].rootFrame = VtMatrix4dArray(3, GfMatrix4d(1.0));
+    explicitFrames.curveSets[0].rootFrame = usdGen::UsdGenMatrix4dArray(3, usdGen::UsdGenMatrix4d(1.0));
     UsdGenCurveRootCaptureResult roots;
     CHECK(Capture(explicitFrames.curveSets[0], &explicitFrames.surfaces[0], "never", &roots));
-    CHECK(roots.valid == VtArray<uint8_t>({1,1,1}) && roots.frames[0] == GfMatrix4d(1.0));
+    CHECK(roots.valid == VtArray<uint8_t>({1,1,1}) && roots.frames[0] == usdGen::UsdGenMatrix4d(1.0));
     auto malformed = explicitFrames;
     malformed.curveSets[0].rootFrame[1][0][0] = -1.0;
     CHECK(!Capture(malformed.curveSets[0], &malformed.surfaces[0], "never", &roots));
@@ -197,10 +198,10 @@ int main()
     CHECK(Capture(invalid.curveSets[0], &invalid.surfaces[0], "onError", &roots));
     CHECK(roots.rebound == 1 && roots.valid == VtArray<uint8_t>({1,1,1}) && roots.rootPrim[1] == 0);
     auto changed = invalid;
-    changed.curveSets[0].skinPrimUv[0] = GfVec2f(.9f,.05f);
+    changed.curveSets[0].skinPrimUv[0] = usdGen::UsdGenVec2f(.9f,.05f);
     CHECK(Capture(changed.curveSets[0], &changed.surfaces[0], "always", &roots));
-    CHECK(roots.rebound == 3 && roots.rootUV == VtVec2fArray({GfVec2f(.2f,.2f),
-          GfVec2f(.7f,.1f), GfVec2f(.1f,.7f)}));
+    CHECK(roots.rebound == 3 && roots.rootUV == usdGen::UsdGenVec2fArray({usdGen::UsdGenVec2f(.2f,.2f),
+          usdGen::UsdGenVec2f(.7f,.1f), usdGen::UsdGenVec2f(.1f,.7f)}));
 
     // Derived frames deliberately stay in CurveSource-local coordinates.
     // Equal, finite invertible affine transforms therefore cancel exactly:
@@ -210,7 +211,7 @@ int main()
     for (int variant = 0; variant != 5; ++variant) {
         auto affine = Fixture();
         affine.curveSets[0].rootFrame.clear();
-        GfMatrix4d matrix(1.0);
+        usdGen::UsdGenMatrix4d matrix(1.0);
         if (variant == 0) { matrix[3][0] = 3.0; matrix[3][1] = -4.0; matrix[3][2] = 2.0; }
         if (variant == 1) { matrix[0][0] = 0.0; matrix[0][1] = 1.0;
                             matrix[1][0] = -1.0; matrix[1][1] = 0.0; }
@@ -235,15 +236,15 @@ int main()
               NearVec(FrameAxis(roots.frames[2], 3), {.2,.2,0}));
         UsdGenCurveBuffer affineOut;
         CHECK(Load(affine, &affineOut, &diagnostics));
-        CHECK(affineOut.rootT == VtVec3fArray(3, GfVec3f(1,0,0)) &&
-              affineOut.rootB == VtVec3fArray(3, GfVec3f(0,1,0)) &&
-              affineOut.rootN == VtVec3fArray(3, GfVec3f(0,0,1)));
+        CHECK(affineOut.rootT == usdGen::UsdGenVec3fArray(3, usdGen::UsdGenVec3f(1,0,0)) &&
+              affineOut.rootB == usdGen::UsdGenVec3fArray(3, usdGen::UsdGenVec3f(0,1,0)) &&
+              affineOut.rootN == usdGen::UsdGenVec3fArray(3, usdGen::UsdGenVec3f(0,0,1)));
         // The shared loader transports both source channels verbatim; object
         // transforms affect only root-frame conversion, never C3 points/rest.
         CHECK(affine.curveSets[0].points == sourcePoints &&
               affine.curveSets[0].rest == sourceRest &&
               affineOut.px[0] == .7f && affineOut.py[0] == .1f &&
-              affineOut.pz[0] == 0.f && affineOut.rest[0] == GfVec3f(.7f,.1f,0));
+              affineOut.pz[0] == 0.f && affineOut.rest[0] == usdGen::UsdGenVec3f(.7f,.1f,0));
     }
 
     // With unequal transforms, calculate the expected row-vector relative
@@ -276,7 +277,7 @@ int main()
     // for local (.2,.2,0), then invalidate only that authored binding.
     auto repaired = relative;
     repaired.curveSets[0].skinPrim[1] = 99;
-    repaired.curveSets[0].points[3] = GfVec3f(4.8f,-1.8f,7.0f);
+    repaired.curveSets[0].points[3] = usdGen::UsdGenVec3f(4.8f,-1.8f,7.0f);
     repaired.curveSets[0].rest[3] = repaired.curveSets[0].points[3];
     CHECK(Capture(repaired.curveSets[0], &repaired.surfaces[0], "onError", &roots));
     CHECK(roots.rebound == 1 && roots.valid == VtArray<uint8_t>({1,1,1}) &&
@@ -309,12 +310,12 @@ int main()
     CHECK(raggedOut.px == VtFloatArray({20,21,22,23,0,1,2}) &&
           raggedOut.py == VtFloatArray({2,2,2,2,0,0,0}) &&
           raggedOut.pz == VtFloatArray({1,2,3,4,1,2,3}));
-    CHECK(raggedOut.rest == VtVec3fArray({GfVec3f(120,12,2), GfVec3f(121,12,3),
-          GfVec3f(122,12,4), GfVec3f(123,12,5), GfVec3f(100,10,2),
-          GfVec3f(101,10,3), GfVec3f(102,10,4)}) &&
+    CHECK(raggedOut.rest == usdGen::UsdGenVec3fArray({usdGen::UsdGenVec3f(120,12,2), usdGen::UsdGenVec3f(121,12,3),
+          usdGen::UsdGenVec3f(122,12,4), usdGen::UsdGenVec3f(123,12,5), usdGen::UsdGenVec3f(100,10,2),
+          usdGen::UsdGenVec3f(101,10,3), usdGen::UsdGenVec3f(102,10,4)}) &&
           raggedOut.hairT == VtFloatArray({0, 1.f/3.f, 2.f/3.f, 1, 0, .5f, 1}));
     CHECK(raggedOut.rootPrim == VtIntArray({0,0}) &&
-          raggedOut.rootUV == VtVec2fArray({GfVec2f(.8f,.2f), GfVec2f(.3f,.7f)}));
+          raggedOut.rootUV == usdGen::UsdGenVec2fArray({usdGen::UsdGenVec2f(.8f,.2f), usdGen::UsdGenVec2f(.3f,.7f)}));
     CHECK(raggedOut.extraCv.size() == 2 && raggedOut.extraCurve.size() == 4);
     auto const &pf = raggedOut.extraCv[0].name == TfToken("pointFloat") ? raggedOut.extraCv[0] : raggedOut.extraCv[1];
     auto const &pi = raggedOut.extraCv[0].name == TfToken("pointInt") ? raggedOut.extraCv[0] : raggedOut.extraCv[1];

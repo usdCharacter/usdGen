@@ -3,6 +3,7 @@
 #include "usdGenCurves/cuda/cudaSurfaceInput.h"
 #include <cstdio>
 #include <limits>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

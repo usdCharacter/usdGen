@@ -30,6 +30,7 @@
 #include <iterator>
 #include <memory>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -111,7 +112,7 @@ UsdGenGraphDesc MakeRootBoundDescriptor(bool useRest, TfToken rebind) {
     curves.rest = curves.points;
     curves.skinPrim = {0, 0, 0};
     curves.skinPrimUv = {{.20f,.30f}, {.40f,.10f}, {.60f,.20f}};
-    curves.rootFrame.resize(3, GfMatrix4d(1.0));
+    curves.rootFrame.resize(3, usdGen::UsdGenMatrix4d(1.0));
     curves.rootFrame[0][3][0] = 30.0;
     curves.rootFrame[1][3][0] = 10.0;
     curves.rootFrame[2][3][0] = 20.0;
@@ -135,11 +136,11 @@ UsdGenGraphDesc MakeRootBoundDescriptor(bool useRest, TfToken rebind) {
 UsdGenGraphDesc MakeAffineRootBoundDescriptor() {
     auto desc = MakeRootBoundDescriptor(true, TfToken("never"));
     desc.curveSets.front().rootFrame.clear();
-    GfMatrix4d sourceWorld(1.0);
+    usdGen::UsdGenMatrix4d sourceWorld(1.0);
     sourceWorld[0][0] = 0.0; sourceWorld[0][1] = -1.0;
     sourceWorld[1][0] = 1.0; sourceWorld[1][1] = 0.0;
     sourceWorld[3][0] = 11.0; sourceWorld[3][1] = -13.0; sourceWorld[3][2] = 17.0;
-    GfMatrix4d relative(1.0);
+    usdGen::UsdGenMatrix4d relative(1.0);
     relative[0][0] = 0.0; relative[0][1] = 2.0;
     relative[1][0] = -3.0; relative[1][1] = 0.0;
     relative[2][2] = .5;
@@ -170,12 +171,12 @@ UsdGenGraphDesc MakeLengthBlendDescriptor() {
 }
 
 struct Oracle {
-    std::vector<GfVec3f> points, rest;
+    std::vector<usdGen::UsdGenVec3f> points, rest;
     std::vector<uint32_t> offsets;
     std::vector<uint64_t> ids;
     std::vector<float> hairT, widths;
     std::vector<int32_t> rootPrim;
-    std::vector<GfVec2f> rootUV;
+    std::vector<usdGen::UsdGenVec2f> rootUV;
     struct NamedPlane {
         std::string name;
         UsdGenDeviceValueType type;
@@ -767,7 +768,7 @@ int main(int argc, char** argv) {
                         {TfToken("length:method"), VtValue(TfToken(method ? "cutExtend" : "scale")), false},
                         {TfToken("rebuild"), VtValue(TfToken(method == 2 ? "reparam" : "keepParam")), false},
                         {TfToken("minRemainingLength"), VtValue(floor), false},
-                        {TfToken("length:random"), VtValue(GfVec2f(.5f, 1.5f)), false}};
+                        {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(.5f, 1.5f)), false}};
                     auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc)); CHECK(handle);
                     auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
                     CHECK(plan && plan->Steps().size() == 2 &&
@@ -804,7 +805,7 @@ int main(int argc, char** argv) {
         auto neutral = minimumPlanDesc;
         neutral.nodes[1].seed = -17;
         neutral.nodes[1].params.push_back(
-            {TfToken("length:random"), VtValue(GfVec2f(1, 1)), false});
+            {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(1, 1)), false});
         auto neutralHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(neutral)); CHECK(neutralHandle);
         auto neutralPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(neutralHandle->Payload());
         auto reuse = SubmitAndWait(*owner, noRandom, neutralPlan, context, 147,
@@ -834,7 +835,7 @@ int main(int argc, char** argv) {
                     {TfToken("length:method"), VtValue(TfToken(method ? "cutExtend" : "scale")), false},
                     {TfToken("rebuild"), VtValue(TfToken(method == 2 ? "reparam" : "keepParam")), false},
                     {TfToken("minRemainingLength"), VtValue(3.f), false},
-                    {TfToken("length:random"), VtValue(GfVec2f(.5f, 1.5f)), false},
+                    {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(.5f, 1.5f)), false},
                     {TfToken("mask"), VtValue(blend), false}};
                 auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc)); CHECK(handle);
                 auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
@@ -870,7 +871,7 @@ int main(int argc, char** argv) {
         });
         auto neutral = minimumPlanDesc;
         neutral.nodes[1].params.push_back(
-            {TfToken("length:random"), VtValue(GfVec2f(.5f, 1.5f)), false});
+            {TfToken("length:random"), VtValue(usdGen::UsdGenVec2f(.5f, 1.5f)), false});
         neutral.nodes[1].params.push_back({TfToken("mask"), VtValue(1.f), false});
         auto neutralHandle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(neutral)); CHECK(neutralHandle);
         auto neutralPlan = std::static_pointer_cast<const VulkanSourceWidthPlan>(neutralHandle->Payload());

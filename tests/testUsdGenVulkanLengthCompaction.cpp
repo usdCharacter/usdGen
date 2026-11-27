@@ -102,7 +102,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     source.py = VtFloatArray(11, 0); source.pz = {0,0, 0,0,0, 0,0, 0,1,2,3};
     source.rest.reserve(11); source.width.reserve(11); source.hairT.reserve(11);
     for (uint32_t i = 0; i != 11; ++i) {
-        source.rest.push_back(GfVec3f(float(i), float(i + 10), float(i + 20)));
+        source.rest.push_back(usdGen::UsdGenVec3f(float(i), float(i + 10), float(i + 20)));
         source.width.push_back(float(i) + .25f); source.hairT.push_back(float(i) / 10.f);
     }
     source.cvOffsets = {0,2,5,7,11}; source.curveId = {100,101,102,103};
@@ -158,7 +158,7 @@ static VulkanSourceGenerationCreateInfo LargeFixture(std::shared_ptr<DeviceConte
     s.px.reserve(points); s.py = VtFloatArray(points, 0.f); s.pz = VtFloatArray(points, 0.f);
     s.rest.reserve(points); s.width.reserve(points); s.hairT.reserve(points);
     for (uint32_t c = 0; c != curves; ++c) for (uint32_t j = 0; j != c % 5; ++j) {
-        s.px.push_back(float(j)); s.rest.push_back(GfVec3f(float(c), float(j), 0));
+        s.px.push_back(float(j)); s.rest.push_back(usdGen::UsdGenVec3f(float(c), float(j), 0));
         s.width.push_back(float(c) + .5f); s.hairT.push_back(float(j));
     }
     for (uint32_t first : {0u,171u,342u}) {

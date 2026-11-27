@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenUsd/lower.h"
 
+#include "usdGenUsd/convert/math.h"
+
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
@@ -135,7 +137,9 @@ UsdGenInputRecord LowerSurface(UsdGenSurfaceDesc const &surface, Lowering &keys)
 UsdGenInputRecord LowerMap(UsdGenMapDesc const &map, Lowering &keys)
 {
     UsdGenNodeKey const key = keys.Key(map.path);
-    return UsdGenMapRecord(map, key, keys.Key(map.paintSurface), map.path.GetAsToken(),
+    UsdGenMapData data = map;
+    for (UsdGenParamValue &p : data.params) p.value = ToEngineValue(p.value);
+    return UsdGenMapRecord(data, key, keys.Key(map.paintSurface), map.path.GetAsToken(),
                            keys.Columns());
 }
 
@@ -176,6 +180,7 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
     for (UsdGenMapBindingDesc const &binding : node.mapBindings)
         out.mapBindings.push_back(UsdGenMapBinding{keys.Key(binding.map), binding.relationship});
     out.params = node.params;
+    for (UsdGenParamValue &p : out.params) p.value = ToEngineValue(p.value);
     out.expressionBindings.reserve(node.expressionBindings.size());
     for (UsdGenExpressionBinding const &binding : node.expressionBindings) {
         UsdGenParamBinding b;
@@ -185,7 +190,7 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
         b.destination = binding.destination;
         b.destinationShape = binding.destinationShape;
         b.domain = binding.domain;
-        b.literal = binding.literal;
+        b.literal = ToEngineValue(binding.literal);
         out.expressionBindings.push_back(std::move(b));
     }
     out.ramps = node.ramps;
@@ -257,7 +262,7 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     spec.executionBackend = desc.executionBackend;
     spec.validationErrors = desc.validationErrors;
     presentation.description = spec.description;
-    presentation.xformMatrix = spec.xformMatrix;
+    presentation.xformMatrix = ToHost(spec.xformMatrix);
     presentation.dependency = SourceDependencySurface(spec);
     spec.hostDigest = PresentationDigest(presentation);
     keys.Finish(&spec, std::move(presentation));
@@ -326,7 +331,7 @@ UsdGenParamBinding Lower(UsdGenExpressionBinding const &binding)
     b.destination = binding.destination;
     b.destinationShape = binding.destinationShape;
     b.domain = binding.domain;
-    b.literal = binding.literal;
+    b.literal = ToEngineValue(binding.literal);
     return b;
 }
 

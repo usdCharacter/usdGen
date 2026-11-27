@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

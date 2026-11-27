@@ -39,7 +39,6 @@ target_include_directories(usdGenMath PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen>
     $<INSTALL_INTERFACE:include>)
 target_link_libraries(usdGenMath PUBLIC
-    arch tf gf vt
     nanoflann
     usdGen_seexpr)
 if(TARGET rigExec::rigExecMath)

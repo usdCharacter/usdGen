@@ -32,6 +32,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -59,8 +60,8 @@ UsdGenGraphDesc Description()
     surface.surfaceGeneration = 1;
     surface.faceVertexCounts = VtIntArray{3};
     surface.faceVertexIndices = VtIntArray{0, 1, 2};
-    surface.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(0, 1, 0)};
+    surface.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(0, 1, 0)};
     surface.points = surface.restPoints;
     desc.surfaces.push_back(surface);
 
@@ -75,7 +76,7 @@ UsdGenGraphDesc Description()
     hair.curveId = {1};
     hair.skinPrim = {0};
     hair.skinPrimUv = {{0, 0}};
-    hair.rootFrame = {GfMatrix4d(1.0)};
+    hair.rootFrame = {usdGen::UsdGenMatrix4d(1.0)};
     desc.curveSets.push_back(std::move(hair));
 
     UsdGenNodeDesc source;
@@ -158,10 +159,10 @@ int main()
 
     // (b) + (c) An authored look, read back off the cooked tile and off the
     // Hydra prim the publisher builds from it.
-    GfVec3f const tip(0.62f, 0.44f, 0.21f);
+    usdGen::UsdGenVec3f const tip(0.62f, 0.44f, 0.21f);
     UsdGenGraphDesc authored = Description();
     authored.look.rootColor = GfVec3f(0.05f, 0.02f, 0.01f);
-    authored.look.tipColor = tip;
+    authored.look.tipColor = ToHost(tip);
     authored.look.rampExponent = 2.5f;
     authored.look.hueJitter = 0.125f;
     authored.look.valueJitter = 0.25f;
@@ -176,7 +177,7 @@ int main()
         UsdGenPlane const *tipPlane = Plane(tile, "hairTipColor");
         Check(tipPlane && tipPlane->interpolation == TfToken("constant") &&
                   tipPlane->arity == 3 && tipPlane->f.size() == 3 &&
-                  GfVec3f(tipPlane->f[0], tipPlane->f[1], tipPlane->f[2]) == tip,
+                  usdGen::UsdGenVec3f(tipPlane->f[0], tipPlane->f[1], tipPlane->f[2]) == tip,
               "an authored look publishes hairTipColor as one constant triple");
         Check(Scalar(tile, "hairColorRamp", 2.5f), "hairColorRamp carries rampExponent");
         Check(Scalar(tile, "hairRandomHue", 0.125f), "hairRandomHue carries hueJitter");
@@ -199,8 +200,8 @@ int main()
         TfToken interp, role;
         VtValue value = Primvar(prim, "hairTipColor", &interp, &role);
         Check(value.IsHolding<VtVec3fArray>() &&
-                  value.UncheckedGet<VtVec3fArray>().size() == 1 &&
-                  value.UncheckedGet<VtVec3fArray>()[0] == tip &&
+                  ToEngine(value.UncheckedGet<VtVec3fArray>()).size() == 1 &&
+                  ToEngine(value.UncheckedGet<VtVec3fArray>())[0] == tip &&
                   interp == TfToken("constant") && role == TfToken("color"),
               "a tile bound to an explicit material still carries the look's "
               "tip colour, as a constant color3f");

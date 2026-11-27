@@ -69,6 +69,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -98,12 +99,12 @@ double Hash01(uint64_t k)
     return double((k ^ (k >> 31)) >> 11) / double(1ull << 53);
 }
 
-std::vector<GfVec3d> Cloud(size_t n, uint64_t seed)
+std::vector<usdGen::UsdGenVec3d> Cloud(size_t n, uint64_t seed)
 {
-    std::vector<GfVec3d> out(n);
+    std::vector<usdGen::UsdGenVec3d> out(n);
     for (size_t i = 0; i < n; ++i)
-        out[i] = GfVec3d(Hash01(seed + i * 3), Hash01(seed + i * 3 + 1),
-                         Hash01(seed + i * 3 + 2)) * 2.0 - GfVec3d(1.0);
+        out[i] = usdGen::UsdGenVec3d(Hash01(seed + i * 3), Hash01(seed + i * 3 + 1),
+                         Hash01(seed + i * 3 + 2)) * 2.0 - usdGen::UsdGenVec3d(1.0);
     return out;
 }
 
@@ -111,21 +112,21 @@ std::vector<GfVec3d> Cloud(size_t n, uint64_t seed)
 
 void CheckField()
 {
-    std::vector<GfVec3d> const rest = Cloud(40, 7);
-    std::vector<GfVec3d> const queries = Cloud(200, 1001);
+    std::vector<usdGen::UsdGenVec3d> const rest = Cloud(40, 7);
+    std::vector<usdGen::UsdGenVec3d> const queries = Cloud(200, 1001);
     usdGenMath::rbf::CubicField field;
     std::string error;
     bool const bound = field.Bind(rest, &error);
     Check(bound, "a 3D sample cloud binds " + error);
     Check(field.Solve(rest, &error), "the rest pose solves");
     double identity = 0.0;
-    for (GfVec3d const &q : queries) identity = std::max(identity, field.Displacement(q).GetLength());
+    for (usdGen::UsdGenVec3d const &q : queries) identity = std::max(identity, field.Displacement(q).GetLength());
     Check(identity < 1e-10, "the rest pose is the identity field (" + std::to_string(identity) + ")");
 
     // Arbitrary displacements: the field passes through every sample.
-    std::vector<GfVec3d> moved(rest.size());
+    std::vector<usdGen::UsdGenVec3d> moved(rest.size());
     for (size_t i = 0; i < rest.size(); ++i)
-        moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]), 0.1 * rest[i][0] * rest[i][2],
+        moved[i] = rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * rest[i][1]), 0.1 * rest[i][0] * rest[i][2],
                                      -0.15 * std::cos(2.0 * rest[i][0]));
     Check(field.Solve(moved, &error), "an arbitrary pose solves");
     double through = 0.0;
@@ -134,37 +135,37 @@ void CheckField()
     Check(through < 1e-9, "the field passes through every sample (" + std::to_string(through) + ")");
 
     // Affine motion: rotation, non-uniform scale and translation.
-    GfMatrix4d affine(1.0);
-    affine.SetRotate(GfRotation(GfVec3d(0.3, 1.0, -0.2), 35.0));
-    GfMatrix4d scale(1.0);
-    scale.SetScale(GfVec3d(1.2, 0.9, 1.1));
+    usdGen::UsdGenMatrix4d affine(1.0);
+    affine = GfMatrix4d(1.0).SetRotate(GfRotation(GfVec3d(0.3, 1.0, -0.2), 35.0));
+    usdGen::UsdGenMatrix4d scale(1.0);
+    scale.SetScale(usdGen::UsdGenVec3d(1.2, 0.9, 1.1));
     affine = scale * affine;
-    affine.SetTranslateOnly(GfVec3d(0.4, -0.25, 0.1));
+    affine.SetTranslateOnly(usdGen::UsdGenVec3d(0.4, -0.25, 0.1));
     for (size_t i = 0; i < rest.size(); ++i) moved[i] = affine.Transform(rest[i]);
     Check(field.Solve(moved, &error), "an affine pose solves");
     double reproduced = 0.0;
-    for (GfVec3d const &q : queries)
+    for (usdGen::UsdGenVec3d const &q : queries)
         reproduced = std::max(reproduced, (q + field.Displacement(q) - affine.Transform(q)).GetLength());
     Check(reproduced < 1e-8, "affine motion of the samples is reproduced everywhere (" +
                                  std::to_string(reproduced) + ")");
 
     // Refusals.
     usdGenMath::rbf::CubicField bad;
-    std::vector<GfVec3d> planar = rest;
-    for (GfVec3d &p : planar) p[1] = 0.3 * p[0] - 0.2 * p[2];   // a tilted plane
+    std::vector<usdGen::UsdGenVec3d> planar = rest;
+    for (usdGen::UsdGenVec3d &p : planar) p[1] = 0.3 * p[0] - 0.2 * p[2];   // a tilted plane
     bool refused = !bad.Bind(planar, &error) && error.find("span 3D") != std::string::npos;
     Check(refused, "coplanar samples are refused: " + error);
     refused = !bad.Bind({rest[0], rest[1], rest[2]}, &error) &&
         error.find("four") != std::string::npos;
     Check(refused, "three samples are refused: " + error);
-    std::vector<GfVec3d> doubled = rest;
+    std::vector<usdGen::UsdGenVec3d> doubled = rest;
     doubled.push_back(rest[5]);
     refused = !bad.Bind(doubled, &error) && error.find("coincide") != std::string::npos;
     Check(refused, "coincident samples are refused: " + error);
     Check(!bad.Bound() && !bad.Solve(rest, &error), "a refused field does not solve");
 
     // Sample selection.
-    std::vector<GfVec3d> points = Cloud(100, 42);
+    std::vector<usdGen::UsdGenVec3d> points = Cloud(100, 42);
     points.push_back(points[3]);
     std::vector<size_t> const all = usdGenMath::rbf::SelectSamples(points, 1000, 1e-9);
     Check(all.size() == 100 && std::find(all.begin(), all.end(), size_t(100)) == all.end(),
@@ -188,10 +189,10 @@ void CheckField()
 void CheckBatchBitwise()
 {
     for (size_t samples : {size_t(12), size_t(100), size_t(300)}) {
-        std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
-        std::vector<GfVec3d> moved(rest.size());
+        std::vector<usdGen::UsdGenVec3d> const rest = Cloud(samples, 7 + samples);
+        std::vector<usdGen::UsdGenVec3d> moved(rest.size());
         for (size_t i = 0; i < rest.size(); ++i)
-            moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+            moved[i] = rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                          0.1 * rest[i][0] * rest[i][2],
                                          -0.15 * std::cos(2.0 * rest[i][0]));
         usdGenMath::rbf::CubicField field;
@@ -200,14 +201,14 @@ void CheckBatchBitwise()
             Check(false, "batch fixture binds (" + std::to_string(samples) + " samples)");
             continue;
         }
-        std::vector<GfVec3d> const queries = Cloud(300, 1001);
+        std::vector<usdGen::UsdGenVec3d> const queries = Cloud(300, 1001);
         size_t worst = 0;
         for (size_t count = 0; count <= queries.size(); ++count) {
-            std::vector<GfVec3d> batched(count), single(count);
+            std::vector<usdGen::UsdGenVec3d> batched(count), single(count);
             field.DisplaceBatch(queries.data(), batched.data(), count);
             for (size_t t = 0; t < count; ++t) single[t] = field.Displacement(queries[t]);
             if (count && !worst && std::memcmp(batched.data(), single.data(),
-                                                count * sizeof(GfVec3d)) != 0)
+                                                count * sizeof(usdGen::UsdGenVec3d)) != 0)
                 worst = count;
         }
         Check(worst == 0, "DisplaceBatch is bitwise Displacement (" +
@@ -215,9 +216,9 @@ void CheckBatchBitwise()
                                (worst ? ", first diff at count " + std::to_string(worst) : "") + ")");
     }
     usdGenMath::rbf::CubicField unbound;
-    std::vector<GfVec3d> zeros(10, GfVec3d(1.0)), expect(10, GfVec3d(0.0));
+    std::vector<usdGen::UsdGenVec3d> zeros(10, usdGen::UsdGenVec3d(1.0)), expect(10, usdGen::UsdGenVec3d(0.0));
     unbound.DisplaceBatch(zeros.data(), zeros.data(), zeros.size());
-    Check(std::memcmp(zeros.data(), expect.data(), zeros.size() * sizeof(GfVec3d)) == 0,
+    Check(std::memcmp(zeros.data(), expect.data(), zeros.size() * sizeof(usdGen::UsdGenVec3d)) == 0,
           "an unbound field batches zeros");
 }
 
@@ -228,10 +229,10 @@ void CheckBatchBitwise()
 void CheckBatchPathsAgree()
 {
     for (size_t samples : {size_t(12), size_t(100), size_t(300)}) {
-        std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
-        std::vector<GfVec3d> moved(rest.size());
+        std::vector<usdGen::UsdGenVec3d> const rest = Cloud(samples, 7 + samples);
+        std::vector<usdGen::UsdGenVec3d> moved(rest.size());
         for (size_t i = 0; i < rest.size(); ++i)
-            moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+            moved[i] = rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                          0.1 * rest[i][0] * rest[i][2],
                                          -0.15 * std::cos(2.0 * rest[i][0]));
         usdGenMath::rbf::CubicField field;
@@ -243,18 +244,18 @@ void CheckBatchPathsAgree()
         }
         // One extra query lets every count also run one triple over,
         // flipping the 16-byte alignment the vld3/vst3 pair sees.
-        std::vector<GfVec3d> const queries = Cloud(302, 1001);
+        std::vector<usdGen::UsdGenVec3d> const queries = Cloud(302, 1001);
         size_t worst = 0;
         for (size_t count = 0; count <= 300; ++count) {
             for (size_t off = 0; off <= 1; ++off) {
-                std::vector<GfVec3d> neon(count), scalar(count);
+                std::vector<usdGen::UsdGenVec3d> neon(count), scalar(count);
                 usdGenMath::rbf::TestForceScalarDisplace(false);
                 field.DisplaceBatch(queries.data() + off, neon.data(), count);
                 usdGenMath::rbf::TestForceScalarDisplace(true);
                 field.DisplaceBatch(queries.data() + off, scalar.data(), count);
                 usdGenMath::rbf::TestForceScalarDisplace(false);
                 if (count && !worst &&
-                    std::memcmp(neon.data(), scalar.data(), count * sizeof(GfVec3d)) != 0)
+                    std::memcmp(neon.data(), scalar.data(), count * sizeof(usdGen::UsdGenVec3d)) != 0)
                     worst = count * 2 + off;
             }
         }
@@ -271,10 +272,10 @@ void CheckBatchPathsAgree()
 void CheckBatchPlanarBitwise()
 {
     for (size_t samples : {size_t(12), size_t(100), size_t(300)}) {
-        std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
-        std::vector<GfVec3d> moved(rest.size());
+        std::vector<usdGen::UsdGenVec3d> const rest = Cloud(samples, 7 + samples);
+        std::vector<usdGen::UsdGenVec3d> moved(rest.size());
         for (size_t i = 0; i < rest.size(); ++i)
-            moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+            moved[i] = rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                          0.1 * rest[i][0] * rest[i][2],
                                          -0.15 * std::cos(2.0 * rest[i][0]));
         usdGenMath::rbf::CubicField field;
@@ -284,7 +285,7 @@ void CheckBatchPlanarBitwise()
                              " samples)");
             continue;
         }
-        std::vector<GfVec3d> const cloud = Cloud(300, 1001);
+        std::vector<usdGen::UsdGenVec3d> const cloud = Cloud(300, 1001);
         std::vector<float> qx(300), qy(300), qz(300);
         for (size_t i = 0; i < 300; ++i) {
             qx[i] = float(cloud[i][0]);
@@ -299,8 +300,8 @@ void CheckBatchPlanarBitwise()
                 field.DisplaceBatchPlanar(qx.data(), qy.data(), qz.data(), dx.data(),
                                           dy.data(), dz.data(), count);
                 for (size_t t = 0; t < count; ++t) {
-                    GfVec3d const s =
-                        field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
+                    usdGen::UsdGenVec3d const s =
+                        field.Displacement(usdGen::UsdGenVec3d(qx[t], qy[t], qz[t]));
                     if (std::memcmp(&dx[t], &s[0], sizeof(double)) != 0 ||
                         std::memcmp(&dy[t], &s[1], sizeof(double)) != 0 ||
                         std::memcmp(&dz[t], &s[2], sizeof(double)) != 0) {
@@ -336,10 +337,10 @@ void CheckBatchPlanarBitwise()
 void CheckBatchThreaded()
 {
     size_t const samples = 100;
-    std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
-    std::vector<GfVec3d> moved(rest.size());
+    std::vector<usdGen::UsdGenVec3d> const rest = Cloud(samples, 7 + samples);
+    std::vector<usdGen::UsdGenVec3d> moved(rest.size());
     for (size_t i = 0; i < rest.size(); ++i)
-        moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+        moved[i] = rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                      0.1 * rest[i][0] * rest[i][2],
                                      -0.15 * std::cos(2.0 * rest[i][0]));
     usdGenMath::rbf::CubicField field;
@@ -349,7 +350,7 @@ void CheckBatchThreaded()
         return;
     }
     size_t const n = 20000;
-    std::vector<GfVec3d> const cloud = Cloud(n, 1001);
+    std::vector<usdGen::UsdGenVec3d> const cloud = Cloud(n, 1001);
     std::vector<float> qx(n), qy(n), qz(n);
     for (size_t i = 0; i < n; ++i) {
         qx[i] = float(cloud[i][0]);
@@ -362,12 +363,12 @@ void CheckBatchThreaded()
                          size_t(19999), size_t(20000)}) {
         for (int force = 0; force <= 1 && !worst; ++force) {
             usdGenMath::rbf::TestForceScalarDisplace(force != 0);
-            std::vector<GfVec3d> batched(count), single(count);
+            std::vector<usdGen::UsdGenVec3d> batched(count), single(count);
             field.DisplaceBatch(cloud.data(), batched.data(), count, kParallel);
             for (size_t t = 0; t < count; ++t)
                 single[t] = field.Displacement(cloud[t]);
             if (std::memcmp(batched.data(), single.data(),
-                            count * sizeof(GfVec3d)) != 0) {
+                            count * sizeof(usdGen::UsdGenVec3d)) != 0) {
                 worst = count * 4 + size_t(force) + 1;
                 break;
             }
@@ -376,8 +377,8 @@ void CheckBatchThreaded()
                                       dx.data(), dy.data(), dz.data(), count,
                                       kParallel);
             for (size_t t = 0; t < count; ++t) {
-                GfVec3d const s =
-                    field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
+                usdGen::UsdGenVec3d const s =
+                    field.Displacement(usdGen::UsdGenVec3d(qx[t], qy[t], qz[t]));
                 if (std::memcmp(&dx[t], &s[0], sizeof(double)) != 0 ||
                     std::memcmp(&dy[t], &s[1], sizeof(double)) != 0 ||
                     std::memcmp(&dz[t], &s[2], sizeof(double)) != 0) {
@@ -399,10 +400,10 @@ void CheckBatchThreaded()
 void CheckBatchConcurrent()
 {
     size_t const samples = 100;
-    std::vector<GfVec3d> const rest = Cloud(samples, 7 + samples);
-    std::vector<GfVec3d> moved(rest.size());
+    std::vector<usdGen::UsdGenVec3d> const rest = Cloud(samples, 7 + samples);
+    std::vector<usdGen::UsdGenVec3d> moved(rest.size());
     for (size_t i = 0; i < rest.size(); ++i)
-        moved[i] = rest[i] + GfVec3d(0.2 * std::sin(3.0 * rest[i][1]),
+        moved[i] = rest[i] + usdGen::UsdGenVec3d(0.2 * std::sin(3.0 * rest[i][1]),
                                      0.1 * rest[i][0] * rest[i][2],
                                      -0.15 * std::cos(2.0 * rest[i][0]));
     usdGenMath::rbf::CubicField field;
@@ -412,15 +413,15 @@ void CheckBatchConcurrent()
         return;
     }
     size_t const n = 20000;
-    std::vector<GfVec3d> const cloud = Cloud(n, 1001);
-    std::vector<GfVec3d> expect(n);
+    std::vector<usdGen::UsdGenVec3d> const cloud = Cloud(n, 1001);
+    std::vector<usdGen::UsdGenVec3d> expect(n);
     for (size_t t = 0; t < n; ++t) expect[t] = field.Displacement(cloud[t]);
     std::atomic<size_t> bad{0};
     auto run = [&]() {
         for (int k = 0; k < 4; ++k) {
-            std::vector<GfVec3d> got(n);
+            std::vector<usdGen::UsdGenVec3d> got(n);
             field.DisplaceBatch(cloud.data(), got.data(), n, kParallel);
-            if (std::memcmp(got.data(), expect.data(), n * sizeof(GfVec3d)) != 0)
+            if (std::memcmp(got.data(), expect.data(), n * sizeof(usdGen::UsdGenVec3d)) != 0)
                 bad.fetch_add(1, std::memory_order_relaxed);
         }
     };
@@ -430,11 +431,11 @@ void CheckBatchConcurrent()
     Check(bad.load() == 0, "concurrent large batches stay bitwise");
     struct Nested {
         usdGenMath::rbf::CubicField const *field;
-        GfVec3d const *qs;
-        GfVec3d *ds0, *ds1;
+        usdGen::UsdGenVec3d const *qs;
+        usdGen::UsdGenVec3d *ds0, *ds1;
         size_t count;
     };
-    std::vector<GfVec3d> nestedOut0(n), nestedOut1(n);
+    std::vector<usdGen::UsdGenVec3d> nestedOut0(n), nestedOut1(n);
     Nested nested{&field, cloud.data(), nestedOut0.data(), nestedOut1.data(), n};
     UsdGenWorkerPool outer(2);
     outer.ParallelFor(2,
@@ -444,8 +445,8 @@ void CheckBatchConcurrent()
                                                   job.count, kParallel);
                       },
                       &nested);
-    Check(std::memcmp(nestedOut0.data(), expect.data(), n * sizeof(GfVec3d)) == 0 &&
-              std::memcmp(nestedOut1.data(), expect.data(), n * sizeof(GfVec3d)) == 0,
+    Check(std::memcmp(nestedOut0.data(), expect.data(), n * sizeof(usdGen::UsdGenVec3d)) == 0 &&
+              std::memcmp(nestedOut1.data(), expect.data(), n * sizeof(usdGen::UsdGenVec3d)) == 0,
           "batches nested in pool workers stay bitwise");
 }
 
@@ -489,7 +490,7 @@ Cooked Cook(UsdStageRefPtr const &stage, double time,
     return out;
 }
 
-GfVec3f P(UsdGenCurveBuffer const &b, size_t cv) { return GfVec3f(b.px[cv], b.py[cv], b.pz[cv]); }
+usdGen::UsdGenVec3f P(UsdGenCurveBuffer const &b, size_t cv) { return usdGen::UsdGenVec3f(b.px[cv], b.py[cv], b.pz[cv]); }
 
 double MaxShift(Cooked const &c, bool rootsOnly)
 {
@@ -539,7 +540,7 @@ void CheckExample()
     drivers.GetCurveVertexCountsAttr().Get(&counts);
     drivers.GetPointsAttr().Get(&restPoints, UsdTimeCode::Default());
     drivers.GetPointsAttr().Get(&posePoints, UsdTimeCode(20.0));
-    std::vector<GfVec3f> roots, tipMotion;
+    std::vector<usdGen::UsdGenVec3f> roots, tipMotion;
     size_t first = 0;
     for (int n : counts) {
         roots.push_back(restPoints[first]);
@@ -548,15 +549,15 @@ void CheckExample()
     }
     size_t agree = 0, considered = 0;
     for (size_t c = 0; c < posed.output.totalCurves; ++c) {
-        GfVec3f const root = P(posed.input, c * posed.cvs);
+        usdGen::UsdGenVec3f const root = P(posed.input, c * posed.cvs);
         size_t nearest = 0;
         for (size_t g = 1; g < roots.size(); ++g)
             if ((roots[g] - root).GetLengthSq() < (roots[nearest] - root).GetLengthSq()) nearest = g;
         if ((roots[nearest] - root).GetLength() > 0.15 || tipMotion[nearest].GetLength() < 0.05) continue;
         size_t const tip = (c + 1) * posed.cvs - 1;
-        GfVec3f const motion = P(posed.output, tip) - P(posed.input, tip);
+        usdGen::UsdGenVec3f const motion = P(posed.output, tip) - P(posed.input, tip);
         ++considered;
-        if (GfDot(motion, tipMotion[nearest]) > 0.0f) ++agree;
+        if (usdGen::UsdGenDot(motion, tipMotion[nearest]) > 0.0f) ++agree;
     }
     std::printf("  %zu of %zu strands near a moving driver follow it\n", agree, considered);
     Check(considered > 50 && agree == considered, "strands near a driver bend the way it bends");
@@ -628,9 +629,9 @@ void CheckSurfaceExample(bool outside = false)
         double const wide = 1 / std::sqrt(stretch);
         for (size_t cv = 0; stable && cv < pose.input.totalCvs; ++cv) {
             stable = P(pose.input,cv) == P(rest.input,cv);
-            GfVec3f const p = P(rest.input,cv);
-            GfVec3f expected(float(p[0]*wide),float(p[1]*wide),float(p[2]*stretch));
-            if (outside) expected += GfVec3f(float(.55*std::sin(2*3.141592653589793*(frame-1)/99.0)),0,.5f);
+            usdGen::UsdGenVec3f const p = P(rest.input,cv);
+            usdGen::UsdGenVec3f expected(float(p[0]*wide),float(p[1]*wide),float(p[2]*stretch));
+            if (outside) expected += usdGen::UsdGenVec3f(float(.55*std::sin(2*3.141592653589793*(frame-1)/99.0)),0,.5f);
             error = std::max(error,double((P(pose.output,cv)-expected).GetLength()));
         }
         Check(stable, "Scatter/Grow/style remain rest-local at frame " + std::to_string(frame) + Errors(pose));
@@ -660,15 +661,15 @@ void CheckNonFiniteCapture()
     UsdGenSurfaceDesc surface;
     surface.path = SdfPath("/surface");
     int const N = 5;
-    surface.restPoints = VtVec3fArray(N * N);
+    surface.restPoints = usdGen::UsdGenVec3fArray(N * N);
     for (int j = 0; j < N; ++j)
         for (int i = 0; i < N; ++i) {
             float const x = float(i) * 0.1f, y = float(j) * 0.1f;
             surface.restPoints[j * N + i] =
-                GfVec3f(x, y, 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f));
+                usdGen::UsdGenVec3f(x, y, 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f));
         }
     surface.points = surface.restPoints;
-    surface.points[0] = surface.restPoints[0] + GfVec3f(1e10f, 0.0f, 0.0f);
+    surface.points[0] = surface.restPoints[0] + usdGen::UsdGenVec3f(1e10f, 0.0f, 0.0f);
     desc.surfaces.push_back(surface);
 
     UsdGenCurveBuffer upstream;
@@ -707,14 +708,14 @@ UsdGenGraphDesc MakeSmallSurfaceDeformDesc()
     s.path = SdfPath("/groom/surface");
     s.id = 0;
     int const NX = 15, NY = 15;
-    s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
-    s.uv = VtVec2fArray((NX + 1) * (NY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((NX + 1) * (NY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((NX + 1) * (NY + 1));
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             int const k = j * (NX + 1) + i;
             float const x = float(i) * 0.1f, y = float(j) * 0.1f;
-            s.restPoints[k] = GfVec3f(x, y, 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f));
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(x, y, 2.0f * std::sin(x * 0.3f) * std::cos(y * 0.3f));
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.points = s.restPoints;
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
@@ -812,11 +813,11 @@ void CheckDeformChosenDigest()
     // reference: desc is non-const, so a direct restPoints[v] would take
     // the mutating subscript and detach the shared rest buffer, and the
     // selection cache (keyed on that buffer's identity) would miss.
-    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    usdGen::UsdGenVec3fArray const &rest = desc.surfaces[0].restPoints;
     int moved = 0;
     for (size_t v = 0; v < chosenMark.size() && moved < 50; ++v) {
         if (chosenMark[v]) continue;
-        desc.surfaces[0].points[v] = rest[v] + GfVec3f(50.0f, 0.0f, 0.0f);
+        desc.surfaces[0].points[v] = rest[v] + usdGen::UsdGenVec3f(50.0f, 0.0f, 0.0f);
         ++moved;
     }
     Check(moved == 50, "the fixture has unchosen drivers to move");
@@ -830,7 +831,7 @@ void CheckDeformChosenDigest()
     // One chosen driver jumps: the digest must move and re-capture to
     // output that differs.
     desc.surfaces[0].points = desc.surfaces[0].restPoints;
-    desc.surfaces[0].points[selection[0]] = rest[selection[0]] + GfVec3f(50.0f, 0.0f, 0.0f);
+    desc.surfaces[0].points[selection[0]] = rest[selection[0]] + usdGen::UsdGenVec3f(50.0f, 0.0f, 0.0f);
     Check(runPose(), "the chosen-move pose cooks");
     Check(outputBits() != restBits, "moving a chosen driver re-captures to new output");
     Check(deformOp->ChosenDigestHitsForTesting() == 2,
@@ -864,7 +865,7 @@ void CheckDefaultSpaceUntilDeform()
         }
     desc.nodes.insert(desc.nodes.begin() + 2, clump);
     desc.surfaces[0].surfaceGeneration = 1;
-    GfVec3f const offset(0.3f, -0.2f, 0.5f);
+    usdGen::UsdGenVec3f const offset(0.3f, -0.2f, 0.5f);
 
     auto bits = [](UsdGenCurveBuffer const &b) {
         std::vector<float> out(b.px.begin(), b.px.end());
@@ -904,8 +905,8 @@ void CheckDefaultSpaceUntilDeform()
         std::vector<float> const clumpRest = bits(clumped);
         std::vector<float> const terminalRest = bits(NodeBuffer(graph, terminal));
 
-        VtVec3fArray posed = d.surfaces[0].restPoints;
-        for (GfVec3f &p : posed) p += offset;
+        usdGen::UsdGenVec3fArray posed = d.surfaces[0].restPoints;
+        for (usdGen::UsdGenVec3f &p : posed) p += offset;
         d.surfaces[0].points = posed;
         d.surfaces[0].surfaceGeneration = 2;
         Check(run(), "the posed surface cooks " + label);
@@ -953,8 +954,8 @@ void CheckDefaultSpaceUntilDeform()
     UsdGenNodeId const clumpId = usdGenUsd::NodeIdForPath(graph, SdfPath("/groom/clump"));
     Check(run(), "the pose-space fixture cooks its rest pose");
     UsdGenCapture const *restCapture = graph.Node(clumpId).capture.get();
-    VtVec3fArray posed = after.surfaces[0].restPoints;
-    for (GfVec3f &p : posed) p += offset;
+    usdGen::UsdGenVec3fArray posed = after.surfaces[0].restPoints;
+    for (usdGen::UsdGenVec3f &p : posed) p += offset;
     after.surfaces[0].points = posed;
     after.surfaces[0].surfaceGeneration = 2;
     Check(run(), "the pose-space fixture cooks the pose");
@@ -973,13 +974,13 @@ void CheckDeformEvaluateViewShapes()
     // uniform fast path must satisfy.
     UsdGenGraphDesc desc = MakeSmallSurfaceDeformDesc();
     // Smooth bend so the capture displaces nearly every CV.
-    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    usdGen::UsdGenVec3fArray const &rest = desc.surfaces[0].restPoints;
     desc.surfaces[0].points.resize(rest.size());
     for (size_t i = 0; i < rest.size(); ++i) {
-        GfVec3f const r = rest[i];
+        usdGen::UsdGenVec3f const r = rest[i];
         float const bend =
             float(0.6 * std::sin(0.05 * r[0] + 0.35) * std::cos(0.04 * r[1] - 0.175));
-        desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + bend);
+        desc.surfaces[0].points[i] = usdGen::UsdGenVec3f(r[0], r[1], r[2] + bend);
     }
     UsdGenCompiler compiler;
     UsdGenGraph graph;
@@ -1104,7 +1105,7 @@ void CheckDeformEvaluateViewShapes()
 void CheckCurveWrapField()
 {
     curveWrap::Field field;
-    std::vector<GfVec3d> rest={{0,0,0},{0,0,.25},{0,0,.5},{0,0,.75},{0,0,1}};
+    std::vector<usdGen::UsdGenVec3d> rest={{0,0,0},{0,0,.25},{0,0,.5},{0,0,.75},{0,0,1}};
     std::string error;
     Check(field.Bind(rest,rest,&error),"straight centerline binds without a 3D RBF cage");
     auto queries=Cloud(100,456);
@@ -1113,22 +1114,22 @@ void CheckCurveWrapField()
     Check(identity<1e-12,"curveWrap rest pose is identity, including endpoint offsets");
     auto pose=rest;
     GfRotation rotation(GfVec3d(0,1,0),65);
-    GfVec3d shift(.2,.1,-.3);
-    for (auto &p:pose) p=rotation.TransformDir(p)+shift;
+    usdGen::UsdGenVec3d shift(.2,.1,-.3);
+    for (auto &p:pose) p=usdGen::UsdGenVec3d(rotation.TransformDir(ToHost(p)))+shift;
     Check(field.Bind(rest,pose,&error),"single centerline rotation and translation bind");
     double rigid=0;
-    for (auto const &q:queries) rigid=std::max(rigid,(field.Map(q)-rotation.TransformDir(q)-shift).GetLength());
+    for (auto const &q:queries) rigid=std::max(rigid,(field.Map(q)-usdGen::UsdGenVec3d(rotation.TransformDir(ToHost(q)))-shift).GetLength());
     Check(rigid<1e-10,"curveWrap preserves the full cross-section under rigid bending");
     for (size_t i=0;i<pose.size();++i) {
         double const a=double(i)*.3;
-        pose[i]=GfVec3d(1-std::cos(a),0,std::sin(a));
+        pose[i]=usdGen::UsdGenVec3d(1-std::cos(a),0,std::sin(a));
     }
     Check(field.Bind(rest,pose,&error),"a planar curved pose binds");
     double radiusError=0;
     for (size_t i=0;i+1<rest.size();++i) for (int j=0;j<12;++j) {
         double const a=j*2*3.141592653589793/12;
         auto const center=(rest[i]+rest[i+1])*.5;
-        auto const q=center+GfVec3d(.05*std::cos(a),.05*std::sin(a),0);
+        auto const q=center+usdGen::UsdGenVec3d(.05*std::cos(a),.05*std::sin(a),0);
         radiusError=std::max(radiusError,std::abs((field.Map(q)-(pose[i]+pose[i+1])*.5).GetLength()-.05));
     }
     Check(radiusError<1e-10,"curved centerline keeps braid cross-section radius");
@@ -1162,7 +1163,7 @@ void CheckBraidExamples()
         for (size_t cv=0; stable && cv<a.input.totalCvs; ++cv) {
             stable = P(a.input,cv)==P(rest.input,cv) && P(b.input,cv)==P(rest.input,cv);
             auto const p=P(a.output,cv);
-            GfVec3f const expected(float(p[0]*wide),float(p[1]*wide),float(p[2]*stretch));
+            usdGen::UsdGenVec3f const expected(float(p[0]*wide),float(p[1]*wide),float(p[2]*stretch));
             error=std::max(error,double((P(b.output,cv)-expected).GetLength()));
         }
         Check(stable,"braid growth stays at Default at frame "+std::to_string(frame)+Errors(a)+Errors(b));
@@ -1227,8 +1228,8 @@ void CheckRegionExamples()
             VtVec3fArray driverNow;driver.GetPointsAttr().Get(&driverNow,UsdTimeCode(frame));
             curveWrap::Field fields[2];std::string error;
             for (int g=0;g<2;++g) {
-                std::vector<GfVec3d> r,n;
-                for (int i=g*31;i<(g+1)*31;++i) {r.emplace_back(driverRest[i]);n.emplace_back(driverNow[i]);}
+                std::vector<usdGen::UsdGenVec3d> r,n;
+                for (int i=g*31;i<(g+1)*31;++i) {r.emplace_back(usdGen::UsdGenVec3f(driverRest[i]));n.emplace_back(usdGen::UsdGenVec3f(driverNow[i]));}
                 Check(fields[g].Bind(r,n,&error),"region driver field binds");
             }
             bool stable=pose.ok && pose.input.totalCvs==rest.input.totalCvs;double maxError=0;
@@ -1236,7 +1237,7 @@ void CheckRegionExamples()
                 int g=P(rest.input,c*rest.cvs)[0]<0 ? 0:1;if (swapped) g=1-g;
                 for (size_t cv=c*rest.cvs;stable && cv<(c+1)*rest.cvs;++cv) {
                     stable=P(pose.input,cv)==P(rest.input,cv);
-                    maxError=std::max(maxError,(GfVec3d(P(pose.output,cv))-fields[g].Map(GfVec3d(P(rest.input,cv)))).GetLength());
+                    maxError=std::max(maxError,(usdGen::UsdGenVec3d(P(pose.output,cv))-fields[g].Map(usdGen::UsdGenVec3d(P(rest.input,cv)))).GetLength());
                 }
             }
             Check(stable && maxError<2e-6,(swapped?"swapping Ptex texels rebinds across space":"Ptex regions follow only their assigned center")+
@@ -1267,10 +1268,10 @@ void CheckRegionExamples()
 
 // --- the example, through the groom scene index -----------------------------------
 
-std::vector<GfVec3f> PublishedPoints(HdSceneIndexBaseRefPtr const &groom,
+std::vector<usdGen::UsdGenVec3f> PublishedPoints(HdSceneIndexBaseRefPtr const &groom,
                                   SdfPath const &description = kDescription)
 {
-    std::vector<GfVec3f> points;
+    std::vector<usdGen::UsdGenVec3f> points;
     SdfPath const render = description.AppendChild(TfToken("__usdGenRender"));
     SdfPathVector tiles = groom->GetChildPrimPaths(render);
     std::sort(tiles.begin(), tiles.end());
@@ -1285,7 +1286,7 @@ std::vector<GfVec3f> PublishedPoints(HdSceneIndexBaseRefPtr const &groom,
         if (!sampled) continue;
         VtValue const value = sampled->GetValue(0.0f);
         if (!value.IsHolding<VtVec3fArray>()) continue;
-        for (GfVec3f const &p : value.UncheckedGet<VtVec3fArray>()) points.push_back(p);
+        for (usdGen::UsdGenVec3f const &p : ToEngine(value.UncheckedGet<VtVec3fArray>())) points.push_back(p);
     }
     return points;
 }
@@ -1317,12 +1318,12 @@ void CheckOutsidePublication()
         double error=0;
         double const stretch=std::exp(.48*std::sin(4*3.141592653589793*(frame-1)/99.0));
         double const wide=1/std::sqrt(stretch);
-        GfVec3d offset(.55*std::sin(2*3.141592653589793*(frame-1)/99.0),0,.5);
+        usdGen::UsdGenVec3d offset(.55*std::sin(2*3.141592653589793*(frame-1)/99.0),0,.5);
         bool valid=rest.ok && actual.size()==rest.input.totalCvs;
         for (size_t cv=0; valid && cv<actual.size(); ++cv) {
             auto p=P(rest.input,cv);
-            GfVec3d expected(p[0]*wide,p[1]*wide,p[2]*stretch);
-            error=std::max(error,(transform.Transform(GfVec3d(actual[cv]))-expected-offset).GetLength());
+            usdGen::UsdGenVec3d expected(p[0]*wide,p[1]*wide,p[2]*stretch);
+            error=std::max(error,(transform.Transform(GfVec3d(ToHost(actual[cv])))-expected-offset).GetLength());
         }
         Check(valid && error<3e-6,"separately transformed groom publishes correct world points at frame "+
               std::to_string(frame)+" error="+std::to_string(error));
@@ -1341,13 +1342,13 @@ void CheckScene()
     Check(owner != nullptr, "the example opens in a groom scene index");
     if (!owner) return;
     owner->Synchronize();
-    std::vector<GfVec3f> const atRest = PublishedPoints(groom);
+    std::vector<usdGen::UsdGenVec3f> const atRest = PublishedPoints(groom);
     Check(!atRest.empty(), "frame 1 publishes strands through Hydra");
 
     indices.stageSceneIndex->SetTime(UsdTimeCode(20.0));
     indices.stageSceneIndex->ApplyPendingUpdates();
     owner->Synchronize();
-    std::vector<GfVec3f> const posed = PublishedPoints(groom);
+    std::vector<usdGen::UsdGenVec3f> const posed = PublishedPoints(groom);
     double moved = 0.0;
     for (size_t i = 0; i < posed.size() && i < atRest.size(); ++i)
         moved = std::max(moved, double((posed[i] - atRest[i]).GetLength()));
@@ -1357,7 +1358,7 @@ void CheckScene()
     indices.stageSceneIndex->SetTime(UsdTimeCode(1.0));
     indices.stageSceneIndex->ApplyPendingUpdates();
     owner->Synchronize();
-    std::vector<GfVec3f> const back = PublishedPoints(groom);
+    std::vector<usdGen::UsdGenVec3f> const back = PublishedPoints(groom);
     double drift = 0.0;
     for (size_t i = 0; i < back.size() && i < atRest.size(); ++i)
         drift = std::max(drift, double((back[i] - atRest[i]).GetLength()));
@@ -1438,7 +1439,7 @@ void CheckImmediateAnimationPublication()
         }
     } log;
     log.surface = surface;
-    GfVec3f offset(0);
+    usdGen::UsdGenVec3f offset(0);
     auto matches = [&] {
         auto const actual = PublishedPoints(resolved, description);
         if (actual.size() != rest.size()) return false;
@@ -1449,9 +1450,9 @@ void CheckImmediateAnimationPublication()
     log.onSurface = [&] { Check(matches(), "rig dirty observer sees the matching hair pose"); };
     groom->AddObserver(HdSceneIndexObserverPtr(&log));
     for (int pose = 1; pose <= 20; ++pose) {
-        offset = GfVec3f(.01f * pose, -.004f * pose, .002f * pose);
+        offset = usdGen::UsdGenVec3f(.01f * pose, -.004f * pose, .002f * pose);
         auto posed = surfaceRest;
-        for (auto& p : posed) p += offset;
+        for (auto& p : posed) p += ToHost(offset);
         points.Set(posed, UsdTimeCode(1.0));
         indices.stageSceneIndex->ApplyPendingUpdates();
         Check(matches(), "hair reaches each input pose before the frontend call returns");
@@ -1607,7 +1608,7 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
         // interleave rewrote (pointsDirty) must match the reference.
         if (!(tv.dirtyRoles & (1u << uint32_t(UsdGenChannelRole::Position)))) continue;
         if (tn.chunks.size() < size_t(tv.firstChunk) + tv.chunkCount) continue;
-        GfRange3f ref;
+        usdGen::UsdGenRange3f ref;
         uint64_t liveCurves = 0, liveCvs = 0;
         for (uint32_t i = 0; i < tv.chunkCount; ++i) {
             UsdGenChunkRange const &cd = tn.chunks[tv.firstChunk + i];
@@ -1623,7 +1624,7 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
                     for (uint32_t v = 0; v < len; ++v) {
                         size_t const p = size_t(p0) + v;
                         if (p >= nPx) break;
-                        ref.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
+                        ref.ExtendBy(usdGen::UsdGenVec3f(tpx[p], tpy[p], tpz[p]));
                     }
                 }
                 continue;
@@ -1636,13 +1637,13 @@ void CheckTilesMatchSequential(UsdGenGraph const &graph, std::string const &what
                 for (uint32_t v = 0; v < cd.stride[1]; ++v) {
                     size_t const p = o + v;
                     if (p >= nPx) break;
-                    ref.ExtendBy(GfVec3f(tpx[p], tpy[p], tpz[p]));
+                    ref.ExtendBy(usdGen::UsdGenVec3f(tpx[p], tpy[p], tpz[p]));
                 }
             }
         }
         ++compared;
-        extentsOk += std::memcmp(tv.extentMin, ref.GetMin().data(), sizeof(GfVec3f)) == 0 &&
-                std::memcmp(tv.extentMax, ref.GetMax().data(), sizeof(GfVec3f)) == 0;
+        extentsOk += std::memcmp(tv.extentMin, ref.GetMin().data(), sizeof(usdGen::UsdGenVec3f)) == 0 &&
+                std::memcmp(tv.extentMax, ref.GetMax().data(), sizeof(usdGen::UsdGenVec3f)) == 0;
         countsOk += tv.live[0] == liveCurves && tv.live[1] == liveCvs;
     }
     Check(compared > 0, what + ": the pose dirties tiles");
@@ -1750,13 +1751,13 @@ void CheckCaptureDirectChained()
         return rr.ok && !run.diagnostics.HasErrors();
     };
     auto bend = [&](double t) {
-        VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+        usdGen::UsdGenVec3fArray const &rest = desc.surfaces[0].restPoints;
         desc.surfaces[0].points.resize(rest.size());
         for (size_t i = 0; i < rest.size(); ++i) {
-            GfVec3f const r = rest[i];
+            usdGen::UsdGenVec3f const r = rest[i];
             float const b = float(0.6 * std::sin(0.05 * r[0] + t) *
                                    std::cos(0.04 * r[1] - 0.5 * t));
-            desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + b);
+            desc.surfaces[0].points[i] = usdGen::UsdGenVec3f(r[0], r[1], r[2] + b);
         }
     };
     bend(0.0);
@@ -1803,13 +1804,13 @@ void CheckCaptureDirectMaskReuse()
     };
     Check(runPose(), "mask reuse: the rest pose cooks");
     // Bend the drivers so the direct cook differs from the rest cook.
-    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    usdGen::UsdGenVec3fArray const &rest = desc.surfaces[0].restPoints;
     desc.surfaces[0].points.resize(rest.size());
     for (size_t i = 0; i < rest.size(); ++i) {
-        GfVec3f const r = rest[i];
+        usdGen::UsdGenVec3f const r = rest[i];
         float const b = float(0.6 * std::sin(0.05 * r[0] + 0.35) *
                                std::cos(0.04 * r[1] - 0.175));
-        desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + b);
+        desc.surfaces[0].points[i] = usdGen::UsdGenVec3f(r[0], r[1], r[2] + b);
     }
     Check(runPose(), "mask reuse: a bent pose cooks");
     UsdGenCapture const *directCap = graph.Node(deformId).capture.get();
@@ -1905,13 +1906,13 @@ void CheckCaptureDirectFailureRestore()
     };
     Check(!runPose().diagnostics.HasErrors(), "failure restore: the rest pose cooks");
     // Bend the drivers so the second cook goes direct.
-    VtVec3fArray const &rest = desc.surfaces[0].restPoints;
+    usdGen::UsdGenVec3fArray const &rest = desc.surfaces[0].restPoints;
     desc.surfaces[0].points.resize(rest.size());
     for (size_t i = 0; i < rest.size(); ++i) {
-        GfVec3f const r = rest[i];
+        usdGen::UsdGenVec3f const r = rest[i];
         float const b = float(0.6 * std::sin(0.05 * r[0] + 1.0) *
                                std::cos(0.04 * r[1] - 0.5));
-        desc.surfaces[0].points[i] = GfVec3f(r[0], r[1], r[2] + b);
+        desc.surfaces[0].points[i] = usdGen::UsdGenVec3f(r[0], r[1], r[2] + b);
     }
     Check(!runPose().diagnostics.HasErrors(), "failure restore: a bent pose cooks");
     UsdGenCapture const *cap = graph.Node(deformId).capture.get();
@@ -1951,7 +1952,7 @@ void CheckResidentAnimation()
     UsdGenRef<UsdGenDeformBinding> binding(new UsdGenDeformBinding);
     usdGenUsd::PathRecorder keys;   // the cooked spec's path table, by hand
     binding->surface = keys(SdfPath("/surface"));
-    std::vector<GfVec3d> rest = Cloud(20, 59);
+    std::vector<usdGen::UsdGenVec3d> rest = Cloud(20, 59);
     std::string error;
     Check(binding->field.Bind(rest, &error) && binding->field.Solve(rest, &error),
           "resident animation: bind the rest driver field");
@@ -1959,27 +1960,27 @@ void CheckResidentAnimation()
     SdfPath const tilePath("/groom/render/tile");
     std::vector<UsdGenPrimRef> const tilePrims{UsdGenPrimRef{keys(tilePath)}};
     tile.widthPadding = 0.025;
-    for (auto p : Cloud(200, 81)) tile.restPoints.push_back(GfVec3f(p));
+    for (auto p : Cloud(200, 81)) tile.restPoints.push_back(usdGen::UsdGenVec3f(p));
     binding->groups.push_back(tile);
     UsdGenGraphDesc desc;
     desc.surfaces.resize(1);
     desc.surfaces[0].path = SdfPath("/surface");
     for (size_t i=0; i!=rest.size(); ++i) {
         binding->sampleIndices.push_back(i);
-        desc.surfaces[0].points.push_back(GfVec3f(rest[i]));
+        desc.surfaces[0].points.push_back(usdGen::UsdGenVec3f(rest[i]));
     }
     auto initial = usdGenImaging::BuildRbfAnimation(UsdGenRef<const UsdGenDeformBinding>(binding),
                                                     tilePrims, keys.Table(), GfMatrix4d(1));
     Check(bool(initial), "resident animation: build static renderer inputs");
     if (!initial) return;
     for (int pose=0; pose!=3; ++pose) {
-        std::vector<GfVec3d> now;
+        std::vector<usdGen::UsdGenVec3d> now;
         for (size_t i=0; i!=rest.size(); ++i) {
-            GfVec3d p = rest[i];
-            if (pose == 1) p = GfVec3d(p[2]*1.2+0.4, p[1]*0.8-0.1, -p[0]*1.1);
-            if (pose == 2) p += GfVec3d(std::sin(p[1])*0.15, p[2]*p[2]*0.08, 0.2);
-            desc.surfaces[0].points[i] = GfVec3f(p);
-            now.push_back(GfVec3d(desc.surfaces[0].points[i]));
+            usdGen::UsdGenVec3d p = rest[i];
+            if (pose == 1) p = usdGen::UsdGenVec3d(p[2]*1.2+0.4, p[1]*0.8-0.1, -p[0]*1.1);
+            if (pose == 2) p += usdGen::UsdGenVec3d(std::sin(p[1])*0.15, p[2]*p[2]*0.08, 0.2);
+            desc.surfaces[0].points[i] = usdGen::UsdGenVec3f(p);
+            now.push_back(usdGen::UsdGenVec3d(desc.surfaces[0].points[i]));
         }
         auto posed = usdGenImaging::PoseRbfAnimation(*initial,desc);
         Check(bool(posed), "resident animation: sparse pose solves");
@@ -2002,16 +2003,16 @@ void CheckResidentAnimation()
         VtValue value = pv ? pv->GetValue(0) : VtValue();
         Check(value.IsHolding<VtVec3fArray>(), "resident animation: Hydra resolves computed positions");
         if (!value.IsHolding<VtVec3fArray>()) continue;
-        auto const& points = value.UncheckedGet<VtVec3fArray>();
+        auto const& points = ToEngine(value.UncheckedGet<VtVec3fArray>());
         auto field = binding->field;
         Check(field.Solve(now,&error), "resident animation: reference field solves");
         auto extent = HdExtentSchema::GetFromParent(posed->overlays.at(tilePath));
-        GfRange3d box(extent.GetMin()->GetTypedValue(0), extent.GetMax()->GetTypedValue(0));
+        usdGen::UsdGenRange3d box(extent.GetMin()->GetTypedValue(0), extent.GetMax()->GetTypedValue(0));
         bool exact = points.size() == tile.restPoints.size(), contained = exact;
         for (size_t i=0; exact && i!=points.size(); ++i) {
-            GfVec3d const p(tile.restPoints[i]);
-            exact = (GfVec3d(points[i])-GfVec3d(GfVec3f(p+field.Displacement(p)))).GetLength() < 1e-6;
-            contained = contained && box.Contains(GfVec3d(points[i]));
+            usdGen::UsdGenVec3d const p(tile.restPoints[i]);
+            exact = (usdGen::UsdGenVec3d(points[i])-usdGen::UsdGenVec3d(usdGen::UsdGenVec3f(p+field.Displacement(p)))).GetLength() < 1e-6;
+            contained = contained && box.Contains(usdGen::UsdGenVec3d(points[i]));
         }
         Check(exact, "resident animation: rest/affine/nonlinear points match engine field");
         Check(contained, "resident animation: sparse conservative bounds contain every CV");

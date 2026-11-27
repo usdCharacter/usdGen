@@ -68,7 +68,7 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     s.py = VtFloatArray(7, 0.f); s.pz = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,0, 0,1,2,3};
     // Rest lengths differ by 10x, so using the rest plane for normalization
     // would fail the exact current-polyline target test below.
-    s.rest = {GfVec3f(0,0,0),GfVec3f(0,10,0),GfVec3f(0,20,0),GfVec3f(0,0,0),GfVec3f(0,0,10),GfVec3f(0,0,20),GfVec3f(0,0,30)};
+    s.rest = {usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,10,0),usdGen::UsdGenVec3f(0,20,0),usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,0,10),usdGen::UsdGenVec3f(0,0,20),usdGen::UsdGenVec3f(0,0,30)};
     s.width = VtFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.333f,.667f,1};
     UsdGenChunkDesc chunk; chunk.firstCurve = 0; chunk.curveCount = 2; chunk.liveCount = 2; chunk.firstCv = 0; chunk.cvCount = 0; chunk.tile = 3; chunk.surface = 1; s.chunks = {chunk};
     UsdGenPlane p; p.name = TfToken("privateVertex"); p.interpolation = TfToken("vertex"); p.type = TfToken("float"); p.arity = 1; p.f = {3,4,5,6,7,8,9}; s.extraCv = {p};

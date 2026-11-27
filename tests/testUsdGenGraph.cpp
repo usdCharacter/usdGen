@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -89,11 +90,11 @@ UsdGenGraphDesc MakeChain(int nodeCount)
     s.id = 0;
     s.faceVertexCounts = VtIntArray(4, 4);
     s.faceVertexIndices = VtIntArray{0, 1, 3, 2, 4, 5, 7, 6, 8, 9, 11, 10, 12, 13, 15, 14};
-    s.restPoints = VtVec3fArray{
-        GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(0, 1, 0), GfVec3f(1, 1, 0),
-        GfVec3f(0, 0, 1), GfVec3f(1, 0, 1), GfVec3f(0, 1, 1), GfVec3f(1, 1, 1),
-        GfVec3f(0, 0, 2), GfVec3f(1, 0, 2), GfVec3f(0, 1, 2), GfVec3f(1, 1, 2),
-        GfVec3f(0, 0, 3), GfVec3f(1, 0, 3), GfVec3f(0, 1, 3), GfVec3f(1, 1, 3)};
+    s.restPoints = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(0, 1, 0), usdGen::UsdGenVec3f(1, 1, 0),
+        usdGen::UsdGenVec3f(0, 0, 1), usdGen::UsdGenVec3f(1, 0, 1), usdGen::UsdGenVec3f(0, 1, 1), usdGen::UsdGenVec3f(1, 1, 1),
+        usdGen::UsdGenVec3f(0, 0, 2), usdGen::UsdGenVec3f(1, 0, 2), usdGen::UsdGenVec3f(0, 1, 2), usdGen::UsdGenVec3f(1, 1, 2),
+        usdGen::UsdGenVec3f(0, 0, 3), usdGen::UsdGenVec3f(1, 0, 3), usdGen::UsdGenVec3f(0, 1, 3), usdGen::UsdGenVec3f(1, 1, 3)};
     d.surfaces.push_back(std::move(s));
 
     for (int i = 0; i < nodeCount; ++i) {

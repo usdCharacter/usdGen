@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -63,13 +64,13 @@ UsdGenGraphDesc MakeG3(int NX = 250, int NY = 10)
     s.path = SdfPath("/groom/surface");
     s.id = 0;
     const int np = (NX + 1) * (NY + 1);
-    s.restPoints = VtVec3fArray(np);
-    s.uv = VtVec2fArray(np);
+    s.restPoints = usdGen::UsdGenVec3fArray(np);
+    s.uv = usdGen::UsdGenVec2fArray(np);
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             const int k = j * (NX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
     s.faceVertexIndices = VtIntArray(NX * NY * 4);
@@ -202,7 +203,7 @@ int main()
             tb.points.size() == ta.points.size() &&
             (tb.points.empty() ||
              std::memcmp(tb.points.data(), ta.points.data(),
-                         tb.points.size() * sizeof(GfVec3f)) == 0);
+                         tb.points.size() * sizeof(usdGen::UsdGenVec3f)) == 0);
     }
     Check(payloadIdentical, "carried-over tile payloads are bit-identical "
                             "(VtArray buffer sharing)");

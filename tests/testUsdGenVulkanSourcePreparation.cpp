@@ -14,6 +14,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -25,9 +26,9 @@ static VulkanSourcePrepareInfo Source() {
     b.totalCurves = 2; b.totalCvs = 4; b.topologyVersion = 11; b.valueVersion = 12;
     b.px = {0,1,2,3}; b.py = {1,2,3,4}; b.pz = {2,3,4,5};
     b.curveId = {17, 29}; b.cvOffsets = {0,2,4}; b.width = {1,2,3,4};
-    b.rootT = VtVec3fArray(2, GfVec3f(1,0,0));
-    b.rootB = VtVec3fArray(2, GfVec3f(0,1,0));
-    b.rootN = VtVec3fArray(2, GfVec3f(0,0,1));
+    b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(1,0,0));
+    b.rootB = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,1,0));
+    b.rootN = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,0,1));
     std::vector<uint8_t> payload{1,2,3,4,5,6,7,8,9};
     info.additionalNamed.push_back({{TfToken("stride5"), UsdGenDeviceValueType::Float32,
         UsdGenDeviceDomain::Primitive, 2, 1, 5, true, UsdGenDeviceChannelSemantic::Generic}, payload});
@@ -56,11 +57,11 @@ static UsdGenGraphDesc AffineDesc() {
     surface.points = surface.restPoints;
     surface.faceVertexCounts = {3}; surface.faceVertexIndices = {0,1,2};
     surface.uv = {{0,0}, {1,0}, {0,1}};
-    GfMatrix4d relative(1.0);
+    usdGen::UsdGenMatrix4d relative(1.0);
     relative[0][0] = 0.; relative[0][1] = 1.;
     relative[1][0] = -1.; relative[1][1] = 0.;
     relative[3][0] = 3.; relative[3][1] = -2.; relative[3][2] = 4.;
-    GfMatrix4d sourceWorld(1.0);
+    usdGen::UsdGenMatrix4d sourceWorld(1.0);
     sourceWorld[0][0] = 0.; sourceWorld[0][1] = -1.;
     sourceWorld[1][0] = 1.; sourceWorld[1][1] = 0.;
     sourceWorld[3][0] = 7.; sourceWorld[3][1] = -5.; sourceWorld[3][2] = 2.;
@@ -128,9 +129,9 @@ int main() {
     CHECK(affineDesc.curveSets.front().rootFrame.empty() &&
           affineLoaded.rootT.size() == 1 && affineLoaded.rootB.size() == 1 &&
           affineLoaded.rootN.size() == 1);
-    CHECK(affineLoaded.rootT[0] == GfVec3f(0,1,0) &&
-          affineLoaded.rootB[0] == GfVec3f(-1,0,0) &&
-          affineLoaded.rootN[0] == GfVec3f(0,0,1));
+    CHECK(affineLoaded.rootT[0] == usdGen::UsdGenVec3f(0,1,0) &&
+          affineLoaded.rootB[0] == usdGen::UsdGenVec3f(-1,0,0) &&
+          affineLoaded.rootN[0] == usdGen::UsdGenVec3f(0,0,1));
     VulkanSourcePrepareInfo affineInfo;
     affineInfo.source = affineLoaded;
     auto affinePrepared = VulkanPreparedSource::Prepare(affineInfo, &reason);
@@ -145,18 +146,18 @@ int main() {
           affineN->bytes == Bytes(affineLoaded.rootN));
     affineDesc.curveSets.front().points.clear(); affineDesc.surfaces.front().points.clear();
     affineLoaded.px.clear(); affineLoaded.py.clear(); affineLoaded.pz.clear();
-    affineLoaded.rest.clear(); affineLoaded.rootT[0] = GfVec3f(9,9,9);
+    affineLoaded.rest.clear(); affineLoaded.rootT[0] = usdGen::UsdGenVec3f(9,9,9);
     CHECK(affineDesc.curveSets.front().points != sourcePoints &&
           affineDesc.curveSets.front().rest == sourceRest &&
-          affineT->bytes == Bytes(VtVec3fArray(1, GfVec3f(0,1,0))) &&
-          affineB->bytes == Bytes(VtVec3fArray(1, GfVec3f(-1,0,0))) &&
-          affineN->bytes == Bytes(VtVec3fArray(1, GfVec3f(0,0,1))));
+          affineT->bytes == Bytes(usdGen::UsdGenVec3fArray(1, usdGen::UsdGenVec3f(0,1,0))) &&
+          affineB->bytes == Bytes(usdGen::UsdGenVec3fArray(1, usdGen::UsdGenVec3f(-1,0,0))) &&
+          affineN->bytes == Bytes(usdGen::UsdGenVec3fArray(1, usdGen::UsdGenVec3f(0,0,1))));
     affineInfo = {}; affineLoaded = {}; affineDesc = {};
     CHECK(Find(*affinePrepared, "points") &&
           Find(*affinePrepared, "points")->bytes == Bytes(sourcePoints) &&
-          affineT->bytes == Bytes(VtVec3fArray(1, GfVec3f(0,1,0))) &&
-          affineB->bytes == Bytes(VtVec3fArray(1, GfVec3f(-1,0,0))) &&
-          affineN->bytes == Bytes(VtVec3fArray(1, GfVec3f(0,0,1))));
+          affineT->bytes == Bytes(usdGen::UsdGenVec3fArray(1, usdGen::UsdGenVec3f(0,1,0))) &&
+          affineB->bytes == Bytes(usdGen::UsdGenVec3fArray(1, usdGen::UsdGenVec3f(-1,0,0))) &&
+          affineN->bytes == Bytes(usdGen::UsdGenVec3fArray(1, usdGen::UsdGenVec3f(0,0,1))));
 
     auto permuted = Source(); permuted.source.curveId = {29,17};
     CHECK(VulkanPreparedSource::Prepare(permuted, &reason));

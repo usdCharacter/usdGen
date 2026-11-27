@@ -53,6 +53,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGenImaging;
@@ -113,9 +114,9 @@ static usdGenImaging::UsdGenInstanceCurveData const *InstanceData(usdGen::UsdGen
     d.py = b.py;
     d.pz = b.pz;
     d.curveId = b.curveId;
-    d.rootT = b.rootT;
-    d.rootN = b.rootN;
-    d.rootB = b.rootB;
+    d.rootT = ToHost(b.rootT);
+    d.rootN = ToHost(b.rootN);
+    d.rootB = ToHost(b.rootB);
     d.cvOffsets = b.cvOffsets;
     d.extraCurve = b.extraCurve;
     g_instanceData.push_back(std::move(d));
@@ -1171,10 +1172,10 @@ static void CheckInlineQuat()
     size_t exact = 0, elseBranch = 0, traceBranch = 0;
     for (uint32_t c = 0; c != n; ++c) {
         // Mirror of Bake's surfaceFrame derivation, then the USD routine.
-        GfVec3d yAxis = GfVec3d(curves.rootB[c]) /
-            GfVec3d(curves.rootB[c]).GetLength();
-        GfVec3d z = GfVec3d(curves.rootN[c]) -
-            yAxis * GfDot(GfVec3d(curves.rootN[c]), yAxis);
+        GfVec3d yAxis = GfVec3d(ToHost(curves.rootB[c])) /
+            GfVec3d(ToHost(curves.rootB[c])).GetLength();
+        GfVec3d z = GfVec3d(ToHost(curves.rootN[c])) -
+            yAxis * GfDot(GfVec3d(ToHost(curves.rootN[c])), yAxis);
         GfVec3d zAxis = z / z.GetLength();
         GfVec3d xAxis = GfCross(yAxis, zAxis);
         GfMatrix4d basis(1.0);

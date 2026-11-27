@@ -78,6 +78,7 @@
 #ifdef __linux__
 #include <unistd.h>
 #endif
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -170,9 +171,9 @@ void AddRaggedRootedCurves(UsdGenGraphDesc& d) {
     hair.curveVertexCounts = {3, 2, 4};
     for (int c = 0; c != 3; ++c)
         for (int i = 0; i != hair.curveVertexCounts[c]; ++i) {
-            hair.points.push_back(GfVec3f(float(10 * c + i), float(c), 1.0f + i));
+            hair.points.push_back(usdGen::UsdGenVec3f(float(10 * c + i), float(c), 1.0f + i));
             hair.rest.push_back(
-                GfVec3f(float(100 + 10 * c + i), float(10 + c), 2.0f + i));
+                usdGen::UsdGenVec3f(float(100 + 10 * c + i), float(10 + c), 2.0f + i));
             hair.widths.push_back(0.02f + 0.001f * float(hair.widths.size()));
         }
     hair.curveId = {30, 10, 20};
@@ -262,12 +263,12 @@ UsdGenGraphDesc FixtureSurfaceFree() {
     hair.curveId = {5, 6};
     hair.skinPrim = {0, 0};
     hair.skinPrimUv = {{.2f, .3f}, {.7f, .8f}};
-    GfMatrix4d rotZ90(1.0);
+    usdGen::UsdGenMatrix4d rotZ90(1.0);
     rotZ90[0][0] = 0.0;
     rotZ90[0][1] = 1.0;
     rotZ90[1][0] = -1.0;
     rotZ90[1][1] = 0.0;
-    hair.rootFrame = {GfMatrix4d(1.0), rotZ90};
+    hair.rootFrame = {usdGen::UsdGenMatrix4d(1.0), rotZ90};
     d.curveSets.push_back(hair);
     UsdGenNodeDesc source;
     source.path = SdfPath("/CsourceVk/Ops/source");
@@ -312,7 +313,7 @@ UsdGenGraphDesc FixtureMoved() {
     hair.points = {{.1f, .2f, .3f}, {.4f, .5f, .6f}, {.7f, .8f, .9f},
                    {1.1f, 1.2f, 1.3f}, {1.4f, 1.5f, 1.6f}, {1.7f, 1.8f, 1.9f}};
     for (auto const& p : hair.points)
-        hair.rest.push_back(GfVec3f(p[0] + 10.f, p[1] + 20.f, p[2] + 30.f));
+        hair.rest.push_back(usdGen::UsdGenVec3f(p[0] + 10.f, p[1] + 20.f, p[2] + 30.f));
     for (int i = 0; i != 6; ++i)
         hair.widths.push_back(0.02f + 0.003f * float(i));
     hair.curveId = {7, 19};
@@ -357,7 +358,7 @@ DeformFixture FixtureDeformMovedSurface() {
     // representable by the cubic RBF on both backends.
     for (auto const& p : surface.restPoints)
         surface.points.push_back(
-            GfVec3f(-p[2] + 5.f, p[0] - 2.f, p[1] + 7.f));
+            usdGen::UsdGenVec3f(-p[2] + 5.f, p[0] - 2.f, p[1] + 7.f));
     surface.faceVertexCounts = {3, 3};
     surface.faceVertexIndices = {0, 1, 2, 3, 4, 5};
     surface.uv = {{0, 0}, {1, 0}, {0, 1}, {0, 0}, {1, 0}, {0, 1}};
@@ -406,8 +407,8 @@ DeformFixture FixtureDeformMovedSurface() {
     auto const& posed = fx.desc.surfaces[0].points;
     // Same FPF call the Vulkan plan compiler makes (executionPlan.cpp
     // ValidateDeform): deterministic shared code, identical inputs.
-    std::vector<GfVec3d> drivers;
-    GfRange3d extent;
+    std::vector<usdGen::UsdGenVec3d> drivers;
+    usdGen::UsdGenRange3d extent;
     for (auto const& p : rest) {
         drivers.emplace_back(p);
         extent.UnionWith(drivers.back());
@@ -539,9 +540,9 @@ void HostAdmissionTables() {
     // surfaces in PrepareCudaSurface — only ValidateCudaGraph skips it).
     {
         std::string reason;
-        CHECK(CsourceVkDeformSourceAdmitted(GfMatrix4d(1.0), &reason) &&
+        CHECK(CsourceVkDeformSourceAdmitted(usdGen::UsdGenMatrix4d(1.0), &reason) &&
               reason.empty());
-        GfMatrix4d moved(1.0);
+        usdGen::UsdGenMatrix4d moved(1.0);
         moved[3][0] = 5.0;
         CHECK(!CsourceVkDeformSourceAdmitted(moved, &reason));
         CHECK(reason == "Deform requires identity source transforms");
@@ -603,15 +604,15 @@ void LoaderChecks() {
         CHECK(out.totalCurves == 2 && out.totalCvs == 6);
         CHECK(out.rootPrim == VtIntArray({0, 0}));
         CHECK(out.rootUV ==
-              VtVec2fArray({GfVec2f(.2f, .3f), GfVec2f(.7f, .8f)}));
+              usdGen::UsdGenVec2fArray({usdGen::UsdGenVec2f(.2f, .3f), usdGen::UsdGenVec2f(.7f, .8f)}));
         CHECK(out.rootT.size() == 2);
         // Authored frames are transported exactly (identity, then Rz90).
-        CHECK(out.rootT[0] == GfVec3f(1, 0, 0) &&
-              out.rootB[0] == GfVec3f(0, 1, 0) &&
-              out.rootN[0] == GfVec3f(0, 0, 1));
-        CHECK(out.rootT[1] == GfVec3f(0, 1, 0) &&
-              out.rootB[1] == GfVec3f(-1, 0, 0) &&
-              out.rootN[1] == GfVec3f(0, 0, 1));
+        CHECK(out.rootT[0] == usdGen::UsdGenVec3f(1, 0, 0) &&
+              out.rootB[0] == usdGen::UsdGenVec3f(0, 1, 0) &&
+              out.rootN[0] == usdGen::UsdGenVec3f(0, 0, 1));
+        CHECK(out.rootT[1] == usdGen::UsdGenVec3f(0, 1, 0) &&
+              out.rootB[1] == usdGen::UsdGenVec3f(-1, 0, 0) &&
+              out.rootN[1] == usdGen::UsdGenVec3f(0, 0, 1));
     }
     // Fixture D: moved source/surface with differentiated rest executes.
     {
@@ -775,7 +776,7 @@ bool FrameOracle(UsdGenCurveSetDesc const& curves,
     std::stable_sort(order.begin(), order.end(),
                      [&](size_t a, size_t c) { return idOf(a) < idOf(c); });
     for (size_t c : order) {
-        GfMatrix4d const& f = captured.frames[c];
+        usdGen::UsdGenMatrix4d const& f = captured.frames[c];
         t->insert(t->end(), {float(f[0][0]), float(f[0][1]), float(f[0][2])});
         b->insert(b->end(), {float(f[1][0]), float(f[1][1]), float(f[1][2])});
         n->insert(n->end(), {float(f[2][0]), float(f[2][1]), float(f[2][2])});

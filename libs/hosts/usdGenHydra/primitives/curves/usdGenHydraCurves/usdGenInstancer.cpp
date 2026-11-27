@@ -5,6 +5,7 @@
 // their canonical sources (usdGenMath/usdGenMath/hash.h, .../ramp.cpp).
 // The float op order matches ramp.cpp's EvalOne exactly.
 #include "usdGenHydraCurves/usdGenInstancer.h"
+#include "usdGenUsd/convert/math.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/tf/staticTokens.h"
@@ -477,6 +478,7 @@ template <class T>
 HdSampledDataSourceHandle
 _Samp(T const &v)
 {
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     return HdRetainedTypedSampledDataSource<T>::New(v);
 }
 

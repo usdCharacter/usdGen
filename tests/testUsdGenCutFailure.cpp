@@ -25,6 +25,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

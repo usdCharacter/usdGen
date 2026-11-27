@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

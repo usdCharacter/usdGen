@@ -1325,7 +1325,7 @@ bool _K9Triangulate(std::vector<_K9Point> const &polygon,
     if (!triangles || polygon.size() < 3) {
         return false;
     }
-    std::vector<PXR_NS::GfVec2f> actual;
+    std::vector<usdGen::UsdGenVec2f> actual;
     actual.reserve(polygon.size());
     for (_K9Point const &point : polygon) {
         actual.emplace_back(point.u, point.v);
@@ -1528,7 +1528,7 @@ bool PomadeBuildGuideMaterialBindingsCpu(
     // The usual full-length fill has identical stations for every root.
     // Cache those evaluated charts: their K5 sampling is otherwise repeated
     // for every guide before the same CPU/CUDA binding bytes are consumed.
-    std::vector<std::vector<PXR_NS::GfVec2f>> commonStationCharts;
+    std::vector<std::vector<usdGen::UsdGenVec2f>> commonStationCharts;
     std::vector<std::vector<std::array<int, 3>>> commonStationTriangles;
     std::vector<bool> commonStationChartReady;
     std::vector<bool> commonStationChartCollapsed;
@@ -1538,7 +1538,7 @@ bool PomadeBuildGuideMaterialBindingsCpu(
         commonStationChartReady.assign(size_t(fill.cvCount), false);
         commonStationChartCollapsed.assign(size_t(fill.cvCount), false);
     }
-    auto evaluatedChart = [&](float t, int c, std::vector<PXR_NS::GfVec2f> *chart,
+    auto evaluatedChart = [&](float t, int c, std::vector<usdGen::UsdGenVec2f> *chart,
                               std::vector<std::array<int, 3>> *chartTriangles,
                               bool *collapsed, std::string *chartErr) {
         if (!chart || !chartTriangles || !collapsed) {
@@ -1572,7 +1572,7 @@ bool PomadeBuildGuideMaterialBindingsCpu(
             float const dx = ring[at + 0] - currentCenter[0];
             float const dy = ring[at + 1] - currentCenter[1];
             float const dz = ring[at + 2] - currentCenter[2];
-            (*chart)[size_t(slot)] = PXR_NS::GfVec2f(
+            (*chart)[size_t(slot)] = usdGen::UsdGenVec2f(
                 dx * currentFrame.nx + dy * currentFrame.ny +
                     dz * currentFrame.nz,
                 dx * currentFrame.bx + dy * currentFrame.by +
@@ -1668,16 +1668,16 @@ bool PomadeBuildGuideMaterialBindingsCpu(
                 double const step = 2.0 * std::acos(-1.0) / double(rv);
                 auto canonicalSlot = [&](int slot) {
                     double const angle = step * double(slot);
-                    return PXR_NS::GfVec2f(float(std::cos(angle)),
+                    return usdGen::UsdGenVec2f(float(std::cos(angle)),
                                            float(std::sin(angle)));
                 };
-                PXR_NS::GfVec2f const p0 = canonicalSlot(binding.slot0);
-                PXR_NS::GfVec2f const p1 = canonicalSlot(binding.slot1);
-                PXR_NS::GfVec2f const p2 = canonicalSlot(binding.slot2);
-                PXR_NS::GfVec2f const canonicalPoint =
+                usdGen::UsdGenVec2f const p0 = canonicalSlot(binding.slot0);
+                usdGen::UsdGenVec2f const p1 = canonicalSlot(binding.slot1);
+                usdGen::UsdGenVec2f const p2 = canonicalSlot(binding.slot2);
+                usdGen::UsdGenVec2f const canonicalPoint =
                     p0 * binding.w0 + p1 * binding.w1 + p2 * binding.w2;
                 float const t = t0 + span * progress;
-                std::vector<PXR_NS::GfVec2f> chart;
+                std::vector<usdGen::UsdGenVec2f> chart;
                 std::vector<std::array<int, 3>> chartTriangles;
                 bool collapsed = false;
                 std::string chartError;
@@ -1695,7 +1695,7 @@ bool PomadeBuildGuideMaterialBindingsCpu(
                     binding.w1 = binding.w2 = 0.0f;
                 } else {
                     std::array<int, 3> slots;
-                    PXR_NS::GfVec3f weights;
+                    usdGen::UsdGenVec3f weights;
                     std::string remapError;
                     if (!usdGen::UsdGenLocateConcaveMaterialPoint(
                             chart.size(), chartTriangles, canonicalPoint,

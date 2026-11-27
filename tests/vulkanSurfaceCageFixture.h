@@ -6,6 +6,7 @@
 #include <Ptexture.h>
 #include <memory>
 #include <string>
+#include "utils/pxrInterop.h"
 
 namespace usdGen::test {
 // Categorical maps reserve zero for outside; a tube ID is encoded as ID+1.

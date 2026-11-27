@@ -70,6 +70,7 @@
 #endif
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -102,36 +103,36 @@ constexpr float kOracleTolerance = 2.0e-3f;
 bool Near(float a, float b, float tol) { return std::fabs(a - b) <= tol; }
 
 // Surface rest pose: two triangles plus one quad (10 verts).
-std::vector<GfVec3f> RestVerts() {
-    return {GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(0, 1, 0),
-            GfVec3f(0, 0, 1), GfVec3f(1, 1, 0), GfVec3f(1, 0, 1),
-            GfVec3f(2, 0, 0), GfVec3f(3, 0, 0), GfVec3f(3, 1, 0),
-            GfVec3f(2, 1, 0)};
+std::vector<usdGen::UsdGenVec3f> RestVerts() {
+    return {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(0, 1, 0),
+            usdGen::UsdGenVec3f(0, 0, 1), usdGen::UsdGenVec3f(1, 1, 0), usdGen::UsdGenVec3f(1, 0, 1),
+            usdGen::UsdGenVec3f(2, 0, 0), usdGen::UsdGenVec3f(3, 0, 0), usdGen::UsdGenVec3f(3, 1, 0),
+            usdGen::UsdGenVec3f(2, 1, 0)};
 }
 
 // Non-rigid pose deltas, one per rest vert.
-std::vector<GfVec3f> PoseDeltas() {
-    return {GfVec3f(0, 0, 0), GfVec3f(.1f, 0, 0), GfVec3f(0, .15f, .05f),
-            GfVec3f(0, 0, .2f), GfVec3f(-.1f, .1f, 0), GfVec3f(.05f, -.05f, .1f),
-            GfVec3f(.2f, 0, 0), GfVec3f(0, .2f, 0), GfVec3f(0, 0, .25f),
-            GfVec3f(-.15f, 0, .05f)};
+std::vector<usdGen::UsdGenVec3f> PoseDeltas() {
+    return {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(.1f, 0, 0), usdGen::UsdGenVec3f(0, .15f, .05f),
+            usdGen::UsdGenVec3f(0, 0, .2f), usdGen::UsdGenVec3f(-.1f, .1f, 0), usdGen::UsdGenVec3f(.05f, -.05f, .1f),
+            usdGen::UsdGenVec3f(.2f, 0, 0), usdGen::UsdGenVec3f(0, .2f, 0), usdGen::UsdGenVec3f(0, 0, .25f),
+            usdGen::UsdGenVec3f(-.15f, 0, .05f)};
 }
 
-std::vector<GfVec3f> PosedVerts() {
+std::vector<usdGen::UsdGenVec3f> PosedVerts() {
     auto rest = RestVerts();
     auto deltas = PoseDeltas();
-    std::vector<GfVec3f> posed(rest.size());
+    std::vector<usdGen::UsdGenVec3f> posed(rest.size());
     for (size_t i = 0; i < rest.size(); ++i) posed[i] = rest[i] + deltas[i];
     return posed;
 }
 
 // Three curves x three CVs near faces 0, 1 and 2.
-std::vector<GfVec3f> CurvePoints() {
-    return {GfVec3f(.2f, .2f, 0), GfVec3f(.25f, .25f, .3f),
-            GfVec3f(.3f, .3f, .6f), GfVec3f(.1f, .1f, .9f),
-            GfVec3f(.15f, .15f, 1.2f), GfVec3f(.2f, .2f, 1.5f),
-            GfVec3f(2.5f, .5f, 0), GfVec3f(2.55f, .55f, .3f),
-            GfVec3f(2.6f, .6f, .6f)};
+std::vector<usdGen::UsdGenVec3f> CurvePoints() {
+    return {usdGen::UsdGenVec3f(.2f, .2f, 0), usdGen::UsdGenVec3f(.25f, .25f, .3f),
+            usdGen::UsdGenVec3f(.3f, .3f, .6f), usdGen::UsdGenVec3f(.1f, .1f, .9f),
+            usdGen::UsdGenVec3f(.15f, .15f, 1.2f), usdGen::UsdGenVec3f(.2f, .2f, 1.5f),
+            usdGen::UsdGenVec3f(2.5f, .5f, 0), usdGen::UsdGenVec3f(2.55f, .55f, .3f),
+            usdGen::UsdGenVec3f(2.6f, .6f, .6f)};
 }
 
 UsdGenSurfaceDesc MakeSurface() {
@@ -139,8 +140,8 @@ UsdGenSurfaceDesc MakeSurface() {
     surface.path = SdfPath("/Groom/Scalp");
     auto rest = RestVerts();
     auto posed = PosedVerts();
-    surface.restPoints = VtVec3fArray(rest.data(), rest.data() + rest.size());
-    surface.points = VtVec3fArray(posed.data(), posed.data() + posed.size());
+    surface.restPoints = usdGen::UsdGenVec3fArray(rest.data(), rest.data() + rest.size());
+    surface.points = usdGen::UsdGenVec3fArray(posed.data(), posed.data() + posed.size());
     surface.faceVertexCounts = {3, 3, 4};
     surface.faceVertexIndices = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     surface.uv = {{0, 0}, {1, 0}, {0, 1}, {0, 0}, {1, 0}, {0, 1},
@@ -155,7 +156,7 @@ UsdGenCurveSetDesc MakeSource() {
     source.curveRole = TfToken("hair");
     source.curveVertexCounts = {3, 3, 3};
     auto points = CurvePoints();
-    source.points = VtVec3fArray(points.data(), points.data() + points.size());
+    source.points = usdGen::UsdGenVec3fArray(points.data(), points.data() + points.size());
     source.rest = source.points;
     source.widths = {.02f, .03f, .04f, .02f, .03f, .04f, .02f, .03f, .04f};
     source.curveId = {41, 42, 43};
@@ -168,27 +169,27 @@ UsdGenCurveSetDesc MakeSource() {
 
 // Independent oracle: CUDA-formula gather (surfaceBinding.cu RootPosition)
 // of a face+UV from float points, then an affine map in double.
-GfVec3d OracleRootTarget(std::vector<GfVec3f> const& points,
+usdGen::UsdGenVec3d OracleRootTarget(std::vector<usdGen::UsdGenVec3f> const& points,
                          std::vector<int> const& faceStart, int face, int n,
-                         std::vector<int> const& indices, GfVec2f const& uv,
-                         GfMatrix4d const& map) {
+                         std::vector<int> const& indices, usdGen::UsdGenVec2f const& uv,
+                         usdGen::UsdGenMatrix4d const& map) {
     float const u = uv[0], v = uv[1];
     auto P = [&](int j) { return points[size_t(indices[size_t(faceStart[size_t(face)]) + size_t(j)])]; };
-    GfVec3f local(0);
+    usdGen::UsdGenVec3f local(0);
     if (n == 3) {
         float const w = 1.0f - u - v;
-        GfVec3f const a = P(0), b = P(1), c = P(2);
-        local = GfVec3f(a[0] * w + b[0] * u + c[0] * v,
+        usdGen::UsdGenVec3f const a = P(0), b = P(1), c = P(2);
+        local = usdGen::UsdGenVec3f(a[0] * w + b[0] * u + c[0] * v,
                         a[1] * w + b[1] * u + c[1] * v,
                         a[2] * w + b[2] * u + c[2] * v);
     } else {
         float const u0 = 1.0f - u, v0 = 1.0f - v;
-        GfVec3f const a = P(0), b = P(1), c = P(2), d = P(3);
-        local = GfVec3f(a[0] * u0 * v0 + b[0] * u * v0 + c[0] * u * v + d[0] * u0 * v,
+        usdGen::UsdGenVec3f const a = P(0), b = P(1), c = P(2), d = P(3);
+        local = usdGen::UsdGenVec3f(a[0] * u0 * v0 + b[0] * u * v0 + c[0] * u * v + d[0] * u0 * v,
                         a[1] * u0 * v0 + b[1] * u * v0 + c[1] * u * v + d[1] * u0 * v,
                         a[2] * u0 * v0 + b[2] * u * v0 + c[2] * u * v + d[2] * u0 * v);
     }
-    return map.TransformAffine(GfVec3d(local));
+    return map.TransformAffine(usdGen::UsdGenVec3d(local));
 }
 
 bool SameSet(std::vector<float> const& a, std::vector<float> const& b, float tol) {
@@ -218,8 +219,8 @@ bool SameSet(std::vector<float> const& a, std::vector<float> const& b, float tol
 
 // Part A: host-side helper checks. Returns the compiled controls for the
 // device legs to consume (empty on failure).
-bool CheckHelperCase(char const* label, GfMatrix4d const& sourceMatrix,
-                     GfMatrix4d const& surfaceMatrix, VulkanDeformControls* controls) {
+bool CheckHelperCase(char const* label, usdGen::UsdGenMatrix4d const& sourceMatrix,
+                     usdGen::UsdGenMatrix4d const& surfaceMatrix, VulkanDeformControls* controls) {
     auto source = MakeSource();
     auto surface = MakeSurface();
     source.worldMatrix = sourceMatrix;
@@ -242,13 +243,13 @@ bool CheckHelperCase(char const* label, GfMatrix4d const& sourceMatrix,
         out.lockRoots && out.mask == 1.0f && out.groomEnvelope == 1.0f;
     // Expected samples: the mapped rest/posed verts as sets.
     double det = 0.0;
-    GfMatrix4d const relative = surfaceMatrix * sourceMatrix.GetInverse(&det);
+    usdGen::UsdGenMatrix4d const relative = surfaceMatrix * sourceMatrix.GetInverse(&det);
     auto rest = RestVerts();
     auto posed = PosedVerts();
     std::vector<float> wantRest, wantPosed;
     for (size_t i = 0; i < rest.size(); ++i) {
-        GfVec3d r = relative.TransformAffine(GfVec3d(rest[i]));
-        GfVec3d p = relative.TransformAffine(GfVec3d(posed[i]));
+        usdGen::UsdGenVec3d r = relative.TransformAffine(usdGen::UsdGenVec3d(rest[i]));
+        usdGen::UsdGenVec3d p = relative.TransformAffine(usdGen::UsdGenVec3d(posed[i]));
         wantRest.insert(wantRest.end(), {float(r[0]), float(r[1]), float(r[2])});
         wantPosed.insert(wantPosed.end(), {float(p[0]), float(p[1]), float(p[2])});
     }
@@ -257,9 +258,9 @@ bool CheckHelperCase(char const* label, GfMatrix4d const& sourceMatrix,
     // Expected root targets: CUDA-formula gather mapped to source-local.
     std::vector<int> faceStart{0, 3, 6, 10}, counts{3, 3, 4};
     std::vector<int> indices{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-    std::vector<GfVec2f> uvs{{.2f, .2f}, {.3f, .1f}, {.5f, .5f}};
+    std::vector<usdGen::UsdGenVec2f> uvs{{.2f, .2f}, {.3f, .1f}, {.5f, .5f}};
     for (int c = 0; sane && c < 3; ++c) {
-        GfVec3d want = OracleRootTarget(posed, faceStart, c, counts[size_t(c)],
+        usdGen::UsdGenVec3d want = OracleRootTarget(posed, faceStart, c, counts[size_t(c)],
                                        indices, uvs[size_t(c)], relative);
         for (int k = 0; k < 3; ++k)
             sane = sane && Near(out.rootTargets[size_t(3 * c + k)], float(want[k]), kHostTolerance);
@@ -270,13 +271,13 @@ bool CheckHelperCase(char const* label, GfMatrix4d const& sourceMatrix,
 }
 
 void PartA() {
-    GfMatrix4d movedSource(1.0), movedSurface(1.0);
+    usdGen::UsdGenMatrix4d movedSource(1.0), movedSurface(1.0);
     movedSource[3][0] = 5.0;   // GapRejections moved-source transform.
     movedSurface[3][1] = -2.0; // GapRejections moved-surface transform.
-    CheckHelperCase("A: helper accepts moved source", movedSource, GfMatrix4d(1.0), nullptr);
-    CheckHelperCase("A: helper accepts moved surface", GfMatrix4d(1.0), movedSurface, nullptr);
+    CheckHelperCase("A: helper accepts moved source", movedSource, usdGen::UsdGenMatrix4d(1.0), nullptr);
+    CheckHelperCase("A: helper accepts moved surface", usdGen::UsdGenMatrix4d(1.0), movedSurface, nullptr);
     CheckHelperCase("A: helper accepts moved source+surface", movedSource, movedSurface, nullptr);
-    CheckHelperCase("A: helper accepts identity", GfMatrix4d(1.0), GfMatrix4d(1.0), nullptr);
+    CheckHelperCase("A: helper accepts identity", usdGen::UsdGenMatrix4d(1.0), usdGen::UsdGenMatrix4d(1.0), nullptr);
     {
         // Shared ancestor motion cancels: a coherent rigid move of source
         // and surface together freezes bitwise-identical controls, so only
@@ -411,8 +412,8 @@ inline bool ReadOutput(std::shared_ptr<NativeOwner> const& native,
     return true;
 }
 
-bool CompileForDevice(char const* label, GfMatrix4d const& sourceMatrix,
-                      GfMatrix4d const& surfaceMatrix, VulkanDeformControls* controls) {
+bool CompileForDevice(char const* label, usdGen::UsdGenMatrix4d const& sourceMatrix,
+                      usdGen::UsdGenMatrix4d const& surfaceMatrix, VulkanDeformControls* controls) {
     auto source = MakeSource();
     auto surface = MakeSurface();
     source.worldMatrix = sourceMatrix;
@@ -647,15 +648,15 @@ void DoneCudaLeg(CudaLeg* leg) {
     leg->ready = false;
 }
 
-::float3 Bake(GfMatrix4d const& m, GfVec3f const& p) {
-    GfVec3d q = m.TransformAffine(GfVec3d(p));
+::float3 Bake(usdGen::UsdGenMatrix4d const& m, usdGen::UsdGenVec3f const& p) {
+    usdGen::UsdGenVec3d q = m.TransformAffine(usdGen::UsdGenVec3d(p));
     return ::make_float3(float(q[0]), float(q[1]), float(q[2]));
 }
 
 // Baked twin: the same motion with the transforms folded into the points
 // and identity matrices, so CUDA accepts it. Output is world-space.
-bool RunCudaCase(CudaLeg const& leg, GfMatrix4d const& sourceMatrix,
-                 GfMatrix4d const& surfaceMatrix, VulkanDeformControls const& controls,
+bool RunCudaCase(CudaLeg const& leg, usdGen::UsdGenMatrix4d const& sourceMatrix,
+                 usdGen::UsdGenMatrix4d const& surfaceMatrix, VulkanDeformControls const& controls,
                  std::vector<float>* outputWorld) {
     auto rest = RestVerts();
     auto posed = PosedVerts();
@@ -701,8 +702,8 @@ bool RunCudaCase(CudaLeg const& leg, GfMatrix4d const& sourceMatrix,
     auto forward = [&](std::vector<float> const& local) {
         std::vector<float> world(local.size());
         for (size_t i = 0; i < local.size() / 3; ++i) {
-            GfVec3d q = sourceMatrix.TransformAffine(
-                GfVec3d(local[3 * i], local[3 * i + 1], local[3 * i + 2]));
+            usdGen::UsdGenVec3d q = sourceMatrix.TransformAffine(
+                usdGen::UsdGenVec3d(local[3 * i], local[3 * i + 1], local[3 * i + 2]));
             world[3 * i] = float(q[0]);
             world[3 * i + 1] = float(q[1]);
             world[3 * i + 2] = float(q[2]);
@@ -750,16 +751,16 @@ bool RunCudaCase(CudaLeg const& leg, GfMatrix4d const& sourceMatrix,
 
 struct Case {
     char const* name;
-    GfMatrix4d source;
-    GfMatrix4d surface;
+    usdGen::UsdGenMatrix4d source;
+    usdGen::UsdGenMatrix4d surface;
 };
 
 std::vector<Case> Cases() {
-    GfMatrix4d movedSource(1.0), movedSurface(1.0);
+    usdGen::UsdGenMatrix4d movedSource(1.0), movedSurface(1.0);
     movedSource[3][0] = 5.0;
     movedSurface[3][1] = -2.0;
-    return {{"moved source", movedSource, GfMatrix4d(1.0)},
-            {"moved surface", GfMatrix4d(1.0), movedSurface},
+    return {{"moved source", movedSource, usdGen::UsdGenMatrix4d(1.0)},
+            {"moved surface", usdGen::UsdGenMatrix4d(1.0), movedSurface},
             {"moved source+surface", movedSource, movedSurface}};
 }
 
@@ -811,7 +812,7 @@ void PartB(char const* evalPath, char const* applyPath) {
                 Check(true, (tag + " (CUDA twin runs with mapped fit inputs)").c_str());
                 std::vector<float> inputWorld(27);
                 for (size_t i = 0; i < 9; ++i) {
-                    GfVec3d q = c.source.TransformAffine(GfVec3d(points[i]));
+                    usdGen::UsdGenVec3d q = c.source.TransformAffine(usdGen::UsdGenVec3d(points[i]));
                     inputWorld[3 * i] = float(q[0]);
                     inputWorld[3 * i + 1] = float(q[1]);
                     inputWorld[3 * i + 2] = float(q[2]);
@@ -828,10 +829,10 @@ void PartB(char const* evalPath, char const* applyPath) {
             g_crossBackendCompared = true;
             // Map the twin back to source-local space and compare.
             double det = 0.0;
-            GfMatrix4d const back = c.source.GetInverse(&det);
+            usdGen::UsdGenMatrix4d const back = c.source.GetInverse(&det);
             std::vector<float> cudaLocal(27);
             for (size_t i = 0; i < 9; ++i) {
-                GfVec3d q = back.TransformAffine(GfVec3d(
+                usdGen::UsdGenVec3d q = back.TransformAffine(usdGen::UsdGenVec3d(
                     cudaWorld[3 * i], cudaWorld[3 * i + 1], cudaWorld[3 * i + 2]));
                 cudaLocal[3 * i] = float(q[0]);
                 cudaLocal[3 * i + 1] = float(q[1]);
@@ -852,8 +853,8 @@ void PartB(char const* evalPath, char const* applyPath) {
 
 // ---- Part C: plan acceptance (requires the phase2 surface plan hook) ----
 
-UsdGenGraphDesc MakeDeformDesc(GfMatrix4d const& sourceMatrix,
-                               GfMatrix4d const& surfaceMatrix) {
+UsdGenGraphDesc MakeDeformDesc(usdGen::UsdGenMatrix4d const& sourceMatrix,
+                               usdGen::UsdGenMatrix4d const& surfaceMatrix) {
     UsdGenGraphDesc desc;
     desc.description = SdfPath("/Groom");
     desc.executionBackend = usdGenTestUtils::Backend("vulkan");
@@ -890,8 +891,8 @@ UsdGenGraphDesc MakeDeformDesc(GfMatrix4d const& sourceMatrix,
     return desc;
 }
 
-void CheckPlanCase(char const* label, GfMatrix4d const& sourceMatrix,
-                   GfMatrix4d const& surfaceMatrix, bool expectHooked) {
+void CheckPlanCase(char const* label, usdGen::UsdGenMatrix4d const& sourceMatrix,
+                   usdGen::UsdGenMatrix4d const& surfaceMatrix, bool expectHooked) {
     auto desc = MakeDeformDesc(sourceMatrix, surfaceMatrix);
     UsdGenDiagnostics diagnostics;
     auto handle = CompileVulkanSourceWidthPlan(usdGenUsd::Lower(desc), &diagnostics);
@@ -920,19 +921,19 @@ void CheckPlanCase(char const* label, GfMatrix4d const& sourceMatrix,
 }
 
 void PartC() {
-    GfMatrix4d movedSource(1.0), movedSurface(1.0);
+    usdGen::UsdGenMatrix4d movedSource(1.0), movedSurface(1.0);
     movedSource[3][0] = 5.0;
     movedSurface[3][1] = -2.0;
     CheckPlanCase("C: plan accepts moved source with helper controls", movedSource,
-                  GfMatrix4d(1.0), true);
-    CheckPlanCase("C: plan accepts moved surface with helper controls", GfMatrix4d(1.0),
+                  usdGen::UsdGenMatrix4d(1.0), true);
+    CheckPlanCase("C: plan accepts moved surface with helper controls", usdGen::UsdGenMatrix4d(1.0),
                   movedSurface, true);
     CheckPlanCase("C: plan accepts moved source+surface with helper controls", movedSource,
                   movedSurface, true);
     // The admitted identity config keeps its untouched legacy host-gather
     // path: acceptance plus sample count only, no value comparison.
-    CheckPlanCase("C: control identity plan still accepts", GfMatrix4d(1.0),
-                  GfMatrix4d(1.0), false);
+    CheckPlanCase("C: control identity plan still accepts", usdGen::UsdGenMatrix4d(1.0),
+                  usdGen::UsdGenMatrix4d(1.0), false);
 }
 
 } // namespace

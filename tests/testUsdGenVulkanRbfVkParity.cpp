@@ -72,6 +72,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 using namespace usdGen::vulkan;
@@ -198,18 +199,18 @@ std::vector<T> CudaRead(gpu::DeviceBuffer<T> const& buffer) {
 // Independent CPU oracle (production host field, dynamic size).
 bool CpuSolve(float const* rest, float const* posed, int n,
               float const* cvs, float* out, uint32_t count, std::string* error) {
-    std::vector<GfVec3d> r{size_t(n)};
-    std::vector<GfVec3d> p{size_t(n)};
+    std::vector<usdGen::UsdGenVec3d> r{size_t(n)};
+    std::vector<usdGen::UsdGenVec3d> p{size_t(n)};
     for (int i = 0; i < n; ++i) {
-        r[size_t(i)] = GfVec3d(rest[3 * i], rest[3 * i + 1], rest[3 * i + 2]);
-        p[size_t(i)] = GfVec3d(posed[3 * i], posed[3 * i + 1], posed[3 * i + 2]);
+        r[size_t(i)] = usdGen::UsdGenVec3d(rest[3 * i], rest[3 * i + 1], rest[3 * i + 2]);
+        p[size_t(i)] = usdGen::UsdGenVec3d(posed[3 * i], posed[3 * i + 1], posed[3 * i + 2]);
     }
     usdGenMath::rbf::CubicField field;
     if (!field.Bind(r, error)) return false;
     if (!field.Solve(p, error)) return false;
     for (uint32_t i = 0; i < count; ++i) {
-        GfVec3d x(cvs[3 * i], cvs[3 * i + 1], cvs[3 * i + 2]);
-        GfVec3d moved = x + field.Displacement(x);
+        usdGen::UsdGenVec3d x(cvs[3 * i], cvs[3 * i + 1], cvs[3 * i + 2]);
+        usdGen::UsdGenVec3d moved = x + field.Displacement(x);
         out[3 * i] = float(moved[0]);
         out[3 * i + 1] = float(moved[1]);
         out[3 * i + 2] = float(moved[2]);
@@ -448,8 +449,8 @@ int main(int argc, char** argv) {
         // P0e: 125-point surface with budget 101 selects exactly 101.
         auto fx = MakeRooted();
         auto grid = GridSamples(125);
-        VtVec3fArray pts;
-        for (int i = 0; i < 125; ++i) pts.push_back(GfVec3f(grid[3 * i], grid[3 * i + 1], grid[3 * i + 2]));
+        usdGen::UsdGenVec3fArray pts;
+        for (int i = 0; i < 125; ++i) pts.push_back(usdGen::UsdGenVec3f(grid[3 * i], grid[3 * i + 1], grid[3 * i + 2]));
         fx.desc.surfaces[0].restPoints = pts;
         fx.desc.surfaces[0].points = pts;
         fx.deform.params = {{TfToken("rbfSamples"), VtValue(101), false}};
@@ -495,7 +496,7 @@ int main(int argc, char** argv) {
         // P0g: surface rotation (90 deg about Z) rotates posed drivers.
         auto fx = MakeRooted();
         auto& w = fx.desc.surfaces[0].worldMatrix;
-        w = GfMatrix4d(1.0);
+        w = usdGen::UsdGenMatrix4d(1.0);
         w[0][0] = 0.0; w[0][1] = 1.0;
         w[1][0] = -1.0; w[1][1] = 0.0;
         VulkanDeformControls out;
@@ -1568,9 +1569,9 @@ int main(int argc, char** argv) {
         {
             auto fx = MakeRooted();
             auto grid = GridSamples(125);
-            VtVec3fArray pts;
+            usdGen::UsdGenVec3fArray pts;
             for (int i = 0; i < 125; ++i)
-                pts.push_back(GfVec3f(grid[3 * i], grid[3 * i + 1], grid[3 * i + 2]));
+                pts.push_back(usdGen::UsdGenVec3f(grid[3 * i], grid[3 * i + 1], grid[3 * i + 2]));
             fx.desc.surfaces[0].restPoints = pts;
             fx.desc.surfaces[0].points = pts;
             fx.desc.surfaces[0].worldMatrix[3][1] = -2.0; // moved surface

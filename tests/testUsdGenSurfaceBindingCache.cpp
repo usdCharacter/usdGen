@@ -16,6 +16,7 @@
 #include <limits>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -64,7 +65,7 @@ int main() {
     CHECK(cache->Matches(usdGenUsd::Lower(changed))); // no generation-only invalidation.
     changed = surface; changed.faceVertexIndices[0] = 1;
     CHECK(!cache->Matches(usdGenUsd::Lower(changed)));
-    changed = surface; changed.worldMatrix.SetTranslate(GfVec3d(1,0,0));
+    changed = surface; changed.worldMatrix.SetTranslate(usdGen::UsdGenVec3d(1,0,0));
     CHECK(!cache->Matches(usdGenUsd::Lower(changed)));
     changed = surface; changed.restFromCurrentPoints = true;
     CHECK(!cache->Matches(usdGenUsd::Lower(changed)));
@@ -75,7 +76,7 @@ int main() {
         for (int i=0; i!=32; ++i) {
             UsdGenSurfaceRootBindingResult result;
             std::string failure;
-            if (!cache->Bind({{.2f,.3f,2}},GfMatrix4d(1.0),&result,&failure) ||
+            if (!cache->Bind({{.2f,.3f,2}},usdGen::UsdGenMatrix4d(1.0),&result,&failure) ||
                 result.unresolvedCount || result.rootUV.size()!=1 ||
                 std::fabs(result.rootUV[0][0]-.2f)>1.e-6f)
                 good.store(false);
@@ -87,19 +88,19 @@ int main() {
     // 127 roots remain serial; the repeated 508-root request crosses the
     // cache's parallel threshold. Every lane must reproduce its serial
     // reference exactly, including array order and unresolved accounting.
-    VtVec3fArray serialRoots;
+    usdGen::UsdGenVec3fArray serialRoots;
     for (int i = 0; i != 127; ++i)
-        serialRoots.push_back(GfVec3f(float(i % 17) / 16.0f,
+        serialRoots.push_back(usdGen::UsdGenVec3f(float(i % 17) / 16.0f,
                                       float((i * 7) % 17) / 16.0f,
                                       float(i % 3) - 1.0f));
     UsdGenSurfaceRootBindingResult serial;
-    CHECK(cache->Bind(serialRoots, GfMatrix4d(1.0), &serial, &error));
-    VtVec3fArray parallelRoots;
+    CHECK(cache->Bind(serialRoots, usdGen::UsdGenMatrix4d(1.0), &serial, &error));
+    usdGen::UsdGenVec3fArray parallelRoots;
     parallelRoots.resize(serialRoots.size() * 4);
     for (size_t i = 0; i != parallelRoots.size(); ++i)
         parallelRoots[i] = serialRoots[i % serialRoots.size()];
     UsdGenSurfaceRootBindingResult parallel;
-    CHECK(cache->Bind(parallelRoots, GfMatrix4d(1.0), &parallel, &error));
+    CHECK(cache->Bind(parallelRoots, usdGen::UsdGenMatrix4d(1.0), &parallel, &error));
     CHECK(parallel.unresolvedCount == serial.unresolvedCount * 4);
     for (size_t i = 0; i != parallelRoots.size(); ++i) {
         size_t const lane = i % serialRoots.size();
@@ -115,7 +116,7 @@ int main() {
     for (size_t i = 0; i != parallelThreads.size(); ++i)
         parallelThreads[i] = std::thread([&, i] {
             std::string failure;
-            if (!cache->Bind(parallelRoots, GfMatrix4d(1.0), &parallelReaders[i], &failure))
+            if (!cache->Bind(parallelRoots, usdGen::UsdGenMatrix4d(1.0), &parallelReaders[i], &failure))
                 good.store(false);
         });
     for (auto &thread : parallelThreads) thread.join();
@@ -127,7 +128,7 @@ int main() {
     // A root transform overflow happens inside a worker, but must retain the
     // previous public result because candidate publication is transactional.
     auto retainedParallel = parallel;
-    GfMatrix4d overflow(1.0);
+    usdGen::UsdGenMatrix4d overflow(1.0);
     overflow[0][0] = std::numeric_limits<double>::max();
     overflow[3][0] = std::numeric_limits<double>::max();
     CHECK(!cache->Bind(parallelRoots, overflow, &parallel, &error) && !error.empty());
@@ -136,14 +137,14 @@ int main() {
           parallel.valid.cdata() == retainedParallel.valid.cdata());
 
     auto degenerate = surface;
-    degenerate.restPoints.assign(3, GfVec3f(0));
+    degenerate.restPoints.assign(3, usdGen::UsdGenVec3f(0));
     auto degenerateCache = UsdGenRestSurfaceBindingCache::Create(usdGenUsd::Lower(degenerate), &error);
     CHECK(degenerateCache);
     UsdGenSurfaceRootBindingResult unresolved;
-    CHECK(degenerateCache->Bind(parallelRoots, GfMatrix4d(1.0), &unresolved, &error));
+    CHECK(degenerateCache->Bind(parallelRoots, usdGen::UsdGenMatrix4d(1.0), &unresolved, &error));
     CHECK(unresolved.unresolvedCount == parallelRoots.size());
     for (size_t i = 0; i != parallelRoots.size(); ++i)
-        CHECK(unresolved.rootPrim[i] == -1 && unresolved.rootUV[i] == GfVec2f(0) &&
+        CHECK(unresolved.rootPrim[i] == -1 && unresolved.rootUV[i] == usdGen::UsdGenVec2f(0) &&
               unresolved.valid[i] == 0 && unresolved.unresolved[i] == 1);
 
     std::shared_ptr<const UsdGenRestSurfaceBindingCache> slot;
@@ -162,7 +163,7 @@ int main() {
     CHECK(!UsdGenCaptureCurveRoots(usdGenUsd::Lower(d.curveSets[0]),usdGenUsd::Addr(usdGenUsd::View(changed)),TfToken("always"),&roots,&error,&slot));
     CHECK(slot == current && roots.rootUV.cdata() == oldRoots.rootUV.cdata());
     UsdGenSurfaceRootBindingResult retained;
-    CHECK(old->Bind({{.2f,.3f,2}},GfMatrix4d(1.0),&retained,&error));
+    CHECK(old->Bind({{.2f,.3f,2}},usdGen::UsdGenMatrix4d(1.0),&retained,&error));
     CHECK(std::fabs(retained.rootUV[0][0]-.2f)<1.e-6f);
 
     // A failure after successful root capture must not replace the loader's

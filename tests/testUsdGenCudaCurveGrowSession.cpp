@@ -27,13 +27,14 @@
 #include <limits>
 #include <map>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #c); return 1; } } while (false)
 
 namespace {
 bool Near(float a, float b) { return std::fabs(a-b) < 2.e-5f; }
-bool Near(float3 a, GfVec3f b) { return Near(a.x,b[0])&&Near(a.y,b[1])&&Near(a.z,b[2]); }
+bool Near(float3 a, usdGen::UsdGenVec3f b) { return Near(a.x,b[0])&&Near(a.y,b[1])&&Near(a.z,b[2]); }
 
 template<class T> bool Read(gpu::DeviceView<const T> input, std::vector<T>* output,
                             cudaStream_t stream) {
@@ -145,7 +146,7 @@ UsdGenGraphDesc Desc(bool resampleAndLift = false, bool namedPlanes = true,
         curves.widths={.1f,.2f,.3f,.4f,.5f};
         curves.curveId={40,7}; curves.skinPrim={2,1};
         curves.skinPrimUv={{.2f,.3f},{.4f,.5f}};
-        curves.rootFrame={GfMatrix4d(1.0),GfMatrix4d(1.0)};
+        curves.rootFrame={usdGen::UsdGenMatrix4d(1.0),usdGen::UsdGenMatrix4d(1.0)};
         if (withNoise) {
             curves.rootFrame[1][0][0] = 0; curves.rootFrame[1][0][1] = 1;
             curves.rootFrame[1][1][0] = 0; curves.rootFrame[1][1][1] = 0;
@@ -177,7 +178,7 @@ UsdGenGraphDesc Desc(bool resampleAndLift = false, bool namedPlanes = true,
     grow.seed=19; grow.inputs={source.path};
     grow.params={{TfToken("segments"),VtValue(4),false},
                  {TfToken("length"),VtValue(2.0),false},
-                 {TfToken("lengthRandom"),VtValue(GfVec2f(.5f,1.5f)),false},
+                 {TfToken("lengthRandom"),VtValue(usdGen::UsdGenVec2f(.5f,1.5f)),false},
                  {TfToken("direction"),VtValue(TfToken("surfaceNormal")),false}};
     if(resampleAndLift) {
         grow.params.push_back({TfToken("lift"),VtValue(30.0f),false});
@@ -217,7 +218,7 @@ UsdGenGraphDesc Desc(bool resampleAndLift = false, bool namedPlanes = true,
 UsdGenGraphDesc GrowLengthDesc(TfToken mode, float value, bool cutExtend = false) {
     auto desc = Desc();
     // Distinct frames make survivor-ID/frame association observable.
-    GfMatrix4d rotated(1.0);
+    usdGen::UsdGenMatrix4d rotated(1.0);
     rotated[0][0]=0;rotated[0][1]=1;
     rotated[1][1]=0;rotated[1][2]=1;
     rotated[2][2]=0;rotated[2][0]=1;
@@ -296,13 +297,13 @@ bool GrowLengthScaleReference(UsdGenGraphDesc const& desc, float scale,
         uint32_t end = output->cvOffsets.empty()
             ? uint32_t((curve + 1) * output->totalCvs / output->totalCurves)
             : uint32_t(output->cvOffsets[curve + 1]);
-        GfVec3f root{output->px[begin], output->py[begin], output->pz[begin]};
+        usdGen::UsdGenVec3f root{output->px[begin], output->py[begin], output->pz[begin]};
         if (!cutExtend) for (uint32_t i = begin; i != end; ++i) {
             output->px[i] = root[0] + (output->px[i] - root[0]) * scale;
             output->py[i] = root[1] + (output->py[i] - root[1]) * scale;
             output->pz[i] = root[2] + (output->pz[i] - root[2]) * scale;
         } else {
-            std::vector<GfVec3f> original;
+            std::vector<usdGen::UsdGenVec3f> original;
             float total = 0;
             for (uint32_t i = begin; i != end; ++i) {
                 original.push_back({output->px[i],output->py[i],output->pz[i]});
@@ -334,7 +335,7 @@ bool GrowLengthScaleReference(UsdGenGraphDesc const& desc, float scale,
             uint32_t const end=input.cvOffsets.empty()?(c+1)*input.totalCvs/input.totalCurves:input.cvOffsets[c+1];
             float arc=0;
             for(uint32_t i=begin+1;i<end;++i)
-                arc+=GfVec3f(input.px[i]-input.px[i-1],input.py[i]-input.py[i-1],
+                arc+=usdGen::UsdGenVec3f(input.px[i]-input.px[i-1],input.py[i]-input.py[i-1],
                             input.pz[i]-input.pz[i-1]).GetLength();
             if(arc<threshold) continue;
             survivors.push_back(c);
@@ -547,14 +548,14 @@ bool GrowFromHostValueReference(UsdGenGraphDesc const& desc,UsdGenNodeDesc const
             sourceData.curveVertexCounts[c]=input.cvOffsets[c+1]-input.cvOffsets[c];
         }
     }
-    for(size_t p=0;p<points;++p) sourceData.points[p]=GfVec3f(input.px[p],input.py[p],input.pz[p]);
+    for(size_t p=0;p<points;++p) sourceData.points[p]=usdGen::UsdGenVec3f(input.px[p],input.py[p],input.pz[p]);
     sourceData.rest=input.rest;sourceData.widths=input.width;sourceData.curveId=input.curveId;
     sourceData.skinPrim=input.rootPrim;sourceData.skinPrimUv=input.rootUV;
     sourceData.rootFrame.resize(curves);
     for(size_t c=0;c<curves;++c) {
-        GfMatrix4d frame(1.0);
-        frame.SetRow3(0,GfVec3d(input.rootT[c]));frame.SetRow3(1,GfVec3d(input.rootB[c]));
-        frame.SetRow3(2,GfVec3d(input.rootN[c]));sourceData.rootFrame[c]=frame;
+        usdGen::UsdGenMatrix4d frame(1.0);
+        frame.SetRow3(0,usdGen::UsdGenVec3d(input.rootT[c]));frame.SetRow3(1,usdGen::UsdGenVec3d(input.rootB[c]));
+        frame.SetRow3(2,usdGen::UsdGenVec3d(input.rootN[c]));sourceData.rootFrame[c]=frame;
     }
     for(auto const* planes:{&input.extraCv,&input.extraCurve}) for(auto const& plane:*planes) {
         UsdGenAuthoredPlaneDesc authored;authored.name=plane.name;authored.arity=plane.arity;
@@ -715,7 +716,7 @@ bool CheckGeneration(std::shared_ptr<const UsdGenDeviceGeneration> const& genera
         std::fprintf(stderr,"generation offsets failed\n"); return false;
     }
     for(size_t i=0;i<points.size();++i)
-        if(!Near(points[i],GfVec3f(reference.px[i],reference.py[i],reference.pz[i]))||
+        if(!Near(points[i],usdGen::UsdGenVec3f(reference.px[i],reference.py[i],reference.pz[i]))||
            !Near(rest[i],reference.rest[i])||!Near(widths[i],reference.width[i])||
            !Near(hair[i],reference.hairT[i])) {
             std::fprintf(stderr,"generation CV mismatch %zu point=(%.7g %.7g %.7g) expected=(%.7g %.7g %.7g) width=%.7g expected=%.7g\n",

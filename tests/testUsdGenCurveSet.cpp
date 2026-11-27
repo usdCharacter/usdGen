@@ -30,6 +30,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -117,7 +118,7 @@ UsdGenCurveBuffer MakeBuffer(uint32_t curves, uint32_t cvp, bool full, bool extr
     if (full) {
         b.rest.resize(cvs); b.width.resize(cvs);
         for (uint32_t i = 0; i < cvs; ++i) {
-            b.rest[i] = GfVec3f(float(i), 2.0f * float(i), -float(i));
+            b.rest[i] = usdGen::UsdGenVec3f(float(i), 2.0f * float(i), -float(i));
             b.width[i] = 0.01f + 0.001f * float(i % 7);
         }
         b.curveId.resize(curves); b.rootPrim.resize(curves); b.rootUV.resize(curves);
@@ -125,10 +126,10 @@ UsdGenCurveBuffer MakeBuffer(uint32_t curves, uint32_t cvp, bool full, bool extr
         for (uint32_t c = 0; c < curves; ++c) {
             b.curveId[c] = 0x9e3779b97f4a7c15ull * (c + 1);
             b.rootPrim[c] = int(c % 17) - 3;
-            b.rootUV[c] = GfVec2f(float(c) * 0.5f, 1.0f - float(c));
-            b.rootT[c] = GfVec3f(1, 0, float(c));
-            b.rootN[c] = GfVec3f(0, 1, float(c));
-            b.rootB[c] = GfVec3f(0, 0, 1.0f + float(c));
+            b.rootUV[c] = usdGen::UsdGenVec2f(float(c) * 0.5f, 1.0f - float(c));
+            b.rootT[c] = usdGen::UsdGenVec3f(1, 0, float(c));
+            b.rootN[c] = usdGen::UsdGenVec3f(0, 1, float(c));
+            b.rootB[c] = usdGen::UsdGenVec3f(0, 0, 1.0f + float(c));
         }
     }
     if (extras) {
@@ -295,7 +296,7 @@ UsdGenGraphDesc MakeDesc(int tileTarget)
     surf.id = 0;
     surf.faceVertexCounts = VtIntArray(1, 4);
     surf.faceVertexIndices = VtIntArray{0, 1, 2, 3};
-    surf.restPoints = VtVec3fArray{GfVec3f(0, 0, 0), GfVec3f(1, 0, 0), GfVec3f(1, 1, 0), GfVec3f(0, 1, 0)};
+    surf.restPoints = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(1, 0, 0), usdGen::UsdGenVec3f(1, 1, 0), usdGen::UsdGenVec3f(0, 1, 0)};
     d.surfaces.push_back(surf);
     UsdGenNodeDesc scatter;
     scatter.path = root.AppendChild(TfToken("scatter"));

@@ -1,5 +1,6 @@
 // usdGenPomade — the asynchronous commit pipeline (plan/17 section 3, P1).
 #include "usdGenPomade/pomadeCommit.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGenPomade/pomadeModelState.h"
 #include "usdGenPomade/pomadeBake.h"
 
@@ -168,6 +169,7 @@ _SetAttr(SdfPrimSpecHandle const &prim, char const *name,
     if (!attr) {
         return false;
     }
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     attr->SetDefaultValue(VtValue(value));
     return true;
 }

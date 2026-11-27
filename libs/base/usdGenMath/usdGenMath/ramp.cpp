@@ -15,12 +15,23 @@ namespace usdGen {
 
 namespace {
 
+/// The knots as a read-only view (the callers' arrays stay theirs).
+struct Knots {
+    UsdGenVec2f const *p;
+    size_t n;
+    size_t size() const noexcept { return n; }
+    bool empty() const noexcept { return n == 0; }
+    UsdGenVec2f const &operator[](size_t i) const noexcept { return p[i]; }
+    UsdGenVec2f const &front() const noexcept { return p[0]; }
+    UsdGenVec2f const &back() const noexcept { return p[n - 1]; }
+};
+
 float ClampU(float u) { return std::min(std::max(u, 0.0f), 1.0f); }
 
 /// Find the segment index: the last knot with x <= u, clamped to size-2.
 /// Knots are x-sorted (adapter guarantee); u is already clamped to [0,1]
 /// and knot positions are authored in [0,1] (02 §2.17).
-size_t SegmentAt(UsdGenVec2fArray const &knots, float u)
+size_t SegmentAt(Knots const &knots, float u)
 {
     size_t lo = 0, hi = knots.size() - 1;
     while (lo < hi) {
@@ -31,7 +42,7 @@ size_t SegmentAt(UsdGenVec2fArray const &knots, float u)
     return std::min(lo, knots.size() - 2);
 }
 
-float KnotY(UsdGenVec2fArray const &knots, int i)
+float KnotY(Knots const &knots, int i)
 {
     // Clamp the index into [0, size-1] (endpoint clamping for CR / B-spline).
     int const n = int(knots.size());
@@ -39,7 +50,7 @@ float KnotY(UsdGenVec2fArray const &knots, int i)
     return knots[size_t(i)][1];
 }
 
-float EvalOne(UsdGenVec2fArray const &knots, UsdGenRampInterp interpolation, float u)
+float EvalOne(Knots const &knots, UsdGenRampInterp interpolation, float u)
 {
     u = ClampU(u);
     if (knots.size() < 2) return 1.0f;
@@ -92,11 +103,13 @@ float EvalOne(UsdGenVec2fArray const &knots, UsdGenRampInterp interpolation, flo
 }  // namespace
 
 void UsdGenBuildRampLut(
-    UsdGenVec2fArray const &knots,
+    UsdGenVec2f const *knotData,
+    size_t knotCount,
     UsdGenRampInterp interpolation,
     float *lut,
     size_t lutSize)
 {
+    Knots const knots{knotData, knotData ? knotCount : 0};
     if (!lut) return;
     const size_t n = std::max<size_t>(1, lutSize);
     const int denom = int(n) - 1;  // lut[i] = ramp(i / (n-1)); 257 -> /256
@@ -107,11 +120,12 @@ void UsdGenBuildRampLut(
 }
 
 float UsdGenEvalRamp(
-    UsdGenVec2fArray const &knots,
+    UsdGenVec2f const *knotData,
+    size_t knotCount,
     UsdGenRampInterp interpolation,
     float u)
 {
-    return EvalOne(knots, interpolation, u);
+    return EvalOne(Knots{knotData, knotData ? knotCount : 0}, interpolation, u);
 }
 
 }  // namespace usdGen

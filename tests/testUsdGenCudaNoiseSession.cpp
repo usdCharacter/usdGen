@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <vector>
 #include <future>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

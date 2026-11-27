@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE

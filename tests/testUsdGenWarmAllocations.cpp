@@ -49,6 +49,7 @@
 #include <new>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 // The count lives in usdGen (allocCounter.h). On ELF this replacement
 // interposes on every module and feeds it; on Windows usdGen wraps every
@@ -97,13 +98,13 @@ void AddSurface(UsdGenGraphDesc *d)
     constexpr int NX = 100, NY = 100;   // 100 area units at density 100: ~10k roots
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
-    s.restPoints = VtVec3fArray((NX + 1) * (NY + 1));
-    s.uv = VtVec2fArray((NX + 1) * (NY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((NX + 1) * (NY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((NX + 1) * (NY + 1));
     for (int j = 0; j <= NY; ++j)
         for (int i = 0; i <= NX; ++i) {
             int const k = j * (NX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
         }
     s.faceVertexCounts = VtIntArray(NX * NY, 4);
     s.faceVertexIndices = VtIntArray(NX * NY * 4);

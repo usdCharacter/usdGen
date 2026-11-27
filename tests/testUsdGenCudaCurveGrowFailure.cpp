@@ -11,6 +11,7 @@
 #include <future>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %d: %s\n", __LINE__, #c); return 1; } } while (false)

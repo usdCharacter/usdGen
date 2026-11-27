@@ -40,6 +40,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -145,9 +146,11 @@ size_t ScalarBytes(Kind k)
 
 int g_failures = 0;
 size_t g_checks = 0;
+std::map<std::string, size_t> g_failuresByOp;
 
 void Fail(char const *what, size_t index, std::string const &detail)
 {
+    ++g_failuresByOp[what];
     if (++g_failures <= 40) std::printf("FAIL %s [case %zu] %s\n", what, index, detail.c_str());
 }
 
@@ -455,6 +458,10 @@ template <class K> void MatrixOps(Sink &s, typename K::M4d const &m, typename K:
     { M4d c = m; c.SetRow(2, p4); Put(s, "m.setrow", c); }
     { M4d c = m; c.SetIdentity(); Put(s, "m.setidentity", c); }
     { M4d c = m; c.SetDiagonal(sc); Put(s, "m.setdiag", c); }
+    { M4d c = m; c.SetTranslate(p); Put(s, "m.settranslate", c); }
+    { M4d c = m; c.SetTranslateOnly(p); Put(s, "m.settranslateonly", c); }
+    { M4d c = m; c.SetScale(p); Put(s, "m.setscale3", c); }
+    { M4d c = m; c.SetScale(sc); Put(s, "m.setscale", c); }
     Put(s, "m.diag", M4d(sc));
     Put(s, "m.identity", M4d(1.0));
     Put(s, "m.eq", bool(m == n));
@@ -539,6 +546,12 @@ template <class K, class R, class V> void RangeOps(Sink &s, char const *tag, V c
     { R c = b; c.ExtendBy(r); Put(s, "r.extend.range", c); }
     { R c = b; c.SetEmpty(); Put(s, "r.setempty", c); }
     { R c; c.UnionWith(R()); Put(s, "r.union.empty", c); }
+    Put(s, "r.mid", b.GetMidpoint());
+    Put(s, "r.outside", bool(r.IsOutside(b)));
+    Put(s, "r.getunion", R::GetUnion(r, b));
+    Put(s, "r.getintersection", R::GetIntersection(r, b));
+    { R c = b; c.IntersectWith(r); Put(s, "r.intersectwith", c); }
+    { R c = b; c *= -2.5; Put(s, "r.muleq", c); }
     Put(s, "r.eq", bool(r == b));
     Put(s, "r.eqself", bool(b == b));
 }
@@ -568,6 +581,13 @@ template <class K> void QuatSuite(Sink &s, Input const &in)
     Put(s, "qh.real", qh.GetReal()); Put(s, "qh.imag", qh.GetImaginary());
     Put(s, "qd.ident", Qd(1.0)); Put(s, "qf.ident", Qf(1.0f)); Put(s, "qh.ident", Qh(H(1.0f)));
     Put(s, "qd.eq", bool(qd == qd)); Put(s, "qf.eq", bool(qf == Qf(1.0f)));
+    Put(s, "qd.len", qd.GetLength()); Put(s, "qf.len", qf.GetLength());
+    Put(s, "qd.normalized", qd.GetNormalized()); Put(s, "qf.normalized", qf.GetNormalized());
+    Put(s, "qd.conj", qd.GetConjugate()); Put(s, "qd.inv", qd.GetInverse()); Put(s, "qf.inv", qf.GetInverse());
+    Put(s, "qd.add", qd + qd.GetConjugate()); Put(s, "qd.muls", qd * 1.5); Put(s, "qf.divs", qf / 3.0f);
+    Put(s, "qd.neg", -qd);
+    Put(s, "qd.dot", double(K::Dot(qd, qd.GetConjugate())));
+    Put(s, "qd.fromf", Qd(qf));
 }
 
 // --- rotation (curveWrap) ----------------------------------------------------
@@ -689,6 +709,7 @@ int main()
         }
     }
     HalfExhaustive();
+    for (auto const &f : g_failuresByOp) std::printf("  %s: %zu failures\n", f.first.c_str(), f.second);
     std::printf("testUsdGenMathGfParity: %zu checks, %d failures\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

@@ -22,6 +22,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -42,13 +43,13 @@ UsdGenGraphDesc MakeGraph(double noiseMagnitude)
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
     s.id = 0;
-    s.restPoints = VtVec3fArray((kNX + 1) * (kNY + 1));
-    s.uv = VtVec2fArray((kNX + 1) * (kNY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((kNX + 1) * (kNY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((kNX + 1) * (kNY + 1));
     for (int j = 0; j <= kNY; ++j)
         for (int i = 0; i <= kNX; ++i) {
             int const k = j * (kNX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / kNX, float(j) / kNY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / kNX, float(j) / kNY);
         }
     s.faceVertexCounts = VtIntArray(kNX * kNY, 4);
     s.faceVertexIndices = VtIntArray(kNX * kNY * 4);

@@ -6355,7 +6355,7 @@ bool _ValidateChildMaterialRings(PomadeTubeDesc const &tube, int cvCount,
         stations.push_back(t0 + span * (float(c) / float(cvCount - 1)));
     }
     std::vector<float> ring;
-    std::vector<PXR_NS::GfVec2f> chart(static_cast<size_t>(rv));
+    std::vector<usdGen::UsdGenVec2f> chart(static_cast<size_t>(rv));
     std::vector<std::array<int, 3>> triangles;
     for (float const t : stations) {
         PomadeFrame frame;
@@ -6375,7 +6375,7 @@ bool _ValidateChildMaterialRings(PomadeTubeDesc const &tube, int cvCount,
             float const dz = ring[at + 2] - center[2];
             float const u = dx * frame.nx + dy * frame.ny + dz * frame.nz;
             float const v = dx * frame.bx + dy * frame.by + dz * frame.bz;
-            chart[size_t(slot)] = PXR_NS::GfVec2f(u, v);
+            chart[size_t(slot)] = usdGen::UsdGenVec2f(u, v);
             maxRadius2 = std::max(maxRadius2, u * u + v * v);
             float const du = u - chart[0][0];
             float const dv = v - chart[0][1];

@@ -30,6 +30,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -58,8 +59,8 @@ UsdGenSurfaceDesc Grid(int nx, int ny, float sx, float sy, bool uvs = true)
     s.path = SdfPath("/Scalp");
     for (int j = 0; j <= ny; ++j)
         for (int i = 0; i <= nx; ++i) {
-            s.restPoints.push_back(GfVec3f(sx * float(i) / float(nx), sy * float(j) / float(ny), 0.0f));
-            if (uvs) s.uv.push_back(GfVec2f(float(i) / float(nx), float(j) / float(ny)));
+            s.restPoints.push_back(usdGen::UsdGenVec3f(sx * float(i) / float(nx), sy * float(j) / float(ny), 0.0f));
+            if (uvs) s.uv.push_back(usdGen::UsdGenVec2f(float(i) / float(nx), float(j) / float(ny)));
         }
     auto v = [nx](int i, int j) { return j * (nx + 1) + i; };
     for (int j = 0; j < ny; ++j)
@@ -69,7 +70,7 @@ UsdGenSurfaceDesc Grid(int nx, int ny, float sx, float sy, bool uvs = true)
                 s.faceVertexIndices.push_back(c);
         }
     s.points = s.restPoints;
-    s.restNormals = VtVec3fArray(s.restPoints.size(), GfVec3f(0.0f, 0.0f, 1.0f));
+    s.restNormals = usdGen::UsdGenVec3fArray(s.restPoints.size(), usdGen::UsdGenVec3f(0.0f, 0.0f, 1.0f));
     s.restNormalDomain = UsdGenSurfaceNormalDomain::Vertex;
     return s;
 }
@@ -93,7 +94,7 @@ UsdGenGraphDesc Desc(UsdGenSurfaceDesc const &surface, std::vector<UsdGenParamVa
 
 // Linear guide set; curves with < 2 points or zero length are kept in the
 // set (the operator must skip them).
-UsdGenCurveSetDesc GuideSet(std::vector<std::vector<GfVec3f>> const &curves,
+UsdGenCurveSetDesc GuideSet(std::vector<std::vector<usdGen::UsdGenVec3f>> const &curves,
                             std::vector<uint64_t> const &ids)
 {
     UsdGenCurveSetDesc g;
@@ -103,7 +104,7 @@ UsdGenCurveSetDesc GuideSet(std::vector<std::vector<GfVec3f>> const &curves,
     g.type = TfToken("linear");
     for (auto const &c : curves) {
         g.curveVertexCounts.push_back(int(c.size()));
-        for (GfVec3f const &p : c) g.points.push_back(p);
+        for (usdGen::UsdGenVec3f const &p : c) g.points.push_back(p);
     }
     g.rest = g.points;
     g.curveId = VtArray<uint64_t>(ids.begin(), ids.end());
@@ -165,7 +166,7 @@ UsdGenReferenceSet ReferenceOf(UsdGenCurveSetDesc const &g)
     b.cvOffsets = VtIntArray(b.totalCurves + 1, 0);
     for (size_t c = 0; c < g.curveVertexCounts.size(); ++c)
         b.cvOffsets[c + 1] = b.cvOffsets[c] + g.curveVertexCounts[c];
-    for (GfVec3f const &p : g.points) {
+    for (usdGen::UsdGenVec3f const &p : g.points) {
         b.px.push_back(p[0]);
         b.py.push_back(p[1]);
         b.pz.push_back(p[2]);
@@ -224,7 +225,7 @@ std::vector<int> PlaneValues(UsdGenCurveBuffer const &b, char const *name)
     return std::vector<int>(p->i.begin(), p->i.end());
 }
 
-GfVec3f Root(UsdGenCurveBuffer const &b, size_t c) { return GfVec3f(b.px[c], b.py[c], b.pz[c]); }
+usdGen::UsdGenVec3f Root(UsdGenCurveBuffer const &b, size_t c) { return usdGen::UsdGenVec3f(b.px[c], b.py[c], b.pz[c]); }
 
 // Roots indexed by strandIndex (generation order). Empty when the plane is
 // missing or not a permutation-free index.
@@ -251,9 +252,9 @@ bool SameBuffer(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 float MinSpacing(UsdGenCurveBuffer const &b)
 {
     // O(n log n)-ish: sort by x and sweep.
-    std::vector<GfVec3f> p(b.totalCurves);
+    std::vector<usdGen::UsdGenVec3f> p(b.totalCurves);
     for (size_t c = 0; c < p.size(); ++c) p[c] = Root(b, c);
-    std::sort(p.begin(), p.end(), [](GfVec3f const &x, GfVec3f const &y) { return x[0] < y[0]; });
+    std::sort(p.begin(), p.end(), [](usdGen::UsdGenVec3f const &x, usdGen::UsdGenVec3f const &y) { return x[0] < y[0]; });
     float best = 1e30f;
     for (size_t i = 0; i < p.size(); ++i)
         for (size_t j = i + 1; j < p.size() && p[j][0] - p[i][0] < best; ++j)
@@ -266,7 +267,7 @@ float Mt01(std::mt19937 &rng) { return float(rng() >> 8) * (1.0f / 16777216.0f);
 bool Near(float a, float b, float tol) { return std::fabs(a - b) <= tol; }
 
 // Spec §5 root hash, restated independently of the operator.
-float SpecRootHash(uint64_t i, int tri, int vertex, GfVec3f const &pos, GfVec3f const &bary)
+float SpecRootHash(uint64_t i, int tri, int vertex, usdGen::UsdGenVec3f const &pos, usdGen::UsdGenVec3f const &bary)
 {
     auto bits = [](float f) { uint32_t u; std::memcpy(&u, &f, 4); return uint64_t(u); };
     uint64_t const vals[9] = {i, uint64_t(tri + 1), uint64_t(vertex + 1), bits(pos[0]), bits(pos[1]),
@@ -294,12 +295,12 @@ void TestUvGrid()
     std::vector<int> const seed = PlaneValues(out, "strandSeed");
     for (auto const &[k, c] : byIndex) {
         float const x = (float(k % 10) + 0.5f) / 10.0f, y = (float(k / 10) + 0.5f) / 10.0f;
-        GfVec3f const p = Root(out, c);
+        usdGen::UsdGenVec3f const p = Root(out, c);
         grid = grid && Near(p[0], x, 1e-6f) && Near(p[1], y, 1e-6f) && p[2] == 0.0f;
         uvOk = uvOk && Near(out.rootUV[c][0], x, 1e-6f) && Near(out.rootUV[c][1], y, 1e-6f) &&
                out.rootPrim[c] == 0;
         frames = frames && Near(out.rootN[c][2], 1.0f, 1e-6f) &&
-                 std::fabs(GfDot(out.rootT[c], out.rootN[c])) < 1e-6f &&
+                 std::fabs(usdGen::UsdGenDot(out.rootT[c], out.rootN[c])) < 1e-6f &&
                  Near(out.rootB[c].GetLength(), 1.0f, 1e-5f);
         seeds = seeds && seed.size() == out.totalCurves && seed[c] == k;
     }
@@ -347,9 +348,9 @@ void TestUvGrid()
         int const tri = u <= 0.5f ? 0 : 1;
         if (a + b > 1.0f) { a = 1.0f - a; b = 1.0f - b; }
         float const w0 = 1.0f - a - b;
-        GfVec3f const P0(0, 0, 0), P1 = tri == 0 ? GfVec3f(1, 0, 0) : GfVec3f(1, 1, 0),
-                      P2 = tri == 0 ? GfVec3f(1, 1, 0) : GfVec3f(0, 1, 0);
-        GfVec3f const want(P0[0] * w0 + P1[0] * a + P2[0] * b, P0[1] * w0 + P1[1] * a + P2[1] * b, 0.0f);
+        usdGen::UsdGenVec3f const P0(0, 0, 0), P1 = tri == 0 ? usdGen::UsdGenVec3f(1, 0, 0) : usdGen::UsdGenVec3f(1, 1, 0),
+                      P2 = tri == 0 ? usdGen::UsdGenVec3f(1, 1, 0) : usdGen::UsdGenVec3f(0, 1, 0);
+        usdGen::UsdGenVec3f const want(P0[0] * w0 + P1[0] * a + P2[0] * b, P0[1] * w0 + P1[1] * a + P2[1] * b, 0.0f);
         auto const m = ByStrandIndex(out);
         auto const it = m.find(0);
         Check(it != m.end() && Root(out, it->second) == want,
@@ -426,8 +427,8 @@ void TestProximityDistance()
     // Two guides, cutoff 0.1: the target stays round(A * density) and every
     // root lands within 0.1 of a guide root.
     UsdGenCurveSetDesc const guides = GuideSet(
-        {{GfVec3f(0.25f, 0.25f, 0.0f), GfVec3f(0.25f, 0.25f, 0.1f)},
-         {GfVec3f(0.75f, 0.6f, 0.0f), GfVec3f(0.75f, 0.6f, 0.1f)}},
+        {{usdGen::UsdGenVec3f(0.25f, 0.25f, 0.0f), usdGen::UsdGenVec3f(0.25f, 0.25f, 0.1f)},
+         {usdGen::UsdGenVec3f(0.75f, 0.6f, 0.0f), usdGen::UsdGenVec3f(0.75f, 0.6f, 0.1f)}},
         {11, 12});
     UsdGenGraphDesc d = Desc(Grid(32, 32, 1.0f, 1.0f),
                              {P("distribution", Tok("even")), P("density", VtValue(2000.0)),
@@ -442,7 +443,7 @@ void TestProximityDistance()
           "proximity distance: target not reduced (2000 roots in the guide disks)");
     bool within = true;
     for (size_t c = 0; c < out.totalCurves; ++c) {
-        GfVec3f const p = Root(out, c);
+        usdGen::UsdGenVec3f const p = Root(out, c);
         within = within && (std::min((p - guides.points[0]).GetLengthSq(),
                                      (p - guides.points[2]).GetLengthSq()) <= 0.01f + 1e-7f);
     }
@@ -466,7 +467,7 @@ void TestProximityDistance()
     Check(Cook(d, &out), "proximity uvGrid cooks");
     bool gridWithin = out.totalCurves > 0 && out.totalCurves < 2000;
     for (size_t c = 0; c < out.totalCurves; ++c) {
-        GfVec3f const p = Root(out, c);
+        usdGen::UsdGenVec3f const p = Root(out, c);
         gridWithin = gridWithin && (std::min((p - guides.points[0]).GetLengthSq(),
                                              (p - guides.points[2]).GetLengthSq()) <= 0.01f + 1e-7f);
     }
@@ -488,7 +489,7 @@ void TestProximityCoverage()
     // disk of area 0.3 has rho^2 = 0.3 / pi.
     UsdGenSurfaceDesc const grid = Grid(8, 8, 1.0f, 1.0f);
     UsdGenCurveSetDesc const guides =
-        GuideSet({{GfVec3f(0.5f, 0.5f, 0.0f), GfVec3f(0.5f, 0.5f, 0.2f)}}, {5});
+        GuideSet({{usdGen::UsdGenVec3f(0.5f, 0.5f, 0.0f), usdGen::UsdGenVec3f(0.5f, 0.5f, 0.2f)}}, {5});
     UsdGenGraphDesc d = Desc(grid, {P("distribution", Tok("even")), P("density", VtValue(600.0)),
                                     P("proximity:mode", Tok("coverage")),
                                     P("proximity:coverage", VtValue(0.3))});
@@ -500,7 +501,7 @@ void TestProximityCoverage()
           "proximity coverage: cutoff2 ~ 0.3 / pi (got " + std::to_string(st.cutoff2) + ")");
     // Independent restatement of the calibration (spec §2.3).
     {
-        std::vector<GfVec3f> tri;  // 3 per fan triangle, face order
+        std::vector<usdGen::UsdGenVec3f> tri;  // 3 per fan triangle, face order
         for (size_t f = 0; f < grid.faceVertexCounts.size(); ++f) {
             int const *c = &grid.faceVertexIndices[4 * f];
             for (int j = 1; j <= 2; ++j)
@@ -510,7 +511,7 @@ void TestProximityCoverage()
         std::vector<float> area(nt), cdf(nt);
         float total = 0.0f;
         for (size_t t = 0; t < nt; ++t) {
-            GfVec3f const x = GfCross(tri[3 * t + 1] - tri[3 * t], tri[3 * t + 2] - tri[3 * t]);
+            usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(tri[3 * t + 1] - tri[3 * t], tri[3 * t + 2] - tri[3 * t]);
             area[t] = 0.5f * std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
             total += area[t];
         }
@@ -525,10 +526,10 @@ void TestProximityCoverage()
             float a = Mt01(rng), b = Mt01(rng);
             if (a + b > 1.0f) { a = 1.0f - a; b = 1.0f - b; }
             float const w0 = 1.0f - a - b;
-            GfVec3f const &A = tri[3 * t], &B = tri[3 * t + 1], &C = tri[3 * t + 2];
-            GfVec3f const p(A[0] * w0 + B[0] * a + C[0] * b, A[1] * w0 + B[1] * a + C[1] * b,
+            usdGen::UsdGenVec3f const &A = tri[3 * t], &B = tri[3 * t + 1], &C = tri[3 * t + 2];
+            usdGen::UsdGenVec3f const p(A[0] * w0 + B[0] * a + C[0] * b, A[1] * w0 + B[1] * a + C[1] * b,
                             A[2] * w0 + B[2] * a + C[2] * b);
-            GfVec3f const g = guides.points[0];
+            usdGen::UsdGenVec3f const g = guides.points[0];
             float const dx = p[0] - g[0], dy = p[1] - g[1], dz = p[2] - g[2];
             d2.push_back(dx * dx + dy * dy + dz * dz);
         }
@@ -562,8 +563,8 @@ void TestVertex()
     s.points = s.restPoints;
     s.faceVertexCounts = {4, 4};
     s.faceVertexIndices = {0, 1, 2, 3, 4, 5, 6, 7};
-    for (GfVec3f const &p : s.restPoints) s.uv.push_back(GfVec2f(p[0] * 0.5f, p[1]));
-    s.restNormals = VtVec3fArray(8, GfVec3f(0, 0, 1));
+    for (usdGen::UsdGenVec3f const &p : s.restPoints) s.uv.push_back(usdGen::UsdGenVec2f(p[0] * 0.5f, p[1]));
+    s.restNormals = usdGen::UsdGenVec3fArray(8, usdGen::UsdGenVec3f(0, 0, 1));
     s.restNormalDomain = UsdGenSurfaceNormalDomain::Vertex;
 
     UsdGenGraphDesc d = Desc(s, {P("distribution", Tok("vertex")), P("density", VtValue(100.0))});
@@ -579,7 +580,7 @@ void TestVertex()
                 found = true;
                 atVertex = atVertex && out.rootUV[c] == s.uv[v];
             }
-        atVertex = atVertex && found && out.rootN[c] == GfVec3f(0, 0, 1);
+        atVertex = atVertex && found && out.rootN[c] == usdGen::UsdGenVec3f(0, 0, 1);
     }
     Check(atVertex && seen.size() == 6, "vertex: unique positions, exactly at vertices, vertex uv / normal");
 
@@ -591,7 +592,7 @@ void TestVertex()
     for (uint32_t i = 0; i < 8; ++i) order[i] = i;
     std::mt19937 rng(1337u);
     strand::MsvcShuffle(&order, rng);
-    std::vector<GfVec3f> want;
+    std::vector<usdGen::UsdGenVec3f> want;
     for (uint32_t v : order) {
         if (want.size() == 3) break;
         if (std::find(want.begin(), want.end(), s.restPoints[v]) == want.end())
@@ -606,7 +607,7 @@ void TestVertex()
     // Proximity: only vertices within 0.6 of the guide at (0,0).
     d = Desc(s, {P("distribution", Tok("vertex")), P("density", VtValue(100.0)),
                  P("proximity:mode", Tok("distance")), P("proximity:distance", VtValue(1.05))});
-    AddGuides(&d, GuideSet({{GfVec3f(0, 0, 0), GfVec3f(0, 0, 1)}}, {1}));
+    AddGuides(&d, GuideSet({{usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0, 0, 1)}}, {1}));
     Check(Cook(d, &out) && out.totalCurves == 3, "vertex + proximity 1.05: (0,0), (1,0), (0,1) only");
 }
 
@@ -615,10 +616,10 @@ void TestPerGuide()
     // 2 x 2 grid over [0,1]^2 (faces 0..3); guides 0 and 3 are usable, 1 has
     // a single point and 2 has zero length.
     UsdGenCurveSetDesc const guides = GuideSet(
-        {{GfVec3f(0.2f, 0.3f, 0.0f), GfVec3f(0.2f, 0.3f, 0.5f), GfVec3f(0.2f, 0.4f, 0.9f)},
-         {GfVec3f(0.6f, 0.6f, 0.0f)},
-         {GfVec3f(0.4f, 0.4f, 0.0f), GfVec3f(0.4f, 0.4f, 0.0f)},
-         {GfVec3f(0.7f, 0.8f, 0.0f), GfVec3f(0.7f, 0.8f, 0.3f)}},
+        {{usdGen::UsdGenVec3f(0.2f, 0.3f, 0.0f), usdGen::UsdGenVec3f(0.2f, 0.3f, 0.5f), usdGen::UsdGenVec3f(0.2f, 0.4f, 0.9f)},
+         {usdGen::UsdGenVec3f(0.6f, 0.6f, 0.0f)},
+         {usdGen::UsdGenVec3f(0.4f, 0.4f, 0.0f), usdGen::UsdGenVec3f(0.4f, 0.4f, 0.0f)},
+         {usdGen::UsdGenVec3f(0.7f, 0.8f, 0.0f), usdGen::UsdGenVec3f(0.7f, 0.8f, 0.3f)}},
         {101, 102, 103, 104});
     UsdGenGraphDesc d = Desc(Grid(2, 2, 1.0f, 1.0f),
                              {P("distribution", Tok("perGuide")), P("density", VtValue(1000.0)),
@@ -688,22 +689,22 @@ void TestDensityMap()
         for (int k = 0; k < 400; ++k) {
             float const x = (float(k % 20) + 0.5f) / 20.0f, y = (float(k / 20) + 0.5f) / 20.0f;
             // Fan (0,1,2) holds y <= x, (0,2,3) the rest; UV barycentrics.
-            GfVec3f bary;
+            usdGen::UsdGenVec3f bary;
             int tri;
-            if (y <= x) { tri = 0; bary = GfVec3f(1.0f - x, x - y, y); }
-            else { tri = 1; bary = GfVec3f(1.0f - y, x, y - x); }
+            if (y <= x) { tri = 0; bary = usdGen::UsdGenVec3f(1.0f - x, x - y, y); }
+            else { tri = 1; bary = usdGen::UsdGenVec3f(1.0f - y, x, y - x); }
             // The operator's dot-product barycentrics, recomputed the same way.
-            GfVec2f const a(0, 0), b = tri == 0 ? GfVec2f(1, 0) : GfVec2f(1, 1),
-                          c = tri == 0 ? GfVec2f(1, 1) : GfVec2f(0, 1), q(x, y);
-            GfVec2f const v0 = b - a, v1 = c - a, v2 = q - a;
+            usdGen::UsdGenVec2f const a(0, 0), b = tri == 0 ? usdGen::UsdGenVec2f(1, 0) : usdGen::UsdGenVec2f(1, 1),
+                          c = tri == 0 ? usdGen::UsdGenVec2f(1, 1) : usdGen::UsdGenVec2f(0, 1), q(x, y);
+            usdGen::UsdGenVec2f const v0 = b - a, v1 = c - a, v2 = q - a;
             float const d00 = v0[0] * v0[0] + v0[1] * v0[1], d01 = v0[0] * v1[0] + v0[1] * v1[1];
             float const d11 = v1[0] * v1[0] + v1[1] * v1[1], d20 = v2[0] * v0[0] + v2[1] * v0[1];
             float const d21 = v2[0] * v1[0] + v2[1] * v1[1], den = d00 * d11 - d01 * d01;
             float const w1 = (d11 * d20 - d01 * d21) / den, w2 = (d00 * d21 - d01 * d20) / den;
-            bary = GfVec3f(1.0f - w1 - w2, w1, w2);
-            GfVec3f const P0(0, 0, 0), P1 = tri == 0 ? GfVec3f(1, 0, 0) : GfVec3f(1, 1, 0),
-                          P2 = tri == 0 ? GfVec3f(1, 1, 0) : GfVec3f(0, 1, 0);
-            GfVec3f const pos(P0[0] * bary[0] + P1[0] * bary[1] + P2[0] * bary[2],
+            bary = usdGen::UsdGenVec3f(1.0f - w1 - w2, w1, w2);
+            usdGen::UsdGenVec3f const P0(0, 0, 0), P1 = tri == 0 ? usdGen::UsdGenVec3f(1, 0, 0) : usdGen::UsdGenVec3f(1, 1, 0),
+                          P2 = tri == 0 ? usdGen::UsdGenVec3f(1, 1, 0) : usdGen::UsdGenVec3f(0, 1, 0);
+            usdGen::UsdGenVec3f const pos(P0[0] * bary[0] + P1[0] * bary[1] + P2[0] * bary[2],
                               P0[1] * bary[0] + P1[1] * bary[1] + P2[1] * bary[2], 0.0f);
             float const h = SpecRootHash(uint64_t(k), tri, -1, pos, bary);
             exact = exact && (h <= 0.5f) == (kept.count(k) == 1) &&
@@ -761,7 +762,7 @@ void TestDensityMap()
 void TestDeterminism()
 {
     UsdGenCurveSetDesc const guides =
-        GuideSet({{GfVec3f(0.3f, 0.3f, 0.0f), GfVec3f(0.3f, 0.3f, 0.1f)}}, {9});
+        GuideSet({{usdGen::UsdGenVec3f(0.3f, 0.3f, 0.0f), usdGen::UsdGenVec3f(0.3f, 0.3f, 0.1f)}}, {9});
     for (char const *mode : {"uvGrid", "vertex", "even", "perGuide", "random"}) {
         UsdGenGraphDesc d = Desc(Grid(6, 5, 1.0f, 0.8f),
                                  {P("distribution", Tok(mode)), P("density", VtValue(300.0)),

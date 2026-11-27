@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -47,10 +48,10 @@ constexpr float kHalfMortonCell = 0.0078125f;  // 2^-7
 static void AddQuad(UsdGenSurfaceDesc *s, float x0, float w)
 {
     int const vb = int(s->restPoints.size());
-    s->restPoints.push_back(GfVec3f(x0, 0.0f, 0.0f));
-    s->restPoints.push_back(GfVec3f(x0 + w, 0.0f, 0.0f));
-    s->restPoints.push_back(GfVec3f(x0 + w, w, 0.0f));
-    s->restPoints.push_back(GfVec3f(x0, w, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0, 0.0f, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0 + w, 0.0f, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0 + w, w, 0.0f));
+    s->restPoints.push_back(usdGen::UsdGenVec3f(x0, w, 0.0f));
     s->faceVertexCounts.push_back(4);
     for (int k = 0; k < 4; ++k)
         s->faceVertexIndices.push_back(vb + k);
@@ -139,14 +140,14 @@ static bool CheckSort(UsdGenGraphDesc const &d, int seed,
     std::vector<uint64_t> want;
     for (size_t f = 0; f < s.faceVertexCounts.size(); ++f) {
         // Fan area spelled as the engine's (kernels.cpp canonical).
-        GfVec3f const p0 = s.restPoints[s.faceVertexIndices[cornerOff[f]]];
+        usdGen::UsdGenVec3f const p0 = s.restPoints[s.faceVertexIndices[cornerOff[f]]];
         double area = 0.0;
         for (int t = 1; t + 1 < s.faceVertexCounts[f]; ++t) {
-            GfVec3f const pb =
+            usdGen::UsdGenVec3f const pb =
                 s.restPoints[s.faceVertexIndices[cornerOff[f] + size_t(t)]];
-            GfVec3f const pc =
+            usdGen::UsdGenVec3f const pc =
                 s.restPoints[s.faceVertexIndices[cornerOff[f] + size_t(t) + 1]];
-            GfVec3f const x = GfCross(pb - p0, pc - p0);
+            usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(pb - p0, pc - p0);
             area += double(0.5f * std::sqrt(
                 x[0] * x[0] + x[1] * x[1] + x[2] * x[2]));
         }
@@ -171,14 +172,14 @@ static bool CheckSort(UsdGenGraphDesc const &d, int seed,
     {
         size_t r = 0;
         for (size_t f = 0; f < s.faceVertexCounts.size(); ++f) {
-            GfVec3f const p0 = s.restPoints[s.faceVertexIndices[cornerOff[f]]];
+            usdGen::UsdGenVec3f const p0 = s.restPoints[s.faceVertexIndices[cornerOff[f]]];
             double area = 0.0;
             for (int t = 1; t + 1 < s.faceVertexCounts[f]; ++t) {
-                GfVec3f const pb =
+                usdGen::UsdGenVec3f const pb =
                     s.restPoints[s.faceVertexIndices[cornerOff[f] + size_t(t)]];
-                GfVec3f const pc = s.restPoints[s.faceVertexIndices[cornerOff[f] +
+                usdGen::UsdGenVec3f const pc = s.restPoints[s.faceVertexIndices[cornerOff[f] +
                                                                   size_t(t) + 1]];
-                GfVec3f const x = GfCross(pb - p0, pc - p0);
+                usdGen::UsdGenVec3f const x = usdGen::UsdGenCross(pb - p0, pc - p0);
                 area += double(0.5f * std::sqrt(
                     x[0] * x[0] + x[1] * x[1] + x[2] * x[2]));
             }

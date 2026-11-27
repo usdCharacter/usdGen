@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenImaging/rbfAnimation.h"
 #include "usdGenUsd/publishPaths.h"
+#include "usdGenUsd/convert/math.h"
 #include "pxr/imaging/hd/extComputationContext.h"
 #include "pxr/imaging/hd/extComputationCpuCallback.h"
 #include "pxr/imaging/hd/extComputationInputComputationSchema.h"
@@ -26,6 +27,7 @@ const TfToken base("ugBase"), samples("ugSamples"), coefficients("ugCoefficients
     centre("ugCentre"), scale("ugScale"), count("ugCount"), floatSafe("ugFloatSafe"),
     inputsName("usdGenAnimationInputs"), computeName("usdGenAnimation");
 template<class T> HdDataSourceBaseHandle Value(T const& v) {
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     return HdRetainedTypedSampledDataSource<T>::New(v);
 }
 HdContainerDataSourceHandle Container(TfToken const& name, HdDataSourceBaseHandle const& v) {
@@ -165,21 +167,21 @@ HdContainerDataSourceHandle Compute(SdfPath const& path, SdfPath const& coeffPat
 GfRange3d Bounds(GfRange3d const& box, usdGenMath::rbf::CubicField const& field) {
     GfVec3d const middle = (box.GetMin()+box.GetMax())*0.5;
     GfVec3d const half = box.GetSize()*0.5;
-    GfVec3d const y = (middle-field.Centre())/field.Scale();
+    GfVec3d const y = (middle-usdGenUsd::ToHost(field.Centre()))/field.Scale();
     double const radius = half.GetLength()/field.Scale();
     auto const c = Coefficients(field);
     size_t const n = field.SampleCount();
     GfVec3d jacobian[] = {c[n+1]+GfVec3d(1,0,0), c[n+2]+GfVec3d(0,1,0), c[n+3]+GfVec3d(0,0,1)};
     GfVec3d remainder(0);
     for (size_t i=0; i!=n; ++i) {
-        GfVec3d const delta = y-field.Samples()[i];
+        GfVec3d const delta = y-usdGenUsd::ToHost(field.Samples()[i]);
         double const r = delta.GetLength();
         for (int k=0; k!=3; ++k) {
             jacobian[k] += c[i]*(3*r*delta[k]);
             remainder[k] += std::abs(c[i][k])*(r+radius);
         }
     }
-    GfVec3d const center = middle+field.Displacement(middle);
+    GfVec3d const center = middle+usdGenUsd::ToHost(field.Displacement(middle));
     GfVec3d extent = remainder*(3*field.Scale()*radius*radius);
     for (int k=0; k!=3; ++k) {
         for (int j=0; j!=3; ++j) extent[k] += std::abs(jacobian[j][k])*half[j];
@@ -192,8 +194,8 @@ bool FloatSafe(GfRange3d const& box, usdGenMath::rbf::CubicField const& field) {
     // Bound absolute term magnitudes over the entire hair domain, including
     // a unit guard for sample/query rounding near zero distance. Large
     // coefficients or extrapolation keep the full-precision kernel.
-    GfVec3d const a = (box.GetMin()-field.Centre())/field.Scale();
-    GfVec3d const b = (box.GetMax()-field.Centre())/field.Scale();
+    GfVec3d const a = (box.GetMin()-usdGenUsd::ToHost(field.Centre()))/field.Scale();
+    GfVec3d const b = (box.GetMax()-usdGenUsd::ToHost(field.Centre()))/field.Scale();
     auto const c = Coefficients(field);
     size_t const n = field.SampleCount();
     GfVec3d magnitude;
@@ -264,14 +266,14 @@ std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
         auto const& tile = binding->groups[t];
         SdfPath const& tilePath = result->tilePaths[t];
         GfRange3d bounds;
-        for (auto const& p : tile.restPoints) bounds.UnionWith(GfVec3d(p));
+        for (auto const& p : tile.restPoints) bounds.UnionWith(GfVec3d(usdGenUsd::ToHost(p)));
         // Conservative width padding; the exact authored padding is retained
         // in the binding and is independent of pose.
         bounds.SetMin(bounds.GetMin()-GfVec3d(tile.widthPadding));
         bounds.SetMax(bounds.GetMax()+GfVec3d(tile.widthPadding));
         result->restBounds.emplace(tilePath, bounds);
         TfToken const names[] = {base,samples,centre,scale};
-        HdDataSourceBaseHandle const values[] = {Value(tile.restPoints),Value(rest),Value(VtDoubleArray{origin[0],origin[1],origin[2]}),
+        HdDataSourceBaseHandle const values[] = {Value(usdGenUsd::ToHost(tile.restPoints)),Value(rest),Value(VtDoubleArray{origin[0],origin[1],origin[2]}),
             Value(field.Scale())};
         result->computations[tilePath.AppendChild(inputsName)] = Container(HdExtComputationSchema::GetSchemaToken(),
             HdExtComputationSchema::Builder().SetInputValues(HdRetainedContainerDataSource::New(4,names,values)).Build());
@@ -285,12 +287,12 @@ std::shared_ptr<const RbfAnimation> PoseRbfAnimation(RbfAnimation const& previou
     auto surface = std::find_if(desc.surfaces.begin(),desc.surfaces.end(),[&](auto const& s) {return usdGenUsd::KeyFor(usdGenUsd::Paths(previous.host), s.path)==binding.surface;});
     if (surface == desc.surfaces.end()) return {};
     auto field = binding.field;
-    GfMatrix4d const relative = surface->worldMatrix * desc.xformMatrix.GetInverse();
-    std::vector<GfVec3d> now;
+    GfMatrix4d const relative = usdGenUsd::ToHost(surface->worldMatrix) * desc.xformMatrix.GetInverse();
+    std::vector<usdGen::UsdGenVec3d> now;
     now.reserve(binding.sampleIndices.size());
     for (size_t i : binding.sampleIndices) {
         if (i >= surface->points.size()) return {};
-        now.push_back(relative.Transform(GfVec3d(surface->points[i])));
+        now.push_back(relative.Transform(GfVec3d(usdGenUsd::ToHost(surface->points[i]))));
     }
     std::string error;
     if (!field.Solve(now,&error)) return {};

@@ -15,14 +15,12 @@
 #ifndef USDGEN_MATH_RAMP_H
 #define USDGEN_MATH_RAMP_H
 
-#include "usdGenMath/usdGenMath.h"
-
 #include "usdGenMath/math.h"
-#include "usdGen/api/cowArray.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 
 
 namespace usdGen {
@@ -49,7 +47,8 @@ inline UsdGenRampInterp UsdGenParseRampInterp(std::string_view text) noexcept
 /// `knots` are (position in [0,1], value), sorted by position (the adapter
 /// guarantees order). Empty knots -> the identity ramp (flat 1.0).
 void UsdGenBuildRampLut(
-    UsdGenVec2fArray const &knots,
+    UsdGenVec2f const *knots,
+    size_t knotCount,
     UsdGenRampInterp interpolation,
     float *lut,
     size_t lutSize = kUsdGenRampLutSize);
@@ -57,9 +56,23 @@ void UsdGenBuildRampLut(
 /// Evaluate one scalar ramp at parameter u in [0,1] (for tests and the
 /// single-sample paths); delegates to the same spline code as the LUT.
 float UsdGenEvalRamp(
-    UsdGenVec2fArray const &knots,
+    UsdGenVec2f const *knots,
+    size_t knotCount,
     UsdGenRampInterp interpolation,
     float u);
+
+/// Any contiguous knot container (data(), size()).
+template <class C, class = decltype(std::declval<C const &>().data())>
+void UsdGenBuildRampLut(C const &knots, UsdGenRampInterp interpolation, float *lut,
+                        size_t lutSize = kUsdGenRampLutSize)
+{
+    UsdGenBuildRampLut(knots.data(), knots.size(), interpolation, lut, lutSize);
+}
+template <class C, class = decltype(std::declval<C const &>().data())>
+float UsdGenEvalRamp(C const &knots, UsdGenRampInterp interpolation, float u)
+{
+    return UsdGenEvalRamp(knots.data(), knots.size(), interpolation, u);
+}
 
 }  // namespace usdGen
 

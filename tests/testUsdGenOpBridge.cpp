@@ -31,6 +31,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -117,13 +118,13 @@ UsdGenGraphDesc MakeDesc(char const *probeType)
     d.terminal = SdfPath("/groom/probe");
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
-    s.restPoints = VtVec3fArray((N + 1) * (N + 1));
-    s.uv = VtVec2fArray((N + 1) * (N + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((N + 1) * (N + 1));
+    s.uv = usdGen::UsdGenVec2fArray((N + 1) * (N + 1));
     for (int j = 0; j <= N; ++j)
         for (int i = 0; i <= N; ++i) {
             int const k = j * (N + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / N, float(j) / N);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / N, float(j) / N);
         }
     s.faceVertexCounts = VtIntArray(N * N, 4);
     s.faceVertexIndices = VtIntArray(N * N * 4);
@@ -221,7 +222,7 @@ void TestBufferSetView()
     b.totalCurves = 2;
     b.totalCvs = 5;
     b.px = VtFloatArray(5, 1.0f); b.py = VtFloatArray(5, 2.0f); b.pz = VtFloatArray(5, 3.0f);
-    b.rest = VtVec3fArray(5, GfVec3f(0.5f));
+    b.rest = usdGen::UsdGenVec3fArray(5, usdGen::UsdGenVec3f(0.5f));
     b.curveId = VtArray<uint64_t>(2, 9u);
     b.cvOffsets = VtIntArray{0, 2, 5};
     UsdGenPlane part;

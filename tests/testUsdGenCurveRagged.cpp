@@ -34,6 +34,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -68,13 +69,13 @@ UsdGenGraphDesc MakeRaggedCurveDesc(int resampleTo, float defaultWidth = 0.01f)
     s.id   = 0;
     s.faceVertexCounts  = VtIntArray({2, 6, 4});
     s.faceVertexIndices = VtIntArray(12);
-    s.restPoints        = VtVec3fArray(12);
-    s.points            = VtVec3fArray(12);
+    s.restPoints        = usdGen::UsdGenVec3fArray(12);
+    s.points            = usdGen::UsdGenVec3fArray(12);
     size_t k = 0;
     for (int c = 0; c < 3; ++c)
         for (int i = 0; i < s.faceVertexCounts[c]; ++i, ++k) {
             s.faceVertexIndices[k] = int(k);
-            s.restPoints[k] = GfVec3f(float(i), float(c), 0.0f);
+            s.restPoints[k] = usdGen::UsdGenVec3f(float(i), float(c), 0.0f);
             s.points[k]     = s.restPoints[k];
         }
     d.surfaces.push_back(std::move(s));

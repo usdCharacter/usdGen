@@ -5,6 +5,7 @@
 // UsdGenTilePublication at commit time (curveBuffer.h) — this file reads it
 // and never writes to it (no hashing, no hairId derivation here).
 #include "usdGenHydraCurves/usdGenTilePublisher.h"
+#include "usdGenUsd/convert/math.h"
 
 #include "usdGenUsd/walk/usdGenTokens.h"
 #include "usdGenUsd/publishPaths.h"
@@ -83,6 +84,7 @@ template <class T>
 HdSampledDataSourceHandle
 _Samp(T const &v)
 {
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     return HdRetainedTypedSampledDataSource<T>::New(v);
 }
 

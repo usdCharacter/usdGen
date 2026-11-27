@@ -51,13 +51,13 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     auto& b = info.source;
     b.totalCurves = 2; b.totalCvs = 8; b.topologyVersion = 3; b.valueVersion = 5;
     b.px = {0,1,2,3,4,5,6,7}; b.py = {1,2,1,2,1,2,1,2}; b.pz = {2,2,2,2,2,2,2,2};
-    b.rest = VtVec3fArray(8, GfVec3f(3,4,5)); b.width = VtFloatArray(8, 3.f);
+    b.rest = usdGen::UsdGenVec3fArray(8, usdGen::UsdGenVec3f(3,4,5)); b.width = VtFloatArray(8, 3.f);
     b.hairT = {0,.25f,.75f,1,0,.25f,.75f,1}; b.curveId = {7,19}; b.cvOffsets = {0,4,8};
-    b.rootPrim = {3,7}; b.rootUV = {GfVec2f(.2f,.4f), GfVec2f(.7f,.8f)};
-    b.rootT = VtVec3fArray(2, GfVec3f(0,1,0)); b.rootB = VtVec3fArray(2, GfVec3f(0,0,1));
-    b.rootN = VtVec3fArray(2, GfVec3f(1,0,0)); UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.25f,1.f}};
+    b.rootPrim = {3,7}; b.rootUV = {usdGen::UsdGenVec2f(.2f,.4f), usdGen::UsdGenVec2f(.7f,.8f)};
+    b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,1,0)); b.rootB = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,0,1));
+    b.rootN = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(1,0,0)); UsdGenPlane maskPlane; maskPlane.name = TfToken("curveMask"); maskPlane.interpolation = TfToken("uniform"); maskPlane.type = TfToken("float"); maskPlane.f = {{.25f,1.f}};
     UsdGenChunkDesc chunk; chunk.curveCount = 2; chunk.liveCount = 2; chunk.cvCount = 4;
-    chunk.tile = 9; chunk.surface = 2; chunk.boundsRest = GfRange3f(GfVec3f(0), GfVec3f(8));
+    chunk.tile = 9; chunk.surface = 2; chunk.boundsRest = usdGen::UsdGenRange3f(usdGen::UsdGenVec3f(0), usdGen::UsdGenVec3f(8));
     b.chunks = {chunk};
     UsdGenPlane vf; vf.name = TfToken("vFloat"); vf.interpolation = TfToken("vertex");
     vf.type = TfToken("float"); vf.arity = 3; vf.f = VtFloatArray(24, 1.25f);
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
             candidate->Poll() != SourceGenerationStatus::Ready) return std::shared_ptr<const VulkanSourceGeneration>{};
         return candidate->TakeReady();
     };
-    auto revised = info; revised.source.px[0] = 10; revised.source.rest[0] = GfVec3f(9);
+    auto revised = info; revised.source.px[0] = 10; revised.source.rest[0] = usdGen::UsdGenVec3f(9);
     revised.source.width[0] = 7; revised.source.extraCv[0].f[0] = 9; revised.source.valueVersion = 6;
     auto b = publish(revised); CHECK(b);
     CHECK(b->geometry().alreadyDeformed && b->geometry().tiles.size() == 1 &&

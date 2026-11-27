@@ -75,12 +75,12 @@ static VulkanSourcePrepareInfo SourceFixture() {
     auto& b = in.source;
     b.totalCurves = 2; b.totalCvs = 4; b.topologyVersion = 11; b.valueVersion = 23;
     b.px = {0,1,2,3}; b.py = {0,1,0,1}; b.pz = {0,0,1,1};
-    b.rest = VtVec3fArray(4, GfVec3f(2,3,4)); b.width = VtFloatArray(4, 1.f);
+    b.rest = usdGen::UsdGenVec3fArray(4, usdGen::UsdGenVec3f(2,3,4)); b.width = VtFloatArray(4, 1.f);
     b.hairT = {0,.5f,.5f,1}; b.curveId = {5,9}; b.cvOffsets = {0,2,4};
-    b.rootPrim = {3,7}; b.rootUV = {GfVec2f(.2f,.3f),GfVec2f(.4f,.5f)};
-    b.rootT = VtVec3fArray(2, GfVec3f(1,0,0));
-    b.rootB = VtVec3fArray(2, GfVec3f(0,1,0));
-    b.rootN = VtVec3fArray(2, GfVec3f(0,0,1));
+    b.rootPrim = {3,7}; b.rootUV = {usdGen::UsdGenVec2f(.2f,.3f),usdGen::UsdGenVec2f(.4f,.5f)};
+    b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(1,0,0));
+    b.rootB = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,1,0));
+    b.rootN = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,0,1));
     in.geometry.topologyVersion = 11; in.geometry.valueVersion = 23;
     in.geometry.elementCount = 2; in.geometry.pointCount = 4;
     in.geometry.alreadyDeformed = true;

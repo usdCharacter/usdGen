@@ -27,6 +27,7 @@
 #include <tbb/task_arena.h>
 #include <utility>
 #include <vector>
+#include "../utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -41,7 +42,7 @@ constexpr size_t kTimedRuns = 5;
 
 struct Fixture {
     UsdGenSurfaceDesc surface;
-    VtVec3fArray roots;
+    usdGen::UsdGenVec3fArray roots;
     bool quads = false;
 };
 
@@ -70,14 +71,14 @@ float NextUnit(uint32_t *state)
     return static_cast<float>(*state >> 8) * (1.0f / 16777216.0f);
 }
 
-GfVec3f TrianglePoint(GfVec3f const &p0, GfVec3f const &p1,
-                      GfVec3f const &p2, float u, float v)
+usdGen::UsdGenVec3f TrianglePoint(usdGen::UsdGenVec3f const &p0, usdGen::UsdGenVec3f const &p1,
+                      usdGen::UsdGenVec3f const &p2, float u, float v)
 {
     return p0 * (1.0f - u - v) + p1 * u + p2 * v;
 }
 
-GfVec3f QuadPoint(GfVec3f const &p0, GfVec3f const &p1,
-                  GfVec3f const &p2, GfVec3f const &p3, float u, float v)
+usdGen::UsdGenVec3f QuadPoint(usdGen::UsdGenVec3f const &p0, usdGen::UsdGenVec3f const &p1,
+                  usdGen::UsdGenVec3f const &p2, usdGen::UsdGenVec3f const &p3, float u, float v)
 {
     return p0 * ((1.0f - u) * (1.0f - v)) +
            p1 * (u * (1.0f - v)) + p2 * (u * v) +
@@ -92,7 +93,7 @@ Fixture MakeFixture(bool quads, size_t rootCount)
                                  : SdfPath("/SurfaceTriangles");
     fixture.surface.id = quads ? 2 : 1;
     size_t const verticesPerFace = quads ? 4 : 3;
-    fixture.surface.restPoints = VtVec3fArray(kFaceCount * verticesPerFace);
+    fixture.surface.restPoints = usdGen::UsdGenVec3fArray(kFaceCount * verticesPerFace);
     fixture.surface.faceVertexCounts = VtIntArray(kFaceCount,
                                                    static_cast<int>(verticesPerFace));
     fixture.surface.faceVertexIndices = VtIntArray(kFaceCount * verticesPerFace);
@@ -106,22 +107,22 @@ Fixture MakeFixture(bool quads, size_t rootCount)
         float const fx = static_cast<float>(x);
         float const fy = static_cast<float>(y);
         size_t const base = face * verticesPerFace;
-        fixture.surface.restPoints[base + 0] = GfVec3f(fx, fy, 0.00f);
-        fixture.surface.restPoints[base + 1] = GfVec3f(fx + 1.0f, fy, 0.06f);
+        fixture.surface.restPoints[base + 0] = usdGen::UsdGenVec3f(fx, fy, 0.00f);
+        fixture.surface.restPoints[base + 1] = usdGen::UsdGenVec3f(fx + 1.0f, fy, 0.06f);
         if (quads) {
             fixture.surface.restPoints[base + 2] =
-                GfVec3f(fx + 1.0f, fy + 1.0f, 0.14f);
+                usdGen::UsdGenVec3f(fx + 1.0f, fy + 1.0f, 0.14f);
             fixture.surface.restPoints[base + 3] =
-                GfVec3f(fx, fy + 1.0f, -0.04f);
+                usdGen::UsdGenVec3f(fx, fy + 1.0f, -0.04f);
         } else {
-            fixture.surface.restPoints[base + 2] = GfVec3f(fx, fy + 1.0f, -0.03f);
+            fixture.surface.restPoints[base + 2] = usdGen::UsdGenVec3f(fx, fy + 1.0f, -0.03f);
         }
         for (size_t corner = 0; corner != verticesPerFace; ++corner)
             fixture.surface.faceVertexIndices[base + corner] =
                 static_cast<int>(base + corner);
     }
 
-    fixture.roots = VtVec3fArray(rootCount);
+    fixture.roots = usdGen::UsdGenVec3fArray(rootCount);
     uint32_t state = quads ? 0x5eeda11u : 0xc3a5e7u;
     for (size_t i = 0; i != rootCount; ++i) {
         size_t const face = i % kFaceCount;
@@ -147,7 +148,7 @@ Fixture MakeFixture(bool quads, size_t rootCount)
     return fixture;
 }
 
-double Distance2(GfVec3f const &a, GfVec3f const &b)
+double Distance2(usdGen::UsdGenVec3f const &a, usdGen::UsdGenVec3f const &b)
 {
     double const dx = static_cast<double>(a[0]) - b[0];
     double const dy = static_cast<double>(a[1]) - b[1];
@@ -155,7 +156,7 @@ double Distance2(GfVec3f const &a, GfVec3f const &b)
     return dx * dx + dy * dy + dz * dz;
 }
 
-bool Verify(UsdGenSurfaceDesc const &surface, VtVec3fArray const &roots,
+bool Verify(UsdGenSurfaceDesc const &surface, usdGen::UsdGenVec3fArray const &roots,
             UsdGenSurfaceRootBindingResult const &result, std::string *error)
 {
     auto fail = [&](char const *message) {
@@ -176,14 +177,14 @@ bool Verify(UsdGenSurfaceDesc const &surface, VtVec3fArray const &roots,
         if (!result.valid[i] || result.unresolved[i] || result.rootPrim[i] < 0 ||
             static_cast<size_t>(result.rootPrim[i]) >= surface.faceVertexCounts.size())
             return fail("binding result contains an invalid or unresolved root");
-        GfVec2f const uv = result.rootUV[i];
+        usdGen::UsdGenVec2f const uv = result.rootUV[i];
         if (!std::isfinite(uv[0]) || !std::isfinite(uv[1]) || uv[0] < 0.0f ||
             uv[1] < 0.0f)
             return fail("binding result contains a non-finite or negative UV");
         size_t const face = static_cast<size_t>(result.rootPrim[i]);
         size_t const faceOffset = faceOffsets[face];
         int const count = surface.faceVertexCounts[face];
-        GfVec3f reconstructed;
+        usdGen::UsdGenVec3f reconstructed;
         if (count == 3) {
             if (uv[0] + uv[1] > 1.0001f) return fail("triangle UV is outside its domain");
             int const a = surface.faceVertexIndices[faceOffset + 0];
@@ -217,7 +218,7 @@ bool RunCase(Fixture const &fixture, size_t rootCount, tbb::task_arena &arena,
     auto const coldStart = std::chrono::steady_clock::now();
     arena.execute([&] {
         coldCache = UsdGenRestSurfaceBindingCache::Create(usdGenUsd::Lower(fixture.surface), &error);
-        coldOk = coldCache && coldCache->Bind(fixture.roots, GfMatrix4d(1.0),
+        coldOk = coldCache && coldCache->Bind(fixture.roots, usdGen::UsdGenMatrix4d(1.0),
                                                &coldResult, &error);
     });
     auto const coldEnd = std::chrono::steady_clock::now();
@@ -236,7 +237,7 @@ bool RunCase(Fixture const &fixture, size_t rootCount, tbb::task_arena &arena,
     for (size_t i = 0; i != kWarmupRuns; ++i) {
         UsdGenSurfaceRootBindingResult warmup;
         if (!arena.execute([&] {
-                return cache->Bind(fixture.roots, GfMatrix4d(1.0), &warmup, &error);
+                return cache->Bind(fixture.roots, usdGen::UsdGenMatrix4d(1.0), &warmup, &error);
             })) {
             std::fprintf(stderr, "warmup Bind failed: %s\n", error.c_str());
             return false;
@@ -248,7 +249,7 @@ bool RunCase(Fixture const &fixture, size_t rootCount, tbb::task_arena &arena,
         UsdGenSurfaceRootBindingResult timed;
         auto const begin = std::chrono::steady_clock::now();
         bool const ok = arena.execute([&] {
-            return cache->Bind(fixture.roots, GfMatrix4d(1.0), &timed, &error);
+            return cache->Bind(fixture.roots, usdGen::UsdGenMatrix4d(1.0), &timed, &error);
         });
         auto const end = std::chrono::steady_clock::now();
         if (!ok || !Verify(fixture.surface, fixture.roots, timed, &error)) {

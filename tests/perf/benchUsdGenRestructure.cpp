@@ -58,6 +58,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "../utils/pxrInterop.h"
 
 // ---- allocation counter ----------------------------------------------------
 // The count lives in usdGen (allocCounter.h). On ELF this replacement
@@ -134,13 +135,13 @@ UsdGenGraphDesc MakeG3(double noiseMagnitude)
     UsdGenSurfaceDesc s;
     s.path = SdfPath("/groom/surface");
     s.id = 0;
-    s.restPoints = VtVec3fArray((kNX + 1) * (kNY + 1));
-    s.uv = VtVec2fArray((kNX + 1) * (kNY + 1));
+    s.restPoints = usdGen::UsdGenVec3fArray((kNX + 1) * (kNY + 1));
+    s.uv = usdGen::UsdGenVec2fArray((kNX + 1) * (kNY + 1));
     for (int j = 0; j <= kNY; ++j)
         for (int i = 0; i <= kNX; ++i) {
             int const k = j * (kNX + 1) + i;
-            s.restPoints[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-            s.uv[k] = GfVec2f(float(i) / kNX, float(j) / kNY);
+            s.restPoints[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+            s.uv[k] = usdGen::UsdGenVec2f(float(i) / kNX, float(j) / kNY);
         }
     s.faceVertexCounts = VtIntArray(kNX * kNY, 4);
     s.faceVertexIndices = VtIntArray(kNX * kNY * 4);
@@ -351,7 +352,7 @@ PullCounts Pull(HdSceneIndexBaseRefPtr const &groom)
         VtValue const p = value(pointsLoc);
         VtValue const w = value(widthsLoc);
         VtValue const n = value(countsLoc);
-        if (p.IsHolding<VtVec3fArray>()) out.points += p.UncheckedGet<VtVec3fArray>().size();
+        if (p.IsHolding<VtVec3fArray>()) out.points += ToEngine(p.UncheckedGet<VtVec3fArray>()).size();
         if (n.IsHolding<VtIntArray>()) out.curves += n.UncheckedGet<VtIntArray>().size();
         (void)w;
     }

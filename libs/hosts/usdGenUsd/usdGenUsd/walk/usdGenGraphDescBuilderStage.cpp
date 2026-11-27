@@ -4,6 +4,7 @@
 // separate from the production Hydra builder so the production object has no
 // UsdStage dependencies (B-2/V2-11).
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGenUsd/walk/expressionConnection.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 #include "usdGenUsd/walk/usdGenGraphDescShared.h"
@@ -69,12 +70,13 @@ _GetTyped(UsdAttribute const &attr, UsdTimeCode time, T *out)
     if (!attr.Get(&value, time) || value.IsEmpty()) {
         return false;
     }
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;   // engine fields read the Gf type
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return true;
     }
-    if (value.CanCast<T>()) {
-        *out = value.template Cast<T>().template UncheckedGet<T>();
+    if (value.CanCast<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.template Cast<H>().template UncheckedGet<H>());
         return true;
     }
     return false;
@@ -89,8 +91,9 @@ _GetDedicated(UsdAttribute const &attr, UsdTimeCode time, T *out,
     if (!attr) return;
     VtValue value;
     if (!attr.Get(&value, time) || value.IsEmpty()) return;
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return;
     }
     errors->push_back(path.GetString() + ": " + name + " has wrong authored type");
@@ -115,6 +118,15 @@ _GetVec3fArray(UsdAttribute const &attr, UsdTimeCode time, VtVec3fArray *out)
         return true;
     }
     return _GetTyped(attr, time, out);
+}
+
+bool
+_GetVec3fArray(UsdAttribute const &attr, UsdTimeCode time, usdGen::UsdGenVec3fArray *out)
+{
+    VtVec3fArray host;
+    if (!_GetVec3fArray(attr, time, &host)) return false;
+    *out = usdGenUsd::ToEngine(host);
+    return true;
 }
 
 void
@@ -172,10 +184,11 @@ _GetPrimvarTyped(UsdPrim const &prim, TfToken const &name, UsdTimeCode time,
 {
     VtValue v;
     _GetPrimvar(prim, name, time, &v);
-    if (v.IsHolding<T>()) {
-        *out = v.UncheckedGet<T>();
-    } else if (v.CanCast<T>()) {
-        *out = v.template Cast<T>().template UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;
+    if (v.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(v.UncheckedGet<H>());
+    } else if (v.CanCast<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(v.template Cast<H>().template UncheckedGet<H>());
     }
 }
 
@@ -208,7 +221,7 @@ _PullParams(UsdPrim const &prim, double time,
         }
         UsdGenParamValue p;
         p.name = TfToken(s.substr(7));  // strip "usdGen:" (02 §0.7)
-        p.value = std::move(value);
+        p.value = usdGenUsd::ToEngineValue(value);
         p.animated = attr.ValueMightBeTimeVarying();
         params->push_back(std::move(p));
     }
@@ -574,7 +587,7 @@ _BuildSurface(UsdStageRefPtr const &stage, SdfPath const &path, double time,
     VtValue normals;
     if (mesh.GetNormalsAttr().Get(&normals, UsdTimeCode::Default()) && !normals.IsEmpty()) {
         if (normals.IsHolding<VtVec3fArray>()) {
-            out->restNormals = normals.UncheckedGet<VtVec3fArray>();
+            out->restNormals = usdGenUsd::ToEngine(normals.UncheckedGet<VtVec3fArray>());
             if (!out->restNormals.empty())
                 out->restNormalDomain = _NormalDomain(mesh.GetNormalsInterpolation());
         } else {
@@ -1259,7 +1272,7 @@ BuildGraphDescFromStage(
                 bool const hasLiteral = a.Get(&literal, UsdTimeCode(time));
                 binding.destinationShape = _ExpressionShape(
                     a.GetTypeName(), hasLiteral ? &literal : nullptr);
-                binding.literal = std::move(literal);
+                binding.literal = usdGenUsd::ToEngineValue(literal);
                 node.expressionBindings.push_back(std::move(binding));
             }
         }

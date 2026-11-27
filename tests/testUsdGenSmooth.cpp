@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -46,7 +47,7 @@ static bool Near(float a, float b, float tol = kTol)
 // fixture (surface-free, rebind never): valid skin bindings plus identity
 // root frames, so rootT=(1,0,0), rootB=(0,1,0), rootN=(0,0,1).
 static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
-                                          std::vector<GfVec3f> const &roots,
+                                          std::vector<usdGen::UsdGenVec3f> const &roots,
                                           int cvs, float step)
 {
     UsdGenCurveSetDesc set;
@@ -59,15 +60,15 @@ static UsdGenCurveSetDesc StraightStrands(SdfPath const &path,
     for (size_t c = 0; c < n; ++c)
         for (int i = 0; i < cvs; ++i)
             set.points[c * size_t(cvs) + size_t(i)] =
-                roots[c] + GfVec3f(0.0f, float(i) * step, 0.0f);
+                roots[c] + usdGen::UsdGenVec3f(0.0f, float(i) * step, 0.0f);
     set.rest = set.points;
     set.widths.assign(n * size_t(cvs), 0.1f);
     set.curveId.resize(n);
     for (size_t c = 0; c < n; ++c) set.curveId[c] = uint64_t(c);
     set.skinPrim.resize(n);
     for (size_t c = 0; c < n; ++c) set.skinPrim[c] = int(c);
-    set.skinPrimUv.assign(n, GfVec2f(0.2f, 0.3f));
-    set.rootFrame.assign(n, GfMatrix4d(1.0));
+    set.skinPrimUv.assign(n, usdGen::UsdGenVec2f(0.2f, 0.3f));
+    set.rootFrame.assign(n, usdGen::UsdGenMatrix4d(1.0));
     return set;
 }
 
@@ -171,14 +172,14 @@ static UsdGenGraphDesc KinkedDesc(char const *root)
     UsdGenGraphDesc desc;
     desc.description = SdfPath(root);
     desc.defaultWidth = 0.01f;
-    std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0),
-                                        GfVec3f(6, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(3, 0, 0),
+                                        usdGen::UsdGenVec3f(6, 0, 0)};
     desc.curveSets.push_back(
         StraightStrands(SdfPath(std::string(root) + "/hair"), roots, kCvs, kStep));
-    VtVec3fArray &points = desc.curveSets.back().points;
-    VtVec3fArray &rest = desc.curveSets.back().rest;
+    usdGen::UsdGenVec3fArray &points = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray &rest = desc.curveSets.back().rest;
     for (size_t c = 0; c < 3; ++c) {
-        GfVec3f kink(0.5f + 0.25f * float(c), 0.0f, 0.0f);
+        usdGen::UsdGenVec3f kink(0.5f + 0.25f * float(c), 0.0f, 0.0f);
         points[c * size_t(kCvs) + 2] += kink;
         rest[c * size_t(kCvs) + 2] += kink;
     }
@@ -193,7 +194,7 @@ static UsdGenNodeDesc SmoothNode(char const *root, int seed)
                   SdfPath(std::string(root) + "/source"), seed);
 }
 
-static GfVec3f InputAt(VtVec3fArray const &points, size_t c, int i)
+static usdGen::UsdGenVec3f InputAt(usdGen::UsdGenVec3fArray const &points, size_t c, int i)
 {
     return points[c * size_t(kCvs) + size_t(i)];
 }
@@ -203,7 +204,7 @@ static GfVec3f InputAt(VtVec3fArray const &points, size_t c, int i)
 static void CheckAlongCurveCook()
 {
     UsdGenGraphDesc desc = KinkedDesc("/smooth");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/smooth", 7);
     smooth.params = {{TfToken("strength"), VtValue(1.0f), false},
                      {TfToken("iterations"), VtValue(1), false},
@@ -222,7 +223,7 @@ static void CheckAlongCurveCook()
     for (size_t c = 0; c < 3; ++c) {
         for (int i = 0; i < kCvs; ++i) {
             size_t const o = c * size_t(kCvs) + size_t(i);
-            GfVec3f expected;
+            usdGen::UsdGenVec3f expected;
             if (i == 0) expected = InputAt(input, c, 0);
             else if (i == kCvs - 1) expected = InputAt(input, c, kCvs - 2);
             else
@@ -242,7 +243,7 @@ static void CheckAlongCurveCook()
 static void CheckLockRootOffCook()
 {
     UsdGenGraphDesc desc = KinkedDesc("/unlocked");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/unlocked", 7);
     smooth.params = {{TfToken("strength"), VtValue(1.0f), false},
                      {TfToken("iterations"), VtValue(1), false},
@@ -257,7 +258,7 @@ static void CheckLockRootOffCook()
     bool rootsRelaxed = true;
     for (size_t c = 0; c < 3; ++c) {
         size_t const o = c * size_t(kCvs);
-        GfVec3f const expected = InputAt(input, c, 1);
+        usdGen::UsdGenVec3f const expected = InputAt(input, c, 1);
         rootsRelaxed = rootsRelaxed && Near(out.px[o], expected[0], 1e-5f) &&
             Near(out.py[o], expected[1], 1e-5f) &&
             Near(out.pz[o], expected[2], 1e-5f);
@@ -268,7 +269,7 @@ static void CheckLockRootOffCook()
 static void CheckSharpenCook()
 {
     UsdGenGraphDesc desc = KinkedDesc("/sharpen");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/sharpen", 7);
     smooth.params = {{TfToken("strength"), VtValue(-1.0f), false},
                      {TfToken("iterations"), VtValue(1), false},
@@ -283,9 +284,9 @@ static void CheckSharpenCook()
     bool formula = true, amplified = true;
     for (size_t c = 0; c < 3; ++c) {
         size_t const o = c * size_t(kCvs) + 2;
-        GfVec3f const avg =
+        usdGen::UsdGenVec3f const avg =
             0.5f * (InputAt(input, c, 1) + InputAt(input, c, 3));
-        GfVec3f const expected = 2.0f * InputAt(input, c, 2) - avg;
+        usdGen::UsdGenVec3f const expected = 2.0f * InputAt(input, c, 2) - avg;
         formula = formula && Near(out.px[o], expected[0], 1e-5f) &&
             Near(out.py[o], expected[1], 1e-5f) &&
             Near(out.pz[o], expected[2], 1e-5f);
@@ -380,7 +381,7 @@ static void CheckIdentityCooks()
 static void CheckStrengthExpressionCook()
 {
     UsdGenGraphDesc desc = KinkedDesc("/expr");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/expr", 7);
     smooth.params = {{TfToken("iterations"), VtValue(1), false},
                      {TfToken("lockRoot"), VtValue(true), false}};
@@ -403,14 +404,14 @@ static void CheckStrengthExpressionCook()
             out.pz[o0] == InputAt(input, 0, i)[2];
         for (size_t c = 1; c <= 2; ++c) {
             size_t const o = c * size_t(kCvs) + size_t(i);
-            GfVec3f avg = InputAt(input, c, i);
+            usdGen::UsdGenVec3f avg = InputAt(input, c, i);
             if (i > 0 && i + 1 < kCvs)
                 avg = 0.5f * (InputAt(input, c, i - 1) + InputAt(input, c, i + 1));
             else if (i == kCvs - 1)
                 avg = InputAt(input, c, kCvs - 2);
             float const s = c == 1 ? 0.5f : 1.0f;
-            GfVec3f const in = InputAt(input, c, i);
-            GfVec3f const expected = in + s * (avg - in);
+            usdGen::UsdGenVec3f const in = InputAt(input, c, i);
+            usdGen::UsdGenVec3f const expected = in + s * (avg - in);
             bool const match = Near(out.px[o], expected[0], 1e-5f) &&
                 Near(out.py[o], expected[1], 1e-5f) &&
                 Near(out.pz[o], expected[2], 1e-5f);
@@ -426,7 +427,7 @@ static void CheckStrengthExpressionCook()
 static void CheckMaskExpressionCook()
 {
     UsdGenGraphDesc desc = KinkedDesc("/maskexpr");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/maskexpr", 7);
     smooth.params = {{TfToken("strength"), VtValue(1.0f), false},
                      {TfToken("iterations"), VtValue(1), false},
@@ -449,7 +450,7 @@ static void CheckMaskExpressionCook()
             out.pz[o] == InputAt(input, 1, i)[2];
         for (size_t c : {size_t(0), size_t(2)}) {
             size_t const q = c * size_t(kCvs) + size_t(i);
-            GfVec3f expected = InputAt(input, c, i);
+            usdGen::UsdGenVec3f expected = InputAt(input, c, i);
             if (i > 0 && i + 1 < kCvs)
                 expected = 0.5f * (InputAt(input, c, i - 1) + InputAt(input, c, i + 1));
             else if (i == kCvs - 1)
@@ -474,22 +475,22 @@ static UsdGenGraphDesc NeighboursDesc(char const *root)
     desc.defaultWidth = 0.01f;
     // A close pair (roots 0.1 apart, strand 1 lifted in +Z past its root)
     // plus a far strand no radius reaches.
-    std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(0.1f, 0, 0),
-                                        GfVec3f(5, 0, 0)};
+    std::vector<usdGen::UsdGenVec3f> const roots = {usdGen::UsdGenVec3f(0, 0, 0), usdGen::UsdGenVec3f(0.1f, 0, 0),
+                                        usdGen::UsdGenVec3f(5, 0, 0)};
     desc.curveSets.push_back(StraightStrands(
         SdfPath(std::string(root) + "/hair"), roots, kNbCvs, kStep));
-    VtVec3fArray &points = desc.curveSets.back().points;
-    VtVec3fArray &rest = desc.curveSets.back().rest;
+    usdGen::UsdGenVec3fArray &points = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray &rest = desc.curveSets.back().rest;
     for (int i = 1; i < kNbCvs; ++i) {
-        points[size_t(kNbCvs) + size_t(i)] += GfVec3f(0, 0, 1.0f);
-        rest[size_t(kNbCvs) + size_t(i)] += GfVec3f(0, 0, 1.0f);
+        points[size_t(kNbCvs) + size_t(i)] += usdGen::UsdGenVec3f(0, 0, 1.0f);
+        rest[size_t(kNbCvs) + size_t(i)] += usdGen::UsdGenVec3f(0, 0, 1.0f);
     }
     desc.nodes.push_back(SourceNode(SdfPath(std::string(root) + "/source"),
                                    SdfPath(std::string(root) + "/hair")));
     return desc;
 }
 
-static GfVec3f NbInputAt(VtVec3fArray const &points, size_t c, int i)
+static usdGen::UsdGenVec3f NbInputAt(usdGen::UsdGenVec3fArray const &points, size_t c, int i)
 {
     return points[c * size_t(kNbCvs) + size_t(i)];
 }
@@ -497,7 +498,7 @@ static GfVec3f NbInputAt(VtVec3fArray const &points, size_t c, int i)
 static void CheckNeighboursCook()
 {
     UsdGenGraphDesc desc = NeighboursDesc("/neighbours");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/neighbours", 7);
     smooth.params = {{TfToken("mode"), VtValue(TfToken("neighbours")), false},
                      {TfToken("strength"), VtValue(1.0f), false},
@@ -519,7 +520,7 @@ static void CheckNeighboursCook()
     for (int i = 0; i < kNbCvs; ++i) {
         for (size_t c = 0; c < 2; ++c) {
             size_t const o = c * size_t(kNbCvs) + size_t(i);
-            GfVec3f const expected =
+            usdGen::UsdGenVec3f const expected =
                 i == 0 ? NbInputAt(input, c, 0) : NbInputAt(input, 1 - c, i);
             pairAveraged = pairAveraged && Near(out.px[o], expected[0], 1e-5f) &&
                 Near(out.py[o], expected[1], 1e-5f) &&
@@ -541,7 +542,7 @@ static void CheckNeighboursCook()
 static void CheckNeighboursIterationsCook()
 {
     UsdGenGraphDesc desc = NeighboursDesc("/nbiter");
-    VtVec3fArray const input = desc.curveSets.back().points;
+    usdGen::UsdGenVec3fArray const input = desc.curveSets.back().points;
     UsdGenNodeDesc smooth = SmoothNode("/nbiter", 7);
     smooth.params = {{TfToken("mode"), VtValue(TfToken("neighbours")), false},
                      {TfToken("strength"), VtValue(0.5f), false},
@@ -561,9 +562,9 @@ static void CheckNeighboursIterationsCook()
     for (size_t c = 0; c < 2; ++c) {
         for (int i = 1; i < kNbCvs; ++i) {
             size_t const o = c * size_t(kNbCvs) + size_t(i);
-            GfVec3f const target = NbInputAt(input, 1 - c, i);
-            GfVec3f const in = NbInputAt(input, c, i);
-            GfVec3f const expected = in + 0.75f * (target - in);
+            usdGen::UsdGenVec3f const target = NbInputAt(input, 1 - c, i);
+            usdGen::UsdGenVec3f const in = NbInputAt(input, c, i);
+            usdGen::UsdGenVec3f const expected = in + 0.75f * (target - in);
             closed = closed && Near(out.px[o], expected[0], 1e-5f) &&
                 Near(out.py[o], expected[1], 1e-5f) &&
                 Near(out.pz[o], expected[2], 1e-5f);

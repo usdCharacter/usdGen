@@ -50,6 +50,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
@@ -225,13 +226,13 @@ UsdStageRefPtr CommitStage(PomadeModel const &model, PomadeCommitPaths const &pa
     // subset naming the model's faces.
     if (stage && snapshot.hasScalp && !paths.scalpPath.IsEmpty()) {
         UsdGeomMesh mesh = UsdGeomMesh::Define(stage, paths.ScalpMeshPath());
-        VtVec3fArray points(snapshot.scalp.points.size() / 3);
+        usdGen::UsdGenVec3fArray points(snapshot.scalp.points.size() / 3);
         for (size_t i = 0; i < points.size(); ++i) {
-            points[i] = GfVec3f(snapshot.scalp.points[i * 3],
+            points[i] = usdGen::UsdGenVec3f(snapshot.scalp.points[i * 3],
                                 snapshot.scalp.points[i * 3 + 1],
                                 snapshot.scalp.points[i * 3 + 2]);
         }
-        mesh.GetPointsAttr().Set(points);
+        mesh.GetPointsAttr().Set(ToHost(points));
         mesh.GetFaceVertexCountsAttr().Set(
             VtIntArray(snapshot.scalp.faceVertexCounts.begin(),
                        snapshot.scalp.faceVertexCounts.end()));
@@ -378,7 +379,7 @@ std::string CageTriangleDiagnostics(UsdPrim const &curves)
         return " [cage diagnostic unavailable]";
     }
     for (size_t index = 0; index < triangles.size(); ++index) {
-        GfVec2f const a = charts[index * 3], b = charts[index * 3 + 1],
+        usdGen::UsdGenVec2f const a = charts[index * 3], b = charts[index * 3 + 1],
                       c = charts[index * 3 + 2];
         float const area2 = (b[0] - a[0]) * (c[1] - a[1]) -
                             (b[1] - a[1]) * (c[0] - a[0]);
@@ -411,7 +412,7 @@ bool OutputFrameContract(UsdStagePtr const &stage, SdfPath const &description)
         if (set.rootFrame.size() != set.curveVertexCounts.size() ||
             set.curveId.size() != set.curveVertexCounts.size()) return false;
         for (size_t curve = 0; curve < set.rootFrame.size(); ++curve) {
-            GfMatrix4d const &frame = set.rootFrame[curve];
+            usdGen::UsdGenMatrix4d const &frame = set.rootFrame[curve];
             if (!UsdGenValidateAuthoredRootFrame(frame)) return false;
             ++curveCount;
         }
@@ -566,8 +567,8 @@ bool CageAffineTerminalResponse(UsdGenCurveBuffer const &before,
     return true;
 }
 
-bool BarycentricXZ(GfVec3f const &p, GfVec3f const &a, GfVec3f const &b,
-                   GfVec3f const &c, std::array<float, 3> *out)
+bool BarycentricXZ(usdGen::UsdGenVec3f const &p, usdGen::UsdGenVec3f const &a, usdGen::UsdGenVec3f const &b,
+                   usdGen::UsdGenVec3f const &c, std::array<float, 3> *out)
 {
     float const abx = b[0] - a[0], abz = b[2] - a[2];
     float const acx = c[0] - a[0], acz = c[2] - a[2];
@@ -580,7 +581,7 @@ bool BarycentricXZ(GfVec3f const &p, GfVec3f const &a, GfVec3f const &b,
     return true;
 }
 
-GfVec3f SampleCageRail(VtVec3fArray const &points, VtFloatArray const &stations,
+usdGen::UsdGenVec3f SampleCageRail(usdGen::UsdGenVec3fArray const &points, VtFloatArray const &stations,
                         int begin, int end, float t)
 {
     if (t <= stations[size_t(begin)]) return points[size_t(begin)];
@@ -653,12 +654,12 @@ bool CageTrajectoryFollowsPhysicalRoot(UsdPrim const &curves,
         if (!CurveSpan(output, int(curve), &begin, &end) || end - begin < 3) {
             return false;
         }
-        GfVec3f const root(output.px[size_t(begin)], output.py[size_t(begin)],
+        usdGen::UsdGenVec3f const root(output.px[size_t(begin)], output.py[size_t(begin)],
                            output.pz[size_t(begin)]);
         int const owner = owners->i[curve];
         bool found = false;
         for (size_t index = 0; index < triangles.size(); ++index) {
-            GfVec3i const triangle = triangles[index];
+            usdGen::UsdGenVec3i const triangle = triangles[index];
             int const ia = triangle[0], ib = triangle[1], ic = triangle[2];
             int const ownerIndex = triangleOwners[index];
             if (ownerIndex < 0 || size_t(ownerIndex) >= ownerIds.size() ||
@@ -676,7 +677,7 @@ bool CageTrajectoryFollowsPhysicalRoot(UsdPrim const &curves,
                 rootWeights[2] < -2.0e-4f) {
                 continue;
             }
-            GfVec3f const rootPoint =
+            usdGen::UsdGenVec3f const rootPoint =
                 rails[size_t(offsets[size_t(ia)])] * rootWeights[0] +
                 rails[size_t(offsets[size_t(ib)])] * rootWeights[1] +
                 rails[size_t(offsets[size_t(ic)])] * rootWeights[2];
@@ -684,17 +685,17 @@ bool CageTrajectoryFollowsPhysicalRoot(UsdPrim const &curves,
                 float const progress = float(cv) / float(end - begin - 1);
                 std::array<float, 3> const weights =
                     CageBiasedWeights(rootWeights, ownerBias[size_t(ownerIndex)], progress);
-                GfVec3f const local =
-                    SampleCageRail(rails, stations, offsets[size_t(ia)],
+                usdGen::UsdGenVec3f const local =
+                    SampleCageRail(ToEngine(rails), stations, offsets[size_t(ia)],
                                    offsets[size_t(ia + 1)], progress) * weights[0] +
-                    SampleCageRail(rails, stations, offsets[size_t(ib)],
+                    SampleCageRail(ToEngine(rails), stations, offsets[size_t(ib)],
                                    offsets[size_t(ib + 1)], progress) * weights[1] +
-                    SampleCageRail(rails, stations, offsets[size_t(ic)],
+                    SampleCageRail(ToEngine(rails), stations, offsets[size_t(ic)],
                                    offsets[size_t(ic + 1)], progress) * weights[2];
-                GfVec3f const expected = cv == 0 ? root :
+                usdGen::UsdGenVec3f const expected = cv == 0 ? root :
                     local + (root - rootPoint) * (1.0f - progress);
                 int const at = begin + cv;
-                GfVec3f const actual(output.px[size_t(at)], output.py[size_t(at)],
+                usdGen::UsdGenVec3f const actual(output.px[size_t(at)], output.py[size_t(at)],
                                      output.pz[size_t(at)]);
                 if ((actual - expected).GetLength() > 5.0e-4f) return false;
             }
@@ -1025,12 +1026,12 @@ int main()
     swapStage->GetSessionLayer()->InsertSubLayerPath(live->GetIdentifier(), 0);
     {
         UsdGeomMesh mesh = UsdGeomMesh::Define(swapStage, paths.scalpPath);
-        VtVec3fArray points(grid.points.size() / 3);
+        usdGen::UsdGenVec3fArray points(grid.points.size() / 3);
         for (size_t i = 0; i < points.size(); ++i) {
-            points[i] = GfVec3f(grid.points[i * 3], grid.points[i * 3 + 1],
+            points[i] = usdGen::UsdGenVec3f(grid.points[i * 3], grid.points[i * 3 + 1],
                                 grid.points[i * 3 + 2]);
         }
-        mesh.GetPointsAttr().Set(points);
+        mesh.GetPointsAttr().Set(ToHost(points));
         mesh.GetFaceVertexCountsAttr().Set(
             VtIntArray(grid.counts.begin(), grid.counts.end()));
         mesh.GetFaceVertexIndicesAttr().Set(

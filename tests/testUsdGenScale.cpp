@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -396,7 +397,7 @@ static void CheckRampCook()
     if (plain.totalCvs == 0 || plain.hairT.size() != out.totalCvs) return;
     // Expected factors from the same LUT builder over the source hairT.
     std::vector<float> lut(kUsdGenRampLutSize, 1.0f);
-    UsdGenBuildRampLut(knots, UsdGenRampInterp::Linear, lut.data(),
+    UsdGenBuildRampLut(ToEngine(knots), UsdGenRampInterp::Linear, lut.data(),
                        kUsdGenRampLutSize);
     bool profile = true, rootsFixed = true, gathered = true;
     for (size_t c = 0; c < 2; ++c) {

@@ -7,6 +7,7 @@
 // honored by sweeping every usdGen:* attribute of every participating prim
 // into UsdGenNodeDesc::params, whether or not a dedicated field exists.
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 #include "usdGenUsd/walk/usdGenGraphDescShared.h"
 #include "usdGenUsd/walk/usdGenTokens.h"
@@ -227,12 +228,13 @@ _HGetTyped(HdContainerDataSourceHandle const &root, _HdTime t, T *out,
     if (!_HSampledValue(root, t, &value, elems)) {
         return false;
     }
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;   // engine fields read the Gf type
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return true;
     }
-    if (value.CanCast<T>()) {
-        *out = value.template Cast<T>().template UncheckedGet<T>();
+    if (value.CanCast<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.template Cast<H>().template UncheckedGet<H>());
         return true;
     }
     return false;
@@ -246,8 +248,9 @@ _HGetDedicated(HdContainerDataSourceHandle const &root, _HdTime t, T *out,
 {
     VtValue value;
     if (!_HSampledValue(root, t, &value, elems)) return;
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return;
     }
     errors->push_back(path.GetString() + ": " + name + " has wrong authored type");
@@ -525,12 +528,13 @@ _HPrimvarTyped(HdContainerDataSourceHandle const &primDs, char const *name,
     if (!_HPrimvarValue(primDs, name, t, &value)) {
         return false;
     }
-    if (value.IsHolding<T>()) {
-        *out = value.UncheckedGet<T>();
+    using H = typename usdGenUsd::HostRep<T>::Type;
+    if (value.IsHolding<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.UncheckedGet<H>());
         return true;
     }
-    if (value.CanCast<T>()) {
-        *out = value.template Cast<T>().template UncheckedGet<T>();
+    if (value.CanCast<H>()) {
+        *out = usdGenUsd::HostRep<T>::In(value.template Cast<H>().template UncheckedGet<H>());
         return true;
     }
     return false;
@@ -641,7 +645,7 @@ _HPullUsdGen(HdContainerDataSourceHandle const &usdGen, _HdTime t,
         }
         UsdGenParamValue p;
         p.name = TfToken(full.substr(7));  // strip "usdGen:" (02 §0.7)
-        p.value = v;
+        p.value = usdGenUsd::ToEngineValue(v);
         // P6 follow-up: HdSampledDataSource exposes no ValueMightBeTimeVarying
         // equivalent; fixtures are static so false holds. Animated-param
         // detection (e.g. via GetContributingSampleTimesForInterval) arrives
@@ -823,7 +827,7 @@ _HBuildSurface(HdSceneIndexBase &input, SdfPath const &path, double time,
                     out->restNormalDomain = UsdGenSurfaceNormalDomain::Invalid;
                     errors->push_back(path.GetString() + ": rest normals have invalid value type");
                 } else {
-                    out->restNormals = normalValue.UncheckedGet<VtVec3fArray>();
+                    out->restNormals = usdGenUsd::ToEngine(normalValue.UncheckedGet<VtVec3fArray>());
                     if (!out->restNormals.empty()) {
                         HdSampledDataSourceHandle const interpolation =
                             HdSampledDataSource::Cast(rest->Get(TfToken("normalsInterpolation")));
@@ -1043,7 +1047,7 @@ _HBuildCurveSet(HdSceneIndexBase &input, SdfPath const &path,
         if (restPoints) {
             VtValue const value = restPoints->GetValue(t);
             if (value.IsHolding<VtVec3fArray>()) {
-                out->rest = value.UncheckedGet<VtVec3fArray>();
+                out->rest = usdGenUsd::ToEngine(value.UncheckedGet<VtVec3fArray>());
                 curveRestRead = true;
             }
         }
@@ -1282,6 +1286,7 @@ _HReadNode(HdSceneIndexBase &input, SdfPath const &p, _HdTime t)
                 binding.nativeType, binding.literal, &arrayElementCount);
             binding.destinationShape = usdGen::expr::ValueShapeFromNativeType(
                 binding.nativeType, arrayElementCount, arrayCountKnown);
+            binding.literal = usdGenUsd::ToEngineValue(binding.literal);
             node.expressionBindings.push_back(std::move(binding));
         }
     }

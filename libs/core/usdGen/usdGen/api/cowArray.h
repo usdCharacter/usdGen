@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: MIT
 // UsdGenCowArray<T>: a copy-on-write array with VtArray's read API and
 // detach rule. Alias phase (step 11.1): VtArray until the array swap (11.6).
+// Since the math swap (11.4) the math arrays hold usdGenMath types; hosts
+// convert Gf arrays with usdGenUsd/convert/math.h.
 #pragma once
 #include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
 
 #include "pxr/base/vt/array.h"
-#include "pxr/base/vt/types.h"
 
 #include <cstdint>
 
@@ -14,22 +16,22 @@ namespace usdGen {
 template <class T>
 using UsdGenCowArray = PXR_NS::VtArray<T>;
 
-using UsdGenFloatArray = PXR_NS::VtFloatArray;
-using UsdGenIntArray = PXR_NS::VtIntArray;
-using UsdGenBoolArray = PXR_NS::VtBoolArray;
-using UsdGenUInt64Array = PXR_NS::VtUInt64Array;
-using UsdGenTokenArray = PXR_NS::VtTokenArray;
-using UsdGenVec2fArray = PXR_NS::VtVec2fArray;
-using UsdGenVec3fArray = PXR_NS::VtVec3fArray;
-using UsdGenVec4fArray = PXR_NS::VtVec4fArray;
-using UsdGenVec2dArray = PXR_NS::VtVec2dArray;
-using UsdGenVec3dArray = PXR_NS::VtVec3dArray;
-using UsdGenVec4dArray = PXR_NS::VtVec4dArray;
-using UsdGenVec2hArray = PXR_NS::VtVec2hArray;
-using UsdGenVec3hArray = PXR_NS::VtVec3hArray;
-using UsdGenVec4hArray = PXR_NS::VtVec4hArray;
-using UsdGenVec2iArray = PXR_NS::VtVec2iArray;
-using UsdGenVec3iArray = PXR_NS::VtVec3iArray;
-using UsdGenVec4iArray = PXR_NS::VtVec4iArray;
-using UsdGenMatrix4dArray = PXR_NS::VtMatrix4dArray;
+using UsdGenFloatArray = UsdGenCowArray<float>;
+using UsdGenIntArray = UsdGenCowArray<int>;
+using UsdGenBoolArray = UsdGenCowArray<bool>;
+using UsdGenUInt64Array = UsdGenCowArray<uint64_t>;
+using UsdGenTokenArray = UsdGenCowArray<UsdGenToken>;
+using UsdGenVec2fArray = UsdGenCowArray<UsdGenVec2f>;
+using UsdGenVec3fArray = UsdGenCowArray<UsdGenVec3f>;
+using UsdGenVec4fArray = UsdGenCowArray<UsdGenVec4f>;
+using UsdGenVec2dArray = UsdGenCowArray<UsdGenVec2d>;
+using UsdGenVec3dArray = UsdGenCowArray<UsdGenVec3d>;
+using UsdGenVec4dArray = UsdGenCowArray<UsdGenVec4d>;
+using UsdGenVec2hArray = UsdGenCowArray<UsdGenVec2h>;
+using UsdGenVec3hArray = UsdGenCowArray<UsdGenVec3h>;
+using UsdGenVec4hArray = UsdGenCowArray<UsdGenVec4h>;
+using UsdGenVec2iArray = UsdGenCowArray<UsdGenVec2i>;
+using UsdGenVec3iArray = UsdGenCowArray<UsdGenVec3i>;
+using UsdGenVec4iArray = UsdGenCowArray<UsdGenVec4i>;
+using UsdGenMatrix4dArray = UsdGenCowArray<UsdGenMatrix4d>;
 }  // namespace usdGen

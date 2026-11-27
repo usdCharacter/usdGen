@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 #define CHECK(c) do { if (!(c)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); return 1; } } while (false)
@@ -253,7 +254,7 @@ int main() {
     usdGenUsd::SetGraphDesc(session, bad); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     auto mismatch = restChanged;
-    mismatch.curveSets[0].worldMatrix.SetTranslate(GfVec3d(1,0,0));
+    mismatch.curveSets[0].worldMatrix.SetTranslate(usdGen::UsdGenVec3d(1,0,0));
     usdGenUsd::SetGraphDesc(session, mismatch); CHECK(session.Commit(4, UsdGenCommitReason::SetTime) == lastGood);
     CHECK(session.LastDiagnostics().HasErrors() && session.NeedsCommit());
     mismatch = restChanged;

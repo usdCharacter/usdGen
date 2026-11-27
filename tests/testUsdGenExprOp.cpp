@@ -35,6 +35,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 

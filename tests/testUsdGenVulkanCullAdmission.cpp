@@ -48,7 +48,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     s.px = {0,1, 0,1, 0,1, 0,1}; s.py = VtFloatArray(8, 0.f); s.pz = VtFloatArray(8, 0.f);
     s.rest.reserve(8); s.width.reserve(8); s.hairT.reserve(8);
     for (uint32_t i = 0; i != 8; ++i) {
-        s.rest.push_back(GfVec3f(float(i), 0, 0)); s.width.push_back(float(i) + .5f);
+        s.rest.push_back(usdGen::UsdGenVec3f(float(i), 0, 0)); s.width.push_back(float(i) + .5f);
         s.hairT.push_back(float(i) / 8.f);
     }
     s.cvOffsets = {0,2,4,6,8}; s.curveId = {10,11,12,13};

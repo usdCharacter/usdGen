@@ -3,12 +3,6 @@
 #define USDGEN_MATH_H
 
 #include "usdGenMath/math.h"
-#include "usdGen/api/cowArray.h"
-#include "usdGen/api/value.h"
-
-#include <cstdint>
-#include <string>
-#include <vector>
 
 
 namespace usdGenMath {

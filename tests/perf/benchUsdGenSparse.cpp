@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include "../utils/pxrInterop.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -42,16 +43,16 @@ UsdGenGraphDesc MakeG3(){
    s.id = 0;
    const int NX = 1000, NY = 100;
    const int np = (NX + 1) * (NY + 1);
-   s.restPoints = VtVec3fArray(np);
-   s.uv = VtVec2fArray(np);
+   s.restPoints = usdGen::UsdGenVec3fArray(np);
+   s.uv = usdGen::UsdGenVec2fArray(np);
    {
        auto *rp = s.restPoints.data();
        auto *uv = s.uv.data();
        for (int j = 0; j <= NY; ++j)
            for (int i = 0; i <= NX; ++i) {
                const int k = j * (NX + 1) + i;
-               rp[k] = GfVec3f(i * 0.1f, j * 0.1f, 0.0f);
-               uv[k] = GfVec2f(float(i) / NX, float(j) / NY);
+               rp[k] = usdGen::UsdGenVec3f(i * 0.1f, j * 0.1f, 0.0f);
+               uv[k] = usdGen::UsdGenVec2f(float(i) / NX, float(j) / NY);
            }
    }
    s.faceVertexCounts = VtIntArray(NX * NY, 4);

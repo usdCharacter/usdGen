@@ -27,6 +27,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include "utils/pxrInterop.h"
 
 using namespace usdGen;
 
@@ -57,12 +58,12 @@ static float RefU01(int32_t seed)
 // Fixtures
 // ---------------------------------------------------------------------------
 
-using Curve = std::vector<GfVec3f>;
+using Curve = std::vector<usdGen::UsdGenVec3f>;
 
-static Curve Straight(GfVec3f const &root, int cvs, float step)
+static Curve Straight(usdGen::UsdGenVec3f const &root, int cvs, float step)
 {
     Curve c;
-    for (int i = 0; i < cvs; ++i) c.push_back(root + GfVec3f(0.0f, float(i) * step, 0.0f));
+    for (int i = 0; i < cvs; ++i) c.push_back(root + usdGen::UsdGenVec3f(0.0f, float(i) * step, 0.0f));
     return c;
 }
 
@@ -75,7 +76,7 @@ static UsdGenCurveSetDesc HairSet(SdfPath const &path, std::vector<Curve> const 
     set.curveRole = TfToken(role == UsdGenLane::Chunked ? "hair" : "guide");
     for (Curve const &c : curves) {
         set.curveVertexCounts.push_back(int(c.size()));
-        for (GfVec3f const &p : c) set.points.push_back(p);
+        for (usdGen::UsdGenVec3f const &p : c) set.points.push_back(p);
     }
     set.rest = set.points;
     size_t const n = curves.size();
@@ -85,8 +86,8 @@ static UsdGenCurveSetDesc HairSet(SdfPath const &path, std::vector<Curve> const 
         for (size_t c = 0; c < n; ++c) set.curveId[c] = uint64_t(c);
         set.skinPrim.resize(n);
         for (size_t c = 0; c < n; ++c) set.skinPrim[c] = int(c);
-        set.skinPrimUv.assign(n, GfVec2f(0.2f, 0.3f));
-        set.rootFrame.assign(n, GfMatrix4d(1.0));
+        set.skinPrimUv.assign(n, usdGen::UsdGenVec2f(0.2f, 0.3f));
+        set.rootFrame.assign(n, usdGen::UsdGenMatrix4d(1.0));
     }
     return set;
 }
@@ -188,10 +189,10 @@ struct Spans
     uint32_t N(uint32_t c) const { return first[c + 1] - first[c]; }
 };
 
-static GfVec3f Pt(UsdGenCurveBuffer const &b, Spans const &s, uint32_t c, uint32_t i)
+static usdGen::UsdGenVec3f Pt(UsdGenCurveBuffer const &b, Spans const &s, uint32_t c, uint32_t i)
 {
     size_t const k = s.first[c] + i;
-    return GfVec3f(b.px[k], b.py[k], b.pz[k]);
+    return usdGen::UsdGenVec3f(b.px[k], b.py[k], b.pz[k]);
 }
 
 static float StrandLength(UsdGenCurveBuffer const &b, Spans const &s, uint32_t c)
@@ -226,9 +227,9 @@ static bool SamePoints(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 // Three straight strands along +Y (5 CVs, length 1) at x = 0, 1, 2.
 static UsdGenCurveSetDesc ThreeStrands()
 {
-    return HairSet(SdfPath("/groom/hair"), {Straight(GfVec3f(0, 0, 0), 5, 0.25f),
-                                            Straight(GfVec3f(1, 0, 0), 5, 0.25f),
-                                            Straight(GfVec3f(2, 0, 0), 5, 0.25f)});
+    return HairSet(SdfPath("/groom/hair"), {Straight(usdGen::UsdGenVec3f(0, 0, 0), 5, 0.25f),
+                                            Straight(usdGen::UsdGenVec3f(1, 0, 0), 5, 0.25f),
+                                            Straight(usdGen::UsdGenVec3f(2, 0, 0), 5, 0.25f)});
 }
 
 static UsdGenGraphDesc LengthDesc(UsdGenCurveSetDesc const &hair,
@@ -258,7 +259,7 @@ static void TestLengthDefaultMax()
     bool exact = true;
     for (uint32_t c = 0; c < 3; ++c)
         for (uint32_t j = 0; j < 5; ++j) {
-            GfVec3f const p = Pt(out, s, c, j);
+            usdGen::UsdGenVec3f const p = Pt(out, s, c, j);
             exact = exact && Near(p[0], float(c)) && Near(p[1], 0.375f * float(j)) && Near(p[2], 0.0f);
         }
     Check(exact, "randomize 0 scales every strand by max (1.5), straight past the tip");
@@ -346,8 +347,8 @@ static void TestLengthRandomRange()
 static void TestLengthShareByClump()
 {
     UsdGenCurveSetDesc hair = HairSet(SdfPath("/groom/hair"),
-        {Straight(GfVec3f(0, 0, 0), 5, 0.25f), Straight(GfVec3f(1, 0, 0), 5, 0.5f),
-         Straight(GfVec3f(2, 0, 0), 5, 0.25f), Straight(GfVec3f(3, 0, 0), 5, 0.125f)});
+        {Straight(usdGen::UsdGenVec3f(0, 0, 0), 5, 0.25f), Straight(usdGen::UsdGenVec3f(1, 0, 0), 5, 0.5f),
+         Straight(usdGen::UsdGenVec3f(2, 0, 0), 5, 0.25f), Straight(usdGen::UsdGenVec3f(3, 0, 0), 5, 0.125f)});
     AddIntPlane(hair, "strandSeed", {1, 2, 3, 4});
     AddIntPlane(hair, "clumpId_0", {7, 7, -1, 7});
     std::vector<std::pair<char const *, VtValue>> params{
@@ -380,7 +381,7 @@ static void TestLengthFollowClumpMean()
     // length 1.5. scale 2 -> target 3: mean points (0.5, 0.75j) (straight
     // past its tip), plus each member's offset from the mean.
     UsdGenCurveSetDesc hair = HairSet(SdfPath("/groom/hair"),
-        {Straight(GfVec3f(0, 0, 0), 5, 0.25f), Straight(GfVec3f(1, 0, 0), 5, 0.5f)});
+        {Straight(usdGen::UsdGenVec3f(0, 0, 0), 5, 0.25f), Straight(usdGen::UsdGenVec3f(1, 0, 0), 5, 0.5f)});
     AddIntPlane(hair, "clumpId_0", {0, 0});
     std::vector<std::pair<char const *, VtValue>> params{
         {"length:min", VtValue(2.0f)}, {"length:max", VtValue(2.0f)},
@@ -414,9 +415,9 @@ static UsdGenSurfaceDesc TwoQuadScalp()
     surface.path = SdfPath("/scalp");
     surface.faceVertexCounts = VtIntArray{4, 4};
     surface.faceVertexIndices = VtIntArray{0, 1, 2, 3, 4, 5, 6, 7};
-    surface.points = VtVec3fArray{
-        GfVec3f(-0.5f, 0, -0.5f), GfVec3f(-0.5f, 0, 0.5f), GfVec3f(0.5f, 0, 0.5f), GfVec3f(0.5f, 0, -0.5f),
-        GfVec3f(0.5f, 0, -0.5f), GfVec3f(0.5f, 0, 0.5f), GfVec3f(1.5f, 0, 0.5f), GfVec3f(1.5f, 0, -0.5f)};
+    surface.points = usdGen::UsdGenVec3fArray{
+        usdGen::UsdGenVec3f(-0.5f, 0, -0.5f), usdGen::UsdGenVec3f(-0.5f, 0, 0.5f), usdGen::UsdGenVec3f(0.5f, 0, 0.5f), usdGen::UsdGenVec3f(0.5f, 0, -0.5f),
+        usdGen::UsdGenVec3f(0.5f, 0, -0.5f), usdGen::UsdGenVec3f(0.5f, 0, 0.5f), usdGen::UsdGenVec3f(1.5f, 0, 0.5f), usdGen::UsdGenVec3f(1.5f, 0, -0.5f)};
     surface.restPoints = surface.points;
     surface.surfaceGeneration = 1;
     return surface;
@@ -437,7 +438,7 @@ static UsdGenMapDesc PaintMap(char const *path, std::vector<float> const &values
 static void TestLengthMask()
 {
     UsdGenCurveSetDesc hair = HairSet(SdfPath("/groom/hair"),
-        {Straight(GfVec3f(0, 0, 0), 5, 0.25f), Straight(GfVec3f(1, 0, 0), 5, 0.25f)});
+        {Straight(usdGen::UsdGenVec3f(0, 0, 0), 5, 0.25f), Straight(usdGen::UsdGenVec3f(1, 0, 0), 5, 0.25f)});
     UsdGenGraphDesc desc = LengthDesc(hair, {{"length:min", VtValue(0.5f)},
                                              {"length:max", VtValue(1.5f)}});
     desc.surfaces.push_back(TwoQuadScalp());
@@ -498,8 +499,8 @@ static UsdGenGraphDesc TrimDesc(TrimSetup const &t,
         wall.path = SdfPath("/wall");
         wall.faceVertexCounts = VtIntArray{4};
         wall.faceVertexIndices = VtIntArray{0, 1, 2, 3};
-        wall.points = VtVec3fArray{GfVec3f(-1, -1, -0.1f), GfVec3f(3, -1, -0.1f),
-                                   GfVec3f(3, 2, -0.1f), GfVec3f(-1, 2, -0.1f)};
+        wall.points = usdGen::UsdGenVec3fArray{usdGen::UsdGenVec3f(-1, -1, -0.1f), usdGen::UsdGenVec3f(3, -1, -0.1f),
+                                   usdGen::UsdGenVec3f(3, 2, -0.1f), usdGen::UsdGenVec3f(-1, 2, -0.1f)};
         wall.restPoints = wall.points;
         wall.surfaceGeneration = 1;
         desc.surfaces.push_back(wall);
@@ -520,7 +521,7 @@ static std::vector<float> PlusZ(size_t points)
 // The blade line at height y, z = -0.05, from x0 to x1 (3 points).
 static Curve BladeLine(float y, float x0, float x1)
 {
-    return {GfVec3f(x0, y, -0.05f), GfVec3f(0.5f * (x0 + x1), y, -0.05f), GfVec3f(x1, y, -0.05f)};
+    return {usdGen::UsdGenVec3f(x0, y, -0.05f), usdGen::UsdGenVec3f(0.5f * (x0 + x1), y, -0.05f), usdGen::UsdGenVec3f(x1, y, -0.05f)};
 }
 
 // Strand c cut at arc length s: 5 CVs at y = s j / 4 along x = c.
@@ -529,13 +530,13 @@ static bool CutAt(UsdGenCurveBuffer const &out, uint32_t c, float s, float tol =
     Spans const sp(out);
     bool ok = sp.N(c) == 5;
     for (uint32_t j = 0; ok && j < 5; ++j) {
-        GfVec3f const p = Pt(out, sp, c, j);
+        usdGen::UsdGenVec3f const p = Pt(out, sp, c, j);
         ok = Near(p[0], float(c), 1e-6f) && Near(p[1], s * float(j) / 4.0f, tol) && Near(p[2], 0.0f, 1e-6f);
     }
     if (!ok) {
         std::printf("  strand %u:", c);
         for (uint32_t j = 0; j < sp.N(c); ++j) {
-            GfVec3f const p = Pt(out, sp, c, j);
+            usdGen::UsdGenVec3f const p = Pt(out, sp, c, j);
             std::printf(" (%g %g %g)", p[0], p[1], p[2]);
         }
         std::printf("\n");
@@ -644,7 +645,7 @@ static void TestSmoothBox()
 {
     // x zig-zags 0,1,0,1,0,1 while y = k.
     Curve zig;
-    for (int k = 0; k < 6; ++k) zig.push_back(GfVec3f(float(k % 2), float(k), 0.0f));
+    for (int k = 0; k < 6; ++k) zig.push_back(usdGen::UsdGenVec3f(float(k % 2), float(k), 0.0f));
     auto desc = [&](int window, float strength) {
         UsdGenGraphDesc d = BaseDesc(HairSet(SdfPath("/groom/hair"), {zig}));
         UsdGenNodeDesc smooth = OpNode("/groom/smooth", "UsdGenSmooth", SdfPath("/groom/source"));
@@ -685,10 +686,10 @@ static void TestSmoothBox()
 static void TestResampleSpacing()
 {
     std::vector<Curve> curves{
-        Straight(GfVec3f(0, 0, 0), 5, 0.25f),                         // L = 1
-        Straight(GfVec3f(1, 0, 0), 4, 0.2f),                          // L = 0.6
-        Straight(GfVec3f(2, 0, 0), 2, 0.05f),                         // L = 0.05
-        {GfVec3f(3, 0, 0), GfVec3f(3, 1, 0), GfVec3f(4, 1, 0)}};      // L = 2, a corner
+        Straight(usdGen::UsdGenVec3f(0, 0, 0), 5, 0.25f),                         // L = 1
+        Straight(usdGen::UsdGenVec3f(1, 0, 0), 4, 0.2f),                          // L = 0.6
+        Straight(usdGen::UsdGenVec3f(2, 0, 0), 2, 0.05f),                         // L = 0.05
+        {usdGen::UsdGenVec3f(3, 0, 0), usdGen::UsdGenVec3f(3, 1, 0), usdGen::UsdGenVec3f(4, 1, 0)}};      // L = 2, a corner
     UsdGenCurveSetDesc hair = HairSet(SdfPath("/groom/hair"), curves);
     AddIntPlane(hair, "strandSeed", {5, 6, 7, 8});
     std::vector<float> ramp;
