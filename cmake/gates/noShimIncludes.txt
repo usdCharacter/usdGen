@@ -227,7 +227,7 @@ libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/testHook.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenBrushApi.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.cpp 2
-libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 2
+libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 1

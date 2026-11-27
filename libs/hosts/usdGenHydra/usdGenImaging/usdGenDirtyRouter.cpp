@@ -102,13 +102,6 @@ _WarnUnknownRoute(SdfPath const &path, TfToken const &leaf)
 }  // namespace
 
 void
-UsdGenDirtyRouter::Rebuild(usdGen::UsdGenGraph const &graph)
-{
-    auto snapshot = graph.RoutingSnapshot();
-    Rebuild(*snapshot);
-}
-
-void
 UsdGenDirtyRouter::Rebuild(usdGen::UsdGenGraphRoutingSnapshot const &snapshot)
 {
     _byPrim.clear();
@@ -301,7 +294,7 @@ HdDataSourceLocator const s_containerLocator(UsdGenContainerToken());
 void
 UsdGenDirtyRouter::Route(
     HdSceneIndexObserver::DirtiedPrimEntries const &entries,
-    usdGen::UsdGenPendingDirty *out) const
+    usdGen::UsdGenPendingDirty *out, bool *unrouted) const
 {
     HdDataSourceLocator const &s_container = s_containerLocator;
 
@@ -361,7 +354,8 @@ UsdGenDirtyRouter::Route(
                 continue;
             }
             if (locator.GetFirstElement() == UsdGenContainerToken()) {
-                _WarnUnknownRoute(entry.primPath, locator.GetLastElement());
+                if (unrouted) *unrouted = true;
+                else _WarnUnknownRoute(entry.primPath, locator.GetLastElement());
             }
         }
     }

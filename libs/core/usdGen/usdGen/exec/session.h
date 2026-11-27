@@ -223,6 +223,11 @@ public:
         return snapshot ? snapshot->stats : UsdGenStats{};
     }
     std::optional<UsdGenNodeStats> NodeStats(UsdGenNodeId) const;
+    /// The routing snapshot of the last published graph; null before one.
+    std::shared_ptr<const UsdGenGraphRoutingSnapshot> Routing() const noexcept {
+        auto snapshot = Snapshot();
+        return snapshot ? snapshot->routing : nullptr;
+    }
 
     void InvalidateAllValues();
     void BeginDensityDrag();

@@ -14,7 +14,7 @@
 #define USDGEN_IMAGING_DIRTY_ROUTER_H
 
 #include "usdGenImaging/api.h"
-#include "usdGen/graph.h"
+#include "usdGen/api/routing.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/session.h"
 
@@ -59,21 +59,20 @@ public:
         bool structural = false;
     };
 
-    /// Rebuild the routing table from a compiled graph: one entry list per
-    /// prim path, generated from each node's TopologyParameters()/
-    /// ValueParameters() partition plus the 02 §6 rows, longest prefix first
-    /// (a dirty on usdGen/clump matches every usdGen:clump:* leaf, but
-    /// usdGen/mode does NOT match usdGen/length/mode).
-    void Rebuild(usdGen::UsdGenGraph const &graph);
-    /// Rebuild from an owning, graph-independent routing snapshot.  The
-    /// snapshot may outlive and be used independently of its source graph.
+    /// Rebuild the routing table from an owning, graph-independent routing
+    /// snapshot (UsdGenSession::Routing()): one entry list per prim path,
+    /// generated from each node's parameter routing plus the 02 §6 rows,
+    /// longest prefix first (a dirty on usdGen/clump matches every
+    /// usdGen:clump:* leaf, but usdGen/mode does NOT match usdGen/length/mode).
     void Rebuild(usdGen::UsdGenGraphRoutingSnapshot const &snapshot);
 
     /// Hop-1 routing from _PrimsDirtied. O(entries): one hash lookup each,
-    /// longest-prefix walk per hit. NEVER cooks (I7, S17).
+    /// longest-prefix walk per hit. NEVER cooks (I7, S17). A usdGen locator
+    /// on a routed prim that matches no row warns once, or, when \p unrouted
+    /// is given, sets it instead (the caller falls back to a full recapture).
     void Route(
         HdSceneIndexObserver::DirtiedPrimEntries const &entries,
-        usdGen::UsdGenPendingDirty *out) const;
+        usdGen::UsdGenPendingDirty *out, bool *unrouted = nullptr) const;
     void RouteAdded(
         HdSceneIndexObserver::AddedPrimEntries const &entries,
         usdGen::UsdGenPendingDirty *out) const;
