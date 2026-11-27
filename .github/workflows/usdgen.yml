@@ -453,13 +453,12 @@ jobs:
   # layout and python3-validate both installed plugInfo.json files
   # (plan sections 2.3 / 3.4 / 4.3).
   #
-  # The full plan-section-6.2 version of this job also runs
-  # testUsdGenInstallTree + testUsdGenConsumer + testUsdGenPluginDiscovery
-  # against the *installed* tree; those tests are not yet registered in
-  # CMakeLists.txt, and testUsdGenConsumer cannot pass until
-  # configure_package_config_file() carries PATH_VARS (cmake/usdGenConfig.cmake.in
-  # currently leaves usdGen_PLUGIN_DIR / usdGen_LIBRARY_DIR empty). Both are
-  # tracked in docs/review/exec-docs-report.md as CMake-lane follow-ups.
+  # Step 12.5: the hidden release build (USDGEN_EXPORT_INTERNALS=OFF), so only
+  # api/ and api/ext/ are exported. It runs the api tests (ctest -L api), the
+  # install gate testUsdGenInstallOnlyApi (only include/usdGen/api and the
+  # usdGenMath headers ship; usdGen::usdGen is the only exported target), and
+  # testUsdGenInstallTree + testUsdGenConsumer against the installed prefix
+  # (the consumer builds with no OpenUSD on its prefix path).
   # --------------------------------------------------------------------------
   install-check:
     name: usdGen install layout + plugInfo
@@ -488,13 +487,18 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DUSD_INSTALL_DIR="${GITHUB_WORKSPACE}/usd-install" \
-            -DUSDGEN_WITH_RIGEXEC=OFF
+            -DUSDGEN_WITH_RIGEXEC=OFF \
+            -DUSDGEN_EXPORT_INTERNALS=OFF
 
       - name: Build
         run: ninja -C build -j"$(nproc)"
 
       - name: Install into scratch prefix
         run: cmake --install build --prefix "${GITHUB_WORKSPACE}/usdgen-install"
+
+      # The hidden build: the api tests and the install gate.
+      - name: Run api tests and the install gate
+        run: ctest --test-dir build -L '^api$|^gate:install$' --output-on-failure --timeout 300
 
       # Installed-tree tests (plan section 6.2, sol X-4): ctest -R selects
       # testUsdGenInstallTree + testUsdGenConsumer against the *installed*
