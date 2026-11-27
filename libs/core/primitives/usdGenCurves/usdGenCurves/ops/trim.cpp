@@ -40,8 +40,10 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -85,7 +87,7 @@ void ParallelFor(UsdGenWorkDispatcher *dispatcher, size_t count, F const &body)
 
 struct Triangle
 {
-    GfVec3f a, b, c;
+    UsdGenVec3f a, b, c;
 };
 
 /// Median-split AABB tree over blade triangles (deterministic, small).
@@ -105,7 +107,7 @@ public:
     bool Empty() const { return _tris.empty(); }
     /// Calls f(triangle) for every triangle whose box overlaps [lo, hi].
     template <class F>
-    void Query(GfVec3f const &lo, GfVec3f const &hi, F const &f) const
+    void Query(UsdGenVec3f const &lo, UsdGenVec3f const &hi, F const &f) const
     {
         if (_nodes.empty()) return;
         int stack[96];
@@ -142,12 +144,12 @@ private:
         }
         for (int i = first; i < first + count; ++i) {
             Triangle const &t = _tris[size_t(_order[size_t(i)])];
-            for (GfVec3f const *q : {&t.a, &t.b, &t.c})
+            for (UsdGenVec3f const *q : {&t.a, &t.b, &t.c})
                 for (int k = 0; k < 3; ++k) {
                     node.lo[k] = std::min(node.lo[k], (*q)[k]);
                     node.hi[k] = std::max(node.hi[k], (*q)[k]);
                 }
-            GfVec3f const centroid = (t.a + t.b + t.c) / 3.0f;
+            UsdGenVec3f const centroid = (t.a + t.b + t.c) / 3.0f;
             for (int k = 0; k < 3; ++k) {
                 clo[k] = std::min(clo[k], centroid[k]);
                 chi[k] = std::max(chi[k], centroid[k]);
@@ -184,7 +186,7 @@ private:
 
 /// The named plane among the per-curve (cv false) or per-CV planes, in
 /// 'storage'; null when absent.
-UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &curves, TfToken const &name, bool cv,
+UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &curves, UsdGenToken const &name, bool cv,
                                  UsdGenPlaneView *storage)
 {
     bool perCv = false;
@@ -216,22 +218,22 @@ bool CurveValue(UsdGenPlaneView const *plane, size_t curve, size_t curves, doubl
 
 /// Segment p0 -> p1 against triangle abc (Moller-Trumbore, double precision);
 /// writes the segment parameter in [0, 1] of the hit.
-bool SegmentHitsTriangle(GfVec3f const &p0, GfVec3f const &p1, Triangle const &tri, float *t)
+bool SegmentHitsTriangle(UsdGenVec3f const &p0, UsdGenVec3f const &p1, Triangle const &tri, float *t)
 {
-    GfVec3d const a(tri.a), b(tri.b), c(tri.c), o(p0);
-    GfVec3d const dir = GfVec3d(p1) - o;
-    GfVec3d const e1 = b - a, e2 = c - a;
-    GfVec3d const h = GfCross(dir, e2);
-    double const det = GfDot(e1, h);
+    UsdGenVec3d const a(tri.a), b(tri.b), c(tri.c), o(p0);
+    UsdGenVec3d const dir = UsdGenVec3d(p1) - o;
+    UsdGenVec3d const e1 = b - a, e2 = c - a;
+    UsdGenVec3d const h = UsdGenCross(dir, e2);
+    double const det = UsdGenDot(e1, h);
     if (!(std::fabs(det) > 1e-30)) return false;  // parallel to the blade
     double const f = 1.0 / det;
-    GfVec3d const s = o - a;
-    double const u = f * GfDot(s, h);
+    UsdGenVec3d const s = o - a;
+    double const u = f * UsdGenDot(s, h);
     if (u < 0.0 || u > 1.0) return false;
-    GfVec3d const q = GfCross(s, e1);
-    double const v = f * GfDot(dir, q);
+    UsdGenVec3d const q = UsdGenCross(s, e1);
+    double const v = f * UsdGenDot(dir, q);
     if (v < 0.0 || u + v > 1.0) return false;
-    double const tt = f * GfDot(e2, q);
+    double const tt = f * UsdGenDot(e2, q);
     if (tt < 0.0 || tt > 1.0) return false;
     *t = float(tt);
     return true;
@@ -283,7 +285,7 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
     strand::TriangleBvh bvh;
     bool bvhBuilt = false;
     float const searchSq = float(normalSearch * normalSearch);
-    auto surfaceNormal = [&](GfVec3f const &at, GfVec3f *n) {
+    auto surfaceNormal = [&](UsdGenVec3f const &at, UsdGenVec3f *n) {
         if (!bvhBuilt) {
             bvhBuilt = true;
             if (ctx.desc && ctx.surface < UsdGenSurfaceInputs(*ctx.desc).size())
@@ -296,9 +298,9 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
         return true;
     };
 
-    GfVec3f const up(0.0f, 1.0f, 0.0f);
+    UsdGenVec3f const up(0.0f, 1.0f, 0.0f);
     std::vector<Triangle> blades;
-    std::vector<GfVec3f> Q;
+    std::vector<UsdGenVec3f> Q;
     for (size_t c = 0; c < curveCount; ++c) {
         size_t const first = spans[c], m = size_t(spans[c + 1] - spans[c]);
         if (m < 2) continue;
@@ -312,26 +314,26 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
         auto P = [&](size_t k) { return opUtil::Point(curves, first + k); };
         Q.resize(m);
         for (size_t k = 0; k < m; ++k) {
-            GfVec3f const T = strand::Normalize(P(std::min(k + 1, m - 1)) - P(k > 0 ? k - 1 : 0),
+            UsdGenVec3f const T = strand::Normalize(P(std::min(k + 1, m - 1)) - P(k > 0 ? k - 1 : 0),
                                                 up, 1e-12f);
-            GfVec3f N = up;
+            UsdGenVec3f N = up;
             bool haveNormal = false;
             if (storedNormals) {
                 float const *nf = normalPlane->f.cdata() + 3 * (first + k);
-                GfVec3f const stored(nf[0], nf[1], nf[2]);
+                UsdGenVec3f const stored(nf[0], nf[1], nf[2]);
                 if (stored.GetLength() > 1e-12f) {
                     N = stored;
                     haveNormal = true;
                 }
             }
             if (!haveNormal) {
-                GfVec3f hitNormal;
+                UsdGenVec3f hitNormal;
                 if (surfaceNormal(P(k), &hitNormal)) N = hitNormal;
             }
-            GfVec3f const Np = strand::Normalize(N - T * GfDot(N, T), up, 1e-12f);
-            GfVec3f const B = strand::Normalize(GfCross(T, Np), GfVec3f(1.0f, 0.0f, 0.0f), 1e-12f);
-            GfVec3f const R = strand::Rotate(B, T, theta);
-            GfVec3f const D = strand::Normalize(GfCross(R, T), Np, 1e-12f);
+            UsdGenVec3f const Np = strand::Normalize(N - T * UsdGenDot(N, T), up, 1e-12f);
+            UsdGenVec3f const B = strand::Normalize(UsdGenCross(T, Np), UsdGenVec3f(1.0f, 0.0f, 0.0f), 1e-12f);
+            UsdGenVec3f const R = strand::Rotate(B, T, theta);
+            UsdGenVec3f const D = strand::Normalize(UsdGenCross(R, T), Np, 1e-12f);
             Q[k] = P(k) + D * height;
         }
         for (size_t k = 1; k < m; ++k) {
@@ -353,10 +355,10 @@ bool UsdGenTrimOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &str
         float acc = 0.0f;
         for (size_t i = 1; i < n; ++i) {
             if (acc >= sCut) break;  // later crossings are farther from the root
-            GfVec3f const a = strand::Load(pts, i - 1), b = strand::Load(pts, i);
+            UsdGenVec3f const a = strand::Load(pts, i - 1), b = strand::Load(pts, i);
             float const len = (b - a).GetLength();
             if (len > 1e-8f) {
-                GfVec3f lo, hi;
+                UsdGenVec3f lo, hi;
                 for (int k = 0; k < 3; ++k) {
                     lo[k] = std::min(a[k], b[k]);
                     hi[k] = std::max(a[k], b[k]);

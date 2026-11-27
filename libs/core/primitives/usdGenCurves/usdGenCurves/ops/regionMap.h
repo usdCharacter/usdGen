@@ -7,6 +7,7 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/maps/ptexMap.h"
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/api/token.h"
 #include <algorithm>
 #include <cmath>
 
@@ -43,7 +44,7 @@ inline bool UsdGenReadRootRegions(UsdGenCaptureContext const &ctx,
             options.firstChannel=param.value.template UncheckedGet<int>();
         }
         if (name=="map:filter" &&
-            (!param.value.template IsHolding<TfToken>() || param.value.template UncheckedGet<TfToken>().GetString()!="nearest"))
+            (!param.value.template IsHolding<UsdGenToken>() || param.value.template UncheckedGet<UsdGenToken>().GetString()!="nearest"))
             return fail("categorical maps require filter=nearest");
         if (name=="map:blur" &&
             ((param.value.template IsHolding<float>() && param.value.template UncheckedGet<float>()!=0) ||

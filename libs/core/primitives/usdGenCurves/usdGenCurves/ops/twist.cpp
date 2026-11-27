@@ -35,8 +35,9 @@
 #include <utility>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -329,7 +330,7 @@ bool UsdGenTwistOp::Compute(UsdGenCaptureContext const &ctx, UsdGenStrandSet &st
         if (!resnap) return;
         float const dx = P[0] - root0[0], dy = P[1] - root0[1], dz = P[2] - root0[2];
         if (!(dx * dx + dy * dy + dz * dz > 1e-14f)) return;
-        GfVec3f const p0(P[0], P[1], P[2]);
+        UsdGenVec3f const p0(P[0], P[1], P[2]);
         strand::ClosestHit const hit = bvh.Closest(p0);
         if (hit.hit) strand::ResnapRoot(P, g.n, hit.point - p0);
     });

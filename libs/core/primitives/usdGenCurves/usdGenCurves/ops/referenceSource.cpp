@@ -3,8 +3,8 @@
 
 #include <memory>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/span.h"
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -35,7 +35,7 @@ UsdGenEpoch UsdGenReferenceSourceOp::CaptureDigest(
     UsdGenCaptureContext const &ctx) const
 {
     // The scheduler folds resolved identity/generation into this digest.
-    TF_UNUSED(ctx);
+    (void)ctx;
     return {0x524546534f555243ULL, 0x455f4350555f7631ULL};
 }
 
