@@ -1,6 +1,8 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/cuda/cudaSurfaceInput.h"
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
 #include <cmath>
 #include <limits>
@@ -9,13 +11,13 @@
 namespace usdGen {
 namespace {
 void Diag(std::vector<std::string>* d, std::string const& s) { if (d) d->push_back(s); }
-bool Finite(UsdGenSpan<const GfVec3f> points) {
+bool Finite(UsdGenSpan<const UsdGenVec3f> points) {
     for (auto const& p : points)
         if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) return false;
     return true;
 }
-bool Identity(GfMatrix4d const& m) {
-    GfMatrix4d const identity(1.0);
+bool Identity(UsdGenMatrix4d const& m) {
+    UsdGenMatrix4d const identity(1.0);
     for (int r = 0; r != 4; ++r) for (int c = 0; c != 4; ++c)
         if (m[r][c] != identity[r][c]) return false;
     return true;

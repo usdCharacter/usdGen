@@ -15,15 +15,17 @@
 #include "usdGenSurface/vulkan/surfaceVk.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 
-#include "pxr/base/gf/range3d.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 #include "usdGen/op.h"
 #include "usdGenMath/rbf.h"
 #include "usdGenCurves/vulkan/rbfVkPlan.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 #include "usdGenCurves/vulkan/vkStages.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <cmath>
@@ -41,9 +43,9 @@ bool Fail(UsdGenDiagnostics *diagnostics, std::string const &message) {
     return false;
 }
 
-bool IsIdentity(GfMatrix4d const &matrix) { return matrix == GfMatrix4d(1.0); }
+bool IsIdentity(UsdGenMatrix4d const &matrix) { return matrix == UsdGenMatrix4d(1.0); }
 
-bool IsFiniteMatrix(GfMatrix4d const &matrix) {
+bool IsFiniteMatrix(UsdGenMatrix4d const &matrix) {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!std::isfinite(matrix[row][column]))
@@ -51,16 +53,16 @@ bool IsFiniteMatrix(GfMatrix4d const &matrix) {
     return true;
 }
 
-bool IsFiniteAffine(GfMatrix4d const &matrix) {
+bool IsFiniteAffine(UsdGenMatrix4d const &matrix) {
     return IsFiniteMatrix(matrix) && matrix[0][3] == 0.0 && matrix[1][3] == 0.0 &&
            matrix[2][3] == 0.0 && matrix[3][3] == 1.0;
 }
 
-// GfMatrix4d is row-major and uses row-vector affine transforms: translation
+// UsdGenMatrix4d is row-major and uses row-vector affine transforms: translation
 // occupies matrix[3][0..2].  Keep this native-free check aligned with C3 root
 // capture, because the immutable descriptor remains source-local and root
 // frames are converted through source.worldMatrix later.
-bool IsFiniteInvertibleAffine(GfMatrix4d const &matrix) {
+bool IsFiniteInvertibleAffine(UsdGenMatrix4d const &matrix) {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
             if (!std::isfinite(matrix[row][column]))
@@ -68,7 +70,7 @@ bool IsFiniteInvertibleAffine(GfMatrix4d const &matrix) {
     if (matrix[0][3] != 0.0 || matrix[1][3] != 0.0 || matrix[2][3] != 0.0 || matrix[3][3] != 1.0)
         return false;
     double determinant = 0.0;
-    GfMatrix4d const inverse = matrix.GetInverse(&determinant);
+    UsdGenMatrix4d const inverse = matrix.GetInverse(&determinant);
     if (!std::isfinite(determinant) ||
         std::abs(determinant) <= std::numeric_limits<double>::epsilon())
         return false;
@@ -93,7 +95,7 @@ bool ReadFloat(UsdGenParamValue const &param, float *value) {
 // Vulkan admits only the neutral value; a muted operator would alias its
 // input, which the shader lanes express as their own envelope path instead.
 bool IsIdentityMask(UsdGenParamValue const &param) {
-    return param.name == UsdGenTokens().mask && param.value == VtValue(1.0f);
+    return param.name == UsdGenTokens().mask && param.value == UsdGenValue(1.0f);
 }
 
 bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
@@ -215,7 +217,7 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     for (float width : found->widths)
         if (!IsFinite(width) || width < 0)
             return Fail(diagnostics, "C3 source contains an invalid width");
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const &param : node.params) {
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate CurveSource parameter " + param.name.GetString());
@@ -226,12 +228,12 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
             if (valid)
                 controls->useRest = param.value.UncheckedGet<bool>();
         } else if (name == "lane")
-            valid = param.value == VtValue(UsdGenCurveTokens().hair);
+            valid = param.value == UsdGenValue(UsdGenCurveTokens().hair);
         else if (name == "idSource") {
-            valid = param.value == VtValue(vk.primvar) ||
-                    param.value == VtValue(vk.index);
+            valid = param.value == UsdGenValue(vk.primvar) ||
+                    param.value == UsdGenValue(vk.index);
             if (valid)
-                controls->idSource = param.value.UncheckedGet<TfToken>();
+                controls->idSource = param.value.UncheckedGet<UsdGenToken>();
         } else if (name == "resampleTo") {
             // Merged resample/csourceVk admission: CsourceVkValidateResampleTarget
             // implements the agreed contract (0 keeps layout, >= 2 resamples,
@@ -257,21 +259,21 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
             if (valid)
                 controls->expectEpoch = param.value.UncheckedGet<std::string>();
         } else if (name == "staleAction") {
-            valid = param.value == VtValue(vk.warn) ||
-                    param.value == VtValue(vk.ignore) ||
-                    param.value == VtValue(vk.block);
+            valid = param.value == UsdGenValue(vk.warn) ||
+                    param.value == UsdGenValue(vk.ignore) ||
+                    param.value == UsdGenValue(vk.block);
             if (valid)
-                controls->staleAction = param.value.UncheckedGet<TfToken>();
+                controls->staleAction = param.value.UncheckedGet<UsdGenToken>();
         } else if (name == "rebind") {
-            valid = param.value == VtValue(vk.never) ||
-                    param.value == VtValue(vk.onError) ||
-                    param.value == VtValue(vk.always);
+            valid = param.value == UsdGenValue(vk.never) ||
+                    param.value == UsdGenValue(vk.onError) ||
+                    param.value == UsdGenValue(vk.always);
             if (valid)
-                controls->rebind = param.value.UncheckedGet<TfToken>();
+                controls->rebind = param.value.UncheckedGet<UsdGenToken>();
         } else if (name == "label")
             valid = param.value.IsHolding<std::string>();
         else if (name == "interpolationMode")
-            valid = param.value == VtValue(et.none);
+            valid = param.value == UsdGenValue(et.none);
         else if (name == "densityMultiplier")
             valid = param.value.IsHolding<float>() &&
                     IsFinite(param.value.UncheckedGet<float>()) &&
@@ -328,7 +330,7 @@ bool ValidateSource(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         return Fail(diagnostics, "C3 rootPrim/rootUV cardinalities differ for rebind=never");
     if (!found->rootFrame.empty() && found->rootFrame.size() != found->curveVertexCounts.size())
         return Fail(diagnostics, "C3 authored rootFrame cardinality disagrees with curves");
-    for (GfMatrix4d const &frame : found->rootFrame)
+    for (UsdGenMatrix4d const &frame : found->rootFrame)
         if (!IsVulkanCapturedScatter(desc, *found) && !UsdGenValidateAuthoredRootFrame(frame))
             return Fail(diagnostics, "C3 authored rootFrame violates the affine "
                                      "orthonormal frame contract");
@@ -346,19 +348,19 @@ bool ValidateLength(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
         return Fail(diagnostics, "Length requires literal identity-envelope scale, "
                                  "set or cull configuration");
     UsdGenVulkanTokens const &vk = UsdGenVkTokens();
-    TfToken const &modeName =
+    UsdGenToken const &modeName =
         UsdGenVulkanKernelFor(UsdGenVulkanStage::Length).Param(vulkanP::kLenMode);
     bool cull = false, set = false;
     for (auto const &param : node.params)
-        if (param.name == modeName && param.value == VtValue(vk.cull))
+        if (param.name == modeName && param.value == UsdGenValue(vk.cull))
             cull = true;
-        else if (param.name == modeName && param.value == VtValue(vk.set))
+        else if (param.name == modeName && param.value == UsdGenValue(vk.set))
             set = true;
     stage->kind =
         cull ? VulkanSourceWidthStage::Kind::LengthCull : VulkanSourceWidthStage::Kind::LengthScale;
     stage->lengthMode =
         set ? VulkanSourceWidthStage::LengthMode::Set : VulkanSourceWidthStage::LengthMode::Scale;
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const &param : node.params) {
         if (param.animated)
             return Fail(diagnostics, "Length requires non-animated literal controls");
@@ -378,8 +380,8 @@ bool ValidateLength(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
                 return Fail(diagnostics, "Length factor must be finite, nonnegative "
                                          "and float-representable");
         } else if (name == "length:mode") {
-            if (param.value != VtValue(vk.scale) &&
-                param.value != VtValue(vk.set) && param.value != VtValue(vk.cull))
+            if (param.value != UsdGenValue(vk.scale) &&
+                param.value != UsdGenValue(vk.set) && param.value != UsdGenValue(vk.cull))
                 return Fail(diagnostics, "only literal Length scale, set or cull modes supported");
         } else if (name == "length:min" || name == "length:max" ||
                    name == "length:randomize") {
@@ -391,17 +393,17 @@ bool ValidateLength(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
             if (!param.value.IsHolding<bool>())
                 return Fail(diagnostics, "Length range toggles must be bool literals");
         } else if (name == "length:method") {
-            if (param.value == VtValue(vk.scale))
+            if (param.value == UsdGenValue(vk.scale))
                 stage->lengthMethod = VulkanSourceWidthStage::LengthMethod::Scale;
-            else if (param.value == VtValue(vk.cutExtend))
+            else if (param.value == UsdGenValue(vk.cutExtend))
                 stage->lengthMethod = VulkanSourceWidthStage::LengthMethod::CutExtend;
             else
                 return Fail(diagnostics, "Length method must be scale or cutExtend");
         } else if (name == "length:random") {
-            if (!param.value.IsHolding<GfVec2f>())
+            if (!param.value.IsHolding<UsdGenVec2f>())
                 return Fail(diagnostics,
                             "Length random requires a finite nonnegative vec2 literal");
-            auto const range = param.value.UncheckedGet<GfVec2f>();
+            auto const range = param.value.UncheckedGet<UsdGenVec2f>();
             stage->randomLo = range[0];
             stage->randomHi = range[1];
             if (!std::isfinite(stage->randomLo) || !std::isfinite(stage->randomHi) ||
@@ -436,9 +438,9 @@ bool ValidateLength(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
             if (!std::isfinite(minimum) || minimum < 0 || !std::isfinite(stage->minRemainingLength))
                 return Fail(diagnostics, "Length minimum must be a finite nonnegative literal");
         } else if (name == "rebuild") {
-            if (param.value == VtValue(vk.keepParam))
+            if (param.value == UsdGenValue(vk.keepParam))
                 stage->lengthRebuild = VulkanSourceWidthStage::LengthRebuild::KeepParam;
-            else if (param.value == VtValue(vk.reparam))
+            else if (param.value == UsdGenValue(vk.reparam))
                 stage->lengthRebuild = VulkanSourceWidthStage::LengthRebuild::Reparam;
             else
                 return Fail(diagnostics, "Length rebuild must be keepParam or reparam");
@@ -460,9 +462,9 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
     if (!node.mode.IsEmpty() || !node.references.empty() || !node.inputSets.empty() ||
         !node.maps.empty() || !node.mapBindings.empty())
         return Fail(diagnostics, "Noise requires literal configuration");
-    std::set<TfToken> seen;
-    VtVec2fArray knots;
-    TfToken interpolation = UsdGenCurveTokens().catmullRom;
+    std::set<UsdGenToken> seen;
+    UsdGenVec2fArray knots;
+    UsdGenToken interpolation = UsdGenCurveTokens().catmullRom;
     for (auto const &param : node.params) {
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate Noise parameter");
@@ -505,9 +507,9 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
                 return Fail(diagnostics, "Noise cumulative must be a bool literal");
             out->cumulative = param.value.UncheckedGet<bool>();
         } else if (name == "noise:magnitude:knots") {
-            if (!param.value.IsHolding<VtVec2fArray>())
+            if (!param.value.IsHolding<UsdGenVec2fArray>())
                 return Fail(diagnostics, "Noise magnitude knots must be float2 array");
-            knots = param.value.UncheckedGet<VtVec2fArray>();
+            knots = param.value.UncheckedGet<UsdGenVec2fArray>();
             float previous = -1;
             for (auto const &k : knots) {
                 if (!std::isfinite(k[0]) || !std::isfinite(k[1]) || k[0] < 0 || k[0] > 1 ||
@@ -516,9 +518,9 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
                 previous = k[0];
             }
         } else if (name == "noise:magnitude:interpolation") {
-            if (!param.value.IsHolding<TfToken>())
+            if (!param.value.IsHolding<UsdGenToken>())
                 return Fail(diagnostics, "Noise magnitude interpolation must be token");
-            interpolation = param.value.UncheckedGet<TfToken>();
+            interpolation = param.value.UncheckedGet<UsdGenToken>();
         } else if (name == "enabled") {
             if (!param.value.IsHolding<bool>())
                 return Fail(diagnostics, "Noise enabled must be a bool literal");
@@ -540,19 +542,19 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
 
 // Barycentric (triangle) / bilinear (quad) interpolation of a surface face at
 // a UV coordinate — mirrors the CUDA GatherRoots kernel exactly.
-GfVec3f RootPosition(UsdGenSurfaceInputView const &surface, std::vector<uint32_t> const &faceStart,
-                     int faceIdx, GfVec2f const &uv) {
+UsdGenVec3f RootPosition(UsdGenSurfaceInputView const &surface, std::vector<uint32_t> const &faceStart,
+                     int faceIdx, UsdGenVec2f const &uv) {
     auto const &indices = surface.faceVertexIndices;
     auto const &pts = surface.points;
     uint32_t const base = faceStart[faceIdx];
     int const n = surface.faceVertexCounts[faceIdx];
-    auto P = [&](int j) { return GfVec3f(pts[indices[base + j]]); };
+    auto P = [&](int j) { return UsdGenVec3f(pts[indices[base + j]]); };
     float const u = uv[0], v = uv[1];
     if (n == 3) {
-        GfVec3f const a = P(0), b = P(1), c = P(2);
+        UsdGenVec3f const a = P(0), b = P(1), c = P(2);
         return a * (1.0f - u - v) + b * u + c * v;
     }
-    GfVec3f const a = P(0), b = P(1), c = P(2), d = P(3);
+    UsdGenVec3f const a = P(0), b = P(1), c = P(2), d = P(3);
     float const u0 = 1.0f - u, v0 = 1.0f - v;
     return a * (u0 * v0) + b * (u * v0) + c * (u * v) + d * (u0 * v);
 }
@@ -564,7 +566,7 @@ bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         !node.maps.empty() || !node.mapBindings.empty() || !node.ramps.empty())
         return Fail(diagnostics,
                     "Deform requires one pose surface and no references/maps/expressions");
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     int budget = 100;
     for (auto const &param : node.params) {
         if (param.animated)
@@ -628,11 +630,11 @@ bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
 
     // FPF on rest pose → chosen indices; pair with current pose.
     size_t const nPts = surface->restPoints.size();
-    std::vector<GfVec3d> driverRest(nPts), driverNow(nPts);
-    GfRange3d extent;
+    std::vector<UsdGenVec3d> driverRest(nPts), driverNow(nPts);
+    UsdGenRange3d extent;
     for (size_t i = 0; i < nPts; ++i) {
-        driverRest[i] = GfVec3d(surface->restPoints[i]);
-        driverNow[i] = GfVec3d(surface->points[i]);
+        driverRest[i] = UsdGenVec3d(surface->restPoints[i]);
+        driverNow[i] = UsdGenVec3d(surface->points[i]);
         extent.UnionWith(driverRest[i]);
     }
     double const size = extent.IsEmpty() ? 0.0 : extent.GetSize().GetLength();
@@ -663,7 +665,7 @@ bool ValidateDeform(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
         int const faceIdx = source->skinPrim[c];
         if (faceIdx < 0 || faceIdx >= int(surface->faceVertexCounts.size()))
             return Fail(diagnostics, "Deform root binding references an invalid face");
-        GfVec3f pos = RootPosition(*surface, faceStart, faceIdx, source->skinPrimUv[c]);
+        UsdGenVec3f pos = RootPosition(*surface, faceStart, faceIdx, source->skinPrimUv[c]);
         out->rootTargets[3 * c] = pos[0];
         out->rootTargets[3 * c + 1] = pos[1];
         out->rootTargets[3 * c + 2] = pos[2];
@@ -682,7 +684,7 @@ bool ValidateResample(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
         return Fail(diagnostics, "Resample requires literal keepParam configuration");
     int cvCount = 0;
     bool keepParamSeen = false;
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const &param : node.params) {
         if (param.animated)
             return Fail(diagnostics, "Resample requires non-animated literal controls");
@@ -694,14 +696,14 @@ bool ValidateResample(UsdGenOpNode const &node, VulkanSourceWidthStage *stage,
                 return Fail(diagnostics, "Resample cvCount must be an int literal");
             cvCount = param.value.UncheckedGet<int>();
         } else if (name == "distribution" || name == "usdGen:distribution") {
-            if (param.value != VtValue(UsdGenVkTokens().keepParam))
+            if (param.value != UsdGenValue(UsdGenVkTokens().keepParam))
                 return Fail(diagnostics, "Resample distribution must be keepParam");
             keepParamSeen = true;
         } else if (name == "mask" || name == "usdGen:mask") {
-            if (param.value != VtValue(1.0f))
+            if (param.value != UsdGenValue(1.0f))
                 return Fail(diagnostics, "Resample mask must be neutral 1.0");
         } else if (name == "restoreSegmentLengths" || name == "usdGen:restoreSegmentLengths") {
-            if (param.value != VtValue(false))
+            if (param.value != UsdGenValue(false))
                 return Fail(diagnostics, "Resample restoreSegmentLengths must be false");
         } else if (name == "spacing" || name == "usdGen:spacing") {
             float spacing = 0.0f;

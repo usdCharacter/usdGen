@@ -186,11 +186,12 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     # Test link lines name these; both are usdGenVulkan.
     # The curve pipelines live in usdGenCurvesVulkan, which tests use directly.
     add_library(usdGenVulkanNative INTERFACE)
+    # usdGenMath: curve headers spell the UsdGen math types (step 11).
     target_link_libraries(usdGenVulkanNative INTERFACE usdGenVulkan
-        $<BUILD_INTERFACE:usdGenCurvesVulkan>)
+        $<BUILD_INTERFACE:usdGenCurvesVulkan> $<BUILD_INTERFACE:usdGenMath>)
     add_library(usdGenVulkanFactory INTERFACE)
     target_link_libraries(usdGenVulkanFactory INTERFACE usdGenVulkan
-        $<BUILD_INTERFACE:usdGenCurvesVulkan>)
+        $<BUILD_INTERFACE:usdGenCurvesVulkan> $<BUILD_INTERFACE:usdGenMath>)
     find_program(USDGEN_GLSLANG_EXECUTABLE NAMES glslangValidator glslang glslc
         HINTS "$ENV{VULKAN_SDK}/bin" "${CMAKE_CURRENT_SOURCE_DIR}/.vulkan-toolchain/root/usr/bin" REQUIRED)
     find_program(USDGEN_SPIRV_VAL_EXECUTABLE NAMES spirv-val

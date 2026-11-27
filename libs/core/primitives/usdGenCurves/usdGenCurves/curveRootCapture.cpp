@@ -5,21 +5,23 @@
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGen/surfaceRootFrames.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <vector>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
 
 // usdGen:rebind values, interned at load.
-TfToken const kNever = UsdGenInternToken("never");
-TfToken const kOnError = UsdGenInternToken("onError");
-TfToken const kAlways = UsdGenInternToken("always");
+UsdGenToken const kNever = UsdGenInternToken("never");
+UsdGenToken const kOnError = UsdGenInternToken("onError");
+UsdGenToken const kAlways = UsdGenInternToken("always");
 
 bool Fail(std::string const &message, std::string *error)
 {
@@ -27,18 +29,18 @@ bool Fail(std::string const &message, std::string *error)
     return false;
 }
 
-bool Finite(GfVec3f const &value)
+bool Finite(UsdGenVec3f const &value)
 {
     return std::isfinite(value[0]) && std::isfinite(value[1]) &&
         std::isfinite(value[2]);
 }
 
-bool Finite(GfVec2f const &value)
+bool Finite(UsdGenVec2f const &value)
 {
     return std::isfinite(value[0]) && std::isfinite(value[1]);
 }
 
-bool Finite(GfMatrix4d const &value)
+bool Finite(UsdGenMatrix4d const &value)
 {
     for (int row = 0; row != 4; ++row)
         for (int column = 0; column != 4; ++column)
@@ -46,13 +48,13 @@ bool Finite(GfMatrix4d const &value)
     return true;
 }
 
-bool ValidBindingCoordinates(int face, GfVec2f const &uv)
+bool ValidBindingCoordinates(int face, UsdGenVec2f const &uv)
 {
     return face >= 0 && Finite(uv) && uv[0] >= 0.0f && uv[1] >= 0.0f;
 }
 
 bool ValidSurfaceBinding(UsdGenSurfaceInputView const *surface, int face,
-                         GfVec2f const &uv)
+                         UsdGenVec2f const &uv)
 {
     if (!ValidBindingCoordinates(face, uv)) return false;
     if (!surface) return uv[0] <= 1.0f && uv[1] <= 1.0f;
@@ -65,26 +67,26 @@ bool ValidSurfaceBinding(UsdGenSurfaceInputView const *surface, int face,
         uv[0] - std::floor(uv[0]) + uv[1] <= 1.0f;
 }
 
-bool MatrixAffine(GfMatrix4d const &matrix)
+bool MatrixAffine(UsdGenMatrix4d const &matrix)
 {
     return Finite(matrix) && matrix[0][3] == 0.0 &&
         matrix[1][3] == 0.0 && matrix[2][3] == 0.0 &&
         matrix[3][3] == 1.0;
 }
 
-double Dot(GfVec3d const &a, GfVec3d const &b)
+double Dot(UsdGenVec3d const &a, UsdGenVec3d const &b)
 {
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-GfVec3d Cross(GfVec3d const &a, GfVec3d const &b)
+UsdGenVec3d Cross(UsdGenVec3d const &a, UsdGenVec3d const &b)
 {
     return {a[1] * b[2] - a[2] * b[1],
             a[2] * b[0] - a[0] * b[2],
             a[0] * b[1] - a[1] * b[0]};
 }
 
-GfVec3d TransformVector(GfVec3d const &value, GfMatrix4d const &matrix)
+UsdGenVec3d TransformVector(UsdGenVec3d const &value, UsdGenMatrix4d const &matrix)
 {
     return {
         value[0] * matrix[0][0] + value[1] * matrix[1][0] + value[2] * matrix[2][0],
@@ -92,7 +94,7 @@ GfVec3d TransformVector(GfVec3d const &value, GfMatrix4d const &matrix)
         value[0] * matrix[0][2] + value[1] * matrix[1][2] + value[2] * matrix[2][2]};
 }
 
-bool Normalize(GfVec3d const &value, GfVec3d *out)
+bool Normalize(UsdGenVec3d const &value, UsdGenVec3d *out)
 {
     double const length2 = Dot(value, value);
     if (!out || !std::isfinite(length2) || length2 <= 1.0e-24) return false;
@@ -101,12 +103,12 @@ bool Normalize(GfVec3d const &value, GfVec3d *out)
         std::isfinite((*out)[2]);
 }
 
-bool TransformPoint(GfVec3d const &value, GfMatrix4d const &matrix,
-                    GfVec3d *out)
+bool TransformPoint(UsdGenVec3d const &value, UsdGenMatrix4d const &matrix,
+                    UsdGenVec3d *out)
 {
     if (!out) return false;
     *out = TransformVector(value, matrix) +
-        GfVec3d(matrix[3][0], matrix[3][1], matrix[3][2]);
+        UsdGenVec3d(matrix[3][0], matrix[3][1], matrix[3][2]);
     return std::isfinite((*out)[0]) && std::isfinite((*out)[1]) &&
         std::isfinite((*out)[2]);
 }
@@ -123,7 +125,7 @@ bool Add(size_t a, size_t b, size_t *out)
 bool UsdGenCaptureCurveRoots(
     UsdGenCurveSetInputView const &source,
     UsdGenSurfaceInputView const *surface,
-    TfToken rebind,
+    UsdGenToken rebind,
     UsdGenCurveRootCaptureResult *out,
     std::string *error,
     std::shared_ptr<const UsdGenRestSurfaceBindingCache> *bindingCache)
@@ -166,8 +168,8 @@ bool UsdGenCaptureCurveRoots(
         : std::shared_ptr<const UsdGenRestSurfaceBindingCache>{};
     try {
         candidate.rootPrim.assign(curves, -1);
-        candidate.rootUV.assign(curves, GfVec2f(0.0f));
-        candidate.frames.assign(curves, GfMatrix4d(0.0));
+        candidate.rootUV.assign(curves, UsdGenVec2f(0.0f));
+        candidate.frames.assign(curves, UsdGenMatrix4d(0.0));
         candidate.valid.assign(curves, 0);
         candidate.dropMask.assign(curves, 0);
     } catch (...) {
@@ -217,7 +219,7 @@ bool UsdGenCaptureCurveRoots(
     if (!surface && curves && (!authoredFrames || needsBindingRepair))
         return Fail("curve root capture requires a rest surface for missing or invalid bindings/frames", error);
 
-    std::vector<GfVec3f> sourceRoots;
+    std::vector<UsdGenVec3f> sourceRoots;
     std::vector<size_t> repairIndices;
     if (authoredBindings && rebind != kAlways) {
         for (size_t curve = 0; curve != curves; ++curve) {
@@ -250,7 +252,7 @@ bool UsdGenCaptureCurveRoots(
         } catch (...) {
             return Fail("curve root capture repair staging allocation failed", error);
         }
-        VtVec3fArray roots;
+        UsdGenVec3fArray roots;
         try {
             roots.reserve(repairIndices.size());
             for (size_t index : repairIndices) {
@@ -293,28 +295,28 @@ bool UsdGenCaptureCurveRoots(
     } else if (curves) {
         if (!surface) return Fail("curve root capture requires a rest surface to construct frames", error);
         double sourceDeterminant = 0.0;
-        GfMatrix4d const sourceInverse = source.worldMatrix.GetInverse(&sourceDeterminant);
+        UsdGenMatrix4d const sourceInverse = source.worldMatrix.GetInverse(&sourceDeterminant);
         if (!std::isfinite(sourceDeterminant) ||
             std::abs(sourceDeterminant) <= std::numeric_limits<double>::epsilon() ||
             !MatrixAffine(sourceInverse))
             return Fail("curve root capture requires an invertible source worldMatrix for frame conversion", error);
-        GfMatrix4d const surfaceToSource = surface->worldMatrix * sourceInverse;
+        UsdGenMatrix4d const surfaceToSource = surface->worldMatrix * sourceInverse;
         if (!MatrixAffine(surfaceToSource))
             return Fail("curve root capture produced a non-finite surface-to-source frame transform", error);
         double relativeDeterminant = 0.0;
-        GfMatrix4d const sourceToSurface =
+        UsdGenMatrix4d const sourceToSurface =
             surfaceToSource.GetInverse(&relativeDeterminant);
         if (!std::isfinite(relativeDeterminant) ||
             std::abs(relativeDeterminant) <= std::numeric_limits<double>::epsilon() ||
             !MatrixAffine(sourceToSurface))
             return Fail("curve root capture requires an invertible relative frame transform", error);
-        GfMatrix4d normalTransform(0.0);
+        UsdGenMatrix4d normalTransform(0.0);
         for (int row = 0; row != 3; ++row)
             for (int column = 0; column != 3; ++column)
                 normalTransform[row][column] = sourceToSurface[column][row];
         std::vector<size_t> frameIndices;
-        VtIntArray framePrim;
-        VtVec2fArray frameUV;
+        UsdGenIntArray framePrim;
+        UsdGenVec2fArray frameUV;
         try {
             for (size_t curve = 0; curve != curves; ++curve) {
                 if (!bindingValid[curve]) continue;
@@ -342,22 +344,22 @@ bool UsdGenCaptureCurveRoots(
             // Transform vectors through the relative affine, then rebuild an
             // orthonormal frame so non-uniform object scales do not leak into
             // the operator's basis; the origin receives the full transform.
-            GfVec3d tangent = TransformVector(
+            UsdGenVec3d tangent = TransformVector(
                 {frames.frames[local][0][0], frames.frames[local][0][1], frames.frames[local][0][2]},
                 surfaceToSource);
-            GfVec3d normal = TransformVector(
+            UsdGenVec3d normal = TransformVector(
                 {frames.frames[local][2][0], frames.frames[local][2][1], frames.frames[local][2][2]},
                 normalTransform);
             if (!Normalize(normal, &normal)) continue;
             tangent -= normal * Dot(normal, tangent);
             if (!Normalize(tangent, &tangent)) continue;
-            GfVec3d binormal;
+            UsdGenVec3d binormal;
             if (!Normalize(Cross(normal, tangent), &binormal)) continue;
-            GfVec3d origin;
+            UsdGenVec3d origin;
             if (!TransformPoint(
                     {frames.frames[local][3][0], frames.frames[local][3][1], frames.frames[local][3][2]},
                     surfaceToSource, &origin)) continue;
-            GfMatrix4d sourceFrame(0.0);
+            UsdGenMatrix4d sourceFrame(0.0);
             for (int axis = 0; axis != 3; ++axis) {
                 sourceFrame[0][axis] = tangent[axis];
                 sourceFrame[1][axis] = binormal[axis];
@@ -374,8 +376,8 @@ bool UsdGenCaptureCurveRoots(
     for (size_t curve = 0; curve != curves; ++curve) {
         if (candidate.valid[curve]) continue;
         candidate.rootPrim[curve] = -1;
-        candidate.rootUV[curve] = GfVec2f(0.0f);
-        candidate.frames[curve] = GfMatrix4d(0.0);
+        candidate.rootUV[curve] = UsdGenVec2f(0.0f);
+        candidate.frames[curve] = UsdGenMatrix4d(0.0);
         candidate.dropMask[curve] = 1;
         ++candidate.dropped;
     }

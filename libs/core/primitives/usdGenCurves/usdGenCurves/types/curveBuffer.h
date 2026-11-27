@@ -13,10 +13,9 @@
 #include "usdGen/types.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "pxr/pxr.h"
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/vt/array.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -25,8 +24,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -40,7 +37,7 @@ struct UsdGenChunkDesc
     uint32_t        cvCount    = 0;   // CVs per curve; 0 == ragged chunk (use cvOffsets)
     UsdGenTileId    tile      = 0;
     UsdGenSurfaceId surface   = 0;
-    GfRange3f       boundsRest;       // filled at capture; brush/footprint rejection, tile extents
+    UsdGenRange3f       boundsRest;       // filled at capture; brush/footprint rejection, tile extents
 };
 
 /// One node's output. Per-CV data planar (I1); per-curve data AoS.
@@ -48,25 +45,25 @@ struct UsdGenChunkDesc
 struct UsdGenCurveBuffer
 {
     // ---- per CV ----------------------------------------------------------------
-    VtFloatArray px, py, pz;          // size == totalCvs
+    UsdGenFloatArray px, py, pz;          // size == totalCvs
     // Authored C3 rest positions, kept separately from the current geometry.
     // Empty means the source did not supply a usable rest channel.  It is an
     // immutable COW pass-through plane: style/value operators never write it.
-    VtVec3fArray rest;
-    VtFloatArray width;               // empty == inherit upstream
-    VtFloatArray hairT;               // root->tip parameter, written once by the generator
+    UsdGenVec3fArray rest;
+    UsdGenFloatArray width;               // empty == inherit upstream
+    UsdGenFloatArray hairT;               // root->tip parameter, written once by the generator
     std::vector<UsdGenPlane> extraCv; // named per-CV planes, sorted by name
 
     // ---- per curve ---------------------------------------------------------------
     // primvars:usdGen:curveId (uniform uint64[], R12):
     //   UsdGenHash64(seed, faceIndex, k, kSaltScatter), see usdGenMath hash.h.
-    // NOTE: OpenUSD 26.08 ships no VtUInt64Array alias; the type is
-    //       VtArray<uint64_t> (VT_INTEGRAL_BUILTIN_VALUE_TYPES, pxr/base/vt/types.h:56).
-    VtArray<uint64_t> curveId;
-    VtIntArray   rootPrim;            // surface face index (== primvars:skinprim)
-    VtVec2fArray rootUV;              // == primvars:skinprimuv, and the "st" primvar
-    VtVec3fArray rootT, rootN, rootB; // rest root frame, 36 B/curve
-    VtIntArray   cvOffsets;           // size totalCurves+1; present iff any chunk is ragged
+    // NOTE: OpenUSD 26.08 ships no UsdGenUInt64Array alias; the type is
+    //       UsdGenCowArray<uint64_t> (VT_INTEGRAL_BUILTIN_VALUE_TYPES, pxr/base/vt/types.h:56).
+    UsdGenCowArray<uint64_t> curveId;
+    UsdGenIntArray   rootPrim;            // surface face index (== primvars:skinprim)
+    UsdGenVec2fArray rootUV;              // == primvars:skinprimuv, and the "st" primvar
+    UsdGenVec3fArray rootT, rootN, rootB; // rest root frame, 36 B/curve
+    UsdGenIntArray   cvOffsets;           // size totalCurves+1; present iff any chunk is ragged
     std::vector<UsdGenPlane> extraCurve;  // clumpId_<level>, guideIndex, guideWeight
 
     // ---- geometry ------------------------------------------------------------------
@@ -195,8 +192,8 @@ _UsdGenValidatePlaneList(std::vector<UsdGenPlane> const &planes,
                          bool vertex, uint32_t elements,
                          std::string *error)
 {
-    TfToken const expected = vertex ? UsdGenTokens().vertex : UsdGenTokens().uniform;
-    TfToken previous;
+    UsdGenToken const expected = vertex ? UsdGenTokens().vertex : UsdGenTokens().uniform;
+    UsdGenToken previous;
     for (UsdGenPlane const &plane : planes) {
         if (plane.name.IsEmpty() || plane.arity == 0 ||
             (!previous.IsEmpty() && !(previous < plane.name)))
@@ -235,8 +232,8 @@ _UsdGenValidateExtraPlanes(UsdGenCurveBuffer const &source, std::string *error)
     // when malformed input puts it in both vectors.
     size_t cv = 0, curve = 0;
     while (cv < source.extraCv.size() && curve < source.extraCurve.size()) {
-        TfToken const &a = source.extraCv[cv].name;
-        TfToken const &b = source.extraCurve[curve].name;
+        UsdGenToken const &a = source.extraCv[cv].name;
+        UsdGenToken const &b = source.extraCurve[curve].name;
         if (a == b)
             return _UsdGenExtraPlaneFail("extra-plane name appears in both vertex and uniform domains", error);
         if (a < b) ++cv;
@@ -260,8 +257,8 @@ _UsdGenPrivatePlane(UsdGenPlane const &source, uint32_t elements,
     result->interpolation = source.interpolation;
     result->type = source.type;
     result->arity = source.arity;
-    if (source.type == UsdGenTokens().int_) result->i = VtIntArray(values, 0);
-    else result->f = VtFloatArray(values, 0.0f);
+    if (source.type == UsdGenTokens().int_) result->i = UsdGenIntArray(values, 0);
+    else result->f = UsdGenFloatArray(values, 0.0f);
     return true;
 }
 
@@ -423,7 +420,7 @@ struct UsdGenTileView
     UsdGenTileId tile;
     uint32_t     firstChunk, chunkCount;
     uint32_t     totalLiveCurves, totalLiveCvs;
-    GfRange3f    extent;                      // written by the interleave pass
+    UsdGenRange3f    extent;                      // written by the interleave pass
     // Engine-internal tile-change flags, set by the interleave pass and
     // consumed by the session's generation builder (not part of C2).
     bool pointsDirty = false;

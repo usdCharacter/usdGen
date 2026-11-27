@@ -4,10 +4,8 @@
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenSurface/cuda/imageSampler.h"
 
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/vt/array.h"
-#include "pxr/pxr.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
 
 #include <cstdint>
 #include <initializer_list>
@@ -21,28 +19,28 @@ namespace usdGen::gpu {
 // float2/float3/int/uint64_t currency every roots consumer already speaks.
 // Same bytes both ways (the static_asserts pin the layouts, and VtArray
 // storage is malloc-aligned); overload resolution picks by argument type.
-static_assert(sizeof(float2) == sizeof(PXR_NS::GfVec2f),
-              "float2/GfVec2f layout");
-static_assert(sizeof(float3) == sizeof(PXR_NS::GfVec3f),
-              "float3/GfVec3f layout");
+static_assert(sizeof(float2) == sizeof(UsdGenVec2f),
+              "float2/UsdGenVec2f layout");
+static_assert(sizeof(float3) == sizeof(UsdGenVec3f),
+              "float3/UsdGenVec3f layout");
 static_assert(sizeof(int) == sizeof(int32_t), "int/int32_t layout");
-inline float2 RootsToPod(PXR_NS::GfVec2f const& e)
+inline float2 RootsToPod(UsdGenVec2f const& e)
 {
     return float2{e[0], e[1]};
 }
-inline float3 RootsToPod(PXR_NS::GfVec3f const& e)
+inline float3 RootsToPod(UsdGenVec3f const& e)
 {
     return float3{e[0], e[1], e[2]};
 }
 inline uint64_t RootsToPod(uint64_t e) { return e; }
 inline int32_t RootsToPod(int e) { return int32_t(e); }
-inline PXR_NS::GfVec2f RootsFromPod(float2 const& p)
+inline UsdGenVec2f RootsFromPod(float2 const& p)
 {
-    return PXR_NS::GfVec2f(p.x, p.y);
+    return UsdGenVec2f(p.x, p.y);
 }
-inline PXR_NS::GfVec3f RootsFromPod(float3 const& p)
+inline UsdGenVec3f RootsFromPod(float3 const& p)
 {
-    return PXR_NS::GfVec3f(p.x, p.y, p.z);
+    return UsdGenVec3f(p.x, p.y, p.z);
 }
 inline uint64_t RootsFromPod(uint64_t p) { return p; }
 inline int RootsFromPod(int32_t p) { return int(p); }
@@ -144,11 +142,11 @@ private:
 // zero-init pass).  Same bytes as the old all-vector spelling, without
 // the copies.
 struct ScatterGrowRoots {
-    ScatterGrowPlane<PXR_NS::VtVec3fArray, float3, PXR_NS::GfVec3f> positions;
-    ScatterGrowPlane<PXR_NS::VtArray<uint64_t>, uint64_t, uint64_t> stableIds;
-    ScatterGrowPlane<PXR_NS::VtIntArray, int32_t, int> rootPrim;
-    ScatterGrowPlane<PXR_NS::VtVec2fArray, float2, PXR_NS::GfVec2f> rootUV;
-    ScatterGrowPlane<PXR_NS::VtVec3fArray, float3, PXR_NS::GfVec3f> rootT, rootB,
+    ScatterGrowPlane<UsdGenVec3fArray, float3, UsdGenVec3f> positions;
+    ScatterGrowPlane<UsdGenCowArray<uint64_t>, uint64_t, uint64_t> stableIds;
+    ScatterGrowPlane<UsdGenIntArray, int32_t, int> rootPrim;
+    ScatterGrowPlane<UsdGenVec2fArray, float2, UsdGenVec2f> rootUV;
+    ScatterGrowPlane<UsdGenVec3fArray, float3, UsdGenVec3f> rootT, rootB,
         rootN;
 };
 

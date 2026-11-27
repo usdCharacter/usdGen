@@ -10,17 +10,10 @@
 #include "usdGen/registries/op.h"
 #include "usdGen/registries/token.h"
 
-#include "pxr/base/gf/half.h"
-#include "pxr/base/gf/vec2d.h"
-#include "pxr/base/gf/vec2h.h"
-#include "pxr/base/gf/vec2i.h"
-#include "pxr/base/gf/vec3d.h"
-#include "pxr/base/gf/vec3h.h"
-#include "pxr/base/gf/vec3i.h"
-#include "pxr/base/gf/vec4d.h"
-#include "pxr/base/gf/vec4f.h"
-#include "pxr/base/gf/vec4h.h"
-#include "pxr/base/gf/vec4i.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,7 +22,6 @@
 #include <string_view>
 #include <unordered_map>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -50,27 +42,27 @@ namespace {
 using Domain = expr::Domain;
 
 // Made at load, not on first use: no function-local static to guard.
-TfToken const kPreviewDestination = UsdGenInternToken("usdGenPreview");
-TfToken const kGroom = UsdGenInternToken("groom"), kPoint = UsdGenInternToken("point");
-TfToken const kMapInput = UsdGenInternToken("map");
-TfToken const kMapChannel = UsdGenInternToken("map:channel"),
+UsdGenToken const kPreviewDestination = UsdGenInternToken("usdGenPreview");
+UsdGenToken const kGroom = UsdGenInternToken("groom"), kPoint = UsdGenInternToken("point");
+UsdGenToken const kMapInput = UsdGenInternToken("map");
+UsdGenToken const kMapChannel = UsdGenInternToken("map:channel"),
     kMapFirstChannel = UsdGenInternToken("map:firstChannel"),
     kMapChannelCount = UsdGenInternToken("map:channelCount");
 // Per-channel destinations of a map preview, and the channel each one reads.
-TfToken const kPreviewChannels[] = {UsdGenInternToken("previewR"), UsdGenInternToken("previewG"),
+UsdGenToken const kPreviewChannels[] = {UsdGenInternToken("previewR"), UsdGenInternToken("previewG"),
                                     UsdGenInternToken("previewB")};
-TfToken const kRgbChannels[] = {UsdGenInternToken("r"), UsdGenInternToken("g"),
+UsdGenToken const kRgbChannels[] = {UsdGenInternToken("r"), UsdGenInternToken("g"),
                                 UsdGenInternToken("b")};
 
 /// Text of a property name without `usdGen:`.
-std::string_view CanonicalText(TfToken const &name)
+std::string_view CanonicalText(UsdGenToken const &name)
 {
     std::string_view text(name.GetString());
     constexpr std::string_view kPrefix("usdGen:");
     return text.substr(0, kPrefix.size()) == kPrefix ? text.substr(kPrefix.size()) : text;
 }
 
-TfToken const &PreviewDestination()
+UsdGenToken const &PreviewDestination()
 {
     return kPreviewDestination;
 }
@@ -81,7 +73,7 @@ uint64_t Mix(uint64_t h, uint64_t value)
 }
 
 template <class T>
-bool ScalarValue(VtValue const &value, std::vector<double> *out)
+bool ScalarValue(UsdGenValue const &value, std::vector<double> *out)
 {
     if (!value.IsHolding<T>()) return false;
     out->assign(1, double(value.UncheckedGet<T>()));
@@ -89,7 +81,7 @@ bool ScalarValue(VtValue const &value, std::vector<double> *out)
 }
 
 template <class T>
-bool VectorValue(VtValue const &value, std::vector<double> *out)
+bool VectorValue(UsdGenValue const &value, std::vector<double> *out)
 {
     if (!value.IsHolding<T>()) return false;
     T const &v = value.UncheckedGet<T>();
@@ -100,18 +92,18 @@ bool VectorValue(VtValue const &value, std::vector<double> *out)
 
 /// An authored operator value as doubles, or false when it has no colour
 /// (a token, an array, a ramp).
-bool LiteralValues(VtValue const &value, std::vector<double> *out)
+bool LiteralValues(UsdGenValue const &value, std::vector<double> *out)
 {
     return ScalarValue<float>(value, out) || ScalarValue<double>(value, out) ||
         ScalarValue<int>(value, out) || ScalarValue<bool>(value, out) ||
-        ScalarValue<GfHalf>(value, out) || ScalarValue<unsigned int>(value, out) ||
+        ScalarValue<UsdGenHalf>(value, out) || ScalarValue<unsigned int>(value, out) ||
         ScalarValue<int64_t>(value, out) || ScalarValue<uint64_t>(value, out) ||
-        VectorValue<GfVec2f>(value, out) || VectorValue<GfVec3f>(value, out) ||
-        VectorValue<GfVec4f>(value, out) || VectorValue<GfVec2d>(value, out) ||
-        VectorValue<GfVec3d>(value, out) || VectorValue<GfVec4d>(value, out) ||
-        VectorValue<GfVec2h>(value, out) || VectorValue<GfVec3h>(value, out) ||
-        VectorValue<GfVec4h>(value, out) || VectorValue<GfVec2i>(value, out) ||
-        VectorValue<GfVec3i>(value, out) || VectorValue<GfVec4i>(value, out);
+        VectorValue<UsdGenVec2f>(value, out) || VectorValue<UsdGenVec3f>(value, out) ||
+        VectorValue<UsdGenVec4f>(value, out) || VectorValue<UsdGenVec2d>(value, out) ||
+        VectorValue<UsdGenVec3d>(value, out) || VectorValue<UsdGenVec4d>(value, out) ||
+        VectorValue<UsdGenVec2h>(value, out) || VectorValue<UsdGenVec3h>(value, out) ||
+        VectorValue<UsdGenVec4h>(value, out) || VectorValue<UsdGenVec2i>(value, out) ||
+        VectorValue<UsdGenVec3i>(value, out) || VectorValue<UsdGenVec4i>(value, out);
 }
 
 /// First CV of every curve, plus the end.
@@ -173,7 +165,7 @@ UsdGenOpNode PreviewNode(UsdGenGraphSpec const &desc)
     return node;
 }
 
-void SetParam(UsdGenMapData *map, TfToken const &name, VtValue value)
+void SetParam(UsdGenMapData *map, UsdGenToken const &name, UsdGenValue value)
 {
     for (UsdGenParamValue &param : map->params) {
         if (param.name == name) {
@@ -240,7 +232,7 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphSpec const &desc,
         ? UsdGenExpressionInputView::Of(*expressionRecord) : UsdGenExpressionInputView{};
     UsdGenExpressionInputView const *expression = &expressionView;
     UsdGenExpressionOutputDesc const *output =
-        UsdGenFindExpressionOutput(*expression, TfToken());
+        UsdGenFindExpressionOutput(*expression, UsdGenToken());
     if (!output) {
         *warning = SourceText(desc) +
             " declares no outputs:result, and not exactly one other output";
@@ -324,9 +316,9 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
             UsdGenCopyMapData(*map, &copy);
             UsdGenNodeKey const copyKey = _mapDesc.DeriveKey(map->key, kPreviewChannels[k]);
             if (colour) {
-                SetParam(&copy, kMapChannel, VtValue(kRgbChannels[k]));
-                SetParam(&copy, kMapFirstChannel, VtValue(0));
-                SetParam(&copy, kMapChannelCount, VtValue(3));
+                SetParam(&copy, kMapChannel, UsdGenValue(kRgbChannels[k]));
+                SetParam(&copy, kMapFirstChannel, UsdGenValue(0));
+                SetParam(&copy, kMapChannelCount, UsdGenValue(3));
                 EraseParam(&copy, "map:scale");
                 EraseParam(&copy, "map:offset");
                 EraseParam(&copy, "map:clamp");
@@ -342,10 +334,10 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
             binding.destination = kPreviewChannels[k];
             binding.destinationShape = floatShape;
             binding.domain = Domain::Primitive;
-            binding.literal = VtValue(0.0f);
+            binding.literal = UsdGenValue(0.0f);
             node.expressionBindings.push_back(std::move(binding));
-            _mapDesc.inputs.push_back(UsdGenMapRecord(copy, copyKey, map->paintSurface, TfToken()));
-            _mapDesc.inputs.push_back(UsdGenExpressionRecord(expression, copyKey, TfToken()));
+            _mapDesc.inputs.push_back(UsdGenMapRecord(copy, copyKey, map->paintSurface, UsdGenToken()));
+            _mapDesc.inputs.push_back(UsdGenExpressionRecord(expression, copyKey, UsdGenToken()));
         }
         _mapDesc.SortInputs();
         std::string message;
@@ -384,7 +376,7 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphSpec const &desc, UsdGenGraph 
                                        Values *values, std::string *warning)
 {
     UsdGenNodeKey const operatorKey = desc.preview.source;
-    TfToken const &attribute = desc.preview.attribute;
+    UsdGenToken const &attribute = desc.preview.attribute;
     std::string_view const name = CanonicalText(attribute);
     for (int id = 0; id < graph.NodeCount(); ++id) {
         UsdGenCompiledNode const &node = graph.Node(id);

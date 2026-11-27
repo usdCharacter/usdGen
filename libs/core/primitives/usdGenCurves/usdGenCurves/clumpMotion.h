@@ -5,6 +5,8 @@
 
 #include "usdGen/curveBuffer.h"
 #include "usdGenCurves/export.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 
 #include <cstdint>
 #include <memory>
@@ -17,7 +19,7 @@ namespace usdGen {
 struct UsdGenCurveSetView;   // usdGenCurves/types/curveSet.h
 
 struct UsdGenClumpMotionGroup {
-    GfVec3f restAnchor;
+    UsdGenVec3f restAnchor;
     uint64_t centerId = 0;
 };
 
@@ -54,11 +56,11 @@ struct UsdGenClumpMotionLevel {
     // UINT32_MAX means that the curve has no active group at this level.
     UsdGenClumpReadOnlyArray<uint32_t> groupForCurve;
     UsdGenClumpReadOnlyArray<UsdGenClumpMotionGroup> groups;
-    VtFloatArray weight; // global CV order; empty for legacy clumpId-only data
+    UsdGenFloatArray weight; // global CV order; empty for legacy clumpId-only data
     // Owning CoW snapshots keep a reused allocation alive, making cdata()
     // identity an unambiguous cache key even when upstream buffers retire.
-    VtIntArray sourceMembership, sourceCenterId;
-    VtFloatArray sourceAnchor;
+    UsdGenIntArray sourceMembership, sourceCenterId;
+    UsdGenFloatArray sourceAnchor;
 };
 
 struct UsdGenClumpMotion {

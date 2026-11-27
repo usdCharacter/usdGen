@@ -9,6 +9,9 @@
 #include "usdGen/registries/opRegistry.h"
 
 #include "usdGen/taskScheduler.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>
@@ -37,18 +40,18 @@ CudaScatterInputStatus Fail(CudaScatterInputStatus status, std::string message,
     return status;
 }
 
-bool Finite(GfVec3f const& v) {
+bool Finite(UsdGenVec3f const& v) {
     return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
 }
-bool Finite(GfVec2f const& v) { return std::isfinite(v[0]) && std::isfinite(v[1]); }
+bool Finite(UsdGenVec2f const& v) { return std::isfinite(v[0]) && std::isfinite(v[1]); }
 
 // Scatter is a generator: it declares only density and flip.
-bool AllowedScatterParam(TfToken const& name) {
+bool AllowedScatterParam(UsdGenToken const& name) {
     std::string const& text = name.GetString();
     return text == "density" || text == "flip" || text == "subdivisionLevel";
 }
 
-bool IsFloat(VtValue const& v) { return v.IsHolding<float>() || v.IsHolding<double>(); }
+bool IsFloat(UsdGenValue const& v) { return v.IsHolding<float>() || v.IsHolding<double>(); }
 
 bool ValidScatterParam(UsdGenParamValue const& param) {
     std::string const& name = param.name.GetString();
@@ -151,11 +154,11 @@ CudaScatterInputStatus ValidateSurface(UsdGenSurfaceInputView const& surface,
             return Fail(CudaScatterInputStatus::InvalidSurface,
                         "Scatter surface UV cardinality differs from rest positions", reason);
         if (ValidateAnyBad(surface.restPoints.cdata(), surface.restPoints.size(),
-                           [](GfVec3f const& p) { return !Finite(p); }))
+                           [](UsdGenVec3f const& p) { return !Finite(p); }))
             return Fail(CudaScatterInputStatus::InvalidSurface,
                         "Scatter surface has non-finite rest position", reason);
         if (ValidateAnyBad(surface.uv.cdata(), surface.uv.size(),
-                           [](GfVec2f const& uv) { return !Finite(uv); }))
+                           [](UsdGenVec2f const& uv) { return !Finite(uv); }))
             return Fail(CudaScatterInputStatus::InvalidSurface,
                         "Scatter surface has non-finite UV", reason);
         return CudaScatterInputStatus::Ok;
@@ -175,11 +178,11 @@ CudaScatterInputStatus ValidateSurface(UsdGenSurfaceInputView const& surface,
         return Fail(CudaScatterInputStatus::InvalidSurface,
                     "Scatter surface face-index cardinality differs from face counts", reason);
     if (ValidateAnyBad(surface.restPoints.cdata(), surface.restPoints.size(),
-                       [](GfVec3f const& p) { return !Finite(p); }))
+                       [](UsdGenVec3f const& p) { return !Finite(p); }))
         return Fail(CudaScatterInputStatus::InvalidSurface,
                     "Scatter surface has non-finite rest position", reason);
     if (ValidateAnyBad(surface.uv.cdata(), surface.uv.size(),
-                       [](GfVec2f const& uv) { return !Finite(uv); }))
+                       [](UsdGenVec2f const& uv) { return !Finite(uv); }))
         return Fail(CudaScatterInputStatus::InvalidSurface,
                     "Scatter surface has non-finite UV", reason);
     size_t const points = surface.restPoints.size();
@@ -332,7 +335,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
     if (node.surfaces.size() != 1)
         return Fail(CudaScatterInputStatus::InvalidArgument,
                     "Scatter input requires exactly one surface path", reason);
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (UsdGenParamValue const& param : node.params) {
         if (param.animated || !seen.insert(param.name).second ||
             !AllowedScatterParam(param.name) || !ValidScatterParam(param))
@@ -434,11 +437,11 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                 ? std::min({size_t(transposeWorkers), size_t(8), n})
                 : 1;
         prep->positions.resize_fill(
-            n, [px, py, pz, transposeChunks](GfVec3f* b, GfVec3f* e) {
+            n, [px, py, pz, transposeChunks](UsdGenVec3f* b, UsdGenVec3f* e) {
                 if (transposeChunks == 1) {
                     size_t i = 0;
-                    for (GfVec3f* d = b; d != e; ++d, ++i)
-                        new (d) GfVec3f(px[i], py[i], pz[i]);
+                    for (UsdGenVec3f* d = b; d != e; ++d, ++i)
+                        new (d) UsdGenVec3f(px[i], py[i], pz[i]);
                     return;
                 }
                 size_t const M = size_t(e - b);
@@ -446,7 +449,7 @@ CudaScatterInputStatus PrepareCudaScatterInput(
                     size_t const i0 = (c * M) / transposeChunks;
                     size_t const i1 = ((c + 1) * M) / transposeChunks;
                     for (size_t i = i0; i < i1; ++i)
-                        new (b + i) GfVec3f(px[i], py[i], pz[i]);
+                        new (b + i) UsdGenVec3f(px[i], py[i], pz[i]);
                 });
             });
     }

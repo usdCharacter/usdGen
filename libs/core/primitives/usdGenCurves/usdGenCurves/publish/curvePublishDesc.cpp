@@ -9,6 +9,9 @@
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/publisher.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <utility>
@@ -76,7 +79,7 @@ UsdGenNodeKey Occluder(UsdGenPublishContext const &ctx, uint32_t index)
 // layouts disagree. *padding: half the widest published width.
 bool GroupRest(UsdGenChunkGroup const &tv, UsdGenCurveSetView const &rest,
                UsdGenCurveSetView const &term, UsdGenSpan<const UsdGenChunkRange> chunks,
-               VtVec3fArray *out, double *padding)
+               UsdGenVec3fArray *out, double *padding)
 {
     auto span = [&](UsdGenCurveSetView const &v, UsdGenChunkRange const &cd, uint32_t c,
                     uint32_t *p0, uint32_t *len) {
@@ -92,7 +95,7 @@ bool GroupRest(UsdGenChunkGroup const &tv, UsdGenCurveSetView const &rest,
         }
     };
     if (size_t(tv.firstChunk) + tv.chunkCount > chunks.size()) return false;
-    VtVec3fArray points;
+    UsdGenVec3fArray points;
     double pad = 0.0;
     for (uint32_t i = 0; i < tv.chunkCount; ++i) {
         UsdGenChunkRange const &cd = chunks[tv.firstChunk + i];
@@ -105,7 +108,7 @@ bool GroupRest(UsdGenChunkGroup const &tv, UsdGenCurveSetView const &rest,
                 return false;
             for (uint32_t v = 0; v < rlen; ++v) {
                 uint32_t const p = r0 + v;
-                points.push_back(GfVec3f(rest.px[p], rest.py[p], rest.pz[p]));
+                points.push_back(UsdGenVec3f(rest.px[p], rest.py[p], rest.pz[p]));
                 uint32_t const q = t0 + v;
                 float w = 0.01f;
                 if (q < term.width.size()) w = term.width[q];

@@ -13,6 +13,9 @@
 #include "usdGen/authoredNamedChannels.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenCurves/vulkan/vkStages.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -29,7 +32,7 @@ namespace usdGen::vulkan {
 enum class CsourceVkResampleStatus { Ok, NotAnInteger, Negative, OneCV, Overflow };
 
 inline CsourceVkResampleStatus CsourceVkValidateResampleTarget(
-    VtValue const& value, size_t curveCount, int* target,
+    UsdGenValue const& value, size_t curveCount, int* target,
     std::string* reason = nullptr) {
     auto fail = [&](CsourceVkResampleStatus code, char const* text) {
         if (reason) *reason = text;
@@ -108,7 +111,7 @@ inline bool CsourceVkAuthoredPlaneBytes(UsdGenAuthoredPlaneDomain domain,
 // absence-preserving path); rebind=onError executes exactly when complete
 // authored frames make repair unnecessary; rebind=always needs a rest
 // surface for its unconditional repair and never executes surface-free.
-inline bool CsourceVkSurfaceFreeRebindAdmitted(TfToken const& rebind,
+inline bool CsourceVkSurfaceFreeRebindAdmitted(UsdGenToken const& rebind,
                                               size_t curveCount,
                                               size_t rootFrameCount) {
     if (curveCount == 0) return true;
@@ -126,9 +129,9 @@ inline bool CsourceVkSurfaceFreeRebindAdmitted(TfToken const& rebind,
 // the surfaceVk host fit (in-budget) or the rbf device path (out-of-budget).
 // The plan compiler enforces description-transform identity on Deform
 // stages; other graph shapes retain arbitrary finite publication transforms.
-inline bool CsourceVkDeformSourceAdmitted(GfMatrix4d const& sourceWorld,
+inline bool CsourceVkDeformSourceAdmitted(UsdGenMatrix4d const& sourceWorld,
                                           std::string* reason = nullptr) {
-    if (sourceWorld == GfMatrix4d(1.0)) return true;
+    if (sourceWorld == UsdGenMatrix4d(1.0)) return true;
     if (reason) *reason = "Deform requires identity source transforms";
     return false;
 }

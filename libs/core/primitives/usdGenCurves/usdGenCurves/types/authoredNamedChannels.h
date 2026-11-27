@@ -4,6 +4,8 @@
 #include "curveBuffer.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,7 +24,7 @@ inline bool AuthoredNamedChannelFail(std::string const& message, std::string* re
     return false;
 }
 
-inline bool IsReservedAuthoredNamedChannel(TfToken const& name) {
+inline bool IsReservedAuthoredNamedChannel(UsdGenToken const& name) {
     static constexpr char const *names[] = {"points", "curveOffsets", "stableIds", "rest",
         "width", "widths", "restPoints", "hairT", "rootPrim", "rootUV",
         "sourceRootT", "sourceRootB", "sourceRootN", "sourceChunks"};
@@ -43,7 +45,7 @@ inline bool AuthoredNamedChannelElements(UsdGenAuthoredPlaneView const& plane,
 
 inline bool ValidateAuthoredNamedChannels(UsdGenCurveSetInputView const& source, size_t totalCurves,
     size_t totalPoints, std::string* reason = nullptr) {
-    std::set<TfToken> names;
+    std::set<UsdGenToken> names;
     for (UsdGenAuthoredPlaneView const& plane : source.authoredPlanes) {
         if (plane.name.IsEmpty() || !names.insert(plane.name).second ||
             detail::IsReservedAuthoredNamedChannel(plane.name))
@@ -100,8 +102,8 @@ inline bool GatherAuthoredNamedChannels(UsdGenCurveSetInputView const& source,
             plane.type = authored.type == UsdGenAuthoredPlaneType::Float32 ? UsdGenTokens().float_ : UsdGenTokens().int_;
             size_t const elements = point ? out->totalCvs : groom ? 1 : out->totalCurves;
             size_t const values = elements * plane.arity;
-            if (plane.type == UsdGenTokens().float_) plane.f = VtFloatArray(values, 0.0f);
-            else plane.i = VtIntArray(values, 0);
+            if (plane.type == UsdGenTokens().float_) plane.f = UsdGenFloatArray(values, 0.0f);
+            else plane.i = UsdGenIntArray(values, 0);
             if (groom) {
                 if (plane.type == UsdGenTokens().float_)
                     plane.f.assign(authored.floatValues.begin(), authored.floatValues.end());

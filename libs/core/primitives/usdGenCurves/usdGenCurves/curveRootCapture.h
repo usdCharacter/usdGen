@@ -7,12 +7,13 @@
 #include "usdGen/api/graphSpec.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -26,11 +27,11 @@ struct UsdGenCurveRootCaptureResult
     // optional rootPrim/rootUV/frames arrays remain empty and valid is true
     // for each geometry curve. Otherwise an invalid entry is explicit:
     // rootPrim is -1, rootUV is (0,0), and its frame is zeroed.
-    VtIntArray rootPrim;
-    VtVec2fArray rootUV;
-    VtMatrix4dArray frames;
-    VtArray<uint8_t> valid;
-    VtArray<uint8_t> dropMask;
+    UsdGenIntArray rootPrim;
+    UsdGenVec2fArray rootUV;
+    UsdGenMatrix4dArray frames;
+    UsdGenCowArray<uint8_t> valid;
+    UsdGenCowArray<uint8_t> dropMask;
     uint32_t dropped = 0;
     uint32_t rebound = 0;
 };
@@ -51,7 +52,7 @@ struct UsdGenCurveRootCaptureResult
 bool UsdGenCaptureCurveRoots(
     UsdGenCurveSetInputView const &source,
     UsdGenSurfaceInputView const *surface,
-    TfToken rebind,
+    UsdGenToken rebind,
     UsdGenCurveRootCaptureResult *out,
     std::string *error = nullptr,
     std::shared_ptr<const UsdGenRestSurfaceBindingCache> *bindingCache = nullptr);

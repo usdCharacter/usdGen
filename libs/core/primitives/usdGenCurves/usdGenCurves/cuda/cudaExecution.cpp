@@ -59,6 +59,10 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 #include "usdGenCurves/cuda/curveTiles.h"
 #include "usdGenCurves/cuda/curveTileBounds.h"
 #include "usdGenMath/usdGenMath/ramp.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #endif
 
 namespace usdGen {
@@ -71,7 +75,7 @@ bool Fail(UsdGenDiagnostics* diagnostics, std::string message) {
     if (diagnostics) diagnostics->Error("CUDA: " + std::move(message));
     return false;
 }
-[[maybe_unused]] std::string LocalName(TfToken const& name) {
+[[maybe_unused]] std::string LocalName(UsdGenToken const& name) {
     auto value = name.GetString();
     if (value.compare(0, 7, "usdGen:") == 0) value.erase(0, 7);
     return value;
@@ -87,21 +91,21 @@ bool CudaIs(UsdGenOpNode const& node, UsdGenCudaStage stage) noexcept {
     return kernel && IsCudaWidthValueNode(UsdGenCudaStage(kernel->stage));
 }
 // usdGen:rebind's default (curveRootCapture.cpp), interned at load.
-[[maybe_unused]] TfToken const kCudaRebindOnError = UsdGenInternToken("onError");
+[[maybe_unused]] UsdGenToken const kCudaRebindOnError = UsdGenInternToken("onError");
 // Plan task types, not op names: backend-prefixed like the Vulkan plan's
 // "VulkanPublication" (asserted by the CUDA plan tests).
-[[maybe_unused]] TfToken const kCudaScatterGrowTask = UsdGenInternToken("CudaScatterGrow");
-TfToken const kCudaPublicationTask = UsdGenInternToken("CudaPublication");
-// A token-valued literal with exactly this text (VtValue(TfToken(text)) ==).
-[[maybe_unused]] bool HoldsTokenText(VtValue const& value, char const* text) {
-    return value.IsHolding<TfToken>() && value.UncheckedGet<TfToken>().GetString() == text;
+[[maybe_unused]] UsdGenToken const kCudaScatterGrowTask = UsdGenInternToken("CudaScatterGrow");
+UsdGenToken const kCudaPublicationTask = UsdGenInternToken("CudaPublication");
+// A token-valued literal with exactly this text (UsdGenValue(UsdGenToken(text)) ==).
+[[maybe_unused]] bool HoldsTokenText(UsdGenValue const& value, char const* text) {
+    return value.IsHolding<UsdGenToken>() && value.UncheckedGet<UsdGenToken>().GetString() == text;
 }
 // The authored token text of a slot, or fallback (GetToken(slot).GetText()).
 [[maybe_unused]] char const* TokenText(UsdGenParamView const& view, UsdGenParamSlot slot, char const* fallback) noexcept {
     UsdGenResolvedParam const* r = view.Slot(slot);
     if (!r || !r->authored) return fallback;
-    VtValue const& value = r->authored->value;
-    if (!value.IsHolding<TfToken>() && !value.IsHolding<std::string>()) return fallback;
+    UsdGenValue const& value = r->authored->value;
+    if (!value.IsHolding<UsdGenToken>() && !value.IsHolding<std::string>()) return fallback;
     return r->token.GetText();
 }
 [[maybe_unused]] bool TokenIs(UsdGenParamView const& view, UsdGenParamSlot slot, char const* fallback,
@@ -202,9 +206,9 @@ bool ValidateLength(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
                 param.value.UncheckedGet<float>() >= 0 &&
                 (name != "mask" || param.value.UncheckedGet<float>() <= 1);
         else if (name == "length:random") {
-            valid = param.value.IsHolding<GfVec2f>();
+            valid = param.value.IsHolding<UsdGenVec2f>();
             if (valid) for (int component = 0; component < 2; ++component) {
-                auto value = param.value.UncheckedGet<GfVec2f>()[component];
+                auto value = param.value.UncheckedGet<UsdGenVec2f>()[component];
                 valid &= std::isfinite(value) && value >= 0;
             }
         } else if (name == "length:mode")
@@ -246,13 +250,13 @@ bool ValidateWidth(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
         bool valid = false;
         if (Contains(floats, name)) valid = param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>());
         else if (name == "replace") valid = param.value.IsHolding<bool>();
-        else if (name == "width:interpolation") valid = param.value.IsHolding<TfToken>();
+        else if (name == "width:interpolation") valid = param.value.IsHolding<UsdGenToken>();
         else if (name == "width:profile:mode")
             valid = HoldsTokenText(param.value, "ramp") || HoldsTokenText(param.value, "bezier");
         else if (name == "width:knots") {
-            valid = param.value.IsHolding<VtVec2fArray>();
+            valid = param.value.IsHolding<UsdGenVec2fArray>();
             float previous = -1;
-            if (valid) for (auto const& knot : param.value.UncheckedGet<VtVec2fArray>()) {
+            if (valid) for (auto const& knot : param.value.UncheckedGet<UsdGenVec2fArray>()) {
                 if (!std::isfinite(knot[0]) || !std::isfinite(knot[1]) || knot[0] < 0 || knot[0] > 1 || knot[0] < previous)
                     valid = false;
                 previous = knot[0];
@@ -332,11 +336,11 @@ bool ValidateNoise(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
         } else if (name == "enabled" || name == "cumulative") {
             valid = param.value.IsHolding<bool>();
         } else if (name == "noise:magnitude:interpolation") {
-            valid = param.value.IsHolding<TfToken>();
+            valid = param.value.IsHolding<UsdGenToken>();
         } else if (name == "noise:magnitude:knots") {
-            valid = param.value.IsHolding<VtVec2fArray>();
+            valid = param.value.IsHolding<UsdGenVec2fArray>();
             float previous = -1;
-            if (valid) for (auto const& knot : param.value.UncheckedGet<VtVec2fArray>()) {
+            if (valid) for (auto const& knot : param.value.UncheckedGet<UsdGenVec2fArray>()) {
                 valid = std::isfinite(knot[0]) && std::isfinite(knot[1]) &&
                     knot[0] >= 0 && knot[0] <= 1 && knot[0] >= previous;
                 previous = knot[0];
@@ -371,8 +375,8 @@ bool ValidateDeform(UsdGenGraphSpec const& desc, UsdGenOpNode const& node,
         // surface RBF. Accept the inert default without admitting guide
         // partitioning, which remains a CPU capability.
         else if (name == "guideRegions")
-            valid &= param.value.IsHolding<VtIntArray>() &&
-                param.value.UncheckedGet<VtIntArray>().empty();
+            valid &= param.value.IsHolding<UsdGenIntArray>() &&
+                param.value.UncheckedGet<UsdGenIntArray>().empty();
         else if (name == "mask")
             valid &= param.value.IsHolding<float>() && std::isfinite(param.value.UncheckedGet<float>()) &&
                 param.value.UncheckedGet<float>() >= 0 && param.value.UncheckedGet<float>() <= 1;
@@ -430,7 +434,7 @@ bool ValidateScatterGrow(UsdGenGraphSpec const& desc, uint32_t source, uint32_t 
     static constexpr std::string_view allowed[] = {
         "segments", "length", "lengthRandom", "lift", "azimuth", "azimuthRandom",
         "direction", "directionVector"};
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const& value : grow.params) {
         if (value.animated || !seen.insert(value.name).second)
             return Fail(diagnostics, "Scatter->Grow has animated or duplicate Grow control " +
@@ -443,10 +447,10 @@ bool ValidateScatterGrow(UsdGenGraphSpec const& desc, uint32_t source, uint32_t 
         else if (value.name.GetString() == "length" || value.name.GetString() == "lift" ||
                  value.name.GetString() == "azimuth" || value.name.GetString() == "azimuthRandom")
             valid = value.value.IsHolding<float>() || value.value.IsHolding<double>();
-        else if (value.name.GetString() == "lengthRandom") valid = value.value.IsHolding<GfVec2f>();
+        else if (value.name.GetString() == "lengthRandom") valid = value.value.IsHolding<UsdGenVec2f>();
         else if (value.name.GetString() == "direction")
-            valid = value.value.IsHolding<TfToken>() || value.value.IsHolding<std::string>();
-        else if (value.name.GetString() == "directionVector") valid = value.value.IsHolding<GfVec3f>();
+            valid = value.value.IsHolding<UsdGenToken>() || value.value.IsHolding<std::string>();
+        else if (value.name.GetString() == "directionVector") valid = value.value.IsHolding<UsdGenVec3f>();
         if (!valid)
             return Fail(diagnostics, "Scatter->Grow has wrong native type for " + value.name.GetString());
     }
@@ -458,10 +462,10 @@ bool ValidateScatterGrow(UsdGenGraphSpec const& desc, uint32_t source, uint32_t 
         return Fail(diagnostics, "Scatter->Grow requires segments in [2,64] and finite non-negative length");
     if (!std::isfinite(float(length)))
         return Fail(diagnostics, "Scatter->Grow length is not float-representable");
-    VtValue const lengthRandomFallback(GfVec2f(1,1));
-    VtValue const& random=p.GetValue(growParams.Slot(cudaP::kGrowLengthRandom),lengthRandomFallback);
-    if (!random.IsHolding<GfVec2f>()) return Fail(diagnostics,"Scatter->Grow lengthRandom must be float2");
-    auto const r=random.UncheckedGet<GfVec2f>();
+    UsdGenValue const lengthRandomFallback(UsdGenVec2f(1,1));
+    UsdGenValue const& random=p.GetValue(growParams.Slot(cudaP::kGrowLengthRandom),lengthRandomFallback);
+    if (!random.IsHolding<UsdGenVec2f>()) return Fail(diagnostics,"Scatter->Grow lengthRandom must be float2");
+    auto const r=random.UncheckedGet<UsdGenVec2f>();
     if (!std::isfinite(r[0])||!std::isfinite(r[1])||r[0]<0||r[1]<0)
         return Fail(diagnostics,"Scatter->Grow lengthRandom must be finite and non-negative");
     double const lift=p.GetDouble(growParams.Slot(cudaP::kGrowLift),0.0);
@@ -475,10 +479,10 @@ bool ValidateScatterGrow(UsdGenGraphSpec const& desc, uint32_t source, uint32_t 
     char const* direction=TokenText(p,growParams.Slot(cudaP::kGrowDirection),"surfaceNormal");
     if (std::strcmp(direction,"surfaceNormal")!=0 && std::strcmp(direction,"vector")!=0)
         return Fail(diagnostics,"Grow requires surfaceNormal or literal vector direction");
-    VtValue const directionFallback(GfVec3f(0,1,0));
-    VtValue const& v=p.GetValue(growParams.Slot(cudaP::kGrowDirectionVector),directionFallback);
-    if (!v.IsHolding<GfVec3f>()) return Fail(diagnostics,"Scatter->Grow directionVector must be float3");
-    auto const d=v.UncheckedGet<GfVec3f>();
+    UsdGenValue const directionFallback(UsdGenVec3f(0,1,0));
+    UsdGenValue const& v=p.GetValue(growParams.Slot(cudaP::kGrowDirectionVector),directionFallback);
+    if (!v.IsHolding<UsdGenVec3f>()) return Fail(diagnostics,"Scatter->Grow directionVector must be float3");
+    auto const d=v.UncheckedGet<UsdGenVec3f>();
     if (!std::isfinite(d[0])||!std::isfinite(d[1])||!std::isfinite(d[2]))
         return Fail(diagnostics,"Scatter->Grow directionVector must be finite");
     return true;
@@ -578,7 +582,7 @@ public:
     gpu::ScatterGrowRequirements scatterGrowRequirements;
     struct Step {
         UsdGenNodeKey key;
-        TfToken type;
+        UsdGenToken type;
         // Resolved once at compile against plan.desc (ResolveCudaStep).
         UsdGenCudaStage stage = UsdGenCudaStage::Scatter;
         UsdGenKernelDef const* kernel = nullptr;
@@ -667,7 +671,7 @@ UsdGenParamSlot StepSlot(UsdGenCudaExecutionPlan::Step const& step, E index) noe
 UsdGenParamSlot SourceSlot(UsdGenCudaExecutionPlan const& plan, cudaP::CurveSource index) noexcept {
     return UsdGenCudaStageSlot(plan.sourceKernel, index);
 }
-// Length's token controls: the text compares GetToken(name) == TfToken(x) made.
+// Length's token controls: the text compares GetToken(name) == UsdGenToken(x) made.
 void SetLengthModes(UsdGenParamView const& values, UsdGenCudaExecutionPlan::Step const& step,
                     gpu::LengthParameters* p) {
     char const* mode = TokenText(values, StepSlot(step, cudaP::kLenMode), "scale");
@@ -688,9 +692,9 @@ void AddSourceRequest(UsdGenCudaExecutionPlan const& plan, cudaP::CurveSource in
 void BuildCudaStepProfile(UsdGenParamView const& params, UsdGenCudaExecutionPlan::Step const& step,
                           std::array<float, kUsdGenRampLutSize>* output) {
     auto lut = [&](auto knots, auto interpolation) {
-        VtValue const empty(VtVec2fArray{});
-        VtValue const& value = params.GetValue(StepSlot(step, knots), empty);
-        UsdGenBuildRampLut(value.UncheckedGet<VtVec2fArray>(),
+        UsdGenValue const empty(UsdGenVec2fArray{});
+        UsdGenValue const& value = params.GetValue(StepSlot(step, knots), empty);
+        UsdGenBuildRampLut(value.UncheckedGet<UsdGenVec2fArray>(),
             params.GetToken(StepSlot(step, interpolation), UsdGenCurveTokens().catmullRom),
             output->data(), output->size());
     };
@@ -2927,8 +2931,8 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
         UsdGenInputRecord const* sourceRecord = UsdGenFindCurveSetInput(desc, node.inputSets.front());
         UsdGenCurveSetInputView const sourceView = sourceRecord ? UsdGenCurveSetInputView::Of(*sourceRecord) : UsdGenCurveSetInputView{};
         UsdGenCurveSetInputView const* source = sourceRecord ? &sourceView : nullptr;
-        if (desc.xformMatrix != GfMatrix4d(1.0) || !source ||
-            source->worldMatrix != GfMatrix4d(1.0))
+        if (desc.xformMatrix != UsdGenMatrix4d(1.0) || !source ||
+            source->worldMatrix != UsdGenMatrix4d(1.0))
             return Fail(diagnostics, "RBF currently requires identity Description and CurveSource transforms");
     }
     // Never silently ignore an authored effect just because this is a source.
@@ -2936,7 +2940,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
         "useRest", "idSource", "expectEpoch", "staleAction",
         "resampleTo", "rebind", "interpolationMode", "densityMultiplier",
         "regionMapChannel", "expectMapGeneration"};
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const& param : node.params) {
         if (!seen.insert(param.name).second)
             return Fail(diagnostics, "duplicate source parameter " + param.name.GetString());
@@ -2949,7 +2953,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
                 std::isfinite(param.value.UncheckedGet<float>()) && param.value.UncheckedGet<float>() > 0.0f :
             name == "expectMapGeneration" ? param.value.IsHolding<uint64_t>() :
             (name == "expectEpoch") ? param.value.IsHolding<std::string>() :
-            param.value.IsHolding<TfToken>();
+            param.value.IsHolding<UsdGenToken>();
         if (!validType || (surfaceCage && param.animated))
             return Fail(diagnostics, "wrong native type for source parameter " + name);
     }
@@ -3048,8 +3052,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         plan->scatterGrowControls.azimuth = float(grow.GetDouble(growParams.Slot(cudaP::kGrowAzimuth), 0.0));
         plan->scatterGrowControls.azimuthRandom = float(grow.GetDouble(growParams.Slot(cudaP::kGrowAzimuthRandom), 0.0));
         plan->scatterGrowControls.fallbackWidth = desc.defaultWidth;
-        VtValue const randomFallback(GfVec2f(1,1));
-        auto random = grow.GetValue(growParams.Slot(cudaP::kGrowLengthRandom), randomFallback).UncheckedGet<GfVec2f>();
+        UsdGenValue const randomFallback(UsdGenVec2f(1,1));
+        auto random = grow.GetValue(growParams.Slot(cudaP::kGrowLengthRandom), randomFallback).UncheckedGet<UsdGenVec2f>();
         plan->scatterGrowControls.randomLo = random[0];
         plan->scatterGrowControls.randomHi = random[1];
         char const* direction = TokenText(grow, growParams.Slot(cudaP::kGrowDirection), "surfaceNormal");
@@ -3057,10 +3061,10 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             ? gpu::ScatterGrowDirection::Literal : std::strcmp(direction, "attribute") == 0
             ? gpu::ScatterGrowDirection::RootTangent : gpu::ScatterGrowDirection::RootNormal;
         if (std::strcmp(direction, "vector") == 0) {
-            VtValue const vectorFallback(GfVec3f(0,1,0));
-            VtValue const& value = grow.GetValue(growParams.Slot(cudaP::kGrowDirectionVector), vectorFallback);
-            if (!value.IsHolding<GfVec3f>()) { Fail(diagnostics,"Scatter->Grow directionVector must be float3"); return {}; }
-            auto const v=value.UncheckedGet<GfVec3f>();
+            UsdGenValue const vectorFallback(UsdGenVec3f(0,1,0));
+            UsdGenValue const& value = grow.GetValue(growParams.Slot(cudaP::kGrowDirectionVector), vectorFallback);
+            if (!value.IsHolding<UsdGenVec3f>()) { Fail(diagnostics,"Scatter->Grow directionVector must be float3"); return {}; }
+            auto const v=value.UncheckedGet<UsdGenVec3f>();
             plan->scatterGrowControls.literalDirection=make_float3(v[0],v[1],v[2]);
         }
         if (gpu::GetScatterGrowRequirements(plan->scatterRoots->positions.size(),
@@ -3385,8 +3389,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             controls.cvCount = uint32_t(params.GetInt(StepSlot(grow, cudaP::kGrowSegments), 8));
             controls.seed = desc.nodes[nodeIndex].seed;
             controls.length = params.GetDouble(StepSlot(grow, cudaP::kGrowLength), 1.0);
-            VtValue const randomFallback(GfVec2f(1,1));
-            auto const random = params.GetValue(StepSlot(grow, cudaP::kGrowLengthRandom), randomFallback).UncheckedGet<GfVec2f>();
+            UsdGenValue const randomFallback(UsdGenVec2f(1,1));
+            auto const random = params.GetValue(StepSlot(grow, cudaP::kGrowLengthRandom), randomFallback).UncheckedGet<UsdGenVec2f>();
             controls.randomLo = random[0]; controls.randomHi = random[1];
             controls.lift = float(params.GetDouble(StepSlot(grow, cudaP::kGrowLift), 0.0));
             controls.azimuth = float(params.GetDouble(StepSlot(grow, cudaP::kGrowAzimuth), 0.0));
@@ -3395,8 +3399,8 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
             char const* direction = TokenText(params, StepSlot(grow, cudaP::kGrowDirection), "surfaceNormal");
             controls.direction = std::strcmp(direction, "vector") == 0 ? gpu::CurveGrowDirection::Literal :
                 std::strcmp(direction, "attribute") == 0 ? gpu::CurveGrowDirection::RootTangent : gpu::CurveGrowDirection::RootNormal;
-            VtValue const vectorFallback(GfVec3f(0,1,0));
-            auto const vector = params.GetValue(StepSlot(grow, cudaP::kGrowDirectionVector), vectorFallback).UncheckedGet<GfVec3f>();
+            UsdGenValue const vectorFallback(UsdGenVec3f(0,1,0));
+            auto const vector = params.GetValue(StepSlot(grow, cudaP::kGrowDirectionVector), vectorFallback).UncheckedGet<UsdGenVec3f>();
             controls.literalDirection = make_float3(vector[0], vector[1], vector[2]);
         }
         BuildCudaStepProfile(params, *width, &width->profile);
@@ -5654,7 +5658,7 @@ void OperatorRelayService::Complete(size_t slotIndex, unsigned phase) {
             gpu::LengthParameters p; SetLengthModes(values, step, &p);
             p.value = field(cudaP::kLenValue, 1); p.mask = field(cudaP::kLenMask, 1); p.minRemainingLength = field(cudaP::kLenMinRemaining, 0); p.cullThreshold = field(cudaP::kLenCull, 0); p.enabled = boolean(cudaP::kLenEnabled, values.node->enabled); p.seed = values.node->seed;
             UsdGenParamSlot const random = StepSlot(step, cudaP::kLenRandom);
-            if (auto e = runtime.parameters.Find(random)) p.random = gpu::Vec2Field::Device({static_cast<float2 const*>(e->data), e->count}, e->domain); else { VtValue const one(GfVec2f(1,1)); auto v = values.GetValue(random, one).UncheckedGet<GfVec2f>(); p.random = gpu::Vec2Field::Literal(make_float2(v[0],v[1])); }
+            if (auto e = runtime.parameters.Find(random)) p.random = gpu::Vec2Field::Device({static_cast<float2 const*>(e->data), e->count}, e->domain); else { UsdGenValue const one(UsdGenVec2f(1,1)); auto v = values.GetValue(random, one).UncheckedGet<UsdGenVec2f>(); p.random = gpu::Vec2Field::Literal(make_float2(v[0],v[1])); }
             relay->length->submitted = true;
             if (relay->length->length->ApplyFresh(relay->geometry, relay->hairT, p, relay->length->changedPoints->view(), relay->length->keep->view(), stream, reservation) != gpu::StyleStatus::Ok) {
                 if (relay->length->length->HasUnprovenWork() || !InstallGate(slots[slotIndex], 2, stream) || failInstall[2].exchange(false, std::memory_order_acq_rel) || cudaStreamAddCallback(stream, OperatorCallback, &slots[slotIndex].callback[2], 0) != cudaSuccess) { selected.Restore(); Finish(slotIndex, false, true); return; }
@@ -8125,15 +8129,15 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     }
     options.staleAction = std::strcmp(staleAction, "block") == 0 ? CudaSourceStaleAction::Block :
         std::strcmp(staleAction, "ignore") == 0 ? CudaSourceStaleAction::Ignore : CudaSourceStaleAction::Warn;
-    VtValue const noEpoch{std::string{}};
-    VtValue const& epoch = params.GetValue(SourceSlot(plan, cudaP::kSrcExpectEpoch), noEpoch);
+    UsdGenValue const noEpoch{std::string{}};
+    UsdGenValue const& epoch = params.GetValue(SourceSlot(plan, cudaP::kSrcExpectEpoch), noEpoch);
     if (!epoch.IsHolding<std::string>()) { Fail(diagnostics, "expectEpoch must be a string"); this->failed = true; return false; }
     options.expectedEpoch = epoch.UncheckedGet<std::string>();
     options.actualEpoch = curves.frozenEpoch;
     // A connected groom scalar is the effective value. Do not reject its
     // authored literal fallback before the evaluator has had a chance to
     // override it; source preparation itself never host-resamples.
-    TfToken const& rebind = params.GetToken(SourceSlot(plan, cudaP::kSrcRebind), kCudaRebindOnError);
+    UsdGenToken const& rebind = params.GetToken(SourceSlot(plan, cudaP::kSrcRebind), kCudaRebindOnError);
     options.rebind = rebind.GetString();
     UsdGenSurfaceInputView surfaceView;
     const UsdGenSurfaceInputView* surface = nullptr;
